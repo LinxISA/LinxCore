@@ -1,8 +1,0 @@
-[submodule "third_party/pycircuit_ref"]
-	path = third_party/pycircuit_ref
-	url = git@github.com:LinxISA/pyCircuit.git
-	branch = main
-[submodule "third_party/qemu_ref"]
-	path = third_party/qemu_ref
-	url = git@github.com:LinxISA/qemu.git
-	branch = master

@@ -6,7 +6,7 @@
 
 #include <pyc/cpp/pyc_tb.hpp>
 
-#include "linxcore_ooo_pyc.hpp"
+#include "linxcore_top.hpp"
 
 using pyc::cpp::Testbench;
 using pyc::cpp::Wire;
@@ -50,7 +50,7 @@ struct CommitSlot {
   std::uint64_t mem_size = 0;
 };
 
-CommitSlot readSlot(const pyc::gen::linxcore_ooo_pyc &dut, int slot) {
+CommitSlot readSlot(const pyc::gen::linxcore_top &dut, int slot) {
   CommitSlot s{};
   switch (slot) {
   case 0:
@@ -94,7 +94,7 @@ int main(int argc, char **argv) {
   }
   const std::string memhPath = argv[1];
 
-  pyc::gen::linxcore_ooo_pyc dut{};
+  pyc::gen::linxcore_top dut{};
   if (!loadMemh(dut.mem2r1w.imem, memhPath) || !loadMemh(dut.mem2r1w.dmem, memhPath)) {
     return 2;
   }
@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
   dut.host_wdata = Wire<64>(0);
   dut.host_wstrb = Wire<8>(0);
 
-  Testbench<pyc::gen::linxcore_ooo_pyc> tb(dut);
+  Testbench<pyc::gen::linxcore_top> tb(dut);
   tb.addClock(dut.clk, 1);
   tb.reset(dut.rst, 2, 1);
 

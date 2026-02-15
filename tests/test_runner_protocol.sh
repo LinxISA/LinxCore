@@ -5,8 +5,9 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 PYC_ROOT="/Users/zhoubot/pyCircuit"
 RUNNER_SRC="${ROOT_DIR}/cosim/linxcore_lockstep_runner.cpp"
 RUNNER_BIN="${ROOT_DIR}/cosim/linxcore_lockstep_runner"
-GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_ooo_pyc"
-GEN_HDR="${GEN_CPP_DIR}/linxcore_ooo_pyc.hpp"
+GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
+GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
+TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -Wall -Wextra}"
 PYC_API_INCLUDE="${PYC_ROOT}/include"
 if [[ ! -f "${PYC_API_INCLUDE}/pyc/cpp/pyc_sim.hpp" ]]; then
   cand="$(find "${PYC_ROOT}" -path '*/include/pyc/cpp/pyc_sim.hpp' -print -quit 2>/dev/null || true)"
@@ -27,7 +28,7 @@ MSG_BAD="${TMP_DIR}/msg_bad.json"
 
 BOOT_PC=0x10000
 BOOT_SP=0x20000
-MEMH="${ROOT_DIR}/tests/benchmarks/build/dhrystone_compat.memh"
+MEMH="${PYC_TEST_MEMH:-/Users/zhoubot/pyCircuit/designs/examples/linx_cpu/programs/test_or.memh}"
 
 cleanup() {
   if [[ -n "${RUNNER_PID:-}" ]]; then
@@ -51,7 +52,7 @@ wait_for_socket() {
 }
 
 if [[ ! -f "${MEMH}" ]]; then
-  build_out="$("${ROOT_DIR}/scripts/build_linxisa_benchmarks_memh_compat.sh")"
+  build_out="$("${ROOT_DIR}/tools/image/build_linxisa_benchmarks_memh_compat.sh")"
   memh2="$(printf "%s\n" "${build_out}" | sed -n '2p')"
   if [[ -n "${memh2}" && -f "${memh2}" ]]; then
     MEMH="${memh2}"
@@ -63,11 +64,11 @@ if [[ ! -f "${MEMH}" ]]; then
 fi
 
 if [[ ! -f "${GEN_HDR}" ]]; then
-  bash "${ROOT_DIR}/scripts/update_generated_linxcore_ooo.sh" >/dev/null
+  bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
 fi
 
 if [[ ! -x "${RUNNER_BIN}" || "${RUNNER_SRC}" -nt "${RUNNER_BIN}" || "${GEN_HDR}" -nt "${RUNNER_BIN}" ]]; then
-  "${CXX:-clang++}" -std=c++17 -O2 -Wall -Wextra \
+  "${CXX:-clang++}" -std=c++17 ${TB_CXXFLAGS} \
     -I "${PYC_COMPAT_INCLUDE}" \
     -I "${PYC_API_INCLUDE}" \
     -I "${PYC_ROOT}/runtime" \
@@ -82,7 +83,7 @@ PYC_BOOT_PC="${BOOT_PC}" \
 PYC_BOOT_SP="${BOOT_SP}" \
 PYC_MAX_CYCLES=30000 \
 PYC_COMMIT_TRACE="${TRACE}" \
-  bash "${ROOT_DIR}/scripts/run_linxcore_ooo_cpp.sh" "${MEMH}" >/dev/null 2>&1 || true
+  bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${MEMH}" >/dev/null 2>&1 || true
 
 if [[ ! -s "${TRACE}" ]]; then
   echo "failed to produce DUT trace for protocol test" >&2
@@ -124,7 +125,14 @@ entry_off = len(hdr) + 24
 entry = struct.pack("<QQQ", 0, size, entry_off)
 snap_path.write_bytes(hdr + entry + bytes(payload))
 
-first = json.loads(trace_path.read_text().splitlines()[0])
+rows = [json.loads(line) for line in trace_path.read_text().splitlines() if line.strip()]
+if not rows:
+    raise SystemExit("empty dut trace")
+first = rows[0]
+for row in rows:
+    if int(row.get("wb_valid", 0)) or int(row.get("mem_valid", 0)) or int(row.get("trap_valid", 0)):
+        first = row
+        break
 
 commit = {
     "type": "commit",

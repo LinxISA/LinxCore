@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-MEMH="${ROOT_DIR}/tests/benchmarks/build/dhrystone_compat.memh"
+MEMH="${PYC_TEST_MEMH:-/Users/zhoubot/pyCircuit/designs/examples/linx_cpu/programs/test_or.memh}"
 TMP_DIR="$(mktemp -d -t linxcore_trace_schema.XXXXXX)"
 TRACE="${TMP_DIR}/trace.jsonl"
 
@@ -12,7 +12,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 if [[ ! -f "${MEMH}" ]]; then
-  build_out="$("${ROOT_DIR}/scripts/build_linxisa_benchmarks_memh_compat.sh")"
+  build_out="$("${ROOT_DIR}/tools/image/build_linxisa_benchmarks_memh_compat.sh")"
   memh2="$(printf "%s\n" "${build_out}" | sed -n '2p')"
   if [[ -n "${memh2}" && -f "${memh2}" ]]; then
     MEMH="${memh2}"
@@ -27,7 +27,7 @@ PYC_BOOT_PC=0x10000 \
 PYC_BOOT_SP=0x00000000000ff000 \
 PYC_MAX_CYCLES=12000 \
 PYC_COMMIT_TRACE="${TRACE}" \
-  bash "${ROOT_DIR}/scripts/run_linxcore_ooo_cpp.sh" "${MEMH}" >/dev/null 2>&1 || true
+  bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${MEMH}" >/dev/null 2>&1 || true
 
 if [[ ! -s "${TRACE}" ]]; then
   echo "error: missing trace output" >&2

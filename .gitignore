@@ -3,7 +3,7 @@ generated/
 
 # local binaries
 cosim/linxcore_lockstep_runner
-generated/cpp/**/tb_linxcore_ooo_pyc_cpp
+generated/cpp/**/tb_linxcore_top_cpp
 generated/cpp/**/test_rob_bookkeeping
 
 # benchmark and test outputs

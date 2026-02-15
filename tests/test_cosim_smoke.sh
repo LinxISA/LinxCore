@@ -24,7 +24,7 @@ fi
 "${LLVM_MC}" -triple=linx64 -filetype=obj "${SRC}" -o "${OBJ}"
 
 # Positive case: short lockstep window that includes trigger commit and one more.
-bash "${ROOT_DIR}/scripts/run_cosim_lockstep.sh" \
+bash "${ROOT_DIR}/tools/qemu/run_cosim_lockstep.sh" \
   --elf "${OBJ}" \
   --boot-pc 0x10000 \
   --trigger-pc 0x10000 \
@@ -35,7 +35,7 @@ bash "${ROOT_DIR}/scripts/run_cosim_lockstep.sh" \
   -nographic -monitor none -machine virt -kernel "${OBJ}" >/dev/null
 
 # Negative case: force mismatch should fail-fast.
-if bash "${ROOT_DIR}/scripts/run_cosim_lockstep.sh" \
+if bash "${ROOT_DIR}/tools/qemu/run_cosim_lockstep.sh" \
   --elf "${OBJ}" \
   --boot-pc 0x10000 \
   --trigger-pc 0x10000 \

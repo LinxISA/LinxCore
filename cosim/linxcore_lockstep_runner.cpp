@@ -24,7 +24,7 @@
 
 #include <pyc/cpp/pyc_tb.hpp>
 
-#include "linxcore_ooo_pyc.hpp"
+#include "linxcore_top.hpp"
 
 namespace {
 
@@ -1181,7 +1181,7 @@ int main(int argc, char **argv) {
     CommitRecord dut{};
   };
   std::deque<RecentPair> recent_pairs{};
-  std::unique_ptr<IDutStepper> dut = std::make_unique<DutStepperImpl<pyc::gen::linxcore_ooo_pyc>>(opts);
+  std::unique_ptr<IDutStepper> dut = std::make_unique<DutStepperImpl<pyc::gen::linxcore_top>>(opts);
   std::string line;
 
   while (recvLine(client_fd, line)) {

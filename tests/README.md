@@ -9,7 +9,7 @@
 - `test_cosim_smoke.sh`
 - Purpose: QEMU -> runner -> DUT co-sim smoke (`trigger_pc == boot_pc`) plus forced-mismatch negative path.
 - `test_stage_connectivity.sh`
-- Purpose: Janus stage naming/interface lint and top-level stage-prefix connectivity checks.
+- Purpose: stage naming/interface lint and top-level stage-prefix connectivity checks.
 
 Run all:
 
