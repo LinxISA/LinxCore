@@ -85,6 +85,20 @@ CommitSlot readSlot(const pyc::gen::linxcore_top &dut, int slot) {
   return s;
 }
 
+Wire<512> buildIcacheLine(const pyc::gen::linxcore_top &dut, std::uint64_t lineAddr) {
+  Wire<512> out(0);
+  for (unsigned wi = 0; wi < 8; wi++) {
+    std::uint64_t w = 0;
+    const std::uint64_t base = lineAddr + static_cast<std::uint64_t>(wi) * 8ull;
+    for (unsigned bi = 0; bi < 8; bi++) {
+      const std::uint64_t a = base + static_cast<std::uint64_t>(bi);
+      w |= (static_cast<std::uint64_t>(dut.mem2r1w.imem.peekByte(static_cast<std::size_t>(a))) << (8u * bi));
+    }
+    out.setWord(wi, w);
+  }
+  return out;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -116,15 +130,64 @@ int main(int argc, char **argv) {
   dut.host_waddr = Wire<64>(0);
   dut.host_wdata = Wire<64>(0);
   dut.host_wstrb = Wire<8>(0);
+  dut.ic_l2_req_ready = Wire<1>(1);
+  dut.ic_l2_rsp_valid = Wire<1>(0);
+  dut.ic_l2_rsp_addr = Wire<64>(0);
+  dut.ic_l2_rsp_data = Wire<512>(0);
+  dut.ic_l2_rsp_error = Wire<1>(0);
 
   Testbench<pyc::gen::linxcore_top> tb(dut);
   tb.addClock(dut.clk, 1);
   tb.reset(dut.rst, 2, 1);
 
   std::uint64_t commits = 0;
+  std::uint64_t icMissCycles = 20;
+  if (const char *env = std::getenv("PYC_IC_MISS_CYCLES"))
+    icMissCycles = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
+  bool icReqPending = false;
+  bool icRspDriveNow = false;
+  std::uint64_t icReqAddrPending = 0;
+  std::uint64_t icReqRemainCycles = 0;
 
   while (dut.cycles.value() < maxCycles) {
+    dut.ic_l2_req_ready = Wire<1>(icReqPending ? 0 : 1);
+    if (icRspDriveNow) {
+      dut.ic_l2_rsp_valid = Wire<1>(1);
+      dut.ic_l2_rsp_addr = Wire<64>(icReqAddrPending);
+      dut.ic_l2_rsp_data = buildIcacheLine(dut, icReqAddrPending);
+      dut.ic_l2_rsp_error = Wire<1>(0);
+    } else {
+      dut.ic_l2_rsp_valid = Wire<1>(0);
+      dut.ic_l2_rsp_addr = Wire<64>(0);
+      dut.ic_l2_rsp_data = Wire<512>(0);
+      dut.ic_l2_rsp_error = Wire<1>(0);
+    }
+
+    const bool icReqSeenPre = (!icReqPending) && dut.ic_l2_req_valid.toBool() && dut.ic_l2_req_ready.toBool();
+    const std::uint64_t icReqAddrPre = dut.ic_l2_req_addr.value() & ~0x3Full;
+
     tb.runCycles(1);
+
+    if (icRspDriveNow) {
+      icReqPending = false;
+      icRspDriveNow = false;
+      icReqAddrPending = 0;
+      icReqRemainCycles = 0;
+    } else if (icReqPending) {
+      if (icReqRemainCycles > 0) {
+        icReqRemainCycles--;
+      }
+      if (icReqRemainCycles == 0) {
+        icRspDriveNow = true;
+      }
+    } else {
+      const bool icReqSeenPost = dut.ic_l2_req_valid.toBool() && dut.ic_l2_req_ready.toBool();
+      if (icReqSeenPre || icReqSeenPost) {
+        icReqPending = true;
+        icReqAddrPending = icReqSeenPre ? icReqAddrPre : (dut.ic_l2_req_addr.value() & ~0x3Full);
+        icReqRemainCycles = icMissCycles;
+      }
+    }
 
     bool havePrevSlotRob = false;
     std::uint64_t prevSlotRob = 0;

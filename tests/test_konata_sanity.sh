@@ -3,9 +3,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d -t linxcore_konata_sanity.XXXXXX)"
-KONATA="${TMP_DIR}/trace.konata"
+LINXTRACE="${TMP_DIR}/trace.linxtrace.jsonl"
+LINXMETA="${TMP_DIR}/trace.linxtrace.meta.json"
 TRACE="${TMP_DIR}/commit.jsonl"
-MEMH="${PYC_KONATA_TEST_MEMH:-}"
+MEMH="${PYC_LINXTRACE_TEST_MEMH:-}"
 
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -25,19 +26,18 @@ if [[ -z "${MEMH}" ]]; then
 fi
 
 if [[ ! -f "${MEMH}" ]]; then
-  echo "error: missing memh for konata sanity" >&2
+  echo "error: missing memh for linxtrace sanity" >&2
   exit 2
 fi
 
-PYC_KONATA=1 \
-PYC_KONATA_PATH="${KONATA}" \
-PYC_KONATA_SKIP_BSTOP_PREFIX=0 \
+PYC_LINXTRACE=1 \
+PYC_LINXTRACE_PATH="${LINXTRACE}" \
 PYC_MAX_CYCLES="${PYC_MAX_CYCLES:-2000}" \
 PYC_COMMIT_TRACE="${TRACE}" \
   bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${MEMH}" >/dev/null 2>&1 || true
 
-if [[ ! -s "${KONATA}" ]]; then
-  echo "error: missing konata output" >&2
+if [[ ! -s "${LINXTRACE}" ]]; then
+  echo "error: missing linxtrace output" >&2
   exit 1
 fi
 if [[ ! -s "${TRACE}" ]]; then
@@ -45,26 +45,31 @@ if [[ ! -s "${TRACE}" ]]; then
   exit 1
 fi
 
-python3 "${ROOT_DIR}/tools/konata/check_konata_stages.py" "${KONATA}"
+if [[ ! -s "${LINXMETA}" ]]; then
+  echo "error: missing linxtrace meta output" >&2
+  exit 1
+fi
+
+python3 "${ROOT_DIR}/tools/linxcoresight/lint_linxtrace.py" "${LINXTRACE}" --meta "${LINXMETA}"
 
 python3 - <<PY
 from pathlib import Path
 import json
 
-konata = Path(r"${KONATA}").read_text().splitlines()
+events = [json.loads(line) for line in Path(r"${LINXTRACE}").read_text().splitlines() if line.strip()]
 trace_rows = [json.loads(line) for line in Path(r"${TRACE}").read_text().splitlines() if line.strip()]
 
-rob_starts = sum(1 for ln in konata if ln.startswith("S\t") and ln.rstrip().endswith("\tROB"))
-retires = sum(1 for ln in konata if ln.startswith("R\t"))
-if rob_starts < 1:
-    raise SystemExit("no ROB stages in konata")
+rob_occ = sum(1 for rec in events if rec.get("type") == "OCC" and rec.get("stage_id") == "ROB")
+retires = sum(1 for rec in events if rec.get("type") == "RETIRE")
+if rob_occ < 1:
+    raise SystemExit("no ROB stages in linxtrace")
 if retires < 1:
-    raise SystemExit("no retire records in konata")
+    raise SystemExit("no retire records in linxtrace")
 if len(trace_rows) < 1:
     raise SystemExit("no commit trace rows")
-if rob_starts > len(trace_rows):
-    raise SystemExit(f"ROB count exceeds commit trace rows: rob={rob_starts} trace={len(trace_rows)}")
-print(f"konata sanity: rob={rob_starts} retires={retires} commits={len(trace_rows)}")
+if rob_occ > len(trace_rows) * 64:
+    raise SystemExit(f"ROB occupancy implausibly high: rob={rob_occ} trace={len(trace_rows)}")
+print(f"linxtrace sanity: rob_occ={rob_occ} retires={retires} commits={len(trace_rows)}")
 PY
 
-echo "konata sanity test: ok"
+echo "linxtrace sanity test: ok"

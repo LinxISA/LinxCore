@@ -5,6 +5,8 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
 python3 "${ROOT_DIR}/tools/generate/lint_stage_naming.py"
 python3 "${ROOT_DIR}/tools/generate/lint_no_stubs.py"
+python3 "${ROOT_DIR}/tools/generate/lint_engine_ownership.py"
+python3 "${ROOT_DIR}/tools/linxcoresight/lint_trace_contract_sync.py"
 python3 "${ROOT_DIR}/tools/generate/check_decode_parity.py" \
   --qemu-linx-dir /Users/zhoubot/qemu/target/linx \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml"

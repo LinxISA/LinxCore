@@ -25,14 +25,14 @@
 #error "pyc_tb.hpp not found; set include path for pyCircuit runtime headers"
 #endif
 
-#if __has_include(<pyc/cpp/pyc_konata.hpp>)
-#include <pyc/cpp/pyc_konata.hpp>
-#elif __has_include(<cpp/pyc_konata.hpp>)
-#include <cpp/pyc_konata.hpp>
-#elif __has_include(<pyc_konata.hpp>)
-#include <pyc_konata.hpp>
+#if __has_include(<pyc/cpp/pyc_linxtrace.hpp>)
+#include <pyc/cpp/pyc_linxtrace.hpp>
+#elif __has_include(<cpp/pyc_linxtrace.hpp>)
+#include <cpp/pyc_linxtrace.hpp>
+#elif __has_include(<pyc_linxtrace.hpp>)
+#include <pyc_linxtrace.hpp>
 #else
-#error "pyc_konata.hpp not found; set include path for pyCircuit runtime headers"
+#error "pyc_linxtrace.hpp not found; set include path for pyCircuit runtime headers"
 #endif
 
 #include "linxcore_top.hpp"
@@ -596,6 +596,11 @@ int main(int argc, char **argv) {
   dut.host_waddr = Wire<64>(0);
   dut.host_wdata = Wire<64>(0);
   dut.host_wstrb = Wire<8>(0);
+  dut.ic_l2_req_ready = Wire<1>(1);
+  dut.ic_l2_rsp_valid = Wire<1>(0);
+  dut.ic_l2_rsp_addr = Wire<64>(0);
+  dut.ic_l2_rsp_data = Wire<512>(0);
+  dut.ic_l2_rsp_error = Wire<1>(0);
 
   Testbench<pyc::gen::linxcore_top> tb(dut);
 
@@ -624,7 +629,7 @@ int main(int argc, char **argv) {
   }
 
   const bool traceVcd = envFlag("PYC_VCD");
-  const bool traceKonata = envFlag("PYC_KONATA");
+  const bool traceLinxTrace = envFlag("PYC_LINXTRACE");
   if (traceVcd) {
     std::filesystem::create_directories("/Users/zhoubot/LinxCore/generated/cpp/linxcore_top");
     tb.enableVcd("/Users/zhoubot/LinxCore/generated/cpp/linxcore_top/tb_linxcore_top.vcd",
@@ -636,21 +641,21 @@ int main(int argc, char **argv) {
     tb.vcdTrace(dut.pc, "pc");
   }
 
-  pyc::cpp::KonataWriter konata{};
-  if (traceKonata) {
+  pyc::cpp::LinxTraceWriter konata{};
+  if (traceLinxTrace) {
     std::filesystem::path outPath{};
-    if (const char *p = std::getenv("PYC_KONATA_PATH"); p && p[0] != '\0') {
+    if (const char *p = std::getenv("PYC_LINXTRACE_PATH"); p && p[0] != '\0') {
       outPath = std::filesystem::path(p);
     } else {
       const std::string stem = std::filesystem::path(memhPath).stem().string();
       outPath = std::filesystem::path("/Users/zhoubot/LinxCore/generated/cpp/linxcore_top") /
-                ("tb_linxcore_top_cpp_" + (stem.empty() ? std::string("program") : stem) + ".konata");
+                ("tb_linxcore_top_cpp_" + (stem.empty() ? std::string("program") : stem) + ".linxtrace.jsonl");
     }
     if (outPath.has_parent_path()) {
       std::filesystem::create_directories(outPath.parent_path());
     }
     if (!konata.open(outPath, dut.cycles.value())) {
-      std::cerr << "WARN: cannot open konata output: " << outPath << "\n";
+      std::cerr << "WARN: cannot open LinxTrace output: " << outPath << "\n";
     }
   }
 
@@ -663,6 +668,9 @@ int main(int argc, char **argv) {
   std::uint64_t deadlockCycles = kDefaultDeadlockCycles;
   if (const char *env = std::getenv("PYC_DEADLOCK_CYCLES"))
     deadlockCycles = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
+  std::uint64_t icMissCycles = 20;
+  if (const char *env = std::getenv("PYC_IC_MISS_CYCLES"))
+    icMissCycles = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
   std::string disasmTool = kDefaultDisasmTool;
   if (const char *env = std::getenv("PYC_DISASM_TOOL"); env && env[0] != '\0')
     disasmTool = env;
@@ -714,10 +722,10 @@ int main(int argc, char **argv) {
   tb.addClock(dut.clk, 1);
   tb.reset(dut.rst, 2, 1);
 
-  static constexpr std::array<const char *, 38> kTraceStageNames = {
+  static constexpr std::array<const char *, 39> kTraceStageNames = {
       "F0", "F1", "F2", "F3", "F4", "D1", "D2", "D3", "IQ", "S1", "S2", "P1", "I1",
       "I2", "E1", "E2", "E3", "E4", "W1", "W2", "LIQ", "LHQ", "STQ", "SCB", "MDB",
-      "L1D", "BISQ", "BCTRL", "TMU", "TMA", "CUBE", "VEC", "TAU", "BROB", "ROB", "CMT", "FLS", "XCHK",
+      "L1D", "BISQ", "BCTRL", "TMU", "TMA", "CUBE", "VEC", "TAU", "BROB", "ROB", "CMT", "FLS", "XCHK", "IB",
   };
   static constexpr std::uint64_t kTraceSidRob = 34;
   static constexpr std::uint64_t kTraceSidCmt = 35;
@@ -1109,10 +1117,67 @@ int main(int argc, char **argv) {
     }
   };
 
+  bool icReqPending = false;
+  bool icRspDriveNow = false;
+  std::uint64_t icReqAddrPending = 0;
+  std::uint64_t icReqRemainCycles = 0;
+  auto buildIcacheLine = [&](std::uint64_t lineAddr) -> Wire<512> {
+    Wire<512> out(0);
+    for (unsigned wi = 0; wi < 8; wi++) {
+      std::uint64_t w = 0;
+      const std::uint64_t base = lineAddr + static_cast<std::uint64_t>(wi) * 8ull;
+      for (unsigned bi = 0; bi < 8; bi++) {
+        const std::uint64_t a = base + static_cast<std::uint64_t>(bi);
+        w |= (static_cast<std::uint64_t>(dut.mem2r1w.imem.peekByte(static_cast<std::size_t>(a))) << (8u * bi));
+      }
+      out.setWord(wi, w);
+    }
+    return out;
+  };
+
   while (dut.cycles.value() < maxCycles) {
+    dut.ic_l2_req_ready = Wire<1>(icReqPending ? 0 : 1);
+    if (icRspDriveNow) {
+      dut.ic_l2_rsp_valid = Wire<1>(1);
+      dut.ic_l2_rsp_addr = Wire<64>(icReqAddrPending);
+      dut.ic_l2_rsp_data = buildIcacheLine(icReqAddrPending);
+      dut.ic_l2_rsp_error = Wire<1>(0);
+    } else {
+      dut.ic_l2_rsp_valid = Wire<1>(0);
+      dut.ic_l2_rsp_addr = Wire<64>(0);
+      dut.ic_l2_rsp_data = Wire<512>(0);
+      dut.ic_l2_rsp_error = Wire<1>(0);
+    }
+
+    const bool icReqSeenPre = (!icReqPending) && dut.ic_l2_req_valid.toBool() && dut.ic_l2_req_ready.toBool();
+    const std::uint64_t icReqAddrPre = dut.ic_l2_req_addr.value() & ~0x3Full;
+
     // Use Testbench fast-path when clock topology matches (single clock,
     // half-period 1). This cuts redundant comb eval work on negedge.
     tb.runCyclesAuto(1);
+
+    if (icRspDriveNow) {
+      icReqPending = false;
+      icRspDriveNow = false;
+      icReqAddrPending = 0;
+      icReqRemainCycles = 0;
+    } else if (icReqPending) {
+      if (icReqRemainCycles > 0) {
+        icReqRemainCycles--;
+      }
+      if (icReqRemainCycles == 0) {
+        icRspDriveNow = true;
+      }
+    } else {
+      const bool icReqSeenPost = dut.ic_l2_req_valid.toBool() && dut.ic_l2_req_ready.toBool();
+      if (icReqSeenPre || icReqSeenPost) {
+        icReqPending = true;
+        icReqAddrPending = icReqSeenPre ? icReqAddrPre : (dut.ic_l2_req_addr.value() & ~0x3Full);
+        icReqRemainCycles = icMissCycles;
+        icRspDriveNow = false;
+      }
+    }
+
     const std::uint64_t cycleNow = dut.cycles.value();
     curCycleKonata = cycleNow;
     dfxRetiredKeysCycle.clear();
@@ -1207,6 +1272,10 @@ int main(int argc, char **argv) {
       emit(dut.dbg__occ_f3_valid_lane0_f3.toBool(), dut.dbg__occ_f3_uop_uid_lane0_f3.value(), 3, 0, dut.dbg__occ_f3_pc_lane0_f3.value(),
            dut.dbg__occ_f3_rob_lane0_f3.value(),
            dut.dbg__occ_f3_kind_lane0_f3.value(), dut.dbg__occ_f3_parent_uid_lane0_f3.value());
+      emit(dut.dbg__occ_ib_valid_lane0_ib.toBool(), dut.dbg__occ_ib_uop_uid_lane0_ib.value(), 38, 0, dut.dbg__occ_ib_pc_lane0_ib.value(),
+           dut.dbg__occ_ib_rob_lane0_ib.value(),
+           dut.dbg__occ_ib_kind_lane0_ib.value(), dut.dbg__occ_ib_parent_uid_lane0_ib.value(), dut.dbg__occ_ib_block_uid_lane0_ib.value(),
+           dut.dbg__occ_ib_core_id_lane0_ib.value(), dut.dbg__occ_ib_stall_lane0_ib.value(), dut.dbg__occ_ib_stall_cause_lane0_ib.value());
       emit(dut.dbg__occ_f4_valid_lane0_f4.toBool(), dut.dbg__occ_f4_uop_uid_lane0_f4.value(), 4, 0, dut.dbg__occ_f4_pc_lane0_f4.value(),
            dut.dbg__occ_f4_rob_lane0_f4.value(),
            dut.dbg__occ_f4_kind_lane0_f4.value(), dut.dbg__occ_f4_parent_uid_lane0_f4.value());

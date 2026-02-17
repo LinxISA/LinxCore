@@ -74,10 +74,27 @@ if [[ ! -d "${PYC_PYTHON_DIR}/pycircuit" && -d "${PYC_ROOT}/compiler/frontend/py
   PYC_PYTHON_DIR="${PYC_ROOT}/compiler/frontend"
 fi
 
-PYTHONDONTWRITEBYTECODE=1 \
-LINXCORE_CALLFRAME_SIZE="${CALLFRAME_SIZE}" \
-PYTHONPATH="${PYC_PYTHON_DIR}:${ROOT_DIR}/src" \
-python3 -m pycircuit.cli emit "${ROOT_DIR}/src/linxcore_top.py" -o "${TMP_PYC}"
+EMIT_PARAM_ARGS=()
+while IFS='=' read -r key value; do
+  [[ -z "${key}" ]] && continue
+  [[ "${key}" != PYC_PARAM_* ]] && continue
+  param_name="${key#PYC_PARAM_}"
+  param_name="$(printf '%s' "${param_name}" | tr '[:upper:]' '[:lower:]')"
+  [[ -z "${param_name}" ]] && continue
+  EMIT_PARAM_ARGS+=(--param "${param_name}=${value}")
+done < <(env)
+
+if [[ "${#EMIT_PARAM_ARGS[@]}" -gt 0 ]]; then
+  PYTHONDONTWRITEBYTECODE=1 \
+  LINXCORE_CALLFRAME_SIZE="${CALLFRAME_SIZE}" \
+  PYTHONPATH="${PYC_PYTHON_DIR}:${ROOT_DIR}/src" \
+  python3 -m pycircuit.cli emit "${ROOT_DIR}/src/linxcore_top.py" -o "${TMP_PYC}" "${EMIT_PARAM_ARGS[@]}"
+else
+  PYTHONDONTWRITEBYTECODE=1 \
+  LINXCORE_CALLFRAME_SIZE="${CALLFRAME_SIZE}" \
+  PYTHONPATH="${PYC_PYTHON_DIR}:${ROOT_DIR}/src" \
+  python3 -m pycircuit.cli emit "${ROOT_DIR}/src/linxcore_top.py" -o "${TMP_PYC}"
+fi
 
 TRY_V_OUTDIR="${LINXCORE_TRY_V_OUTDIR:-0}"
 if [[ "${TRY_V_OUTDIR}" == "1" ]]; then

@@ -4,6 +4,10 @@ import os
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+# ENGINE_ORCHESTRATION_ONLY:
+# Stage/component ownership is migrating to focused files. Keep this file as
+# composition and compatibility glue; avoid adding new monolithic stage logic.
+
 from pycircuit import Circuit, module
 from pycircuit.dsl import Signal
 

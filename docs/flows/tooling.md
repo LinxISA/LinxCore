@@ -10,14 +10,14 @@ Outputs:
 - `/Users/zhoubot/LinxCore/generated/cpp/linxcore_top`
 - `/Users/zhoubot/LinxCore/generated/verilog/linxcore_top`
 
-## Konata Strict Mode
+## LinxCoreSight Strict Mode
 
-Konata is configured for LinxCore-only `Kanata\t0005` traces in this flow.
-`run_konata_trace.sh` runs a strict lint gate before inspection:
+LinxCoreSight consumes LinxTrace v1 (`*.linxtrace.jsonl` + `*.linxtrace.meta.json`) in this flow.
+`run_linxtrace.sh` runs strict contract + trace lint gates before opening:
 
 ```bash
-python3 /Users/zhoubot/LinxCore/tools/konata/check_konata_stages.py \
-  <trace.konata> \
+python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py \
+  <trace.linxtrace.jsonl> \
   --require-stages F0,F3,D1,D3,IQ,BROB,CMT \
   --single-stage-per-cycle
 ```
@@ -138,21 +138,21 @@ bash /Users/zhoubot/LinxCore/tools/qemu/run_qemu_commit_trace.sh \
   --out /tmp/coremark_qemu_commit.jsonl
 ```
 
-Run LinxCore with in-TB xcheck and Konata mismatch markers:
+Run LinxCore with in-TB xcheck and LinxTrace mismatch markers:
 
 ```bash
 PYC_QEMU_TRACE=/tmp/coremark_qemu_commit.jsonl \
 PYC_XCHECK_MODE=diagnostic \
 PYC_XCHECK_MAX_COMMITS=1000 \
 PYC_XCHECK_REPORT=/tmp/coremark_crosscheck \
-PYC_KONATA=1 \
+PYC_LINXTRACE=1 \
 bash /Users/zhoubot/LinxCore/tools/generate/run_linxcore_top_cpp.sh <coremark.memh>
 ```
 
 Mode semantics:
 
 - `PYC_XCHECK_MODE=diagnostic`
-  - collect/report mismatches and emit Konata `XCHK` markers
+  - collect/report mismatches and emit LinxTrace `XCHECK` markers
   - does not force TB process failure at end-of-run
 - `PYC_XCHECK_MODE=failfast`
   - abort immediately on first mismatch with non-zero exit

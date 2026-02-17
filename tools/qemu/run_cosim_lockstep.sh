@@ -5,6 +5,8 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYC_ROOT="/Users/zhoubot/pyCircuit"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
+CPP_MANIFEST="${GEN_CPP_DIR}/cpp_compile_manifest.json"
+GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
 PYC_API_INCLUDE="${PYC_ROOT}/include"
 if [[ ! -f "${PYC_API_INCLUDE}/pyc/cpp/pyc_sim.hpp" ]]; then
   cand="$(find "${PYC_ROOT}" -path '*/include/pyc/cpp/pyc_sim.hpp' -print -quit 2>/dev/null || true)"
@@ -136,6 +138,54 @@ if [[ "${need_runner_build}" -ne 0 ]]; then
   # Allow faster local debug builds via PYC_TB_CXXFLAGS (e.g. -O0).
   # Default keeps optimized runner behavior.
   CXXFLAGS_EXTRA="${PYC_TB_CXXFLAGS:--O2}"
+  PRIME_MEMH="${ROOT_DIR}/tests/artifacts/suites/branch.memh"
+  if [[ ! -f "${PRIME_MEMH}" ]]; then
+    PRIME_MEMH="${ROOT_DIR}/tests/benchmarks/build/coremark_real.memh"
+  fi
+  if [[ -f "${PRIME_MEMH}" ]]; then
+    PYC_TB_CXXFLAGS="${CXXFLAGS_EXTRA}" \
+      bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${PRIME_MEMH}" >/dev/null 2>&1 || true
+  fi
+
+  gen_objects=()
+  while IFS= read -r obj_path; do
+    gen_objects+=("${obj_path}")
+  done < <(
+    python3 - <<'PY' "${CPP_MANIFEST}" "${GEN_CPP_DIR}" "${GEN_OBJ_DIR}"
+import json
+import pathlib
+import sys
+
+manifest = pathlib.Path(sys.argv[1])
+base = pathlib.Path(sys.argv[2])
+obj_base = pathlib.Path(sys.argv[3])
+if not manifest.exists():
+    sys.exit(0)
+data = json.loads(manifest.read_text(encoding="utf-8"))
+for entry in data.get("sources", []):
+    rel = entry.get("path", "")
+    if not rel:
+        continue
+    src = pathlib.Path(rel)
+    if not src.is_absolute():
+        src = base / src
+    stem = src.as_posix().replace("/", "__")
+    if stem.endswith(".cpp"):
+        stem = stem[:-4]
+    print(obj_base / f"{stem}.o")
+PY
+  )
+  if [[ "${#gen_objects[@]}" -eq 0 ]]; then
+    echo "error: missing generated model objects (manifest: ${CPP_MANIFEST})" >&2
+    exit 2
+  fi
+  for obj in "${gen_objects[@]}"; do
+    if [[ ! -f "${obj}" ]]; then
+      echo "error: missing generated object: ${obj}" >&2
+      exit 2
+    fi
+  done
+
   "${CXX:-clang++}" -std=c++17 -O2 -Wall -Wextra \
     ${CXXFLAGS_EXTRA} \
     -I "${PYC_COMPAT_INCLUDE}" \
@@ -144,7 +194,8 @@ if [[ "${need_runner_build}" -ne 0 ]]; then
     -I "${PYC_ROOT}/runtime/cpp" \
     -I "${GEN_CPP_DIR}" \
     -o "${RUNNER_BIN}" \
-    "${ROOT_DIR}/cosim/linxcore_lockstep_runner.cpp"
+    "${ROOT_DIR}/cosim/linxcore_lockstep_runner.cpp" \
+    "${gen_objects[@]}"
 fi
 
 echo "[cosim] building sparse memory ranges"

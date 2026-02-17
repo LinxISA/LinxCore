@@ -41,7 +41,18 @@ from vec.vec import build_linxcore_vec
 
 
 @module(name="LinxCoreTop")
-def build_linxcore_top(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
+def build_linxcore_top(
+    m: Circuit,
+    *,
+    mem_bytes: int = (1 << 20),
+    ic_sets: int = 32,
+    ic_ways: int = 4,
+    ic_line_bytes: int = 64,
+    ifetch_bundle_bytes: int = 128,
+    ib_depth: int = 8,
+    ic_miss_outstanding: int = 1,
+    ic_enable: int = 1,
+) -> None:
     clk_top = m.clock("clk")
     rst_top = m.reset("rst")
 
@@ -53,6 +64,12 @@ def build_linxcore_top(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
     host_waddr_top = m.input("host_waddr", width=64)
     host_wdata_top = m.input("host_wdata", width=64)
     host_wstrb_top = m.input("host_wstrb", width=8)
+
+    ic_l2_req_ready_top = m.input("ic_l2_req_ready", width=1)
+    ic_l2_rsp_valid_top = m.input("ic_l2_rsp_valid", width=1)
+    ic_l2_rsp_addr_top = m.input("ic_l2_rsp_addr", width=64)
+    ic_l2_rsp_data_top = m.input("ic_l2_rsp_data", width=512)
+    ic_l2_rsp_error_top = m.input("ic_l2_rsp_error", width=1)
 
     c = m.const
 
@@ -110,20 +127,41 @@ def build_linxcore_top(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
         build_janus_bcc_ifu_icache,
         name="janus_ifu_icache",
         module_name="JanusBccIfuICacheTop",
+        params={
+            "ic_sets": ic_sets,
+            "ic_ways": ic_ways,
+            "ic_line_bytes": ic_line_bytes,
+            "ifetch_bundle_bytes": ifetch_bundle_bytes,
+            "ic_miss_outstanding": ic_miss_outstanding,
+            "ic_enable": ic_enable,
+        },
         clk=clk_top,
         rst=rst_top,
         f1_to_icache_stage_pc_f1=ifu_f1["f1_to_icache_stage_pc_f1"],
         f1_to_icache_stage_valid_f1=ifu_f1["f1_to_icache_stage_valid_f1"],
         f1_to_icache_stage_pkt_uid_f1=ifu_f1["f1_to_icache_stage_pkt_uid_f1"],
         imem_rdata_top=imem_rdata_top,
+        ic_l2_req_ready_top=ic_l2_req_ready_top,
+        ic_l2_rsp_valid_top=ic_l2_rsp_valid_top,
+        ic_l2_rsp_addr_top=ic_l2_rsp_addr_top,
+        ic_l2_rsp_data_top=ic_l2_rsp_data_top,
+        ic_l2_rsp_error_top=ic_l2_rsp_error_top,
     )
+
+    m.output("ic_l2_req_valid", ifu_icache["ic_l2_req_valid_top"])
+    m.output("ic_l2_req_addr", ifu_icache["ic_l2_req_addr_top"])
 
     ifu_f2 = m.instance(
         build_janus_bcc_ifu_f2,
         name="janus_ifu_f2",
         module_name="JanusBccIfuF2Top",
         f1_to_f2_stage_pc_f1=ifu_icache["f1_to_f2_stage_pc_f1"],
-        f1_to_f2_stage_window_f1=ifu_icache["f1_to_f2_stage_window_f1"],
+        f1_to_f2_stage_bundle128_f1=ifu_icache["f1_to_f2_stage_bundle128_f1"],
+        f1_to_f2_stage_bundle_base_pc_f1=ifu_icache["f1_to_f2_stage_bundle_base_pc_f1"],
+        f1_to_f2_stage_slot_base_offset_f1=ifu_icache["f1_to_f2_stage_slot_base_offset_f1"],
+        f1_to_f2_stage_hit_f1=ifu_icache["f1_to_f2_stage_hit_f1"],
+        f1_to_f2_stage_miss_f1=ifu_icache["f1_to_f2_stage_miss_f1"],
+        f1_to_f2_stage_stall_f1=ifu_icache["f1_to_f2_stage_stall_f1"],
         f1_to_f2_stage_valid_f1=ifu_icache["f1_to_f2_stage_valid_f1"],
         f1_to_f2_stage_pkt_uid_f1=ifu_icache["f1_to_f2_stage_pkt_uid_f1"],
         f3_to_f2_stage_ready_f3=f3_to_f2_ready_wire_f3,
@@ -154,13 +192,18 @@ def build_linxcore_top(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
         build_janus_bcc_ifu_f3,
         name="janus_ifu_f3",
         module_name="JanusBccIfuF3Top",
-        params={"ibuf_depth": 8},
+        params={"ibuf_depth": ib_depth},
         clk=clk_top,
         rst=rst_top,
         f2_to_f3_stage_pc_f2=ifu_f2["f2_to_f3_stage_pc_f2"],
         f2_to_f3_stage_window_f2=ifu_f2["f2_to_f3_stage_window_f2"],
+        f2_to_f3_stage_bundle128_f2=ifu_f2["f2_to_f3_stage_bundle128_f2"],
+        f2_to_f3_stage_bundle_base_pc_f2=ifu_f2["f2_to_f3_stage_bundle_base_pc_f2"],
+        f2_to_f3_stage_slot_base_offset_f2=ifu_f2["f2_to_f3_stage_slot_base_offset_f2"],
         f2_to_f3_stage_pkt_uid_f2=ifu_f2["f2_to_f3_stage_pkt_uid_f2"],
         f2_to_f3_stage_valid_f2=ifu_f2["f2_to_f3_stage_valid_f2"],
+        f2_to_f3_stage_miss_f2=ifu_f2["f2_to_f3_stage_miss_f2"],
+        f2_to_f3_stage_stall_f2=ifu_f2["f2_to_f3_stage_stall_f2"],
         ctrl_to_f3_stage_checkpoint_id_f3=ifu_ctrl,
         backend_ready_top=backend_ready_top,
         flush_valid_fls=flush_valid_fls,
@@ -173,11 +216,11 @@ def build_linxcore_top(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
         module_name="JanusBccIfuF4Top",
         clk=clk_top,
         rst=rst_top,
-        f3_to_f4_stage_pc_f3=ifu_f3["f3_to_f4_stage_pc_f3"],
-        f3_to_f4_stage_window_f3=ifu_f3["f3_to_f4_stage_window_f3"],
-        f3_to_f4_stage_pkt_uid_f3=ifu_f3["f3_to_f4_stage_pkt_uid_f3"],
-        f3_to_f4_stage_valid_f3=ifu_f3["f3_to_f4_stage_valid_f3"],
-        f3_to_f4_stage_checkpoint_id_f3=ifu_f3["f3_to_f4_stage_checkpoint_id_f3"],
+        f3_to_f4_stage_pc_f3=ifu_f3["ib_to_f4_stage_pc_ib"],
+        f3_to_f4_stage_window_f3=ifu_f3["ib_to_f4_stage_window_ib"],
+        f3_to_f4_stage_pkt_uid_f3=ifu_f3["ib_to_f4_stage_pkt_uid_ib"],
+        f3_to_f4_stage_valid_f3=ifu_f3["ib_to_f4_stage_valid_ib"],
+        f3_to_f4_stage_checkpoint_id_f3=ifu_f3["ib_to_f4_stage_checkpoint_id_ib"],
         flush_valid_fls=flush_valid_fls,
     )
 
@@ -1469,14 +1512,23 @@ def build_linxcore_top(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
             },
         )
 
-    # Frontend packet-residency UID namespace (class id 6) avoids collisions
-    # with decoded lane uops (class ids 0..3).
-    fetch_pkt_uid_top = (ifu_f0["f0_to_f1_stage_pkt_uid_f0"].shl(amount=3)) | c(6, width=64)
+    # Frontend stage-residency UID namespace.
+    # Keep fetch packet identity in high bits, and encode stage in low bits so
+    # F0/F1/F2/F3/IB/F4 occupancy does not collapse into one sample per cycle.
+    def frontend_uid(pkt_uid_top, stage_tag_top: int):
+        return (pkt_uid_top.shl(amount=6)) | c(stage_tag_top & 0x3F, width=64)
+
+    f0_uid_top = frontend_uid(ifu_f0["f0_to_f1_stage_pkt_uid_f0"], 1)
+    f1_uid_top = frontend_uid(ifu_f1["f1_to_icache_stage_pkt_uid_f1"], 2)
+    f2_uid_top = frontend_uid(ifu_f2["f2_to_f3_stage_pkt_uid_f2"], 3)
+    f3_uid_top = frontend_uid(ifu_f3["f3_to_f4_stage_pkt_uid_f3"], 4)
+    ib_uid_top = frontend_uid(ifu_f3["ib_head_uid_f3"], 5)
+    f4_uid_top = frontend_uid(ifu_f4["f4_to_d1_stage_pkt_uid_f4"], 6)
     emit_occ_debug(
         "f0",
         0,
         ifu_f0["f0_to_f1_stage_valid_f0"],
-        fetch_pkt_uid_top,
+        f0_uid_top,
         ifu_f0["f0_to_f1_stage_pc_f0"],
         c(0, width=6),
         dfx_kind_normal_top,
@@ -1486,7 +1538,7 @@ def build_linxcore_top(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
         "f1",
         0,
         ifu_f1["f1_to_icache_stage_valid_f1"],
-        (ifu_f1["f1_to_icache_stage_pkt_uid_f1"].shl(amount=3)) | c(6, width=64),
+        f1_uid_top,
         ifu_f1["f1_to_icache_stage_pc_f1"],
         c(0, width=6),
         dfx_kind_normal_top,
@@ -1496,7 +1548,7 @@ def build_linxcore_top(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
         "f2",
         0,
         ifu_f2["f2_to_f3_stage_valid_f2"],
-        (ifu_f2["f2_to_f3_stage_pkt_uid_f2"].shl(amount=3)) | c(6, width=64),
+        f2_uid_top,
         ifu_f2["f2_to_f3_stage_pc_f2"],
         c(0, width=6),
         dfx_kind_normal_top,
@@ -1506,17 +1558,29 @@ def build_linxcore_top(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
         "f3",
         0,
         ifu_f3["f3_to_f4_stage_valid_f3"],
-        (ifu_f3["f3_to_f4_stage_pkt_uid_f3"].shl(amount=3)) | c(6, width=64),
+        f3_uid_top,
         ifu_f3["f3_to_f4_stage_pc_f3"],
         c(0, width=6),
         dfx_kind_normal_top,
         c(0, width=64),
     )
     emit_occ_debug(
+        "ib",
+        0,
+        ifu_f3["ib_valid_f3"],
+        ib_uid_top,
+        ifu_f3["ib_head_pc_f3"],
+        c(0, width=6),
+        dfx_kind_normal_top,
+        c(0, width=64),
+        stall_top=ifu_f3["ib_valid_f3"] & (~backend_ready_top),
+        stall_cause_top=(ifu_f3["ib_valid_f3"] & (~backend_ready_top))._select_internal(c(1, width=8), c(0, width=8)),
+    )
+    emit_occ_debug(
         "f4",
         0,
         ifu_f4["f4_to_d1_stage_valid_f4"],
-        (ifu_f4["f4_to_d1_stage_pkt_uid_f4"].shl(amount=3)) | c(6, width=64),
+        f4_uid_top,
         ifu_f4["f4_to_d1_stage_pc_f4"],
         c(0, width=6),
         dfx_kind_normal_top,

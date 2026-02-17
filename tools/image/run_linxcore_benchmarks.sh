@@ -5,8 +5,8 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_DIR="${ROOT_DIR}/tests/benchmarks_linxcore"
 LOG_DIR="${OUT_DIR}/logs"
 TRACE_DIR="${OUT_DIR}/traces"
-KONATA_DIR="${OUT_DIR}/konata"
-mkdir -p "${LOG_DIR}" "${TRACE_DIR}" "${KONATA_DIR}"
+LINXTRACE_DIR="${OUT_DIR}/linxtrace"
+mkdir -p "${LOG_DIR}" "${TRACE_DIR}" "${LINXTRACE_DIR}"
 
 BUILD_BENCH_SCRIPT="${ROOT_DIR}/tools/image/build_linxisa_benchmarks_memh_compat.sh"
 
@@ -17,7 +17,7 @@ BOOT_PC_OVERRIDE="${PYC_BOOT_PC:-}"
 CORE_ITERATIONS="${CORE_ITERATIONS:-10}"
 DHRY_RUNS="${DHRY_RUNS:-1000}"
 BENCH_TRACE="${PYC_BENCH_TRACE:-0}"
-BENCH_KONATA="${PYC_BENCH_KONATA:-0}"
+BENCH_LINXTRACE="${PYC_BENCH_LINXTRACE:-0}"
 CORE_TARGET_CYCLES="${CORE_TARGET_CYCLES:-5000000}"
 DHRY_TARGET_CYCLES="${DHRY_TARGET_CYCLES:-650000}"
 REQUIRE_REAL="${LINX_BENCH_REQUIRE_REAL:-0}"
@@ -73,19 +73,18 @@ run_one() {
   local boot_pc="$5"
   local accept_exit_codes="$6"
   local log="${LOG_DIR}/${name}_linxcore_cpp.log"
-  local konata="${KONATA_DIR}/${name}.konata"
+  local linxtrace="${LINXTRACE_DIR}/${name}.linxtrace.jsonl"
   echo "[bench] ${name}"
   if [[ "${BENCH_TRACE}" == "1" ]]; then
-    if [[ "${BENCH_KONATA}" == "1" ]]; then
+    if [[ "${BENCH_LINXTRACE}" == "1" ]]; then
       PYC_BOOT_PC="${boot_pc}" \
       PYC_BOOT_SP="${BOOT_SP}" \
       PYC_MAX_CYCLES="${MAX_CYCLES}" \
       PYC_COMMIT_TRACE="${trace}" \
       PYC_COMMIT_TRACE_TEXT="${trace_txt}" \
       PYC_ACCEPT_EXIT_CODES="${accept_exit_codes}" \
-      PYC_KONATA=1 \
-      PYC_KONATA_PATH="${konata}" \
-      PYC_KONATA_SKIP_BSTOP_PREFIX=1 \
+      PYC_LINXTRACE=1 \
+      PYC_LINXTRACE_PATH="${linxtrace}" \
       bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${memh}" > "${log}" 2>&1
     else
       PYC_BOOT_PC="${boot_pc}" \
@@ -97,14 +96,13 @@ run_one() {
       bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${memh}" > "${log}" 2>&1
     fi
   else
-    if [[ "${BENCH_KONATA}" == "1" ]]; then
+    if [[ "${BENCH_LINXTRACE}" == "1" ]]; then
       PYC_BOOT_PC="${boot_pc}" \
       PYC_BOOT_SP="${BOOT_SP}" \
       PYC_MAX_CYCLES="${MAX_CYCLES}" \
       PYC_ACCEPT_EXIT_CODES="${accept_exit_codes}" \
-      PYC_KONATA=1 \
-      PYC_KONATA_PATH="${konata}" \
-      PYC_KONATA_SKIP_BSTOP_PREFIX=1 \
+      PYC_LINXTRACE=1 \
+      PYC_LINXTRACE_PATH="${linxtrace}" \
       bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${memh}" > "${log}" 2>&1
     else
       PYC_BOOT_PC="${boot_pc}" \

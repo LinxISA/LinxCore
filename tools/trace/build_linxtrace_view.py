@@ -19,9 +19,13 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from common.stage_tokens import KONATA_PIPELINE_SCHEMA_ID, KONATA_STAGE_ID_ORDER, KONATA_STAGE_ORDER_CSV
+from common.stage_tokens import (
+    LINXTRACE_PIPELINE_SCHEMA_ID,
+    LINXTRACE_STAGE_ID_ORDER,
+    LINXTRACE_STAGE_ORDER_CSV,
+)
 
-STAGE_ORDER = list(KONATA_STAGE_ID_ORDER)
+STAGE_ORDER = list(LINXTRACE_STAGE_ID_ORDER)
 STAGE_RANK = {name: i for i, name in enumerate(STAGE_ORDER)}
 
 
@@ -162,6 +166,55 @@ def _esc(text: str) -> str:
 def _esc_detail(text: str) -> str:
     # Konata parser unescapes "\\n" in labels, so encode detail newlines explicitly.
     return text.replace("\t", " ").replace("\r", " ").replace("\n", "\\n")
+
+
+def _stage_group(stage: str) -> str:
+    s = stage.upper()
+    if s.startswith("F") or s == "IB":
+        return "frontend"
+    if s in {"D1", "D2", "D3", "IQ", "S1", "S2", "P1", "I1", "I2", "E1", "E2", "E3", "E4", "W1", "W2"}:
+        return "backend"
+    if s in {"LIQ", "LHQ", "STQ", "SCB", "MDB", "L1D"}:
+        return "lsu"
+    if s in {"BISQ", "BCTRL", "TMU", "TMA", "CUBE", "VEC", "TAU", "BROB"}:
+        return "block"
+    if s in {"ROB", "CMT", "FLS", "XCHK"}:
+        return "retire"
+    return "other"
+
+
+def _stage_color(stage: str) -> str:
+    s = stage.upper()
+    if s in {"FLS", "XCHK"}:
+        return "#EF4444"
+    if s == "CMT":
+        return "#22C55E"
+    if s in {"ROB", "BROB"}:
+        return "#F97316"
+    if s.startswith("F") or s == "IB":
+        return "#38BDF8"
+    if s in {"D1", "D2", "D3", "IQ", "S1", "S2"}:
+        return "#A78BFA"
+    if s in {"P1", "I1", "I2", "E1", "E2", "E3", "E4", "W1", "W2"}:
+        return "#34D399"
+    if s in {"LIQ", "LHQ", "STQ", "SCB", "MDB", "L1D"}:
+        return "#FBBF24"
+    return "#9CA3AF"
+
+
+def _contract_id(stage_ids: List[str], lane_ids: List[str], row_schema: List[Tuple[int, str]]) -> str:
+    seed = (
+        f"{LINXTRACE_PIPELINE_SCHEMA_ID}|"
+        f"{','.join(stage_ids)}|"
+        f"{','.join(lane_ids)}|"
+        f"{';'.join(f'{rid}:{kind}' for rid, kind in row_schema)}|"
+        "linxtrace.v1"
+    )
+    h = 1469598103934665603
+    for b in seed.encode("utf-8"):
+        h ^= b
+        h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return f"{LINXTRACE_PIPELINE_SCHEMA_ID}-{h:016X}"
 
 
 def _extract_opcode(asm: str, fallback: str = "uop") -> str:
@@ -465,9 +518,10 @@ def _best_block_for_uop(row: UopRow, blocks: Dict[int, BlockRow]) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Build block-aware Konata v0005 from LinxCore raw event trace.")
+    ap = argparse.ArgumentParser(description="Build LinxTrace v1 (block+uop rows) from LinxCore raw event trace.")
     ap.add_argument("--raw", required=True, help="Raw event JSONL from tb_linxcore_top.cpp (PYC_RAW_TRACE).")
-    ap.add_argument("--out", required=True, help="Output .konata path.")
+    ap.add_argument("--out", required=True, help="Output .linxtrace.jsonl path.")
+    ap.add_argument("--meta-out", default="", help="Optional output .linxtrace.meta.json path.")
     ap.add_argument("--map-report", default="", help="Optional mapping report JSON path.")
     ap.add_argument("--commit-text", default="", help="Optional commit text trace for asm labels.")
     ap.add_argument("--elf", default="", help="Optional ELF path used for symbolized labels.")
@@ -475,6 +529,12 @@ def main() -> int:
 
     raw_path = Path(args.raw)
     out_path = Path(args.out)
+    if args.meta_out:
+        meta_path = Path(args.meta_out)
+    elif out_path.name.endswith(".linxtrace.jsonl"):
+        meta_path = out_path.with_name(out_path.name.replace(".linxtrace.jsonl", ".linxtrace.meta.json"))
+    else:
+        meta_path = out_path.with_suffix(out_path.suffix + ".meta.json")
     map_path = Path(args.map_report) if args.map_report else out_path.with_suffix(".map.json")
     commit_text_path = Path(args.commit_text) if args.commit_text else None
     elf_path = Path(args.elf) if args.elf else None
@@ -810,34 +870,37 @@ def main() -> int:
             kid = row_to_kid[("block", row_obj.block_uid)]
             stages = block_stage_set_by_kid.get(kid, set())
             if p_count_by_kid.get(kid, 0) == 0:
-                raise SystemExit(f"strict-konata: block row has no occupancy P records (block_uid={row_obj.block_uid}, kid={kid})")
+                raise SystemExit(f"strict-linxtrace: block row has no occupancy records (block_uid={row_obj.block_uid}, row_id={kid})")
             if "BROB" not in stages:
                 raise SystemExit(
-                    f"strict-konata: block row missing BROB lifecycle (block_uid={row_obj.block_uid}, kid={kid}, stages={sorted(stages)})"
+                    f"strict-linxtrace: block row missing BROB lifecycle (block_uid={row_obj.block_uid}, row_id={kid}, stages={sorted(stages)})"
                 )
         else:
             kid = row_to_kid[("uop", row_obj.uid)]
             if p_count_by_kid.get(kid, 0) == 0:
-                raise SystemExit(f"strict-konata: uop row has no occupancy P records (uid=0x{row_obj.uid:x}, kid={kid})")
+                raise SystemExit(f"strict-linxtrace: uop row has no occupancy records (uid=0x{row_obj.uid:x}, row_id={kid})")
 
     if min_cycle is math.inf:
         min_cycle = 0
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+
+    row_catalog: List[dict] = []
+    lane_ids: set[str] = set()
+    stage_ids: set[str] = set()
+    row_schema: List[Tuple[int, str]] = []
+
     with out_path.open("w", encoding="utf-8") as out:
-        out.write("Kanata\t0005\n")
-        out.write(f"C=\t{int(min_cycle)}\n")
-        out.write(f"C=\tlinxcore_schema={KONATA_PIPELINE_SCHEMA_ID}\n")
-        out.write(f"C=\tlinxcore_stage_order={KONATA_STAGE_ORDER_CSV}\n")
-        out.write(f"C=\tlinxcore_stage_count={len(STAGE_ORDER)}\n")
+        def emit(rec: dict) -> None:
+            out.write(json.dumps(rec, sort_keys=True) + "\n")
 
         for _, row_kind, row_obj in ordered_rows:
             if row_kind == "block":
                 blk = row_obj
-                kid = row_to_kid[("block", blk.block_uid)]
+                row_id = row_to_kid[("block", blk.block_uid)]
                 block_row_uid = (1 << 63) | (blk.block_uid & ((1 << 63) - 1))
                 uid_hex = f"0x{block_row_uid:x}"
-                out.write(f"I\t{kid}\t{uid_hex}\t{blk.core_id}\t0x0\tblock\n")
                 open_pc = _fmt_hex(blk.open_pc) if blk.open_pc >= 0 else ""
                 open_asm_raw = asm_by_seq.get(blk.open_seq or -1, "")
                 open_asm = _symbolize_asm(open_asm_raw, sym_exact)
@@ -851,17 +914,41 @@ def main() -> int:
                     parts.append(block_type_txt)
                 if open_asm:
                     parts.append(open_asm)
-                lbl = " ".join(parts)
-                out.write(f"L\t{kid}\t0\t{_esc(lbl)}\n")
+                left_label = " ".join(parts)
                 detail = _format_block_detail(blk, open_asm)
-                out.write(f"L\t{kid}\t1\t{_esc_detail(detail)}\n")
+                emit(
+                    {
+                        "type": "OP_DEF",
+                        "cycle": int(min_cycle),
+                        "row_id": row_id,
+                        "row_kind": "block",
+                        "core_id": blk.core_id,
+                        "uop_uid": "0x0",
+                        "parent_uid": "0x0",
+                        "block_uid": f"0x{blk.block_uid:x}",
+                        "kind": "block",
+                    }
+                )
+                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "label_type": "left", "text": left_label})
+                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "label_type": "detail", "text": detail})
+                row_catalog.append(
+                    {
+                        "row_id": row_id,
+                        "row_kind": "block",
+                        "core_id": blk.core_id,
+                        "block_uid": f"0x{blk.block_uid:x}",
+                        "uop_uid": "0x0",
+                        "left_label": left_label,
+                        "detail_defaults": detail,
+                    }
+                )
+                row_schema.append((row_id, "block"))
             else:
                 u = row_obj
-                kid = row_to_kid[("uop", u.uid)]
+                row_id = row_to_kid[("uop", u.uid)]
                 uid_hex = f"0x{u.uid:x}"
                 parent_hex = f"0x{u.parent_uid:x}"
                 kind = u.kind
-                out.write(f"I\t{kid}\t{uid_hex}\t{u.core_id}\t{parent_hex}\t{_esc(kind)}\n")
                 asm_raw = asm_by_uid.get(u.uid, "")
                 if not asm_raw:
                     asm_raw = asm_by_seq.get(u.commit_seq or -1, "")
@@ -875,39 +962,139 @@ def main() -> int:
                 pseudo_asm = _emit_pseudo_asm(opcode, u.commit_payload)
                 if _is_generated_uop(kind, u.parent_uid, asm):
                     seq_s = str(u.commit_seq) if u.commit_seq is not None else "-"
-                    label0 = f"u{seq_s}: {pseudo_asm}"
+                    left_label = f"GEN seq={seq_s} op={pseudo_asm}"
                 else:
                     asm_txt = asm if asm else pseudo_asm
-                    label0 = f"{_pc_label(u.pc, sym_sorted, sym_addrs)}: {asm_txt}"
-                out.write(f"L\t{kid}\t0\t{_esc(label0)}\n")
+                    left_label = f"{_pc_label(u.pc, sym_sorted, sym_addrs)}: {asm_txt}"
                 detail = _format_uop_detail(u, opcode)
-                out.write(f"L\t{kid}\t1\t{_esc_detail(detail)}\n")
+                emit(
+                    {
+                        "type": "OP_DEF",
+                        "cycle": int(min_cycle),
+                        "row_id": row_id,
+                        "row_kind": "uop",
+                        "core_id": u.core_id,
+                        "uop_uid": uid_hex,
+                        "parent_uid": parent_hex,
+                        "block_uid": f"0x{u.block_uid:x}",
+                        "kind": kind,
+                    }
+                )
+                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "label_type": "left", "text": left_label})
+                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "label_type": "detail", "text": detail})
+                row_catalog.append(
+                    {
+                        "row_id": row_id,
+                        "row_kind": "uop",
+                        "core_id": u.core_id,
+                        "block_uid": f"0x{u.block_uid:x}",
+                        "uop_uid": uid_hex,
+                        "left_label": left_label,
+                        "detail_defaults": detail,
+                    }
+                )
+                row_schema.append((row_id, "uop"))
 
         retired: set[int] = set()
-        cur_cycle = int(min_cycle)
         for cyc in sorted(actions.keys()):
-            if cyc < cur_cycle:
-                continue
-            if cyc > cur_cycle:
-                out.write(f"C\t{cyc - cur_cycle}\n")
-                cur_cycle = cyc
-            # P before R; within P use stage order then kid
             p_actions = [a for a in actions[cyc] if a[0] == "P"]
             p_actions.sort(key=lambda a: (a[1], a[2], a[3]))
             seen_p = set()
-            for _, _, kid, lane_tok, stage, stall, cause in p_actions:
-                p_key = (kid, lane_tok, stage, stall, cause)
+            for _, _, row_id, lane_tok, stage, stall, cause in p_actions:
+                p_key = (row_id, lane_tok, stage, stall, cause)
                 if p_key in seen_p:
                     continue
                 seen_p.add(p_key)
-                out.write(f"P\t{kid}\t{_esc(str(lane_tok))}\t{_esc(stage)}\t{stall}\t{_esc(str(cause))}\n")
+                lane = str(lane_tok)
+                stage_name = str(stage)
+                lane_ids.add(lane)
+                stage_ids.add(stage_name)
+                emit(
+                    {
+                        "type": "OCC",
+                        "cycle": int(cyc),
+                        "row_id": int(row_id),
+                        "lane_id": lane,
+                        "stage_id": stage_name,
+                        "stall": int(stall),
+                        "cause": str(cause),
+                    }
+                )
+                if stage_name == "XCHK":
+                    emit(
+                        {
+                            "type": "XCHECK",
+                            "cycle": int(cyc),
+                            "row_id": int(row_id),
+                            "status": "mismatch",
+                            "detail": str(cause),
+                        }
+                    )
             r_actions = [a for a in actions[cyc] if a[0] == "R"]
             r_actions.sort(key=lambda a: a[2])
-            for _, rtype, kid in r_actions:
-                if kid in retired:
+            for _, rtype, row_id in r_actions:
+                if row_id in retired:
                     continue
-                out.write(f"R\t{kid}\t{kid}\t{rtype}\n")
-                retired.add(kid)
+                retired.add(row_id)
+                emit(
+                    {
+                        "type": "RETIRE",
+                        "cycle": int(cyc),
+                        "row_id": int(row_id),
+                        "status": "ok" if int(rtype) == 0 else "terminal",
+                        "status_code": int(rtype),
+                    }
+                )
+
+        for blk in block_rows:
+            if blk.open_cycle is not None:
+                emit(
+                    {
+                        "type": "BLOCK_EVT",
+                        "cycle": int(blk.open_cycle),
+                        "kind": "open",
+                        "block_uid": f"0x{blk.block_uid:x}",
+                        "bid": f"0x{blk.block_bid:x}",
+                        "seq": int(blk.open_seq or 0),
+                        "pc": int(blk.open_pc),
+                        "core_id": int(blk.core_id),
+                    }
+                )
+            if blk.close_cycle is not None:
+                emit(
+                    {
+                        "type": "BLOCK_EVT",
+                        "cycle": int(blk.close_cycle),
+                        "kind": str(blk.close_kind),
+                        "block_uid": f"0x{blk.block_uid:x}",
+                        "bid": f"0x{blk.block_bid:x}",
+                        "seq": int(blk.close_seq or 0),
+                        "pc": int(blk.close_pc),
+                        "core_id": int(blk.core_id),
+                    }
+                )
+
+    stage_list = sorted(stage_ids, key=lambda s: (STAGE_RANK.get(s, 999), s))
+    lane_list = sorted(lane_ids)
+    contract_id = _contract_id(stage_list, lane_list, sorted(row_schema, key=lambda x: x[0]))
+
+    stage_catalog = [
+        {"stage_id": s, "label": s, "color": _stage_color(s), "group": _stage_group(s)} for s in stage_list
+    ]
+    lane_catalog = [{"lane_id": l, "label": l} for l in lane_list]
+    meta_obj = {
+        "format": "linxtrace.v1",
+        "contract_id": contract_id,
+        "pipeline_schema_id": LINXTRACE_PIPELINE_SCHEMA_ID,
+        "stage_order_csv": LINXTRACE_STAGE_ORDER_CSV,
+        "stage_catalog": stage_catalog,
+        "lane_catalog": lane_catalog,
+        "row_catalog": row_catalog,
+        "render_prefs": {"theme": "high-contrast", "show_symbols": True},
+    }
+    with meta_path.open("w", encoding="utf-8") as mf:
+        json.dump(meta_obj, mf, indent=2, sort_keys=False)
+        mf.write("\n")
 
     map_path.parent.mkdir(parents=True, exist_ok=True)
     uid_to_kid = {str(u.uid): row_to_kid[("uop", u.uid)] for u in uop_rows}
@@ -917,7 +1104,8 @@ def main() -> int:
         json.dump(
             {
                 "raw": str(raw_path),
-                "konata": str(out_path),
+                "linxtrace": str(out_path),
+                "meta": str(meta_path),
                 "uid_to_kid": uid_to_kid,
                 "block_uid_to_kid": block_to_kid,
                 "block_uid_to_bid": block_to_bid,
@@ -930,7 +1118,7 @@ def main() -> int:
         )
         mf.write("\n")
 
-    print(f"konata-built {out_path} uop_rows={len(uop_rows)} block_rows={len(block_rows)}")
+    print(f"linxtrace-built {out_path} meta={meta_path} uop_rows={len(uop_rows)} block_rows={len(block_rows)}")
     return 0
 
 

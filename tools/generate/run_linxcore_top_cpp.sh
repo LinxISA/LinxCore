@@ -7,6 +7,7 @@ GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
 CPP_MANIFEST="${PYC_MANIFEST_PATH:-${GEN_CPP_DIR}/cpp_compile_manifest.json}"
 CALLFRAME_CFG="${GEN_CPP_DIR}/.callframe_size"
+PARAM_HASH_CFG="${GEN_CPP_DIR}/.pyc_param_hash"
 TB_SRC="${ROOT_DIR}/tb/tb_linxcore_top.cpp"
 TB_TRACE_UTIL_SRC="${ROOT_DIR}/tb/tb_linxcore_trace_util.cpp"
 TB_TRACE_UTIL_HDR="${ROOT_DIR}/tb/tb_linxcore_trace_util.hpp"
@@ -45,6 +46,25 @@ except ValueError:
 if v < 0 or (v & 0x7):
     v = 0
 print(v & ((1 << 64) - 1))
+PY
+)"
+PARAM_ENV_HASH="$(
+python3 - <<'PY'
+import hashlib
+import os
+
+pairs = []
+for k, v in os.environ.items():
+    if k.startswith("PYC_PARAM_"):
+        pairs.append((k, v))
+pairs.sort()
+h = hashlib.sha256()
+for k, v in pairs:
+    h.update(k.encode("utf-8"))
+    h.update(b"=")
+    h.update(v.encode("utf-8"))
+    h.update(b"\n")
+print(h.hexdigest())
 PY
 )"
 
@@ -131,11 +151,16 @@ elif [[ ! -f "${CALLFRAME_CFG}" ]]; then
   need_regen=1
 elif [[ "$(cat "${CALLFRAME_CFG}")" != "${CALLFRAME_SIZE}" ]]; then
   need_regen=1
+elif [[ ! -f "${PARAM_HASH_CFG}" ]]; then
+  need_regen=1
+elif [[ "$(cat "${PARAM_HASH_CFG}")" != "${PARAM_ENV_HASH}" ]]; then
+  need_regen=1
 fi
 
 if [[ "${need_regen}" -ne 0 ]]; then
   LINXCORE_CALLFRAME_SIZE="${CALLFRAME_SIZE}" \
     bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
+  printf '%s\n' "${PARAM_ENV_HASH}" > "${PARAM_HASH_CFG}"
 fi
 
 CURRENT_MANIFEST_HASH="$(read_manifest_hash)"
@@ -166,22 +191,24 @@ elif [[ "${TB_MAIN_OBJ}" -nt "${TB_EXE}" || "${TB_TRACE_UTIL_OBJ}" -nt "${TB_EXE
 fi
 
 if [[ "${need_build}" -eq 0 ]]; then
-  for pair in "${GEN_SRC_OBJ_PAIRS[@]}"; do
-    gen_src="${pair%%$'\t'*}"
-    gen_obj="${pair#*$'\t'}"
-    if [[ ! -f "${gen_src}" || ! -f "${gen_obj}" ]]; then
-      need_build=1
-      break
-    fi
-    if [[ "${gen_src}" -nt "${gen_obj}" || "${gen_obj}" -nt "${TB_EXE}" ]]; then
-      need_build=1
-      break
-    fi
-    if find "${GEN_CPP_DIR}" -maxdepth 1 -name '*.hpp' -newer "${gen_obj}" | grep -q .; then
-      need_build=1
-      break
-    fi
-  done
+  if [[ "${#GEN_SRC_OBJ_PAIRS[@]}" -gt 0 ]]; then
+    for pair in "${GEN_SRC_OBJ_PAIRS[@]}"; do
+      gen_src="${pair%%$'\t'*}"
+      gen_obj="${pair#*$'\t'}"
+      if [[ ! -f "${gen_src}" || ! -f "${gen_obj}" ]]; then
+        need_build=1
+        break
+      fi
+      if [[ "${gen_src}" -nt "${gen_obj}" || "${gen_obj}" -nt "${TB_EXE}" ]]; then
+        need_build=1
+        break
+      fi
+      if find "${GEN_CPP_DIR}" -maxdepth 1 -name '*.hpp' -newer "${gen_obj}" | grep -q .; then
+        need_build=1
+        break
+      fi
+    done
+  fi
 fi
 
 if [[ "${need_build}" -ne 0 ]]; then
@@ -268,22 +295,24 @@ PY
   fi
 
   if [[ "${need_build_locked}" -eq 0 ]]; then
-    for pair in "${GEN_SRC_OBJ_PAIRS[@]}"; do
-      gen_src="${pair%%$'\t'*}"
-      gen_obj="${pair#*$'\t'}"
-      if [[ ! -f "${gen_src}" || ! -f "${gen_obj}" ]]; then
-        need_build_locked=1
-        break
-      fi
-      if [[ "${gen_src}" -nt "${gen_obj}" || "${gen_obj}" -nt "${TB_EXE}" ]]; then
-        need_build_locked=1
-        break
-      fi
-      if find "${GEN_CPP_DIR}" -maxdepth 1 -name '*.hpp' -newer "${gen_obj}" | grep -q .; then
-        need_build_locked=1
-        break
-      fi
-    done
+    if [[ "${#GEN_SRC_OBJ_PAIRS[@]}" -gt 0 ]]; then
+      for pair in "${GEN_SRC_OBJ_PAIRS[@]}"; do
+        gen_src="${pair%%$'\t'*}"
+        gen_obj="${pair#*$'\t'}"
+        if [[ ! -f "${gen_src}" || ! -f "${gen_obj}" ]]; then
+          need_build_locked=1
+          break
+        fi
+        if [[ "${gen_src}" -nt "${gen_obj}" || "${gen_obj}" -nt "${TB_EXE}" ]]; then
+          need_build_locked=1
+          break
+        fi
+        if find "${GEN_CPP_DIR}" -maxdepth 1 -name '*.hpp' -newer "${gen_obj}" | grep -q .; then
+          need_build_locked=1
+          break
+        fi
+      done
+    fi
   fi
 
   if [[ "${need_build_locked}" -ne 0 ]]; then
@@ -333,31 +362,33 @@ PY
       cxxflags_cfg="$(cat "${TB_CXXFLAGS_CFG}")"
     fi
     stale_gen_pairs=()
-    for pair in "${GEN_SRC_OBJ_PAIRS[@]}"; do
-      gen_src="${pair%%$'\t'*}"
-      gen_obj="${pair#*$'\t'}"
-      mkdir -p "$(dirname "${gen_obj}")"
-      if [[ ! -f "${gen_obj}" ]]; then
-        stale_gen_pairs+=("${pair}")
-        continue
-      fi
-      if [[ "${gen_src}" -nt "${gen_obj}" ]]; then
-        stale_gen_pairs+=("${pair}")
-        continue
-      fi
-      if find "${GEN_CPP_DIR}" -maxdepth 1 -name '*.hpp' -newer "${gen_obj}" | grep -q .; then
-        stale_gen_pairs+=("${pair}")
-        continue
-      fi
-      if [[ "${manifest_hash_cfg}" != "${CURRENT_MANIFEST_HASH}" ]]; then
-        stale_gen_pairs+=("${pair}")
-        continue
-      fi
-      if [[ "${cxxflags_cfg}" != "${TB_CXXFLAGS}" ]]; then
-        stale_gen_pairs+=("${pair}")
-        continue
-      fi
-    done
+    if [[ "${#GEN_SRC_OBJ_PAIRS[@]}" -gt 0 ]]; then
+      for pair in "${GEN_SRC_OBJ_PAIRS[@]}"; do
+        gen_src="${pair%%$'\t'*}"
+        gen_obj="${pair#*$'\t'}"
+        mkdir -p "$(dirname "${gen_obj}")"
+        if [[ ! -f "${gen_obj}" ]]; then
+          stale_gen_pairs+=("${pair}")
+          continue
+        fi
+        if [[ "${gen_src}" -nt "${gen_obj}" ]]; then
+          stale_gen_pairs+=("${pair}")
+          continue
+        fi
+        if find "${GEN_CPP_DIR}" -maxdepth 1 -name '*.hpp' -newer "${gen_obj}" | grep -q .; then
+          stale_gen_pairs+=("${pair}")
+          continue
+        fi
+        if [[ "${manifest_hash_cfg}" != "${CURRENT_MANIFEST_HASH}" ]]; then
+          stale_gen_pairs+=("${pair}")
+          continue
+        fi
+        if [[ "${cxxflags_cfg}" != "${TB_CXXFLAGS}" ]]; then
+          stale_gen_pairs+=("${pair}")
+          continue
+        fi
+      done
+    fi
 
     if [[ "${#stale_gen_pairs[@]}" -gt 0 ]]; then
       for pair in "${stale_gen_pairs[@]}"; do
@@ -409,10 +440,12 @@ PY
     fi
 
     gen_objs=()
-    for pair in "${GEN_SRC_OBJ_PAIRS[@]}"; do
-      gen_obj="${pair#*$'\t'}"
-      gen_objs+=("${gen_obj}")
-    done
+    if [[ "${#GEN_SRC_OBJ_PAIRS[@]}" -gt 0 ]]; then
+      for pair in "${GEN_SRC_OBJ_PAIRS[@]}"; do
+        gen_obj="${pair#*$'\t'}"
+        gen_objs+=("${gen_obj}")
+      done
+    fi
 
     link_flags=(-std=c++17 ${TB_CXXFLAGS})
     if [[ "$(uname -s)" == "Darwin" ]]; then
