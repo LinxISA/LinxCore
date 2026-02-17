@@ -873,7 +873,7 @@ int main(int argc, char **argv) {
       }
     } else {
       const std::string stem = std::filesystem::path(memhPath).stem().string();
-      base = std::filesystem::path("/Users/zhoubot/LinxCore/generated/konata") /
+      base = std::filesystem::path("/Users/zhoubot/LinxCore/generated/linxtrace") /
              ((stem.empty() ? std::string("program") : stem) + "_crosscheck");
     }
     XcheckReportPaths out{};

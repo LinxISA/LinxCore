@@ -164,7 +164,7 @@ def _esc(text: str) -> str:
 
 
 def _esc_detail(text: str) -> str:
-    # Konata parser unescapes "\\n" in labels, so encode detail newlines explicitly.
+    # Keep detail fields single-line in JSONL labels for stable viewer rendering.
     return text.replace("\t", " ").replace("\r", " ").replace("\n", "\\n")
 
 
@@ -833,7 +833,7 @@ def main() -> int:
         core = blk.core_id
         close_cycle_eff: Optional[int] = blk.close_cycle
         if blk.open_cycle is not None and close_cycle_eff is not None and close_cycle_eff <= blk.open_cycle:
-            # Konata strict parser requires positive stage residency duration.
+            # LinxTrace viewer requires positive residency width.
             # If a block opens/closes in one cycle, push close one cycle later.
             close_cycle_eff = blk.open_cycle + 1
         if blk.open_cycle is not None:
@@ -851,7 +851,7 @@ def main() -> int:
             add_action(close_cycle_eff, ("P", STAGE_RANK.get("CMT", 999), kid, f"c{core}.blk", "CMT", 0, blk.close_kind))
             add_action(close_cycle_eff, ("R", 1 if blk.close_kind == "fault" else 0, kid))
         else:
-            # Strict Konata parser requires a terminal retire event for each row.
+            # Strict LinxTrace contract requires a terminal retire event per row.
             eof_close_cycle = int(max_cycle) + 1
             add_action(eof_close_cycle, ("R", 1, kid))
 

@@ -24,6 +24,15 @@ python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py \
 
 Any lifecycle violation is fatal (post-retire command, invalid lane/stage token, or missing occupancy records).
 
+LinxCoreSight-side CLI diagnostics:
+
+```bash
+node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js lint <trace.linxtrace.jsonl>
+node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js stats <trace.linxtrace.jsonl>
+node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js first-failure <trace.linxtrace.jsonl>
+node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js schema-check <trace.linxtrace.jsonl>
+```
+
 ## Run C++ Testbench
 
 ```bash

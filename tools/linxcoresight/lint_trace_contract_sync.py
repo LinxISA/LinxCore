@@ -61,6 +61,13 @@ def main() -> int:
     parser_text = _read(parser_ts)
     _must_contain(parser_ts, parser_text, "linxtrace.v1")
     _must_contain(parser_ts, parser_text, "contract_id")
+    _must_contain(parser_ts, parser_text, "1469598103934665603")
+
+    cli_js = sight_root / "scripts" / "linxtrace_cli.js"
+    cli_text = _read(cli_js)
+    _must_contain(cli_js, cli_text, "schema-check")
+    _must_contain(cli_js, cli_text, "first-failure")
+    _must_contain(cli_js, cli_text, "1469598103934665603")
 
     print(
         "linxtrace contract sync passed: "
@@ -71,4 +78,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

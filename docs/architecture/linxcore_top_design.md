@@ -142,12 +142,12 @@ Important compatibility rule:
 - ROB tracks dynamic uop lineage via `uop_uid`/`parent_uid` arrays in `/Users/zhoubot/LinxCore/src/bcc/backend/state.py`.
 - `CodeTemplateUnit` emits template-uop identity metadata in `/Users/zhoubot/LinxCore/src/bcc/backend/code_template_unit.py`.
 - Global UID allocation is centralized in `/Users/zhoubot/LinxCore/src/common/uid_allocator.py`.
-- Konata trace format is `Kanata 0005`, written via `P` occupancy records from `/Users/zhoubot/LinxCore/tb/tb_linxcore_top.cpp`.
+- LinxTrace format is `linxtrace.v1`, written via explicit occupancy records from `/Users/zhoubot/LinxCore/tb/tb_linxcore_top.cpp` and `/Users/zhoubot/LinxCore/tools/trace/build_linxtrace_view.py`.
 - In-TB QEMU cross-check uses `PYC_QEMU_TRACE` with modes:
   - `PYC_XCHECK_MODE=diagnostic|failfast`
   - `PYC_XCHECK_MAX_COMMITS=<N>`
   - `PYC_XCHECK_REPORT=<path_prefix>`
-- Konata mismatch annotations emit one-cycle `XCHK` marker on mismatched retire events.
+- LinxTrace mismatch annotations emit one-cycle `XCHK` marker on mismatched retire events.
 
 ## Notes
 

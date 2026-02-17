@@ -12,11 +12,11 @@
 - Purpose: stage naming lint, no-stub lint, and top-level stage-prefix connectivity checks.
 - `test_opcode_parity.sh`
 - Purpose: regenerate opcode catalog/tables and enforce QEMU↔LinxCore decode metadata parity.
-- `test_konata_sanity.sh`
+- `test_konata_sanity.sh` (legacy script name; LinxTrace flow)
 - Purpose: generate LinxTrace from DUT, verify strict schema/stage checks, and basic ROB-vs-commit consistency.
-- `test_konata_dfx_pipeview.sh`
+- `test_konata_dfx_pipeview.sh` (legacy script name; LinxTrace flow)
 - Purpose: DFX-only LinxTrace smoke on a short suite workload with stage-presence checks.
-- `test_konata_template_pipeview.sh`
+- `test_konata_template_pipeview.sh` (legacy script name; LinxTrace flow)
 - Purpose: DFX-only LinxTrace run on a template-containing suite workload and enforce template-uop visibility.
 - `test_cpp_codegen_safety_gate.sh`
 - Purpose: strict C++ codegen safety gate for reg-primitive bindings (constructor/tick invariants + no-crash ctor-eval smoke).

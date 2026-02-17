@@ -2,15 +2,14 @@
 
 ## Goal
 
-Validate that Konata reflects exact cycle-stage residency for dynamic uops.
+Validate that LinxCoreSight reflects exact cycle-stage residency for dynamic uops.
 
 ## Fast check (CoreMark, 1000 commits)
 
 ```bash
 PYC_MAX_COMMITS=1000 \
-PYC_KONATA=1 \
-PYC_KONATA_SYNTHETIC=0 \
-bash /Users/zhoubot/LinxCore/tools/image/run_linxcore_benchmarks.sh
+bash /Users/zhoubot/LinxCore/tools/linxcoresight/run_linxtrace.sh \
+  /Users/zhoubot/LinxCore/tests/benchmarks/build/coremark_real.memh 1000
 ```
 
 ## Required visual checks
@@ -23,7 +22,8 @@ bash /Users/zhoubot/LinxCore/tools/image/run_linxcore_benchmarks.sh
 ## Automated checks
 
 ```bash
-python3 /Users/zhoubot/LinxCore/tools/konata/check_konata_stages.py \
-  /Users/zhoubot/LinxCore/generated/konata/coremark/coremark.konata \
+python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py \
+  /Users/zhoubot/LinxCore/generated/linxtrace/coremark/coremark_real_1000insn.linxtrace.jsonl \
+  --meta /Users/zhoubot/LinxCore/generated/linxtrace/coremark/coremark_real_1000insn.linxtrace.meta.json \
   --require-stages F0,F1,D3,IQ,P1,ROB,CMT,FLS
 ```

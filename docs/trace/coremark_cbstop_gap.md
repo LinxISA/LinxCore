@@ -4,12 +4,12 @@
 
 - Workload:
   - ELF: `/Users/zhoubot/linx-isa/workloads/generated/elf/coremark.elf`
-  - MEMH: `/Users/zhoubot/LinxCore/generated/konata/coremark/coremark_from_elf.memh`
+  - MEMH: `/Users/zhoubot/LinxCore/generated/linxtrace/coremark/coremark_from_elf.memh`
 - First mismatch occurred at commit `seq=0`.
 - Mismatch field was `wb_data` on `FENTRY` SP writeback:
   - QEMU behavior: `sp -= stacksize`
   - LinxCore behavior (old): `sp -= (stacksize + 64)`
-- After early divergence, LinxCore quickly reached `pc=0` and retired many `insn=0,len=2` records, which appear as `C.BSTOP` flood in Konata.
+- After early divergence, LinxCore quickly reached `pc=0` and retired many `insn=0,len=2` records, which appear as `C.BSTOP` flood in pipeview traces.
 - First-1000 window symptom:
   - QEMU `C.BSTOP` count: `0`
   - LinxCore `C.BSTOP` count: very high (observed ~`966`)
@@ -32,7 +32,7 @@
 
 1. Generate QEMU commit trace:
    - `/Users/zhoubot/LinxCore/tools/qemu/run_qemu_commit_trace.sh`
-2. Run LinxCore TB with optional Konata and xcheck:
+2. Run LinxCore TB with LinxTrace and xcheck:
    - `/Users/zhoubot/LinxCore/tools/generate/run_linxcore_top_cpp.sh`
 3. Compare first 1000 commits:
    - `/Users/zhoubot/LinxCore/tools/trace/crosscheck_qemu_linxcore.py`

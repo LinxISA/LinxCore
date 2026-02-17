@@ -741,7 +741,7 @@ def build_linxcore_top(
     m.output("bctrl_issue_fire_top", bctrl_top["issue_fire_brob"])
     m.output("bctrl_issue_src_rob_top", bctrl_top["issue_src_rob_brob"])
 
-    # Canonical Konata trace event bus (debug-only, no architectural effect).
+    # Canonical LinxTrace event bus (debug-only, no architectural effect).
     # Event kinds: normal=0, flush=1, trap=2, replay=3.
     trace_kind_normal_top = c(0, width=2)
     trace_kind_flush_top = c(1, width=2)
@@ -1429,7 +1429,7 @@ def build_linxcore_top(
         kind_top=trace_kind_replay_top,
     )
 
-    # One-time stage legend emission (fills stage list in Konata even when a
+    # One-time stage legend emission (fills stage list in LinxTrace even when a
     # given workload does not naturally hit every block-fabric stage).
     trace_boot_stage_top = m.out(
         "trace_boot_stage_top",

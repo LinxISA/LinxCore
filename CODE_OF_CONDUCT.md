@@ -32,7 +32,7 @@ This repository follows strict architecture-ownership and bring-up rules.
   - stage/connectivity checks,
   - trace schema/co-sim checks,
   - CoreMark and Dhrystone smoke.
-- Konata stage visibility changes require lint updates and passing Konata checks.
+- LinxTrace stage visibility changes require lint updates and passing LinxTrace checks.
 
 ## 6) No Silent Compatibility Breaks
 

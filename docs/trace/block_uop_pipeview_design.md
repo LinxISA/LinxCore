@@ -2,7 +2,7 @@
 
 ## Goal
 
-Visualize LinxISA block-structured control flow and micro-uop execution at the same time:
+Visualize LinxISA block-structured control flow and micro-uop execution at the same time in LinxTrace/LinxCoreSight:
 
 1. One row per dynamic block lifecycle (`BSTART` open, `BSTOP` close/fault).
 2. One row per dynamic micro-uop (`uop_uid`) with exact stage residency.
@@ -24,9 +24,9 @@ Visualize LinxISA block-structured control flow and micro-uop execution at the s
    - `/Users/zhoubot/LinxCore/tb/tb_linxcore_top.cpp`
    - `PYC_RAW_TRACE=<path>.jsonl`
 2. Offline builder:
-   - `/Users/zhoubot/LinxCore/tools/trace/build_konata_block_view.py`
+   - `/Users/zhoubot/LinxCore/tools/trace/build_linxtrace_view.py`
 3. Output:
-   - `Kanata\t0005` trace with `I/L/P/R/C`.
+   - `linxtrace.v1` JSONL stream + sidecar metadata.
 
 ## Deterministic row ordering (seq+uid hybrid)
 
@@ -52,8 +52,8 @@ This keeps architectural order stable while preserving dynamic identity.
 ## Validation gates
 
 1. Stage/format checks:
-   - `/Users/zhoubot/LinxCore/tools/konata/check_konata_stages.py`
-2. Parser acceptance:
-   - `/Users/zhoubot/Konata/onikiri_parser.js` (v0005 path)
+   - `/Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py`
+2. Viewer acceptance:
+   - `/Users/zhoubot/LinxCoreSight/src/lib/linxtrace.ts`
 3. CoreMark smoke example:
-   - `/Users/zhoubot/LinxCore/tools/konata/run_konata_trace.sh /Users/zhoubot/LinxCore/tests/benchmarks/build/coremark_real.memh 1000`
+   - `/Users/zhoubot/LinxCore/tools/linxcoresight/run_linxtrace.sh /Users/zhoubot/LinxCore/tests/benchmarks/build/coremark_real.memh 1000`

@@ -1,19 +1,14 @@
-# Konata Trace Flow
+# Deprecated: Konata Flow
 
-Generate Konata traces:
+The active viewer flow is LinxCoreSight + LinxTrace v1.
 
-```bash
-bash /Users/zhoubot/LinxCore/tools/konata/run_konata_trace.sh <program.memh>
-```
-
-Open a trace:
+Use:
 
 ```bash
-bash /Users/zhoubot/LinxCore/tools/konata/open_konata_trace.sh \
-  /Users/zhoubot/LinxCore/generated/cpp/linxcore_top/tb_linxcore_top_cpp_program.konata
+bash /Users/zhoubot/LinxCore/tools/linxcoresight/run_linxtrace.sh <program.memh> [max_commits]
+bash /Users/zhoubot/LinxCore/tools/linxcoresight/open_linxcoresight.sh <trace.linxtrace.jsonl>
 ```
 
-Detailed DFX pipeview contract:
+Canonical trace spec:
 
-- `/Users/zhoubot/LinxCore/docs/trace/konata_pipeview.md`
-- `/Users/zhoubot/LinxCore/docs/trace/dfx_pipeview_migration.md`
+- `/Users/zhoubot/LinxCore/docs/trace/linxtrace_v1.md`
