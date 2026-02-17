@@ -7,6 +7,7 @@ RUNNER_SRC="${ROOT_DIR}/cosim/linxcore_lockstep_runner.cpp"
 RUNNER_BIN="${ROOT_DIR}/cosim/linxcore_lockstep_runner"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
+CPP_MANIFEST="${GEN_CPP_DIR}/cpp_compile_manifest.json"
 TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}"
 PYC_API_INCLUDE="${PYC_ROOT}/include"
 if [[ ! -f "${PYC_API_INCLUDE}/pyc/cpp/pyc_sim.hpp" ]]; then
@@ -68,6 +69,34 @@ if [[ ! -f "${GEN_HDR}" ]]; then
 fi
 
 if [[ ! -x "${RUNNER_BIN}" || "${RUNNER_SRC}" -nt "${RUNNER_BIN}" || "${GEN_HDR}" -nt "${RUNNER_BIN}" ]]; then
+  if [[ ! -f "${CPP_MANIFEST}" ]]; then
+    echo "missing generated manifest: ${CPP_MANIFEST}" >&2
+    exit 2
+  fi
+  GEN_SRCS_STR="$(
+    python3 - <<'PY' "${CPP_MANIFEST}" "${GEN_CPP_DIR}"
+import json
+import pathlib
+import sys
+
+manifest = pathlib.Path(sys.argv[1])
+base = pathlib.Path(sys.argv[2])
+data = json.loads(manifest.read_text(encoding="utf-8"))
+for entry in data.get("sources", []):
+    rel = entry.get("path")
+    if not rel:
+        continue
+    src = pathlib.Path(rel)
+    if not src.is_absolute():
+        src = base / src
+    print(src)
+PY
+  )"
+  GEN_SRCS=()
+  while IFS= read -r src; do
+    [[ -z "${src}" ]] && continue
+    GEN_SRCS+=("${src}")
+  done <<< "${GEN_SRCS_STR}"
   "${CXX:-clang++}" -std=c++17 ${TB_CXXFLAGS} \
     -I "${PYC_COMPAT_INCLUDE}" \
     -I "${PYC_API_INCLUDE}" \
@@ -75,7 +104,8 @@ if [[ ! -x "${RUNNER_BIN}" || "${RUNNER_SRC}" -nt "${RUNNER_BIN}" || "${GEN_HDR}
     -I "${PYC_ROOT}/runtime/cpp" \
     -I "${GEN_CPP_DIR}" \
     -o "${RUNNER_BIN}" \
-    "${RUNNER_SRC}"
+    "${RUNNER_SRC}" \
+    "${GEN_SRCS[@]}"
 fi
 
 # Produce one known-good commit record from DUT TB.
