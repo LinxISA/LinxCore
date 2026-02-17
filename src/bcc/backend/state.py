@@ -17,9 +17,25 @@ class CoreCtrlRegs:
     pc: Reg
     fpc: Reg
     br_kind: Reg
+    br_epoch: Reg
     br_base_pc: Reg
     br_off: Reg
     br_pred_take: Reg
+    block_uid_ctr: Reg
+    active_block_uid: Reg
+    block_bid_ctr: Reg
+    active_block_bid: Reg
+    lsid_alloc_ctr: Reg
+    lsid_issue_ptr: Reg
+    lsid_complete_ptr: Reg
+    block_head: Reg
+    br_corr_pending: Reg
+    br_corr_epoch: Reg
+    br_corr_take: Reg
+    br_corr_target: Reg
+    br_corr_checkpoint_id: Reg
+    br_corr_fault_pending: Reg
+    br_corr_fault_rob: Reg
     commit_cond: Reg
     commit_tgt: Reg
     flush_pending: Reg
@@ -80,6 +96,12 @@ class RobRegs:
     dst_areg: list[Reg]
     pdst: list[Reg]
     value: list[Reg]
+    src0_reg: list[Reg]
+    src1_reg: list[Reg]
+    src0_value: list[Reg]
+    src1_value: list[Reg]
+    src0_valid: list[Reg]
+    src1_valid: list[Reg]
 
     store_addr: list[Reg]
     store_data: list[Reg]
@@ -95,11 +117,17 @@ class RobRegs:
     boundary_kind: list[Reg]
     boundary_target: list[Reg]
     pred_take: list[Reg]
+    block_epoch: list[Reg]
+    block_uid: list[Reg]
+    block_bid: list[Reg]
+    load_store_id: list[Reg]
     resolved_d2: list[Reg]
     insn_raw: list[Reg]
     checkpoint_id: list[Reg]
     macro_begin: list[Reg]
     macro_end: list[Reg]
+    uop_uid: list[Reg]
+    parent_uid: list[Reg]
 
 
 @dataclass(frozen=True)
@@ -120,6 +148,7 @@ class IqRegs:
 
 def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, consts: Consts, p: OooParams) -> CoreCtrlRegs:
     c = m.const
+    epoch_w = 16
     with m.scope("state"):
         halted = m.out("halted", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
         cycles = m.out("cycles", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
@@ -132,9 +161,31 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
 
         # Block transition kind (must cover BK_DIRECT/BK_IND/BK_ICALL).
         br_kind = m.out("br_kind", clk=clk, rst=rst, width=3, init=c(BK_FALL, width=3), en=consts.one1)
+        br_epoch = m.out("br_epoch", clk=clk, rst=rst, width=epoch_w, init=c(0, width=epoch_w), en=consts.one1)
         br_base_pc = m.out("br_base_pc", clk=clk, rst=rst, width=64, init=boot_pc, en=consts.one1)
         br_off = m.out("br_off", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
         br_pred_take = m.out("br_pred_take", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
+        block_uid_ctr = m.out("block_uid_ctr", clk=clk, rst=rst, width=64, init=c(2, width=64), en=consts.one1)
+        active_block_uid = m.out("active_block_uid", clk=clk, rst=rst, width=64, init=c(1, width=64), en=consts.one1)
+        block_bid_ctr = m.out("block_bid_ctr", clk=clk, rst=rst, width=64, init=c(1, width=64), en=consts.one1)
+        active_block_bid = m.out("active_block_bid", clk=clk, rst=rst, width=64, init=c(0, width=64), en=consts.one1)
+        lsid_alloc_ctr = m.out("lsid_alloc_ctr", clk=clk, rst=rst, width=32, init=c(0, width=32), en=consts.one1)
+        lsid_issue_ptr = m.out("lsid_issue_ptr", clk=clk, rst=rst, width=32, init=c(0, width=32), en=consts.one1)
+        lsid_complete_ptr = m.out("lsid_complete_ptr", clk=clk, rst=rst, width=32, init=c(0, width=32), en=consts.one1)
+        block_head = m.out("block_head", clk=clk, rst=rst, width=1, init=consts.one1, en=consts.one1)
+        br_corr_pending = m.out("br_corr_pending", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
+        br_corr_epoch = m.out("br_corr_epoch", clk=clk, rst=rst, width=epoch_w, init=c(0, width=epoch_w), en=consts.one1)
+        br_corr_take = m.out("br_corr_take", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
+        br_corr_target = m.out("br_corr_target", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
+        br_corr_checkpoint_id = m.out(
+            "br_corr_checkpoint_id", clk=clk, rst=rst, width=6, init=c(0, width=6), en=consts.one1
+        )
+        br_corr_fault_pending = m.out(
+            "br_corr_fault_pending", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1
+        )
+        br_corr_fault_rob = m.out(
+            "br_corr_fault_rob", clk=clk, rst=rst, width=p.rob_w, init=c(0, width=p.rob_w), en=consts.one1
+        )
         commit_cond = m.out("commit_cond", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
         commit_tgt = m.out("commit_tgt", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
 
@@ -171,9 +222,25 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         pc=pc,
         fpc=fpc,
         br_kind=br_kind,
+        br_epoch=br_epoch,
         br_base_pc=br_base_pc,
         br_off=br_off,
         br_pred_take=br_pred_take,
+        block_uid_ctr=block_uid_ctr,
+        active_block_uid=active_block_uid,
+        block_bid_ctr=block_bid_ctr,
+        active_block_bid=active_block_bid,
+        lsid_alloc_ctr=lsid_alloc_ctr,
+        lsid_issue_ptr=lsid_issue_ptr,
+        lsid_complete_ptr=lsid_complete_ptr,
+        block_head=block_head,
+        br_corr_pending=br_corr_pending,
+        br_corr_epoch=br_corr_epoch,
+        br_corr_take=br_corr_take,
+        br_corr_target=br_corr_target,
+        br_corr_checkpoint_id=br_corr_checkpoint_id,
+        br_corr_fault_pending=br_corr_fault_pending,
+        br_corr_fault_rob=br_corr_fault_rob,
         commit_cond=commit_cond,
         commit_tgt=commit_tgt,
         flush_pending=flush_pending,
@@ -266,6 +333,7 @@ def make_rename_regs(m: Circuit, clk: Signal, rst: Signal, *, consts: Consts, p:
 def make_rob_regs(m: Circuit, clk: Signal, rst: Signal, *, consts: Consts, p: OooParams) -> RobRegs:
     c = m.const
     tag0 = c(0, width=p.ptag_w)
+    epoch_w = 16
 
     with m.scope("rob"):
         head = m.out("head", clk=clk, rst=rst, width=p.rob_w, init=c(0, width=p.rob_w), en=consts.one1)
@@ -281,6 +349,12 @@ def make_rob_regs(m: Circuit, clk: Signal, rst: Signal, *, consts: Consts, p: Oo
         dst_areg: list[Reg] = []
         pdst: list[Reg] = []
         value: list[Reg] = []
+        src0_reg: list[Reg] = []
+        src1_reg: list[Reg] = []
+        src0_value: list[Reg] = []
+        src1_value: list[Reg] = []
+        src0_valid: list[Reg] = []
+        src1_valid: list[Reg] = []
         store_addr: list[Reg] = []
         store_data: list[Reg] = []
         store_size: list[Reg] = []
@@ -295,11 +369,17 @@ def make_rob_regs(m: Circuit, clk: Signal, rst: Signal, *, consts: Consts, p: Oo
         boundary_kind: list[Reg] = []
         boundary_target: list[Reg] = []
         pred_take: list[Reg] = []
+        block_epoch: list[Reg] = []
+        block_uid: list[Reg] = []
+        block_bid: list[Reg] = []
+        load_store_id: list[Reg] = []
         resolved_d2: list[Reg] = []
         insn_raw: list[Reg] = []
         checkpoint_id: list[Reg] = []
         macro_begin: list[Reg] = []
         macro_end: list[Reg] = []
+        uop_uid: list[Reg] = []
+        parent_uid: list[Reg] = []
 
         for i in range(p.rob_depth):
             valid.append(m.out(f"v{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
@@ -311,6 +391,12 @@ def make_rob_regs(m: Circuit, clk: Signal, rst: Signal, *, consts: Consts, p: Oo
             dst_areg.append(m.out(f"da{i}", clk=clk, rst=rst, width=6, init=c(0, width=6), en=consts.one1))
             pdst.append(m.out(f"pd{i}", clk=clk, rst=rst, width=p.ptag_w, init=tag0, en=consts.one1))
             value.append(m.out(f"val{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
+            src0_reg.append(m.out(f"s0r{i}", clk=clk, rst=rst, width=6, init=c(0, width=6), en=consts.one1))
+            src1_reg.append(m.out(f"s1r{i}", clk=clk, rst=rst, width=6, init=c(0, width=6), en=consts.one1))
+            src0_value.append(m.out(f"s0v{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
+            src1_value.append(m.out(f"s1v{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
+            src0_valid.append(m.out(f"s0x{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
+            src1_valid.append(m.out(f"s1x{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
             store_addr.append(m.out(f"sta{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
             store_data.append(m.out(f"std{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
             store_size.append(m.out(f"sts{i}", clk=clk, rst=rst, width=4, init=consts.zero4, en=consts.one1))
@@ -325,11 +411,17 @@ def make_rob_regs(m: Circuit, clk: Signal, rst: Signal, *, consts: Consts, p: Oo
             boundary_kind.append(m.out(f"bk{i}", clk=clk, rst=rst, width=3, init=c(0, width=3), en=consts.one1))
             boundary_target.append(m.out(f"bt{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
             pred_take.append(m.out(f"bpt{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
+            block_epoch.append(m.out(f"bep{i}", clk=clk, rst=rst, width=epoch_w, init=c(0, width=epoch_w), en=consts.one1))
+            block_uid.append(m.out(f"buid{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
+            block_bid.append(m.out(f"bbid{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
+            load_store_id.append(m.out(f"lsid{i}", clk=clk, rst=rst, width=32, init=c(0, width=32), en=consts.one1))
             resolved_d2.append(m.out(f"rsd{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
             insn_raw.append(m.out(f"insn{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
             checkpoint_id.append(m.out(f"ckpt{i}", clk=clk, rst=rst, width=6, init=c(0, width=6), en=consts.one1))
             macro_begin.append(m.out(f"mb{i}", clk=clk, rst=rst, width=6, init=c(0, width=6), en=consts.one1))
             macro_end.append(m.out(f"me{i}", clk=clk, rst=rst, width=6, init=c(0, width=6), en=consts.one1))
+            uop_uid.append(m.out(f"uid{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
+            parent_uid.append(m.out(f"puid{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
 
     return RobRegs(
         head=head,
@@ -344,6 +436,12 @@ def make_rob_regs(m: Circuit, clk: Signal, rst: Signal, *, consts: Consts, p: Oo
         dst_areg=dst_areg,
         pdst=pdst,
         value=value,
+        src0_reg=src0_reg,
+        src1_reg=src1_reg,
+        src0_value=src0_value,
+        src1_value=src1_value,
+        src0_valid=src0_valid,
+        src1_valid=src1_valid,
         store_addr=store_addr,
         store_data=store_data,
         store_size=store_size,
@@ -358,11 +456,17 @@ def make_rob_regs(m: Circuit, clk: Signal, rst: Signal, *, consts: Consts, p: Oo
         boundary_kind=boundary_kind,
         boundary_target=boundary_target,
         pred_take=pred_take,
+        block_epoch=block_epoch,
+        block_uid=block_uid,
+        block_bid=block_bid,
+        load_store_id=load_store_id,
         resolved_d2=resolved_d2,
         insn_raw=insn_raw,
         checkpoint_id=checkpoint_id,
         macro_begin=macro_begin,
         macro_end=macro_end,
+        uop_uid=uop_uid,
+        parent_uid=parent_uid,
     )
 
 

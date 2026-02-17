@@ -58,6 +58,11 @@ def build_head_wait_stage(
     alu_srcl = []
     alu_srcr = []
     alu_srcp = []
+    cmd_valid = []
+    cmd_rob = []
+    cmd_srcl = []
+    cmd_srcr = []
+    cmd_srcp = []
     for i in range(iq_depth):
         lsu_valid.append(m.input(f"lsu_valid{i}", width=1))
         lsu_rob.append(m.input(f"lsu_rob{i}", width=rob_w))
@@ -74,6 +79,11 @@ def build_head_wait_stage(
         alu_srcl.append(m.input(f"alu_srcl{i}", width=ptag_w))
         alu_srcr.append(m.input(f"alu_srcr{i}", width=ptag_w))
         alu_srcp.append(m.input(f"alu_srcp{i}", width=ptag_w))
+        cmd_valid.append(m.input(f"cmd_valid{i}", width=1))
+        cmd_rob.append(m.input(f"cmd_rob{i}", width=rob_w))
+        cmd_srcl.append(m.input(f"cmd_srcl{i}", width=ptag_w))
+        cmd_srcr.append(m.input(f"cmd_srcr{i}", width=ptag_w))
+        cmd_srcp.append(m.input(f"cmd_srcp{i}", width=ptag_w))
 
     head_wait_hit = c(0, width=1)
     head_wait_kind = c(0, width=2)
@@ -84,10 +94,12 @@ def build_head_wait_stage(
         hit_lsu = lsu_valid[i] & lsu_rob[i].eq(head_idx)
         hit_bru = bru_valid[i] & bru_rob[i].eq(head_idx)
         hit_alu = alu_valid[i] & alu_rob[i].eq(head_idx)
-        head_wait_hit = (hit_lsu | hit_bru | hit_alu).select(c(1, width=1), head_wait_hit)
+        hit_cmd = cmd_valid[i] & cmd_rob[i].eq(head_idx)
+        head_wait_hit = (hit_lsu | hit_bru | hit_alu | hit_cmd).select(c(1, width=1), head_wait_hit)
         head_wait_kind = hit_lsu.select(c(3, width=2), head_wait_kind)
         head_wait_kind = hit_bru.select(c(2, width=2), head_wait_kind)
         head_wait_kind = hit_alu.select(c(1, width=2), head_wait_kind)
+        head_wait_kind = hit_cmd.select(c(0, width=2), head_wait_kind)
         head_wait_sl = hit_lsu.select(lsu_srcl[i], head_wait_sl)
         head_wait_sr = hit_lsu.select(lsu_srcr[i], head_wait_sr)
         head_wait_sp = hit_lsu.select(lsu_srcp[i], head_wait_sp)
@@ -97,6 +109,9 @@ def build_head_wait_stage(
         head_wait_sl = hit_alu.select(alu_srcl[i], head_wait_sl)
         head_wait_sr = hit_alu.select(alu_srcr[i], head_wait_sr)
         head_wait_sp = hit_alu.select(alu_srcp[i], head_wait_sp)
+        head_wait_sl = hit_cmd.select(cmd_srcl[i], head_wait_sl)
+        head_wait_sr = hit_cmd.select(cmd_srcr[i], head_wait_sr)
+        head_wait_sp = hit_cmd.select(cmd_srcp[i], head_wait_sp)
 
     head_wait_sl_rdy = mask_bit(m, mask=ready_mask, idx=head_wait_sl, width=pregs)
     head_wait_sr_rdy = mask_bit(m, mask=ready_mask, idx=head_wait_sr, width=pregs)

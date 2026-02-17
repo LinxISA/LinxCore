@@ -1,0 +1,54 @@
+{
+  "trace": "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl_1000/verify/coremark/qemu_trace.jsonl",
+  "interval": 1000,
+  "pick_count": 1,
+  "rows": 1000,
+  "picked_windows": [
+    {
+      "interval_index": 0,
+      "start_index": 0,
+      "end_index_exclusive": 1000,
+      "commits": 1000,
+      "start_seq": 0,
+      "end_seq": 999,
+      "start_pc": 74896,
+      "end_pc": 88656,
+      "score_l1": 0.0,
+      "weight": 1.0,
+      "top_edges": [
+        {
+          "edge": "0000000000015a4c->0000000000015a4e",
+          "count": 47
+        },
+        {
+          "edge": "0000000000015a4e->0000000000015a50",
+          "count": 47
+        },
+        {
+          "edge": "0000000000015a50->0000000000015a52",
+          "count": 47
+        },
+        {
+          "edge": "0000000000015a52->0000000000015a56",
+          "count": 46
+        },
+        {
+          "edge": "0000000000015a56->0000000000015a5a",
+          "count": 46
+        },
+        {
+          "edge": "0000000000015a5a->0000000000015a5c",
+          "count": 46
+        },
+        {
+          "edge": "0000000000015a5c->0000000000015a60",
+          "count": 46
+        },
+        {
+          "edge": "0000000000015a60->0000000000015a62",
+          "count": 46
+        }
+      ]
+    }
+  ]
+}

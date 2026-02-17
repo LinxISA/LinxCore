@@ -7,7 +7,7 @@ RUNNER_SRC="${ROOT_DIR}/cosim/linxcore_lockstep_runner.cpp"
 RUNNER_BIN="${ROOT_DIR}/cosim/linxcore_lockstep_runner"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
-TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -Wall -Wextra}"
+TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}"
 PYC_API_INCLUDE="${PYC_ROOT}/include"
 if [[ ! -f "${PYC_API_INCLUDE}/pyc/cpp/pyc_sim.hpp" ]]; then
   cand="$(find "${PYC_ROOT}" -path '*/include/pyc/cpp/pyc_sim.hpp' -print -quit 2>/dev/null || true)"
@@ -82,6 +82,7 @@ fi
 PYC_BOOT_PC="${BOOT_PC}" \
 PYC_BOOT_SP="${BOOT_SP}" \
 PYC_MAX_CYCLES=30000 \
+PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}" \
 PYC_COMMIT_TRACE="${TRACE}" \
   bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${MEMH}" >/dev/null 2>&1 || true
 

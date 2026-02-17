@@ -28,6 +28,8 @@ def build_code_template_unit(m: Circuit) -> None:
     macro_reg_i = m.input("macro_reg_i", width=6)
     macro_i_i = m.input("macro_i_i", width=6)
     macro_sp_base_i = m.input("macro_sp_base_i", width=64)
+    macro_uop_uid_i = m.input("macro_uop_uid_i", width=64)
+    macro_uop_parent_uid_i = m.input("macro_uop_parent_uid_i", width=64)
 
     head_ready = head_valid & head_done
     start_fire = (
@@ -136,6 +138,15 @@ def build_code_template_unit(m: Circuit) -> None:
     m.output("uop_is_load", uop_is_load)
     m.output("uop_is_sp_add", uop_is_sp_add)
     m.output("uop_is_setc_tgt", uop_is_setc_tgt)
+    m.output("uop_uid", macro_uop_uid_i)
+    m.output("uop_parent_uid", macro_uop_parent_uid_i)
+    # 1=fentry,2=fexit,3=fret_ra,4=fret_stk
+    uop_template_kind = c(0, width=3)
+    uop_template_kind = macro_is_fentry.select(c(1, width=3), uop_template_kind)
+    uop_template_kind = macro_is_fexit.select(c(2, width=3), uop_template_kind)
+    uop_template_kind = macro_is_fret_ra.select(c(3, width=3), uop_template_kind)
+    uop_template_kind = macro_is_fret_stk.select(c(4, width=3), uop_template_kind)
+    m.output("uop_template_kind", uop_template_kind)
 
     m.output("loop_fire", loop_fire)
     m.output("loop_done", loop_done)

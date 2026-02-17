@@ -12,6 +12,9 @@ from .iex_std import build_janus_bcc_iex_std
 
 @module(name="JanusBccIex")
 def build_janus_bcc_iex(m: Circuit) -> None:
+    clk_i1 = m.clock("clk")
+    rst_i1 = m.reset("rst")
+
     s2_to_iex_stage_valid_s2 = m.input("s2_to_iex_stage_valid_s2", width=1)
     s2_to_iex_stage_op_s2 = m.input("s2_to_iex_stage_op_s2", width=12)
     s2_to_iex_stage_pc_s2 = m.input("s2_to_iex_stage_pc_s2", width=64)
@@ -33,6 +36,8 @@ def build_janus_bcc_iex(m: Circuit) -> None:
         build_janus_bcc_iex_alu,
         name="iex_alu",
         module_name="JanusBccIexAluPipe",
+        clk=clk_i1,
+        rst=rst_i1,
         in_valid_i1=s2_to_iex_stage_valid_s2 & is_alu_i1,
         in_rob_i1=s2_to_iex_stage_pdst_s2,
         in_pc_i1=s2_to_iex_stage_pc_s2,
@@ -42,6 +47,8 @@ def build_janus_bcc_iex(m: Circuit) -> None:
         build_janus_bcc_iex_bru,
         name="iex_bru",
         module_name="JanusBccIexBruPipe",
+        clk=clk_i1,
+        rst=rst_i1,
         in_valid_i1=s2_to_iex_stage_valid_s2 & is_bru_i1,
         in_setc_valid_i1=is_setc_cond_i1,
         in_setc_value_i1=s2_to_iex_stage_imm_s2.trunc(width=1),
@@ -53,6 +60,8 @@ def build_janus_bcc_iex(m: Circuit) -> None:
         build_janus_bcc_iex_fsu,
         name="iex_fsu",
         module_name="JanusBccIexFsuPipe",
+        clk=clk_i1,
+        rst=rst_i1,
         in_valid_i1=s2_to_iex_stage_valid_s2 & is_alu_i1,
         in_rob_i1=s2_to_iex_stage_pdst_s2,
         in_imm_i1=s2_to_iex_stage_imm_s2,
@@ -61,6 +70,8 @@ def build_janus_bcc_iex(m: Circuit) -> None:
         build_janus_bcc_iex_agu,
         name="iex_agu",
         module_name="JanusBccIexAguPipe",
+        clk=clk_i1,
+        rst=rst_i1,
         in_valid_i1=s2_to_iex_stage_valid_s2 & is_lsu_i1,
         in_rob_i1=s2_to_iex_stage_pdst_s2,
         in_pc_i1=s2_to_iex_stage_pc_s2,
@@ -70,6 +81,8 @@ def build_janus_bcc_iex(m: Circuit) -> None:
         build_janus_bcc_iex_std,
         name="iex_std",
         module_name="JanusBccIexStdPipe",
+        clk=clk_i1,
+        rst=rst_i1,
         in_valid_i1=s2_to_iex_stage_valid_s2 & is_lsu_i1,
         in_rob_i1=s2_to_iex_stage_pdst_s2,
         in_imm_i1=s2_to_iex_stage_imm_s2,

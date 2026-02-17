@@ -31,6 +31,7 @@ def build_janus_bcc_ooo_dec2(m: Circuit) -> None:
     d1_to_d2_stage_imm_d1 = m.input("d1_to_d2_stage_imm_d1", width=64)
     d1_to_d2_stage_insn_raw_d1 = m.input("d1_to_d2_stage_insn_raw_d1", width=64)
     d1_to_d2_stage_checkpoint_id_d1 = m.input("d1_to_d2_stage_checkpoint_id_d1", width=6)
+    d1_to_d2_stage_uop_uid_d1 = m.input("d1_to_d2_stage_uop_uid_d1", width=64)
 
     c = m.const
     op_d2 = d1_to_d2_stage_op_d1
@@ -60,6 +61,7 @@ def build_janus_bcc_ooo_dec2(m: Circuit) -> None:
     m.output("d2_to_d3_stage_imm_d2", d1_to_d2_stage_imm_d1)
     m.output("d2_to_d3_stage_insn_raw_d2", d1_to_d2_stage_insn_raw_d1)
     m.output("d2_to_d3_stage_checkpoint_id_d2", d1_to_d2_stage_checkpoint_id_d1)
+    m.output("d2_to_d3_stage_uop_uid_d2", d1_to_d2_stage_uop_uid_d1)
     m.output("d2_to_d3_stage_is_macro_d2", is_macro_d2)
     m.output("d2_to_d3_stage_is_boundary_d2", is_boundary_d2)
     m.output("d2_to_d3_stage_is_bstart_d2", is_bstart_d2)

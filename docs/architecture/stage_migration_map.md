@@ -54,4 +54,6 @@ This map records ownership migration from legacy LinxCore blocks into explicit J
 ## Integration
 
 - Canonical stage-linked integration: `src/top/top.py`
-- Canonical wrapper entrypoint retained: `src/top/top.py`
+- Thin backend compatibility shell: `src/bcc/backend/backend.py`
+- Backend authoritative engine body: `src/bcc/backend/engine.py`
+- Block fabric contract: `docs/architecture/block_fabric_contract.md`

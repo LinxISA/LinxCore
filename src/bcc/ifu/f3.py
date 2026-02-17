@@ -29,6 +29,7 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
 
     f2_to_f3_stage_pc_f2 = m.input("f2_to_f3_stage_pc_f2", width=64)
     f2_to_f3_stage_window_f2 = m.input("f2_to_f3_stage_window_f2", width=64)
+    f2_to_f3_stage_pkt_uid_f2 = m.input("f2_to_f3_stage_pkt_uid_f2", width=64)
     f2_to_f3_stage_valid_f2 = m.input("f2_to_f3_stage_valid_f2", width=1)
     ctrl_to_f3_stage_checkpoint_id_f3 = m.input("ctrl_to_f3_stage_checkpoint_id_f3", width=6)
 
@@ -85,8 +86,9 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     bstart_target_f3 = (op0_f3 == c(OP_BSTART_STD_DIRECT, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
     bstart_target_f3 = (op0_f3 == c(OP_BSTART_STD_COND, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
     bstart_target_f3 = (op0_f3 == c(OP_BSTART_STD_CALL, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
+    cond_pred_take_f3 = bstart_target_f3.ult(dec0_pc_f3)
     pred_take_f3 = c(1, width=1)
-    pred_take_f3 = bstart_kind_f3.eq(c(BK_COND, width=3))._select_internal(c(0, width=1), pred_take_f3)
+    pred_take_f3 = bstart_kind_f3.eq(c(BK_COND, width=3))._select_internal(cond_pred_take_f3, pred_take_f3)
     pred_take_f3 = bstart_kind_f3.eq(c(BK_RET, width=3))._select_internal(c(0, width=1), pred_take_f3)
     bstart_meta_valid_f3 = dec0_valid_f3 & is_bstart0_f3
 
@@ -100,12 +102,14 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
         push_valid=f2_to_f3_stage_valid_f2,
         push_pc=f2_to_f3_stage_pc_f2,
         push_window=f2_to_f3_stage_window_f2,
+        push_pkt_uid=f2_to_f3_stage_pkt_uid_f2,
         pop_ready=backend_ready_top,
         flush_valid=flush_valid_fls,
     )
 
     m.output("f3_to_f4_stage_pc_f3", ibuf_f3["out_pc"])
     m.output("f3_to_f4_stage_window_f3", ibuf_f3["out_window"])
+    m.output("f3_to_f4_stage_pkt_uid_f3", ibuf_f3["out_pkt_uid"])
     m.output("f3_to_f4_stage_valid_f3", ibuf_f3["out_valid"])
     m.output("f3_to_f4_stage_checkpoint_id_f3", ctrl_to_f3_stage_checkpoint_id_f3)
     m.output("f3_to_pcb_stage_bstart_valid_f3", bstart_meta_valid_f3)

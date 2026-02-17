@@ -57,6 +57,7 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
     f4_pc = m.input("f4_pc", width=64)
     f4_window = m.input("f4_window", width=64)
     f4_checkpoint_id = m.input("f4_checkpoint_id", width=6)
+    f4_pkt_uid = m.input("f4_pkt_uid", width=64)
 
     c = m.const
     f4_bundle = decode_f4_bundle(m, f4_window)
@@ -134,8 +135,12 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         boundary_target = op.eq(c(OP_BSTART_STD_DIRECT, width=12)).select(pc + imm, boundary_target)
         boundary_target = op.eq(c(OP_BSTART_STD_COND, width=12)).select(pc + imm, boundary_target)
         boundary_target = op.eq(c(OP_BSTART_STD_CALL, width=12)).select(pc + imm, boundary_target)
+        # Static bring-up predictor:
+        # - COND blocks: backward target => taken, forward => not-taken.
+        # - RET blocks: keep not-taken baseline (validated by BRU setc path).
+        cond_pred_take = boundary_target.ult(pc)
         pred_take = c(1, width=1)
-        pred_take = boundary_kind.eq(c(BK_COND, width=3)).select(c(0, width=1), pred_take)
+        pred_take = boundary_kind.eq(c(BK_COND, width=3)).select(cond_pred_take, pred_take)
         pred_take = boundary_kind.eq(c(BK_RET, width=3)).select(c(0, width=1), pred_take)
         resolved_d2 = is_boundary
         push_t = regdst.eq(c(31, width=6)) | op.eq(c(OP_C_LWI, width=12))
@@ -170,6 +175,10 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         dst_kind = push_t.select(c(2, width=2), dst_kind)
         dst_kind = push_u.select(c(3, width=2), dst_kind)
         ckpt_tag = is_start.select(f4_checkpoint_id + c(slot, width=6), c(0, width=6))
+        # Global UID namespace:
+        # lower 3 bits encode dynamic class/lane for pipeview stability.
+        # - fetch/decode uops use lane ids [0..3]
+        uop_uid = (f4_pkt_uid.shl(amount=3)) | c(slot, width=64)
 
         m.output(f"valid{slot}", v)
         m.output(f"pc{slot}", pc)
@@ -198,6 +207,7 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         m.output(f"need_pdst{slot}", need_pdst)
         m.output(f"dst_kind{slot}", dst_kind)
         m.output(f"checkpoint_id{slot}", ckpt_tag)
+        m.output(f"uop_uid{slot}", uop_uid)
         disp_count = disp_count + v.zext(width=3)
 
     m.output("dispatch_count", disp_count)

@@ -1,68 +1,64 @@
 # LinxCore Branch Recovery Rules
 
-This document defines the branch/block recovery behavior enforced by the canonical LinxCore backend.
+This document defines the canonical LinxISA block-control behavior implemented in:
 
-## Rule 1: F3 captures BSTART metadata
+- `/Users/zhoubot/LinxCore/src/bcc/backend/engine.py`
+- `/Users/zhoubot/LinxCore/src/bcc/backend/rob.py`
+- `/Users/zhoubot/LinxCore/src/bcc/backend/decode.py`
 
-When a `BSTART*` instruction is seen, frontend/decode captures and carries:
+## Rule 1: Boundary-authoritative redirect
 
-- `bstart_valid`
-- `bstart_pc`
-- `bstart_kind`
-- `bstart_target`
-- `pred_take`
+Architectural redirect is resolved at block boundary commit.
 
-These values are written into the PC-buffer table and reused during BRU validation/recovery.
+- BRU `setc.cond` does not directly change architectural PC.
+- BRU mismatch only records deferred correction (`br_corr_*`) and epoch tags.
+- Boundary commit consumes deferred correction if epoch-matched.
 
-## Rule 2: Prediction is backend-visible
+## Rule 2: BSTART head vs in-body behavior
 
-`pred_take` is part of boundary metadata and is retained through ROB lifetime for block context.
+LinxCore tracks whether next instruction is block-head (`state.block_head`).
 
-Current baseline policy:
+- `BSTART` at block head: block begin marker (no old-block redirect).
+- `BSTART` in block body: behaves as old-block terminator; for `C.BSTART.STD` it may fall through to the same PC and restart block decode.
 
-- conditional/return classes start with `pred_take=0`
-- direct/call/indirect classes are not validated as conditional outcomes in this pass
+This matches the QEMU split behavior where a BSTART seen in-body can first close the previous block, then be re-executed as the next block head.
 
-## Rule 3: SETC.cond validation in BRU
+## Rule 3: BSTART/BSTOP are ROB-visible and D2-resolved
 
-BRU validates `setc.cond` by comparing:
+`BSTART/BSTOP` allocate ROB entries and are marked resolved at D2:
 
-- `actual_take` from execution result
-- `pred_take` from active block metadata
+- no IQ/FU issue required,
+- still retire in-order with full commit trace payload.
 
-On mismatch:
+## Rule 4: SETC validation contract
 
-- compute recovery target from current block metadata
-- request redirect to that target if valid
+`setc.cond` is validated in BRU against carried prediction metadata:
 
-## Rule 4: BSTART/BSTOP resolve in ROB at D2
+- `actual_take` from BRU execute,
+- `pred_take` from active block context.
 
-`BSTART/BSTOP` are normal ROB entries, but are marked D2-resolved:
+Mismatch sets deferred correction state, consumed only by boundary commit.
 
-- they do not go through IQ/FU execution lanes
-- they can commit in-order like other ROB entries
+## Rule 5: BSTOP-only block-private release
 
-## Rule 5: BSTOP-only release
+Block-private resources are released only when `BSTOP` retires (`commit_is_bstop=1`):
 
-Block-private resources are released only on `BSTOP` retire (`commit_is_bstop=1`):
+- T/U queues,
+- BARG valid state.
 
-- T/U private stacks/queues
-- block argument validity state
+No release is allowed on `BSTART`.
 
-No release is permitted on `BSTART`.
+## Rule 6: Recovery target safety and precise trap
 
-## Rule 6: BRU recovery target must be BSTART
+Any BRU/deferred correction target must map to valid BSTART metadata in PC buffer.
 
-Every BRU recovery target must map to a valid PC-buffer `is_bstart` entry.
+If target is invalid:
 
-If target validation fails:
+- precise trap is raised,
+- `trap_cause = TRAP_BRU_RECOVERY_NOT_BSTART (0x0000B001)`,
+- trap is attributed to the offending ROB entry.
 
-- set precise trap on offending ROB entry
-- `trap_valid=1`
-- `trap_cause=TRAP_BRU_RECOVERY_NOT_BSTART (0x0000B001)`
-- halt through normal trap flow
+## Rule 7: No implicit RA write on BSTART.CALL
 
-## Compatibility rule: BSTART.CALL and setret
-
-- `BSTART.CALL` does not imply any implicit RA write.
-- Return-address update is only from explicit `setret` instruction behavior.
+`BSTART.CALL` does not implicitly write RA.
+RA updates are only from explicit `setret`/`setc.tgt` behavior.

@@ -10,6 +10,7 @@ def build_janus_bcc_ifu_f2(m: Circuit) -> None:
     f1_to_f2_stage_pc_f1 = m.input("f1_to_f2_stage_pc_f1", width=64)
     f1_to_f2_stage_window_f1 = m.input("f1_to_f2_stage_window_f1", width=64)
     f1_to_f2_stage_valid_f1 = m.input("f1_to_f2_stage_valid_f1", width=1)
+    f1_to_f2_stage_pkt_uid_f1 = m.input("f1_to_f2_stage_pkt_uid_f1", width=64)
     f3_to_f2_stage_ready_f3 = m.input("f3_to_f2_stage_ready_f3", width=1)
 
     c = m.const
@@ -23,6 +24,7 @@ def build_janus_bcc_ifu_f2(m: Circuit) -> None:
     m.output("f2_to_f3_stage_pc_f2", f1_to_f2_stage_pc_f1)
     m.output("f2_to_f3_stage_window_f2", f1_to_f2_stage_window_f1)
     m.output("f2_to_f3_stage_next_pc_f2", next_pc_f2)
+    m.output("f2_to_f3_stage_pkt_uid_f2", f1_to_f2_stage_pkt_uid_f1)
     m.output("f2_to_f3_stage_valid_f2", advance_fire_f2)
 
     m.output("f2_to_f0_advance_stage_valid_f2", advance_fire_f2)

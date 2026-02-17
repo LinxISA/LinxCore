@@ -26,4 +26,6 @@ def build_janus_tmu_tilereg(m: Circuit, *, regs: int = 32) -> None:
         regs_tmu[i].set(wr_data_tmu, when=wr_valid_tmu & hit_wr_tmu)
         rd_data_tmu = hit_rd_tmu._select_internal(regs_tmu[i].out(), rd_data_tmu)
 
+    m.output("wr_ready_tmu", c(1, width=1))
+    m.output("rd_valid_tmu", c(1, width=1))
     m.output("rd_data_tmu", rd_data_tmu)

@@ -104,8 +104,11 @@ def build_lsu_stage(
     c = m.const
     issue_fire_lane0_raw = m.input("issue_fire_lane0_raw", width=1)
     ex0_is_load = m.input("ex0_is_load", width=1)
+    ex0_is_store = m.input("ex0_is_store", width=1)
     ex0_addr = m.input("ex0_addr", width=64)
     ex0_rob = m.input("ex0_rob", width=rob_w)
+    ex0_lsid = m.input("ex0_lsid", width=32)
+    lsid_issue_ptr = m.input("lsid_issue_ptr", width=32)
     sub_head = m.input("sub_head", width=rob_w)
     commit_store_fire = m.input("commit_store_fire", width=1)
     commit_store_addr = m.input("commit_store_addr", width=64)
@@ -131,7 +134,9 @@ def build_lsu_stage(
         stbuf_addr.append(m.input(f"stbuf_addr{i}", width=64))
         stbuf_data.append(m.input(f"stbuf_data{i}", width=64))
 
+    lsu_mem_fire_raw = issue_fire_lane0_raw & (ex0_is_load | ex0_is_store)
     lsu_load_fire_raw = issue_fire_lane0_raw & ex0_is_load
+    lsu_lsid_block_lane0 = lsu_mem_fire_raw & (~ex0_lsid.eq(lsid_issue_ptr))
     lsu_load_dist = ex0_rob + sub_head
     lsu_older_store_pending_lane0 = c(0, width=1)
     lsu_forward_hit_lane0 = c(0, width=1)
@@ -158,12 +163,16 @@ def build_lsu_stage(
     lsu_forward_hit_lane0 = lsu_forward_hit_lane0 | commit_store_match_lane0
     lsu_forward_data_lane0 = commit_store_match_lane0.select(commit_store_data, lsu_forward_data_lane0)
 
-    lsu_block_lane0 = lsu_load_fire_raw & lsu_older_store_pending_lane0
+    lsu_block_lane0 = lsu_lsid_block_lane0 | (lsu_load_fire_raw & lsu_older_store_pending_lane0)
     issue_fire_lane0_eff = issue_fire_lane0_raw & (~lsu_block_lane0)
+    lsu_lsid_issue_advance = issue_fire_lane0_eff & (ex0_is_load | ex0_is_store)
 
+    m.output("lsu_mem_fire_raw", lsu_mem_fire_raw)
     m.output("lsu_load_fire_raw", lsu_load_fire_raw)
+    m.output("lsu_lsid_block_lane0", lsu_lsid_block_lane0)
     m.output("lsu_older_store_pending_lane0", lsu_older_store_pending_lane0)
     m.output("lsu_forward_hit_lane0", lsu_forward_hit_lane0)
     m.output("lsu_forward_data_lane0", lsu_forward_data_lane0)
     m.output("lsu_block_lane0", lsu_block_lane0)
     m.output("issue_fire_lane0_eff", issue_fire_lane0_eff)
+    m.output("lsu_lsid_issue_advance", lsu_lsid_issue_advance)

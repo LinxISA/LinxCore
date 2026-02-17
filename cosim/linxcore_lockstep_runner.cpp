@@ -844,10 +844,34 @@ private:
     }
 
     for (const auto &r : snap.ranges) {
+      if (r.bytes.size() > mem_bytes) {
+        std::ostringstream oss;
+        oss << "runner: snapshot range aliases DUT memory (range too large): base=" << toHex(r.meta.base)
+            << " size=" << toHex(static_cast<std::uint64_t>(r.bytes.size()))
+            << " dut_mem_bytes=" << toHex(static_cast<std::uint64_t>(mem_bytes))
+            << " (set narrower LINX_COSIM_MEM_RANGES)";
+        last_error_ = oss.str();
+        std::cerr << last_error_ << "\n";
+        return false;
+      }
+      std::vector<std::uint8_t> seen(mem_bytes, 0);
       const std::uint64_t base = r.meta.base;
       for (std::size_t i = 0; i < r.bytes.size(); i++) {
         const std::uint64_t guest_addr = base + static_cast<std::uint64_t>(i);
         const std::size_t addr = mapGuestAddr(guest_addr, mem_bytes);
+        if (seen[addr]) {
+          std::ostringstream oss;
+          oss << "runner: snapshot range aliases DUT memory (wrap/collision): base=" << toHex(r.meta.base)
+              << " size=" << toHex(static_cast<std::uint64_t>(r.bytes.size()))
+              << " first_collision_guest=" << toHex(guest_addr)
+              << " mapped_addr=" << toHex(static_cast<std::uint64_t>(addr))
+              << " dut_mem_bytes=" << toHex(static_cast<std::uint64_t>(mem_bytes))
+              << " (set narrower LINX_COSIM_MEM_RANGES)";
+          last_error_ = oss.str();
+          std::cerr << last_error_ << "\n";
+          return false;
+        }
+        seen[addr] = 1;
         const auto b = r.bytes[i];
         dut_->mem2r1w.imem.pokeByte(addr, b);
         dut_->mem2r1w.dmem.pokeByte(addr, b);

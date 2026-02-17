@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -20,7 +21,16 @@ class Range:
 
 
 def run_readelf(args: list[str]) -> str:
-    tool = shutil.which("readelf") or shutil.which("llvm-readelf") or shutil.which("greadelf")
+    tool = (
+        os.environ.get("LINX_READELF")
+        or shutil.which("readelf")
+        or shutil.which("llvm-readelf")
+        or shutil.which("greadelf")
+    )
+    if not tool:
+        fallback = Path("/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-readelf")
+        if fallback.is_file():
+            tool = str(fallback)
     if not tool:
         raise RuntimeError("no readelf tool found")
     proc = subprocess.run([tool, *args], check=False, capture_output=True, text=True)

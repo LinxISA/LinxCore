@@ -13,6 +13,7 @@ def build_ibuffer(m: Circuit, *, depth: int = 8) -> None:
     push_valid = m.input("push_valid", width=1)
     push_pc = m.input("push_pc", width=64)
     push_window = m.input("push_window", width=64)
+    push_pkt_uid = m.input("push_pkt_uid", width=64)
 
     pop_ready = m.input("pop_ready", width=1)
     flush_valid = m.input("flush_valid", width=1)
@@ -31,15 +32,18 @@ def build_ibuffer(m: Circuit, *, depth: int = 8) -> None:
         q_valid = []
         q_pc = []
         q_window = []
+        q_pkt_uid = []
         for i in range(depth):
             q_valid.append(m.out(f"v{i}", clk=clk, rst=rst, width=1, init=c(0, width=1), en=c(1, width=1)))
             q_pc.append(m.out(f"pc{i}", clk=clk, rst=rst, width=64, init=c(0, width=64), en=c(1, width=1)))
             q_window.append(m.out(f"win{i}", clk=clk, rst=rst, width=64, init=c(0, width=64), en=c(1, width=1)))
+            q_pkt_uid.append(m.out(f"uid{i}", clk=clk, rst=rst, width=64, init=c(0, width=64), en=c(1, width=1)))
 
     push_ready = count.out().ult(c(depth, width=w + 1))
     out_valid = mux_by_uindex(m, idx=head.out(), items=q_valid, default=c(0, width=1))
     out_pc = mux_by_uindex(m, idx=head.out(), items=q_pc, default=c(0, width=64))
     out_window = mux_by_uindex(m, idx=head.out(), items=q_window, default=c(0, width=64))
+    out_pkt_uid = mux_by_uindex(m, idx=head.out(), items=q_pkt_uid, default=c(0, width=64))
 
     push_fire = push_valid & push_ready
     pop_fire = out_valid & pop_ready
@@ -57,6 +61,7 @@ def build_ibuffer(m: Circuit, *, depth: int = 8) -> None:
 
         q_pc[i].set(push_pc, when=do_push)
         q_window[i].set(push_window, when=do_push)
+        q_pkt_uid[i].set(push_pkt_uid, when=do_push)
 
     head_next = pop_fire.select(head.out() + c(1, width=w), head.out())
     tail_next = push_fire.select(tail.out() + c(1, width=w), tail.out())
@@ -73,6 +78,7 @@ def build_ibuffer(m: Circuit, *, depth: int = 8) -> None:
     m.output("out_valid", out_valid)
     m.output("out_pc", out_pc)
     m.output("out_window", out_window)
+    m.output("out_pkt_uid", out_pkt_uid)
     m.output("pop_fire", pop_fire)
     m.output("head_dbg", head.out())
     m.output("tail_dbg", tail.out())

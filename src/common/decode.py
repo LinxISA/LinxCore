@@ -4,6 +4,10 @@ from dataclasses import dataclass
 
 from pycircuit import Circuit, Wire, jit_inline
 
+from .decode16 import decode16_meta
+from .decode32 import decode32_meta
+from .decode48 import decode48_meta
+from .decode64 import decode64_meta
 from .isa import (
     OP_ADDTPC,
     OP_ADDI,
@@ -16,6 +20,10 @@ from .isa import (
     OP_BSTART_STD_COND,
     OP_BSTART_STD_DIRECT,
     OP_BSTART_STD_FALL,
+    OP_BIOR,
+    OP_BLOAD,
+    OP_BSTORE,
+    OP_BTEXT,
     OP_ANDW,
     OP_BXS,
     OP_BXU,
@@ -217,6 +225,7 @@ def decode_window(m: Circuit, window: Wire) -> Decode:
     simm12_raw = swi_lo5.zext(width=12).shl(amount=7) | swi_hi7.zext(width=12)
     simm12_s64 = simm12_raw.sext(width=64)
     simm17_s64 = insn32[15:32].sext(width=64)
+    simm25_s64 = insn32[7:32].sext(width=64)
 
     # HL.LUI immediate packing (48-bit):
     # pfx = insn48[15:0]; main = insn48[47:16]
@@ -754,6 +763,19 @@ def decode_window(m: Circuit, window: Wire) -> Decode:
     cond = in32 & masked_eq(insn32, mask=0x0000707F, match=0x00003019)
     set_if(cond, op_v=OP_LDI, len_v=4, regdst_v=rd32, srcl_v=rs1_32, imm_v=imm12_s64)
 
+    # Block split command descriptors (CMD IQ -> BISQ).
+    cond = in32 & masked_eq(insn32, mask=0x0000007F, match=0x00000003)
+    set_if(cond, op_v=OP_BTEXT, len_v=4, srcl_v=rs1_32, imm_v=simm25_s64)
+
+    cond = in32 & masked_eq(insn32, mask=0x0600707F, match=0x00000013)
+    set_if(cond, op_v=OP_BIOR, len_v=4, regdst_v=rd32, srcl_v=rs1_32, srcr_v=rs2_32, srcp_v=srcp_32)
+
+    cond = in32 & masked_eq(insn32, mask=0x0000607F, match=0x00004013)
+    set_if(cond, op_v=OP_BLOAD, len_v=4, regdst_v=rd32, srcl_v=rs1_32, srcr_v=rs2_32, srcp_v=srcp_32)
+
+    cond = in32 & masked_eq(insn32, mask=0x0000607F, match=0x00006013)
+    set_if(cond, op_v=OP_BSTORE, len_v=4, regdst_v=rd32, srcl_v=rs1_32, srcr_v=rs2_32, srcp_v=srcp_32)
+
     cond = in32 & masked_eq(insn32, mask=0x00007FFF, match=0x00001001)
     set_if(cond, op_v=OP_BSTART_STD_FALL, len_v=4, regdst_v=REG_INVALID)
 
@@ -1111,3 +1133,72 @@ def decode_bundle_8B(m: Circuit, window: Wire) -> DecodeBundle:
         dec=[dec0, dec1, dec2, dec3],
         total_len_bytes=total,
     )
+
+
+@dataclass(frozen=True)
+class DecodeInfo:
+    op_id: int
+    symbol: str
+    mnemonic: str
+    major_cat: str
+    minor_cat: str
+    insn_len: int
+    mask: int
+    match: int
+    rd_kind: str
+    rs1_kind: str
+    rs2_kind: str
+    imm_kind: str
+    block_kind: str
+    cmd_kind: str
+    flags: str
+
+
+def _to_decode_info(meta) -> DecodeInfo | None:
+    if meta is None:
+        return None
+    return DecodeInfo(
+        op_id=meta.op_id,
+        symbol=meta.symbol,
+        mnemonic=meta.mnemonic,
+        major_cat=meta.major_cat,
+        minor_cat=meta.minor_cat,
+        insn_len=meta.insn_len,
+        mask=meta.mask,
+        match=meta.match,
+        rd_kind=meta.rd_kind,
+        rs1_kind=meta.rs1_kind,
+        rs2_kind=meta.rs2_kind,
+        imm_kind=meta.imm_kind,
+        block_kind=meta.block_kind,
+        cmd_kind=meta.cmd_kind,
+        flags=meta.flags,
+    )
+
+
+def decode_info_from_word(insn_word: int) -> DecodeInfo | None:
+    """Software decode metadata helper aligned with QEMU decode trees.
+
+    This path is used for parity/debug tooling and returns the shared contract:
+    op/category/mask-match/operand-shape metadata.
+    """
+    word = insn_word & ((1 << 64) - 1)
+
+    # 48-bit HL packed form has low nibble 0xE and takes priority.
+    if (word & 0xF) == 0xE:
+        hit48 = _to_decode_info(decode48_meta(word))
+        if hit48 is not None:
+            return hit48
+
+    low16 = word & 0xFFFF
+    is32_or_wider = (low16 & 0x1) != 0
+    if is32_or_wider:
+        hit64 = _to_decode_info(decode64_meta(word))
+        if hit64 is not None:
+            return hit64
+        hit32 = _to_decode_info(decode32_meta(word))
+        if hit32 is not None:
+            return hit32
+        return None
+
+    return _to_decode_info(decode16_meta(low16))

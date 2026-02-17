@@ -133,7 +133,11 @@ elif [[ "${ROOT_DIR}/cosim/linxcore_lockstep_runner.cpp" -nt "${RUNNER_BIN}" || 
 fi
 if [[ "${need_runner_build}" -ne 0 ]]; then
   echo "[cosim] building lockstep runner"
+  # Allow faster local debug builds via PYC_TB_CXXFLAGS (e.g. -O0).
+  # Default keeps optimized runner behavior.
+  CXXFLAGS_EXTRA="${PYC_TB_CXXFLAGS:--O2}"
   "${CXX:-clang++}" -std=c++17 -O2 -Wall -Wextra \
+    ${CXXFLAGS_EXTRA} \
     -I "${PYC_COMPAT_INCLUDE}" \
     -I "${PYC_API_INCLUDE}" \
     -I "${PYC_ROOT}/runtime" \
@@ -144,7 +148,12 @@ if [[ "${need_runner_build}" -ne 0 ]]; then
 fi
 
 echo "[cosim] building sparse memory ranges"
-RANGES="$(${ROOT_DIR}/tools/qemu/build_sparse_ranges.py --elf "${ELF}" --boot-sp "${BOOT_SP}" --force-et-rel)"
+RANGE_ARGS=(--elf "${ELF}" --boot-sp "${BOOT_SP}")
+# Keep ET_REL low-BSS policy strict: only force when explicitly requested.
+if [[ "${LINX_COSIM_FORCE_ET_REL:-0}" != "0" ]]; then
+  RANGE_ARGS+=(--force-et-rel)
+fi
+RANGES="$(${ROOT_DIR}/tools/qemu/build_sparse_ranges.py "${RANGE_ARGS[@]}")"
 
 cleanup() {
   local code=$?
