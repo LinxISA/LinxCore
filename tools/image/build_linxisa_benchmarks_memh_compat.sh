@@ -12,10 +12,21 @@ OBJCOPY="${LLVM_BIN}/llvm-objcopy"
 LINX_LD_SCRIPT="${LINX_LD_SCRIPT:-${HOME}/linx-libc/linx.ld}"
 LINX_TARGET="${LINX_TARGET:-linx64-linx-none-elf}"
 LINX_INCLUDE_LIBM="${LINX_INCLUDE_LIBM:-0}"
+PYC_ROOT="${PYC_ROOT:-${HOME}/pyCircuit}"
 
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/tests/benchmarks/build}"
 BUILD_DIR="${OUT_DIR}/obj"
 FALLBACK_BENCH_DIR="${ROOT_DIR}/tests/benchmarks/build"
+
+PYC_BENCH_FALLBACK_DIR="${PYC_BENCH_FALLBACK_DIR:-}"
+if [[ -z "${PYC_BENCH_FALLBACK_DIR}" ]]; then
+  # Prefer the pyCircuit leaf from the LinxISA superproject tree.
+  if [[ -d "${ROOT_DIR}/../../tools/pyCircuit/janus/generated/benchmarks" ]]; then
+    PYC_BENCH_FALLBACK_DIR="${ROOT_DIR}/../../tools/pyCircuit/janus/generated/benchmarks"
+  elif [[ -d "${PYC_ROOT}/janus/generated/benchmarks" ]]; then
+    PYC_BENCH_FALLBACK_DIR="${PYC_ROOT}/janus/generated/benchmarks"
+  fi
+fi
 
 CORE_ITERATIONS="${CORE_ITERATIONS:-10}"
 DHRY_RUNS="${DHRY_RUNS:-1000}"
@@ -38,13 +49,27 @@ if [[ ! -d "${LINXISA_DIR}/workloads/benchmarks" || ! -d "${LINXISA_DIR}/toolcha
 fi
 
 if [[ "${can_build}" == "0" ]]; then
-  core_fallback="${FALLBACK_BENCH_DIR}/coremark_full.memh"
-  dhry_fallback="${FALLBACK_BENCH_DIR}/dhrystone_full.memh"
-  if [[ ! -f "${core_fallback}" ]]; then
-    core_fallback="${PYC_ROOT:-/Users/zhoubot/pyCircuit}/designs/examples/linx_cpu/programs/test_csel_fixed.memh"
+  core_fallback=""
+  dhry_fallback=""
+  if [[ -n "${PYC_BENCH_FALLBACK_DIR}" ]]; then
+    if [[ -f "${PYC_BENCH_FALLBACK_DIR}/coremark_full.memh" ]]; then
+      core_fallback="${PYC_BENCH_FALLBACK_DIR}/coremark_full.memh"
+    fi
+    if [[ -f "${PYC_BENCH_FALLBACK_DIR}/dhrystone_full.memh" ]]; then
+      dhry_fallback="${PYC_BENCH_FALLBACK_DIR}/dhrystone_full.memh"
+    fi
   fi
-  if [[ ! -f "${dhry_fallback}" ]]; then
-    dhry_fallback="${PYC_ROOT:-/Users/zhoubot/pyCircuit}/designs/examples/linx_cpu/programs/test_or.memh"
+  if [[ -z "${core_fallback}" && -f "${FALLBACK_BENCH_DIR}/coremark_full.memh" ]]; then
+    core_fallback="${FALLBACK_BENCH_DIR}/coremark_full.memh"
+  fi
+  if [[ -z "${dhry_fallback}" && -f "${FALLBACK_BENCH_DIR}/dhrystone_full.memh" ]]; then
+    dhry_fallback="${FALLBACK_BENCH_DIR}/dhrystone_full.memh"
+  fi
+  if [[ -z "${core_fallback}" ]]; then
+    core_fallback="${PYC_ROOT}/designs/examples/linx_cpu/programs/test_csel_fixed.memh"
+  fi
+  if [[ -z "${dhry_fallback}" ]]; then
+    dhry_fallback="${PYC_ROOT}/designs/examples/linx_cpu/programs/test_or.memh"
   fi
   if [[ -f "${core_fallback}" && -f "${dhry_fallback}" ]]; then
     echo "${core_fallback}"
