@@ -29,45 +29,66 @@
   - 维度参数（等价 `LB0/LB1/LB2` 语义）
   - GM/TR 基地址、步长、tile 尺寸
   - layout/pad 配置（等价 `B.ARG`）
-  - 事务大小配置（`128B`/`256B` 可选）
+  - 注：`W5/W7`（超时、拆分上限、软件 cookie）延后到下一步计划
+  - 注：CHI 事务 `Size` 由 TMA 内部 uop 拆分策略生成，不由 BCC 显式传入
 
 ### 2.2 TMA -> BCC 完成接口
 
-- 继续沿用现有出口：
-  - `rsp_valid_tma`
-  - `rsp_tag_tma`
-  - `rsp_status_tma`
-  - `rsp_data0_tma`
-  - `rsp_data1_tma`
-- 状态码建议：
-  - `OK`
-  - `DECODE_ERR`
-  - `PROTOCOL_ERR`
-  - `ACCESS_ERR`
-  - `UNSUPPORTED`
-- `rsp_tag_tma` 必须与入队命令一一对应，保证 BCC 可安全推进提交指针。
+- 现有代码中的端口作用（`src/bcc/bctrl/bctrl.py` + `src/bcc/bctrl/brob.py` + `src/top/top.py`）：
+  - `rsp_valid_tma`：TMA 响应有效位；被 `BCtrl` 作为 PE 响应仲裁输入，并参与 `rsp_valid_brob` 聚合。
+  - `rsp_tag_tma`：事务标签；`BCtrl` 将其转发为 `rsp_tag_brob`，`BROB` 用标签低 4 位清除 pending bit。
+  - `rsp_status_tma`：状态码；当前在 `BCtrl` 内已聚合到 `pe_to_brob_stage_rsp_status_bctrl`，但 `BROB` 模块尚未消费该字段。
+  - `rsp_data0_tma` / `rsp_data1_tma`：返回数据；当前在 `BCtrl` 内已聚合到 `pe_to_brob_stage_rsp_data0/1_bctrl`，尚未被 `BROB` 使用。
+- 现有提交推进机制：
+  - issue 侧：`issue_fire_brob + issue_tag_brob` 置位 pending。
+  - complete 侧：`rsp_valid_brob + rsp_tag_brob` 清位 pending。
+  - 因此 TMA 必须保证 `rsp_tag_tma` 与已发射命令一一对应，且完成只上报一次。
+- 状态码规范（`rsp_status_tma[3:0]`）：
+  - `4'h0` `OK`：命令完成，数据与副作用均生效。
+  - `4'h1` `DECODE_ERR`：payload/descriptor 非法（字段越界、保留值、不支持组合）。
+  - `4'h2` `PROTOCOL_ERR`：CHI 握手或顺序违规（例如 `WriteData` 先于有效 `DBID`）。
+  - `4'h3` `ACCESS_ERR`：地址访问失败（译码/权限/目标返回 SLVERR 等）。
+  - `4'h4` `TIMEOUT`：事务在超时窗口内未完成。
+  - `4'h5` `UNSUPPORTED`：操作类型或参数在当前实现中未支持。
+  - `4'hF` `INTERNAL_ERR`：内部一致性错误（状态机非法迁移、计数器失配等）。
+- 集成要求：
+  - 当前版本至少保证 `rsp_valid_tma/rsp_tag_tma/rsp_status_tma` 在完成周期稳定采样。
+  - 为后续 `BROB` 扩展，`rsp_data0/1_tma` 保持语义化编码（见 `PAYLOAD_SPEC.md` 的 completion payload）。
 
-### 2.3 GM 侧 CHI 风格事务
+### 2.3 GM 侧事务映射（ARM CHI, Non-coherent）
 
-- 非一致性事务风格：
-  - 读：`ReadOnce`
-  - 写：`WriteUnique`
-- `WriteUnique` 必须覆盖三段交互：
-  - `WriteReq`
-  - `DBIDResp`
-  - `WriteData`
-- `Size` 可配置，首批支持：
-  - `128B`
-  - `256B`
+- 协议角色：TMA 作为 Requesting Node（RN），GM 侧内存系统作为 Home/Slave 侧。
+- 读事务：
+  - Req 通道发送 `ReadOnce`。
+  - Dat 通道接收 `CompData`（可多拍，按 `TxnID` 归并）。
+- 写事务：
+  - Req 通道发送 `WriteUnique`。
+  - Rsp 通道接收 `CompDBIDResp`（获取 `DBID`/写入信用）。
+  - Dat 通道发送 `NonCopyBackWrData`（绑定 `TxnID` 与 `DBID`）。
+  - Rsp 通道接收 `Comp` 作为写完成确认。
+- 事务大小：
+  - `Size` 字段参数化配置。
+  - 首批支持 `128B` 与 `256B`（由 TMA 内部拆分策略决定）。
+- 顺序约束：
+  - 同一写事务内必须满足 `WriteUnique(Req) -> CompDBIDResp(Rsp) -> WriteData(Dat) -> Comp(Rsp)`。
+  - 同一命令分片内的完成判定以全部分片收到终态响应为准。
 
-### 2.4 TR/TMU 侧 CHI 风格事务
+### 2.4 TR/TMU 侧事务映射（ARM CHI 风格 over Ring）
 
-- 通过 Ring 访问 TMU，事务风格采用 CHI-like：
-  - 读：`ReadNoSnp`
-  - 写：`WriteNoSnp`
-- 如果仓内缺失 Ring/TMU 协议细节：
-  - 先在 `tma` 内定义最小可用 CHI-like 本地接口（req/rsp/data 分离）
-  - 后续再通过 adapter 对接真实 Ring/TMU 实现。
+- 协议角色：TMA 作为 Ring master，经 TMU 接口访问 TR 空间。
+- 读事务：
+  - Req 通道发送 `ReadNoSnp`。
+  - Dat 通道接收 `CompData`。
+- 写事务：
+  - Req 通道发送 `WriteNoSnp`。
+  - Dat 通道发送 `NonCopyBackWrData`（若实现要求 DBID，则遵循 `CompDBIDResp` 后发数）。
+  - Rsp 通道接收 `Comp` 作为写完成确认。
+- 地址空间：
+  - TR 访问地址解释由 TMU/Ring 侧定义（tile index + tile offset 的线性化规则见 `PAYLOAD_SPEC.md`）。
+- 接口实现要求：
+  - 通道保持 CHI 三通道分离（Req/Rsp/Dat）。
+  - `TxnID` 在 TMA 内部唯一，支持并发分片归并。
+  - 错误响应统一上送 `rsp_status_tma`。
 
 ## 3. 目标微架构
 
@@ -227,4 +248,3 @@
 - 块指令解码到 TMA（把 `BSTART.TMA/B.ARG/B.DIM/B.IOR/B.IOT` 端到端落地到 `cmd_payload_tma`）。
 - LSU 中 memory model 相关地址重叠范围检查。
 - 预测执行下 `TLOAD` 被 flush 的取消、回滚与资源回收机制。
-
