@@ -396,23 +396,42 @@ PY
       done
     fi
 
+    # Clean up stale temp/zero-sized artifacts from interrupted builds.
+    rm -f "${GEN_OBJ_DIR}"/*.tmp* "${TB_OBJ_DIR}"/*.tmp* >/dev/null 2>&1 || true
+    find "${GEN_OBJ_DIR}" "${TB_OBJ_DIR}" -maxdepth 1 -type f \( -name '*.o' -o -name '*.obj' \) -size 0 -delete >/dev/null 2>&1 || true
+
     if [[ "${#compile_pairs[@]}" -gt 0 ]]; then
       compile_fail=0
+
+      compile_one() {
+        local src="$1"
+        local obj="$2"
+        # Compile atomically: write to a unique temp file then rename.
+        local tmp="${obj}.tmp.$$.$RANDOM"
+        rm -f "${tmp}" >/dev/null 2>&1 || true
+        if ! "${TB_CXX}" "${common_flags[@]}" -c "${src}" -o "${tmp}"; then
+          rm -f "${tmp}" >/dev/null 2>&1 || true
+          return 1
+        fi
+        mv -f "${tmp}" "${obj}"
+      }
+
       if [[ "${build_jobs}" -le 1 ]]; then
         for pair in "${compile_pairs[@]}"; do
           src="${pair%%$'\t'*}"
           obj="${pair#*$'\t'}"
-          if ! "${TB_CXX}" "${common_flags[@]}" -c "${src}" -o "${obj}"; then
+          if ! compile_one "${src}" "${obj}"; then
             compile_fail=1
             break
           fi
         done
       else
         pids=()
+        # Use a FIFO-ish wait loop; on failure we still wait remaining to avoid orphaned compilers.
         for pair in "${compile_pairs[@]}"; do
           src="${pair%%$'\t'*}"
           obj="${pair#*$'\t'}"
-          "${TB_CXX}" "${common_flags[@]}" -c "${src}" -o "${obj}" &
+          (compile_one "${src}" "${obj}") &
           pids+=("$!")
           if [[ "${#pids[@]}" -ge "${build_jobs}" ]]; then
             if ! wait "${pids[0]}"; then
@@ -433,6 +452,7 @@ PY
           done
         fi
       fi
+
       if [[ "${compile_fail}" -ne 0 ]]; then
         echo "error: parallel compile failed" >&2
         exit 2
