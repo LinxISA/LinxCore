@@ -14,6 +14,7 @@ TB_TRACE_UTIL_HDR="${ROOT_DIR}/tb/tb_linxcore_trace_util.hpp"
 TB_EXE="${GEN_CPP_DIR}/tb_linxcore_top_cpp"
 TB_OBJ_DIR="${GEN_CPP_DIR}/.tb_obj"
 GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
+MODEL_OBJ_BUILDER="${ROOT_DIR}/tools/generate/build_linxcore_model_objects.sh"
 TB_MAIN_OBJ="${TB_OBJ_DIR}/tb_linxcore_top.o"
 TB_TRACE_UTIL_OBJ="${TB_OBJ_DIR}/tb_linxcore_trace_util.o"
 TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O3 -DNDEBUG}"
@@ -361,39 +362,10 @@ PY
     if [[ -f "${TB_CXXFLAGS_CFG}" ]]; then
       cxxflags_cfg="$(cat "${TB_CXXFLAGS_CFG}")"
     fi
-    stale_gen_pairs=()
-    if [[ "${#GEN_SRC_OBJ_PAIRS[@]}" -gt 0 ]]; then
-      for pair in "${GEN_SRC_OBJ_PAIRS[@]}"; do
-        gen_src="${pair%%$'\t'*}"
-        gen_obj="${pair#*$'\t'}"
-        mkdir -p "$(dirname "${gen_obj}")"
-        if [[ ! -f "${gen_obj}" ]]; then
-          stale_gen_pairs+=("${pair}")
-          continue
-        fi
-        if [[ "${gen_src}" -nt "${gen_obj}" ]]; then
-          stale_gen_pairs+=("${pair}")
-          continue
-        fi
-        if find "${GEN_CPP_DIR}" -maxdepth 1 -name '*.hpp' -newer "${gen_obj}" | grep -q .; then
-          stale_gen_pairs+=("${pair}")
-          continue
-        fi
-        if [[ "${manifest_hash_cfg}" != "${CURRENT_MANIFEST_HASH}" ]]; then
-          stale_gen_pairs+=("${pair}")
-          continue
-        fi
-        if [[ "${cxxflags_cfg}" != "${TB_CXXFLAGS}" ]]; then
-          stale_gen_pairs+=("${pair}")
-          continue
-        fi
-      done
-    fi
-
-    if [[ "${#stale_gen_pairs[@]}" -gt 0 ]]; then
-      for pair in "${stale_gen_pairs[@]}"; do
-        compile_pairs+=("${pair}")
-      done
+    # Build/refresh the generated model objects via the shared builder.
+    if [[ -x "${MODEL_OBJ_BUILDER}" ]]; then
+      PYC_MODEL_CXXFLAGS="${TB_CXXFLAGS}" \
+        bash "${MODEL_OBJ_BUILDER}" >/dev/null
     fi
 
     # Clean up stale temp/zero-sized artifacts from interrupted builds.
@@ -466,6 +438,14 @@ PY
         gen_objs+=("${gen_obj}")
       done
     fi
+
+    # Sanity: ensure all generated objects exist (builder should have produced them).
+    for obj in "${gen_objs[@]}"; do
+      if [[ ! -f "${obj}" || ! -s "${obj}" ]]; then
+        echo "error: missing generated model object: ${obj}" >&2
+        exit 2
+      fi
+    done
 
     link_flags=(-std=c++17 ${TB_CXXFLAGS})
     if [[ "$(uname -s)" == "Darwin" ]]; then
