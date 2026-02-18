@@ -161,8 +161,11 @@ else
     --top "linxcore_top"
 fi
 
-CPP_SHARD_LINES="${PYC_CPP_SHARD_THRESHOLD_LINES:-60000}"
-CPP_SHARD_BYTES="${PYC_CPP_SHARD_THRESHOLD_BYTES:-2097152}"
+# Default shard thresholds tuned for developer iteration on large designs.
+# Smaller shards reduce single-TU compiler stress (esp. JanusBccBackendCompat tick) and
+# improve incremental rebuild latency.
+CPP_SHARD_LINES="${PYC_CPP_SHARD_THRESHOLD_LINES:-30000}"
+CPP_SHARD_BYTES="${PYC_CPP_SHARD_THRESHOLD_BYTES:-1048576}"
 "${PYC_COMPILE}" "${TMP_PYC}" \
   --emit=cpp \
   --logic-depth="${LOGIC_DEPTH}" \
