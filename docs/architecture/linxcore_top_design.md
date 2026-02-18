@@ -113,6 +113,28 @@ Important compatibility rule:
 
 - `BSTART.CALL` does not perform implicit RA write. Return-address writeback must come from explicit `setret` instruction behavior.
 
+## Tile/SIMT strict-v0.3 contracts
+
+LinxCore/QEMU bring-up is aligned on these enforced contracts:
+
+- Legacy `MCALL` naming maps to executable `BSTART.MPAR`/`BSTART.MSEQ` forms.
+- Tile descriptor families are `B.IOT` (dynamic size via `RegSrc`) and `B.IOTI` (immediate size via `SizeCode`).
+  `B.IOD` is deprecated for strict canonical streams.
+- Dynamic `B.IOT` size is fail-fast validated to strict `512B..4KB` policy.
+- Strict-v0.3 tile `DataType` mapping (u5):
+  - floating: `FP64=0`, `FP32=1`, `FP16=2`, `FP8=3`, `BF16=6`, `FPL8=7`, `FP4=11`, `FPL4=12`
+  - signed integer: `INT64=16`, `INT32=17`, `INT16=18`, `INT8=19`, `INT4=20`
+  - unsigned integer: `UINT64=24`, `UINT32=25`, `UINT16=26`, `UINT8=27`, `UINT4=28`
+- `TLOAD/TSTORE` use a 2D memory model: `LB0/LB1` define cols/rows and stride comes from `B.IOR` (`RegSrc0`) with `LB2`
+  fallback; runtime enforces stride alignment and `stride >= row_span`.
+- CUBE uses a singleton implicit ACC (no encoded ACC tile id). Canonical chain is:
+  `TMATMUL` -> zero or more `TMATMUL.ACC` -> `ACCCVT`.
+- Tile-byte legality is enforced with `ceil(dim0*dim1*dim2*element_bits/8) <= 4KB`
+  (block-family `dim2` default `1` when absent; `element_bits` derives from `DataType`).
+- For SIMT body blocks (`MPAR`, `MSEQ`, `VPAR`, `VSEQ`), header descriptor ingestion enforces at most 3 unique tile inputs
+  and 1 tile output.
+- `B.ATTR` full fields are captured in runtime state; SIMT bring-up currently restricts body-block usage to `aq/rl` bits.
+
 ## Scripts
 
 - Generate split artifacts:
