@@ -166,11 +166,17 @@ fi
 # improve incremental rebuild latency.
 CPP_SHARD_LINES="${PYC_CPP_SHARD_THRESHOLD_LINES:-30000}"
 CPP_SHARD_BYTES="${PYC_CPP_SHARD_THRESHOLD_BYTES:-1048576}"
+NOINLINE_FLAG=()
+if [[ "${PYC_NOINLINE:-1}" != "0" ]]; then
+  NOINLINE_FLAG=(--noinline)
+fi
+
 "${PYC_COMPILE}" "${TMP_PYC}" \
   --emit=cpp \
   --logic-depth="${LOGIC_DEPTH}" \
   --out-dir="${OUT_CPP_TMP}" \
   --cpp-split=module \
+  "${NOINLINE_FLAG[@]}" \
   --cpp-shard-threshold-lines="${CPP_SHARD_LINES}" \
   --cpp-shard-threshold-bytes="${CPP_SHARD_BYTES}"
 
