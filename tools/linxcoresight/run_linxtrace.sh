@@ -25,10 +25,16 @@ elif [[ "${name}" == *"dhrystone"* ]]; then
 fi
 mkdir -p "${out_dir}"
 
+LINXTRACE_GZ="${PYC_LINXTRACE_GZ:-1}"
+linxtrace_ext=".linxtrace.jsonl"
+if [[ "${LINXTRACE_GZ}" != "0" ]]; then
+  linxtrace_ext="${linxtrace_ext}.gz"
+fi
+
 if [[ "${MAX_COMMITS}" =~ ^[0-9]+$ ]] && [[ "${MAX_COMMITS}" -gt 0 ]]; then
-  linxtrace_path="${out_dir}/${name}_${MAX_COMMITS}insn.linxtrace.jsonl"
+  linxtrace_path="${out_dir}/${name}_${MAX_COMMITS}insn${linxtrace_ext}"
 else
-  linxtrace_path="${out_dir}/${name}.linxtrace.jsonl"
+  linxtrace_path="${out_dir}/${name}${linxtrace_ext}"
 fi
 
 if [[ "${MAX_COMMITS}" =~ ^[0-9]+$ ]] && [[ "${MAX_COMMITS}" -gt 0 ]]; then
@@ -39,7 +45,11 @@ fi
 commit_text_path="${commit_trace_path%.jsonl}.txt"
 raw_trace_path="${out_dir}/${name}.raw_events.jsonl"
 map_report_path="${out_dir}/${name}.linxtrace.map.json"
-meta_path="${linxtrace_path%.linxtrace.jsonl}.linxtrace.meta.json"
+meta_base="${linxtrace_path}"
+if [[ "${meta_base}" == *.gz ]]; then
+  meta_base="${meta_base%.gz}"
+fi
+meta_path="${meta_base%.linxtrace.jsonl}.linxtrace.meta.json"
 
 objdump_elf="${PYC_OBJDUMP_ELF:-${PYC_LINXTRACE_ELF:-}}"
 if [[ -z "${objdump_elf}" ]]; then
@@ -104,11 +114,15 @@ if [[ "${MAX_COMMITS}" =~ ^[0-9]+$ ]] && [[ "${MAX_COMMITS}" -gt 0 ]]; then
   python3 - "$linxtrace_path" "$MAX_COMMITS" <<'PY'
 import json
 import sys
+import gzip
 
 path = sys.argv[1]
 want = int(sys.argv[2])
 retired = 0
-with open(path, "r", errors="ignore") as f:
+
+opener = gzip.open if path.endswith('.gz') else open
+mode = 'rt' if path.endswith('.gz') else 'r'
+with opener(path, mode, errors="ignore") as f:
     for line in f:
         line = line.strip()
         if not line:

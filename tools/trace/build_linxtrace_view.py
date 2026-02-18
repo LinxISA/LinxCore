@@ -5,6 +5,7 @@ import argparse
 import bisect
 import collections
 import dataclasses
+import gzip
 import json
 import math
 import re
@@ -533,8 +534,14 @@ def main() -> int:
         meta_path = Path(args.meta_out)
     elif out_path.name.endswith(".linxtrace.jsonl"):
         meta_path = out_path.with_name(out_path.name.replace(".linxtrace.jsonl", ".linxtrace.meta.json"))
+    elif out_path.name.endswith(".linxtrace.jsonl.gz"):
+        meta_path = out_path.with_name(out_path.name.replace(".linxtrace.jsonl.gz", ".linxtrace.meta.json"))
     else:
-        meta_path = out_path.with_suffix(out_path.suffix + ".meta.json")
+        # Strip optional .gz for meta derivation.
+        stem = out_path
+        if stem.suffix == ".gz":
+            stem = stem.with_suffix("")
+        meta_path = stem.with_suffix(stem.suffix + ".meta.json")
     map_path = Path(args.map_report) if args.map_report else out_path.with_suffix(".map.json")
     commit_text_path = Path(args.commit_text) if args.commit_text else None
     elf_path = Path(args.elf) if args.elf else None
@@ -891,7 +898,13 @@ def main() -> int:
     stage_ids: set[str] = set()
     row_schema: List[Tuple[int, str]] = []
 
-    with out_path.open("w", encoding="utf-8") as out:
+    out_opener = None
+    if out_path.name.endswith(".gz"):
+        out_opener = lambda: gzip.open(out_path, "wt", encoding="utf-8")
+    else:
+        out_opener = lambda: out_path.open("w", encoding="utf-8")
+
+    with out_opener() as out:
         def emit(rec: dict) -> None:
             out.write(json.dumps(rec, sort_keys=True) + "\n")
 
