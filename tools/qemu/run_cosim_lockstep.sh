@@ -143,9 +143,17 @@ if [[ "${need_runner_build}" -ne 0 ]]; then
     PRIME_MEMH="${ROOT_DIR}/tests/benchmarks/build/coremark_real.memh"
   fi
   if [[ -f "${PRIME_MEMH}" ]]; then
+    # Ensure generated model objects exist before we try to link the runner.
+    # Do NOT swallow errors here: partial builds leave missing/zero-sized objects that later
+    # manifest as "missing generated object" with no useful context.
     PYC_TB_CXXFLAGS="${CXXFLAGS_EXTRA}" \
-      bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${PRIME_MEMH}" >/dev/null 2>&1 || true
+      bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${PRIME_MEMH}"
   fi
+
+  # If a previous build was interrupted, stale temp/zero-sized outputs can poison incremental rebuilds.
+  # Clean them proactively.
+  rm -f "${GEN_OBJ_DIR}"/*.tmp* >/dev/null 2>&1 || true
+  find "${GEN_OBJ_DIR}" -maxdepth 1 -type f -name '*.o' -size 0 -delete >/dev/null 2>&1 || true
 
   gen_objects=()
   while IFS= read -r obj_path; do
