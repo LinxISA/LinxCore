@@ -458,7 +458,7 @@ PY
       fi
     fi
     tmp_exe="${TB_EXE}.tmp.$$"
-    "${TB_CXX}" "${link_flags[@]}" -o "${tmp_exe}" "${TB_MAIN_OBJ}" "${TB_TRACE_UTIL_OBJ}" "${gen_objs[@]}"
+    "${TB_CXX}" "${link_flags[@]}" -o "${tmp_exe}" "${TB_MAIN_OBJ}" "${TB_TRACE_UTIL_OBJ}" "${gen_objs[@]}" -lz
     mv -f "${tmp_exe}" "${TB_EXE}"
     printf '%s\n' "${TB_CXXFLAGS}" > "${TB_CXXFLAGS_CFG}"
     printf '%s\n' "${CURRENT_MANIFEST_HASH}" > "${TB_MANIFEST_HASH_CFG}"

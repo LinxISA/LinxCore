@@ -5,6 +5,7 @@ import argparse
 import json
 from collections import Counter, defaultdict
 from pathlib import Path
+import gzip
 from typing import Dict, List, Set, Tuple
 
 
@@ -36,7 +37,14 @@ def _read_events(trace_path: Path) -> List[dict]:
     if not trace_path.exists():
         raise SystemExit(f"missing LinxTrace file: {trace_path}")
     events: List[dict] = []
-    with trace_path.open("r", encoding="utf-8", errors="replace") as f:
+
+    opener = None
+    if trace_path.name.endswith(".gz"):
+        opener = lambda: gzip.open(trace_path, "rt", encoding="utf-8", errors="replace")
+    else:
+        opener = lambda: trace_path.open("r", encoding="utf-8", errors="replace")
+
+    with opener() as f:
         for lineno, line in enumerate(f, 1):
             line = line.strip()
             if not line:
@@ -65,6 +73,8 @@ def main() -> int:
         meta_path = Path(args.meta)
     elif trace_path.name.endswith(".linxtrace.jsonl"):
         meta_path = trace_path.with_name(trace_path.name.replace(".linxtrace.jsonl", ".linxtrace.meta.json"))
+    elif trace_path.name.endswith(".linxtrace.jsonl.gz"):
+        meta_path = trace_path.with_name(trace_path.name.replace(".linxtrace.jsonl.gz", ".linxtrace.meta.json"))
     else:
         meta_path = trace_path.with_suffix(trace_path.suffix + ".meta.json")
 
