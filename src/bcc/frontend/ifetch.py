@@ -29,19 +29,19 @@ def build_ifetch(m: Circuit) -> None:
 
     fetch_bundle = decode_f4_bundle(m, imem_rdata)
     fetch_advance4 = fetch_bundle.total_len_bytes
-    fetch_advance4 = fetch_advance4.eq(c(0, width=4)).select(c(2, width=4), fetch_advance4)
-    fetch_advance64 = fetch_advance4.zext(width=64)
+    fetch_advance4 = fetch_advance4.__eq__(c(0, width=4))._select_internal(c(2, width=4), fetch_advance4)
+    fetch_advance64 = fetch_advance4._zext(width=64)
 
     fetch_valid = (~stall_i) & (~redirect_valid)
     seq_next_pc = fpc.out() + fetch_advance64
-    pred_next_pc = (pred_valid & pred_taken).select(pred_target, seq_next_pc)
+    pred_next_pc = (pred_valid & pred_taken)._select_internal(pred_target, seq_next_pc)
 
     fpc_next = fpc.out()
-    fpc_next = redirect_valid.select(redirect_pc, fpc_next)
-    fpc_next = fetch_valid.select(pred_next_pc, fpc_next)
+    fpc_next = redirect_valid._select_internal(redirect_pc, fpc_next)
+    fpc_next = fetch_valid._select_internal(pred_next_pc, fpc_next)
     fpc.set(fpc_next)
 
-    m.output("imem_raddr", redirect_valid.select(redirect_pc, fpc.out()))
+    m.output("imem_raddr", redirect_valid._select_internal(redirect_pc, fpc.out()))
     m.output("fetch_valid", fetch_valid)
     m.output("fetch_pc", fpc.out())
     m.output("fetch_window", imem_rdata)

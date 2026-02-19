@@ -30,7 +30,7 @@ def build_janus_tma(m: Circuit) -> None:
     count_down_tma = busy_tma.out() & wait_tma.out().ugt(c(0, width=3))
     wait_next_tma = count_down_tma._select_internal(wait_tma.out() - c(1, width=3), wait_next_tma)
 
-    rsp_fire_tma = busy_tma.out() & wait_tma.out().eq(c(0, width=3))
+    rsp_fire_tma = busy_tma.out() & wait_tma.out().__eq__(c(0, width=3))
     busy_next_tma = rsp_fire_tma._select_internal(c(0, width=1), busy_next_tma)
 
     busy_tma.set(busy_next_tma)

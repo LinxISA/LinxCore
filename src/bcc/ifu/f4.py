@@ -42,7 +42,7 @@ def build_janus_bcc_ifu_f4(m: Circuit) -> None:
     f4_bundle = decode_f4_bundle(m, f3_to_f4_stage_window_f3)
     f4_valid = flush_valid_fls._select_internal(c(0, width=1), f3_to_f4_stage_valid_f3)
     for slot in range(4):
-        slot_pc = f3_to_f4_stage_pc_f3 + f4_bundle.off_bytes[slot].zext(width=64)
+        slot_pc = f3_to_f4_stage_pc_f3 + f4_bundle.off_bytes[slot]._zext(width=64)
         slot_uid = (f3_to_f4_stage_pkt_uid_f3.shl(amount=3)) | c(slot, width=64)
         slot_valid = f4_valid & (c(1, width=1) if slot == 0 else c(0, width=1)) & f4_bundle.valid[slot]
         m.output(f"f4_slot_valid{slot}_f4", slot_valid)

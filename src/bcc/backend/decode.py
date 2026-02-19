@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, function, module
 
 from common.decode_f4 import decode_f4_bundle
 from common.isa import (
@@ -43,11 +43,12 @@ from common.isa import (
 from common.util import lshr_var
 
 
+@function
 def _op_is(m: Circuit, op, *codes: int):
     c = m.const
     v = c(0, width=1)
     for code in codes:
-        v = v | op.eq(c(code, width=12))
+        v = v | op.__eq__(c(code, width=12))
     return v
 
 
@@ -68,7 +69,7 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         dec = f4_bundle.dec[slot]
         v = f4_valid & f4_bundle.valid[slot]
         off = f4_bundle.off_bytes[slot]
-        pc = f4_pc + off.zext(width=64)
+        pc = f4_pc + off._zext(width=64)
 
         op = dec.op
         ln = dec.len_bytes
@@ -79,12 +80,12 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         shamt = dec.shamt
         srcp = dec.srcp
         imm = dec.imm
-        off_sh = off.zext(width=6).shl(amount=3)
+        off_sh = off._zext(width=6).shl(amount=3)
         slot_window = lshr_var(m, f4_window, off_sh)
         insn_raw = slot_window
-        insn_raw = ln.eq(c(2, width=3)).select(slot_window & c(0xFFFF, width=64), insn_raw)
-        insn_raw = ln.eq(c(4, width=3)).select(slot_window & c(0xFFFF_FFFF, width=64), insn_raw)
-        insn_raw = ln.eq(c(6, width=3)).select(slot_window & c(0xFFFF_FFFF_FFFF, width=64), insn_raw)
+        insn_raw = ln.__eq__(c(2, width=3))._select_internal(slot_window & c(0xFFFF, width=64), insn_raw)
+        insn_raw = ln.__eq__(c(4, width=3))._select_internal(slot_window & c(0xFFFF_FFFF, width=64), insn_raw)
+        insn_raw = ln.__eq__(c(6, width=3))._select_internal(slot_window & c(0xFFFF_FFFF_FFFF, width=64), insn_raw)
 
         is_macro = _op_is(m, op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
         is_bstart = _op_is(
@@ -98,7 +99,7 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
             OP_BSTART_STD_COND,
             OP_BSTART_STD_CALL,
         )
-        is_bstop = op.eq(c(OP_C_BSTOP, width=12))
+        is_bstop = op.__eq__(c(OP_C_BSTOP, width=12))
         is_boundary = is_bstart | is_bstop
         is_start = (
             _op_is(
@@ -115,36 +116,36 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
             | is_macro
         )
         boundary_kind = c(BK_FALL, width=3)
-        boundary_kind = op.eq(c(OP_C_BSTART_COND, width=12)).select(c(BK_COND, width=3), boundary_kind)
-        boundary_kind = op.eq(c(OP_C_BSTART_DIRECT, width=12)).select(c(BK_DIRECT, width=3), boundary_kind)
-        boundary_kind = op.eq(c(OP_BSTART_STD_FALL, width=12)).select(c(BK_FALL, width=3), boundary_kind)
-        boundary_kind = op.eq(c(OP_BSTART_STD_DIRECT, width=12)).select(c(BK_DIRECT, width=3), boundary_kind)
-        boundary_kind = op.eq(c(OP_BSTART_STD_COND, width=12)).select(c(BK_COND, width=3), boundary_kind)
-        boundary_kind = op.eq(c(OP_BSTART_STD_CALL, width=12)).select(c(BK_CALL, width=3), boundary_kind)
-        brtype = imm.trunc(width=3)
-        boundary_kind = (op.eq(c(OP_C_BSTART_STD, width=12)) & brtype.eq(c(0, width=3))).select(c(BK_FALL, width=3), boundary_kind)
-        boundary_kind = (op.eq(c(OP_C_BSTART_STD, width=12)) & brtype.eq(c(2, width=3))).select(c(BK_DIRECT, width=3), boundary_kind)
-        boundary_kind = (op.eq(c(OP_C_BSTART_STD, width=12)) & brtype.eq(c(3, width=3))).select(c(BK_COND, width=3), boundary_kind)
-        boundary_kind = (op.eq(c(OP_C_BSTART_STD, width=12)) & brtype.eq(c(4, width=3))).select(c(BK_CALL, width=3), boundary_kind)
-        boundary_kind = (op.eq(c(OP_C_BSTART_STD, width=12)) & brtype.eq(c(5, width=3))).select(c(BK_IND, width=3), boundary_kind)
-        boundary_kind = (op.eq(c(OP_C_BSTART_STD, width=12)) & brtype.eq(c(6, width=3))).select(c(BK_ICALL, width=3), boundary_kind)
-        boundary_kind = (op.eq(c(OP_C_BSTART_STD, width=12)) & brtype.eq(c(7, width=3))).select(c(BK_RET, width=3), boundary_kind)
+        boundary_kind = op.__eq__(c(OP_C_BSTART_COND, width=12))._select_internal(c(BK_COND, width=3), boundary_kind)
+        boundary_kind = op.__eq__(c(OP_C_BSTART_DIRECT, width=12))._select_internal(c(BK_DIRECT, width=3), boundary_kind)
+        boundary_kind = op.__eq__(c(OP_BSTART_STD_FALL, width=12))._select_internal(c(BK_FALL, width=3), boundary_kind)
+        boundary_kind = op.__eq__(c(OP_BSTART_STD_DIRECT, width=12))._select_internal(c(BK_DIRECT, width=3), boundary_kind)
+        boundary_kind = op.__eq__(c(OP_BSTART_STD_COND, width=12))._select_internal(c(BK_COND, width=3), boundary_kind)
+        boundary_kind = op.__eq__(c(OP_BSTART_STD_CALL, width=12))._select_internal(c(BK_CALL, width=3), boundary_kind)
+        brtype = imm._trunc(width=3)
+        boundary_kind = (op.__eq__(c(OP_C_BSTART_STD, width=12)) & brtype.__eq__(c(0, width=3)))._select_internal(c(BK_FALL, width=3), boundary_kind)
+        boundary_kind = (op.__eq__(c(OP_C_BSTART_STD, width=12)) & brtype.__eq__(c(2, width=3)))._select_internal(c(BK_DIRECT, width=3), boundary_kind)
+        boundary_kind = (op.__eq__(c(OP_C_BSTART_STD, width=12)) & brtype.__eq__(c(3, width=3)))._select_internal(c(BK_COND, width=3), boundary_kind)
+        boundary_kind = (op.__eq__(c(OP_C_BSTART_STD, width=12)) & brtype.__eq__(c(4, width=3)))._select_internal(c(BK_CALL, width=3), boundary_kind)
+        boundary_kind = (op.__eq__(c(OP_C_BSTART_STD, width=12)) & brtype.__eq__(c(5, width=3)))._select_internal(c(BK_IND, width=3), boundary_kind)
+        boundary_kind = (op.__eq__(c(OP_C_BSTART_STD, width=12)) & brtype.__eq__(c(6, width=3)))._select_internal(c(BK_ICALL, width=3), boundary_kind)
+        boundary_kind = (op.__eq__(c(OP_C_BSTART_STD, width=12)) & brtype.__eq__(c(7, width=3)))._select_internal(c(BK_RET, width=3), boundary_kind)
         boundary_target = c(0, width=64)
-        boundary_target = op.eq(c(OP_C_BSTART_COND, width=12)).select(pc + imm, boundary_target)
-        boundary_target = op.eq(c(OP_C_BSTART_DIRECT, width=12)).select(pc + imm, boundary_target)
-        boundary_target = op.eq(c(OP_BSTART_STD_DIRECT, width=12)).select(pc + imm, boundary_target)
-        boundary_target = op.eq(c(OP_BSTART_STD_COND, width=12)).select(pc + imm, boundary_target)
-        boundary_target = op.eq(c(OP_BSTART_STD_CALL, width=12)).select(pc + imm, boundary_target)
+        boundary_target = op.__eq__(c(OP_C_BSTART_COND, width=12))._select_internal(pc + imm, boundary_target)
+        boundary_target = op.__eq__(c(OP_C_BSTART_DIRECT, width=12))._select_internal(pc + imm, boundary_target)
+        boundary_target = op.__eq__(c(OP_BSTART_STD_DIRECT, width=12))._select_internal(pc + imm, boundary_target)
+        boundary_target = op.__eq__(c(OP_BSTART_STD_COND, width=12))._select_internal(pc + imm, boundary_target)
+        boundary_target = op.__eq__(c(OP_BSTART_STD_CALL, width=12))._select_internal(pc + imm, boundary_target)
         # Static bring-up predictor:
         # - COND blocks: backward target => taken, forward => not-taken.
         # - RET blocks: keep not-taken baseline (validated by BRU setc path).
         cond_pred_take = boundary_target.ult(pc)
         pred_take = c(1, width=1)
-        pred_take = boundary_kind.eq(c(BK_COND, width=3)).select(cond_pred_take, pred_take)
-        pred_take = boundary_kind.eq(c(BK_RET, width=3)).select(c(0, width=1), pred_take)
+        pred_take = boundary_kind.__eq__(c(BK_COND, width=3))._select_internal(cond_pred_take, pred_take)
+        pred_take = boundary_kind.__eq__(c(BK_RET, width=3))._select_internal(c(0, width=1), pred_take)
         resolved_d2 = is_boundary
-        push_t = regdst.eq(c(31, width=6)) | op.eq(c(OP_C_LWI, width=12))
-        push_u = regdst.eq(c(30, width=6))
+        push_t = regdst.__eq__(c(31, width=6)) | op.__eq__(c(OP_C_LWI, width=12))
+        push_u = regdst.__eq__(c(30, width=6))
         is_store = _op_is(
             m,
             op,
@@ -164,17 +165,17 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
             OP_HL_SD_PCR,
         )
 
-        dst_is_invalid = regdst.eq(c(REG_INVALID, width=6))
-        dst_is_zero = regdst.eq(c(0, width=6))
+        dst_is_invalid = regdst.__eq__(c(REG_INVALID, width=6))
+        dst_is_zero = regdst.__eq__(c(0, width=6))
         dst_is_gpr_range = (~regdst[5]) & (~(regdst[4] & regdst[3]))
         dst_is_gpr = dst_is_gpr_range & (~dst_is_invalid) & (~dst_is_zero) & (~push_t) & (~push_u)
         need_pdst = dst_is_gpr | push_t | push_u
 
         dst_kind = c(0, width=2)
-        dst_kind = dst_is_gpr.select(c(1, width=2), dst_kind)
-        dst_kind = push_t.select(c(2, width=2), dst_kind)
-        dst_kind = push_u.select(c(3, width=2), dst_kind)
-        ckpt_tag = is_start.select(f4_checkpoint_id + c(slot, width=6), c(0, width=6))
+        dst_kind = dst_is_gpr._select_internal(c(1, width=2), dst_kind)
+        dst_kind = push_t._select_internal(c(2, width=2), dst_kind)
+        dst_kind = push_u._select_internal(c(3, width=2), dst_kind)
+        ckpt_tag = is_start._select_internal(f4_checkpoint_id + c(slot, width=6), c(0, width=6))
         # Global UID namespace:
         # lower 3 bits encode dynamic class/lane for pipeview stability.
         # - fetch/decode uops use lane ids [0..3]
@@ -208,7 +209,7 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         m.output(f"dst_kind{slot}", dst_kind)
         m.output(f"checkpoint_id{slot}", ckpt_tag)
         m.output(f"uop_uid{slot}", uop_uid)
-        disp_count = disp_count + v.zext(width=3)
+        disp_count = disp_count + v._zext(width=3)
 
     m.output("dispatch_count", disp_count)
     m.output("dec_op", f4_bundle.dec[0].op)

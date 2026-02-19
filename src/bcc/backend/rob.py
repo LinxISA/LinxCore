@@ -65,31 +65,31 @@ def build_rob_ctrl_stage(
     tail_next = rob_tail
     count_next = rob_count
 
-    head_next = do_flush.select(c(0, width=rob_w), head_next)
-    tail_next = do_flush.select(c(0, width=rob_w), tail_next)
-    count_next = do_flush.select(c(0, width=rob_w + 1), count_next)
+    head_next = do_flush._select_internal(c(0, width=rob_w), head_next)
+    tail_next = do_flush._select_internal(c(0, width=rob_w), tail_next)
+    count_next = do_flush._select_internal(c(0, width=rob_w + 1), count_next)
 
     inc_head = commit_fire & (~do_flush)
     inc_tail = dispatch_fire & (~do_flush)
 
     head_inc = commit_count
     if rob_w > head_inc.width:
-        head_inc = head_inc.zext(width=rob_w)
+        head_inc = head_inc._zext(width=rob_w)
     elif rob_w < head_inc.width:
-        head_inc = head_inc.trunc(width=rob_w)
-    head_next = inc_head.select(rob_head + head_inc, head_next)
+        head_inc = head_inc._trunc(width=rob_w)
+    head_next = inc_head._select_internal(rob_head + head_inc, head_next)
 
     disp_tail_inc = disp_count
     if rob_w > disp_tail_inc.width:
-        disp_tail_inc = disp_tail_inc.zext(width=rob_w)
+        disp_tail_inc = disp_tail_inc._zext(width=rob_w)
     elif rob_w < disp_tail_inc.width:
-        disp_tail_inc = disp_tail_inc.trunc(width=rob_w)
-    tail_next = inc_tail.select(rob_tail + disp_tail_inc, tail_next)
+        disp_tail_inc = disp_tail_inc._trunc(width=rob_w)
+    tail_next = inc_tail._select_internal(rob_tail + disp_tail_inc, tail_next)
 
-    commit_dec = commit_count.zext(width=rob_w + 1)
+    commit_dec = commit_count._zext(width=rob_w + 1)
     commit_dec_neg = (~commit_dec) + c(1, width=rob_w + 1)
-    count_next = inc_tail.select(count_next + disp_count.zext(width=rob_w + 1), count_next)
-    count_next = inc_head.select(count_next + commit_dec_neg, count_next)
+    count_next = inc_tail._select_internal(count_next + disp_count._zext(width=rob_w + 1), count_next)
+    count_next = inc_head._select_internal(count_next + commit_dec_neg, count_next)
 
     m.output("head_next", head_next)
     m.output("tail_next", tail_next)
@@ -241,31 +241,31 @@ def build_rob_entry_update_stage(
 
     commit_hit = c(0, width=1)
     for slot in range(commit_w):
-        commit_hit = commit_hit | (commit_fires[slot] & commit_idxs[slot].eq(idx))
+        commit_hit = commit_hit | (commit_fires[slot] & commit_idxs[slot].__eq__(idx))
 
     disp_hit = c(0, width=1)
     for slot in range(dispatch_w):
-        disp_hit = disp_hit | (disp_fires[slot] & disp_rob_idxs[slot].eq(idx))
+        disp_hit = disp_hit | (disp_fires[slot] & disp_rob_idxs[slot].__eq__(idx))
 
     wb_hit = c(0, width=1)
     for slot in range(issue_w):
-        wb_hit = wb_hit | (wb_fires[slot] & wb_robs[slot].eq(idx))
+        wb_hit = wb_hit | (wb_fires[slot] & wb_robs[slot].__eq__(idx))
 
     valid_next = old_valid
-    valid_next = do_flush.select(c(0, width=1), valid_next)
-    valid_next = commit_hit.select(c(0, width=1), valid_next)
-    valid_next = disp_hit.select(c(1, width=1), valid_next)
+    valid_next = do_flush._select_internal(c(0, width=1), valid_next)
+    valid_next = commit_hit._select_internal(c(0, width=1), valid_next)
+    valid_next = disp_hit._select_internal(c(1, width=1), valid_next)
 
     done_next = old_done
-    done_next = do_flush.select(c(0, width=1), done_next)
-    done_next = commit_hit.select(c(0, width=1), done_next)
-    done_next = disp_hit.select(c(0, width=1), done_next)
+    done_next = do_flush._select_internal(c(0, width=1), done_next)
+    done_next = commit_hit._select_internal(c(0, width=1), done_next)
+    done_next = disp_hit._select_internal(c(0, width=1), done_next)
     for slot in range(dispatch_w):
-        hit = disp_fires[slot] & disp_rob_idxs[slot].eq(idx)
-        is_macro = disp_ops[slot].eq(c(OP_FENTRY, width=12)) | disp_ops[slot].eq(c(OP_FEXIT, width=12))
-        is_macro = is_macro | disp_ops[slot].eq(c(OP_FRET_RA, width=12)) | disp_ops[slot].eq(c(OP_FRET_STK, width=12))
-        done_next = (hit & (is_macro | disp_resolved_d2s[slot])).select(c(1, width=1), done_next)
-    done_next = wb_hit.select(c(1, width=1), done_next)
+        hit = disp_fires[slot] & disp_rob_idxs[slot].__eq__(idx)
+        is_macro = disp_ops[slot].__eq__(c(OP_FENTRY, width=12)) | disp_ops[slot].__eq__(c(OP_FEXIT, width=12))
+        is_macro = is_macro | disp_ops[slot].__eq__(c(OP_FRET_RA, width=12)) | disp_ops[slot].__eq__(c(OP_FRET_STK, width=12))
+        done_next = (hit & (is_macro | disp_resolved_d2s[slot]))._select_internal(c(1, width=1), done_next)
+    done_next = wb_hit._select_internal(c(1, width=1), done_next)
 
     pc_next = old_pc
     op_next = old_op
@@ -276,26 +276,26 @@ def build_rob_entry_update_stage(
     dst_areg_next = old_dst_areg
     pdst_next = old_pdst
     for slot in range(dispatch_w):
-        hit = disp_fires[slot] & disp_rob_idxs[slot].eq(idx)
-        pc_next = hit.select(disp_pcs[slot], pc_next)
-        op_next = hit.select(disp_ops[slot], op_next)
-        len_next = hit.select(disp_lens[slot], len_next)
-        insn_raw_next = hit.select(disp_insn_raws[slot], insn_raw_next)
-        checkpoint_id_next = hit.select(disp_checkpoint_ids[slot], checkpoint_id_next)
-        dst_kind_next = hit.select(disp_dst_kinds[slot], dst_kind_next)
-        dst_areg_next = hit.select(disp_regdsts[slot], dst_areg_next)
-        pdst_next = hit.select(disp_pdsts[slot], pdst_next)
+        hit = disp_fires[slot] & disp_rob_idxs[slot].__eq__(idx)
+        pc_next = hit._select_internal(disp_pcs[slot], pc_next)
+        op_next = hit._select_internal(disp_ops[slot], op_next)
+        len_next = hit._select_internal(disp_lens[slot], len_next)
+        insn_raw_next = hit._select_internal(disp_insn_raws[slot], insn_raw_next)
+        checkpoint_id_next = hit._select_internal(disp_checkpoint_ids[slot], checkpoint_id_next)
+        dst_kind_next = hit._select_internal(disp_dst_kinds[slot], dst_kind_next)
+        dst_areg_next = hit._select_internal(disp_regdsts[slot], dst_areg_next)
+        pdst_next = hit._select_internal(disp_pdsts[slot], pdst_next)
 
     value_next = old_value
-    value_next = disp_hit.select(c(0, width=64), value_next)
+    value_next = disp_hit._select_internal(c(0, width=64), value_next)
     for slot in range(dispatch_w):
-        hit = disp_fires[slot] & disp_rob_idxs[slot].eq(idx)
-        is_macro = disp_ops[slot].eq(c(OP_FENTRY, width=12)) | disp_ops[slot].eq(c(OP_FEXIT, width=12))
-        is_macro = is_macro | disp_ops[slot].eq(c(OP_FRET_RA, width=12)) | disp_ops[slot].eq(c(OP_FRET_STK, width=12))
-        value_next = (hit & is_macro).select(disp_imms[slot], value_next)
+        hit = disp_fires[slot] & disp_rob_idxs[slot].__eq__(idx)
+        is_macro = disp_ops[slot].__eq__(c(OP_FENTRY, width=12)) | disp_ops[slot].__eq__(c(OP_FEXIT, width=12))
+        is_macro = is_macro | disp_ops[slot].__eq__(c(OP_FRET_RA, width=12)) | disp_ops[slot].__eq__(c(OP_FRET_STK, width=12))
+        value_next = (hit & is_macro)._select_internal(disp_imms[slot], value_next)
     for slot in range(issue_w):
-        hit = wb_fires[slot] & wb_robs[slot].eq(idx)
-        value_next = hit.select(wb_values[slot], value_next)
+        hit = wb_fires[slot] & wb_robs[slot].__eq__(idx)
+        value_next = hit._select_internal(wb_values[slot], value_next)
 
     src0_reg_next = old_src0_reg
     src1_reg_next = old_src1_reg
@@ -304,61 +304,61 @@ def build_rob_entry_update_stage(
     src0_value_next = old_src0_value
     src1_value_next = old_src1_value
 
-    src0_valid_next = do_flush.select(c(0, width=1), src0_valid_next)
-    src1_valid_next = do_flush.select(c(0, width=1), src1_valid_next)
-    src0_valid_next = commit_hit.select(c(0, width=1), src0_valid_next)
-    src1_valid_next = commit_hit.select(c(0, width=1), src1_valid_next)
-    src0_value_next = do_flush.select(c(0, width=64), src0_value_next)
-    src1_value_next = do_flush.select(c(0, width=64), src1_value_next)
-    src0_value_next = commit_hit.select(c(0, width=64), src0_value_next)
-    src1_value_next = commit_hit.select(c(0, width=64), src1_value_next)
-    src0_value_next = disp_hit.select(c(0, width=64), src0_value_next)
-    src1_value_next = disp_hit.select(c(0, width=64), src1_value_next)
+    src0_valid_next = do_flush._select_internal(c(0, width=1), src0_valid_next)
+    src1_valid_next = do_flush._select_internal(c(0, width=1), src1_valid_next)
+    src0_valid_next = commit_hit._select_internal(c(0, width=1), src0_valid_next)
+    src1_valid_next = commit_hit._select_internal(c(0, width=1), src1_valid_next)
+    src0_value_next = do_flush._select_internal(c(0, width=64), src0_value_next)
+    src1_value_next = do_flush._select_internal(c(0, width=64), src1_value_next)
+    src0_value_next = commit_hit._select_internal(c(0, width=64), src0_value_next)
+    src1_value_next = commit_hit._select_internal(c(0, width=64), src1_value_next)
+    src0_value_next = disp_hit._select_internal(c(0, width=64), src0_value_next)
+    src1_value_next = disp_hit._select_internal(c(0, width=64), src1_value_next)
 
     for slot in range(dispatch_w):
-        hit = disp_fires[slot] & disp_rob_idxs[slot].eq(idx)
-        src0_reg_next = hit.select(disp_srcls[slot], src0_reg_next)
-        src1_reg_next = hit.select(disp_srcrs[slot], src1_reg_next)
-        src0_valid_next = hit.select(~disp_srcls[slot].eq(c(63, width=6)), src0_valid_next)
-        src1_valid_next = hit.select(~disp_srcrs[slot].eq(c(63, width=6)), src1_valid_next)
+        hit = disp_fires[slot] & disp_rob_idxs[slot].__eq__(idx)
+        src0_reg_next = hit._select_internal(disp_srcls[slot], src0_reg_next)
+        src1_reg_next = hit._select_internal(disp_srcrs[slot], src1_reg_next)
+        src0_valid_next = hit._select_internal(~disp_srcls[slot].__eq__(c(63, width=6)), src0_valid_next)
+        src1_valid_next = hit._select_internal(~disp_srcrs[slot].__eq__(c(63, width=6)), src1_valid_next)
 
     for slot in range(issue_w):
-        hit = wb_fires[slot] & wb_robs[slot].eq(idx)
-        src0_value_next = hit.select(ex_src0s[slot], src0_value_next)
-        src1_value_next = hit.select(ex_src1s[slot], src1_value_next)
+        hit = wb_fires[slot] & wb_robs[slot].__eq__(idx)
+        src0_value_next = hit._select_internal(ex_src0s[slot], src0_value_next)
+        src1_value_next = hit._select_internal(ex_src1s[slot], src1_value_next)
 
     is_store_next = old_is_store
     is_load_next = old_is_load
     for slot in range(dispatch_w):
-        hit = disp_fires[slot] & disp_rob_idxs[slot].eq(idx)
-        is_store_next = hit.select(disp_is_stores[slot], is_store_next)
-        is_load_next = hit.select(c(0, width=1), is_load_next)
+        hit = disp_fires[slot] & disp_rob_idxs[slot].__eq__(idx)
+        is_store_next = hit._select_internal(disp_is_stores[slot], is_store_next)
+        is_load_next = hit._select_internal(c(0, width=1), is_load_next)
 
     store_addr_next = old_store_addr
     store_data_next = old_store_data
     store_size_next = old_store_size
-    store_addr_next = disp_hit.select(c(0, width=64), store_addr_next)
-    store_data_next = disp_hit.select(c(0, width=64), store_data_next)
-    store_size_next = disp_hit.select(c(0, width=4), store_size_next)
+    store_addr_next = disp_hit._select_internal(c(0, width=64), store_addr_next)
+    store_data_next = disp_hit._select_internal(c(0, width=64), store_data_next)
+    store_size_next = disp_hit._select_internal(c(0, width=4), store_size_next)
     for slot in range(issue_w):
-        hit = store_fires[slot] & wb_robs[slot].eq(idx)
-        store_addr_next = hit.select(ex_addrs[slot], store_addr_next)
-        store_data_next = hit.select(ex_wdatas[slot], store_data_next)
-        store_size_next = hit.select(ex_sizes[slot], store_size_next)
+        hit = store_fires[slot] & wb_robs[slot].__eq__(idx)
+        store_addr_next = hit._select_internal(ex_addrs[slot], store_addr_next)
+        store_data_next = hit._select_internal(ex_wdatas[slot], store_data_next)
+        store_size_next = hit._select_internal(ex_sizes[slot], store_size_next)
 
     load_addr_next = old_load_addr
     load_data_next = old_load_data
     load_size_next = old_load_size
-    load_addr_next = disp_hit.select(c(0, width=64), load_addr_next)
-    load_data_next = disp_hit.select(c(0, width=64), load_data_next)
-    load_size_next = disp_hit.select(c(0, width=4), load_size_next)
+    load_addr_next = disp_hit._select_internal(c(0, width=64), load_addr_next)
+    load_data_next = disp_hit._select_internal(c(0, width=64), load_data_next)
+    load_size_next = disp_hit._select_internal(c(0, width=4), load_size_next)
     for slot in range(issue_w):
-        hit = load_fires[slot] & wb_robs[slot].eq(idx)
-        load_addr_next = hit.select(ex_addrs[slot], load_addr_next)
-        load_data_next = hit.select(wb_values[slot], load_data_next)
-        load_size_next = hit.select(ex_sizes[slot], load_size_next)
-        is_load_next = hit.select(c(1, width=1), is_load_next)
-        is_store_next = hit.select(c(0, width=1), is_store_next)
+        hit = load_fires[slot] & wb_robs[slot].__eq__(idx)
+        load_addr_next = hit._select_internal(ex_addrs[slot], load_addr_next)
+        load_data_next = hit._select_internal(wb_values[slot], load_data_next)
+        load_size_next = hit._select_internal(ex_sizes[slot], load_size_next)
+        is_load_next = hit._select_internal(c(1, width=1), is_load_next)
+        is_store_next = hit._select_internal(c(0, width=1), is_store_next)
 
     is_boundary_next = old_is_boundary
     is_bstart_next = old_is_bstart
@@ -372,41 +372,41 @@ def build_rob_entry_update_stage(
     load_store_id_next = old_load_store_id
     resolved_d2_next = old_resolved_d2
     for slot in range(dispatch_w):
-        hit = disp_fires[slot] & disp_rob_idxs[slot].eq(idx)
-        is_boundary_next = hit.select(disp_is_boundaries[slot], is_boundary_next)
-        is_bstart_next = hit.select(disp_is_bstarts[slot], is_bstart_next)
-        is_bstop_next = hit.select(disp_is_bstops[slot], is_bstop_next)
-        boundary_kind_next = hit.select(disp_boundary_kinds[slot], boundary_kind_next)
-        boundary_target_next = hit.select(disp_boundary_targets[slot], boundary_target_next)
-        pred_take_next = hit.select(disp_pred_takes[slot], pred_take_next)
-        block_epoch_next = hit.select(disp_block_epochs[slot], block_epoch_next)
-        block_uid_next = hit.select(disp_block_uids[slot], block_uid_next)
-        block_bid_next = hit.select(disp_block_bids[slot], block_bid_next)
-        load_store_id_next = hit.select(disp_load_store_ids[slot], load_store_id_next)
-        resolved_d2_next = hit.select(disp_resolved_d2s[slot], resolved_d2_next)
-    block_epoch_next = commit_hit.select(c(0, width=16), block_epoch_next)
-    block_epoch_next = do_flush.select(c(0, width=16), block_epoch_next)
-    block_uid_next = commit_hit.select(c(0, width=64), block_uid_next)
-    block_uid_next = do_flush.select(c(0, width=64), block_uid_next)
-    block_bid_next = commit_hit.select(c(0, width=64), block_bid_next)
-    block_bid_next = do_flush.select(c(0, width=64), block_bid_next)
-    load_store_id_next = commit_hit.select(c(0, width=32), load_store_id_next)
-    load_store_id_next = do_flush.select(c(0, width=32), load_store_id_next)
+        hit = disp_fires[slot] & disp_rob_idxs[slot].__eq__(idx)
+        is_boundary_next = hit._select_internal(disp_is_boundaries[slot], is_boundary_next)
+        is_bstart_next = hit._select_internal(disp_is_bstarts[slot], is_bstart_next)
+        is_bstop_next = hit._select_internal(disp_is_bstops[slot], is_bstop_next)
+        boundary_kind_next = hit._select_internal(disp_boundary_kinds[slot], boundary_kind_next)
+        boundary_target_next = hit._select_internal(disp_boundary_targets[slot], boundary_target_next)
+        pred_take_next = hit._select_internal(disp_pred_takes[slot], pred_take_next)
+        block_epoch_next = hit._select_internal(disp_block_epochs[slot], block_epoch_next)
+        block_uid_next = hit._select_internal(disp_block_uids[slot], block_uid_next)
+        block_bid_next = hit._select_internal(disp_block_bids[slot], block_bid_next)
+        load_store_id_next = hit._select_internal(disp_load_store_ids[slot], load_store_id_next)
+        resolved_d2_next = hit._select_internal(disp_resolved_d2s[slot], resolved_d2_next)
+    block_epoch_next = commit_hit._select_internal(c(0, width=16), block_epoch_next)
+    block_epoch_next = do_flush._select_internal(c(0, width=16), block_epoch_next)
+    block_uid_next = commit_hit._select_internal(c(0, width=64), block_uid_next)
+    block_uid_next = do_flush._select_internal(c(0, width=64), block_uid_next)
+    block_bid_next = commit_hit._select_internal(c(0, width=64), block_bid_next)
+    block_bid_next = do_flush._select_internal(c(0, width=64), block_bid_next)
+    load_store_id_next = commit_hit._select_internal(c(0, width=32), load_store_id_next)
+    load_store_id_next = do_flush._select_internal(c(0, width=32), load_store_id_next)
 
     macro_begin_next = old_macro_begin
     macro_end_next = old_macro_end
     uop_uid_next = old_uop_uid
     parent_uid_next = old_parent_uid
     for slot in range(dispatch_w):
-        hit = disp_fires[slot] & disp_rob_idxs[slot].eq(idx)
-        macro_begin_next = hit.select(disp_srcls[slot], macro_begin_next)
-        macro_end_next = hit.select(disp_srcrs[slot], macro_end_next)
-        uop_uid_next = hit.select(disp_uop_uids[slot], uop_uid_next)
-        parent_uid_next = hit.select(disp_parent_uids[slot], parent_uid_next)
-    uop_uid_next = commit_hit.select(c(0, width=64), uop_uid_next)
-    parent_uid_next = commit_hit.select(c(0, width=64), parent_uid_next)
-    uop_uid_next = do_flush.select(c(0, width=64), uop_uid_next)
-    parent_uid_next = do_flush.select(c(0, width=64), parent_uid_next)
+        hit = disp_fires[slot] & disp_rob_idxs[slot].__eq__(idx)
+        macro_begin_next = hit._select_internal(disp_srcls[slot], macro_begin_next)
+        macro_end_next = hit._select_internal(disp_srcrs[slot], macro_end_next)
+        uop_uid_next = hit._select_internal(disp_uop_uids[slot], uop_uid_next)
+        parent_uid_next = hit._select_internal(disp_parent_uids[slot], parent_uid_next)
+    uop_uid_next = commit_hit._select_internal(c(0, width=64), uop_uid_next)
+    parent_uid_next = commit_hit._select_internal(c(0, width=64), parent_uid_next)
+    uop_uid_next = do_flush._select_internal(c(0, width=64), uop_uid_next)
+    parent_uid_next = do_flush._select_internal(c(0, width=64), parent_uid_next)
 
     m.output("valid_next", valid_next)
     m.output("done_next", done_next)
