@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, function, module
 
 from common.isa import (
     BK_CALL,
@@ -73,11 +73,12 @@ def is_setc_tgt(op, op_is):
     return op_is(op, OP_C_SETC_TGT)
 
 
+@function
 def _op_is(m: Circuit, op, *codes: int):
     c = m.const
     v = c(0, width=1)
     for code in codes:
-        v = v | op.eq(c(code, width=12))
+        v = v | op.__eq__(c(code, width=12))
     return v
 
 
@@ -105,12 +106,12 @@ def build_commit_head_stage(m: Circuit) -> None:
     )
     is_boundary = is_start_marker | _op_is(m, head_op, OP_C_BSTOP)
 
-    br_is_cond = br_kind.eq(c(BK_COND, width=3))
-    br_is_call = br_kind.eq(c(BK_CALL, width=3))
-    br_is_ret = br_kind.eq(c(BK_RET, width=3))
-    br_is_direct = br_kind.eq(c(BK_DIRECT, width=3))
-    br_is_ind = br_kind.eq(c(BK_IND, width=3))
-    br_is_icall = br_kind.eq(c(BK_ICALL, width=3))
+    br_is_cond = br_kind.__eq__(c(BK_COND, width=3))
+    br_is_call = br_kind.__eq__(c(BK_CALL, width=3))
+    br_is_ret = br_kind.__eq__(c(BK_RET, width=3))
+    br_is_direct = br_kind.__eq__(c(BK_DIRECT, width=3))
+    br_is_ind = br_kind.__eq__(c(BK_IND, width=3))
+    br_is_icall = br_kind.__eq__(c(BK_ICALL, width=3))
 
     br_take = (
         br_is_call
@@ -160,27 +161,27 @@ def build_commit_ctrl_stage(m: Circuit, *, commit_w: int = 4, rob_w: int = 6) ->
         rob_ops.append(m.input(f"rob_op{slot}", width=12))
 
     fpc_next = state_fpc
-    fpc_next = f4_valid.select(f4_pc, fpc_next)
-    fpc_next = commit_redirect.select(redirect_pc, fpc_next)
-    fpc_next = do_flush.select(state_flush_pc, fpc_next)
+    fpc_next = f4_valid._select_internal(f4_pc, fpc_next)
+    fpc_next = commit_redirect._select_internal(redirect_pc, fpc_next)
+    fpc_next = do_flush._select_internal(state_flush_pc, fpc_next)
 
-    flush_pc_next = commit_redirect.select(redirect_pc, state_flush_pc)
-    flush_checkpoint_id_next = commit_redirect.select(redirect_checkpoint_id, state_flush_checkpoint_id)
+    flush_pc_next = commit_redirect._select_internal(redirect_pc, state_flush_pc)
+    flush_checkpoint_id_next = commit_redirect._select_internal(redirect_checkpoint_id, state_flush_checkpoint_id)
     flush_pending_next = state_flush_pending
-    flush_pending_next = do_flush.select(c(0, width=1), flush_pending_next)
-    flush_pending_next = commit_redirect.select(c(1, width=1), flush_pending_next)
+    flush_pending_next = do_flush._select_internal(c(0, width=1), flush_pending_next)
+    flush_pending_next = commit_redirect._select_internal(c(1, width=1), flush_pending_next)
 
     replay_pending_next = state_replay_pending
-    replay_pending_next = do_flush.select(c(0, width=1), replay_pending_next)
-    replay_pending_next = replay_redirect_fire.select(c(0, width=1), replay_pending_next)
-    replay_pending_next = replay_set.select(c(1, width=1), replay_pending_next)
-    replay_store_rob_next = replay_set.select(replay_set_store_rob, state_replay_store_rob)
-    replay_pc_next = replay_set.select(replay_set_pc, state_replay_pc)
+    replay_pending_next = do_flush._select_internal(c(0, width=1), replay_pending_next)
+    replay_pending_next = replay_redirect_fire._select_internal(c(0, width=1), replay_pending_next)
+    replay_pending_next = replay_set._select_internal(c(1, width=1), replay_pending_next)
+    replay_store_rob_next = replay_set._select_internal(replay_set_store_rob, state_replay_store_rob)
+    replay_pc_next = replay_set._select_internal(replay_set_pc, state_replay_pc)
 
     halt_set = mmio_exit
     for slot in range(commit_w):
         op = rob_ops[slot]
-        is_halt = op.eq(c(OP_EBREAK, width=12)) | op.eq(c(OP_INVALID, width=12))
+        is_halt = op.__eq__(c(OP_EBREAK, width=12)) | op.__eq__(c(OP_INVALID, width=12))
         halt_set = halt_set | (commit_fires[slot] & is_halt)
 
     m.output("fpc_next", fpc_next)

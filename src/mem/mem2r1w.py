@@ -22,9 +22,9 @@ def build_mem2r1w(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
     host_wstrb = m.input("host_wstrb", width=8)
 
     wvalid = d_wvalid | host_wvalid
-    waddr = host_wvalid.select(host_waddr, d_waddr)
-    wdata = host_wvalid.select(host_wdata, d_wdata)
-    wstrb = host_wvalid.select(host_wstrb, d_wstrb)
+    waddr = host_wvalid._select_internal(host_waddr, d_waddr)
+    wdata = host_wvalid._select_internal(host_wdata, d_wdata)
+    wstrb = host_wvalid._select_internal(host_wstrb, d_wstrb)
 
     # Bounded memory mapping:
     # - low addresses map directly into the low region,
@@ -41,7 +41,7 @@ def build_mem2r1w(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
         is_stack = ~addr.ult(stack_base)
         stack_addr = ((addr - stack_base) & stack_mask) + stack_off
         low_addr = addr & low_mask
-        return is_stack.select(stack_addr, low_addr)
+        return is_stack._select_internal(stack_addr, low_addr)
 
     if_raddr_eff = map_addr(if_raddr)
     d_raddr_eff = map_addr(d_raddr)

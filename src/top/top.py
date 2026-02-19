@@ -108,7 +108,7 @@ def build_linxcore_top(
     uid_alloc_template_count_top = m.new_wire(width=2)
     uid_alloc_replay_count_top = m.new_wire(width=2)
 
-    uid_alloc_top = m.instance(
+    uid_alloc_top = m.instance_auto(
         build_uid_allocator,
         name="uid_allocator",
         module_name="LinxCoreUidAllocatorTop",
@@ -120,7 +120,7 @@ def build_linxcore_top(
     )
 
     # IFU stage chain.
-    ifu_f0 = m.instance(
+    ifu_f0 = m.instance_auto(
         build_janus_bcc_ifu_f0,
         name="janus_ifu_f0",
         module_name="JanusBccIfuF0Top",
@@ -135,7 +135,7 @@ def build_linxcore_top(
         uid_alloc_uid_top=uid_alloc_top["fetch_uid_base_o"],
     )
 
-    ifu_f1 = m.instance(
+    ifu_f1 = m.instance_auto(
         build_janus_bcc_ifu_f1,
         name="janus_ifu_f1",
         module_name="JanusBccIfuF1Top",
@@ -146,7 +146,7 @@ def build_linxcore_top(
         f0_to_f1_stage_pkt_uid_f0=ifu_f0["f0_to_f1_stage_pkt_uid_f0"],
     )
 
-    ifu_icache = m.instance(
+    ifu_icache = m.instance_auto(
         build_janus_bcc_ifu_icache,
         name="janus_ifu_icache",
         module_name="JanusBccIfuICacheTop",
@@ -174,7 +174,7 @@ def build_linxcore_top(
     m.output("ic_l2_req_valid", ifu_icache["ic_l2_req_valid_top"])
     m.output("ic_l2_req_addr", ifu_icache["ic_l2_req_addr_top"])
 
-    ifu_f2 = m.instance(
+    ifu_f2 = m.instance_auto(
         build_janus_bcc_ifu_f2,
         name="janus_ifu_f2",
         module_name="JanusBccIfuF2Top",
@@ -194,7 +194,7 @@ def build_linxcore_top(
     m.assign(f2_to_f0_advance_wire_f2, ifu_f2["f2_to_f0_advance_stage_valid_f2"])
     m.assign(f2_to_f0_next_pc_wire_f2, ifu_f2["f2_to_f0_next_pc_stage_pc_f2"])
 
-    ifu_ctrl = m.instance(
+    ifu_ctrl = m.instance_auto(
         build_janus_bcc_ifu_ctrl,
         name="janus_ifu_ctrl",
         module_name="JanusBccIfuCtrlTop",
@@ -211,7 +211,7 @@ def build_linxcore_top(
     brob_active_exception_wire = m.new_wire(width=1)
     brob_active_retired_wire = m.new_wire(width=1)
 
-    ifu_f3 = m.instance(
+    ifu_f3 = m.instance_auto(
         build_janus_bcc_ifu_f3,
         name="janus_ifu_f3",
         module_name="JanusBccIfuF3Top",
@@ -233,7 +233,7 @@ def build_linxcore_top(
     )
     m.assign(f3_to_f2_ready_wire_f3, ifu_f3["f3_ibuf_ready_f3"])
 
-    ifu_f4 = m.instance(
+    ifu_f4 = m.instance_auto(
         build_janus_bcc_ifu_f4,
         name="janus_ifu_f4",
         module_name="JanusBccIfuF4Top",
@@ -247,7 +247,7 @@ def build_linxcore_top(
         flush_valid_fls=flush_valid_fls,
     )
 
-    backend_top = m.instance(
+    backend_top = m.instance_auto(
         build_backend,
         name="janus_backend",
         module_name="JanusBccBackendCompat",
@@ -272,14 +272,14 @@ def build_linxcore_top(
     )
 
     m.assign(uid_alloc_template_count_top, backend_top["ctu_uop_valid"])
-    m.assign(uid_alloc_replay_count_top, (~backend_top["replay_cause"].eq(c(0, width=8))))
+    m.assign(uid_alloc_replay_count_top, (~backend_top["replay_cause"].__eq__(c(0, width=8))))
 
     m.assign(backend_ready_top, backend_top["frontend_ready"])
     m.assign(flush_valid_fls, backend_top["redirect_valid"])
     m.assign(flush_pc_fls, backend_top["redirect_pc"])
     m.assign(uid_alloc_fetch_count_top, f2_to_f0_advance_wire_f2 | flush_valid_fls)
 
-    mem_top = m.instance(
+    mem_top = m.instance_auto(
         build_mem2r1w,
         name="mem2r1w",
         module_name="JanusMem2R1WTop",
@@ -301,7 +301,7 @@ def build_linxcore_top(
     m.assign(dmem_rdata_top, mem_top["d_rdata"])
 
     # OOO stage-map probe pipeline.
-    dec1_d1 = m.instance(
+    dec1_d1 = m.instance_auto(
         build_janus_bcc_ooo_dec1,
         name="janus_dec1",
         module_name="JanusBccOooDec1Top",
@@ -311,7 +311,7 @@ def build_linxcore_top(
         f4_to_d1_stage_checkpoint_id_f4=ifu_f4["f4_to_d1_stage_checkpoint_id_f4"],
         f4_to_d1_stage_pkt_uid_f4=ifu_f4["f4_to_d1_stage_pkt_uid_f4"],
     )
-    dec2_d2 = m.instance(
+    dec2_d2 = m.instance_auto(
         build_janus_bcc_ooo_dec2,
         name="janus_dec2",
         module_name="JanusBccOooDec2Top",
@@ -328,7 +328,7 @@ def build_linxcore_top(
         d1_to_d2_stage_checkpoint_id_d1=dec1_d1["d1_to_d2_stage_checkpoint_id_d1"],
         d1_to_d2_stage_uop_uid_d1=dec1_d1["d1_to_d2_stage_uop_uid_d1"],
     )
-    ren_d3 = m.instance(
+    ren_d3 = m.instance_auto(
         build_janus_bcc_ooo_ren,
         name="janus_ren",
         module_name="JanusBccOooRenTop",
@@ -343,7 +343,7 @@ def build_linxcore_top(
         d2_to_d3_stage_checkpoint_id_d2=dec2_d2["d2_to_d3_stage_checkpoint_id_d2"],
         d2_to_d3_stage_uop_uid_d2=dec2_d2["d2_to_d3_stage_uop_uid_d2"],
     )
-    s1_s1 = m.instance(
+    s1_s1 = m.instance_auto(
         build_janus_bcc_ooo_s1,
         name="janus_s1",
         module_name="JanusBccOooS1Top",
@@ -354,7 +354,7 @@ def build_linxcore_top(
         d3_to_s1_stage_imm_d3=ren_d3["d3_to_s1_stage_imm_d3"],
         d3_to_s1_stage_uop_uid_d3=ren_d3["d3_to_s1_stage_uop_uid_d3"],
     )
-    s2_s2 = m.instance(
+    s2_s2 = m.instance_auto(
         build_janus_bcc_ooo_s2,
         name="janus_s2",
         module_name="JanusBccOooS2Top",
@@ -373,7 +373,7 @@ def build_linxcore_top(
     pcb_lookup_target_pcb = m.new_wire(width=64)
     pcb_lookup_pred_take_pcb = m.new_wire(width=1)
 
-    iex_top = m.instance(
+    iex_top = m.instance_auto(
         build_janus_bcc_iex,
         name="janus_iex",
         module_name="JanusBccIexTop",
@@ -390,7 +390,7 @@ def build_linxcore_top(
         pcb_to_bru_stage_lookup_pred_take_pcb=pcb_lookup_pred_take_pcb,
     )
 
-    rob_top = m.instance(
+    rob_top = m.instance_auto(
         build_janus_bcc_ooo_rob,
         name="janus_rob",
         module_name="JanusBccOooRobTop",
@@ -404,7 +404,7 @@ def build_linxcore_top(
         commit_ready_rob=c(1, width=1),
     )
 
-    pcbuf_top = m.instance(
+    pcbuf_top = m.instance_auto(
         build_janus_bcc_ooo_pc_buffer,
         name="janus_pcbuf",
         module_name="JanusBccOooPcBufferTop",
@@ -426,7 +426,7 @@ def build_linxcore_top(
     m.assign(pcb_lookup_target_pcb, pcbuf_top["pcb_to_bru_stage_lookup_target_pcb"])
     m.assign(pcb_lookup_pred_take_pcb, pcbuf_top["pcb_to_bru_stage_lookup_pred_take_pcb"])
 
-    flush_top = m.instance(
+    flush_top = m.instance_auto(
         build_janus_bcc_ooo_flush_ctrl,
         name="janus_flush",
         module_name="JanusBccOooFlushTop",
@@ -444,7 +444,7 @@ def build_linxcore_top(
     # Stage-map flush probe is instantiated for module split/visibility, but
     # canonical fetch redirect must come only from the backend commit path.
 
-    renu_top = m.instance(
+    renu_top = m.instance_auto(
         build_janus_bcc_ooo_renu,
         name="janus_renu",
         module_name="JanusBccOooRenuTop",
@@ -456,7 +456,7 @@ def build_linxcore_top(
         commit_pdst_renu=rob_top["commit_idx_rob"],
     )
 
-    liq_top = m.instance(
+    liq_top = m.instance_auto(
         build_janus_bcc_lsu_liq,
         name="janus_liq",
         module_name="JanusBccLsuLiqTop",
@@ -467,7 +467,7 @@ def build_linxcore_top(
         load_rob_liq=iex_top["iex_to_rob_stage_load_rob_e1"],
         load_addr_liq=iex_top["iex_to_rob_stage_load_addr_e1"],
     )
-    stq_top = m.instance(
+    stq_top = m.instance_auto(
         build_janus_bcc_lsu_stq,
         name="janus_stq",
         module_name="JanusBccLsuStqTop",
@@ -479,7 +479,7 @@ def build_linxcore_top(
         store_addr_stq=iex_top["iex_to_rob_stage_load_addr_e1"],
         store_data_stq=iex_top["iex_to_rob_stage_store_data_e1"],
     )
-    lhq_top = m.instance(
+    lhq_top = m.instance_auto(
         build_janus_bcc_lsu_lhq,
         name="janus_lhq",
         module_name="JanusBccLsuLhqTop",
@@ -491,7 +491,7 @@ def build_linxcore_top(
         older_store_valid_lhq=stq_top["stq_head_store_valid_stq"],
         older_store_addr_lhq=stq_top["stq_head_store_addr_stq"],
     )
-    mdb_top = m.instance(
+    mdb_top = m.instance_auto(
         build_janus_bcc_lsu_mdb,
         name="janus_mdb",
         module_name="JanusBccLsuMdbTop",
@@ -499,7 +499,7 @@ def build_linxcore_top(
         rst=rst_top,
         lhq_conflict_lhq=lhq_top["lhq_conflict_lhq"],
     )
-    l1d_top = m.instance(
+    l1d_top = m.instance_auto(
         build_janus_bcc_lsu_l1d,
         name="janus_l1d",
         module_name="JanusBccLsuL1DTop",
@@ -510,7 +510,7 @@ def build_linxcore_top(
         load_req_addr_l1d=iex_top["iex_to_rob_stage_load_addr_e1"],
         dmem_rdata_top=dmem_rdata_top,
     )
-    scb_top = m.instance(
+    scb_top = m.instance_auto(
         build_janus_bcc_lsu_scb,
         name="janus_scb",
         module_name="JanusBccLsuScbTop",
@@ -548,7 +548,7 @@ def build_linxcore_top(
     cmd_ready_vec_wire = m.new_wire(width=1)
     cmd_ready_tau_wire = m.new_wire(width=1)
 
-    bisq_top = m.instance(
+    bisq_top = m.instance_auto(
         build_janus_bcc_bctrl_bisq,
         name="janus_bisq",
         module_name="JanusBccBisqTop",
@@ -570,7 +570,7 @@ def build_linxcore_top(
     m.output("cmd_to_bisq_stage_cmd_payload_top", backend_top["cmd_to_bisq_stage_cmd_payload"])
     m.output("cmd_to_bisq_stage_cmd_tile_top", backend_top["cmd_to_bisq_stage_cmd_tile"])
     m.output("cmd_to_bisq_stage_cmd_src_rob_top", backend_top["cmd_to_bisq_stage_cmd_src_rob"])
-    brenu_top = m.instance(
+    brenu_top = m.instance_auto(
         build_janus_bcc_bctrl_brenu,
         name="janus_brenu",
         module_name="JanusBccBrenuTop",
@@ -579,7 +579,7 @@ def build_linxcore_top(
         issue_fire_brenu=issue_fire_brenu_wire,
     )
 
-    tmu_noc_top = m.instance(
+    tmu_noc_top = m.instance_auto(
         build_janus_tmu_noc_node,
         name="janus_tmu_noc",
         module_name="JanusTmuNocNodeTop",
@@ -589,7 +589,7 @@ def build_linxcore_top(
         in_data_noc=bisq_top["bisq_head_payload_bisq"],
         out_ready_noc=c(1, width=1),
     )
-    tmu_rf_top = m.instance(
+    tmu_rf_top = m.instance_auto(
         build_janus_tmu_tilereg,
         name="janus_tmu_tilereg",
         module_name="JanusTmuTileRegTop",
@@ -608,7 +608,7 @@ def build_linxcore_top(
     m.output("pe_to_tmu_stage_wr_tile_top", c(0, width=6))
     m.output("pe_to_tmu_stage_wr_data_top", c(0, width=64))
 
-    bctrl_top = m.instance(
+    bctrl_top = m.instance_auto(
         build_janus_bcc_bctrl,
         name="janus_bctrl",
         module_name="JanusBccBctrlTop",
@@ -653,7 +653,7 @@ def build_linxcore_top(
     m.output("brenu_bid_top", brenu_top["brenu_bid_brenu"])
     m.output("brenu_slot_id_top", brenu_top["brenu_slot_id_brenu"])
 
-    tma_top = m.instance(
+    tma_top = m.instance_auto(
         build_janus_tma,
         name="janus_tma",
         module_name="JanusTmaTop",
@@ -663,7 +663,7 @@ def build_linxcore_top(
         cmd_tag_tma=bctrl_top["bctrl_to_pe_stage_cmd_tag_bctrl"],
         cmd_payload_tma=bctrl_top["bctrl_to_pe_stage_cmd_payload_bctrl"],
     )
-    cube_top = m.instance(
+    cube_top = m.instance_auto(
         build_janus_cube,
         name="janus_cube",
         module_name="JanusCubeTop",
@@ -673,7 +673,7 @@ def build_linxcore_top(
         cmd_tag_cube=bctrl_top["bctrl_to_pe_stage_cmd_tag_bctrl"],
         cmd_payload_cube=bctrl_top["bctrl_to_pe_stage_cmd_payload_bctrl"],
     )
-    tau_top = m.instance(
+    tau_top = m.instance_auto(
         build_janus_tau,
         name="janus_tau",
         module_name="JanusTauTop",
@@ -683,7 +683,7 @@ def build_linxcore_top(
         cmd_tag_tau=bctrl_top["bctrl_to_pe_stage_cmd_tag_bctrl"],
         cmd_payload_tau=bctrl_top["bctrl_to_pe_stage_cmd_payload_bctrl"],
     )
-    vec_top = m.instance(
+    vec_top = m.instance_auto(
         build_linxcore_vec,
         name="linxcore_vec",
         module_name="LinxCoreVecTop",
@@ -722,7 +722,7 @@ def build_linxcore_top(
     m.assign(rsp_vec_data0_wire, vec_top["rsp_data0_vec"])
     m.assign(rsp_vec_data1_wire, vec_top["rsp_data1_vec"])
 
-    brob_top = m.instance(
+    brob_top = m.instance_auto(
         build_janus_bcc_bctrl_brob,
         name="janus_brob",
         module_name="JanusBccBrobTop",
@@ -854,13 +854,13 @@ def build_linxcore_top(
     def trace_lookup_seq_top(rob_idx_top):
         seq_top = c(0, width=32)
         for i in range(64):
-            seq_top = rob_idx_top.eq(c(i, width=6))._select_internal(trace_rob_seq_top[i].out(), seq_top)
+            seq_top = rob_idx_top.__eq__(c(i, width=6))._select_internal(trace_rob_seq_top[i].out(), seq_top)
         return seq_top
 
     def trace_lookup_uid_top(rob_idx_top):
         uid_top = c(0, width=64)
         for i in range(64):
-            uid_top = rob_idx_top.eq(c(i, width=6))._select_internal(trace_rob_uid_top[i].out(), uid_top)
+            uid_top = rob_idx_top.__eq__(c(i, width=6))._select_internal(trace_rob_uid_top[i].out(), uid_top)
         return uid_top
 
     trace_dispatch_fire_top = [backend_top[f"dispatch_fire{slot}"] for slot in range(4)]
@@ -927,7 +927,7 @@ def build_linxcore_top(
         seq_i_top = trace_rob_seq_top[i].out()
         uid_i_top = trace_rob_uid_top[i].out()
         for slot in range(4):
-            hit_i_top = trace_dispatch_fire_top[slot] & trace_dispatch_rob_top[slot].eq(c(i, width=6))
+            hit_i_top = trace_dispatch_fire_top[slot] & trace_dispatch_rob_top[slot].__eq__(c(i, width=6))
             seq_i_top = hit_i_top._select_internal(trace_dispatch_seq_top[slot], seq_i_top)
             uid_i_top = hit_i_top._select_internal(backend_top[f"dispatch_uop_uid{slot}"], uid_i_top)
         trace_rob_seq_top[i].set(seq_i_top)
@@ -1443,7 +1443,7 @@ def build_linxcore_top(
         kind_top=trace_kind_flush_top,
     )
     trace_choose_event_top(
-        valid_top=~backend_top["replay_cause"].eq(c(0, width=8)),
+        valid_top=~backend_top["replay_cause"].__eq__(c(0, width=8)),
         stage_id_top=trace_sid_fls_top,
         lane_top=c(0, width=3),
         rob_top=c(0, width=6),
@@ -1471,7 +1471,7 @@ def build_linxcore_top(
         en=c(1, width=1),
     )
     trace_boot_fire_top = trace_boot_active_top.out() & (~trace_evt_valid_top)
-    trace_boot_kind_top = trace_boot_stage_top.out().eq(trace_sid_fls_top)._select_internal(trace_kind_flush_top, trace_kind_normal_top)
+    trace_boot_kind_top = trace_boot_stage_top.out().__eq__(trace_sid_fls_top)._select_internal(trace_kind_flush_top, trace_kind_normal_top)
     trace_evt_valid_top = trace_boot_fire_top._select_internal(c(1, width=1), trace_evt_valid_top)
     trace_evt_stage_id_top = trace_boot_fire_top._select_internal(trace_boot_stage_top.out(), trace_evt_stage_id_top)
     trace_evt_lane_top = trace_boot_fire_top._select_internal(c(0, width=3), trace_evt_lane_top)
@@ -1480,7 +1480,7 @@ def build_linxcore_top(
     trace_evt_pc_top = trace_boot_fire_top._select_internal(boot_pc_top, trace_evt_pc_top)
     trace_evt_kind_top = trace_boot_fire_top._select_internal(trace_boot_kind_top, trace_evt_kind_top)
 
-    trace_boot_end_top = trace_boot_fire_top & trace_boot_stage_top.out().eq(trace_sid_fls_top)
+    trace_boot_end_top = trace_boot_fire_top & trace_boot_stage_top.out().__eq__(trace_sid_fls_top)
     trace_boot_stage_next_top = trace_boot_stage_top.out()
     trace_boot_stage_next_top = trace_boot_fire_top._select_internal(trace_boot_stage_top.out() + c(1, width=6), trace_boot_stage_next_top)
     trace_boot_stage_next_top = trace_boot_end_top._select_internal(trace_boot_stage_top.out(), trace_boot_stage_next_top)
@@ -1717,7 +1717,7 @@ def build_linxcore_top(
         )
         c_uid = backend_top[f"commit_uop_uid{slot}"]
         c_puid = backend_top[f"commit_parent_uop_uid{slot}"]
-        c_is_template = ~backend_top[f"commit_template_kind{slot}"].eq(c(0, width=3))
+        c_is_template = ~backend_top[f"commit_template_kind{slot}"].__eq__(c(0, width=3))
         c_kind = c_is_template._select_internal(dfx_kind_template_top, dfx_kind_normal_top)
         c_kind = backend_top[f"commit_trap_valid{slot}"]._select_internal(dfx_kind_trap_top, c_kind)
         emit_occ_debug(
@@ -1798,7 +1798,7 @@ def build_linxcore_top(
     emit_occ_debug("tau", 0, bctrl_top["cmd_tau_valid_bctrl"], trace_lookup_uid_top(bctrl_top["bctrl_to_pe_stage_cmd_src_rob_bctrl"]), pcbuf_top["rd_pc_pcb"], bctrl_top["bctrl_to_pe_stage_cmd_src_rob_bctrl"], dfx_kind_normal_top, c(0, width=64))
     brob_rob_top = brob_top["brob_to_rob_stage_rsp_src_rob_brob"]
     emit_occ_debug("brob", 0, brob_top["brob_rsp_fire_brob"], trace_lookup_uid_top(brob_rob_top), pcbuf_top["rd_pc_pcb"], brob_rob_top, dfx_kind_normal_top, c(0, width=64))
-    emit_occ_debug("fls", 0, flush_valid_fls | (~backend_top["replay_cause"].eq(c(0, width=8))), c(0, width=64), flush_pc_fls, c(0, width=6), dfx_kind_flush_top, c(0, width=64))
+    emit_occ_debug("fls", 0, flush_valid_fls | (~backend_top["replay_cause"].__eq__(c(0, width=8))), c(0, width=64), flush_pc_fls, c(0, width=6), dfx_kind_flush_top, c(0, width=64))
 
     # Branch-control specific probes:
     # - BRU validates setc.cond and records correction intent.

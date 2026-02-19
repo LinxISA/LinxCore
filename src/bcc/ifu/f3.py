@@ -60,32 +60,32 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     )
 
     bstart_kind_f3 = c(BK_FALL, width=3)
-    bstart_kind_f3 = c(BK_COND, width=3) if (op0_f3 == c(OP_C_BSTART_COND, width=12)) else bstart_kind_f3
-    bstart_kind_f3 = c(BK_DIRECT, width=3) if (op0_f3 == c(OP_C_BSTART_DIRECT, width=12)) else bstart_kind_f3
-    bstart_kind_f3 = c(BK_FALL, width=3) if (op0_f3 == c(OP_BSTART_STD_FALL, width=12)) else bstart_kind_f3
-    bstart_kind_f3 = c(BK_DIRECT, width=3) if (op0_f3 == c(OP_BSTART_STD_DIRECT, width=12)) else bstart_kind_f3
-    bstart_kind_f3 = c(BK_COND, width=3) if (op0_f3 == c(OP_BSTART_STD_COND, width=12)) else bstart_kind_f3
-    bstart_kind_f3 = c(BK_CALL, width=3) if (op0_f3 == c(OP_BSTART_STD_CALL, width=12)) else bstart_kind_f3
+    bstart_kind_f3 = (op0_f3 == c(OP_C_BSTART_COND, width=12))._select_internal(c(BK_COND, width=3), bstart_kind_f3)
+    bstart_kind_f3 = (op0_f3 == c(OP_C_BSTART_DIRECT, width=12))._select_internal(c(BK_DIRECT, width=3), bstart_kind_f3)
+    bstart_kind_f3 = (op0_f3 == c(OP_BSTART_STD_FALL, width=12))._select_internal(c(BK_FALL, width=3), bstart_kind_f3)
+    bstart_kind_f3 = (op0_f3 == c(OP_BSTART_STD_DIRECT, width=12))._select_internal(c(BK_DIRECT, width=3), bstart_kind_f3)
+    bstart_kind_f3 = (op0_f3 == c(OP_BSTART_STD_COND, width=12))._select_internal(c(BK_COND, width=3), bstart_kind_f3)
+    bstart_kind_f3 = (op0_f3 == c(OP_BSTART_STD_CALL, width=12))._select_internal(c(BK_CALL, width=3), bstart_kind_f3)
     brtype_f3 = imm0_f3[0:3]
-    bstart_kind_f3 = c(BK_DIRECT, width=3) if ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(2, width=3))) else bstart_kind_f3
-    bstart_kind_f3 = c(BK_COND, width=3) if ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(3, width=3))) else bstart_kind_f3
-    bstart_kind_f3 = c(BK_CALL, width=3) if ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(4, width=3))) else bstart_kind_f3
-    bstart_kind_f3 = c(BK_IND, width=3) if ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(5, width=3))) else bstart_kind_f3
-    bstart_kind_f3 = c(BK_ICALL, width=3) if ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(6, width=3))) else bstart_kind_f3
-    bstart_kind_f3 = c(BK_RET, width=3) if ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(7, width=3))) else bstart_kind_f3
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(2, width=3)))._select_internal(c(BK_DIRECT, width=3), bstart_kind_f3)
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(3, width=3)))._select_internal(c(BK_COND, width=3), bstart_kind_f3)
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(4, width=3)))._select_internal(c(BK_CALL, width=3), bstart_kind_f3)
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(5, width=3)))._select_internal(c(BK_IND, width=3), bstart_kind_f3)
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(6, width=3)))._select_internal(c(BK_ICALL, width=3), bstart_kind_f3)
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(7, width=3)))._select_internal(c(BK_RET, width=3), bstart_kind_f3)
     bstart_target_f3 = c(0, width=64)
-    bstart_target_f3 = (dec0_pc_f3 + imm0_f3) if (op0_f3 == c(OP_C_BSTART_COND, width=12)) else bstart_target_f3
-    bstart_target_f3 = (dec0_pc_f3 + imm0_f3) if (op0_f3 == c(OP_C_BSTART_DIRECT, width=12)) else bstart_target_f3
-    bstart_target_f3 = (dec0_pc_f3 + imm0_f3) if (op0_f3 == c(OP_BSTART_STD_DIRECT, width=12)) else bstart_target_f3
-    bstart_target_f3 = (dec0_pc_f3 + imm0_f3) if (op0_f3 == c(OP_BSTART_STD_COND, width=12)) else bstart_target_f3
-    bstart_target_f3 = (dec0_pc_f3 + imm0_f3) if (op0_f3 == c(OP_BSTART_STD_CALL, width=12)) else bstart_target_f3
+    bstart_target_f3 = (op0_f3 == c(OP_C_BSTART_COND, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
+    bstart_target_f3 = (op0_f3 == c(OP_C_BSTART_DIRECT, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
+    bstart_target_f3 = (op0_f3 == c(OP_BSTART_STD_DIRECT, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
+    bstart_target_f3 = (op0_f3 == c(OP_BSTART_STD_COND, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
+    bstart_target_f3 = (op0_f3 == c(OP_BSTART_STD_CALL, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
     cond_pred_take_f3 = bstart_target_f3.ult(dec0_pc_f3)
     pred_take_f3 = c(1, width=1)
-    pred_take_f3 = cond_pred_take_f3 if (bstart_kind_f3 == c(BK_COND, width=3)) else pred_take_f3
-    pred_take_f3 = c(0, width=1) if (bstart_kind_f3 == c(BK_RET, width=3)) else pred_take_f3
+    pred_take_f3 = (bstart_kind_f3 == c(BK_COND, width=3))._select_internal(cond_pred_take_f3, pred_take_f3)
+    pred_take_f3 = (bstart_kind_f3 == c(BK_RET, width=3))._select_internal(c(0, width=1), pred_take_f3)
     bstart_meta_valid_f3 = dec0_valid_f3 & is_bstart0_f3
 
-    ibuf_f3 = m.instance(
+    ibuf_f3 = m.instance_auto(
         build_ibuffer,
         name="janus_f3_ibuffer",
         module_name="JanusBccIfuF3IBuffer",

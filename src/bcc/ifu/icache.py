@@ -50,8 +50,8 @@ def build_janus_bcc_ifu_icache(
     off_w = (ic_line_bytes - 1).bit_length()
     tag_w = 64 - set_w - off_w
 
-    line_mask = c((~(ic_line_bytes - 1)) & ((1 << 64) - 1), width=64)
-    bundle_mask = c((~(ifetch_bundle_bytes - 1)) & ((1 << 64) - 1), width=64)
+    line_mask = c((((1 << 64) - 1) ^ (ic_line_bytes - 1)), width=64)
+    decode_window_mask = c((((1 << 64) - 1) ^ (decode_window_bytes - 1)), width=64)
 
     line_valid_ic = []
     line_tag_ic = []
@@ -116,14 +116,16 @@ def build_janus_bcc_ifu_icache(
 
     req_pc_ic = f1_to_icache_stage_pc_f1
     req_pkt_uid_ic = f1_to_icache_stage_pkt_uid_f1
-    req_bundle_base_ic = req_pc_ic & bundle_mask
-    req_slot_base_off_ic = (req_pc_ic - req_bundle_base_ic).trunc(width=7)
-    req_line0_addr_ic = req_bundle_base_ic
-    req_line1_addr_ic = req_bundle_base_ic + c(ic_line_bytes, width=64)
+    # Align bundle base to decode-window granularity so F2 can always select
+    # a complete 64-bit decode window from the 128-bit fetch payload.
+    req_bundle_base_ic = req_pc_ic & decode_window_mask
+    req_slot_base_off_ic = (req_pc_ic - req_bundle_base_ic)[0:7]
+    req_line0_addr_ic = req_bundle_base_ic & line_mask
+    req_line1_addr_ic = req_line0_addr_ic + c(ic_line_bytes, width=64)
     req_line0_set_ic = req_line0_addr_ic[off_w : off_w + set_w]
     req_line1_set_ic = req_line1_addr_ic[off_w : off_w + set_w]
-    req_line0_tag_ic = req_line0_addr_ic.lshr(amount=off_w + set_w).trunc(width=tag_w)
-    req_line1_tag_ic = req_line1_addr_ic.lshr(amount=off_w + set_w).trunc(width=tag_w)
+    req_line0_tag_ic = req_line0_addr_ic.lshr(amount=off_w + set_w)[0:tag_w]
+    req_line1_tag_ic = req_line1_addr_ic.lshr(amount=off_w + set_w)[0:tag_w]
 
     line0_hit_ic = c(0, width=1)
     line0_way_ic = c(0, width=way_w)
@@ -133,12 +135,12 @@ def build_janus_bcc_ifu_icache(
     line1_data_ic = c(0, width=line_bits)
 
     for s in range(ic_sets):
-        set0_sel_ic = req_line0_set_ic.eq(c(s, width=set_w))
-        set1_sel_ic = req_line1_set_ic.eq(c(s, width=set_w))
+        set0_sel_ic = req_line0_set_ic == c(s, width=set_w)
+        set1_sel_ic = req_line1_set_ic == c(s, width=set_w)
         for w in range(ic_ways):
             idx = s * ic_ways + w
-            hit0_sw_ic = set0_sel_ic & line_valid_ic[idx].out() & line_tag_ic[idx].out().eq(req_line0_tag_ic)
-            hit1_sw_ic = set1_sel_ic & line_valid_ic[idx].out() & line_tag_ic[idx].out().eq(req_line1_tag_ic)
+            hit0_sw_ic = set0_sel_ic & line_valid_ic[idx].out() & (line_tag_ic[idx].out() == req_line0_tag_ic)
+            hit1_sw_ic = set1_sel_ic & line_valid_ic[idx].out() & (line_tag_ic[idx].out() == req_line1_tag_ic)
             line0_hit_ic = hit0_sw_ic._select_internal(c(1, width=1), line0_hit_ic)
             line0_way_ic = hit0_sw_ic._select_internal(c(w, width=way_w), line0_way_ic)
             line0_data_ic = hit0_sw_ic._select_internal(line_data_ic[idx].out(), line0_data_ic)
@@ -146,30 +148,45 @@ def build_janus_bcc_ifu_icache(
             line1_way_ic = hit1_sw_ic._select_internal(c(w, width=way_w), line1_way_ic)
             line1_data_ic = hit1_sw_ic._select_internal(line_data_ic[idx].out(), line1_data_ic)
 
-    def pick_victim_way(set_idx_ic):
-        victim_ic = c(0, width=way_w)
-        for s in range(ic_sets):
-            set_sel_ic = set_idx_ic.eq(c(s, width=set_w))
-            inv_victim_ic = c(0, width=way_w)
-            inv_found_ic = c(0, width=1)
-            r0_victim_ic = c(0, width=way_w)
-            r0_found_ic = c(0, width=1)
-            for w in range(ic_ways):
-                idx = s * ic_ways + w
-                inv_sw_ic = ~line_valid_ic[idx].out()
-                pick_inv_ic = inv_sw_ic & (~inv_found_ic)
-                inv_victim_ic = pick_inv_ic._select_internal(c(w, width=way_w), inv_victim_ic)
-                inv_found_ic = inv_sw_ic._select_internal(c(1, width=1), inv_found_ic)
-                r0_sw_ic = lru_rank_ic[idx].out().eq(c(0, width=2))
-                pick_r0_ic = r0_sw_ic & (~r0_found_ic)
-                r0_victim_ic = pick_r0_ic._select_internal(c(w, width=way_w), r0_victim_ic)
-                r0_found_ic = r0_sw_ic._select_internal(c(1, width=1), r0_found_ic)
-            set_victim_ic = inv_found_ic._select_internal(inv_victim_ic, r0_victim_ic)
-            victim_ic = set_sel_ic._select_internal(set_victim_ic, victim_ic)
-        return victim_ic
+    line0_victim_ic = c(0, width=way_w)
+    for s in range(ic_sets):
+        set_sel_ic = req_line0_set_ic == c(s, width=set_w)
+        inv_victim_ic = c(0, width=way_w)
+        inv_found_ic = c(0, width=1)
+        r0_victim_ic = c(0, width=way_w)
+        r0_found_ic = c(0, width=1)
+        for w in range(ic_ways):
+            idx = s * ic_ways + w
+            inv_sw_ic = ~line_valid_ic[idx].out()
+            pick_inv_ic = inv_sw_ic & (~inv_found_ic)
+            inv_victim_ic = pick_inv_ic._select_internal(c(w, width=way_w), inv_victim_ic)
+            inv_found_ic = inv_sw_ic._select_internal(c(1, width=1), inv_found_ic)
+            r0_sw_ic = lru_rank_ic[idx].out() == c(0, width=2)
+            pick_r0_ic = r0_sw_ic & (~r0_found_ic)
+            r0_victim_ic = pick_r0_ic._select_internal(c(w, width=way_w), r0_victim_ic)
+            r0_found_ic = r0_sw_ic._select_internal(c(1, width=1), r0_found_ic)
+        set_victim_ic = inv_found_ic._select_internal(inv_victim_ic, r0_victim_ic)
+        line0_victim_ic = set_sel_ic._select_internal(set_victim_ic, line0_victim_ic)
 
-    line0_victim_ic = pick_victim_way(req_line0_set_ic)
-    line1_victim_ic = pick_victim_way(req_line1_set_ic)
+    line1_victim_ic = c(0, width=way_w)
+    for s in range(ic_sets):
+        set_sel_ic = req_line1_set_ic == c(s, width=set_w)
+        inv_victim_ic = c(0, width=way_w)
+        inv_found_ic = c(0, width=1)
+        r0_victim_ic = c(0, width=way_w)
+        r0_found_ic = c(0, width=1)
+        for w in range(ic_ways):
+            idx = s * ic_ways + w
+            inv_sw_ic = ~line_valid_ic[idx].out()
+            pick_inv_ic = inv_sw_ic & (~inv_found_ic)
+            inv_victim_ic = pick_inv_ic._select_internal(c(w, width=way_w), inv_victim_ic)
+            inv_found_ic = inv_sw_ic._select_internal(c(1, width=1), inv_found_ic)
+            r0_sw_ic = lru_rank_ic[idx].out() == c(0, width=2)
+            pick_r0_ic = r0_sw_ic & (~r0_found_ic)
+            r0_victim_ic = pick_r0_ic._select_internal(c(w, width=way_w), r0_victim_ic)
+            r0_found_ic = r0_sw_ic._select_internal(c(1, width=1), r0_found_ic)
+        set_victim_ic = inv_found_ic._select_internal(inv_victim_ic, r0_victim_ic)
+        line1_victim_ic = set_sel_ic._select_internal(set_victim_ic, line1_victim_ic)
 
     cache_en_ic = c(1 if ic_enable else 0, width=1)
     req_valid_ic = f1_to_icache_stage_valid_f1 & cache_en_ic
@@ -181,15 +198,15 @@ def build_janus_bcc_ifu_icache(
     miss_req_need_ic = miss_phase_ic.out()._select_internal(miss_need_line1_ic.out(), miss_need_line0_ic.out())
     l2_req_valid_ic = miss_active_ic.out() & (~miss_wait_rsp_ic.out()) & miss_req_need_ic
     l2_req_fire_ic = l2_req_valid_ic & ic_l2_req_ready_top
-    l2_fill_fire_ic = miss_wait_rsp_ic.out() & ic_l2_rsp_valid_top & ic_l2_rsp_addr_top.eq(miss_req_addr_ic)
+    l2_fill_fire_ic = miss_wait_rsp_ic.out() & ic_l2_rsp_valid_top & (ic_l2_rsp_addr_top == miss_req_addr_ic)
     l2_fill_is_line1_ic = miss_phase_ic.out()
     l2_fill_victim_ic = l2_fill_is_line1_ic._select_internal(miss_victim1_ic.out(), miss_victim0_ic.out())
     l2_fill_set_ic = l2_fill_is_line1_ic._select_internal(
         miss_line1_addr_ic.out()[off_w : off_w + set_w], miss_line0_addr_ic.out()[off_w : off_w + set_w]
     )
     l2_fill_tag_ic = l2_fill_is_line1_ic._select_internal(
-        miss_line1_addr_ic.out().lshr(amount=off_w + set_w).trunc(width=tag_w),
-        miss_line0_addr_ic.out().lshr(amount=off_w + set_w).trunc(width=tag_w),
+        miss_line1_addr_ic.out().lshr(amount=off_w + set_w)[0:tag_w],
+        miss_line0_addr_ic.out().lshr(amount=off_w + set_w)[0:tag_w],
     )
 
     miss_active_next_ic = miss_active_ic.out()
@@ -254,36 +271,75 @@ def build_janus_bcc_ifu_icache(
             idx = s * ic_ways + w
             fill_sw_ic = (
                 l2_fill_fire_ic
-                & l2_fill_set_ic.eq(c(s, width=set_w))
-                & l2_fill_victim_ic.eq(c(w, width=way_w))
+                & (l2_fill_set_ic == c(s, width=set_w))
+                & (l2_fill_victim_ic == c(w, width=way_w))
                 & (~ic_l2_rsp_error_top)
             )
             line_valid_ic[idx].set(c(1, width=1), when=fill_sw_ic)
             line_tag_ic[idx].set(l2_fill_tag_ic, when=fill_sw_ic)
             line_data_ic[idx].set(ic_l2_rsp_data_top, when=fill_sw_ic)
 
-    def touch_lru(set_idx_ic, way_ic, fire_ic):
-        for s in range(ic_sets):
-            fire_set_ic = fire_ic & set_idx_ic.eq(c(s, width=set_w))
-            acc_rank_ic = c(0, width=2)
-            for w in range(ic_ways):
-                idx = s * ic_ways + w
-                hit_sw_ic = fire_set_ic & way_ic.eq(c(w, width=way_w))
-                acc_rank_ic = hit_sw_ic._select_internal(lru_rank_ic[idx].out(), acc_rank_ic)
-            for w in range(ic_ways):
-                idx = s * ic_ways + w
-                is_hit_sw_ic = way_ic.eq(c(w, width=way_w))
-                old_rank_ic = lru_rank_ic[idx].out()
-                dec_sw_ic = fire_set_ic & (~is_hit_sw_ic) & old_rank_ic.ugt(acc_rank_ic)
-                new_rank_ic = dec_sw_ic._select_internal(old_rank_ic - c(1, width=2), old_rank_ic)
-                new_rank_ic = (fire_set_ic & is_hit_sw_ic)._select_internal(c(ic_ways - 1, width=2), new_rank_ic)
-                lru_rank_ic[idx].set(new_rank_ic)
+    for s in range(ic_sets):
+        fire_set_ic = req_hit_ic & (req_line0_set_ic == c(s, width=set_w))
+        acc_rank_ic = c(0, width=2)
+        for w in range(ic_ways):
+            idx = s * ic_ways + w
+            hit_sw_ic = fire_set_ic & (line0_way_ic == c(w, width=way_w))
+            acc_rank_ic = hit_sw_ic._select_internal(lru_rank_ic[idx].out(), acc_rank_ic)
+        for w in range(ic_ways):
+            idx = s * ic_ways + w
+            is_hit_sw_ic = line0_way_ic == c(w, width=way_w)
+            old_rank_ic = lru_rank_ic[idx].out()
+            dec_sw_ic = fire_set_ic & (~is_hit_sw_ic) & old_rank_ic.ugt(acc_rank_ic)
+            new_rank_ic = dec_sw_ic._select_internal(old_rank_ic - c(1, width=2), old_rank_ic)
+            new_rank_ic = (fire_set_ic & is_hit_sw_ic)._select_internal(c(ic_ways - 1, width=2), new_rank_ic)
+            lru_rank_ic[idx].set(new_rank_ic)
 
-    touch_lru(req_line0_set_ic, line0_way_ic, req_hit_ic)
-    touch_lru(req_line1_set_ic, line1_way_ic, req_hit_ic)
-    touch_lru(l2_fill_set_ic, l2_fill_victim_ic, l2_fill_fire_ic & (~ic_l2_rsp_error_top))
+    for s in range(ic_sets):
+        fire_set_ic = (req_hit_ic & req_need_line1_ic) & (req_line1_set_ic == c(s, width=set_w))
+        acc_rank_ic = c(0, width=2)
+        for w in range(ic_ways):
+            idx = s * ic_ways + w
+            hit_sw_ic = fire_set_ic & (line1_way_ic == c(w, width=way_w))
+            acc_rank_ic = hit_sw_ic._select_internal(lru_rank_ic[idx].out(), acc_rank_ic)
+        for w in range(ic_ways):
+            idx = s * ic_ways + w
+            is_hit_sw_ic = line1_way_ic == c(w, width=way_w)
+            old_rank_ic = lru_rank_ic[idx].out()
+            dec_sw_ic = fire_set_ic & (~is_hit_sw_ic) & old_rank_ic.ugt(acc_rank_ic)
+            new_rank_ic = dec_sw_ic._select_internal(old_rank_ic - c(1, width=2), old_rank_ic)
+            new_rank_ic = (fire_set_ic & is_hit_sw_ic)._select_internal(c(ic_ways - 1, width=2), new_rank_ic)
+            lru_rank_ic[idx].set(new_rank_ic)
 
-    req_bundle128_ic = m.cat(line1_data_ic, line0_data_ic)
+    for s in range(ic_sets):
+        fire_set_ic = (l2_fill_fire_ic & (~ic_l2_rsp_error_top)) & (l2_fill_set_ic == c(s, width=set_w))
+        acc_rank_ic = c(0, width=2)
+        for w in range(ic_ways):
+            idx = s * ic_ways + w
+            hit_sw_ic = fire_set_ic & (l2_fill_victim_ic == c(w, width=way_w))
+            acc_rank_ic = hit_sw_ic._select_internal(lru_rank_ic[idx].out(), acc_rank_ic)
+        for w in range(ic_ways):
+            idx = s * ic_ways + w
+            is_hit_sw_ic = l2_fill_victim_ic == c(w, width=way_w)
+            old_rank_ic = lru_rank_ic[idx].out()
+            dec_sw_ic = fire_set_ic & (~is_hit_sw_ic) & old_rank_ic.ugt(acc_rank_ic)
+            new_rank_ic = dec_sw_ic._select_internal(old_rank_ic - c(1, width=2), old_rank_ic)
+            new_rank_ic = (fire_set_ic & is_hit_sw_ic)._select_internal(c(ic_ways - 1, width=2), new_rank_ic)
+            lru_rank_ic[idx].set(new_rank_ic)
+
+    req_bundle128_ic = c(0, width=bundle_bits)
+    req_bundle_off_ic = req_bundle_base_ic[0:off_w]
+    for byte_off in range(0, ic_line_bytes - decode_window_bytes + 1):
+        off_match_ic = req_bundle_off_ic == c(byte_off, width=off_w)
+        if byte_off <= (ic_line_bytes - bundle_bytes):
+            slice_ic = line0_data_ic[byte_off * 8 : byte_off * 8 + bundle_bits]
+        else:
+            low_bits = (ic_line_bytes - byte_off) * 8
+            high_bits = bundle_bits - low_bits
+            low_slice_ic = line0_data_ic[byte_off * 8 : line_bits]
+            high_slice_ic = line1_data_ic[0:high_bits]
+            slice_ic = m.cat(high_slice_ic, low_slice_ic)
+        req_bundle128_ic = off_match_ic._select_internal(slice_ic, req_bundle128_ic)
     req_valid_to_f2_ic = req_hit_ic
     req_stall_to_f2_ic = req_miss_ic | miss_active_ic.out()
 

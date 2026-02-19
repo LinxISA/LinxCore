@@ -30,7 +30,7 @@ def build_janus_tau(m: Circuit) -> None:
     count_down_tau = busy_tau.out() & wait_tau.out().ugt(c(0, width=3))
     wait_next_tau = count_down_tau._select_internal(wait_tau.out() - c(1, width=3), wait_next_tau)
 
-    rsp_fire_tau = busy_tau.out() & wait_tau.out().eq(c(0, width=3))
+    rsp_fire_tau = busy_tau.out() & wait_tau.out().__eq__(c(0, width=3))
     busy_next_tau = rsp_fire_tau._select_internal(c(0, width=1), busy_next_tau)
 
     busy_tau.set(busy_next_tau)

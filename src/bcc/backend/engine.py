@@ -179,7 +179,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     def op_is(op, *codes: int):
         v = consts.zero1
         for code in codes:
-            v = v | op.eq(c(code, width=12))
+            v = v | op.__eq__(c(code, width=12))
         return v
 
     tag0 = c(0, width=p.ptag_w)
@@ -346,7 +346,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     head_uop_uid = rob_uop_uids[0]
 
     # Commit-time branch/control decisions (BlockISA markers) for the head.
-    commit_head = m.instance(
+    commit_head = m.instance_auto(
         build_commit_head_stage,
         name="commit_head_stage",
         head_op=head_op,
@@ -364,7 +364,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     # UID class encoding:
     # [2:0] 0..3 = decoded slot, 4 = template child, 5 = replay clone.
     template_uid_base = (template_uid_i.shl(amount=3)) | c(4, width=64)
-    ctu = m.instance(
+    ctu = m.instance_auto(
         build_code_template_unit,
         name="code_template_unit",
         base_can_run=base_can_run,
@@ -444,7 +444,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         # Use the ROB-captured instruction PC for commit/control-flow math.
         # Deriving from `pc_live` can drift when hidden/internal retire events
         # are present (e.g. macro template expansion), which can misalign fetch.
-        pc_this = rob_valids[slot].select(rob_pcs[slot], pc_live)
+        pc_this = rob_valids[slot]._select_internal(rob_pcs[slot], pc_live)
         commit_pcs.append(pc_this)
         op = rob_ops[slot]
         ln = rob_lens[slot]
@@ -458,19 +458,19 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         is_start_marker = is_bstart_head | is_macro
         is_boundary = is_bstart_mid | is_bstop | is_macro
 
-        br_is_fall = br_kind_live.eq(c(BK_FALL, width=3))
-        br_is_cond = br_kind_live.eq(c(BK_COND, width=3))
-        br_is_call = br_kind_live.eq(c(BK_CALL, width=3))
-        br_is_ret = br_kind_live.eq(c(BK_RET, width=3))
-        br_is_direct = br_kind_live.eq(c(BK_DIRECT, width=3))
-        br_is_ind = br_kind_live.eq(c(BK_IND, width=3))
-        br_is_icall = br_kind_live.eq(c(BK_ICALL, width=3))
+        br_is_fall = br_kind_live.__eq__(c(BK_FALL, width=3))
+        br_is_cond = br_kind_live.__eq__(c(BK_COND, width=3))
+        br_is_call = br_kind_live.__eq__(c(BK_CALL, width=3))
+        br_is_ret = br_kind_live.__eq__(c(BK_RET, width=3))
+        br_is_direct = br_kind_live.__eq__(c(BK_DIRECT, width=3))
+        br_is_ind = br_kind_live.__eq__(c(BK_IND, width=3))
+        br_is_icall = br_kind_live.__eq__(c(BK_ICALL, width=3))
 
         br_target = br_base_live + br_off_live
         # Dynamic target for RET/IND/ICALL blocks comes from commit_tgt.
-        br_target = (br_is_ret | br_is_ind | br_is_icall).select(commit_tgt_live, br_target)
+        br_target = (br_is_ret | br_is_ind | br_is_icall)._select_internal(commit_tgt_live, br_target)
         # Allow SETC.TGT to override fixed targets for DIRECT/CALL/COND blocks.
-        br_target = (~(br_is_ret | br_is_ind | br_is_icall) & (~commit_tgt_live.eq(consts.zero64))).select(commit_tgt_live, br_target)
+        br_target = (~(br_is_ret | br_is_ind | br_is_icall) & (~commit_tgt_live.__eq__(consts.zero64)))._select_internal(commit_tgt_live, br_target)
 
         br_take = (
             br_is_call
@@ -492,14 +492,14 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
 
         # Boundary-authoritative correction:
         # BRU mismatch only records correction; redirect is consumed at boundary commit.
-        corr_epoch_match = br_corr_pending_live & br_corr_epoch_live.eq(br_epoch_live)
+        corr_epoch_match = br_corr_pending_live & br_corr_epoch_live.__eq__(br_epoch_live)
         corr_for_boundary = fire & is_boundary & corr_epoch_match
-        br_take_eff = corr_for_boundary.select(br_corr_take_live, br_take)
-        br_target_eff = corr_for_boundary.select(br_corr_target_live, br_target)
+        br_take_eff = corr_for_boundary._select_internal(br_corr_take_live, br_take)
+        br_target_eff = corr_for_boundary._select_internal(br_corr_target_live, br_target)
 
-        pc_inc = pc_this + ln.zext(width=64)
-        boundary_fallthrough = is_bstart_mid.select(pc_this, pc_inc)
-        pc_next = is_boundary.select(br_take_eff.select(br_target_eff, boundary_fallthrough), pc_inc)
+        pc_inc = pc_this + ln._zext(width=64)
+        boundary_fallthrough = is_bstart_mid._select_internal(pc_this, pc_inc)
+        pc_next = is_boundary._select_internal(br_take_eff._select_internal(br_target_eff, boundary_fallthrough), pc_inc)
 
         # Stop commit on redirect, store, or halt.
         is_halt = op_is(op, OP_EBREAK, OP_INVALID)
@@ -510,18 +510,18 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             fire
             & rob_is_stores[slot]
             & state.replay_pending.out()
-            & commit_idxs[slot].eq(state.replay_store_rob.out())
+            & commit_idxs[slot].__eq__(state.replay_store_rob.out())
         )
-        replay_redirect_fire = replay_redirect.select(consts.one1, replay_redirect_fire)
+        replay_redirect_fire = replay_redirect._select_internal(consts.one1, replay_redirect_fire)
 
         # FRET.* are explicit control-flow ops (return via RA). They behave like
         # a taken boundary when the marker is entered (i.e., not skipped by a
         # prior taken branch at this boundary).
         is_fret = op_is(op, OP_FRET_RA, OP_FRET_STK)
         fret_redirect = fire & is_fret & (~redirect)
-        pc_next = fret_redirect.select(ret_ra_val, pc_next)
+        pc_next = fret_redirect._select_internal(ret_ra_val, pc_next)
         redirect = redirect | fret_redirect
-        pc_next = replay_redirect.select(state.replay_pc.out(), pc_next)
+        pc_next = replay_redirect._select_internal(state.replay_pc.out(), pc_next)
         redirect = redirect | replay_redirect
         commit_next_pcs.append(pc_next)
 
@@ -538,22 +538,22 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         stop = redirect | (fire & is_halt)
 
         commit_fires.append(fire)
-        commit_count = commit_count + fire.zext(width=3)
+        commit_count = commit_count + fire._zext(width=3)
 
-        redirect_valid = redirect.select(consts.one1, redirect_valid)
-        redirect_pc = redirect.select(pc_next, redirect_pc)
-        redirect_ckpt_sel = corr_for_boundary.select(br_corr_checkpoint_id_live, rob_checkpoint_ids[slot])
-        redirect_checkpoint_id = redirect.select(redirect_ckpt_sel, redirect_checkpoint_id)
-        redirect_from_corr = (redirect & corr_for_boundary).select(consts.one1, redirect_from_corr)
+        redirect_valid = redirect._select_internal(consts.one1, redirect_valid)
+        redirect_pc = redirect._select_internal(pc_next, redirect_pc)
+        redirect_ckpt_sel = corr_for_boundary._select_internal(br_corr_checkpoint_id_live, rob_checkpoint_ids[slot])
+        redirect_checkpoint_id = redirect._select_internal(redirect_ckpt_sel, redirect_checkpoint_id)
+        redirect_from_corr = (redirect & corr_for_boundary)._select_internal(consts.one1, redirect_from_corr)
 
-        commit_store_fire = store_commit.select(consts.one1, commit_store_fire)
-        commit_store_addr = store_commit.select(rob_st_addrs[slot], commit_store_addr)
-        commit_store_data = store_commit.select(rob_st_datas[slot], commit_store_data)
-        commit_store_size = store_commit.select(rob_st_sizes[slot], commit_store_size)
-        commit_store_seen = store_commit.select(consts.one1, commit_store_seen)
+        commit_store_fire = store_commit._select_internal(consts.one1, commit_store_fire)
+        commit_store_addr = store_commit._select_internal(rob_st_addrs[slot], commit_store_addr)
+        commit_store_data = store_commit._select_internal(rob_st_datas[slot], commit_store_data)
+        commit_store_size = store_commit._select_internal(rob_st_sizes[slot], commit_store_size)
+        commit_store_seen = store_commit._select_internal(consts.one1, commit_store_seen)
         bstart_commit = fire & is_bstart
-        block_uid_this = bstart_commit.select(block_uid_ctr_live, active_block_uid_live)
-        block_bid_this = bstart_commit.select(block_bid_ctr_live, active_block_bid_live)
+        block_uid_this = bstart_commit._select_internal(block_uid_ctr_live, active_block_uid_live)
+        block_bid_this = bstart_commit._select_internal(block_bid_ctr_live, active_block_bid_live)
         commit_is_bstarts.append(bstart_commit)
         bstop_commit = fire & is_bstop
         commit_is_bstops.append(bstop_commit)
@@ -561,59 +561,59 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         commit_block_bids.append(block_bid_this)
         commit_core_ids.append(c(0, width=2))
         bstop_take = bstop_commit & (~brob_retire_fire)
-        brob_retire_fire = bstop_take.select(consts.one1, brob_retire_fire)
-        brob_retire_bid = bstop_take.select(active_block_bid_live, brob_retire_bid)
-        active_block_uid_live = bstart_commit.select(block_uid_this, active_block_uid_live)
-        block_uid_ctr_live = bstart_commit.select(block_uid_ctr_live + c(1, width=64), block_uid_ctr_live)
-        active_block_bid_live = bstart_commit.select(block_bid_this, active_block_bid_live)
-        block_bid_ctr_live = bstart_commit.select(block_bid_ctr_live + c(1, width=64), block_bid_ctr_live)
-        active_block_bid_live = (fire & is_bstop).select(consts.zero64, active_block_bid_live)
+        brob_retire_fire = bstop_take._select_internal(consts.one1, brob_retire_fire)
+        brob_retire_bid = bstop_take._select_internal(active_block_bid_live, brob_retire_bid)
+        active_block_uid_live = bstart_commit._select_internal(block_uid_this, active_block_uid_live)
+        block_uid_ctr_live = bstart_commit._select_internal(block_uid_ctr_live + c(1, width=64), block_uid_ctr_live)
+        active_block_bid_live = bstart_commit._select_internal(block_bid_this, active_block_bid_live)
+        block_bid_ctr_live = bstart_commit._select_internal(block_bid_ctr_live + c(1, width=64), block_bid_ctr_live)
+        active_block_bid_live = (fire & is_bstop)._select_internal(consts.zero64, active_block_bid_live)
 
         # --- sequential architectural state updates across commit slots ---
         op_setc_any = is_setc_any(op, op_is)
         op_setc_tgt = is_setc_tgt(op, op_is)
-        commit_cond_live = (fire & is_boundary).select(consts.zero1, commit_cond_live)
-        commit_tgt_live = (fire & is_boundary).select(consts.zero64, commit_tgt_live)
-        commit_cond_live = (fire & op_setc_any).select(val.trunc(width=1), commit_cond_live)
-        commit_tgt_live = (fire & op_setc_tgt).select(val, commit_tgt_live)
-        commit_cond_live = (fire & op_setc_tgt).select(consts.one1, commit_cond_live)
+        commit_cond_live = (fire & is_boundary)._select_internal(consts.zero1, commit_cond_live)
+        commit_tgt_live = (fire & is_boundary)._select_internal(consts.zero64, commit_tgt_live)
+        commit_cond_live = (fire & op_setc_any)._select_internal(val._trunc(width=1), commit_cond_live)
+        commit_tgt_live = (fire & op_setc_tgt)._select_internal(val, commit_tgt_live)
+        commit_cond_live = (fire & op_setc_tgt)._select_internal(consts.one1, commit_cond_live)
 
-        br_kind_live = (fire & is_boundary & br_take_eff).select(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = (fire & is_boundary & br_take_eff).select(pc_this, br_base_live)
-        br_off_live = (fire & is_boundary & br_take_eff).select(consts.zero64, br_off_live)
-        br_pred_take_live = (fire & is_boundary & br_take_eff).select(consts.zero1, br_pred_take_live)
+        br_kind_live = (fire & is_boundary & br_take_eff)._select_internal(c(BK_FALL, width=3), br_kind_live)
+        br_base_live = (fire & is_boundary & br_take_eff)._select_internal(pc_this, br_base_live)
+        br_off_live = (fire & is_boundary & br_take_eff)._select_internal(consts.zero64, br_off_live)
+        br_pred_take_live = (fire & is_boundary & br_take_eff)._select_internal(consts.zero1, br_pred_take_live)
 
         enter_new_block = fire & is_bstart & (~br_take_eff)
         meta_off = rob_boundary_targets[slot] - pc_this
-        br_kind_live = enter_new_block.select(rob_boundary_kinds[slot], br_kind_live)
-        br_base_live = enter_new_block.select(pc_this, br_base_live)
-        br_off_live = enter_new_block.select(meta_off, br_off_live)
-        br_pred_take_live = enter_new_block.select(rob_pred_takes[slot], br_pred_take_live)
+        br_kind_live = enter_new_block._select_internal(rob_boundary_kinds[slot], br_kind_live)
+        br_base_live = enter_new_block._select_internal(pc_this, br_base_live)
+        br_off_live = enter_new_block._select_internal(meta_off, br_off_live)
+        br_pred_take_live = enter_new_block._select_internal(rob_pred_takes[slot], br_pred_take_live)
 
         # Macro blocks (FENTRY/FEXIT/FRET.*) are standalone fall-through blocks.
         macro_enter = fire & is_macro & (~br_take_eff)
-        br_kind_live = macro_enter.select(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = macro_enter.select(pc_this, br_base_live)
-        br_off_live = macro_enter.select(consts.zero64, br_off_live)
-        br_pred_take_live = macro_enter.select(consts.zero1, br_pred_take_live)
+        br_kind_live = macro_enter._select_internal(c(BK_FALL, width=3), br_kind_live)
+        br_base_live = macro_enter._select_internal(pc_this, br_base_live)
+        br_off_live = macro_enter._select_internal(consts.zero64, br_off_live)
+        br_pred_take_live = macro_enter._select_internal(consts.zero1, br_pred_take_live)
 
-        br_kind_live = (fire & is_bstop).select(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = (fire & is_bstop).select(pc_this, br_base_live)
-        br_off_live = (fire & is_bstop).select(consts.zero64, br_off_live)
-        br_pred_take_live = (fire & is_bstop).select(consts.zero1, br_pred_take_live)
+        br_kind_live = (fire & is_bstop)._select_internal(c(BK_FALL, width=3), br_kind_live)
+        br_base_live = (fire & is_bstop)._select_internal(pc_this, br_base_live)
+        br_off_live = (fire & is_bstop)._select_internal(consts.zero64, br_off_live)
+        br_pred_take_live = (fire & is_bstop)._select_internal(consts.zero1, br_pred_take_live)
 
         clear_corr_boundary = fire & is_boundary & corr_epoch_match
-        br_corr_pending_live = clear_corr_boundary.select(consts.zero1, br_corr_pending_live)
+        br_corr_pending_live = clear_corr_boundary._select_internal(consts.zero1, br_corr_pending_live)
 
         br_epoch_advance = fire & is_boundary
-        br_epoch_live = br_epoch_advance.select(br_epoch_live + c(1, width=16), br_epoch_live)
+        br_epoch_live = br_epoch_advance._select_internal(br_epoch_live + c(1, width=16), br_epoch_live)
 
         # Track whether next committed instruction should be interpreted as the
         # block head marker.
-        block_head_live = (fire & (is_boundary | redirect)).select(consts.one1, block_head_live)
-        block_head_live = (fire & is_bstart_head).select(consts.zero1, block_head_live)
+        block_head_live = (fire & (is_boundary | redirect))._select_internal(consts.one1, block_head_live)
+        block_head_live = (fire & is_bstart_head)._select_internal(consts.zero1, block_head_live)
 
-        pc_live = fire.select(pc_next, pc_live)
+        pc_live = fire._select_internal(pc_next, pc_live)
 
         commit_allow = commit_allow & fire & (~stop)
 
@@ -627,10 +627,10 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     for slot in range(p.commit_w):
         slot_store = commit_fires[slot] & rob_is_stores[slot]
         take = slot_store & (~store_sel_fire)
-        store_sel_fire = slot_store.select(consts.one1, store_sel_fire)
-        store_sel_addr = take.select(rob_st_addrs[slot], store_sel_addr)
-        store_sel_data = take.select(rob_st_datas[slot], store_sel_data)
-        store_sel_size = take.select(rob_st_sizes[slot], store_sel_size)
+        store_sel_fire = slot_store._select_internal(consts.one1, store_sel_fire)
+        store_sel_addr = take._select_internal(rob_st_addrs[slot], store_sel_addr)
+        store_sel_data = take._select_internal(rob_st_datas[slot], store_sel_data)
+        store_sel_size = take._select_internal(rob_st_sizes[slot], store_sel_size)
     commit_store_fire = store_sel_fire
     commit_store_addr = store_sel_addr
     commit_store_data = store_sel_data
@@ -669,7 +669,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         issue_stage_args[f"iq_lsu_srcr{i}"] = iq_lsu.srcr[i].out()
         issue_stage_args[f"iq_lsu_srcp{i}"] = iq_lsu.srcp[i].out()
 
-    issue_stage = m.instance(
+    issue_stage = m.instance_auto(
         build_issue_stage,
         name="issue_stage",
         params={
@@ -769,17 +769,17 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     cmd_uop_pdst = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.pdst, default=tag0)
     cmd_uop_has_dst = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.has_dst, default=consts.zero1)
 
-    uop_robs[cmd_slot] = cmd_slot_sel.select(cmd_uop_rob, uop_robs[cmd_slot])
-    uop_ops[cmd_slot] = cmd_slot_sel.select(cmd_uop_op, uop_ops[cmd_slot])
-    uop_pcs[cmd_slot] = cmd_slot_sel.select(cmd_uop_pc, uop_pcs[cmd_slot])
-    uop_imms[cmd_slot] = cmd_slot_sel.select(cmd_uop_imm, uop_imms[cmd_slot])
-    uop_sls[cmd_slot] = cmd_slot_sel.select(cmd_uop_sl, uop_sls[cmd_slot])
-    uop_srs[cmd_slot] = cmd_slot_sel.select(cmd_uop_sr, uop_srs[cmd_slot])
-    uop_srcr_types[cmd_slot] = cmd_slot_sel.select(cmd_uop_srcr_type, uop_srcr_types[cmd_slot])
-    uop_shamts[cmd_slot] = cmd_slot_sel.select(cmd_uop_shamt, uop_shamts[cmd_slot])
-    uop_sps[cmd_slot] = cmd_slot_sel.select(cmd_uop_sp, uop_sps[cmd_slot])
-    uop_pdsts[cmd_slot] = cmd_slot_sel.select(cmd_uop_pdst, uop_pdsts[cmd_slot])
-    uop_has_dsts[cmd_slot] = cmd_slot_sel.select(cmd_uop_has_dst, uop_has_dsts[cmd_slot])
+    uop_robs[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_rob, uop_robs[cmd_slot])
+    uop_ops[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_op, uop_ops[cmd_slot])
+    uop_pcs[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_pc, uop_pcs[cmd_slot])
+    uop_imms[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_imm, uop_imms[cmd_slot])
+    uop_sls[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_sl, uop_sls[cmd_slot])
+    uop_srs[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_sr, uop_srs[cmd_slot])
+    uop_srcr_types[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_srcr_type, uop_srcr_types[cmd_slot])
+    uop_shamts[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_shamt, uop_shamts[cmd_slot])
+    uop_sps[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_sp, uop_sps[cmd_slot])
+    uop_pdsts[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_pdst, uop_pdsts[cmd_slot])
+    uop_has_dsts[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_has_dst, uop_has_dsts[cmd_slot])
     uop_uids = []
     uop_parent_uids = []
     for slot in range(p.issue_w):
@@ -827,11 +827,11 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     sp_val = sp_vals[0]
 
     issue_fires_eff = [issue_fires[i] for i in range(p.issue_w)]
-    issue_fires_eff[cmd_slot] = cmd_slot_sel.select(cmd_issue_fire_eff, issue_fires_eff[cmd_slot])
+    issue_fires_eff[cmd_slot] = cmd_slot_sel._select_internal(cmd_issue_fire_eff, issue_fires_eff[cmd_slot])
     cmd_payload_lane = cmd_uop_imm
-    cmd_payload_lane = cmd_uop_op.eq(c(OP_BIOR, width=12)).select(sl_vals[cmd_slot] | sr_vals[cmd_slot], cmd_payload_lane)
-    cmd_payload_lane = cmd_uop_op.eq(c(OP_BLOAD, width=12)).select(sl_vals[cmd_slot] + cmd_uop_imm, cmd_payload_lane)
-    cmd_payload_lane = cmd_uop_op.eq(c(OP_BSTORE, width=12)).select(sr_vals[cmd_slot], cmd_payload_lane)
+    cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BIOR, width=12))._select_internal(sl_vals[cmd_slot] | sr_vals[cmd_slot], cmd_payload_lane)
+    cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BLOAD, width=12))._select_internal(sl_vals[cmd_slot] + cmd_uop_imm, cmd_payload_lane)
+    cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BSTORE, width=12))._select_internal(sr_vals[cmd_slot], cmd_payload_lane)
 
     # Memory disambiguation/forwarding for the LSU lane (lane0).
     lsu_stage_args = {
@@ -858,7 +858,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         lsu_stage_args[f"stbuf_addr{i}"] = stbuf_addr[i].out()
         lsu_stage_args[f"stbuf_data{i}"] = stbuf_data[i].out()
 
-    lsu_stage = m.instance(
+    lsu_stage = m.instance_auto(
         build_lsu_stage,
         name="lsu_stage",
         params={"rob_depth": p.rob_depth, "rob_w": p.rob_w, "sq_entries": p.sq_entries, "sq_w": p.sq_w},
@@ -873,12 +873,12 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     lsu_lsid_issue_advance = lsu_stage["lsu_lsid_issue_advance"]
     issue_fires_eff[0] = lsu_stage["issue_fire_lane0_eff"]
     issue_fire = issue_fires_eff[0]
-    lsid_issue_ptr_live = lsu_lsid_issue_advance.select(lsid_issue_ptr_live + c(1, width=32), lsid_issue_ptr_live)
-    lsid_complete_ptr_live = lsu_lsid_issue_advance.select(lsid_complete_ptr_live + c(1, width=32), lsid_complete_ptr_live)
+    lsid_issue_ptr_live = lsu_lsid_issue_advance._select_internal(lsid_issue_ptr_live + c(1, width=32), lsid_issue_ptr_live)
+    lsid_complete_ptr_live = lsu_lsid_issue_advance._select_internal(lsid_complete_ptr_live + c(1, width=32), lsid_complete_ptr_live)
     # Redirect/flush drops in-flight younger memory ops: rebase LSID issue/complete
     # pointers to the current allocation head so stale IDs cannot deadlock LSU.
-    lsid_issue_ptr_live = do_flush.select(state.lsid_alloc_ctr.out(), lsid_issue_ptr_live)
-    lsid_complete_ptr_live = do_flush.select(state.lsid_alloc_ctr.out(), lsid_complete_ptr_live)
+    lsid_issue_ptr_live = do_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_issue_ptr_live)
+    lsid_complete_ptr_live = do_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_complete_ptr_live)
 
     load_fires = []
     load_mem_fires = []
@@ -895,7 +895,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         load_mem_fires.append(ld_mem)
         store_fires.append(st)
         any_load_mem_fire = any_load_mem_fire | ld_mem
-        load_addr = ld_mem.select(exs[slot].addr, load_addr)
+        load_addr = ld_mem._select_internal(exs[slot].addr, load_addr)
 
     issued_is_load = load_fires[0]
     issued_is_store = store_fires[0]
@@ -927,9 +927,9 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_phase_sp = ctu["phase_sp"]
     macro_phase_setc = ctu["phase_setc"]
     macro_off_ok = ctu["off_ok"]
-    macro_is_fexit = macro_op.eq(c(OP_FEXIT, width=12))
-    macro_is_fret_ra = macro_op.eq(c(OP_FRET_RA, width=12))
-    macro_is_fret_stk = macro_op.eq(c(OP_FRET_STK, width=12))
+    macro_is_fexit = macro_op.__eq__(c(OP_FEXIT, width=12))
+    macro_is_fret_ra = macro_op.__eq__(c(OP_FRET_RA, width=12))
+    macro_is_fret_stk = macro_op.__eq__(c(OP_FRET_STK, width=12))
 
     # CodeTemplateUnit emits one template-uop per cycle while active.
     macro_uop_valid = ctu["uop_valid"]
@@ -947,7 +947,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
 
     # D-memory read arbitration: macro restore-load > LSU load.
     macro_mem_read = macro_uop_is_load
-    dmem_raddr = macro_mem_read.select(macro_uop_addr, any_load_mem_fire.select(load_addr, consts.zero64))
+    dmem_raddr = macro_mem_read._select_internal(macro_uop_addr, any_load_mem_fire._select_internal(load_addr, consts.zero64))
 
     # Macro/template uop operand reads.
     cmap_now = [ren.cmap[i].out() for i in range(p.aregs)]
@@ -956,7 +956,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_sp_tag = ren.cmap[1].out()
     macro_sp_val = mux_by_uindex(m, idx=macro_sp_tag, items=prf, default=consts.zero64)
     macro_reg_is_gpr = macro_uop_reg.ult(c(24, width=6))
-    macro_reg_not_zero = ~macro_uop_reg.eq(c(0, width=6))
+    macro_reg_not_zero = ~macro_uop_reg.__eq__(c(0, width=6))
     macro_store_fire = macro_uop_is_store & macro_reg_is_gpr & macro_reg_not_zero
     macro_store_addr = macro_uop_addr
     macro_store_data = macro_reg_val
@@ -966,24 +966,24 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     #
     # - UART data: 0x1000_0000 (write low byte)
     # - EXIT:      0x1000_0004 (write exit code; stop simulation)
-    mmio_uart = commit_store_fire & commit_store_addr.eq(c(0x1000_0000, width=64))
-    mmio_exit = commit_store_fire & commit_store_addr.eq(c(0x1000_0004, width=64))
+    mmio_uart = commit_store_fire & commit_store_addr.__eq__(c(0x1000_0000, width=64))
+    mmio_exit = commit_store_fire & commit_store_addr.__eq__(c(0x1000_0004, width=64))
     mmio_any = mmio_uart | mmio_exit
 
-    mmio_uart_data = mmio_uart.select(commit_store_data.trunc(width=8), c(0, width=8))
-    mmio_exit_code = mmio_exit.select(commit_store_data.trunc(width=32), c(0, width=32))
+    mmio_uart_data = mmio_uart._select_internal(commit_store_data._trunc(width=8), c(0, width=8))
+    mmio_exit_code = mmio_exit._select_internal(commit_store_data._trunc(width=32), c(0, width=32))
 
     # Preserve store ordering:
     # - If the committed-store buffer already has older entries, enqueue all new
     #   committed stores (unless MMIO) so younger writes cannot bypass older ones.
     # - If macro uses the single write port this cycle, enqueue as well.
-    stbuf_empty = stbuf_count.out().eq(c(0, width=p.sq_w + 1))
+    stbuf_empty = stbuf_count.out().__eq__(c(0, width=p.sq_w + 1))
     commit_store_defer = commit_store_fire & (~mmio_any) & (macro_store_fire | (~stbuf_empty))
     stbuf_enq_fire = commit_store_defer
     stbuf_enq_idx = stbuf_tail.out()
     stbuf_enq_tail = stbuf_tail.out() + c(1, width=p.sq_w)
 
-    stbuf_drain_fire = (~macro_store_fire) & (~commit_store_fire) & (~stbuf_count.out().eq(c(0, width=p.sq_w + 1)))
+    stbuf_drain_fire = (~macro_store_fire) & (~commit_store_fire) & (~stbuf_count.out().__eq__(c(0, width=p.sq_w + 1)))
     stbuf_drain_addr = mux_by_uindex(m, idx=stbuf_head.out(), items=stbuf_addr, default=consts.zero64)
     stbuf_drain_data = mux_by_uindex(m, idx=stbuf_head.out(), items=stbuf_data, default=consts.zero64)
     stbuf_drain_size = mux_by_uindex(m, idx=stbuf_head.out(), items=stbuf_size, default=consts.zero4)
@@ -991,41 +991,41 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
 
     commit_store_write_through = commit_store_fire & (~mmio_any) & (~commit_store_defer)
     mem_wvalid = macro_store_fire | commit_store_write_through | stbuf_drain_fire
-    mem_waddr = macro_store_fire.select(
+    mem_waddr = macro_store_fire._select_internal(
         macro_store_addr,
-        commit_store_write_through.select(commit_store_addr, stbuf_drain_addr),
+        commit_store_write_through._select_internal(commit_store_addr, stbuf_drain_addr),
     )
-    dmem_wdata = macro_store_fire.select(
+    dmem_wdata = macro_store_fire._select_internal(
         macro_store_data,
-        commit_store_write_through.select(commit_store_data, stbuf_drain_data),
+        commit_store_write_through._select_internal(commit_store_data, stbuf_drain_data),
     )
-    mem_wsize = macro_store_fire.select(
+    mem_wsize = macro_store_fire._select_internal(
         macro_store_size,
-        commit_store_write_through.select(commit_store_size, stbuf_drain_size),
+        commit_store_write_through._select_internal(commit_store_size, stbuf_drain_size),
     )
 
     dmem_wsrc = c(0, width=2)
-    dmem_wsrc = macro_store_fire.select(c(1, width=2), dmem_wsrc)
-    dmem_wsrc = commit_store_write_through.select(c(2, width=2), dmem_wsrc)
-    dmem_wsrc = stbuf_drain_fire.select(c(3, width=2), dmem_wsrc)
+    dmem_wsrc = macro_store_fire._select_internal(c(1, width=2), dmem_wsrc)
+    dmem_wsrc = commit_store_write_through._select_internal(c(2, width=2), dmem_wsrc)
+    dmem_wsrc = stbuf_drain_fire._select_internal(c(3, width=2), dmem_wsrc)
 
     # Store write port (writes at clk edge). Stop-at-store ensures that at most
     # one store commits per cycle in this bring-up model; the macro engine
     # consumes the same single write port.
     wstrb = consts.zero8
-    wstrb = mem_wsize.eq(c(1, width=4)).select(c(0x01, width=8), wstrb)
-    wstrb = mem_wsize.eq(c(2, width=4)).select(c(0x03, width=8), wstrb)
-    wstrb = mem_wsize.eq(c(4, width=4)).select(c(0x0F, width=8), wstrb)
-    wstrb = mem_wsize.eq(c(8, width=4)).select(c(0xFF, width=8), wstrb)
+    wstrb = mem_wsize.__eq__(c(1, width=4))._select_internal(c(0x01, width=8), wstrb)
+    wstrb = mem_wsize.__eq__(c(2, width=4))._select_internal(c(0x03, width=8), wstrb)
+    wstrb = mem_wsize.__eq__(c(4, width=4))._select_internal(c(0x0F, width=8), wstrb)
+    wstrb = mem_wsize.__eq__(c(8, width=4))._select_internal(c(0xFF, width=8), wstrb)
 
     # Store buffer register updates.
     for i in range(p.sq_entries):
         idx = c(i, width=p.sq_w)
-        do_enq = stbuf_enq_fire & stbuf_enq_idx.eq(idx)
-        do_drain = stbuf_drain_fire & stbuf_head.out().eq(idx)
+        do_enq = stbuf_enq_fire & stbuf_enq_idx.__eq__(idx)
+        do_drain = stbuf_drain_fire & stbuf_head.out().__eq__(idx)
         v_next = stbuf_valid[i].out()
-        v_next = do_drain.select(consts.zero1, v_next)
-        v_next = do_enq.select(consts.one1, v_next)
+        v_next = do_drain._select_internal(consts.zero1, v_next)
+        v_next = do_enq._select_internal(consts.one1, v_next)
         stbuf_valid[i].set(v_next)
         stbuf_addr[i].set(commit_store_addr, when=do_enq)
         stbuf_data[i].set(commit_store_data, when=do_enq)
@@ -1034,10 +1034,10 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     stbuf_head_next = stbuf_head.out()
     stbuf_tail_next = stbuf_tail.out()
     stbuf_count_next = stbuf_count.out()
-    stbuf_tail_next = stbuf_enq_fire.select(stbuf_enq_tail, stbuf_tail_next)
-    stbuf_count_next = stbuf_enq_fire.select(stbuf_count_next + c(1, width=p.sq_w + 1), stbuf_count_next)
-    stbuf_head_next = stbuf_drain_fire.select(stbuf_drain_head, stbuf_head_next)
-    stbuf_count_next = stbuf_drain_fire.select(stbuf_count_next - c(1, width=p.sq_w + 1), stbuf_count_next)
+    stbuf_tail_next = stbuf_enq_fire._select_internal(stbuf_enq_tail, stbuf_tail_next)
+    stbuf_count_next = stbuf_enq_fire._select_internal(stbuf_count_next + c(1, width=p.sq_w + 1), stbuf_count_next)
+    stbuf_head_next = stbuf_drain_fire._select_internal(stbuf_drain_head, stbuf_head_next)
+    stbuf_count_next = stbuf_drain_fire._select_internal(stbuf_count_next - c(1, width=p.sq_w + 1), stbuf_count_next)
     stbuf_head.set(stbuf_head_next)
     stbuf_tail.set(stbuf_tail_next)
     stbuf_count.set(stbuf_count_next)
@@ -1046,22 +1046,22 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_load_fwd_hit = consts.zero1
     macro_load_fwd_data = consts.zero64
     for i in range(p.sq_entries):
-        st_match = stbuf_valid[i].out() & stbuf_addr[i].out().eq(macro_uop_addr)
-        macro_load_fwd_hit = (macro_uop_is_load & st_match).select(consts.one1, macro_load_fwd_hit)
-        macro_load_fwd_data = (macro_uop_is_load & st_match).select(stbuf_data[i].out(), macro_load_fwd_data)
-    macro_load_data = macro_load_fwd_hit.select(macro_load_fwd_data, dmem_rdata)
+        st_match = stbuf_valid[i].out() & stbuf_addr[i].out().__eq__(macro_uop_addr)
+        macro_load_fwd_hit = (macro_uop_is_load & st_match)._select_internal(consts.one1, macro_load_fwd_hit)
+        macro_load_fwd_data = (macro_uop_is_load & st_match)._select_internal(stbuf_data[i].out(), macro_load_fwd_data)
+    macro_load_data = macro_load_fwd_hit._select_internal(macro_load_fwd_data, dmem_rdata)
     # FRET.STK must consume the loaded stack RA value. Only FRET.RA uses the
     # saved-RA bypass path.
-    macro_restore_ra = macro_uop_is_load & op_is(macro_op, OP_FRET_RA) & macro_uop_reg.eq(c(10, width=6))
-    macro_load_data_eff = macro_restore_ra.select(state.macro_saved_ra.out(), macro_load_data)
+    macro_restore_ra = macro_uop_is_load & op_is(macro_op, OP_FRET_RA) & macro_uop_reg.__eq__(c(10, width=6))
+    macro_load_data_eff = macro_restore_ra._select_internal(state.macro_saved_ra.out(), macro_load_data)
     # FRET.STK can finish immediately after restoring RA (e.g. [ra~ra]).
     # In that case there is no standalone SETC_TGT phase; consume the restored
     # RA value as return target on the RA-load step.
-    macro_setc_from_fret_stk_ra_load = macro_uop_is_load & macro_is_fret_stk & macro_uop_reg.eq(c(10, width=6))
+    macro_setc_from_fret_stk_ra_load = macro_uop_is_load & macro_is_fret_stk & macro_uop_reg.__eq__(c(10, width=6))
     macro_setc_tgt_fire = macro_uop_is_setc_tgt | macro_setc_from_fret_stk_ra_load
     macro_setc_tgt_data = ret_ra_val
-    macro_setc_tgt_data = macro_setc_from_fret_stk_ra_load.select(macro_load_data_eff, macro_setc_tgt_data)
-    macro_setc_tgt_data = (macro_uop_is_setc_tgt & macro_is_fret_stk).select(state.macro_saved_ra.out(), macro_setc_tgt_data)
+    macro_setc_tgt_data = macro_setc_from_fret_stk_ra_load._select_internal(macro_load_data_eff, macro_setc_tgt_data)
+    macro_setc_tgt_data = (macro_uop_is_setc_tgt & macro_is_fret_stk)._select_internal(state.macro_saved_ra.out(), macro_setc_tgt_data)
 
     macro_is_restore = macro_active & (~macro_is_fentry)
 
@@ -1073,21 +1073,21 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_prf_we = macro_reg_write | macro_sp_write_init | macro_sp_write_restore
     macro_prf_tag = macro_sp_tag
     macro_prf_data = consts.zero64
-    macro_prf_tag = macro_reg_write.select(macro_reg_tag, macro_prf_tag)
-    macro_prf_data = macro_reg_write.select(macro_load_data_eff, macro_prf_data)
-    macro_prf_data = macro_sp_write_restore.select(macro_sp_val + macro_frame_adj, macro_prf_data)
-    macro_prf_data = macro_sp_write_init.select(macro_sp_val - macro_frame_adj, macro_prf_data)
+    macro_prf_tag = macro_reg_write._select_internal(macro_reg_tag, macro_prf_tag)
+    macro_prf_data = macro_reg_write._select_internal(macro_load_data_eff, macro_prf_data)
+    macro_prf_data = macro_sp_write_restore._select_internal(macro_sp_val + macro_frame_adj, macro_prf_data)
+    macro_prf_data = macro_sp_write_init._select_internal(macro_sp_val - macro_frame_adj, macro_prf_data)
 
     # Load result (uses dmem_rdata in the same cycle raddr is set).
-    load8 = dmem_rdata.trunc(width=8)
-    load16 = dmem_rdata.trunc(width=16)
-    load32 = dmem_rdata.trunc(width=32)
-    load_lb = load8.sext(width=64)
-    load_lbu = load8.zext(width=64)
-    load_lh = load16.sext(width=64)
-    load_lhu = load16.zext(width=64)
-    load_lw = load32.sext(width=64)
-    load_lwu = load32.zext(width=64)
+    load8 = dmem_rdata._trunc(width=8)
+    load16 = dmem_rdata._trunc(width=16)
+    load32 = dmem_rdata._trunc(width=32)
+    load_lb = load8._sext(width=64)
+    load_lbu = load8._zext(width=64)
+    load_lh = load16._sext(width=64)
+    load_lhu = load16._zext(width=64)
+    load_lw = load32._sext(width=64)
+    load_lwu = load32._zext(width=64)
     load_ld = dmem_rdata
     lsu_forward_active = (issue_fires_eff[0] & exs[0].is_load) & lsu_forward_hit_lane0
     wb_fires = []
@@ -1102,29 +1102,29 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         wb_pdst = uop_pdsts[slot]
         op = uop_ops[slot]
         load_val = load_lw
-        load_val = op_is(op, OP_LB, OP_LBI, OP_HL_LB_PCR).select(load_lb, load_val)
-        load_val = op_is(op, OP_LBU, OP_LBUI, OP_HL_LBU_PCR).select(load_lbu, load_val)
-        load_val = op_is(op, OP_LH, OP_LHI, OP_HL_LH_PCR).select(load_lh, load_val)
-        load_val = op_is(op, OP_LHU, OP_LHUI, OP_HL_LHU_PCR).select(load_lhu, load_val)
-        load_val = op_is(op, OP_LWI, OP_C_LWI, OP_LW, OP_HL_LW_PCR).select(load_lw, load_val)
-        load_val = op_is(op, OP_LWU, OP_LWUI, OP_HL_LWU_PCR).select(load_lwu, load_val)
-        load_val = op_is(op, OP_LD, OP_LDI, OP_C_LDI, OP_HL_LD_PCR).select(load_ld, load_val)
+        load_val = op_is(op, OP_LB, OP_LBI, OP_HL_LB_PCR)._select_internal(load_lb, load_val)
+        load_val = op_is(op, OP_LBU, OP_LBUI, OP_HL_LBU_PCR)._select_internal(load_lbu, load_val)
+        load_val = op_is(op, OP_LH, OP_LHI, OP_HL_LH_PCR)._select_internal(load_lh, load_val)
+        load_val = op_is(op, OP_LHU, OP_LHUI, OP_HL_LHU_PCR)._select_internal(load_lhu, load_val)
+        load_val = op_is(op, OP_LWI, OP_C_LWI, OP_LW, OP_HL_LW_PCR)._select_internal(load_lw, load_val)
+        load_val = op_is(op, OP_LWU, OP_LWUI, OP_HL_LWU_PCR)._select_internal(load_lwu, load_val)
+        load_val = op_is(op, OP_LD, OP_LDI, OP_C_LDI, OP_HL_LD_PCR)._select_internal(load_ld, load_val)
         if slot == 0:
-            fwd8 = lsu_forward_data_lane0.trunc(width=8)
-            fwd16 = lsu_forward_data_lane0.trunc(width=16)
-            fwd32 = lsu_forward_data_lane0.trunc(width=32)
-            load_fwd = fwd32.sext(width=64)
-            load_fwd = op_is(op, OP_LB, OP_LBI, OP_HL_LB_PCR).select(fwd8.sext(width=64), load_fwd)
-            load_fwd = op_is(op, OP_LBU, OP_LBUI, OP_HL_LBU_PCR).select(fwd8.zext(width=64), load_fwd)
-            load_fwd = op_is(op, OP_LH, OP_LHI, OP_HL_LH_PCR).select(fwd16.sext(width=64), load_fwd)
-            load_fwd = op_is(op, OP_LHU, OP_LHUI, OP_HL_LHU_PCR).select(fwd16.zext(width=64), load_fwd)
-            load_fwd = op_is(op, OP_LWI, OP_C_LWI, OP_LW, OP_HL_LW_PCR).select(fwd32.sext(width=64), load_fwd)
-            load_fwd = op_is(op, OP_LWU, OP_LWUI, OP_HL_LWU_PCR).select(fwd32.zext(width=64), load_fwd)
-            load_fwd = op_is(op, OP_LD, OP_LDI, OP_C_LDI, OP_HL_LD_PCR).select(lsu_forward_data_lane0, load_fwd)
-            load_val = lsu_forward_active.select(load_fwd, load_val)
-        wb_value = load_fires[slot].select(load_val, exs[slot].alu)
+            fwd8 = lsu_forward_data_lane0._trunc(width=8)
+            fwd16 = lsu_forward_data_lane0._trunc(width=16)
+            fwd32 = lsu_forward_data_lane0._trunc(width=32)
+            load_fwd = fwd32._sext(width=64)
+            load_fwd = op_is(op, OP_LB, OP_LBI, OP_HL_LB_PCR)._select_internal(fwd8._sext(width=64), load_fwd)
+            load_fwd = op_is(op, OP_LBU, OP_LBUI, OP_HL_LBU_PCR)._select_internal(fwd8._zext(width=64), load_fwd)
+            load_fwd = op_is(op, OP_LH, OP_LHI, OP_HL_LH_PCR)._select_internal(fwd16._sext(width=64), load_fwd)
+            load_fwd = op_is(op, OP_LHU, OP_LHUI, OP_HL_LHU_PCR)._select_internal(fwd16._zext(width=64), load_fwd)
+            load_fwd = op_is(op, OP_LWI, OP_C_LWI, OP_LW, OP_HL_LW_PCR)._select_internal(fwd32._sext(width=64), load_fwd)
+            load_fwd = op_is(op, OP_LWU, OP_LWUI, OP_HL_LWU_PCR)._select_internal(fwd32._zext(width=64), load_fwd)
+            load_fwd = op_is(op, OP_LD, OP_LDI, OP_C_LDI, OP_HL_LD_PCR)._select_internal(lsu_forward_data_lane0, load_fwd)
+            load_val = lsu_forward_active._select_internal(load_fwd, load_val)
+        wb_value = load_fires[slot]._select_internal(load_val, exs[slot].alu)
         if slot == cmd_slot:
-            wb_value = cmd_slot_sel.select(cmd_payload_lane, wb_value)
+            wb_value = cmd_slot_sel._select_internal(cmd_payload_lane, wb_value)
         wb_has_dst = uop_has_dsts[slot] & (~store_fires[slot])
         wb_fire_has_dst = wb_fire & wb_has_dst
 
@@ -1156,28 +1156,28 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         bru_rob = uop_robs[bru_slot]
         bru_epoch = mux_by_uindex(m, idx=bru_rob, items=rob.block_epoch, default=c(0, width=16))
         bru_checkpoint = mux_by_uindex(m, idx=bru_rob, items=rob.checkpoint_id, default=c(0, width=6))
-        bru_actual_take = wb_values[bru_slot].trunc(width=1)
+        bru_actual_take = wb_values[bru_slot]._trunc(width=1)
         bru_is_setc_cond = is_setc_any(bru_op, op_is) & (~is_setc_tgt(bru_op, op_is))
         bru_validate_fire = bru_fire & bru_is_setc_cond
         bru_actual_take_dbg = bru_actual_take
         bru_pred_take_dbg = state.br_pred_take.out()
         bru_boundary_pc_dbg = state.br_base_pc.out()
         bru_target = state.br_base_pc.out() + state.br_off.out()
-        bru_target = state.br_kind.out().eq(c(BK_RET, width=3)).select(state.commit_tgt.out(), bru_target)
+        bru_target = state.br_kind.out().__eq__(c(BK_RET, width=3))._select_internal(state.commit_tgt.out(), bru_target)
 
         bru_target_known = consts.zero1
         bru_target_is_bstart = consts.zero1
         for i in range(pcb_depth):
-            pc_hit = pcb_valid[i].out() & pcb_pc[i].out().eq(bru_target)
+            pc_hit = pcb_valid[i].out() & pcb_pc[i].out().__eq__(bru_target)
             hit = pc_hit & pcb_is_bstart[i].out()
-            bru_target_known = pc_hit.select(consts.one1, bru_target_known)
-            bru_target_is_bstart = hit.select(consts.one1, bru_target_is_bstart)
+            bru_target_known = pc_hit._select_internal(consts.one1, bru_target_known)
+            bru_target_is_bstart = hit._select_internal(consts.one1, bru_target_is_bstart)
         bru_validate_en = (
-            (state.br_kind.out().eq(c(BK_COND, width=3)) | state.br_kind.out().eq(c(BK_RET, width=3)))
+            (state.br_kind.out().__eq__(c(BK_COND, width=3)) | state.br_kind.out().__eq__(c(BK_RET, width=3)))
             & bru_target_known
-            & bru_epoch.eq(state.br_epoch.out())
+            & bru_epoch.__eq__(state.br_epoch.out())
         )
-        bru_mismatch = bru_fire & bru_is_setc_cond & bru_validate_en & (~bru_actual_take.eq(state.br_pred_take.out()))
+        bru_mismatch = bru_fire & bru_is_setc_cond & bru_validate_en & (~bru_actual_take.__eq__(state.br_pred_take.out()))
         bru_mismatch_evt = bru_mismatch
         bru_target_ok = (~bru_target_known) | bru_target_is_bstart
         bru_corr_set = bru_mismatch & bru_target_ok
@@ -1204,23 +1204,23 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             dist = idx + sub_head
             younger = st_dist.ult(dist)
             ld_done = rob.valid[i].out() & rob.done[i].out() & rob.is_load[i].out()
-            addr_match = rob.load_addr[i].out().eq(st_addr)
+            addr_match = rob.load_addr[i].out().__eq__(st_addr)
             cand = st_fire & ld_done & younger & addr_match
             better = (~hit) | dist.ult(hit_age)
             take = cand & better
-            hit = take.select(consts.one1, hit)
-            hit_age = take.select(dist, hit_age)
-            hit_pc = take.select(rob.pc[i].out(), hit_pc)
+            hit = take._select_internal(consts.one1, hit)
+            hit_age = take._select_internal(dist, hit_age)
+            hit_pc = take._select_internal(rob.pc[i].out(), hit_pc)
 
         set_this = hit & (~state.replay_pending.out()) & (~replay_set)
-        replay_set = set_this.select(consts.one1, replay_set)
-        replay_set_store_rob = set_this.select(st_rob, replay_set_store_rob)
-        replay_set_pc = set_this.select(hit_pc, replay_set_pc)
+        replay_set = set_this._select_internal(consts.one1, replay_set)
+        replay_set_store_rob = set_this._select_internal(st_rob, replay_set_store_rob)
+        replay_set_pc = set_this._select_internal(hit_pc, replay_set_pc)
 
     lsu_violation_detected = replay_set
 
     # --- dispatch decode stage ---
-    decode_stage = m.instance(
+    decode_stage = m.instance_auto(
         build_decode_stage,
         name="decode_stage",
         params={"dispatch_w": p.dispatch_w},
@@ -1310,7 +1310,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         pcb_wr_kinds.append(disp_boundary_kind[slot])
         pcb_wr_targets.append(disp_boundary_target[slot])
         pcb_wr_preds.append(disp_pred_take[slot])
-        pcb_tail_tmp = wr.select(pcb_tail_tmp + c(1, width=pcb_w), pcb_tail_tmp)
+        pcb_tail_tmp = wr._select_internal(pcb_tail_tmp + c(1, width=pcb_w), pcb_tail_tmp)
     pcb_tail.set(pcb_tail_tmp)
     for i in range(pcb_depth):
         idx = c(i, width=pcb_w)
@@ -1321,13 +1321,13 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         pred_next = pcb_pred_take[i].out()
         isb_next = pcb_is_bstart[i].out()
         for slot in range(p.dispatch_w):
-            hit = pcb_wr_valids[slot] & pcb_wr_idxs[slot].eq(idx)
-            v_next = hit.select(consts.one1, v_next)
-            pc_next = hit.select(pcb_wr_pcs[slot], pc_next)
-            kind_next = hit.select(pcb_wr_kinds[slot], kind_next)
-            tgt_next = hit.select(pcb_wr_targets[slot], tgt_next)
-            pred_next = hit.select(pcb_wr_preds[slot], pred_next)
-            isb_next = hit.select(consts.one1, isb_next)
+            hit = pcb_wr_valids[slot] & pcb_wr_idxs[slot].__eq__(idx)
+            v_next = hit._select_internal(consts.one1, v_next)
+            pc_next = hit._select_internal(pcb_wr_pcs[slot], pc_next)
+            kind_next = hit._select_internal(pcb_wr_kinds[slot], kind_next)
+            tgt_next = hit._select_internal(pcb_wr_targets[slot], tgt_next)
+            pred_next = hit._select_internal(pcb_wr_preds[slot], pred_next)
+            isb_next = hit._select_internal(consts.one1, isb_next)
         pcb_valid[i].set(v_next)
         pcb_pc[i].set(pc_next)
         pcb_kind[i].set(kind_next)
@@ -1357,7 +1357,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         dispatch_stage_args[f"iq_lsu_valid{i}"] = iq_lsu.valid[i].out()
         dispatch_stage_args[f"iq_cmd_valid{i}"] = iq_cmd.valid[i].out()
 
-    dispatch_stage = m.instance(
+    dispatch_stage = m.instance_auto(
         build_dispatch_stage,
         name="dispatch_stage",
         params={
@@ -1432,7 +1432,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         rename_stage_args[f"disp_regdst{slot}"] = disp_regdsts[slot]
         rename_stage_args[f"disp_pdst{slot}"] = disp_pdsts[slot]
 
-    rename_stage = m.instance(
+    rename_stage = m.instance_auto(
         build_rename_stage,
         name="rename_stage",
         params={
@@ -1453,8 +1453,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         disp_srcp_tags.append(rename_stage[f"srcp_tag{slot}"])
     smap_live = [rename_stage[f"smap_next{i}"] for i in range(p.aregs)]
 
-    rename_free_after_dispatch = dispatch_fire.select(ren.free_mask.out() & (~disp_alloc_mask), ren.free_mask.out())
-    rename_ready_after_dispatch = dispatch_fire.select(ren.ready_mask.out() & (~disp_alloc_mask), ren.ready_mask.out())
+    rename_free_after_dispatch = dispatch_fire._select_internal(ren.free_mask.out() & (~disp_alloc_mask), ren.free_mask.out())
+    rename_ready_after_dispatch = dispatch_fire._select_internal(ren.ready_mask.out() & (~disp_alloc_mask), ren.ready_mask.out())
 
     # Snapshot rename/freelist state for branch/start-marker recovery.
     ckpt_write = consts.zero1
@@ -1462,22 +1462,22 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     for slot in range(p.dispatch_w):
         lane_fire = dispatch_fire & disp_valids[slot]
         is_ckpt = lane_fire & disp_is_start_marker[slot]
-        ckpt_idx = disp_checkpoint_ids[slot].trunc(width=ckpt_w)
-        ckpt_write = is_ckpt.select(consts.one1, ckpt_write)
-        ckpt_write_idx = is_ckpt.select(ckpt_idx, ckpt_write_idx)
+        ckpt_idx = disp_checkpoint_ids[slot]._trunc(width=ckpt_w)
+        ckpt_write = is_ckpt._select_internal(consts.one1, ckpt_write)
+        ckpt_write_idx = is_ckpt._select_internal(ckpt_idx, ckpt_write_idx)
 
     for ci in range(ckpt_entries):
         ciw = c(ci, width=ckpt_w)
-        do_ckpt = ckpt_write & ckpt_write_idx.eq(ciw)
+        do_ckpt = ckpt_write & ckpt_write_idx.__eq__(ciw)
         valid_next = ren.ckpt_valid[ci].out()
-        valid_next = do_ckpt.select(consts.one1, valid_next)
+        valid_next = do_ckpt._select_internal(consts.one1, valid_next)
         ren.ckpt_valid[ci].set(valid_next)
         ren.ckpt_free_mask[ci].set(rename_free_after_dispatch, when=do_ckpt)
         ren.ckpt_ready_mask[ci].set(rename_ready_after_dispatch, when=do_ckpt)
         for r in range(p.aregs):
             ren.ckpt_smap[ci][r].set(smap_live[r], when=do_ckpt)
 
-    flush_ckpt_idx = state.flush_checkpoint_id.out().trunc(width=ckpt_w)
+    flush_ckpt_idx = state.flush_checkpoint_id.out()._trunc(width=ckpt_w)
     flush_ckpt_valid = mux_by_uindex(m, idx=flush_ckpt_idx, items=ren.ckpt_valid, default=consts.zero1)
     flush_free_from_ckpt = mux_by_uindex(m, idx=flush_ckpt_idx, items=ren.ckpt_free_mask, default=ren.free_mask.out())
     flush_ready_from_ckpt = mux_by_uindex(m, idx=flush_ckpt_idx, items=ren.ckpt_ready_mask, default=ren.ready_mask.out())
@@ -1487,14 +1487,14 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
 
     # --- ready table updates ---
     ready_next = ren.ready_mask.out()
-    ready_next = dispatch_fire.select(ready_next & (~disp_alloc_mask), ready_next)
+    ready_next = dispatch_fire._select_internal(ready_next & (~disp_alloc_mask), ready_next)
 
     wb_set_mask = c(0, width=p.pregs)
     for slot in range(p.issue_w):
-        wb_set_mask = wb_fire_has_dsts[slot].select(wb_set_mask | wb_onehots[slot], wb_set_mask)
+        wb_set_mask = wb_fire_has_dsts[slot]._select_internal(wb_set_mask | wb_onehots[slot], wb_set_mask)
     ready_next = ready_next | wb_set_mask
-    ready_next = do_flush.select(c((1 << p.pregs) - 1, width=p.pregs), ready_next)
-    ready_next = restore_from_ckpt.select(flush_ready_from_ckpt, ready_next)
+    ready_next = do_flush._select_internal(c((1 << p.pregs) - 1, width=p.pregs), ready_next)
+    ready_next = restore_from_ckpt._select_internal(flush_ready_from_ckpt, ready_next)
     ren.ready_mask.set(ready_next)
 
     # PRF writes (up to issue_w writebacks per cycle).
@@ -1502,12 +1502,12 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         we = consts.zero1
         wdata = consts.zero64
         for slot in range(p.issue_w):
-            hit = wb_fire_has_dsts[slot] & wb_pdsts[slot].eq(c(i, width=p.ptag_w))
+            hit = wb_fire_has_dsts[slot] & wb_pdsts[slot].__eq__(c(i, width=p.ptag_w))
             we = we | hit
-            wdata = hit.select(wb_values[slot], wdata)
-        hit_macro = macro_prf_we & macro_prf_tag.eq(c(i, width=p.ptag_w))
+            wdata = hit._select_internal(wb_values[slot], wdata)
+        hit_macro = macro_prf_we & macro_prf_tag.__eq__(c(i, width=p.ptag_w))
         we = we | hit_macro
-        wdata = hit_macro.select(macro_prf_data, wdata)
+        wdata = hit_macro._select_internal(macro_prf_data, wdata)
         prf[i].set(wdata, when=we)
 
     # --- ROB updates ---
@@ -1523,7 +1523,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     }
     for slot in range(p.dispatch_w):
         rob_ctrl_args[f"disp_valid{slot}"] = disp_valids[slot]
-    rob_ctrl = m.instance(
+    rob_ctrl = m.instance_auto(
         build_rob_ctrl_stage,
         name="rob_ctrl_stage",
         params={"dispatch_w": p.dispatch_w, "rob_w": p.rob_w},
@@ -1627,7 +1627,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             rob_entry_args[f"ex_src0{slot}"] = sl_vals[slot]
             rob_entry_args[f"ex_src1{slot}"] = sr_vals[slot]
 
-        rob_entry = m.instance(
+        rob_entry = m.instance_auto(
             build_rob_entry_update_stage,
             name=f"rob_entry_update_stage_{i}",
             params={
@@ -1722,7 +1722,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             stage_args[f"issue_fire{slot}"] = issue_fires_q[slot]
             stage_args[f"issue_idx{slot}"] = issue_idxs_q[slot]
 
-        iq_stage = m.instance(
+        iq_stage = m.instance_auto(
             build_iq_update_stage,
             name=name,
             params={
@@ -1793,14 +1793,14 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     # --- SMAP updates (rename) ---
     for i in range(p.aregs):
         nxt = smap_live[i]
-        nxt = do_flush.select(ren.cmap[i].out(), nxt)
+        nxt = do_flush._select_internal(ren.cmap[i].out(), nxt)
         ckpt_smap_i = mux_by_uindex(
             m,
             idx=flush_ckpt_idx,
             items=[ren.ckpt_smap[ci][i] for ci in range(ckpt_entries)],
             default=ren.cmap[i].out(),
         )
-        nxt = restore_from_ckpt.select(ckpt_smap_i, nxt)
+        nxt = restore_from_ckpt._select_internal(ckpt_smap_i, nxt)
         if i == 0:
             nxt = tag0
         ren.smap[i].set(nxt)
@@ -1816,7 +1816,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         rename_commit_args[f"rob_dst_areg{slot}"] = rob_dst_aregs[slot]
         rename_commit_args[f"rob_pdst{slot}"] = rob_pdsts[slot]
 
-    rename_commit = m.instance(
+    rename_commit = m.instance_auto(
         build_commit_rename_stage,
         name="rename_commit_stage",
         params={"aregs": p.aregs, "pregs": p.pregs, "ptag_w": p.ptag_w, "commit_w": p.commit_w},
@@ -1831,8 +1831,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     for i in range(p.aregs):
         used = used | onehot_from_tag(m, tag=ren.cmap[i].out(), width=p.pregs, tag_width=p.ptag_w)
     free_recomputed = ~used
-    free_next = do_flush.select(free_recomputed, free_live)
-    free_next = restore_from_ckpt.select(flush_free_from_ckpt, free_next)
+    free_next = do_flush._select_internal(free_recomputed, free_live)
+    free_next = restore_from_ckpt._select_internal(flush_free_from_ckpt, free_next)
     ren.free_mask.set(free_next)
 
     # --- commit state updates (pc/br/control regs) ---
@@ -1848,20 +1848,20 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     br_corr_take_n = br_corr_take_live
     br_corr_target_n = br_corr_target_live
     br_corr_checkpoint_id_n = br_corr_checkpoint_id_live
-    br_corr_pending_n = do_flush.select(consts.zero1, br_corr_pending_n)
-    br_corr_pending_n = bru_corr_set.select(consts.one1, br_corr_pending_n)
-    br_corr_epoch_n = bru_corr_set.select(bru_corr_epoch, br_corr_epoch_n)
-    br_corr_take_n = bru_corr_set.select(bru_corr_take, br_corr_take_n)
-    br_corr_target_n = bru_corr_set.select(bru_corr_target, br_corr_target_n)
-    br_corr_checkpoint_id_n = bru_corr_set.select(bru_corr_checkpoint_id, br_corr_checkpoint_id_n)
-    corr_epoch_stale = br_corr_pending_n & (~br_corr_epoch_n.eq(br_epoch_live))
-    br_corr_pending_n = corr_epoch_stale.select(consts.zero1, br_corr_pending_n)
+    br_corr_pending_n = do_flush._select_internal(consts.zero1, br_corr_pending_n)
+    br_corr_pending_n = bru_corr_set._select_internal(consts.one1, br_corr_pending_n)
+    br_corr_epoch_n = bru_corr_set._select_internal(bru_corr_epoch, br_corr_epoch_n)
+    br_corr_take_n = bru_corr_set._select_internal(bru_corr_take, br_corr_take_n)
+    br_corr_target_n = bru_corr_set._select_internal(bru_corr_target, br_corr_target_n)
+    br_corr_checkpoint_id_n = bru_corr_set._select_internal(bru_corr_checkpoint_id, br_corr_checkpoint_id_n)
+    corr_epoch_stale = br_corr_pending_n & (~br_corr_epoch_n.__eq__(br_epoch_live))
+    br_corr_pending_n = corr_epoch_stale._select_internal(consts.zero1, br_corr_pending_n)
 
     br_corr_fault_pending_n = state.br_corr_fault_pending.out()
     br_corr_fault_rob_n = state.br_corr_fault_rob.out()
-    br_corr_fault_pending_n = do_flush.select(consts.zero1, br_corr_fault_pending_n)
-    br_corr_fault_pending_n = bru_fault_set.select(consts.one1, br_corr_fault_pending_n)
-    br_corr_fault_rob_n = bru_fault_set.select(bru_fault_rob, br_corr_fault_rob_n)
+    br_corr_fault_pending_n = do_flush._select_internal(consts.zero1, br_corr_fault_pending_n)
+    br_corr_fault_pending_n = bru_fault_set._select_internal(consts.one1, br_corr_fault_pending_n)
+    br_corr_fault_rob_n = bru_fault_set._select_internal(bru_fault_rob, br_corr_fault_rob_n)
 
     commit_ctrl_args = {
         "do_flush": do_flush,
@@ -1887,7 +1887,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         commit_ctrl_args[f"commit_fire{slot}"] = commit_fires[slot]
         commit_ctrl_args[f"rob_op{slot}"] = rob_ops[slot]
 
-    commit_ctrl = m.instance(
+    commit_ctrl = m.instance_auto(
         build_commit_ctrl_stage,
         name="commit_ctrl_stage",
         params={"commit_w": p.commit_w, "rob_w": p.rob_w},
@@ -1902,26 +1902,26 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     state.replay_pc.set(commit_ctrl["replay_pc_next"])
     trap_retire = consts.zero1
     for slot in range(p.commit_w):
-        trap_retire = trap_retire | (commit_fires[slot] & commit_idxs[slot].eq(state.trap_rob.out()))
+        trap_retire = trap_retire | (commit_fires[slot] & commit_idxs[slot].__eq__(state.trap_rob.out()))
     trap_retire = trap_retire & state.trap_pending.out()
     trap_pending_n = state.trap_pending.out()
     trap_rob_n = state.trap_rob.out()
     trap_cause_n = state.trap_cause.out()
-    trap_pending_n = do_flush.select(consts.zero1, trap_pending_n)
-    trap_pending_n = trap_retire.select(consts.zero1, trap_pending_n)
-    trap_pending_n = br_corr_fault_pending_n.select(consts.one1, trap_pending_n)
-    trap_rob_n = br_corr_fault_pending_n.select(br_corr_fault_rob_n, trap_rob_n)
-    trap_cause_n = br_corr_fault_pending_n.select(c(TRAP_BRU_RECOVERY_NOT_BSTART, width=32), trap_cause_n)
+    trap_pending_n = do_flush._select_internal(consts.zero1, trap_pending_n)
+    trap_pending_n = trap_retire._select_internal(consts.zero1, trap_pending_n)
+    trap_pending_n = br_corr_fault_pending_n._select_internal(consts.one1, trap_pending_n)
+    trap_rob_n = br_corr_fault_pending_n._select_internal(br_corr_fault_rob_n, trap_rob_n)
+    trap_cause_n = br_corr_fault_pending_n._select_internal(c(TRAP_BRU_RECOVERY_NOT_BSTART, width=32), trap_cause_n)
     state.trap_pending.set(trap_pending_n)
     state.trap_rob.set(trap_rob_n)
     state.trap_cause.set(trap_cause_n)
-    br_corr_fault_pending_n = trap_retire.select(consts.zero1, br_corr_fault_pending_n)
+    br_corr_fault_pending_n = trap_retire._select_internal(consts.zero1, br_corr_fault_pending_n)
     state.br_corr_fault_pending.set(br_corr_fault_pending_n)
     state.br_corr_fault_rob.set(br_corr_fault_rob_n)
     state.halted.set(consts.one1, when=(commit_ctrl["halt_set"] | trap_retire))
 
-    commit_cond_live = macro_setc_tgt_fire.select(consts.one1, commit_cond_live)
-    commit_tgt_live = macro_setc_tgt_fire.select(macro_setc_tgt_data, commit_tgt_live)
+    commit_cond_live = macro_setc_tgt_fire._select_internal(consts.one1, commit_cond_live)
+    commit_tgt_live = macro_setc_tgt_fire._select_internal(macro_setc_tgt_data, commit_tgt_live)
     state.cycles.set(state.cycles.out() + consts.one64)
     state.commit_cond.set(commit_cond_live)
     state.commit_tgt.set(commit_tgt_live)
@@ -1937,7 +1937,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     state.lsid_alloc_ctr.set(lsid_alloc_next)
     state.lsid_issue_ptr.set(lsid_issue_ptr_live)
     state.lsid_complete_ptr.set(lsid_complete_ptr_live)
-    state.block_head.set(do_flush.select(consts.one1, block_head_live))
+    state.block_head.set(do_flush._select_internal(consts.one1, block_head_live))
     state.br_corr_pending.set(br_corr_pending_n)
     state.br_corr_epoch.set(br_corr_epoch_n)
     state.br_corr_take.set(br_corr_take_n)
@@ -1966,17 +1966,17 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_i_n = macro_i
     macro_sp_base_n = macro_sp_base
 
-    macro_active_n = do_flush.select(consts.zero1, macro_active_n)
-    macro_phase_n = do_flush.select(ph_init, macro_phase_n)
+    macro_active_n = do_flush._select_internal(consts.zero1, macro_active_n)
+    macro_phase_n = do_flush._select_internal(ph_init, macro_phase_n)
 
-    macro_active_n = macro_start.select(consts.one1, macro_active_n)
-    macro_phase_n = macro_start.select(ph_init, macro_phase_n)
-    macro_op_n = macro_start.select(head_op, macro_op_n)
-    macro_begin_n = macro_start.select(head_macro_begin, macro_begin_n)
-    macro_end_n = macro_start.select(head_macro_end, macro_end_n)
-    macro_stack_n = macro_start.select(head_value, macro_stack_n)
-    macro_reg_n = macro_start.select(head_macro_begin, macro_reg_n)
-    macro_i_n = macro_start.select(c(0, width=6), macro_i_n)
+    macro_active_n = macro_start._select_internal(consts.one1, macro_active_n)
+    macro_phase_n = macro_start._select_internal(ph_init, macro_phase_n)
+    macro_op_n = macro_start._select_internal(head_op, macro_op_n)
+    macro_begin_n = macro_start._select_internal(head_macro_begin, macro_begin_n)
+    macro_end_n = macro_start._select_internal(head_macro_end, macro_end_n)
+    macro_stack_n = macro_start._select_internal(head_value, macro_stack_n)
+    macro_reg_n = macro_start._select_internal(head_macro_begin, macro_reg_n)
+    macro_i_n = macro_start._select_internal(c(0, width=6), macro_i_n)
 
     macro_phase_is_init = macro_phase_init
     macro_phase_is_mem = macro_phase_mem
@@ -1987,48 +1987,48 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     init_fire = macro_active & macro_phase_is_init
     sp_new_init = macro_sp_val - macro_frame_adj
     sp_new_restore = macro_sp_val + macro_frame_adj
-    macro_sp_base_n = (init_fire & macro_is_fentry).select(sp_new_init, macro_sp_base_n)
-    macro_sp_base_n = (init_fire & (macro_is_fexit | macro_is_fret_stk)).select(sp_new_restore, macro_sp_base_n)
-    macro_reg_n = init_fire.select(macro_begin, macro_reg_n)
-    macro_i_n = init_fire.select(c(0, width=6), macro_i_n)
-    macro_phase_n = (init_fire & (macro_is_fentry | macro_is_fexit | macro_is_fret_stk)).select(ph_mem, macro_phase_n)
-    macro_phase_n = (init_fire & macro_is_fret_ra).select(ph_sp, macro_phase_n)
+    macro_sp_base_n = (init_fire & macro_is_fentry)._select_internal(sp_new_init, macro_sp_base_n)
+    macro_sp_base_n = (init_fire & (macro_is_fexit | macro_is_fret_stk))._select_internal(sp_new_restore, macro_sp_base_n)
+    macro_reg_n = init_fire._select_internal(macro_begin, macro_reg_n)
+    macro_i_n = init_fire._select_internal(c(0, width=6), macro_i_n)
+    macro_phase_n = (init_fire & (macro_is_fentry | macro_is_fexit | macro_is_fret_stk))._select_internal(ph_mem, macro_phase_n)
+    macro_phase_n = (init_fire & macro_is_fret_ra)._select_internal(ph_sp, macro_phase_n)
 
     # Mem loop: iterate regs and offsets; save uses store port, restore uses load port.
     step_fire = ctu["loop_fire"]
     step_done = ctu["loop_done"]
     reg_next = ctu["loop_reg_next"]
     i_next = ctu["loop_i_next"]
-    macro_reg_n = (step_fire & (~step_done)).select(reg_next, macro_reg_n)
-    macro_i_n = (step_fire & (~step_done)).select(i_next, macro_i_n)
+    macro_reg_n = (step_fire & (~step_done))._select_internal(reg_next, macro_reg_n)
+    macro_i_n = (step_fire & (~step_done))._select_internal(i_next, macro_i_n)
 
     # FRET.STK requires a SETC.TGT immediately after restoring RA.
-    step_ra_restore = step_fire & macro_is_fret_stk & macro_uop_is_load & macro_uop_reg.eq(c(10, width=6))
-    macro_phase_n = (step_ra_restore & (~step_done)).select(ph_setc, macro_phase_n)
+    step_ra_restore = step_fire & macro_is_fret_stk & macro_uop_is_load & macro_uop_reg.__eq__(c(10, width=6))
+    macro_phase_n = (step_ra_restore & (~step_done))._select_internal(ph_setc, macro_phase_n)
 
     done_macro = step_done & (macro_is_fentry | macro_is_fexit | macro_is_fret_stk | macro_is_fret_ra)
-    macro_active_n = done_macro.select(consts.zero1, macro_active_n)
-    macro_phase_n = done_macro.select(ph_init, macro_phase_n)
+    macro_active_n = done_macro._select_internal(consts.zero1, macro_active_n)
+    macro_phase_n = done_macro._select_internal(ph_init, macro_phase_n)
 
     # FRET.RA has an explicit SP_ADD phase before restore loads.
     sp_fire = macro_active & macro_phase_is_sp & macro_is_fret_ra
-    macro_sp_base_n = sp_fire.select(sp_new_restore, macro_sp_base_n)
-    macro_phase_n = sp_fire.select(ph_mem, macro_phase_n)
+    macro_sp_base_n = sp_fire._select_internal(sp_new_restore, macro_sp_base_n)
+    macro_phase_n = sp_fire._select_internal(ph_mem, macro_phase_n)
 
     # FRET.STK emits SETC.TGT as a standalone template uop between RA load
     # and the remaining restore-load loop.
     setc_fire = macro_active & macro_phase_is_setc & macro_is_fret_stk
-    macro_phase_n = setc_fire.select(ph_mem, macro_phase_n)
+    macro_phase_n = setc_fire._select_internal(ph_mem, macro_phase_n)
 
     macro_wait_n = state.macro_wait_commit.out()
-    macro_wait_n = do_flush.select(consts.zero1, macro_wait_n)
-    macro_wait_n = macro_start.select(consts.one1, macro_wait_n)
+    macro_wait_n = do_flush._select_internal(consts.zero1, macro_wait_n)
+    macro_wait_n = macro_start._select_internal(consts.one1, macro_wait_n)
     macro_committed = consts.zero1
     for slot in range(p.commit_w):
         op = rob_ops[slot]
         fire = commit_fires[slot]
         macro_committed = macro_committed | (fire & op_is(op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK))
-    macro_wait_n = macro_committed.select(consts.zero1, macro_wait_n)
+    macro_wait_n = macro_committed._select_internal(consts.zero1, macro_wait_n)
 
     # Suppress one synthetic C.BSTART boundary-dup right after a macro
     # commit handoff (macro commit advances to a new PC).
@@ -2037,14 +2037,14 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         op = rob_ops[slot]
         fire = commit_fires[slot]
         is_macro_evt = op_is(op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
-        macro_handoff = macro_handoff | (fire & is_macro_evt & (~commit_next_pcs[slot].eq(commit_pcs[slot])))
+        macro_handoff = macro_handoff | (fire & is_macro_evt & (~commit_next_pcs[slot].__eq__(commit_pcs[slot])))
     any_commit_fire = consts.zero1
     for slot in range(p.commit_w):
         any_commit_fire = any_commit_fire | commit_fires[slot]
     post_macro_handoff_n = state.post_macro_handoff.out()
-    post_macro_handoff_n = do_flush.select(consts.zero1, post_macro_handoff_n)
-    post_macro_handoff_n = macro_handoff.select(consts.one1, post_macro_handoff_n)
-    post_macro_handoff_n = (any_commit_fire & (~macro_handoff)).select(consts.zero1, post_macro_handoff_n)
+    post_macro_handoff_n = do_flush._select_internal(consts.zero1, post_macro_handoff_n)
+    post_macro_handoff_n = macro_handoff._select_internal(consts.one1, post_macro_handoff_n)
+    post_macro_handoff_n = (any_commit_fire & (~macro_handoff))._select_internal(consts.zero1, post_macro_handoff_n)
 
     state.macro_active.set(macro_active_n)
     state.macro_wait_commit.set(macro_wait_n)
@@ -2058,10 +2058,10 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     state.macro_i.set(macro_i_n)
     state.macro_sp_base.set(macro_sp_base_n)
     macro_saved_ra_n = state.macro_saved_ra.out()
-    save_ra_fire = macro_store_fire & macro_uop_reg.eq(c(10, width=6))
-    restore_ra_fire = macro_reg_write & macro_uop_reg.eq(c(10, width=6)) & macro_is_fret_stk
-    macro_saved_ra_n = save_ra_fire.select(macro_store_data, macro_saved_ra_n)
-    macro_saved_ra_n = restore_ra_fire.select(macro_load_data_eff, macro_saved_ra_n)
+    save_ra_fire = macro_store_fire & macro_uop_reg.__eq__(c(10, width=6))
+    restore_ra_fire = macro_reg_write & macro_uop_reg.__eq__(c(10, width=6)) & macro_is_fret_stk
+    macro_saved_ra_n = save_ra_fire._select_internal(macro_store_data, macro_saved_ra_n)
+    macro_saved_ra_n = restore_ra_fire._select_internal(macro_load_data_eff, macro_saved_ra_n)
     state.macro_saved_ra.set(macro_saved_ra_n)
 
     # --- outputs ---
@@ -2106,10 +2106,20 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     # per-step retire events to match QEMU commit semantics exactly.
     # The internal macro ROB commit is hidden from the trace stream.
     macro_trace_fire = macro_uop_valid
-    macro_adj_nonzero = ~macro_frame_adj.eq(consts.zero64)
+    macro_adj_nonzero = ~macro_frame_adj.__eq__(consts.zero64)
     macro_trace_pc = state.pc.out()
-    macro_trace_seq_pc = macro_trace_pc + head_len.zext(width=64)
-    macro_trace_op = macro_op
+    macro_trace_seq_pc = macro_trace_pc + head_len._zext(width=64)
+    macro_enc = map_template_child_encoding(
+        m,
+        macro_op=macro_op,
+        macro_insn_raw=head_insn_raw,
+        uop_is_sp_sub=macro_uop_is_sp_sub,
+        uop_is_sp_add=macro_uop_is_sp_add,
+        uop_is_store=macro_uop_is_store,
+        uop_is_load=macro_uop_is_load,
+        uop_is_setc_tgt=macro_uop_is_setc_tgt,
+    )
+    macro_trace_op = macro_enc["op"]
     macro_trace_val = head_value
     macro_trace_rob = rob.head.out()
     macro_trace_len = head_len
@@ -2120,26 +2130,26 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_trace_wb_sp_add = macro_uop_is_sp_add & macro_adj_nonzero
     macro_trace_wb_valid = macro_trace_fire & (macro_trace_wb_load | macro_trace_wb_sp_sub | macro_trace_wb_sp_add)
     macro_trace_wb_rd = c(0, width=6)
-    macro_trace_wb_rd = macro_trace_wb_load.select(macro_uop_reg, macro_trace_wb_rd)
-    macro_trace_wb_rd = (macro_trace_wb_sp_sub | macro_trace_wb_sp_add).select(c(1, width=6), macro_trace_wb_rd)
+    macro_trace_wb_rd = macro_trace_wb_load._select_internal(macro_uop_reg, macro_trace_wb_rd)
+    macro_trace_wb_rd = (macro_trace_wb_sp_sub | macro_trace_wb_sp_add)._select_internal(c(1, width=6), macro_trace_wb_rd)
     macro_trace_wb_data = consts.zero64
-    macro_trace_wb_data = macro_trace_wb_load.select(macro_load_data_eff, macro_trace_wb_data)
-    macro_trace_wb_data = macro_trace_wb_sp_add.select(macro_sp_val + macro_frame_adj, macro_trace_wb_data)
-    macro_trace_wb_data = macro_trace_wb_sp_sub.select(macro_sp_val - macro_frame_adj, macro_trace_wb_data)
+    macro_trace_wb_data = macro_trace_wb_load._select_internal(macro_load_data_eff, macro_trace_wb_data)
+    macro_trace_wb_data = macro_trace_wb_sp_add._select_internal(macro_sp_val + macro_frame_adj, macro_trace_wb_data)
+    macro_trace_wb_data = macro_trace_wb_sp_sub._select_internal(macro_sp_val - macro_frame_adj, macro_trace_wb_data)
 
     macro_trace_mem_store = macro_store_fire
     macro_trace_mem_load = macro_uop_is_load & macro_reg_is_gpr & macro_reg_not_zero
     macro_trace_mem_valid = macro_trace_fire & (macro_trace_mem_store | macro_trace_mem_load)
     macro_trace_mem_is_store = macro_trace_fire & macro_trace_mem_store
     macro_trace_mem_addr = macro_uop_addr
-    macro_trace_mem_wdata = macro_trace_mem_store.select(macro_store_data, consts.zero64)
-    macro_trace_mem_rdata = macro_trace_mem_load.select(macro_load_data_eff, consts.zero64)
-    macro_trace_mem_size = macro_trace_mem_valid.select(c(8, width=4), consts.zero4)
+    macro_trace_mem_wdata = macro_trace_mem_store._select_internal(macro_store_data, consts.zero64)
+    macro_trace_mem_rdata = macro_trace_mem_load._select_internal(macro_load_data_eff, consts.zero64)
+    macro_trace_mem_size = macro_trace_mem_valid._select_internal(c(8, width=4), consts.zero4)
     macro_trace_src0_valid = macro_trace_fire & (macro_uop_is_sp_sub | macro_uop_is_sp_add | macro_store_fire | macro_uop_is_load)
     macro_trace_src0_reg = c(1, width=6)
-    macro_trace_src0_reg = macro_store_fire.select(macro_uop_reg, macro_trace_src0_reg)
+    macro_trace_src0_reg = macro_store_fire._select_internal(macro_uop_reg, macro_trace_src0_reg)
     macro_trace_src0_data = macro_sp_val
-    macro_trace_src0_data = macro_store_fire.select(macro_store_data, macro_trace_src0_data)
+    macro_trace_src0_data = macro_store_fire._select_internal(macro_store_data, macro_trace_src0_data)
     macro_trace_src1_valid = consts.zero1
     macro_trace_src1_reg = c(0, width=6)
     macro_trace_src1_data = consts.zero64
@@ -2147,16 +2157,16 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_trace_dst_reg = macro_trace_wb_rd
     macro_trace_dst_data = macro_trace_wb_data
 
-    macro_trace_is_fentry = macro_op.eq(c(OP_FENTRY, width=12))
-    macro_trace_is_fexit = macro_op.eq(c(OP_FEXIT, width=12))
+    macro_trace_is_fentry = macro_op.__eq__(c(OP_FENTRY, width=12))
+    macro_trace_is_fexit = macro_op.__eq__(c(OP_FEXIT, width=12))
     macro_trace_is_fret = op_is(macro_op, OP_FRET_RA, OP_FRET_STK)
-    macro_trace_done_fentry = (macro_uop_is_sp_sub & macro_stacksize.eq(consts.zero64)) | (macro_uop_is_store & step_done)
+    macro_trace_done_fentry = (macro_uop_is_sp_sub & macro_stacksize.__eq__(consts.zero64)) | (macro_uop_is_store & step_done)
     macro_trace_done_fexit = macro_uop_is_load & step_done & macro_trace_is_fexit
     macro_trace_done_fret = macro_uop_is_load & step_done & macro_trace_is_fret
     macro_trace_next_pc = macro_trace_pc
-    macro_trace_next_pc = macro_trace_done_fentry.select(macro_trace_seq_pc, macro_trace_next_pc)
-    macro_trace_next_pc = macro_trace_done_fexit.select(macro_trace_seq_pc, macro_trace_next_pc)
-    macro_trace_next_pc = macro_trace_done_fret.select(commit_tgt_live, macro_trace_next_pc)
+    macro_trace_next_pc = macro_trace_done_fentry._select_internal(macro_trace_seq_pc, macro_trace_next_pc)
+    macro_trace_next_pc = macro_trace_done_fexit._select_internal(macro_trace_seq_pc, macro_trace_next_pc)
+    macro_trace_next_pc = macro_trace_done_fret._select_internal(commit_tgt_live, macro_trace_next_pc)
     # QEMU commit-trace emits a side-effect-free template marker before the
     # first architecturally visible FRET template micro-op.
     macro_shadow_fire = macro_trace_fire & (
@@ -2222,7 +2232,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             parent_uid = rob_parent_uids[slot]
             is_macro_commit = op_is(op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
             fire = fire_raw & (~is_macro_commit)
-            is_gpr_dst = rob_dst_kinds[slot].eq(c(1, width=2))
+            is_gpr_dst = rob_dst_kinds[slot].__eq__(c(1, width=2))
             wb_trace_suppress = op_is(
                 op,
                 OP_C_BSTART_STD,
@@ -2235,7 +2245,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
                 OP_C_BSTOP,
             )
             rd = rob_dst_aregs[slot]
-            wb_valid = fire & is_gpr_dst & (~rd.eq(c(0, width=6))) & (~wb_trace_suppress)
+            wb_valid = fire & is_gpr_dst & (~rd.__eq__(c(0, width=6))) & (~wb_trace_suppress)
             wb_rd = rd
             wb_data = rob_values[slot]
             src0_valid = fire & rob_src0_valids[slot]
@@ -2252,19 +2262,19 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             is_load = rob_is_loads[slot]
             ld_trace_data = rob_ld_datas[slot]
             for i in range(p.sq_entries):
-                st_hit = stbuf_valid[i].out() & stbuf_addr[i].out().eq(rob_ld_addrs[slot])
-                ld_trace_data = st_hit.select(stbuf_data[i].out(), ld_trace_data)
+                st_hit = stbuf_valid[i].out() & stbuf_addr[i].out().__eq__(rob_ld_addrs[slot])
+                ld_trace_data = st_hit._select_internal(stbuf_data[i].out(), ld_trace_data)
             mem_valid = fire & (is_store | is_load)
             mem_is_store = fire & is_store
-            mem_addr = is_store.select(rob_st_addrs[slot], rob_ld_addrs[slot])
-            mem_wdata = is_store.select(rob_st_datas[slot], consts.zero64)
-            mem_rdata = is_load.select(ld_trace_data, consts.zero64)
-            mem_size = is_store.select(rob_st_sizes[slot], rob_ld_sizes[slot])
+            mem_addr = is_store._select_internal(rob_st_addrs[slot], rob_ld_addrs[slot])
+            mem_wdata = is_store._select_internal(rob_st_datas[slot], consts.zero64)
+            mem_rdata = is_load._select_internal(ld_trace_data, consts.zero64)
+            mem_size = is_store._select_internal(rob_st_sizes[slot], rob_ld_sizes[slot])
             next_pc = next_pc_slot
             checkpoint_id = rob_checkpoint_ids[slot]
-            trap_hit = state.trap_pending.out() & commit_idxs[slot].eq(state.trap_rob.out())
+            trap_hit = state.trap_pending.out() & commit_idxs[slot].__eq__(state.trap_rob.out())
             trap_valid = fire & trap_hit
-            trap_cause = trap_hit.select(state.trap_cause.out(), trap_cause)
+            trap_cause = trap_hit._select_internal(state.trap_cause.out(), trap_cause)
 
         # When `shadow_boundary_fire` is active, shift real retire records up
         # by one slot so slot0 can carry the synthetic boundary marker event.
@@ -2281,7 +2291,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             parent_prev = rob_parent_uids[prev]
             is_macro_prev = op_is(op_prev, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
             fire_prev = fire_prev_raw & (~is_macro_prev)
-            is_gpr_prev = rob_dst_kinds[prev].eq(c(1, width=2))
+            is_gpr_prev = rob_dst_kinds[prev].__eq__(c(1, width=2))
             wb_suppress_prev = op_is(
                 op_prev,
                 OP_C_BSTART_STD,
@@ -2294,7 +2304,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
                 OP_C_BSTOP,
             )
             rd_prev = rob_dst_aregs[prev]
-            wb_valid_prev = fire_prev & is_gpr_prev & (~rd_prev.eq(c(0, width=6))) & (~wb_suppress_prev)
+            wb_valid_prev = fire_prev & is_gpr_prev & (~rd_prev.__eq__(c(0, width=6))) & (~wb_suppress_prev)
             wb_rd_prev = rd_prev
             wb_data_prev = rob_values[prev]
             src0_valid_prev = fire_prev & rob_src0_valids[prev]
@@ -2311,224 +2321,224 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             is_load_prev = rob_is_loads[prev]
             ld_trace_prev = rob_ld_datas[prev]
             for i in range(p.sq_entries):
-                st_hit_prev = stbuf_valid[i].out() & stbuf_addr[i].out().eq(rob_ld_addrs[prev])
-                ld_trace_prev = st_hit_prev.select(stbuf_data[i].out(), ld_trace_prev)
+                st_hit_prev = stbuf_valid[i].out() & stbuf_addr[i].out().__eq__(rob_ld_addrs[prev])
+                ld_trace_prev = st_hit_prev._select_internal(stbuf_data[i].out(), ld_trace_prev)
             mem_valid_prev = fire_prev & (is_store_prev | is_load_prev)
             mem_is_store_prev = fire_prev & is_store_prev
-            mem_addr_prev = is_store_prev.select(rob_st_addrs[prev], rob_ld_addrs[prev])
-            mem_wdata_prev = is_store_prev.select(rob_st_datas[prev], consts.zero64)
-            mem_rdata_prev = is_load_prev.select(ld_trace_prev, consts.zero64)
-            mem_size_prev = is_store_prev.select(rob_st_sizes[prev], rob_ld_sizes[prev])
+            mem_addr_prev = is_store_prev._select_internal(rob_st_addrs[prev], rob_ld_addrs[prev])
+            mem_wdata_prev = is_store_prev._select_internal(rob_st_datas[prev], consts.zero64)
+            mem_rdata_prev = is_load_prev._select_internal(ld_trace_prev, consts.zero64)
+            mem_size_prev = is_store_prev._select_internal(rob_st_sizes[prev], rob_ld_sizes[prev])
             checkpoint_prev = rob_checkpoint_ids[prev]
             shift_active = shadow_boundary_fire
             if slot > 1:
                 shift_active = shift_active | shadow_boundary_fire1
 
-            fire = shift_active.select(fire_prev, fire)
-            pc = shift_active.select(pc_prev, pc)
-            rob_idx = shift_active.select(rob_prev, rob_idx)
-            op = shift_active.select(op_prev, op)
-            val = shift_active.select(val_prev, val)
-            ln = shift_active.select(ln_prev, ln)
-            insn_raw = shift_active.select(insn_prev, insn_raw)
-            uop_uid = shift_active.select(uid_prev, uop_uid)
-            parent_uid = shift_active.select(parent_prev, parent_uid)
-            wb_valid = shift_active.select(wb_valid_prev, wb_valid)
-            wb_rd = shift_active.select(wb_rd_prev, wb_rd)
-            wb_data = shift_active.select(wb_data_prev, wb_data)
-            src0_valid = shift_active.select(src0_valid_prev, src0_valid)
-            src0_reg = shift_active.select(src0_reg_prev, src0_reg)
-            src0_data = shift_active.select(src0_data_prev, src0_data)
-            src1_valid = shift_active.select(src1_valid_prev, src1_valid)
-            src1_reg = shift_active.select(src1_reg_prev, src1_reg)
-            src1_data = shift_active.select(src1_data_prev, src1_data)
-            dst_valid = shift_active.select(dst_valid_prev, dst_valid)
-            dst_reg = shift_active.select(dst_reg_prev, dst_reg)
-            dst_data = shift_active.select(dst_data_prev, dst_data)
-            mem_valid = shift_active.select(mem_valid_prev, mem_valid)
-            mem_is_store = shift_active.select(mem_is_store_prev, mem_is_store)
-            mem_addr = shift_active.select(mem_addr_prev, mem_addr)
-            mem_wdata = shift_active.select(mem_wdata_prev, mem_wdata)
-            mem_rdata = shift_active.select(mem_rdata_prev, mem_rdata)
-            mem_size = shift_active.select(mem_size_prev, mem_size)
-            next_pc = shift_active.select(next_pc_prev, next_pc)
-            checkpoint_id = shift_active.select(checkpoint_prev, checkpoint_id)
+            fire = shift_active._select_internal(fire_prev, fire)
+            pc = shift_active._select_internal(pc_prev, pc)
+            rob_idx = shift_active._select_internal(rob_prev, rob_idx)
+            op = shift_active._select_internal(op_prev, op)
+            val = shift_active._select_internal(val_prev, val)
+            ln = shift_active._select_internal(ln_prev, ln)
+            insn_raw = shift_active._select_internal(insn_prev, insn_raw)
+            uop_uid = shift_active._select_internal(uid_prev, uop_uid)
+            parent_uid = shift_active._select_internal(parent_prev, parent_uid)
+            wb_valid = shift_active._select_internal(wb_valid_prev, wb_valid)
+            wb_rd = shift_active._select_internal(wb_rd_prev, wb_rd)
+            wb_data = shift_active._select_internal(wb_data_prev, wb_data)
+            src0_valid = shift_active._select_internal(src0_valid_prev, src0_valid)
+            src0_reg = shift_active._select_internal(src0_reg_prev, src0_reg)
+            src0_data = shift_active._select_internal(src0_data_prev, src0_data)
+            src1_valid = shift_active._select_internal(src1_valid_prev, src1_valid)
+            src1_reg = shift_active._select_internal(src1_reg_prev, src1_reg)
+            src1_data = shift_active._select_internal(src1_data_prev, src1_data)
+            dst_valid = shift_active._select_internal(dst_valid_prev, dst_valid)
+            dst_reg = shift_active._select_internal(dst_reg_prev, dst_reg)
+            dst_data = shift_active._select_internal(dst_data_prev, dst_data)
+            mem_valid = shift_active._select_internal(mem_valid_prev, mem_valid)
+            mem_is_store = shift_active._select_internal(mem_is_store_prev, mem_is_store)
+            mem_addr = shift_active._select_internal(mem_addr_prev, mem_addr)
+            mem_wdata = shift_active._select_internal(mem_wdata_prev, mem_wdata)
+            mem_rdata = shift_active._select_internal(mem_rdata_prev, mem_rdata)
+            mem_size = shift_active._select_internal(mem_size_prev, mem_size)
+            next_pc = shift_active._select_internal(next_pc_prev, next_pc)
+            checkpoint_id = shift_active._select_internal(checkpoint_prev, checkpoint_id)
 
         if slot == 0:
-            fire = shadow_boundary_fire.select(consts.one1, fire)
-            pc = shadow_boundary_fire.select(commit_pcs[0], pc)
-            rob_idx = shadow_boundary_fire.select(commit_idxs[0], rob_idx)
-            op = shadow_boundary_fire.select(rob_ops[0], op)
-            val = shadow_boundary_fire.select(rob_values[0], val)
-            ln = shadow_boundary_fire.select(rob_lens[0], ln)
-            insn_raw = shadow_boundary_fire.select(rob_insn_raws[0], insn_raw)
-            uop_uid = shadow_boundary_fire.select(rob_uop_uids[0], uop_uid)
-            parent_uid = shadow_boundary_fire.select(rob_parent_uids[0], parent_uid)
-            wb_valid = shadow_boundary_fire.select(consts.zero1, wb_valid)
-            wb_rd = shadow_boundary_fire.select(c(0, width=6), wb_rd)
-            wb_data = shadow_boundary_fire.select(consts.zero64, wb_data)
-            src0_valid = shadow_boundary_fire.select(consts.zero1, src0_valid)
-            src0_reg = shadow_boundary_fire.select(c(0, width=6), src0_reg)
-            src0_data = shadow_boundary_fire.select(consts.zero64, src0_data)
-            src1_valid = shadow_boundary_fire.select(consts.zero1, src1_valid)
-            src1_reg = shadow_boundary_fire.select(c(0, width=6), src1_reg)
-            src1_data = shadow_boundary_fire.select(consts.zero64, src1_data)
-            dst_valid = shadow_boundary_fire.select(consts.zero1, dst_valid)
-            dst_reg = shadow_boundary_fire.select(c(0, width=6), dst_reg)
-            dst_data = shadow_boundary_fire.select(consts.zero64, dst_data)
-            mem_valid = shadow_boundary_fire.select(consts.zero1, mem_valid)
-            mem_is_store = shadow_boundary_fire.select(consts.zero1, mem_is_store)
-            mem_addr = shadow_boundary_fire.select(consts.zero64, mem_addr)
-            mem_wdata = shadow_boundary_fire.select(consts.zero64, mem_wdata)
-            mem_rdata = shadow_boundary_fire.select(consts.zero64, mem_rdata)
-            mem_size = shadow_boundary_fire.select(consts.zero4, mem_size)
-            next_pc = shadow_boundary_fire.select(commit_pcs[0], next_pc)
-            checkpoint_id = shadow_boundary_fire.select(rob_checkpoint_ids[0], checkpoint_id)
+            fire = shadow_boundary_fire._select_internal(consts.one1, fire)
+            pc = shadow_boundary_fire._select_internal(commit_pcs[0], pc)
+            rob_idx = shadow_boundary_fire._select_internal(commit_idxs[0], rob_idx)
+            op = shadow_boundary_fire._select_internal(rob_ops[0], op)
+            val = shadow_boundary_fire._select_internal(rob_values[0], val)
+            ln = shadow_boundary_fire._select_internal(rob_lens[0], ln)
+            insn_raw = shadow_boundary_fire._select_internal(rob_insn_raws[0], insn_raw)
+            uop_uid = shadow_boundary_fire._select_internal(rob_uop_uids[0], uop_uid)
+            parent_uid = shadow_boundary_fire._select_internal(rob_parent_uids[0], parent_uid)
+            wb_valid = shadow_boundary_fire._select_internal(consts.zero1, wb_valid)
+            wb_rd = shadow_boundary_fire._select_internal(c(0, width=6), wb_rd)
+            wb_data = shadow_boundary_fire._select_internal(consts.zero64, wb_data)
+            src0_valid = shadow_boundary_fire._select_internal(consts.zero1, src0_valid)
+            src0_reg = shadow_boundary_fire._select_internal(c(0, width=6), src0_reg)
+            src0_data = shadow_boundary_fire._select_internal(consts.zero64, src0_data)
+            src1_valid = shadow_boundary_fire._select_internal(consts.zero1, src1_valid)
+            src1_reg = shadow_boundary_fire._select_internal(c(0, width=6), src1_reg)
+            src1_data = shadow_boundary_fire._select_internal(consts.zero64, src1_data)
+            dst_valid = shadow_boundary_fire._select_internal(consts.zero1, dst_valid)
+            dst_reg = shadow_boundary_fire._select_internal(c(0, width=6), dst_reg)
+            dst_data = shadow_boundary_fire._select_internal(consts.zero64, dst_data)
+            mem_valid = shadow_boundary_fire._select_internal(consts.zero1, mem_valid)
+            mem_is_store = shadow_boundary_fire._select_internal(consts.zero1, mem_is_store)
+            mem_addr = shadow_boundary_fire._select_internal(consts.zero64, mem_addr)
+            mem_wdata = shadow_boundary_fire._select_internal(consts.zero64, mem_wdata)
+            mem_rdata = shadow_boundary_fire._select_internal(consts.zero64, mem_rdata)
+            mem_size = shadow_boundary_fire._select_internal(consts.zero4, mem_size)
+            next_pc = shadow_boundary_fire._select_internal(commit_pcs[0], next_pc)
+            checkpoint_id = shadow_boundary_fire._select_internal(rob_checkpoint_ids[0], checkpoint_id)
 
-            fire = macro_trace_fire.select(consts.one1, fire)
-            pc = macro_trace_fire.select(macro_trace_pc, pc)
-            rob_idx = macro_trace_fire.select(macro_trace_rob, rob_idx)
-            op = macro_trace_fire.select(macro_trace_op, op)
-            val = macro_trace_fire.select(macro_trace_val, val)
-            ln = macro_trace_fire.select(macro_trace_len, ln)
-            insn_raw = macro_trace_fire.select(macro_trace_insn, insn_raw)
-            uop_uid = macro_trace_fire.select(macro_uop_uid, uop_uid)
-            parent_uid = macro_trace_fire.select(macro_uop_parent_uid, parent_uid)
-            template_kind = macro_trace_fire.select(macro_uop_template_kind, template_kind)
-            wb_valid = macro_trace_fire.select(macro_trace_wb_valid, wb_valid)
-            wb_rd = macro_trace_fire.select(macro_trace_wb_rd, wb_rd)
-            wb_data = macro_trace_fire.select(macro_trace_wb_data, wb_data)
-            src0_valid = macro_trace_fire.select(macro_trace_src0_valid, src0_valid)
-            src0_reg = macro_trace_fire.select(macro_trace_src0_reg, src0_reg)
-            src0_data = macro_trace_fire.select(macro_trace_src0_data, src0_data)
-            src1_valid = macro_trace_fire.select(macro_trace_src1_valid, src1_valid)
-            src1_reg = macro_trace_fire.select(macro_trace_src1_reg, src1_reg)
-            src1_data = macro_trace_fire.select(macro_trace_src1_data, src1_data)
-            dst_valid = macro_trace_fire.select(macro_trace_dst_valid, dst_valid)
-            dst_reg = macro_trace_fire.select(macro_trace_dst_reg, dst_reg)
-            dst_data = macro_trace_fire.select(macro_trace_dst_data, dst_data)
-            mem_valid = macro_trace_fire.select(macro_trace_mem_valid, mem_valid)
-            mem_is_store = macro_trace_fire.select(macro_trace_mem_is_store, mem_is_store)
-            mem_addr = macro_trace_fire.select(macro_trace_mem_addr, mem_addr)
-            mem_wdata = macro_trace_fire.select(macro_trace_mem_wdata, mem_wdata)
-            mem_rdata = macro_trace_fire.select(macro_trace_mem_rdata, mem_rdata)
-            mem_size = macro_trace_fire.select(macro_trace_mem_size, mem_size)
-            next_pc = macro_trace_fire.select(macro_trace_next_pc, next_pc)
-            uop_uid = macro_shadow_fire.select(macro_shadow_uid, uop_uid)
-            wb_valid = macro_shadow_fire.select(consts.zero1, wb_valid)
-            wb_rd = macro_shadow_fire.select(c(0, width=6), wb_rd)
-            wb_data = macro_shadow_fire.select(consts.zero64, wb_data)
-            src0_valid = macro_shadow_fire.select(consts.zero1, src0_valid)
-            src0_reg = macro_shadow_fire.select(c(0, width=6), src0_reg)
-            src0_data = macro_shadow_fire.select(consts.zero64, src0_data)
-            src1_valid = macro_shadow_fire.select(consts.zero1, src1_valid)
-            src1_reg = macro_shadow_fire.select(c(0, width=6), src1_reg)
-            src1_data = macro_shadow_fire.select(consts.zero64, src1_data)
-            dst_valid = macro_shadow_fire.select(consts.zero1, dst_valid)
-            dst_reg = macro_shadow_fire.select(c(0, width=6), dst_reg)
-            dst_data = macro_shadow_fire.select(consts.zero64, dst_data)
-            mem_valid = macro_shadow_fire.select(consts.zero1, mem_valid)
-            mem_is_store = macro_shadow_fire.select(consts.zero1, mem_is_store)
-            mem_addr = macro_shadow_fire.select(consts.zero64, mem_addr)
-            mem_wdata = macro_shadow_fire.select(consts.zero64, mem_wdata)
-            mem_rdata = macro_shadow_fire.select(consts.zero64, mem_rdata)
-            mem_size = macro_shadow_fire.select(consts.zero4, mem_size)
-            next_pc = macro_shadow_fire.select(macro_trace_pc, next_pc)
+            fire = macro_trace_fire._select_internal(consts.one1, fire)
+            pc = macro_trace_fire._select_internal(macro_trace_pc, pc)
+            rob_idx = macro_trace_fire._select_internal(macro_trace_rob, rob_idx)
+            op = macro_trace_fire._select_internal(macro_trace_op, op)
+            val = macro_trace_fire._select_internal(macro_trace_val, val)
+            ln = macro_trace_fire._select_internal(macro_trace_len, ln)
+            insn_raw = macro_trace_fire._select_internal(macro_trace_insn, insn_raw)
+            uop_uid = macro_trace_fire._select_internal(macro_uop_uid, uop_uid)
+            parent_uid = macro_trace_fire._select_internal(macro_uop_parent_uid, parent_uid)
+            template_kind = macro_trace_fire._select_internal(macro_uop_template_kind, template_kind)
+            wb_valid = macro_trace_fire._select_internal(macro_trace_wb_valid, wb_valid)
+            wb_rd = macro_trace_fire._select_internal(macro_trace_wb_rd, wb_rd)
+            wb_data = macro_trace_fire._select_internal(macro_trace_wb_data, wb_data)
+            src0_valid = macro_trace_fire._select_internal(macro_trace_src0_valid, src0_valid)
+            src0_reg = macro_trace_fire._select_internal(macro_trace_src0_reg, src0_reg)
+            src0_data = macro_trace_fire._select_internal(macro_trace_src0_data, src0_data)
+            src1_valid = macro_trace_fire._select_internal(macro_trace_src1_valid, src1_valid)
+            src1_reg = macro_trace_fire._select_internal(macro_trace_src1_reg, src1_reg)
+            src1_data = macro_trace_fire._select_internal(macro_trace_src1_data, src1_data)
+            dst_valid = macro_trace_fire._select_internal(macro_trace_dst_valid, dst_valid)
+            dst_reg = macro_trace_fire._select_internal(macro_trace_dst_reg, dst_reg)
+            dst_data = macro_trace_fire._select_internal(macro_trace_dst_data, dst_data)
+            mem_valid = macro_trace_fire._select_internal(macro_trace_mem_valid, mem_valid)
+            mem_is_store = macro_trace_fire._select_internal(macro_trace_mem_is_store, mem_is_store)
+            mem_addr = macro_trace_fire._select_internal(macro_trace_mem_addr, mem_addr)
+            mem_wdata = macro_trace_fire._select_internal(macro_trace_mem_wdata, mem_wdata)
+            mem_rdata = macro_trace_fire._select_internal(macro_trace_mem_rdata, mem_rdata)
+            mem_size = macro_trace_fire._select_internal(macro_trace_mem_size, mem_size)
+            next_pc = macro_trace_fire._select_internal(macro_trace_next_pc, next_pc)
+            uop_uid = macro_shadow_fire._select_internal(macro_shadow_uid, uop_uid)
+            wb_valid = macro_shadow_fire._select_internal(consts.zero1, wb_valid)
+            wb_rd = macro_shadow_fire._select_internal(c(0, width=6), wb_rd)
+            wb_data = macro_shadow_fire._select_internal(consts.zero64, wb_data)
+            src0_valid = macro_shadow_fire._select_internal(consts.zero1, src0_valid)
+            src0_reg = macro_shadow_fire._select_internal(c(0, width=6), src0_reg)
+            src0_data = macro_shadow_fire._select_internal(consts.zero64, src0_data)
+            src1_valid = macro_shadow_fire._select_internal(consts.zero1, src1_valid)
+            src1_reg = macro_shadow_fire._select_internal(c(0, width=6), src1_reg)
+            src1_data = macro_shadow_fire._select_internal(consts.zero64, src1_data)
+            dst_valid = macro_shadow_fire._select_internal(consts.zero1, dst_valid)
+            dst_reg = macro_shadow_fire._select_internal(c(0, width=6), dst_reg)
+            dst_data = macro_shadow_fire._select_internal(consts.zero64, dst_data)
+            mem_valid = macro_shadow_fire._select_internal(consts.zero1, mem_valid)
+            mem_is_store = macro_shadow_fire._select_internal(consts.zero1, mem_is_store)
+            mem_addr = macro_shadow_fire._select_internal(consts.zero64, mem_addr)
+            mem_wdata = macro_shadow_fire._select_internal(consts.zero64, mem_wdata)
+            mem_rdata = macro_shadow_fire._select_internal(consts.zero64, mem_rdata)
+            mem_size = macro_shadow_fire._select_internal(consts.zero4, mem_size)
+            next_pc = macro_shadow_fire._select_internal(macro_trace_pc, next_pc)
         else:
             if slot == 1 and p.commit_w > 1:
-                fire = shadow_boundary_fire1.select(consts.one1, fire)
-                pc = shadow_boundary_fire1.select(commit_pcs[1], pc)
-                rob_idx = shadow_boundary_fire1.select(commit_idxs[1], rob_idx)
-                op = shadow_boundary_fire1.select(rob_ops[1], op)
-                val = shadow_boundary_fire1.select(rob_values[1], val)
-                ln = shadow_boundary_fire1.select(rob_lens[1], ln)
-                insn_raw = shadow_boundary_fire1.select(rob_insn_raws[1], insn_raw)
-                uop_uid = shadow_boundary_fire1.select(rob_uop_uids[1], uop_uid)
-                parent_uid = shadow_boundary_fire1.select(rob_parent_uids[1], parent_uid)
-                wb_valid = shadow_boundary_fire1.select(consts.zero1, wb_valid)
-                wb_rd = shadow_boundary_fire1.select(c(0, width=6), wb_rd)
-                wb_data = shadow_boundary_fire1.select(consts.zero64, wb_data)
-                src0_valid = shadow_boundary_fire1.select(consts.zero1, src0_valid)
-                src0_reg = shadow_boundary_fire1.select(c(0, width=6), src0_reg)
-                src0_data = shadow_boundary_fire1.select(consts.zero64, src0_data)
-                src1_valid = shadow_boundary_fire1.select(consts.zero1, src1_valid)
-                src1_reg = shadow_boundary_fire1.select(c(0, width=6), src1_reg)
-                src1_data = shadow_boundary_fire1.select(consts.zero64, src1_data)
-                dst_valid = shadow_boundary_fire1.select(consts.zero1, dst_valid)
-                dst_reg = shadow_boundary_fire1.select(c(0, width=6), dst_reg)
-                dst_data = shadow_boundary_fire1.select(consts.zero64, dst_data)
-                mem_valid = shadow_boundary_fire1.select(consts.zero1, mem_valid)
-                mem_is_store = shadow_boundary_fire1.select(consts.zero1, mem_is_store)
-                mem_addr = shadow_boundary_fire1.select(consts.zero64, mem_addr)
-                mem_wdata = shadow_boundary_fire1.select(consts.zero64, mem_wdata)
-                mem_rdata = shadow_boundary_fire1.select(consts.zero64, mem_rdata)
-                mem_size = shadow_boundary_fire1.select(consts.zero4, mem_size)
-                next_pc = shadow_boundary_fire1.select(commit_pcs[1], next_pc)
-                checkpoint_id = shadow_boundary_fire1.select(rob_checkpoint_ids[1], checkpoint_id)
+                fire = shadow_boundary_fire1._select_internal(consts.one1, fire)
+                pc = shadow_boundary_fire1._select_internal(commit_pcs[1], pc)
+                rob_idx = shadow_boundary_fire1._select_internal(commit_idxs[1], rob_idx)
+                op = shadow_boundary_fire1._select_internal(rob_ops[1], op)
+                val = shadow_boundary_fire1._select_internal(rob_values[1], val)
+                ln = shadow_boundary_fire1._select_internal(rob_lens[1], ln)
+                insn_raw = shadow_boundary_fire1._select_internal(rob_insn_raws[1], insn_raw)
+                uop_uid = shadow_boundary_fire1._select_internal(rob_uop_uids[1], uop_uid)
+                parent_uid = shadow_boundary_fire1._select_internal(rob_parent_uids[1], parent_uid)
+                wb_valid = shadow_boundary_fire1._select_internal(consts.zero1, wb_valid)
+                wb_rd = shadow_boundary_fire1._select_internal(c(0, width=6), wb_rd)
+                wb_data = shadow_boundary_fire1._select_internal(consts.zero64, wb_data)
+                src0_valid = shadow_boundary_fire1._select_internal(consts.zero1, src0_valid)
+                src0_reg = shadow_boundary_fire1._select_internal(c(0, width=6), src0_reg)
+                src0_data = shadow_boundary_fire1._select_internal(consts.zero64, src0_data)
+                src1_valid = shadow_boundary_fire1._select_internal(consts.zero1, src1_valid)
+                src1_reg = shadow_boundary_fire1._select_internal(c(0, width=6), src1_reg)
+                src1_data = shadow_boundary_fire1._select_internal(consts.zero64, src1_data)
+                dst_valid = shadow_boundary_fire1._select_internal(consts.zero1, dst_valid)
+                dst_reg = shadow_boundary_fire1._select_internal(c(0, width=6), dst_reg)
+                dst_data = shadow_boundary_fire1._select_internal(consts.zero64, dst_data)
+                mem_valid = shadow_boundary_fire1._select_internal(consts.zero1, mem_valid)
+                mem_is_store = shadow_boundary_fire1._select_internal(consts.zero1, mem_is_store)
+                mem_addr = shadow_boundary_fire1._select_internal(consts.zero64, mem_addr)
+                mem_wdata = shadow_boundary_fire1._select_internal(consts.zero64, mem_wdata)
+                mem_rdata = shadow_boundary_fire1._select_internal(consts.zero64, mem_rdata)
+                mem_size = shadow_boundary_fire1._select_internal(consts.zero4, mem_size)
+                next_pc = shadow_boundary_fire1._select_internal(commit_pcs[1], next_pc)
+                checkpoint_id = shadow_boundary_fire1._select_internal(rob_checkpoint_ids[1], checkpoint_id)
             if slot == 1:
-                fire = macro_shadow_fire.select(consts.one1, fire)
-                pc = macro_shadow_fire.select(macro_trace_pc, pc)
-                rob_idx = macro_shadow_fire.select(macro_trace_rob, rob_idx)
-                op = macro_shadow_fire.select(macro_trace_op, op)
-                val = macro_shadow_fire.select(macro_trace_val, val)
-                ln = macro_shadow_fire.select(macro_trace_len, ln)
-                insn_raw = macro_shadow_fire.select(macro_trace_insn, insn_raw)
-                uop_uid = macro_shadow_fire.select(macro_shadow_uid_alt, uop_uid)
-                parent_uid = macro_shadow_fire.select(macro_uop_parent_uid, parent_uid)
-                template_kind = macro_shadow_fire.select(macro_uop_template_kind, template_kind)
-                wb_valid = macro_shadow_fire.select(macro_trace_wb_valid, wb_valid)
-                wb_rd = macro_shadow_fire.select(macro_trace_wb_rd, wb_rd)
-                wb_data = macro_shadow_fire.select(macro_trace_wb_data, wb_data)
-                src0_valid = macro_shadow_fire.select(macro_trace_src0_valid, src0_valid)
-                src0_reg = macro_shadow_fire.select(macro_trace_src0_reg, src0_reg)
-                src0_data = macro_shadow_fire.select(macro_trace_src0_data, src0_data)
-                src1_valid = macro_shadow_fire.select(macro_trace_src1_valid, src1_valid)
-                src1_reg = macro_shadow_fire.select(macro_trace_src1_reg, src1_reg)
-                src1_data = macro_shadow_fire.select(macro_trace_src1_data, src1_data)
-                dst_valid = macro_shadow_fire.select(macro_trace_dst_valid, dst_valid)
-                dst_reg = macro_shadow_fire.select(macro_trace_dst_reg, dst_reg)
-                dst_data = macro_shadow_fire.select(macro_trace_dst_data, dst_data)
-                mem_valid = macro_shadow_fire.select(macro_trace_mem_valid, mem_valid)
-                mem_is_store = macro_shadow_fire.select(macro_trace_mem_is_store, mem_is_store)
-                mem_addr = macro_shadow_fire.select(macro_trace_mem_addr, mem_addr)
-                mem_wdata = macro_shadow_fire.select(macro_trace_mem_wdata, mem_wdata)
-                mem_rdata = macro_shadow_fire.select(macro_trace_mem_rdata, mem_rdata)
-                mem_size = macro_shadow_fire.select(macro_trace_mem_size, mem_size)
-                next_pc = macro_shadow_fire.select(macro_trace_next_pc, next_pc)
+                fire = macro_shadow_fire._select_internal(consts.one1, fire)
+                pc = macro_shadow_fire._select_internal(macro_trace_pc, pc)
+                rob_idx = macro_shadow_fire._select_internal(macro_trace_rob, rob_idx)
+                op = macro_shadow_fire._select_internal(macro_trace_op, op)
+                val = macro_shadow_fire._select_internal(macro_trace_val, val)
+                ln = macro_shadow_fire._select_internal(macro_trace_len, ln)
+                insn_raw = macro_shadow_fire._select_internal(macro_trace_insn, insn_raw)
+                uop_uid = macro_shadow_fire._select_internal(macro_shadow_uid_alt, uop_uid)
+                parent_uid = macro_shadow_fire._select_internal(macro_uop_parent_uid, parent_uid)
+                template_kind = macro_shadow_fire._select_internal(macro_uop_template_kind, template_kind)
+                wb_valid = macro_shadow_fire._select_internal(macro_trace_wb_valid, wb_valid)
+                wb_rd = macro_shadow_fire._select_internal(macro_trace_wb_rd, wb_rd)
+                wb_data = macro_shadow_fire._select_internal(macro_trace_wb_data, wb_data)
+                src0_valid = macro_shadow_fire._select_internal(macro_trace_src0_valid, src0_valid)
+                src0_reg = macro_shadow_fire._select_internal(macro_trace_src0_reg, src0_reg)
+                src0_data = macro_shadow_fire._select_internal(macro_trace_src0_data, src0_data)
+                src1_valid = macro_shadow_fire._select_internal(macro_trace_src1_valid, src1_valid)
+                src1_reg = macro_shadow_fire._select_internal(macro_trace_src1_reg, src1_reg)
+                src1_data = macro_shadow_fire._select_internal(macro_trace_src1_data, src1_data)
+                dst_valid = macro_shadow_fire._select_internal(macro_trace_dst_valid, dst_valid)
+                dst_reg = macro_shadow_fire._select_internal(macro_trace_dst_reg, dst_reg)
+                dst_data = macro_shadow_fire._select_internal(macro_trace_dst_data, dst_data)
+                mem_valid = macro_shadow_fire._select_internal(macro_trace_mem_valid, mem_valid)
+                mem_is_store = macro_shadow_fire._select_internal(macro_trace_mem_is_store, mem_is_store)
+                mem_addr = macro_shadow_fire._select_internal(macro_trace_mem_addr, mem_addr)
+                mem_wdata = macro_shadow_fire._select_internal(macro_trace_mem_wdata, mem_wdata)
+                mem_rdata = macro_shadow_fire._select_internal(macro_trace_mem_rdata, mem_rdata)
+                mem_size = macro_shadow_fire._select_internal(macro_trace_mem_size, mem_size)
+                next_pc = macro_shadow_fire._select_internal(macro_trace_next_pc, next_pc)
             macro_slot_keep = consts.zero1
             if slot == 1:
                 macro_slot_keep = macro_shadow_fire
             macro_kill = macro_trace_fire & (~macro_slot_keep)
-            fire = macro_kill.select(consts.zero1, fire)
-            pc = macro_kill.select(consts.zero64, pc)
-            rob_idx = macro_kill.select(c(0, width=p.rob_w), rob_idx)
-            op = macro_kill.select(c(0, width=12), op)
-            val = macro_kill.select(consts.zero64, val)
-            ln = macro_kill.select(consts.zero3, ln)
-            insn_raw = macro_kill.select(consts.zero64, insn_raw)
-            uop_uid = macro_kill.select(consts.zero64, uop_uid)
-            parent_uid = macro_kill.select(consts.zero64, parent_uid)
-            template_kind = macro_kill.select(c(0, width=3), template_kind)
-            wb_valid = macro_kill.select(consts.zero1, wb_valid)
-            wb_rd = macro_kill.select(c(0, width=6), wb_rd)
-            wb_data = macro_kill.select(consts.zero64, wb_data)
-            src0_valid = macro_kill.select(consts.zero1, src0_valid)
-            src0_reg = macro_kill.select(c(0, width=6), src0_reg)
-            src0_data = macro_kill.select(consts.zero64, src0_data)
-            src1_valid = macro_kill.select(consts.zero1, src1_valid)
-            src1_reg = macro_kill.select(c(0, width=6), src1_reg)
-            src1_data = macro_kill.select(consts.zero64, src1_data)
-            dst_valid = macro_kill.select(consts.zero1, dst_valid)
-            dst_reg = macro_kill.select(c(0, width=6), dst_reg)
-            dst_data = macro_kill.select(consts.zero64, dst_data)
-            mem_valid = macro_kill.select(consts.zero1, mem_valid)
-            mem_is_store = macro_kill.select(consts.zero1, mem_is_store)
-            mem_addr = macro_kill.select(consts.zero64, mem_addr)
-            mem_wdata = macro_kill.select(consts.zero64, mem_wdata)
-            mem_rdata = macro_kill.select(consts.zero64, mem_rdata)
-            mem_size = macro_kill.select(consts.zero4, mem_size)
-            next_pc = macro_kill.select(consts.zero64, next_pc)
-            checkpoint_id = macro_kill.select(c(0, width=6), checkpoint_id)
+            fire = macro_kill._select_internal(consts.zero1, fire)
+            pc = macro_kill._select_internal(consts.zero64, pc)
+            rob_idx = macro_kill._select_internal(c(0, width=p.rob_w), rob_idx)
+            op = macro_kill._select_internal(c(0, width=12), op)
+            val = macro_kill._select_internal(consts.zero64, val)
+            ln = macro_kill._select_internal(consts.zero3, ln)
+            insn_raw = macro_kill._select_internal(consts.zero64, insn_raw)
+            uop_uid = macro_kill._select_internal(consts.zero64, uop_uid)
+            parent_uid = macro_kill._select_internal(consts.zero64, parent_uid)
+            template_kind = macro_kill._select_internal(c(0, width=3), template_kind)
+            wb_valid = macro_kill._select_internal(consts.zero1, wb_valid)
+            wb_rd = macro_kill._select_internal(c(0, width=6), wb_rd)
+            wb_data = macro_kill._select_internal(consts.zero64, wb_data)
+            src0_valid = macro_kill._select_internal(consts.zero1, src0_valid)
+            src0_reg = macro_kill._select_internal(c(0, width=6), src0_reg)
+            src0_data = macro_kill._select_internal(consts.zero64, src0_data)
+            src1_valid = macro_kill._select_internal(consts.zero1, src1_valid)
+            src1_reg = macro_kill._select_internal(c(0, width=6), src1_reg)
+            src1_data = macro_kill._select_internal(consts.zero64, src1_data)
+            dst_valid = macro_kill._select_internal(consts.zero1, dst_valid)
+            dst_reg = macro_kill._select_internal(c(0, width=6), dst_reg)
+            dst_data = macro_kill._select_internal(consts.zero64, dst_data)
+            mem_valid = macro_kill._select_internal(consts.zero1, mem_valid)
+            mem_is_store = macro_kill._select_internal(consts.zero1, mem_is_store)
+            mem_addr = macro_kill._select_internal(consts.zero64, mem_addr)
+            mem_wdata = macro_kill._select_internal(consts.zero64, mem_wdata)
+            mem_rdata = macro_kill._select_internal(consts.zero64, mem_rdata)
+            mem_size = macro_kill._select_internal(consts.zero4, mem_size)
+            next_pc = macro_kill._select_internal(consts.zero64, next_pc)
+            checkpoint_id = macro_kill._select_internal(c(0, width=6), checkpoint_id)
         m.output(f"commit_fire{slot}", fire)
         m.output(f"commit_pc{slot}", pc)
         m.output(f"commit_rob{slot}", rob_idx)
@@ -2656,7 +2666,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         head_wait_args[f"cmd_srcl{i}"] = iq_cmd.srcl[i].out()
         head_wait_args[f"cmd_srcr{i}"] = iq_cmd.srcr[i].out()
         head_wait_args[f"cmd_srcp{i}"] = iq_cmd.srcp[i].out()
-    head_wait = m.instance(
+    head_wait = m.instance_auto(
         build_head_wait_stage,
         name="head_wait_stage",
         params={"iq_depth": p.iq_depth, "iq_w": p.iq_w, "rob_w": p.rob_w, "ptag_w": p.ptag_w, "pregs": p.pregs},
@@ -2764,9 +2774,9 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         pc = consts.zero64
         for i in range(p.iq_depth):
             hit = (~valid) & iq_regs.valid[i].out()
-            valid = hit.select(consts.one1, valid)
-            rob_idx = hit.select(iq_regs.rob[i].out(), rob_idx)
-            pc = hit.select(iq_regs.pc[i].out(), pc)
+            valid = hit._select_internal(consts.one1, valid)
+            rob_idx = hit._select_internal(iq_regs.rob[i].out(), rob_idx)
+            pc = hit._select_internal(iq_regs.pc[i].out(), pc)
         uid = mux_by_uindex(m, idx=rob_idx, items=rob.uop_uid, default=consts.zero64)
         parent_uid = mux_by_uindex(m, idx=rob_idx, items=rob.parent_uid, default=consts.zero64)
         block_uid = mux_by_uindex(m, idx=rob_idx, items=rob.block_uid, default=consts.zero64)
@@ -2797,14 +2807,14 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     # enqueue succeeds (`cmd_issue_fire_eff`).
     cmd_op = cmd_uop_op
     cmd_kind = c(0, width=3)
-    cmd_kind = cmd_op.eq(c(OP_BIOR, width=12)).select(c(1, width=3), cmd_kind)
-    cmd_kind = cmd_op.eq(c(OP_BLOAD, width=12)).select(c(2, width=3), cmd_kind)
-    cmd_kind = cmd_op.eq(c(OP_BSTORE, width=12)).select(c(3, width=3), cmd_kind)
+    cmd_kind = cmd_op.__eq__(c(OP_BIOR, width=12))._select_internal(c(1, width=3), cmd_kind)
+    cmd_kind = cmd_op.__eq__(c(OP_BLOAD, width=12))._select_internal(c(2, width=3), cmd_kind)
+    cmd_kind = cmd_op.__eq__(c(OP_BSTORE, width=12))._select_internal(c(3, width=3), cmd_kind)
     cmd_payload = cmd_payload_lane
-    cmd_tile = cmd_payload.trunc(width=6)
+    cmd_tile = cmd_payload._trunc(width=6)
     cmd_src_rob = cmd_uop_rob
     cmd_bid = mux_by_uindex(m, idx=cmd_uop_rob, items=rob.block_bid, default=consts.zero64)
-    cmd_tag = state.cycles.out().trunc(width=8)
+    cmd_tag = state.cycles.out()._trunc(width=8)
 
     block_cmd_valid = cmd_issue_fire_eff
     block_cmd_kind = cmd_kind

@@ -47,32 +47,32 @@ def build_code_template_unit(m: Circuit) -> None:
     ph_sp = c(2, width=2)
     ph_setc = c(3, width=2)
 
-    phase_init = macro_phase_i.eq(ph_init)
-    phase_mem = macro_phase_i.eq(ph_mem)
-    phase_sp = macro_phase_i.eq(ph_sp)
-    phase_setc = macro_phase_i.eq(ph_setc)
-    macro_is_fentry = macro_op_i.eq(c(OP_FENTRY, width=12))
-    macro_is_fexit = macro_op_i.eq(c(OP_FEXIT, width=12))
-    macro_is_fret_ra = macro_op_i.eq(c(OP_FRET_RA, width=12))
-    macro_is_fret_stk = macro_op_i.eq(c(OP_FRET_STK, width=12))
+    phase_init = macro_phase_i.__eq__(ph_init)
+    phase_mem = macro_phase_i.__eq__(ph_mem)
+    phase_sp = macro_phase_i.__eq__(ph_sp)
+    phase_setc = macro_phase_i.__eq__(ph_setc)
+    macro_is_fentry = macro_op_i.__eq__(c(OP_FENTRY, width=12))
+    macro_is_fexit = macro_op_i.__eq__(c(OP_FEXIT, width=12))
+    macro_is_fret_ra = macro_op_i.__eq__(c(OP_FRET_RA, width=12))
+    macro_is_fret_stk = macro_op_i.__eq__(c(OP_FRET_STK, width=12))
 
     # Address progression for frame-template memory uops:
     # - FENTRY save:   addr = sp_base + (stack - (i + 1) * 8)
     # - FEXIT/FRET.*:  addr = sp_base - (i + 1) * 8
-    i1 = (macro_i_i + c(1, width=6)).zext(width=64)
+    i1 = (macro_i_i + c(1, width=6))._zext(width=64)
     bytes_i = i1.shl(amount=3)
     off_ok = bytes_i.ule(macro_stacksize_i)
     store_off = macro_stacksize_i - bytes_i
     store_addr = macro_sp_base_i + store_off
     load_addr = macro_sp_base_i - bytes_i
-    uop_addr = macro_is_fentry.select(store_addr, load_addr)
+    uop_addr = macro_is_fentry._select_internal(store_addr, load_addr)
 
     # Iteration control for mem phase.
     loop_fire = macro_active_i & phase_mem
-    loop_done = loop_fire & ((~off_ok) | macro_reg_i.eq(macro_end_i))
+    loop_done = loop_fire & ((~off_ok) | macro_reg_i.__eq__(macro_end_i))
     reg_plus = macro_reg_i + c(1, width=6)
     reg_wrap = reg_plus.ugt(c(23, width=6))
-    loop_reg_next = reg_wrap.select(c(2, width=6), reg_plus)
+    loop_reg_next = reg_wrap._select_internal(c(2, width=6), reg_plus)
     loop_i_next = macro_i_i + c(1, width=6)
 
     # Template-uop stream.
@@ -92,31 +92,31 @@ def build_code_template_unit(m: Circuit) -> None:
     uop_valid = c(0, width=1)
     uop_kind = k_none
     init_fire = macro_active_i & phase_init
-    uop_valid = (init_fire & macro_is_fentry).select(c(1, width=1), uop_valid)
-    uop_kind = (init_fire & macro_is_fentry).select(k_sp_sub, uop_kind)
-    uop_valid = (init_fire & (macro_is_fexit | macro_is_fret_stk)).select(c(1, width=1), uop_valid)
-    uop_kind = (init_fire & (macro_is_fexit | macro_is_fret_stk)).select(k_sp_add, uop_kind)
-    uop_valid = (init_fire & macro_is_fret_ra).select(c(1, width=1), uop_valid)
-    uop_kind = (init_fire & macro_is_fret_ra).select(k_setc_tgt, uop_kind)
+    uop_valid = (init_fire & macro_is_fentry)._select_internal(c(1, width=1), uop_valid)
+    uop_kind = (init_fire & macro_is_fentry)._select_internal(k_sp_sub, uop_kind)
+    uop_valid = (init_fire & (macro_is_fexit | macro_is_fret_stk))._select_internal(c(1, width=1), uop_valid)
+    uop_kind = (init_fire & (macro_is_fexit | macro_is_fret_stk))._select_internal(k_sp_add, uop_kind)
+    uop_valid = (init_fire & macro_is_fret_ra)._select_internal(c(1, width=1), uop_valid)
+    uop_kind = (init_fire & macro_is_fret_ra)._select_internal(k_setc_tgt, uop_kind)
 
     mem_uop_fire = macro_active_i & phase_mem & off_ok
-    mem_kind = macro_is_fentry.select(k_store, k_load)
-    uop_valid = mem_uop_fire.select(c(1, width=1), uop_valid)
-    uop_kind = mem_uop_fire.select(mem_kind, uop_kind)
+    mem_kind = macro_is_fentry._select_internal(k_store, k_load)
+    uop_valid = mem_uop_fire._select_internal(c(1, width=1), uop_valid)
+    uop_kind = mem_uop_fire._select_internal(mem_kind, uop_kind)
 
     sp_uop_fire = macro_active_i & phase_sp & macro_is_fret_ra
-    uop_valid = sp_uop_fire.select(c(1, width=1), uop_valid)
-    uop_kind = sp_uop_fire.select(k_sp_add, uop_kind)
+    uop_valid = sp_uop_fire._select_internal(c(1, width=1), uop_valid)
+    uop_kind = sp_uop_fire._select_internal(k_sp_add, uop_kind)
 
     setc_uop_fire = macro_active_i & phase_setc & macro_is_fret_stk
-    uop_valid = setc_uop_fire.select(c(1, width=1), uop_valid)
-    uop_kind = setc_uop_fire.select(k_setc_tgt, uop_kind)
+    uop_valid = setc_uop_fire._select_internal(c(1, width=1), uop_valid)
+    uop_kind = setc_uop_fire._select_internal(k_setc_tgt, uop_kind)
 
-    uop_is_sp_sub = uop_valid & uop_kind.eq(k_sp_sub)
-    uop_is_store = uop_valid & uop_kind.eq(k_store)
-    uop_is_load = uop_valid & uop_kind.eq(k_load)
-    uop_is_sp_add = uop_valid & uop_kind.eq(k_sp_add)
-    uop_is_setc_tgt = uop_valid & uop_kind.eq(k_setc_tgt)
+    uop_is_sp_sub = uop_valid & uop_kind.__eq__(k_sp_sub)
+    uop_is_store = uop_valid & uop_kind.__eq__(k_store)
+    uop_is_load = uop_valid & uop_kind.__eq__(k_load)
+    uop_is_sp_add = uop_valid & uop_kind.__eq__(k_sp_add)
+    uop_is_setc_tgt = uop_valid & uop_kind.__eq__(k_setc_tgt)
 
     m.output("start_fire", start_fire)
     m.output("block_ifu", block_ifu)
@@ -142,10 +142,10 @@ def build_code_template_unit(m: Circuit) -> None:
     m.output("uop_parent_uid", macro_uop_parent_uid_i)
     # 1=fentry,2=fexit,3=fret_ra,4=fret_stk
     uop_template_kind = c(0, width=3)
-    uop_template_kind = macro_is_fentry.select(c(1, width=3), uop_template_kind)
-    uop_template_kind = macro_is_fexit.select(c(2, width=3), uop_template_kind)
-    uop_template_kind = macro_is_fret_ra.select(c(3, width=3), uop_template_kind)
-    uop_template_kind = macro_is_fret_stk.select(c(4, width=3), uop_template_kind)
+    uop_template_kind = macro_is_fentry._select_internal(c(1, width=3), uop_template_kind)
+    uop_template_kind = macro_is_fexit._select_internal(c(2, width=3), uop_template_kind)
+    uop_template_kind = macro_is_fret_ra._select_internal(c(3, width=3), uop_template_kind)
+    uop_template_kind = macro_is_fret_stk._select_internal(c(4, width=3), uop_template_kind)
     m.output("uop_template_kind", uop_template_kind)
 
     m.output("loop_fire", loop_fire)

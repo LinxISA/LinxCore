@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from functools import partial
 from types import SimpleNamespace
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, function, module
 
 from common.isa import (
     OP_BIOR,
@@ -43,20 +44,21 @@ from common.isa import (
     OP_FRET_STK,
 )
 from .lsu import is_load_op, is_store_op
-from .rob import is_macro_op
 
 
+@function
 def _op_is(m: Circuit, op, *codes: int):
     c = m.const
     v = c(0, width=1)
     for code in codes:
-        v = v | op.eq(c(code, width=12))
+        v = v | op.__eq__(c(code, width=12))
     return v
 
 
-def classify_dispatch_target(op, op_is):
-    is_macro = is_macro_op(op, op_is)
-    is_mem = is_load_op(op, op_is) | is_store_op(op, op_is)
+@function
+def classify_dispatch_target(m: Circuit, op, op_is):
+    is_macro = op_is(op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
+    is_mem = is_load_op(m, op, op_is) | is_store_op(m, op, op_is)
     is_boundary_d2 = op_is(
         op,
         OP_C_BSTART_STD,
@@ -106,9 +108,10 @@ def classify_dispatch_target(op, op_is):
     return to_alu, to_bru, to_lsu, to_d2, to_cmd
 
 
+@function
 def allocate_iq_slots_from_valids(
+    m: Circuit,
     *,
-    m,
     p,
     consts,
     disp_valids,
@@ -140,11 +143,11 @@ def allocate_iq_slots_from_valids(
             exclude = consts.zero1
             for prev in range(slot):
                 prev_req = disp_valids[prev] & disp_to_alu[prev]
-                exclude = exclude | (prev_req & alu_alloc_valids[prev] & alu_alloc_idxs[prev].eq(cidx))
+                exclude = exclude | (prev_req & alu_alloc_valids[prev] & alu_alloc_idxs[prev].__eq__(cidx))
             cand = req_alu & free & (~exclude)
             take = cand & (~v)
-            v = take.select(consts.one1, v)
-            idx = take.select(cidx, idx)
+            v = take._select_internal(consts.one1, v)
+            idx = take._select_internal(cidx, idx)
         alu_alloc_valids.append(v)
         alu_alloc_idxs.append(idx)
 
@@ -157,11 +160,11 @@ def allocate_iq_slots_from_valids(
             exclude = consts.zero1
             for prev in range(slot):
                 prev_req = disp_valids[prev] & disp_to_bru[prev]
-                exclude = exclude | (prev_req & bru_alloc_valids[prev] & bru_alloc_idxs[prev].eq(cidx))
+                exclude = exclude | (prev_req & bru_alloc_valids[prev] & bru_alloc_idxs[prev].__eq__(cidx))
             cand = req_bru & free & (~exclude)
             take = cand & (~v)
-            v = take.select(consts.one1, v)
-            idx = take.select(cidx, idx)
+            v = take._select_internal(consts.one1, v)
+            idx = take._select_internal(cidx, idx)
         bru_alloc_valids.append(v)
         bru_alloc_idxs.append(idx)
 
@@ -174,11 +177,11 @@ def allocate_iq_slots_from_valids(
             exclude = consts.zero1
             for prev in range(slot):
                 prev_req = disp_valids[prev] & disp_to_lsu[prev]
-                exclude = exclude | (prev_req & lsu_alloc_valids[prev] & lsu_alloc_idxs[prev].eq(cidx))
+                exclude = exclude | (prev_req & lsu_alloc_valids[prev] & lsu_alloc_idxs[prev].__eq__(cidx))
             cand = req_lsu & free & (~exclude)
             take = cand & (~v)
-            v = take.select(consts.one1, v)
-            idx = take.select(cidx, idx)
+            v = take._select_internal(consts.one1, v)
+            idx = take._select_internal(cidx, idx)
         lsu_alloc_valids.append(v)
         lsu_alloc_idxs.append(idx)
 
@@ -191,11 +194,11 @@ def allocate_iq_slots_from_valids(
             exclude = consts.zero1
             for prev in range(slot):
                 prev_req = disp_valids[prev] & disp_to_cmd[prev]
-                exclude = exclude | (prev_req & cmd_alloc_valids[prev] & cmd_alloc_idxs[prev].eq(cidx))
+                exclude = exclude | (prev_req & cmd_alloc_valids[prev] & cmd_alloc_idxs[prev].__eq__(cidx))
             cand = req_cmd & free & (~exclude)
             take = cand & (~v)
-            v = take.select(consts.one1, v)
-            idx = take.select(cidx, idx)
+            v = take._select_internal(consts.one1, v)
+            idx = take._select_internal(cidx, idx)
         cmd_alloc_valids.append(v)
         cmd_alloc_idxs.append(idx)
 
@@ -226,7 +229,8 @@ def allocate_iq_slots_from_valids(
     )
 
 
-def allocate_iq_slots(*, m, p, consts, disp_valids, disp_to_alu, disp_to_bru, disp_to_lsu, disp_to_cmd, iq_alu, iq_bru, iq_lsu, iq_cmd):
+@function
+def allocate_iq_slots(m: Circuit, *, p, consts, disp_valids, disp_to_alu, disp_to_bru, disp_to_lsu, disp_to_cmd, iq_alu, iq_bru, iq_lsu, iq_cmd):
     return allocate_iq_slots_from_valids(
         m=m,
         p=p,
@@ -287,7 +291,7 @@ def build_dispatch_stage(
         iq_cmd_valids.append(m.input(f"iq_cmd_valid{i}", width=1))
 
     # ROB space check: rob.count + disp_count <= rob_depth.
-    rob_cnt_after = rob_count + disp_count.zext(width=rob_w + 1)
+    rob_cnt_after = rob_count + disp_count._zext(width=rob_w + 1)
     rob_space_ok = rob_cnt_after.ult(c(rob_depth + 1, width=rob_w + 1))
 
     # IQ routing/classification.
@@ -298,8 +302,8 @@ def build_dispatch_stage(
     disp_to_cmd = []
     for slot in range(dispatch_w):
         op = disp_ops[slot]
-        op_is = lambda x, *codes: _op_is(m, x, *codes)
-        to_alu, to_bru, to_lsu, to_d2, to_cmd = classify_dispatch_target(op, op_is)
+        op_is = partial(_op_is, m)
+        to_alu, to_bru, to_lsu, to_d2, to_cmd = classify_dispatch_target(m, op, op_is)
         disp_to_alu.append(to_alu)
         disp_to_bru.append(to_bru)
         disp_to_lsu.append(to_lsu)
@@ -349,10 +353,10 @@ def build_dispatch_stage(
             ii = c(i, width=ptag_w)
             onehot = c(1 << i, width=pregs)
             cand = req & (~v) & free_mask_stage[i]
-            v = cand.select(c(1, width=1), v)
-            tag = cand.select(ii, tag)
-            oh = cand.select(onehot, oh)
-        free_mask_stage = req.select(free_mask_stage & (~oh), free_mask_stage)
+            v = cand._select_internal(c(1, width=1), v)
+            tag = cand._select_internal(ii, tag)
+            oh = cand._select_internal(onehot, oh)
+        free_mask_stage = req._select_internal(free_mask_stage & (~oh), free_mask_stage)
         preg_alloc_valids.append(v)
         preg_alloc_tags.append(tag)
         preg_alloc_onehots.append(oh)
@@ -363,8 +367,8 @@ def build_dispatch_stage(
     for slot in range(dispatch_w):
         req = disp_valids[slot] & disp_need_pdst[slot]
         preg_alloc_ok = preg_alloc_ok & ((~req) | preg_alloc_valids[slot])
-        pdst = req.select(preg_alloc_tags[slot], c(0, width=ptag_w))
-        oh = req.select(preg_alloc_onehots[slot], c(0, width=pregs))
+        pdst = req._select_internal(preg_alloc_tags[slot], c(0, width=ptag_w))
+        oh = req._select_internal(preg_alloc_onehots[slot], c(0, width=pregs))
         disp_pdsts.append(pdst)
         disp_alloc_mask = disp_alloc_mask | oh
 
@@ -377,9 +381,9 @@ def build_dispatch_stage(
     for slot in range(dispatch_w):
         is_mem = disp_valids[slot] & disp_to_lsu[slot]
         disp_load_store_ids.append(lsid_next_live)
-        lsid_next_live = is_mem.select(lsid_next_live + c(1, width=32), lsid_next_live)
-        mem_disp_count = mem_disp_count + is_mem.zext(width=3)
-    lsid_alloc_next = dispatch_fire.select(lsid_next_live, lsid_alloc_base)
+        lsid_next_live = is_mem._select_internal(lsid_next_live + c(1, width=32), lsid_next_live)
+        mem_disp_count = mem_disp_count + is_mem._zext(width=3)
+    lsid_alloc_next = dispatch_fire._select_internal(lsid_next_live, lsid_alloc_base)
 
     m.output("rob_space_ok", rob_space_ok)
     m.output("iq_alloc_ok", iq_alloc_ok)

@@ -30,7 +30,7 @@ def build_janus_cube(m: Circuit) -> None:
     count_down_cube = busy_cube.out() & wait_cube.out().ugt(c(0, width=3))
     wait_next_cube = count_down_cube._select_internal(wait_cube.out() - c(1, width=3), wait_next_cube)
 
-    rsp_fire_cube = busy_cube.out() & wait_cube.out().eq(c(0, width=3))
+    rsp_fire_cube = busy_cube.out() & wait_cube.out().__eq__(c(0, width=3))
     busy_next_cube = rsp_fire_cube._select_internal(c(0, width=1), busy_next_cube)
 
     busy_cube.set(busy_next_cube)
