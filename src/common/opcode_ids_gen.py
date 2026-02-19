@@ -296,6 +296,15 @@ OP_SC_D = 291
 OP_SC_W = 292
 OP_TLB_IALL = 293
 OP_UCVTF = 294
+OP_V_MUL = 295
+OP_V_FABS = 296
+OP_B_EQ = 297
+OP_B_NE = 298
+OP_B_LT = 299
+OP_B_LTU = 300
+OP_B_GE = 301
+OP_B_GEU = 302
+OP_J = 303
 
 # Legacy aliases kept for compatibility with existing LinxCore code.
 OP_BLOAD = OP_BLOAD
@@ -602,6 +611,15 @@ __all__ = [
     "OP_SC_W",
     "OP_TLB_IALL",
     "OP_UCVTF",
+    "OP_V_MUL",
+    "OP_V_FABS",
+    "OP_B_EQ",
+    "OP_B_NE",
+    "OP_B_LT",
+    "OP_B_LTU",
+    "OP_B_GE",
+    "OP_B_GEU",
+    "OP_J",
     "OP_BLOAD",
     "OP_BSTART_STD_CALL",
     "OP_BSTART_STD_COND",
