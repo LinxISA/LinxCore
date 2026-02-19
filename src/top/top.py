@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pycircuit import Circuit, module
 
+from common.config import top_config
 from common.uid_allocator import build_uid_allocator
 from bcc.backend.backend import build_backend
 from mem.mem2r1w import build_mem2r1w
@@ -54,12 +55,27 @@ def build_linxcore_top(
     ic_miss_outstanding: int = 1,
     ic_enable: int = 1,
 ) -> None:
-    if ifetch_bundle_bytes is not None:
-        alias_bits = int(ifetch_bundle_bytes) * 8
-        if int(ifetch_bundle_bits) == 128:
-            ifetch_bundle_bits = alias_bits
-        elif alias_bits != int(ifetch_bundle_bits):
-            raise ValueError("ifetch_bundle_bytes alias mismatches ifetch_bundle_bits")
+    cfg = top_config(
+        m,
+        mem_bytes=mem_bytes,
+        ic_sets=ic_sets,
+        ic_ways=ic_ways,
+        ic_line_bytes=ic_line_bytes,
+        ifetch_bundle_bits=ifetch_bundle_bits,
+        ifetch_bundle_bytes=ifetch_bundle_bytes,
+        ib_depth=ib_depth,
+        ic_miss_outstanding=ic_miss_outstanding,
+        ic_enable=ic_enable,
+    )
+    mem_bytes = int(cfg["mem_bytes"])
+    ic_sets = int(cfg["ic_sets"])
+    ic_ways = int(cfg["ic_ways"])
+    ic_line_bytes = int(cfg["ic_line_bytes"])
+    ifetch_bundle_bits = int(cfg["ifetch_bundle_bits"])
+    ifetch_bundle_bytes = int(cfg["ifetch_bundle_bytes"])
+    ib_depth = int(cfg["ib_depth"])
+    ic_miss_outstanding = int(cfg["ic_miss_outstanding"])
+    ic_enable = int(cfg["ic_enable"])
 
     clk_top = m.clock("clk")
     rst_top = m.reset("rst")
