@@ -43,7 +43,7 @@ def build_frontend(m: Circuit, *, ibuf_depth: int = 8, ftq_depth: int = 16) -> N
     c = m.const
 
     do_redirect = redirect_valid | flush_valid
-    redirect_target = flush_valid._select_internal(flush_pc, redirect_pc)
+    redirect_target = flush_pc if flush_valid else redirect_pc
 
     ibuf_push_ready_w = m.new_wire(width=1)
     pred_valid_w = m.new_wire(width=1)
