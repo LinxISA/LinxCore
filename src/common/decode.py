@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Mapping
 
-from pycircuit import Circuit, Wire, function
+from pycircuit import Circuit, Wire, function, meta, template
 
 from .decode16 import decode16_meta
 from .decode32 import decode32_meta
@@ -243,6 +244,257 @@ def _decode_set_if(
     return op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm
 
 
+@template
+def _decode_rule_table_16(m: Circuit):
+    _ = m
+    rule = meta.DecodeRule.from_mapping
+    return (
+        rule(
+            name="c_addi",
+            mask=0x003F,
+            match=0x000C,
+            updates={"op": OP_C_ADDI, "len": 2, "regdst": 31, "srcl": "rs16", "imm": "simm5_11_s64"},
+            priority=0,
+        ),
+        rule(
+            name="c_add",
+            mask=0x003F,
+            match=0x0008,
+            updates={"op": OP_C_ADD, "len": 2, "regdst": 31, "srcl": "rs16", "srcr": "rd16"},
+            priority=1,
+        ),
+        rule(
+            name="c_sub",
+            mask=0x003F,
+            match=0x0018,
+            updates={"op": OP_C_SUB, "len": 2, "regdst": 31, "srcl": "rs16", "srcr": "rd16"},
+            priority=2,
+        ),
+        rule(
+            name="c_and",
+            mask=0x003F,
+            match=0x0028,
+            updates={"op": OP_C_AND, "len": 2, "regdst": 31, "srcl": "rs16", "srcr": "rd16"},
+            priority=3,
+        ),
+        rule(
+            name="c_movi",
+            mask=0x003F,
+            match=0x0016,
+            updates={"op": OP_C_MOVI, "len": 2, "regdst": "rd16", "imm": "simm5_6_s64"},
+            priority=4,
+        ),
+        rule(
+            name="c_setret",
+            mask=0xF83F,
+            match=0x5016,
+            updates={"op": OP_C_SETRET, "len": 2, "regdst": 10, "imm": "c_setret_imm"},
+            priority=5,
+        ),
+        rule(
+            name="c_swi",
+            mask=0x003F,
+            match=0x002A,
+            updates={"op": OP_C_SWI, "len": 2, "srcl": "rs16", "srcr": 24, "imm": "simm5_11_s64"},
+            priority=6,
+        ),
+        rule(
+            name="c_sdi",
+            mask=0x003F,
+            match=0x003A,
+            updates={"op": OP_C_SDI, "len": 2, "srcl": "rs16", "srcr": 24, "imm": "simm5_11_s64"},
+            priority=7,
+        ),
+        rule(
+            name="c_lwi",
+            mask=0x003F,
+            match=0x000A,
+            updates={"op": OP_C_LWI, "len": 2, "regdst": 31, "srcl": "rs16", "imm": "simm5_11_s64"},
+            priority=8,
+        ),
+        rule(
+            name="c_ldi",
+            mask=0x003F,
+            match=0x001A,
+            updates={"op": OP_C_LDI, "len": 2, "regdst": 31, "srcl": "rs16", "imm": "simm5_11_s64"},
+            priority=9,
+        ),
+        rule(
+            name="c_movr",
+            mask=0x003F,
+            match=0x0006,
+            updates={"op": OP_C_MOVR, "len": 2, "regdst": "rd16", "srcl": "rs16"},
+            priority=10,
+        ),
+        rule(
+            name="c_setc_eq",
+            mask=0x003F,
+            match=0x0026,
+            updates={"op": OP_C_SETC_EQ, "len": 2, "srcl": "rs16", "srcr": "rd16"},
+            priority=11,
+        ),
+        rule(
+            name="c_setc_ne",
+            mask=0x003F,
+            match=0x0036,
+            updates={"op": OP_C_SETC_NE, "len": 2, "srcl": "rs16", "srcr": "rd16"},
+            priority=12,
+        ),
+        rule(
+            name="c_setc_tgt",
+            mask=0xF83F,
+            match=0x001C,
+            updates={"op": OP_C_SETC_TGT, "len": 2, "srcl": "rs16"},
+            priority=13,
+        ),
+        rule(
+            name="c_or",
+            mask=0x003F,
+            match=0x0038,
+            updates={"op": OP_C_OR, "len": 2, "regdst": 31, "srcl": "rs16", "srcr": "rd16"},
+            priority=14,
+        ),
+        rule(
+            name="c_sext_w",
+            mask=0xF83F,
+            match=0x501C,
+            updates={"op": OP_C_SEXT_W, "len": 2, "regdst": 31, "srcl": "rs16"},
+            priority=15,
+        ),
+        rule(
+            name="c_zext_w",
+            mask=0xF83F,
+            match=0x681C,
+            updates={"op": OP_C_ZEXT_W, "len": 2, "regdst": 31, "srcl": "rs16"},
+            priority=16,
+        ),
+        rule(
+            name="c_cmp_eqi",
+            mask=0xF83F,
+            match=0x002C,
+            updates={"op": OP_CMP_EQI, "len": 2, "regdst": 31, "srcl": 24, "imm": "simm5_6_s64"},
+            priority=17,
+        ),
+        rule(
+            name="c_cmp_nei",
+            mask=0xF83F,
+            match=0x082C,
+            updates={"op": OP_CMP_NEI, "len": 2, "regdst": 31, "srcl": 24, "imm": "simm5_6_s64"},
+            priority=18,
+        ),
+        rule(
+            name="c_bstart_direct",
+            mask=0x000F,
+            match=0x0002,
+            updates={"op": OP_C_BSTART_DIRECT, "len": 2, "regdst": REG_INVALID, "imm": "c_branch_off"},
+            priority=19,
+        ),
+        rule(
+            name="c_bstart_cond",
+            mask=0x000F,
+            match=0x0004,
+            updates={"op": OP_C_BSTART_COND, "len": 2, "regdst": REG_INVALID, "imm": "c_branch_off"},
+            priority=20,
+        ),
+        rule(
+            name="c_bstart_std",
+            mask=0xC7FF,
+            match=0x0000,
+            updates={"op": OP_C_BSTART_STD, "len": 2, "regdst": REG_INVALID, "imm": "brtype"},
+            priority=21,
+        ),
+        rule(
+            name="c_bstop",
+            mask=0xFFFF,
+            match=0x0000,
+            updates={"op": OP_C_BSTOP, "len": 2, "regdst": REG_INVALID},
+            priority=22,
+        ),
+    )
+
+
+@function
+def _decode_apply_rule_table(
+    m: Circuit,
+    *,
+    active: Wire,
+    insn: Wire,
+    rules,
+    value_map: Mapping[str, Wire | int],
+    op: Wire,
+    len_bytes: Wire,
+    regdst: Wire,
+    srcl: Wire,
+    srcr: Wire,
+    srcr_type: Wire,
+    shamt: Wire,
+    srcp: Wire,
+    imm: Wire,
+) -> tuple[Wire, Wire, Wire, Wire, Wire, Wire, Wire, Wire, Wire]:
+    for rule in rules:
+        cond = active & masked_eq(m, insn, mask=int(rule.mask), match=int(rule.match))
+
+        op_v: Any = None
+        len_v: Any = None
+        regdst_v: Any = None
+        srcl_v: Any = None
+        srcr_v: Any = None
+        srcr_type_v: Any = None
+        shamt_v: Any = None
+        srcp_v: Any = None
+        imm_v: Any = None
+
+        for key, raw_v in rule.updates:
+            v = raw_v
+            if hasattr(v, "startswith"):
+                v = value_map[v]
+            if key == "op":
+                op_v = v
+            elif key == "len":
+                len_v = v
+            elif key == "regdst":
+                regdst_v = v
+            elif key == "srcl":
+                srcl_v = v
+            elif key == "srcr":
+                srcr_v = v
+            elif key == "srcr_type":
+                srcr_type_v = v
+            elif key == "shamt":
+                shamt_v = v
+            elif key == "srcp":
+                srcp_v = v
+            elif key == "imm":
+                imm_v = v
+            else:
+                raise ValueError(f"unsupported decode update key {key!r} in {rule.name!r}")
+
+        (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(
+            m,
+            cond,
+            op,
+            len_bytes,
+            regdst,
+            srcl,
+            srcr,
+            srcr_type,
+            shamt,
+            srcp,
+            imm,
+            op_v=op_v,
+            len_v=len_v,
+            regdst_v=regdst_v,
+            srcl_v=srcl_v,
+            srcr_v=srcr_v,
+            srcr_type_v=srcr_type_v,
+            shamt_v=shamt_v,
+            srcp_v=srcp_v,
+            imm_v=imm_v,
+        )
+
+    return op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm
+
+
 @function
 def decode_window(m: Circuit, window: Wire) -> Decode:
     c = m.const
@@ -319,81 +571,34 @@ def decode_window(m: Circuit, window: Wire) -> Decode:
     srcp = reg_invalid
     imm = zero64
 
-    # --- 16-bit decode (reverse priority; C.BSTOP highest) ---
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x000C)
-
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_ADDI, len_v=2, regdst_v=31, srcl_v=rs16, imm_v=simm5_11_s64)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x0008)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_ADD, len_v=2, regdst_v=31, srcl_v=rs16, srcr_v=rd16)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x0018)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_SUB, len_v=2, regdst_v=31, srcl_v=rs16, srcr_v=rd16)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x0028)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_AND, len_v=2, regdst_v=31, srcl_v=rs16, srcr_v=rd16)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x0016)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_MOVI, len_v=2, regdst_v=rd16, imm_v=simm5_6_s64)
-
-    cond = in16 & masked_eq(m, insn16, mask=0xF83F, match=0x5016)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_SETRET, len_v=2, regdst_v=10, imm_v=uimm5._zext(width=6).shl(amount=1))
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x002A)
-    # C.SWI stores implicit `t0` (TQ head, areg 24) to [base=rs16 + imm*4].
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_SWI, len_v=2, srcl_v=rs16, srcr_v=24, imm_v=simm5_11_s64)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x003A)
-    # C.SDI stores implicit `t0` (TQ head, areg 24) to [base=rs16 + imm*8].
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_SDI, len_v=2, srcl_v=rs16, srcr_v=24, imm_v=simm5_11_s64)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x000A)
-    # C.LWI writes result to the implicit temporary register (`t`, architectural reg 31).
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_LWI, len_v=2, regdst_v=31, srcl_v=rs16, imm_v=simm5_11_s64)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x001A)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_LDI, len_v=2, regdst_v=31, srcl_v=rs16, imm_v=simm5_11_s64)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x0006)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_MOVR, len_v=2, regdst_v=rd16, srcl_v=rs16)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x0026)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_SETC_EQ, len_v=2, srcl_v=rs16, srcr_v=rd16)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x0036)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_SETC_NE, len_v=2, srcl_v=rs16, srcr_v=rd16)
-
-    cond = in16 & masked_eq(m, insn16, mask=0xF83F, match=0x001C)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_SETC_TGT, len_v=2, srcl_v=rs16)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x003F, match=0x0038)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_OR, len_v=2, regdst_v=31, srcl_v=rs16, srcr_v=rd16)
-
-    cond = in16 & masked_eq(m, insn16, mask=0xF83F, match=0x501C)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_SEXT_W, len_v=2, regdst_v=31, srcl_v=rs16)
-
-    cond = in16 & masked_eq(m, insn16, mask=0xF83F, match=0x681C)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_ZEXT_W, len_v=2, regdst_v=31, srcl_v=rs16)
-
-    # C.CMP.EQI/NEI: compare t#1 against simm5, write 0/1 to t-hand.
-    cond = in16 & masked_eq(m, insn16, mask=0xF83F, match=0x002C)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_CMP_EQI, len_v=2, regdst_v=31, srcl_v=24, imm_v=simm5_6_s64)
-
-    cond = in16 & masked_eq(m, insn16, mask=0xF83F, match=0x082C)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_CMP_NEI, len_v=2, regdst_v=31, srcl_v=24, imm_v=simm5_6_s64)
-
-    cond = in16 & masked_eq(m, insn16, mask=0x000F, match=0x0002)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_BSTART_DIRECT, len_v=2, regdst_v=REG_INVALID, imm_v=simm12_s64_c.shl(amount=1))
-
-    cond = in16 & masked_eq(m, insn16, mask=0x000F, match=0x0004)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_BSTART_COND, len_v=2, regdst_v=REG_INVALID, imm_v=simm12_s64_c.shl(amount=1))
-
-    cond = in16 & masked_eq(m, insn16, mask=0xC7FF, match=0x0000)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_BSTART_STD, len_v=2, regdst_v=REG_INVALID, imm_v=brtype)
-
-    cond = in16 & masked_eq(m, insn16, mask=0xFFFF, match=0x0000)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_BSTOP, len_v=2, regdst_v=REG_INVALID)
-
+    # --- 16-bit decode (rule table; C.BSTOP highest) ---
+    c_setret_imm = uimm5._zext(width=6).shl(amount=1)
+    c_branch_off = simm12_s64_c.shl(amount=1)
+    decode16_vals: dict[str, Wire | int] = {
+        "rs16": rs16,
+        "rd16": rd16,
+        "simm5_11_s64": simm5_11_s64,
+        "simm5_6_s64": simm5_6_s64,
+        "c_setret_imm": c_setret_imm,
+        "c_branch_off": c_branch_off,
+        "brtype": brtype,
+    }
+    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_apply_rule_table(
+        m,
+        active=in16,
+        insn=insn16,
+        rules=_decode_rule_table_16(m),
+        value_map=decode16_vals,
+        op=op,
+        len_bytes=len_bytes,
+        regdst=regdst,
+        srcl=srcl,
+        srcr=srcr,
+        srcr_type=srcr_type,
+        shamt=shamt,
+        srcp=srcp,
+        imm=imm,
+    )
     # --- 32-bit decode (reverse priority; EBREAK highest) ---
     cond = in32 & masked_eq(m, insn32, mask=0x0000707F, match=0x00000041)
     uimm_hi = insn32[7:12]._zext(width=64)
