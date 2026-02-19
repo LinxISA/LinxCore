@@ -1346,8 +1346,8 @@ def exec_uop(
             imms = srcr_val
             imml = srcp_val
             shifted = lshr_var(m, srcl_val, imms)
-            sh_mask_amt = m.const(63, width=64) - imml._zext(width=64)
-            mask = lshr_var(m, m.const(0xFFFF_FFFF_FFFF_FFFF, width=64), sh_mask_amt)
+            sh_mask_amt = c(63, width=64) - imml._zext(width=64)
+            mask = lshr_var(m, c(0xFFFF_FFFF_FFFF_FFFF, width=64), sh_mask_amt)
             extracted = shifted & mask
             valid = (imms._zext(width=64) + imml._zext(width=64)).ule(63)
             sh_ext = sh_mask_amt
@@ -1363,8 +1363,8 @@ def exec_uop(
             imms = srcr_val
             imml = srcp_val
             shifted = lshr_var(m, srcl_val, imms)
-            sh_mask_amt = m.const(63, width=64) - imml._zext(width=64)
-            mask = lshr_var(m, m.const(0xFFFF_FFFF_FFFF_FFFF, width=64), sh_mask_amt)
+            sh_mask_amt = c(63, width=64) - imml._zext(width=64)
+            mask = lshr_var(m, c(0xFFFF_FFFF_FFFF_FFFF, width=64), sh_mask_amt)
             extracted = shifted & mask
             valid = (imms._zext(width=64) + imml._zext(width=64)).ule(63)
             alu = valid._select_internal(extracted, z64)

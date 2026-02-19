@@ -7,10 +7,6 @@ from pathlib import Path
 
 from opcode_catalog_lib import CATEGORY_ORDER, load_catalog
 
-THIS_FILE = Path(__file__).resolve()
-LINXCORE_ROOT = THIS_FILE.parents[2]
-LINXISA_ROOT = THIS_FILE.parents[4]
-
 
 def _emit_py_ids(out: Path, symbol_to_id: OrderedDict[str, int]) -> None:
     lines: list[str] = []
@@ -166,9 +162,9 @@ def _emit_qemu_meta(out: Path, records: list[dict]) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Generate LinxCore and QEMU opcode id/meta files from catalog")
-    ap.add_argument("--catalog", default=str(LINXCORE_ROOT / "src/common/opcode_catalog.yaml"))
-    ap.add_argument("--linxcore-common", default=str(LINXCORE_ROOT / "src/common"))
-    ap.add_argument("--qemu-linx-dir", default=str(LINXISA_ROOT / "emulator/qemu/target/linx"))
+    ap.add_argument("--catalog", default="/Users/zhoubot/LinxCore/src/common/opcode_catalog.yaml")
+    ap.add_argument("--linxcore-common", default="/Users/zhoubot/LinxCore/src/common")
+    ap.add_argument("--qemu-linx-dir", default="/Users/zhoubot/qemu/target/linx")
     args = ap.parse_args()
 
     catalog = load_catalog(Path(args.catalog))
