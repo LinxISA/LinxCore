@@ -130,8 +130,3 @@ _linxtrace_stage_csv = ",".join(LINXTRACE_STAGE_ID_ORDER)
 _linxtrace_stage_hash = hashlib.sha1(_linxtrace_stage_csv.encode("utf-8")).hexdigest().upper()[:12]
 LINXTRACE_PIPELINE_SCHEMA_ID = f"LC-TRACE{LINXTRACE_PIPELINE_SCHEMA_VERSION}-{_linxtrace_stage_hash}"
 LINXTRACE_STAGE_ORDER_CSV = _linxtrace_stage_csv
-
-# Compatibility aliases during migration.
-KONATA_STAGE_ID_ORDER = LINXTRACE_STAGE_ID_ORDER
-KONATA_PIPELINE_SCHEMA_ID = LINXTRACE_PIPELINE_SCHEMA_ID
-KONATA_STAGE_ORDER_CSV = LINXTRACE_STAGE_ORDER_CSV

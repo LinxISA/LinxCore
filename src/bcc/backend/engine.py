@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 # ENGINE_ORCHESTRATION_ONLY:
 # Stage/component ownership is migrating to focused files. Keep this file as
-# composition and compatibility glue; avoid adding new monolithic stage logic.
+# composition glue; avoid adding new monolithic stage logic.
 
 from pycircuit import Circuit, module
 from pycircuit.dsl import Signal
@@ -159,15 +159,14 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     c = m.const
     consts = make_consts(m)
 
-    # Template frame addend compatibility knob.
+    # Optional fixed template frame addend knob.
     #
     # Architectural default follows immediate-only frame semantics:
     #   f.entry:   sp -= stacksize
     #   f.exit/*:  sp += stacksize
     #
-    # Set LINXCORE_CALLFRAME_SIZE to a non-zero multiple of 8 only for
-    # compatibility with older binaries that require an additional fixed
-    # outgoing-call frame.
+    # Set LINXCORE_CALLFRAME_SIZE to a non-zero multiple of 8 to include an
+    # additional fixed outgoing-call frame.
     callframe_env = os.getenv("LINXCORE_CALLFRAME_SIZE", "0")
     try:
         callframe_size_cfg = int(callframe_env, 0)
@@ -915,7 +914,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_begin = state.macro_begin.out()
     macro_end = state.macro_end.out()
     macro_stacksize = state.macro_stacksize.out()
-    # Optional fixed callframe addend for legacy compatibility.
+    # Optional fixed callframe addend.
     macro_callframe_size = c(callframe_size_cfg, width=64)
     macro_frame_adj = macro_stacksize + macro_callframe_size
     macro_reg = state.macro_reg.out()
@@ -963,7 +962,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_store_data = macro_reg_val
     macro_store_size = c(8, width=4)
 
-    # MMIO (QEMU virt compatibility).
+    # MMIO (QEMU virt).
     #
     # - UART data: 0x1000_0000 (write low byte)
     # - EXIT:      0x1000_0004 (write exit code; stop simulation)

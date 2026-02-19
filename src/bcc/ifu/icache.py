@@ -22,8 +22,8 @@ def build_janus_bcc_ifu_icache(
     f1_to_icache_stage_valid_f1 = m.input("f1_to_icache_stage_valid_f1", width=1)
     f1_to_icache_stage_pkt_uid_f1 = m.input("f1_to_icache_stage_pkt_uid_f1", width=64)
 
-    # Legacy direct-imem read port remains as a compatibility probe input, but
-    # functional fetch data now comes from cache arrays + L2 refill.
+    # Keep direct-imem read port only as a probe input. Functional fetch data
+    # comes from cache arrays plus L2 refill.
     m.input("imem_rdata_top", width=64)
 
     ic_l2_req_ready_top = m.input("ic_l2_req_ready_top", width=1)

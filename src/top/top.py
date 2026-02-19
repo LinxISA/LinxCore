@@ -261,7 +261,7 @@ def build_linxcore_top(
     backend_top = m.instance_auto(
         build_backend,
         name="janus_backend",
-        module_name="JanusBccBackendCompat",
+        module_name="JanusBccBackendTop",
         params={"mem_bytes": mem_bytes},
         clk=clk_top,
         rst=rst_top,
