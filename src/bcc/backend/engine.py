@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 # ENGINE_ORCHESTRATION_ONLY:
 # Stage/component ownership is migrating to focused files. Keep this file as
-# composition glue; avoid adding new monolithic stage logic.
+# composition and compatibility glue; avoid adding new monolithic stage logic.
 
 from pycircuit import Circuit, module
 from pycircuit.dsl import Signal
@@ -158,14 +158,15 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     c = m.const
     consts = make_consts(m)
 
-    # Optional fixed template frame addend knob.
+    # Template frame addend compatibility knob.
     #
     # Architectural default follows immediate-only frame semantics:
     #   f.entry:   sp -= stacksize
     #   f.exit/*:  sp += stacksize
     #
-    # Set LINXCORE_CALLFRAME_SIZE to a non-zero multiple of 8 to include an
-    # additional fixed outgoing-call frame.
+    # Set LINXCORE_CALLFRAME_SIZE to a non-zero multiple of 8 only for
+    # compatibility with older binaries that require an additional fixed
+    # outgoing-call frame.
     callframe_env = os.getenv("LINXCORE_CALLFRAME_SIZE", "0")
     try:
         callframe_size_cfg = int(callframe_env, 0)
@@ -407,7 +408,6 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     redirect_valid = consts.zero1
     redirect_pc = state.pc.out()
     redirect_checkpoint_id = c(0, width=6)
-    redirect_bid = consts.zero64
     redirect_from_corr = consts.zero1
     replay_redirect_fire = consts.zero1
 
@@ -544,7 +544,6 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         redirect_pc = redirect._select_internal(pc_next, redirect_pc)
         redirect_ckpt_sel = corr_for_boundary._select_internal(br_corr_checkpoint_id_live, rob_checkpoint_ids[slot])
         redirect_checkpoint_id = redirect._select_internal(redirect_ckpt_sel, redirect_checkpoint_id)
-        redirect_bid = redirect._select_internal(rob_block_bids[slot], redirect_bid)
         redirect_from_corr = (redirect & corr_for_boundary)._select_internal(consts.one1, redirect_from_corr)
 
         commit_store_fire = store_commit._select_internal(consts.one1, commit_store_fire)
@@ -915,7 +914,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_begin = state.macro_begin.out()
     macro_end = state.macro_end.out()
     macro_stacksize = state.macro_stacksize.out()
-    # Optional fixed callframe addend.
+    # Optional fixed callframe addend for legacy compatibility.
     macro_callframe_size = c(callframe_size_cfg, width=64)
     macro_frame_adj = macro_stacksize + macro_callframe_size
     macro_reg = state.macro_reg.out()
@@ -963,7 +962,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_store_data = macro_reg_val
     macro_store_size = c(8, width=4)
 
-    # MMIO (QEMU virt).
+    # MMIO (QEMU virt compatibility).
     #
     # - UART data: 0x1000_0000 (write low byte)
     # - EXIT:      0x1000_0004 (write exit code; stop simulation)
@@ -1871,13 +1870,11 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         "commit_redirect": commit_redirect_any,
         "redirect_pc": redirect_pc_any,
         "redirect_checkpoint_id": redirect_checkpoint_id_any,
-        "redirect_bid": redirect_bid,
         "mmio_exit": mmio_exit,
         "state_fpc": state.fpc.out(),
         "state_flush_pc": state.flush_pc.out(),
         "state_flush_checkpoint_id": state.flush_checkpoint_id.out(),
         "state_flush_pending": state.flush_pending.out(),
-        "state_flush_bid": state.flush_bid.out(),
         "state_replay_pending": state.replay_pending.out(),
         "state_replay_store_rob": state.replay_store_rob.out(),
         "state_replay_pc": state.replay_pc.out(),
@@ -1899,7 +1896,6 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     state.fpc.set(commit_ctrl["fpc_next"])
     state.flush_pc.set(commit_ctrl["flush_pc_next"])
     state.flush_checkpoint_id.set(commit_ctrl["flush_checkpoint_id_next"])
-    state.flush_bid.set(commit_ctrl["flush_bid_next"])
     state.flush_pending.set(commit_ctrl["flush_pending_next"])
     state.replay_pending.set(commit_ctrl["replay_pending_next"])
     state.replay_store_rob.set(commit_ctrl["replay_store_rob_next"])
@@ -2624,9 +2620,6 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     m.output("redirect_valid", commit_redirect_any)
     m.output("redirect_pc", redirect_pc_any)
     m.output("redirect_checkpoint_id", redirect_checkpoint_id_any)
-    # Flush domain markers (bubble flush on next cycle after redirect).
-    m.output("do_flush", do_flush)
-    m.output("flush_bid", state.flush_bid.out())
     m.output("ctu_block_ifu", macro_block)
     m.output("ctu_uop_valid", macro_uop_valid)
     m.output("ctu_uop_kind", macro_uop_kind)
@@ -2821,8 +2814,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     cmd_tile = cmd_payload._trunc(width=6)
     cmd_src_rob = cmd_uop_rob
     cmd_bid = mux_by_uindex(m, idx=cmd_uop_rob, items=rob.block_bid, default=consts.zero64)
-    # Design decision (2026-02-24): cmd_tag is derived from BID.
-    cmd_tag = cmd_bid[0:8]
+    cmd_tag = state.cycles.out()._trunc(width=8)
 
     block_cmd_valid = cmd_issue_fire_eff
     block_cmd_kind = cmd_kind
