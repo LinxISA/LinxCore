@@ -1,9 +1,9 @@
-# TMA（TLOAD/TSTORE）INTRODUCTION
+# TMA/TAU INTRODUCTION（TLOAD/TSTORE/TCVT/TCOPY）
 
 本文总结两个层面的现状：
 
-1. `linx-isa` 中 TMA 指令（重点 `TLOAD`/`TSTORE`）的指令级定义状态。
-2. `pyCircuit/designs/linxcore/src` 中对应实现状态（重点 `tma` 子系统）。
+1. `linx-isa` 中 tile memory 指令（重点 `TLOAD`/`TSTORE`）的指令级定义状态。
+2. `pyCircuit/designs/linxcore/src` 中 TMA/TAU 对应实现状态。
 
 结论基于当前工作区源码（检查时间：2026-02-17）。
 
@@ -80,7 +80,7 @@
   - `decode.py` 可见 `BSTART.STD` 解码路径，但无 `BSTART.TMA`、`B.ARG/B.IOR/B.IOT/B.DIM` 解码消费路径：
     - 见：`pyCircuit/designs/linxcore/src/common/decode.py:757`
 
-### 2.2 Block command 到 TMA 的接线状态
+### 2.2 Block command 到 TMA/TAU 的接线状态
 
 - Backend 只在特定 block start 内部 op retire 时导出 block command（当前条件是 `OP_C_BSTART_STD / OP_C_BSTART_COND / OP_BSTART_STD_CALL`）。
   - 见：`pyCircuit/designs/linxcore/src/bcc/backend/backend.py:2216`
@@ -90,7 +90,7 @@
   - `kind==2 -> VEC`
   - 其余 -> TAU
   - 见：`pyCircuit/designs/linxcore/src/bcc/bctrl/bctrl.py:46`
-- 顶层存在一条“BISQ -> TMU NoC -> TileReg -> BCtrl -> TMA”的通道，但它是简化/占位通路，不是 ISA 描述符语义执行管线。
+- 顶层存在“BISQ -> TMU NoC -> TileReg -> BCtrl -> TMA/TAU”的通道，但当前仍是简化/占位通路，不是 ISA 描述符语义执行管线。
   - 见：`pyCircuit/designs/linxcore/src/top/top.py:428`
   - 见：`pyCircuit/designs/linxcore/src/top/top.py:444`
   - 见：`pyCircuit/designs/linxcore/src/top/top.py:500`
@@ -111,9 +111,33 @@
   - MMU/IOMMU 访问路径与可重启 fault 状态机
   - 与 TSO/fence/aq/rl 相关的 TMA 专用排序逻辑
 
+### 2.4 TAU 模块本体行为（当前）
+
+- `tau/tau.py` 也是功能占位实现，行为仅为：
+  - `rsp_valid = cmd_valid`
+  - `rsp_tag = cmd_tag`
+  - `rsp_status = 0`
+  - `rsp_data0 = cmd_payload + cmd_payload`
+  - `rsp_data1 = cmd_payload`
+  - 见：`pyCircuit/designs/linxcore/src/tau/tau.py:7`
+- TAU 当前尚未实现：
+  - `TCVT` 的布局变换执行
+  - `TCOPY` 的真实 TR 侧搬运通路
+  - 与 TMA 对齐的事务上下文管理与错误处理
+
 ## 3. 对齐结论（ISA vs pyCircuit）
 
 - **ISA 侧**：`TLOAD/TSTORE` 语义、memory model、fault/restart、IOMMU 责任边界在 v0.3 strict 中已给出可执行约束。
-- **pyCircuit 侧**：目前是“有 TMA 端口和调度骨架，但无 TLOAD/TSTORE 语义实现”的 bring-up stub 状态。
-- **直接含义**：当前 `pyCircuit` 的 TMA 路径还不能作为 ISA 级 `TLOAD/TSTORE` 行为验证目标；只能用于 block-command 接口联调与通路连通性验证。
+- **pyCircuit 侧**：目前 TMA 与 TAU 都处于 bring-up stub 状态，接口已接线但语义尚未落地。
+- **直接含义**：当前路径主要用于 block-command 接口联调，不具备 `TLOAD/TSTORE/TCVT/TCOPY` 的行为级验证能力。
 
+## 4. 当前实施范围更新
+
+- 实施计划范围覆盖 TMA 与 TAU 两个单元。
+- TMA 本期目标：支持 `TLOAD/TSTORE`，完成 GM<->TR 数据搬运闭环。
+- TAU 本期目标：支持 `TCVT/TCOPY`，且 `TCVT` 支持以下五种规格：
+  - `NORM`
+  - `ND2NZ`
+  - `ND2ZN`
+  - `DN2NZ`
+  - `DN2ZN`
