@@ -21,7 +21,7 @@
 4. A `uop_uid` may be non-retired (flushed/trapped), while `seq` exists only for committed uops.
 5. TB ignores post-retire/post-flush occupancy echoes for the same `uop_uid`.
 
-## Konata mapping
+## LinxTrace mapping
 
 1. `kid` is a local row id in one trace file.
 2. Uop rows carry `uid_hex = uop_uid`.

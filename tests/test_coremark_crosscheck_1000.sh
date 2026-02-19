@@ -7,7 +7,7 @@ CORE_ELF="/Users/zhoubot/linx-isa/workloads/generated/elf/coremark.elf"
 CORE_MEMH="${TMP_DIR}/coremark_from_elf.memh"
 QEMU_TRACE="${TMP_DIR}/coremark_qemu_commit.jsonl"
 DUT_TRACE="${TMP_DIR}/coremark_dut_commit.jsonl"
-LINXTRACE_OUT="${TMP_DIR}/coremark_1000.linxtrace.jsonl"
+LINXTRACE_OUT="${TMP_DIR}/coremark_1000.linxtrace"
 XCHECK_PREFIX="${TMP_DIR}/crosscheck"
 LLVM_READELF="${LLVM_READELF:-/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-readelf}"
 

@@ -73,7 +73,7 @@ run_one() {
   local boot_pc="$5"
   local accept_exit_codes="$6"
   local log="${LOG_DIR}/${name}_linxcore_cpp.log"
-  local linxtrace="${LINXTRACE_DIR}/${name}.linxtrace.jsonl"
+  local linxtrace="${LINXTRACE_DIR}/${name}.linxtrace"
   echo "[bench] ${name}"
   if [[ "${BENCH_TRACE}" == "1" ]]; then
     if [[ "${BENCH_LINXTRACE}" == "1" ]]; then

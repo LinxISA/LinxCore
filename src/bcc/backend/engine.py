@@ -109,6 +109,7 @@ from .params import OooParams
 from .rename import build_commit_rename_stage, build_rename_stage
 from .rob import build_rob_ctrl_stage, build_rob_entry_update_stage, is_macro_op, is_start_marker_op
 from .state import make_core_ctrl_regs, make_iq_regs, make_prf, make_rename_regs, make_rob_regs
+from .template_uop_encoding import map_template_child_encoding
 from .wakeup import build_head_wait_stage, compose_replay_cause, compose_wakeup_reason
 
 
@@ -2109,11 +2110,21 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_adj_nonzero = ~macro_frame_adj.eq(consts.zero64)
     macro_trace_pc = state.pc.out()
     macro_trace_seq_pc = macro_trace_pc + head_len.zext(width=64)
-    macro_trace_op = macro_op
+    macro_enc = map_template_child_encoding(
+        m,
+        macro_op=macro_op,
+        macro_insn_raw=head_insn_raw,
+        uop_is_sp_sub=macro_uop_is_sp_sub,
+        uop_is_sp_add=macro_uop_is_sp_add,
+        uop_is_store=macro_uop_is_store,
+        uop_is_load=macro_uop_is_load,
+        uop_is_setc_tgt=macro_uop_is_setc_tgt,
+    )
+    macro_trace_op = macro_enc["op"]
     macro_trace_val = head_value
     macro_trace_rob = rob.head.out()
-    macro_trace_len = head_len
-    macro_trace_insn = head_insn_raw
+    macro_trace_len = macro_enc["len"]
+    macro_trace_insn = macro_enc["insn_raw"]
 
     macro_trace_wb_load = macro_reg_write
     macro_trace_wb_sp_sub = macro_uop_is_sp_sub & macro_adj_nonzero

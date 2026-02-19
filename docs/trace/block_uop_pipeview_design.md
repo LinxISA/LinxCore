@@ -4,7 +4,7 @@
 
 Visualize LinxISA block-structured control flow and micro-uop execution at the same time in LinxTrace/LinxCoreSight:
 
-1. One row per dynamic block lifecycle (`BSTART` open, `BSTOP` close/fault).
+1. One row per dynamic block lifecycle (`BSTART` open, ROB-side `resolved`, BROB-side `retired/fault`).
 2. One row per dynamic micro-uop (`uop_uid`) with exact stage residency.
 
 ## Two-layer trace model
@@ -12,7 +12,8 @@ Visualize LinxISA block-structured control flow and micro-uop execution at the s
 1. Block rows:
    - Kind: `block`
    - Left label: `BLOCK c<core> b<block_uid> <open_pc>..<close_pc> <status>`
-   - Built from commit boundary metadata (`commit_is_bstart`, `commit_is_bstop`, `commit_block_uid`) and block events.
+   - Built from commit boundary metadata (`commit_is_bstart`, `commit_is_bstop`, `commit_block_uid`) and block events:
+     `open -> resolved -> retired`.
 2. Uop rows:
    - Kind: `normal|template_child|replay|flush|trap`
    - Left label: `pc: disassembly`

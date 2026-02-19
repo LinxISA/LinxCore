@@ -37,6 +37,9 @@ class Commit:
     trap_cause: int
     traparg0: int
     next_pc: int
+    op_name: str
+    template_kind: int
+    parent_uop_uid: int
 
 
 def _mask_insn(raw: int, length: int) -> int:
@@ -102,6 +105,18 @@ def _is_template_parent_marker(r: Commit) -> bool:
     return True
 
 
+def _is_template_child_row(r: Commit) -> bool:
+    if r.template_kind != 0:
+        return True
+    return r.parent_uop_uid != 0 and r.op_name in {
+        "OP_SUBI",
+        "OP_ADDI",
+        "OP_SDI",
+        "OP_LDI",
+        "OP_SETC_TGT",
+    }
+
+
 def _is_sideeffect_free_sysreg_marker(r: Commit) -> bool:
     # QEMU can emit sysreg marker rows (e.g. SSRSET) as committed instructions
     # with no architectural WB/MEM/TRAP payload. LinxCore may currently model
@@ -118,7 +133,20 @@ def _is_sideeffect_free_sysreg_marker(r: Commit) -> bool:
 
 def _is_metadata_commit(r: Commit) -> bool:
     # Treat fully zeroed placeholders and template parent markers as metadata.
-    return ((r.length == 0) and (r.insn == 0) and (r.pc == 0)) or _is_template_parent_marker(r)
+    if ((r.length == 0) and (r.insn == 0) and (r.pc == 0)) or _is_template_parent_marker(r):
+        return True
+    # Some DUT builds can emit a side-effect-free template child marker row
+    # (lineage bookkeeping only). Ignore it for architectural lockstep compare.
+    if (
+        _is_template_child_row(r)
+        and r.wb_valid == 0
+        and r.dst_valid == 0
+        and r.mem_valid == 0
+        and r.trap_valid == 0
+        and r.next_pc == r.pc
+    ):
+        return True
+    return False
 
 
 def _to_int(v: Any, default: int = 0) -> int:
@@ -168,6 +196,9 @@ def _load_trace(path: Path, limit: int) -> list[Commit]:
                 trap_cause=_to_int(obj.get("trap_cause", 0)),
                 traparg0=_to_int(obj.get("traparg0", 0)),
                 next_pc=_to_int(obj.get("next_pc", 0)),
+                op_name=str(obj.get("op_name", "")),
+                template_kind=_to_int(obj.get("template_kind", 0)),
+                parent_uop_uid=_to_int(obj.get("parent_uop_uid", obj.get("parent_uid", 0))),
             )
             rows.append(row)
             if limit > 0 and len(rows) >= limit:
@@ -177,10 +208,15 @@ def _load_trace(path: Path, limit: int) -> list[Commit]:
 
 def _cmp_commit(q: Commit, d: Commit) -> tuple[bool, str, int, int]:
     # Match lockstep runner normalization rules.
+    q_insn = _mask_insn(q.insn, q.length)
+    d_insn = _mask_insn(d.insn, d.length)
+    allow_template_insn_relax = (
+        (_is_macro_marker32(q_insn) and _is_template_child_row(d))
+        or (_is_macro_marker32(d_insn) and _is_template_child_row(q))
+    )
     checks: list[tuple[str, int, int]] = [
         ("pc", q.pc, d.pc),
         ("len", q.length, d.length),
-        ("insn", _mask_insn(q.insn, q.length), _mask_insn(d.insn, d.length)),
         ("wb_valid", q.wb_valid, d.wb_valid),
         ("mem_valid", q.mem_valid, d.mem_valid),
         ("trap_valid", q.trap_valid, d.trap_valid),
@@ -189,6 +225,8 @@ def _cmp_commit(q: Commit, d: Commit) -> tuple[bool, str, int, int]:
     for name, qv, dv in checks:
         if qv != dv:
             return False, name, qv, dv
+    if q_insn != d_insn and (not allow_template_insn_relax):
+        return False, "insn", q_insn, d_insn
 
     if q.wb_valid:
         if q.wb_rd != d.wb_rd:
@@ -288,6 +326,9 @@ def _row_dict(r: Commit) -> dict[str, Any]:
             "arg0": r.traparg0,
         },
         "next_pc": r.next_pc,
+        "op_name": r.op_name,
+        "template_kind": r.template_kind,
+        "parent_uop_uid": r.parent_uop_uid,
     }
 
 

@@ -29,7 +29,7 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
 
     f2_to_f3_stage_pc_f2 = m.input("f2_to_f3_stage_pc_f2", width=64)
     f2_to_f3_stage_window_f2 = m.input("f2_to_f3_stage_window_f2", width=64)
-    m.input("f2_to_f3_stage_bundle128_f2", width=1024)
+    m.input("f2_to_f3_stage_bundle128_f2", width=128)
     m.input("f2_to_f3_stage_bundle_base_pc_f2", width=64)
     m.input("f2_to_f3_stage_slot_base_offset_f2", width=7)
     f2_to_f3_stage_pkt_uid_f2 = m.input("f2_to_f3_stage_pkt_uid_f2", width=64)
@@ -142,3 +142,16 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     m.output("ib_head_uid_f3", ibuf_f3["out_pkt_uid"])
     m.output("ib_valid_f3", ibuf_f3["out_valid"])
     m.output("f3_one_f3", c(1, width=1))
+
+    # Per-slot visibility for pipeview continuity (F3/IB -> OOO uid namespace).
+    ib_bundle_f3 = decode_f4_bundle(m, ibuf_f3["out_window"])
+    for slot in range(4):
+        slot_pc_f3 = ibuf_f3["out_pc"] + ib_bundle_f3.off_bytes[slot].zext(width=64)
+        slot_uid_f3 = (ibuf_f3["out_pkt_uid"].shl(amount=3)) | c(slot, width=64)
+        slot_valid_f3 = ibuf_f3["out_valid"] & (c(1, width=1) if slot == 0 else c(0, width=1)) & ib_bundle_f3.valid[slot]
+        m.output(f"f3_slot_valid{slot}_f3", slot_valid_f3)
+        m.output(f"f3_slot_pc{slot}_f3", slot_pc_f3)
+        m.output(f"f3_slot_uop_uid{slot}_f3", slot_uid_f3)
+        m.output(f"ib_slot_valid{slot}_ib", slot_valid_f3)
+        m.output(f"ib_slot_pc{slot}_ib", slot_pc_f3)
+        m.output(f"ib_slot_uop_uid{slot}_ib", slot_uid_f3)

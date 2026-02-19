@@ -48,11 +48,19 @@ def build_linxcore_top(
     ic_sets: int = 32,
     ic_ways: int = 4,
     ic_line_bytes: int = 64,
-    ifetch_bundle_bytes: int = 128,
+    ifetch_bundle_bits: int = 128,
+    ifetch_bundle_bytes: int | None = None,
     ib_depth: int = 8,
     ic_miss_outstanding: int = 1,
     ic_enable: int = 1,
 ) -> None:
+    if ifetch_bundle_bytes is not None:
+        alias_bits = int(ifetch_bundle_bytes) * 8
+        if int(ifetch_bundle_bits) == 128:
+            ifetch_bundle_bits = alias_bits
+        elif alias_bits != int(ifetch_bundle_bits):
+            raise ValueError("ifetch_bundle_bytes alias mismatches ifetch_bundle_bits")
+
     clk_top = m.clock("clk")
     rst_top = m.reset("rst")
 
@@ -131,6 +139,7 @@ def build_linxcore_top(
             "ic_sets": ic_sets,
             "ic_ways": ic_ways,
             "ic_line_bytes": ic_line_bytes,
+            "ifetch_bundle_bits": ifetch_bundle_bits,
             "ifetch_bundle_bytes": ifetch_bundle_bytes,
             "ic_miss_outstanding": ic_miss_outstanding,
             "ic_enable": ic_enable,
@@ -150,6 +159,15 @@ def build_linxcore_top(
 
     m.output("ic_l2_req_valid", ifu_icache["ic_l2_req_valid_top"])
     m.output("ic_l2_req_addr", ifu_icache["ic_l2_req_addr_top"])
+    m.output("icache_miss_active_dbg", ifu_icache["icache_miss_active_ic"])
+    m.output("icache_miss_wait_dbg", ifu_icache["icache_miss_wait_ic"])
+    m.output("icache_miss_phase_dbg", ifu_icache["icache_miss_phase_ic"])
+    m.output("icache_miss_need0_dbg", ifu_icache["icache_miss_need0_ic"])
+    m.output("icache_miss_need1_dbg", ifu_icache["icache_miss_need1_ic"])
+    m.output("icache_f1_hit_dbg", ifu_icache["f1_to_f2_stage_hit_f1"])
+    m.output("icache_f1_miss_dbg", ifu_icache["f1_to_f2_stage_miss_f1"])
+    m.output("icache_f1_stall_dbg", ifu_icache["f1_to_f2_stage_stall_f1"])
+    m.output("icache_f1_valid_dbg", ifu_icache["f1_to_f2_stage_valid_f1"])
 
     ifu_f2 = m.instance(
         build_janus_bcc_ifu_f2,
@@ -732,6 +750,8 @@ def build_linxcore_top(
     m.output("brob_query_ready_top", brob_top["brob_query_ready_brob"])
     m.output("brob_query_exception_top", brob_top["brob_query_exception_brob"])
     m.output("brob_query_retired_top", brob_top["brob_query_retired_brob"])
+    m.output("brob_retire_fire_top", backend_top["brob_retire_fire"])
+    m.output("brob_retire_bid_top", backend_top["brob_retire_bid"])
     m.assign(brob_active_allocated_wire, brob_top["brob_query_allocated_brob"])
     m.assign(brob_active_ready_wire, brob_top["brob_query_ready_brob"])
     m.assign(brob_active_exception_wire, brob_top["brob_query_exception_brob"])
@@ -1480,6 +1500,7 @@ def build_linxcore_top(
     dfx_kind_trap_top = c(2, width=3)
     dfx_kind_replay_top = c(3, width=3)
     dfx_kind_template_top = c(4, width=3)
+    dfx_kind_packet_top = c(5, width=3)
 
     def emit_occ_debug(
         stage_top: str,
@@ -1512,80 +1533,92 @@ def build_linxcore_top(
             },
         )
 
-    # Frontend stage-residency UID namespace.
-    # Keep fetch packet identity in high bits, and encode stage in low bits so
-    # F0/F1/F2/F3/IB/F4 occupancy does not collapse into one sample per cycle.
-    def frontend_uid(pkt_uid_top, stage_tag_top: int):
-        return (pkt_uid_top.shl(amount=6)) | c(stage_tag_top & 0x3F, width=64)
-
-    f0_uid_top = frontend_uid(ifu_f0["f0_to_f1_stage_pkt_uid_f0"], 1)
-    f1_uid_top = frontend_uid(ifu_f1["f1_to_icache_stage_pkt_uid_f1"], 2)
-    f2_uid_top = frontend_uid(ifu_f2["f2_to_f3_stage_pkt_uid_f2"], 3)
-    f3_uid_top = frontend_uid(ifu_f3["f3_to_f4_stage_pkt_uid_f3"], 4)
-    ib_uid_top = frontend_uid(ifu_f3["ib_head_uid_f3"], 5)
-    f4_uid_top = frontend_uid(ifu_f4["f4_to_d1_stage_pkt_uid_f4"], 6)
+    # Frontend identity model:
+    # - F1 emits packet identity rows only.
+    # - F2/F3/IB/F4 emit per-slot dynamic uop ids in decode namespace:
+    #     uop_uid = (pkt_uid << 3) | slot
+    f0_uid_top = ifu_f0["f0_to_f1_stage_pkt_uid_f0"]
+    f1_uid_top = ifu_f1["f1_to_icache_stage_pkt_uid_f1"]
+    # Keep packet rows in a dedicated debug-only UID namespace so they never
+    # collide with dynamic uop rows keyed by (pkt_uid<<3)|slot.
+    pkt_uid_tag_top = c(1, width=64).shl(amount=63)
+    f0_pkt_uid_dbg_top = pkt_uid_tag_top | f0_uid_top
+    f1_pkt_uid_dbg_top = pkt_uid_tag_top | f1_uid_top
     emit_occ_debug(
         "f0",
         0,
         ifu_f0["f0_to_f1_stage_valid_f0"],
-        f0_uid_top,
+        f0_pkt_uid_dbg_top,
         ifu_f0["f0_to_f1_stage_pc_f0"],
         c(0, width=6),
-        dfx_kind_normal_top,
+        dfx_kind_packet_top,
         c(0, width=64),
     )
     emit_occ_debug(
         "f1",
         0,
         ifu_f1["f1_to_icache_stage_valid_f1"],
-        f1_uid_top,
+        f1_pkt_uid_dbg_top,
+        ifu_f1["f1_to_icache_stage_pc_f1"],
+        c(0, width=6),
+        dfx_kind_packet_top,
+        c(0, width=64),
+    )
+    emit_occ_debug(
+        "f1",
+        1,
+        ifu_f1["f1_to_icache_stage_valid_f1"],
+        (f1_uid_top.shl(amount=3)) | c(0, width=64),
         ifu_f1["f1_to_icache_stage_pc_f1"],
         c(0, width=6),
         dfx_kind_normal_top,
         c(0, width=64),
     )
-    emit_occ_debug(
-        "f2",
-        0,
-        ifu_f2["f2_to_f3_stage_valid_f2"],
-        f2_uid_top,
-        ifu_f2["f2_to_f3_stage_pc_f2"],
-        c(0, width=6),
-        dfx_kind_normal_top,
-        c(0, width=64),
-    )
-    emit_occ_debug(
-        "f3",
-        0,
-        ifu_f3["f3_to_f4_stage_valid_f3"],
-        f3_uid_top,
-        ifu_f3["f3_to_f4_stage_pc_f3"],
-        c(0, width=6),
-        dfx_kind_normal_top,
-        c(0, width=64),
-    )
-    emit_occ_debug(
-        "ib",
-        0,
-        ifu_f3["ib_valid_f3"],
-        ib_uid_top,
-        ifu_f3["ib_head_pc_f3"],
-        c(0, width=6),
-        dfx_kind_normal_top,
-        c(0, width=64),
-        stall_top=ifu_f3["ib_valid_f3"] & (~backend_ready_top),
-        stall_cause_top=(ifu_f3["ib_valid_f3"] & (~backend_ready_top))._select_internal(c(1, width=8), c(0, width=8)),
-    )
-    emit_occ_debug(
-        "f4",
-        0,
-        ifu_f4["f4_to_d1_stage_valid_f4"],
-        f4_uid_top,
-        ifu_f4["f4_to_d1_stage_pc_f4"],
-        c(0, width=6),
-        dfx_kind_normal_top,
-        c(0, width=64),
-    )
+    ib_stall_top = ifu_f3["ib_valid_f3"] & (~backend_ready_top)
+    ib_stall_cause_top = ib_stall_top._select_internal(c(1, width=8), c(0, width=8))
+    for slot in range(4):
+        emit_occ_debug(
+            "f2",
+            slot,
+            ifu_f2[f"f2_slot_valid{slot}_f2"],
+            ifu_f2[f"f2_slot_uop_uid{slot}_f2"],
+            ifu_f2[f"f2_slot_pc{slot}_f2"],
+            c(0, width=6),
+            dfx_kind_normal_top,
+            c(0, width=64),
+        )
+        emit_occ_debug(
+            "f3",
+            slot,
+            ifu_f3[f"f3_slot_valid{slot}_f3"],
+            ifu_f3[f"f3_slot_uop_uid{slot}_f3"],
+            ifu_f3[f"f3_slot_pc{slot}_f3"],
+            c(0, width=6),
+            dfx_kind_normal_top,
+            c(0, width=64),
+        )
+        emit_occ_debug(
+            "ib",
+            slot,
+            ifu_f3[f"ib_slot_valid{slot}_ib"],
+            ifu_f3[f"ib_slot_uop_uid{slot}_ib"],
+            ifu_f3[f"ib_slot_pc{slot}_ib"],
+            c(0, width=6),
+            dfx_kind_normal_top,
+            c(0, width=64),
+            stall_top=ib_stall_top,
+            stall_cause_top=ib_stall_cause_top,
+        )
+        emit_occ_debug(
+            "f4",
+            slot,
+            ifu_f4[f"f4_slot_valid{slot}_f4"],
+            ifu_f4[f"f4_slot_uop_uid{slot}_f4"],
+            ifu_f4[f"f4_slot_pc{slot}_f4"],
+            c(0, width=6),
+            dfx_kind_normal_top,
+            c(0, width=64),
+        )
     emit_occ_debug(
         "d1",
         0,
@@ -1628,18 +1661,30 @@ def build_linxcore_top(
     )
 
     for slot in range(4):
-        d_uid = backend_top[f"dispatch_uop_uid{slot}"]
-        d_puid = backend_top[f"dispatch_parent_uop_uid{slot}"]
+        if slot == 0:
+            d3_valid_top = ren_d3["d3_to_s1_stage_valid_d3"]
+            d3_uid_top = ren_d3["d3_to_s1_stage_uop_uid_d3"]
+            d3_pc_top = ren_d3["d3_to_s1_stage_pc_d3"]
+            d3_rob_top = c(0, width=6)
+            d3_parent_top = c(0, width=64)
+            d3_block_top = c(0, width=64)
+        else:
+            d3_valid_top = c(0, width=1)
+            d3_uid_top = c(0, width=64)
+            d3_pc_top = c(0, width=64)
+            d3_rob_top = c(0, width=6)
+            d3_parent_top = c(0, width=64)
+            d3_block_top = c(0, width=64)
         emit_occ_debug(
             "d3",
             slot,
-            trace_dispatch_edge_top[slot],
-            d_uid,
-            trace_dispatch_pc_top[slot],
-            trace_dispatch_rob_top[slot],
+            d3_valid_top,
+            d3_uid_top,
+            d3_pc_top,
+            d3_rob_top,
             dfx_kind_normal_top,
-            d_puid,
-            backend_top[f"dispatch_block_uid{slot}"],
+            d3_parent_top,
+            d3_block_top,
             c(0, width=2),
         )
         emit_occ_debug(
@@ -1820,6 +1865,46 @@ def build_linxcore_top(
 
     # Template micro-uop events are exposed as explicit E1 template-kind probes.
     emit_occ_debug(
+        "d1",
+        4,
+        backend_top["ctu_uop_valid"],
+        backend_top["ctu_uop_uid"],
+        backend_top["pc"],
+        c(0, width=6),
+        dfx_kind_template_top,
+        backend_top["ctu_uop_parent_uid"],
+    )
+    emit_occ_debug(
+        "d2",
+        4,
+        backend_top["ctu_uop_valid"],
+        backend_top["ctu_uop_uid"],
+        backend_top["pc"],
+        c(0, width=6),
+        dfx_kind_template_top,
+        backend_top["ctu_uop_parent_uid"],
+    )
+    emit_occ_debug(
+        "d3",
+        4,
+        backend_top["ctu_uop_valid"],
+        backend_top["ctu_uop_uid"],
+        backend_top["pc"],
+        c(0, width=6),
+        dfx_kind_template_top,
+        backend_top["ctu_uop_parent_uid"],
+    )
+    emit_occ_debug(
+        "s1",
+        4,
+        backend_top["ctu_uop_valid"],
+        backend_top["ctu_uop_uid"],
+        backend_top["pc"],
+        c(0, width=6),
+        dfx_kind_template_top,
+        backend_top["ctu_uop_parent_uid"],
+    )
+    emit_occ_debug(
         "e1",
         4,
         backend_top["ctu_uop_valid"],
@@ -1982,7 +2067,7 @@ def build_linxcore_top(
         m.output(f"commit_seq{slot}", trace_lookup_seq_top(backend_top[f"commit_rob{slot}"]))
 
     blk_evt_valid_top = c(0, width=1)
-    blk_evt_kind_top = c(0, width=3)  # 1=open, 2=close, 3=redirect, 4=fault
+    blk_evt_kind_top = c(0, width=3)  # 1=open, 2=resolved(ROB-side), 3=redirect, 4=fault
     blk_evt_block_uid_top = c(0, width=64)
     blk_evt_core_id_top = c(0, width=2)
     blk_evt_block_bid_top = c(0, width=64)

@@ -5,7 +5,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 TRACE="${1:-}"
 if [[ -z "${TRACE}" ]]; then
-  TRACE="$(find "${ROOT_DIR}/generated/linxtrace" -name '*.linxtrace.jsonl' -type f -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -n 1 || true)"
+  TRACE="$(find "${ROOT_DIR}/generated/linxtrace" -name '*.linxtrace' -type f -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -n 1 || true)"
 fi
 if [[ -z "${TRACE}" ]]; then
   echo "error: no LinxTrace found. Generate one first via:" >&2
@@ -17,13 +17,7 @@ if [[ ! -f "${TRACE}" ]]; then
   exit 2
 fi
 
-meta="${TRACE%.linxtrace.jsonl}.linxtrace.meta.json"
-if [[ ! -f "${meta}" ]]; then
-  echo "error: missing sidecar meta: ${meta}" >&2
-  exit 2
-fi
-
-python3 "${ROOT_DIR}/tools/linxcoresight/lint_linxtrace.py" "${TRACE}" --meta "${meta}" >/dev/null
+python3 "${ROOT_DIR}/tools/linxcoresight/lint_linxtrace.py" "${TRACE}" >/dev/null
 
 APP="${LINXCORESIGHT_APP:-}"
 if [[ -z "${APP}" ]]; then
@@ -46,4 +40,3 @@ fi
 
 echo "opening LinxCoreSight with trace: ${TRACE}"
 open -a "${APP}" "${TRACE}"
-

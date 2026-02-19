@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-echo "deprecated: Konata flow removed; using LinxCoreSight LinxTrace flow instead." >&2
+echo "deprecated wrapper: use LinxCoreSight LinxTrace flow." >&2
 exec bash /Users/zhoubot/LinxCore/tools/linxcoresight/run_linxtrace.sh "$@"
-

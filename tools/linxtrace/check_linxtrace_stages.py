@@ -7,7 +7,7 @@ import sys
 
 
 def main() -> int:
-    sys.stderr.write("deprecated: check_konata_stages.py replaced by tools/linxcoresight/lint_linxtrace.py\n")
+    sys.stderr.write("deprecated: use tools/linxcoresight/lint_linxtrace.py\n")
     argv = [
         "python3",
         "/Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py",
@@ -18,4 +18,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

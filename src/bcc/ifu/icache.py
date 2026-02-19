@@ -10,7 +10,8 @@ def build_janus_bcc_ifu_icache(
     ic_sets: int = 32,
     ic_ways: int = 4,
     ic_line_bytes: int = 64,
-    ifetch_bundle_bytes: int = 128,
+    ifetch_bundle_bits: int = 128,
+    ifetch_bundle_bytes: int | None = None,
     ic_miss_outstanding: int = 1,
     ic_enable: int = 1,
 ) -> None:
@@ -37,21 +38,29 @@ def build_janus_bcc_ifu_icache(
         raise ValueError("ic_ways must be > 0")
     if ic_line_bytes != 64:
         raise ValueError("this milestone requires ic_line_bytes=64")
-    if ifetch_bundle_bytes != 128:
-        raise ValueError("this milestone requires ifetch_bundle_bytes=128")
+    if ifetch_bundle_bytes is not None:
+        alias_bits = int(ifetch_bundle_bytes) * 8
+        if int(ifetch_bundle_bits) == 128:
+            ifetch_bundle_bits = alias_bits
+        elif alias_bits != int(ifetch_bundle_bits):
+            raise ValueError("ifetch_bundle_bytes alias mismatches ifetch_bundle_bits")
+    if ifetch_bundle_bits != 128:
+        raise ValueError("this milestone requires ifetch_bundle_bits=128")
     if ic_miss_outstanding != 1:
         raise ValueError("this milestone requires ic_miss_outstanding=1")
 
     c = m.const
     line_bits = ic_line_bytes * 8
-    bundle_bits = ifetch_bundle_bytes * 8
+    bundle_bits = ifetch_bundle_bits
+    bundle_bytes = bundle_bits // 8
+    decode_window_bytes = 8
     set_w = max(1, (ic_sets - 1).bit_length())
     way_w = max(1, (ic_ways - 1).bit_length())
     off_w = (ic_line_bytes - 1).bit_length()
     tag_w = 64 - set_w - off_w
 
     line_mask = c((~(ic_line_bytes - 1)) & ((1 << 64) - 1), width=64)
-    bundle_mask = c((~(ifetch_bundle_bytes - 1)) & ((1 << 64) - 1), width=64)
+    decode_window_mask = c((~(decode_window_bytes - 1)) & ((1 << 64) - 1), width=64)
 
     line_valid_ic = []
     line_tag_ic = []
@@ -116,10 +125,12 @@ def build_janus_bcc_ifu_icache(
 
     req_pc_ic = f1_to_icache_stage_pc_f1
     req_pkt_uid_ic = f1_to_icache_stage_pkt_uid_f1
-    req_bundle_base_ic = req_pc_ic & bundle_mask
+    # Align bundle base to decode-window granularity so F2 can always select
+    # a complete 64-bit decode window from the 128-bit fetch payload.
+    req_bundle_base_ic = req_pc_ic & decode_window_mask
     req_slot_base_off_ic = (req_pc_ic - req_bundle_base_ic).trunc(width=7)
-    req_line0_addr_ic = req_bundle_base_ic
-    req_line1_addr_ic = req_bundle_base_ic + c(ic_line_bytes, width=64)
+    req_line0_addr_ic = req_bundle_base_ic & line_mask
+    req_line1_addr_ic = req_line0_addr_ic + c(ic_line_bytes, width=64)
     req_line0_set_ic = req_line0_addr_ic[off_w : off_w + set_w]
     req_line1_set_ic = req_line1_addr_ic[off_w : off_w + set_w]
     req_line0_tag_ic = req_line0_addr_ic.lshr(amount=off_w + set_w).trunc(width=tag_w)
@@ -171,9 +182,12 @@ def build_janus_bcc_ifu_icache(
     line0_victim_ic = pick_victim_way(req_line0_set_ic)
     line1_victim_ic = pick_victim_way(req_line1_set_ic)
 
+    req_line0_off_ic = req_bundle_base_ic[0:off_w]
+    req_need_line1_ic = req_line0_off_ic.ugt(c(ic_line_bytes - bundle_bytes, width=off_w))
+
     cache_en_ic = c(1 if ic_enable else 0, width=1)
     req_valid_ic = f1_to_icache_stage_valid_f1 & cache_en_ic
-    req_hit_ic = req_valid_ic & line0_hit_ic & line1_hit_ic & (~miss_active_ic.out())
+    req_hit_ic = req_valid_ic & line0_hit_ic & ((~req_need_line1_ic) | line1_hit_ic) & (~miss_active_ic.out())
     req_miss_ic = req_valid_ic & (~req_hit_ic)
     miss_start_ic = req_miss_ic & (~miss_active_ic.out())
 
@@ -207,10 +221,12 @@ def build_janus_bcc_ifu_icache(
 
     miss_active_next_ic = miss_start_ic._select_internal(c(1, width=1), miss_active_next_ic)
     miss_wait_next_ic = miss_start_ic._select_internal(c(0, width=1), miss_wait_next_ic)
+    # Start miss FSM from the first required missing line:
+    # phase=0 -> line0, phase=1 -> line1.
     miss_phase_init_ic = (~line0_hit_ic)._select_internal(c(0, width=1), c(1, width=1))
     miss_phase_next_ic = miss_start_ic._select_internal(miss_phase_init_ic, miss_phase_next_ic)
     miss_need0_next_ic = miss_start_ic._select_internal(~line0_hit_ic, miss_need0_next_ic)
-    miss_need1_next_ic = miss_start_ic._select_internal(~line1_hit_ic, miss_need1_next_ic)
+    miss_need1_next_ic = miss_start_ic._select_internal(req_need_line1_ic & (~line1_hit_ic), miss_need1_next_ic)
     miss_pc_next_ic = miss_start_ic._select_internal(req_pc_ic, miss_pc_next_ic)
     miss_pkt_uid_next_ic = miss_start_ic._select_internal(req_pkt_uid_ic, miss_pkt_uid_next_ic)
     miss_bundle_base_next_ic = miss_start_ic._select_internal(req_bundle_base_ic, miss_bundle_base_next_ic)
@@ -258,9 +274,12 @@ def build_janus_bcc_ifu_icache(
                 & l2_fill_victim_ic.eq(c(w, width=way_w))
                 & (~ic_l2_rsp_error_top)
             )
-            line_valid_ic[idx].set(c(1, width=1), when=fill_sw_ic)
-            line_tag_ic[idx].set(l2_fill_tag_ic, when=fill_sw_ic)
-            line_data_ic[idx].set(ic_l2_rsp_data_top, when=fill_sw_ic)
+            valid_next_ic = fill_sw_ic._select_internal(c(1, width=1), line_valid_ic[idx].out())
+            tag_next_ic = fill_sw_ic._select_internal(l2_fill_tag_ic, line_tag_ic[idx].out())
+            data_next_ic = fill_sw_ic._select_internal(ic_l2_rsp_data_top, line_data_ic[idx].out())
+            line_valid_ic[idx].set(valid_next_ic)
+            line_tag_ic[idx].set(tag_next_ic)
+            line_data_ic[idx].set(data_next_ic)
 
     def touch_lru(set_idx_ic, way_ic, fire_ic):
         for s in range(ic_sets):
@@ -280,10 +299,22 @@ def build_janus_bcc_ifu_icache(
                 lru_rank_ic[idx].set(new_rank_ic)
 
     touch_lru(req_line0_set_ic, line0_way_ic, req_hit_ic)
-    touch_lru(req_line1_set_ic, line1_way_ic, req_hit_ic)
+    touch_lru(req_line1_set_ic, line1_way_ic, req_hit_ic & req_need_line1_ic)
     touch_lru(l2_fill_set_ic, l2_fill_victim_ic, l2_fill_fire_ic & (~ic_l2_rsp_error_top))
 
-    req_bundle128_ic = m.cat(line1_data_ic, line0_data_ic)
+    req_bundle128_ic = c(0, width=bundle_bits)
+    req_bundle_off_ic = req_bundle_base_ic[0:off_w]
+    for byte_off in range(0, ic_line_bytes - decode_window_bytes + 1):
+        off_match_ic = req_bundle_off_ic.eq(c(byte_off, width=off_w))
+        if byte_off <= (ic_line_bytes - bundle_bytes):
+            slice_ic = line0_data_ic[byte_off * 8 : byte_off * 8 + bundle_bits]
+        else:
+            low_bits = (ic_line_bytes - byte_off) * 8
+            high_bits = bundle_bits - low_bits
+            low_slice_ic = line0_data_ic[byte_off * 8 : line_bits]
+            high_slice_ic = line1_data_ic[0:high_bits]
+            slice_ic = low_slice_ic.zext(width=bundle_bits) | high_slice_ic.zext(width=bundle_bits).shl(amount=low_bits)
+        req_bundle128_ic = off_match_ic._select_internal(slice_ic, req_bundle128_ic)
     req_valid_to_f2_ic = req_hit_ic
     req_stall_to_f2_ic = req_miss_ic | miss_active_ic.out()
 
@@ -303,10 +334,13 @@ def build_janus_bcc_ifu_icache(
     m.output("f1_to_f2_stage_valid_f1", req_valid_to_f2_ic)
 
     # Backward-compatible probe fields kept for existing debug tooling.
-    m.output("f1_to_f2_stage_window_f1", line0_data_ic[0:64])
+    m.output("f1_to_f2_stage_window_f1", req_bundle128_ic[0:64])
     m.output("icache_to_f2_stage_pc_f1", req_pc_ic)
-    m.output("icache_to_f2_stage_window_f1", line0_data_ic[0:64])
+    m.output("icache_to_f2_stage_window_f1", req_bundle128_ic[0:64])
     m.output("icache_to_f2_stage_valid_f1", req_valid_to_f2_ic)
     m.output("icache_to_f2_stage_pkt_uid_f1", req_pkt_uid_ic)
     m.output("icache_miss_active_ic", miss_active_ic.out())
-
+    m.output("icache_miss_wait_ic", miss_wait_rsp_ic.out())
+    m.output("icache_miss_phase_ic", miss_phase_ic.out())
+    m.output("icache_miss_need0_ic", miss_need_line0_ic.out())
+    m.output("icache_miss_need1_ic", miss_need_line1_ic.out())

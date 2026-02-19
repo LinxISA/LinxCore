@@ -415,12 +415,18 @@ def _format_block_detail(blk: "BlockRow", open_asm: str) -> str:
         lines.append(f"bid=0x{blk.block_bid:x}")
     if blk.open_seq is not None:
         lines.append(f"open_seq={blk.open_seq}")
-    if blk.close_seq is not None:
-        lines.append(f"close_seq={blk.close_seq}")
+    if blk.resolved_seq is not None:
+        lines.append(f"resolved_seq={blk.resolved_seq}")
+    if blk.retired_seq is not None:
+        lines.append(f"retired_seq={blk.retired_seq}")
     if blk.open_cycle is not None:
         lines.append(f"open_cycle={blk.open_cycle}")
-    if blk.close_cycle is not None:
-        lines.append(f"close_cycle={blk.close_cycle}")
+    if blk.resolved_cycle is not None:
+        lines.append(f"resolved_cycle={blk.resolved_cycle}")
+    if blk.retired_cycle is not None:
+        lines.append(f"retired_cycle={blk.retired_cycle}")
+    if blk.retired_kind and blk.retired_kind != "retired":
+        lines.append(f"retired_kind={blk.retired_kind}")
     if open_asm:
         lines.append(f"open_asm={open_asm}")
     return "\n".join(lines)
@@ -482,10 +488,14 @@ class BlockRow:
     open_seq: Optional[int] = None
     open_cycle: Optional[int] = None
     open_pc: int = 0
-    close_seq: Optional[int] = None
-    close_cycle: Optional[int] = None
-    close_pc: int = 0
-    close_kind: str = "close"
+    resolved_seq: Optional[int] = None
+    resolved_cycle: Optional[int] = None
+    resolved_pc: int = 0
+    retired_seq: Optional[int] = None
+    retired_cycle: Optional[int] = None
+    retired_pc: int = 0
+    retired_kind: str = "retired"
+    close_diagnostic: str = ""
 
 
 def _best_block_for_uop(row: UopRow, blocks: Dict[int, BlockRow]) -> int:
@@ -498,10 +508,12 @@ def _best_block_for_uop(row: UopRow, blocks: Dict[int, BlockRow]) -> int:
     for buid, blk in blocks.items():
         if blk.core_id != core:
             continue
+        terminal_seq = blk.retired_seq if blk.retired_seq is not None else blk.resolved_seq
+        terminal_cycle = blk.retired_cycle if blk.retired_cycle is not None else blk.resolved_cycle
         if blk.open_seq is not None:
             if blk.open_seq > seq_key:
                 continue
-            if blk.close_seq is not None and blk.close_seq < seq_key:
+            if terminal_seq is not None and terminal_seq < seq_key:
                 continue
             if blk.open_seq > best_seq:
                 best_seq = blk.open_seq
@@ -509,7 +521,7 @@ def _best_block_for_uop(row: UopRow, blocks: Dict[int, BlockRow]) -> int:
         elif blk.open_cycle is not None:
             if blk.open_cycle > cyc_key:
                 continue
-            if blk.close_cycle is not None and blk.close_cycle < cyc_key:
+            if terminal_cycle is not None and terminal_cycle < cyc_key:
                 continue
             if blk.open_cycle > best_cyc:
                 best_cyc = blk.open_cycle
@@ -517,11 +529,72 @@ def _best_block_for_uop(row: UopRow, blocks: Dict[int, BlockRow]) -> int:
     return best_uid
 
 
+def _row_sid_block(core_id: int, block_uid: int) -> str:
+    return f"c{int(core_id)}.blk.0x{int(block_uid):x}"
+
+
+def _row_sid_uop(core_id: int, uid: int) -> str:
+    return f"c{int(core_id)}.uop.0x{int(uid):x}"
+
+
+def _row_sid_gen_uop(core_id: int, parent_uid: int, uid: int) -> str:
+    return f"c{int(core_id)}.gen.0x{int(parent_uid):x}.0x{int(uid):x}"
+
+
+def _row_sid_packet(core_id: int, uid: int) -> str:
+    return f"c{int(core_id)}.pkt.0x{int(uid):x}"
+
+
+def _is_packet_row(u: "UopRow") -> bool:
+    if u.commit_cycle is not None:
+        return False
+    if not u.occ:
+        return False
+    saw_f1 = False
+    for ev in u.occ:
+        stage = str(ev.get("stage", "")).upper()
+        if stage not in {"F0", "F1"}:
+            return False
+        if stage == "F1":
+            saw_f1 = True
+    return saw_f1
+
+
+def _uop_entity_kind(u: UopRow, generated: bool) -> str:
+    if _is_packet_row(u):
+        return "fetch_packet"
+    k = (u.kind or "normal").lower()
+    if generated:
+        if "template" in k:
+            return "template_child"
+        if "replay" in k:
+            return "replay"
+        return "gen_uop"
+    if "template_parent" in k:
+        return "template_parent"
+    if "replay" in k:
+        return "replay"
+    return "uop"
+
+
+def _uop_lifecycle_flags(u: UopRow) -> List[str]:
+    flags: List[str] = []
+    if u.commit_cycle is not None:
+        flags.append("retired")
+    if u.flush_cycle is not None:
+        flags.append("flushed")
+    if u.trap_valid:
+        flags.append("trapped")
+    if not flags:
+        flags.append("inflight")
+    return flags
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Build LinxTrace v1 (block+uop rows) from LinxCore raw event trace.")
     ap.add_argument("--raw", required=True, help="Raw event JSONL from tb_linxcore_top.cpp (PYC_RAW_TRACE).")
-    ap.add_argument("--out", required=True, help="Output .linxtrace.jsonl path.")
-    ap.add_argument("--meta-out", default="", help="Optional output .linxtrace.meta.json path.")
+    ap.add_argument("--out", required=True, help="Output .linxtrace path.")
+    ap.add_argument("--meta-out", default="", help="Optional debug sidecar meta output path (non-canonical).")
     ap.add_argument("--map-report", default="", help="Optional mapping report JSON path.")
     ap.add_argument("--commit-text", default="", help="Optional commit text trace for asm labels.")
     ap.add_argument("--elf", default="", help="Optional ELF path used for symbolized labels.")
@@ -529,13 +602,8 @@ def main() -> int:
 
     raw_path = Path(args.raw)
     out_path = Path(args.out)
-    if args.meta_out:
-        meta_path = Path(args.meta_out)
-    elif out_path.name.endswith(".linxtrace.jsonl"):
-        meta_path = out_path.with_name(out_path.name.replace(".linxtrace.jsonl", ".linxtrace.meta.json"))
-    else:
-        meta_path = out_path.with_suffix(out_path.suffix + ".meta.json")
-    map_path = Path(args.map_report) if args.map_report else out_path.with_suffix(".map.json")
+    meta_path = Path(args.meta_out) if args.meta_out else None
+    map_path = Path(args.map_report) if args.map_report else out_path.with_name(out_path.name + ".map.json")
     commit_text_path = Path(args.commit_text) if args.commit_text else None
     elf_path = Path(args.elf) if args.elf else None
     sym_exact, sym_sorted = _load_symbol_maps(elf_path)
@@ -543,6 +611,12 @@ def main() -> int:
 
     uops: Dict[int, UopRow] = {}
     blocks: Dict[int, BlockRow] = {}
+    block_last_commit: Dict[int, Tuple[int, int, int]] = {}
+    block_uid_by_bid: Dict[int, int] = {}
+    # Recover block identity for late/partial blk_evt rows (for example
+    # retired events that may carry only seq in some runs).
+    block_by_commit_seq: Dict[int, Tuple[int, int, int, int]] = {}
+    orphan_block_retire_evts: List[Tuple[int, int, int, int]] = []
     asm_by_uid: Dict[int, str] = {}
     asm_by_seq: Dict[int, str] = {}
     op_by_seq: Dict[int, str] = {}
@@ -658,44 +732,150 @@ def main() -> int:
                     blk.core_id = core
                     if bid:
                         blk.block_bid = bid
+                        block_uid_by_bid[bid] = buid
+                    block_by_commit_seq[seq] = (buid, bid, core, int(rec.get("pc", 0)))
+                    block_last_commit[buid] = (seq, cyc, int(rec.get("pc", 0)))
                     if int(rec.get("is_bstart", 0)) != 0:
                         if blk.open_seq is None or seq < blk.open_seq:
                             blk.open_seq = seq
                             blk.open_cycle = cyc
                             blk.open_pc = int(rec.get("pc", 0))
                     if int(rec.get("is_bstop", 0)) != 0:
-                        if blk.close_seq is None or seq <= blk.close_seq:
-                            blk.close_seq = seq
-                            blk.close_cycle = cyc
-                            blk.close_pc = int(rec.get("pc", 0))
-                            blk.close_kind = "close"
+                        if blk.resolved_seq is None or seq <= blk.resolved_seq:
+                            blk.resolved_seq = seq
+                            blk.resolved_cycle = cyc
+                            blk.resolved_pc = int(rec.get("pc", 0))
             elif rtype == "blk_evt":
                 buid = int(rec.get("block_uid", 0))
+                bid = int(rec.get("block_bid", 0))
+                seq = int(rec.get("seq", 0))
+                # Prefer explicit row identity from commit-seq map when present.
+                # This fixes long-running block rows when retired blk_evt arrives
+                # with zero uid/bid but valid seq.
+                seq_map = block_by_commit_seq.get(seq)
+                if seq_map is not None:
+                    seq_buid, seq_bid, _seq_core, _seq_pc = seq_map
+                    if buid == 0 and seq_buid != 0:
+                        buid = seq_buid
+                    if bid == 0 and seq_bid != 0:
+                        bid = seq_bid
+                if buid == 0 and bid != 0:
+                    buid = block_uid_by_bid.get(bid, 0)
+                kind = str(rec.get("kind", "open"))
+                cyc = int(rec.get("cycle", 0))
+                pc = int(rec.get("pc", 0))
+                core_id = int(rec.get("core_id", 0))
                 if buid == 0:
+                    if kind == "retired":
+                        orphan_block_retire_evts.append((cyc, seq, pc, core_id))
                     continue
                 blk = blocks.get(buid)
                 if blk is None:
                     blk = BlockRow(block_uid=buid)
                     blocks[buid] = blk
                 blk.core_id = int(rec.get("core_id", blk.core_id))
-                kind = str(rec.get("kind", "open"))
-                cyc = int(rec.get("cycle", 0))
-                seq = int(rec.get("seq", 0))
-                pc = int(rec.get("pc", 0))
-                bid = int(rec.get("block_bid", 0))
                 if bid:
                     blk.block_bid = bid
+                    block_uid_by_bid[bid] = buid
                 if kind == "open":
                     if blk.open_seq is None or seq < blk.open_seq:
                         blk.open_seq = seq
                         blk.open_cycle = cyc
                         blk.open_pc = pc
-                elif kind in ("close", "fault"):
-                    if blk.close_seq is None or seq <= blk.close_seq:
-                        blk.close_seq = seq
-                        blk.close_cycle = cyc
-                        blk.close_pc = pc
-                        blk.close_kind = kind
+                elif kind in ("resolved", "close"):
+                    if blk.resolved_seq is None or seq <= blk.resolved_seq:
+                        blk.resolved_seq = seq
+                        blk.resolved_cycle = cyc
+                        blk.resolved_pc = pc
+                elif kind == "retired":
+                    if blk.retired_seq is None or seq <= blk.retired_seq:
+                        blk.retired_seq = seq
+                        blk.retired_cycle = cyc
+                        blk.retired_pc = pc
+                        blk.retired_kind = "retired"
+                elif kind == "fault":
+                    if blk.resolved_seq is None or seq <= blk.resolved_seq:
+                        blk.resolved_seq = seq
+                        blk.resolved_cycle = cyc
+                        blk.resolved_pc = pc
+                    if blk.retired_seq is None or seq <= blk.retired_seq:
+                        blk.retired_seq = seq
+                        blk.retired_cycle = cyc
+                        blk.retired_pc = pc
+                        blk.retired_kind = "fault"
+
+    # Recover orphan retired block events (missing block_uid/bid in raw stream).
+    # BROB retirement is in-order per core, so greedily map orphan retire events
+    # to earliest unresolved blocks for that core.
+    if orphan_block_retire_evts:
+        events_by_core: Dict[int, List[Tuple[int, int, int]]] = {}
+        for cyc, seq, pc, core_id in orphan_block_retire_evts:
+            events_by_core.setdefault(core_id, []).append((cyc, seq, pc))
+        for core_id, core_events in events_by_core.items():
+            core_events.sort(key=lambda e: (e[1] if e[1] > 0 else (1 << 60), e[0], e[2]))
+            candidates = [
+                b
+                for b in blocks.values()
+                if b.core_id == core_id and b.retired_seq is None and (b.open_seq is not None or b.resolved_seq is not None)
+            ]
+            candidates.sort(
+                key=lambda b: (
+                    b.resolved_seq if b.resolved_seq is not None else (b.open_seq if b.open_seq is not None else (1 << 60)),
+                    b.resolved_cycle if b.resolved_cycle is not None else (b.open_cycle if b.open_cycle is not None else (1 << 60)),
+                    b.block_uid,
+                )
+            )
+            evt_idx = 0
+            for blk in candidates:
+                min_seq = blk.resolved_seq if blk.resolved_seq is not None else (blk.open_seq if blk.open_seq is not None else 0)
+                min_cyc = blk.resolved_cycle if blk.resolved_cycle is not None else (blk.open_cycle if blk.open_cycle is not None else 0)
+                while evt_idx < len(core_events):
+                    cyc, seq, pc = core_events[evt_idx]
+                    evt_idx += 1
+                    seq_ok = (seq <= 0) or (min_seq <= 0) or (seq >= min_seq)
+                    cyc_ok = cyc >= min_cyc
+                    if not (seq_ok and cyc_ok):
+                        continue
+                    blk.retired_seq = seq if seq > 0 else min_seq
+                    blk.retired_cycle = cyc
+                    blk.retired_pc = pc if pc != 0 else (blk.resolved_pc if blk.resolved_pc != 0 else blk.open_pc)
+                    blk.retired_kind = "retired"
+                    break
+
+    for buid, (last_seq, last_cyc, last_pc) in block_last_commit.items():
+        blk = blocks.get(buid)
+        if blk is None:
+            continue
+        if blk.resolved_seq is None:
+            blk.resolved_seq = last_seq
+            blk.resolved_cycle = last_cyc
+            blk.resolved_pc = last_pc
+            blk.close_diagnostic = "missing_resolved_evt_closed_at_last_commit"
+        # Strict close fallback: if retire was not emitted for this block in the
+        # raw stream, close at resolved so the block row does not run to EOF.
+        if blk.retired_seq is None and blk.resolved_seq is not None:
+            blk.retired_seq = blk.resolved_seq
+            blk.retired_cycle = blk.resolved_cycle
+            blk.retired_pc = blk.resolved_pc
+            blk.retired_kind = "resolved_fallback"
+            if not blk.close_diagnostic:
+                blk.close_diagnostic = "missing_retire_evt_closed_at_resolved"
+
+    for blk in blocks.values():
+        if blk.resolved_seq is None and blk.open_seq is not None:
+            blk.resolved_seq = blk.open_seq
+            blk.resolved_cycle = blk.open_cycle
+            blk.resolved_pc = blk.open_pc
+            if not blk.close_diagnostic:
+                blk.close_diagnostic = "missing_resolved_evt_closed_at_open"
+        if blk.retired_seq is None and blk.resolved_seq is not None:
+            blk.retired_seq = blk.resolved_seq
+            blk.retired_cycle = blk.resolved_cycle
+            blk.retired_pc = blk.resolved_pc
+            if blk.retired_kind == "retired":
+                blk.retired_kind = "resolved_fallback"
+            if not blk.close_diagnostic:
+                blk.close_diagnostic = "missing_retire_evt_closed_at_resolved"
 
     for row in uops.values():
         if row.block_uid == 0:
@@ -716,11 +896,18 @@ def main() -> int:
     max_key = (1 << 60)
     block_seq_open: Dict[int, int] = {}
     for buid, blk in blocks.items():
-        block_seq_open[buid] = blk.open_seq if blk.open_seq is not None else max_key
+        if blk.open_seq is not None:
+            block_seq_open[buid] = blk.open_seq
+        elif blk.resolved_seq is not None:
+            block_seq_open[buid] = blk.resolved_seq
+        elif blk.retired_seq is not None:
+            block_seq_open[buid] = blk.retired_seq
+        else:
+            block_seq_open[buid] = max_key
 
     block_rows = sorted(
-        [b for b in blocks.values() if b.open_cycle is not None or b.open_seq is not None],
-        key=lambda b: (b.core_id, b.open_seq if b.open_seq is not None else max_key, 0, b.block_uid, 0),
+        [b for b in blocks.values() if b.open_cycle is not None or b.open_seq is not None or b.resolved_cycle is not None or b.retired_cycle is not None],
+        key=lambda b: (b.core_id, block_seq_open.get(b.block_uid, max_key), 0, b.block_uid, 0),
     )
     uop_rows = sorted(
         uops.values(),
@@ -739,7 +926,7 @@ def main() -> int:
             (
                 (
                     blk.core_id,
-                    blk.open_seq if blk.open_seq is not None else max_key,
+                    block_seq_open.get(blk.block_uid, max_key),
                     0,
                     blk.block_uid,
                     0,
@@ -789,6 +976,7 @@ def main() -> int:
 
     for u in uop_rows:
         kid = row_to_kid[("uop", u.uid)]
+        is_packet_row = _is_packet_row(u)
         terminal_cycle: Optional[int] = None
         terminal_stage = ""
         if u.commit_cycle is not None:
@@ -814,6 +1002,8 @@ def main() -> int:
             stall = int(ev.get("stall", 0))
             cause = str(ev.get("stall_cause", "0"))
             add_action(cyc, ("P", STAGE_RANK.get(stage, 999), kid, lane_tok, stage, stall, cause))
+        if is_packet_row:
+            continue
         if u.commit_cycle is not None:
             lane_tok = f"c{u.core_id}.l{u.commit_slot}"
             add_action(u.commit_cycle, ("P", STAGE_RANK.get("CMT", 999), kid, lane_tok, "CMT", 0, "0"))
@@ -823,37 +1013,57 @@ def main() -> int:
             add_action(u.flush_cycle, ("P", STAGE_RANK.get("FLS", 999), kid, lane_tok, "FLS", 1, "flush"))
             add_action(u.flush_cycle, ("R", 1, kid))
         else:
-            eof_cycle = int(max_cycle) + 1
+            # Explicit fallback terminal for malformed/incomplete lifecycle rows.
+            eof_cycle = max(int(max_cycle), int(u.first_cycle)) + 1
             lane_tok = f"c{u.core_id}.l0"
-            add_action(eof_cycle, ("P", STAGE_RANK.get("FLS", 999), kid, lane_tok, "FLS", 1, "eof"))
+            add_action(eof_cycle, ("P", STAGE_RANK.get("FLS", 999), kid, lane_tok, "FLS", 1, "terminal_fallback"))
             add_action(eof_cycle, ("R", 1, kid))
 
     for blk in block_rows:
         kid = row_to_kid[("block", blk.block_uid)]
         core = blk.core_id
-        close_cycle_eff: Optional[int] = blk.close_cycle
-        if blk.open_cycle is not None and close_cycle_eff is not None and close_cycle_eff <= blk.open_cycle:
-            # LinxTrace viewer requires positive residency width.
-            # If a block opens/closes in one cycle, push close one cycle later.
-            close_cycle_eff = blk.open_cycle + 1
-        if blk.open_cycle is not None:
-            end_cycle = (close_cycle_eff - 1) if close_cycle_eff is not None else max_cycle
-            if end_cycle < blk.open_cycle:
-                end_cycle = blk.open_cycle
-            for cyc in range(int(blk.open_cycle), int(end_cycle) + 1):
-                cause = "active"
-                if cyc == blk.open_cycle:
-                    cause = "open"
-                elif close_cycle_eff is not None and cyc == close_cycle_eff:
-                    cause = blk.close_kind
-                add_action(cyc, ("P", STAGE_RANK.get("BROB", 999), kid, f"c{core}.blk", "BROB", 0, cause))
-        if close_cycle_eff is not None:
-            add_action(close_cycle_eff, ("P", STAGE_RANK.get("CMT", 999), kid, f"c{core}.blk", "CMT", 0, blk.close_kind))
-            add_action(close_cycle_eff, ("R", 1 if blk.close_kind == "fault" else 0, kid))
-        else:
-            # Strict LinxTrace contract requires a terminal retire event per row.
-            eof_close_cycle = int(max_cycle) + 1
-            add_action(eof_close_cycle, ("R", 1, kid))
+        open_cycle = blk.open_cycle
+        resolved_cycle = blk.resolved_cycle
+        retired_cycle = blk.retired_cycle
+
+        start_cycle: Optional[int] = None
+        if open_cycle is not None:
+            start_cycle = open_cycle
+        elif resolved_cycle is not None:
+            start_cycle = resolved_cycle
+        elif retired_cycle is not None:
+            start_cycle = retired_cycle
+
+        if start_cycle is None:
+            continue
+
+        if retired_cycle is not None and retired_cycle <= start_cycle:
+            retired_cycle = start_cycle + 1
+
+        end_cycle = retired_cycle if retired_cycle is not None else int(max_cycle)
+        if end_cycle < start_cycle:
+            end_cycle = start_cycle
+        brob_end_cycle = end_cycle
+        if retired_cycle is not None:
+            brob_end_cycle = retired_cycle - 1
+
+        for cyc in range(int(start_cycle), int(brob_end_cycle) + 1):
+            cause = "active"
+            if open_cycle is not None and cyc == open_cycle:
+                cause = "open"
+            elif resolved_cycle is not None and cyc == resolved_cycle:
+                cause = "resolved"
+            elif resolved_cycle is not None and cyc > resolved_cycle:
+                cause = "waiting_retire"
+            add_action(cyc, ("P", STAGE_RANK.get("BROB", 999), kid, f"c{core}.blk", "BROB", 0, cause))
+
+        if retired_cycle is None:
+            raise SystemExit(
+                f"strict-linxtrace: block row missing retired_cycle after fallback handling "
+                f"(block_uid=0x{blk.block_uid:x}, diagnostic={blk.close_diagnostic or 'none'})"
+            )
+        add_action(retired_cycle, ("P", STAGE_RANK.get("CMT", 999), kid, f"c{core}.blk", "CMT", 0, blk.retired_kind))
+        add_action(retired_cycle, ("R", 1 if blk.retired_kind == "fault" else 0, kid))
 
     p_count_by_kid: Dict[int, int] = collections.defaultdict(int)
     block_stage_set_by_kid: Dict[int, set] = collections.defaultdict(set)
@@ -884,14 +1094,17 @@ def main() -> int:
         min_cycle = 0
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    if meta_path is not None:
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_out_path = out_path.with_suffix(out_path.suffix + ".events.tmp")
 
     row_catalog: List[dict] = []
+    row_sid_by_id: Dict[int, str] = {}
     lane_ids: set[str] = set()
     stage_ids: set[str] = set()
     row_schema: List[Tuple[int, str]] = []
 
-    with out_path.open("w", encoding="utf-8") as out:
+    with tmp_out_path.open("w", encoding="utf-8") as out:
         def emit(rec: dict) -> None:
             out.write(json.dumps(rec, sort_keys=True) + "\n")
 
@@ -899,6 +1112,7 @@ def main() -> int:
             if row_kind == "block":
                 blk = row_obj
                 row_id = row_to_kid[("block", blk.block_uid)]
+                row_sid = _row_sid_block(blk.core_id, blk.block_uid)
                 block_row_uid = (1 << 63) | (blk.block_uid & ((1 << 63) - 1))
                 uid_hex = f"0x{block_row_uid:x}"
                 open_pc = _fmt_hex(blk.open_pc) if blk.open_pc >= 0 else ""
@@ -916,11 +1130,24 @@ def main() -> int:
                     parts.append(open_asm)
                 left_label = " ".join(parts)
                 detail = _format_block_detail(blk, open_asm)
+                open_seq = blk.open_seq if blk.open_seq is not None else max_key
+                seq_or_cycle = (
+                    blk.retired_seq
+                    if blk.retired_seq is not None
+                    else (blk.resolved_seq if blk.resolved_seq is not None else int(blk.open_cycle or 0))
+                )
+                order_key = f"{int(blk.core_id)}:{int(open_seq)}:block:{int(seq_or_cycle)}:{int(blk.block_uid)}"
+                lifecycle_flags = ["resolved", "retired"]
+                if blk.retired_kind == "fault":
+                    lifecycle_flags.append("trapped")
+                if blk.close_diagnostic:
+                    lifecycle_flags.append("fallback_closed")
                 emit(
                     {
                         "type": "OP_DEF",
                         "cycle": int(min_cycle),
                         "row_id": row_id,
+                        "row_sid": row_sid,
                         "row_kind": "block",
                         "core_id": blk.core_id,
                         "uop_uid": "0x0",
@@ -929,26 +1156,45 @@ def main() -> int:
                         "kind": "block",
                     }
                 )
-                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "label_type": "left", "text": left_label})
-                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "label_type": "detail", "text": detail})
+                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "row_sid": row_sid, "label_type": "left", "text": left_label})
+                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "row_sid": row_sid, "label_type": "detail", "text": detail})
                 row_catalog.append(
                     {
                         "row_id": row_id,
+                        "row_sid": row_sid,
                         "row_kind": "block",
+                        "entity_kind": "block",
                         "core_id": blk.core_id,
                         "block_uid": f"0x{blk.block_uid:x}",
                         "uop_uid": "0x0",
+                        "lifecycle_flags": lifecycle_flags,
+                        "order_key": order_key,
+                        "id_refs": {
+                            "seq": int(blk.retired_seq if blk.retired_seq is not None else (blk.resolved_seq or 0)),
+                            "uop_uid": "0x0",
+                            "block_uid": f"0x{blk.block_uid:x}",
+                            "block_bid": f"0x{blk.block_bid:x}",
+                        },
                         "left_label": left_label,
                         "detail_defaults": detail,
                     }
                 )
+                row_sid_by_id[row_id] = row_sid
                 row_schema.append((row_id, "block"))
             else:
                 u = row_obj
                 row_id = row_to_kid[("uop", u.uid)]
+                is_packet_row = _is_packet_row(u)
+                generated = _is_generated_uop(u.kind, u.parent_uid, asm_by_uid.get(u.uid, "") or asm_by_seq.get(u.commit_seq or -1, ""))
+                if is_packet_row:
+                    row_sid = _row_sid_packet(u.core_id, u.uid)
+                elif generated:
+                    row_sid = _row_sid_gen_uop(u.core_id, u.parent_uid, u.uid)
+                else:
+                    row_sid = _row_sid_uop(u.core_id, u.uid)
                 uid_hex = f"0x{u.uid:x}"
                 parent_hex = f"0x{u.parent_uid:x}"
-                kind = u.kind
+                kind = "packet" if is_packet_row else u.kind
                 asm_raw = asm_by_uid.get(u.uid, "")
                 if not asm_raw:
                     asm_raw = asm_by_seq.get(u.commit_seq or -1, "")
@@ -960,19 +1206,26 @@ def main() -> int:
                 )
                 opcode = _extract_opcode(asm, op_name)
                 pseudo_asm = _emit_pseudo_asm(opcode, u.commit_payload)
-                if _is_generated_uop(kind, u.parent_uid, asm):
+                if is_packet_row:
+                    left_label = f"PKT uid={uid_hex} pc={_pc_label(u.pc, sym_sorted, sym_addrs)}"
+                elif generated:
                     seq_s = str(u.commit_seq) if u.commit_seq is not None else "-"
                     left_label = f"GEN seq={seq_s} op={pseudo_asm}"
                 else:
                     asm_txt = asm if asm else pseudo_asm
                     left_label = f"{_pc_label(u.pc, sym_sorted, sym_addrs)}: {asm_txt}"
                 detail = _format_uop_detail(u, opcode)
+                open_seq = block_seq_open.get(u.block_uid, max_key)
+                seq_or_cycle = u.commit_seq if u.commit_seq is not None else int(u.first_cycle)
+                order_key = f"{int(u.core_id)}:{int(open_seq)}:uop:{int(seq_or_cycle)}:{int(u.uid)}"
+                lifecycle_flags = _uop_lifecycle_flags(u)
                 emit(
                     {
                         "type": "OP_DEF",
                         "cycle": int(min_cycle),
                         "row_id": row_id,
-                        "row_kind": "uop",
+                        "row_sid": row_sid,
+                        "row_kind": "packet" if is_packet_row else "uop",
                         "core_id": u.core_id,
                         "uop_uid": uid_hex,
                         "parent_uid": parent_hex,
@@ -980,20 +1233,31 @@ def main() -> int:
                         "kind": kind,
                     }
                 )
-                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "label_type": "left", "text": left_label})
-                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "label_type": "detail", "text": detail})
+                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "row_sid": row_sid, "label_type": "left", "text": left_label})
+                emit({"type": "LABEL", "cycle": int(min_cycle), "row_id": row_id, "row_sid": row_sid, "label_type": "detail", "text": detail})
                 row_catalog.append(
                     {
                         "row_id": row_id,
-                        "row_kind": "uop",
+                        "row_sid": row_sid,
+                        "row_kind": "packet" if is_packet_row else "uop",
+                        "entity_kind": _uop_entity_kind(u, generated),
                         "core_id": u.core_id,
                         "block_uid": f"0x{u.block_uid:x}",
                         "uop_uid": uid_hex,
+                        "lifecycle_flags": lifecycle_flags,
+                        "order_key": order_key,
+                        "id_refs": {
+                            "seq": int(u.commit_seq) if u.commit_seq is not None else None,
+                            "uop_uid": uid_hex,
+                            "block_uid": f"0x{u.block_uid:x}",
+                            "block_bid": f"0x{u.block_bid:x}",
+                        },
                         "left_label": left_label,
                         "detail_defaults": detail,
                     }
                 )
-                row_schema.append((row_id, "uop"))
+                row_sid_by_id[row_id] = row_sid
+                row_schema.append((row_id, "packet" if is_packet_row else "uop"))
 
         retired: set[int] = set()
         for cyc in sorted(actions.keys()):
@@ -1014,6 +1278,7 @@ def main() -> int:
                         "type": "OCC",
                         "cycle": int(cyc),
                         "row_id": int(row_id),
+                        "row_sid": row_sid_by_id.get(int(row_id), ""),
                         "lane_id": lane,
                         "stage_id": stage_name,
                         "stall": int(stall),
@@ -1026,6 +1291,7 @@ def main() -> int:
                             "type": "XCHECK",
                             "cycle": int(cyc),
                             "row_id": int(row_id),
+                            "row_sid": row_sid_by_id.get(int(row_id), ""),
                             "status": "mismatch",
                             "detail": str(cause),
                         }
@@ -1041,6 +1307,7 @@ def main() -> int:
                         "type": "RETIRE",
                         "cycle": int(cyc),
                         "row_id": int(row_id),
+                        "row_sid": row_sid_by_id.get(int(row_id), ""),
                         "status": "ok" if int(rtype) == 0 else "terminal",
                         "status_code": int(rtype),
                     }
@@ -1054,23 +1321,51 @@ def main() -> int:
                         "cycle": int(blk.open_cycle),
                         "kind": "open",
                         "block_uid": f"0x{blk.block_uid:x}",
+                        "block_bid": f"0x{blk.block_bid:x}",
                         "bid": f"0x{blk.block_bid:x}",
                         "seq": int(blk.open_seq or 0),
                         "pc": int(blk.open_pc),
                         "core_id": int(blk.core_id),
                     }
                 )
-            if blk.close_cycle is not None:
+            if blk.resolved_cycle is not None:
                 emit(
                     {
                         "type": "BLOCK_EVT",
-                        "cycle": int(blk.close_cycle),
-                        "kind": str(blk.close_kind),
+                        "cycle": int(blk.resolved_cycle),
+                        "kind": "resolved",
                         "block_uid": f"0x{blk.block_uid:x}",
+                        "block_bid": f"0x{blk.block_bid:x}",
                         "bid": f"0x{blk.block_bid:x}",
-                        "seq": int(blk.close_seq or 0),
-                        "pc": int(blk.close_pc),
+                        "seq": int(blk.resolved_seq or 0),
+                        "pc": int(blk.resolved_pc),
                         "core_id": int(blk.core_id),
+                    }
+                )
+            if blk.retired_cycle is not None:
+                emit(
+                    {
+                        "type": "BLOCK_EVT",
+                        "cycle": int(blk.retired_cycle),
+                        "kind": str(blk.retired_kind),
+                        "block_uid": f"0x{blk.block_uid:x}",
+                        "block_bid": f"0x{blk.block_bid:x}",
+                        "bid": f"0x{blk.block_bid:x}",
+                        "seq": int(blk.retired_seq or 0),
+                        "pc": int(blk.retired_pc),
+                        "core_id": int(blk.core_id),
+                    }
+                )
+            if blk.close_diagnostic:
+                block_row_id = row_to_kid[("block", blk.block_uid)]
+                emit(
+                    {
+                        "type": "XCHECK",
+                        "cycle": int(blk.retired_cycle if blk.retired_cycle is not None else (blk.resolved_cycle or 0)),
+                        "row_id": int(block_row_id),
+                        "row_sid": row_sid_by_id.get(int(block_row_id), ""),
+                        "status": "fallback_close",
+                        "detail": str(blk.close_diagnostic),
                     }
                 )
 
@@ -1092,9 +1387,22 @@ def main() -> int:
         "row_catalog": row_catalog,
         "render_prefs": {"theme": "high-contrast", "show_symbols": True},
     }
-    with meta_path.open("w", encoding="utf-8") as mf:
-        json.dump(meta_obj, mf, indent=2, sort_keys=False)
-        mf.write("\n")
+    # Canonical output is a single-file .linxtrace with in-band META record.
+    with out_path.open("w", encoding="utf-8") as out:
+        out.write(json.dumps({"type": "META", **meta_obj}, sort_keys=True) + "\n")
+        with tmp_out_path.open("r", encoding="utf-8") as tmp_in:
+            for line in tmp_in:
+                out.write(line)
+    try:
+        tmp_out_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    # Optional sidecar for diagnostics only (non-canonical).
+    if meta_path is not None:
+        with meta_path.open("w", encoding="utf-8") as mf:
+            json.dump(meta_obj, mf, indent=2, sort_keys=False)
+            mf.write("\n")
 
     map_path.parent.mkdir(parents=True, exist_ok=True)
     uid_to_kid = {str(u.uid): row_to_kid[("uop", u.uid)] for u in uop_rows}
@@ -1105,7 +1413,7 @@ def main() -> int:
             {
                 "raw": str(raw_path),
                 "linxtrace": str(out_path),
-                "meta": str(meta_path),
+                "meta": str(meta_path) if meta_path is not None else "",
                 "uid_to_kid": uid_to_kid,
                 "block_uid_to_kid": block_to_kid,
                 "block_uid_to_bid": block_to_bid,
@@ -1118,7 +1426,11 @@ def main() -> int:
         )
         mf.write("\n")
 
-    print(f"linxtrace-built {out_path} meta={meta_path} uop_rows={len(uop_rows)} block_rows={len(block_rows)}")
+    print(
+        f"linxtrace-built {out_path} "
+        f"meta={'(embedded)' if meta_path is None else meta_path} "
+        f"uop_rows={len(uop_rows)} block_rows={len(block_rows)}"
+    )
     return 0
 
 

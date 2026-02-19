@@ -50,7 +50,7 @@ constexpr std::uint64_t kDefaultDeadlockCycles = 200000ull;
 constexpr const char *kDefaultDisasmTool = "/Users/zhoubot/linx-isa/tools/isa/linxdisasm.py";
 constexpr const char *kDefaultDisasmSpec = "/Users/zhoubot/linx-isa/isa/v0.3/linxisa-v0.3.json";
 constexpr const char *kDefaultObjdumpTool = "/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-objdump";
-constexpr const char *kDefaultIsaPy = "/Users/zhoubot/LinxCore/src/common/isa.py";
+constexpr const char *kDefaultOpcodeIdsPy = "/Users/zhoubot/LinxCore/src/common/opcode_ids_gen.py";
 
 using linxcore::tb::disasmInsn;
 using linxcore::tb::loadObjdumpPcMap;
@@ -641,7 +641,7 @@ int main(int argc, char **argv) {
     tb.vcdTrace(dut.pc, "pc");
   }
 
-  pyc::cpp::LinxTraceWriter konata{};
+  pyc::cpp::LinxTraceWriter linxtrace_writer{};
   if (traceLinxTrace) {
     std::filesystem::path outPath{};
     if (const char *p = std::getenv("PYC_LINXTRACE_PATH"); p && p[0] != '\0') {
@@ -654,7 +654,7 @@ int main(int argc, char **argv) {
     if (outPath.has_parent_path()) {
       std::filesystem::create_directories(outPath.parent_path());
     }
-    if (!konata.open(outPath, dut.cycles.value())) {
+    if (!linxtrace_writer.open(outPath, dut.cycles.value())) {
       std::cerr << "WARN: cannot open LinxTrace output: " << outPath << "\n";
     }
   }
@@ -671,6 +671,10 @@ int main(int argc, char **argv) {
   std::uint64_t icMissCycles = 20;
   if (const char *env = std::getenv("PYC_IC_MISS_CYCLES"))
     icMissCycles = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
+  const bool debugIcache = envFlag("PYC_DEBUG_ICACHE");
+  std::uint64_t debugIcacheCycles = 200;
+  if (const char *env = std::getenv("PYC_DEBUG_ICACHE_CYCLES"))
+    debugIcacheCycles = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
   std::string disasmTool = kDefaultDisasmTool;
   if (const char *env = std::getenv("PYC_DISASM_TOOL"); env && env[0] != '\0')
     disasmTool = env;
@@ -691,11 +695,15 @@ int main(int argc, char **argv) {
         objdumpElf = p.string();
     }
   }
-  std::string isaPyPath = kDefaultIsaPy;
-  if (const char *env = std::getenv("PYC_ISA_PY"); env && env[0] != '\0')
-    isaPyPath = env;
+  std::string opcodeIdsPath = kDefaultOpcodeIdsPy;
+  if (const char *env = std::getenv("PYC_OPCODE_IDS_PY"); env && env[0] != '\0') {
+    opcodeIdsPath = env;
+  } else if (const char *env = std::getenv("PYC_ISA_PY"); env && env[0] != '\0') {
+    // Backward-compatible override.
+    opcodeIdsPath = env;
+  }
   const auto acceptedExitCodes = parseAcceptedExitCodes();
-  const auto opNameMap = loadOpNameMap(isaPyPath);
+  const auto opNameMap = loadOpNameMap(opcodeIdsPath);
   const auto objdumpPcMap = loadObjdumpPcMap(objdumpTool, objdumpElf);
 
   const char *xcheckTraceEnv = std::getenv("PYC_QEMU_TRACE");
@@ -735,6 +743,7 @@ int main(int argc, char **argv) {
   static constexpr std::uint64_t kTraceKindFlush = 1;
   static constexpr std::uint64_t kTraceKindTrap = 2;
   static constexpr std::uint64_t kTraceKindReplay = 3;
+  static constexpr std::uint64_t kTraceKindPacket = 5;
 
   struct PvEntry {
     std::uint64_t id = 0;
@@ -752,12 +761,13 @@ int main(int argc, char **argv) {
   std::unordered_map<std::uint64_t, std::uint64_t> pvUidLastRetireCycle{};
   std::array<std::uint64_t, 64> blockBidByRob{};
   std::unordered_map<std::uint64_t, std::uint64_t> blockBidByUid{};
+  std::unordered_map<std::uint64_t, std::uint64_t> blockUidByBid{};
   std::uint64_t nextSyntheticBlockBidHi = 1;
   std::unordered_set<std::uint64_t> dfxRetiredKeysCycle{};
   std::unordered_set<std::uint64_t> dfxTouchedUidCycle{};
-  std::uint64_t pvNextKonataId = 1;
+  std::uint64_t pvNextTraceRowId = 1;
   std::unordered_map<std::string, std::string> disasmCache{};
-  std::uint64_t curCycleKonata = 0;
+  std::uint64_t curCycleTrace = 0;
 
   auto lookupDisasm = [&](std::uint64_t raw, std::uint8_t len) -> std::string {
     const std::uint8_t useLen = normalizeLen(len);
@@ -770,15 +780,47 @@ int main(int argc, char **argv) {
     return d;
   };
 
-  auto pvDisasmForLabel = [&](const std::string &disasm, std::uint64_t op) {
+  auto opNameFromDisasm = [](const std::string &disasm) -> std::string {
+    if (disasm.empty() || disasm == "<disasm-unavailable>")
+      return {};
+    std::size_t i = 0;
+    while (i < disasm.size() && std::isspace(static_cast<unsigned char>(disasm[i])) != 0)
+      i++;
+    std::size_t j = i;
+    while (j < disasm.size()) {
+      const char ch = disasm[j];
+      if (std::isspace(static_cast<unsigned char>(ch)) != 0 || ch == ',' || ch == ';')
+        break;
+      j++;
+    }
+    if (j <= i)
+      return {};
+    return disasm.substr(i, j - i);
+  };
+
+  auto fallbackInsnToken = [](std::uint64_t insn, std::uint8_t len) -> std::string {
+    std::ostringstream ss;
+    ss << "insn_" << insnHexToken(insn, len);
+    return ss.str();
+  };
+
+  auto resolveOpName = [&](std::uint64_t op, std::uint64_t insn, std::uint8_t len, const std::string &disasm) -> std::string {
+    auto it = opNameMap.find(op);
+    if (it != opNameMap.end() && !it->second.empty())
+      return it->second;
+    const std::string parsed = opNameFromDisasm(disasm);
+    if (!parsed.empty())
+      return parsed;
+    return fallbackInsnToken(insn, len);
+  };
+
+  auto pvDisasmForLabel = [&](const std::string &disasm, std::uint64_t op, std::uint64_t insn, std::uint8_t len) {
     if (disasm != "<disasm-unavailable>")
       return disasm;
     auto it = opNameMap.find(op);
-    if (it != opNameMap.end())
+    if (it != opNameMap.end() && !it->second.empty())
       return it->second;
-    std::ostringstream ss;
-    ss << "uop_op" << op;
-    return ss.str();
+    return fallbackInsnToken(insn, len);
   };
 
   auto pvInsnText = [](std::uint64_t pc, const std::string &disasm) {
@@ -799,6 +841,8 @@ int main(int argc, char **argv) {
       return "trap";
     case 3:
       return "replay";
+    case 5:
+      return "packet";
     default:
       return "template_child";
     }
@@ -847,14 +891,14 @@ int main(int argc, char **argv) {
   };
 
   auto pvFlushAll = [&](const char *reason) {
-    if (!konata.isOpen())
+    if (!linxtrace_writer.isOpen())
       return;
     (void)reason;
     for (const auto &kv : pvByUid) {
       const PvEntry &e = kv.second;
-      konata.presenceV5(e.id, pvLaneToken(e.lane), "FLS", 1, "global_flush");
-      konata.retire(e.id, e.id, 1);
-      pvUidLastRetireCycle[kv.first] = curCycleKonata;
+      linxtrace_writer.presenceV5(e.id, pvLaneToken(e.lane), "FLS", 1, "global_flush");
+      linxtrace_writer.retire(e.id, e.id, 1);
+      pvUidLastRetireCycle[kv.first] = curCycleTrace;
     }
     pvByUid.clear();
   };
@@ -1039,7 +1083,7 @@ int main(int argc, char **argv) {
   std::uint64_t noRetireStreak = 0;
   auto pvOnEvent = [&](std::uint64_t uid, int stageId, int lane, std::uint64_t pc, std::uint64_t rob,
                        std::uint64_t kind, std::uint64_t parentUid, std::uint64_t stall, std::uint64_t stallCause) {
-    if (!konata.isOpen())
+    if (!linxtrace_writer.isOpen())
       return;
     if (uid == 0) {
       // Global redirect/fault probes do not identify a specific dynamic uop.
@@ -1063,10 +1107,10 @@ int main(int argc, char **argv) {
       if (itObjdump != objdumpPcMap.end()) {
         disasm = itObjdump->second;
       } else {
-        disasm = pvDisasmForLabel(lookupDisasm(raw, len), 0);
+        disasm = pvDisasmForLabel(lookupDisasm(raw, len), 0, raw, len);
       }
       PvEntry ent{};
-      ent.id = pvNextKonataId++;
+      ent.id = pvNextTraceRowId++;
       ent.lane = lane;
       ent.stageId = -1;
       ent.pc = pc;
@@ -1074,11 +1118,11 @@ int main(int argc, char **argv) {
       ent.raw = raw;
       ent.len = len;
       ent.disasm = disasm;
-      konata.insnV5(ent.id, toHex(uid), 0, toHex(parentUid), pvKindText(kind));
-      konata.label(ent.id, 0, pvInsnText(pc, disasm));
+      linxtrace_writer.insnV5(ent.id, toHex(uid), 0, toHex(parentUid), pvKindText(kind));
+      linxtrace_writer.label(ent.id, 0, pvInsnText(pc, disasm));
       std::ostringstream detail;
       detail << "uid=" << uid << " parent=" << parentUid << " kind=" << kind << " rob=" << rob;
-      konata.label(ent.id, 1, detail.str());
+      linxtrace_writer.label(ent.id, 1, detail.str());
       it = pvByUid.emplace(uid, std::move(ent)).first;
       pvUidToKid[uid] = it->second.id;
     }
@@ -1091,7 +1135,7 @@ int main(int argc, char **argv) {
 
     e.stageId = stageId;
     e.lane = lane;
-    konata.presenceV5(
+    linxtrace_writer.presenceV5(
         e.id,
         pvLaneToken(lane),
         kTraceStageNames[static_cast<std::size_t>(stageId)],
@@ -1100,19 +1144,19 @@ int main(int argc, char **argv) {
 
     if (kind == kTraceKindFlush || kind == kTraceKindReplay || stageId == static_cast<int>(kTraceSidFls)) {
       if (stageId != static_cast<int>(kTraceSidFls)) {
-        konata.presenceV5(e.id, pvLaneToken(e.lane), "FLS", 1, "flush");
+        linxtrace_writer.presenceV5(e.id, pvLaneToken(e.lane), "FLS", 1, "flush");
       }
-      konata.retire(e.id, e.id, 1);
+      linxtrace_writer.retire(e.id, e.id, 1);
       dfxRetiredKeysCycle.insert(pvRetireKey(e.pc, e.rob, e.lane));
-      pvUidLastRetireCycle[uid] = curCycleKonata;
+      pvUidLastRetireCycle[uid] = curCycleTrace;
       pvByUid.erase(it);
       return;
     }
 
     if (kind == kTraceKindTrap || stageId == static_cast<int>(kTraceSidCmt)) {
-      konata.retire(e.id, e.id, (kind == kTraceKindTrap) ? 1 : 0);
+      linxtrace_writer.retire(e.id, e.id, (kind == kTraceKindTrap) ? 1 : 0);
       dfxRetiredKeysCycle.insert(pvRetireKey(e.pc, e.rob, e.lane));
-      pvUidLastRetireCycle[uid] = curCycleKonata;
+      pvUidLastRetireCycle[uid] = curCycleTrace;
       pvByUid.erase(it);
     }
   };
@@ -1136,6 +1180,7 @@ int main(int argc, char **argv) {
   };
 
   while (dut.cycles.value() < maxCycles) {
+    const std::uint64_t cycleNow = dut.cycles.value();
     dut.ic_l2_req_ready = Wire<1>(icReqPending ? 0 : 1);
     if (icRspDriveNow) {
       dut.ic_l2_rsp_valid = Wire<1>(1);
@@ -1151,6 +1196,27 @@ int main(int argc, char **argv) {
 
     const bool icReqSeenPre = (!icReqPending) && dut.ic_l2_req_valid.toBool() && dut.ic_l2_req_ready.toBool();
     const std::uint64_t icReqAddrPre = dut.ic_l2_req_addr.value() & ~0x3Full;
+    if (debugIcache && cycleNow < debugIcacheCycles) {
+      std::cerr << "[icdbg-pre] cyc=" << cycleNow
+                << " req_v=" << dut.ic_l2_req_valid.toBool()
+                << " req_r=" << dut.ic_l2_req_ready.toBool()
+                << " req_a=0x" << std::hex << dut.ic_l2_req_addr.value()
+                << " rsp_v=" << dut.ic_l2_rsp_valid.toBool()
+                << " rsp_a=0x" << std::hex << dut.ic_l2_rsp_addr.value()
+                << " miss_act=" << std::dec << dut.icache_miss_active_dbg.toBool()
+                << " miss_w=" << dut.icache_miss_wait_dbg.toBool()
+                << " miss_p=" << dut.icache_miss_phase_dbg.toBool()
+                << " miss_n0=" << dut.icache_miss_need0_dbg.toBool()
+                << " miss_n1=" << dut.icache_miss_need1_dbg.toBool()
+                << " f1_v=" << dut.icache_f1_valid_dbg.toBool()
+                << " f1_h=" << dut.icache_f1_hit_dbg.toBool()
+                << " f1_m=" << dut.icache_f1_miss_dbg.toBool()
+                << " f1_s=" << dut.icache_f1_stall_dbg.toBool()
+                << " pend=" << icReqPending
+                << " rem=" << std::dec << icReqRemainCycles
+                << " pc=0x" << std::hex << dut.pc.value()
+                << std::dec << "\n";
+    }
 
     // Use Testbench fast-path when clock topology matches (single clock,
     // half-period 1). This cuts redundant comb eval work on negedge.
@@ -1177,13 +1243,33 @@ int main(int argc, char **argv) {
         icRspDriveNow = false;
       }
     }
+    if (debugIcache && cycleNow < debugIcacheCycles) {
+      std::cerr << "[icdbg-post] cyc=" << cycleNow
+                << " req_v=" << dut.ic_l2_req_valid.toBool()
+                << " req_r=" << dut.ic_l2_req_ready.toBool()
+                << " req_a=0x" << std::hex << dut.ic_l2_req_addr.value()
+                << " rsp_v=" << dut.ic_l2_rsp_valid.toBool()
+                << " rsp_a=0x" << std::hex << dut.ic_l2_rsp_addr.value()
+                << " miss_act=" << std::dec << dut.icache_miss_active_dbg.toBool()
+                << " miss_w=" << dut.icache_miss_wait_dbg.toBool()
+                << " miss_p=" << dut.icache_miss_phase_dbg.toBool()
+                << " miss_n0=" << dut.icache_miss_need0_dbg.toBool()
+                << " miss_n1=" << dut.icache_miss_need1_dbg.toBool()
+                << " f1_v=" << dut.icache_f1_valid_dbg.toBool()
+                << " f1_h=" << dut.icache_f1_hit_dbg.toBool()
+                << " f1_m=" << dut.icache_f1_miss_dbg.toBool()
+                << " f1_s=" << dut.icache_f1_stall_dbg.toBool()
+                << " pend=" << icReqPending
+                << " rem=" << std::dec << icReqRemainCycles
+                << " pc=0x" << std::hex << dut.pc.value()
+                << std::dec << "\n";
+    }
 
-    const std::uint64_t cycleNow = dut.cycles.value();
-    curCycleKonata = cycleNow;
+    curCycleTrace = cycleNow;
     dfxRetiredKeysCycle.clear();
     dfxTouchedUidCycle.clear();
-    if (konata.isOpen()) {
-      konata.atCycle(cycleNow);
+    if (linxtrace_writer.isOpen()) {
+      linxtrace_writer.atCycle(cycleNow);
     }
     std::unordered_map<std::uint64_t, int> commitUidLaneCycle{};
     {
@@ -1216,7 +1302,7 @@ int main(int argc, char **argv) {
       }
     }
 
-    if ((konata.isOpen() || rawTrace.is_open()) && !dut.halted.toBool()) {
+    if ((linxtrace_writer.isOpen() || rawTrace.is_open()) && !dut.halted.toBool()) {
       struct DfxEvent {
         std::uint64_t uid = 0;
         int sid = -1;
@@ -1266,19 +1352,61 @@ int main(int argc, char **argv) {
       emit(dut.dbg__occ_f1_valid_lane0_f1.toBool(), dut.dbg__occ_f1_uop_uid_lane0_f1.value(), 1, 0, dut.dbg__occ_f1_pc_lane0_f1.value(),
            dut.dbg__occ_f1_rob_lane0_f1.value(),
            dut.dbg__occ_f1_kind_lane0_f1.value(), dut.dbg__occ_f1_parent_uid_lane0_f1.value());
+      emit(dut.dbg__occ_f1_valid_lane1_f1.toBool(), dut.dbg__occ_f1_uop_uid_lane1_f1.value(), 1, 1, dut.dbg__occ_f1_pc_lane1_f1.value(),
+           dut.dbg__occ_f1_rob_lane1_f1.value(),
+           dut.dbg__occ_f1_kind_lane1_f1.value(), dut.dbg__occ_f1_parent_uid_lane1_f1.value());
       emit(dut.dbg__occ_f2_valid_lane0_f2.toBool(), dut.dbg__occ_f2_uop_uid_lane0_f2.value(), 2, 0, dut.dbg__occ_f2_pc_lane0_f2.value(),
            dut.dbg__occ_f2_rob_lane0_f2.value(),
            dut.dbg__occ_f2_kind_lane0_f2.value(), dut.dbg__occ_f2_parent_uid_lane0_f2.value());
+      emit(dut.dbg__occ_f2_valid_lane1_f2.toBool(), dut.dbg__occ_f2_uop_uid_lane1_f2.value(), 2, 1, dut.dbg__occ_f2_pc_lane1_f2.value(),
+           dut.dbg__occ_f2_rob_lane1_f2.value(),
+           dut.dbg__occ_f2_kind_lane1_f2.value(), dut.dbg__occ_f2_parent_uid_lane1_f2.value());
+      emit(dut.dbg__occ_f2_valid_lane2_f2.toBool(), dut.dbg__occ_f2_uop_uid_lane2_f2.value(), 2, 2, dut.dbg__occ_f2_pc_lane2_f2.value(),
+           dut.dbg__occ_f2_rob_lane2_f2.value(),
+           dut.dbg__occ_f2_kind_lane2_f2.value(), dut.dbg__occ_f2_parent_uid_lane2_f2.value());
+      emit(dut.dbg__occ_f2_valid_lane3_f2.toBool(), dut.dbg__occ_f2_uop_uid_lane3_f2.value(), 2, 3, dut.dbg__occ_f2_pc_lane3_f2.value(),
+           dut.dbg__occ_f2_rob_lane3_f2.value(),
+           dut.dbg__occ_f2_kind_lane3_f2.value(), dut.dbg__occ_f2_parent_uid_lane3_f2.value());
       emit(dut.dbg__occ_f3_valid_lane0_f3.toBool(), dut.dbg__occ_f3_uop_uid_lane0_f3.value(), 3, 0, dut.dbg__occ_f3_pc_lane0_f3.value(),
            dut.dbg__occ_f3_rob_lane0_f3.value(),
            dut.dbg__occ_f3_kind_lane0_f3.value(), dut.dbg__occ_f3_parent_uid_lane0_f3.value());
+      emit(dut.dbg__occ_f3_valid_lane1_f3.toBool(), dut.dbg__occ_f3_uop_uid_lane1_f3.value(), 3, 1, dut.dbg__occ_f3_pc_lane1_f3.value(),
+           dut.dbg__occ_f3_rob_lane1_f3.value(),
+           dut.dbg__occ_f3_kind_lane1_f3.value(), dut.dbg__occ_f3_parent_uid_lane1_f3.value());
+      emit(dut.dbg__occ_f3_valid_lane2_f3.toBool(), dut.dbg__occ_f3_uop_uid_lane2_f3.value(), 3, 2, dut.dbg__occ_f3_pc_lane2_f3.value(),
+           dut.dbg__occ_f3_rob_lane2_f3.value(),
+           dut.dbg__occ_f3_kind_lane2_f3.value(), dut.dbg__occ_f3_parent_uid_lane2_f3.value());
+      emit(dut.dbg__occ_f3_valid_lane3_f3.toBool(), dut.dbg__occ_f3_uop_uid_lane3_f3.value(), 3, 3, dut.dbg__occ_f3_pc_lane3_f3.value(),
+           dut.dbg__occ_f3_rob_lane3_f3.value(),
+           dut.dbg__occ_f3_kind_lane3_f3.value(), dut.dbg__occ_f3_parent_uid_lane3_f3.value());
       emit(dut.dbg__occ_ib_valid_lane0_ib.toBool(), dut.dbg__occ_ib_uop_uid_lane0_ib.value(), 38, 0, dut.dbg__occ_ib_pc_lane0_ib.value(),
            dut.dbg__occ_ib_rob_lane0_ib.value(),
            dut.dbg__occ_ib_kind_lane0_ib.value(), dut.dbg__occ_ib_parent_uid_lane0_ib.value(), dut.dbg__occ_ib_block_uid_lane0_ib.value(),
            dut.dbg__occ_ib_core_id_lane0_ib.value(), dut.dbg__occ_ib_stall_lane0_ib.value(), dut.dbg__occ_ib_stall_cause_lane0_ib.value());
+      emit(dut.dbg__occ_ib_valid_lane1_ib.toBool(), dut.dbg__occ_ib_uop_uid_lane1_ib.value(), 38, 1, dut.dbg__occ_ib_pc_lane1_ib.value(),
+           dut.dbg__occ_ib_rob_lane1_ib.value(),
+           dut.dbg__occ_ib_kind_lane1_ib.value(), dut.dbg__occ_ib_parent_uid_lane1_ib.value(), dut.dbg__occ_ib_block_uid_lane1_ib.value(),
+           dut.dbg__occ_ib_core_id_lane1_ib.value(), dut.dbg__occ_ib_stall_lane1_ib.value(), dut.dbg__occ_ib_stall_cause_lane1_ib.value());
+      emit(dut.dbg__occ_ib_valid_lane2_ib.toBool(), dut.dbg__occ_ib_uop_uid_lane2_ib.value(), 38, 2, dut.dbg__occ_ib_pc_lane2_ib.value(),
+           dut.dbg__occ_ib_rob_lane2_ib.value(),
+           dut.dbg__occ_ib_kind_lane2_ib.value(), dut.dbg__occ_ib_parent_uid_lane2_ib.value(), dut.dbg__occ_ib_block_uid_lane2_ib.value(),
+           dut.dbg__occ_ib_core_id_lane2_ib.value(), dut.dbg__occ_ib_stall_lane2_ib.value(), dut.dbg__occ_ib_stall_cause_lane2_ib.value());
+      emit(dut.dbg__occ_ib_valid_lane3_ib.toBool(), dut.dbg__occ_ib_uop_uid_lane3_ib.value(), 38, 3, dut.dbg__occ_ib_pc_lane3_ib.value(),
+           dut.dbg__occ_ib_rob_lane3_ib.value(),
+           dut.dbg__occ_ib_kind_lane3_ib.value(), dut.dbg__occ_ib_parent_uid_lane3_ib.value(), dut.dbg__occ_ib_block_uid_lane3_ib.value(),
+           dut.dbg__occ_ib_core_id_lane3_ib.value(), dut.dbg__occ_ib_stall_lane3_ib.value(), dut.dbg__occ_ib_stall_cause_lane3_ib.value());
       emit(dut.dbg__occ_f4_valid_lane0_f4.toBool(), dut.dbg__occ_f4_uop_uid_lane0_f4.value(), 4, 0, dut.dbg__occ_f4_pc_lane0_f4.value(),
            dut.dbg__occ_f4_rob_lane0_f4.value(),
            dut.dbg__occ_f4_kind_lane0_f4.value(), dut.dbg__occ_f4_parent_uid_lane0_f4.value());
+      emit(dut.dbg__occ_f4_valid_lane1_f4.toBool(), dut.dbg__occ_f4_uop_uid_lane1_f4.value(), 4, 1, dut.dbg__occ_f4_pc_lane1_f4.value(),
+           dut.dbg__occ_f4_rob_lane1_f4.value(),
+           dut.dbg__occ_f4_kind_lane1_f4.value(), dut.dbg__occ_f4_parent_uid_lane1_f4.value());
+      emit(dut.dbg__occ_f4_valid_lane2_f4.toBool(), dut.dbg__occ_f4_uop_uid_lane2_f4.value(), 4, 2, dut.dbg__occ_f4_pc_lane2_f4.value(),
+           dut.dbg__occ_f4_rob_lane2_f4.value(),
+           dut.dbg__occ_f4_kind_lane2_f4.value(), dut.dbg__occ_f4_parent_uid_lane2_f4.value());
+      emit(dut.dbg__occ_f4_valid_lane3_f4.toBool(), dut.dbg__occ_f4_uop_uid_lane3_f4.value(), 4, 3, dut.dbg__occ_f4_pc_lane3_f4.value(),
+           dut.dbg__occ_f4_rob_lane3_f4.value(),
+           dut.dbg__occ_f4_kind_lane3_f4.value(), dut.dbg__occ_f4_parent_uid_lane3_f4.value());
       emit(dut.dbg__occ_d1_valid_lane0_d1.toBool(), dut.dbg__occ_d1_uop_uid_lane0_d1.value(), 5, 0, dut.dbg__occ_d1_pc_lane0_d1.value(),
            dut.dbg__occ_d1_rob_lane0_d1.value(),
            dut.dbg__occ_d1_kind_lane0_d1.value(), dut.dbg__occ_d1_parent_uid_lane0_d1.value());
@@ -1469,12 +1597,16 @@ int main(int argc, char **argv) {
       }
 
       std::vector<DfxEvent> allEvents{};
+      std::vector<DfxEvent> rawEvents{};
       std::unordered_map<std::uint64_t, DfxEvent> bestEventByUid{};
       for (const auto &kv : dfxByUid) {
         const std::uint64_t uid = kv.first;
         const auto &vec = kv.second;
         if (vec.empty()) {
           continue;
+        }
+        for (const auto &ev : vec) {
+          rawEvents.push_back(ev);
         }
 
         int bestPrio = -1;
@@ -1557,6 +1689,39 @@ int main(int argc, char **argv) {
       for (const auto &kv : bestEventByUid) {
         allEvents.push_back(kv.second);
       }
+      std::sort(rawEvents.begin(), rawEvents.end(), [&](const DfxEvent &a, const DfxEvent &b) {
+        if (a.uid != b.uid)
+          return a.uid < b.uid;
+        if (a.sid != b.sid)
+          return a.sid < b.sid;
+        if (a.lane != b.lane)
+          return a.lane < b.lane;
+        if (a.kind != b.kind)
+          return a.kind < b.kind;
+        if (a.pc != b.pc)
+          return a.pc < b.pc;
+        if (a.rob != b.rob)
+          return a.rob < b.rob;
+        if (a.stall != b.stall)
+          return a.stall < b.stall;
+        if (a.stallCause != b.stallCause)
+          return a.stallCause < b.stallCause;
+        if (a.parent != b.parent)
+          return a.parent < b.parent;
+        if (a.blockUid != b.blockUid)
+          return a.blockUid < b.blockUid;
+        if (a.blockBid != b.blockBid)
+          return a.blockBid < b.blockBid;
+        return a.coreId < b.coreId;
+      });
+      rawEvents.erase(std::unique(rawEvents.begin(), rawEvents.end(), [&](const DfxEvent &a, const DfxEvent &b) {
+                       return a.uid == b.uid && a.sid == b.sid && a.lane == b.lane && a.kind == b.kind &&
+                              a.pc == b.pc && a.rob == b.rob && a.stall == b.stall &&
+                              a.stallCause == b.stallCause && a.parent == b.parent &&
+                              a.blockUid == b.blockUid && a.blockBid == b.blockBid &&
+                              a.coreId == b.coreId;
+                     }),
+                     rawEvents.end());
       std::sort(allEvents.begin(), allEvents.end(), [&](const DfxEvent &a, const DfxEvent &b) {
         if (a.uid != b.uid)
           return a.uid < b.uid;
@@ -1568,7 +1733,12 @@ int main(int argc, char **argv) {
       });
       for (const auto &ev : allEvents) {
         pvOnEvent(ev.uid, ev.sid, ev.lane, ev.pc, ev.rob, ev.kind, ev.parent, ev.stall, ev.stallCause);
-        if (rawTrace.is_open()) {
+        if (ev.uid != 0) {
+          dfxTouchedUidCycle.insert(ev.uid);
+        }
+      }
+      if (rawTrace.is_open()) {
+        for (const auto &ev : rawEvents) {
           const char *stageName = "UNK";
           if (ev.sid >= 0 && ev.sid < static_cast<int>(kTraceStageNames.size())) {
             stageName = kTraceStageNames[static_cast<std::size_t>(ev.sid)];
@@ -1590,32 +1760,59 @@ int main(int argc, char **argv) {
                    << "\"rob\":" << ev.rob
                    << "}\n";
         }
-        if (ev.uid != 0) {
-          dfxTouchedUidCycle.insert(ev.uid);
-        }
       }
     }
 
     if (rawTrace.is_open() && dut.dbg__blk_evt_valid_top.toBool()) {
-      std::string kindText = "open";
       const std::uint64_t kindVal = dut.dbg__blk_evt_kind_top.value();
+      std::string kindText = "open";
+      bool emitEvt = true;
       if (kindVal == 2) {
-        kindText = "close";
+        // ROB-side block resolution is emitted from commit is_bstop events below
+        // so block lifecycle is strictly open->resolved->retired.
+        emitEvt = false;
       } else if (kindVal == 3) {
         kindText = "redirect";
       } else if (kindVal == 4) {
         kindText = "fault";
       }
+      if (emitEvt) {
+        const std::uint64_t evtBlockUid = dut.dbg__blk_evt_block_uid_top.value();
+        const std::uint64_t evtBlockBid = dut.dbg__blk_evt_block_bid_top.value();
+        if (evtBlockUid != 0 && evtBlockBid != 0) {
+          blockUidByBid[evtBlockBid] = evtBlockUid;
+        }
+        rawTrace << "{"
+                 << "\"type\":\"blk_evt\","
+                 << "\"cycle\":" << cycleNow << ","
+                 << "\"kind\":\"" << kindText << "\","
+                 << "\"kind_code\":" << kindVal << ","
+                 << "\"block_uid\":" << evtBlockUid << ","
+                 << "\"block_bid\":" << evtBlockBid << ","
+                 << "\"core_id\":" << dut.dbg__blk_evt_core_id_top.value() << ","
+                 << "\"pc\":" << dut.dbg__blk_evt_pc_top.value() << ","
+                 << "\"seq\":" << dut.dbg__blk_evt_seq_top.value()
+                 << "}\n";
+      }
+    }
+
+    if (rawTrace.is_open() && dut.brob_retire_fire_top.toBool()) {
+      const std::uint64_t retiredBid = dut.brob_retire_bid_top.value();
+      std::uint64_t retiredUid = 0;
+      const auto uidIt = blockUidByBid.find(retiredBid);
+      if (uidIt != blockUidByBid.end()) {
+        retiredUid = uidIt->second;
+      }
       rawTrace << "{"
                << "\"type\":\"blk_evt\","
                << "\"cycle\":" << cycleNow << ","
-               << "\"kind\":\"" << kindText << "\","
-               << "\"kind_code\":" << kindVal << ","
-               << "\"block_uid\":" << dut.dbg__blk_evt_block_uid_top.value() << ","
-               << "\"block_bid\":" << dut.dbg__blk_evt_block_bid_top.value() << ","
-               << "\"core_id\":" << dut.dbg__blk_evt_core_id_top.value() << ","
-               << "\"pc\":" << dut.dbg__blk_evt_pc_top.value() << ","
-               << "\"seq\":" << dut.dbg__blk_evt_seq_top.value()
+               << "\"kind\":\"retired\","
+               << "\"kind_code\":5,"
+               << "\"block_uid\":" << retiredUid << ","
+               << "\"block_bid\":" << retiredBid << ","
+               << "\"core_id\":0,"
+               << "\"pc\":0,"
+               << "\"seq\":" << retireSeq
                << "}\n";
     }
 
@@ -1828,6 +2025,22 @@ int main(int argc, char **argv) {
       if (blockBid == 0) {
         blockBid = blockBidLookup(blockUid, rob);
       }
+      if (blockUid != 0 && blockBid != 0) {
+        blockUidByBid[blockBid] = blockUid;
+      }
+      if (rawTrace.is_open() && isBstop) {
+        rawTrace << "{"
+                 << "\"type\":\"blk_evt\","
+                 << "\"cycle\":" << cycleNow << ","
+                 << "\"kind\":\"resolved\","
+                 << "\"kind_code\":2,"
+                 << "\"block_uid\":" << blockUid << ","
+                 << "\"block_bid\":" << blockBid << ","
+                 << "\"core_id\":" << coreId << ","
+                 << "\"pc\":" << pc << ","
+                 << "\"seq\":" << seq
+                 << "}\n";
+      }
 
       bool xcheckMismatch = false;
       XcheckMismatch xcheckMm{};
@@ -1905,11 +2118,8 @@ int main(int argc, char **argv) {
         }
       }
 
-      std::string opName = "OP_UNKNOWN";
-      auto opIt = opNameMap.find(op);
-      if (opIt != opNameMap.end()) {
-        opName = opIt->second;
-      }
+      const std::string disasmForOp = lookupDisasm(insn, useLen);
+      const std::string opName = resolveOpName(op, insn, useLen, disasmForOp);
       if (rawTrace.is_open()) {
         rawTrace << "{"
                  << "\"type\":\"commit\","
@@ -1955,7 +2165,7 @@ int main(int argc, char **argv) {
                  << "}\n";
       }
 
-      if (konata.isOpen()) {
+      if (linxtrace_writer.isOpen()) {
         bool xcheckAnnotated = false;
         if (uopUid != 0) {
           auto kidIt = pvUidToKid.find(uopUid);
@@ -1973,13 +2183,13 @@ int main(int argc, char **argv) {
               src1Text = pvFmtOperand(q.src1_valid != 0, static_cast<std::uint32_t>(q.src1_reg), q.src1_data);
               dstText = pvFmtOperand(q.dst_valid != 0, static_cast<std::uint32_t>(q.dst_reg), q.dst_data);
             }
-            const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op);
-            konata.label(kidIt->second, 0, pvInsnText(pc, useDisasm));
+            const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op, insn, useLen);
+            linxtrace_writer.label(kidIt->second, 0, pvInsnText(pc, useDisasm));
             std::ostringstream detail;
             detail << "uid=" << toHex(uopUid)
                    << " parent=" << toHex(parentUopUid)
                    << " bid=" << toHex(blockBid)
-                   << " op=" << op
+                   << " op=" << opName
                    << " src0=" << src0Text
                    << " src1=" << src1Text
                    << " dst=" << dstText
@@ -1996,7 +2206,7 @@ int main(int argc, char **argv) {
                 detail << " dut_dst=" << dstTextDut;
               }
             }
-            konata.label(kidIt->second, 1, detail.str());
+            linxtrace_writer.label(kidIt->second, 1, detail.str());
           }
         }
         if (xcheckMismatch && uopUid != 0) {
@@ -2022,8 +2232,8 @@ int main(int argc, char **argv) {
                    << " redir_corr=" << (redirectFromCorrDbg ? 1 : 0)
                    << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                    << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
-            konata.label(itLive->second.id, 1, detail.str());
-            konata.presenceV5(itLive->second.id, pvLaneToken(itLive->second.lane),
+            linxtrace_writer.label(itLive->second.id, 1, detail.str());
+            linxtrace_writer.presenceV5(itLive->second.id, pvLaneToken(itLive->second.lane),
                               kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
             xcheckAnnotated = true;
           }
@@ -2034,31 +2244,31 @@ int main(int argc, char **argv) {
             auto liveIt = pvByUid.find(uopUid);
             if (liveIt != pvByUid.end()) {
               if (dfxTouchedUidCycle.find(uopUid) == dfxTouchedUidCycle.end()) {
-                konata.presenceV5(liveIt->second.id, pvLaneToken(slot), "ROB", 0, "0");
+                linxtrace_writer.presenceV5(liveIt->second.id, pvLaneToken(slot), "ROB", 0, "0");
               }
-              konata.retire(liveIt->second.id, liveIt->second.id, trapValid ? 1 : 0);
-              pvUidLastRetireCycle[uopUid] = curCycleKonata;
+              linxtrace_writer.retire(liveIt->second.id, liveIt->second.id, trapValid ? 1 : 0);
+              pvUidLastRetireCycle[uopUid] = curCycleTrace;
               pvByUid.erase(liveIt);
             } else {
               // Missing live line for a committed UID: synthesize one so retire stream remains exact.
-              const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op);
-              const std::uint64_t id = pvNextKonataId++;
-              konata.insnV5(id, toHex(uopUid), 0, toHex(parentUopUid), trapValid ? "trap" : "normal");
-              konata.label(id, 0, pvInsnText(pc, useDisasm));
+              const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op, insn, useLen);
+              const std::uint64_t id = pvNextTraceRowId++;
+              linxtrace_writer.insnV5(id, toHex(uopUid), 0, toHex(parentUopUid), trapValid ? "trap" : "normal");
+              linxtrace_writer.label(id, 0, pvInsnText(pc, useDisasm));
               std::ostringstream detail;
               detail << "uid=" << toHex(uopUid)
                      << " parent=" << toHex(parentUopUid)
                      << " bid=" << toHex(blockBid)
-                     << " op=" << op
+                     << " op=" << opName
                      << " src0=" << pvFmtOperand(src0Valid, src0Reg, src0Data)
                      << " src1=" << pvFmtOperand(src1Valid, src1Reg, src1Data)
                      << " dst=" << pvFmtOperand(dstValid, dstReg, dstData)
                      << " wb=" << (wbValid ? (std::to_string(wbRd) + ":" + toHex(wbData)) : std::string("-"))
                      << " mem=" << (memValid ? (std::string(memIsStore ? "S@" : "L@") + toHex(memAddr)) : std::string("-"));
-              konata.label(id, 1, detail.str());
-              konata.presenceV5(id, pvLaneToken(slot), "ROB", 0, "0");
-              konata.retire(id, id, trapValid ? 1 : 0);
-              pvUidLastRetireCycle[uopUid] = curCycleKonata;
+              linxtrace_writer.label(id, 1, detail.str());
+              linxtrace_writer.presenceV5(id, pvLaneToken(slot), "ROB", 0, "0");
+              linxtrace_writer.retire(id, id, trapValid ? 1 : 0);
+              pvUidLastRetireCycle[uopUid] = curCycleTrace;
             }
             dfxRetiredKeysCycle.insert(retireKey);
           }
@@ -2067,11 +2277,11 @@ int main(int argc, char **argv) {
           const std::uint64_t k = pvRetireKey(pc, rob, slot);
           if (dfxRetiredKeysCycle.find(k) == dfxRetiredKeysCycle.end()) {
             const std::uint64_t useRaw = insn;
-            const std::string useDisasm = pvDisasmForLabel(lookupDisasm(useRaw, useLen), op);
-            const std::uint64_t id = pvNextKonataId++;
-            konata.insnV5(id, toHex(id), 0, "0x0", trapValid ? "trap" : "normal");
-            konata.label(id, 0, pvInsnText(pc, useDisasm));
-            konata.presenceV5(id, pvLaneToken(slot), "ROB", 0, "0");
+            const std::string useDisasm = pvDisasmForLabel(lookupDisasm(useRaw, useLen), op, useRaw, useLen);
+            const std::uint64_t id = pvNextTraceRowId++;
+            linxtrace_writer.insnV5(id, toHex(id), 0, "0x0", trapValid ? "trap" : "normal");
+            linxtrace_writer.label(id, 0, pvInsnText(pc, useDisasm));
+            linxtrace_writer.presenceV5(id, pvLaneToken(slot), "ROB", 0, "0");
             if (xcheckMismatch) {
               std::ostringstream detail;
               detail << "XCHECK_FAIL seq=" << xcheckMm.seq
@@ -2093,18 +2303,18 @@ int main(int argc, char **argv) {
                      << " redir_corr=" << (redirectFromCorrDbg ? 1 : 0)
                      << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                      << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
-              konata.label(id, 1, detail.str());
-              konata.presenceV5(id, pvLaneToken(slot), kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
+              linxtrace_writer.label(id, 1, detail.str());
+              linxtrace_writer.presenceV5(id, pvLaneToken(slot), kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
               xcheckAnnotated = true;
             }
-            konata.retire(id, id, trapValid ? 1 : 0);
+            linxtrace_writer.retire(id, id, trapValid ? 1 : 0);
           }
         }
         if (xcheckMismatch && !xcheckAnnotated) {
-          const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op);
-          const std::uint64_t id = pvNextKonataId++;
-          konata.insnV5(id, toHex(id), 0, "0x0", "flush");
-          konata.label(id, 0, pvInsnText(pc, useDisasm));
+          const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op, insn, useLen);
+          const std::uint64_t id = pvNextTraceRowId++;
+          linxtrace_writer.insnV5(id, toHex(id), 0, "0x0", "flush");
+          linxtrace_writer.label(id, 0, pvInsnText(pc, useDisasm));
           std::ostringstream detail;
           detail << "XCHECK_FAIL seq=" << xcheckMm.seq
                  << " field=" << xcheckMm.field
@@ -2125,9 +2335,9 @@ int main(int argc, char **argv) {
                  << " redir_corr=" << (redirectFromCorrDbg ? 1 : 0)
                  << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                  << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
-          konata.label(id, 1, detail.str());
-          konata.presenceV5(id, pvLaneToken(slot), kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
-          konata.retire(id, id, 1);
+          linxtrace_writer.label(id, 1, detail.str());
+          linxtrace_writer.presenceV5(id, pvLaneToken(slot), kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
+          linxtrace_writer.retire(id, id, 1);
         }
       }
 

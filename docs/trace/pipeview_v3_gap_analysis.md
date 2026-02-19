@@ -4,7 +4,7 @@
 
 1. Frontend used synthetic trace IDs not tied to backend dynamic uop IDs.
 2. `IQ` waiting residency was not represented as an explicit stage.
-3. Konata TB kept a synthetic retire fallback path, which could hide DFX issues.
+3. The trace TB kept a synthetic retire fallback path, which could hide DFX issues.
 4. Stage order was inconsistent between trace writer/checker (`IQ` missing).
 
 ## V3 closures implemented

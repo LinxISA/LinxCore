@@ -93,20 +93,47 @@ std::string disasmInsn(const std::string &tool, const std::string &spec, std::ui
 
 std::unordered_map<std::uint64_t, std::string> loadOpNameMap(const std::string &isaPyPath) {
   std::unordered_map<std::uint64_t, std::string> out{};
-  std::ifstream in(isaPyPath);
-  if (!in.is_open())
-    return out;
+  static const std::regex kLineRe(R"(^\s*(OP_[A-Za-z0-9_]+)\s*=\s*(0x[0-9A-Fa-f]+|[0-9]+)\s*$)");
 
-  static const std::regex kLineRe(R"(^\s*(OP_[A-Za-z0-9_]+)\s*=\s*([0-9]+)\s*$)");
-  std::string line;
-  while (std::getline(in, line)) {
-    std::smatch m;
-    if (!std::regex_match(line, m, kLineRe))
-      continue;
-    if (m.size() != 3)
-      continue;
-    const std::uint64_t opId = static_cast<std::uint64_t>(std::stoull(m[2].str(), nullptr, 10));
-    out[opId] = m[1].str();
+  auto parseOpFile = [&](const std::filesystem::path &p) {
+    std::ifstream in(p);
+    if (!in.is_open()) {
+      return;
+    }
+    std::string line;
+    while (std::getline(in, line)) {
+      std::smatch m;
+      if (!std::regex_match(line, m, kLineRe)) {
+        continue;
+      }
+      if (m.size() != 3) {
+        continue;
+      }
+      const std::uint64_t opId = static_cast<std::uint64_t>(std::stoull(m[2].str(), nullptr, 0));
+      out[opId] = m[1].str();
+    }
+  };
+
+  const std::filesystem::path isaPath(isaPyPath);
+  parseOpFile(isaPath);
+  // Generated opcode table is now canonical source for OP_* ids.
+  parseOpFile(isaPath.parent_path() / "opcode_ids_gen.py");
+
+  // Resolve simple import aliases like:
+  //   from common.opcode_ids_gen import *
+  if (isaPath.has_filename()) {
+    std::ifstream in(isaPath);
+    if (in.is_open()) {
+      static const std::regex kImportRe(R"(^\s*from\s+common\.([A-Za-z0-9_]+)\s+import\s+\*\s*$)");
+      std::string line;
+      while (std::getline(in, line)) {
+        std::smatch m;
+        if (!std::regex_match(line, m, kImportRe) || m.size() != 2) {
+          continue;
+        }
+        parseOpFile(isaPath.parent_path() / (m[1].str() + ".py"));
+      }
+    }
   }
   return out;
 }
@@ -142,4 +169,3 @@ std::unordered_map<std::uint64_t, std::string> loadObjdumpPcMap(const std::strin
 }
 
 } // namespace linxcore::tb
-

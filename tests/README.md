@@ -12,11 +12,11 @@
 - Purpose: stage naming lint, no-stub lint, and top-level stage-prefix connectivity checks.
 - `test_opcode_parity.sh`
 - Purpose: regenerate opcode catalog/tables and enforce QEMU↔LinxCore decode metadata parity.
-- `test_konata_sanity.sh` (legacy script name; LinxTrace flow)
+- `test_linxtrace_sanity.sh`
 - Purpose: generate LinxTrace from DUT, verify strict schema/stage checks, and basic ROB-vs-commit consistency.
-- `test_konata_dfx_pipeview.sh` (legacy script name; LinxTrace flow)
+- `test_linxtrace_dfx_pipeview.sh`
 - Purpose: DFX-only LinxTrace smoke on a short suite workload with stage-presence checks.
-- `test_konata_template_pipeview.sh` (legacy script name; LinxTrace flow)
+- `test_linxtrace_template_pipeview.sh`
 - Purpose: DFX-only LinxTrace run on a template-containing suite workload and enforce template-uop visibility.
 - `test_cpp_codegen_safety_gate.sh`
 - Purpose: strict C++ codegen safety gate for reg-primitive bindings (constructor/tick invariants + no-crash ctor-eval smoke).
@@ -34,9 +34,9 @@ bash /Users/zhoubot/LinxCore/tests/test_rob_bookkeeping.sh
 bash /Users/zhoubot/LinxCore/tests/test_cosim_smoke.sh
 bash /Users/zhoubot/LinxCore/tests/test_stage_connectivity.sh
 bash /Users/zhoubot/LinxCore/tests/test_opcode_parity.sh
-bash /Users/zhoubot/LinxCore/tests/test_konata_sanity.sh
-bash /Users/zhoubot/LinxCore/tests/test_konata_dfx_pipeview.sh
-bash /Users/zhoubot/LinxCore/tests/test_konata_template_pipeview.sh
+bash /Users/zhoubot/LinxCore/tests/test_linxtrace_sanity.sh
+bash /Users/zhoubot/LinxCore/tests/test_linxtrace_dfx_pipeview.sh
+bash /Users/zhoubot/LinxCore/tests/test_linxtrace_template_pipeview.sh
 bash /Users/zhoubot/LinxCore/tests/test_cpp_codegen_safety_gate.sh
 bash /Users/zhoubot/LinxCore/tests/test_coremark_crosscheck_1000.sh
 bash /Users/zhoubot/LinxCore/tests/test_cbstop_inflation_guard.sh
