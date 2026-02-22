@@ -32,7 +32,7 @@ def build_janus_bcc_iex(m: Circuit) -> None:
     is_lsu_i1 = s2_to_iex_stage_iq_class_s2 == c(2, width=2)
     is_setc_cond_i1 = (s2_to_iex_stage_op_s2 == c(OP_C_SETC_EQ, width=12)) | (s2_to_iex_stage_op_s2 == c(OP_C_SETC_NE, width=12))
 
-    alu_i1 = m.instance(
+    alu_i1 = m.instance_auto(
         build_janus_bcc_iex_alu,
         name="iex_alu",
         module_name="JanusBccIexAluPipe",
@@ -43,7 +43,7 @@ def build_janus_bcc_iex(m: Circuit) -> None:
         in_pc_i1=s2_to_iex_stage_pc_s2,
         in_imm_i1=s2_to_iex_stage_imm_s2,
     )
-    bru_i1 = m.instance(
+    bru_i1 = m.instance_auto(
         build_janus_bcc_iex_bru,
         name="iex_bru",
         module_name="JanusBccIexBruPipe",
@@ -51,12 +51,12 @@ def build_janus_bcc_iex(m: Circuit) -> None:
         rst=rst_i1,
         in_valid_i1=s2_to_iex_stage_valid_s2 & is_bru_i1,
         in_setc_valid_i1=is_setc_cond_i1,
-        in_setc_value_i1=s2_to_iex_stage_imm_s2.trunc(width=1),
+        in_setc_value_i1=s2_to_iex_stage_imm_s2._trunc(width=1),
         pcb_to_bru_stage_lookup_hit_pcb=pcb_to_bru_stage_lookup_hit_pcb,
         pcb_to_bru_stage_lookup_target_pcb=pcb_to_bru_stage_lookup_target_pcb,
         pcb_to_bru_stage_lookup_pred_take_pcb=pcb_to_bru_stage_lookup_pred_take_pcb,
     )
-    fsu_i1 = m.instance(
+    fsu_i1 = m.instance_auto(
         build_janus_bcc_iex_fsu,
         name="iex_fsu",
         module_name="JanusBccIexFsuPipe",
@@ -66,7 +66,7 @@ def build_janus_bcc_iex(m: Circuit) -> None:
         in_rob_i1=s2_to_iex_stage_pdst_s2,
         in_imm_i1=s2_to_iex_stage_imm_s2,
     )
-    agu_i1 = m.instance(
+    agu_i1 = m.instance_auto(
         build_janus_bcc_iex_agu,
         name="iex_agu",
         module_name="JanusBccIexAguPipe",
@@ -77,7 +77,7 @@ def build_janus_bcc_iex(m: Circuit) -> None:
         in_pc_i1=s2_to_iex_stage_pc_s2,
         in_imm_i1=s2_to_iex_stage_imm_s2,
     )
-    std_i1 = m.instance(
+    std_i1 = m.instance_auto(
         build_janus_bcc_iex_std,
         name="iex_std",
         module_name="JanusBccIexStdPipe",

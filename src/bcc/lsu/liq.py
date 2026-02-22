@@ -39,8 +39,8 @@ def build_janus_bcc_lsu_liq(m: Circuit, *, depth: int = 32, idx_w: int = 5) -> N
 
     for i in range(depth):
         idx_liq = c(i, width=idx_w)
-        do_enq_liq = enq_fire_liq & tail_liq.out().eq(idx_liq)
-        do_deq_liq = deq_fire_liq & head_liq.out().eq(idx_liq)
+        do_enq_liq = enq_fire_liq & tail_liq.out().__eq__(idx_liq)
+        do_deq_liq = deq_fire_liq & head_liq.out().__eq__(idx_liq)
 
         v_next_liq = q_valid_liq[i].out()
         v_next_liq = do_deq_liq._select_internal(c(0, width=1), v_next_liq)

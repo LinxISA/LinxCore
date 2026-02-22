@@ -53,10 +53,10 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
     query_retired_brob = c(0, width=1)
     query_exception_brob = c(0, width=1)
     for i in range(16):
-        slot_hit_issue_brob = issue_slot_brob.eq(c(i, width=4))
-        slot_hit_rsp_brob = rsp_slot_brob.eq(c(i, width=4))
-        slot_hit_retire_brob = retire_slot_brob.eq(c(i, width=4))
-        slot_hit_query_brob = query_slot_brob.eq(c(i, width=4))
+        slot_hit_issue_brob = issue_slot_brob.__eq__(c(i, width=4))
+        slot_hit_rsp_brob = rsp_slot_brob.__eq__(c(i, width=4))
+        slot_hit_retire_brob = retire_slot_brob.__eq__(c(i, width=4))
+        slot_hit_query_brob = query_slot_brob.__eq__(c(i, width=4))
         issue_bit_brob = slot_hit_issue_brob._select_internal(c(1 << i, width=16), issue_bit_brob)
         rsp_bit_brob = slot_hit_rsp_brob._select_internal(c(1 << i, width=16), rsp_bit_brob)
         retire_bit_brob = slot_hit_retire_brob._select_internal(c(1 << i, width=16), retire_bit_brob)
@@ -73,7 +73,7 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
         bid_slot_brob[i].set(issue_bid_brob, when=issue_fire_brob & slot_hit_issue_brob)
 
     rsp_fire_brob = rsp_valid_brob & rsp_slot_alloc_brob & (~rsp_slot_retired_brob)
-    rsp_exception_brob = rsp_trap_valid_brob | (~rsp_status_brob.eq(c(0, width=4)))
+    rsp_exception_brob = rsp_trap_valid_brob | (~rsp_status_brob.__eq__(c(0, width=4)))
 
     alloc_next_brob = allocated_brob.out()
     ready_next_brob = ready_brob.out()

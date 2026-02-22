@@ -50,29 +50,29 @@ def build_ibuffer(m: Circuit, *, depth: int = 8) -> None:
 
     for i in range(depth):
         idx = c(i, width=w)
-        do_push = push_fire & tail.out().eq(idx)
-        do_pop = pop_fire & head.out().eq(idx)
+        do_push = push_fire & tail.out().__eq__(idx)
+        do_pop = pop_fire & head.out().__eq__(idx)
 
         v_next = q_valid[i].out()
-        v_next = do_pop.select(c(0, width=1), v_next)
-        v_next = do_push.select(c(1, width=1), v_next)
-        v_next = flush_valid.select(c(0, width=1), v_next)
+        v_next = do_pop._select_internal(c(0, width=1), v_next)
+        v_next = do_push._select_internal(c(1, width=1), v_next)
+        v_next = flush_valid._select_internal(c(0, width=1), v_next)
         q_valid[i].set(v_next)
 
         q_pc[i].set(push_pc, when=do_push)
         q_window[i].set(push_window, when=do_push)
         q_pkt_uid[i].set(push_pkt_uid, when=do_push)
 
-    head_next = pop_fire.select(head.out() + c(1, width=w), head.out())
-    tail_next = push_fire.select(tail.out() + c(1, width=w), tail.out())
+    head_next = pop_fire._select_internal(head.out() + c(1, width=w), head.out())
+    tail_next = push_fire._select_internal(tail.out() + c(1, width=w), tail.out())
 
     count_next = count.out()
-    count_next = (push_fire & (~pop_fire)).select(count.out() + c(1, width=w + 1), count_next)
-    count_next = ((~push_fire) & pop_fire).select(count.out() - c(1, width=w + 1), count_next)
+    count_next = (push_fire & (~pop_fire))._select_internal(count.out() + c(1, width=w + 1), count_next)
+    count_next = ((~push_fire) & pop_fire)._select_internal(count.out() - c(1, width=w + 1), count_next)
 
-    head.set(flush_valid.select(c(0, width=w), head_next))
-    tail.set(flush_valid.select(c(0, width=w), tail_next))
-    count.set(flush_valid.select(c(0, width=w + 1), count_next))
+    head.set(flush_valid._select_internal(c(0, width=w), head_next))
+    tail.set(flush_valid._select_internal(c(0, width=w), tail_next))
+    count.set(flush_valid._select_internal(c(0, width=w + 1), count_next))
 
     m.output("push_ready", push_ready)
     m.output("out_valid", out_valid)

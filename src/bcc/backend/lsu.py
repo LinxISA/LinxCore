@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, function, module
 
 from common.isa import (
     OP_C_LDI,
@@ -43,7 +43,9 @@ from common.isa import (
 )
 
 
-def is_load_op(op, op_is):
+@function
+def is_load_op(m: Circuit, op, op_is):
+    _ = m
     return op_is(
         op,
         OP_LWI,
@@ -72,7 +74,9 @@ def is_load_op(op, op_is):
     )
 
 
-def is_store_op(op, op_is):
+@function
+def is_store_op(m: Circuit, op, op_is):
+    _ = m
     return op_is(
         op,
         OP_SBI,
@@ -136,7 +140,7 @@ def build_lsu_stage(
 
     lsu_mem_fire_raw = issue_fire_lane0_raw & (ex0_is_load | ex0_is_store)
     lsu_load_fire_raw = issue_fire_lane0_raw & ex0_is_load
-    lsu_lsid_block_lane0 = lsu_mem_fire_raw & (~ex0_lsid.eq(lsid_issue_ptr))
+    lsu_lsid_block_lane0 = lsu_mem_fire_raw & (~ex0_lsid.__eq__(lsid_issue_ptr))
     lsu_load_dist = ex0_rob + sub_head
     lsu_older_store_pending_lane0 = c(0, width=1)
     lsu_forward_hit_lane0 = c(0, width=1)
@@ -149,19 +153,19 @@ def build_lsu_stage(
         st = rob_valid[i] & rob_is_store[i] & older
         st_pending = st & (~rob_done[i])
         st_ready = st & rob_done[i]
-        st_match = st_ready & rob_store_addr[i].eq(ex0_addr)
+        st_match = st_ready & rob_store_addr[i].__eq__(ex0_addr)
         lsu_older_store_pending_lane0 = lsu_older_store_pending_lane0 | (lsu_load_fire_raw & st_pending)
         lsu_forward_hit_lane0 = lsu_forward_hit_lane0 | (lsu_load_fire_raw & st_match)
-        lsu_forward_data_lane0 = (lsu_load_fire_raw & st_match).select(rob_store_data[i], lsu_forward_data_lane0)
+        lsu_forward_data_lane0 = (lsu_load_fire_raw & st_match)._select_internal(rob_store_data[i], lsu_forward_data_lane0)
 
     for i in range(sq_entries):
-        st_match = stbuf_valid[i] & stbuf_addr[i].eq(ex0_addr)
+        st_match = stbuf_valid[i] & stbuf_addr[i].__eq__(ex0_addr)
         lsu_forward_hit_lane0 = lsu_forward_hit_lane0 | (lsu_load_fire_raw & st_match)
-        lsu_forward_data_lane0 = (lsu_load_fire_raw & st_match).select(stbuf_data[i], lsu_forward_data_lane0)
+        lsu_forward_data_lane0 = (lsu_load_fire_raw & st_match)._select_internal(stbuf_data[i], lsu_forward_data_lane0)
 
-    commit_store_match_lane0 = lsu_load_fire_raw & commit_store_fire & commit_store_addr.eq(ex0_addr)
+    commit_store_match_lane0 = lsu_load_fire_raw & commit_store_fire & commit_store_addr.__eq__(ex0_addr)
     lsu_forward_hit_lane0 = lsu_forward_hit_lane0 | commit_store_match_lane0
-    lsu_forward_data_lane0 = commit_store_match_lane0.select(commit_store_data, lsu_forward_data_lane0)
+    lsu_forward_data_lane0 = commit_store_match_lane0._select_internal(commit_store_data, lsu_forward_data_lane0)
 
     lsu_block_lane0 = lsu_lsid_block_lane0 | (lsu_load_fire_raw & lsu_older_store_pending_lane0)
     issue_fire_lane0_eff = issue_fire_lane0_raw & (~lsu_block_lane0)
