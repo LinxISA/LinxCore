@@ -231,8 +231,52 @@ Minimum required internal uops:
 
 ---
 
-## 10. Open items
+## 10. Golden classification + pycircuit dispatch (issq routing)
+
+The uop classification golden is the source of truth for **instruction dispatch** in the PYC model.
+
+Golden paths:
+
+- Directory tree (preferred): `docs/architecture/golden/uop_classification_v0.3/`
+  - `index.json` lists all big_kinds and sub_kinds.
+  - `<BIG_KIND>/<SUB_KIND>.json` contains instruction records.
+- Monolithic compatibility file (deprecated): `docs/architecture/golden/uop_classification_v0.3.json`
+
+### 10.1 How dec2 uses golden
+
+1. Decode produces `DecEvent(op_id, pc, regs, imm, ...)`.
+2. dec2 looks up classification meta for `op_id` / mnemonic:
+   - `uop_kind` (big kind): ALU / BRU / AGU / STD / FSU / VEC / AMO / SYS / BBD / CMD / RSV
+   - sub-kind fields: e.g. `agu_kind`, `addr_mode`, `cmd_kind`, `engine_target`, `tpl_mode`, etc.
+3. dec2 forms one or more `UopPacket` and enqueues them into the appropriate **issue queue (issq)**.
+
+### 10.2 Recommended issq mapping
+
+- `issq_alu`  ← `uop_kind=ALU`
+- `issq_bru`  ← `uop_kind=BRU`
+- `issq_agu`  ← `uop_kind=AGU` (includes LDA/STA)
+- `issq_std`  ← `uop_kind=STD`
+- `issq_fsu`  ← `uop_kind=FSU`
+- `issq_vec`  ← `uop_kind=VEC`
+- `issq_amo`  ← `uop_kind=AMO`
+- `issq_sys`  ← `uop_kind=SYS`
+- `issq_bbd`  ← `uop_kind=BBD`
+- `issq_cmd`  ← `uop_kind=CMD` (CMD IQ)
+- `issq_rsv`  ← `uop_kind=RSV` (reserved encodings; trap per v0.3 policy)
+
+### 10.3 CMD IQ routing
+
+For `uop_kind=CMD`, the golden additionally provides:
+
+- `cmd_kind` (e.g. `DESC_*`, `BLOCK_SPLIT`, `VEC_ENGINE_CMD`, `Q_PUSH/Q_POP/Q_MANAGE`, `LAUNCH`, ...)
+- `engine_target` (e.g. `VEC`, `TMA`, `TMU`, `CUBE`, ...)
+- `tpl_mode` / `tpl_id` for TEPL template routing
+
+These fields are consumed by the CMD IQ / engine dispatch logic to route commands to engines.
+
+---
+
+## 11. Open items
 
 - Finalize bitwidth decisions and packing.
 - Specify the trap payload ABI (`TRAPNO`, `TRAPARG0`, `BI`) in the commit trace.
-- Specify accelerator/tile payload fields for `UOP_ACCEL_CMD`.
