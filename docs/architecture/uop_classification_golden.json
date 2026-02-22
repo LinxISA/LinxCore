@@ -1,0 +1,9 @@
+{
+  "version": "v0.3",
+  "note": "Golden uop classification for LinxISA mnemonics used by LinxCore dec2/uop generation.",
+  "mnemonic_rules": {
+    "HL.QPUSH": {"uop_kind": "CMD", "cmd_kind": "Q_PUSH", "subsystem": "GENERAL_QUEUE_MANAGER"},
+    "HL.QPOP": {"uop_kind": "CMD", "cmd_kind": "Q_POP", "subsystem": "GENERAL_QUEUE_MANAGER"},
+    "HL.QMT": {"uop_kind": "CMD", "cmd_kind": "Q_MANAGE", "subsystem": "GENERAL_QUEUE_MANAGER"}
+  }
+}
