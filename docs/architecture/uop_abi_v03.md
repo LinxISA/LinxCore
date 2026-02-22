@@ -140,7 +140,6 @@ Compute/execute examples:
 - `VEC` (vector execution; internally sub-classed)
 - `AMO`
 - `SYS`
-- `RSV` (reserved/unassigned encodings; must trap or follow v0.3 policy)
 
 Command/Boundary examples (flow through the unified **CMD IQ**):
 
@@ -246,7 +245,7 @@ Golden paths:
 
 1. Decode produces `DecEvent(op_id, pc, regs, imm, ...)`.
 2. dec2 looks up classification meta for `op_id` / mnemonic:
-   - `uop_kind` (big kind): ALU / BRU / AGU / STD / FSU / VEC / AMO / SYS / BBD / CMD / RSV
+   - `uop_kind` (big kind): ALU / BRU / AGU / STD / FSU / VEC / AMO / SYS / BBD / CMD
    - sub-kind fields: e.g. `agu_kind`, `addr_mode`, `cmd_kind`, `engine_target`, `tpl_mode`, etc.
 3. dec2 forms one or more `UopPacket` and enqueues them into the appropriate **issue queue (issq)**.
 
@@ -262,7 +261,6 @@ Golden paths:
 - `issq_sys`  ← `uop_kind=SYS`
 - `issq_bbd`  ← `uop_kind=BBD`
 - `issq_cmd`  ← `uop_kind=CMD` (CMD IQ)
-- `issq_rsv`  ← `uop_kind=RSV` (reserved encodings; trap per v0.3 policy)
 
 ### 10.3 CMD IQ routing
 
