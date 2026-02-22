@@ -41,6 +41,7 @@ def build_janus_bcc_ooo_pc_buffer(m: Circuit, *, depth: int = 64, idx_w: int = 6
 
     rd_pc_pcb = c(0, width=64)
     lookup_hit_pcb = c(0, width=1)
+    lookup_known_pcb = c(0, width=1)
     lookup_kind_pcb = c(0, width=3)
     lookup_target_pcb = c(0, width=64)
     lookup_pred_take_pcb = c(0, width=1)
@@ -49,8 +50,10 @@ def build_janus_bcc_ooo_pc_buffer(m: Circuit, *, depth: int = 64, idx_w: int = 6
         wr_hit_pcb = wr_idx_pcb == c(i, width=idx_w)
         f3_wr_hit_pcb = tail_pcb.out() == c(i, width=idx_w)
         lookup_match_pcb = valid_pcb[i].out() & is_bstart_pcb[i].out() & pcs_pcb[i].out().eq(lookup_pc_pcb)
+        lookup_known_match_pcb = valid_pcb[i].out() & pcs_pcb[i].out().eq(lookup_pc_pcb)
         rd_pc_pcb = idx_hit_pcb._select_internal(pcs_pcb[i].out(), rd_pc_pcb)
         lookup_hit_pcb = lookup_match_pcb._select_internal(c(1, width=1), lookup_hit_pcb)
+        lookup_known_pcb = lookup_known_match_pcb._select_internal(c(1, width=1), lookup_known_pcb)
         lookup_kind_pcb = lookup_match_pcb._select_internal(kind_pcb[i].out(), lookup_kind_pcb)
         lookup_target_pcb = lookup_match_pcb._select_internal(target_pcb[i].out(), lookup_target_pcb)
         lookup_pred_take_pcb = lookup_match_pcb._select_internal(pred_take_pcb[i].out(), lookup_pred_take_pcb)
@@ -66,6 +69,8 @@ def build_janus_bcc_ooo_pc_buffer(m: Circuit, *, depth: int = 64, idx_w: int = 6
 
     m.output("rd_pc_pcb", rd_pc_pcb)
     m.output("pcb_to_bru_stage_lookup_hit_pcb", lookup_hit_pcb)
+    m.output("pcb_to_bru_stage_lookup_known_pcb", lookup_known_pcb)
+    m.output("pcb_to_bru_stage_lookup_is_bstart_pcb", lookup_hit_pcb)
     m.output("pcb_to_bru_stage_lookup_kind_pcb", lookup_kind_pcb)
     m.output("pcb_to_bru_stage_lookup_target_pcb", lookup_target_pcb)
     m.output("pcb_to_bru_stage_lookup_pred_take_pcb", lookup_pred_take_pcb)

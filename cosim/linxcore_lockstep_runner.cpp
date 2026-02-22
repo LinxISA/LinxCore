@@ -549,12 +549,23 @@ public:
     dut_->host_waddr = Wire<64>(0);
     dut_->host_wdata = Wire<64>(0);
     dut_->host_wstrb = Wire<8>(0);
+    dut_->ic_l2_req_ready = Wire<1>(1);
+    dut_->ic_l2_rsp_valid = Wire<1>(0);
+    dut_->ic_l2_rsp_addr = Wire<64>(0);
+    dut_->ic_l2_rsp_data = Wire<512>(0);
+    dut_->ic_l2_rsp_error = Wire<1>(0);
 
     tb_ = std::make_unique<Testbench<DutT>>(*dut_);
     tb_->addClock(dut_->clk, 1);
     tb_->reset(dut_->rst, 2, 1);
 
     retire_q_.clear();
+    ic_req_pending_ = false;
+    ic_rsp_drive_now_ = false;
+    ic_req_addr_pending_ = 0;
+    ic_req_remain_cycles_ = 0;
+    ic_req_seen_pre_ = false;
+    ic_req_addr_pre_ = 0;
     return true;
   }
 
@@ -568,7 +579,9 @@ public:
         std::cerr << last_error_ << "\n";
         return false;
       }
+      driveIcacheL2();
       tb_->runCycles(1);
+      updateIcacheL2State();
       sampleMemWrite();
       sampleDispatch();
       collectCommits();
@@ -835,6 +848,73 @@ private:
     return static_cast<std::size_t>(addr & low_mask);
   }
 
+  Wire<512> buildIcacheLine(std::uint64_t line_addr) const {
+    Wire<512> out(0);
+    const std::size_t mem_bytes = dut_->mem2r1w.imem.mem_.size();
+    for (unsigned wi = 0; wi < 8; wi++) {
+      std::uint64_t w = 0;
+      for (unsigned bi = 0; bi < 8; bi++) {
+        const std::uint64_t guest = line_addr + static_cast<std::uint64_t>(wi * 8 + bi);
+        const std::size_t addr = mapGuestAddr(guest, mem_bytes);
+        w |= (static_cast<std::uint64_t>(dut_->mem2r1w.imem.peekByte(addr)) << (8u * bi));
+      }
+      out.setWord(wi, w);
+    }
+    return out;
+  }
+
+  void driveIcacheL2() {
+    if (!dut_) {
+      return;
+    }
+    dut_->ic_l2_req_ready = Wire<1>(ic_req_pending_ ? 0 : 1);
+    if (ic_rsp_drive_now_) {
+      dut_->ic_l2_rsp_valid = Wire<1>(1);
+      dut_->ic_l2_rsp_addr = Wire<64>(ic_req_addr_pending_);
+      dut_->ic_l2_rsp_data = buildIcacheLine(ic_req_addr_pending_);
+      dut_->ic_l2_rsp_error = Wire<1>(0);
+      return;
+    }
+    dut_->ic_l2_rsp_valid = Wire<1>(0);
+    dut_->ic_l2_rsp_addr = Wire<64>(0);
+    dut_->ic_l2_rsp_data = Wire<512>(0);
+    dut_->ic_l2_rsp_error = Wire<1>(0);
+
+    ic_req_seen_pre_ = (!ic_req_pending_) && dut_->ic_l2_req_valid.toBool() && dut_->ic_l2_req_ready.toBool();
+    ic_req_addr_pre_ = dut_->ic_l2_req_addr.value() & ~0x3Full;
+  }
+
+  void updateIcacheL2State() {
+    if (!dut_) {
+      return;
+    }
+    if (ic_rsp_drive_now_) {
+      ic_rsp_drive_now_ = false;
+      ic_req_pending_ = false;
+      ic_req_addr_pending_ = 0;
+      ic_req_remain_cycles_ = 0;
+      return;
+    }
+    if (ic_req_pending_) {
+      if (ic_req_remain_cycles_ > 0) {
+        ic_req_remain_cycles_--;
+      }
+      if (ic_req_remain_cycles_ == 0) {
+        ic_rsp_drive_now_ = true;
+      }
+      return;
+    }
+    const bool ic_req_seen_post = dut_->ic_l2_req_valid.toBool() && dut_->ic_l2_req_ready.toBool();
+    if (ic_req_seen_pre_ || ic_req_seen_post) {
+      ic_req_pending_ = true;
+      ic_req_addr_pending_ = ic_req_seen_pre_ ? ic_req_addr_pre_ : (dut_->ic_l2_req_addr.value() & ~0x3Full);
+      ic_req_remain_cycles_ = 20;
+      ic_rsp_drive_now_ = false;
+      ic_req_seen_pre_ = false;
+      ic_req_addr_pre_ = 0;
+    }
+  }
+
   bool loadSnapshotIntoMem(const SnapshotImage &snap) {
     const std::size_t mem_bytes = dut_->mem2r1w.imem.mem_.size();
     if (mem_bytes == 0) {
@@ -844,10 +924,34 @@ private:
     }
 
     for (const auto &r : snap.ranges) {
+      if (r.bytes.size() > mem_bytes) {
+        std::ostringstream oss;
+        oss << "runner: snapshot range aliases DUT memory (range too large): base=" << toHex(r.meta.base)
+            << " size=" << toHex(static_cast<std::uint64_t>(r.bytes.size()))
+            << " dut_mem_bytes=" << toHex(static_cast<std::uint64_t>(mem_bytes))
+            << " (set narrower LINX_COSIM_MEM_RANGES)";
+        last_error_ = oss.str();
+        std::cerr << last_error_ << "\n";
+        return false;
+      }
+      std::vector<std::uint8_t> seen(mem_bytes, 0);
       const std::uint64_t base = r.meta.base;
       for (std::size_t i = 0; i < r.bytes.size(); i++) {
         const std::uint64_t guest_addr = base + static_cast<std::uint64_t>(i);
         const std::size_t addr = mapGuestAddr(guest_addr, mem_bytes);
+        if (seen[addr]) {
+          std::ostringstream oss;
+          oss << "runner: snapshot range aliases DUT memory (wrap/collision): base=" << toHex(r.meta.base)
+              << " size=" << toHex(static_cast<std::uint64_t>(r.bytes.size()))
+              << " first_collision_guest=" << toHex(guest_addr)
+              << " mapped_addr=" << toHex(static_cast<std::uint64_t>(addr))
+              << " dut_mem_bytes=" << toHex(static_cast<std::uint64_t>(mem_bytes))
+              << " (set narrower LINX_COSIM_MEM_RANGES)";
+          last_error_ = oss.str();
+          std::cerr << last_error_ << "\n";
+          return false;
+        }
+        seen[addr] = 1;
         const auto b = r.bytes[i];
         dut_->mem2r1w.imem.pokeByte(addr, b);
         dut_->mem2r1w.dmem.pokeByte(addr, b);
@@ -954,6 +1058,12 @@ private:
   std::deque<CommitRecord> retire_q_{};
   std::deque<MemWriteEvent> write_events_{};
   std::deque<DispatchEvent> dispatch_events_{};
+  bool ic_req_pending_ = false;
+  bool ic_rsp_drive_now_ = false;
+  std::uint64_t ic_req_addr_pending_ = 0;
+  std::uint64_t ic_req_remain_cycles_ = 0;
+  bool ic_req_seen_pre_ = false;
+  std::uint64_t ic_req_addr_pre_ = 0;
   RunnerOptions opts_{};
   std::uint64_t max_cycles_ = 0;
   std::uint64_t deadlock_cycles_ = 0;

@@ -29,7 +29,13 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
 
     f2_to_f3_stage_pc_f2 = m.input("f2_to_f3_stage_pc_f2", width=64)
     f2_to_f3_stage_window_f2 = m.input("f2_to_f3_stage_window_f2", width=64)
+    m.input("f2_to_f3_stage_bundle128_f2", width=1024)
+    m.input("f2_to_f3_stage_bundle_base_pc_f2", width=64)
+    m.input("f2_to_f3_stage_slot_base_offset_f2", width=7)
+    f2_to_f3_stage_pkt_uid_f2 = m.input("f2_to_f3_stage_pkt_uid_f2", width=64)
     f2_to_f3_stage_valid_f2 = m.input("f2_to_f3_stage_valid_f2", width=1)
+    m.input("f2_to_f3_stage_miss_f2", width=1)
+    m.input("f2_to_f3_stage_stall_f2", width=1)
     ctrl_to_f3_stage_checkpoint_id_f3 = m.input("ctrl_to_f3_stage_checkpoint_id_f3", width=6)
 
     backend_ready_top = m.input("backend_ready_top", width=1)
@@ -85,8 +91,9 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     bstart_target_f3 = (op0_f3 == c(OP_BSTART_STD_DIRECT, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
     bstart_target_f3 = (op0_f3 == c(OP_BSTART_STD_COND, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
     bstart_target_f3 = (op0_f3 == c(OP_BSTART_STD_CALL, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
+    cond_pred_take_f3 = bstart_target_f3.ult(dec0_pc_f3)
     pred_take_f3 = c(1, width=1)
-    pred_take_f3 = bstart_kind_f3.eq(c(BK_COND, width=3))._select_internal(c(0, width=1), pred_take_f3)
+    pred_take_f3 = bstart_kind_f3.eq(c(BK_COND, width=3))._select_internal(cond_pred_take_f3, pred_take_f3)
     pred_take_f3 = bstart_kind_f3.eq(c(BK_RET, width=3))._select_internal(c(0, width=1), pred_take_f3)
     bstart_meta_valid_f3 = dec0_valid_f3 & is_bstart0_f3
 
@@ -100,12 +107,27 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
         push_valid=f2_to_f3_stage_valid_f2,
         push_pc=f2_to_f3_stage_pc_f2,
         push_window=f2_to_f3_stage_window_f2,
+        push_pkt_uid=f2_to_f3_stage_pkt_uid_f2,
         pop_ready=backend_ready_top,
         flush_valid=flush_valid_fls,
     )
 
+    m.output("f3_to_ib_stage_pc_f3", f2_to_f3_stage_pc_f2)
+    m.output("f3_to_ib_stage_window_f3", f2_to_f3_stage_window_f2)
+    m.output("f3_to_ib_stage_pkt_uid_f3", f2_to_f3_stage_pkt_uid_f2)
+    m.output("f3_to_ib_stage_valid_f3", f2_to_f3_stage_valid_f2)
+    m.output("f3_to_ib_stage_checkpoint_id_f3", ctrl_to_f3_stage_checkpoint_id_f3)
+
+    m.output("ib_to_f4_stage_pc_ib", ibuf_f3["out_pc"])
+    m.output("ib_to_f4_stage_window_ib", ibuf_f3["out_window"])
+    m.output("ib_to_f4_stage_pkt_uid_ib", ibuf_f3["out_pkt_uid"])
+    m.output("ib_to_f4_stage_valid_ib", ibuf_f3["out_valid"])
+    m.output("ib_to_f4_stage_checkpoint_id_ib", ctrl_to_f3_stage_checkpoint_id_f3)
+
+    # Backward-compatible outputs consumed by current top wiring.
     m.output("f3_to_f4_stage_pc_f3", ibuf_f3["out_pc"])
     m.output("f3_to_f4_stage_window_f3", ibuf_f3["out_window"])
+    m.output("f3_to_f4_stage_pkt_uid_f3", ibuf_f3["out_pkt_uid"])
     m.output("f3_to_f4_stage_valid_f3", ibuf_f3["out_valid"])
     m.output("f3_to_f4_stage_checkpoint_id_f3", ctrl_to_f3_stage_checkpoint_id_f3)
     m.output("f3_to_pcb_stage_bstart_valid_f3", bstart_meta_valid_f3)
@@ -116,4 +138,7 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     m.output("f3_ibuf_count_f3", ibuf_f3["count_dbg"])
     m.output("f3_ibuf_ready_f3", ibuf_f3["push_ready"])
     m.output("f3_pop_fire_f3", ibuf_f3["pop_fire"])
+    m.output("ib_head_pc_f3", ibuf_f3["out_pc"])
+    m.output("ib_head_uid_f3", ibuf_f3["out_pkt_uid"])
+    m.output("ib_valid_f3", ibuf_f3["out_valid"])
     m.output("f3_one_f3", c(1, width=1))

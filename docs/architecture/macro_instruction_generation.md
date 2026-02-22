@@ -35,6 +35,12 @@ Address generation:
 - Save path (`FENTRY`): `addr = sp_base + (stack_size - (i + 1) * 8)`
 - Restore path (`FEXIT/FRET.*`): `addr = sp_base - (i + 1) * 8`
 
+Frame-adjust policy:
+
+- Default is immediate-only semantics (`stack_size`) to match QEMU.
+- Optional compatibility addend is `callframe_size`, default `0`.
+- Override (opt-in): `LINXCORE_CALLFRAME_SIZE=<non-negative multiple of 8>`.
+
 ## 3) Normative expansion order
 
 `f.entry [s1 ~ s8], sp!, 256`
@@ -105,3 +111,11 @@ Template expansion uops are emitted as retire-visible events in co-sim trace pat
 This behavior is compared lockstep against QEMU trace by:
 
 - `/Users/zhoubot/LinxCore/cosim/linxcore_lockstep_runner.cpp`
+
+## 6) Interaction with block redirect authority
+
+Template expansion does not bypass branch/block control rules:
+
+- template-generated `setc.tgt` updates block target state like normal control ops,
+- architectural redirect is still boundary-authoritative at commit,
+- macro expansion does not create an alternate direct-PC override path.

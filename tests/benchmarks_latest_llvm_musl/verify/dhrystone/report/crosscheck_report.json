@@ -1,0 +1,20 @@
+{
+  "mode": "failfast",
+  "max_commits": 300,
+  "qemu_trace": "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl/verify/dhrystone/qemu_trace.jsonl",
+  "dut_trace": "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl/verify/dhrystone/dut_trace.jsonl",
+  "qemu_rows": 10624,
+  "dut_rows": 300,
+  "compared_rows": 299,
+  "qemu_meta_skipped": 9,
+  "dut_meta_skipped": 1,
+  "mismatch_count": 0,
+  "first_mismatch": null,
+  "cbstop_counts": {
+    "qemu": 1,
+    "dut": 1,
+    "inflation_ratio": 1.0,
+    "warn": false,
+    "threshold": 8.0
+  }
+}

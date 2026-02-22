@@ -54,4 +54,15 @@ This map records ownership migration from legacy LinxCore blocks into explicit J
 ## Integration
 
 - Canonical stage-linked integration: `src/top/top.py`
-- Canonical wrapper entrypoint retained: `src/top/top.py`
+- Thin backend compatibility shell: `src/bcc/backend/backend.py`
+- Backend authoritative engine body: `src/bcc/backend/engine.py`
+- Block fabric contract: `docs/architecture/block_fabric_contract.md`
+
+## Frontend Milestone A Notes
+
+- Real I-cache ownership: `src/bcc/ifu/icache.py` (4-way, 32-set, 64B lines, true LRU).
+- Two-line fetch-bundle assembly: `src/bcc/ifu/icache.py` -> `src/bcc/ifu/f2.py`.
+- Explicit IB stage handoff contract:
+  - `f3_to_ib_stage_*`
+  - `ib_to_f4_stage_*`
+- Top-level L2 IFetch ports are exported from `src/top/top.py`.

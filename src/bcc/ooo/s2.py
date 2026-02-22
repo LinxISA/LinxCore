@@ -14,6 +14,7 @@ def build_janus_bcc_ooo_s2(m: Circuit) -> None:
     s1_to_s2_stage_pdst_s1 = m.input("s1_to_s2_stage_pdst_s1", width=6)
     s1_to_s2_stage_imm_s1 = m.input("s1_to_s2_stage_imm_s1", width=64)
     s1_to_s2_stage_iq_class_s1 = m.input("s1_to_s2_stage_iq_class_s1", width=2)
+    s1_to_s2_stage_uop_uid_s1 = m.input("s1_to_s2_stage_uop_uid_s1", width=64)
 
     c = m.const
 
@@ -31,3 +32,4 @@ def build_janus_bcc_ooo_s2(m: Circuit) -> None:
     m.output("s2_to_iex_stage_imm_s2", s1_to_s2_stage_imm_s1)
     m.output("s2_to_iex_stage_iq_class_s2", s1_to_s2_stage_iq_class_s1)
     m.output("s2_to_iex_stage_iq_idx_s2", rr_iq_idx_s2.out())
+    m.output("s2_to_iex_stage_uop_uid_s2", s1_to_s2_stage_uop_uid_s1)

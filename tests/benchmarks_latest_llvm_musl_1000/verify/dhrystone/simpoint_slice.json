@@ -1,0 +1,54 @@
+{
+  "trace": "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl_1000/verify/dhrystone/qemu_trace.jsonl",
+  "interval": 1000,
+  "pick_count": 1,
+  "rows": 1000,
+  "picked_windows": [
+    {
+      "interval_index": 0,
+      "start_index": 0,
+      "end_index_exclusive": 1000,
+      "commits": 1000,
+      "start_seq": 0,
+      "end_seq": 999,
+      "start_pc": 74456,
+      "end_pc": 84788,
+      "score_l1": 0.0,
+      "weight": 1.0,
+      "top_edges": [
+        {
+          "edge": "0000000000014b30->0000000000014b32",
+          "count": 47
+        },
+        {
+          "edge": "0000000000014b32->0000000000014b34",
+          "count": 47
+        },
+        {
+          "edge": "0000000000014b34->0000000000014b36",
+          "count": 47
+        },
+        {
+          "edge": "0000000000014b36->0000000000014b3a",
+          "count": 46
+        },
+        {
+          "edge": "0000000000014b3a->0000000000014b3e",
+          "count": 46
+        },
+        {
+          "edge": "0000000000014b3e->0000000000014b40",
+          "count": 46
+        },
+        {
+          "edge": "0000000000014b40->0000000000014b44",
+          "count": 46
+        },
+        {
+          "edge": "0000000000014b44->0000000000014b46",
+          "count": 46
+        }
+      ]
+    }
+  ]
+}

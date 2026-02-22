@@ -11,6 +11,7 @@ def build_janus_bcc_ooo_dec1(m: Circuit) -> None:
     f4_to_d1_stage_pc_f4 = m.input("f4_to_d1_stage_pc_f4", width=64)
     f4_to_d1_stage_window_f4 = m.input("f4_to_d1_stage_window_f4", width=64)
     f4_to_d1_stage_checkpoint_id_f4 = m.input("f4_to_d1_stage_checkpoint_id_f4", width=6)
+    f4_to_d1_stage_pkt_uid_f4 = m.input("f4_to_d1_stage_pkt_uid_f4", width=64)
 
     decode_d1 = m.instance(
         build_decode_stage,
@@ -21,6 +22,7 @@ def build_janus_bcc_ooo_dec1(m: Circuit) -> None:
         f4_pc=f4_to_d1_stage_pc_f4,
         f4_window=f4_to_d1_stage_window_f4,
         f4_checkpoint_id=f4_to_d1_stage_checkpoint_id_f4,
+        f4_pkt_uid=f4_to_d1_stage_pkt_uid_f4,
     )
 
     m.output("d1_to_d2_stage_valid_d1", decode_d1["valid0"])
@@ -34,3 +36,4 @@ def build_janus_bcc_ooo_dec1(m: Circuit) -> None:
     m.output("d1_to_d2_stage_imm_d1", decode_d1["imm0"])
     m.output("d1_to_d2_stage_insn_raw_d1", decode_d1["insn_raw0"])
     m.output("d1_to_d2_stage_checkpoint_id_d1", decode_d1["checkpoint_id0"])
+    m.output("d1_to_d2_stage_uop_uid_d1", decode_d1["uop_uid0"])

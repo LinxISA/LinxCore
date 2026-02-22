@@ -1,0 +1,109 @@
+{
+  "mode": "failfast",
+  "max_commits": 1000,
+  "qemu_trace": "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl_1000/verify/coremark/qemu_trace.jsonl",
+  "dut_trace": "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl_1000/verify/coremark/dut_trace.jsonl",
+  "qemu_rows": 33024,
+  "dut_rows": 1000,
+  "compared_rows": 356,
+  "qemu_meta_skipped": 11,
+  "dut_meta_skipped": 2,
+  "mismatch_count": 2,
+  "first_mismatch": {
+    "seq": 358,
+    "field": "pc",
+    "qemu": 88652,
+    "dut": 88690,
+    "qemu_pc": 88652,
+    "dut_pc": 88690,
+    "qemu_insn": 2048,
+    "dut_insn": 0,
+    "qemu_row": {
+      "seq": 367,
+      "pc": 88652,
+      "insn": 2048,
+      "len": 2,
+      "wb": {
+        "valid": 0,
+        "rd": 0,
+        "data": 0
+      },
+      "src0": {
+        "valid": 0,
+        "reg": 0,
+        "data": 0
+      },
+      "src1": {
+        "valid": 0,
+        "reg": 0,
+        "data": 0
+      },
+      "dst": {
+        "valid": 0,
+        "reg": 0,
+        "data": 0
+      },
+      "mem": {
+        "valid": 0,
+        "is_store": 0,
+        "addr": 0,
+        "wdata": 0,
+        "rdata": 0,
+        "size": 0
+      },
+      "trap": {
+        "valid": 0,
+        "cause": 0,
+        "arg0": 0
+      },
+      "next_pc": 88654
+    },
+    "dut_row": {
+      "seq": 358,
+      "pc": 88690,
+      "insn": 0,
+      "len": 2,
+      "wb": {
+        "valid": 0,
+        "rd": 63,
+        "data": 0
+      },
+      "src0": {
+        "valid": 0,
+        "reg": 63,
+        "data": 0
+      },
+      "src1": {
+        "valid": 0,
+        "reg": 63,
+        "data": 0
+      },
+      "dst": {
+        "valid": 0,
+        "reg": 63,
+        "data": 0
+      },
+      "mem": {
+        "valid": 0,
+        "is_store": 0,
+        "addr": 0,
+        "wdata": 0,
+        "rdata": 0,
+        "size": 0
+      },
+      "trap": {
+        "valid": 0,
+        "cause": 0,
+        "arg0": 0
+      },
+      "next_pc": 88692
+    }
+  },
+  "cbstop_counts": {
+    "qemu": 1,
+    "dut": 2,
+    "inflation_ratio": 2.0,
+    "warn": false,
+    "threshold": 8.0
+  }
+}

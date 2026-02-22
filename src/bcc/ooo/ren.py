@@ -14,6 +14,7 @@ def build_janus_bcc_ooo_ren(m: Circuit) -> None:
     d2_to_d3_stage_srcp_d2 = m.input("d2_to_d3_stage_srcp_d2", width=6)
     d2_to_d3_stage_imm_d2 = m.input("d2_to_d3_stage_imm_d2", width=64)
     d2_to_d3_stage_checkpoint_id_d2 = m.input("d2_to_d3_stage_checkpoint_id_d2", width=6)
+    d2_to_d3_stage_uop_uid_d2 = m.input("d2_to_d3_stage_uop_uid_d2", width=64)
 
     c = m.const
     has_dst_d3 = ~(d2_to_d3_stage_regdst_d2 == c(0, width=6))
@@ -28,3 +29,4 @@ def build_janus_bcc_ooo_ren(m: Circuit) -> None:
     m.output("d3_to_s1_stage_pdst_d3", pdst_d3)
     m.output("d3_to_s1_stage_imm_d3", d2_to_d3_stage_imm_d2)
     m.output("d3_to_s1_stage_checkpoint_id_d3", d2_to_d3_stage_checkpoint_id_d2)
+    m.output("d3_to_s1_stage_uop_uid_d3", d2_to_d3_stage_uop_uid_d2)

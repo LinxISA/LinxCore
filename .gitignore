@@ -12,6 +12,7 @@ tests/**/*.log
 tests/**/*.jsonl
 tests/**/*.memh
 tests/**/*.elf
+tests/**/qemu_trace.txt
 tests/**/*.sock
 tests/tmp_*/
 tests/benchmarks/
