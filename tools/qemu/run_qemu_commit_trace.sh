@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 
-QEMU_BIN="${QEMU_BIN:-/Users/zhoubot/qemu/build-linx/qemu-system-linx64}"
+QEMU_BIN="${QEMU_BIN:-${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
 ELF=""
 OUT=""
 MAX_SECONDS="${MAX_SECONDS:-0}"

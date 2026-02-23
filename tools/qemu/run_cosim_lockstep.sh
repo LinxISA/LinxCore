@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 PYC_ROOT="/Users/zhoubot/pyCircuit"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
@@ -23,7 +24,7 @@ BOOT_PC=""
 BOOT_SP="0x20000"
 TRIGGER_PC=""
 TERMINATE_PC=""
-QEMU_BIN="/Users/zhoubot/qemu/build-linx/qemu-system-linx64"
+QEMU_BIN="${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64"
 SOCKET_PATH="${ROOT_DIR}/tests/linxcore_cosim.sock"
 SNAPSHOT_PATH="${ROOT_DIR}/tests/linxcore_snapshot.bin"
 RUNNER_BIN="${ROOT_DIR}/cosim/linxcore_lockstep_runner"

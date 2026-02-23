@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 
 ELF=""
 MEMH=""
@@ -11,7 +12,7 @@ MAX_COMMITS="1000"
 TB_MAX_CYCLES="50000000"
 BOOT_PC=""
 BOOT_SP="${BOOT_SP:-0x0000000007fefff0}"
-QEMU_BIN="${QEMU_BIN:-/Users/zhoubot/qemu/build-linx/qemu-system-linx64}"
+QEMU_BIN="${QEMU_BIN:-${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
 QEMU_MAX_SECONDS="${QEMU_MAX_SECONDS:-0}"
 LLVM_READELF="${LLVM_READELF:-/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-readelf}"
 
