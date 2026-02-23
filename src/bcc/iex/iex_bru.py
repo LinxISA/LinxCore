@@ -24,7 +24,7 @@ def build_janus_bcc_iex_bru(m: Circuit) -> None:
     corr_take_q_e1 = m.out("corr_take_q_e1", clk=clk_i1, rst=rst_i1, width=1, init=c(0, width=1), en=c(1, width=1))
     pred_take_q_e1 = m.out("pred_take_q_e1", clk=clk_i1, rst=rst_i1, width=1, init=c(0, width=1), en=c(1, width=1))
 
-    setc_mismatch_e1 = in_valid_i1 & in_setc_valid_i1 & (~in_setc_value_i1.eq(pcb_to_bru_stage_lookup_pred_take_pcb))
+    setc_mismatch_e1 = in_valid_i1 & in_setc_valid_i1 & (~in_setc_value_i1.__eq__(pcb_to_bru_stage_lookup_pred_take_pcb))
     # Stage-authoritative mirror of backend behavior:
     # mismatch emits correction intent; architectural redirect remains boundary-authoritative.
     redirect_valid_e1 = c(0, width=1)

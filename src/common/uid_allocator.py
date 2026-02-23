@@ -29,13 +29,13 @@ def build_uid_allocator(m: Circuit) -> None:
     )
 
     fetch_base_top = next_uid_top.out()
-    template_base_top = fetch_base_top + fetch_alloc_count_i.zext(width=64)
-    replay_base_top = template_base_top + template_alloc_count_i.zext(width=64)
+    template_base_top = fetch_base_top + fetch_alloc_count_i
+    replay_base_top = template_base_top + template_alloc_count_i
 
     total_alloc_top = (
-        fetch_alloc_count_i.zext(width=64)
-        + template_alloc_count_i.zext(width=64)
-        + replay_alloc_count_i.zext(width=64)
+        fetch_alloc_count_i
+        + template_alloc_count_i
+        + replay_alloc_count_i
     )
     next_uid_n_top = next_uid_top.out() + total_alloc_top
     next_uid_top.set(next_uid_n_top)

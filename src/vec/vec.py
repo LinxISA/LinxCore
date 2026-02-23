@@ -30,7 +30,7 @@ def build_linxcore_vec(m: Circuit) -> None:
     count_down_vec = busy_vec.out() & wait_vec.out().ugt(c(0, width=3))
     wait_next_vec = count_down_vec._select_internal(wait_vec.out() - c(1, width=3), wait_next_vec)
 
-    rsp_fire_vec = busy_vec.out() & wait_vec.out().eq(c(0, width=3))
+    rsp_fire_vec = busy_vec.out() & wait_vec.out().__eq__(c(0, width=3))
     busy_next_vec = rsp_fire_vec._select_internal(c(0, width=1), busy_next_vec)
 
     busy_vec.set(busy_next_vec)

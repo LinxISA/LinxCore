@@ -31,8 +31,8 @@ def build_janus_bcc_ifu_f1(m: Circuit, *, btb_entries: int = 8) -> None:
     req_take_f1 = c(0, width=1)
 
     for i in range(btb_entries):
-        idx_hit_f1 = req_idx_f1.eq(c(i, width=idx_w))
-        tag_hit_f1 = btb_valid_f1[i].out() & btb_tag_f1[i].out().eq(f0_to_f1_stage_pc_f0)
+        idx_hit_f1 = req_idx_f1 == c(i, width=idx_w)
+        tag_hit_f1 = btb_valid_f1[i].out() & (btb_tag_f1[i].out() == f0_to_f1_stage_pc_f0)
         hit_f1 = idx_hit_f1 & tag_hit_f1
         req_hit_f1 = hit_f1._select_internal(c(1, width=1), req_hit_f1)
         req_tgt_f1 = hit_f1._select_internal(btb_tgt_f1[i].out(), req_tgt_f1)

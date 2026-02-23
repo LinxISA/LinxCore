@@ -54,8 +54,8 @@ def build_janus_bcc_bctrl_bisq(m: Circuit, *, depth: int = 16, idx_w: int = 4) -
 
     for i in range(depth):
         idx_bisq = c(i, width=idx_w)
-        do_enq_bisq = fire_enq_bisq & tail_bisq.out().eq(idx_bisq)
-        do_deq_bisq = fire_deq_bisq & head_bisq.out().eq(idx_bisq)
+        do_enq_bisq = fire_enq_bisq & tail_bisq.out().__eq__(idx_bisq)
+        do_deq_bisq = fire_deq_bisq & head_bisq.out().__eq__(idx_bisq)
 
         v_next_bisq = q_valid_bisq[i].out()
         v_next_bisq = do_deq_bisq._select_internal(c(0, width=1), v_next_bisq)

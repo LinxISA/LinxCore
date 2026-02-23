@@ -13,7 +13,7 @@ def build_janus_bcc_ooo_dec1(m: Circuit) -> None:
     f4_to_d1_stage_checkpoint_id_f4 = m.input("f4_to_d1_stage_checkpoint_id_f4", width=6)
     f4_to_d1_stage_pkt_uid_f4 = m.input("f4_to_d1_stage_pkt_uid_f4", width=64)
 
-    decode_d1 = m.instance(
+    decode_d1 = m.instance_auto(
         build_decode_stage,
         name="janus_dec1_decode",
         module_name="JanusBccOooDec1Decode",

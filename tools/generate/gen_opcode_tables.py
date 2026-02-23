@@ -7,8 +7,12 @@ from pathlib import Path
 
 from opcode_catalog_lib import CATEGORY_ORDER, load_catalog
 
+THIS_FILE = Path(__file__).resolve()
+LINXCORE_ROOT = THIS_FILE.parents[2]
+LINXISA_ROOT = THIS_FILE.parents[4]
 
-def _emit_py_ids(out: Path, symbol_to_id: OrderedDict[str, int], legacy_aliases: dict[str, str]) -> None:
+
+def _emit_py_ids(out: Path, symbol_to_id: OrderedDict[str, int]) -> None:
     lines: list[str] = []
     lines.append("from __future__ import annotations")
     lines.append("")
@@ -16,11 +20,7 @@ def _emit_py_ids(out: Path, symbol_to_id: OrderedDict[str, int], legacy_aliases:
     lines.append("")
     for sym, sid in symbol_to_id.items():
         lines.append(f"{sym} = {sid}")
-    lines.append("")
-    lines.append("# Legacy aliases kept for compatibility with existing LinxCore code.")
-    for alias, target in sorted(legacy_aliases.items()):
-        lines.append(f"{alias} = {target}")
-    all_syms = list(symbol_to_id.keys()) + sorted(legacy_aliases.keys())
+    all_syms = list(symbol_to_id.keys())
     lines.append("")
     lines.append("__all__ = [")
     for sym in all_syms:
@@ -166,9 +166,9 @@ def _emit_qemu_meta(out: Path, records: list[dict]) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Generate LinxCore and QEMU opcode id/meta files from catalog")
-    ap.add_argument("--catalog", default="/Users/zhoubot/LinxCore/src/common/opcode_catalog.yaml")
-    ap.add_argument("--linxcore-common", default="/Users/zhoubot/LinxCore/src/common")
-    ap.add_argument("--qemu-linx-dir", default="/Users/zhoubot/qemu/target/linx")
+    ap.add_argument("--catalog", default=str(LINXCORE_ROOT / "src/common/opcode_catalog.yaml"))
+    ap.add_argument("--linxcore-common", default=str(LINXCORE_ROOT / "src/common"))
+    ap.add_argument("--qemu-linx-dir", default=str(LINXISA_ROOT / "emulator/qemu/target/linx"))
     args = ap.parse_args()
 
     catalog = load_catalog(Path(args.catalog))
@@ -182,25 +182,11 @@ def main() -> int:
         if sym not in symbol_to_id:
             symbol_to_id[sym] = sid
 
-    legacy_aliases = {
-        # Keep existing backend dispatch/engine names stable.
-        "OP_BLOAD": "OP_BLOAD",
-        "OP_BSTORE": "OP_BSTORE",
-        # Legacy compression path helper.
-        "OP_C_SETRET": "OP_C_SETRET",
-        # Old BSTART naming used through backend/control paths.
-        "OP_BSTART_STD_CALL": "OP_BSTART_STD_CALL",
-        "OP_BSTART_STD_COND": "OP_BSTART_STD_COND",
-        "OP_BSTART_STD_DIRECT": "OP_BSTART_STD_DIRECT",
-        "OP_BSTART_STD_FALL": "OP_BSTART_STD_FALL",
-        "OP_C_BSTART_STD": "OP_C_BSTART_STD",
-    }
-
     lc_dir = Path(args.linxcore_common)
     qemu_dir = Path(args.qemu_linx_dir)
     lc_dir.mkdir(parents=True, exist_ok=True)
 
-    _emit_py_ids(lc_dir / "opcode_ids_gen.py", symbol_to_id, legacy_aliases)
+    _emit_py_ids(lc_dir / "opcode_ids_gen.py", symbol_to_id)
     _emit_py_meta(lc_dir / "opcode_meta_gen.py", records)
 
     qemu_dir.mkdir(parents=True, exist_ok=True)

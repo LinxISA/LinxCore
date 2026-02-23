@@ -6,7 +6,7 @@ from common.opcode_ids_gen import *  # noqa: F401,F403
 
 REG_INVALID = 0x3F
 
-# Bring-up stage IDs (legacy in-order core).
+# Bring-up stage IDs (in-order core).
 ST_IF = 0
 ST_ID = 1
 ST_EX = 2

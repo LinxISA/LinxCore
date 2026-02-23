@@ -51,29 +51,29 @@ def build_ftq_lite(m: Circuit, *, depth: int = 16) -> None:
 
     for i in range(depth):
         idx = c(i, width=w)
-        do_enq = enq_fire & tail.out().eq(idx)
-        do_deq = deq_fire & head.out().eq(idx)
+        do_enq = enq_fire & tail.out().__eq__(idx)
+        do_deq = deq_fire & head.out().__eq__(idx)
 
         v_next = q_valid[i].out()
-        v_next = do_deq.select(c(0, width=1), v_next)
-        v_next = do_enq.select(c(1, width=1), v_next)
-        v_next = flush_valid.select(c(0, width=1), v_next)
+        v_next = do_deq._select_internal(c(0, width=1), v_next)
+        v_next = do_enq._select_internal(c(1, width=1), v_next)
+        v_next = flush_valid._select_internal(c(0, width=1), v_next)
         q_valid[i].set(v_next)
 
         q_pc[i].set(enq_pc, when=do_enq)
         q_npc[i].set(enq_npc, when=do_enq)
         q_checkpoint[i].set(enq_checkpoint, when=do_enq)
 
-    head_next = deq_fire.select(head.out() + c(1, width=w), head.out())
-    tail_next = enq_fire.select(tail.out() + c(1, width=w), tail.out())
+    head_next = deq_fire._select_internal(head.out() + c(1, width=w), head.out())
+    tail_next = enq_fire._select_internal(tail.out() + c(1, width=w), tail.out())
 
     count_next = count.out()
-    count_next = (enq_fire & (~deq_fire)).select(count.out() + c(1, width=w + 1), count_next)
-    count_next = ((~enq_fire) & deq_fire).select(count.out() - c(1, width=w + 1), count_next)
+    count_next = (enq_fire & (~deq_fire))._select_internal(count.out() + c(1, width=w + 1), count_next)
+    count_next = ((~enq_fire) & deq_fire)._select_internal(count.out() - c(1, width=w + 1), count_next)
 
-    head.set(flush_valid.select(c(0, width=w), head_next))
-    tail.set(flush_valid.select(c(0, width=w), tail_next))
-    count.set(flush_valid.select(c(0, width=w + 1), count_next))
+    head.set(flush_valid._select_internal(c(0, width=w), head_next))
+    tail.set(flush_valid._select_internal(c(0, width=w), tail_next))
+    count.set(flush_valid._select_internal(c(0, width=w + 1), count_next))
 
     m.output("enq_ready", enq_ready)
     m.output("deq_valid", deq_valid)

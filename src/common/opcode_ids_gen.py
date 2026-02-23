@@ -306,16 +306,6 @@ OP_B_GE = 301
 OP_B_GEU = 302
 OP_J = 303
 
-# Legacy aliases kept for compatibility with existing LinxCore code.
-OP_BLOAD = OP_BLOAD
-OP_BSTART_STD_CALL = OP_BSTART_STD_CALL
-OP_BSTART_STD_COND = OP_BSTART_STD_COND
-OP_BSTART_STD_DIRECT = OP_BSTART_STD_DIRECT
-OP_BSTART_STD_FALL = OP_BSTART_STD_FALL
-OP_BSTORE = OP_BSTORE
-OP_C_BSTART_STD = OP_C_BSTART_STD
-OP_C_SETRET = OP_C_SETRET
-
 __all__ = [
     "OP_INVALID",
     "OP_BSTART_CUBE",
@@ -611,21 +601,4 @@ __all__ = [
     "OP_SC_W",
     "OP_TLB_IALL",
     "OP_UCVTF",
-    "OP_V_MUL",
-    "OP_V_FABS",
-    "OP_B_EQ",
-    "OP_B_NE",
-    "OP_B_LT",
-    "OP_B_LTU",
-    "OP_B_GE",
-    "OP_B_GEU",
-    "OP_J",
-    "OP_BLOAD",
-    "OP_BSTART_STD_CALL",
-    "OP_BSTART_STD_COND",
-    "OP_BSTART_STD_DIRECT",
-    "OP_BSTART_STD_FALL",
-    "OP_BSTORE",
-    "OP_C_BSTART_STD",
-    "OP_C_SETRET",
 ]

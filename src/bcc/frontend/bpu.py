@@ -30,17 +30,17 @@ def build_bpu_lite(m: Circuit, *, tag_bits: int = 8) -> None:
     req_tag = req_pc[2 : 2 + tag_bits]
     upd_tag = update_pc[2 : 2 + tag_bits]
 
-    tag_hit = last_valid.out() & req_tag.eq(last_tag.out())
+    tag_hit = last_valid.out() & req_tag.__eq__(last_tag.out())
     taken_conf = ctr.out()[1]
 
     pred_taken = req_valid & tag_hit & taken_conf
-    pred_target = pred_taken.select(last_tgt.out(), req_pc + c(8, width=64))
+    pred_target = pred_taken._select_internal(last_tgt.out(), req_pc + c(8, width=64))
 
     ctr_up = ctr.out()
-    ctr_up = (update_taken & ctr.out().ult(c(3, width=2))).select(ctr.out() + c(1, width=2), ctr_up)
-    ctr_up = ((~update_taken) & ctr.out().ugt(c(0, width=2))).select(ctr.out() - c(1, width=2), ctr_up)
+    ctr_up = (update_taken & ctr.out().ult(c(3, width=2)))._select_internal(ctr.out() + c(1, width=2), ctr_up)
+    ctr_up = ((~update_taken) & ctr.out().ugt(c(0, width=2)))._select_internal(ctr.out() - c(1, width=2), ctr_up)
 
-    last_valid.set(update_valid.select(c(1, width=1), last_valid.out()))
+    last_valid.set(update_valid._select_internal(c(1, width=1), last_valid.out()))
     last_tag.set(upd_tag, when=update_valid)
     last_tgt.set(update_target, when=update_valid)
     ctr.set(ctr_up, when=update_valid)

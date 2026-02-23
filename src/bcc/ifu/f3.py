@@ -45,7 +45,7 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     dec_bundle_f3 = decode_f4_bundle(m, f2_to_f3_stage_window_f2)
     dec0_f3 = dec_bundle_f3.dec[0]
     dec0_valid_f3 = f2_to_f3_stage_valid_f2 & dec_bundle_f3.valid[0]
-    dec0_pc_f3 = f2_to_f3_stage_pc_f2 + dec_bundle_f3.off_bytes[0].zext(width=64)
+    dec0_pc_f3 = f2_to_f3_stage_pc_f2 + dec_bundle_f3.off_bytes[0]
 
     op0_f3 = dec0_f3.op
     imm0_f3 = dec0_f3.imm
@@ -66,25 +66,13 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     bstart_kind_f3 = (op0_f3 == c(OP_BSTART_STD_DIRECT, width=12))._select_internal(c(BK_DIRECT, width=3), bstart_kind_f3)
     bstart_kind_f3 = (op0_f3 == c(OP_BSTART_STD_COND, width=12))._select_internal(c(BK_COND, width=3), bstart_kind_f3)
     bstart_kind_f3 = (op0_f3 == c(OP_BSTART_STD_CALL, width=12))._select_internal(c(BK_CALL, width=3), bstart_kind_f3)
-    brtype_f3 = imm0_f3.trunc(width=3)
-    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & brtype_f3.eq(c(2, width=3)))._select_internal(
-        c(BK_DIRECT, width=3), bstart_kind_f3
-    )
-    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & brtype_f3.eq(c(3, width=3)))._select_internal(
-        c(BK_COND, width=3), bstart_kind_f3
-    )
-    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & brtype_f3.eq(c(4, width=3)))._select_internal(
-        c(BK_CALL, width=3), bstart_kind_f3
-    )
-    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & brtype_f3.eq(c(5, width=3)))._select_internal(
-        c(BK_IND, width=3), bstart_kind_f3
-    )
-    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & brtype_f3.eq(c(6, width=3)))._select_internal(
-        c(BK_ICALL, width=3), bstart_kind_f3
-    )
-    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & brtype_f3.eq(c(7, width=3)))._select_internal(
-        c(BK_RET, width=3), bstart_kind_f3
-    )
+    brtype_f3 = imm0_f3[0:3]
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(2, width=3)))._select_internal(c(BK_DIRECT, width=3), bstart_kind_f3)
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(3, width=3)))._select_internal(c(BK_COND, width=3), bstart_kind_f3)
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(4, width=3)))._select_internal(c(BK_CALL, width=3), bstart_kind_f3)
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(5, width=3)))._select_internal(c(BK_IND, width=3), bstart_kind_f3)
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(6, width=3)))._select_internal(c(BK_ICALL, width=3), bstart_kind_f3)
+    bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(7, width=3)))._select_internal(c(BK_RET, width=3), bstart_kind_f3)
     bstart_target_f3 = c(0, width=64)
     bstart_target_f3 = (op0_f3 == c(OP_C_BSTART_COND, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
     bstart_target_f3 = (op0_f3 == c(OP_C_BSTART_DIRECT, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
@@ -93,11 +81,11 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     bstart_target_f3 = (op0_f3 == c(OP_BSTART_STD_CALL, width=12))._select_internal(dec0_pc_f3 + imm0_f3, bstart_target_f3)
     cond_pred_take_f3 = bstart_target_f3.ult(dec0_pc_f3)
     pred_take_f3 = c(1, width=1)
-    pred_take_f3 = bstart_kind_f3.eq(c(BK_COND, width=3))._select_internal(cond_pred_take_f3, pred_take_f3)
-    pred_take_f3 = bstart_kind_f3.eq(c(BK_RET, width=3))._select_internal(c(0, width=1), pred_take_f3)
+    pred_take_f3 = (bstart_kind_f3 == c(BK_COND, width=3))._select_internal(cond_pred_take_f3, pred_take_f3)
+    pred_take_f3 = (bstart_kind_f3 == c(BK_RET, width=3))._select_internal(c(0, width=1), pred_take_f3)
     bstart_meta_valid_f3 = dec0_valid_f3 & is_bstart0_f3
 
-    ibuf_f3 = m.instance(
+    ibuf_f3 = m.instance_auto(
         build_ibuffer,
         name="janus_f3_ibuffer",
         module_name="JanusBccIfuF3IBuffer",
@@ -142,3 +130,16 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     m.output("ib_head_uid_f3", ibuf_f3["out_pkt_uid"])
     m.output("ib_valid_f3", ibuf_f3["out_valid"])
     m.output("f3_one_f3", c(1, width=1))
+
+    # Per-slot visibility for pipeview continuity (F3/IB -> OOO uid namespace).
+    ib_bundle_f3 = decode_f4_bundle(m, ibuf_f3["out_window"])
+    for slot in range(4):
+        slot_pc_f3 = ibuf_f3["out_pc"] + ib_bundle_f3.off_bytes[slot]
+        slot_uid_f3 = (ibuf_f3["out_pkt_uid"].shl(amount=3)) | c(slot, width=64)
+        slot_valid_f3 = ibuf_f3["out_valid"] & (c(1, width=1) if slot == 0 else c(0, width=1)) & ib_bundle_f3.valid[slot]
+        m.output(f"f3_slot_valid{slot}_f3", slot_valid_f3)
+        m.output(f"f3_slot_pc{slot}_f3", slot_pc_f3)
+        m.output(f"f3_slot_uop_uid{slot}_f3", slot_uid_f3)
+        m.output(f"ib_slot_valid{slot}_ib", slot_valid_f3)
+        m.output(f"ib_slot_pc{slot}_ib", slot_pc_f3)
+        m.output(f"ib_slot_uop_uid{slot}_ib", slot_uid_f3)

@@ -1,32 +1,35 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, function, module
 
 
-def resolve_source_tags(*, m, mux_by_uindex, smap_live, srcl_areg, srcr_areg, srcp_areg, reg_invalid: int, tag0):
+@function
+def resolve_source_tags(m: Circuit, *, mux_by_uindex, smap_live, srcl_areg, srcr_areg, srcp_areg, reg_invalid: int, tag0):
     c = m.const
     srcl_tag = mux_by_uindex(m, idx=srcl_areg, items=smap_live, default=tag0)
     srcr_tag = mux_by_uindex(m, idx=srcr_areg, items=smap_live, default=tag0)
     srcp_tag = mux_by_uindex(m, idx=srcp_areg, items=smap_live, default=tag0)
-    srcl_tag = srcl_areg.eq(c(reg_invalid, width=6)).select(tag0, srcl_tag)
-    srcr_tag = srcr_areg.eq(c(reg_invalid, width=6)).select(tag0, srcr_tag)
-    srcp_tag = srcp_areg.eq(c(reg_invalid, width=6)).select(tag0, srcp_tag)
+    srcl_tag = srcl_areg.__eq__(c(reg_invalid, width=6))._select_internal(tag0, srcl_tag)
+    srcr_tag = srcr_areg.__eq__(c(reg_invalid, width=6))._select_internal(tag0, srcr_tag)
+    srcp_tag = srcp_areg.__eq__(c(reg_invalid, width=6))._select_internal(tag0, srcp_tag)
     return srcl_tag, srcr_tag, srcp_tag
 
 
-def _mux_by_uindex(*, m: Circuit, idx, items: list, default):
+@function
+def _mux_by_uindex(m: Circuit, *, idx, items: list, default):
     v = default
     c = m.const
     for i, it in enumerate(items):
-        v = idx.eq(c(i, width=idx.width)).select(it, v)
+        v = idx.__eq__(c(i, width=idx.width))._select_internal(it, v)
     return v
 
 
-def _onehot_from_tag(*, m: Circuit, tag, width: int, tag_width: int):
+@function
+def _onehot_from_tag(m: Circuit, *, tag, width: int, tag_width: int):
     c = m.const
     out = c(0, width=width)
     for i in range(width):
-        out = tag.eq(c(i, width=tag_width)).select(c(1 << i, width=width), out)
+        out = tag.__eq__(c(i, width=tag_width))._select_internal(c(1 << i, width=width), out)
     return out
 
 
@@ -79,9 +82,9 @@ def build_rename_stage(
         srcl_tag = _mux_by_uindex(m=m, idx=srcl_areg, items=smap_live, default=c(0, width=ptag_w))
         srcr_tag = _mux_by_uindex(m=m, idx=srcr_areg, items=smap_live, default=c(0, width=ptag_w))
         srcp_tag = _mux_by_uindex(m=m, idx=srcp_areg, items=smap_live, default=c(0, width=ptag_w))
-        srcl_tag = srcl_areg.eq(c(reg_invalid, width=6)).select(c(0, width=ptag_w), srcl_tag)
-        srcr_tag = srcr_areg.eq(c(reg_invalid, width=6)).select(c(0, width=ptag_w), srcr_tag)
-        srcp_tag = srcp_areg.eq(c(reg_invalid, width=6)).select(c(0, width=ptag_w), srcp_tag)
+        srcl_tag = srcl_areg.__eq__(c(reg_invalid, width=6))._select_internal(c(0, width=ptag_w), srcl_tag)
+        srcr_tag = srcr_areg.__eq__(c(reg_invalid, width=6))._select_internal(c(0, width=ptag_w), srcr_tag)
+        srcp_tag = srcp_areg.__eq__(c(reg_invalid, width=6))._select_internal(c(0, width=ptag_w), srcp_tag)
         srcl_tags.append(srcl_tag)
         srcr_tags.append(srcr_tag)
         srcp_tags.append(srcp_tag)
@@ -100,29 +103,29 @@ def build_rename_stage(
             nxt = smap_live[i]
 
             if 24 <= i <= 31:
-                nxt = (lane_fire & disp_is_start_marker[slot]).select(c(0, width=ptag_w), nxt)
+                nxt = (lane_fire & disp_is_start_marker[slot])._select_internal(c(0, width=ptag_w), nxt)
 
             if i == 24:
-                nxt = (lane_fire & disp_push_t[slot]).select(disp_pdsts[slot], nxt)
+                nxt = (lane_fire & disp_push_t[slot])._select_internal(disp_pdsts[slot], nxt)
             if i == 25:
-                nxt = (lane_fire & disp_push_t[slot]).select(t0_old, nxt)
+                nxt = (lane_fire & disp_push_t[slot])._select_internal(t0_old, nxt)
             if i == 26:
-                nxt = (lane_fire & disp_push_t[slot]).select(t1_old, nxt)
+                nxt = (lane_fire & disp_push_t[slot])._select_internal(t1_old, nxt)
             if i == 27:
-                nxt = (lane_fire & disp_push_t[slot]).select(t2_old, nxt)
+                nxt = (lane_fire & disp_push_t[slot])._select_internal(t2_old, nxt)
 
             if i == 28:
-                nxt = (lane_fire & disp_push_u[slot]).select(disp_pdsts[slot], nxt)
+                nxt = (lane_fire & disp_push_u[slot])._select_internal(disp_pdsts[slot], nxt)
             if i == 29:
-                nxt = (lane_fire & disp_push_u[slot]).select(u0_old, nxt)
+                nxt = (lane_fire & disp_push_u[slot])._select_internal(u0_old, nxt)
             if i == 30:
-                nxt = (lane_fire & disp_push_u[slot]).select(u1_old, nxt)
+                nxt = (lane_fire & disp_push_u[slot])._select_internal(u1_old, nxt)
             if i == 31:
-                nxt = (lane_fire & disp_push_u[slot]).select(u2_old, nxt)
+                nxt = (lane_fire & disp_push_u[slot])._select_internal(u2_old, nxt)
 
             if i < 24:
-                dst_match = disp_regdsts[slot].eq(c(i, width=6))
-                nxt = (lane_fire & disp_dst_is_gpr[slot] & dst_match).select(disp_pdsts[slot], nxt)
+                dst_match = disp_regdsts[slot].__eq__(c(i, width=6))
+                nxt = (lane_fire & disp_dst_is_gpr[slot] & dst_match)._select_internal(disp_pdsts[slot], nxt)
 
             if i == 0:
                 nxt = c(0, width=ptag_w)
@@ -187,33 +190,33 @@ def build_commit_rename_stage(
         if_free = commit_is_bstop[slot]
         for old in [old_t0, old_t1, old_t2, old_t3, old_u0, old_u1, old_u2, old_u3]:
             oh = _onehot_from_tag(m=m, tag=old, width=pregs, tag_width=ptag_w)
-            free_live = (if_free & (~old.eq(tag0))).select(free_live | oh, free_live)
+            free_live = (if_free & (~old.__eq__(tag0)))._select_internal(free_live | oh, free_live)
         for i in range(24, 32):
-            cmap_live[i] = if_free.select(tag0, cmap_live[i])
+            cmap_live[i] = if_free._select_internal(tag0, cmap_live[i])
 
-        push_t = fire & dk.eq(c(2, width=2))
+        push_t = fire & dk.__eq__(c(2, width=2))
         t3_oh = _onehot_from_tag(m=m, tag=old_t3, width=pregs, tag_width=ptag_w)
-        free_live = (push_t & (~old_t3.eq(tag0))).select(free_live | t3_oh, free_live)
-        cmap_live[24] = push_t.select(pdst, cmap_live[24])
-        cmap_live[25] = push_t.select(old_t0, cmap_live[25])
-        cmap_live[26] = push_t.select(old_t1, cmap_live[26])
-        cmap_live[27] = push_t.select(old_t2, cmap_live[27])
+        free_live = (push_t & (~old_t3.__eq__(tag0)))._select_internal(free_live | t3_oh, free_live)
+        cmap_live[24] = push_t._select_internal(pdst, cmap_live[24])
+        cmap_live[25] = push_t._select_internal(old_t0, cmap_live[25])
+        cmap_live[26] = push_t._select_internal(old_t1, cmap_live[26])
+        cmap_live[27] = push_t._select_internal(old_t2, cmap_live[27])
 
-        push_u = fire & dk.eq(c(3, width=2))
+        push_u = fire & dk.__eq__(c(3, width=2))
         u3_oh = _onehot_from_tag(m=m, tag=old_u3, width=pregs, tag_width=ptag_w)
-        free_live = (push_u & (~old_u3.eq(tag0))).select(free_live | u3_oh, free_live)
-        cmap_live[28] = push_u.select(pdst, cmap_live[28])
-        cmap_live[29] = push_u.select(old_u0, cmap_live[29])
-        cmap_live[30] = push_u.select(old_u1, cmap_live[30])
-        cmap_live[31] = push_u.select(old_u2, cmap_live[31])
+        free_live = (push_u & (~old_u3.__eq__(tag0)))._select_internal(free_live | u3_oh, free_live)
+        cmap_live[28] = push_u._select_internal(pdst, cmap_live[28])
+        cmap_live[29] = push_u._select_internal(old_u0, cmap_live[29])
+        cmap_live[30] = push_u._select_internal(old_u1, cmap_live[30])
+        cmap_live[31] = push_u._select_internal(old_u2, cmap_live[31])
 
-        is_gpr = fire & dk.eq(c(1, width=2))
+        is_gpr = fire & dk.__eq__(c(1, width=2))
         for i in range(24):
-            hit = is_gpr & areg.eq(c(i, width=6))
+            hit = is_gpr & areg.__eq__(c(i, width=6))
             old = cmap_live[i]
             old_oh = _onehot_from_tag(m=m, tag=old, width=pregs, tag_width=ptag_w)
-            free_live = (hit & (~old.eq(tag0))).select(free_live | old_oh, free_live)
-            cmap_live[i] = hit.select(pdst, cmap_live[i])
+            free_live = (hit & (~old.__eq__(tag0)))._select_internal(free_live | old_oh, free_live)
+            cmap_live[i] = hit._select_internal(pdst, cmap_live[i])
 
         cmap_live[0] = tag0
 

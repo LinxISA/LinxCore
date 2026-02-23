@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from functools import partial
 from types import SimpleNamespace
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, function, module
 
 from .helpers import mask_bit
 from .lsu import is_load_op, is_store_op
 
 
-def pick_oldest(*, m, p, consts, can_issue: list, iq, width: int, sub_head):
+@function
+def pick_oldest(m: Circuit, *, p, consts, can_issue: list, iq, width: int, sub_head):
     c = m.const
     issue_valids = []
     issue_idxs = []
@@ -20,20 +22,21 @@ def pick_oldest(*, m, p, consts, can_issue: list, iq, width: int, sub_head):
             cidx = c(i, width=p.iq_w)
             exclude = consts.zero1
             for prev in range(slot):
-                exclude = exclude | (issue_valids[prev] & issue_idxs[prev].eq(cidx))
+                exclude = exclude | (issue_valids[prev] & issue_idxs[prev].__eq__(cidx))
             cand = can_issue[i] & (~exclude)
             age = iq.rob[i].out() + sub_head
             better = (~v) | age.ult(best_age)
             take = cand & better
-            v = take.select(consts.one1, v)
-            idx = take.select(cidx, idx)
-            best_age = take.select(age, best_age)
+            v = take._select_internal(consts.one1, v)
+            idx = take._select_internal(cidx, idx)
+            best_age = take._select_internal(age, best_age)
         issue_valids.append(v)
         issue_idxs.append(idx)
     return issue_valids, issue_idxs
 
 
-def pick_oldest_from_arrays(*, m, p, consts, can_issue: list, rob_tags: list, width: int, sub_head):
+@function
+def pick_oldest_from_arrays(m: Circuit, *, p, consts, can_issue: list, rob_tags: list, width: int, sub_head):
     c = m.const
     issue_valids = []
     issue_idxs = []
@@ -45,14 +48,14 @@ def pick_oldest_from_arrays(*, m, p, consts, can_issue: list, rob_tags: list, wi
             cidx = c(i, width=p.iq_w)
             exclude = consts.zero1
             for prev in range(slot):
-                exclude = exclude | (issue_valids[prev] & issue_idxs[prev].eq(cidx))
+                exclude = exclude | (issue_valids[prev] & issue_idxs[prev].__eq__(cidx))
             cand = can_issue[i] & (~exclude)
             age = rob_tags[i] + sub_head
             better = (~v) | age.ult(best_age)
             take = cand & better
-            v = take.select(consts.one1, v)
-            idx = take.select(cidx, idx)
-            best_age = take.select(age, best_age)
+            v = take._select_internal(consts.one1, v)
+            idx = take._select_internal(cidx, idx)
+            best_age = take._select_internal(age, best_age)
         issue_valids.append(v)
         issue_idxs.append(idx)
     return issue_valids, issue_idxs
@@ -138,9 +141,9 @@ def build_issue_stage(
         sl_rdy = mask_bit(m, mask=ready_mask, idx=iq_lsu_srcl[i], width=pregs)
         sr_rdy = mask_bit(m, mask=ready_mask, idx=iq_lsu_srcr[i], width=pregs)
         sp_rdy = mask_bit(m, mask=ready_mask, idx=iq_lsu_srcp[i], width=pregs)
-        op_is = lambda x, *codes: _op_is(m, x, *codes)
-        is_load_i = is_load_op(iq_lsu_op[i], op_is)
-        is_store_i = is_store_op(iq_lsu_op[i], op_is)
+        op_is = partial(_op_is, m)
+        is_load_i = is_load_op(m, iq_lsu_op[i], op_is)
+        is_store_i = is_store_op(m, iq_lsu_op[i], op_is)
         ready = iq_lsu_valid[i] & sl_rdy & sr_rdy & sp_rdy
         lsu_is_load.append(is_load_i)
         lsu_is_store.append(is_store_i)
@@ -210,11 +213,12 @@ def build_issue_stage(
     m.output("sub_head", sub_head)
 
 
+@function
 def _op_is(m: Circuit, op, *codes: int):
     c = m.const
     v = c(0, width=1)
     for code in codes:
-        v = v | op.eq(c(code, width=12))
+        v = v | op.__eq__(c(code, width=12))
     return v
 
 
@@ -299,16 +303,16 @@ def build_iq_update_stage(
 
         issue_clear = c(0, width=1)
         for slot in range(issue_w):
-            issue_clear = issue_clear | (issue_fire[slot] & issue_idx[slot].eq(idx))
+            issue_clear = issue_clear | (issue_fire[slot] & issue_idx[slot].__eq__(idx))
 
         disp_alloc_hit = c(0, width=1)
         for slot in range(dispatch_w):
-            disp_alloc_hit = disp_alloc_hit | (disp_fire[slot] & disp_to[slot] & alloc_idx[slot].eq(idx))
+            disp_alloc_hit = disp_alloc_hit | (disp_fire[slot] & disp_to[slot] & alloc_idx[slot].__eq__(idx))
 
         v_next = iq_valid[i]
-        v_next = do_flush.select(c(0, width=1), v_next)
-        v_next = issue_clear.select(c(0, width=1), v_next)
-        v_next = disp_alloc_hit.select(c(1, width=1), v_next)
+        v_next = do_flush._select_internal(c(0, width=1), v_next)
+        v_next = issue_clear._select_internal(c(0, width=1), v_next)
+        v_next = disp_alloc_hit._select_internal(c(1, width=1), v_next)
 
         robn = iq_rob[i]
         opn = iq_op[i]
@@ -322,18 +326,18 @@ def build_iq_update_stage(
         pdn = iq_pdst[i]
         hdn = iq_has_dst[i]
         for slot in range(dispatch_w):
-            hit = disp_fire[slot] & disp_to[slot] & alloc_idx[slot].eq(idx)
-            robn = hit.select(disp_rob_idx[slot], robn)
-            opn = hit.select(disp_op[slot], opn)
-            pcn = hit.select(disp_pc[slot], pcn)
-            imn = hit.select(disp_imm[slot], imn)
-            sln = hit.select(disp_srcl_tag[slot], sln)
-            srn = hit.select(disp_srcr_tag[slot], srn)
-            stn = hit.select(disp_srcr_type[slot], stn)
-            shn = hit.select(disp_shamt[slot], shn)
-            spn = hit.select(disp_srcp_tag[slot], spn)
-            pdn = hit.select(disp_pdst[slot], pdn)
-            hdn = hit.select(disp_need_pdst[slot], hdn)
+            hit = disp_fire[slot] & disp_to[slot] & alloc_idx[slot].__eq__(idx)
+            robn = hit._select_internal(disp_rob_idx[slot], robn)
+            opn = hit._select_internal(disp_op[slot], opn)
+            pcn = hit._select_internal(disp_pc[slot], pcn)
+            imn = hit._select_internal(disp_imm[slot], imn)
+            sln = hit._select_internal(disp_srcl_tag[slot], sln)
+            srn = hit._select_internal(disp_srcr_tag[slot], srn)
+            stn = hit._select_internal(disp_srcr_type[slot], stn)
+            shn = hit._select_internal(disp_shamt[slot], shn)
+            spn = hit._select_internal(disp_srcp_tag[slot], spn)
+            pdn = hit._select_internal(disp_pdst[slot], pdn)
+            hdn = hit._select_internal(disp_need_pdst[slot], hdn)
 
         m.output(f"iq_valid_next{i}", v_next)
         m.output(f"iq_rob_next{i}", robn)

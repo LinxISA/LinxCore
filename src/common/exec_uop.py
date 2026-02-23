@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pycircuit import Circuit, Wire, jit_inline
+from pycircuit import Circuit, Wire, function
 
 from .isa import (
     OP_ADDTPC,
@@ -208,149 +208,149 @@ def exec_uop_comb(
     srcp_val = srcp_val.out()
 
     # --- op predicates ---
-    op_c_bstart_std = op.eq(OP_C_BSTART_STD)
-    op_c_bstart_cond = op.eq(OP_C_BSTART_COND)
-    op_c_bstart_direct = op.eq(OP_C_BSTART_DIRECT)
-    op_bstart_std_fall = op.eq(OP_BSTART_STD_FALL)
-    op_bstart_std_direct = op.eq(OP_BSTART_STD_DIRECT)
-    op_bstart_std_cond = op.eq(OP_BSTART_STD_COND)
-    op_bstart_std_call = op.eq(OP_BSTART_STD_CALL)
-    op_fentry = op.eq(OP_FENTRY)
-    op_fexit = op.eq(OP_FEXIT)
-    op_fret_ra = op.eq(OP_FRET_RA)
-    op_fret_stk = op.eq(OP_FRET_STK)
-    op_c_movr = op.eq(OP_C_MOVR)
-    op_c_movi = op.eq(OP_C_MOVI)
-    op_c_setret = op.eq(OP_C_SETRET)
-    op_c_setc_eq = op.eq(OP_C_SETC_EQ)
-    op_c_setc_ne = op.eq(OP_C_SETC_NE)
-    op_c_setc_tgt = op.eq(OP_C_SETC_TGT)
-    op_setret = op.eq(OP_SETRET)
-    op_addtpc = op.eq(OP_ADDTPC)
-    op_lui = op.eq(OP_LUI)
-    op_add = op.eq(OP_ADD)
-    op_sub = op.eq(OP_SUB)
-    op_and = op.eq(OP_AND)
-    op_or = op.eq(OP_OR)
-    op_xor = op.eq(OP_XOR)
-    op_addi = op.eq(OP_ADDI)
-    op_subi = op.eq(OP_SUBI)
-    op_andi = op.eq(OP_ANDI)
-    op_ori = op.eq(OP_ORI)
-    op_addiw = op.eq(OP_ADDIW)
-    op_subiw = op.eq(OP_SUBIW)
-    op_andiw = op.eq(OP_ANDIW)
-    op_oriw = op.eq(OP_ORIW)
-    op_xori = op.eq(OP_XORI)
-    op_xoriw = op.eq(OP_XORIW)
-    op_mul = op.eq(OP_MUL)
-    op_mulw = op.eq(OP_MULW)
-    op_madd = op.eq(OP_MADD)
-    op_maddw = op.eq(OP_MADDW)
-    op_div = op.eq(OP_DIV)
-    op_divu = op.eq(OP_DIVU)
-    op_divw = op.eq(OP_DIVW)
-    op_divuw = op.eq(OP_DIVUW)
-    op_rem = op.eq(OP_REM)
-    op_remu = op.eq(OP_REMU)
-    op_remw = op.eq(OP_REMW)
-    op_remuw = op.eq(OP_REMUW)
-    op_sll = op.eq(OP_SLL)
-    op_srl = op.eq(OP_SRL)
-    op_sra = op.eq(OP_SRA)
-    op_slli = op.eq(OP_SLLI)
-    op_srli = op.eq(OP_SRLI)
-    op_srai = op.eq(OP_SRAI)
-    op_slliw = op.eq(OP_SLLIW)
-    op_sllw = op.eq(OP_SLLW)
-    op_srlw = op.eq(OP_SRLW)
-    op_sraw = op.eq(OP_SRAW)
-    op_sraiw = op.eq(OP_SRAIW)
-    op_srliw = op.eq(OP_SRLIW)
-    op_bxs = op.eq(OP_BXS)
-    op_bxu = op.eq(OP_BXU)
-    op_addw = op.eq(OP_ADDW)
-    op_subw = op.eq(OP_SUBW)
-    op_orw = op.eq(OP_ORW)
-    op_andw = op.eq(OP_ANDW)
-    op_xorw = op.eq(OP_XORW)
-    op_cmp_eq = op.eq(OP_CMP_EQ)
-    op_cmp_ne = op.eq(OP_CMP_NE)
-    op_cmp_lt = op.eq(OP_CMP_LT)
-    op_cmp_eqi = op.eq(OP_CMP_EQI)
-    op_cmp_nei = op.eq(OP_CMP_NEI)
-    op_cmp_andi = op.eq(OP_CMP_ANDI)
-    op_cmp_ori = op.eq(OP_CMP_ORI)
-    op_cmp_lti = op.eq(OP_CMP_LTI)
-    op_cmp_ltu = op.eq(OP_CMP_LTU)
-    op_cmp_ltui = op.eq(OP_CMP_LTUI)
-    op_cmp_gei = op.eq(OP_CMP_GEI)
-    op_cmp_geui = op.eq(OP_CMP_GEUI)
-    op_feq = op.eq(OP_FEQ)
-    op_flt = op.eq(OP_FLT)
-    op_fge = op.eq(OP_FGE)
-    op_setc_geui = op.eq(OP_SETC_GEUI)
-    op_setc_eq = op.eq(OP_SETC_EQ)
-    op_setc_ne = op.eq(OP_SETC_NE)
-    op_setc_and = op.eq(OP_SETC_AND)
-    op_setc_or = op.eq(OP_SETC_OR)
-    op_setc_lt = op.eq(OP_SETC_LT)
-    op_setc_ltu = op.eq(OP_SETC_LTU)
-    op_setc_ge = op.eq(OP_SETC_GE)
-    op_setc_geu = op.eq(OP_SETC_GEU)
-    op_setc_eqi = op.eq(OP_SETC_EQI)
-    op_setc_nei = op.eq(OP_SETC_NEI)
-    op_setc_andi = op.eq(OP_SETC_ANDI)
-    op_setc_ori = op.eq(OP_SETC_ORI)
-    op_setc_lti = op.eq(OP_SETC_LTI)
-    op_setc_gei = op.eq(OP_SETC_GEI)
-    op_setc_ltui = op.eq(OP_SETC_LTUI)
-    op_csel = op.eq(OP_CSEL)
-    op_hl_lui = op.eq(OP_HL_LUI)
-    op_hl_lb_pcr = op.eq(OP_HL_LB_PCR)
-    op_hl_lbu_pcr = op.eq(OP_HL_LBU_PCR)
-    op_hl_lh_pcr = op.eq(OP_HL_LH_PCR)
-    op_hl_lhu_pcr = op.eq(OP_HL_LHU_PCR)
-    op_hl_lw_pcr = op.eq(OP_HL_LW_PCR)
-    op_hl_lwu_pcr = op.eq(OP_HL_LWU_PCR)
-    op_hl_ld_pcr = op.eq(OP_HL_LD_PCR)
-    op_hl_sb_pcr = op.eq(OP_HL_SB_PCR)
-    op_hl_sh_pcr = op.eq(OP_HL_SH_PCR)
-    op_hl_sw_pcr = op.eq(OP_HL_SW_PCR)
-    op_hl_sd_pcr = op.eq(OP_HL_SD_PCR)
-    op_lwi = op.eq(OP_LWI)
-    op_c_lwi = op.eq(OP_C_LWI)
-    op_lbi = op.eq(OP_LBI)
-    op_lbui = op.eq(OP_LBUI)
-    op_lhi = op.eq(OP_LHI)
-    op_lhui = op.eq(OP_LHUI)
-    op_lwui = op.eq(OP_LWUI)
-    op_lb = op.eq(OP_LB)
-    op_lbu = op.eq(OP_LBU)
-    op_lh = op.eq(OP_LH)
-    op_lhu = op.eq(OP_LHU)
-    op_lw = op.eq(OP_LW)
-    op_lwu = op.eq(OP_LWU)
-    op_ld = op.eq(OP_LD)
-    op_ldi = op.eq(OP_LDI)
-    op_c_add = op.eq(OP_C_ADD)
-    op_c_addi = op.eq(OP_C_ADDI)
-    op_c_sub = op.eq(OP_C_SUB)
-    op_c_and = op.eq(OP_C_AND)
-    op_c_or = op.eq(OP_C_OR)
-    op_c_ldi = op.eq(OP_C_LDI)
-    op_sbi = op.eq(OP_SBI)
-    op_shi = op.eq(OP_SHI)
-    op_swi = op.eq(OP_SWI)
-    op_c_swi = op.eq(OP_C_SWI)
-    op_c_sdi = op.eq(OP_C_SDI)
-    op_sb = op.eq(OP_SB)
-    op_sh = op.eq(OP_SH)
-    op_sw = op.eq(OP_SW)
-    op_sd = op.eq(OP_SD)
-    op_c_sext_w = op.eq(OP_C_SEXT_W)
-    op_c_zext_w = op.eq(OP_C_ZEXT_W)
-    op_sdi = op.eq(OP_SDI)
+    op_c_bstart_std = op.__eq__(OP_C_BSTART_STD)
+    op_c_bstart_cond = op.__eq__(OP_C_BSTART_COND)
+    op_c_bstart_direct = op.__eq__(OP_C_BSTART_DIRECT)
+    op_bstart_std_fall = op.__eq__(OP_BSTART_STD_FALL)
+    op_bstart_std_direct = op.__eq__(OP_BSTART_STD_DIRECT)
+    op_bstart_std_cond = op.__eq__(OP_BSTART_STD_COND)
+    op_bstart_std_call = op.__eq__(OP_BSTART_STD_CALL)
+    op_fentry = op.__eq__(OP_FENTRY)
+    op_fexit = op.__eq__(OP_FEXIT)
+    op_fret_ra = op.__eq__(OP_FRET_RA)
+    op_fret_stk = op.__eq__(OP_FRET_STK)
+    op_c_movr = op.__eq__(OP_C_MOVR)
+    op_c_movi = op.__eq__(OP_C_MOVI)
+    op_c_setret = op.__eq__(OP_C_SETRET)
+    op_c_setc_eq = op.__eq__(OP_C_SETC_EQ)
+    op_c_setc_ne = op.__eq__(OP_C_SETC_NE)
+    op_c_setc_tgt = op.__eq__(OP_C_SETC_TGT)
+    op_setret = op.__eq__(OP_SETRET)
+    op_addtpc = op.__eq__(OP_ADDTPC)
+    op_lui = op.__eq__(OP_LUI)
+    op_add = op.__eq__(OP_ADD)
+    op_sub = op.__eq__(OP_SUB)
+    op_and = op.__eq__(OP_AND)
+    op_or = op.__eq__(OP_OR)
+    op_xor = op.__eq__(OP_XOR)
+    op_addi = op.__eq__(OP_ADDI)
+    op_subi = op.__eq__(OP_SUBI)
+    op_andi = op.__eq__(OP_ANDI)
+    op_ori = op.__eq__(OP_ORI)
+    op_addiw = op.__eq__(OP_ADDIW)
+    op_subiw = op.__eq__(OP_SUBIW)
+    op_andiw = op.__eq__(OP_ANDIW)
+    op_oriw = op.__eq__(OP_ORIW)
+    op_xori = op.__eq__(OP_XORI)
+    op_xoriw = op.__eq__(OP_XORIW)
+    op_mul = op.__eq__(OP_MUL)
+    op_mulw = op.__eq__(OP_MULW)
+    op_madd = op.__eq__(OP_MADD)
+    op_maddw = op.__eq__(OP_MADDW)
+    op_div = op.__eq__(OP_DIV)
+    op_divu = op.__eq__(OP_DIVU)
+    op_divw = op.__eq__(OP_DIVW)
+    op_divuw = op.__eq__(OP_DIVUW)
+    op_rem = op.__eq__(OP_REM)
+    op_remu = op.__eq__(OP_REMU)
+    op_remw = op.__eq__(OP_REMW)
+    op_remuw = op.__eq__(OP_REMUW)
+    op_sll = op.__eq__(OP_SLL)
+    op_srl = op.__eq__(OP_SRL)
+    op_sra = op.__eq__(OP_SRA)
+    op_slli = op.__eq__(OP_SLLI)
+    op_srli = op.__eq__(OP_SRLI)
+    op_srai = op.__eq__(OP_SRAI)
+    op_slliw = op.__eq__(OP_SLLIW)
+    op_sllw = op.__eq__(OP_SLLW)
+    op_srlw = op.__eq__(OP_SRLW)
+    op_sraw = op.__eq__(OP_SRAW)
+    op_sraiw = op.__eq__(OP_SRAIW)
+    op_srliw = op.__eq__(OP_SRLIW)
+    op_bxs = op.__eq__(OP_BXS)
+    op_bxu = op.__eq__(OP_BXU)
+    op_addw = op.__eq__(OP_ADDW)
+    op_subw = op.__eq__(OP_SUBW)
+    op_orw = op.__eq__(OP_ORW)
+    op_andw = op.__eq__(OP_ANDW)
+    op_xorw = op.__eq__(OP_XORW)
+    op_cmp_eq = op.__eq__(OP_CMP_EQ)
+    op_cmp_ne = op.__eq__(OP_CMP_NE)
+    op_cmp_lt = op.__eq__(OP_CMP_LT)
+    op_cmp_eqi = op.__eq__(OP_CMP_EQI)
+    op_cmp_nei = op.__eq__(OP_CMP_NEI)
+    op_cmp_andi = op.__eq__(OP_CMP_ANDI)
+    op_cmp_ori = op.__eq__(OP_CMP_ORI)
+    op_cmp_lti = op.__eq__(OP_CMP_LTI)
+    op_cmp_ltu = op.__eq__(OP_CMP_LTU)
+    op_cmp_ltui = op.__eq__(OP_CMP_LTUI)
+    op_cmp_gei = op.__eq__(OP_CMP_GEI)
+    op_cmp_geui = op.__eq__(OP_CMP_GEUI)
+    op_feq = op.__eq__(OP_FEQ)
+    op_flt = op.__eq__(OP_FLT)
+    op_fge = op.__eq__(OP_FGE)
+    op_setc_geui = op.__eq__(OP_SETC_GEUI)
+    op_setc_eq = op.__eq__(OP_SETC_EQ)
+    op_setc_ne = op.__eq__(OP_SETC_NE)
+    op_setc_and = op.__eq__(OP_SETC_AND)
+    op_setc_or = op.__eq__(OP_SETC_OR)
+    op_setc_lt = op.__eq__(OP_SETC_LT)
+    op_setc_ltu = op.__eq__(OP_SETC_LTU)
+    op_setc_ge = op.__eq__(OP_SETC_GE)
+    op_setc_geu = op.__eq__(OP_SETC_GEU)
+    op_setc_eqi = op.__eq__(OP_SETC_EQI)
+    op_setc_nei = op.__eq__(OP_SETC_NEI)
+    op_setc_andi = op.__eq__(OP_SETC_ANDI)
+    op_setc_ori = op.__eq__(OP_SETC_ORI)
+    op_setc_lti = op.__eq__(OP_SETC_LTI)
+    op_setc_gei = op.__eq__(OP_SETC_GEI)
+    op_setc_ltui = op.__eq__(OP_SETC_LTUI)
+    op_csel = op.__eq__(OP_CSEL)
+    op_hl_lui = op.__eq__(OP_HL_LUI)
+    op_hl_lb_pcr = op.__eq__(OP_HL_LB_PCR)
+    op_hl_lbu_pcr = op.__eq__(OP_HL_LBU_PCR)
+    op_hl_lh_pcr = op.__eq__(OP_HL_LH_PCR)
+    op_hl_lhu_pcr = op.__eq__(OP_HL_LHU_PCR)
+    op_hl_lw_pcr = op.__eq__(OP_HL_LW_PCR)
+    op_hl_lwu_pcr = op.__eq__(OP_HL_LWU_PCR)
+    op_hl_ld_pcr = op.__eq__(OP_HL_LD_PCR)
+    op_hl_sb_pcr = op.__eq__(OP_HL_SB_PCR)
+    op_hl_sh_pcr = op.__eq__(OP_HL_SH_PCR)
+    op_hl_sw_pcr = op.__eq__(OP_HL_SW_PCR)
+    op_hl_sd_pcr = op.__eq__(OP_HL_SD_PCR)
+    op_lwi = op.__eq__(OP_LWI)
+    op_c_lwi = op.__eq__(OP_C_LWI)
+    op_lbi = op.__eq__(OP_LBI)
+    op_lbui = op.__eq__(OP_LBUI)
+    op_lhi = op.__eq__(OP_LHI)
+    op_lhui = op.__eq__(OP_LHUI)
+    op_lwui = op.__eq__(OP_LWUI)
+    op_lb = op.__eq__(OP_LB)
+    op_lbu = op.__eq__(OP_LBU)
+    op_lh = op.__eq__(OP_LH)
+    op_lhu = op.__eq__(OP_LHU)
+    op_lw = op.__eq__(OP_LW)
+    op_lwu = op.__eq__(OP_LWU)
+    op_ld = op.__eq__(OP_LD)
+    op_ldi = op.__eq__(OP_LDI)
+    op_c_add = op.__eq__(OP_C_ADD)
+    op_c_addi = op.__eq__(OP_C_ADDI)
+    op_c_sub = op.__eq__(OP_C_SUB)
+    op_c_and = op.__eq__(OP_C_AND)
+    op_c_or = op.__eq__(OP_C_OR)
+    op_c_ldi = op.__eq__(OP_C_LDI)
+    op_sbi = op.__eq__(OP_SBI)
+    op_shi = op.__eq__(OP_SHI)
+    op_swi = op.__eq__(OP_SWI)
+    op_c_swi = op.__eq__(OP_C_SWI)
+    op_c_sdi = op.__eq__(OP_C_SDI)
+    op_sb = op.__eq__(OP_SB)
+    op_sh = op.__eq__(OP_SH)
+    op_sw = op.__eq__(OP_SW)
+    op_sd = op.__eq__(OP_SD)
+    op_c_sext_w = op.__eq__(OP_C_SEXT_W)
+    op_c_zext_w = op.__eq__(OP_C_ZEXT_W)
+    op_sdi = op.__eq__(OP_SDI)
 
     # Defaults.
     alu = z64
@@ -361,26 +361,26 @@ def exec_uop_comb(
     wdata = z64
 
     # --- SrcR modifiers (srcr_type is a 2b mode code) ---
-    st0 = srcr_type.eq(0)
-    st1 = srcr_type.eq(1)
-    st2 = srcr_type.eq(2)
+    st0 = srcr_type.__eq__(0)
+    st1 = srcr_type.__eq__(1)
+    st2 = srcr_type.__eq__(2)
 
     srcr_addsub = srcr_val
-    srcr_addsub = st0.select(srcr_val.trunc(width=32).sext(width=64), srcr_addsub)
-    srcr_addsub = st1.select(srcr_val.trunc(width=32).zext(width=64), srcr_addsub)
-    srcr_addsub = st2.select((~srcr_val) + 1, srcr_addsub)
+    srcr_addsub = st0._select_internal(srcr_val._trunc(width=32)._sext(width=64), srcr_addsub)
+    srcr_addsub = st1._select_internal(srcr_val._trunc(width=32)._zext(width=64), srcr_addsub)
+    srcr_addsub = st2._select_internal((~srcr_val) + 1, srcr_addsub)
 
     srcr_logic = srcr_val
-    srcr_logic = st0.select(srcr_val.trunc(width=32).sext(width=64), srcr_logic)
-    srcr_logic = st1.select(srcr_val.trunc(width=32).zext(width=64), srcr_logic)
-    srcr_logic = st2.select(~srcr_val, srcr_logic)
+    srcr_logic = st0._select_internal(srcr_val._trunc(width=32)._sext(width=64), srcr_logic)
+    srcr_logic = st1._select_internal(srcr_val._trunc(width=32)._zext(width=64), srcr_logic)
+    srcr_logic = st2._select_internal(~srcr_val, srcr_logic)
 
     srcr_addsub_nosh = srcr_addsub
     srcr_addsub_shl = shl_var(m, srcr_addsub, shamt)
     srcr_logic_shl = shl_var(m, srcr_logic, shamt)
 
-    idx_mod = srcr_val.trunc(width=32).zext(width=64)
-    idx_mod = st0.select(srcr_val.trunc(width=32).sext(width=64), idx_mod)
+    idx_mod = srcr_val._trunc(width=32)._zext(width=64)
+    idx_mod = st0._select_internal(srcr_val._trunc(width=32)._sext(width=64), idx_mod)
     idx_mod_shl = shl_var(m, idx_mod, shamt)
 
     # Common offsets.
@@ -402,344 +402,344 @@ def exec_uop_comb(
         | op_fret_ra
         | op_fret_stk
     )
-    alu = is_marker.select(imm, alu)
+    alu = is_marker._select_internal(imm, alu)
 
     # --- basic ALU ops ---
-    alu = op_c_movr.select(srcl_val, alu)
-    alu = op_c_movi.select(imm, alu)
-    alu = op_c_setret.select(pc + imm, alu)
+    alu = op_c_movr._select_internal(srcl_val, alu)
+    alu = op_c_movi._select_internal(imm, alu)
+    alu = op_c_setret._select_internal(pc + imm, alu)
 
-    setc_eq = srcl_val.eq(srcr_val).select(one64, z64)
-    alu = op_c_setc_eq.select(setc_eq, alu)
-    alu = op_c_setc_ne.select((~srcl_val.eq(srcr_val)).select(one64, z64), alu)
-    alu = op_c_setc_tgt.select(srcl_val, alu)
+    setc_eq = srcl_val.__eq__(srcr_val)._select_internal(one64, z64)
+    alu = op_c_setc_eq._select_internal(setc_eq, alu)
+    alu = op_c_setc_ne._select_internal((~srcl_val.__eq__(srcr_val))._select_internal(one64, z64), alu)
+    alu = op_c_setc_tgt._select_internal(srcl_val, alu)
 
     pc_page = pc & 0xFFFF_FFFF_FFFF_F000
-    alu = op_addtpc.select(pc_page + imm, alu)
+    alu = op_addtpc._select_internal(pc_page + imm, alu)
 
-    alu = op_addi.select(srcl_val + imm, alu)
-    alu = op_subi.select(srcl_val - imm, alu)
+    alu = op_addi._select_internal(srcl_val + imm, alu)
+    alu = op_subi._select_internal(srcl_val - imm, alu)
 
-    addiw = (srcl_val.trunc(width=32) + imm.trunc(width=32)).sext(width=64)
-    subiw = (srcl_val.trunc(width=32) - imm.trunc(width=32)).sext(width=64)
-    alu = op_addiw.select(addiw, alu)
-    alu = op_subiw.select(subiw, alu)
+    addiw = (srcl_val._trunc(width=32) + imm._trunc(width=32))._sext(width=64)
+    subiw = (srcl_val._trunc(width=32) - imm._trunc(width=32))._sext(width=64)
+    alu = op_addiw._select_internal(addiw, alu)
+    alu = op_subiw._select_internal(subiw, alu)
 
-    alu = op_lui.select(imm, alu)
-    alu = op_setret.select(pc + imm, alu)
+    alu = op_lui._select_internal(imm, alu)
+    alu = op_setret._select_internal(pc + imm, alu)
 
-    alu = op_add.select(srcl_val + srcr_addsub_shl, alu)
-    alu = op_sub.select(srcl_val - srcr_addsub_shl, alu)
-    alu = op_and.select(srcl_val & srcr_logic_shl, alu)
-    alu = op_or.select(srcl_val | srcr_logic_shl, alu)
-    alu = op_xor.select(srcl_val ^ srcr_logic_shl, alu)
+    alu = op_add._select_internal(srcl_val + srcr_addsub_shl, alu)
+    alu = op_sub._select_internal(srcl_val - srcr_addsub_shl, alu)
+    alu = op_and._select_internal(srcl_val & srcr_logic_shl, alu)
+    alu = op_or._select_internal(srcl_val | srcr_logic_shl, alu)
+    alu = op_xor._select_internal(srcl_val ^ srcr_logic_shl, alu)
 
-    alu = op_andi.select(srcl_val & imm, alu)
-    alu = op_ori.select(srcl_val | imm, alu)
-    alu = op_andiw.select((srcl_val & imm).trunc(width=32).sext(width=64), alu)
-    alu = op_oriw.select((srcl_val | imm).trunc(width=32).sext(width=64), alu)
-    alu = op_xori.select(srcl_val ^ imm, alu)
-    alu = op_xoriw.select((srcl_val ^ imm).trunc(width=32).sext(width=64), alu)
+    alu = op_andi._select_internal(srcl_val & imm, alu)
+    alu = op_ori._select_internal(srcl_val | imm, alu)
+    alu = op_andiw._select_internal((srcl_val & imm)._trunc(width=32)._sext(width=64), alu)
+    alu = op_oriw._select_internal((srcl_val | imm)._trunc(width=32)._sext(width=64), alu)
+    alu = op_xori._select_internal(srcl_val ^ imm, alu)
+    alu = op_xoriw._select_internal((srcl_val ^ imm)._trunc(width=32)._sext(width=64), alu)
 
-    alu = op_mul.select(srcl_val * srcr_val, alu)
-    alu = op_mulw.select((srcl_val * srcr_val).trunc(width=32).sext(width=64), alu)
-    alu = op_madd.select(srcp_val + (srcl_val * srcr_val), alu)
-    alu = op_maddw.select((srcp_val + (srcl_val * srcr_val)).trunc(width=32).sext(width=64), alu)
+    alu = op_mul._select_internal(srcl_val * srcr_val, alu)
+    alu = op_mulw._select_internal((srcl_val * srcr_val)._trunc(width=32)._sext(width=64), alu)
+    alu = op_madd._select_internal(srcp_val + (srcl_val * srcr_val), alu)
+    alu = op_maddw._select_internal((srcp_val + (srcl_val * srcr_val))._trunc(width=32)._sext(width=64), alu)
 
-    alu = op_div.select(srcl_val.as_signed() // srcr_val.as_signed(), alu)
-    alu = op_divu.select(srcl_val.as_unsigned() // srcr_val.as_unsigned(), alu)
+    alu = op_div._select_internal(srcl_val.as_signed() // srcr_val.as_signed(), alu)
+    alu = op_divu._select_internal(srcl_val.as_unsigned() // srcr_val.as_unsigned(), alu)
 
-    divw_l32 = srcl_val.trunc(width=32).sext(width=64).as_signed()
-    divw_r32 = srcr_val.trunc(width=32).sext(width=64).as_signed()
-    alu = op_divw.select((divw_l32 // divw_r32).trunc(width=32).sext(width=64), alu)
+    divw_l32 = srcl_val._trunc(width=32)._sext(width=64).as_signed()
+    divw_r32 = srcr_val._trunc(width=32)._sext(width=64).as_signed()
+    alu = op_divw._select_internal((divw_l32 // divw_r32)._trunc(width=32)._sext(width=64), alu)
 
-    divuw_l32 = srcl_val.trunc(width=32).zext(width=64).as_unsigned()
-    divuw_r32 = srcr_val.trunc(width=32).zext(width=64).as_unsigned()
-    alu = op_divuw.select((divuw_l32 // divuw_r32).trunc(width=32).sext(width=64), alu)
+    divuw_l32 = srcl_val._trunc(width=32)._zext(width=64).as_unsigned()
+    divuw_r32 = srcr_val._trunc(width=32)._zext(width=64).as_unsigned()
+    alu = op_divuw._select_internal((divuw_l32 // divuw_r32)._trunc(width=32)._sext(width=64), alu)
 
-    alu = op_rem.select(srcl_val.as_signed() % srcr_val.as_signed(), alu)
-    alu = op_remu.select(srcl_val.as_unsigned() % srcr_val.as_unsigned(), alu)
+    alu = op_rem._select_internal(srcl_val.as_signed() % srcr_val.as_signed(), alu)
+    alu = op_remu._select_internal(srcl_val.as_unsigned() % srcr_val.as_unsigned(), alu)
 
-    remw_l32 = srcl_val.trunc(width=32).sext(width=64).as_signed()
-    remw_r32 = srcr_val.trunc(width=32).sext(width=64).as_signed()
-    alu = op_remw.select((remw_l32 % remw_r32).trunc(width=32).sext(width=64), alu)
+    remw_l32 = srcl_val._trunc(width=32)._sext(width=64).as_signed()
+    remw_r32 = srcr_val._trunc(width=32)._sext(width=64).as_signed()
+    alu = op_remw._select_internal((remw_l32 % remw_r32)._trunc(width=32)._sext(width=64), alu)
 
-    remuw_l32 = srcl_val.trunc(width=32).zext(width=64).as_unsigned()
-    remuw_r32 = srcr_val.trunc(width=32).zext(width=64).as_unsigned()
-    alu = op_remuw.select((remuw_l32 % remuw_r32).trunc(width=32).sext(width=64), alu)
+    remuw_l32 = srcl_val._trunc(width=32)._zext(width=64).as_unsigned()
+    remuw_r32 = srcr_val._trunc(width=32)._zext(width=64).as_unsigned()
+    alu = op_remuw._select_internal((remuw_l32 % remuw_r32)._trunc(width=32)._sext(width=64), alu)
 
-    alu = op_sll.select(shl_var(m, srcl_val, srcr_val), alu)
-    alu = op_srl.select(lshr_var(m, srcl_val, srcr_val), alu)
-    alu = op_sra.select(ashr_var(m, srcl_val, srcr_val), alu)
-    alu = op_slli.select(shl_var(m, srcl_val, shamt), alu)
-    alu = op_srli.select(lshr_var(m, srcl_val, shamt), alu)
-    alu = op_srai.select(ashr_var(m, srcl_val, shamt), alu)
+    alu = op_sll._select_internal(shl_var(m, srcl_val, srcr_val), alu)
+    alu = op_srl._select_internal(lshr_var(m, srcl_val, srcr_val), alu)
+    alu = op_sra._select_internal(ashr_var(m, srcl_val, srcr_val), alu)
+    alu = op_slli._select_internal(shl_var(m, srcl_val, shamt), alu)
+    alu = op_srli._select_internal(lshr_var(m, srcl_val, shamt), alu)
+    alu = op_srai._select_internal(ashr_var(m, srcl_val, shamt), alu)
 
     sh5 = shamt & 0x1F
     sh5r = srcr_val & 0x1F
-    slliw_val = shl_var(m, srcl_val.trunc(width=32).zext(width=64), sh5).trunc(width=32).sext(width=64)
-    sraiw_val = ashr_var(m, srcl_val.trunc(width=32).sext(width=64), sh5).trunc(width=32).sext(width=64)
-    srliw_val = lshr_var(m, srcl_val.trunc(width=32).zext(width=64), sh5).trunc(width=32).sext(width=64)
-    sllw_val = shl_var(m, srcl_val.trunc(width=32).zext(width=64), sh5r).trunc(width=32).sext(width=64)
-    srlw_val = lshr_var(m, srcl_val.trunc(width=32).zext(width=64), sh5r).trunc(width=32).sext(width=64)
-    sraw_val = ashr_var(m, srcl_val.trunc(width=32).sext(width=64), sh5r).trunc(width=32).sext(width=64)
-    alu = op_slliw.select(slliw_val, alu)
-    alu = op_sraiw.select(sraiw_val, alu)
-    alu = op_srliw.select(srliw_val, alu)
-    alu = op_sllw.select(sllw_val, alu)
-    alu = op_srlw.select(srlw_val, alu)
-    alu = op_sraw.select(sraw_val, alu)
+    slliw_val = shl_var(m, srcl_val._trunc(width=32)._zext(width=64), sh5)._trunc(width=32)._sext(width=64)
+    sraiw_val = ashr_var(m, srcl_val._trunc(width=32)._sext(width=64), sh5)._trunc(width=32)._sext(width=64)
+    srliw_val = lshr_var(m, srcl_val._trunc(width=32)._zext(width=64), sh5)._trunc(width=32)._sext(width=64)
+    sllw_val = shl_var(m, srcl_val._trunc(width=32)._zext(width=64), sh5r)._trunc(width=32)._sext(width=64)
+    srlw_val = lshr_var(m, srcl_val._trunc(width=32)._zext(width=64), sh5r)._trunc(width=32)._sext(width=64)
+    sraw_val = ashr_var(m, srcl_val._trunc(width=32)._sext(width=64), sh5r)._trunc(width=32)._sext(width=64)
+    alu = op_slliw._select_internal(slliw_val, alu)
+    alu = op_sraiw._select_internal(sraiw_val, alu)
+    alu = op_srliw._select_internal(srliw_val, alu)
+    alu = op_sllw._select_internal(sllw_val, alu)
+    alu = op_srlw._select_internal(srlw_val, alu)
+    alu = op_sraw._select_internal(sraw_val, alu)
 
     # Bit extract ops (BXS: sign-ext, BXU: zero-ext).
     imms = srcr_val
     imml = srcp_val
     shifted = lshr_var(m, srcl_val, imms)
-    sh_mask_amt = c(63, width=64) - imml.zext(width=64)
+    sh_mask_amt = c(63, width=64) - imml._zext(width=64)
     mask = lshr_var(m, c(0xFFFF_FFFF_FFFF_FFFF, width=64), sh_mask_amt)
     extracted = shifted & mask
-    valid_bx = (imms.zext(width=64) + imml.zext(width=64)).ule(63)
+    valid_bx = (imms._zext(width=64) + imml._zext(width=64)).ule(63)
     sext_bxs = ashr_var(m, shl_var(m, extracted, sh_mask_amt), sh_mask_amt)
-    alu = op_bxs.select(valid_bx.select(sext_bxs, z64), alu)
-    alu = op_bxu.select(valid_bx.select(extracted, z64), alu)
+    alu = op_bxs._select_internal(valid_bx._select_internal(sext_bxs, z64), alu)
+    alu = op_bxu._select_internal(valid_bx._select_internal(extracted, z64), alu)
 
-    addw = (srcl_val + srcr_addsub_shl).trunc(width=32).sext(width=64)
-    subw = (srcl_val - srcr_addsub_shl).trunc(width=32).sext(width=64)
-    orw = (srcl_val | srcr_logic_shl).trunc(width=32).sext(width=64)
-    andw = (srcl_val & srcr_logic_shl).trunc(width=32).sext(width=64)
-    xorw = (srcl_val ^ srcr_logic_shl).trunc(width=32).sext(width=64)
-    alu = op_addw.select(addw, alu)
-    alu = op_subw.select(subw, alu)
-    alu = op_orw.select(orw, alu)
-    alu = op_andw.select(andw, alu)
-    alu = op_xorw.select(xorw, alu)
+    addw = (srcl_val + srcr_addsub_shl)._trunc(width=32)._sext(width=64)
+    subw = (srcl_val - srcr_addsub_shl)._trunc(width=32)._sext(width=64)
+    orw = (srcl_val | srcr_logic_shl)._trunc(width=32)._sext(width=64)
+    andw = (srcl_val & srcr_logic_shl)._trunc(width=32)._sext(width=64)
+    xorw = (srcl_val ^ srcr_logic_shl)._trunc(width=32)._sext(width=64)
+    alu = op_addw._select_internal(addw, alu)
+    alu = op_subw._select_internal(subw, alu)
+    alu = op_orw._select_internal(orw, alu)
+    alu = op_andw._select_internal(andw, alu)
+    alu = op_xorw._select_internal(xorw, alu)
 
     # --- CMP.* (write 0/1 to RegDst) ---
-    alu = op_cmp_eq.select(srcl_val.eq(srcr_addsub_nosh).select(one64, z64), alu)
-    alu = op_cmp_ne.select((~srcl_val.eq(srcr_addsub_nosh)).select(one64, z64), alu)
-    alu = op_cmp_lt.select(srcl_val.slt(srcr_addsub_nosh).select(one64, z64), alu)
-    alu = op_cmp_eqi.select(srcl_val.eq(imm).select(one64, z64), alu)
-    alu = op_cmp_nei.select((~srcl_val.eq(imm)).select(one64, z64), alu)
-    alu = op_cmp_andi.select((~(srcl_val & imm).eq(0)).select(one64, z64), alu)
-    alu = op_cmp_ori.select((~(srcl_val | imm).eq(0)).select(one64, z64), alu)
-    alu = op_cmp_lti.select(srcl_val.slt(imm).select(one64, z64), alu)
-    alu = op_cmp_gei.select((~srcl_val.slt(imm)).select(one64, z64), alu)
-    alu = op_cmp_ltu.select(srcl_val.ult(srcr_addsub_nosh).select(one64, z64), alu)
-    alu = op_cmp_ltui.select(srcl_val.ult(imm).select(one64, z64), alu)
-    alu = op_cmp_geui.select(srcl_val.uge(imm).select(one64, z64), alu)
+    alu = op_cmp_eq._select_internal(srcl_val.__eq__(srcr_addsub_nosh)._select_internal(one64, z64), alu)
+    alu = op_cmp_ne._select_internal((~srcl_val.__eq__(srcr_addsub_nosh))._select_internal(one64, z64), alu)
+    alu = op_cmp_lt._select_internal(srcl_val.slt(srcr_addsub_nosh)._select_internal(one64, z64), alu)
+    alu = op_cmp_eqi._select_internal(srcl_val.__eq__(imm)._select_internal(one64, z64), alu)
+    alu = op_cmp_nei._select_internal((~srcl_val.__eq__(imm))._select_internal(one64, z64), alu)
+    alu = op_cmp_andi._select_internal((~(srcl_val & imm).__eq__(0))._select_internal(one64, z64), alu)
+    alu = op_cmp_ori._select_internal((~(srcl_val | imm).__eq__(0))._select_internal(one64, z64), alu)
+    alu = op_cmp_lti._select_internal(srcl_val.slt(imm)._select_internal(one64, z64), alu)
+    alu = op_cmp_gei._select_internal((~srcl_val.slt(imm))._select_internal(one64, z64), alu)
+    alu = op_cmp_ltu._select_internal(srcl_val.ult(srcr_addsub_nosh)._select_internal(one64, z64), alu)
+    alu = op_cmp_ltui._select_internal(srcl_val.ult(imm)._select_internal(one64, z64), alu)
+    alu = op_cmp_geui._select_internal(srcl_val.uge(imm)._select_internal(one64, z64), alu)
 
     # --- FP compares (ordered FEQ/FLT/FGE, fd/fs via srcr_type) ---
     fd_exp_l = srcl_val[52:63]
     fd_exp_r = srcr_val[52:63]
     fd_frac_l = srcl_val[0:52]
     fd_frac_r = srcr_val[0:52]
-    fd_nan_l = fd_exp_l.eq(c(0x7FF, width=11)) & (~fd_frac_l.eq(c(0, width=52)))
-    fd_nan_r = fd_exp_r.eq(c(0x7FF, width=11)) & (~fd_frac_r.eq(c(0, width=52)))
+    fd_nan_l = fd_exp_l.__eq__(c(0x7FF, width=11)) & (~fd_frac_l.__eq__(c(0, width=52)))
+    fd_nan_r = fd_exp_r.__eq__(c(0x7FF, width=11)) & (~fd_frac_r.__eq__(c(0, width=52)))
     fd_nan = fd_nan_l | fd_nan_r
-    fd_zero_l = (srcl_val & c(0x7FFF_FFFF_FFFF_FFFF, width=64)).eq(c(0, width=64))
-    fd_zero_r = (srcr_val & c(0x7FFF_FFFF_FFFF_FFFF, width=64)).eq(c(0, width=64))
+    fd_zero_l = (srcl_val & c(0x7FFF_FFFF_FFFF_FFFF, width=64)).__eq__(c(0, width=64))
+    fd_zero_r = (srcr_val & c(0x7FFF_FFFF_FFFF_FFFF, width=64)).__eq__(c(0, width=64))
     fd_both_zero = fd_zero_l & fd_zero_r
-    fd_key_l = srcl_val[63].select(~srcl_val, srcl_val ^ c(0x8000_0000_0000_0000, width=64))
-    fd_key_r = srcr_val[63].select(~srcr_val, srcr_val ^ c(0x8000_0000_0000_0000, width=64))
+    fd_key_l = srcl_val[63]._select_internal(~srcl_val, srcl_val ^ c(0x8000_0000_0000_0000, width=64))
+    fd_key_r = srcr_val[63]._select_internal(~srcr_val, srcr_val ^ c(0x8000_0000_0000_0000, width=64))
     fd_lt = (~fd_nan) & (~fd_both_zero) & fd_key_l.ult(fd_key_r)
-    fd_eq = (~fd_nan) & (srcl_val.eq(srcr_val) | fd_both_zero)
+    fd_eq = (~fd_nan) & (srcl_val.__eq__(srcr_val) | fd_both_zero)
     fd_ge = (~fd_nan) & (fd_both_zero | fd_key_l.uge(fd_key_r))
 
-    fs_l = srcl_val.trunc(width=32)
-    fs_r = srcr_val.trunc(width=32)
+    fs_l = srcl_val._trunc(width=32)
+    fs_r = srcr_val._trunc(width=32)
     fs_exp_l = fs_l[23:31]
     fs_exp_r = fs_r[23:31]
     fs_frac_l = fs_l[0:23]
     fs_frac_r = fs_r[0:23]
-    fs_nan_l = fs_exp_l.eq(c(0xFF, width=8)) & (~fs_frac_l.eq(c(0, width=23)))
-    fs_nan_r = fs_exp_r.eq(c(0xFF, width=8)) & (~fs_frac_r.eq(c(0, width=23)))
+    fs_nan_l = fs_exp_l.__eq__(c(0xFF, width=8)) & (~fs_frac_l.__eq__(c(0, width=23)))
+    fs_nan_r = fs_exp_r.__eq__(c(0xFF, width=8)) & (~fs_frac_r.__eq__(c(0, width=23)))
     fs_nan = fs_nan_l | fs_nan_r
-    fs_zero_l = (fs_l & c(0x7FFF_FFFF, width=32)).eq(c(0, width=32))
-    fs_zero_r = (fs_r & c(0x7FFF_FFFF, width=32)).eq(c(0, width=32))
+    fs_zero_l = (fs_l & c(0x7FFF_FFFF, width=32)).__eq__(c(0, width=32))
+    fs_zero_r = (fs_r & c(0x7FFF_FFFF, width=32)).__eq__(c(0, width=32))
     fs_both_zero = fs_zero_l & fs_zero_r
-    fs_key_l = fs_l[31].select(~fs_l, fs_l ^ c(0x8000_0000, width=32))
-    fs_key_r = fs_r[31].select(~fs_r, fs_r ^ c(0x8000_0000, width=32))
+    fs_key_l = fs_l[31]._select_internal(~fs_l, fs_l ^ c(0x8000_0000, width=32))
+    fs_key_r = fs_r[31]._select_internal(~fs_r, fs_r ^ c(0x8000_0000, width=32))
     fs_lt = (~fs_nan) & (~fs_both_zero) & fs_key_l.ult(fs_key_r)
-    fs_eq = (~fs_nan) & (fs_l.eq(fs_r) | fs_both_zero)
+    fs_eq = (~fs_nan) & (fs_l.__eq__(fs_r) | fs_both_zero)
     fs_ge = (~fs_nan) & (fs_both_zero | fs_key_l.uge(fs_key_r))
 
-    fp_is_fs = srcr_type.eq(c(1, width=2))
-    fp_eq = fp_is_fs.select(fs_eq, fd_eq)
-    fp_lt = fp_is_fs.select(fs_lt, fd_lt)
-    fp_ge = fp_is_fs.select(fs_ge, fd_ge)
-    alu = op_feq.select(fp_eq.select(one64, z64), alu)
-    alu = op_flt.select(fp_lt.select(one64, z64), alu)
-    alu = op_fge.select(fp_ge.select(one64, z64), alu)
+    fp_is_fs = srcr_type.__eq__(c(1, width=2))
+    fp_eq = fp_is_fs._select_internal(fs_eq, fd_eq)
+    fp_lt = fp_is_fs._select_internal(fs_lt, fd_lt)
+    fp_ge = fp_is_fs._select_internal(fs_ge, fd_ge)
+    alu = op_feq._select_internal(fp_eq._select_internal(one64, z64), alu)
+    alu = op_flt._select_internal(fp_lt._select_internal(one64, z64), alu)
+    alu = op_fge._select_internal(fp_ge._select_internal(one64, z64), alu)
 
     # --- SETC.* (write 0/1; commit stage consumes val[0]) ---
     uimm_sh = shl_var(m, imm, shamt)
     simm_sh = uimm_sh
 
-    alu = op_setc_geui.select(srcl_val.uge(uimm_sh).select(one64, z64), alu)
-    alu = op_setc_eqi.select(srcl_val.eq(simm_sh).select(one64, z64), alu)
-    alu = op_setc_nei.select((~srcl_val.eq(simm_sh)).select(one64, z64), alu)
-    alu = op_setc_andi.select((~(srcl_val & simm_sh).eq(0)).select(one64, z64), alu)
-    alu = op_setc_ori.select((~(srcl_val | simm_sh).eq(0)).select(one64, z64), alu)
-    alu = op_setc_lti.select(srcl_val.slt(simm_sh).select(one64, z64), alu)
-    alu = op_setc_gei.select((~srcl_val.slt(simm_sh)).select(one64, z64), alu)
-    alu = op_setc_ltui.select(srcl_val.ult(uimm_sh).select(one64, z64), alu)
+    alu = op_setc_geui._select_internal(srcl_val.uge(uimm_sh)._select_internal(one64, z64), alu)
+    alu = op_setc_eqi._select_internal(srcl_val.__eq__(simm_sh)._select_internal(one64, z64), alu)
+    alu = op_setc_nei._select_internal((~srcl_val.__eq__(simm_sh))._select_internal(one64, z64), alu)
+    alu = op_setc_andi._select_internal((~(srcl_val & simm_sh).__eq__(0))._select_internal(one64, z64), alu)
+    alu = op_setc_ori._select_internal((~(srcl_val | simm_sh).__eq__(0))._select_internal(one64, z64), alu)
+    alu = op_setc_lti._select_internal(srcl_val.slt(simm_sh)._select_internal(one64, z64), alu)
+    alu = op_setc_gei._select_internal((~srcl_val.slt(simm_sh))._select_internal(one64, z64), alu)
+    alu = op_setc_ltui._select_internal(srcl_val.ult(uimm_sh)._select_internal(one64, z64), alu)
 
-    alu = op_setc_eq.select(srcl_val.eq(srcr_addsub_nosh).select(one64, z64), alu)
-    alu = op_setc_ne.select((~srcl_val.eq(srcr_addsub_nosh)).select(one64, z64), alu)
-    alu = op_setc_and.select((~(srcl_val & srcr_logic).eq(0)).select(one64, z64), alu)
-    alu = op_setc_or.select((~(srcl_val | srcr_logic).eq(0)).select(one64, z64), alu)
-    alu = op_setc_lt.select(srcl_val.slt(srcr_addsub_nosh).select(one64, z64), alu)
-    alu = op_setc_ltu.select(srcl_val.ult(srcr_addsub_nosh).select(one64, z64), alu)
-    alu = op_setc_ge.select((~srcl_val.slt(srcr_addsub_nosh)).select(one64, z64), alu)
-    alu = op_setc_geu.select(srcl_val.uge(srcr_addsub_nosh).select(one64, z64), alu)
+    alu = op_setc_eq._select_internal(srcl_val.__eq__(srcr_addsub_nosh)._select_internal(one64, z64), alu)
+    alu = op_setc_ne._select_internal((~srcl_val.__eq__(srcr_addsub_nosh))._select_internal(one64, z64), alu)
+    alu = op_setc_and._select_internal((~(srcl_val & srcr_logic).__eq__(0))._select_internal(one64, z64), alu)
+    alu = op_setc_or._select_internal((~(srcl_val | srcr_logic).__eq__(0))._select_internal(one64, z64), alu)
+    alu = op_setc_lt._select_internal(srcl_val.slt(srcr_addsub_nosh)._select_internal(one64, z64), alu)
+    alu = op_setc_ltu._select_internal(srcl_val.ult(srcr_addsub_nosh)._select_internal(one64, z64), alu)
+    alu = op_setc_ge._select_internal((~srcl_val.slt(srcr_addsub_nosh))._select_internal(one64, z64), alu)
+    alu = op_setc_geu._select_internal(srcl_val.uge(srcr_addsub_nosh)._select_internal(one64, z64), alu)
 
-    alu = op_hl_lui.select(imm, alu)
+    alu = op_hl_lui._select_internal(imm, alu)
 
     # CSEL: select srcr (shifted) when SrcP != 0.
-    alu = op_csel.select((~srcp_val.eq(0)).select(srcr_addsub_nosh, srcl_val), alu)
+    alu = op_csel._select_internal((~srcp_val.__eq__(0))._select_internal(srcr_addsub_nosh, srcl_val), alu)
 
     # --- memory ops (address/size/data) ---
     is_lwi = op_lwi | op_c_lwi
     lwi_addr = srcl_val + off_w
-    is_load = is_lwi.select(one1, is_load)
-    size = is_lwi.select(sz4, size)
-    addr = is_lwi.select(lwi_addr, addr)
+    is_load = is_lwi._select_internal(one1, is_load)
+    size = is_lwi._select_internal(sz4, size)
+    addr = is_lwi._select_internal(lwi_addr, addr)
 
-    is_load = op_lwui.select(one1, is_load)
-    size = op_lwui.select(sz4, size)
-    addr = op_lwui.select(lwi_addr, addr)
+    is_load = op_lwui._select_internal(one1, is_load)
+    size = op_lwui._select_internal(sz4, size)
+    addr = op_lwui._select_internal(lwi_addr, addr)
 
     is_lbi_any = op_lbi | op_lbui
-    is_load = is_lbi_any.select(one1, is_load)
-    size = is_lbi_any.select(sz1, size)
-    addr = is_lbi_any.select(srcl_val + imm, addr)
+    is_load = is_lbi_any._select_internal(one1, is_load)
+    size = is_lbi_any._select_internal(sz1, size)
+    addr = is_lbi_any._select_internal(srcl_val + imm, addr)
 
     is_lhi_any = op_lhi | op_lhui
-    is_load = is_lhi_any.select(one1, is_load)
-    size = is_lhi_any.select(sz2, size)
-    addr = is_lhi_any.select(srcl_val + h_off, addr)
+    is_load = is_lhi_any._select_internal(one1, is_load)
+    size = is_lhi_any._select_internal(sz2, size)
+    addr = is_lhi_any._select_internal(srcl_val + h_off, addr)
 
     idx_addr = srcl_val + idx_mod_shl
-    is_load = (op_lb | op_lbu).select(one1, is_load)
-    size = (op_lb | op_lbu).select(sz1, size)
-    addr = (op_lb | op_lbu).select(idx_addr, addr)
+    is_load = (op_lb | op_lbu)._select_internal(one1, is_load)
+    size = (op_lb | op_lbu)._select_internal(sz1, size)
+    addr = (op_lb | op_lbu)._select_internal(idx_addr, addr)
 
-    is_load = (op_lh | op_lhu).select(one1, is_load)
-    size = (op_lh | op_lhu).select(sz2, size)
-    addr = (op_lh | op_lhu).select(idx_addr, addr)
+    is_load = (op_lh | op_lhu)._select_internal(one1, is_load)
+    size = (op_lh | op_lhu)._select_internal(sz2, size)
+    addr = (op_lh | op_lhu)._select_internal(idx_addr, addr)
 
-    is_load = (op_lw | op_lwu).select(one1, is_load)
-    size = (op_lw | op_lwu).select(sz4, size)
-    addr = (op_lw | op_lwu).select(idx_addr, addr)
+    is_load = (op_lw | op_lwu)._select_internal(one1, is_load)
+    size = (op_lw | op_lwu)._select_internal(sz4, size)
+    addr = (op_lw | op_lwu)._select_internal(idx_addr, addr)
 
-    is_load = op_ld.select(one1, is_load)
-    size = op_ld.select(sz8, size)
-    addr = op_ld.select(idx_addr, addr)
+    is_load = op_ld._select_internal(one1, is_load)
+    size = op_ld._select_internal(sz8, size)
+    addr = op_ld._select_internal(idx_addr, addr)
 
-    is_load = (op_ldi | op_c_ldi).select(one1, is_load)
-    size = (op_ldi | op_c_ldi).select(sz8, size)
-    addr = (op_ldi | op_c_ldi).select(srcl_val + ldi_off, addr)
+    is_load = (op_ldi | op_c_ldi)._select_internal(one1, is_load)
+    size = (op_ldi | op_c_ldi)._select_internal(sz8, size)
+    addr = (op_ldi | op_c_ldi)._select_internal(srcl_val + ldi_off, addr)
 
     # Stores.
-    is_store = op_sbi.select(one1, is_store)
-    size = op_sbi.select(sz1, size)
-    addr = op_sbi.select(srcr_val + imm, addr)
-    wdata = op_sbi.select(srcl_val, wdata)
+    is_store = op_sbi._select_internal(one1, is_store)
+    size = op_sbi._select_internal(sz1, size)
+    addr = op_sbi._select_internal(srcr_val + imm, addr)
+    wdata = op_sbi._select_internal(srcl_val, wdata)
 
-    is_store = op_shi.select(one1, is_store)
-    size = op_shi.select(sz2, size)
-    addr = op_shi.select(srcr_val + h_off, addr)
-    wdata = op_shi.select(srcl_val, wdata)
+    is_store = op_shi._select_internal(one1, is_store)
+    size = op_shi._select_internal(sz2, size)
+    addr = op_shi._select_internal(srcr_val + h_off, addr)
+    wdata = op_shi._select_internal(srcl_val, wdata)
 
     store_addr_def = srcl_val + off_w
     store_data_def = srcr_val
-    store_addr = op_swi.select(srcr_val + off_w, store_addr_def)
-    store_data = op_swi.select(srcl_val, store_data_def)
+    store_addr = op_swi._select_internal(srcr_val + off_w, store_addr_def)
+    store_data = op_swi._select_internal(srcl_val, store_data_def)
     op_swi_any = op_swi | op_c_swi
-    is_store = op_swi_any.select(one1, is_store)
-    size = op_swi_any.select(sz4, size)
-    addr = op_swi_any.select(store_addr, addr)
-    wdata = op_swi_any.select(store_data, wdata)
+    is_store = op_swi_any._select_internal(one1, is_store)
+    size = op_swi_any._select_internal(sz4, size)
+    addr = op_swi_any._select_internal(store_addr, addr)
+    wdata = op_swi_any._select_internal(store_data, wdata)
 
-    is_store = op_sb.select(one1, is_store)
-    size = op_sb.select(sz1, size)
-    addr = op_sb.select(idx_addr, addr)
-    wdata = op_sb.select(srcp_val, wdata)
+    is_store = op_sb._select_internal(one1, is_store)
+    size = op_sb._select_internal(sz1, size)
+    addr = op_sb._select_internal(idx_addr, addr)
+    wdata = op_sb._select_internal(srcp_val, wdata)
 
-    is_store = op_sh.select(one1, is_store)
-    size = op_sh.select(sz2, size)
-    addr = op_sh.select(idx_addr, addr)
-    wdata = op_sh.select(srcp_val, wdata)
+    is_store = op_sh._select_internal(one1, is_store)
+    size = op_sh._select_internal(sz2, size)
+    addr = op_sh._select_internal(idx_addr, addr)
+    wdata = op_sh._select_internal(srcp_val, wdata)
 
-    is_store = op_sw.select(one1, is_store)
-    size = op_sw.select(sz4, size)
-    addr = op_sw.select(idx_addr, addr)
-    wdata = op_sw.select(srcp_val, wdata)
+    is_store = op_sw._select_internal(one1, is_store)
+    size = op_sw._select_internal(sz4, size)
+    addr = op_sw._select_internal(idx_addr, addr)
+    wdata = op_sw._select_internal(srcp_val, wdata)
 
-    is_store = op_sd.select(one1, is_store)
-    size = op_sd.select(sz8, size)
-    addr = op_sd.select(idx_addr, addr)
-    wdata = op_sd.select(srcp_val, wdata)
+    is_store = op_sd._select_internal(one1, is_store)
+    size = op_sd._select_internal(sz8, size)
+    addr = op_sd._select_internal(idx_addr, addr)
+    wdata = op_sd._select_internal(srcp_val, wdata)
 
     sdi_off = imm.shl(amount=3)
-    is_store = op_c_sdi.select(one1, is_store)
-    size = op_c_sdi.select(sz8, size)
-    addr = op_c_sdi.select(srcl_val + sdi_off, addr)
-    wdata = op_c_sdi.select(srcr_val, wdata)
+    is_store = op_c_sdi._select_internal(one1, is_store)
+    size = op_c_sdi._select_internal(sz8, size)
+    addr = op_c_sdi._select_internal(srcl_val + sdi_off, addr)
+    wdata = op_c_sdi._select_internal(srcr_val, wdata)
 
     sdi_addr = srcr_val + sdi_off
-    is_store = op_sdi.select(one1, is_store)
-    size = op_sdi.select(sz8, size)
-    addr = op_sdi.select(sdi_addr, addr)
-    wdata = op_sdi.select(srcl_val, wdata)
+    is_store = op_sdi._select_internal(one1, is_store)
+    size = op_sdi._select_internal(sz8, size)
+    addr = op_sdi._select_internal(sdi_addr, addr)
+    wdata = op_sdi._select_internal(srcl_val, wdata)
 
     # HL loads/stores (PC-relative).
     hl_addr = pc + imm
     hl_load_b = op_hl_lb_pcr | op_hl_lbu_pcr
     hl_load_h = op_hl_lh_pcr | op_hl_lhu_pcr
     hl_load_w = op_hl_lw_pcr | op_hl_lwu_pcr
-    is_load = hl_load_b.select(one1, is_load)
-    size = hl_load_b.select(sz1, size)
-    addr = hl_load_b.select(hl_addr, addr)
-    is_load = hl_load_h.select(one1, is_load)
-    size = hl_load_h.select(sz2, size)
-    addr = hl_load_h.select(hl_addr, addr)
-    is_load = hl_load_w.select(one1, is_load)
-    size = hl_load_w.select(sz4, size)
-    addr = hl_load_w.select(hl_addr, addr)
-    is_load = op_hl_ld_pcr.select(one1, is_load)
-    size = op_hl_ld_pcr.select(sz8, size)
-    addr = op_hl_ld_pcr.select(hl_addr, addr)
+    is_load = hl_load_b._select_internal(one1, is_load)
+    size = hl_load_b._select_internal(sz1, size)
+    addr = hl_load_b._select_internal(hl_addr, addr)
+    is_load = hl_load_h._select_internal(one1, is_load)
+    size = hl_load_h._select_internal(sz2, size)
+    addr = hl_load_h._select_internal(hl_addr, addr)
+    is_load = hl_load_w._select_internal(one1, is_load)
+    size = hl_load_w._select_internal(sz4, size)
+    addr = hl_load_w._select_internal(hl_addr, addr)
+    is_load = op_hl_ld_pcr._select_internal(one1, is_load)
+    size = op_hl_ld_pcr._select_internal(sz8, size)
+    addr = op_hl_ld_pcr._select_internal(hl_addr, addr)
 
-    is_store = op_hl_sb_pcr.select(one1, is_store)
-    size = op_hl_sb_pcr.select(sz1, size)
-    addr = op_hl_sb_pcr.select(hl_addr, addr)
-    wdata = op_hl_sb_pcr.select(srcl_val, wdata)
-    is_store = op_hl_sh_pcr.select(one1, is_store)
-    size = op_hl_sh_pcr.select(sz2, size)
-    addr = op_hl_sh_pcr.select(hl_addr, addr)
-    wdata = op_hl_sh_pcr.select(srcl_val, wdata)
-    is_store = op_hl_sw_pcr.select(one1, is_store)
-    size = op_hl_sw_pcr.select(sz4, size)
-    addr = op_hl_sw_pcr.select(hl_addr, addr)
-    wdata = op_hl_sw_pcr.select(srcl_val, wdata)
-    is_store = op_hl_sd_pcr.select(one1, is_store)
-    size = op_hl_sd_pcr.select(sz8, size)
-    addr = op_hl_sd_pcr.select(hl_addr, addr)
-    wdata = op_hl_sd_pcr.select(srcl_val, wdata)
+    is_store = op_hl_sb_pcr._select_internal(one1, is_store)
+    size = op_hl_sb_pcr._select_internal(sz1, size)
+    addr = op_hl_sb_pcr._select_internal(hl_addr, addr)
+    wdata = op_hl_sb_pcr._select_internal(srcl_val, wdata)
+    is_store = op_hl_sh_pcr._select_internal(one1, is_store)
+    size = op_hl_sh_pcr._select_internal(sz2, size)
+    addr = op_hl_sh_pcr._select_internal(hl_addr, addr)
+    wdata = op_hl_sh_pcr._select_internal(srcl_val, wdata)
+    is_store = op_hl_sw_pcr._select_internal(one1, is_store)
+    size = op_hl_sw_pcr._select_internal(sz4, size)
+    addr = op_hl_sw_pcr._select_internal(hl_addr, addr)
+    wdata = op_hl_sw_pcr._select_internal(srcl_val, wdata)
+    is_store = op_hl_sd_pcr._select_internal(one1, is_store)
+    size = op_hl_sd_pcr._select_internal(sz8, size)
+    addr = op_hl_sd_pcr._select_internal(hl_addr, addr)
+    wdata = op_hl_sd_pcr._select_internal(srcl_val, wdata)
 
     # Compressed integer ops.
-    alu = op_c_addi.select(srcl_val + imm, alu)
-    alu = op_c_add.select(srcl_val + srcr_val, alu)
-    alu = op_c_sub.select(srcl_val - srcr_val, alu)
-    alu = op_c_and.select(srcl_val & srcr_val, alu)
-    alu = op_c_or.select(srcl_val | srcr_val, alu)
-    alu = op_c_sext_w.select(srcl_val.trunc(width=32).sext(width=64), alu)
-    alu = op_c_zext_w.select(srcl_val.trunc(width=32).zext(width=64), alu)
+    alu = op_c_addi._select_internal(srcl_val + imm, alu)
+    alu = op_c_add._select_internal(srcl_val + srcr_val, alu)
+    alu = op_c_sub._select_internal(srcl_val - srcr_val, alu)
+    alu = op_c_and._select_internal(srcl_val & srcr_val, alu)
+    alu = op_c_or._select_internal(srcl_val | srcr_val, alu)
+    alu = op_c_sext_w._select_internal(srcl_val._trunc(width=32)._sext(width=64), alu)
+    alu = op_c_zext_w._select_internal(srcl_val._trunc(width=32)._zext(width=64), alu)
 
     return ExecOut(alu=alu, is_load=is_load, is_store=is_store, size=size, addr=addr, wdata=wdata)
 
 
-@jit_inline
+@function
 def exec_uop(
     m: Circuit,
     *,
@@ -924,26 +924,26 @@ def exec_uop(
         # SrcR modifiers.
         srcr_addsub = srcr_val
         if srcr_type == 0:
-            srcr_addsub = srcr_val.trunc(width=32).sext(width=64)
+            srcr_addsub = srcr_val._trunc(width=32)._sext(width=64)
         if srcr_type == 1:
-            srcr_addsub = srcr_val.trunc(width=32).zext(width=64)
+            srcr_addsub = srcr_val._trunc(width=32)._zext(width=64)
         if srcr_type == 2:
             srcr_addsub = (~srcr_val) + 1
 
         srcr_logic = srcr_val
         if srcr_type == 0:
-            srcr_logic = srcr_val.trunc(width=32).sext(width=64)
+            srcr_logic = srcr_val._trunc(width=32)._sext(width=64)
         if srcr_type == 1:
-            srcr_logic = srcr_val.trunc(width=32).zext(width=64)
+            srcr_logic = srcr_val._trunc(width=32)._zext(width=64)
         if srcr_type == 2:
             srcr_logic = ~srcr_val
 
         srcr_addsub_shl = shl_var(m, srcr_addsub, shamt)
         srcr_logic_shl = shl_var(m, srcr_logic, shamt)
 
-        idx_mod = srcr_val.trunc(width=32).zext(width=64)
+        idx_mod = srcr_val._trunc(width=32)._zext(width=64)
         if srcr_type == 0:
-            idx_mod = srcr_val.trunc(width=32).sext(width=64)
+            idx_mod = srcr_val._trunc(width=32)._sext(width=64)
         idx_mod_shl = shl_var(m, idx_mod, shamt)
 
         if (
@@ -1032,7 +1032,7 @@ def exec_uop(
             size = z4
             addr = z64
             wdata = z64
-        addiw = (srcl_val.trunc(width=32) + imm.trunc(width=32)).sext(width=64)
+        addiw = (srcl_val._trunc(width=32) + imm._trunc(width=32))._sext(width=64)
         if op_addiw:
             alu = addiw
             is_load = z1
@@ -1040,7 +1040,7 @@ def exec_uop(
             size = z4
             addr = z64
             wdata = z64
-        subiw = (srcl_val.trunc(width=32) - imm.trunc(width=32)).sext(width=64)
+        subiw = (srcl_val._trunc(width=32) - imm._trunc(width=32))._sext(width=64)
         if op_subiw:
             alu = subiw
             is_load = z1
@@ -1117,14 +1117,14 @@ def exec_uop(
             wdata = z64
 
         if op_andiw:
-            alu = (srcl_val & imm).trunc(width=32).sext(width=64)
+            alu = (srcl_val & imm)._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
         if op_oriw:
-            alu = (srcl_val | imm).trunc(width=32).sext(width=64)
+            alu = (srcl_val | imm)._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
@@ -1138,7 +1138,7 @@ def exec_uop(
             addr = z64
             wdata = z64
         if op_xoriw:
-            alu = (srcl_val ^ imm).trunc(width=32).sext(width=64)
+            alu = (srcl_val ^ imm)._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
@@ -1153,7 +1153,7 @@ def exec_uop(
             addr = z64
             wdata = z64
         if op_mulw:
-            alu = (srcl_val * srcr_val).trunc(width=32).sext(width=64)
+            alu = (srcl_val * srcr_val)._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
@@ -1167,7 +1167,7 @@ def exec_uop(
             addr = z64
             wdata = z64
         if op_maddw:
-            alu = (srcp_val + (srcl_val * srcr_val)).trunc(width=32).sext(width=64)
+            alu = (srcp_val + (srcl_val * srcr_val))._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
@@ -1189,18 +1189,18 @@ def exec_uop(
             addr = z64
             wdata = z64
         if op_divw:
-            l32 = srcl_val.trunc(width=32).sext(width=64).as_signed()
-            r32 = srcr_val.trunc(width=32).sext(width=64).as_signed()
-            alu = (l32 // r32).trunc(width=32).sext(width=64)
+            l32 = srcl_val._trunc(width=32)._sext(width=64).as_signed()
+            r32 = srcr_val._trunc(width=32)._sext(width=64).as_signed()
+            alu = (l32 // r32)._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
         if op_divuw:
-            l32 = srcl_val.trunc(width=32).zext(width=64).as_unsigned()
-            r32 = srcr_val.trunc(width=32).zext(width=64).as_unsigned()
-            alu = (l32 // r32).trunc(width=32).sext(width=64)
+            l32 = srcl_val._trunc(width=32)._zext(width=64).as_unsigned()
+            r32 = srcr_val._trunc(width=32)._zext(width=64).as_unsigned()
+            alu = (l32 // r32)._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
@@ -1221,18 +1221,18 @@ def exec_uop(
             addr = z64
             wdata = z64
         if op_remw:
-            l32 = srcl_val.trunc(width=32).sext(width=64).as_signed()
-            r32 = srcr_val.trunc(width=32).sext(width=64).as_signed()
-            alu = (l32 % r32).trunc(width=32).sext(width=64)
+            l32 = srcl_val._trunc(width=32)._sext(width=64).as_signed()
+            r32 = srcr_val._trunc(width=32)._sext(width=64).as_signed()
+            alu = (l32 % r32)._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
         if op_remuw:
-            l32 = srcl_val.trunc(width=32).zext(width=64).as_unsigned()
-            r32 = srcr_val.trunc(width=32).zext(width=64).as_unsigned()
-            alu = (l32 % r32).trunc(width=32).sext(width=64)
+            l32 = srcl_val._trunc(width=32)._zext(width=64).as_unsigned()
+            r32 = srcr_val._trunc(width=32)._zext(width=64).as_unsigned()
+            alu = (l32 % r32)._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
@@ -1282,60 +1282,60 @@ def exec_uop(
             addr = z64
             wdata = z64
         if op_slliw:
-            l32 = srcl_val.trunc(width=32).zext(width=64)
+            l32 = srcl_val._trunc(width=32)._zext(width=64)
             sh5 = shamt & 0x1F
             shifted = shl_var(m, l32, sh5)
-            alu = shifted.trunc(width=32).sext(width=64)
+            alu = shifted._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
         if op_sraiw:
-            l32 = srcl_val.trunc(width=32).sext(width=64)
+            l32 = srcl_val._trunc(width=32)._sext(width=64)
             sh5 = shamt & 0x1F
             shifted = ashr_var(m, l32, sh5)
-            alu = shifted.trunc(width=32).sext(width=64)
+            alu = shifted._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
         if op_srliw:
-            l32 = srcl_val.trunc(width=32).zext(width=64)
+            l32 = srcl_val._trunc(width=32)._zext(width=64)
             sh5 = shamt & 0x1F
             shifted = lshr_var(m, l32, sh5)
-            alu = shifted.trunc(width=32).sext(width=64)
+            alu = shifted._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
         if op_sllw:
-            l32 = srcl_val.trunc(width=32).zext(width=64)
+            l32 = srcl_val._trunc(width=32)._zext(width=64)
             sh5 = srcr_val & 0x1F
             shifted = shl_var(m, l32, sh5)
-            alu = shifted.trunc(width=32).sext(width=64)
+            alu = shifted._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
         if op_srlw:
-            l32 = srcl_val.trunc(width=32).zext(width=64)
+            l32 = srcl_val._trunc(width=32)._zext(width=64)
             sh5 = srcr_val & 0x1F
             shifted = lshr_var(m, l32, sh5)
-            alu = shifted.trunc(width=32).sext(width=64)
+            alu = shifted._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
         if op_sraw:
-            l32 = srcl_val.trunc(width=32).sext(width=64)
+            l32 = srcl_val._trunc(width=32)._sext(width=64)
             sh5 = srcr_val & 0x1F
             shifted = ashr_var(m, l32, sh5)
-            alu = shifted.trunc(width=32).sext(width=64)
+            alu = shifted._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
@@ -1346,13 +1346,13 @@ def exec_uop(
             imms = srcr_val
             imml = srcp_val
             shifted = lshr_var(m, srcl_val, imms)
-            sh_mask_amt = m.const(63, width=64) - imml.zext(width=64)
-            mask = lshr_var(m, m.const(0xFFFF_FFFF_FFFF_FFFF, width=64), sh_mask_amt)
+            sh_mask_amt = c(63, width=64) - imml._zext(width=64)
+            mask = lshr_var(m, c(0xFFFF_FFFF_FFFF_FFFF, width=64), sh_mask_amt)
             extracted = shifted & mask
-            valid = (imms.zext(width=64) + imml.zext(width=64)).ule(63)
+            valid = (imms._zext(width=64) + imml._zext(width=64)).ule(63)
             sh_ext = sh_mask_amt
             sext = ashr_var(m, shl_var(m, extracted, sh_ext), sh_ext)
-            alu = valid.select(sext, z64)
+            alu = valid._select_internal(sext, z64)
             is_load = z1
             is_store = z1
             size = z4
@@ -1363,22 +1363,22 @@ def exec_uop(
             imms = srcr_val
             imml = srcp_val
             shifted = lshr_var(m, srcl_val, imms)
-            sh_mask_amt = m.const(63, width=64) - imml.zext(width=64)
-            mask = lshr_var(m, m.const(0xFFFF_FFFF_FFFF_FFFF, width=64), sh_mask_amt)
+            sh_mask_amt = c(63, width=64) - imml._zext(width=64)
+            mask = lshr_var(m, c(0xFFFF_FFFF_FFFF_FFFF, width=64), sh_mask_amt)
             extracted = shifted & mask
-            valid = (imms.zext(width=64) + imml.zext(width=64)).ule(63)
-            alu = valid.select(extracted, z64)
+            valid = (imms._zext(width=64) + imml._zext(width=64)).ule(63)
+            alu = valid._select_internal(extracted, z64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
 
-        addw = (srcl_val + srcr_addsub_shl).trunc(width=32).sext(width=64)
-        subw = (srcl_val - srcr_addsub_shl).trunc(width=32).sext(width=64)
-        orw = (srcl_val | srcr_logic_shl).trunc(width=32).sext(width=64)
-        andw = (srcl_val & srcr_logic_shl).trunc(width=32).sext(width=64)
-        xorw = (srcl_val ^ srcr_logic_shl).trunc(width=32).sext(width=64)
+        addw = (srcl_val + srcr_addsub_shl)._trunc(width=32)._sext(width=64)
+        subw = (srcl_val - srcr_addsub_shl)._trunc(width=32)._sext(width=64)
+        orw = (srcl_val | srcr_logic_shl)._trunc(width=32)._sext(width=64)
+        andw = (srcl_val & srcr_logic_shl)._trunc(width=32)._sext(width=64)
+        xorw = (srcl_val ^ srcr_logic_shl)._trunc(width=32)._sext(width=64)
         if op_addw:
             alu = addw
             is_load = z1
@@ -1552,56 +1552,56 @@ def exec_uop(
         fd_exp_r = srcr_val[52:63]
         fd_frac_l = srcl_val[0:52]
         fd_frac_r = srcr_val[0:52]
-        fd_nan_l = fd_exp_l.eq(c(0x7FF, width=11)) & (~fd_frac_l.eq(c(0, width=52)))
-        fd_nan_r = fd_exp_r.eq(c(0x7FF, width=11)) & (~fd_frac_r.eq(c(0, width=52)))
+        fd_nan_l = fd_exp_l.__eq__(c(0x7FF, width=11)) & (~fd_frac_l.__eq__(c(0, width=52)))
+        fd_nan_r = fd_exp_r.__eq__(c(0x7FF, width=11)) & (~fd_frac_r.__eq__(c(0, width=52)))
         fd_nan = fd_nan_l | fd_nan_r
-        fd_zero_l = (srcl_val & c(0x7FFF_FFFF_FFFF_FFFF, width=64)).eq(c(0, width=64))
-        fd_zero_r = (srcr_val & c(0x7FFF_FFFF_FFFF_FFFF, width=64)).eq(c(0, width=64))
+        fd_zero_l = (srcl_val & c(0x7FFF_FFFF_FFFF_FFFF, width=64)).__eq__(c(0, width=64))
+        fd_zero_r = (srcr_val & c(0x7FFF_FFFF_FFFF_FFFF, width=64)).__eq__(c(0, width=64))
         fd_both_zero = fd_zero_l & fd_zero_r
-        fd_key_l = srcl_val[63].select(~srcl_val, srcl_val ^ c(0x8000_0000_0000_0000, width=64))
-        fd_key_r = srcr_val[63].select(~srcr_val, srcr_val ^ c(0x8000_0000_0000_0000, width=64))
+        fd_key_l = srcl_val[63]._select_internal(~srcl_val, srcl_val ^ c(0x8000_0000_0000_0000, width=64))
+        fd_key_r = srcr_val[63]._select_internal(~srcr_val, srcr_val ^ c(0x8000_0000_0000_0000, width=64))
         fd_lt = (~fd_nan) & (~fd_both_zero) & fd_key_l.ult(fd_key_r)
-        fd_eq = (~fd_nan) & (srcl_val.eq(srcr_val) | fd_both_zero)
+        fd_eq = (~fd_nan) & (srcl_val.__eq__(srcr_val) | fd_both_zero)
         fd_ge = (~fd_nan) & (fd_both_zero | fd_key_l.uge(fd_key_r))
 
-        fs_l = srcl_val.trunc(width=32)
-        fs_r = srcr_val.trunc(width=32)
+        fs_l = srcl_val._trunc(width=32)
+        fs_r = srcr_val._trunc(width=32)
         fs_exp_l = fs_l[23:31]
         fs_exp_r = fs_r[23:31]
         fs_frac_l = fs_l[0:23]
         fs_frac_r = fs_r[0:23]
-        fs_nan_l = fs_exp_l.eq(c(0xFF, width=8)) & (~fs_frac_l.eq(c(0, width=23)))
-        fs_nan_r = fs_exp_r.eq(c(0xFF, width=8)) & (~fs_frac_r.eq(c(0, width=23)))
+        fs_nan_l = fs_exp_l.__eq__(c(0xFF, width=8)) & (~fs_frac_l.__eq__(c(0, width=23)))
+        fs_nan_r = fs_exp_r.__eq__(c(0xFF, width=8)) & (~fs_frac_r.__eq__(c(0, width=23)))
         fs_nan = fs_nan_l | fs_nan_r
-        fs_zero_l = (fs_l & c(0x7FFF_FFFF, width=32)).eq(c(0, width=32))
-        fs_zero_r = (fs_r & c(0x7FFF_FFFF, width=32)).eq(c(0, width=32))
+        fs_zero_l = (fs_l & c(0x7FFF_FFFF, width=32)).__eq__(c(0, width=32))
+        fs_zero_r = (fs_r & c(0x7FFF_FFFF, width=32)).__eq__(c(0, width=32))
         fs_both_zero = fs_zero_l & fs_zero_r
-        fs_key_l = fs_l[31].select(~fs_l, fs_l ^ c(0x8000_0000, width=32))
-        fs_key_r = fs_r[31].select(~fs_r, fs_r ^ c(0x8000_0000, width=32))
+        fs_key_l = fs_l[31]._select_internal(~fs_l, fs_l ^ c(0x8000_0000, width=32))
+        fs_key_r = fs_r[31]._select_internal(~fs_r, fs_r ^ c(0x8000_0000, width=32))
         fs_lt = (~fs_nan) & (~fs_both_zero) & fs_key_l.ult(fs_key_r)
-        fs_eq = (~fs_nan) & (fs_l.eq(fs_r) | fs_both_zero)
+        fs_eq = (~fs_nan) & (fs_l.__eq__(fs_r) | fs_both_zero)
         fs_ge = (~fs_nan) & (fs_both_zero | fs_key_l.uge(fs_key_r))
 
-        fp_is_fs = srcr_type.eq(c(1, width=2))
-        fp_eq = fp_is_fs.select(fs_eq, fd_eq)
-        fp_lt = fp_is_fs.select(fs_lt, fd_lt)
-        fp_ge = fp_is_fs.select(fs_ge, fd_ge)
+        fp_is_fs = srcr_type.__eq__(c(1, width=2))
+        fp_eq = fp_is_fs._select_internal(fs_eq, fd_eq)
+        fp_lt = fp_is_fs._select_internal(fs_lt, fd_lt)
+        fp_ge = fp_is_fs._select_internal(fs_ge, fd_ge)
         if op_feq:
-            alu = fp_eq.select(1, z64)
+            alu = fp_eq._select_internal(1, z64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
         if op_flt:
-            alu = fp_lt.select(1, z64)
+            alu = fp_lt._select_internal(1, z64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
         if op_fge:
-            alu = fp_ge.select(1, z64)
+            alu = fp_ge._select_internal(1, z64)
             is_load = z1
             is_store = z1
             size = z4
@@ -2073,14 +2073,14 @@ def exec_uop(
             wdata = z64
 
         if op_c_sext_w:
-            alu = srcl_val.trunc(width=32).sext(width=64)
+            alu = srcl_val._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
             size = z4
             addr = z64
             wdata = z64
         if op_c_zext_w:
-            alu = srcl_val.trunc(width=32).zext(width=64)
+            alu = srcl_val._trunc(width=32)._zext(width=64)
             is_load = z1
             is_store = z1
             size = z4

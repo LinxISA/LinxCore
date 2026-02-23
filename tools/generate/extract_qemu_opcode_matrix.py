@@ -6,17 +6,21 @@ from pathlib import Path
 
 from opcode_catalog_lib import build_catalog, save_catalog
 
+THIS_FILE = Path(__file__).resolve()
+LINXCORE_ROOT = THIS_FILE.parents[2]
+LINXISA_ROOT = THIS_FILE.parents[4]
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Extract Linx opcode catalog from QEMU decodetree files")
     ap.add_argument(
         "--qemu-linx-dir",
-        default="/Users/zhoubot/qemu/target/linx",
+        default=str(LINXISA_ROOT / "emulator/qemu/target/linx"),
         help="Path to qemu/target/linx directory",
     )
     ap.add_argument(
         "--out",
-        default="/Users/zhoubot/LinxCore/src/common/opcode_catalog.yaml",
+        default=str(LINXCORE_ROOT / "src/common/opcode_catalog.yaml"),
         help="Output catalog path (JSON-formatted YAML)",
     )
     args = ap.parse_args()
