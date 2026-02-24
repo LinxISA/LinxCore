@@ -7,6 +7,13 @@ These modules provide a cycle-accurate, parameterized reference for:
 They are intended to be used by pycircuit stage implementations and unit tests.
 """
 
-from .types import BlockType, BrobEntryState, RobEntryState, CompletionSource
-from .brob import BrobModel, BrobAllocReq, BrobCompleteEvent, BrobRetireEvent
-from .rob import RobModel, RobAllocUop, RobCompleteEvent, RobRetireEvent
+from .types import (
+    BlockType,
+    BrobEntryState,
+    CompletionSource,
+    RobEntryState,
+    TrapPayload,
+    blocktype_needs_engine,
+)
+from .brob import BrobAllocReq, BrobCompleteEvent, BrobModel, BrobRetireEvent
+from .rob import RobAllocUop, RobCompleteEvent, RobModel, RobRetireEvent
