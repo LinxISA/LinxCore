@@ -664,6 +664,9 @@ def build_linxcore_top(
         cmd_valid_tma=bctrl_top["cmd_tma_valid_bctrl"],
         cmd_tag_tma=bctrl_top["bctrl_to_pe_stage_cmd_tag_bctrl"],
         cmd_payload_tma=bctrl_top["bctrl_to_pe_stage_cmd_payload_bctrl"],
+        cmd_bid_tma=bctrl_top["bctrl_to_pe_stage_cmd_bid_bctrl"],
+        flush_fire_tma=backend_top["do_flush"],
+        flush_bid_tma=backend_top["flush_bid"],
     )
     cube_top = m.instance_auto(
         build_janus_cube,
@@ -674,6 +677,9 @@ def build_linxcore_top(
         cmd_valid_cube=bctrl_top["cmd_cube_valid_bctrl"],
         cmd_tag_cube=bctrl_top["bctrl_to_pe_stage_cmd_tag_bctrl"],
         cmd_payload_cube=bctrl_top["bctrl_to_pe_stage_cmd_payload_bctrl"],
+        cmd_bid_cube=bctrl_top["bctrl_to_pe_stage_cmd_bid_bctrl"],
+        flush_fire_cube=backend_top["do_flush"],
+        flush_bid_cube=backend_top["flush_bid"],
     )
     tau_top = m.instance_auto(
         build_janus_tau,
@@ -684,6 +690,9 @@ def build_linxcore_top(
         cmd_valid_tau=bctrl_top["cmd_tau_valid_bctrl"],
         cmd_tag_tau=bctrl_top["bctrl_to_pe_stage_cmd_tag_bctrl"],
         cmd_payload_tau=bctrl_top["bctrl_to_pe_stage_cmd_payload_bctrl"],
+        cmd_bid_tau=bctrl_top["bctrl_to_pe_stage_cmd_bid_bctrl"],
+        flush_fire_tau=backend_top["do_flush"],
+        flush_bid_tau=backend_top["flush_bid"],
     )
     vec_top = m.instance_auto(
         build_linxcore_vec,
@@ -694,6 +703,9 @@ def build_linxcore_top(
         cmd_valid_vec=bctrl_top["cmd_vec_valid_bctrl"],
         cmd_tag_vec=bctrl_top["bctrl_to_pe_stage_cmd_tag_bctrl"],
         cmd_payload_vec=bctrl_top["bctrl_to_pe_stage_cmd_payload_bctrl"],
+        cmd_bid_vec=bctrl_top["bctrl_to_pe_stage_cmd_bid_bctrl"],
+        flush_fire_vec=backend_top["do_flush"],
+        flush_bid_vec=backend_top["flush_bid"],
     )
 
     m.assign(rsp_tma_valid_wire, tma_top["rsp_valid_tma"])

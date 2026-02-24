@@ -11,6 +11,10 @@ def build_linxcore_vec(m: Circuit) -> None:
     cmd_valid_vec = m.input("cmd_valid_vec", width=1)
     cmd_tag_vec = m.input("cmd_tag_vec", width=8)
     cmd_payload_vec = m.input("cmd_payload_vec", width=64)
+    cmd_bid_vec = m.input("cmd_bid_vec", width=64)
+
+    flush_fire_vec = m.input("flush_fire_vec", width=1)
+    flush_bid_vec = m.input("flush_bid_vec", width=64)
 
     c = m.const
 
@@ -18,6 +22,7 @@ def build_linxcore_vec(m: Circuit) -> None:
     wait_vec = m.out("wait_vec", clk=clk_vec, rst=rst_vec, width=3, init=c(0, width=3), en=c(1, width=1))
     tag_q_vec = m.out("tag_q_vec", clk=clk_vec, rst=rst_vec, width=8, init=c(0, width=8), en=c(1, width=1))
     payload_q_vec = m.out("payload_q_vec", clk=clk_vec, rst=rst_vec, width=64, init=c(0, width=64), en=c(1, width=1))
+    bid_q_vec = m.out("bid_q_vec", clk=clk_vec, rst=rst_vec, width=64, init=c(0, width=64), en=c(1, width=1))
 
     cmd_ready_vec = ~busy_vec.out()
     accept_vec = cmd_valid_vec & cmd_ready_vec
@@ -31,12 +36,20 @@ def build_linxcore_vec(m: Circuit) -> None:
     wait_next_vec = count_down_vec._select_internal(wait_vec.out() - c(1, width=3), wait_next_vec)
 
     rsp_fire_vec = busy_vec.out() & wait_vec.out().__eq__(c(0, width=3))
+
+    # Flush: kill younger in-flight op (bid > flush_bid).
+    flush_kill_vec = flush_fire_vec & busy_vec.out() & flush_bid_vec.ult(bid_q_vec.out())
+    rsp_fire_vec = flush_kill_vec._select_internal(c(0, width=1), rsp_fire_vec)
+
     busy_next_vec = rsp_fire_vec._select_internal(c(0, width=1), busy_next_vec)
+    busy_next_vec = flush_kill_vec._select_internal(c(0, width=1), busy_next_vec)
+    wait_next_vec = flush_kill_vec._select_internal(c(0, width=3), wait_next_vec)
 
     busy_vec.set(busy_next_vec)
     wait_vec.set(wait_next_vec)
     tag_q_vec.set(cmd_tag_vec, when=accept_vec)
     payload_q_vec.set(cmd_payload_vec, when=accept_vec)
+    bid_q_vec.set(cmd_bid_vec, when=accept_vec)
 
     m.output("cmd_ready_vec", cmd_ready_vec)
     m.output("rsp_valid_vec", rsp_fire_vec)
