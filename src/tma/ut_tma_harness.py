@@ -11,25 +11,6 @@ TXNID_W = 8
 DBID_W = 8
 BE_W = DATA_W // 8
 
-ST_OK = 0x0
-ST_PROTOCOL_ERR = 0x2
-ST_ACCESS_ERR = 0x3
-ST_TIMEOUT = 0x4
-ST_UNSUPPORTED = 0x5
-
-OPC_REQ_READ_ONCE = 0x01
-OPC_REQ_WRITE_UNIQUE = 0x02
-OPC_REQ_READ_NOSNP = 0x03
-OPC_REQ_WRITE_NOSNP = 0x04
-OPC_RSP_COMP = 0x01
-OPC_RSP_COMP_DBID = 0x02
-OPC_DAT_COMPDATA = 0x01
-OPC_DAT_NCB_WRDATA = 0x02
-
-PAYLOAD_TLOAD = 0x0
-PAYLOAD_TSTORE = 0x1
-PAYLOAD_UNSUPPORTED = 0x2
-
 
 @module(name="ut_tma_harness")
 def build(m: Circuit) -> None:
@@ -39,6 +20,18 @@ def build(m: Circuit) -> None:
     cmd_valid_tma = m.input("cmd_valid_tma", width=1)
     cmd_tag_tma = m.input("cmd_tag_tma", width=8)
     cmd_payload_tma = m.input("cmd_payload_tma", width=64)
+
+    # UT-only sideband config for real NORM data path.
+    ut_cfg_layout = m.input("ut_cfg_layout", width=3)
+    ut_cfg_elem_type = m.input("ut_cfg_elem_type", width=3)
+    ut_cfg_pad_mode = m.input("ut_cfg_pad_mode", width=2)
+    ut_cfg_gm_base_addr = m.input("ut_cfg_gm_base_addr", width=64)
+    ut_cfg_tr_base_addr = m.input("ut_cfg_tr_base_addr", width=64)
+    ut_cfg_gm_inner_elems = m.input("ut_cfg_gm_inner_elems", width=16)
+    ut_cfg_gm_outer_elems = m.input("ut_cfg_gm_outer_elems", width=16)
+    ut_cfg_tr_inner_elems = m.input("ut_cfg_tr_inner_elems", width=16)
+    ut_cfg_tr_outer_elems = m.input("ut_cfg_tr_outer_elems", width=16)
+    ut_cfg_gm_inner_stride_B = m.input("ut_cfg_gm_inner_stride_B", width=16)
 
     gm_req_ready = m.input("gm_req_ready", width=1)
     gm_rsp_valid = m.input("gm_rsp_valid", width=1)
@@ -76,17 +69,32 @@ def build(m: Circuit) -> None:
         module_name="JanusTmaUtHarnessDut",
         params={
             "enable_chi_if": 1,
+            "enable_ut_cfg_if": 1,
             "ADDR_W": ADDR_W,
             "DATA_W": DATA_W,
             "TXNID_W": TXNID_W,
             "DBID_W": DBID_W,
-            "stub_timeout_cycles": 4,
+            "BPQ_DEPTH": 1,
+            "RFB_DEPTH": 16,
+            "WCB_DEPTH": 16,
+            "BDB_DEPTH": 64,
+            "stub_timeout_cycles": 2048,
         },
         clk=clk,
         rst=rst,
         cmd_valid_tma=cmd_valid_tma,
         cmd_tag_tma=cmd_tag_tma,
         cmd_payload_tma=cmd_payload_tma,
+        ut_cfg_layout=ut_cfg_layout,
+        ut_cfg_elem_type=ut_cfg_elem_type,
+        ut_cfg_pad_mode=ut_cfg_pad_mode,
+        ut_cfg_gm_base_addr=ut_cfg_gm_base_addr,
+        ut_cfg_tr_base_addr=ut_cfg_tr_base_addr,
+        ut_cfg_gm_inner_elems=ut_cfg_gm_inner_elems,
+        ut_cfg_gm_outer_elems=ut_cfg_gm_outer_elems,
+        ut_cfg_tr_inner_elems=ut_cfg_tr_inner_elems,
+        ut_cfg_tr_outer_elems=ut_cfg_tr_outer_elems,
+        ut_cfg_gm_inner_stride_B=ut_cfg_gm_inner_stride_B,
         gm_req_ready=gm_req_ready,
         gm_rsp_valid=gm_rsp_valid,
         gm_rsp_opcode=gm_rsp_opcode,
@@ -155,3 +163,14 @@ def build(m: Circuit) -> None:
     m.output("tr_dat_tx_data", dut["tr_dat_tx_data"])
     m.output("tr_dat_tx_be", dut["tr_dat_tx_be"])
     m.output("tr_dat_tx_resp", dut["tr_dat_tx_resp"])
+
+    # Debug taps for deadlock triage.
+    m.output("dbg_state_tma", dut["dbg_state_tma"])
+    m.output("dbg_bpq_occ_tma", dut["dbg_bpq_occ_tma"])
+    m.output("dbg_rfb_occ_tma", dut["dbg_rfb_occ_tma"])
+    m.output("dbg_wcb_occ_tma", dut["dbg_wcb_occ_tma"])
+    m.output("dbg_bdb_occ_tma", dut["dbg_bdb_occ_tma"])
+    m.output("dbg_row_idx_tma", dut["dbg_row_idx_tma"])
+    m.output("dbg_chunk_idx_tma", dut["dbg_chunk_idx_tma"])
+    m.output("dbg_chunk_row_idx_tma", dut["dbg_chunk_row_idx_tma"])
+    m.output("dbg_timeout_tma", dut["dbg_timeout_tma"])

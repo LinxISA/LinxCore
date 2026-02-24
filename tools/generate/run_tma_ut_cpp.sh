@@ -7,6 +7,7 @@ PYC_FRONTEND="${PYC_ROOT}/compiler/frontend"
 PYCC="${PYCC:-${PYC_ROOT}/build/bin/pycc}"
 
 HARNESS_PY="${ROOT_DIR}/src/tma/ut_tma_harness.py"
+TMA_DUT_PY="${ROOT_DIR}/src/tma/tma.py"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/ut_tma_harness"
 GEN_PYC="${GEN_CPP_DIR}/ut_tma_harness.pyc"
 CPP_MANIFEST="${GEN_CPP_DIR}/cpp_compile_manifest.json"
@@ -40,6 +41,10 @@ if [[ ! -f "${HARNESS_PY}" ]]; then
   echo "error: harness file missing: ${HARNESS_PY}" >&2
   exit 1
 fi
+if [[ ! -f "${TMA_DUT_PY}" ]]; then
+  echo "error: tma dut file missing: ${TMA_DUT_PY}" >&2
+  exit 1
+fi
 if [[ ! -f "${TB_SRC}" || ! -f "${TB_SCEN_HDR}" ]]; then
   echo "error: tb sources missing: ${TB_SRC} / ${TB_SCEN_HDR}" >&2
   exit 1
@@ -68,7 +73,7 @@ fi
 trap cleanup_lock EXIT
 
 need_emit=0
-if [[ ! -f "${GEN_PYC}" || "${HARNESS_PY}" -nt "${GEN_PYC}" ]]; then
+if [[ ! -f "${GEN_PYC}" || "${HARNESS_PY}" -nt "${GEN_PYC}" || "${TMA_DUT_PY}" -nt "${GEN_PYC}" ]]; then
   need_emit=1
 fi
 if [[ ${need_emit} -eq 1 ]]; then

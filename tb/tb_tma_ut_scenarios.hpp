@@ -81,6 +81,26 @@ struct Scenario {
   std::vector<Step> steps;
 };
 
+enum class DataOp {
+  tload,
+  tstore,
+};
+
+struct DataCase {
+  std::string name;
+  DataOp op;
+  std::uint64_t layout;
+  std::uint64_t elem_type;
+  std::uint64_t pad_mode;
+  std::uint64_t gm_base_off;
+  std::uint64_t inner_bytes;
+  std::uint64_t gm_outer;
+  std::uint64_t tr_inner;
+  std::uint64_t tr_outer;
+  std::uint64_t stride_B;
+  std::uint64_t expect_status;
+};
+
 inline Drive D(InSig sig, std::uint64_t value) { return Drive{sig, value}; }
 
 inline Expect PRE(OutSig sig, std::uint64_t value, const char *label = "") {
@@ -323,6 +343,53 @@ inline std::vector<Scenario> build_scenarios() {
           STEP({D(InSig::tr_rsp_valid, 0)}),
       },
   });
+
+  return out;
+}
+
+inline std::vector<DataCase> build_data_cases() {
+  static constexpr std::uint64_t ST_OK = 0x0;
+  static constexpr std::uint64_t ST_DECODE_ERR = 0x1;
+  static constexpr std::uint64_t ST_TIMEOUT = 0x4;
+
+  static constexpr std::uint64_t LAYOUT_NORM = 0x0;
+  static constexpr std::uint64_t PAD_NULL = 0x0;
+  static constexpr std::uint64_t ELEM_INT8 = 0x0;
+  static constexpr std::uint64_t ELEM_INT16 = 0x1;
+  static constexpr std::uint64_t ELEM_INT32 = 0x2;
+
+  std::vector<DataCase> out;
+
+  // 24 data/error cases: 9 matrix configs * (tload + tstore) + 6 error/robustness.
+  const std::vector<DataCase> matrix = {
+      {"c1_tload_int8_inner32_outer64_align", DataOp::tload, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 32, 64, 32, 64, 256, ST_OK},
+      {"c1_tstore_int8_inner32_outer64_align", DataOp::tstore, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 32, 64, 32, 64, 256, ST_OK},
+      {"c2_tload_int8_inner64_outer128_align", DataOp::tload, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 64, 128, 64, 128, 256, ST_OK},
+      {"c2_tstore_int8_inner64_outer128_align", DataOp::tstore, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 64, 128, 64, 128, 256, ST_OK},
+      {"c3_tload_int8_inner128_outer64_align", DataOp::tload, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 128, 64, 128, 64, 256, ST_OK},
+      {"c3_tstore_int8_inner128_outer64_align", DataOp::tstore, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 128, 64, 128, 64, 256, ST_OK},
+      {"c4_tload_int8_inner256_outer256_align", DataOp::tload, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 256, 256, 256, 256, 512, ST_OK},
+      {"c4_tstore_int8_inner256_outer256_align", DataOp::tstore, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 256, 256, 256, 256, 512, ST_OK},
+      {"c5_tload_int8_inner128_outer128_unalign32", DataOp::tload, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 32, 128, 128, 128, 128, 256, ST_OK},
+      {"c5_tstore_int8_inner128_outer128_unalign32", DataOp::tstore, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 32, 128, 128, 128, 128, 256, ST_OK},
+      {"c6_tload_int8_inner256_outer64_unalign128_stride384", DataOp::tload, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 128, 256, 64, 256, 64, 384, ST_OK},
+      {"c6_tstore_int8_inner256_outer64_unalign128_stride384", DataOp::tstore, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 128, 256, 64, 256, 64, 384, ST_OK},
+      {"c7_tload_int16_inner64_outer64_unalign2", DataOp::tload, LAYOUT_NORM, ELEM_INT16, PAD_NULL, 2, 64, 64, 64, 64, 256, ST_OK},
+      {"c7_tstore_int16_inner64_outer64_unalign2", DataOp::tstore, LAYOUT_NORM, ELEM_INT16, PAD_NULL, 2, 64, 64, 64, 64, 256, ST_OK},
+      {"c8_tload_int32_inner128_outer128_unalign4", DataOp::tload, LAYOUT_NORM, ELEM_INT32, PAD_NULL, 4, 128, 128, 128, 128, 256, ST_OK},
+      {"c8_tstore_int32_inner128_outer128_unalign4", DataOp::tstore, LAYOUT_NORM, ELEM_INT32, PAD_NULL, 4, 128, 128, 128, 128, 256, ST_OK},
+      {"u1_tload_int8_inner64_outer48_unusual", DataOp::tload, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 64, 48, 64, 48, 256, ST_OK},
+      {"u1_tstore_int8_inner64_outer48_unusual", DataOp::tstore, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 64, 48, 64, 48, 256, ST_OK},
+  };
+  out.insert(out.end(), matrix.begin(), matrix.end());
+
+  // Error / robustness cases (6).
+  out.push_back({"decode_err_stride_lt_128", DataOp::tload, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 64, 64, 64, 64, 64, ST_DECODE_ERR});
+  out.push_back({"decode_err_inner_bytes_illegal", DataOp::tload, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 96, 64, 96, 64, 256, ST_DECODE_ERR});
+  out.push_back({"decode_err_gm_base_elem_misaligned", DataOp::tload, LAYOUT_NORM, ELEM_INT32, PAD_NULL, 2, 128, 64, 32, 64, 256, ST_DECODE_ERR});
+  out.push_back({"decode_err_dim_mismatch_no_padding", DataOp::tstore, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 64, 63, 64, 64, 256, ST_DECODE_ERR});
+  out.push_back({"deadlock_watchdog_no_progress_forced", DataOp::tload, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 128, 64, 128, 64, 256, ST_TIMEOUT});
+  out.push_back({"multi_cmd_random_latency_no_deadlock", DataOp::tstore, LAYOUT_NORM, ELEM_INT8, PAD_NULL, 0, 64, 128, 64, 128, 256, ST_OK});
 
   return out;
 }
