@@ -562,6 +562,8 @@ def build_linxcore_top(
         enq_tile_bisq=backend_top["cmd_to_bisq_stage_cmd_tile"],
         enq_rob_bisq=backend_top["cmd_to_bisq_stage_cmd_src_rob"],
         deq_ready_bisq=deq_ready_bisq_wire,
+        flush_fire_bisq=backend_top["do_flush"],
+        flush_bid_bisq=backend_top["flush_bid"],
     )
     m.assign(bisq_enq_ready_wire, bisq_top["bisq_enq_ready_bisq"])
     m.output("cmd_to_bisq_stage_cmd_valid_top", backend_top["cmd_to_bisq_stage_cmd_valid"])
@@ -735,6 +737,8 @@ def build_linxcore_top(
         retire_fire_brob=backend_top["brob_retire_fire"],
         retire_bid_brob=backend_top["brob_retire_bid"],
         query_bid_brob=backend_top["active_block_bid"],
+        flush_fire_brob=backend_top["do_flush"],
+        flush_bid_brob=backend_top["flush_bid"],
         rsp_valid_brob=bctrl_top["rsp_valid_brob"],
         rsp_tag_brob=bctrl_top["rsp_tag_brob"],
         rsp_status_brob=bctrl_top["rsp_status_brob"],

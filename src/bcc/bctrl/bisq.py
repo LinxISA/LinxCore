@@ -19,6 +19,10 @@ def build_janus_bcc_bctrl_bisq(m: Circuit, *, depth: int = 16, idx_w: int = 4) -
 
     deq_ready_bisq = m.input("deq_ready_bisq", width=1)
 
+    # Flush younger blocks: keep entries with bid <= flush_bid.
+    flush_fire_bisq = m.input("flush_fire_bisq", width=1)
+    flush_bid_bisq = m.input("flush_bid_bisq", width=64)
+
     c = m.const
 
     with m.scope("bisq_ctrl"):
@@ -52,6 +56,22 @@ def build_janus_bcc_bctrl_bisq(m: Circuit, *, depth: int = 16, idx_w: int = 4) -
     fire_enq_bisq = enq_valid_bisq & enq_ready_bisq
     fire_deq_bisq = deq_valid_bisq & deq_ready_bisq
 
+    # On flush: find the kept prefix length in dequeue order.
+    # We assume (as designed) that younger blocks appear as a suffix in BISQ.
+    keep_count = c(0, width=idx_w + 1)
+    seen_stop = c(0, width=1)
+    for step in range(depth):
+        step_w = c(step, width=idx_w + 1)
+        in_window = step_w.ult(count_bisq.out())
+        idx = head_bisq.out() + c(step, width=idx_w)
+        v = mux_by_uindex(m, idx=idx, items=q_valid_bisq, default=c(0, width=1))
+        b = mux_by_uindex(m, idx=idx, items=q_bid_bisq, default=c(0, width=64))
+        kill = v & flush_bid_bisq.ult(b)
+        stop_now = in_window & (kill | (~v))
+        inc = flush_fire_bisq & in_window & (~seen_stop) & v & (~kill)
+        keep_count = inc._select_internal(keep_count + c(1, width=idx_w + 1), keep_count)
+        seen_stop = stop_now._select_internal(c(1, width=1), seen_stop)
+
     for i in range(depth):
         idx_bisq = c(i, width=idx_w)
         do_enq_bisq = fire_enq_bisq & tail_bisq.out().__eq__(idx_bisq)
@@ -60,6 +80,15 @@ def build_janus_bcc_bctrl_bisq(m: Circuit, *, depth: int = 16, idx_w: int = 4) -
         v_next_bisq = q_valid_bisq[i].out()
         v_next_bisq = do_deq_bisq._select_internal(c(0, width=1), v_next_bisq)
         v_next_bisq = do_enq_bisq._select_internal(c(1, width=1), v_next_bisq)
+
+        # Flush: clear younger (suffix) entries.
+        dist = c(i, width=idx_w) - head_bisq.out()
+        dist_z = dist._zext(width=idx_w + 1)
+        in_window_i = dist_z.ult(count_bisq.out())
+        in_keep_i = dist_z.ult(keep_count)
+        kill_i = flush_fire_bisq & in_window_i & (~in_keep_i)
+        v_next_bisq = kill_i._select_internal(c(0, width=1), v_next_bisq)
+
         q_valid_bisq[i].set(v_next_bisq)
 
         q_kind_bisq[i].set(enq_kind_bisq, when=do_enq_bisq)
@@ -74,6 +103,10 @@ def build_janus_bcc_bctrl_bisq(m: Circuit, *, depth: int = 16, idx_w: int = 4) -
     count_next_bisq = count_bisq.out()
     count_next_bisq = (fire_enq_bisq & (~fire_deq_bisq))._select_internal(count_next_bisq + c(1, width=idx_w + 1), count_next_bisq)
     count_next_bisq = ((~fire_enq_bisq) & fire_deq_bisq)._select_internal(count_next_bisq - c(1, width=idx_w + 1), count_next_bisq)
+
+    # Flush rewinds the tail to the kept prefix end.
+    tail_next_bisq = flush_fire_bisq._select_internal(head_bisq.out() + keep_count._trunc(width=idx_w), tail_next_bisq)
+    count_next_bisq = flush_fire_bisq._select_internal(keep_count, count_next_bisq)
 
     head_bisq.set(head_next_bisq)
     tail_bisq.set(tail_next_bisq)
