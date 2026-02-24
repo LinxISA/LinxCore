@@ -562,6 +562,8 @@ def build_linxcore_top(
         enq_tile_bisq=backend_top["cmd_to_bisq_stage_cmd_tile"],
         enq_rob_bisq=backend_top["cmd_to_bisq_stage_cmd_src_rob"],
         deq_ready_bisq=deq_ready_bisq_wire,
+        flush_fire_bisq=backend_top["do_flush"],
+        flush_bid_bisq=backend_top["flush_bid"],
     )
     m.assign(bisq_enq_ready_wire, bisq_top["bisq_enq_ready_bisq"])
     m.output("cmd_to_bisq_stage_cmd_valid_top", backend_top["cmd_to_bisq_stage_cmd_valid"])
