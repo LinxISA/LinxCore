@@ -735,6 +735,8 @@ def build_linxcore_top(
         retire_fire_brob=backend_top["brob_retire_fire"],
         retire_bid_brob=backend_top["brob_retire_bid"],
         query_bid_brob=backend_top["active_block_bid"],
+        flush_fire_brob=backend_top["do_flush"],
+        flush_bid_brob=backend_top["flush_bid"],
         rsp_valid_brob=bctrl_top["rsp_valid_brob"],
         rsp_tag_brob=bctrl_top["rsp_tag_brob"],
         rsp_status_brob=bctrl_top["rsp_status_brob"],

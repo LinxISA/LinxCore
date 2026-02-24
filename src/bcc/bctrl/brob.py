@@ -16,6 +16,11 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
     retire_bid_brob = m.input("retire_bid_brob", width=64)
     query_bid_brob = m.input("query_bid_brob", width=64)
 
+    # Flush younger blocks: when flushing within a block, keep entries with
+    # bid <= flush_bid and clear all younger (bid > flush_bid).
+    flush_fire_brob = m.input("flush_fire_brob", width=1)
+    flush_bid_brob = m.input("flush_bid_brob", width=64)
+
     rsp_valid_brob = m.input("rsp_valid_brob", width=1)
     rsp_tag_brob = m.input("rsp_tag_brob", width=8)
     rsp_status_brob = m.input("rsp_status_brob", width=4)
@@ -91,6 +96,16 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
     retire_fire_ok_brob = retire_fire_brob & query_alloc_brob & (~query_retired_brob)
     alloc_next_brob = retire_fire_ok_brob._select_internal(alloc_next_brob & (~retire_bit_brob), alloc_next_brob)
     retired_next_brob = retire_fire_ok_brob._select_internal(retired_next_brob | retire_bit_brob, retired_next_brob)
+
+    # Flush younger blocks (bid > flush_bid).
+    flush_kill_mask = c(0, width=entries)
+    for i in range(entries):
+        kill_i = alloc_next_brob[i] & flush_bid_brob.ult(bid_slot_brob[i].out())
+        flush_kill_mask = kill_i._select_internal(flush_kill_mask | c(1 << i, width=entries), flush_kill_mask)
+    alloc_next_brob = flush_fire_brob._select_internal(alloc_next_brob & (~flush_kill_mask), alloc_next_brob)
+    ready_next_brob = flush_fire_brob._select_internal(ready_next_brob & (~flush_kill_mask), ready_next_brob)
+    retired_next_brob = flush_fire_brob._select_internal(retired_next_brob & (~flush_kill_mask), retired_next_brob)
+    exception_next_brob = flush_fire_brob._select_internal(exception_next_brob & (~flush_kill_mask), exception_next_brob)
 
     allocated_brob.set(alloc_next_brob)
     ready_brob.set(ready_next_brob)

@@ -139,12 +139,14 @@ def build_commit_ctrl_stage(m: Circuit, *, commit_w: int = 4, rob_w: int = 6) ->
     commit_redirect = m.input("commit_redirect", width=1)
     redirect_pc = m.input("redirect_pc", width=64)
     redirect_checkpoint_id = m.input("redirect_checkpoint_id", width=6)
+    redirect_bid = m.input("redirect_bid", width=64)
     mmio_exit = m.input("mmio_exit", width=1)
 
     state_fpc = m.input("state_fpc", width=64)
     state_flush_pc = m.input("state_flush_pc", width=64)
     state_flush_checkpoint_id = m.input("state_flush_checkpoint_id", width=6)
     state_flush_pending = m.input("state_flush_pending", width=1)
+    state_flush_bid = m.input("state_flush_bid", width=64)
     state_replay_pending = m.input("state_replay_pending", width=1)
     state_replay_store_rob = m.input("state_replay_store_rob", width=rob_w)
     state_replay_pc = m.input("state_replay_pc", width=64)
@@ -167,8 +169,10 @@ def build_commit_ctrl_stage(m: Circuit, *, commit_w: int = 4, rob_w: int = 6) ->
 
     flush_pc_next = commit_redirect._select_internal(redirect_pc, state_flush_pc)
     flush_checkpoint_id_next = commit_redirect._select_internal(redirect_checkpoint_id, state_flush_checkpoint_id)
+    flush_bid_next = commit_redirect._select_internal(redirect_bid, state_flush_bid)
     flush_pending_next = state_flush_pending
     flush_pending_next = do_flush._select_internal(c(0, width=1), flush_pending_next)
+    flush_bid_next = do_flush._select_internal(c(0, width=64), flush_bid_next)
     flush_pending_next = commit_redirect._select_internal(c(1, width=1), flush_pending_next)
 
     replay_pending_next = state_replay_pending
@@ -187,6 +191,7 @@ def build_commit_ctrl_stage(m: Circuit, *, commit_w: int = 4, rob_w: int = 6) ->
     m.output("fpc_next", fpc_next)
     m.output("flush_pc_next", flush_pc_next)
     m.output("flush_checkpoint_id_next", flush_checkpoint_id_next)
+    m.output("flush_bid_next", flush_bid_next)
     m.output("flush_pending_next", flush_pending_next)
     m.output("replay_pending_next", replay_pending_next)
     m.output("replay_store_rob_next", replay_store_rob_next)

@@ -41,6 +41,9 @@ class CoreCtrlRegs:
     flush_pending: Reg
     flush_pc: Reg
     flush_checkpoint_id: Reg
+    # BID of the block that triggered the most recent flush/redirect.
+    # Used to selectively clear younger BROB entries.
+    flush_bid: Reg
     replay_pending: Reg
     replay_store_rob: Reg
     replay_pc: Reg
@@ -193,6 +196,7 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         flush_pending = m.out("flush_pending", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
         flush_pc = m.out("flush_pc", clk=clk, rst=rst, width=64, init=boot_pc, en=consts.one1)
         flush_checkpoint_id = m.out("flush_checkpoint_id", clk=clk, rst=rst, width=6, init=c(0, width=6), en=consts.one1)
+        flush_bid = m.out("flush_bid", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
         replay_pending = m.out("replay_pending", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
         replay_store_rob = m.out(
             "replay_store_rob", clk=clk, rst=rst, width=p.rob_w, init=c(0, width=p.rob_w), en=consts.one1
@@ -246,6 +250,7 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         flush_pending=flush_pending,
         flush_pc=flush_pc,
         flush_checkpoint_id=flush_checkpoint_id,
+        flush_bid=flush_bid,
         replay_pending=replay_pending,
         replay_store_rob=replay_store_rob,
         replay_pc=replay_pc,
