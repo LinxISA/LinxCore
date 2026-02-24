@@ -11,20 +11,20 @@ def compose_wakeup_reason(*, m, p, wb_fire_has_dsts, lsu_forward_active, commit_
     for slot in range(p.issue_w):
         any_wakeup = any_wakeup | wb_fire_has_dsts[slot]
     wakeup_reason = c(0, width=8)
-    wakeup_reason = any_wakeup.select(wakeup_reason | c(1 << 0, width=8), wakeup_reason)
-    wakeup_reason = lsu_forward_active.select(wakeup_reason | c(1 << 1, width=8), wakeup_reason)
-    wakeup_reason = commit_redirect.select(wakeup_reason | c(1 << 2, width=8), wakeup_reason)
-    wakeup_reason = dispatch_fire.select(wakeup_reason | c(1 << 3, width=8), wakeup_reason)
+    wakeup_reason = any_wakeup._select_internal(wakeup_reason | c(1 << 0, width=8), wakeup_reason)
+    wakeup_reason = lsu_forward_active._select_internal(wakeup_reason | c(1 << 1, width=8), wakeup_reason)
+    wakeup_reason = commit_redirect._select_internal(wakeup_reason | c(1 << 2, width=8), wakeup_reason)
+    wakeup_reason = dispatch_fire._select_internal(wakeup_reason | c(1 << 3, width=8), wakeup_reason)
     return wakeup_reason
 
 
 def compose_replay_cause(*, m, lsu_block_lane0, issued_is_load, older_store_pending, lsu_violation_detected, replay_redirect_fire):
     c = m.const
     replay_cause = c(0, width=8)
-    replay_cause = lsu_block_lane0.select(replay_cause | c(1 << 0, width=8), replay_cause)
-    replay_cause = (issued_is_load & older_store_pending).select(replay_cause | c(1 << 1, width=8), replay_cause)
-    replay_cause = lsu_violation_detected.select(replay_cause | c(1 << 2, width=8), replay_cause)
-    replay_cause = replay_redirect_fire.select(replay_cause | c(1 << 3, width=8), replay_cause)
+    replay_cause = lsu_block_lane0._select_internal(replay_cause | c(1 << 0, width=8), replay_cause)
+    replay_cause = (issued_is_load & older_store_pending)._select_internal(replay_cause | c(1 << 1, width=8), replay_cause)
+    replay_cause = lsu_violation_detected._select_internal(replay_cause | c(1 << 2, width=8), replay_cause)
+    replay_cause = replay_redirect_fire._select_internal(replay_cause | c(1 << 3, width=8), replay_cause)
     return replay_cause
 
 
@@ -91,27 +91,27 @@ def build_head_wait_stage(
     head_wait_sr = tag0
     head_wait_sp = tag0
     for i in range(iq_depth):
-        hit_lsu = lsu_valid[i] & lsu_rob[i].eq(head_idx)
-        hit_bru = bru_valid[i] & bru_rob[i].eq(head_idx)
-        hit_alu = alu_valid[i] & alu_rob[i].eq(head_idx)
-        hit_cmd = cmd_valid[i] & cmd_rob[i].eq(head_idx)
-        head_wait_hit = (hit_lsu | hit_bru | hit_alu | hit_cmd).select(c(1, width=1), head_wait_hit)
-        head_wait_kind = hit_lsu.select(c(3, width=2), head_wait_kind)
-        head_wait_kind = hit_bru.select(c(2, width=2), head_wait_kind)
-        head_wait_kind = hit_alu.select(c(1, width=2), head_wait_kind)
-        head_wait_kind = hit_cmd.select(c(0, width=2), head_wait_kind)
-        head_wait_sl = hit_lsu.select(lsu_srcl[i], head_wait_sl)
-        head_wait_sr = hit_lsu.select(lsu_srcr[i], head_wait_sr)
-        head_wait_sp = hit_lsu.select(lsu_srcp[i], head_wait_sp)
-        head_wait_sl = hit_bru.select(bru_srcl[i], head_wait_sl)
-        head_wait_sr = hit_bru.select(bru_srcr[i], head_wait_sr)
-        head_wait_sp = hit_bru.select(bru_srcp[i], head_wait_sp)
-        head_wait_sl = hit_alu.select(alu_srcl[i], head_wait_sl)
-        head_wait_sr = hit_alu.select(alu_srcr[i], head_wait_sr)
-        head_wait_sp = hit_alu.select(alu_srcp[i], head_wait_sp)
-        head_wait_sl = hit_cmd.select(cmd_srcl[i], head_wait_sl)
-        head_wait_sr = hit_cmd.select(cmd_srcr[i], head_wait_sr)
-        head_wait_sp = hit_cmd.select(cmd_srcp[i], head_wait_sp)
+        hit_lsu = lsu_valid[i] & lsu_rob[i].__eq__(head_idx)
+        hit_bru = bru_valid[i] & bru_rob[i].__eq__(head_idx)
+        hit_alu = alu_valid[i] & alu_rob[i].__eq__(head_idx)
+        hit_cmd = cmd_valid[i] & cmd_rob[i].__eq__(head_idx)
+        head_wait_hit = (hit_lsu | hit_bru | hit_alu | hit_cmd)._select_internal(c(1, width=1), head_wait_hit)
+        head_wait_kind = hit_lsu._select_internal(c(3, width=2), head_wait_kind)
+        head_wait_kind = hit_bru._select_internal(c(2, width=2), head_wait_kind)
+        head_wait_kind = hit_alu._select_internal(c(1, width=2), head_wait_kind)
+        head_wait_kind = hit_cmd._select_internal(c(0, width=2), head_wait_kind)
+        head_wait_sl = hit_lsu._select_internal(lsu_srcl[i], head_wait_sl)
+        head_wait_sr = hit_lsu._select_internal(lsu_srcr[i], head_wait_sr)
+        head_wait_sp = hit_lsu._select_internal(lsu_srcp[i], head_wait_sp)
+        head_wait_sl = hit_bru._select_internal(bru_srcl[i], head_wait_sl)
+        head_wait_sr = hit_bru._select_internal(bru_srcr[i], head_wait_sr)
+        head_wait_sp = hit_bru._select_internal(bru_srcp[i], head_wait_sp)
+        head_wait_sl = hit_alu._select_internal(alu_srcl[i], head_wait_sl)
+        head_wait_sr = hit_alu._select_internal(alu_srcr[i], head_wait_sr)
+        head_wait_sp = hit_alu._select_internal(alu_srcp[i], head_wait_sp)
+        head_wait_sl = hit_cmd._select_internal(cmd_srcl[i], head_wait_sl)
+        head_wait_sr = hit_cmd._select_internal(cmd_srcr[i], head_wait_sr)
+        head_wait_sp = hit_cmd._select_internal(cmd_srcp[i], head_wait_sp)
 
     head_wait_sl_rdy = mask_bit(m, mask=ready_mask, idx=head_wait_sl, width=pregs)
     head_wait_sr_rdy = mask_bit(m, mask=ready_mask, idx=head_wait_sr, width=pregs)

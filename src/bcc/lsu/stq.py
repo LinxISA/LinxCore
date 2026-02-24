@@ -43,8 +43,8 @@ def build_janus_bcc_lsu_stq(m: Circuit, *, depth: int = 32, idx_w: int = 5) -> N
 
     for i in range(depth):
         idx_stq = c(i, width=idx_w)
-        do_enq_stq = enq_fire_stq & tail_stq.out().eq(idx_stq)
-        do_deq_stq = deq_fire_stq & head_stq.out().eq(idx_stq)
+        do_enq_stq = enq_fire_stq & tail_stq.out().__eq__(idx_stq)
+        do_deq_stq = deq_fire_stq & head_stq.out().__eq__(idx_stq)
 
         v_next_stq = q_valid_stq[i].out()
         v_next_stq = do_deq_stq._select_internal(c(0, width=1), v_next_stq)

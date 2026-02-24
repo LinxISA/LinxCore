@@ -29,7 +29,7 @@ def build_janus_tmu_noc_node(m: Circuit) -> None:
     ingress_valid_noc.set(ingress_valid_next_noc)
     ingress_data_noc.set(in_data_noc, when=ingress_fire_noc)
 
-    pipe_noc = m.instance(
+    pipe_noc = m.instance_auto(
         build_janus_tmu_noc_pipe,
         name="noc_pipe",
         module_name="JanusTmuNocPipeInst",

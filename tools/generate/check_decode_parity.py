@@ -6,6 +6,10 @@ from pathlib import Path
 
 from opcode_catalog_lib import load_catalog, load_qemu_entries
 
+THIS_FILE = Path(__file__).resolve()
+LINXCORE_ROOT = THIS_FILE.parents[2]
+LINXISA_ROOT = THIS_FILE.parents[4]
+
 
 def _norm(records: list[dict]) -> dict[str, dict]:
     out = {}
@@ -16,8 +20,8 @@ def _norm(records: list[dict]) -> dict[str, dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Check QEMU vs LinxCore opcode catalog parity")
-    ap.add_argument("--qemu-linx-dir", default="/Users/zhoubot/qemu/target/linx")
-    ap.add_argument("--catalog", default="/Users/zhoubot/LinxCore/src/common/opcode_catalog.yaml")
+    ap.add_argument("--qemu-linx-dir", default=str(LINXISA_ROOT / "emulator/qemu/target/linx"))
+    ap.add_argument("--catalog", default=str(LINXCORE_ROOT / "src/common/opcode_catalog.yaml"))
     args = ap.parse_args()
 
     expected_entries = load_qemu_entries(Path(args.qemu_linx_dir))

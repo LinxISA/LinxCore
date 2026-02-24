@@ -4,7 +4,7 @@ from pycircuit import Circuit, module
 
 
 @module(name="LinxCoreMem2R1W")
-def build_mem_2r1w(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
+def build_mem2r1w(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
     clk = m.clock("clk")
     rst = m.reset("rst")
 
@@ -24,9 +24,9 @@ def build_mem_2r1w(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
     c = m.const
 
     wvalid = d_wvalid | host_wvalid
-    waddr = host_wvalid.select(host_waddr, d_waddr)
-    wdata = host_wvalid.select(host_wdata, d_wdata)
-    wstrb = host_wvalid.select(host_wstrb, d_wstrb)
+    waddr = host_wvalid._select_internal(host_waddr, d_waddr)
+    wdata = host_wvalid._select_internal(host_wdata, d_wdata)
+    wstrb = host_wvalid._select_internal(host_wstrb, d_wstrb)
 
     if_rdata = m.byte_mem(
         clk,
@@ -60,4 +60,4 @@ def build_mem_2r1w(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
     m.output("wstrb_eff", wstrb)
 
 
-build_mem_2r1w.__pycircuit_name__ = "LinxCoreMem2R1W"
+build_mem2r1w.__pycircuit_name__ = "LinxCoreMem2R1W"

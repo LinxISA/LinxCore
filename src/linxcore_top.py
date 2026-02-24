@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from pycircuit import Circuit
+from pycircuit import Circuit, module
 
 from top.top import build_linxcore_top
 
-
+@module(name="linxcore_top")
 def build(
     m: Circuit,
     *,
@@ -29,5 +29,3 @@ def build(
         ic_enable=ic_enable,
     )
 
-
-build.__pycircuit_name__ = "linxcore_top"
