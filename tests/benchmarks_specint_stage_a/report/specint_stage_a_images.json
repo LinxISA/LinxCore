@@ -1,0 +1,30 @@
+{
+  "images": [
+    {
+      "bench": "999.specrand_ir",
+      "elf": "/Users/zhoubot/linx-isa/rtl/LinxCore/tests/benchmarks_specint_stage_a/elf/999.specrand_ir/exe/specrand_ir_base.mytest-m64",
+      "elf_machine": "Linx",
+      "elf_type": "DYN",
+      "entry_point": "0x40002b98",
+      "memh": "/Users/zhoubot/linx-isa/rtl/LinxCore/tests/benchmarks_specint_stage_a/memh/999_specrand_ir.memh"
+    },
+    {
+      "bench": "505.mcf_r",
+      "elf": "/Users/zhoubot/linx-isa/rtl/LinxCore/tests/benchmarks_specint_stage_a/elf/505.mcf_r/exe/mcf_r_base.mytest-m64",
+      "elf_machine": "Linx",
+      "elf_type": "DYN",
+      "entry_point": "0x40012d94",
+      "memh": "/Users/zhoubot/linx-isa/rtl/LinxCore/tests/benchmarks_specint_stage_a/memh/505_mcf_r.memh"
+    },
+    {
+      "bench": "531.deepsjeng_r",
+      "elf": "/Users/zhoubot/linx-isa/rtl/LinxCore/tests/benchmarks_specint_stage_a/elf/531.deepsjeng_r/exe/deepsjeng_r_base.mytest-m64",
+      "elf_machine": "Linx",
+      "elf_type": "DYN",
+      "entry_point": "0x4001d27c",
+      "memh": "/Users/zhoubot/linx-isa/rtl/LinxCore/tests/benchmarks_specint_stage_a/memh/531_deepsjeng_r.memh"
+    }
+  ],
+  "schema_version": "linxcore-specint-stagea-images-v1",
+  "source_manifest": "/Users/zhoubot/linx-isa/rtl/LinxCore/tests/benchmarks_specint_stage_a/elf/phaseb_image_manifest.json"
+}
