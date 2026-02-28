@@ -22,7 +22,7 @@ from bcc.lsu.l1d import build_janus_bcc_lsu_l1d
 from bcc.lsu.lhq import build_janus_bcc_lsu_lhq
 from bcc.lsu.liq import build_janus_bcc_lsu_liq
 from bcc.lsu.mdb import build_janus_bcc_lsu_mdb
-from bcc.lsu.scb import build_janus_bcc_lsu_scb
+from bcc.lsu.lsu import build_janus_bcc_lsu
 from bcc.lsu.stq import build_janus_bcc_lsu_stq
 from bcc.ooo.dec1 import build_janus_bcc_ooo_dec1
 from bcc.ooo.dec2 import build_janus_bcc_ooo_dec2
@@ -510,15 +510,18 @@ def build_linxcore_top(
         load_req_addr_l1d=iex_top["iex_to_rob_stage_load_addr_e1"],
         dmem_rdata_top=dmem_rdata_top,
     )
-    scb_top = m.instance_auto(
-        build_janus_bcc_lsu_scb,
-        name="janus_scb",
-        module_name="JanusBccLsuScbTop",
+
+    # LSU bring-up: committed-store drain path via SCB→D$ stub.
+    lsu_top = m.instance_auto(
+        build_janus_bcc_lsu,
+        name="janus_lsu",
+        module_name="JanusBccLsuTop",
         clk=clk_top,
         rst=rst_top,
-        stq_head_store_valid_stq=stq_top["stq_head_store_valid_stq"],
-        stq_head_store_addr_stq=stq_top["stq_head_store_addr_stq"],
-        stq_head_store_data_stq=stq_top["stq_head_store_data_stq"],
+        commit_store_fire=backend_top["commit_store_fire"],
+        commit_store_addr=backend_top["commit_store_addr"],
+        commit_store_data=backend_top["commit_store_data"],
+        commit_store_size=backend_top["commit_store_size"],
     )
 
     deq_ready_bisq_wire = m.new_wire(width=1)

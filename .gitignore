@@ -22,5 +22,8 @@ tests/benchmarks_linxcore/
 __pycache__/
 *.pyc
 
+# local venv
+.venv/
+
 # macOS
 .DS_Store
