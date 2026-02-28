@@ -67,6 +67,29 @@ BCC stage contracts are split into dedicated files:
   - retire allowed when block is not allocated in BROB, or BROB marks it ready/exception.
   - successful `BSTOP` emits BROB retire event (`brob_retire_fire/bid`).
 
+## LSU store-drain bring-up (SCB↔D$ stub)
+
+As of 2026-02, the LSU store path is being refactored toward the final-core
+contract where SCB drains into a D$-facing interface (not CHI directly).
+
+Current bring-up implementation (policy B: committed stores are non-flush):
+
+- Committed/retired stores are selected in backend engine as:
+  - `commit_store_fire/addr/data/size`
+- LSU packs scalar stores into 64B-line format:
+  - `src/bcc/lsu/store_pack.py` (addr+data+size → line_base + 64b mask + 512b data)
+- SCB coalesces by 64B line and issues downstream requests using `entry_id`:
+  - `src/bcc/lsu/scb.py` (SCB↔D$ ready/valid req+resp)
+- A functional D$ stub closes the loop during bring-up:
+  - `src/bcc/lsu/dcache_stub.py` (FIFO completion after fixed latency)
+- The path is wrapped by:
+  - `src/bcc/lsu/lsu_store_drain.py` and `src/bcc/lsu/lsu.py`
+
+Top-level integration uses `JanusBccLsu` (see `src/top/top.py`).
+
+Next steps (not yet implemented in this doc section): load hit-only path, then
+forwarding/MDB/nuke/miss plumbing, plus per-module pyc UTs.
+
 ## LSID-ordered LSU (no memory speculation)
 
 - Dispatch allocates per-memory-uop `load_store_id` (LSID).
