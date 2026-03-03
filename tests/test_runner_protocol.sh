@@ -7,7 +7,8 @@ RUNNER_BIN="${ROOT_DIR}/cosim/linxcore_lockstep_runner"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 GEN_HDR="${GEN_CPP_DIR}/LinxcoreTop.hpp"
 CPP_MANIFEST="${GEN_CPP_DIR}/cpp_compile_manifest.json"
-TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}"
+GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
+TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}"
 LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 find_pyc_root() {
   if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
@@ -86,7 +87,7 @@ PY
 )"
 
 if [[ ! -f "${GEN_HDR}" ]]; then
-  bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
+  LINXCORE_SKIP_VERILOG=1 bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
 fi
 
 if [[ ! -x "${RUNNER_BIN}" || "${RUNNER_SRC}" -nt "${RUNNER_BIN}" || "${GEN_HDR}" -nt "${RUNNER_BIN}" ]]; then
@@ -94,43 +95,64 @@ if [[ ! -x "${RUNNER_BIN}" || "${RUNNER_SRC}" -nt "${RUNNER_BIN}" || "${GEN_HDR}
     echo "missing generated manifest: ${CPP_MANIFEST}" >&2
     exit 2
   fi
-  GEN_SRCS_STR="$(
-    python3 - <<'PY' "${CPP_MANIFEST}" "${GEN_CPP_DIR}"
+
+  # Avoid monolithic `clang++ ... <all generated .cpp>` builds. They bypass our
+  # per-kind optimization flags (tick/xfer) and can take minutes on huge TUs.
+  # Instead: build the generated model objects via Ninja, then link them.
+  PYC_MODEL_CXXFLAGS="${TB_CXXFLAGS}" \
+    bash "${ROOT_DIR}/tools/generate/build_linxcore_model_objects.sh" >/dev/null
+
+  gen_objects=()
+  while IFS= read -r obj_path; do
+    [[ -z "${obj_path}" ]] && continue
+    gen_objects+=("${obj_path}")
+  done < <(
+    python3 - <<'PY' "${CPP_MANIFEST}" "${GEN_CPP_DIR}" "${GEN_OBJ_DIR}"
 import json
 import pathlib
 import sys
 
 manifest = pathlib.Path(sys.argv[1])
 base = pathlib.Path(sys.argv[2])
+obj_base = pathlib.Path(sys.argv[3])
 data = json.loads(manifest.read_text(encoding="utf-8"))
 for entry in data.get("sources", []):
-    rel = entry.get("path")
+    rel = entry.get("path", "")
     if not rel:
         continue
     src = pathlib.Path(rel)
     if not src.is_absolute():
         src = base / src
-    print(src)
+    stem = src.as_posix().replace("/", "__")
+    if stem.endswith(".cpp"):
+        stem = stem[:-4]
+    print(obj_base / f"{stem}.o")
 PY
-  )"
-  GEN_SRCS=()
-  while IFS= read -r src; do
-    [[ -z "${src}" ]] && continue
-    GEN_SRCS+=("${src}")
-  done <<< "${GEN_SRCS_STR}"
+  )
+  if [[ "${#gen_objects[@]}" -eq 0 ]]; then
+    echo "error: missing generated model objects (manifest: ${CPP_MANIFEST})" >&2
+    exit 2
+  fi
+  for obj in "${gen_objects[@]}"; do
+    if [[ ! -f "${obj}" ]]; then
+      echo "error: missing generated object: ${obj}" >&2
+      exit 2
+    fi
+  done
+
   "${CXX:-clang++}" -std=c++17 ${TB_CXXFLAGS} \
     -I "${PYC_ROOT_DIR}/runtime" \
     -I "${GEN_CPP_DIR}" \
     -o "${RUNNER_BIN}" \
     "${RUNNER_SRC}" \
-    "${GEN_SRCS[@]}"
+    "${gen_objects[@]}"
 fi
 
 # Produce one known-good commit record from DUT TB.
 PYC_BOOT_PC="${BOOT_PC}" \
 PYC_BOOT_SP="${BOOT_SP}" \
 PYC_MAX_CYCLES=30000 \
-PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}" \
+  PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}" \
 PYC_COMMIT_TRACE="${TRACE}" \
   bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${MEMH}" >/dev/null 2>&1 || true
 

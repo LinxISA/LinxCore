@@ -625,15 +625,76 @@ int main(int argc, char **argv) {
   auto dumpSimStats = [&]() {
     if (!simStatsEnabled)
       return;
+    auto dumpPrefixed = [&](std::ostream &os, const char *prefix, const auto *inst) {
+      if (!inst || !prefix || prefix[0] == '\0')
+        return;
+      std::ostringstream buf;
+      inst->dump_sim_stats(buf);
+      std::istringstream iss(buf.str());
+      std::string line;
+      while (std::getline(iss, line)) {
+        if (line.empty())
+          continue;
+        os << prefix << line << "\n";
+      }
+    };
+    auto dumpAll = [&](std::ostream &os) {
+      // Preserve the legacy top-level key names for grep-based workflows.
+      dut.dump_sim_stats(os);
+      os << "env.PYC_SIM_FAST=" << (envFlag("PYC_SIM_FAST") ? 1 : 0) << "\n";
+      os << "env.PYC_SIM_STATS=" << (envFlag("PYC_SIM_STATS") ? 1 : 0) << "\n";
+      os << "top._pyc_sim_fast_enable=" << (dut._pyc_sim_fast_enable ? 1 : 0) << "\n";
+      // Add per-child stats with stable prefixes for aggregation.
+      dumpPrefixed(os, "child.janus_backend.", dut.janus_backend.get());
+      if (dut.janus_backend) {
+        os << "child.janus_backend._pyc_sim_fast_enable=" << (dut.janus_backend->_pyc_sim_fast_enable ? 1 : 0) << "\n";
+      }
+      dumpPrefixed(os, "child.janus_bctrl.", dut.janus_bctrl.get());
+      dumpPrefixed(os, "child.janus_bisq.", dut.janus_bisq.get());
+      dumpPrefixed(os, "child.janus_brenu.", dut.janus_brenu.get());
+      dumpPrefixed(os, "child.janus_brob.", dut.janus_brob.get());
+      dumpPrefixed(os, "child.janus_cube.", dut.janus_cube.get());
+      dumpPrefixed(os, "child.janus_dec1.", dut.janus_dec1.get());
+      dumpPrefixed(os, "child.janus_dec2.", dut.janus_dec2.get());
+      dumpPrefixed(os, "child.janus_iex.", dut.janus_iex.get());
+      dumpPrefixed(os, "child.janus_ifu_ctrl.", dut.janus_ifu_ctrl.get());
+      dumpPrefixed(os, "child.janus_ifu_f0.", dut.janus_ifu_f0.get());
+      dumpPrefixed(os, "child.janus_ifu_f1.", dut.janus_ifu_f1.get());
+      dumpPrefixed(os, "child.janus_ifu_f2.", dut.janus_ifu_f2.get());
+      dumpPrefixed(os, "child.janus_ifu_f3.", dut.janus_ifu_f3.get());
+      dumpPrefixed(os, "child.janus_ifu_f4.", dut.janus_ifu_f4.get());
+      dumpPrefixed(os, "child.janus_ifu_icache.", dut.janus_ifu_icache.get());
+      dumpPrefixed(os, "child.janus_l1d.", dut.janus_l1d.get());
+      dumpPrefixed(os, "child.janus_lhq.", dut.janus_lhq.get());
+      dumpPrefixed(os, "child.janus_liq.", dut.janus_liq.get());
+      dumpPrefixed(os, "child.janus_lsu.", dut.janus_lsu.get());
+      dumpPrefixed(os, "child.janus_mdb.", dut.janus_mdb.get());
+      dumpPrefixed(os, "child.janus_pcbuf.", dut.janus_pcbuf.get());
+      dumpPrefixed(os, "child.janus_ren.", dut.janus_ren.get());
+      dumpPrefixed(os, "child.janus_rob.", dut.janus_rob.get());
+      dumpPrefixed(os, "child.janus_s1.", dut.janus_s1.get());
+      dumpPrefixed(os, "child.janus_s2.", dut.janus_s2.get());
+      dumpPrefixed(os, "child.janus_stq.", dut.janus_stq.get());
+      dumpPrefixed(os, "child.janus_tau.", dut.janus_tau.get());
+      dumpPrefixed(os, "child.janus_tma.", dut.janus_tma.get());
+      dumpPrefixed(os, "child.janus_tmu_noc.", dut.janus_tmu_noc.get());
+      dumpPrefixed(os, "child.janus_tmu_tilereg.", dut.janus_tmu_tilereg.get());
+      dumpPrefixed(os, "child.linxcore_vec.", dut.linxcore_vec.get());
+      dumpPrefixed(os, "child.mem2r1w.", dut.mem2r1w.get());
+      dumpPrefixed(os, "child.uid_allocator.", dut.uid_allocator.get());
+    };
     const char *path = std::getenv("PYC_SIM_STATS_PATH");
     if (path && path[0] != '\0') {
       std::filesystem::path out(path);
       if (out.has_parent_path())
         std::filesystem::create_directories(out.parent_path());
-      dut.dump_sim_stats_to_path(path);
+      std::ofstream ofs(out, std::ios::out | std::ios::trunc);
+      if (ofs.is_open()) {
+        dumpAll(ofs);
+      }
       return;
     }
-    dut.dump_sim_stats(std::cerr);
+    dumpAll(std::cerr);
   };
 
   if (!loadMemh(dut.mem2r1w->imem, memhPath) || !loadMemh(dut.mem2r1w->dmem, memhPath)) {

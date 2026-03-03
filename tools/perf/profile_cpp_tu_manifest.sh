@@ -8,17 +8,19 @@ OUT_DIR="${PYC_PERF_OUT_DIR:-${ROOT_DIR}/generated/perf}"
 PROFILE="${LINXCORE_BUILD_PROFILE:-dev-fast}"
 OUT_JSON="${PYC_PERF_TU_OUT_JSON:-${OUT_DIR}/cpp_tu_profile_${PROFILE}.json}"
 
-# Prefer the same compiler default as the LinxCore build scripts (g++-15 if present).
+# Prefer the same compiler default as the LinxCore build scripts (clang++ on Darwin).
 if [[ -z "${CXX:-}" ]]; then
-  if [[ -x "/opt/homebrew/bin/g++-15" ]]; then
-    export CXX="/opt/homebrew/bin/g++-15"
-  elif command -v clang++ >/dev/null 2>&1; then
+  if command -v clang++ >/dev/null 2>&1; then
     export CXX="$(command -v clang++)"
+  elif [[ -x "/opt/homebrew/bin/g++-15" ]]; then
+    export CXX="/opt/homebrew/bin/g++-15"
   fi
 fi
 CXX_BIN="${CXX:-clang++}"
 
-CXXFLAGS_STR="${PYC_TU_CXXFLAGS:-${PYC_MODEL_CXXFLAGS:--O3 -DNDEBUG}}"
+CXXFLAGS_STR="${PYC_TU_CXXFLAGS:-${PYC_MODEL_CXXFLAGS:--O2 -DNDEBUG}}"
+CXXFLAGS_TICK_STR="${PYC_TU_CXXFLAGS_TICK:-}"
+CXXFLAGS_XFER_STR="${PYC_TU_CXXFLAGS_XFER:-}"
 TU_LIMIT="${PYC_TU_LIMIT:-0}"
 
 mkdir -p "${OUT_DIR}"
@@ -49,7 +51,7 @@ PYC_ROOT_DIR="$(find_pyc_root)" || {
   exit 2
 }
 
-python3 - <<'PY' "${MANIFEST}" "${OUT_JSON}" "${PYC_ROOT_DIR}" "${CXX_BIN}" "${CXXFLAGS_STR}" "${TU_LIMIT}"
+python3 - <<'PY' "${MANIFEST}" "${OUT_JSON}" "${PYC_ROOT_DIR}" "${CXX_BIN}" "${CXXFLAGS_STR}" "${CXXFLAGS_TICK_STR}" "${CXXFLAGS_XFER_STR}" "${TU_LIMIT}"
 import json
 import pathlib
 import re
@@ -64,7 +66,24 @@ out_json = pathlib.Path(sys.argv[2])
 pyc_root = pathlib.Path(sys.argv[3])
 cxx = sys.argv[4]
 cxxflags = shlex.split(sys.argv[5])
-tu_limit = int(sys.argv[6])
+tick_cxxflags_raw = sys.argv[6]
+xfer_cxxflags_raw = sys.argv[7]
+tu_limit = int(sys.argv[8])
+
+def _derive_tick_flags(flags: list[str]) -> list[str]:
+    opt = None
+    rest: list[str] = []
+    for f in flags:
+        if f in ("-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"):
+            opt = f
+            continue
+        rest.append(f)
+    if opt in ("-O0", "-O1"):
+        return [opt] + rest
+    return ["-O1"] + rest
+
+tick_cxxflags = shlex.split(tick_cxxflags_raw) if tick_cxxflags_raw else _derive_tick_flags(cxxflags)
+xfer_cxxflags = shlex.split(xfer_cxxflags_raw) if xfer_cxxflags_raw else tick_cxxflags
 
 data = json.loads(manifest_path.read_text(encoding="utf-8"))
 manifest_dir = manifest_path.parent
@@ -112,6 +131,11 @@ with tempfile.TemporaryDirectory(prefix="linxcore_tu_prof_") as td:
         src_path = pathlib.Path(src["path"])
         obj = td_path / (src_path.name.replace(".cpp", "") + f".{idx}.o")
         cmd = ["/usr/bin/time", "-l", cxx, "-std=c++17", *cxxflags]
+        kind = src.get("kind", "")
+        if kind == "tick":
+            cmd = ["/usr/bin/time", "-l", cxx, "-std=c++17", *tick_cxxflags]
+        elif kind in ("xfer", "transfer"):
+            cmd = ["/usr/bin/time", "-l", cxx, "-std=c++17", *xfer_cxxflags]
         for d in compile_defines:
             cmd.append(f"-D{d}")
         for inc in include_dirs:

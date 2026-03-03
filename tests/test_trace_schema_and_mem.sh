@@ -62,7 +62,7 @@ PY
 PYC_BOOT_PC="${BOOT_PC}" \
 PYC_BOOT_SP=0x00000000000ff000 \
 PYC_MAX_CYCLES=12000 \
-PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}" \
+PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}" \
 PYC_COMMIT_TRACE="${TRACE}" \
   bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${MEMH}" >/dev/null 2>&1 || true
 

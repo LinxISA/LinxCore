@@ -18,7 +18,37 @@ NINJA_FILE="${GEN_CPP_DIR}/build_model.ninja"
 NINJA_TARGET="model_objects"
 NINJA_GEN_TOOL="${ROOT_DIR}/tools/generate/gen_linxcore_model_ninja.py"
 
-MODEL_CXXFLAGS="${PYC_MODEL_CXXFLAGS:-${PYC_TB_CXXFLAGS:--O3 -DNDEBUG}}"
+# Base flags for most generated sources. Tick/transfer are compiled separately
+# because clang can take minutes to optimize large tick functions at -O2/-O3.
+MODEL_CXXFLAGS="${PYC_MODEL_CXXFLAGS:-${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}}"
+MODEL_CXXFLAGS_TICK="${PYC_MODEL_CXXFLAGS_TICK:-}"
+MODEL_CXXFLAGS_XFER="${PYC_MODEL_CXXFLAGS_XFER:-}"
+
+if [[ -z "${MODEL_CXXFLAGS_TICK}" ]]; then
+  MODEL_CXXFLAGS_TICK="$(python3 - <<'PY' "${MODEL_CXXFLAGS}"
+import shlex
+import sys
+
+base = sys.argv[1]
+flags = shlex.split(base)
+opt = None
+rest = []
+for f in flags:
+    if f.startswith("-O") and f in ("-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"):
+        opt = f
+        continue
+    rest.append(f)
+if opt in ("-O0", "-O1"):
+    out = [opt] + rest
+else:
+    out = ["-O1"] + rest
+print(" ".join(out))
+PY
+)"
+fi
+if [[ -z "${MODEL_CXXFLAGS_XFER}" ]]; then
+  MODEL_CXXFLAGS_XFER="${MODEL_CXXFLAGS_TICK}"
+fi
 
 LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 find_pyc_root() {
@@ -92,7 +122,7 @@ elif find "${ROOT_DIR}/src" -name '*.py' -newer "${HDR}" | grep -q .; then
   need_regen=1
 fi
 if [[ "${need_regen}" -ne 0 ]]; then
-  bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
+  LINXCORE_SKIP_VERILOG=1 bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
 fi
 
 CURRENT_MANIFEST_HASH="$(read_manifest_hash)"
@@ -182,7 +212,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   fi
 fi
 
-export ROOT_DIR GEN_CPP_DIR GEN_OBJ_DIR CPP_MANIFEST PYC_ROOT_DIR CXX_BIN MODEL_CXXFLAGS
+export ROOT_DIR GEN_CPP_DIR GEN_OBJ_DIR CPP_MANIFEST PYC_ROOT_DIR CXX_BIN MODEL_CXXFLAGS MODEL_CXXFLAGS_TICK MODEL_CXXFLAGS_XFER
 python3 "${NINJA_GEN_TOOL}" >/dev/null
 
 if ! command -v ninja >/dev/null 2>&1; then
@@ -199,6 +229,8 @@ ninja -f "${NINJA_FILE}" -j "${jobs}" "${NINJA_TARGET}"
 
 # Stamp config for external consumers/debug.
 printf '%s\n' "${MODEL_CXXFLAGS}" > "${GEN_CPP_DIR}/.model_cxxflags"
+printf '%s\n' "${MODEL_CXXFLAGS_TICK}" > "${GEN_CPP_DIR}/.model_cxxflags_tick"
+printf '%s\n' "${MODEL_CXXFLAGS_XFER}" > "${GEN_CPP_DIR}/.model_cxxflags_xfer"
 printf '%s\n' "${CURRENT_MANIFEST_HASH}" > "${GEN_CPP_DIR}/.model_manifest_hash"
 
 printf '%s\n' "${GEN_OBJ_DIR}"

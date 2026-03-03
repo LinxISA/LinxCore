@@ -34,7 +34,7 @@ GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
 MODEL_OBJ_BUILDER="${ROOT_DIR}/tools/generate/build_linxcore_model_objects.sh"
 TB_MAIN_OBJ="${TB_OBJ_DIR}/tb_linxcore_top.o"
 TB_TRACE_UTIL_OBJ="${TB_OBJ_DIR}/tb_linxcore_trace_util.o"
-TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O3 -DNDEBUG}"
+TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}"
 if [[ -z "${PYC_TB_CXXFLAGS:-}" && "${PYC_TB_FAST:-0}" == "1" ]]; then
   TB_CXXFLAGS="-O3 -DNDEBUG -march=native -flto"
 fi
@@ -161,6 +161,7 @@ fi
 
 if [[ "${need_regen}" -ne 0 ]]; then
   LINXCORE_CALLFRAME_SIZE="${CALLFRAME_SIZE}" \
+  LINXCORE_SKIP_VERILOG=1 \
     bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
   printf '%s\n' "${PARAM_ENV_HASH}" > "${PARAM_HASH_CFG}"
 fi
@@ -361,8 +362,13 @@ PY
       cxxflags_cfg="$(cat "${TB_CXXFLAGS_CFG}")"
     fi
     # Build/refresh the generated model objects via the shared builder.
+    #
+    # Note: builder supports kind-based flag overrides (tick/transfer) to avoid
+    # clang -O2/-O3 pathological compile times on giant tick functions.
     if [[ -x "${MODEL_OBJ_BUILDER}" ]]; then
-      PYC_MODEL_CXXFLAGS="${TB_CXXFLAGS}" \
+      PYC_MODEL_CXXFLAGS="${PYC_MODEL_CXXFLAGS:-${TB_CXXFLAGS}}" \
+      PYC_MODEL_CXXFLAGS_TICK="${PYC_MODEL_CXXFLAGS_TICK:-}" \
+      PYC_MODEL_CXXFLAGS_XFER="${PYC_MODEL_CXXFLAGS_XFER:-}" \
         bash "${MODEL_OBJ_BUILDER}" >/dev/null
     fi
 
@@ -470,6 +476,12 @@ run_rc=0
 if [[ "${PYC_SKIP_RUN:-0}" == "1" ]]; then
   exit 0
 fi
+
+if [[ -z "${PYC_SIM_FAST:-}" ]]; then
+  # Default to the event-driven SCC worklist path; callers can disable with
+  # PYC_SIM_FAST=0 for debugging.
+  export PYC_SIM_FAST=1
+fi
 if [[ $# -gt 0 ]]; then
   "${TB_EXE}" "$@" || run_rc=$?
 else
@@ -478,6 +490,9 @@ fi
 
 commit_trace_path="${PYC_COMMIT_TRACE:-}"
 if [[ -n "${commit_trace_path}" && -f "${commit_trace_path}" && -s "${commit_trace_path}" ]]; then
+  if [[ "${PYC_SKIP_TRACE_TEXT:-0}" == "1" ]]; then
+    exit "${run_rc}"
+  fi
   trace_txt_path="${PYC_COMMIT_TRACE_TEXT:-}"
   if [[ -z "${trace_txt_path}" ]]; then
     if [[ "${commit_trace_path}" == *.jsonl ]]; then

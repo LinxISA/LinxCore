@@ -95,13 +95,20 @@ OUT_CPP="${ROOT_DIR}/generated/cpp/linxcore_top"
 OUT_V="${ROOT_DIR}/generated/verilog/linxcore_top"
 mkdir -p "${OUT_CPP}" "${OUT_V}"
 
+# C++ simulation does not require Verilog emission; keep it enabled by default
+# for full-stack flows but allow callers (e.g. C++ sim gates) to skip it.
+SKIP_VERILOG="${LINXCORE_SKIP_VERILOG:-0}"
+
 # IMPORTANT: incremental build performance
 # --------------------------------------
 # Do NOT wipe generated outputs on every regeneration.
 # Deleting all .cpp/.hpp forces a full C++ rebuild (minutes) even when the design is unchanged.
 # Instead, emit into temp dirs and only update files whose contents actually changed.
 OUT_CPP_TMP="$(mktemp -d -t linxcore_cpp.XXXXXX)"
-OUT_V_TMP="$(mktemp -d -t linxcore_v.XXXXXX)"
+OUT_V_TMP=""
+if [[ "${SKIP_VERILOG}" == "0" ]]; then
+  OUT_V_TMP="$(mktemp -d -t linxcore_v.XXXXXX)"
+fi
 trap 'rm -rf "${OUT_CPP_TMP}" "${OUT_V_TMP}" "${TMP_PYC}"' EXIT
 
 sync_dir() {
@@ -199,12 +206,14 @@ else
   "${PYTHON_BIN}" -m pycircuit.cli emit "${ROOT_DIR}/src/linxcore_top.py" -o "${TMP_PYC}"
 fi
 
-"${PYCC}" "${TMP_PYC}" \
-  --emit=verilog \
-  --logic-depth="${LOGIC_DEPTH}" \
-  --out-dir="${OUT_V_TMP}" \
-  "${PYCC_COMMON_ARGS[@]}" \
-  "${HIER_ARGS[@]}"
+if [[ "${SKIP_VERILOG}" == "0" ]]; then
+  "${PYCC}" "${TMP_PYC}" \
+    --emit=verilog \
+    --logic-depth="${LOGIC_DEPTH}" \
+    --out-dir="${OUT_V_TMP}" \
+    "${PYCC_COMMON_ARGS[@]}" \
+    "${HIER_ARGS[@]}"
+fi
 
 # Default shard thresholds tuned for developer iteration on large designs.
 # Smaller shards reduce single-TU compiler stress (esp. JanusBccBackendCompat tick) and
@@ -249,12 +258,35 @@ fi
 
 # Sync temp outputs into the stable generated directories.
 sync_dir "${OUT_CPP_TMP}" "${OUT_CPP}"
-sync_dir "${OUT_V_TMP}" "${OUT_V}"
+if [[ "${SKIP_VERILOG}" == "0" ]]; then
+  sync_dir "${OUT_V_TMP}" "${OUT_V}"
+fi
 
 printf '%s\n' "${CALLFRAME_SIZE}" > "${OUT_CPP}/.callframe_size"
-printf '%s\n' "${CALLFRAME_SIZE}" > "${OUT_V}/.callframe_size"
+if [[ "${SKIP_VERILOG}" == "0" ]]; then
+  printf '%s\n' "${CALLFRAME_SIZE}" > "${OUT_V}/.callframe_size"
+fi
 
-python3 - <<'PY' "${OUT_CPP}/manifest.json" "${OUT_V}/manifest.json"
+# Make the compile manifest stable and relocatable: pycc writes absolute temp
+# include paths into include_dirs; after syncing into OUT_CPP, rewrite to a
+# relative include for consumers.
+python3 - <<'PY' "${OUT_CPP}/cpp_compile_manifest.json"
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+if not p.exists():
+    raise SystemExit(0)
+data = json.loads(p.read_text(encoding="utf-8"))
+data["include_dirs"] = ["."]
+p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+
+if [[ "${SKIP_VERILOG}" == "0" ]]; then
+  python3 - <<'PY' "${OUT_CPP}/manifest.json" "${OUT_V}/manifest.json"
 from __future__ import annotations
 
 import json
@@ -311,6 +343,63 @@ for manifest_path in [Path(sys.argv[1]), Path(sys.argv[2])]:
 
 print("manifest module split check passed")
 PY
+else
+  python3 - <<'PY' "${OUT_CPP}/manifest.json"
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+required = [
+    # Note: module names are canonicalized to CamelCase symbols in emitted artifacts.
+    "LinxcoreTop",
+    "JanusBccIfuF0Top",
+    "JanusBccIfuF1Top",
+    "JanusBccIfuICacheTop",
+    "JanusBccIfuF2Top",
+    "JanusBccIfuCtrlTop",
+    "JanusBccIfuF3Top",
+    "JanusBccIfuF4Top",
+    "JanusBccOooDec1Top",
+    "JanusBccOooDec2Top",
+    "JanusBccOooRenTop",
+    "JanusBccOooS1Top",
+    "JanusBccOooS2Top",
+    "JanusBccIexTop",
+    "JanusBccOooRobTop",
+    "JanusBccOooFlushTop",
+    "JanusBccOooRenuTop",
+    "JanusBccLsuLiqTop",
+    "JanusBccLsuLhqTop",
+    "JanusBccLsuStqTop",
+    "JanusBccLsuScb",
+    "JanusBccLsuL1DTop",
+    "JanusBccLsuMdbTop",
+    "JanusBccBisqTop",
+    "JanusBccBrenuTop",
+    "JanusBccBctrlTop",
+    "JanusBccBrobTop",
+    "JanusTmuNocNodeTop",
+    "JanusTmuTileRegTop",
+    "JanusTmaTop",
+    "JanusCubeTop",
+    "JanusTauTop",
+    "LinxCoreVecTop",
+]
+
+manifest_path = Path(sys.argv[1])
+data = json.loads(manifest_path.read_text(encoding="utf-8"))
+mods = set()
+for item in data.get("cpp_modules", []):
+    stem = item.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    mods.add(stem)
+missing = [m for m in required if m not in mods]
+if missing:
+    raise SystemExit(f"error: {manifest_path} missing required modules: {', '.join(missing)}")
+print("manifest module split check passed (cpp-only)")
+PY
+fi
 
 echo "${OUT_CPP}"
 echo "${OUT_V}"
