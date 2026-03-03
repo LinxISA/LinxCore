@@ -1,0 +1,327 @@
+{
+  "counts": {
+    "src/bcc/backend/code_template_unit.py": {
+      ".__eq__(": 14,
+      "._select_internal(": 19,
+      "._zext(": 1,
+      "m.const": 1
+    },
+    "src/bcc/backend/commit.py": {
+      ".__eq__(": 9,
+      "._select_internal(": 12,
+      "m.const": 3
+    },
+    "src/bcc/backend/decode.py": {
+      ".__eq__(": 37,
+      "._select_internal(": 27,
+      "._trunc(": 1,
+      "._zext(": 3,
+      "m.const": 2
+    },
+    "src/bcc/backend/dispatch.py": {
+      ".__eq__(": 5,
+      "._select_internal(": 16,
+      "._zext(": 2,
+      "m.const": 3
+    },
+    "src/bcc/backend/engine.py": {
+      ".__eq__(": 62,
+      "._select_internal(": 437,
+      "._sext(": 7,
+      "._trunc(": 14,
+      "._zext(": 9,
+      "m.const": 1
+    },
+    "src/bcc/backend/helpers.py": {
+      ".__eq__(": 3,
+      "._select_internal(": 6,
+      "m.const": 4
+    },
+    "src/bcc/backend/issue.py": {
+      ".__eq__(": 6,
+      "._select_internal(": 20,
+      "m.const": 5
+    },
+    "src/bcc/backend/lsu.py": {
+      ".__eq__(": 4,
+      "._select_internal(": 3,
+      "m.const": 1
+    },
+    "src/bcc/backend/rename.py": {
+      ".__eq__(": 17,
+      "._select_internal(": 32,
+      "m.const": 5
+    },
+    "src/bcc/backend/rob.py": {
+      ".__eq__(": 24,
+      "._select_internal(": 85,
+      "._trunc(": 2,
+      "._zext(": 4,
+      "m.const": 2
+    },
+    "src/bcc/backend/state.py": {
+      "._zext(": 2,
+      "m.const": 4
+    },
+    "src/bcc/backend/template_uop_encoding.py": {
+      "._select_internal(": 10,
+      "m.const": 1
+    },
+    "src/bcc/backend/wakeup.py": {
+      ".__eq__(": 4,
+      "._select_internal(": 25,
+      "m.const": 3
+    },
+    "src/bcc/bctrl/bctrl.py": {
+      "._select_internal(": 16,
+      "m.const": 1
+    },
+    "src/bcc/bctrl/bisq.py": {
+      ".__eq__(": 2,
+      "._select_internal(": 11,
+      "._trunc(": 1,
+      "._zext(": 1,
+      "m.const": 1
+    },
+    "src/bcc/bctrl/brenu.py": {
+      ".__eq__(": 1,
+      "._select_internal(": 3,
+      "._zext(": 2,
+      "m.const": 1
+    },
+    "src/bcc/bctrl/brob.py": {
+      ".__eq__(": 5,
+      "._select_internal(": 28,
+      "m.const": 1
+    },
+    "src/bcc/block_struct/brob_rtl.py": {
+      "m.const": 3
+    },
+    "src/bcc/block_struct/rob_rtl.py": {
+      "m.const": 1
+    },
+    "src/bcc/frontend/bpu.py": {
+      ".__eq__(": 1,
+      "._select_internal(": 4,
+      "m.const": 1
+    },
+    "src/bcc/frontend/frontend.py": {
+      "._select_internal(": 1,
+      "m.const": 1
+    },
+    "src/bcc/frontend/ftq.py": {
+      ".__eq__(": 2,
+      "._select_internal(": 10,
+      "m.const": 1
+    },
+    "src/bcc/frontend/ibuffer.py": {
+      ".__eq__(": 2,
+      "._select_internal(": 10,
+      "m.const": 1
+    },
+    "src/bcc/frontend/ifetch.py": {
+      ".__eq__(": 1,
+      "._select_internal(": 5,
+      "._zext(": 1,
+      "m.const": 1
+    },
+    "src/bcc/iex/iex.py": {
+      "._select_internal(": 2,
+      "._trunc(": 1,
+      "m.const": 1
+    },
+    "src/bcc/iex/iex_agu.py": {
+      "m.const": 1
+    },
+    "src/bcc/iex/iex_alu.py": {
+      "m.const": 1
+    },
+    "src/bcc/iex/iex_bru.py": {
+      ".__eq__(": 1,
+      "m.const": 1
+    },
+    "src/bcc/iex/iex_fsu.py": {
+      "m.const": 1
+    },
+    "src/bcc/iex/iex_std.py": {
+      "m.const": 1
+    },
+    "src/bcc/ifu/ctrl.py": {
+      "._select_internal(": 2,
+      "m.const": 1
+    },
+    "src/bcc/ifu/f0.py": {
+      "._select_internal(": 3,
+      "m.const": 1
+    },
+    "src/bcc/ifu/f1.py": {
+      "._select_internal(": 5,
+      "m.const": 1
+    },
+    "src/bcc/ifu/f2.py": {
+      "m.const": 1
+    },
+    "src/bcc/ifu/f3.py": {
+      "._select_internal(": 19,
+      "m.const": 1
+    },
+    "src/bcc/ifu/f4.py": {
+      "._select_internal(": 3,
+      "._zext(": 1,
+      "m.const": 1
+    },
+    "src/bcc/ifu/icache.py": {
+      "._select_internal(": 55,
+      "m.const": 1
+    },
+    "src/bcc/lsu/dcache_stub.py": {
+      "._trunc(": 3,
+      "m.const": 1
+    },
+    "src/bcc/lsu/l1d.py": {
+      "m.const": 1
+    },
+    "src/bcc/lsu/lhq.py": {
+      "m.const": 1
+    },
+    "src/bcc/lsu/liq.py": {
+      ".__eq__(": 2,
+      "._select_internal(": 6,
+      "m.const": 1
+    },
+    "src/bcc/lsu/lsu_store_drain.py": {
+      "._trunc(": 1,
+      "m.const": 1
+    },
+    "src/bcc/lsu/mdb.py": {
+      "m.const": 1
+    },
+    "src/bcc/lsu/scb.py": {
+      "._trunc(": 8,
+      "._zext(": 3,
+      "m.const": 2
+    },
+    "src/bcc/lsu/store_pack.py": {
+      "._select_internal(": 3,
+      "._trunc(": 3,
+      "._zext(": 4,
+      "m.const": 1
+    },
+    "src/bcc/lsu/stq.py": {
+      ".__eq__(": 2,
+      "._select_internal(": 6,
+      "m.const": 1
+    },
+    "src/bcc/ooo/dec2.py": {
+      "m.const": 1
+    },
+    "src/bcc/ooo/flush_ctrl.py": {
+      "._select_internal(": 2,
+      "m.const": 1
+    },
+    "src/bcc/ooo/pc_buffer.py": {
+      ".__eq__(": 2,
+      "._select_internal(": 7,
+      "m.const": 1
+    },
+    "src/bcc/ooo/ren.py": {
+      "._select_internal(": 1,
+      "m.const": 1
+    },
+    "src/bcc/ooo/renu.py": {
+      "._select_internal(": 2,
+      "m.const": 1
+    },
+    "src/bcc/ooo/rob.py": {
+      "._select_internal(": 10,
+      "m.const": 1
+    },
+    "src/bcc/ooo/s1.py": {
+      "._select_internal(": 2,
+      "m.const": 1
+    },
+    "src/bcc/ooo/s2.py": {
+      "._select_internal(": 1,
+      "m.const": 1
+    },
+    "src/common/decode.py": {
+      ".__eq__(": 21,
+      "._select_internal(": 12,
+      "._sext(": 13,
+      "._trunc(": 8,
+      "._zext(": 25,
+      "m.const": 3
+    },
+    "src/common/exec_uop.py": {
+      ".__eq__(": 193,
+      "._select_internal(": 251,
+      "._sext(": 64,
+      "._trunc(": 96,
+      "._zext(": 33,
+      "m.const": 2
+    },
+    "src/common/uid_allocator.py": {
+      "m.const": 1
+    },
+    "src/common/util.py": {
+      ".__eq__(": 1,
+      "._select_internal(": 18,
+      "._trunc(": 3,
+      "m.const": 1
+    },
+    "src/cube/cube.py": {
+      ".__eq__(": 1,
+      "._select_internal(": 7,
+      "m.const": 1
+    },
+    "src/mem/byte_mem_2r1w.py": {
+      "._select_internal(": 3,
+      "m.const": 1
+    },
+    "src/mem/mem2r1w.py": {
+      "._select_internal(": 4,
+      "m.const": 1
+    },
+    "src/tau/tau.py": {
+      ".__eq__(": 1,
+      "._select_internal(": 7,
+      "m.const": 1
+    },
+    "src/tma/tma.py": {
+      ".__eq__(": 1,
+      "._select_internal(": 7,
+      "m.const": 1
+    },
+    "src/tmu/noc/node.py": {
+      "._select_internal(": 2,
+      "m.const": 1
+    },
+    "src/tmu/noc/pipe.py": {
+      "._select_internal(": 3,
+      "m.const": 1
+    },
+    "src/tmu/sram/tilereg.py": {
+      "._select_internal(": 1,
+      "m.const": 1
+    },
+    "src/top/top.py": {
+      ".__eq__(": 9,
+      "._select_internal(": 52,
+      "m.const": 1
+    },
+    "src/vec/vec.py": {
+      ".__eq__(": 1,
+      "._select_internal(": 7,
+      "m.const": 1
+    }
+  },
+  "tokens": [
+    "m.const",
+    "._select_internal(",
+    ".__eq__(",
+    "._trunc(",
+    "._zext(",
+    "._sext("
+  ],
+  "version": 1
+}

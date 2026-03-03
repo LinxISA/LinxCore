@@ -2,9 +2,67 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-PYC_ROOT="${PYC_ROOT:-${ROOT_DIR}/../../tools/pyCircuit}"
-PYC_FRONTEND="${PYC_ROOT}/compiler/frontend"
-PYCC="${PYCC:-${PYC_ROOT}/build/bin/pycc}"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
+
+find_pyc_root() {
+  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
+    echo "${PYC_ROOT}"
+    return 0
+  fi
+  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
+    echo "${LINX_ROOT}/tools/pyCircuit"
+    return 0
+  fi
+  return 1
+}
+
+PYC_ROOT_DIR="$(find_pyc_root)" || {
+  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
+  exit 2
+}
+
+# shellcheck disable=SC1090
+source "${PYC_ROOT_DIR}/flows/scripts/lib.sh"
+pyc_find_pycc
+
+find_python_bin() {
+  if [[ -n "${PYC_PYTHON:-}" && -x "${PYC_PYTHON}" ]]; then
+    echo "${PYC_PYTHON}"
+    return 0
+  fi
+  local cand
+  for cand in \
+    "${PYC_PYTHON_BIN:-}" \
+    "/opt/homebrew/bin/python3" \
+    "python3.14" \
+    "python3.13" \
+    "python3.12" \
+    "python3.11" \
+    "python3.10" \
+    "python3"
+  do
+    [[ -n "${cand}" ]] || continue
+    local exe="${cand}"
+    if [[ "${exe}" != /* ]]; then
+      if ! command -v "${exe}" >/dev/null 2>&1; then
+        continue
+      fi
+      exe="$(command -v "${exe}")"
+    elif [[ ! -x "${exe}" ]]; then
+      continue
+    fi
+    if "${exe}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+      echo "${exe}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+PYTHON_BIN="$(find_python_bin)" || {
+  echo "error: need python>=3.10 to run pyc4 frontend (set PYC_PYTHON_BIN=...)" >&2
+  exit 2
+}
 
 HARNESS_PY="${ROOT_DIR}/src/tma/ut_tma_harness.py"
 TMA_DUT_PY="${ROOT_DIR}/src/tma/tma.py"
@@ -18,25 +76,14 @@ OBJ_DIR="${GEN_CPP_DIR}/.obj"
 TB_OBJ_DIR="${GEN_CPP_DIR}/.tb_obj"
 TB_OBJ="${TB_OBJ_DIR}/tb_tma_ut.o"
 
-PYC_RUNTIME_INCLUDE="${PYC_ROOT}/runtime"
-PYC_COMPAT_INCLUDE="${ROOT_DIR}/generated/include_compat"
 BUILD_LOCK_DIR="${GEN_CPP_DIR}/.tb_build_lock"
 
 CXX="${CXX:-g++}"
 CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG -std=c++20}"
 LOGIC_DEPTH="${PYC_LOGIC_DEPTH:-128}"
 
-mkdir -p "${GEN_CPP_DIR}" "${OBJ_DIR}" "${TB_OBJ_DIR}" "${PYC_COMPAT_INCLUDE}/pyc"
-ln -sfn "${PYC_ROOT}/runtime/cpp" "${PYC_COMPAT_INCLUDE}/pyc/cpp"
+mkdir -p "${GEN_CPP_DIR}" "${OBJ_DIR}" "${TB_OBJ_DIR}"
 
-if [[ ! -x "${PYCC}" ]]; then
-  echo "error: pycc not found: ${PYCC}" >&2
-  exit 1
-fi
-if [[ ! -d "${PYC_FRONTEND}/pycircuit" ]]; then
-  echo "error: pycircuit frontend not found: ${PYC_FRONTEND}" >&2
-  exit 1
-fi
 if [[ ! -f "${HARNESS_PY}" ]]; then
   echo "error: harness file missing: ${HARNESS_PY}" >&2
   exit 1
@@ -78,7 +125,8 @@ if [[ ! -f "${GEN_PYC}" || "${HARNESS_PY}" -nt "${GEN_PYC}" || "${TMA_DUT_PY}" -
 fi
 if [[ ${need_emit} -eq 1 ]]; then
   echo "[tma-ut] emitting PYC: ${GEN_PYC}"
-  PYTHONPATH="${PYC_FRONTEND}:${ROOT_DIR}/src" python3 -m pycircuit.cli emit "${HARNESS_PY}" -o "${GEN_PYC}"
+  PYTHONPATH="$(pyc_pythonpath):${ROOT_DIR}/src" \
+    "${PYTHON_BIN}" -m pycircuit.cli emit "${HARNESS_PY}" -o "${GEN_PYC}"
 fi
 
 need_pycc=0
@@ -94,7 +142,7 @@ if [[ ${need_pycc} -eq 1 ]]; then
     --logic-depth="${LOGIC_DEPTH}" >/dev/null
 fi
 
-mapfile -t GEN_SRCS < <(python3 - <<'PY' "${CPP_MANIFEST}" "${GEN_CPP_DIR}"
+mapfile -t GEN_SRCS < <("${PYTHON_BIN}" - <<'PY' "${CPP_MANIFEST}" "${GEN_CPP_DIR}"
 import json
 import pathlib
 import sys
@@ -125,8 +173,7 @@ compile_one() {
   if [[ ! -f "${obj}" || "${src}" -nt "${obj}" || "${TB_SCEN_HDR}" -nt "${obj}" ]]; then
     "${CXX}" ${CXXFLAGS} -c "${src}" -o "${obj}" \
       -I"${GEN_CPP_DIR}" \
-      -I"${PYC_RUNTIME_INCLUDE}" \
-      -I"${PYC_COMPAT_INCLUDE}" \
+      -I"${PYC_ROOT_DIR}/runtime" \
       -I"${ROOT_DIR}/tb"
   fi
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -42,11 +43,26 @@ def _mask_insn(insn: int, length: int) -> int:
 def _choose_objdump(cli_tool: str | None) -> str | None:
     if cli_tool:
         return cli_tool
+    env = (os.environ.get("LLVM_OBJDUMP") or "").strip()
+    if env:
+        return env
+    in_repo: Path | None = None
+    p = Path(__file__).resolve()
+    for _ in range(12):
+        cand = p / "compiler/llvm/build-linxisa-clang/bin/llvm-objdump"
+        if cand.is_file():
+            in_repo = cand
+            break
+        if p.parent == p:
+            break
+        p = p.parent
     for cand in (
+        str(in_repo) if in_repo is not None else "",
         "llvm-objdump",
-        "/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-objdump",
         "objdump",
     ):
+        if not cand:
+            continue
         p = shutil.which(cand)
         if p:
             return p

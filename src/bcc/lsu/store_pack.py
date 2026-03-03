@@ -29,15 +29,15 @@ def build_janus_bcc_lsu_store_pack(m: Circuit) -> None:
     m4 = c(0xF, width=64)
     m8 = c(0xFF, width=64)
     base_mask = m1
-    base_mask = (size.eq(c(2, width=4)))._select_internal(m2, base_mask)
-    base_mask = (size.eq(c(4, width=4)))._select_internal(m4, base_mask)
-    base_mask = (size.eq(c(8, width=4)))._select_internal(m8, base_mask)
+    base_mask = ((size == c(2, width=4)))._select_internal(m2, base_mask)
+    base_mask = ((size == c(4, width=4)))._select_internal(m4, base_mask)
+    base_mask = ((size == c(8, width=4)))._select_internal(m8, base_mask)
 
     shamt_mask = byte_off._zext(width=64)
-    mask_shifted = (base_mask << shamt_mask)._trunc(width=64)
+    mask_shifted = base_mask.shl(amount=shamt_mask)._trunc(width=64)
 
-    bit_off = (byte_off._zext(width=9) << c(3, width=9))._zext(width=512)
-    data_shifted = (data64._zext(width=512) << bit_off)._trunc(width=512)
+    bit_off = byte_off._zext(width=9).shl(amount=3)._zext(width=512)
+    data_shifted = data64._zext(width=512).shl(amount=bit_off)._trunc(width=512)
 
     v.set(v_in)
     line.set(line_base, when=v_in)

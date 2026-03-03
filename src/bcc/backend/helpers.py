@@ -5,13 +5,40 @@ from pycircuit import Circuit, Reg, Wire, function
 
 @function
 def mux_by_uindex(m: Circuit, *, idx: Wire, items: list[Wire | Reg], default: Wire) -> Wire:
-    """Return items[idx] (idx is an integer code), using a linear mux chain."""
-    c = m.const
-    out: Wire = default
-    for i, it in enumerate(items):
-        w = it if isinstance(it, Wire) else it.out()
-        out = idx.__eq__(c(i, width=idx.width))._select_internal(w, out)
-    return out
+    """Return items[idx] (idx is an integer code), using a balanced mux tree.
+
+    This is depth-critical for LinxCore: a linear chain multiplies through
+    nested use sites and trips pycc's logic-depth gate.
+    """
+
+    n = int(len(items))
+    if n <= 0:
+        return default
+
+    # Normalize to wires.
+    vals: list[Wire] = []
+    for it in items:
+        vals.append(it if isinstance(it, Wire) else it.out())
+
+    # Pad to a power-of-two so we can build a bitwise mux tree.
+    p2 = 1 << (n - 1).bit_length()
+    for _ in range(p2 - n):
+        vals.append(default)
+
+    # Tree select using low bits first (preserves standard little-endian index).
+    stage: list[Wire] = vals
+    stages = int(p2.bit_length() - 1)
+    for bit in range(stages):
+        nxt: list[Wire] = []
+        for j in range(0, len(stage), 2):
+            a = stage[j]
+            b = stage[j + 1]
+            nxt.append(idx[bit]._select_internal(b, a))
+        stage = nxt
+
+    # NOTE: most LinxCore index domains are power-of-two and fully cover idx's
+    # representable range, so we intentionally omit an out-of-range guard here.
+    return stage[0]
 
 
 @function

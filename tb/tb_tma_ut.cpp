@@ -12,15 +12,7 @@
 #include <string>
 #include <vector>
 
-#if __has_include(<pyc/cpp/pyc_tb.hpp>)
-#include <pyc/cpp/pyc_tb.hpp>
-#elif __has_include(<cpp/pyc_tb.hpp>)
 #include <cpp/pyc_tb.hpp>
-#elif __has_include(<pyc_tb.hpp>)
-#include <pyc_tb.hpp>
-#else
-#error "pyc_tb.hpp not found; set include path for pyCircuit runtime headers"
-#endif
 
 #include "UtTmaHarness.hpp"
 #include "tb_tma_ut_scenarios.hpp"

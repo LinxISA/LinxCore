@@ -12,7 +12,7 @@ def build(
     ic_sets: int = 32,
     ic_ways: int = 4,
     ic_line_bytes: int = 64,
-    ifetch_bundle_bytes: int = 128,
+    ifetch_bundle_bytes: int = 16,
     ib_depth: int = 8,
     ic_miss_outstanding: int = 1,
     ic_enable: int = 1,
@@ -28,4 +28,3 @@ def build(
         ic_miss_outstanding=ic_miss_outstanding,
         ic_enable=ic_enable,
     )
-

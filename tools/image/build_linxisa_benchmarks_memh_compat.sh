@@ -3,8 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 
-LINXISA_DIR="${LINXISA_DIR:-${HOME}/linx-isa}"
+LINXISA_DIR="${LINXISA_DIR:-${LINX_ROOT}}"
 LINXISA_ELF_DIR="${LINXISA_ELF_DIR:-${LINXISA_DIR}/workloads/generated/elf}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/tests/benchmarks/build}"
 REQUIRE_REAL="${LINX_BENCH_REQUIRE_REAL:-0}"
@@ -17,6 +18,23 @@ CORE_MEMH_REAL="${OUT_DIR}/coremark_real.memh"
 DHRY_MEMH_REAL="${OUT_DIR}/dhrystone_real.memh"
 
 mkdir -p "${OUT_DIR}"
+
+find_pyc_root() {
+  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
+    echo "${PYC_ROOT}"
+    return 0
+  fi
+  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
+    echo "${LINX_ROOT}/tools/pyCircuit"
+    return 0
+  fi
+  return 1
+}
+
+PYC_ROOT_DIR="$(find_pyc_root)" || {
+  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
+  exit 2
+}
 
 emit_real() {
   if [[ ! -x "${ELF_TO_MEMH}" ]]; then
@@ -45,10 +63,10 @@ fi
 core_fallback="${ROOT_DIR}/tests/benchmarks/build/coremark_compat.memh"
 dhry_fallback="${ROOT_DIR}/tests/benchmarks/build/dhrystone_compat.memh"
 if [[ ! -f "${core_fallback}" ]]; then
-  core_fallback="/Users/zhoubot/pyCircuit/designs/examples/linx_cpu/programs/test_csel_fixed.memh"
+  core_fallback="${PYC_ROOT_DIR}/designs/examples/linx_cpu/programs/test_csel_fixed.memh"
 fi
 if [[ ! -f "${dhry_fallback}" ]]; then
-  dhry_fallback="/Users/zhoubot/pyCircuit/designs/examples/linx_cpu/programs/test_or.memh"
+  dhry_fallback="${PYC_ROOT_DIR}/designs/examples/linx_cpu/programs/test_or.memh"
 fi
 
 if [[ ! -f "${core_fallback}" || ! -f "${dhry_fallback}" ]]; then

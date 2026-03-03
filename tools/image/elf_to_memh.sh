@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 
 if [[ $# -lt 2 ]]; then
   echo "usage: $0 <program.elf> <out.memh>" >&2
@@ -12,7 +13,7 @@ fi
 ELF="$1"
 OUT_MEMH="$2"
 
-LLVM_BIN="${LLVM_LINXISA_BIN:-${HOME}/llvm-project/build-linxisa-clang/bin}"
+LLVM_BIN="${LLVM_LINXISA_BIN:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin}"
 OBJCOPY="${LLVM_BIN}/llvm-objcopy"
 
 if [[ ! -f "${ELF}" ]]; then

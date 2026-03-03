@@ -62,11 +62,9 @@ def build_janus_bcc_lsu_store_drain(m: Circuit) -> None:
         enq_mask=pack["st_mask"],
         enq_data=pack["st_data512"],
         enq_sid=sid_ctr.out(),
-        dcache_req_ready=dcache_req_ready,
-        dcache_resp_valid=dcache_resp_valid,
-        dcache_resp_entry_id=dcache_resp_entry_id,
-        dcache_resp_ok=dcache_resp_ok,
-        dcache_resp_err_code=dcache_resp_err_code,
+        chi_req_ready=dcache_req_ready,
+        chi_resp_valid=dcache_resp_valid,
+        chi_resp_txnid=dcache_resp_entry_id,
     )
 
     enq_fire = pack["st_valid_packed"] & scb["enq_ready"]
@@ -78,12 +76,12 @@ def build_janus_bcc_lsu_store_drain(m: Circuit) -> None:
         module_name="JanusBccLsuDCacheStub",
         clk=clk,
         rst=rst,
-        dcache_req_valid=scb["dcache_req_valid"],
-        dcache_req_entry_id=scb["dcache_req_entry_id"],
-        dcache_req_line=scb["dcache_req_line"],
-        dcache_req_mask=scb["dcache_req_mask"],
-        dcache_req_data=scb["dcache_req_data"],
-        dcache_resp_ready=scb["dcache_resp_ready"],
+        dcache_req_valid=scb["chi_req_valid"],
+        dcache_req_entry_id=scb["chi_req_txnid"],
+        dcache_req_line=scb["chi_req_addr"],
+        dcache_req_mask=scb["chi_req_strb"],
+        dcache_req_data=scb["chi_req_data"],
+        dcache_resp_ready=c(1, width=1),
     )
 
     m.assign(dcache_req_ready, dcache["dcache_req_ready"])
@@ -94,6 +92,6 @@ def build_janus_bcc_lsu_store_drain(m: Circuit) -> None:
 
     # expose some debug outputs
     m.output("scb_enq_fire", enq_fire)
-    m.output("scb_req_valid", scb["dcache_req_valid"])
+    m.output("scb_req_valid", scb["chi_req_valid"])
     m.output("scb_count", scb["scb_count"])
     m.output("scb_inflight", scb["scb_inflight"])

@@ -3,6 +3,26 @@ from __future__ import annotations
 from pycircuit import Circuit, module
 
 
+def _validate_icache_params(
+    *,
+    ic_sets: int,
+    ic_ways: int,
+    ic_line_bytes: int,
+    ifetch_bundle_bytes: int,
+    ic_miss_outstanding: int,
+) -> None:
+    if ic_sets <= 0 or (ic_sets & (ic_sets - 1)) != 0:
+        raise ValueError("ic_sets must be power-of-two and > 0")
+    if ic_ways <= 0:
+        raise ValueError("ic_ways must be > 0")
+    if ic_line_bytes != 64:
+        raise ValueError("this milestone requires ic_line_bytes=64")
+    if ifetch_bundle_bytes != 16:
+        raise ValueError("this milestone requires ifetch_bundle_bytes=16")
+    if ic_miss_outstanding != 1:
+        raise ValueError("this milestone requires ic_miss_outstanding=1")
+
+
 @module(name="JanusBccIfuICache")
 def build_janus_bcc_ifu_icache(
     m: Circuit,
@@ -10,7 +30,7 @@ def build_janus_bcc_ifu_icache(
     ic_sets: int = 32,
     ic_ways: int = 4,
     ic_line_bytes: int = 64,
-    ifetch_bundle_bytes: int = 128,
+    ifetch_bundle_bytes: int = 16,
     ic_miss_outstanding: int = 1,
     ic_enable: int = 1,
 ) -> None:
@@ -31,18 +51,17 @@ def build_janus_bcc_ifu_icache(
     ic_l2_rsp_data_top = m.input("ic_l2_rsp_data_top", width=512)
     ic_l2_rsp_error_top = m.input("ic_l2_rsp_error_top", width=1)
 
-    if ic_sets <= 0 or (ic_sets & (ic_sets - 1)) != 0:
-        raise ValueError("ic_sets must be power-of-two and > 0")
-    if ic_ways <= 0:
-        raise ValueError("ic_ways must be > 0")
-    if ic_line_bytes != 64:
-        raise ValueError("this milestone requires ic_line_bytes=64")
-    if ifetch_bundle_bytes != 128:
-        raise ValueError("this milestone requires ifetch_bundle_bytes=128")
-    if ic_miss_outstanding != 1:
-        raise ValueError("this milestone requires ic_miss_outstanding=1")
+    _validate_icache_params(
+        ic_sets=ic_sets,
+        ic_ways=ic_ways,
+        ic_line_bytes=ic_line_bytes,
+        ifetch_bundle_bytes=ifetch_bundle_bytes,
+        ic_miss_outstanding=ic_miss_outstanding,
+    )
 
     c = m.const
+    decode_window_bytes = 8
+    bundle_bytes = ifetch_bundle_bytes
     line_bits = ic_line_bytes * 8
     bundle_bits = ifetch_bundle_bytes * 8
     set_w = max(1, (ic_sets - 1).bit_length())
@@ -119,6 +138,8 @@ def build_janus_bcc_ifu_icache(
     # Align bundle base to decode-window granularity so F2 can always select
     # a complete 64-bit decode window from the 128-bit fetch payload.
     req_bundle_base_ic = req_pc_ic & decode_window_mask
+    req_bundle_off_ic = req_bundle_base_ic[0:off_w]
+    req_need_line1_ic = req_bundle_off_ic.ugt(c(ic_line_bytes - bundle_bytes, width=off_w))
     req_slot_base_off_ic = (req_pc_ic - req_bundle_base_ic)[0:7]
     req_line0_addr_ic = req_bundle_base_ic & line_mask
     req_line1_addr_ic = req_line0_addr_ic + c(ic_line_bytes, width=64)
@@ -190,7 +211,8 @@ def build_janus_bcc_ifu_icache(
 
     cache_en_ic = c(1 if ic_enable else 0, width=1)
     req_valid_ic = f1_to_icache_stage_valid_f1 & cache_en_ic
-    req_hit_ic = req_valid_ic & line0_hit_ic & line1_hit_ic & (~miss_active_ic.out())
+    line1_ok_ic = (~req_need_line1_ic) | line1_hit_ic
+    req_hit_ic = req_valid_ic & line0_hit_ic & line1_ok_ic & (~miss_active_ic.out())
     req_miss_ic = req_valid_ic & (~req_hit_ic)
     miss_start_ic = req_miss_ic & (~miss_active_ic.out())
 
@@ -328,7 +350,6 @@ def build_janus_bcc_ifu_icache(
             lru_rank_ic[idx].set(new_rank_ic)
 
     req_bundle128_ic = c(0, width=bundle_bits)
-    req_bundle_off_ic = req_bundle_base_ic[0:off_w]
     for byte_off in range(0, ic_line_bytes - decode_window_bytes + 1):
         off_match_ic = req_bundle_off_ic == c(byte_off, width=off_w)
         if byte_off <= (ic_line_bytes - bundle_bytes):
@@ -365,4 +386,3 @@ def build_janus_bcc_ifu_icache(
     m.output("icache_to_f2_stage_valid_f1", req_valid_to_f2_ic)
     m.output("icache_to_f2_stage_pkt_uid_f1", req_pkt_uid_ic)
     m.output("icache_miss_active_ic", miss_active_ic.out())
-

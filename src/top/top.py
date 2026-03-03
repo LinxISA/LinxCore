@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, function, module
 
 from common.config import top_config
 from common.uid_allocator import build_uid_allocator
@@ -49,7 +49,7 @@ def build_linxcore_top(
     ic_sets: int = 32,
     ic_ways: int = 4,
     ic_line_bytes: int = 64,
-    ifetch_bundle_bytes: int = 128,
+    ifetch_bundle_bytes: int = 16,
     ib_depth: int = 8,
     ic_miss_outstanding: int = 1,
     ic_enable: int = 1,
@@ -60,7 +60,7 @@ def build_linxcore_top(
         ic_sets=ic_sets,
         ic_ways=ic_ways,
         ic_line_bytes=ic_line_bytes,
-        ifetch_bundle_bits=ifetch_bundle_bits,
+        ifetch_bundle_bits=ifetch_bundle_bytes * 8,
         ifetch_bundle_bytes=ifetch_bundle_bytes,
         ib_depth=ib_depth,
         ic_miss_outstanding=ic_miss_outstanding,
@@ -93,6 +93,14 @@ def build_linxcore_top(
     ic_l2_rsp_addr_top = m.input("ic_l2_rsp_addr", width=64)
     ic_l2_rsp_data_top = m.input("ic_l2_rsp_data", width=512)
     ic_l2_rsp_error_top = m.input("ic_l2_rsp_error", width=1)
+    # IFU bypass stub for bring-up: when enabled, backend F4 input is sourced
+    # from testbench/runner instead of IFU stages.
+    tb_ifu_stub_enable_top = m.input("tb_ifu_stub_enable", width=1)
+    tb_ifu_stub_valid_top = m.input("tb_ifu_stub_valid", width=1)
+    tb_ifu_stub_pc_top = m.input("tb_ifu_stub_pc", width=64)
+    tb_ifu_stub_window_top = m.input("tb_ifu_stub_window", width=64)
+    tb_ifu_stub_checkpoint_top = m.input("tb_ifu_stub_checkpoint", width=6)
+    tb_ifu_stub_pkt_uid_top = m.input("tb_ifu_stub_pkt_uid", width=64)
 
     c = m.const
 
@@ -247,6 +255,15 @@ def build_linxcore_top(
         flush_valid_fls=flush_valid_fls,
     )
 
+    f4_valid_backend_top = tb_ifu_stub_enable_top._select_internal(tb_ifu_stub_valid_top, ifu_f4["f4_to_d1_stage_valid_f4"])
+    f4_pc_backend_top = tb_ifu_stub_enable_top._select_internal(tb_ifu_stub_pc_top, ifu_f4["f4_to_d1_stage_pc_f4"])
+    f4_window_backend_top = tb_ifu_stub_enable_top._select_internal(tb_ifu_stub_window_top, ifu_f4["f4_to_d1_stage_window_f4"])
+    f4_checkpoint_backend_top = tb_ifu_stub_enable_top._select_internal(
+        tb_ifu_stub_checkpoint_top,
+        ifu_f4["f4_to_d1_stage_checkpoint_id_f4"],
+    )
+    f4_pkt_uid_backend_top = tb_ifu_stub_enable_top._select_internal(tb_ifu_stub_pkt_uid_top, ifu_f4["f4_to_d1_stage_pkt_uid_f4"])
+
     backend_top = m.instance_auto(
         build_backend,
         name="janus_backend",
@@ -257,11 +274,11 @@ def build_linxcore_top(
         boot_pc=boot_pc_top,
         boot_sp=boot_sp_top,
         boot_ra=boot_ra_top,
-        f4_valid_i=ifu_f4["f4_to_d1_stage_valid_f4"],
-        f4_pc_i=ifu_f4["f4_to_d1_stage_pc_f4"],
-        f4_window_i=ifu_f4["f4_to_d1_stage_window_f4"],
-        f4_checkpoint_i=ifu_f4["f4_to_d1_stage_checkpoint_id_f4"],
-        f4_pkt_uid_i=ifu_f4["f4_to_d1_stage_pkt_uid_f4"],
+        f4_valid_i=f4_valid_backend_top,
+        f4_pc_i=f4_pc_backend_top,
+        f4_window_i=f4_window_backend_top,
+        f4_checkpoint_i=f4_checkpoint_backend_top,
+        f4_pkt_uid_i=f4_pkt_uid_backend_top,
         dmem_rdata_i=dmem_rdata_top,
         bisq_enq_ready_i=bisq_enq_ready_wire,
         brob_active_allocated_i=brob_active_allocated_wire,
@@ -275,6 +292,7 @@ def build_linxcore_top(
     m.assign(uid_alloc_replay_count_top, (~backend_top["replay_cause"].__eq__(c(0, width=8))))
 
     m.assign(backend_ready_top, backend_top["frontend_ready"])
+    m.output("tb_ifu_stub_ready", backend_ready_top)
     m.assign(flush_valid_fls, backend_top["redirect_valid"])
     m.assign(flush_pc_fls, backend_top["redirect_pc"])
     m.assign(uid_alloc_fetch_count_top, f2_to_f0_advance_wire_f2 | flush_valid_fls)
@@ -1024,25 +1042,13 @@ def build_linxcore_top(
         trace_issue_pc_d2_top.append(pc_d2_top.out())
 
     # Deterministic event selection: stage-id order then lane order.
-    trace_evt_valid_top = c(0, width=1)
-    trace_evt_stage_id_top = c(0, width=6)
-    trace_evt_lane_top = c(0, width=3)
-    trace_evt_rob_top = c(0, width=6)
-    trace_evt_seq_top = c(0, width=32)
-    trace_evt_pc_top = c(0, width=64)
-    trace_evt_kind_top = c(0, width=2)
+    #
+    # NOTE: we collect all candidates first and then select via a balanced tree.
+    # This avoids generating a mega priority-mux chain (pycc logic-depth gate).
+    trace_events_top = []
 
     def trace_choose_event_top(*, valid_top, stage_id_top, lane_top, rob_top, seq_top, pc_top, kind_top):
-        nonlocal trace_evt_valid_top, trace_evt_stage_id_top, trace_evt_lane_top, trace_evt_rob_top
-        nonlocal trace_evt_seq_top, trace_evt_pc_top, trace_evt_kind_top
-        choose_top = valid_top & (~trace_evt_valid_top)
-        trace_evt_valid_top = choose_top._select_internal(c(1, width=1), trace_evt_valid_top)
-        trace_evt_stage_id_top = choose_top._select_internal(stage_id_top, trace_evt_stage_id_top)
-        trace_evt_lane_top = choose_top._select_internal(lane_top, trace_evt_lane_top)
-        trace_evt_rob_top = choose_top._select_internal(rob_top, trace_evt_rob_top)
-        trace_evt_seq_top = choose_top._select_internal(seq_top, trace_evt_seq_top)
-        trace_evt_pc_top = choose_top._select_internal(pc_top, trace_evt_pc_top)
-        trace_evt_kind_top = choose_top._select_internal(kind_top, trace_evt_kind_top)
+        trace_events_top.append((valid_top, stage_id_top, lane_top, rob_top, seq_top, pc_top, kind_top))
 
     # Edge-detect broad valid signals to avoid a single always-high source
     # monopolizing the one-event-per-cycle debug channel.
@@ -1324,7 +1330,7 @@ def build_linxcore_top(
         kind_top=trace_kind_normal_top,
     )
     trace_choose_event_top(
-        valid_top=scb_top["dmem_wvalid_scb"],
+        valid_top=lsu_top["scb_req_valid"],
         stage_id_top=trace_sid_scb_top,
         lane_top=c(0, width=3),
         rob_top=stq_top["stq_head_store_rob_stq"],
@@ -1462,7 +1468,7 @@ def build_linxcore_top(
         kind_top=trace_kind_flush_top,
     )
     trace_choose_event_top(
-        valid_top=~backend_top["replay_cause"].__eq__(c(0, width=8)),
+        valid_top=backend_top["replay_cause"] != c(0, width=8),
         stage_id_top=trace_sid_fls_top,
         lane_top=c(0, width=3),
         rob_top=c(0, width=6),
@@ -1470,6 +1476,45 @@ def build_linxcore_top(
         pc_top=flush_pc_fls,
         kind_top=trace_kind_replay_top,
     )
+
+    @function
+    def trace_merge_event_top(a_top, b_top):
+        a_v_top, a_sid_top, a_lane_top, a_rob_top, a_seq_top, a_pc_top, a_kind_top = a_top
+        b_v_top, b_sid_top, b_lane_top, b_rob_top, b_seq_top, b_pc_top, b_kind_top = b_top
+
+        v_top = a_v_top | b_v_top
+
+        # Priority order is preserved by construction: left wins when valid.
+        sid_top = a_v_top._select_internal(a_sid_top, b_sid_top)
+        lane_top = a_v_top._select_internal(a_lane_top, b_lane_top)
+        rob_top = a_v_top._select_internal(a_rob_top, b_rob_top)
+        seq_top = a_v_top._select_internal(a_seq_top, b_seq_top)
+        pc_top = a_v_top._select_internal(a_pc_top, b_pc_top)
+        kind_top = a_v_top._select_internal(a_kind_top, b_kind_top)
+        return (v_top, sid_top, lane_top, rob_top, seq_top, pc_top, kind_top)
+
+    zero_evt_top = (
+        c(0, width=1),
+        c(0, width=6),
+        c(0, width=3),
+        c(0, width=6),
+        c(0, width=32),
+        c(0, width=64),
+        c(0, width=2),
+    )
+    evt_work_top = list(trace_events_top) or [zero_evt_top]
+    while (len(evt_work_top) % 2) != 0:
+        evt_work_top.append(zero_evt_top)
+    while len(evt_work_top) > 1:
+        merged_top = []
+        for i in range(0, len(evt_work_top), 2):
+            merged_top.append(trace_merge_event_top(evt_work_top[i], evt_work_top[i + 1]))
+        evt_work_top = merged_top
+        while len(evt_work_top) > 1 and (len(evt_work_top) % 2) != 0:
+            evt_work_top.append(zero_evt_top)
+
+    trace_evt_valid_top, trace_evt_stage_id_top, trace_evt_lane_top, trace_evt_rob_top, trace_evt_seq_top, trace_evt_pc_top, trace_evt_kind_top = evt_work_top[0]
+    # When invalid, the remaining fields are don't-care (consumers must gate on valid).
 
     # One-time stage legend emission (fills stage list in LinxTrace even when a
     # given workload does not naturally hit every block-fabric stage).
@@ -1802,7 +1847,7 @@ def build_linxcore_top(
     stq_rob_top = iex_top["iex_to_rob_stage_store_rob_e1"]
     emit_occ_debug("stq", 0, stq_top["stq_enq_fire_stq"], trace_lookup_uid_top(stq_rob_top), pcbuf_top["rd_pc_pcb"], stq_rob_top, dfx_kind_normal_top, c(0, width=64))
     scb_rob_top = stq_top["stq_head_store_rob_stq"]
-    emit_occ_debug("scb", 0, scb_top["dmem_wvalid_scb"], trace_lookup_uid_top(scb_rob_top), pcbuf_top["rd_pc_pcb"], scb_rob_top, dfx_kind_normal_top, c(0, width=64))
+    emit_occ_debug("scb", 0, lsu_top["scb_req_valid"], trace_lookup_uid_top(scb_rob_top), pcbuf_top["rd_pc_pcb"], scb_rob_top, dfx_kind_normal_top, c(0, width=64))
     emit_occ_debug("mdb", 0, mdb_top["lsu_conflict_seen_mdb"] | mdb_top["lsu_violation_detected_mdb"], c(0, width=64), pcbuf_top["rd_pc_pcb"], c(0, width=6), dfx_kind_replay_top, c(0, width=64))
     emit_occ_debug("l1d", 0, l1d_top["lsu_to_rob_stage_load_valid_l1d"], trace_lookup_uid_top(e2_rob_top), pcbuf_top["rd_pc_pcb"], e2_rob_top, dfx_kind_normal_top, c(0, width=64))
 

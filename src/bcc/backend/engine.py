@@ -12,6 +12,7 @@ from pycircuit import Circuit, module
 from pycircuit.dsl import Signal
 
 from common.exec_uop import exec_uop_comb
+from .template_uop_encoding import map_template_child_encoding
 from common.isa import (
     OP_BIOR,
     OP_BLOAD,
@@ -107,9 +108,10 @@ from .issue import build_iq_update_stage, build_issue_stage, pick_oldest_from_ar
 from .lsu import build_lsu_stage
 from .params import OooParams
 from .rename import build_commit_rename_stage, build_rename_stage
-from .rob import build_rob_ctrl_stage, build_rob_entry_update_stage, is_macro_op, is_start_marker_op
-from .state import make_core_ctrl_regs, make_iq_regs, make_prf, make_rename_regs, make_rob_regs
+from .rob import is_macro_op, is_start_marker_op
+from .state import make_core_ctrl_regs, make_iq_regs, make_prf, make_rename_regs
 from .wakeup import build_head_wait_stage, compose_replay_cause, compose_wakeup_reason
+from .modules.rob_bank import build_rob_bank_top
 
 
 @dataclass(frozen=True)
@@ -197,8 +199,130 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     ckpt_entries = len(ren.ckpt_valid)
     ckpt_w = (ckpt_entries - 1).bit_length()
 
-    # --- ROB (in-order commit) ---
-    rob = make_rob_regs(m, clk, rst, consts=consts, p=p)
+    # --- ROB bank (in-order commit; forced hierarchy) ---
+    #
+    # Instantiate early so the rest of the backend can read ROB state via
+    # module outputs. We connect its event inputs later, once the pipeline
+    # has produced them (placeholder wires here).
+    def _rob_in(width: int):
+        return m.new_wire(width=width)
+
+    rob_bank_in = {
+        "clk": clk,
+        "rst": rst,
+        "do_flush": _rob_in(1),
+        "commit_fire": _rob_in(1),
+        "dispatch_fire": _rob_in(1),
+        "commit_count": _rob_in(3),
+        "disp_count": _rob_in(3),
+    }
+    for slot in range(p.dispatch_w):
+        rob_bank_in[f"disp_valid{slot}"] = _rob_in(1)
+    for slot in range(p.commit_w):
+        rob_bank_in[f"commit_fire{slot}"] = _rob_in(1)
+        rob_bank_in[f"commit_idx{slot}"] = _rob_in(p.rob_w)
+    for slot in range(p.dispatch_w):
+        rob_bank_in[f"disp_pc{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_op{slot}"] = _rob_in(12)
+        rob_bank_in[f"disp_len{slot}"] = _rob_in(3)
+        rob_bank_in[f"disp_insn_raw{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_checkpoint_id{slot}"] = _rob_in(6)
+        rob_bank_in[f"disp_dst_kind{slot}"] = _rob_in(2)
+        rob_bank_in[f"disp_regdst{slot}"] = _rob_in(6)
+        rob_bank_in[f"disp_pdst{slot}"] = _rob_in(p.ptag_w)
+        rob_bank_in[f"disp_imm{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_is_store{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_is_boundary{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_is_bstart{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_is_bstop{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_boundary_kind{slot}"] = _rob_in(3)
+        rob_bank_in[f"disp_boundary_target{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_pred_take{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_block_epoch{slot}"] = _rob_in(16)
+        rob_bank_in[f"disp_block_uid{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_block_bid{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_load_store_id{slot}"] = _rob_in(32)
+        rob_bank_in[f"disp_resolved_d2{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_srcl{slot}"] = _rob_in(6)
+        rob_bank_in[f"disp_srcr{slot}"] = _rob_in(6)
+        rob_bank_in[f"disp_uop_uid{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_parent_uid{slot}"] = _rob_in(64)
+    for slot in range(p.issue_w):
+        rob_bank_in[f"wb_fire{slot}"] = _rob_in(1)
+        rob_bank_in[f"wb_rob{slot}"] = _rob_in(p.rob_w)
+        rob_bank_in[f"wb_value{slot}"] = _rob_in(64)
+        rob_bank_in[f"store_fire{slot}"] = _rob_in(1)
+        rob_bank_in[f"load_fire{slot}"] = _rob_in(1)
+        rob_bank_in[f"ex_addr{slot}"] = _rob_in(64)
+        rob_bank_in[f"ex_wdata{slot}"] = _rob_in(64)
+        rob_bank_in[f"ex_size{slot}"] = _rob_in(4)
+        rob_bank_in[f"ex_src0{slot}"] = _rob_in(64)
+        rob_bank_in[f"ex_src1{slot}"] = _rob_in(64)
+
+    rob_bank = m.instance_auto(
+        build_rob_bank_top,
+        name="rob_bank",
+        params={
+            "rob_depth": p.rob_depth,
+            "slice_entries": 8,
+            "dispatch_w": p.dispatch_w,
+            "issue_w": p.issue_w,
+            "commit_w": p.commit_w,
+            "rob_w": p.rob_w,
+            "ptag_w": p.ptag_w,
+        },
+        **rob_bank_in,
+    )
+
+    # Build a RobRegs-shaped view out of wires (wires implement `.out()`).
+    rob = SimpleNamespace(
+        head=rob_bank["head"].read(),
+        tail=rob_bank["tail"].read(),
+        count=rob_bank["count"].read(),
+        valid=[rob_bank[f"valid{i}"].read() for i in range(p.rob_depth)],
+        done=[rob_bank[f"done{i}"].read() for i in range(p.rob_depth)],
+        pc=[rob_bank[f"pc{i}"].read() for i in range(p.rob_depth)],
+        op=[rob_bank[f"op{i}"].read() for i in range(p.rob_depth)],
+        len_bytes=[rob_bank[f"len{i}"].read() for i in range(p.rob_depth)],
+        dst_kind=[rob_bank[f"dst_kind{i}"].read() for i in range(p.rob_depth)],
+        dst_areg=[rob_bank[f"dst_areg{i}"].read() for i in range(p.rob_depth)],
+        pdst=[rob_bank[f"pdst{i}"].read() for i in range(p.rob_depth)],
+        value=[rob_bank[f"value{i}"].read() for i in range(p.rob_depth)],
+        src0_reg=[rob_bank[f"src0_reg{i}"].read() for i in range(p.rob_depth)],
+        src1_reg=[rob_bank[f"src1_reg{i}"].read() for i in range(p.rob_depth)],
+        src0_value=[rob_bank[f"src0_value{i}"].read() for i in range(p.rob_depth)],
+        src1_value=[rob_bank[f"src1_value{i}"].read() for i in range(p.rob_depth)],
+        src0_valid=[rob_bank[f"src0_valid{i}"].read() for i in range(p.rob_depth)],
+        src1_valid=[rob_bank[f"src1_valid{i}"].read() for i in range(p.rob_depth)],
+        store_addr=[rob_bank[f"store_addr{i}"].read() for i in range(p.rob_depth)],
+        store_data=[rob_bank[f"store_data{i}"].read() for i in range(p.rob_depth)],
+        store_size=[rob_bank[f"store_size{i}"].read() for i in range(p.rob_depth)],
+        is_store=[rob_bank[f"is_store{i}"].read() for i in range(p.rob_depth)],
+        load_addr=[rob_bank[f"load_addr{i}"].read() for i in range(p.rob_depth)],
+        load_data=[rob_bank[f"load_data{i}"].read() for i in range(p.rob_depth)],
+        load_size=[rob_bank[f"load_size{i}"].read() for i in range(p.rob_depth)],
+        is_load=[rob_bank[f"is_load{i}"].read() for i in range(p.rob_depth)],
+        is_boundary=[rob_bank[f"is_boundary{i}"].read() for i in range(p.rob_depth)],
+        is_bstart=[rob_bank[f"is_bstart{i}"].read() for i in range(p.rob_depth)],
+        is_bstop=[rob_bank[f"is_bstop{i}"].read() for i in range(p.rob_depth)],
+        boundary_kind=[rob_bank[f"boundary_kind{i}"].read() for i in range(p.rob_depth)],
+        boundary_target=[rob_bank[f"boundary_target{i}"].read() for i in range(p.rob_depth)],
+        pred_take=[rob_bank[f"pred_take{i}"].read() for i in range(p.rob_depth)],
+        block_epoch=[rob_bank[f"block_epoch{i}"].read() for i in range(p.rob_depth)],
+        block_uid=[rob_bank[f"block_uid{i}"].read() for i in range(p.rob_depth)],
+        block_bid=[rob_bank[f"block_bid{i}"].read() for i in range(p.rob_depth)],
+        load_store_id=[rob_bank[f"load_store_id{i}"].read() for i in range(p.rob_depth)],
+        resolved_d2=[rob_bank[f"resolved_d2{i}"].read() for i in range(p.rob_depth)],
+        insn_raw=[rob_bank[f"insn_raw{i}"].read() for i in range(p.rob_depth)],
+        checkpoint_id=[rob_bank[f"checkpoint_id{i}"].read() for i in range(p.rob_depth)],
+        macro_begin=[rob_bank[f"macro_begin{i}"].read() for i in range(p.rob_depth)],
+        macro_end=[rob_bank[f"macro_end{i}"].read() for i in range(p.rob_depth)],
+        uop_uid=[rob_bank[f"uop_uid{i}"].read() for i in range(p.rob_depth)],
+        parent_uid=[rob_bank[f"parent_uid{i}"].read() for i in range(p.rob_depth)],
+    )
+
+    disp_rob_idxs = [rob_bank[f"disp_rob_idx{slot}"].read() for slot in range(p.dispatch_w)]
+    disp_fires = [rob_bank[f"disp_fire{slot}"].read() for slot in range(p.dispatch_w)]
 
     # --- issue queues (bring-up split) ---
     iq_alu = make_iq_regs(m, clk, rst, consts=consts, p=p, name="iq_alu")
@@ -1509,27 +1633,18 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         wdata = hit_macro._select_internal(macro_prf_data, wdata)
         prf[i].set(wdata, when=we)
 
-    # --- ROB updates ---
-    rob_ctrl_args = {
-        "do_flush": do_flush,
-        "commit_fire": commit_fire,
-        "dispatch_fire": dispatch_fire,
-        "rob_head": rob.head.out(),
-        "rob_tail": rob.tail.out(),
-        "rob_count": rob.count.out(),
-        "commit_count": commit_count,
-        "disp_count": disp_count,
-    }
+    # --- ROB bank input connections ---
+    m.assign(rob_bank_in["do_flush"], do_flush)
+    m.assign(rob_bank_in["commit_fire"], commit_fire)
+    m.assign(rob_bank_in["dispatch_fire"], dispatch_fire)
+    m.assign(rob_bank_in["commit_count"], commit_count)
+    m.assign(rob_bank_in["disp_count"], disp_count)
     for slot in range(p.dispatch_w):
-        rob_ctrl_args[f"disp_valid{slot}"] = disp_valids[slot]
-    rob_ctrl = m.instance_auto(
-        build_rob_ctrl_stage,
-        name="rob_ctrl_stage",
-        params={"dispatch_w": p.dispatch_w, "rob_w": p.rob_w},
-        **rob_ctrl_args,
-    )
-    disp_rob_idxs = [rob_ctrl[f"disp_rob_idx{slot}"] for slot in range(p.dispatch_w)]
-    disp_fires = [rob_ctrl[f"disp_fire{slot}"] for slot in range(p.dispatch_w)]
+        m.assign(rob_bank_in[f"disp_valid{slot}"], disp_valids[slot])
+    for slot in range(p.commit_w):
+        m.assign(rob_bank_in[f"commit_fire{slot}"], commit_fires[slot])
+        m.assign(rob_bank_in[f"commit_idx{slot}"], commit_idxs[slot])
+
     disp_uop_uids = []
     disp_parent_uids = []
     disp_block_epochs = []
@@ -1537,152 +1652,43 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         disp_uop_uids.append(disp_decode_uop_uids[slot])
         disp_parent_uids.append(consts.zero64)
         disp_block_epochs.append(dispatch_stage[f"disp_block_epoch{slot}"])
-
-    for i in range(p.rob_depth):
-        rob_entry_args = {
-            "idx": c(i, width=p.rob_w),
-            "do_flush": do_flush,
-            "old_valid": rob.valid[i].out(),
-            "old_done": rob.done[i].out(),
-            "old_pc": rob.pc[i].out(),
-            "old_op": rob.op[i].out(),
-            "old_len": rob.len_bytes[i].out(),
-            "old_insn_raw": rob.insn_raw[i].out(),
-            "old_checkpoint_id": rob.checkpoint_id[i].out(),
-            "old_dst_kind": rob.dst_kind[i].out(),
-            "old_dst_areg": rob.dst_areg[i].out(),
-            "old_pdst": rob.pdst[i].out(),
-            "old_value": rob.value[i].out(),
-            "old_src0_reg": rob.src0_reg[i].out(),
-            "old_src1_reg": rob.src1_reg[i].out(),
-            "old_src0_value": rob.src0_value[i].out(),
-            "old_src1_value": rob.src1_value[i].out(),
-            "old_src0_valid": rob.src0_valid[i].out(),
-            "old_src1_valid": rob.src1_valid[i].out(),
-            "old_is_store": rob.is_store[i].out(),
-            "old_store_addr": rob.store_addr[i].out(),
-            "old_store_data": rob.store_data[i].out(),
-            "old_store_size": rob.store_size[i].out(),
-            "old_is_load": rob.is_load[i].out(),
-            "old_load_addr": rob.load_addr[i].out(),
-            "old_load_data": rob.load_data[i].out(),
-            "old_load_size": rob.load_size[i].out(),
-            "old_is_boundary": rob.is_boundary[i].out(),
-            "old_is_bstart": rob.is_bstart[i].out(),
-            "old_is_bstop": rob.is_bstop[i].out(),
-            "old_boundary_kind": rob.boundary_kind[i].out(),
-            "old_boundary_target": rob.boundary_target[i].out(),
-            "old_pred_take": rob.pred_take[i].out(),
-            "old_block_epoch": rob.block_epoch[i].out(),
-            "old_block_uid": rob.block_uid[i].out(),
-            "old_block_bid": rob.block_bid[i].out(),
-            "old_load_store_id": rob.load_store_id[i].out(),
-            "old_resolved_d2": rob.resolved_d2[i].out(),
-            "old_macro_begin": rob.macro_begin[i].out(),
-            "old_macro_end": rob.macro_end[i].out(),
-            "old_uop_uid": rob.uop_uid[i].out(),
-            "old_parent_uid": rob.parent_uid[i].out(),
-        }
-        for slot in range(p.commit_w):
-            rob_entry_args[f"commit_fire{slot}"] = commit_fires[slot]
-            rob_entry_args[f"commit_idx{slot}"] = commit_idxs[slot]
-        for slot in range(p.dispatch_w):
-            rob_entry_args[f"disp_fire{slot}"] = disp_fires[slot]
-            rob_entry_args[f"disp_rob_idx{slot}"] = disp_rob_idxs[slot]
-            rob_entry_args[f"disp_pc{slot}"] = disp_pcs[slot]
-            rob_entry_args[f"disp_op{slot}"] = disp_ops[slot]
-            rob_entry_args[f"disp_len{slot}"] = disp_lens[slot]
-            rob_entry_args[f"disp_insn_raw{slot}"] = disp_insn_raws[slot]
-            rob_entry_args[f"disp_checkpoint_id{slot}"] = disp_checkpoint_ids[slot]
-            rob_entry_args[f"disp_dst_kind{slot}"] = disp_dst_kind[slot]
-            rob_entry_args[f"disp_regdst{slot}"] = disp_regdsts[slot]
-            rob_entry_args[f"disp_pdst{slot}"] = disp_pdsts[slot]
-            rob_entry_args[f"disp_imm{slot}"] = disp_imms[slot]
-            rob_entry_args[f"disp_is_store{slot}"] = disp_is_store[slot]
-            rob_entry_args[f"disp_is_boundary{slot}"] = disp_is_boundary[slot]
-            rob_entry_args[f"disp_is_bstart{slot}"] = disp_is_bstart[slot]
-            rob_entry_args[f"disp_is_bstop{slot}"] = disp_is_bstop[slot]
-            rob_entry_args[f"disp_boundary_kind{slot}"] = disp_boundary_kind[slot]
-            rob_entry_args[f"disp_boundary_target{slot}"] = disp_boundary_target[slot]
-            rob_entry_args[f"disp_pred_take{slot}"] = disp_pred_take[slot]
-            rob_entry_args[f"disp_block_epoch{slot}"] = disp_block_epochs[slot]
-            rob_entry_args[f"disp_block_uid{slot}"] = disp_block_uids[slot]
-            rob_entry_args[f"disp_block_bid{slot}"] = disp_block_bids[slot]
-            rob_entry_args[f"disp_load_store_id{slot}"] = disp_load_store_ids[slot]
-            rob_entry_args[f"disp_resolved_d2{slot}"] = disp_resolved_d2[slot]
-            rob_entry_args[f"disp_srcl{slot}"] = disp_srcls[slot]
-            rob_entry_args[f"disp_srcr{slot}"] = disp_srcrs[slot]
-            rob_entry_args[f"disp_uop_uid{slot}"] = disp_uop_uids[slot]
-            rob_entry_args[f"disp_parent_uid{slot}"] = disp_parent_uids[slot]
-        for slot in range(p.issue_w):
-            rob_entry_args[f"wb_fire{slot}"] = wb_fires[slot]
-            rob_entry_args[f"wb_rob{slot}"] = wb_robs[slot]
-            rob_entry_args[f"wb_value{slot}"] = wb_values[slot]
-            rob_entry_args[f"store_fire{slot}"] = store_fires[slot]
-            rob_entry_args[f"load_fire{slot}"] = load_fires[slot]
-            rob_entry_args[f"ex_addr{slot}"] = exs[slot].addr
-            rob_entry_args[f"ex_wdata{slot}"] = exs[slot].wdata
-            rob_entry_args[f"ex_size{slot}"] = exs[slot].size
-            rob_entry_args[f"ex_src0{slot}"] = sl_vals[slot]
-            rob_entry_args[f"ex_src1{slot}"] = sr_vals[slot]
-
-        rob_entry = m.instance_auto(
-            build_rob_entry_update_stage,
-            name=f"rob_entry_update_stage_{i}",
-            params={
-                "dispatch_w": p.dispatch_w,
-                "issue_w": p.issue_w,
-                "commit_w": p.commit_w,
-                "rob_w": p.rob_w,
-                "ptag_w": p.ptag_w,
-            },
-            **rob_entry_args,
-        )
-        rob.valid[i].set(rob_entry["valid_next"])
-        rob.done[i].set(rob_entry["done_next"])
-        rob.pc[i].set(rob_entry["pc_next"])
-        rob.op[i].set(rob_entry["op_next"])
-        rob.len_bytes[i].set(rob_entry["len_next"])
-        rob.insn_raw[i].set(rob_entry["insn_raw_next"])
-        rob.checkpoint_id[i].set(rob_entry["checkpoint_id_next"])
-        rob.dst_kind[i].set(rob_entry["dst_kind_next"])
-        rob.dst_areg[i].set(rob_entry["dst_areg_next"])
-        rob.pdst[i].set(rob_entry["pdst_next"])
-        rob.value[i].set(rob_entry["value_next"])
-        rob.src0_reg[i].set(rob_entry["src0_reg_next"])
-        rob.src1_reg[i].set(rob_entry["src1_reg_next"])
-        rob.src0_value[i].set(rob_entry["src0_value_next"])
-        rob.src1_value[i].set(rob_entry["src1_value_next"])
-        rob.src0_valid[i].set(rob_entry["src0_valid_next"])
-        rob.src1_valid[i].set(rob_entry["src1_valid_next"])
-        rob.is_store[i].set(rob_entry["is_store_next"])
-        rob.store_addr[i].set(rob_entry["store_addr_next"])
-        rob.store_data[i].set(rob_entry["store_data_next"])
-        rob.store_size[i].set(rob_entry["store_size_next"])
-        rob.is_load[i].set(rob_entry["is_load_next"])
-        rob.load_addr[i].set(rob_entry["load_addr_next"])
-        rob.load_data[i].set(rob_entry["load_data_next"])
-        rob.load_size[i].set(rob_entry["load_size_next"])
-        rob.is_boundary[i].set(rob_entry["is_boundary_next"])
-        rob.is_bstart[i].set(rob_entry["is_bstart_next"])
-        rob.is_bstop[i].set(rob_entry["is_bstop_next"])
-        rob.boundary_kind[i].set(rob_entry["boundary_kind_next"])
-        rob.boundary_target[i].set(rob_entry["boundary_target_next"])
-        rob.pred_take[i].set(rob_entry["pred_take_next"])
-        rob.block_epoch[i].set(rob_entry["block_epoch_next"])
-        rob.block_uid[i].set(rob_entry["block_uid_next"])
-        rob.block_bid[i].set(rob_entry["block_bid_next"])
-        rob.load_store_id[i].set(rob_entry["load_store_id_next"])
-        rob.resolved_d2[i].set(rob_entry["resolved_d2_next"])
-        rob.macro_begin[i].set(rob_entry["macro_begin_next"])
-        rob.macro_end[i].set(rob_entry["macro_end_next"])
-        rob.uop_uid[i].set(rob_entry["uop_uid_next"])
-        rob.parent_uid[i].set(rob_entry["parent_uid_next"])
-
-    # ROB pointers/count.
-    rob.head.set(rob_ctrl["head_next"])
-    rob.tail.set(rob_ctrl["tail_next"])
-    rob.count.set(rob_ctrl["count_next"])
+    for slot in range(p.dispatch_w):
+        m.assign(rob_bank_in[f"disp_pc{slot}"], disp_pcs[slot])
+        m.assign(rob_bank_in[f"disp_op{slot}"], disp_ops[slot])
+        m.assign(rob_bank_in[f"disp_len{slot}"], disp_lens[slot])
+        m.assign(rob_bank_in[f"disp_insn_raw{slot}"], disp_insn_raws[slot])
+        m.assign(rob_bank_in[f"disp_checkpoint_id{slot}"], disp_checkpoint_ids[slot])
+        m.assign(rob_bank_in[f"disp_dst_kind{slot}"], disp_dst_kind[slot])
+        m.assign(rob_bank_in[f"disp_regdst{slot}"], disp_regdsts[slot])
+        m.assign(rob_bank_in[f"disp_pdst{slot}"], disp_pdsts[slot])
+        m.assign(rob_bank_in[f"disp_imm{slot}"], disp_imms[slot])
+        m.assign(rob_bank_in[f"disp_is_store{slot}"], disp_is_store[slot])
+        m.assign(rob_bank_in[f"disp_is_boundary{slot}"], disp_is_boundary[slot])
+        m.assign(rob_bank_in[f"disp_is_bstart{slot}"], disp_is_bstart[slot])
+        m.assign(rob_bank_in[f"disp_is_bstop{slot}"], disp_is_bstop[slot])
+        m.assign(rob_bank_in[f"disp_boundary_kind{slot}"], disp_boundary_kind[slot])
+        m.assign(rob_bank_in[f"disp_boundary_target{slot}"], disp_boundary_target[slot])
+        m.assign(rob_bank_in[f"disp_pred_take{slot}"], disp_pred_take[slot])
+        m.assign(rob_bank_in[f"disp_block_epoch{slot}"], disp_block_epochs[slot])
+        m.assign(rob_bank_in[f"disp_block_uid{slot}"], disp_block_uids[slot])
+        m.assign(rob_bank_in[f"disp_block_bid{slot}"], disp_block_bids[slot])
+        m.assign(rob_bank_in[f"disp_load_store_id{slot}"], disp_load_store_ids[slot])
+        m.assign(rob_bank_in[f"disp_resolved_d2{slot}"], disp_resolved_d2[slot])
+        m.assign(rob_bank_in[f"disp_srcl{slot}"], disp_srcls[slot])
+        m.assign(rob_bank_in[f"disp_srcr{slot}"], disp_srcrs[slot])
+        m.assign(rob_bank_in[f"disp_uop_uid{slot}"], disp_uop_uids[slot])
+        m.assign(rob_bank_in[f"disp_parent_uid{slot}"], disp_parent_uids[slot])
+    for slot in range(p.issue_w):
+        m.assign(rob_bank_in[f"wb_fire{slot}"], wb_fires[slot])
+        m.assign(rob_bank_in[f"wb_rob{slot}"], wb_robs[slot])
+        m.assign(rob_bank_in[f"wb_value{slot}"], wb_values[slot])
+        m.assign(rob_bank_in[f"store_fire{slot}"], store_fires[slot])
+        m.assign(rob_bank_in[f"load_fire{slot}"], load_fires[slot])
+        m.assign(rob_bank_in[f"ex_addr{slot}"], exs[slot].addr)
+        m.assign(rob_bank_in[f"ex_wdata{slot}"], exs[slot].wdata)
+        m.assign(rob_bank_in[f"ex_size{slot}"], exs[slot].size)
+        m.assign(rob_bank_in[f"ex_src0{slot}"], sl_vals[slot])
+        m.assign(rob_bank_in[f"ex_src1{slot}"], sr_vals[slot])
 
     # --- IQ updates ---
     def update_iq_from_stage(*, name: str, iq, disp_to: list, alloc_idxs: list, issue_fires_q: list, issue_idxs_q: list) -> None:
@@ -2616,6 +2622,9 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     m.output("macro_store_fire_dbg", macro_store_fire)
     m.output("commit_store_wt_fire_dbg", commit_store_write_through)
     m.output("frontend_ready", frontend_ready)
+    # Exported flush indicator for cross-module kill/clear (BISQ/BROB/TMA/etc).
+    m.output("do_flush", do_flush)
+    m.output("flush_bid", state.flush_bid.out())
     m.output("redirect_valid", commit_redirect_any)
     m.output("redirect_pc", redirect_pc_any)
     m.output("redirect_checkpoint_id", redirect_checkpoint_id_any)

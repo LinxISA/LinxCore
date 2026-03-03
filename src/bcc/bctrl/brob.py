@@ -30,6 +30,7 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
     rsp_trap_cause_brob = m.input("rsp_trap_cause_brob", width=32)
 
     c = m.const
+    entries = 16
 
     allocated_brob = m.out("allocated_brob", clk=clk_brob, rst=rst_brob, width=16, init=c(0, width=16), en=c(1, width=1))
     ready_brob = m.out("ready_brob", clk=clk_brob, rst=rst_brob, width=16, init=c(0, width=16), en=c(1, width=1))

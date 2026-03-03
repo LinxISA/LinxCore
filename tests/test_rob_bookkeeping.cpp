@@ -4,9 +4,9 @@
 #include <iostream>
 #include <string>
 
-#include <pyc/cpp/pyc_tb.hpp>
+#include <cpp/pyc_tb.hpp>
 
-#include "linxcore_top.hpp"
+#include "LinxcoreTop.hpp"
 
 using pyc::cpp::Testbench;
 using pyc::cpp::Wire;
@@ -50,7 +50,7 @@ struct CommitSlot {
   std::uint64_t mem_size = 0;
 };
 
-CommitSlot readSlot(const pyc::gen::linxcore_top &dut, int slot) {
+CommitSlot readSlot(const pyc::gen::LinxcoreTop &dut, int slot) {
   CommitSlot s{};
   switch (slot) {
   case 0:
@@ -85,14 +85,14 @@ CommitSlot readSlot(const pyc::gen::linxcore_top &dut, int slot) {
   return s;
 }
 
-Wire<512> buildIcacheLine(const pyc::gen::linxcore_top &dut, std::uint64_t lineAddr) {
+Wire<512> buildIcacheLine(const pyc::gen::LinxcoreTop &dut, std::uint64_t lineAddr) {
   Wire<512> out(0);
   for (unsigned wi = 0; wi < 8; wi++) {
     std::uint64_t w = 0;
     const std::uint64_t base = lineAddr + static_cast<std::uint64_t>(wi) * 8ull;
     for (unsigned bi = 0; bi < 8; bi++) {
       const std::uint64_t a = base + static_cast<std::uint64_t>(bi);
-      w |= (static_cast<std::uint64_t>(dut.mem2r1w.imem.peekByte(static_cast<std::size_t>(a))) << (8u * bi));
+      w |= (static_cast<std::uint64_t>(dut.mem2r1w->imem.peekByte(static_cast<std::size_t>(a))) << (8u * bi));
     }
     out.setWord(wi, w);
   }
@@ -108,8 +108,8 @@ int main(int argc, char **argv) {
   }
   const std::string memhPath = argv[1];
 
-  pyc::gen::linxcore_top dut{};
-  if (!loadMemh(dut.mem2r1w.imem, memhPath) || !loadMemh(dut.mem2r1w.dmem, memhPath)) {
+  pyc::gen::LinxcoreTop dut{};
+  if (!loadMemh(dut.mem2r1w->imem, memhPath) || !loadMemh(dut.mem2r1w->dmem, memhPath)) {
     return 2;
   }
 
@@ -136,7 +136,7 @@ int main(int argc, char **argv) {
   dut.ic_l2_rsp_data = Wire<512>(0);
   dut.ic_l2_rsp_error = Wire<1>(0);
 
-  Testbench<pyc::gen::linxcore_top> tb(dut);
+  Testbench<pyc::gen::LinxcoreTop> tb(dut);
   tb.addClock(dut.clk, 1);
   tb.reset(dut.rst, 2, 1);
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
-LLVM_MC="${LLVM_MC:-/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-mc}"
+LLVM_MC="${LLVM_MC:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-mc}"
 SRC="${SRC:-${LINX_ROOT}/emulator/qemu/tests/linxisa/commit_trace_smoke.s}"
 TMP_DIR="$(mktemp -d -t linxcore_cosim_smoke.XXXXXX)"
 OBJ="${TMP_DIR}/commit_trace_smoke.o"

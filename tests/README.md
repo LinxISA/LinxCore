@@ -24,6 +24,12 @@
 - Purpose: run real CoreMark for 1000 commits, compare QEMU vs LinxCore commit-by-commit, and require zero mismatch.
 - `test_cbstop_inflation_guard.sh`
 - Purpose: guard against early-window `C.BSTOP` inflation by comparing QEMU and LinxCore first-1000 commit histograms.
+- `test_primitives_pyc_flow.sh`
+- Purpose: pyCircuit leaf-module build/sim flow for S1 primitives (`mem2r1w`, `uid_allocator`).
+- `test_frontend_pyc_flow.sh`
+- Purpose: pyCircuit leaf+cluster flow for S2 frontend (`ifetch`, `bpu`, `ibuffer`, `ftq`, `frontend`).
+- `test_pyc4_frontend_strict.sh`
+- Purpose: enforce pyc4 frontend API hygiene and block new uses of legacy internal frontend tokens (`m.const`, `._select_internal`, `.__eq__`, `._trunc/_zext/_sext`) via baseline burn-down.
 
 Run all:
 
@@ -40,4 +46,7 @@ bash /Users/zhoubot/LinxCore/tests/test_konata_template_pipeview.sh
 bash /Users/zhoubot/LinxCore/tests/test_cpp_codegen_safety_gate.sh
 bash /Users/zhoubot/LinxCore/tests/test_coremark_crosscheck_1000.sh
 bash /Users/zhoubot/LinxCore/tests/test_cbstop_inflation_guard.sh
+bash /Users/zhoubot/LinxCore/tests/test_primitives_pyc_flow.sh
+bash /Users/zhoubot/LinxCore/tests/test_frontend_pyc_flow.sh
+bash /Users/zhoubot/LinxCore/tests/test_pyc4_frontend_strict.sh
 ```

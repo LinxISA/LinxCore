@@ -5,52 +5,53 @@ set -euo pipefail
 # generated/cpp/linxcore_top/cpp_compile_manifest.json.
 #
 # Phase B: use Ninja (depfiles + parallel scheduling) for correctness and speed.
-# Default to Homebrew g++-15 for stability (Apple clang has been observed to crash
-# compiling the huge JanusBccBackendCompat__tick TU).
+#
+# Default to Apple clang++ on Darwin to keep libc++ linkage consistent with the
+# rest of the C++ flows and to reduce peak memory vs GCC on mega-generated TUs.
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-PYC_ROOT="/Users/zhoubot/pyCircuit"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 CPP_MANIFEST="${PYC_MANIFEST_PATH:-${GEN_CPP_DIR}/cpp_compile_manifest.json}"
 GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
-HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
+HDR="${GEN_CPP_DIR}/LinxcoreTop.hpp"
 NINJA_FILE="${GEN_CPP_DIR}/build_model.ninja"
 NINJA_TARGET="model_objects"
 NINJA_GEN_TOOL="${ROOT_DIR}/tools/generate/gen_linxcore_model_ninja.py"
 
 MODEL_CXXFLAGS="${PYC_MODEL_CXXFLAGS:-${PYC_TB_CXXFLAGS:--O3 -DNDEBUG}}"
 
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
+find_pyc_root() {
+  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
+    echo "${PYC_ROOT}"
+    return 0
+  fi
+  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
+    echo "${LINX_ROOT}/tools/pyCircuit"
+    return 0
+  fi
+  return 1
+}
+PYC_ROOT_DIR="$(find_pyc_root)" || {
+  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
+  exit 2
+}
+
 # Choose compiler:
 # - If PYC_MODEL_CXX is set, it wins.
-# - Otherwise prefer g++-15 when available.
-# - Fall back to clang++.
+# - Otherwise prefer clang++ when available.
+# - Fall back to g++-15 when available.
+# - Finally fall back to clang++.
 if [[ -n "${PYC_MODEL_CXX:-}" ]]; then
   export CXX="${PYC_MODEL_CXX}"
 elif [[ -z "${CXX:-}" ]]; then
-  if [[ -x "/opt/homebrew/bin/g++-15" ]]; then
-    export CXX="/opt/homebrew/bin/g++-15"
-  elif command -v clang++ >/dev/null 2>&1; then
+  if command -v clang++ >/dev/null 2>&1; then
     export CXX="$(command -v clang++)"
+  elif [[ -x "/opt/homebrew/bin/g++-15" ]]; then
+    export CXX="/opt/homebrew/bin/g++-15"
   fi
 fi
 CXX_BIN="${CXX:-clang++}"
-
-PYC_API_INCLUDE="${PYC_ROOT}/include"
-if [[ ! -f "${PYC_API_INCLUDE}/pyc/cpp/pyc_sim.hpp" ]]; then
-  cand="$(find "${PYC_ROOT}" -path '*/include/pyc/cpp/pyc_sim.hpp' -print -quit 2>/dev/null || true)"
-  if [[ -n "${cand}" ]]; then
-    PYC_API_INCLUDE="${cand%/pyc/cpp/pyc_sim.hpp}"
-  fi
-fi
-
-PYC_COMPAT_INCLUDE="${ROOT_DIR}/generated/include_compat"
-mkdir -p "${PYC_COMPAT_INCLUDE}/pyc"
-if [[ -L "${PYC_COMPAT_INCLUDE}/pyc/cpp" || -f "${PYC_COMPAT_INCLUDE}/pyc/cpp" ]]; then
-  rm -f "${PYC_COMPAT_INCLUDE}/pyc/cpp"
-elif [[ -d "${PYC_COMPAT_INCLUDE}/pyc/cpp" ]]; then
-  rmdir "${PYC_COMPAT_INCLUDE}/pyc/cpp" 2>/dev/null || true
-fi
-ln -s "${PYC_ROOT}/runtime/cpp" "${PYC_COMPAT_INCLUDE}/pyc/cpp"
 
 auto_build_jobs() {
   if [[ -n "${PYC_BUILD_JOBS:-}" ]]; then
@@ -181,7 +182,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   fi
 fi
 
-export ROOT_DIR GEN_CPP_DIR GEN_OBJ_DIR CPP_MANIFEST PYC_ROOT PYC_COMPAT_INCLUDE PYC_API_INCLUDE CXX_BIN MODEL_CXXFLAGS
+export ROOT_DIR GEN_CPP_DIR GEN_OBJ_DIR CPP_MANIFEST PYC_ROOT_DIR CXX_BIN MODEL_CXXFLAGS
 python3 "${NINJA_GEN_TOOL}" >/dev/null
 
 if ! command -v ninja >/dev/null 2>&1; then

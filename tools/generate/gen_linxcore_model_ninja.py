@@ -33,10 +33,7 @@ def main() -> int:
     flags = os.environ.get("MODEL_CXXFLAGS", "-O3 -DNDEBUG")
 
     includes = [
-        os.environ["PYC_COMPAT_INCLUDE"],
-        os.environ["PYC_API_INCLUDE"],
-        os.path.join(os.environ["PYC_ROOT"], "runtime"),
-        os.path.join(os.environ["PYC_ROOT"], "runtime", "cpp"),
+        os.path.join(os.environ["PYC_ROOT_DIR"], "runtime"),
         str(gen_cpp_dir),
     ]
 

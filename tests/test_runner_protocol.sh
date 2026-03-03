@@ -2,23 +2,28 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-PYC_ROOT="/Users/zhoubot/pyCircuit"
 RUNNER_SRC="${ROOT_DIR}/cosim/linxcore_lockstep_runner.cpp"
 RUNNER_BIN="${ROOT_DIR}/cosim/linxcore_lockstep_runner"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
-GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
+GEN_HDR="${GEN_CPP_DIR}/LinxcoreTop.hpp"
 CPP_MANIFEST="${GEN_CPP_DIR}/cpp_compile_manifest.json"
 TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}"
-PYC_API_INCLUDE="${PYC_ROOT}/include"
-if [[ ! -f "${PYC_API_INCLUDE}/pyc/cpp/pyc_sim.hpp" ]]; then
-  cand="$(find "${PYC_ROOT}" -path '*/include/pyc/cpp/pyc_sim.hpp' -print -quit 2>/dev/null || true)"
-  if [[ -n "${cand}" ]]; then
-    PYC_API_INCLUDE="${cand%/pyc/cpp/pyc_sim.hpp}"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
+find_pyc_root() {
+  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
+    echo "${PYC_ROOT}"
+    return 0
   fi
-fi
-PYC_COMPAT_INCLUDE="${ROOT_DIR}/generated/include_compat"
-mkdir -p "${PYC_COMPAT_INCLUDE}/pyc"
-ln -sfn "${PYC_ROOT}/runtime/cpp" "${PYC_COMPAT_INCLUDE}/pyc/cpp"
+  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
+    echo "${LINX_ROOT}/tools/pyCircuit"
+    return 0
+  fi
+  return 1
+}
+PYC_ROOT_DIR="$(find_pyc_root)" || {
+  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
+  exit 2
+}
 
 TMP_DIR="$(mktemp -d -t linxcore_runner_test.XXXXXX)"
 SOCK="${TMP_DIR}/runner.sock"
@@ -27,9 +32,8 @@ TRACE="${TMP_DIR}/dut_trace.jsonl"
 MSG_OK="${TMP_DIR}/msg_ok.json"
 MSG_BAD="${TMP_DIR}/msg_bad.json"
 
-BOOT_PC=0x10000
 BOOT_SP=0x20000
-MEMH="${PYC_TEST_MEMH:-/Users/zhoubot/pyCircuit/designs/examples/linx_cpu/programs/test_or.memh}"
+MEMH="${PYC_TEST_MEMH:-${PYC_ROOT_DIR}/designs/examples/linx_cpu/programs/test_or.memh}"
 
 cleanup() {
   if [[ -n "${RUNNER_PID:-}" ]]; then
@@ -63,6 +67,23 @@ if [[ ! -f "${MEMH}" ]]; then
   echo "missing benchmark memh after build: ${MEMH}" >&2
   exit 2
 fi
+
+BOOT_PC="$(
+python3 - <<'PY' "${MEMH}"
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+addr = None
+for tok in p.read_text().split():
+    if tok.startswith("@"):
+        addr = int(tok[1:], 16)
+        break
+if addr is None:
+    raise SystemExit(f"no @addr found in memh: {p}")
+print(f"0x{addr:x}")
+PY
+)"
 
 if [[ ! -f "${GEN_HDR}" ]]; then
   bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
@@ -98,10 +119,7 @@ PY
     GEN_SRCS+=("${src}")
   done <<< "${GEN_SRCS_STR}"
   "${CXX:-clang++}" -std=c++17 ${TB_CXXFLAGS} \
-    -I "${PYC_COMPAT_INCLUDE}" \
-    -I "${PYC_API_INCLUDE}" \
-    -I "${PYC_ROOT}/runtime" \
-    -I "${PYC_ROOT}/runtime/cpp" \
+    -I "${PYC_ROOT_DIR}/runtime" \
     -I "${GEN_CPP_DIR}" \
     -o "${RUNNER_BIN}" \
     "${RUNNER_SRC}" \
@@ -159,11 +177,67 @@ snap_path.write_bytes(hdr + entry + bytes(payload))
 rows = [json.loads(line) for line in trace_path.read_text().splitlines() if line.strip()]
 if not rows:
     raise SystemExit("empty dut trace")
-first = rows[0]
+
+def mask_insn(raw: int, length: int) -> int:
+    if length == 2:
+        return raw & 0xFFFF
+    if length == 4:
+        return raw & 0xFFFF_FFFF
+    if length == 6:
+        return raw & 0xFFFF_FFFF_FFFF
+    return raw
+
+def is_bstart16(hw: int) -> bool:
+    if (hw & 0xC7FF) == 0x0000 or (hw & 0xC7FF) == 0x0080:
+        brtype = (hw >> 11) & 0x7
+        if brtype != 0:
+            return True
+    if (hw & 0x000F) == 0x0002 or (hw & 0x000F) == 0x0004:
+        return True
+    return hw in (0x0840, 0x08C0, 0x48C0, 0x88C0, 0xC8C0)
+
+def is_bstart32(insn: int) -> bool:
+    return (insn & 0x0000_7FFF) in (0x0000_1001, 0x0000_2001, 0x0000_3001, 0x0000_4001, 0x0000_5001, 0x0000_6001, 0x0000_7001)
+
+def is_bstart48(raw: int) -> bool:
+    prefix = raw & 0xFFFF
+    main32 = (raw >> 16) & 0xFFFF_FFFF
+    if (prefix & 0xF) != 0xE:
+        return False
+    return ((main32 & 0xFF) == 0x01) and (((main32 >> 12) & 0x7) != 0)
+
+def is_macro_marker32(insn: int) -> bool:
+    return (insn & 0x0000_707F) in (0x0000_0041, 0x0000_1041, 0x0000_2041, 0x0000_3041)
+
+def is_metadata_commit(r: dict) -> bool:
+    pc = int(r.get("pc", 0))
+    insn = int(r.get("insn", 0))
+    length = int(r.get("len", 0))
+    wb = int(r.get("wb_valid", 0))
+    mem_v = int(r.get("mem_valid", 0))
+    trap_v = int(r.get("trap_valid", 0))
+    if length == 0 and insn == 0 and pc == 0:
+        return True
+    insn_m = mask_insn(insn, length)
+    is_bstart = (
+        (length == 2 and is_bstart16(insn_m & 0xFFFF)) or
+        (length == 4 and is_bstart32(insn_m & 0xFFFF_FFFF)) or
+        (length == 6 and is_bstart48(insn_m))
+    )
+    is_macro_marker = (length == 4) and is_macro_marker32(insn_m & 0xFFFF_FFFF)
+    if is_bstart and wb == 0 and mem_v == 0 and trap_v == 0:
+        return True
+    if is_macro_marker and wb == 0 and mem_v == 0 and trap_v == 0:
+        return True
+    return False
+
+first = None
 for row in rows:
-    if int(row.get("wb_valid", 0)) or int(row.get("mem_valid", 0)) or int(row.get("trap_valid", 0)):
+    if not is_metadata_commit(row):
         first = row
         break
+if first is None:
+    raise SystemExit("no non-metadata commit in dut trace")
 
 commit = {
     "type": "commit",
@@ -209,11 +283,11 @@ start = {
   "type":"start",
   "boot_pc": int("${BOOT_PC}", 0),
   "trigger_pc": int("${BOOT_PC}", 0),
-  "terminate_pc": int("${BOOT_PC}", 0),
   "snapshot_path": r"${SNAP}",
   "seq_base": 0,
 }
 commit = json.loads(open(r"${MSG_OK}", "r", encoding="utf-8").read())
+start["terminate_pc"] = int(commit.get("pc", 0))
 
 sock.sendall((json.dumps(start) + "\n").encode())
 sock.sendall((json.dumps(commit) + "\n").encode())
@@ -251,11 +325,11 @@ start = {
   "type":"start",
   "boot_pc": int("${BOOT_PC}", 0),
   "trigger_pc": int("${BOOT_PC}", 0),
-  "terminate_pc": int("${BOOT_PC}", 0),
   "snapshot_path": r"${SNAP}",
   "seq_base": 0,
 }
 commit = json.loads(open(r"${MSG_OK}", "r", encoding="utf-8").read())
+start["terminate_pc"] = int(commit.get("pc", 0))
 
 sock.sendall((json.dumps(start) + "\n").encode())
 sock.sendall((json.dumps(commit) + "\n").encode())

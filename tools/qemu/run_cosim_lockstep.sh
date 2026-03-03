@@ -3,21 +3,26 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
-PYC_ROOT="/Users/zhoubot/pyCircuit"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
-GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
+GEN_HDR="${GEN_CPP_DIR}/LinxcoreTop.hpp"
 CPP_MANIFEST="${GEN_CPP_DIR}/cpp_compile_manifest.json"
 GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
-PYC_API_INCLUDE="${PYC_ROOT}/include"
-if [[ ! -f "${PYC_API_INCLUDE}/pyc/cpp/pyc_sim.hpp" ]]; then
-  cand="$(find "${PYC_ROOT}" -path '*/include/pyc/cpp/pyc_sim.hpp' -print -quit 2>/dev/null || true)"
-  if [[ -n "${cand}" ]]; then
-    PYC_API_INCLUDE="${cand%/pyc/cpp/pyc_sim.hpp}"
+
+find_pyc_root() {
+  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
+    echo "${PYC_ROOT}"
+    return 0
   fi
-fi
-PYC_COMPAT_INCLUDE="${ROOT_DIR}/generated/include_compat"
-mkdir -p "${PYC_COMPAT_INCLUDE}/pyc"
-ln -sfn "${PYC_ROOT}/runtime/cpp" "${PYC_COMPAT_INCLUDE}/pyc/cpp"
+  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
+    echo "${LINX_ROOT}/tools/pyCircuit"
+    return 0
+  fi
+  return 1
+}
+PYC_ROOT_DIR="$(find_pyc_root)" || {
+  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
+  exit 2
+}
 
 ELF=""
 BOOT_PC=""
@@ -186,10 +191,7 @@ PY
 
   "${CXX:-clang++}" -std=c++17 -O2 -Wall -Wextra \
     ${CXXFLAGS_EXTRA} \
-    -I "${PYC_COMPAT_INCLUDE}" \
-    -I "${PYC_API_INCLUDE}" \
-    -I "${PYC_ROOT}/runtime" \
-    -I "${PYC_ROOT}/runtime/cpp" \
+    -I "${PYC_ROOT_DIR}/runtime" \
     -I "${GEN_CPP_DIR}" \
     -o "${RUNNER_BIN}" \
     "${ROOT_DIR}/cosim/linxcore_lockstep_runner.cpp" \

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 OUT_DIR="${ROOT_DIR}/tests/benchmarks_linxcore"
 LOG_DIR="${OUT_DIR}/logs"
 TRACE_DIR="${OUT_DIR}/traces"
@@ -23,8 +24,8 @@ DHRY_TARGET_CYCLES="${DHRY_TARGET_CYCLES:-650000}"
 REQUIRE_REAL="${LINX_BENCH_REQUIRE_REAL:-0}"
 CORE_ACCEPT_EXIT_CODES="${CORE_ACCEPT_EXIT_CODES:-0}"
 DHRY_ACCEPT_EXIT_CODES="${DHRY_ACCEPT_EXIT_CODES:-1}"
-LLVM_READELF="${LLVM_READELF:-/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-readelf}"
-LINXISA_DIR="${LINXISA_DIR:-${HOME}/linx-isa}"
+LLVM_READELF="${LLVM_READELF:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-readelf}"
+LINXISA_DIR="${LINXISA_DIR:-${LINX_ROOT}}"
 
 build_out="$({
   CORE_ITERATIONS="${CORE_ITERATIONS}" \

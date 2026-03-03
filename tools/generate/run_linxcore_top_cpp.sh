@@ -2,9 +2,26 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-PYC_ROOT="/Users/zhoubot/pyCircuit"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
+
+find_pyc_root() {
+  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
+    echo "${PYC_ROOT}"
+    return 0
+  fi
+  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
+    echo "${LINX_ROOT}/tools/pyCircuit"
+    return 0
+  fi
+  return 1
+}
+
+PYC_ROOT_DIR="$(find_pyc_root)" || {
+  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
+  exit 2
+}
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
-HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
+HDR="${GEN_CPP_DIR}/LinxcoreTop.hpp"
 CPP_MANIFEST="${PYC_MANIFEST_PATH:-${GEN_CPP_DIR}/cpp_compile_manifest.json}"
 CALLFRAME_CFG="${GEN_CPP_DIR}/.callframe_size"
 PARAM_HASH_CFG="${GEN_CPP_DIR}/.pyc_param_hash"
@@ -68,22 +85,6 @@ for k, v in pairs:
 print(h.hexdigest())
 PY
 )"
-
-PYC_API_INCLUDE="${PYC_ROOT}/include"
-if [[ ! -f "${PYC_API_INCLUDE}/pyc/cpp/pyc_sim.hpp" ]]; then
-  cand="$(find "${PYC_ROOT}" -path '*/include/pyc/cpp/pyc_sim.hpp' -print -quit 2>/dev/null || true)"
-  if [[ -n "${cand}" ]]; then
-    PYC_API_INCLUDE="${cand%/pyc/cpp/pyc_sim.hpp}"
-  fi
-fi
-PYC_COMPAT_INCLUDE="${ROOT_DIR}/generated/include_compat"
-mkdir -p "${PYC_COMPAT_INCLUDE}/pyc"
-if [[ -L "${PYC_COMPAT_INCLUDE}/pyc/cpp" || -f "${PYC_COMPAT_INCLUDE}/pyc/cpp" ]]; then
-  rm -f "${PYC_COMPAT_INCLUDE}/pyc/cpp"
-elif [[ -d "${PYC_COMPAT_INCLUDE}/pyc/cpp" ]]; then
-  rmdir "${PYC_COMPAT_INCLUDE}/pyc/cpp" 2>/dev/null || true
-fi
-ln -s "${PYC_ROOT}/runtime/cpp" "${PYC_COMPAT_INCLUDE}/pyc/cpp"
 
 read_manifest_hash() {
   python3 - <<'PY' "${CPP_MANIFEST}"
@@ -325,10 +326,7 @@ PY
     common_flags=(
       -std=c++17
       ${TB_CXXFLAGS}
-      -I "${PYC_COMPAT_INCLUDE}"
-      -I "${PYC_API_INCLUDE}"
-      -I "${PYC_ROOT}/runtime"
-      -I "${PYC_ROOT}/runtime/cpp"
+      -I "${PYC_ROOT_DIR}/runtime"
       -I "${GEN_CPP_DIR}"
     )
     if [[ "$(uname -s)" == "Darwin" ]]; then

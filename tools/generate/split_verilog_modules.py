@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -50,7 +51,16 @@ def main() -> int:
     ap.add_argument("--src", required=True)
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--top", required=True)
-    ap.add_argument("--primitives-dir", default="/Users/zhoubot/pyCircuit/include/pyc/verilog")
+    default_primitives_dir = None
+    if os.environ.get("PYC_ROOT"):
+        cand = Path(os.environ["PYC_ROOT"]) / "runtime" / "verilog"
+        if cand.is_dir():
+            default_primitives_dir = cand
+    if default_primitives_dir is None:
+        linxcore_root = Path(__file__).resolve().parents[2]
+        linx_root = linxcore_root.parents[1]
+        default_primitives_dir = linx_root / "tools" / "pyCircuit" / "runtime" / "verilog"
+    ap.add_argument("--primitives-dir", default=str(default_primitives_dir))
     args = ap.parse_args()
 
     src = Path(args.src)

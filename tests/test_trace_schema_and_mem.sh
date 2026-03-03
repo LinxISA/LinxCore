@@ -2,7 +2,26 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-MEMH="${PYC_TEST_MEMH:-/Users/zhoubot/pyCircuit/designs/examples/linx_cpu/programs/test_or.memh}"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
+
+find_pyc_root() {
+  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
+    echo "${PYC_ROOT}"
+    return 0
+  fi
+  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
+    echo "${LINX_ROOT}/tools/pyCircuit"
+    return 0
+  fi
+  return 1
+}
+
+PYC_ROOT_DIR="$(find_pyc_root)" || {
+  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
+  exit 2
+}
+
+MEMH="${PYC_TEST_MEMH:-${PYC_ROOT_DIR}/designs/examples/linx_cpu/programs/test_or.memh}"
 TMP_DIR="$(mktemp -d -t linxcore_trace_schema.XXXXXX)"
 TRACE="${TMP_DIR}/trace.jsonl"
 
@@ -23,7 +42,24 @@ if [[ ! -f "${MEMH}" ]]; then
   exit 2
 fi
 
-PYC_BOOT_PC=0x10000 \
+BOOT_PC="$(
+python3 - <<'PY' "${MEMH}"
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+addr = None
+for tok in p.read_text().split():
+    if tok.startswith("@"):
+        addr = int(tok[1:], 16)
+        break
+if addr is None:
+    raise SystemExit(f"no @addr found in memh: {p}")
+print(f"0x{addr:x}")
+PY
+)"
+
+PYC_BOOT_PC="${BOOT_PC}" \
 PYC_BOOT_SP=0x00000000000ff000 \
 PYC_MAX_CYCLES=12000 \
 PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}" \
