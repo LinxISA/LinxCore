@@ -112,6 +112,7 @@ from .rob import is_macro_op, is_start_marker_op
 from .state import make_core_ctrl_regs, make_iq_regs, make_prf, make_rename_regs
 from .wakeup import build_head_wait_stage, compose_replay_cause, compose_wakeup_reason
 from .modules.rob_bank import build_rob_bank_top
+from .modules.commit_trace_stage import build_commit_trace_stage
 from .modules.stbuf_stage import build_stbuf_stage
 
 
@@ -2409,11 +2410,6 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     # as a separate retire record). Keep only the shadow marker and let the
     # first visible step be the RA-restore load (which also redirects).
     macro_shadow_emit_uop = macro_shadow_fire & (~(macro_is_fret_stk & macro_uop_is_sp_add))
-    # Keep dynamic uop IDs unique even when we emit both a shadow marker and
-    # the architecturally visible template uop in the same cycle.
-    macro_shadow_uid = macro_uop_uid | c(1 << 62, width=64)
-    macro_shadow_uid_alt = macro_shadow_uid | c(1, width=64)
-
     # Keep retire trace strictly instruction-driven; qemu-specific boundary-only
     # metadata commits are filtered in the lockstep runner.
     shadow_boundary_fire = consts.zero1
@@ -2423,396 +2419,137 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     # These additional signals help debug multi-commit cycles where older
     # commits may not appear in a slot0-only log.
     max_commit_slots = 4
+    def _slot(items, idx: int, default):
+        return items[idx] if idx < len(items) else default
+
+    commit_trace_args = {
+        "shadow_boundary_fire": shadow_boundary_fire,
+        "shadow_boundary_fire1": shadow_boundary_fire1,
+        "trap_pending": state.trap_pending.out(),
+        "trap_rob": state.trap_rob.out(),
+        "trap_cause": state.trap_cause.out(),
+        "macro_trace_fire": macro_trace_fire,
+        "macro_trace_pc": macro_trace_pc,
+        "macro_trace_rob": macro_trace_rob,
+        "macro_trace_op": macro_trace_op,
+        "macro_trace_val": macro_trace_val,
+        "macro_trace_len": macro_trace_len,
+        "macro_trace_insn_raw": macro_trace_insn,
+        "macro_uop_uid": macro_uop_uid,
+        "macro_uop_parent_uid": macro_uop_parent_uid,
+        "macro_uop_template_kind": macro_uop_template_kind,
+        "macro_trace_wb_valid": macro_trace_wb_valid,
+        "macro_trace_wb_rd": macro_trace_wb_rd,
+        "macro_trace_wb_data": macro_trace_wb_data,
+        "macro_trace_src0_valid": macro_trace_src0_valid,
+        "macro_trace_src0_reg": macro_trace_src0_reg,
+        "macro_trace_src0_data": macro_trace_src0_data,
+        "macro_trace_src1_valid": macro_trace_src1_valid,
+        "macro_trace_src1_reg": macro_trace_src1_reg,
+        "macro_trace_src1_data": macro_trace_src1_data,
+        "macro_trace_dst_valid": macro_trace_dst_valid,
+        "macro_trace_dst_reg": macro_trace_dst_reg,
+        "macro_trace_dst_data": macro_trace_dst_data,
+        "macro_trace_mem_valid": macro_trace_mem_valid,
+        "macro_trace_mem_is_store": macro_trace_mem_is_store,
+        "macro_trace_mem_addr": macro_trace_mem_addr,
+        "macro_trace_mem_wdata": macro_trace_mem_wdata,
+        "macro_trace_mem_rdata": macro_trace_mem_rdata,
+        "macro_trace_mem_size": macro_trace_mem_size,
+        "macro_trace_next_pc": macro_trace_next_pc,
+        "macro_shadow_fire": macro_shadow_fire,
+        "macro_shadow_emit_uop": macro_shadow_emit_uop,
+    }
+
+    for i in range(p.sq_entries):
+        commit_trace_args[f"stbuf_valid{i}"] = stbuf_valid[i]
+        commit_trace_args[f"stbuf_addr{i}"] = stbuf_addr[i]
+        commit_trace_args[f"stbuf_data{i}"] = stbuf_data[i]
+
+    commit_w = p.commit_w if p.commit_w <= max_commit_slots else max_commit_slots
     for slot in range(max_commit_slots):
-        fire = consts.zero1
-        pc = consts.zero64
-        rob_idx = c(0, width=p.rob_w)
-        uop_uid = consts.zero64
-        parent_uid = consts.zero64
-        template_kind = c(0, width=3)
-        op = c(0, width=12)
-        val = consts.zero64
-        ln = consts.zero3
-        insn_raw = consts.zero64
-        wb_valid = consts.zero1
-        wb_rd = c(0, width=6)
-        wb_data = consts.zero64
-        src0_valid = consts.zero1
-        src0_reg = c(0, width=6)
-        src0_data = consts.zero64
-        src1_valid = consts.zero1
-        src1_reg = c(0, width=6)
-        src1_data = consts.zero64
-        dst_valid = consts.zero1
-        dst_reg = c(0, width=6)
-        dst_data = consts.zero64
-        mem_valid = consts.zero1
-        mem_is_store = consts.zero1
-        mem_addr = consts.zero64
-        mem_wdata = consts.zero64
-        mem_rdata = consts.zero64
-        mem_size = consts.zero4
-        trap_valid = consts.zero1
-        trap_cause = c(0, width=32)
-        next_pc = consts.zero64
-        checkpoint_id = c(0, width=6)
-        if slot < p.commit_w:
-            fire_raw = commit_fires[slot]
-            pc = rob_pcs[slot]
-            rob_idx = commit_idxs[slot]
-            op = rob_ops[slot]
-            val = rob_values[slot]
-            ln = rob_lens[slot]
-            insn_raw = rob_insn_raws[slot]
-            uop_uid = rob_uop_uids[slot]
-            parent_uid = rob_parent_uids[slot]
-            is_macro_commit = op_is(op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
-            fire = fire_raw & (~is_macro_commit)
-            is_gpr_dst = rob_dst_kinds[slot].__eq__(c(1, width=2))
-            wb_trace_suppress = op_is(
-                op,
-                OP_C_BSTART_STD,
-                OP_C_BSTART_COND,
-                OP_C_BSTART_DIRECT,
-                OP_BSTART_STD_FALL,
-                OP_BSTART_STD_DIRECT,
-                OP_BSTART_STD_COND,
-                OP_BSTART_STD_CALL,
-                OP_C_BSTOP,
-            )
-            rd = rob_dst_aregs[slot]
-            wb_valid = fire & is_gpr_dst & (~rd.__eq__(c(0, width=6))) & (~wb_trace_suppress)
-            wb_rd = rd
-            wb_data = rob_values[slot]
-            src0_valid = fire & rob_src0_valids[slot]
-            src0_reg = rob_src0_regs[slot]
-            src0_data = rob_src0_values[slot]
-            src1_valid = fire & rob_src1_valids[slot]
-            src1_reg = rob_src1_regs[slot]
-            src1_data = rob_src1_values[slot]
-            dst_valid = wb_valid
-            dst_reg = wb_rd
-            dst_data = wb_data
-            next_pc_slot = commit_next_pcs[slot]
-            is_store = rob_is_stores[slot]
-            is_load = rob_is_loads[slot]
-            ld_trace_data = rob_ld_datas[slot]
-            for i in range(p.sq_entries):
-                st_hit = stbuf_valid[i] & (stbuf_addr[i] == rob_ld_addrs[slot])
-                ld_trace_data = st_hit._select_internal(stbuf_data[i], ld_trace_data)
-            mem_valid = fire & (is_store | is_load)
-            mem_is_store = fire & is_store
-            mem_addr = is_store._select_internal(rob_st_addrs[slot], rob_ld_addrs[slot])
-            mem_wdata = is_store._select_internal(rob_st_datas[slot], consts.zero64)
-            mem_rdata = is_load._select_internal(ld_trace_data, consts.zero64)
-            mem_size = is_store._select_internal(rob_st_sizes[slot], rob_ld_sizes[slot])
-            next_pc = next_pc_slot
-            checkpoint_id = rob_checkpoint_ids[slot]
-            trap_hit = state.trap_pending.out() & commit_idxs[slot].__eq__(state.trap_rob.out())
-            trap_valid = fire & trap_hit
-            trap_cause = trap_hit._select_internal(state.trap_cause.out(), trap_cause)
+        commit_trace_args[f"commit_fire{slot}_i"] = _slot(commit_fires, slot, consts.zero1)
+        commit_trace_args[f"commit_pc{slot}_i"] = _slot(commit_pcs, slot, consts.zero64)
+        commit_trace_args[f"commit_next_pc{slot}_i"] = _slot(commit_next_pcs, slot, consts.zero64)
+        commit_trace_args[f"commit_idx{slot}_i"] = _slot(commit_idxs, slot, c(0, width=p.rob_w))
+        commit_trace_args[f"rob_pc{slot}"] = _slot(rob_pcs, slot, consts.zero64)
+        commit_trace_args[f"rob_op{slot}"] = _slot(rob_ops, slot, c(0, width=12))
+        commit_trace_args[f"rob_value{slot}"] = _slot(rob_values, slot, consts.zero64)
+        commit_trace_args[f"rob_len{slot}"] = _slot(rob_lens, slot, consts.zero3)
+        commit_trace_args[f"rob_insn_raw{slot}"] = _slot(rob_insn_raws, slot, consts.zero64)
+        commit_trace_args[f"rob_uop_uid{slot}"] = _slot(rob_uop_uids, slot, consts.zero64)
+        commit_trace_args[f"rob_parent_uid{slot}"] = _slot(rob_parent_uids, slot, consts.zero64)
+        commit_trace_args[f"rob_dst_kind{slot}"] = _slot(rob_dst_kinds, slot, c(0, width=2))
+        commit_trace_args[f"rob_dst_areg{slot}"] = _slot(rob_dst_aregs, slot, c(0, width=6))
+        commit_trace_args[f"rob_src0_valid{slot}"] = _slot(rob_src0_valids, slot, consts.zero1)
+        commit_trace_args[f"rob_src0_reg{slot}"] = _slot(rob_src0_regs, slot, c(0, width=6))
+        commit_trace_args[f"rob_src0_data{slot}"] = _slot(rob_src0_values, slot, consts.zero64)
+        commit_trace_args[f"rob_src1_valid{slot}"] = _slot(rob_src1_valids, slot, consts.zero1)
+        commit_trace_args[f"rob_src1_reg{slot}"] = _slot(rob_src1_regs, slot, c(0, width=6))
+        commit_trace_args[f"rob_src1_data{slot}"] = _slot(rob_src1_values, slot, consts.zero64)
+        commit_trace_args[f"rob_is_store{slot}"] = _slot(rob_is_stores, slot, consts.zero1)
+        commit_trace_args[f"rob_store_addr{slot}"] = _slot(rob_st_addrs, slot, consts.zero64)
+        commit_trace_args[f"rob_store_data{slot}"] = _slot(rob_st_datas, slot, consts.zero64)
+        commit_trace_args[f"rob_store_size{slot}"] = _slot(rob_st_sizes, slot, consts.zero4)
+        commit_trace_args[f"rob_is_load{slot}"] = _slot(rob_is_loads, slot, consts.zero1)
+        commit_trace_args[f"rob_load_addr{slot}"] = _slot(rob_ld_addrs, slot, consts.zero64)
+        commit_trace_args[f"rob_load_data{slot}"] = _slot(rob_ld_datas, slot, consts.zero64)
+        commit_trace_args[f"rob_load_size{slot}"] = _slot(rob_ld_sizes, slot, consts.zero4)
+        commit_trace_args[f"rob_checkpoint_id{slot}"] = _slot(rob_checkpoint_ids, slot, c(0, width=6))
+        commit_trace_args[f"rob_load_store_id{slot}"] = _slot(rob_load_store_ids, slot, c(0, width=32))
 
-        # When `shadow_boundary_fire` is active, shift real retire records up
-        # by one slot so slot0 can carry the synthetic boundary marker event.
-        if slot > 0 and (slot - 1) < p.commit_w:
-            prev = slot - 1
-            fire_prev_raw = commit_fires[prev]
-            pc_prev = commit_pcs[prev]
-            rob_prev = commit_idxs[prev]
-            op_prev = rob_ops[prev]
-            val_prev = rob_values[prev]
-            ln_prev = rob_lens[prev]
-            insn_prev = rob_insn_raws[prev]
-            uid_prev = rob_uop_uids[prev]
-            parent_prev = rob_parent_uids[prev]
-            is_macro_prev = op_is(op_prev, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
-            fire_prev = fire_prev_raw & (~is_macro_prev)
-            is_gpr_prev = rob_dst_kinds[prev].__eq__(c(1, width=2))
-            wb_suppress_prev = op_is(
-                op_prev,
-                OP_C_BSTART_STD,
-                OP_C_BSTART_COND,
-                OP_C_BSTART_DIRECT,
-                OP_BSTART_STD_FALL,
-                OP_BSTART_STD_DIRECT,
-                OP_BSTART_STD_COND,
-                OP_BSTART_STD_CALL,
-                OP_C_BSTOP,
-            )
-            rd_prev = rob_dst_aregs[prev]
-            wb_valid_prev = fire_prev & is_gpr_prev & (~rd_prev.__eq__(c(0, width=6))) & (~wb_suppress_prev)
-            wb_rd_prev = rd_prev
-            wb_data_prev = rob_values[prev]
-            src0_valid_prev = fire_prev & rob_src0_valids[prev]
-            src0_reg_prev = rob_src0_regs[prev]
-            src0_data_prev = rob_src0_values[prev]
-            src1_valid_prev = fire_prev & rob_src1_valids[prev]
-            src1_reg_prev = rob_src1_regs[prev]
-            src1_data_prev = rob_src1_values[prev]
-            dst_valid_prev = wb_valid_prev
-            dst_reg_prev = wb_rd_prev
-            dst_data_prev = wb_data_prev
-            next_pc_prev = commit_next_pcs[prev]
-            is_store_prev = rob_is_stores[prev]
-            is_load_prev = rob_is_loads[prev]
-            ld_trace_prev = rob_ld_datas[prev]
-            for i in range(p.sq_entries):
-                st_hit_prev = stbuf_valid[i] & (stbuf_addr[i] == rob_ld_addrs[prev])
-                ld_trace_prev = st_hit_prev._select_internal(stbuf_data[i], ld_trace_prev)
-            mem_valid_prev = fire_prev & (is_store_prev | is_load_prev)
-            mem_is_store_prev = fire_prev & is_store_prev
-            mem_addr_prev = is_store_prev._select_internal(rob_st_addrs[prev], rob_ld_addrs[prev])
-            mem_wdata_prev = is_store_prev._select_internal(rob_st_datas[prev], consts.zero64)
-            mem_rdata_prev = is_load_prev._select_internal(ld_trace_prev, consts.zero64)
-            mem_size_prev = is_store_prev._select_internal(rob_st_sizes[prev], rob_ld_sizes[prev])
-            checkpoint_prev = rob_checkpoint_ids[prev]
-            shift_active = shadow_boundary_fire
-            if slot > 1:
-                shift_active = shift_active | shadow_boundary_fire1
+        commit_trace_args[f"commit_block_uid{slot}_i"] = _slot(commit_block_uids, slot, consts.zero64)
+        commit_trace_args[f"commit_block_bid{slot}_i"] = _slot(commit_block_bids, slot, consts.zero64)
+        commit_trace_args[f"commit_core_id{slot}_i"] = _slot(commit_core_ids, slot, c(0, width=2))
+        commit_trace_args[f"commit_is_bstart{slot}_i"] = _slot(commit_is_bstarts, slot, consts.zero1)
+        commit_trace_args[f"commit_is_bstop{slot}_i"] = _slot(commit_is_bstops, slot, consts.zero1)
 
-            fire = shift_active._select_internal(fire_prev, fire)
-            pc = shift_active._select_internal(pc_prev, pc)
-            rob_idx = shift_active._select_internal(rob_prev, rob_idx)
-            op = shift_active._select_internal(op_prev, op)
-            val = shift_active._select_internal(val_prev, val)
-            ln = shift_active._select_internal(ln_prev, ln)
-            insn_raw = shift_active._select_internal(insn_prev, insn_raw)
-            uop_uid = shift_active._select_internal(uid_prev, uop_uid)
-            parent_uid = shift_active._select_internal(parent_prev, parent_uid)
-            wb_valid = shift_active._select_internal(wb_valid_prev, wb_valid)
-            wb_rd = shift_active._select_internal(wb_rd_prev, wb_rd)
-            wb_data = shift_active._select_internal(wb_data_prev, wb_data)
-            src0_valid = shift_active._select_internal(src0_valid_prev, src0_valid)
-            src0_reg = shift_active._select_internal(src0_reg_prev, src0_reg)
-            src0_data = shift_active._select_internal(src0_data_prev, src0_data)
-            src1_valid = shift_active._select_internal(src1_valid_prev, src1_valid)
-            src1_reg = shift_active._select_internal(src1_reg_prev, src1_reg)
-            src1_data = shift_active._select_internal(src1_data_prev, src1_data)
-            dst_valid = shift_active._select_internal(dst_valid_prev, dst_valid)
-            dst_reg = shift_active._select_internal(dst_reg_prev, dst_reg)
-            dst_data = shift_active._select_internal(dst_data_prev, dst_data)
-            mem_valid = shift_active._select_internal(mem_valid_prev, mem_valid)
-            mem_is_store = shift_active._select_internal(mem_is_store_prev, mem_is_store)
-            mem_addr = shift_active._select_internal(mem_addr_prev, mem_addr)
-            mem_wdata = shift_active._select_internal(mem_wdata_prev, mem_wdata)
-            mem_rdata = shift_active._select_internal(mem_rdata_prev, mem_rdata)
-            mem_size = shift_active._select_internal(mem_size_prev, mem_size)
-            next_pc = shift_active._select_internal(next_pc_prev, next_pc)
-            checkpoint_id = shift_active._select_internal(checkpoint_prev, checkpoint_id)
-
-        if slot == 0:
-            fire = shadow_boundary_fire._select_internal(consts.one1, fire)
-            pc = shadow_boundary_fire._select_internal(commit_pcs[0], pc)
-            rob_idx = shadow_boundary_fire._select_internal(commit_idxs[0], rob_idx)
-            op = shadow_boundary_fire._select_internal(rob_ops[0], op)
-            val = shadow_boundary_fire._select_internal(rob_values[0], val)
-            ln = shadow_boundary_fire._select_internal(rob_lens[0], ln)
-            insn_raw = shadow_boundary_fire._select_internal(rob_insn_raws[0], insn_raw)
-            uop_uid = shadow_boundary_fire._select_internal(rob_uop_uids[0], uop_uid)
-            parent_uid = shadow_boundary_fire._select_internal(rob_parent_uids[0], parent_uid)
-            wb_valid = shadow_boundary_fire._select_internal(consts.zero1, wb_valid)
-            wb_rd = shadow_boundary_fire._select_internal(c(0, width=6), wb_rd)
-            wb_data = shadow_boundary_fire._select_internal(consts.zero64, wb_data)
-            src0_valid = shadow_boundary_fire._select_internal(consts.zero1, src0_valid)
-            src0_reg = shadow_boundary_fire._select_internal(c(0, width=6), src0_reg)
-            src0_data = shadow_boundary_fire._select_internal(consts.zero64, src0_data)
-            src1_valid = shadow_boundary_fire._select_internal(consts.zero1, src1_valid)
-            src1_reg = shadow_boundary_fire._select_internal(c(0, width=6), src1_reg)
-            src1_data = shadow_boundary_fire._select_internal(consts.zero64, src1_data)
-            dst_valid = shadow_boundary_fire._select_internal(consts.zero1, dst_valid)
-            dst_reg = shadow_boundary_fire._select_internal(c(0, width=6), dst_reg)
-            dst_data = shadow_boundary_fire._select_internal(consts.zero64, dst_data)
-            mem_valid = shadow_boundary_fire._select_internal(consts.zero1, mem_valid)
-            mem_is_store = shadow_boundary_fire._select_internal(consts.zero1, mem_is_store)
-            mem_addr = shadow_boundary_fire._select_internal(consts.zero64, mem_addr)
-            mem_wdata = shadow_boundary_fire._select_internal(consts.zero64, mem_wdata)
-            mem_rdata = shadow_boundary_fire._select_internal(consts.zero64, mem_rdata)
-            mem_size = shadow_boundary_fire._select_internal(consts.zero4, mem_size)
-            next_pc = shadow_boundary_fire._select_internal(commit_pcs[0], next_pc)
-            checkpoint_id = shadow_boundary_fire._select_internal(rob_checkpoint_ids[0], checkpoint_id)
-
-            fire = macro_trace_fire._select_internal(consts.one1, fire)
-            pc = macro_trace_fire._select_internal(macro_trace_pc, pc)
-            rob_idx = macro_trace_fire._select_internal(macro_trace_rob, rob_idx)
-            op = macro_trace_fire._select_internal(macro_trace_op, op)
-            val = macro_trace_fire._select_internal(macro_trace_val, val)
-            ln = macro_trace_fire._select_internal(macro_trace_len, ln)
-            insn_raw = macro_trace_fire._select_internal(macro_trace_insn, insn_raw)
-            uop_uid = macro_trace_fire._select_internal(macro_uop_uid, uop_uid)
-            parent_uid = macro_trace_fire._select_internal(macro_uop_parent_uid, parent_uid)
-            template_kind = macro_trace_fire._select_internal(macro_uop_template_kind, template_kind)
-            wb_valid = macro_trace_fire._select_internal(macro_trace_wb_valid, wb_valid)
-            wb_rd = macro_trace_fire._select_internal(macro_trace_wb_rd, wb_rd)
-            wb_data = macro_trace_fire._select_internal(macro_trace_wb_data, wb_data)
-            src0_valid = macro_trace_fire._select_internal(macro_trace_src0_valid, src0_valid)
-            src0_reg = macro_trace_fire._select_internal(macro_trace_src0_reg, src0_reg)
-            src0_data = macro_trace_fire._select_internal(macro_trace_src0_data, src0_data)
-            src1_valid = macro_trace_fire._select_internal(macro_trace_src1_valid, src1_valid)
-            src1_reg = macro_trace_fire._select_internal(macro_trace_src1_reg, src1_reg)
-            src1_data = macro_trace_fire._select_internal(macro_trace_src1_data, src1_data)
-            dst_valid = macro_trace_fire._select_internal(macro_trace_dst_valid, dst_valid)
-            dst_reg = macro_trace_fire._select_internal(macro_trace_dst_reg, dst_reg)
-            dst_data = macro_trace_fire._select_internal(macro_trace_dst_data, dst_data)
-            mem_valid = macro_trace_fire._select_internal(macro_trace_mem_valid, mem_valid)
-            mem_is_store = macro_trace_fire._select_internal(macro_trace_mem_is_store, mem_is_store)
-            mem_addr = macro_trace_fire._select_internal(macro_trace_mem_addr, mem_addr)
-            mem_wdata = macro_trace_fire._select_internal(macro_trace_mem_wdata, mem_wdata)
-            mem_rdata = macro_trace_fire._select_internal(macro_trace_mem_rdata, mem_rdata)
-            mem_size = macro_trace_fire._select_internal(macro_trace_mem_size, mem_size)
-            next_pc = macro_trace_fire._select_internal(macro_trace_next_pc, next_pc)
-            uop_uid = macro_shadow_fire._select_internal(macro_shadow_uid, uop_uid)
-            wb_valid = macro_shadow_fire._select_internal(consts.zero1, wb_valid)
-            wb_rd = macro_shadow_fire._select_internal(c(0, width=6), wb_rd)
-            wb_data = macro_shadow_fire._select_internal(consts.zero64, wb_data)
-            src0_valid = macro_shadow_fire._select_internal(consts.zero1, src0_valid)
-            src0_reg = macro_shadow_fire._select_internal(c(0, width=6), src0_reg)
-            src0_data = macro_shadow_fire._select_internal(consts.zero64, src0_data)
-            src1_valid = macro_shadow_fire._select_internal(consts.zero1, src1_valid)
-            src1_reg = macro_shadow_fire._select_internal(c(0, width=6), src1_reg)
-            src1_data = macro_shadow_fire._select_internal(consts.zero64, src1_data)
-            dst_valid = macro_shadow_fire._select_internal(consts.zero1, dst_valid)
-            dst_reg = macro_shadow_fire._select_internal(c(0, width=6), dst_reg)
-            dst_data = macro_shadow_fire._select_internal(consts.zero64, dst_data)
-            mem_valid = macro_shadow_fire._select_internal(consts.zero1, mem_valid)
-            mem_is_store = macro_shadow_fire._select_internal(consts.zero1, mem_is_store)
-            mem_addr = macro_shadow_fire._select_internal(consts.zero64, mem_addr)
-            mem_wdata = macro_shadow_fire._select_internal(consts.zero64, mem_wdata)
-            mem_rdata = macro_shadow_fire._select_internal(consts.zero64, mem_rdata)
-            mem_size = macro_shadow_fire._select_internal(consts.zero4, mem_size)
-            next_pc = macro_shadow_fire._select_internal(macro_trace_pc, next_pc)
-        else:
-            if slot == 1 and p.commit_w > 1:
-                fire = shadow_boundary_fire1._select_internal(consts.one1, fire)
-                pc = shadow_boundary_fire1._select_internal(commit_pcs[1], pc)
-                rob_idx = shadow_boundary_fire1._select_internal(commit_idxs[1], rob_idx)
-                op = shadow_boundary_fire1._select_internal(rob_ops[1], op)
-                val = shadow_boundary_fire1._select_internal(rob_values[1], val)
-                ln = shadow_boundary_fire1._select_internal(rob_lens[1], ln)
-                insn_raw = shadow_boundary_fire1._select_internal(rob_insn_raws[1], insn_raw)
-                uop_uid = shadow_boundary_fire1._select_internal(rob_uop_uids[1], uop_uid)
-                parent_uid = shadow_boundary_fire1._select_internal(rob_parent_uids[1], parent_uid)
-                wb_valid = shadow_boundary_fire1._select_internal(consts.zero1, wb_valid)
-                wb_rd = shadow_boundary_fire1._select_internal(c(0, width=6), wb_rd)
-                wb_data = shadow_boundary_fire1._select_internal(consts.zero64, wb_data)
-                src0_valid = shadow_boundary_fire1._select_internal(consts.zero1, src0_valid)
-                src0_reg = shadow_boundary_fire1._select_internal(c(0, width=6), src0_reg)
-                src0_data = shadow_boundary_fire1._select_internal(consts.zero64, src0_data)
-                src1_valid = shadow_boundary_fire1._select_internal(consts.zero1, src1_valid)
-                src1_reg = shadow_boundary_fire1._select_internal(c(0, width=6), src1_reg)
-                src1_data = shadow_boundary_fire1._select_internal(consts.zero64, src1_data)
-                dst_valid = shadow_boundary_fire1._select_internal(consts.zero1, dst_valid)
-                dst_reg = shadow_boundary_fire1._select_internal(c(0, width=6), dst_reg)
-                dst_data = shadow_boundary_fire1._select_internal(consts.zero64, dst_data)
-                mem_valid = shadow_boundary_fire1._select_internal(consts.zero1, mem_valid)
-                mem_is_store = shadow_boundary_fire1._select_internal(consts.zero1, mem_is_store)
-                mem_addr = shadow_boundary_fire1._select_internal(consts.zero64, mem_addr)
-                mem_wdata = shadow_boundary_fire1._select_internal(consts.zero64, mem_wdata)
-                mem_rdata = shadow_boundary_fire1._select_internal(consts.zero64, mem_rdata)
-                mem_size = shadow_boundary_fire1._select_internal(consts.zero4, mem_size)
-                next_pc = shadow_boundary_fire1._select_internal(commit_pcs[1], next_pc)
-                checkpoint_id = shadow_boundary_fire1._select_internal(rob_checkpoint_ids[1], checkpoint_id)
-            if slot == 1:
-                fire = macro_shadow_emit_uop._select_internal(consts.one1, fire)
-                pc = macro_shadow_emit_uop._select_internal(macro_trace_pc, pc)
-                rob_idx = macro_shadow_emit_uop._select_internal(macro_trace_rob, rob_idx)
-                op = macro_shadow_emit_uop._select_internal(macro_trace_op, op)
-                val = macro_shadow_emit_uop._select_internal(macro_trace_val, val)
-                ln = macro_shadow_emit_uop._select_internal(macro_trace_len, ln)
-                insn_raw = macro_shadow_emit_uop._select_internal(macro_trace_insn, insn_raw)
-                uop_uid = macro_shadow_emit_uop._select_internal(macro_shadow_uid_alt, uop_uid)
-                parent_uid = macro_shadow_emit_uop._select_internal(macro_uop_parent_uid, parent_uid)
-                template_kind = macro_shadow_emit_uop._select_internal(macro_uop_template_kind, template_kind)
-                wb_valid = macro_shadow_emit_uop._select_internal(macro_trace_wb_valid, wb_valid)
-                wb_rd = macro_shadow_emit_uop._select_internal(macro_trace_wb_rd, wb_rd)
-                wb_data = macro_shadow_emit_uop._select_internal(macro_trace_wb_data, wb_data)
-                src0_valid = macro_shadow_emit_uop._select_internal(macro_trace_src0_valid, src0_valid)
-                src0_reg = macro_shadow_emit_uop._select_internal(macro_trace_src0_reg, src0_reg)
-                src0_data = macro_shadow_emit_uop._select_internal(macro_trace_src0_data, src0_data)
-                src1_valid = macro_shadow_emit_uop._select_internal(macro_trace_src1_valid, src1_valid)
-                src1_reg = macro_shadow_emit_uop._select_internal(macro_trace_src1_reg, src1_reg)
-                src1_data = macro_shadow_emit_uop._select_internal(macro_trace_src1_data, src1_data)
-                dst_valid = macro_shadow_emit_uop._select_internal(macro_trace_dst_valid, dst_valid)
-                dst_reg = macro_shadow_emit_uop._select_internal(macro_trace_dst_reg, dst_reg)
-                dst_data = macro_shadow_emit_uop._select_internal(macro_trace_dst_data, dst_data)
-                mem_valid = macro_shadow_emit_uop._select_internal(macro_trace_mem_valid, mem_valid)
-                mem_is_store = macro_shadow_emit_uop._select_internal(macro_trace_mem_is_store, mem_is_store)
-                mem_addr = macro_shadow_emit_uop._select_internal(macro_trace_mem_addr, mem_addr)
-                mem_wdata = macro_shadow_emit_uop._select_internal(macro_trace_mem_wdata, mem_wdata)
-                mem_rdata = macro_shadow_emit_uop._select_internal(macro_trace_mem_rdata, mem_rdata)
-                mem_size = macro_shadow_emit_uop._select_internal(macro_trace_mem_size, mem_size)
-                next_pc = macro_shadow_emit_uop._select_internal(macro_trace_next_pc, next_pc)
-            macro_slot_keep = consts.zero1
-            if slot == 1:
-                macro_slot_keep = macro_shadow_emit_uop
-            macro_kill = macro_trace_fire & (~macro_slot_keep)
-            fire = macro_kill._select_internal(consts.zero1, fire)
-            pc = macro_kill._select_internal(consts.zero64, pc)
-            rob_idx = macro_kill._select_internal(c(0, width=p.rob_w), rob_idx)
-            op = macro_kill._select_internal(c(0, width=12), op)
-            val = macro_kill._select_internal(consts.zero64, val)
-            ln = macro_kill._select_internal(consts.zero3, ln)
-            insn_raw = macro_kill._select_internal(consts.zero64, insn_raw)
-            uop_uid = macro_kill._select_internal(consts.zero64, uop_uid)
-            parent_uid = macro_kill._select_internal(consts.zero64, parent_uid)
-            template_kind = macro_kill._select_internal(c(0, width=3), template_kind)
-            wb_valid = macro_kill._select_internal(consts.zero1, wb_valid)
-            wb_rd = macro_kill._select_internal(c(0, width=6), wb_rd)
-            wb_data = macro_kill._select_internal(consts.zero64, wb_data)
-            src0_valid = macro_kill._select_internal(consts.zero1, src0_valid)
-            src0_reg = macro_kill._select_internal(c(0, width=6), src0_reg)
-            src0_data = macro_kill._select_internal(consts.zero64, src0_data)
-            src1_valid = macro_kill._select_internal(consts.zero1, src1_valid)
-            src1_reg = macro_kill._select_internal(c(0, width=6), src1_reg)
-            src1_data = macro_kill._select_internal(consts.zero64, src1_data)
-            dst_valid = macro_kill._select_internal(consts.zero1, dst_valid)
-            dst_reg = macro_kill._select_internal(c(0, width=6), dst_reg)
-            dst_data = macro_kill._select_internal(consts.zero64, dst_data)
-            mem_valid = macro_kill._select_internal(consts.zero1, mem_valid)
-            mem_is_store = macro_kill._select_internal(consts.zero1, mem_is_store)
-            mem_addr = macro_kill._select_internal(consts.zero64, mem_addr)
-            mem_wdata = macro_kill._select_internal(consts.zero64, mem_wdata)
-            mem_rdata = macro_kill._select_internal(consts.zero64, mem_rdata)
-            mem_size = macro_kill._select_internal(consts.zero4, mem_size)
-            next_pc = macro_kill._select_internal(consts.zero64, next_pc)
-            checkpoint_id = macro_kill._select_internal(c(0, width=6), checkpoint_id)
-        m.output(f"commit_fire{slot}", fire)
-        m.output(f"commit_pc{slot}", pc)
-        m.output(f"commit_rob{slot}", rob_idx)
-        m.output(f"commit_op{slot}", op)
-        m.output(f"commit_uop_uid{slot}", uop_uid)
-        m.output(f"commit_parent_uop_uid{slot}", parent_uid)
-        m.output(f"commit_block_uid{slot}", commit_block_uids[slot])
-        m.output(f"commit_block_bid{slot}", commit_block_bids[slot])
-        m.output(f"commit_core_id{slot}", commit_core_ids[slot])
-        m.output(f"commit_is_bstart{slot}", commit_is_bstarts[slot])
-        m.output(f"commit_is_bstop{slot}", commit_is_bstops[slot])
-        m.output(f"commit_load_store_id{slot}", rob_load_store_ids[slot])
-        m.output(f"commit_template_kind{slot}", template_kind)
-        m.output(f"commit_value{slot}", val)
-        m.output(f"commit_len{slot}", ln)
-        m.output(f"commit_insn_raw{slot}", insn_raw)
-        m.output(f"commit_wb_valid{slot}", wb_valid)
-        m.output(f"commit_wb_rd{slot}", wb_rd)
-        m.output(f"commit_wb_data{slot}", wb_data)
-        m.output(f"commit_src0_valid{slot}", src0_valid)
-        m.output(f"commit_src0_reg{slot}", src0_reg)
-        m.output(f"commit_src0_data{slot}", src0_data)
-        m.output(f"commit_src1_valid{slot}", src1_valid)
-        m.output(f"commit_src1_reg{slot}", src1_reg)
-        m.output(f"commit_src1_data{slot}", src1_data)
-        m.output(f"commit_dst_valid{slot}", dst_valid)
-        m.output(f"commit_dst_reg{slot}", dst_reg)
-        m.output(f"commit_dst_data{slot}", dst_data)
-        m.output(f"commit_mem_valid{slot}", mem_valid)
-        m.output(f"commit_mem_is_store{slot}", mem_is_store)
-        m.output(f"commit_mem_addr{slot}", mem_addr)
-        m.output(f"commit_mem_wdata{slot}", mem_wdata)
-        m.output(f"commit_mem_rdata{slot}", mem_rdata)
-        m.output(f"commit_mem_size{slot}", mem_size)
-        m.output(f"commit_trap_valid{slot}", trap_valid)
-        m.output(f"commit_trap_cause{slot}", trap_cause)
-        m.output(f"commit_next_pc{slot}", next_pc)
-        m.output(f"commit_checkpoint_id{slot}", checkpoint_id)
+    commit_trace_stage = m.instance_auto(
+        build_commit_trace_stage,
+        name="commit_trace_stage",
+        module_name="LinxCoreCommitTraceStage",
+        params={"commit_w": commit_w, "max_commit_slots": max_commit_slots, "rob_w": p.rob_w, "sq_entries": p.sq_entries},
+        **commit_trace_args,
+    )
+    for slot in range(max_commit_slots):
+        m.output(f"commit_fire{slot}", commit_trace_stage[f"commit_fire{slot}"])
+        m.output(f"commit_pc{slot}", commit_trace_stage[f"commit_pc{slot}"])
+        m.output(f"commit_rob{slot}", commit_trace_stage[f"commit_rob{slot}"])
+        m.output(f"commit_op{slot}", commit_trace_stage[f"commit_op{slot}"])
+        m.output(f"commit_uop_uid{slot}", commit_trace_stage[f"commit_uop_uid{slot}"])
+        m.output(f"commit_parent_uop_uid{slot}", commit_trace_stage[f"commit_parent_uop_uid{slot}"])
+        m.output(f"commit_block_uid{slot}", commit_trace_stage[f"commit_block_uid{slot}"])
+        m.output(f"commit_block_bid{slot}", commit_trace_stage[f"commit_block_bid{slot}"])
+        m.output(f"commit_core_id{slot}", commit_trace_stage[f"commit_core_id{slot}"])
+        m.output(f"commit_is_bstart{slot}", commit_trace_stage[f"commit_is_bstart{slot}"])
+        m.output(f"commit_is_bstop{slot}", commit_trace_stage[f"commit_is_bstop{slot}"])
+        m.output(f"commit_load_store_id{slot}", commit_trace_stage[f"commit_load_store_id{slot}"])
+        m.output(f"commit_template_kind{slot}", commit_trace_stage[f"commit_template_kind{slot}"])
+        m.output(f"commit_value{slot}", commit_trace_stage[f"commit_value{slot}"])
+        m.output(f"commit_len{slot}", commit_trace_stage[f"commit_len{slot}"])
+        m.output(f"commit_insn_raw{slot}", commit_trace_stage[f"commit_insn_raw{slot}"])
+        m.output(f"commit_wb_valid{slot}", commit_trace_stage[f"commit_wb_valid{slot}"])
+        m.output(f"commit_wb_rd{slot}", commit_trace_stage[f"commit_wb_rd{slot}"])
+        m.output(f"commit_wb_data{slot}", commit_trace_stage[f"commit_wb_data{slot}"])
+        m.output(f"commit_src0_valid{slot}", commit_trace_stage[f"commit_src0_valid{slot}"])
+        m.output(f"commit_src0_reg{slot}", commit_trace_stage[f"commit_src0_reg{slot}"])
+        m.output(f"commit_src0_data{slot}", commit_trace_stage[f"commit_src0_data{slot}"])
+        m.output(f"commit_src1_valid{slot}", commit_trace_stage[f"commit_src1_valid{slot}"])
+        m.output(f"commit_src1_reg{slot}", commit_trace_stage[f"commit_src1_reg{slot}"])
+        m.output(f"commit_src1_data{slot}", commit_trace_stage[f"commit_src1_data{slot}"])
+        m.output(f"commit_dst_valid{slot}", commit_trace_stage[f"commit_dst_valid{slot}"])
+        m.output(f"commit_dst_reg{slot}", commit_trace_stage[f"commit_dst_reg{slot}"])
+        m.output(f"commit_dst_data{slot}", commit_trace_stage[f"commit_dst_data{slot}"])
+        m.output(f"commit_mem_valid{slot}", commit_trace_stage[f"commit_mem_valid{slot}"])
+        m.output(f"commit_mem_is_store{slot}", commit_trace_stage[f"commit_mem_is_store{slot}"])
+        m.output(f"commit_mem_addr{slot}", commit_trace_stage[f"commit_mem_addr{slot}"])
+        m.output(f"commit_mem_wdata{slot}", commit_trace_stage[f"commit_mem_wdata{slot}"])
+        m.output(f"commit_mem_rdata{slot}", commit_trace_stage[f"commit_mem_rdata{slot}"])
+        m.output(f"commit_mem_size{slot}", commit_trace_stage[f"commit_mem_size{slot}"])
+        m.output(f"commit_trap_valid{slot}", commit_trace_stage[f"commit_trap_valid{slot}"])
+        m.output(f"commit_trap_cause{slot}", commit_trace_stage[f"commit_trap_cause{slot}"])
+        m.output(f"commit_next_pc{slot}", commit_trace_stage[f"commit_next_pc{slot}"])
+        m.output(f"commit_checkpoint_id{slot}", commit_trace_stage[f"commit_checkpoint_id{slot}"])
     m.output("rob_count", rob.count)
 
     # Debug: committed vs speculative hand tops (T0/U0).
