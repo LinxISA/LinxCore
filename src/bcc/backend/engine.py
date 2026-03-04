@@ -112,6 +112,7 @@ from .rob import is_macro_op, is_start_marker_op
 from .state import make_core_ctrl_regs, make_iq_regs, make_prf, make_rename_regs
 from .wakeup import build_head_wait_stage, compose_replay_cause, compose_wakeup_reason
 from .modules.rob_bank import build_rob_bank_top
+from .modules.stbuf_stage import build_stbuf_stage
 
 
 @dataclass(frozen=True)
@@ -720,20 +721,60 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     iq_lsu = make_iq_regs(m, clk, rst, consts=consts, p=p, name="iq_lsu")
     iq_cmd = make_iq_regs(m, clk, rst, consts=consts, p=p, name="iq_cmd")
 
-    # --- committed store buffer (drains stores to D-memory) ---
-    with m.scope("stbuf"):
-        stbuf_head = m.out("head", clk=clk, rst=rst, width=p.sq_w, init=c(0, width=p.sq_w), en=consts.one1)
-        stbuf_tail = m.out("tail", clk=clk, rst=rst, width=p.sq_w, init=c(0, width=p.sq_w), en=consts.one1)
-        stbuf_count = m.out("count", clk=clk, rst=rst, width=p.sq_w + 1, init=c(0, width=p.sq_w + 1), en=consts.one1)
-        stbuf_valid = []
-        stbuf_addr = []
-        stbuf_data = []
-        stbuf_size = []
-        for i in range(p.sq_entries):
-            stbuf_valid.append(m.out(f"v{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
-            stbuf_addr.append(m.out(f"a{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
-            stbuf_data.append(m.out(f"d{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
-            stbuf_size.append(m.out(f"s{i}", clk=clk, rst=rst, width=4, init=consts.zero4, en=consts.one1))
+    # --- committed store buffer (forced hierarchy) ---
+    commit_store_fire_i = m.new_wire(width=1)
+    commit_store_addr_i = m.new_wire(width=64)
+    commit_store_data_i = m.new_wire(width=64)
+    commit_store_size_i = m.new_wire(width=4)
+    macro_store_fire_i = m.new_wire(width=1)
+    macro_store_addr_i = m.new_wire(width=64)
+    macro_store_data_i = m.new_wire(width=64)
+    macro_store_size_i = m.new_wire(width=4)
+    macro_load_fire_i = m.new_wire(width=1)
+    macro_load_addr_i = m.new_wire(width=64)
+    lsu_load_fire_i = m.new_wire(width=1)
+    lsu_load_addr_i = m.new_wire(width=64)
+
+    stbuf_stage = m.instance_auto(
+        build_stbuf_stage,
+        name="stbuf_stage",
+        module_name="LinxCoreStbufStage",
+        params={"sq_entries": p.sq_entries, "sq_w": p.sq_w},
+        clk=clk,
+        rst=rst,
+        commit_store_fire=commit_store_fire_i,
+        commit_store_addr=commit_store_addr_i,
+        commit_store_data=commit_store_data_i,
+        commit_store_size=commit_store_size_i,
+        macro_store_fire=macro_store_fire_i,
+        macro_store_addr=macro_store_addr_i,
+        macro_store_data=macro_store_data_i,
+        macro_store_size=macro_store_size_i,
+        macro_load_fire=macro_load_fire_i,
+        macro_load_addr=macro_load_addr_i,
+        lsu_load_fire=lsu_load_fire_i,
+        lsu_load_addr=lsu_load_addr_i,
+        dmem_rdata_i=dmem_rdata_i,
+    )
+    stbuf_has_space = stbuf_stage["has_space"]
+    stbuf_valid = [stbuf_stage[f"valid{i}"] for i in range(p.sq_entries)]
+    stbuf_addr = [stbuf_stage[f"addr{i}"] for i in range(p.sq_entries)]
+    stbuf_data = [stbuf_stage[f"data{i}"] for i in range(p.sq_entries)]
+    stbuf_size = [stbuf_stage[f"size{i}"] for i in range(p.sq_entries)]
+    stbuf_enq_fire = stbuf_stage["enq_fire"]
+    stbuf_drain_fire = stbuf_stage["drain_fire"]
+    commit_store_write_through = stbuf_stage["commit_store_write_through"]
+    dmem_raddr = stbuf_stage["dmem_raddr"]
+    mem_wvalid = stbuf_stage["dmem_wvalid"]
+    mem_waddr = stbuf_stage["dmem_waddr"]
+    dmem_wdata = stbuf_stage["dmem_wdata"]
+    wstrb = stbuf_stage["dmem_wstrb"]
+    dmem_wsrc = stbuf_stage["dmem_wsrc"]
+    mmio_uart = stbuf_stage["mmio_uart_valid"]
+    mmio_uart_data = stbuf_stage["mmio_uart_data"]
+    mmio_exit = stbuf_stage["mmio_exit_valid"]
+    mmio_exit_code = stbuf_stage["mmio_exit_code"]
+    macro_load_data = stbuf_stage["macro_load_data"]
 
     # --- frontend BSTART metadata buffer (PC buffer equivalent) ---
     pcb_depth = p.rob_depth
@@ -906,8 +947,6 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     ret_ra_tag = ren.cmap[10].out()
     ret_ra_val = mux_by_uindex(m, idx=ret_ra_tag, items=prf, default=consts.zero64)
 
-    stbuf_has_space = stbuf_count.out().ult(c(p.sq_entries, width=p.sq_w + 1))
-
     commit_sel_args = {
         "can_run": can_run,
         "stbuf_has_space": stbuf_has_space,
@@ -982,6 +1021,12 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     commit_store_addr = commit_sel["commit_store_addr"]
     commit_store_data = commit_sel["commit_store_data"]
     commit_store_size = commit_sel["commit_store_size"]
+
+    # Drive committed store buffer hierarchy inputs from commit-selection outputs.
+    m.assign(commit_store_fire_i, commit_store_fire)
+    m.assign(commit_store_addr_i, commit_store_addr)
+    m.assign(commit_store_data_i, commit_store_data)
+    m.assign(commit_store_size_i, commit_store_size)
     brob_retire_fire = commit_sel["brob_retire_fire"]
     brob_retire_bid = commit_sel["brob_retire_bid"]
 
@@ -1234,9 +1279,9 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         lsu_stage_args[f"rob_store_addr{i}"] = rob.store_addr[i].out()
         lsu_stage_args[f"rob_store_data{i}"] = rob.store_data[i].out()
     for i in range(p.sq_entries):
-        lsu_stage_args[f"stbuf_valid{i}"] = stbuf_valid[i].out()
-        lsu_stage_args[f"stbuf_addr{i}"] = stbuf_addr[i].out()
-        lsu_stage_args[f"stbuf_data{i}"] = stbuf_data[i].out()
+        lsu_stage_args[f"stbuf_valid{i}"] = stbuf_valid[i]
+        lsu_stage_args[f"stbuf_addr{i}"] = stbuf_addr[i]
+        lsu_stage_args[f"stbuf_data{i}"] = stbuf_data[i]
 
     lsu_stage = m.instance_auto(
         build_lsu_stage,
@@ -1276,6 +1321,10 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         store_fires.append(st)
         any_load_mem_fire = any_load_mem_fire | ld_mem
         load_addr = ld_mem._select_internal(exs[slot].addr, load_addr)
+
+    # Provide LSU load requests to StbufStage for D-memory read arbitration.
+    m.assign(lsu_load_fire_i, any_load_mem_fire)
+    m.assign(lsu_load_addr_i, load_addr)
 
     issued_is_load = load_fires[0]
     issued_is_store = store_fires[0]
@@ -1325,9 +1374,12 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_uop_is_sp_add = ctu["uop_is_sp_add"]
     macro_uop_is_setc_tgt = ctu["uop_is_setc_tgt"]
 
-    # D-memory read arbitration: macro restore-load > LSU load.
-    macro_mem_read = macro_uop_is_load
-    dmem_raddr = macro_mem_read._select_internal(macro_uop_addr, any_load_mem_fire._select_internal(load_addr, consts.zero64))
+    # StbufStage owns:
+    # - committed-store buffering + MMIO decode
+    # - single write port arbitration (macro store / commit WT / drain)
+    # - D-memory read arbitration (macro restore-load > LSU load)
+    m.assign(macro_load_fire_i, macro_uop_is_load)
+    m.assign(macro_load_addr_i, macro_uop_addr)
 
     # Macro/template uop operand reads.
     cmap_now = [ren.cmap[i].out() for i in range(p.aregs)]
@@ -1342,94 +1394,12 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_store_data = macro_reg_val
     macro_store_size = c(8, width=4)
 
-    # MMIO (QEMU virt).
-    #
-    # - UART data: 0x1000_0000 (write low byte)
-    # - EXIT:      0x1000_0004 (write exit code; stop simulation)
-    mmio_uart = commit_store_fire & commit_store_addr.__eq__(c(0x1000_0000, width=64))
-    mmio_exit = commit_store_fire & commit_store_addr.__eq__(c(0x1000_0004, width=64))
-    mmio_any = mmio_uart | mmio_exit
-
-    mmio_uart_data = mmio_uart._select_internal(commit_store_data._trunc(width=8), c(0, width=8))
-    mmio_exit_code = mmio_exit._select_internal(commit_store_data._trunc(width=32), c(0, width=32))
-
-    # Preserve store ordering:
-    # - If the committed-store buffer already has older entries, enqueue all new
-    #   committed stores (unless MMIO) so younger writes cannot bypass older ones.
-    # - If macro uses the single write port this cycle, enqueue as well.
-    stbuf_empty = stbuf_count.out().__eq__(c(0, width=p.sq_w + 1))
-    commit_store_defer = commit_store_fire & (~mmio_any) & (macro_store_fire | (~stbuf_empty))
-    stbuf_enq_fire = commit_store_defer
-    stbuf_enq_idx = stbuf_tail.out()
-    stbuf_enq_tail = stbuf_tail.out() + c(1, width=p.sq_w)
-
-    stbuf_drain_fire = (~macro_store_fire) & (~commit_store_fire) & (~stbuf_count.out().__eq__(c(0, width=p.sq_w + 1)))
-    stbuf_drain_addr = mux_by_uindex(m, idx=stbuf_head.out(), items=stbuf_addr, default=consts.zero64)
-    stbuf_drain_data = mux_by_uindex(m, idx=stbuf_head.out(), items=stbuf_data, default=consts.zero64)
-    stbuf_drain_size = mux_by_uindex(m, idx=stbuf_head.out(), items=stbuf_size, default=consts.zero4)
-    stbuf_drain_head = stbuf_head.out() + c(1, width=p.sq_w)
-
-    commit_store_write_through = commit_store_fire & (~mmio_any) & (~commit_store_defer)
-    mem_wvalid = macro_store_fire | commit_store_write_through | stbuf_drain_fire
-    mem_waddr = macro_store_fire._select_internal(
-        macro_store_addr,
-        commit_store_write_through._select_internal(commit_store_addr, stbuf_drain_addr),
-    )
-    dmem_wdata = macro_store_fire._select_internal(
-        macro_store_data,
-        commit_store_write_through._select_internal(commit_store_data, stbuf_drain_data),
-    )
-    mem_wsize = macro_store_fire._select_internal(
-        macro_store_size,
-        commit_store_write_through._select_internal(commit_store_size, stbuf_drain_size),
-    )
-
-    dmem_wsrc = c(0, width=2)
-    dmem_wsrc = macro_store_fire._select_internal(c(1, width=2), dmem_wsrc)
-    dmem_wsrc = commit_store_write_through._select_internal(c(2, width=2), dmem_wsrc)
-    dmem_wsrc = stbuf_drain_fire._select_internal(c(3, width=2), dmem_wsrc)
-
-    # Store write port (writes at clk edge). Stop-at-store ensures that at most
-    # one store commits per cycle in this bring-up model; the macro engine
-    # consumes the same single write port.
-    wstrb = consts.zero8
-    wstrb = mem_wsize.__eq__(c(1, width=4))._select_internal(c(0x01, width=8), wstrb)
-    wstrb = mem_wsize.__eq__(c(2, width=4))._select_internal(c(0x03, width=8), wstrb)
-    wstrb = mem_wsize.__eq__(c(4, width=4))._select_internal(c(0x0F, width=8), wstrb)
-    wstrb = mem_wsize.__eq__(c(8, width=4))._select_internal(c(0xFF, width=8), wstrb)
-
-    # Store buffer register updates.
-    for i in range(p.sq_entries):
-        idx = c(i, width=p.sq_w)
-        do_enq = stbuf_enq_fire & stbuf_enq_idx.__eq__(idx)
-        do_drain = stbuf_drain_fire & stbuf_head.out().__eq__(idx)
-        v_next = stbuf_valid[i].out()
-        v_next = do_drain._select_internal(consts.zero1, v_next)
-        v_next = do_enq._select_internal(consts.one1, v_next)
-        stbuf_valid[i].set(v_next)
-        stbuf_addr[i].set(commit_store_addr, when=do_enq)
-        stbuf_data[i].set(commit_store_data, when=do_enq)
-        stbuf_size[i].set(commit_store_size, when=do_enq)
-
-    stbuf_head_next = stbuf_head.out()
-    stbuf_tail_next = stbuf_tail.out()
-    stbuf_count_next = stbuf_count.out()
-    stbuf_tail_next = stbuf_enq_fire._select_internal(stbuf_enq_tail, stbuf_tail_next)
-    stbuf_count_next = stbuf_enq_fire._select_internal(stbuf_count_next + c(1, width=p.sq_w + 1), stbuf_count_next)
-    stbuf_head_next = stbuf_drain_fire._select_internal(stbuf_drain_head, stbuf_head_next)
-    stbuf_count_next = stbuf_drain_fire._select_internal(stbuf_count_next - c(1, width=p.sq_w + 1), stbuf_count_next)
-    stbuf_head.set(stbuf_head_next)
-    stbuf_tail.set(stbuf_tail_next)
-    stbuf_count.set(stbuf_count_next)
+    m.assign(macro_store_fire_i, macro_store_fire)
+    m.assign(macro_store_addr_i, macro_store_addr)
+    m.assign(macro_store_data_i, macro_store_data)
+    m.assign(macro_store_size_i, macro_store_size)
 
     dmem_rdata = dmem_rdata_i
-    macro_load_fwd_hit = consts.zero1
-    macro_load_fwd_data = consts.zero64
-    for i in range(p.sq_entries):
-        st_match = stbuf_valid[i].out() & stbuf_addr[i].out().__eq__(macro_uop_addr)
-        macro_load_fwd_hit = (macro_uop_is_load & st_match)._select_internal(consts.one1, macro_load_fwd_hit)
-        macro_load_fwd_data = (macro_uop_is_load & st_match)._select_internal(stbuf_data[i].out(), macro_load_fwd_data)
-    macro_load_data = macro_load_fwd_hit._select_internal(macro_load_fwd_data, dmem_rdata)
     # FRET.STK must consume the loaded stack RA value. Only FRET.RA uses the
     # saved-RA bypass path.
     macro_restore_ra = macro_uop_is_load & op_is(macro_op, OP_FRET_RA) & macro_uop_reg.__eq__(c(10, width=6))
@@ -2528,8 +2498,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             is_load = rob_is_loads[slot]
             ld_trace_data = rob_ld_datas[slot]
             for i in range(p.sq_entries):
-                st_hit = stbuf_valid[i].out() & stbuf_addr[i].out().__eq__(rob_ld_addrs[slot])
-                ld_trace_data = st_hit._select_internal(stbuf_data[i].out(), ld_trace_data)
+                st_hit = stbuf_valid[i] & (stbuf_addr[i] == rob_ld_addrs[slot])
+                ld_trace_data = st_hit._select_internal(stbuf_data[i], ld_trace_data)
             mem_valid = fire & (is_store | is_load)
             mem_is_store = fire & is_store
             mem_addr = is_store._select_internal(rob_st_addrs[slot], rob_ld_addrs[slot])
@@ -2587,8 +2557,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             is_load_prev = rob_is_loads[prev]
             ld_trace_prev = rob_ld_datas[prev]
             for i in range(p.sq_entries):
-                st_hit_prev = stbuf_valid[i].out() & stbuf_addr[i].out().__eq__(rob_ld_addrs[prev])
-                ld_trace_prev = st_hit_prev._select_internal(stbuf_data[i].out(), ld_trace_prev)
+                st_hit_prev = stbuf_valid[i] & (stbuf_addr[i] == rob_ld_addrs[prev])
+                ld_trace_prev = st_hit_prev._select_internal(stbuf_data[i], ld_trace_prev)
             mem_valid_prev = fire_prev & (is_store_prev | is_load_prev)
             mem_is_store_prev = fire_prev & is_store_prev
             mem_addr_prev = is_store_prev._select_internal(rob_st_addrs[prev], rob_ld_addrs[prev])
