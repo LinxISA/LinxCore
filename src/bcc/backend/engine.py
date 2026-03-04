@@ -652,6 +652,13 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         rob_bank_in[f"ex_src0{slot}"] = _rob_in(64)
         rob_bank_in[f"ex_src1{slot}"] = _rob_in(64)
 
+    # Probe interface for lane0 LSU store disambiguation/forwarding against
+    # in-flight ROB stores (minimizes port explosion vs scanning in LinxCoreLsuStage).
+    rob_bank_in["lsu_probe_fire"] = _rob_in(1)
+    rob_bank_in["lsu_probe_addr"] = _rob_in(64)
+    rob_bank_in["lsu_probe_rob"] = _rob_in(p.rob_w)
+    rob_bank_in["lsu_probe_sub_head"] = _rob_in(p.rob_w)
+
     rob_bank = m.instance_auto(
         build_rob_bank_top,
         name="rob_bank",
@@ -736,6 +743,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_load_addr_i = m.new_wire(width=64)
     lsu_load_fire_i = m.new_wire(width=1)
     lsu_load_addr_i = m.new_wire(width=64)
+    lsu_probe_fire_i = m.new_wire(width=1)
+    lsu_probe_addr_i = m.new_wire(width=64)
 
     stbuf_stage = m.instance_auto(
         build_stbuf_stage,
@@ -756,6 +765,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         macro_load_addr=macro_load_addr_i,
         lsu_load_fire=lsu_load_fire_i,
         lsu_load_addr=lsu_load_addr_i,
+        lsu_probe_fire=lsu_probe_fire_i,
+        lsu_probe_addr=lsu_probe_addr_i,
         dmem_rdata_i=dmem_rdata_i,
     )
     stbuf_has_space = stbuf_stage["has_space"]
@@ -777,6 +788,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     mmio_exit = stbuf_stage["mmio_exit_valid"]
     mmio_exit_code = stbuf_stage["mmio_exit_code"]
     macro_load_data = stbuf_stage["macro_load_data"]
+    stbuf_lsu_fwd_hit = stbuf_stage["lsu_fwd_hit"]
+    stbuf_lsu_fwd_data = stbuf_stage["lsu_fwd_data"]
 
     # --- frontend BSTART metadata buffer (PC buffer equivalent, forced hierarchy) ---
     pcbuf_wr_valid_i = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
@@ -1250,34 +1263,34 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BSTORE, width=12))._select_internal(sr_vals[cmd_slot], cmd_payload_lane)
 
     # Memory disambiguation/forwarding for the LSU lane (lane0).
+    m.assign(lsu_probe_fire_i, issue_fires[0] & exs[0].is_load)
+    m.assign(lsu_probe_addr_i, exs[0].addr)
+    m.assign(rob_bank_in["lsu_probe_fire"], lsu_probe_fire_i)
+    m.assign(rob_bank_in["lsu_probe_addr"], lsu_probe_addr_i)
+    m.assign(rob_bank_in["lsu_probe_rob"], uop_robs[0])
+    m.assign(rob_bank_in["lsu_probe_sub_head"], sub_head)
+
     lsu_stage_args = {
         "issue_fire_lane0_raw": issue_fires[0],
         "ex0_is_load": exs[0].is_load,
         "ex0_is_store": exs[0].is_store,
         "ex0_addr": exs[0].addr,
-        "ex0_rob": uop_robs[0],
         "ex0_lsid": mux_by_uindex(m, idx=uop_robs[0], items=rob.load_store_id, default=c(0, width=32)),
         "lsid_issue_ptr": state.lsid_issue_ptr.out(),
-        "sub_head": sub_head,
         "commit_store_fire": commit_store_fire,
         "commit_store_addr": commit_store_addr,
         "commit_store_data": commit_store_data,
+        "rob_older_store_pending_i": rob_bank["lsu_older_store_pending_lane0"],
+        "rob_forward_hit_i": rob_bank["lsu_forward_hit_lane0"],
+        "rob_forward_data_i": rob_bank["lsu_forward_data_lane0"],
+        "stbuf_forward_hit_i": stbuf_lsu_fwd_hit,
+        "stbuf_forward_data_i": stbuf_lsu_fwd_data,
     }
-    for i in range(p.rob_depth):
-        lsu_stage_args[f"rob_valid{i}"] = rob.valid[i].out()
-        lsu_stage_args[f"rob_done{i}"] = rob.done[i].out()
-        lsu_stage_args[f"rob_is_store{i}"] = rob.is_store[i].out()
-        lsu_stage_args[f"rob_store_addr{i}"] = rob.store_addr[i].out()
-        lsu_stage_args[f"rob_store_data{i}"] = rob.store_data[i].out()
-    for i in range(p.sq_entries):
-        lsu_stage_args[f"stbuf_valid{i}"] = stbuf_valid[i]
-        lsu_stage_args[f"stbuf_addr{i}"] = stbuf_addr[i]
-        lsu_stage_args[f"stbuf_data{i}"] = stbuf_data[i]
 
     lsu_stage = m.instance_auto(
         build_lsu_stage,
         name="lsu_stage",
-        params={"rob_depth": p.rob_depth, "rob_w": p.rob_w, "sq_entries": p.sq_entries, "sq_w": p.sq_w},
+        params={"rob_w": p.rob_w},
         **lsu_stage_args,
     )
     lsu_load_fire_raw = lsu_stage["lsu_load_fire_raw"]

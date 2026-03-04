@@ -36,6 +36,11 @@ def build_stbuf_stage(
     lsu_load_fire = m.input("lsu_load_fire", width=1)
     lsu_load_addr = m.input("lsu_load_addr", width=64)
 
+    # LSU forwarding probe: a raw lane0 load candidate (used by the LSU
+    # disambiguation stage to suppress unnecessary D$ reads when stbuf hits).
+    lsu_probe_fire = m.input("lsu_probe_fire", width=1)
+    lsu_probe_addr = m.input("lsu_probe_addr", width=64)
+
     dmem_rdata_i = m.input("dmem_rdata_i", width=64)
 
     head = m.out("head", clk=clk, rst=rst, width=sq_w, init=0, en=1)
@@ -121,6 +126,14 @@ def build_stbuf_stage(
         macro_fwd_data = st_data[i].out() if take else macro_fwd_data
     macro_load_data = macro_fwd_data if macro_fwd_hit else dmem_rdata_i
 
+    lsu_fwd_hit = u(1, 0)
+    lsu_fwd_data = u(64, 0)
+    for i in range(int(sq_entries)):
+        st_match = st_valid[i].out() & (st_addr[i].out() == lsu_probe_addr)
+        take = lsu_probe_fire & st_match
+        lsu_fwd_hit = u(1, 1) if take else lsu_fwd_hit
+        lsu_fwd_data = st_data[i].out() if take else lsu_fwd_data
+
     m.output("has_space", has_space)
     m.output("head", head.out())
     m.output("tail", tail.out())
@@ -147,4 +160,5 @@ def build_stbuf_stage(
     m.output("dmem_wstrb", wstrb)
     m.output("dmem_wsrc", wsrc)
     m.output("macro_load_data", macro_load_data)
-
+    m.output("lsu_fwd_hit", lsu_fwd_hit)
+    m.output("lsu_fwd_data", lsu_fwd_data)

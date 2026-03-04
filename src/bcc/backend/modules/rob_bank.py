@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, module, u
+from pycircuit import Circuit, module, u, unsigned
 
 from ..rob import build_rob_ctrl_stage
 from .rob_bank_slice import build_rob_bank_slice
@@ -125,6 +125,12 @@ def build_rob_bank_top(
         ex_src0s.append(m.input(f"ex_src0{slot}", width=64))
         ex_src1s.append(m.input(f"ex_src1{slot}", width=64))
 
+    # Probe interface for LSU disambiguation/forwarding against in-flight ROB stores.
+    lsu_probe_fire = m.input("lsu_probe_fire", width=1)
+    lsu_probe_addr = m.input("lsu_probe_addr", width=64)
+    lsu_probe_rob = m.input("lsu_probe_rob", width=rob_w)
+    lsu_probe_sub_head = m.input("lsu_probe_sub_head", width=rob_w)
+
     head = m.out("head", clk=clk, rst=rst, width=rob_w, init=0, en=1)
     tail = m.out("tail", clk=clk, rst=rst, width=rob_w, init=0, en=1)
     count = m.out("count", clk=clk, rst=rst, width=rob_w + 1, init=0, en=1)
@@ -161,6 +167,13 @@ def build_rob_bank_top(
         m.output(f"disp_fire{slot}", rob_ctrl[f"disp_fire{slot}"])
 
     slices = int(rob_depth // slice_entries)
+    # Keep a minimal internal view for LSU store disambiguation.
+    rob_valid_view = [u(1, 0) for _ in range(rob_depth)]
+    rob_done_view = [u(1, 0) for _ in range(rob_depth)]
+    rob_is_store_view = [u(1, 0) for _ in range(rob_depth)]
+    rob_store_addr_view = [u(64, 0) for _ in range(rob_depth)]
+    rob_store_data_view = [u(64, 0) for _ in range(rob_depth)]
+
     for sid in range(slices):
         base = u(rob_w, sid * slice_entries)
         slice_args = {
@@ -228,8 +241,14 @@ def build_rob_bank_top(
 
         for j in range(slice_entries):
             gi = (sid * slice_entries) + j
-            m.output(f"valid{gi}", sl[f"valid{j}"])
-            m.output(f"done{gi}", sl[f"done{j}"])
+            valid_g = sl[f"valid{j}"]
+            done_g = sl[f"done{j}"]
+            is_store_g = sl[f"is_store{j}"]
+            store_addr_g = sl[f"store_addr{j}"]
+            store_data_g = sl[f"store_data{j}"]
+
+            m.output(f"valid{gi}", valid_g)
+            m.output(f"done{gi}", done_g)
             m.output(f"pc{gi}", sl[f"pc{j}"])
             m.output(f"op{gi}", sl[f"op{j}"])
             m.output(f"len{gi}", sl[f"len{j}"])
@@ -245,9 +264,9 @@ def build_rob_bank_top(
             m.output(f"src1_value{gi}", sl[f"src1_value{j}"])
             m.output(f"src0_valid{gi}", sl[f"src0_valid{j}"])
             m.output(f"src1_valid{gi}", sl[f"src1_valid{j}"])
-            m.output(f"is_store{gi}", sl[f"is_store{j}"])
-            m.output(f"store_addr{gi}", sl[f"store_addr{j}"])
-            m.output(f"store_data{gi}", sl[f"store_data{j}"])
+            m.output(f"is_store{gi}", is_store_g)
+            m.output(f"store_addr{gi}", store_addr_g)
+            m.output(f"store_data{gi}", store_data_g)
             m.output(f"store_size{gi}", sl[f"store_size{j}"])
             m.output(f"is_load{gi}", sl[f"is_load{j}"])
             m.output(f"load_addr{gi}", sl[f"load_addr{j}"])
@@ -268,3 +287,34 @@ def build_rob_bank_top(
             m.output(f"macro_end{gi}", sl[f"macro_end{j}"])
             m.output(f"uop_uid{gi}", sl[f"uop_uid{j}"])
             m.output(f"parent_uid{gi}", sl[f"parent_uid{j}"])
+
+            rob_valid_view[gi] = valid_g
+            rob_done_view[gi] = done_g
+            rob_is_store_view[gi] = is_store_g
+            rob_store_addr_view[gi] = store_addr_g
+            rob_store_data_view[gi] = store_data_g
+
+    # LSU store disambiguation/forwarding against ROB in-flight stores (bring-up).
+    lsu_load_dist = lsu_probe_rob + lsu_probe_sub_head
+    lsu_older_store_pending = u(1, 0)
+    lsu_forward_hit = u(1, 0)
+    lsu_forward_data = u(64, 0)
+    for i in range(int(rob_depth)):
+        idx = u(rob_w, i)
+        dist = idx + lsu_probe_sub_head
+        older = unsigned(dist) < unsigned(lsu_load_dist)
+        st = rob_valid_view[i] & rob_is_store_view[i] & older
+        st_pending = st & (~rob_done_view[i])
+        st_ready = st & rob_done_view[i]
+        st_match = st_ready & (rob_store_addr_view[i] == lsu_probe_addr)
+
+        take_pending = lsu_probe_fire & st_pending
+        take_match = lsu_probe_fire & st_match
+
+        lsu_older_store_pending = u(1, 1) if take_pending else lsu_older_store_pending
+        lsu_forward_hit = u(1, 1) if take_match else lsu_forward_hit
+        lsu_forward_data = rob_store_data_view[i] if take_match else lsu_forward_data
+
+    m.output("lsu_older_store_pending_lane0", lsu_older_store_pending)
+    m.output("lsu_forward_hit_lane0", lsu_forward_hit)
+    m.output("lsu_forward_data_lane0", lsu_forward_data)
