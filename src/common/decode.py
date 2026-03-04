@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from pycircuit import Circuit, Wire, function, module, spec
+from pycircuit import Circuit, Wire, function, module, spec, u, unsigned
 
 meta = spec
 
@@ -1291,61 +1291,65 @@ def build_decode_bundle_8b(m: Circuit) -> None:
     tree lives in `LinxCoreDecodeWindow` and is instantiated per slot, instead
     of being inlined 4x.
     """
-    c = m.const
     window = m.input("window", width=64)
 
-    z4 = c(0, width=4)
-    b8 = c(8, width=4)
-    b2 = c(2, width=4)
+    # Strict-frontend friendly const anchors (avoid Circuit.const / _zext / __eq__ / _select_internal).
+    z4 = window[0:4] & 0
+    z6 = window[0:6] & 0
+    b8 = z4 | u(4, 8)
+    b2 = z4 | u(4, 2)
 
     # Slot 0.
     win0 = window
     dec0 = m.instance_auto(build_decode_window, name="dec0", module_name="LinxCoreDecodeWindow", window=win0)
-    len0_4 = dec0["len_bytes"]._zext(width=4)
+    len0_4 = (z4 + unsigned(dec0["len_bytes"].out()))[0:4]
     off0 = z4
-    v0 = ~len0_4.__eq__(z4)
+    v0 = len0_4 != z4
 
     # Template macro blocks (FENTRY/FEXIT/FRET.*) must execute as standalone
     # blocks at the front-end, so do not include following instructions in the
     # same fetch bundle.
     is_macro0 = (
-        dec0["op"].__eq__(OP_FENTRY)
-        | dec0["op"].__eq__(OP_FEXIT)
-        | dec0["op"].__eq__(OP_FRET_RA)
-        | dec0["op"].__eq__(OP_FRET_STK)
+        (dec0["op"] == OP_FENTRY)
+        | (dec0["op"] == OP_FEXIT)
+        | (dec0["op"] == OP_FRET_RA)
+        | (dec0["op"] == OP_FRET_STK)
     )
 
     # Slot 1.
-    sh0 = len0_4._zext(width=6).shl(amount=3)
+    sh0 = (z6 + unsigned(len0_4))[0:6].shl(amount=3)
     win1 = lshr_var(m, win0, sh0)
     dec1 = m.instance_auto(build_decode_window, name="dec1", module_name="LinxCoreDecodeWindow", window=win1)
-    len1_4 = dec1["len_bytes"]._zext(width=4)
+    len1_4 = (z4 + unsigned(dec1["len_bytes"].out()))[0:4]
     off1 = len0_4
-    rem0 = b8 - len0_4
-    v1 = v0 & (~is_macro0) & rem0.uge(b2) & (~len1_4.__eq__(z4)) & len1_4.ule(rem0)
+    rem0 = (b8 - len0_4)[0:4]
+    v1 = v0 & (~is_macro0) & rem0.uge(b2) & (len1_4 != z4) & len1_4.ule(rem0)
 
     # Slot 2.
-    off2 = off1 + len1_4
-    sh1 = off2._zext(width=6).shl(amount=3)
+    off2 = (off1 + len1_4)[0:4]
+    sh1 = (z6 + unsigned(off2))[0:6].shl(amount=3)
     win2 = lshr_var(m, win0, sh1)
     dec2 = m.instance_auto(build_decode_window, name="dec2", module_name="LinxCoreDecodeWindow", window=win2)
-    len2_4 = dec2["len_bytes"]._zext(width=4)
-    rem1 = rem0 - len1_4
-    v2 = v1 & rem1.uge(b2) & (~len2_4.__eq__(z4)) & len2_4.ule(rem1)
+    len2_4 = (z4 + unsigned(dec2["len_bytes"].out()))[0:4]
+    rem1 = (rem0 - len1_4)[0:4]
+    v2 = v1 & rem1.uge(b2) & (len2_4 != z4) & len2_4.ule(rem1)
 
     # Slot 3.
-    off3 = off2 + len2_4
-    sh2 = off3._zext(width=6).shl(amount=3)
+    off3 = (off2 + len2_4)[0:4]
+    sh2 = (z6 + unsigned(off3))[0:6].shl(amount=3)
     win3 = lshr_var(m, win0, sh2)
     dec3 = m.instance_auto(build_decode_window, name="dec3", module_name="LinxCoreDecodeWindow", window=win3)
-    len3_4 = dec3["len_bytes"]._zext(width=4)
-    rem2 = rem1 - len2_4
-    v3 = v2 & rem2.uge(b2) & (~len3_4.__eq__(z4)) & len3_4.ule(rem2)
+    len3_4 = (z4 + unsigned(dec3["len_bytes"].out()))[0:4]
+    rem2 = (rem1 - len2_4)[0:4]
+    v3 = v2 & rem2.uge(b2) & (len3_4 != z4) & len3_4.ule(rem2)
 
     total = len0_4
-    total = v1._select_internal(off2, total)
-    total = v2._select_internal(off3, total)
-    total = v3._select_internal(off3 + len3_4, total)
+    if v1:
+        total = off2
+    if v2:
+        total = off3
+    if v3:
+        total = (off3 + len3_4)[0:4]
 
     # Expose bundle summary.
     m.output("total_len_bytes", total)

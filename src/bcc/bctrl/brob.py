@@ -103,17 +103,21 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
     retired_next_brob = retired_brob.out()
     exception_next_brob = exception_brob.out()
 
-    alloc_next_brob = issue_fire_brob._select_internal(alloc_next_brob | issue_bit_brob, alloc_next_brob)
-    ready_next_brob = issue_fire_brob._select_internal(ready_next_brob & (~issue_bit_brob), ready_next_brob)
-    retired_next_brob = issue_fire_brob._select_internal(retired_next_brob & (~issue_bit_brob), retired_next_brob)
-    exception_next_brob = issue_fire_brob._select_internal(exception_next_brob & (~issue_bit_brob), exception_next_brob)
+    if issue_fire_brob:
+        alloc_next_brob = alloc_next_brob | issue_bit_brob
+        ready_next_brob = ready_next_brob & (~issue_bit_brob)
+        retired_next_brob = retired_next_brob & (~issue_bit_brob)
+        exception_next_brob = exception_next_brob & (~issue_bit_brob)
 
-    ready_next_brob = rsp_fire_brob._select_internal(ready_next_brob | rsp_bit_brob, ready_next_brob)
-    exception_next_brob = (rsp_fire_brob & rsp_exception_brob)._select_internal(exception_next_brob | rsp_bit_brob, exception_next_brob)
+    if rsp_fire_brob:
+        ready_next_brob = ready_next_brob | rsp_bit_brob
+        if rsp_exception_brob:
+            exception_next_brob = exception_next_brob | rsp_bit_brob
 
     retire_fire_ok_brob = retire_fire_brob & retire_slot_alloc_brob & (~retire_slot_retired_brob)
-    alloc_next_brob = retire_fire_ok_brob._select_internal(alloc_next_brob & (~retire_bit_brob), alloc_next_brob)
-    retired_next_brob = retire_fire_ok_brob._select_internal(retired_next_brob | retire_bit_brob, retired_next_brob)
+    if retire_fire_ok_brob:
+        alloc_next_brob = alloc_next_brob & (~retire_bit_brob)
+        retired_next_brob = retired_next_brob | retire_bit_brob
 
     # Flush younger blocks (bid > flush_bid).
     flush_kill_mask = c(0, width=entries)
