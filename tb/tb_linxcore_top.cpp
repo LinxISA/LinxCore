@@ -326,9 +326,20 @@ static bool isMacroMarker32(std::uint32_t insn) {
 }
 
 static bool isMetadataCommit(const XcheckCommit &r) {
-  // Keep architectural BSTART/macro instructions in lockstep compare.
-  // Only treat fully zeroed placeholder rows as metadata.
-  return (r.len == 0) && (r.insn == 0) && (r.pc == 0);
+  // Match crosscheck normalization rules:
+  // - fully zeroed placeholders are metadata
+  // - side-effect-free template parent markers are metadata (QEMU may emit them
+  //   even when LinxCore hides the internal parent retire)
+  if ((r.len == 0) && (r.insn == 0) && (r.pc == 0)) {
+    return true;
+  }
+  if (r.len == 4) {
+    const std::uint32_t insn32 = static_cast<std::uint32_t>(maskInsn(r.insn, r.len) & 0xFFFF'FFFFull);
+    if (isMacroMarker32(insn32) && r.trap_valid == 0 && r.wb_valid == 0 && r.mem_valid == 0 && r.dst_valid == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 struct XcheckMismatch {
@@ -822,8 +833,14 @@ int main(int argc, char **argv) {
   if (const char *env = std::getenv("PYC_ISA_PY"); env && env[0] != '\0')
     isaPyPath = env;
   const auto acceptedExitCodes = parseAcceptedExitCodes();
-  const auto opNameMap = loadOpNameMap(isaPyPath);
-  const auto objdumpPcMap = loadObjdumpPcMap(objdumpTool, objdumpElf);
+  // These maps are only needed when producing human-readable trace labels.
+  // Keep no-trace simulation fast by avoiding `llvm-objdump` parsing.
+  std::unordered_map<std::uint64_t, std::string> opNameMap{};
+  std::unordered_map<std::uint64_t, std::string> objdumpPcMap{};
+  if (traceLinxTrace) {
+    opNameMap = loadOpNameMap(isaPyPath);
+    objdumpPcMap = loadObjdumpPcMap(objdumpTool, objdumpElf);
+  }
 
   const char *xcheckTraceEnv = std::getenv("PYC_QEMU_TRACE");
   const bool xcheckEnabled = xcheckTraceEnv && xcheckTraceEnv[0] != '\0';
@@ -930,11 +947,6 @@ int main(int argc, char **argv) {
       return "template_child";
     }
   };
-  auto pvLaneToken = [](int lane) -> std::string {
-    std::ostringstream ss;
-    ss << "c0.l" << (lane < 0 ? 0 : lane);
-    return ss.str();
-  };
   auto pvFmtOperand = [](bool valid, std::uint32_t reg, std::uint64_t data) -> std::string {
     if (!valid) {
       return "-";
@@ -979,7 +991,7 @@ int main(int argc, char **argv) {
     (void)reason;
     for (const auto &kv : pvByUid) {
       const PvEntry &e = kv.second;
-      konata.presenceV5(e.id, pvLaneToken(e.lane), "FLS", 1, "global_flush");
+      konata.presence(e.id, e.lane, "FLS", 1, "global_flush");
       konata.retire(e.id, e.id, 1);
       pvUidLastRetireCycle[kv.first] = curCycleKonata;
     }
@@ -1218,16 +1230,16 @@ int main(int argc, char **argv) {
 
     e.stageId = stageId;
     e.lane = lane;
-    konata.presenceV5(
+    konata.presence(
         e.id,
-        pvLaneToken(lane),
+        lane,
         kTraceStageNames[static_cast<std::size_t>(stageId)],
         stall ? 1 : 0,
         std::to_string(stallCause));
 
     if (kind == kTraceKindFlush || kind == kTraceKindReplay || stageId == static_cast<int>(kTraceSidFls)) {
       if (stageId != static_cast<int>(kTraceSidFls)) {
-        konata.presenceV5(e.id, pvLaneToken(e.lane), "FLS", 1, "flush");
+        konata.presence(e.id, e.lane, "FLS", 1, "flush");
       }
       konata.retire(e.id, e.id, 1);
       dfxRetiredKeysCycle.insert(pvRetireKey(e.pc, e.rob, e.lane));
@@ -2150,8 +2162,11 @@ int main(int argc, char **argv) {
                    << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                    << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
             konata.label(itLive->second.id, 1, detail.str());
-            konata.presenceV5(itLive->second.id, pvLaneToken(itLive->second.lane),
-                              kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
+            konata.presence(itLive->second.id,
+                            itLive->second.lane,
+                            kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)],
+                            1,
+                            "xcheck");
             xcheckAnnotated = true;
           }
         }
@@ -2161,7 +2176,7 @@ int main(int argc, char **argv) {
             auto liveIt = pvByUid.find(uopUid);
             if (liveIt != pvByUid.end()) {
               if (dfxTouchedUidCycle.find(uopUid) == dfxTouchedUidCycle.end()) {
-                konata.presenceV5(liveIt->second.id, pvLaneToken(slot), "ROB", 0, "0");
+                konata.presence(liveIt->second.id, slot, "ROB", 0, "0");
               }
               konata.retire(liveIt->second.id, liveIt->second.id, trapValid ? 1 : 0);
               pvUidLastRetireCycle[uopUid] = curCycleKonata;
@@ -2183,7 +2198,7 @@ int main(int argc, char **argv) {
                      << " wb=" << (wbValid ? (std::to_string(wbRd) + ":" + toHex(wbData)) : std::string("-"))
                      << " mem=" << (memValid ? (std::string(memIsStore ? "S@" : "L@") + toHex(memAddr)) : std::string("-"));
               konata.label(id, 1, detail.str());
-              konata.presenceV5(id, pvLaneToken(slot), "ROB", 0, "0");
+              konata.presence(id, slot, "ROB", 0, "0");
               konata.retire(id, id, trapValid ? 1 : 0);
               pvUidLastRetireCycle[uopUid] = curCycleKonata;
             }
@@ -2198,7 +2213,7 @@ int main(int argc, char **argv) {
             const std::uint64_t id = pvNextKonataId++;
             konata.insnV5(id, toHex(id), 0, "0x0", trapValid ? "trap" : "normal");
             konata.label(id, 0, pvInsnText(pc, useDisasm));
-            konata.presenceV5(id, pvLaneToken(slot), "ROB", 0, "0");
+            konata.presence(id, slot, "ROB", 0, "0");
             if (xcheckMismatch) {
               std::ostringstream detail;
               detail << "XCHECK_FAIL seq=" << xcheckMm.seq
@@ -2221,7 +2236,7 @@ int main(int argc, char **argv) {
                      << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                      << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
               konata.label(id, 1, detail.str());
-              konata.presenceV5(id, pvLaneToken(slot), kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
+              konata.presence(id, slot, kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
               xcheckAnnotated = true;
             }
             konata.retire(id, id, trapValid ? 1 : 0);
@@ -2253,7 +2268,7 @@ int main(int argc, char **argv) {
                  << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                  << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
           konata.label(id, 1, detail.str());
-          konata.presenceV5(id, pvLaneToken(slot), kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
+          konata.presence(id, slot, kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
           konata.retire(id, id, 1);
         }
       }

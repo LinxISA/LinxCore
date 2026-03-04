@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, Reg, Wire, function
+from pycircuit import Circuit, Reg, Wire, function, u
 
 
 @function
@@ -33,6 +33,9 @@ def mux_by_uindex(m: Circuit, *, idx: Wire, items: list[Wire | Reg], default: Wi
         for j in range(0, len(stage), 2):
             a = stage[j]
             b = stage[j + 1]
+            # IMPORTANT: this helper is used from both JIT-compiled and
+            # tracing-style designs. Avoid Python `if` / ternary on i1 Wires
+            # (would call Wire.__bool__); use mux primitive instead.
             nxt.append(idx[bit]._select_internal(b, a))
         stage = nxt
 
@@ -43,34 +46,37 @@ def mux_by_uindex(m: Circuit, *, idx: Wire, items: list[Wire | Reg], default: Wi
 
 @function
 def mask_bit(m: Circuit, *, mask: Wire, idx: Wire, width: int) -> Wire:
-    """Return mask[idx] as i1, using a linear mux chain."""
-    c = m.const
-    out = c(0, width=1)
+    """Return mask[idx] as i1.
+
+    Keep this helper tracing-style friendly: avoid Python boolean control flow
+    on i1 Wires (would call Wire.__bool__), and use `_select_internal`.
+    """
+    out = u(1, 0)
     for i in range(int(width)):
-        out = idx.__eq__(c(i, width=idx.width))._select_internal(mask[i], out)
+        take = idx == u(idx.width, i)
+        out = take._select_internal(mask[i], out)
     return out
 
 
 @function
 def onehot_from_tag(m: Circuit, *, tag: Wire, width: int, tag_width: int) -> Wire:
-    c = m.const
-    out = c(0, width=width)
+    out = u(width, 0)
     for i in range(int(width)):
-        out = tag.__eq__(c(i, width=tag_width))._select_internal(c(1 << i, width=width), out)
+        take = tag == u(tag_width, i)
+        out = take._select_internal(u(width, 1 << i), out)
     return out
 
 
 @function
 def alloc_from_free_mask(m: Circuit, *, free_mask: Wire, width: int, tag_width: int) -> tuple[Wire, Wire, Wire]:
     """Priority-encode the lowest free bit in `free_mask`."""
-    c = m.const
-    valid = c(0, width=1)
-    tag = c(0, width=tag_width)
-    onehot = c(0, width=width)
+    valid = u(1, 0)
+    tag = u(tag_width, 0)
+    onehot = u(width, 0)
     for i in range(int(width)):
         bit = free_mask[i]
         take = bit & (~valid)
-        valid = take._select_internal(c(1, width=1), valid)
-        tag = take._select_internal(c(i, width=tag_width), tag)
-        onehot = take._select_internal(c(1 << i, width=width), onehot)
+        valid = take._select_internal(u(1, 1), valid)
+        tag = take._select_internal(u(tag_width, i), tag)
+        onehot = take._select_internal(u(width, 1 << i), onehot)
     return valid, tag, onehot

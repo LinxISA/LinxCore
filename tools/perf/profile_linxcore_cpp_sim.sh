@@ -130,6 +130,8 @@ if [[ -n "${linxtrace_path}" ]]; then
 fi
 
 rc=0
+# Ensure build is up-to-date so the timed run reflects simulation cost (not rebuild).
+env "${run_env[@]}" PYC_SKIP_RUN=1 bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${MEMH}" >/dev/null
 /usr/bin/time -l env "${run_env[@]}" bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${MEMH}" >"${RUN_LOG}" 2>"${TIME_LOG}" || rc=$?
 
 python3 - <<'PY' "${OUT_JSON}" "${RUN_LOG}" "${TIME_LOG}" "${STATS_PATH}" "${rc}" "${PROFILE}" "${WORKLOAD}" "${MEMH}" "${BOOT_PC}" "${BOOT_SP}" "${SIM_FAST}" "${ENABLE_COMMIT_TRACE}" "${commit_trace_path}" "${ENABLE_LINXTRACE}" "${linxtrace_path}"

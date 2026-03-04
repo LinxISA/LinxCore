@@ -43,6 +43,10 @@ emit_real() {
   fi
   bash "${ELF_TO_MEMH}" "${CORE_ELF_REAL}" "${CORE_MEMH_REAL}" >/dev/null
   bash "${ELF_TO_MEMH}" "${DHRY_ELF_REAL}" "${DHRY_MEMH_REAL}" >/dev/null
+  # Keep the ELF next to the derived memh so tb_linxcore_top.cpp can auto-load
+  # objdump PC maps without spawning an external disassembler per instruction.
+  cp -f "${CORE_ELF_REAL}" "${OUT_DIR}/coremark_real.elf" >/dev/null
+  cp -f "${DHRY_ELF_REAL}" "${OUT_DIR}/dhrystone_real.elf" >/dev/null
   echo "${CORE_MEMH_REAL}"
   echo "${DHRY_MEMH_REAL}"
 }
