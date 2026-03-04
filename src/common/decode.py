@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from pycircuit import Circuit, Wire, function, spec
+from pycircuit import Circuit, Wire, function, module, spec
 
 meta = spec
 
@@ -1260,6 +1260,107 @@ def decode_window(m: Circuit, window: Wire) -> Decode:
         srcp=srcp,
         imm=imm,
     )
+
+
+@module(name="LinxCoreDecodeWindow")
+def build_decode_window(m: Circuit) -> None:
+    """Decode a single instruction from a 64-bit window.
+
+    This is forced hierarchy: decoding is expensive and is used multiple times
+    per fetch bundle. Keeping it as a module prevents frontend inlining from
+    duplicating the decode tree 4x in downstream users.
+    """
+    window = m.input("window", width=64)
+    dec = decode_window(m, window)
+    m.output("op", dec.op)
+    m.output("len_bytes", dec.len_bytes)
+    m.output("regdst", dec.regdst)
+    m.output("srcl", dec.srcl)
+    m.output("srcr", dec.srcr)
+    m.output("srcr_type", dec.srcr_type)
+    m.output("shamt", dec.shamt)
+    m.output("srcp", dec.srcp)
+    m.output("imm", dec.imm)
+
+
+@module(name="LinxCoreDecodeBundle8B")
+def build_decode_bundle_8b(m: Circuit) -> None:
+    """Decode up to 4 sequential instructions from an 8-byte fetch window.
+
+    Forced hierarchy version of `decode_bundle_8B()`: the per-instruction decode
+    tree lives in `LinxCoreDecodeWindow` and is instantiated per slot, instead
+    of being inlined 4x.
+    """
+    c = m.const
+    window = m.input("window", width=64)
+
+    z4 = c(0, width=4)
+    b8 = c(8, width=4)
+    b2 = c(2, width=4)
+
+    # Slot 0.
+    win0 = window
+    dec0 = m.instance_auto(build_decode_window, name="dec0", module_name="LinxCoreDecodeWindow", window=win0)
+    len0_4 = dec0["len_bytes"]._zext(width=4)
+    off0 = z4
+    v0 = ~len0_4.__eq__(z4)
+
+    # Template macro blocks (FENTRY/FEXIT/FRET.*) must execute as standalone
+    # blocks at the front-end, so do not include following instructions in the
+    # same fetch bundle.
+    is_macro0 = (
+        dec0["op"].__eq__(OP_FENTRY)
+        | dec0["op"].__eq__(OP_FEXIT)
+        | dec0["op"].__eq__(OP_FRET_RA)
+        | dec0["op"].__eq__(OP_FRET_STK)
+    )
+
+    # Slot 1.
+    sh0 = len0_4._zext(width=6).shl(amount=3)
+    win1 = lshr_var(m, win0, sh0)
+    dec1 = m.instance_auto(build_decode_window, name="dec1", module_name="LinxCoreDecodeWindow", window=win1)
+    len1_4 = dec1["len_bytes"]._zext(width=4)
+    off1 = len0_4
+    rem0 = b8 - len0_4
+    v1 = v0 & (~is_macro0) & rem0.uge(b2) & (~len1_4.__eq__(z4)) & len1_4.ule(rem0)
+
+    # Slot 2.
+    off2 = off1 + len1_4
+    sh1 = off2._zext(width=6).shl(amount=3)
+    win2 = lshr_var(m, win0, sh1)
+    dec2 = m.instance_auto(build_decode_window, name="dec2", module_name="LinxCoreDecodeWindow", window=win2)
+    len2_4 = dec2["len_bytes"]._zext(width=4)
+    rem1 = rem0 - len1_4
+    v2 = v1 & rem1.uge(b2) & (~len2_4.__eq__(z4)) & len2_4.ule(rem1)
+
+    # Slot 3.
+    off3 = off2 + len2_4
+    sh2 = off3._zext(width=6).shl(amount=3)
+    win3 = lshr_var(m, win0, sh2)
+    dec3 = m.instance_auto(build_decode_window, name="dec3", module_name="LinxCoreDecodeWindow", window=win3)
+    len3_4 = dec3["len_bytes"]._zext(width=4)
+    rem2 = rem1 - len2_4
+    v3 = v2 & rem2.uge(b2) & (~len3_4.__eq__(z4)) & len3_4.ule(rem2)
+
+    total = len0_4
+    total = v1._select_internal(off2, total)
+    total = v2._select_internal(off3, total)
+    total = v3._select_internal(off3 + len3_4, total)
+
+    # Expose bundle summary.
+    m.output("total_len_bytes", total)
+    for slot, (v, off, dec) in enumerate([(v0, off0, dec0), (v1, off1, dec1), (v2, off2, dec2), (v3, off3, dec3)]):
+        m.output(f"valid{slot}", v)
+        m.output(f"off_bytes{slot}", off)
+        m.output(f"op{slot}", dec["op"])
+        m.output(f"len_bytes{slot}", dec["len_bytes"])
+        m.output(f"regdst{slot}", dec["regdst"])
+        m.output(f"srcl{slot}", dec["srcl"])
+        m.output(f"srcr{slot}", dec["srcr"])
+        m.output(f"srcr_type{slot}", dec["srcr_type"])
+        m.output(f"shamt{slot}", dec["shamt"])
+        m.output(f"srcp{slot}", dec["srcp"])
+        m.output(f"imm{slot}", dec["imm"])
 
 
 @function

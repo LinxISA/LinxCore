@@ -49,22 +49,36 @@ def mask_bit(m: Circuit, *, mask: Wire, idx: Wire, width: int) -> Wire:
     """Return mask[idx] as i1.
 
     Keep this helper tracing-style friendly: avoid Python boolean control flow
-    on i1 Wires (would call Wire.__bool__), and use `_select_internal`.
+    on i1 Wires (would call Wire.__bool__). Prefer a compact representation
+    (dynamic shift + compare) to avoid generating a giant mux network in the
+    frontend IR and emitted C++.
     """
-    out = u(1, 0)
-    for i in range(int(width)):
-        take = idx == u(idx.width, i)
-        out = take._select_internal(mask[i], out)
-    return out
+    n = int(width)
+    if n <= 0:
+        return u(1, 0)
+    mask_n = mask if mask.width == n else mask[0:n]
+    zero_n = mask_n & 0
+    # onehot = 1 << idx (out-of-range shift yields 0 => default 0).
+    onehot = (zero_n | u(n, 1)).shl(amount=idx)
+    return (mask_n & onehot) != zero_n
 
 
 @function
 def onehot_from_tag(m: Circuit, *, tag: Wire, width: int, tag_width: int) -> Wire:
-    out = u(width, 0)
-    for i in range(int(width)):
-        take = tag == u(tag_width, i)
-        out = take._select_internal(u(width, 1 << i), out)
-    return out
+    """Return a onehot vector with bit `tag` set.
+
+    Keep this compact to avoid exploding IR and emitted C++ in hot stages
+    (rename/commit/engine). Out-of-range shifts produce 0, matching the
+    previous compare-and-select implementation.
+    """
+    n = int(width)
+    if n <= 0:
+        return u(0, 0)
+    # NOTE: tag_width is kept for call-site stability; shift amount uses `tag`.
+    # Anchor the literal to a Wire so `.shl(...)` is available.
+    base = (tag & 0) | u(n, 1)
+    out = base.shl(amount=tag)
+    return out if out.width == n else out[0:n]
 
 
 @function

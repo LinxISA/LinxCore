@@ -36,6 +36,16 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
     ready_brob = m.out("ready_brob", clk=clk_brob, rst=rst_brob, width=16, init=c(0, width=16), en=c(1, width=1))
     retired_brob = m.out("retired_brob", clk=clk_brob, rst=rst_brob, width=16, init=c(0, width=16), en=c(1, width=1))
     exception_brob = m.out("exception_brob", clk=clk_brob, rst=rst_brob, width=16, init=c(0, width=16), en=c(1, width=1))
+    # Break backend<->BROB comb scheduling SCC:
+    # register the active query slot so `brob_query_*` depend only on state.
+    query_slot_q_brob = m.out(
+        "query_slot_q_brob",
+        clk=clk_brob,
+        rst=rst_brob,
+        width=4,
+        init=c(0, width=4),
+        en=c(1, width=1),
+    )
     src_rob_slot_brob = []
     bid_slot_brob = []
     for i in range(16):
@@ -45,7 +55,10 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
     issue_slot_brob = issue_tag_brob[0:4]
     rsp_slot_brob = rsp_tag_brob[0:4]
     retire_slot_brob = retire_bid_brob[0:4]
-    query_slot_brob = query_bid_brob[0:4]
+    # NOTE: query slot is registered (1-cycle lag is acceptable for commit
+    # gating; it is conservative and breaks top-level SCC fallback).
+    query_slot_q_brob.set(query_bid_brob[0:4])
+    query_slot_brob = query_slot_q_brob.out()
 
     issue_bit_brob = c(0, width=16)
     rsp_bit_brob = c(0, width=16)
@@ -54,6 +67,8 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
     rsp_bid_brob = c(0, width=64)
     rsp_slot_alloc_brob = c(0, width=1)
     rsp_slot_retired_brob = c(0, width=1)
+    retire_slot_alloc_brob = c(0, width=1)
+    retire_slot_retired_brob = c(0, width=1)
     query_alloc_brob = c(0, width=1)
     query_ready_brob = c(0, width=1)
     query_retired_brob = c(0, width=1)
@@ -70,6 +85,8 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
         rsp_bid_brob = slot_hit_rsp_brob._select_internal(bid_slot_brob[i].out(), rsp_bid_brob)
         rsp_slot_alloc_brob = slot_hit_rsp_brob._select_internal(allocated_brob.out()[i], rsp_slot_alloc_brob)
         rsp_slot_retired_brob = slot_hit_rsp_brob._select_internal(retired_brob.out()[i], rsp_slot_retired_brob)
+        retire_slot_alloc_brob = slot_hit_retire_brob._select_internal(allocated_brob.out()[i], retire_slot_alloc_brob)
+        retire_slot_retired_brob = slot_hit_retire_brob._select_internal(retired_brob.out()[i], retire_slot_retired_brob)
         query_alloc_brob = slot_hit_query_brob._select_internal(allocated_brob.out()[i], query_alloc_brob)
         query_ready_brob = slot_hit_query_brob._select_internal(ready_brob.out()[i], query_ready_brob)
         query_retired_brob = slot_hit_query_brob._select_internal(retired_brob.out()[i], query_retired_brob)
@@ -94,7 +111,7 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
     ready_next_brob = rsp_fire_brob._select_internal(ready_next_brob | rsp_bit_brob, ready_next_brob)
     exception_next_brob = (rsp_fire_brob & rsp_exception_brob)._select_internal(exception_next_brob | rsp_bit_brob, exception_next_brob)
 
-    retire_fire_ok_brob = retire_fire_brob & query_alloc_brob & (~query_retired_brob)
+    retire_fire_ok_brob = retire_fire_brob & retire_slot_alloc_brob & (~retire_slot_retired_brob)
     alloc_next_brob = retire_fire_ok_brob._select_internal(alloc_next_brob & (~retire_bit_brob), alloc_next_brob)
     retired_next_brob = retire_fire_ok_brob._select_internal(retired_next_brob | retire_bit_brob, retired_next_brob)
 

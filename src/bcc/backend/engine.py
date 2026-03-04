@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from pycircuit import Circuit, module
 from pycircuit.dsl import Signal
 
-from common.exec_uop import exec_uop_comb
+from common.exec_uop import ExecOut, build_linxcore_exec_uop_comb
 from .template_uop_encoding import map_template_child_encoding
 from common.isa import (
     OP_BIOR,
@@ -929,18 +929,27 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         sl_vals.append(mux_by_uindex(m, idx=uop_sls[slot], items=prf, default=consts.zero64))
         sr_vals.append(mux_by_uindex(m, idx=uop_srs[slot], items=prf, default=consts.zero64))
         sp_vals.append(mux_by_uindex(m, idx=uop_sps[slot], items=prf, default=consts.zero64))
+        ex_mod = m.instance_auto(
+            build_linxcore_exec_uop_comb,
+            name=f"exec_uop{slot}",
+            module_name="LinxCoreExecUopComb",
+            op=uop_ops[slot],
+            pc=uop_pcs[slot],
+            imm=uop_imms[slot],
+            srcl_val=sl_vals[slot],
+            srcr_val=sr_vals[slot],
+            srcr_type=uop_srcr_types[slot],
+            shamt=uop_shamts[slot],
+            srcp_val=sp_vals[slot],
+        )
         exs.append(
-            exec_uop_comb(
-                m,
-                op=uop_ops[slot],
-                pc=uop_pcs[slot],
-                imm=uop_imms[slot],
-                srcl_val=sl_vals[slot],
-                srcr_val=sr_vals[slot],
-                srcr_type=uop_srcr_types[slot],
-                shamt=uop_shamts[slot],
-                srcp_val=sp_vals[slot],
-                consts=consts,
+            ExecOut(
+                alu=ex_mod["alu"],
+                is_load=ex_mod["is_load"],
+                is_store=ex_mod["is_store"],
+                size=ex_mod["size"],
+                addr=ex_mod["addr"],
+                wdata=ex_mod["wdata"],
             )
         )
 

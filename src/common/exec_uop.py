@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pycircuit import Circuit, Wire, function, unsigned
+from pycircuit import Circuit, Wire, function, module, unsigned
 
 from .isa import (
     OP_ADDTPC,
@@ -149,7 +149,7 @@ from .isa import (
     OP_SWI,
     OP_XORW,
 )
-from .util import Consts, ashr_var, lshr_var, shl_var
+from .util import Consts, ashr_var, lshr_var, make_consts, shl_var
 
 
 @dataclass(frozen=True)
@@ -162,6 +162,7 @@ class ExecOut:
     wdata: Wire
 
 
+@function
 def exec_uop_comb(
     m: Circuit,
     *,
@@ -2088,3 +2089,41 @@ def exec_uop(
             wdata = z64
 
         return ExecOut(alu=alu, is_load=is_load, is_store=is_store, size=size, addr=addr, wdata=wdata)
+
+
+@module(name="LinxCoreExecUopComb")
+def build_linxcore_exec_uop_comb(m: Circuit) -> None:
+    """Forced-hierarchy wrapper around `exec_uop_comb`.
+
+    `exec_uop_comb()` is large and used per issue lane; keeping it as a module
+    prevents frontend inlining from duplicating the exec tree N times in the
+    backend top.
+    """
+    op = m.input("op", width=12)
+    pc = m.input("pc", width=64)
+    imm = m.input("imm", width=64)
+    srcl_val = m.input("srcl_val", width=64)
+    srcr_val = m.input("srcr_val", width=64)
+    srcr_type = m.input("srcr_type", width=2)
+    shamt = m.input("shamt", width=6)
+    srcp_val = m.input("srcp_val", width=64)
+
+    consts = make_consts(m)
+    out = exec_uop_comb(
+        m,
+        op=op,
+        pc=pc,
+        imm=imm,
+        srcl_val=srcl_val,
+        srcr_val=srcr_val,
+        srcr_type=srcr_type,
+        shamt=shamt,
+        srcp_val=srcp_val,
+        consts=consts,
+    )
+    m.output("alu", out.alu)
+    m.output("is_load", out.is_load)
+    m.output("is_store", out.is_store)
+    m.output("size", out.size)
+    m.output("addr", out.addr)
+    m.output("wdata", out.wdata)

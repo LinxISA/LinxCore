@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from functools import partial
-from types import SimpleNamespace
 
 from pycircuit import Circuit, function, module, u
 
@@ -59,6 +58,63 @@ def pick_oldest_from_arrays(m: Circuit, *, p, consts, can_issue: list, rob_tags:
         issue_valids.append(v)
         issue_idxs.append(idx)
     return issue_valids, issue_idxs
+
+
+@module(name="LinxCoreIssuePicker")
+def build_issue_picker(
+    m: Circuit,
+    *,
+    iq_depth: int = 32,
+    iq_w: int = 5,
+    rob_w: int = 6,
+    width: int = 2,
+) -> None:
+    """Pick up to `width` oldest-ready IQ entries (by ROB age)."""
+
+    if iq_depth <= 0:
+        raise ValueError("iq_depth must be > 0")
+    if width <= 0:
+        raise ValueError("width must be > 0")
+
+    sub_head = m.input("sub_head", width=rob_w)
+
+    can_issue = []
+    rob_tags = []
+    for i in range(iq_depth):
+        can_issue.append(m.input(f"can_issue{i}", width=1))
+        rob_tags.append(m.input(f"rob_tag{i}", width=rob_w))
+
+    # Local const anchors (avoid m.const in this module).
+    zero1 = can_issue[0] & 0
+    one1 = ~zero1
+
+    issue_valids = []
+    issue_idxs = []
+    for slot in range(width):
+        v = zero1
+        # Note: JIT `if <wire>:` phi construction requires assigned variables to
+        # be Wire/int/bool (LiteralValue is not allowed as a phi base).
+        idx = zero1 + u(iq_w, 0)
+        best_age = (sub_head & 0) + u(rob_w, (1 << rob_w) - 1)
+        for i in range(iq_depth):
+            cidx = u(iq_w, i)
+            exclude = zero1
+            for prev in range(slot):
+                exclude = exclude | (issue_valids[prev] & (issue_idxs[prev] == cidx))
+            cand = can_issue[i] & (~exclude)
+            age = rob_tags[i] + sub_head
+            better = (~v) | (age < best_age)
+            take = cand & better
+            if take:
+                v = one1
+                idx = cidx
+                best_age = age
+        issue_valids.append(v)
+        issue_idxs.append(idx)
+
+    for slot in range(width):
+        m.output(f"issue_valid{slot}", issue_valids[slot])
+        m.output(f"issue_idx{slot}", issue_idxs[slot])
 
 
 @module(name="LinxCoreIssueStage")
@@ -151,35 +207,44 @@ def build_issue_stage(
         lsu_is_store.append(is_store_i)
         lsu_can_issue.append(ready)
 
-    pick_p = SimpleNamespace(iq_depth=iq_depth, iq_w=iq_w, rob_w=rob_w)
-    pick_consts = SimpleNamespace(zero1=zero1, one1=one1)
-    alu_issue_valids, alu_issue_idxs = pick_oldest_from_arrays(
-        m=m,
-        p=pick_p,
-        consts=pick_consts,
-        can_issue=alu_can_issue,
-        rob_tags=iq_alu_rob,
-        width=alu_w,
-        sub_head=sub_head,
-    )
-    bru_issue_valids, bru_issue_idxs = pick_oldest_from_arrays(
-        m=m,
-        p=pick_p,
-        consts=pick_consts,
-        can_issue=bru_can_issue,
-        rob_tags=iq_bru_rob,
-        width=bru_w,
-        sub_head=sub_head,
-    )
-    lsu_issue_valids, lsu_issue_idxs = pick_oldest_from_arrays(
-        m=m,
-        p=pick_p,
-        consts=pick_consts,
-        can_issue=lsu_can_issue,
-        rob_tags=iq_lsu_rob,
-        width=lsu_w,
-        sub_head=sub_head,
-    )
+    alu_pick_args = {"sub_head": sub_head}
+    for i in range(iq_depth):
+        alu_pick_args[f"can_issue{i}"] = alu_can_issue[i]
+        alu_pick_args[f"rob_tag{i}"] = iq_alu_rob[i]
+    alu_picker = m.new(
+        build_issue_picker,
+        name="alu_picker",
+        bind=alu_pick_args,
+        params={"iq_depth": iq_depth, "iq_w": iq_w, "rob_w": rob_w, "width": alu_w},
+    ).outputs
+    alu_issue_valids = [alu_picker[f"issue_valid{slot}"] for slot in range(alu_w)]
+    alu_issue_idxs = [alu_picker[f"issue_idx{slot}"] for slot in range(alu_w)]
+
+    bru_pick_args = {"sub_head": sub_head}
+    for i in range(iq_depth):
+        bru_pick_args[f"can_issue{i}"] = bru_can_issue[i]
+        bru_pick_args[f"rob_tag{i}"] = iq_bru_rob[i]
+    bru_picker = m.new(
+        build_issue_picker,
+        name="bru_picker",
+        bind=bru_pick_args,
+        params={"iq_depth": iq_depth, "iq_w": iq_w, "rob_w": rob_w, "width": bru_w},
+    ).outputs
+    bru_issue_valids = [bru_picker[f"issue_valid{slot}"] for slot in range(bru_w)]
+    bru_issue_idxs = [bru_picker[f"issue_idx{slot}"] for slot in range(bru_w)]
+
+    lsu_pick_args = {"sub_head": sub_head}
+    for i in range(iq_depth):
+        lsu_pick_args[f"can_issue{i}"] = lsu_can_issue[i]
+        lsu_pick_args[f"rob_tag{i}"] = iq_lsu_rob[i]
+    lsu_picker = m.new(
+        build_issue_picker,
+        name="lsu_picker",
+        bind=lsu_pick_args,
+        params={"iq_depth": iq_depth, "iq_w": iq_w, "rob_w": rob_w, "width": lsu_w},
+    ).outputs
+    lsu_issue_valids = [lsu_picker[f"issue_valid{slot}"] for slot in range(lsu_w)]
+    lsu_issue_idxs = [lsu_picker[f"issue_idx{slot}"] for slot in range(lsu_w)]
 
     issue_valids = lsu_issue_valids + bru_issue_valids + alu_issue_valids
     issue_fires = []

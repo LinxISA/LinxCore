@@ -29,7 +29,7 @@ def build_janus_bcc_ifu_f2(m: Circuit) -> None:
         decode_window_f2 = win_f2 if off_match_f2 else decode_window_f2
 
     fetch_ok_f2 = f1_to_f2_stage_valid_f1 & f1_to_f2_stage_hit_f1 & (~f1_to_f2_stage_stall_f1)
-    f4_bundle_f2 = decode_f4_bundle(m, decode_window_f2)
+    f4_bundle_f2 = decode_f4_bundle(m, decode_window_f2, name="f4_bundle_f2")
     # Advance by the full decoded bundle length so we never re-issue instructions
     # that were already exposed to decode/dispatch.
     advance_bytes_f2 = f4_bundle_f2.total_len_bytes
