@@ -8,7 +8,7 @@ from types import SimpleNamespace
 # Stage/component ownership is migrating to focused files. Keep this file as
 # composition glue; avoid adding new monolithic stage logic.
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, function, module, u
 from pycircuit.dsl import Signal
 
 from common.exec_uop import ExecOut, build_linxcore_exec_uop_comb
@@ -126,6 +126,396 @@ class BccOooExports:
     block_cmd_bid: Signal
     cycles: Signal
     halted: Signal
+
+
+@function
+def op_is_any(m: Circuit, op, *codes: int):
+    v = u(1, 0)
+    for code in codes:
+        v = v | (op == u(12, code))
+    return v
+
+
+@function
+def is_macro_op_any(m: Circuit, op):
+    return op_is_any(m, op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
+
+
+@function
+def is_setc_any_op(m: Circuit, op):
+    return op_is_any(
+        m,
+        op,
+        OP_C_SETC_EQ,
+        OP_C_SETC_NE,
+        OP_SETC_GEUI,
+        OP_SETC_EQ,
+        OP_SETC_NE,
+        OP_SETC_AND,
+        OP_SETC_OR,
+        OP_SETC_LT,
+        OP_SETC_LTU,
+        OP_SETC_GE,
+        OP_SETC_GEU,
+        OP_SETC_EQI,
+        OP_SETC_NEI,
+        OP_SETC_ANDI,
+        OP_SETC_ORI,
+        OP_SETC_LTI,
+        OP_SETC_GEI,
+        OP_SETC_LTUI,
+    )
+
+
+@function
+def is_setc_tgt_op(m: Circuit, op):
+    return op_is_any(m, op, OP_C_SETC_TGT)
+
+
+@module(name="LinxCoreCommitSelectStage")
+def build_commit_select_stage(
+    m: Circuit,
+    *,
+    commit_w: int = 4,
+    rob_w: int = 6,
+) -> None:
+    """Select up to `commit_w` commit slots and compute commit-driven state updates.
+
+    This stage is split out of the backend engine to reduce JanusBccBackendTop
+    compilation hotspots, while keeping the external behavior unchanged.
+    """
+
+    if commit_w <= 0:
+        raise ValueError("commit_w must be > 0")
+    if rob_w <= 0:
+        raise ValueError("rob_w must be > 0")
+
+    consts = make_consts(m)
+
+    can_run = m.input("can_run", width=1)
+    stbuf_has_space = m.input("stbuf_has_space", width=1)
+    ret_ra_val = m.input("ret_ra_val", width=64)
+
+    brob_active_allocated_i = m.input("brob_active_allocated_i", width=1)
+    brob_active_ready_i = m.input("brob_active_ready_i", width=1)
+    brob_active_exception_i = m.input("brob_active_exception_i", width=1)
+
+    state_pc = m.input("state_pc", width=64)
+    state_commit_cond = m.input("state_commit_cond", width=1)
+    state_commit_tgt = m.input("state_commit_tgt", width=64)
+    state_br_kind = m.input("state_br_kind", width=3)
+    state_br_epoch = m.input("state_br_epoch", width=16)
+    state_br_base_pc = m.input("state_br_base_pc", width=64)
+    state_br_off = m.input("state_br_off", width=64)
+    state_br_pred_take = m.input("state_br_pred_take", width=1)
+    state_active_block_uid = m.input("state_active_block_uid", width=64)
+    state_block_uid_ctr = m.input("state_block_uid_ctr", width=64)
+    state_active_block_bid = m.input("state_active_block_bid", width=64)
+    state_block_bid_ctr = m.input("state_block_bid_ctr", width=64)
+    state_block_head = m.input("state_block_head", width=1)
+
+    state_br_corr_pending = m.input("state_br_corr_pending", width=1)
+    state_br_corr_epoch = m.input("state_br_corr_epoch", width=16)
+    state_br_corr_take = m.input("state_br_corr_take", width=1)
+    state_br_corr_target = m.input("state_br_corr_target", width=64)
+    state_br_corr_checkpoint_id = m.input("state_br_corr_checkpoint_id", width=6)
+
+    state_replay_pending = m.input("state_replay_pending", width=1)
+    state_replay_store_rob = m.input("state_replay_store_rob", width=rob_w)
+    state_replay_pc = m.input("state_replay_pc", width=64)
+
+    commit_idxs = []
+    rob_pcs = []
+    rob_valids = []
+    rob_dones = []
+    rob_ops = []
+    rob_lens = []
+    rob_values = []
+    rob_is_stores = []
+    rob_st_addrs = []
+    rob_st_datas = []
+    rob_st_sizes = []
+    rob_is_bstarts = []
+    rob_is_bstops = []
+    rob_boundary_kinds = []
+    rob_boundary_targets = []
+    rob_pred_takes = []
+    rob_checkpoint_ids = []
+    for slot in range(commit_w):
+        commit_idxs.append(m.input(f"commit_idx{slot}", width=rob_w))
+        rob_pcs.append(m.input(f"rob_pc{slot}", width=64))
+        rob_valids.append(m.input(f"rob_valid{slot}", width=1))
+        rob_dones.append(m.input(f"rob_done{slot}", width=1))
+        rob_ops.append(m.input(f"rob_op{slot}", width=12))
+        rob_lens.append(m.input(f"rob_len{slot}", width=3))
+        rob_values.append(m.input(f"rob_value{slot}", width=64))
+        rob_is_stores.append(m.input(f"rob_is_store{slot}", width=1))
+        rob_st_addrs.append(m.input(f"rob_store_addr{slot}", width=64))
+        rob_st_datas.append(m.input(f"rob_store_data{slot}", width=64))
+        rob_st_sizes.append(m.input(f"rob_store_size{slot}", width=4))
+        rob_is_bstarts.append(m.input(f"rob_is_bstart{slot}", width=1))
+        rob_is_bstops.append(m.input(f"rob_is_bstop{slot}", width=1))
+        rob_boundary_kinds.append(m.input(f"rob_boundary_kind{slot}", width=3))
+        rob_boundary_targets.append(m.input(f"rob_boundary_target{slot}", width=64))
+        rob_pred_takes.append(m.input(f"rob_pred_take{slot}", width=1))
+        rob_checkpoint_ids.append(m.input(f"rob_checkpoint_id{slot}", width=6))
+
+    commit_allow = consts.one1
+    commit_fires = []
+    commit_pcs = []
+    commit_next_pcs = []
+    commit_is_bstarts = []
+    commit_is_bstops = []
+    commit_block_uids = []
+    commit_block_bids = []
+    commit_core_ids = []
+
+    commit_count = u(3, 0)
+
+    redirect_valid = consts.zero1
+    redirect_pc = state_pc
+    redirect_checkpoint_id = u(6, 0)
+    redirect_from_corr = consts.zero1
+    replay_redirect_fire = consts.zero1
+
+    commit_store_seen = consts.zero1
+    brob_retire_fire = consts.zero1
+    brob_retire_bid = consts.zero64
+
+    pc_live = state_pc
+    commit_cond_live = state_commit_cond
+    commit_tgt_live = state_commit_tgt
+    br_kind_live = state_br_kind
+    br_epoch_live = state_br_epoch
+    br_base_live = state_br_base_pc
+    br_off_live = state_br_off
+    br_pred_take_live = state_br_pred_take
+    active_block_uid_live = state_active_block_uid
+    block_uid_ctr_live = state_block_uid_ctr
+    active_block_bid_live = state_active_block_bid
+    block_bid_ctr_live = state_block_bid_ctr
+    block_head_live = state_block_head
+    br_corr_pending_live = state_br_corr_pending
+    br_corr_epoch_live = state_br_corr_epoch
+    br_corr_take_live = state_br_corr_take
+    br_corr_target_live = state_br_corr_target
+    br_corr_checkpoint_id_live = state_br_corr_checkpoint_id
+
+    for slot in range(commit_w):
+        # Use the ROB-captured instruction PC for commit/control-flow math.
+        pc_this = rob_pcs[slot] if rob_valids[slot] else pc_live
+        commit_pcs.append(pc_this)
+        op = rob_ops[slot]
+        ln = rob_lens[slot]
+        val = rob_values[slot]
+
+        is_macro = is_macro_op_any(m, op)
+        is_bstart = rob_is_bstarts[slot]
+        is_bstop = rob_is_bstops[slot]
+        is_bstart_head = is_bstart & block_head_live
+        is_bstart_mid = is_bstart & (~block_head_live)
+        is_start_marker = is_bstart_head | is_macro
+        is_boundary = is_bstart_mid | is_bstop | is_macro
+
+        br_is_fall = br_kind_live == u(3, BK_FALL)
+        br_is_cond = br_kind_live == u(3, BK_COND)
+        br_is_call = br_kind_live == u(3, BK_CALL)
+        br_is_ret = br_kind_live == u(3, BK_RET)
+        br_is_direct = br_kind_live == u(3, BK_DIRECT)
+        br_is_ind = br_kind_live == u(3, BK_IND)
+        br_is_icall = br_kind_live == u(3, BK_ICALL)
+
+        br_target = br_base_live + br_off_live
+        # Dynamic target for RET/IND/ICALL blocks comes from commit_tgt.
+        br_target = commit_tgt_live if (br_is_ret | br_is_ind | br_is_icall) else br_target
+        # Allow SETC.TGT to override fixed targets for DIRECT/CALL/COND blocks.
+        use_commit_tgt = (~(br_is_ret | br_is_ind | br_is_icall)) & (~(commit_tgt_live == consts.zero64))
+        br_target = commit_tgt_live if use_commit_tgt else br_target
+
+        br_take = (
+            br_is_call
+            | br_is_direct
+            | br_is_ind
+            | br_is_icall
+            | (br_is_cond & commit_cond_live)
+            | (br_is_ret & commit_cond_live)
+        )
+
+        fire = can_run & commit_allow & rob_valids[slot] & rob_dones[slot]
+
+        # Template macro blocks must reach the head of the ROB.
+        if slot != 0:
+            fire = fire & (~is_macro)
+
+        # Boundary-authoritative correction:
+        # BRU mismatch only records correction; redirect is consumed at boundary commit.
+        corr_epoch_match = br_corr_pending_live & (br_corr_epoch_live == br_epoch_live)
+        corr_for_boundary = fire & is_boundary & corr_epoch_match
+        br_take_eff = br_corr_take_live if corr_for_boundary else br_take
+        br_target_eff = br_corr_target_live if corr_for_boundary else br_target
+
+        pc_inc = pc_this + ln
+        boundary_fallthrough = pc_this if is_bstart_mid else pc_inc
+        pc_next = (br_target_eff if br_take_eff else boundary_fallthrough) if is_boundary else pc_inc
+
+        # Stop commit on redirect, store, or halt.
+        is_halt = op_is_any(m, op, OP_EBREAK, OP_INVALID)
+        # Mid-block BSTART must restart fetch at its own PC even when the
+        # previous block resolves not-taken; this mirrors QEMU block-end split.
+        redirect = fire & ((is_boundary & br_take_eff) | is_bstart_mid)
+        replay_redirect = (
+            fire
+            & rob_is_stores[slot]
+            & state_replay_pending
+            & (commit_idxs[slot] == state_replay_store_rob)
+        )
+        replay_redirect_fire = replay_redirect_fire | replay_redirect
+
+        # FRET.* behave like a taken boundary when the marker is entered.
+        is_fret = op_is_any(m, op, OP_FRET_RA, OP_FRET_STK)
+        fret_redirect = fire & is_fret & (~redirect)
+        pc_next = ret_ra_val if fret_redirect else pc_next
+        redirect = redirect | fret_redirect
+        pc_next = state_replay_pc if replay_redirect else pc_next
+        redirect = redirect | replay_redirect
+        commit_next_pcs.append(pc_next)
+
+        # Keep 1-store-per-cycle commit enqueue while allowing other younger
+        # non-store commits in the same cycle.
+        fire = fire & ((~rob_is_stores[slot]) | ((~commit_store_seen) & stbuf_has_space))
+        # Block-authoritative retirement gate:
+        bstop_gate_ok = (~is_bstop) | (~brob_active_allocated_i) | brob_active_ready_i | brob_active_exception_i
+        fire = fire & bstop_gate_ok
+        store_commit = fire & rob_is_stores[slot]
+        stop = redirect | (fire & is_halt)
+
+        commit_fires.append(fire)
+        commit_count = commit_count + fire
+
+        redirect_valid = redirect_valid | redirect
+        redirect_pc = pc_next if redirect else redirect_pc
+        redirect_ckpt_sel = br_corr_checkpoint_id_live if corr_for_boundary else rob_checkpoint_ids[slot]
+        redirect_checkpoint_id = redirect_ckpt_sel if redirect else redirect_checkpoint_id
+        redirect_from_corr = redirect_from_corr | (redirect & corr_for_boundary)
+
+        commit_store_seen = commit_store_seen | store_commit
+
+        bstart_commit = fire & is_bstart
+        block_uid_this = block_uid_ctr_live if bstart_commit else active_block_uid_live
+        block_bid_this = block_bid_ctr_live if bstart_commit else active_block_bid_live
+        commit_is_bstarts.append(bstart_commit)
+        bstop_commit = fire & is_bstop
+        commit_is_bstops.append(bstop_commit)
+        commit_block_uids.append(block_uid_this)
+        commit_block_bids.append(block_bid_this)
+        commit_core_ids.append(u(2, 0))
+        bstop_take = bstop_commit & (~brob_retire_fire)
+        brob_retire_fire = brob_retire_fire | bstop_take
+        brob_retire_bid = active_block_bid_live if bstop_take else brob_retire_bid
+        active_block_uid_live = block_uid_this if bstart_commit else active_block_uid_live
+        block_uid_ctr_live = (block_uid_ctr_live + u(64, 1)) if bstart_commit else block_uid_ctr_live
+        active_block_bid_live = block_bid_this if bstart_commit else active_block_bid_live
+        block_bid_ctr_live = (block_bid_ctr_live + u(64, 1)) if bstart_commit else block_bid_ctr_live
+        active_block_bid_live = consts.zero64 if (fire & is_bstop) else active_block_bid_live
+
+        # --- sequential architectural state updates across commit slots ---
+        op_setc_any = is_setc_any_op(m, op)
+        op_setc_tgt = is_setc_tgt_op(m, op)
+        commit_cond_live = consts.zero1 if (fire & is_boundary) else commit_cond_live
+        commit_tgt_live = consts.zero64 if (fire & is_boundary) else commit_tgt_live
+        commit_cond_live = val[0:1] if (fire & op_setc_any) else commit_cond_live
+        commit_tgt_live = val if (fire & op_setc_tgt) else commit_tgt_live
+        commit_cond_live = consts.one1 if (fire & op_setc_tgt) else commit_cond_live
+
+        br_kind_live = u(3, BK_FALL) if (fire & is_boundary & br_take_eff) else br_kind_live
+        br_base_live = pc_this if (fire & is_boundary & br_take_eff) else br_base_live
+        br_off_live = consts.zero64 if (fire & is_boundary & br_take_eff) else br_off_live
+        br_pred_take_live = consts.zero1 if (fire & is_boundary & br_take_eff) else br_pred_take_live
+
+        enter_new_block = fire & is_bstart & (~br_take_eff)
+        meta_off = rob_boundary_targets[slot] - pc_this
+        br_kind_live = rob_boundary_kinds[slot] if enter_new_block else br_kind_live
+        br_base_live = pc_this if enter_new_block else br_base_live
+        br_off_live = meta_off if enter_new_block else br_off_live
+        br_pred_take_live = rob_pred_takes[slot] if enter_new_block else br_pred_take_live
+
+        # Macro blocks are standalone fall-through blocks.
+        macro_enter = fire & is_macro & (~br_take_eff)
+        br_kind_live = u(3, BK_FALL) if macro_enter else br_kind_live
+        br_base_live = pc_this if macro_enter else br_base_live
+        br_off_live = consts.zero64 if macro_enter else br_off_live
+        br_pred_take_live = consts.zero1 if macro_enter else br_pred_take_live
+
+        br_kind_live = u(3, BK_FALL) if (fire & is_bstop) else br_kind_live
+        br_base_live = pc_this if (fire & is_bstop) else br_base_live
+        br_off_live = consts.zero64 if (fire & is_bstop) else br_off_live
+        br_pred_take_live = consts.zero1 if (fire & is_bstop) else br_pred_take_live
+
+        clear_corr_boundary = fire & is_boundary & corr_epoch_match
+        br_corr_pending_live = consts.zero1 if clear_corr_boundary else br_corr_pending_live
+
+        br_epoch_advance = fire & is_boundary
+        br_epoch_live = (br_epoch_live + u(16, 1)) if br_epoch_advance else br_epoch_live
+
+        # Track whether next committed instruction should be interpreted as the
+        # block head marker.
+        block_head_live = consts.one1 if (fire & (is_boundary | redirect)) else block_head_live
+        block_head_live = consts.zero1 if (fire & is_bstart_head) else block_head_live
+
+        pc_live = pc_next if fire else pc_live
+
+        commit_allow = commit_allow & fire & (~stop)
+
+    # Canonical retired-store selection from committed slots (oldest first).
+    store_sel_fire = consts.zero1
+    store_sel_addr = consts.zero64
+    store_sel_data = consts.zero64
+    store_sel_size = consts.zero4
+    for slot in range(commit_w):
+        slot_store = commit_fires[slot] & rob_is_stores[slot]
+        take = slot_store & (~store_sel_fire)
+        store_sel_fire = store_sel_fire | slot_store
+        store_sel_addr = rob_st_addrs[slot] if take else store_sel_addr
+        store_sel_data = rob_st_datas[slot] if take else store_sel_data
+        store_sel_size = rob_st_sizes[slot] if take else store_sel_size
+
+    m.output("commit_count", commit_count)
+    m.output("redirect_valid", redirect_valid)
+    m.output("redirect_pc", redirect_pc)
+    m.output("redirect_checkpoint_id", redirect_checkpoint_id)
+    m.output("redirect_from_corr", redirect_from_corr)
+    m.output("replay_redirect_fire", replay_redirect_fire)
+    m.output("commit_store_fire", store_sel_fire)
+    m.output("commit_store_addr", store_sel_addr)
+    m.output("commit_store_data", store_sel_data)
+    m.output("commit_store_size", store_sel_size)
+    m.output("brob_retire_fire", brob_retire_fire)
+    m.output("brob_retire_bid", brob_retire_bid)
+
+    m.output("pc_live", pc_live)
+    m.output("commit_cond_live", commit_cond_live)
+    m.output("commit_tgt_live", commit_tgt_live)
+    m.output("br_kind_live", br_kind_live)
+    m.output("br_epoch_live", br_epoch_live)
+    m.output("br_base_live", br_base_live)
+    m.output("br_off_live", br_off_live)
+    m.output("br_pred_take_live", br_pred_take_live)
+    m.output("active_block_uid_live", active_block_uid_live)
+    m.output("block_uid_ctr_live", block_uid_ctr_live)
+    m.output("active_block_bid_live", active_block_bid_live)
+    m.output("block_bid_ctr_live", block_bid_ctr_live)
+    m.output("block_head_live", block_head_live)
+    m.output("br_corr_pending_live", br_corr_pending_live)
+
+    for slot in range(commit_w):
+        m.output(f"commit_fire{slot}", commit_fires[slot])
+        m.output(f"commit_pc{slot}", commit_pcs[slot])
+        m.output(f"commit_next_pc{slot}", commit_next_pcs[slot])
+        m.output(f"commit_is_bstart{slot}", commit_is_bstarts[slot])
+        m.output(f"commit_is_bstop{slot}", commit_is_bstops[slot])
+        m.output(f"commit_block_uid{slot}", commit_block_uids[slot])
+        m.output(f"commit_block_bid{slot}", commit_block_bids[slot])
+        m.output(f"commit_core_id{slot}", commit_core_ids[slot])
 
 
 def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None) -> BccOooExports:
@@ -516,248 +906,106 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     ret_ra_tag = ren.cmap[10].out()
     ret_ra_val = mux_by_uindex(m, idx=ret_ra_tag, items=prf, default=consts.zero64)
 
-    commit_allow = consts.one1
-    commit_fires = []
-    commit_pcs = []
-    commit_next_pcs = []
-    commit_is_bstarts = []
-    commit_is_bstops = []
-    commit_block_uids = []
-    commit_block_bids = []
-    commit_core_ids = []
+    stbuf_has_space = stbuf_count.out().ult(c(p.sq_entries, width=p.sq_w + 1))
 
-    commit_count = c(0, width=3)
+    commit_sel_args = {
+        "can_run": can_run,
+        "stbuf_has_space": stbuf_has_space,
+        "ret_ra_val": ret_ra_val,
+        "brob_active_allocated_i": brob_active_allocated_i,
+        "brob_active_ready_i": brob_active_ready_i,
+        "brob_active_exception_i": brob_active_exception_i,
+        "state_pc": state.pc.out(),
+        "state_commit_cond": state.commit_cond.out(),
+        "state_commit_tgt": state.commit_tgt.out(),
+        "state_br_kind": state.br_kind.out(),
+        "state_br_epoch": state.br_epoch.out(),
+        "state_br_base_pc": state.br_base_pc.out(),
+        "state_br_off": state.br_off.out(),
+        "state_br_pred_take": state.br_pred_take.out(),
+        "state_active_block_uid": state.active_block_uid.out(),
+        "state_block_uid_ctr": state.block_uid_ctr.out(),
+        "state_active_block_bid": state.active_block_bid.out(),
+        "state_block_bid_ctr": state.block_bid_ctr.out(),
+        "state_block_head": state.block_head.out(),
+        "state_br_corr_pending": state.br_corr_pending.out(),
+        "state_br_corr_epoch": state.br_corr_epoch.out(),
+        "state_br_corr_take": state.br_corr_take.out(),
+        "state_br_corr_target": state.br_corr_target.out(),
+        "state_br_corr_checkpoint_id": state.br_corr_checkpoint_id.out(),
+        "state_replay_pending": state.replay_pending.out(),
+        "state_replay_store_rob": state.replay_store_rob.out(),
+        "state_replay_pc": state.replay_pc.out(),
+    }
+    for slot in range(p.commit_w):
+        commit_sel_args[f"commit_idx{slot}"] = commit_idxs[slot]
+        commit_sel_args[f"rob_pc{slot}"] = rob_pcs[slot]
+        commit_sel_args[f"rob_valid{slot}"] = rob_valids[slot]
+        commit_sel_args[f"rob_done{slot}"] = rob_dones[slot]
+        commit_sel_args[f"rob_op{slot}"] = rob_ops[slot]
+        commit_sel_args[f"rob_len{slot}"] = rob_lens[slot]
+        commit_sel_args[f"rob_value{slot}"] = rob_values[slot]
+        commit_sel_args[f"rob_is_store{slot}"] = rob_is_stores[slot]
+        commit_sel_args[f"rob_store_addr{slot}"] = rob_st_addrs[slot]
+        commit_sel_args[f"rob_store_data{slot}"] = rob_st_datas[slot]
+        commit_sel_args[f"rob_store_size{slot}"] = rob_st_sizes[slot]
+        commit_sel_args[f"rob_is_bstart{slot}"] = rob_is_bstarts[slot]
+        commit_sel_args[f"rob_is_bstop{slot}"] = rob_is_bstops[slot]
+        commit_sel_args[f"rob_boundary_kind{slot}"] = rob_boundary_kinds[slot]
+        commit_sel_args[f"rob_boundary_target{slot}"] = rob_boundary_targets[slot]
+        commit_sel_args[f"rob_pred_take{slot}"] = rob_pred_takes[slot]
+        commit_sel_args[f"rob_checkpoint_id{slot}"] = rob_checkpoint_ids[slot]
 
-    redirect_valid = consts.zero1
-    redirect_pc = state.pc.out()
-    redirect_checkpoint_id = c(0, width=6)
-    redirect_from_corr = consts.zero1
-    replay_redirect_fire = consts.zero1
+    commit_sel = m.instance_auto(
+        build_commit_select_stage,
+        name="commit_select_stage",
+        params={"commit_w": p.commit_w, "rob_w": p.rob_w},
+        **commit_sel_args,
+    )
 
-    commit_store_fire = consts.zero1
-    commit_store_addr = consts.zero64
-    commit_store_data = consts.zero64
-    commit_store_size = consts.zero4
-    commit_store_seen = consts.zero1
-    brob_retire_fire = consts.zero1
-    brob_retire_bid = consts.zero64
+    commit_fires = [commit_sel[f"commit_fire{slot}"] for slot in range(p.commit_w)]
+    commit_pcs = [commit_sel[f"commit_pc{slot}"] for slot in range(p.commit_w)]
+    commit_next_pcs = [commit_sel[f"commit_next_pc{slot}"] for slot in range(p.commit_w)]
+    commit_is_bstarts = [commit_sel[f"commit_is_bstart{slot}"] for slot in range(p.commit_w)]
+    commit_is_bstops = [commit_sel[f"commit_is_bstop{slot}"] for slot in range(p.commit_w)]
+    commit_block_uids = [commit_sel[f"commit_block_uid{slot}"] for slot in range(p.commit_w)]
+    commit_block_bids = [commit_sel[f"commit_block_bid{slot}"] for slot in range(p.commit_w)]
+    commit_core_ids = [commit_sel[f"commit_core_id{slot}"] for slot in range(p.commit_w)]
 
-    pc_live = state.pc.out()
-    commit_cond_live = state.commit_cond.out()
-    commit_tgt_live = state.commit_tgt.out()
-    br_kind_live = state.br_kind.out()
-    br_epoch_live = state.br_epoch.out()
-    br_base_live = state.br_base_pc.out()
-    br_off_live = state.br_off.out()
-    br_pred_take_live = state.br_pred_take.out()
-    active_block_uid_live = state.active_block_uid.out()
-    block_uid_ctr_live = state.block_uid_ctr.out()
-    active_block_bid_live = state.active_block_bid.out()
-    block_bid_ctr_live = state.block_bid_ctr.out()
-    lsid_issue_ptr_live = state.lsid_issue_ptr.out()
-    lsid_complete_ptr_live = state.lsid_complete_ptr.out()
-    block_head_live = state.block_head.out()
-    br_corr_pending_live = state.br_corr_pending.out()
+    commit_count = commit_sel["commit_count"]
+    redirect_valid = commit_sel["redirect_valid"]
+    redirect_pc = commit_sel["redirect_pc"]
+    redirect_checkpoint_id = commit_sel["redirect_checkpoint_id"]
+    redirect_from_corr = commit_sel["redirect_from_corr"]
+    replay_redirect_fire = commit_sel["replay_redirect_fire"]
+    commit_store_fire = commit_sel["commit_store_fire"]
+    commit_store_addr = commit_sel["commit_store_addr"]
+    commit_store_data = commit_sel["commit_store_data"]
+    commit_store_size = commit_sel["commit_store_size"]
+    brob_retire_fire = commit_sel["brob_retire_fire"]
+    brob_retire_bid = commit_sel["brob_retire_bid"]
+
+    pc_live = commit_sel["pc_live"]
+    commit_cond_live = commit_sel["commit_cond_live"]
+    commit_tgt_live = commit_sel["commit_tgt_live"]
+    br_kind_live = commit_sel["br_kind_live"]
+    br_epoch_live = commit_sel["br_epoch_live"]
+    br_base_live = commit_sel["br_base_live"]
+    br_off_live = commit_sel["br_off_live"]
+    br_pred_take_live = commit_sel["br_pred_take_live"]
+    active_block_uid_live = commit_sel["active_block_uid_live"]
+    block_uid_ctr_live = commit_sel["block_uid_ctr_live"]
+    active_block_bid_live = commit_sel["active_block_bid_live"]
+    block_bid_ctr_live = commit_sel["block_bid_ctr_live"]
+    block_head_live = commit_sel["block_head_live"]
+    br_corr_pending_live = commit_sel["br_corr_pending_live"]
     br_corr_epoch_live = state.br_corr_epoch.out()
     br_corr_take_live = state.br_corr_take.out()
     br_corr_target_live = state.br_corr_target.out()
     br_corr_checkpoint_id_live = state.br_corr_checkpoint_id.out()
 
-    for slot in range(p.commit_w):
-        # Use the ROB-captured instruction PC for commit/control-flow math.
-        # Deriving from `pc_live` can drift when hidden/internal retire events
-        # are present (e.g. macro template expansion), which can misalign fetch.
-        pc_this = rob_valids[slot]._select_internal(rob_pcs[slot], pc_live)
-        commit_pcs.append(pc_this)
-        op = rob_ops[slot]
-        ln = rob_lens[slot]
-        val = rob_values[slot]
-
-        is_macro = is_macro_op(op, op_is)
-        is_bstart = rob_is_bstarts[slot]
-        is_bstop = rob_is_bstops[slot]
-        is_bstart_head = is_bstart & block_head_live
-        is_bstart_mid = is_bstart & (~block_head_live)
-        is_start_marker = is_bstart_head | is_macro
-        is_boundary = is_bstart_mid | is_bstop | is_macro
-
-        br_is_fall = br_kind_live.__eq__(c(BK_FALL, width=3))
-        br_is_cond = br_kind_live.__eq__(c(BK_COND, width=3))
-        br_is_call = br_kind_live.__eq__(c(BK_CALL, width=3))
-        br_is_ret = br_kind_live.__eq__(c(BK_RET, width=3))
-        br_is_direct = br_kind_live.__eq__(c(BK_DIRECT, width=3))
-        br_is_ind = br_kind_live.__eq__(c(BK_IND, width=3))
-        br_is_icall = br_kind_live.__eq__(c(BK_ICALL, width=3))
-
-        br_target = br_base_live + br_off_live
-        # Dynamic target for RET/IND/ICALL blocks comes from commit_tgt.
-        br_target = (br_is_ret | br_is_ind | br_is_icall)._select_internal(commit_tgt_live, br_target)
-        # Allow SETC.TGT to override fixed targets for DIRECT/CALL/COND blocks.
-        br_target = (~(br_is_ret | br_is_ind | br_is_icall) & (~commit_tgt_live.__eq__(consts.zero64)))._select_internal(commit_tgt_live, br_target)
-
-        br_take = (
-            br_is_call
-            | br_is_direct
-            | br_is_ind
-            | br_is_icall
-            | (br_is_cond & commit_cond_live)
-            | (br_is_ret & commit_cond_live)
-        )
-
-        fire = can_run & commit_allow & rob_valids[slot] & rob_dones[slot]
-
-        # Template macro blocks (FENTRY/FEXIT/FRET.*) must reach the head of the
-        # ROB so the macro microcode engine can run before the macro commits.
-        # With commit_w>1, a macro could otherwise commit in the same cycle as
-        # an older non-macro (slot>0) and skip the required save/restore.
-        if slot != 0:
-            fire = fire & (~is_macro)
-
-        # Boundary-authoritative correction:
-        # BRU mismatch only records correction; redirect is consumed at boundary commit.
-        corr_epoch_match = br_corr_pending_live & br_corr_epoch_live.__eq__(br_epoch_live)
-        corr_for_boundary = fire & is_boundary & corr_epoch_match
-        br_take_eff = corr_for_boundary._select_internal(br_corr_take_live, br_take)
-        br_target_eff = corr_for_boundary._select_internal(br_corr_target_live, br_target)
-
-        pc_inc = pc_this + ln._zext(width=64)
-        boundary_fallthrough = is_bstart_mid._select_internal(pc_this, pc_inc)
-        pc_next = is_boundary._select_internal(br_take_eff._select_internal(br_target_eff, boundary_fallthrough), pc_inc)
-
-        # Stop commit on redirect, store, or halt.
-        is_halt = op_is(op, OP_EBREAK, OP_INVALID)
-        # Mid-block BSTART must restart fetch at its own PC even when the
-        # previous block resolves not-taken; this mirrors QEMU block-end split.
-        redirect = fire & ((is_boundary & br_take_eff) | is_bstart_mid)
-        replay_redirect = (
-            fire
-            & rob_is_stores[slot]
-            & state.replay_pending.out()
-            & commit_idxs[slot].__eq__(state.replay_store_rob.out())
-        )
-        replay_redirect_fire = replay_redirect._select_internal(consts.one1, replay_redirect_fire)
-
-        # FRET.* are explicit control-flow ops (return via RA). They behave like
-        # a taken boundary when the marker is entered (i.e., not skipped by a
-        # prior taken branch at this boundary).
-        is_fret = op_is(op, OP_FRET_RA, OP_FRET_STK)
-        fret_redirect = fire & is_fret & (~redirect)
-        pc_next = fret_redirect._select_internal(ret_ra_val, pc_next)
-        redirect = redirect | fret_redirect
-        pc_next = replay_redirect._select_internal(state.replay_pc.out(), pc_next)
-        redirect = redirect | replay_redirect
-        commit_next_pcs.append(pc_next)
-
-        stbuf_has_space = stbuf_count.out().ult(c(p.sq_entries, width=p.sq_w + 1))
-        # This milestone keeps a 1-store-per-cycle commit enqueue path while
-        # allowing other younger non-store commits in the same cycle.
-        fire = fire & ((~rob_is_stores[slot]) | ((~commit_store_seen) & stbuf_has_space))
-        # Block-authoritative retirement gate:
-        # BSTOP can retire only when the active block has no BROB work pending,
-        # or BROB marked the block ready/exception.
-        bstop_gate_ok = (~is_bstop) | (~brob_active_allocated_i) | brob_active_ready_i | brob_active_exception_i
-        fire = fire & bstop_gate_ok
-        store_commit = fire & rob_is_stores[slot]
-        stop = redirect | (fire & is_halt)
-
-        commit_fires.append(fire)
-        commit_count = commit_count + fire._zext(width=3)
-
-        redirect_valid = redirect._select_internal(consts.one1, redirect_valid)
-        redirect_pc = redirect._select_internal(pc_next, redirect_pc)
-        redirect_ckpt_sel = corr_for_boundary._select_internal(br_corr_checkpoint_id_live, rob_checkpoint_ids[slot])
-        redirect_checkpoint_id = redirect._select_internal(redirect_ckpt_sel, redirect_checkpoint_id)
-        redirect_from_corr = (redirect & corr_for_boundary)._select_internal(consts.one1, redirect_from_corr)
-
-        commit_store_fire = store_commit._select_internal(consts.one1, commit_store_fire)
-        commit_store_addr = store_commit._select_internal(rob_st_addrs[slot], commit_store_addr)
-        commit_store_data = store_commit._select_internal(rob_st_datas[slot], commit_store_data)
-        commit_store_size = store_commit._select_internal(rob_st_sizes[slot], commit_store_size)
-        commit_store_seen = store_commit._select_internal(consts.one1, commit_store_seen)
-        bstart_commit = fire & is_bstart
-        block_uid_this = bstart_commit._select_internal(block_uid_ctr_live, active_block_uid_live)
-        block_bid_this = bstart_commit._select_internal(block_bid_ctr_live, active_block_bid_live)
-        commit_is_bstarts.append(bstart_commit)
-        bstop_commit = fire & is_bstop
-        commit_is_bstops.append(bstop_commit)
-        commit_block_uids.append(block_uid_this)
-        commit_block_bids.append(block_bid_this)
-        commit_core_ids.append(c(0, width=2))
-        bstop_take = bstop_commit & (~brob_retire_fire)
-        brob_retire_fire = bstop_take._select_internal(consts.one1, brob_retire_fire)
-        brob_retire_bid = bstop_take._select_internal(active_block_bid_live, brob_retire_bid)
-        active_block_uid_live = bstart_commit._select_internal(block_uid_this, active_block_uid_live)
-        block_uid_ctr_live = bstart_commit._select_internal(block_uid_ctr_live + c(1, width=64), block_uid_ctr_live)
-        active_block_bid_live = bstart_commit._select_internal(block_bid_this, active_block_bid_live)
-        block_bid_ctr_live = bstart_commit._select_internal(block_bid_ctr_live + c(1, width=64), block_bid_ctr_live)
-        active_block_bid_live = (fire & is_bstop)._select_internal(consts.zero64, active_block_bid_live)
-
-        # --- sequential architectural state updates across commit slots ---
-        op_setc_any = is_setc_any(op, op_is)
-        op_setc_tgt = is_setc_tgt(op, op_is)
-        commit_cond_live = (fire & is_boundary)._select_internal(consts.zero1, commit_cond_live)
-        commit_tgt_live = (fire & is_boundary)._select_internal(consts.zero64, commit_tgt_live)
-        commit_cond_live = (fire & op_setc_any)._select_internal(val._trunc(width=1), commit_cond_live)
-        commit_tgt_live = (fire & op_setc_tgt)._select_internal(val, commit_tgt_live)
-        commit_cond_live = (fire & op_setc_tgt)._select_internal(consts.one1, commit_cond_live)
-
-        br_kind_live = (fire & is_boundary & br_take_eff)._select_internal(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = (fire & is_boundary & br_take_eff)._select_internal(pc_this, br_base_live)
-        br_off_live = (fire & is_boundary & br_take_eff)._select_internal(consts.zero64, br_off_live)
-        br_pred_take_live = (fire & is_boundary & br_take_eff)._select_internal(consts.zero1, br_pred_take_live)
-
-        enter_new_block = fire & is_bstart & (~br_take_eff)
-        meta_off = rob_boundary_targets[slot] - pc_this
-        br_kind_live = enter_new_block._select_internal(rob_boundary_kinds[slot], br_kind_live)
-        br_base_live = enter_new_block._select_internal(pc_this, br_base_live)
-        br_off_live = enter_new_block._select_internal(meta_off, br_off_live)
-        br_pred_take_live = enter_new_block._select_internal(rob_pred_takes[slot], br_pred_take_live)
-
-        # Macro blocks (FENTRY/FEXIT/FRET.*) are standalone fall-through blocks.
-        macro_enter = fire & is_macro & (~br_take_eff)
-        br_kind_live = macro_enter._select_internal(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = macro_enter._select_internal(pc_this, br_base_live)
-        br_off_live = macro_enter._select_internal(consts.zero64, br_off_live)
-        br_pred_take_live = macro_enter._select_internal(consts.zero1, br_pred_take_live)
-
-        br_kind_live = (fire & is_bstop)._select_internal(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = (fire & is_bstop)._select_internal(pc_this, br_base_live)
-        br_off_live = (fire & is_bstop)._select_internal(consts.zero64, br_off_live)
-        br_pred_take_live = (fire & is_bstop)._select_internal(consts.zero1, br_pred_take_live)
-
-        clear_corr_boundary = fire & is_boundary & corr_epoch_match
-        br_corr_pending_live = clear_corr_boundary._select_internal(consts.zero1, br_corr_pending_live)
-
-        br_epoch_advance = fire & is_boundary
-        br_epoch_live = br_epoch_advance._select_internal(br_epoch_live + c(1, width=16), br_epoch_live)
-
-        # Track whether next committed instruction should be interpreted as the
-        # block head marker.
-        block_head_live = (fire & (is_boundary | redirect))._select_internal(consts.one1, block_head_live)
-        block_head_live = (fire & is_bstart_head)._select_internal(consts.zero1, block_head_live)
-
-        pc_live = fire._select_internal(pc_next, pc_live)
-
-        commit_allow = commit_allow & fire & (~stop)
-
-    # Canonical retired-store selection from committed slots (oldest first).
-    # This is the single source used for memory side effects and same-cycle
-    # forwarding to keep side effects aligned with retire trace semantics.
-    store_sel_fire = consts.zero1
-    store_sel_addr = consts.zero64
-    store_sel_data = consts.zero64
-    store_sel_size = consts.zero4
-    for slot in range(p.commit_w):
-        slot_store = commit_fires[slot] & rob_is_stores[slot]
-        take = slot_store & (~store_sel_fire)
-        store_sel_fire = slot_store._select_internal(consts.one1, store_sel_fire)
-        store_sel_addr = take._select_internal(rob_st_addrs[slot], store_sel_addr)
-        store_sel_data = take._select_internal(rob_st_datas[slot], store_sel_data)
-        store_sel_size = take._select_internal(rob_st_sizes[slot], store_sel_size)
-    commit_store_fire = store_sel_fire
-    commit_store_addr = store_sel_addr
-    commit_store_data = store_sel_data
-    commit_store_size = store_sel_size
+    lsid_issue_ptr_live = state.lsid_issue_ptr.out()
+    lsid_complete_ptr_live = state.lsid_complete_ptr.out()
 
     commit_fire = commit_fires[0]
     commit_redirect = redirect_valid
