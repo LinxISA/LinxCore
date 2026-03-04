@@ -173,6 +173,9 @@ def build_rob_bank_top(
     rob_is_store_view = [u(1, 0) for _ in range(rob_depth)]
     rob_store_addr_view = [u(64, 0) for _ in range(rob_depth)]
     rob_store_data_view = [u(64, 0) for _ in range(rob_depth)]
+    rob_is_load_view = [u(1, 0) for _ in range(rob_depth)]
+    rob_load_addr_view = [u(64, 0) for _ in range(rob_depth)]
+    rob_pc_view = [u(64, 0) for _ in range(rob_depth)]
 
     for sid in range(slices):
         base = u(rob_w, sid * slice_entries)
@@ -293,6 +296,9 @@ def build_rob_bank_top(
             rob_is_store_view[gi] = is_store_g
             rob_store_addr_view[gi] = store_addr_g
             rob_store_data_view[gi] = store_data_g
+            rob_is_load_view[gi] = sl[f"is_load{j}"]
+            rob_load_addr_view[gi] = sl[f"load_addr{j}"]
+            rob_pc_view[gi] = sl[f"pc{j}"]
 
     # LSU store disambiguation/forwarding against ROB in-flight stores (bring-up).
     lsu_load_dist = lsu_probe_rob + lsu_probe_sub_head
@@ -318,3 +324,51 @@ def build_rob_bank_top(
     m.output("lsu_older_store_pending_lane0", lsu_older_store_pending)
     m.output("lsu_forward_hit_lane0", lsu_forward_hit)
     m.output("lsu_forward_data_lane0", lsu_forward_data)
+
+    # LSU load-store violation detection: if an older store resolves to the same
+    # address as a younger already-executed load, request replay from that load PC.
+    #
+    # Keep this in the ROB hierarchy (not backend glue) so we can scale compile
+    # and event-driven C++ simulation as ROB/LSU logic grows.
+    lsu_violation_any = u(1, 0)
+    lsu_violation_store_rob = u(rob_w, 0)
+    lsu_violation_pc = u(64, 0)
+    for slot in range(issue_w):
+        st_fire = store_fires[slot]
+        st_rob = wb_robs[slot]
+        st_addr = ex_addrs[slot]
+        st_dist = st_rob + lsu_probe_sub_head
+
+        hit = u(1, 0)
+        hit_pc = u(64, 0)
+        # Use an (rob_w+1)-wide sentinel so the first candidate can always win,
+        # even when its rob_w-wide dist is all-ones.
+        hit_age = u(rob_w + 1, 1 << rob_w)
+        for i in range(int(rob_depth)):
+            idx = u(rob_w, i)
+            dist = idx + lsu_probe_sub_head
+            dist_ext = u(rob_w + 1, 0) + dist
+            younger = unsigned(st_dist) < unsigned(dist)
+            ld_done = rob_valid_view[i] & rob_done_view[i] & rob_is_load_view[i]
+            addr_match = rob_load_addr_view[i] == st_addr
+            cand = st_fire & ld_done & younger & addr_match
+            better = unsigned(dist_ext) < hit_age
+            take = cand & better
+
+            hit = u(1, 1) if take else hit
+            hit_age = dist_ext if take else hit_age
+            hit_pc = rob_pc_view[i] if take else hit_pc
+
+        if slot == 0:
+            lsu_violation_any = hit
+            lsu_violation_store_rob = st_rob if hit else lsu_violation_store_rob
+            lsu_violation_pc = hit_pc if hit else lsu_violation_pc
+        else:
+            take_slot = hit & (~lsu_violation_any)
+            lsu_violation_any = u(1, 1) if take_slot else lsu_violation_any
+            lsu_violation_store_rob = st_rob if take_slot else lsu_violation_store_rob
+            lsu_violation_pc = hit_pc if take_slot else lsu_violation_pc
+
+    m.output("lsu_violation_hit", lsu_violation_any)
+    m.output("lsu_violation_store_rob", lsu_violation_store_rob)
+    m.output("lsu_violation_pc", lsu_violation_pc)

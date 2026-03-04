@@ -1566,35 +1566,20 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         bru_fault_set = bru_mismatch & bru_target_known & (~bru_target_is_bstart)
         bru_fault_rob = bru_rob
 
-    # LSU violation detection: if an older store resolves to the same address
-    # as a younger already-executed load, request replay from that load PC.
-    for slot in range(p.issue_w):
-        st_fire = store_fires[slot]
-        st_rob = wb_robs[slot]
-        st_addr = exs[slot].addr
-        st_dist = st_rob + sub_head
+    # LSU violation detection (owned by ROB bank hierarchy): if an older store
+    # resolves to the same address as a younger already-executed load, request
+    # replay from that load PC.
+    lsu_violation_hit = rob_bank["lsu_violation_hit"]
+    lsu_violation_store_rob = rob_bank["lsu_violation_store_rob"]
+    lsu_violation_pc = rob_bank["lsu_violation_pc"]
 
-        hit = consts.zero1
-        hit_pc = consts.zero64
-        hit_age = c((1 << p.rob_w) - 1, width=p.rob_w)
-        for i in range(p.rob_depth):
-            idx = c(i, width=p.rob_w)
-            dist = idx + sub_head
-            younger = st_dist.ult(dist)
-            ld_done = rob.valid[i].out() & rob.done[i].out() & rob.is_load[i].out()
-            addr_match = rob.load_addr[i].out().__eq__(st_addr)
-            cand = st_fire & ld_done & younger & addr_match
-            better = (~hit) | dist.ult(hit_age)
-            take = cand & better
-            hit = take._select_internal(consts.one1, hit)
-            hit_age = take._select_internal(dist, hit_age)
-            hit_pc = take._select_internal(rob.pc[i].out(), hit_pc)
-
-        set_this = hit & (~state.replay_pending.out()) & (~replay_set)
-        replay_set = set_this._select_internal(consts.one1, replay_set)
-        replay_set_store_rob = set_this._select_internal(st_rob, replay_set_store_rob)
-        replay_set_pc = set_this._select_internal(hit_pc, replay_set_pc)
-
+    set_this = lsu_violation_hit & (~state.replay_pending.out()) & (~replay_set)
+    # NOTE: this engine is still evaluated via Python during JIT compilation
+    # (via a call from LinxCoreBackend). Avoid Python boolean conditionals on
+    # wires; use explicit mux ops.
+    replay_set = set_this._select_internal(consts.one1, replay_set)
+    replay_set_store_rob = set_this._select_internal(lsu_violation_store_rob, replay_set_store_rob)
+    replay_set_pc = set_this._select_internal(lsu_violation_pc, replay_set_pc)
     lsu_violation_detected = replay_set
 
     # --- dispatch decode stage ---
