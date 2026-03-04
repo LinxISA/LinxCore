@@ -25,22 +25,20 @@
       "m.const": 3
     },
     "src/bcc/backend/engine.py": {
-      ".__eq__(": 62,
-      "._select_internal(": 437,
+      ".__eq__(": 34,
+      "._select_internal(": 145,
       "._sext(": 7,
-      "._trunc(": 14,
-      "._zext(": 9,
+      "._trunc(": 11,
+      "._zext(": 7,
       "m.const": 1
     },
     "src/bcc/backend/helpers.py": {
-      ".__eq__(": 3,
-      "._select_internal(": 6,
-      "m.const": 4
+      "._select_internal(": 4
     },
     "src/bcc/backend/issue.py": {
-      ".__eq__(": 6,
+      ".__eq__(": 3,
       "._select_internal(": 20,
-      "m.const": 5
+      "m.const": 3
     },
     "src/bcc/backend/lsu.py": {
       ".__eq__(": 4,
@@ -48,9 +46,9 @@
       "m.const": 1
     },
     "src/bcc/backend/rename.py": {
-      ".__eq__(": 17,
-      "._select_internal(": 32,
-      "m.const": 5
+      ".__eq__(": 13,
+      "._select_internal(": 31,
+      "m.const": 4
     },
     "src/bcc/backend/rob.py": {
       ".__eq__(": 24,
@@ -91,7 +89,7 @@
     },
     "src/bcc/bctrl/brob.py": {
       ".__eq__(": 5,
-      "._select_internal(": 28,
+      "._select_internal(": 22,
       "m.const": 1
     },
     "src/bcc/block_struct/brob_rtl.py": {
@@ -269,27 +267,12 @@
       "._trunc(": 3,
       "m.const": 1
     },
-    "src/cube/cube.py": {
-      ".__eq__(": 1,
-      "._select_internal(": 7,
-      "m.const": 1
-    },
     "src/mem/byte_mem_2r1w.py": {
       "._select_internal(": 3,
       "m.const": 1
     },
     "src/mem/mem2r1w.py": {
       "._select_internal(": 4,
-      "m.const": 1
-    },
-    "src/tau/tau.py": {
-      ".__eq__(": 1,
-      "._select_internal(": 7,
-      "m.const": 1
-    },
-    "src/tma/tma.py": {
-      ".__eq__(": 1,
-      "._select_internal(": 7,
       "m.const": 1
     },
     "src/tmu/noc/node.py": {
@@ -305,13 +288,8 @@
       "m.const": 1
     },
     "src/top/top.py": {
-      ".__eq__(": 9,
-      "._select_internal(": 52,
-      "m.const": 1
-    },
-    "src/vec/vec.py": {
-      ".__eq__(": 1,
-      "._select_internal(": 7,
+      ".__eq__(": 8,
+      "._select_internal(": 46,
       "m.const": 1
     }
   },
