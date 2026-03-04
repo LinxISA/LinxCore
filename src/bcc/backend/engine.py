@@ -12,7 +12,6 @@ from pycircuit import Circuit, function, module, u
 from pycircuit.dsl import Signal
 
 from common.exec_uop import ExecOut, build_linxcore_exec_uop_comb
-from .template_uop_encoding import map_template_child_encoding
 from common.isa import (
     OP_BIOR,
     OP_BLOAD,
@@ -113,6 +112,8 @@ from .state import make_core_ctrl_regs, make_iq_regs, make_prf, make_rename_regs
 from .wakeup import build_head_wait_stage, compose_replay_cause, compose_wakeup_reason
 from .modules.rob_bank import build_rob_bank_top
 from .modules.commit_trace_stage import build_commit_trace_stage
+from .modules.macro_trace_prep_stage import build_macro_trace_prep_stage
+from .modules.pcbuf_stage import build_pcbuf_stage
 from .modules.stbuf_stage import build_stbuf_stage
 
 
@@ -777,24 +778,13 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     mmio_exit_code = stbuf_stage["mmio_exit_code"]
     macro_load_data = stbuf_stage["macro_load_data"]
 
-    # --- frontend BSTART metadata buffer (PC buffer equivalent) ---
-    pcb_depth = p.rob_depth
-    pcb_w = p.rob_w
-    with m.scope("pcbuf"):
-        pcb_tail = m.out("tail", clk=clk, rst=rst, width=pcb_w, init=c(0, width=pcb_w), en=consts.one1)
-        pcb_valid = []
-        pcb_pc = []
-        pcb_kind = []
-        pcb_target = []
-        pcb_pred_take = []
-        pcb_is_bstart = []
-        for i in range(pcb_depth):
-            pcb_valid.append(m.out(f"v{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
-            pcb_pc.append(m.out(f"pc{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
-            pcb_kind.append(m.out(f"k{i}", clk=clk, rst=rst, width=3, init=c(BK_FALL, width=3), en=consts.one1))
-            pcb_target.append(m.out(f"t{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
-            pcb_pred_take.append(m.out(f"p{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
-            pcb_is_bstart.append(m.out(f"b{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
+    # --- frontend BSTART metadata buffer (PC buffer equivalent, forced hierarchy) ---
+    pcbuf_wr_valid_i = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    pcbuf_wr_pc_i = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    pcbuf_wr_kind_i = [m.new_wire(width=3) for _ in range(p.dispatch_w)]
+    pcbuf_wr_target_i = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    pcbuf_wr_pred_take_i = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    pcbuf_wr_is_bstart_i = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
 
     # --- commit selection (up to commit_w, stop on redirect/store/halt) ---
     commit_idxs = []
@@ -1500,6 +1490,14 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     bru_actual_take_dbg = consts.zero1
     bru_pred_take_dbg = state.br_pred_take.out()
     bru_boundary_pc_dbg = state.br_base_pc.out()
+    bru_target = consts.zero64
+    bru_fire = consts.zero1
+    bru_op = c(0, width=12)
+    bru_rob = c(0, width=p.rob_w)
+    bru_epoch = c(0, width=16)
+    bru_checkpoint = c(0, width=6)
+    bru_actual_take = consts.zero1
+    bru_is_setc_cond = consts.zero1
     if p.bru_w > 0:
         bru_slot = p.lsu_w
         bru_fire = issue_fires_eff[bru_slot]
@@ -1516,13 +1514,29 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         bru_target = state.br_base_pc.out() + state.br_off.out()
         bru_target = state.br_kind.out().__eq__(c(BK_RET, width=3))._select_internal(state.commit_tgt.out(), bru_target)
 
-        bru_target_known = consts.zero1
-        bru_target_is_bstart = consts.zero1
-        for i in range(pcb_depth):
-            pc_hit = pcb_valid[i].out() & pcb_pc[i].out().__eq__(bru_target)
-            hit = pc_hit & pcb_is_bstart[i].out()
-            bru_target_known = pc_hit._select_internal(consts.one1, bru_target_known)
-            bru_target_is_bstart = hit._select_internal(consts.one1, bru_target_is_bstart)
+    pcbuf_args = {
+        "clk": clk,
+        "rst": rst,
+        "lookup_pc_i": bru_target,
+    }
+    for slot in range(p.dispatch_w):
+        pcbuf_args[f"wr_valid{slot}"] = pcbuf_wr_valid_i[slot]
+        pcbuf_args[f"wr_pc{slot}"] = pcbuf_wr_pc_i[slot]
+        pcbuf_args[f"wr_kind{slot}"] = pcbuf_wr_kind_i[slot]
+        pcbuf_args[f"wr_target{slot}"] = pcbuf_wr_target_i[slot]
+        pcbuf_args[f"wr_pred_take{slot}"] = pcbuf_wr_pred_take_i[slot]
+        pcbuf_args[f"wr_is_bstart{slot}"] = pcbuf_wr_is_bstart_i[slot]
+    pcbuf_stage = m.instance_auto(
+        build_pcbuf_stage,
+        name="pcbuf_stage",
+        module_name="LinxCorePcBufStage",
+        params={"depth": p.rob_depth, "idx_w": p.rob_w, "dispatch_w": p.dispatch_w},
+        **pcbuf_args,
+    )
+    bru_target_known = pcbuf_stage["lookup_hit"]
+    bru_target_is_bstart = pcbuf_stage["lookup_is_bstart"]
+
+    if p.bru_w > 0:
         bru_validate_en = (
             (state.br_kind.out().__eq__(c(BK_COND, width=3)) | state.br_kind.out().__eq__(c(BK_RET, width=3)))
             & bru_target_known
@@ -1645,46 +1659,15 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     dec_op = decode_stage["dec_op"]
     disp_count = decode_stage["dispatch_count"]
 
-    # Frontend-decoded BSTART metadata capture (PC buffer equivalent).
-    pcb_wr_valids = []
-    pcb_wr_idxs = []
-    pcb_wr_pcs = []
-    pcb_wr_kinds = []
-    pcb_wr_targets = []
-    pcb_wr_preds = []
-    pcb_tail_tmp = pcb_tail.out()
+    # Frontend-decoded BSTART metadata capture (pcbuf hierarchy inputs).
     for slot in range(p.dispatch_w):
         wr = f4_valid_i & disp_valids[slot] & disp_is_bstart[slot]
-        pcb_wr_valids.append(wr)
-        pcb_wr_idxs.append(pcb_tail_tmp)
-        pcb_wr_pcs.append(disp_pcs[slot])
-        pcb_wr_kinds.append(disp_boundary_kind[slot])
-        pcb_wr_targets.append(disp_boundary_target[slot])
-        pcb_wr_preds.append(disp_pred_take[slot])
-        pcb_tail_tmp = wr._select_internal(pcb_tail_tmp + c(1, width=pcb_w), pcb_tail_tmp)
-    pcb_tail.set(pcb_tail_tmp)
-    for i in range(pcb_depth):
-        idx = c(i, width=pcb_w)
-        v_next = pcb_valid[i].out()
-        pc_next = pcb_pc[i].out()
-        kind_next = pcb_kind[i].out()
-        tgt_next = pcb_target[i].out()
-        pred_next = pcb_pred_take[i].out()
-        isb_next = pcb_is_bstart[i].out()
-        for slot in range(p.dispatch_w):
-            hit = pcb_wr_valids[slot] & pcb_wr_idxs[slot].__eq__(idx)
-            v_next = hit._select_internal(consts.one1, v_next)
-            pc_next = hit._select_internal(pcb_wr_pcs[slot], pc_next)
-            kind_next = hit._select_internal(pcb_wr_kinds[slot], kind_next)
-            tgt_next = hit._select_internal(pcb_wr_targets[slot], tgt_next)
-            pred_next = hit._select_internal(pcb_wr_preds[slot], pred_next)
-            isb_next = hit._select_internal(consts.one1, isb_next)
-        pcb_valid[i].set(v_next)
-        pcb_pc[i].set(pc_next)
-        pcb_kind[i].set(kind_next)
-        pcb_target[i].set(tgt_next)
-        pcb_pred_take[i].set(pred_next)
-        pcb_is_bstart[i].set(isb_next)
+        m.assign(pcbuf_wr_valid_i[slot], wr)
+        m.assign(pcbuf_wr_pc_i[slot], disp_pcs[slot])
+        m.assign(pcbuf_wr_kind_i[slot], disp_boundary_kind[slot])
+        m.assign(pcbuf_wr_target_i[slot], disp_boundary_target[slot])
+        m.assign(pcbuf_wr_pred_take_i[slot], disp_pred_take[slot])
+        m.assign(pcbuf_wr_is_bstart_i[slot], consts.one1)
 
     dispatch_stage_args = {
         "can_run": can_run,
@@ -2338,78 +2321,65 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     # Template blocks (FENTRY/FEXIT/FRET.*) are traced as restartable
     # per-step retire events to match QEMU commit semantics exactly.
     # The internal macro ROB commit is hidden from the trace stream.
-    macro_trace_fire = macro_uop_valid
-    macro_adj_nonzero = ~macro_frame_adj.__eq__(consts.zero64)
-    macro_trace_pc = state.pc.out()
-    macro_trace_seq_pc = macro_trace_pc + head_len._zext(width=64)
-    macro_enc = map_template_child_encoding(
-        m,
-        macro_op=macro_op,
-        macro_insn_raw=head_insn_raw,
-        uop_is_sp_sub=macro_uop_is_sp_sub,
-        uop_is_sp_add=macro_uop_is_sp_add,
-        uop_is_store=macro_uop_is_store,
-        uop_is_load=macro_uop_is_load,
-        uop_is_setc_tgt=macro_uop_is_setc_tgt,
+    macro_trace_prep = m.instance_auto(
+        build_macro_trace_prep_stage,
+        name="macro_trace_prep_stage",
+        module_name="LinxCoreMacroTracePrepStage",
+        params={"rob_w": p.rob_w},
+        pc_i=state.pc.out(),
+        rob_head_i=rob.head.out(),
+        head_len_i=head_len,
+        head_value_i=head_value,
+        head_insn_raw_i=head_insn_raw,
+        macro_op_i=macro_op,
+        macro_uop_valid_i=macro_uop_valid,
+        macro_stacksize_i=macro_stacksize,
+        macro_frame_adj_i=macro_frame_adj,
+        macro_reg_write_i=macro_reg_write,
+        macro_uop_reg_i=macro_uop_reg,
+        macro_uop_addr_i=macro_uop_addr,
+        macro_uop_is_sp_sub_i=macro_uop_is_sp_sub,
+        macro_uop_is_sp_add_i=macro_uop_is_sp_add,
+        macro_uop_is_store_i=macro_uop_is_store,
+        macro_uop_is_load_i=macro_uop_is_load,
+        macro_uop_is_setc_tgt_i=macro_uop_is_setc_tgt,
+        macro_reg_is_gpr_i=macro_reg_is_gpr,
+        macro_reg_not_zero_i=macro_reg_not_zero,
+        macro_store_fire_i=macro_store_fire,
+        macro_store_data_i=macro_store_data,
+        macro_load_data_eff_i=macro_load_data_eff,
+        macro_sp_val_i=macro_sp_val,
+        step_done_i=step_done,
+        commit_tgt_live_i=commit_tgt_live,
     )
-    macro_trace_op = macro_enc["op"]
-    macro_trace_val = head_value
-    macro_trace_rob = rob.head.out()
-    macro_trace_len = head_len
-    macro_trace_insn = head_insn_raw
-
-    macro_trace_wb_load = macro_reg_write
-    macro_trace_wb_sp_sub = macro_uop_is_sp_sub & macro_adj_nonzero
-    macro_trace_wb_sp_add = macro_uop_is_sp_add & macro_adj_nonzero
-    macro_trace_wb_valid = macro_trace_fire & (macro_trace_wb_load | macro_trace_wb_sp_sub | macro_trace_wb_sp_add)
-    macro_trace_wb_rd = c(0, width=6)
-    macro_trace_wb_rd = macro_trace_wb_load._select_internal(macro_uop_reg, macro_trace_wb_rd)
-    macro_trace_wb_rd = (macro_trace_wb_sp_sub | macro_trace_wb_sp_add)._select_internal(c(1, width=6), macro_trace_wb_rd)
-    macro_trace_wb_data = consts.zero64
-    macro_trace_wb_data = macro_trace_wb_load._select_internal(macro_load_data_eff, macro_trace_wb_data)
-    macro_trace_wb_data = macro_trace_wb_sp_add._select_internal(macro_sp_val + macro_frame_adj, macro_trace_wb_data)
-    macro_trace_wb_data = macro_trace_wb_sp_sub._select_internal(macro_sp_val - macro_frame_adj, macro_trace_wb_data)
-
-    macro_trace_mem_store = macro_store_fire
-    macro_trace_mem_load = macro_uop_is_load & macro_reg_is_gpr & macro_reg_not_zero
-    macro_trace_mem_valid = macro_trace_fire & (macro_trace_mem_store | macro_trace_mem_load)
-    macro_trace_mem_is_store = macro_trace_fire & macro_trace_mem_store
-    macro_trace_mem_addr = macro_uop_addr
-    macro_trace_mem_wdata = macro_trace_mem_store._select_internal(macro_store_data, consts.zero64)
-    macro_trace_mem_rdata = macro_trace_mem_load._select_internal(macro_load_data_eff, consts.zero64)
-    macro_trace_mem_size = macro_trace_mem_valid._select_internal(c(8, width=4), consts.zero4)
-    macro_trace_src0_valid = macro_trace_fire & (macro_uop_is_sp_sub | macro_uop_is_sp_add | macro_store_fire | macro_uop_is_load)
-    macro_trace_src0_reg = c(1, width=6)
-    macro_trace_src0_reg = macro_store_fire._select_internal(macro_uop_reg, macro_trace_src0_reg)
-    macro_trace_src0_data = macro_sp_val
-    macro_trace_src0_data = macro_store_fire._select_internal(macro_store_data, macro_trace_src0_data)
-    macro_trace_src1_valid = consts.zero1
-    macro_trace_src1_reg = c(0, width=6)
-    macro_trace_src1_data = consts.zero64
-    macro_trace_dst_valid = macro_trace_wb_valid
-    macro_trace_dst_reg = macro_trace_wb_rd
-    macro_trace_dst_data = macro_trace_wb_data
-
-    macro_trace_is_fentry = macro_op.__eq__(c(OP_FENTRY, width=12))
-    macro_trace_is_fexit = macro_op.__eq__(c(OP_FEXIT, width=12))
-    macro_trace_is_fret = op_is(macro_op, OP_FRET_RA, OP_FRET_STK)
-    macro_trace_done_fentry = (macro_uop_is_sp_sub & macro_stacksize.__eq__(consts.zero64)) | (macro_uop_is_store & step_done)
-    macro_trace_done_fexit = macro_uop_is_load & step_done & macro_trace_is_fexit
-    macro_trace_done_fret = macro_uop_is_load & step_done & macro_trace_is_fret
-    macro_trace_next_pc = macro_trace_pc
-    macro_trace_next_pc = macro_trace_done_fentry._select_internal(macro_trace_seq_pc, macro_trace_next_pc)
-    macro_trace_next_pc = macro_trace_done_fexit._select_internal(macro_trace_seq_pc, macro_trace_next_pc)
-    macro_trace_next_pc = macro_trace_done_fret._select_internal(commit_tgt_live, macro_trace_next_pc)
-    # QEMU commit-trace emits a side-effect-free template marker before the
-    # first architecturally visible FRET template micro-op.
-    macro_shadow_fire = macro_trace_fire & (
-        (macro_is_fret_stk & macro_uop_is_sp_add) |
-        (macro_is_fret_ra & macro_uop_is_setc_tgt)
-    )
-    # For FRET.STK, the SP adjust is an internal effect (QEMU does not expose it
-    # as a separate retire record). Keep only the shadow marker and let the
-    # first visible step be the RA-restore load (which also redirects).
-    macro_shadow_emit_uop = macro_shadow_fire & (~(macro_is_fret_stk & macro_uop_is_sp_add))
+    macro_trace_fire = macro_trace_prep["macro_trace_fire"]
+    macro_trace_pc = macro_trace_prep["macro_trace_pc"]
+    macro_trace_rob = macro_trace_prep["macro_trace_rob"]
+    macro_trace_op = macro_trace_prep["macro_trace_op"]
+    macro_trace_val = macro_trace_prep["macro_trace_val"]
+    macro_trace_len = macro_trace_prep["macro_trace_len"]
+    macro_trace_insn = macro_trace_prep["macro_trace_insn_raw"]
+    macro_trace_wb_valid = macro_trace_prep["macro_trace_wb_valid"]
+    macro_trace_wb_rd = macro_trace_prep["macro_trace_wb_rd"]
+    macro_trace_wb_data = macro_trace_prep["macro_trace_wb_data"]
+    macro_trace_src0_valid = macro_trace_prep["macro_trace_src0_valid"]
+    macro_trace_src0_reg = macro_trace_prep["macro_trace_src0_reg"]
+    macro_trace_src0_data = macro_trace_prep["macro_trace_src0_data"]
+    macro_trace_src1_valid = macro_trace_prep["macro_trace_src1_valid"]
+    macro_trace_src1_reg = macro_trace_prep["macro_trace_src1_reg"]
+    macro_trace_src1_data = macro_trace_prep["macro_trace_src1_data"]
+    macro_trace_dst_valid = macro_trace_prep["macro_trace_dst_valid"]
+    macro_trace_dst_reg = macro_trace_prep["macro_trace_dst_reg"]
+    macro_trace_dst_data = macro_trace_prep["macro_trace_dst_data"]
+    macro_trace_mem_valid = macro_trace_prep["macro_trace_mem_valid"]
+    macro_trace_mem_is_store = macro_trace_prep["macro_trace_mem_is_store"]
+    macro_trace_mem_addr = macro_trace_prep["macro_trace_mem_addr"]
+    macro_trace_mem_wdata = macro_trace_prep["macro_trace_mem_wdata"]
+    macro_trace_mem_rdata = macro_trace_prep["macro_trace_mem_rdata"]
+    macro_trace_mem_size = macro_trace_prep["macro_trace_mem_size"]
+    macro_trace_next_pc = macro_trace_prep["macro_trace_next_pc"]
+    macro_shadow_fire = macro_trace_prep["macro_shadow_fire"]
+    macro_shadow_emit_uop = macro_trace_prep["macro_shadow_emit_uop"]
     # Keep retire trace strictly instruction-driven; qemu-specific boundary-only
     # metadata commits are filtered in the lockstep runner.
     shadow_boundary_fire = consts.zero1
