@@ -61,7 +61,7 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
     f4_pkt_uid = m.input("f4_pkt_uid", width=64)
 
     c = m.const
-    f4_bundle = decode_f4_bundle(m, f4_window)
+    f4_bundle = decode_f4_bundle(m, f4_window, name="f4_bundle")
 
     disp_count = c(0, width=3)
 

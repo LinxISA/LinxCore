@@ -14,7 +14,7 @@ BOOT_PC=""
 BOOT_SP="${BOOT_SP:-0x0000000007fefff0}"
 QEMU_BIN="${QEMU_BIN:-${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
 QEMU_MAX_SECONDS="${QEMU_MAX_SECONDS:-0}"
-LLVM_READELF="${LLVM_READELF:-/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-readelf}"
+LLVM_READELF="${LLVM_READELF:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-readelf}"
 
 usage() {
   cat <<USAGE

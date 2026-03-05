@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, function, module
+from pycircuit import Circuit, function, module, u
 
 
 @function
@@ -9,9 +9,9 @@ def resolve_source_tags(m: Circuit, *, mux_by_uindex, smap_live, srcl_areg, srcr
     srcl_tag = mux_by_uindex(m, idx=srcl_areg, items=smap_live, default=tag0)
     srcr_tag = mux_by_uindex(m, idx=srcr_areg, items=smap_live, default=tag0)
     srcp_tag = mux_by_uindex(m, idx=srcp_areg, items=smap_live, default=tag0)
-    srcl_tag = srcl_areg.__eq__(c(reg_invalid, width=6))._select_internal(tag0, srcl_tag)
-    srcr_tag = srcr_areg.__eq__(c(reg_invalid, width=6))._select_internal(tag0, srcr_tag)
-    srcp_tag = srcp_areg.__eq__(c(reg_invalid, width=6))._select_internal(tag0, srcp_tag)
+    srcl_tag = (srcl_areg == u(6, reg_invalid))._select_internal(tag0, srcl_tag)
+    srcr_tag = (srcr_areg == u(6, reg_invalid))._select_internal(tag0, srcr_tag)
+    srcp_tag = (srcp_areg == u(6, reg_invalid))._select_internal(tag0, srcp_tag)
     return srcl_tag, srcr_tag, srcp_tag
 
 
@@ -26,11 +26,15 @@ def _mux_by_uindex(m: Circuit, *, idx, items: list, default):
 
 @function
 def _onehot_from_tag(m: Circuit, *, tag, width: int, tag_width: int):
-    c = m.const
-    out = c(0, width=width)
-    for i in range(width):
-        out = tag.__eq__(c(i, width=tag_width))._select_internal(c(1 << i, width=width), out)
-    return out
+    # Keep this compact: this helper sits in commit/rename hot loops and
+    # compare+select expansion bloats emitted C++ TUs.
+    n = int(width)
+    if n <= 0:
+        return u(0, 0)
+    # NOTE: tag_width is kept for call-site stability; shift amount uses `tag`.
+    base = (tag & 0) | u(n, 1)
+    out = base.shl(amount=tag)
+    return out if out.width == n else out[0:n]
 
 
 @module(name="LinxCoreRenameStage")

@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -14,6 +15,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -22,14 +24,54 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include <pyc/cpp/pyc_tb.hpp>
+#include <cpp/pyc_tb.hpp>
 
-#include "linxcore_top.hpp"
+#include "LinxcoreTop.hpp"
 
 namespace {
 
 using pyc::cpp::Testbench;
 using pyc::cpp::Wire;
+
+static bool pathExists(const std::filesystem::path &p) {
+  std::error_code ec;
+  return std::filesystem::exists(p, ec);
+}
+
+static std::filesystem::path resolveLinxRoot() {
+  if (const char *env = std::getenv("LINX_ROOT"); env && env[0] != '\0') {
+    std::filesystem::path p(env);
+    if (pathExists(p))
+      return p;
+  }
+  std::filesystem::path p = std::filesystem::current_path();
+  for (int i = 0; i < 12; i++) {
+    if (pathExists(p / "compiler" / "llvm") && pathExists(p / "rtl" / "LinxCore")) {
+      return p;
+    }
+    if (!p.has_parent_path())
+      break;
+    const auto parent = p.parent_path();
+    if (parent == p)
+      break;
+    p = parent;
+  }
+  return std::filesystem::current_path();
+}
+
+static std::string defaultDisasmSpec() {
+  const auto p = resolveLinxRoot() / "isa" / "v0.3" / "linxisa-v0.3.json";
+  if (pathExists(p))
+    return p.string();
+  return "";
+}
+
+static std::string defaultDisasmTool() {
+  const auto p = resolveLinxRoot() / "tools" / "isa" / "linxdisasm.py";
+  if (pathExists(p))
+    return p.string();
+  return "";
+}
 
 struct SnapshotHeader {
   char magic[8];
@@ -89,8 +131,8 @@ struct RunnerOptions {
   std::uint64_t deadlock_cycles = 200000ull;
   bool accept_max_commits_end = false;
   bool force_mismatch = false;
-  std::string disasm_spec = "/Users/zhoubot/linxisa/isa/spec/current/linxisa-v0.3.json";
-  std::string disasm_tool = "/Users/zhoubot/linxisa/tools/isa/linxdisasm.py";
+  std::string disasm_spec = defaultDisasmSpec();
+  std::string disasm_tool = defaultDisasmTool();
 };
 
 static bool getJsonKeyPos(const std::string &line, const std::string &key, std::size_t &value_pos) {
@@ -513,10 +555,46 @@ struct HasMember_dispatch_fire0 : std::false_type {};
 template <typename T>
 struct HasMember_dispatch_fire0<T, std::void_t<decltype(std::declval<T &>().dispatch_fire0)>> : std::true_type {};
 
+template <typename T, typename = void>
+struct HasMember_tb_ifu_stub_enable : std::false_type {};
+template <typename T>
+struct HasMember_tb_ifu_stub_enable<T, std::void_t<decltype(std::declval<T &>().tb_ifu_stub_enable)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasMember_tb_ifu_stub_valid : std::false_type {};
+template <typename T>
+struct HasMember_tb_ifu_stub_valid<T, std::void_t<decltype(std::declval<T &>().tb_ifu_stub_valid)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasMember_tb_ifu_stub_pc : std::false_type {};
+template <typename T>
+struct HasMember_tb_ifu_stub_pc<T, std::void_t<decltype(std::declval<T &>().tb_ifu_stub_pc)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasMember_tb_ifu_stub_window : std::false_type {};
+template <typename T>
+struct HasMember_tb_ifu_stub_window<T, std::void_t<decltype(std::declval<T &>().tb_ifu_stub_window)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasMember_tb_ifu_stub_checkpoint : std::false_type {};
+template <typename T>
+struct HasMember_tb_ifu_stub_checkpoint<T, std::void_t<decltype(std::declval<T &>().tb_ifu_stub_checkpoint)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasMember_tb_ifu_stub_pkt_uid : std::false_type {};
+template <typename T>
+struct HasMember_tb_ifu_stub_pkt_uid<T, std::void_t<decltype(std::declval<T &>().tb_ifu_stub_pkt_uid)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasMember_tb_ifu_stub_ready : std::false_type {};
+template <typename T>
+struct HasMember_tb_ifu_stub_ready<T, std::void_t<decltype(std::declval<T &>().tb_ifu_stub_ready)>> : std::true_type {};
+
 class IDutStepper {
 public:
   virtual ~IDutStepper() = default;
   virtual bool init(const SnapshotImage &snap, std::uint64_t boot_pc, std::uint64_t boot_sp, std::uint64_t boot_ra) = 0;
+  virtual void enqueueFetchPacket(const CommitRecord &rec) = 0;
   virtual bool nextCommit(CommitRecord &out) = 0;
   virtual std::size_t pendingCommits() const = 0;
   virtual DeadlockDebug debugState() const = 0;
@@ -554,6 +632,24 @@ public:
     dut_->ic_l2_rsp_addr = Wire<64>(0);
     dut_->ic_l2_rsp_data = Wire<512>(0);
     dut_->ic_l2_rsp_error = Wire<1>(0);
+    if constexpr (HasMember_tb_ifu_stub_enable<DutT>::value) {
+      dut_->tb_ifu_stub_enable = Wire<1>(1);
+    }
+    if constexpr (HasMember_tb_ifu_stub_valid<DutT>::value) {
+      dut_->tb_ifu_stub_valid = Wire<1>(0);
+    }
+    if constexpr (HasMember_tb_ifu_stub_pc<DutT>::value) {
+      dut_->tb_ifu_stub_pc = Wire<64>(0);
+    }
+    if constexpr (HasMember_tb_ifu_stub_window<DutT>::value) {
+      dut_->tb_ifu_stub_window = Wire<64>(0);
+    }
+    if constexpr (HasMember_tb_ifu_stub_checkpoint<DutT>::value) {
+      dut_->tb_ifu_stub_checkpoint = Wire<6>(0);
+    }
+    if constexpr (HasMember_tb_ifu_stub_pkt_uid<DutT>::value) {
+      dut_->tb_ifu_stub_pkt_uid = Wire<64>(0);
+    }
 
     tb_ = std::make_unique<Testbench<DutT>>(*dut_);
     tb_->addClock(dut_->clk, 1);
@@ -566,7 +662,110 @@ public:
     ic_req_remain_cycles_ = 0;
     ic_req_seen_pre_ = false;
     ic_req_addr_pre_ = 0;
+    fetch_q_.clear();
+    fetch_bundle_active_ = false;
+    fetch_bundle_base_pc_ = 0;
+    fetch_bundle_bytes_used_ = 0;
+    fetch_bundle_slots_used_ = 0;
+    fetch_bundle_macro0_ = false;
     return true;
+  }
+
+  void enqueueFetchPacket(const CommitRecord &rec) override {
+    if constexpr (!HasMember_tb_ifu_stub_enable<DutT>::value) {
+      (void)rec;
+      return;
+    }
+
+    // The F4->decode interface carries an 8B fetch bundle that can contain
+    // multiple sequential instructions. If we enqueue one packet per retired
+    // instruction, we feed overlapping windows (pc, pc+len, ...) and the DUT
+    // dispatches duplicate instructions. Instead, enqueue a new fetch packet
+    // only at the start of each bundle, matching LinxCoreIFetch behavior.
+
+    auto is_macro_marker = [&]() -> bool {
+      if (rec.len != 4) {
+        return false;
+      }
+      const std::uint32_t w = static_cast<std::uint32_t>(maskInsn(rec.insn, rec.len));
+      return isMacroMarker32(w);
+    };
+
+    auto belongs_to_bundle = [&]() -> bool {
+      if (!fetch_bundle_active_) {
+        return false;
+      }
+      if (rec.pc != (fetch_bundle_base_pc_ + fetch_bundle_bytes_used_)) {
+        return false;
+      }
+      if (fetch_bundle_slots_used_ == 0) {
+        return true;
+      }
+      if (fetch_bundle_macro0_) {
+        return false;
+      }
+      if (fetch_bundle_slots_used_ >= 4) {
+        return false;
+      }
+      if (fetch_bundle_bytes_used_ >= 8) {
+        return false;
+      }
+      const std::uint64_t rem = 8u - fetch_bundle_bytes_used_;
+      if (rem < 2) {
+        return false;
+      }
+      if (rec.len == 0 || rec.len > rem) {
+        return false;
+      }
+      return true;
+    };
+
+    const bool start_new_bundle = !belongs_to_bundle();
+    if (start_new_bundle) {
+      fetch_bundle_active_ = true;
+      fetch_bundle_base_pc_ = rec.pc;
+      fetch_bundle_bytes_used_ = 0;
+      fetch_bundle_slots_used_ = 0;
+      fetch_bundle_macro0_ = false;
+
+      FetchPacket p{};
+      p.pc = rec.pc;
+      // Provide a full 8B fetch window so the backend decode can legally
+      // dispatch multiple slots. If we only feed the retired insn bits, upper
+      // bytes default to 0 and decode turns them into C.BSTOP, desynchronizing
+      // the lockstep stream.
+      std::uint64_t win = peekIMem(rec.pc, 8);
+      const std::uint64_t insn_m = maskInsn(rec.insn, rec.len);
+      std::uint64_t insn_mask = ~0ull;
+      if (rec.len == 2) {
+        insn_mask = 0xFFFFull;
+      } else if (rec.len == 4) {
+        insn_mask = 0xFFFF'FFFFull;
+      } else if (rec.len == 6) {
+        insn_mask = 0xFFFF'FFFF'FFFFull;
+      }
+      win = (win & ~insn_mask) | (insn_m & insn_mask);
+      p.window = win;
+      p.checkpoint = 0;
+      // pkt_uid is a fetch-bundle identifier; use the seq of the first
+      // instruction in the bundle for determinism.
+      p.pkt_uid = rec.seq;
+      fetch_q_.push_back(p);
+    }
+
+    if (fetch_bundle_slots_used_ == 0) {
+      fetch_bundle_macro0_ = is_macro_marker();
+    }
+    fetch_bundle_bytes_used_ += rec.len;
+    fetch_bundle_slots_used_++;
+
+    // Close the bundle once it is definitely complete; otherwise we keep it
+    // open until a future commit proves the next slot does not fit.
+    if ((fetch_bundle_macro0_ && fetch_bundle_slots_used_ == 1) ||
+        (fetch_bundle_slots_used_ >= 4) ||
+        (fetch_bundle_bytes_used_ >= 8)) {
+      fetch_bundle_active_ = false;
+    }
   }
 
   bool nextCommit(CommitRecord &out) override {
@@ -579,8 +778,10 @@ public:
         std::cerr << last_error_ << "\n";
         return false;
       }
+      const bool fetch_fire = driveFetchStub();
       driveIcacheL2();
       tb_->runCycles(1);
+      retireFetchStub(fetch_fire);
       updateIcacheL2State();
       sampleMemWrite();
       sampleDispatch();
@@ -611,12 +812,12 @@ public:
     if (!dut_) {
       return 0;
     }
-    const std::size_t mem_bytes = dut_->mem2r1w.dmem.mem_.size();
+    const std::size_t mem_bytes = dut_->mem2r1w->dmem.mem_.size();
     const std::size_t base = mapGuestAddr(guest_addr, mem_bytes);
     const std::uint64_t n = (size == 0 || size > 8) ? 8 : size;
     std::uint64_t v = 0;
     for (std::uint64_t i = 0; i < n; i++) {
-      const std::uint64_t b = dut_->mem2r1w.dmem.peekByte(base + static_cast<std::size_t>(i));
+      const std::uint64_t b = dut_->mem2r1w->dmem.peekByte(base + static_cast<std::size_t>(i));
       v |= (b << (8u * i));
     }
     return v;
@@ -626,12 +827,12 @@ public:
     if (!dut_) {
       return 0;
     }
-    const std::size_t mem_bytes = dut_->mem2r1w.imem.mem_.size();
+    const std::size_t mem_bytes = dut_->mem2r1w->imem.mem_.size();
     const std::size_t base = mapGuestAddr(guest_addr, mem_bytes);
     const std::uint64_t n = (size == 0 || size > 8) ? 8 : size;
     std::uint64_t v = 0;
     for (std::uint64_t i = 0; i < n; i++) {
-      const std::uint64_t b = dut_->mem2r1w.imem.peekByte(base + static_cast<std::size_t>(i));
+      const std::uint64_t b = dut_->mem2r1w->imem.peekByte(base + static_cast<std::size_t>(i));
       v |= (b << (8u * i));
     }
     return v;
@@ -678,6 +879,13 @@ public:
   std::string lastError() const override { return last_error_; }
 
 private:
+  struct FetchPacket {
+    std::uint64_t pc = 0;
+    std::uint64_t window = 0;
+    std::uint64_t checkpoint = 0;
+    std::uint64_t pkt_uid = 0;
+  };
+
   struct MemWriteEvent {
     std::uint64_t cycle = 0;
     std::uint64_t addr = 0;
@@ -827,6 +1035,63 @@ private:
     }
   }
 
+  bool driveFetchStub() {
+    if (!dut_) {
+      return false;
+    }
+    if constexpr (!HasMember_tb_ifu_stub_enable<DutT>::value) {
+      return false;
+    }
+
+    if constexpr (HasMember_tb_ifu_stub_enable<DutT>::value) {
+      dut_->tb_ifu_stub_enable = Wire<1>(1);
+    }
+
+    if (fetch_q_.empty()) {
+      if constexpr (HasMember_tb_ifu_stub_valid<DutT>::value) {
+        dut_->tb_ifu_stub_valid = Wire<1>(0);
+      }
+      return false;
+    }
+
+    const FetchPacket &pkt = fetch_q_.front();
+    if constexpr (HasMember_tb_ifu_stub_valid<DutT>::value) {
+      dut_->tb_ifu_stub_valid = Wire<1>(1);
+    }
+    if constexpr (HasMember_tb_ifu_stub_pc<DutT>::value) {
+      dut_->tb_ifu_stub_pc = Wire<64>(pkt.pc);
+    }
+    if constexpr (HasMember_tb_ifu_stub_window<DutT>::value) {
+      dut_->tb_ifu_stub_window = Wire<64>(pkt.window);
+    }
+    if constexpr (HasMember_tb_ifu_stub_checkpoint<DutT>::value) {
+      dut_->tb_ifu_stub_checkpoint = Wire<6>(pkt.checkpoint);
+    }
+    if constexpr (HasMember_tb_ifu_stub_pkt_uid<DutT>::value) {
+      dut_->tb_ifu_stub_pkt_uid = Wire<64>(pkt.pkt_uid);
+    }
+    // Return whether we asserted valid this cycle; acceptance is checked in
+    // retireFetchStub() after the cycle runs (ready is combinational and can
+    // change during tick convergence).
+    return true;
+  }
+
+  void retireFetchStub(bool fired) {
+    if (!fired) {
+      return;
+    }
+    bool ready = true;
+    if constexpr (HasMember_tb_ifu_stub_ready<DutT>::value) {
+      ready = dut_->tb_ifu_stub_ready.toBool();
+    }
+    if (ready && !fetch_q_.empty()) {
+      fetch_q_.pop_front();
+    }
+    if constexpr (HasMember_tb_ifu_stub_valid<DutT>::value) {
+      dut_->tb_ifu_stub_valid = Wire<1>(0);
+    }
+  }
+
   static std::size_t mapGuestAddr(std::uint64_t addr, std::size_t mem_bytes) {
     if (mem_bytes == 0) {
       return 0;
@@ -850,13 +1115,13 @@ private:
 
   Wire<512> buildIcacheLine(std::uint64_t line_addr) const {
     Wire<512> out(0);
-    const std::size_t mem_bytes = dut_->mem2r1w.imem.mem_.size();
+    const std::size_t mem_bytes = dut_->mem2r1w->imem.mem_.size();
     for (unsigned wi = 0; wi < 8; wi++) {
       std::uint64_t w = 0;
       for (unsigned bi = 0; bi < 8; bi++) {
         const std::uint64_t guest = line_addr + static_cast<std::uint64_t>(wi * 8 + bi);
         const std::size_t addr = mapGuestAddr(guest, mem_bytes);
-        w |= (static_cast<std::uint64_t>(dut_->mem2r1w.imem.peekByte(addr)) << (8u * bi));
+        w |= (static_cast<std::uint64_t>(dut_->mem2r1w->imem.peekByte(addr)) << (8u * bi));
       }
       out.setWord(wi, w);
     }
@@ -916,7 +1181,7 @@ private:
   }
 
   bool loadSnapshotIntoMem(const SnapshotImage &snap) {
-    const std::size_t mem_bytes = dut_->mem2r1w.imem.mem_.size();
+    const std::size_t mem_bytes = dut_->mem2r1w->imem.mem_.size();
     if (mem_bytes == 0) {
       last_error_ = "runner: DUT memory depth is zero";
       std::cerr << last_error_ << "\n";
@@ -953,8 +1218,8 @@ private:
         }
         seen[addr] = 1;
         const auto b = r.bytes[i];
-        dut_->mem2r1w.imem.pokeByte(addr, b);
-        dut_->mem2r1w.dmem.pokeByte(addr, b);
+        dut_->mem2r1w->imem.pokeByte(addr, b);
+        dut_->mem2r1w->dmem.pokeByte(addr, b);
       }
     }
     return true;
@@ -1056,6 +1321,12 @@ private:
   std::unique_ptr<DutT> dut_{};
   std::unique_ptr<Testbench<DutT>> tb_{};
   std::deque<CommitRecord> retire_q_{};
+  std::deque<FetchPacket> fetch_q_{};
+  bool fetch_bundle_active_ = false;
+  std::uint64_t fetch_bundle_base_pc_ = 0;
+  std::uint64_t fetch_bundle_bytes_used_ = 0;
+  unsigned fetch_bundle_slots_used_ = 0;
+  bool fetch_bundle_macro0_ = false;
   std::deque<MemWriteEvent> write_events_{};
   std::deque<DispatchEvent> dispatch_events_{};
   bool ic_req_pending_ = false;
@@ -1291,7 +1562,7 @@ int main(int argc, char **argv) {
     CommitRecord dut{};
   };
   std::deque<RecentPair> recent_pairs{};
-  std::unique_ptr<IDutStepper> dut = std::make_unique<DutStepperImpl<pyc::gen::linxcore_top>>(opts);
+  std::unique_ptr<IDutStepper> dut = std::make_unique<DutStepperImpl<pyc::gen::LinxcoreTop>>(opts);
   std::string line;
 
   while (recvLine(client_fd, line)) {
@@ -1413,6 +1684,8 @@ int main(int argc, char **argv) {
         expected_seq++;
         continue;
       }
+
+      dut->enqueueFetchPacket(qemu);
 
       CommitRecord dut_rec{};
       while (true) {

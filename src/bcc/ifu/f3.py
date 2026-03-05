@@ -42,7 +42,7 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     flush_valid_fls = m.input("flush_valid_fls", width=1)
 
     c = m.const
-    dec_bundle_f3 = decode_f4_bundle(m, f2_to_f3_stage_window_f2)
+    dec_bundle_f3 = decode_f4_bundle(m, f2_to_f3_stage_window_f2, name="dec_bundle_f3")
     dec0_f3 = dec_bundle_f3.dec[0]
     dec0_valid_f3 = f2_to_f3_stage_valid_f2 & dec_bundle_f3.valid[0]
     dec0_pc_f3 = f2_to_f3_stage_pc_f2 + dec_bundle_f3.off_bytes[0]
@@ -132,7 +132,7 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     m.output("f3_one_f3", c(1, width=1))
 
     # Per-slot visibility for pipeview continuity (F3/IB -> OOO uid namespace).
-    ib_bundle_f3 = decode_f4_bundle(m, ibuf_f3["out_window"])
+    ib_bundle_f3 = decode_f4_bundle(m, ibuf_f3["out_window"], name="ib_bundle_f3")
     for slot in range(4):
         slot_pc_f3 = ibuf_f3["out_pc"] + ib_bundle_f3.off_bytes[slot]
         slot_uid_f3 = (ibuf_f3["out_pkt_uid"].shl(amount=3)) | c(slot, width=64)

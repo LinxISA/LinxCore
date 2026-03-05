@@ -38,6 +38,18 @@ def build_janus_bcc_block_struct_rob(
     head = m.out("head", clk=clk, rst=rst, width=rid_w, init=c(0, width=rid_w), en=c(1, width=1))
     tail = m.out("tail", clk=clk, rst=rst, width=rid_w, init=c(0, width=rid_w), en=c(1, width=1))
 
+    # Registered/pulsed outputs (stable after posedge for TB sampling).
+    retire_fire_r = m.out("retire_fire_r", clk=clk, rst=rst, width=1, init=c(0, width=1), en=c(1, width=1))
+    retire_bid_r = m.out("retire_bid_r", clk=clk, rst=rst, width=bid_w, init=c(0, width=bid_w), en=c(1, width=1))
+    retire_eob_r = m.out("retire_eob_r", clk=clk, rst=rst, width=1, init=c(0, width=1), en=c(1, width=1))
+
+    scalar_done_valid_r = m.out("scalar_done_valid_r", clk=clk, rst=rst, width=1, init=c(0, width=1), en=c(1, width=1))
+    scalar_done_bid_r = m.out("scalar_done_bid_r", clk=clk, rst=rst, width=bid_w, init=c(0, width=bid_w), en=c(1, width=1))
+    scalar_done_trap_valid_r = m.out("scalar_done_trap_valid_r", clk=clk, rst=rst, width=1, init=c(0, width=1), en=c(1, width=1))
+    scalar_done_trap_cause_r = m.out(
+        "scalar_done_trap_cause_r", clk=clk, rst=rst, width=trap_cause_w, init=c(0, width=trap_cause_w), en=c(1, width=1)
+    )
+
     valid = []
     done = []
     eob = []
@@ -55,27 +67,6 @@ def build_janus_bcc_block_struct_rob(
 
     alloc_idx = tail.out()
 
-    for i in range(int(depth)):
-        idx = c(i, width=rid_w)
-        hit_alloc = alloc_idx.eq(idx)
-        hit_wb = wb_rid.eq(idx)
-
-        v_next = valid[i].out()
-        d_next = done[i].out()
-
-        v_next = (alloc_valid & hit_alloc).select(c(1, width=1), v_next)
-        d_next = (alloc_valid & hit_alloc).select(c(0, width=1), d_next)
-        d_next = (wb_valid & hit_wb).select(c(1, width=1), d_next)
-
-        valid[i].set(v_next)
-        done[i].set(d_next)
-
-        bid[i].set(alloc_bid, when=alloc_valid & hit_alloc)
-        eob[i].set(alloc_eob, when=alloc_valid & hit_alloc)
-
-        trap_valid[i].set(wb_trap_valid, when=wb_valid & hit_wb)
-        trap_cause[i].set(wb_trap_cause, when=wb_valid & hit_wb)
-
     head_valid = c(0, width=1)
     head_done = c(0, width=1)
     head_eob = c(0, width=1)
@@ -84,37 +75,80 @@ def build_janus_bcc_block_struct_rob(
     head_trap_cause = c(0, width=trap_cause_w)
 
     for i in range(int(depth)):
-        idx_hit = head.out().eq(c(i, width=rid_w))
-        head_valid = idx_hit.select(valid[i].out(), head_valid)
-        head_done = idx_hit.select(done[i].out(), head_done)
-        head_eob = idx_hit.select(eob[i].out(), head_eob)
-        head_bid = idx_hit.select(bid[i].out(), head_bid)
-        head_trap_valid = idx_hit.select(trap_valid[i].out(), head_trap_valid)
-        head_trap_cause = idx_hit.select(trap_cause[i].out(), head_trap_cause)
+        idx_hit = head.out() == c(i, width=rid_w)
+        head_valid = valid[i].out() if idx_hit else head_valid
+        head_done = done[i].out() if idx_hit else head_done
+        head_eob = eob[i].out() if idx_hit else head_eob
+        head_bid = bid[i].out() if idx_hit else head_bid
+        head_trap_valid = trap_valid[i].out() if idx_hit else head_trap_valid
+        head_trap_cause = trap_cause[i].out() if idx_hit else head_trap_cause
 
     retire_fire = retire_ready & head_valid & head_done
     scalar_done_fire = retire_fire & head_eob
 
-    # Clear retired slot
-    for i in range(int(depth)):
-        idx_hit = head.out().eq(c(i, width=rid_w))
-        valid[i].set(c(0, width=1), when=retire_fire & idx_hit)
-        done[i].set(c(0, width=1), when=retire_fire & idx_hit)
-        eob[i].set(c(0, width=1), when=retire_fire & idx_hit)
-        trap_valid[i].set(c(0, width=1), when=retire_fire & idx_hit)
-        trap_cause[i].set(c(0, width=trap_cause_w), when=retire_fire & idx_hit)
+    # Capture event outputs before we advance head/clear slots.
+    retire_fire_r.set(retire_fire)
+    retire_bid_r.set(head_bid if retire_fire else c(0, width=bid_w))
+    retire_eob_r.set(head_eob if retire_fire else c(0, width=1))
 
-    head_next = retire_fire.select(head.out() + c(1, width=rid_w), head.out())
-    tail_next = alloc_valid.select(tail.out() + c(1, width=rid_w), tail.out())
+    scalar_done_valid_r.set(scalar_done_fire)
+    scalar_done_bid_r.set(head_bid if scalar_done_fire else c(0, width=bid_w))
+    scalar_done_trap_valid_r.set(head_trap_valid if scalar_done_fire else c(0, width=1))
+    scalar_done_trap_cause_r.set(head_trap_cause if scalar_done_fire else c(0, width=trap_cause_w))
+
+    for i in range(int(depth)):
+        idx = c(i, width=rid_w)
+        hit_alloc = alloc_idx == idx
+        hit_wb = wb_rid == idx
+        hit_retire = retire_fire & (head.out() == idx)
+
+        v_next = valid[i].out()
+        d_next = done[i].out()
+        eob_next = eob[i].out()
+        bid_next = bid[i].out()
+        tv_next = trap_valid[i].out()
+        tc_next = trap_cause[i].out()
+
+        # Retire clears the slot (highest priority).
+        v_next = c(0, width=1) if hit_retire else v_next
+        d_next = c(0, width=1) if hit_retire else d_next
+        eob_next = c(0, width=1) if hit_retire else eob_next
+        bid_next = c(0, width=bid_w) if hit_retire else bid_next
+        tv_next = c(0, width=1) if hit_retire else tv_next
+        tc_next = c(0, width=trap_cause_w) if hit_retire else tc_next
+
+        # Allocation sets a fresh entry (priority below retire).
+        v_next = c(1, width=1) if (alloc_valid & hit_alloc) else v_next
+        d_next = c(0, width=1) if (alloc_valid & hit_alloc) else d_next
+        eob_next = alloc_eob if (alloc_valid & hit_alloc) else eob_next
+        bid_next = alloc_bid if (alloc_valid & hit_alloc) else bid_next
+        tv_next = c(0, width=1) if (alloc_valid & hit_alloc) else tv_next
+        tc_next = c(0, width=trap_cause_w) if (alloc_valid & hit_alloc) else tc_next
+
+        # Writeback marks done and captures trap info (only for existing entry).
+        wb_fire = wb_valid & hit_wb & (~(alloc_valid & hit_alloc)) & (~hit_retire)
+        d_next = c(1, width=1) if wb_fire else d_next
+        tv_next = wb_trap_valid if wb_fire else tv_next
+        tc_next = wb_trap_cause if wb_fire else tc_next
+
+        valid[i].set(v_next)
+        done[i].set(d_next)
+        eob[i].set(eob_next)
+        bid[i].set(bid_next)
+        trap_valid[i].set(tv_next)
+        trap_cause[i].set(tc_next)
+
+    head_next = (head.out() + c(1, width=rid_w)) if retire_fire else head.out()
+    tail_next = (tail.out() + c(1, width=rid_w)) if alloc_valid else tail.out()
 
     head.set(head_next)
     tail.set(tail_next)
 
-    m.output("retire_fire", retire_fire)
-    m.output("retire_bid", head_bid)
-    m.output("retire_eob", head_eob)
+    m.output("retire_fire", retire_fire_r.out())
+    m.output("retire_bid", retire_bid_r.out())
+    m.output("retire_eob", retire_eob_r.out())
 
-    m.output("scalar_done_valid", scalar_done_fire)
-    m.output("scalar_done_bid", head_bid)
-    m.output("scalar_done_trap_valid", head_trap_valid)
-    m.output("scalar_done_trap_cause", head_trap_cause)
+    m.output("scalar_done_valid", scalar_done_valid_r.out())
+    m.output("scalar_done_bid", scalar_done_bid_r.out())
+    m.output("scalar_done_trap_valid", scalar_done_trap_valid_r.out())
+    m.output("scalar_done_trap_cause", scalar_done_trap_cause_r.out())

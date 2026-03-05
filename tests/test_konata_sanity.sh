@@ -2,11 +2,29 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 TMP_DIR="$(mktemp -d -t linxcore_konata_sanity.XXXXXX)"
 LINXTRACE="${TMP_DIR}/trace.linxtrace.jsonl"
 LINXMETA="${TMP_DIR}/trace.linxtrace.meta.json"
 TRACE="${TMP_DIR}/commit.jsonl"
 MEMH="${PYC_LINXTRACE_TEST_MEMH:-}"
+
+find_pyc_root() {
+  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
+    echo "${PYC_ROOT}"
+    return 0
+  fi
+  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
+    echo "${LINX_ROOT}/tools/pyCircuit"
+    return 0
+  fi
+  return 1
+}
+
+PYC_ROOT_DIR="$(find_pyc_root)" || {
+  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
+  exit 2
+}
 
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -18,8 +36,8 @@ if [[ -z "${MEMH}" ]]; then
   memh1="$(printf "%s\n" "${build_out}" | sed -n '1p')"
   if [[ -n "${memh1}" && -f "${memh1}" && "${memh1}" == *"coremark"* ]]; then
     MEMH="${memh1}"
-  elif [[ -f "/Users/zhoubot/pyCircuit/designs/examples/linx_cpu/programs/test_branch2.memh" ]]; then
-    MEMH="/Users/zhoubot/pyCircuit/designs/examples/linx_cpu/programs/test_branch2.memh"
+  elif [[ -f "${PYC_ROOT_DIR}/designs/examples/linx_cpu/programs/test_branch2.memh" ]]; then
+    MEMH="${PYC_ROOT_DIR}/designs/examples/linx_cpu/programs/test_branch2.memh"
   elif [[ -n "${memh1}" && -f "${memh1}" ]]; then
     MEMH="${memh1}"
   fi

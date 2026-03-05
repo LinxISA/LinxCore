@@ -2,12 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 OUT_DIR="${PYC_PGO_OUT_DIR:-${ROOT_DIR}/tests/perf/pgo}"
 mkdir -p "${OUT_DIR}"
 
 BUILD_BENCH_SCRIPT="${ROOT_DIR}/tools/image/build_linxisa_benchmarks_memh_compat.sh"
 RUN_SIM_SCRIPT="${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh"
-LLVM_PROFDATA="${LLVM_PROFDATA:-/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-profdata}"
+LLVM_PROFDATA="${LLVM_PROFDATA:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-profdata}"
 
 TRAIN_MAX_COMMITS="${PYC_PGO_TRAIN_MAX_COMMITS:-200000}"
 CORE_ITERATIONS="${CORE_ITERATIONS:-10}"

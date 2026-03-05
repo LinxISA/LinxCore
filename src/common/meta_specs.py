@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, meta, template
+from pycircuit import Circuit, const, meta
 
 from .interfaces import INTERFACE_SPEC
 
 
-@template
+@const
 def stage_bundle_spec(m: Circuit, prefix: str, *, suffix: str = ""):
     _ = m
     p = str(prefix)
@@ -18,7 +18,7 @@ def stage_bundle_spec(m: Circuit, prefix: str, *, suffix: str = ""):
     return b.build()
 
 
-@template
+@const
 def stage_bundle_specs(m: Circuit, *, suffix: str = ""):
     _ = m
     out: dict[str, object] = {}

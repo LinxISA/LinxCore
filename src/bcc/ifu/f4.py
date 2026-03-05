@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pycircuit import Circuit, module
 
+from common.decode_f4 import decode_f4_bundle
+
 
 @module(name="JanusBccIfuF4")
 def build_janus_bcc_ifu_f4(m: Circuit) -> None:
@@ -38,7 +40,7 @@ def build_janus_bcc_ifu_f4(m: Circuit) -> None:
     m.output("f4_to_d1_stage_checkpoint_id_f4", f3_to_f4_stage_checkpoint_id_f3)
 
     # Per-slot visibility for pipeview continuity (F4 -> OOO uid namespace).
-    f4_bundle = decode_f4_bundle(m, f3_to_f4_stage_window_f3)
+    f4_bundle = decode_f4_bundle(m, f3_to_f4_stage_window_f3, name="f4_bundle")
     f4_valid = flush_valid_fls._select_internal(c(0, width=1), f3_to_f4_stage_valid_f3)
     for slot in range(4):
         slot_pc = f3_to_f4_stage_pc_f3 + f4_bundle.off_bytes[slot]._zext(width=64)

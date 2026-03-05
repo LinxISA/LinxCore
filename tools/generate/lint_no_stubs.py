@@ -15,6 +15,7 @@ ALLOWLIST = {
     SRC / "bcc" / "__init__.py",
     SRC / "bcc" / "backend" / "__init__.py",
     SRC / "bcc" / "backend" / "backend.py",  # thin shell by design
+    SRC / "bcc" / "block_struct" / "test_block_struct_rtl_smoke.py",
 }
 
 TARGET_DIRS = [
@@ -29,7 +30,7 @@ TARGET_DIRS = [
 NON_EMPTY = re.compile(r"\S")
 COMMENT = re.compile(r"^\s*#")
 OUTPUT_RE = re.compile(r"m\.(?:output|out)\(")
-STATE_RE = re.compile(r"\.set\(|m\.out\([^\n]*clk=|m\.instance\(")
+STATE_RE = re.compile(r"\.set\(|m\.out\([^\n]*clk=|m\.(?:instance|instance_auto)\(")
 DATAFLOW_RE = re.compile(r"_select_internal\(|\.select\(|for\s+\w+\s+in\s+range\(")
 
 

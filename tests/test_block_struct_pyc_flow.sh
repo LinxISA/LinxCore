@@ -36,6 +36,45 @@ source "${PYC_ROOT_DIR}/flows/scripts/lib.sh"
 pyc_find_pycc
 
 # Add LinxCore src/ to the default pyc PYTHONPATH.
+find_python_bin() {
+  if [[ -n "${PYC_PYTHON:-}" && -x "${PYC_PYTHON}" ]]; then
+    echo "${PYC_PYTHON}"
+    return 0
+  fi
+  local cand
+  for cand in \
+    "${PYC_PYTHON_BIN:-}" \
+    "/opt/homebrew/bin/python3" \
+    "python3.14" \
+    "python3.13" \
+    "python3.12" \
+    "python3.11" \
+    "python3.10" \
+    "python3"
+  do
+    [[ -n "${cand}" ]] || continue
+    local exe="${cand}"
+    if [[ "${exe}" != /* ]]; then
+      if ! command -v "${exe}" >/dev/null 2>&1; then
+        continue
+      fi
+      exe="$(command -v "${exe}")"
+    elif [[ ! -x "${exe}" ]]; then
+      continue
+    fi
+    if "${exe}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+      echo "${exe}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+PYTHON_BIN="$(find_python_bin)" || {
+  echo "error: need python>=3.10 to run pyc4 frontend (set PYC_PYTHON_BIN=...)" >&2
+  exit 2
+}
+
 PYTHONPATH_VAL="$(pyc_pythonpath):${ROOT_DIR}/src"
 
 run_case() {
@@ -48,7 +87,7 @@ run_case() {
 
   echo "[block_struct] build+sim ${name}"
   PYTHONPATH="${PYTHONPATH_VAL}" PYTHONDONTWRITEBYTECODE=1 PYCC="${PYCC}" \
-    python3 -m pycircuit.cli build \
+    "${PYTHON_BIN}" -m pycircuit.cli build \
       "${tb_src}" \
       --out-dir "${out_dir}" \
       --target both \
@@ -58,7 +97,7 @@ run_case() {
 
   local cpp_bin
   cpp_bin="$(
-    python3 - "${out_dir}/project_manifest.json" <<'PY'
+    "${PYTHON_BIN}" - "${out_dir}/project_manifest.json" <<'PY'
 import json
 import sys
 from pathlib import Path

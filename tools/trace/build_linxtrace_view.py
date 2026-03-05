@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
+LINX_ROOT = ROOT_DIR.parents[1]
 SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
@@ -53,14 +54,14 @@ def _load_symbol_maps(elf_path: Optional[Path]) -> Tuple[Dict[int, str], List[Tu
 
     objdump_bin = _resolve_tool(
         [
-            str(Path.home() / "llvm-project/build-linxisa-clang/bin/llvm-objdump"),
+            str(LINX_ROOT / "compiler/llvm/build-linxisa-clang/bin/llvm-objdump"),
             "llvm-objdump",
             "objdump",
         ]
     )
     nm_bin = _resolve_tool(
         [
-            str(Path.home() / "llvm-project/build-linxisa-clang/bin/llvm-nm"),
+            str(LINX_ROOT / "compiler/llvm/build-linxisa-clang/bin/llvm-nm"),
             "llvm-nm",
             "nm",
         ]

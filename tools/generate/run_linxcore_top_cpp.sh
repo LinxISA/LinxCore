@@ -2,9 +2,26 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-PYC_ROOT="/Users/zhoubot/pyCircuit"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
+
+find_pyc_root() {
+  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
+    echo "${PYC_ROOT}"
+    return 0
+  fi
+  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
+    echo "${LINX_ROOT}/tools/pyCircuit"
+    return 0
+  fi
+  return 1
+}
+
+PYC_ROOT_DIR="$(find_pyc_root)" || {
+  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
+  exit 2
+}
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
-HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
+HDR="${GEN_CPP_DIR}/LinxcoreTop.hpp"
 CPP_MANIFEST="${PYC_MANIFEST_PATH:-${GEN_CPP_DIR}/cpp_compile_manifest.json}"
 CALLFRAME_CFG="${GEN_CPP_DIR}/.callframe_size"
 PARAM_HASH_CFG="${GEN_CPP_DIR}/.pyc_param_hash"
@@ -17,7 +34,7 @@ GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
 MODEL_OBJ_BUILDER="${ROOT_DIR}/tools/generate/build_linxcore_model_objects.sh"
 TB_MAIN_OBJ="${TB_OBJ_DIR}/tb_linxcore_top.o"
 TB_TRACE_UTIL_OBJ="${TB_OBJ_DIR}/tb_linxcore_trace_util.o"
-TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O3 -DNDEBUG}"
+TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}"
 if [[ -z "${PYC_TB_CXXFLAGS:-}" && "${PYC_TB_FAST:-0}" == "1" ]]; then
   TB_CXXFLAGS="-O3 -DNDEBUG -march=native -flto"
 fi
@@ -68,22 +85,6 @@ for k, v in pairs:
 print(h.hexdigest())
 PY
 )"
-
-PYC_API_INCLUDE="${PYC_ROOT}/include"
-if [[ ! -f "${PYC_API_INCLUDE}/pyc/cpp/pyc_sim.hpp" ]]; then
-  cand="$(find "${PYC_ROOT}" -path '*/include/pyc/cpp/pyc_sim.hpp' -print -quit 2>/dev/null || true)"
-  if [[ -n "${cand}" ]]; then
-    PYC_API_INCLUDE="${cand%/pyc/cpp/pyc_sim.hpp}"
-  fi
-fi
-PYC_COMPAT_INCLUDE="${ROOT_DIR}/generated/include_compat"
-mkdir -p "${PYC_COMPAT_INCLUDE}/pyc"
-if [[ -L "${PYC_COMPAT_INCLUDE}/pyc/cpp" || -f "${PYC_COMPAT_INCLUDE}/pyc/cpp" ]]; then
-  rm -f "${PYC_COMPAT_INCLUDE}/pyc/cpp"
-elif [[ -d "${PYC_COMPAT_INCLUDE}/pyc/cpp" ]]; then
-  rmdir "${PYC_COMPAT_INCLUDE}/pyc/cpp" 2>/dev/null || true
-fi
-ln -s "${PYC_ROOT}/runtime/cpp" "${PYC_COMPAT_INCLUDE}/pyc/cpp"
 
 read_manifest_hash() {
   python3 - <<'PY' "${CPP_MANIFEST}"
@@ -160,6 +161,7 @@ fi
 
 if [[ "${need_regen}" -ne 0 ]]; then
   LINXCORE_CALLFRAME_SIZE="${CALLFRAME_SIZE}" \
+  LINXCORE_SKIP_VERILOG=1 \
     bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
   printf '%s\n' "${PARAM_ENV_HASH}" > "${PARAM_HASH_CFG}"
 fi
@@ -325,10 +327,7 @@ PY
     common_flags=(
       -std=c++17
       ${TB_CXXFLAGS}
-      -I "${PYC_COMPAT_INCLUDE}"
-      -I "${PYC_API_INCLUDE}"
-      -I "${PYC_ROOT}/runtime"
-      -I "${PYC_ROOT}/runtime/cpp"
+      -I "${PYC_ROOT_DIR}/runtime"
       -I "${GEN_CPP_DIR}"
     )
     if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -363,8 +362,13 @@ PY
       cxxflags_cfg="$(cat "${TB_CXXFLAGS_CFG}")"
     fi
     # Build/refresh the generated model objects via the shared builder.
+    #
+    # Note: builder supports kind-based flag overrides (tick/transfer) to avoid
+    # clang -O2/-O3 pathological compile times on giant tick functions.
     if [[ -x "${MODEL_OBJ_BUILDER}" ]]; then
-      PYC_MODEL_CXXFLAGS="${TB_CXXFLAGS}" \
+      PYC_MODEL_CXXFLAGS="${PYC_MODEL_CXXFLAGS:-${TB_CXXFLAGS}}" \
+      PYC_MODEL_CXXFLAGS_TICK="${PYC_MODEL_CXXFLAGS_TICK:-}" \
+      PYC_MODEL_CXXFLAGS_XFER="${PYC_MODEL_CXXFLAGS_XFER:-}" \
         bash "${MODEL_OBJ_BUILDER}" >/dev/null
     fi
 
@@ -472,6 +476,12 @@ run_rc=0
 if [[ "${PYC_SKIP_RUN:-0}" == "1" ]]; then
   exit 0
 fi
+
+if [[ -z "${PYC_SIM_FAST:-}" ]]; then
+  # Default to the event-driven SCC worklist path; callers can disable with
+  # PYC_SIM_FAST=0 for debugging.
+  export PYC_SIM_FAST=1
+fi
 if [[ $# -gt 0 ]]; then
   "${TB_EXE}" "$@" || run_rc=$?
 else
@@ -480,6 +490,9 @@ fi
 
 commit_trace_path="${PYC_COMMIT_TRACE:-}"
 if [[ -n "${commit_trace_path}" && -f "${commit_trace_path}" && -s "${commit_trace_path}" ]]; then
+  if [[ "${PYC_SKIP_TRACE_TEXT:-0}" == "1" ]]; then
+    exit "${run_rc}"
+  fi
   trace_txt_path="${PYC_COMMIT_TRACE_TEXT:-}"
   if [[ -z "${trace_txt_path}" ]]; then
     if [[ "${commit_trace_path}" == *.jsonl ]]; then

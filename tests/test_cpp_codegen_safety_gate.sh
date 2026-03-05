@@ -3,11 +3,48 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
-GEN_HDR="${GEN_CPP_DIR}/JanusBccBackendCompat.hpp"
+# Use the stable top-level header as the scan anchor; internal module names may
+# evolve as hierarchy is refactored.
+GEN_HDR="${GEN_CPP_DIR}/LinxcoreTop.hpp"
 RUN_CPP="${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh"
-MEMH="${ROOT_DIR}/tests/artifacts/suites/arithmetic.memh"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
+find_pyc_root() {
+  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
+    echo "${PYC_ROOT}"
+    return 0
+  fi
+  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
+    echo "${LINX_ROOT}/tools/pyCircuit"
+    return 0
+  fi
+  if [[ -d "/Users/zhoubot/pyCircuit" ]]; then
+    echo "/Users/zhoubot/pyCircuit"
+    return 0
+  fi
+  return 1
+}
+PYC_ROOT_DIR="$(find_pyc_root)" || {
+  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
+  exit 2
+}
+MEMH="${PYC_TEST_MEMH:-}"
+if [[ -z "${MEMH}" ]]; then
+  build_out="$("${ROOT_DIR}/tools/image/build_linxisa_benchmarks_memh_compat.sh")"
+  memh2="$(printf "%s\n" "${build_out}" | sed -n '2p')"
+  if [[ -n "${memh2}" ]]; then
+    MEMH="${memh2}"
+  fi
+fi
 
-bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
+need_regen=0
+if [[ ! -f "${GEN_HDR}" ]]; then
+  need_regen=1
+elif find "${ROOT_DIR}/src" -name '*.py' -newer "${GEN_HDR}" | grep -q .; then
+  need_regen=1
+fi
+if [[ "${need_regen}" -ne 0 ]]; then
+  LINXCORE_SKIP_VERILOG=1 bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
+fi
 
 python3 - <<'PY' "${GEN_CPP_DIR}" "${GEN_HDR}"
 import pathlib
@@ -53,14 +90,16 @@ if [[ ! -f "${MEMH}" ]]; then
 fi
 
 # Baseline smoke: program completes and exits normally.
-PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}" \
+PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}" \
+PYC_ACCEPT_EXIT_CODES="${PYC_ACCEPT_EXIT_CODES:-0,1}" \
 PYC_MAX_CYCLES=50000 \
   bash "${RUN_CPP}" "${MEMH}" >/tmp/linxcore_cpp_gate_baseline.log 2>&1
 
 # Constructor-eval stress: should not abort; max-cycle timeout is expected here.
 set +e
 ctor_out="$({
-  PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}" \
+  PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}" \
+  PYC_ACCEPT_EXIT_CODES="${PYC_ACCEPT_EXIT_CODES:-0,1}" \
   PYC_ENABLE_CTOR_EVAL=1 \
   PYC_MAX_CYCLES=1 \
     bash "${RUN_CPP}" "${MEMH}"

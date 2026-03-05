@@ -8,10 +8,10 @@ from types import SimpleNamespace
 # Stage/component ownership is migrating to focused files. Keep this file as
 # composition glue; avoid adding new monolithic stage logic.
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, function, module, u
 from pycircuit.dsl import Signal
 
-from common.exec_uop import exec_uop_comb
+from common.exec_uop import ExecOut, build_linxcore_exec_uop_comb
 from common.isa import (
     OP_BIOR,
     OP_BLOAD,
@@ -107,9 +107,16 @@ from .issue import build_iq_update_stage, build_issue_stage, pick_oldest_from_ar
 from .lsu import build_lsu_stage
 from .params import OooParams
 from .rename import build_commit_rename_stage, build_rename_stage
-from .rob import build_rob_ctrl_stage, build_rob_entry_update_stage, is_macro_op, is_start_marker_op
-from .state import make_core_ctrl_regs, make_iq_regs, make_prf, make_rename_regs, make_rob_regs
+from .rob import is_macro_op, is_start_marker_op
+from .state import make_core_ctrl_regs, make_iq_regs, make_prf, make_rename_regs
 from .wakeup import build_head_wait_stage, compose_replay_cause, compose_wakeup_reason
+from .modules.mem_read_arb_stage import build_mem_read_arb_stage
+from .modules.rob_bank import build_rob_bank_top
+from .modules.rob_event_pipe_stage import build_rob_event_pipe_stage
+from .modules.commit_trace_stage import build_commit_trace_stage
+from .modules.macro_trace_prep_stage import build_macro_trace_prep_stage
+from .modules.pcbuf_stage import build_pcbuf_stage
+from .modules.stbuf_stage import build_stbuf_stage
 
 
 @dataclass(frozen=True)
@@ -124,6 +131,396 @@ class BccOooExports:
     block_cmd_bid: Signal
     cycles: Signal
     halted: Signal
+
+
+@function
+def op_is_any(m: Circuit, op, *codes: int):
+    v = u(1, 0)
+    for code in codes:
+        v = v | (op == u(12, code))
+    return v
+
+
+@function
+def is_macro_op_any(m: Circuit, op):
+    return op_is_any(m, op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
+
+
+@function
+def is_setc_any_op(m: Circuit, op):
+    return op_is_any(
+        m,
+        op,
+        OP_C_SETC_EQ,
+        OP_C_SETC_NE,
+        OP_SETC_GEUI,
+        OP_SETC_EQ,
+        OP_SETC_NE,
+        OP_SETC_AND,
+        OP_SETC_OR,
+        OP_SETC_LT,
+        OP_SETC_LTU,
+        OP_SETC_GE,
+        OP_SETC_GEU,
+        OP_SETC_EQI,
+        OP_SETC_NEI,
+        OP_SETC_ANDI,
+        OP_SETC_ORI,
+        OP_SETC_LTI,
+        OP_SETC_GEI,
+        OP_SETC_LTUI,
+    )
+
+
+@function
+def is_setc_tgt_op(m: Circuit, op):
+    return op_is_any(m, op, OP_C_SETC_TGT)
+
+
+@module(name="LinxCoreCommitSelectStage")
+def build_commit_select_stage(
+    m: Circuit,
+    *,
+    commit_w: int = 4,
+    rob_w: int = 6,
+) -> None:
+    """Select up to `commit_w` commit slots and compute commit-driven state updates.
+
+    This stage is split out of the backend engine to reduce JanusBccBackendTop
+    compilation hotspots, while keeping the external behavior unchanged.
+    """
+
+    if commit_w <= 0:
+        raise ValueError("commit_w must be > 0")
+    if rob_w <= 0:
+        raise ValueError("rob_w must be > 0")
+
+    consts = make_consts(m)
+
+    can_run = m.input("can_run", width=1)
+    stbuf_has_space = m.input("stbuf_has_space", width=1)
+    ret_ra_val = m.input("ret_ra_val", width=64)
+
+    brob_active_allocated_i = m.input("brob_active_allocated_i", width=1)
+    brob_active_ready_i = m.input("brob_active_ready_i", width=1)
+    brob_active_exception_i = m.input("brob_active_exception_i", width=1)
+
+    state_pc = m.input("state_pc", width=64)
+    state_commit_cond = m.input("state_commit_cond", width=1)
+    state_commit_tgt = m.input("state_commit_tgt", width=64)
+    state_br_kind = m.input("state_br_kind", width=3)
+    state_br_epoch = m.input("state_br_epoch", width=16)
+    state_br_base_pc = m.input("state_br_base_pc", width=64)
+    state_br_off = m.input("state_br_off", width=64)
+    state_br_pred_take = m.input("state_br_pred_take", width=1)
+    state_active_block_uid = m.input("state_active_block_uid", width=64)
+    state_block_uid_ctr = m.input("state_block_uid_ctr", width=64)
+    state_active_block_bid = m.input("state_active_block_bid", width=64)
+    state_block_bid_ctr = m.input("state_block_bid_ctr", width=64)
+    state_block_head = m.input("state_block_head", width=1)
+
+    state_br_corr_pending = m.input("state_br_corr_pending", width=1)
+    state_br_corr_epoch = m.input("state_br_corr_epoch", width=16)
+    state_br_corr_take = m.input("state_br_corr_take", width=1)
+    state_br_corr_target = m.input("state_br_corr_target", width=64)
+    state_br_corr_checkpoint_id = m.input("state_br_corr_checkpoint_id", width=6)
+
+    state_replay_pending = m.input("state_replay_pending", width=1)
+    state_replay_store_rob = m.input("state_replay_store_rob", width=rob_w)
+    state_replay_pc = m.input("state_replay_pc", width=64)
+
+    commit_idxs = []
+    rob_pcs = []
+    rob_valids = []
+    rob_dones = []
+    rob_ops = []
+    rob_lens = []
+    rob_values = []
+    rob_is_stores = []
+    rob_st_addrs = []
+    rob_st_datas = []
+    rob_st_sizes = []
+    rob_is_bstarts = []
+    rob_is_bstops = []
+    rob_boundary_kinds = []
+    rob_boundary_targets = []
+    rob_pred_takes = []
+    rob_checkpoint_ids = []
+    for slot in range(commit_w):
+        commit_idxs.append(m.input(f"commit_idx{slot}", width=rob_w))
+        rob_pcs.append(m.input(f"rob_pc{slot}", width=64))
+        rob_valids.append(m.input(f"rob_valid{slot}", width=1))
+        rob_dones.append(m.input(f"rob_done{slot}", width=1))
+        rob_ops.append(m.input(f"rob_op{slot}", width=12))
+        rob_lens.append(m.input(f"rob_len{slot}", width=3))
+        rob_values.append(m.input(f"rob_value{slot}", width=64))
+        rob_is_stores.append(m.input(f"rob_is_store{slot}", width=1))
+        rob_st_addrs.append(m.input(f"rob_store_addr{slot}", width=64))
+        rob_st_datas.append(m.input(f"rob_store_data{slot}", width=64))
+        rob_st_sizes.append(m.input(f"rob_store_size{slot}", width=4))
+        rob_is_bstarts.append(m.input(f"rob_is_bstart{slot}", width=1))
+        rob_is_bstops.append(m.input(f"rob_is_bstop{slot}", width=1))
+        rob_boundary_kinds.append(m.input(f"rob_boundary_kind{slot}", width=3))
+        rob_boundary_targets.append(m.input(f"rob_boundary_target{slot}", width=64))
+        rob_pred_takes.append(m.input(f"rob_pred_take{slot}", width=1))
+        rob_checkpoint_ids.append(m.input(f"rob_checkpoint_id{slot}", width=6))
+
+    commit_allow = consts.one1
+    commit_fires = []
+    commit_pcs = []
+    commit_next_pcs = []
+    commit_is_bstarts = []
+    commit_is_bstops = []
+    commit_block_uids = []
+    commit_block_bids = []
+    commit_core_ids = []
+
+    commit_count = u(3, 0)
+
+    redirect_valid = consts.zero1
+    redirect_pc = state_pc
+    redirect_checkpoint_id = u(6, 0)
+    redirect_from_corr = consts.zero1
+    replay_redirect_fire = consts.zero1
+
+    commit_store_seen = consts.zero1
+    brob_retire_fire = consts.zero1
+    brob_retire_bid = consts.zero64
+
+    pc_live = state_pc
+    commit_cond_live = state_commit_cond
+    commit_tgt_live = state_commit_tgt
+    br_kind_live = state_br_kind
+    br_epoch_live = state_br_epoch
+    br_base_live = state_br_base_pc
+    br_off_live = state_br_off
+    br_pred_take_live = state_br_pred_take
+    active_block_uid_live = state_active_block_uid
+    block_uid_ctr_live = state_block_uid_ctr
+    active_block_bid_live = state_active_block_bid
+    block_bid_ctr_live = state_block_bid_ctr
+    block_head_live = state_block_head
+    br_corr_pending_live = state_br_corr_pending
+    br_corr_epoch_live = state_br_corr_epoch
+    br_corr_take_live = state_br_corr_take
+    br_corr_target_live = state_br_corr_target
+    br_corr_checkpoint_id_live = state_br_corr_checkpoint_id
+
+    for slot in range(commit_w):
+        # Use the ROB-captured instruction PC for commit/control-flow math.
+        pc_this = rob_pcs[slot] if rob_valids[slot] else pc_live
+        commit_pcs.append(pc_this)
+        op = rob_ops[slot]
+        ln = rob_lens[slot]
+        val = rob_values[slot]
+
+        is_macro = is_macro_op_any(m, op)
+        is_bstart = rob_is_bstarts[slot]
+        is_bstop = rob_is_bstops[slot]
+        is_bstart_head = is_bstart & block_head_live
+        is_bstart_mid = is_bstart & (~block_head_live)
+        is_start_marker = is_bstart_head | is_macro
+        is_boundary = is_bstart_mid | is_bstop | is_macro
+
+        br_is_fall = br_kind_live == u(3, BK_FALL)
+        br_is_cond = br_kind_live == u(3, BK_COND)
+        br_is_call = br_kind_live == u(3, BK_CALL)
+        br_is_ret = br_kind_live == u(3, BK_RET)
+        br_is_direct = br_kind_live == u(3, BK_DIRECT)
+        br_is_ind = br_kind_live == u(3, BK_IND)
+        br_is_icall = br_kind_live == u(3, BK_ICALL)
+
+        br_target = br_base_live + br_off_live
+        # Dynamic target for RET/IND/ICALL blocks comes from commit_tgt.
+        br_target = commit_tgt_live if (br_is_ret | br_is_ind | br_is_icall) else br_target
+        # Allow SETC.TGT to override fixed targets for DIRECT/CALL/COND blocks.
+        use_commit_tgt = (~(br_is_ret | br_is_ind | br_is_icall)) & (~(commit_tgt_live == consts.zero64))
+        br_target = commit_tgt_live if use_commit_tgt else br_target
+
+        br_take = (
+            br_is_call
+            | br_is_direct
+            | br_is_ind
+            | br_is_icall
+            | (br_is_cond & commit_cond_live)
+            | (br_is_ret & commit_cond_live)
+        )
+
+        fire = can_run & commit_allow & rob_valids[slot] & rob_dones[slot]
+
+        # Template macro blocks must reach the head of the ROB.
+        if slot != 0:
+            fire = fire & (~is_macro)
+
+        # Boundary-authoritative correction:
+        # BRU mismatch only records correction; redirect is consumed at boundary commit.
+        corr_epoch_match = br_corr_pending_live & (br_corr_epoch_live == br_epoch_live)
+        corr_for_boundary = fire & is_boundary & corr_epoch_match
+        br_take_eff = br_corr_take_live if corr_for_boundary else br_take
+        br_target_eff = br_corr_target_live if corr_for_boundary else br_target
+
+        pc_inc = pc_this + ln
+        boundary_fallthrough = pc_this if is_bstart_mid else pc_inc
+        pc_next = (br_target_eff if br_take_eff else boundary_fallthrough) if is_boundary else pc_inc
+
+        # Stop commit on redirect, store, or halt.
+        is_halt = op_is_any(m, op, OP_EBREAK, OP_INVALID)
+        # Mid-block BSTART must restart fetch at its own PC even when the
+        # previous block resolves not-taken; this mirrors QEMU block-end split.
+        redirect = fire & ((is_boundary & br_take_eff) | is_bstart_mid)
+        replay_redirect = (
+            fire
+            & rob_is_stores[slot]
+            & state_replay_pending
+            & (commit_idxs[slot] == state_replay_store_rob)
+        )
+        replay_redirect_fire = replay_redirect_fire | replay_redirect
+
+        # FRET.* behave like a taken boundary when the marker is entered.
+        is_fret = op_is_any(m, op, OP_FRET_RA, OP_FRET_STK)
+        fret_redirect = fire & is_fret & (~redirect)
+        pc_next = ret_ra_val if fret_redirect else pc_next
+        redirect = redirect | fret_redirect
+        pc_next = state_replay_pc if replay_redirect else pc_next
+        redirect = redirect | replay_redirect
+        commit_next_pcs.append(pc_next)
+
+        # Keep 1-store-per-cycle commit enqueue while allowing other younger
+        # non-store commits in the same cycle.
+        fire = fire & ((~rob_is_stores[slot]) | ((~commit_store_seen) & stbuf_has_space))
+        # Block-authoritative retirement gate:
+        bstop_gate_ok = (~is_bstop) | (~brob_active_allocated_i) | brob_active_ready_i | brob_active_exception_i
+        fire = fire & bstop_gate_ok
+        store_commit = fire & rob_is_stores[slot]
+        stop = redirect | (fire & is_halt)
+
+        commit_fires.append(fire)
+        commit_count = commit_count + fire
+
+        redirect_valid = redirect_valid | redirect
+        redirect_pc = pc_next if redirect else redirect_pc
+        redirect_ckpt_sel = br_corr_checkpoint_id_live if corr_for_boundary else rob_checkpoint_ids[slot]
+        redirect_checkpoint_id = redirect_ckpt_sel if redirect else redirect_checkpoint_id
+        redirect_from_corr = redirect_from_corr | (redirect & corr_for_boundary)
+
+        commit_store_seen = commit_store_seen | store_commit
+
+        bstart_commit = fire & is_bstart
+        block_uid_this = block_uid_ctr_live if bstart_commit else active_block_uid_live
+        block_bid_this = block_bid_ctr_live if bstart_commit else active_block_bid_live
+        commit_is_bstarts.append(bstart_commit)
+        bstop_commit = fire & is_bstop
+        commit_is_bstops.append(bstop_commit)
+        commit_block_uids.append(block_uid_this)
+        commit_block_bids.append(block_bid_this)
+        commit_core_ids.append(u(2, 0))
+        bstop_take = bstop_commit & (~brob_retire_fire)
+        brob_retire_fire = brob_retire_fire | bstop_take
+        brob_retire_bid = active_block_bid_live if bstop_take else brob_retire_bid
+        active_block_uid_live = block_uid_this if bstart_commit else active_block_uid_live
+        block_uid_ctr_live = (block_uid_ctr_live + u(64, 1)) if bstart_commit else block_uid_ctr_live
+        active_block_bid_live = block_bid_this if bstart_commit else active_block_bid_live
+        block_bid_ctr_live = (block_bid_ctr_live + u(64, 1)) if bstart_commit else block_bid_ctr_live
+        active_block_bid_live = consts.zero64 if (fire & is_bstop) else active_block_bid_live
+
+        # --- sequential architectural state updates across commit slots ---
+        op_setc_any = is_setc_any_op(m, op)
+        op_setc_tgt = is_setc_tgt_op(m, op)
+        commit_cond_live = consts.zero1 if (fire & is_boundary) else commit_cond_live
+        commit_tgt_live = consts.zero64 if (fire & is_boundary) else commit_tgt_live
+        commit_cond_live = val[0:1] if (fire & op_setc_any) else commit_cond_live
+        commit_tgt_live = val if (fire & op_setc_tgt) else commit_tgt_live
+        commit_cond_live = consts.one1 if (fire & op_setc_tgt) else commit_cond_live
+
+        br_kind_live = u(3, BK_FALL) if (fire & is_boundary & br_take_eff) else br_kind_live
+        br_base_live = pc_this if (fire & is_boundary & br_take_eff) else br_base_live
+        br_off_live = consts.zero64 if (fire & is_boundary & br_take_eff) else br_off_live
+        br_pred_take_live = consts.zero1 if (fire & is_boundary & br_take_eff) else br_pred_take_live
+
+        enter_new_block = fire & is_bstart & (~br_take_eff)
+        meta_off = rob_boundary_targets[slot] - pc_this
+        br_kind_live = rob_boundary_kinds[slot] if enter_new_block else br_kind_live
+        br_base_live = pc_this if enter_new_block else br_base_live
+        br_off_live = meta_off if enter_new_block else br_off_live
+        br_pred_take_live = rob_pred_takes[slot] if enter_new_block else br_pred_take_live
+
+        # Macro blocks are standalone fall-through blocks.
+        macro_enter = fire & is_macro & (~br_take_eff)
+        br_kind_live = u(3, BK_FALL) if macro_enter else br_kind_live
+        br_base_live = pc_this if macro_enter else br_base_live
+        br_off_live = consts.zero64 if macro_enter else br_off_live
+        br_pred_take_live = consts.zero1 if macro_enter else br_pred_take_live
+
+        br_kind_live = u(3, BK_FALL) if (fire & is_bstop) else br_kind_live
+        br_base_live = pc_this if (fire & is_bstop) else br_base_live
+        br_off_live = consts.zero64 if (fire & is_bstop) else br_off_live
+        br_pred_take_live = consts.zero1 if (fire & is_bstop) else br_pred_take_live
+
+        clear_corr_boundary = fire & is_boundary & corr_epoch_match
+        br_corr_pending_live = consts.zero1 if clear_corr_boundary else br_corr_pending_live
+
+        br_epoch_advance = fire & is_boundary
+        br_epoch_live = (br_epoch_live + u(16, 1)) if br_epoch_advance else br_epoch_live
+
+        # Track whether next committed instruction should be interpreted as the
+        # block head marker.
+        block_head_live = consts.one1 if (fire & (is_boundary | redirect)) else block_head_live
+        block_head_live = consts.zero1 if (fire & is_bstart_head) else block_head_live
+
+        pc_live = pc_next if fire else pc_live
+
+        commit_allow = commit_allow & fire & (~stop)
+
+    # Canonical retired-store selection from committed slots (oldest first).
+    store_sel_fire = consts.zero1
+    store_sel_addr = consts.zero64
+    store_sel_data = consts.zero64
+    store_sel_size = consts.zero4
+    for slot in range(commit_w):
+        slot_store = commit_fires[slot] & rob_is_stores[slot]
+        take = slot_store & (~store_sel_fire)
+        store_sel_fire = store_sel_fire | slot_store
+        store_sel_addr = rob_st_addrs[slot] if take else store_sel_addr
+        store_sel_data = rob_st_datas[slot] if take else store_sel_data
+        store_sel_size = rob_st_sizes[slot] if take else store_sel_size
+
+    m.output("commit_count", commit_count)
+    m.output("redirect_valid", redirect_valid)
+    m.output("redirect_pc", redirect_pc)
+    m.output("redirect_checkpoint_id", redirect_checkpoint_id)
+    m.output("redirect_from_corr", redirect_from_corr)
+    m.output("replay_redirect_fire", replay_redirect_fire)
+    m.output("commit_store_fire", store_sel_fire)
+    m.output("commit_store_addr", store_sel_addr)
+    m.output("commit_store_data", store_sel_data)
+    m.output("commit_store_size", store_sel_size)
+    m.output("brob_retire_fire", brob_retire_fire)
+    m.output("brob_retire_bid", brob_retire_bid)
+
+    m.output("pc_live", pc_live)
+    m.output("commit_cond_live", commit_cond_live)
+    m.output("commit_tgt_live", commit_tgt_live)
+    m.output("br_kind_live", br_kind_live)
+    m.output("br_epoch_live", br_epoch_live)
+    m.output("br_base_live", br_base_live)
+    m.output("br_off_live", br_off_live)
+    m.output("br_pred_take_live", br_pred_take_live)
+    m.output("active_block_uid_live", active_block_uid_live)
+    m.output("block_uid_ctr_live", block_uid_ctr_live)
+    m.output("active_block_bid_live", active_block_bid_live)
+    m.output("block_bid_ctr_live", block_bid_ctr_live)
+    m.output("block_head_live", block_head_live)
+    m.output("br_corr_pending_live", br_corr_pending_live)
+
+    for slot in range(commit_w):
+        m.output(f"commit_fire{slot}", commit_fires[slot])
+        m.output(f"commit_pc{slot}", commit_pcs[slot])
+        m.output(f"commit_next_pc{slot}", commit_next_pcs[slot])
+        m.output(f"commit_is_bstart{slot}", commit_is_bstarts[slot])
+        m.output(f"commit_is_bstop{slot}", commit_is_bstops[slot])
+        m.output(f"commit_block_uid{slot}", commit_block_uids[slot])
+        m.output(f"commit_block_bid{slot}", commit_block_bids[slot])
+        m.output(f"commit_core_id{slot}", commit_core_ids[slot])
 
 
 def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None) -> BccOooExports:
@@ -197,8 +594,137 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     ckpt_entries = len(ren.ckpt_valid)
     ckpt_w = (ckpt_entries - 1).bit_length()
 
-    # --- ROB (in-order commit) ---
-    rob = make_rob_regs(m, clk, rst, consts=consts, p=p)
+    # --- ROB bank (in-order commit; forced hierarchy) ---
+    #
+    # Instantiate early so the rest of the backend can read ROB state via
+    # module outputs. We connect its event inputs later, once the pipeline
+    # has produced them (placeholder wires here).
+    def _rob_in(width: int):
+        return m.new_wire(width=width)
+
+    rob_bank_in = {
+        "clk": clk,
+        "rst": rst,
+        "do_flush": _rob_in(1),
+        "commit_fire": _rob_in(1),
+        "dispatch_fire": _rob_in(1),
+        "commit_count": _rob_in(3),
+        "disp_count": _rob_in(3),
+    }
+    for slot in range(p.dispatch_w):
+        rob_bank_in[f"disp_valid{slot}"] = _rob_in(1)
+    for slot in range(p.commit_w):
+        rob_bank_in[f"commit_fire{slot}"] = _rob_in(1)
+        rob_bank_in[f"commit_idx{slot}"] = _rob_in(p.rob_w)
+    for slot in range(p.dispatch_w):
+        rob_bank_in[f"disp_pc{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_op{slot}"] = _rob_in(12)
+        rob_bank_in[f"disp_len{slot}"] = _rob_in(3)
+        rob_bank_in[f"disp_insn_raw{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_checkpoint_id{slot}"] = _rob_in(6)
+        rob_bank_in[f"disp_dst_kind{slot}"] = _rob_in(2)
+        rob_bank_in[f"disp_regdst{slot}"] = _rob_in(6)
+        rob_bank_in[f"disp_pdst{slot}"] = _rob_in(p.ptag_w)
+        rob_bank_in[f"disp_imm{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_is_store{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_is_boundary{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_is_bstart{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_is_bstop{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_boundary_kind{slot}"] = _rob_in(3)
+        rob_bank_in[f"disp_boundary_target{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_pred_take{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_block_epoch{slot}"] = _rob_in(16)
+        rob_bank_in[f"disp_block_uid{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_block_bid{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_load_store_id{slot}"] = _rob_in(32)
+        rob_bank_in[f"disp_resolved_d2{slot}"] = _rob_in(1)
+        rob_bank_in[f"disp_srcl{slot}"] = _rob_in(6)
+        rob_bank_in[f"disp_srcr{slot}"] = _rob_in(6)
+        rob_bank_in[f"disp_uop_uid{slot}"] = _rob_in(64)
+        rob_bank_in[f"disp_parent_uid{slot}"] = _rob_in(64)
+    for slot in range(p.issue_w):
+        rob_bank_in[f"wb_fire{slot}"] = _rob_in(1)
+        rob_bank_in[f"wb_rob{slot}"] = _rob_in(p.rob_w)
+        rob_bank_in[f"wb_value{slot}"] = _rob_in(64)
+        rob_bank_in[f"store_fire{slot}"] = _rob_in(1)
+        rob_bank_in[f"load_fire{slot}"] = _rob_in(1)
+        rob_bank_in[f"ex_addr{slot}"] = _rob_in(64)
+        rob_bank_in[f"ex_wdata{slot}"] = _rob_in(64)
+        rob_bank_in[f"ex_size{slot}"] = _rob_in(4)
+        rob_bank_in[f"ex_src0{slot}"] = _rob_in(64)
+        rob_bank_in[f"ex_src1{slot}"] = _rob_in(64)
+
+    # Probe interface for lane0 LSU store disambiguation/forwarding against
+    # in-flight ROB stores (minimizes port explosion vs scanning in LinxCoreLsuStage).
+    rob_bank_in["lsu_probe_fire"] = _rob_in(1)
+    rob_bank_in["lsu_probe_addr"] = _rob_in(64)
+    rob_bank_in["lsu_probe_rob"] = _rob_in(p.rob_w)
+    rob_bank_in["lsu_probe_sub_head"] = _rob_in(p.rob_w)
+
+    rob_bank = m.instance_auto(
+        build_rob_bank_top,
+        name="rob_bank",
+        params={
+            "rob_depth": p.rob_depth,
+            "slice_entries": 8,
+            "dispatch_w": p.dispatch_w,
+            "issue_w": p.issue_w,
+            "commit_w": p.commit_w,
+            "rob_w": p.rob_w,
+            "ptag_w": p.ptag_w,
+        },
+        **rob_bank_in,
+    )
+
+    # Build a RobRegs-shaped view out of wires (wires implement `.out()`).
+    rob = SimpleNamespace(
+        head=rob_bank["head"].read(),
+        tail=rob_bank["tail"].read(),
+        count=rob_bank["count"].read(),
+        valid=[rob_bank[f"valid{i}"].read() for i in range(p.rob_depth)],
+        done=[rob_bank[f"done{i}"].read() for i in range(p.rob_depth)],
+        pc=[rob_bank[f"pc{i}"].read() for i in range(p.rob_depth)],
+        op=[rob_bank[f"op{i}"].read() for i in range(p.rob_depth)],
+        len_bytes=[rob_bank[f"len{i}"].read() for i in range(p.rob_depth)],
+        dst_kind=[rob_bank[f"dst_kind{i}"].read() for i in range(p.rob_depth)],
+        dst_areg=[rob_bank[f"dst_areg{i}"].read() for i in range(p.rob_depth)],
+        pdst=[rob_bank[f"pdst{i}"].read() for i in range(p.rob_depth)],
+        value=[rob_bank[f"value{i}"].read() for i in range(p.rob_depth)],
+        src0_reg=[rob_bank[f"src0_reg{i}"].read() for i in range(p.rob_depth)],
+        src1_reg=[rob_bank[f"src1_reg{i}"].read() for i in range(p.rob_depth)],
+        src0_value=[rob_bank[f"src0_value{i}"].read() for i in range(p.rob_depth)],
+        src1_value=[rob_bank[f"src1_value{i}"].read() for i in range(p.rob_depth)],
+        src0_valid=[rob_bank[f"src0_valid{i}"].read() for i in range(p.rob_depth)],
+        src1_valid=[rob_bank[f"src1_valid{i}"].read() for i in range(p.rob_depth)],
+        store_addr=[rob_bank[f"store_addr{i}"].read() for i in range(p.rob_depth)],
+        store_data=[rob_bank[f"store_data{i}"].read() for i in range(p.rob_depth)],
+        store_size=[rob_bank[f"store_size{i}"].read() for i in range(p.rob_depth)],
+        is_store=[rob_bank[f"is_store{i}"].read() for i in range(p.rob_depth)],
+        load_addr=[rob_bank[f"load_addr{i}"].read() for i in range(p.rob_depth)],
+        load_data=[rob_bank[f"load_data{i}"].read() for i in range(p.rob_depth)],
+        load_size=[rob_bank[f"load_size{i}"].read() for i in range(p.rob_depth)],
+        is_load=[rob_bank[f"is_load{i}"].read() for i in range(p.rob_depth)],
+        is_boundary=[rob_bank[f"is_boundary{i}"].read() for i in range(p.rob_depth)],
+        is_bstart=[rob_bank[f"is_bstart{i}"].read() for i in range(p.rob_depth)],
+        is_bstop=[rob_bank[f"is_bstop{i}"].read() for i in range(p.rob_depth)],
+        boundary_kind=[rob_bank[f"boundary_kind{i}"].read() for i in range(p.rob_depth)],
+        boundary_target=[rob_bank[f"boundary_target{i}"].read() for i in range(p.rob_depth)],
+        pred_take=[rob_bank[f"pred_take{i}"].read() for i in range(p.rob_depth)],
+        block_epoch=[rob_bank[f"block_epoch{i}"].read() for i in range(p.rob_depth)],
+        block_uid=[rob_bank[f"block_uid{i}"].read() for i in range(p.rob_depth)],
+        block_bid=[rob_bank[f"block_bid{i}"].read() for i in range(p.rob_depth)],
+        load_store_id=[rob_bank[f"load_store_id{i}"].read() for i in range(p.rob_depth)],
+        resolved_d2=[rob_bank[f"resolved_d2{i}"].read() for i in range(p.rob_depth)],
+        insn_raw=[rob_bank[f"insn_raw{i}"].read() for i in range(p.rob_depth)],
+        checkpoint_id=[rob_bank[f"checkpoint_id{i}"].read() for i in range(p.rob_depth)],
+        macro_begin=[rob_bank[f"macro_begin{i}"].read() for i in range(p.rob_depth)],
+        macro_end=[rob_bank[f"macro_end{i}"].read() for i in range(p.rob_depth)],
+        uop_uid=[rob_bank[f"uop_uid{i}"].read() for i in range(p.rob_depth)],
+        parent_uid=[rob_bank[f"parent_uid{i}"].read() for i in range(p.rob_depth)],
+    )
+
+    disp_rob_idxs = [rob_bank[f"disp_rob_idx{slot}"].read() for slot in range(p.dispatch_w)]
+    disp_fires = [rob_bank[f"disp_fire{slot}"].read() for slot in range(p.dispatch_w)]
 
     # --- issue queues (bring-up split) ---
     iq_alu = make_iq_regs(m, clk, rst, consts=consts, p=p, name="iq_alu")
@@ -206,39 +732,74 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     iq_lsu = make_iq_regs(m, clk, rst, consts=consts, p=p, name="iq_lsu")
     iq_cmd = make_iq_regs(m, clk, rst, consts=consts, p=p, name="iq_cmd")
 
-    # --- committed store buffer (drains stores to D-memory) ---
-    with m.scope("stbuf"):
-        stbuf_head = m.out("head", clk=clk, rst=rst, width=p.sq_w, init=c(0, width=p.sq_w), en=consts.one1)
-        stbuf_tail = m.out("tail", clk=clk, rst=rst, width=p.sq_w, init=c(0, width=p.sq_w), en=consts.one1)
-        stbuf_count = m.out("count", clk=clk, rst=rst, width=p.sq_w + 1, init=c(0, width=p.sq_w + 1), en=consts.one1)
-        stbuf_valid = []
-        stbuf_addr = []
-        stbuf_data = []
-        stbuf_size = []
-        for i in range(p.sq_entries):
-            stbuf_valid.append(m.out(f"v{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
-            stbuf_addr.append(m.out(f"a{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
-            stbuf_data.append(m.out(f"d{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
-            stbuf_size.append(m.out(f"s{i}", clk=clk, rst=rst, width=4, init=consts.zero4, en=consts.one1))
+    # --- committed store buffer (forced hierarchy) ---
+    commit_store_fire_i = m.new_wire(width=1)
+    commit_store_addr_i = m.new_wire(width=64)
+    commit_store_data_i = m.new_wire(width=64)
+    commit_store_size_i = m.new_wire(width=4)
+    macro_store_fire_i = m.new_wire(width=1)
+    macro_store_addr_i = m.new_wire(width=64)
+    macro_store_data_i = m.new_wire(width=64)
+    macro_store_size_i = m.new_wire(width=4)
+    macro_load_fire_i = m.new_wire(width=1)
+    macro_load_addr_i = m.new_wire(width=64)
+    lsu_load_fire_i = m.new_wire(width=1)
+    lsu_load_addr_i = m.new_wire(width=64)
+    lsu_probe_fire_i = m.new_wire(width=1)
+    lsu_probe_addr_i = m.new_wire(width=64)
 
-    # --- frontend BSTART metadata buffer (PC buffer equivalent) ---
-    pcb_depth = p.rob_depth
-    pcb_w = p.rob_w
-    with m.scope("pcbuf"):
-        pcb_tail = m.out("tail", clk=clk, rst=rst, width=pcb_w, init=c(0, width=pcb_w), en=consts.one1)
-        pcb_valid = []
-        pcb_pc = []
-        pcb_kind = []
-        pcb_target = []
-        pcb_pred_take = []
-        pcb_is_bstart = []
-        for i in range(pcb_depth):
-            pcb_valid.append(m.out(f"v{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
-            pcb_pc.append(m.out(f"pc{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
-            pcb_kind.append(m.out(f"k{i}", clk=clk, rst=rst, width=3, init=c(BK_FALL, width=3), en=consts.one1))
-            pcb_target.append(m.out(f"t{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
-            pcb_pred_take.append(m.out(f"p{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
-            pcb_is_bstart.append(m.out(f"b{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
+    stbuf_stage = m.instance_auto(
+        build_stbuf_stage,
+        name="stbuf_stage",
+        module_name="LinxCoreStbufStage",
+        params={"sq_entries": p.sq_entries, "sq_w": p.sq_w},
+        clk=clk,
+        rst=rst,
+        commit_store_fire=commit_store_fire_i,
+        commit_store_addr=commit_store_addr_i,
+        commit_store_data=commit_store_data_i,
+        commit_store_size=commit_store_size_i,
+        macro_store_fire=macro_store_fire_i,
+        macro_store_addr=macro_store_addr_i,
+        macro_store_data=macro_store_data_i,
+        macro_store_size=macro_store_size_i,
+        macro_load_fire=macro_load_fire_i,
+        macro_load_addr=macro_load_addr_i,
+        lsu_load_fire=lsu_load_fire_i,
+        lsu_load_addr=lsu_load_addr_i,
+        lsu_probe_fire=lsu_probe_fire_i,
+        lsu_probe_addr=lsu_probe_addr_i,
+        dmem_rdata_i=dmem_rdata_i,
+    )
+    stbuf_has_space = stbuf_stage["has_space"]
+    stbuf_valid = [stbuf_stage[f"valid{i}"] for i in range(p.sq_entries)]
+    stbuf_addr = [stbuf_stage[f"addr{i}"] for i in range(p.sq_entries)]
+    stbuf_data = [stbuf_stage[f"data{i}"] for i in range(p.sq_entries)]
+    stbuf_size = [stbuf_stage[f"size{i}"] for i in range(p.sq_entries)]
+    stbuf_enq_fire = stbuf_stage["enq_fire"]
+    stbuf_drain_fire = stbuf_stage["drain_fire"]
+    commit_store_write_through = stbuf_stage["commit_store_write_through"]
+    dmem_raddr = stbuf_stage["dmem_raddr"]
+    mem_wvalid = stbuf_stage["dmem_wvalid"]
+    mem_waddr = stbuf_stage["dmem_waddr"]
+    dmem_wdata = stbuf_stage["dmem_wdata"]
+    wstrb = stbuf_stage["dmem_wstrb"]
+    dmem_wsrc = stbuf_stage["dmem_wsrc"]
+    mmio_uart = stbuf_stage["mmio_uart_valid"]
+    mmio_uart_data = stbuf_stage["mmio_uart_data"]
+    mmio_exit = stbuf_stage["mmio_exit_valid"]
+    mmio_exit_code = stbuf_stage["mmio_exit_code"]
+    macro_load_data = stbuf_stage["macro_load_data"]
+    stbuf_lsu_fwd_hit = stbuf_stage["lsu_fwd_hit"]
+    stbuf_lsu_fwd_data = stbuf_stage["lsu_fwd_data"]
+
+    # --- frontend BSTART metadata buffer (PC buffer equivalent, forced hierarchy) ---
+    pcbuf_wr_valid_i = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    pcbuf_wr_pc_i = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    pcbuf_wr_kind_i = [m.new_wire(width=3) for _ in range(p.dispatch_w)]
+    pcbuf_wr_target_i = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    pcbuf_wr_pred_take_i = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    pcbuf_wr_is_bstart_i = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
 
     # --- commit selection (up to commit_w, stop on redirect/store/halt) ---
     commit_idxs = []
@@ -392,248 +953,110 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     ret_ra_tag = ren.cmap[10].out()
     ret_ra_val = mux_by_uindex(m, idx=ret_ra_tag, items=prf, default=consts.zero64)
 
-    commit_allow = consts.one1
-    commit_fires = []
-    commit_pcs = []
-    commit_next_pcs = []
-    commit_is_bstarts = []
-    commit_is_bstops = []
-    commit_block_uids = []
-    commit_block_bids = []
-    commit_core_ids = []
+    commit_sel_args = {
+        "can_run": can_run,
+        "stbuf_has_space": stbuf_has_space,
+        "ret_ra_val": ret_ra_val,
+        "brob_active_allocated_i": brob_active_allocated_i,
+        "brob_active_ready_i": brob_active_ready_i,
+        "brob_active_exception_i": brob_active_exception_i,
+        "state_pc": state.pc.out(),
+        "state_commit_cond": state.commit_cond.out(),
+        "state_commit_tgt": state.commit_tgt.out(),
+        "state_br_kind": state.br_kind.out(),
+        "state_br_epoch": state.br_epoch.out(),
+        "state_br_base_pc": state.br_base_pc.out(),
+        "state_br_off": state.br_off.out(),
+        "state_br_pred_take": state.br_pred_take.out(),
+        "state_active_block_uid": state.active_block_uid.out(),
+        "state_block_uid_ctr": state.block_uid_ctr.out(),
+        "state_active_block_bid": state.active_block_bid.out(),
+        "state_block_bid_ctr": state.block_bid_ctr.out(),
+        "state_block_head": state.block_head.out(),
+        "state_br_corr_pending": state.br_corr_pending.out(),
+        "state_br_corr_epoch": state.br_corr_epoch.out(),
+        "state_br_corr_take": state.br_corr_take.out(),
+        "state_br_corr_target": state.br_corr_target.out(),
+        "state_br_corr_checkpoint_id": state.br_corr_checkpoint_id.out(),
+        "state_replay_pending": state.replay_pending.out(),
+        "state_replay_store_rob": state.replay_store_rob.out(),
+        "state_replay_pc": state.replay_pc.out(),
+    }
+    for slot in range(p.commit_w):
+        commit_sel_args[f"commit_idx{slot}"] = commit_idxs[slot]
+        commit_sel_args[f"rob_pc{slot}"] = rob_pcs[slot]
+        commit_sel_args[f"rob_valid{slot}"] = rob_valids[slot]
+        commit_sel_args[f"rob_done{slot}"] = rob_dones[slot]
+        commit_sel_args[f"rob_op{slot}"] = rob_ops[slot]
+        commit_sel_args[f"rob_len{slot}"] = rob_lens[slot]
+        commit_sel_args[f"rob_value{slot}"] = rob_values[slot]
+        commit_sel_args[f"rob_is_store{slot}"] = rob_is_stores[slot]
+        commit_sel_args[f"rob_store_addr{slot}"] = rob_st_addrs[slot]
+        commit_sel_args[f"rob_store_data{slot}"] = rob_st_datas[slot]
+        commit_sel_args[f"rob_store_size{slot}"] = rob_st_sizes[slot]
+        commit_sel_args[f"rob_is_bstart{slot}"] = rob_is_bstarts[slot]
+        commit_sel_args[f"rob_is_bstop{slot}"] = rob_is_bstops[slot]
+        commit_sel_args[f"rob_boundary_kind{slot}"] = rob_boundary_kinds[slot]
+        commit_sel_args[f"rob_boundary_target{slot}"] = rob_boundary_targets[slot]
+        commit_sel_args[f"rob_pred_take{slot}"] = rob_pred_takes[slot]
+        commit_sel_args[f"rob_checkpoint_id{slot}"] = rob_checkpoint_ids[slot]
 
-    commit_count = c(0, width=3)
+    commit_sel = m.instance_auto(
+        build_commit_select_stage,
+        name="commit_select_stage",
+        params={"commit_w": p.commit_w, "rob_w": p.rob_w},
+        **commit_sel_args,
+    )
 
-    redirect_valid = consts.zero1
-    redirect_pc = state.pc.out()
-    redirect_checkpoint_id = c(0, width=6)
-    redirect_from_corr = consts.zero1
-    replay_redirect_fire = consts.zero1
+    commit_fires = [commit_sel[f"commit_fire{slot}"] for slot in range(p.commit_w)]
+    commit_pcs = [commit_sel[f"commit_pc{slot}"] for slot in range(p.commit_w)]
+    commit_next_pcs = [commit_sel[f"commit_next_pc{slot}"] for slot in range(p.commit_w)]
+    commit_is_bstarts = [commit_sel[f"commit_is_bstart{slot}"] for slot in range(p.commit_w)]
+    commit_is_bstops = [commit_sel[f"commit_is_bstop{slot}"] for slot in range(p.commit_w)]
+    commit_block_uids = [commit_sel[f"commit_block_uid{slot}"] for slot in range(p.commit_w)]
+    commit_block_bids = [commit_sel[f"commit_block_bid{slot}"] for slot in range(p.commit_w)]
+    commit_core_ids = [commit_sel[f"commit_core_id{slot}"] for slot in range(p.commit_w)]
 
-    commit_store_fire = consts.zero1
-    commit_store_addr = consts.zero64
-    commit_store_data = consts.zero64
-    commit_store_size = consts.zero4
-    commit_store_seen = consts.zero1
-    brob_retire_fire = consts.zero1
-    brob_retire_bid = consts.zero64
+    commit_count = commit_sel["commit_count"]
+    redirect_valid = commit_sel["redirect_valid"]
+    redirect_pc = commit_sel["redirect_pc"]
+    redirect_checkpoint_id = commit_sel["redirect_checkpoint_id"]
+    redirect_from_corr = commit_sel["redirect_from_corr"]
+    replay_redirect_fire = commit_sel["replay_redirect_fire"]
+    commit_store_fire = commit_sel["commit_store_fire"]
+    commit_store_addr = commit_sel["commit_store_addr"]
+    commit_store_data = commit_sel["commit_store_data"]
+    commit_store_size = commit_sel["commit_store_size"]
 
-    pc_live = state.pc.out()
-    commit_cond_live = state.commit_cond.out()
-    commit_tgt_live = state.commit_tgt.out()
-    br_kind_live = state.br_kind.out()
-    br_epoch_live = state.br_epoch.out()
-    br_base_live = state.br_base_pc.out()
-    br_off_live = state.br_off.out()
-    br_pred_take_live = state.br_pred_take.out()
-    active_block_uid_live = state.active_block_uid.out()
-    block_uid_ctr_live = state.block_uid_ctr.out()
-    active_block_bid_live = state.active_block_bid.out()
-    block_bid_ctr_live = state.block_bid_ctr.out()
-    lsid_issue_ptr_live = state.lsid_issue_ptr.out()
-    lsid_complete_ptr_live = state.lsid_complete_ptr.out()
-    block_head_live = state.block_head.out()
-    br_corr_pending_live = state.br_corr_pending.out()
+    # Drive committed store buffer hierarchy inputs from commit-selection outputs.
+    m.assign(commit_store_fire_i, commit_store_fire)
+    m.assign(commit_store_addr_i, commit_store_addr)
+    m.assign(commit_store_data_i, commit_store_data)
+    m.assign(commit_store_size_i, commit_store_size)
+    brob_retire_fire = commit_sel["brob_retire_fire"]
+    brob_retire_bid = commit_sel["brob_retire_bid"]
+
+    pc_live = commit_sel["pc_live"]
+    commit_cond_live = commit_sel["commit_cond_live"]
+    commit_tgt_live = commit_sel["commit_tgt_live"]
+    br_kind_live = commit_sel["br_kind_live"]
+    br_epoch_live = commit_sel["br_epoch_live"]
+    br_base_live = commit_sel["br_base_live"]
+    br_off_live = commit_sel["br_off_live"]
+    br_pred_take_live = commit_sel["br_pred_take_live"]
+    active_block_uid_live = commit_sel["active_block_uid_live"]
+    block_uid_ctr_live = commit_sel["block_uid_ctr_live"]
+    active_block_bid_live = commit_sel["active_block_bid_live"]
+    block_bid_ctr_live = commit_sel["block_bid_ctr_live"]
+    block_head_live = commit_sel["block_head_live"]
+    br_corr_pending_live = commit_sel["br_corr_pending_live"]
     br_corr_epoch_live = state.br_corr_epoch.out()
     br_corr_take_live = state.br_corr_take.out()
     br_corr_target_live = state.br_corr_target.out()
     br_corr_checkpoint_id_live = state.br_corr_checkpoint_id.out()
 
-    for slot in range(p.commit_w):
-        # Use the ROB-captured instruction PC for commit/control-flow math.
-        # Deriving from `pc_live` can drift when hidden/internal retire events
-        # are present (e.g. macro template expansion), which can misalign fetch.
-        pc_this = rob_valids[slot]._select_internal(rob_pcs[slot], pc_live)
-        commit_pcs.append(pc_this)
-        op = rob_ops[slot]
-        ln = rob_lens[slot]
-        val = rob_values[slot]
-
-        is_macro = is_macro_op(op, op_is)
-        is_bstart = rob_is_bstarts[slot]
-        is_bstop = rob_is_bstops[slot]
-        is_bstart_head = is_bstart & block_head_live
-        is_bstart_mid = is_bstart & (~block_head_live)
-        is_start_marker = is_bstart_head | is_macro
-        is_boundary = is_bstart_mid | is_bstop | is_macro
-
-        br_is_fall = br_kind_live.__eq__(c(BK_FALL, width=3))
-        br_is_cond = br_kind_live.__eq__(c(BK_COND, width=3))
-        br_is_call = br_kind_live.__eq__(c(BK_CALL, width=3))
-        br_is_ret = br_kind_live.__eq__(c(BK_RET, width=3))
-        br_is_direct = br_kind_live.__eq__(c(BK_DIRECT, width=3))
-        br_is_ind = br_kind_live.__eq__(c(BK_IND, width=3))
-        br_is_icall = br_kind_live.__eq__(c(BK_ICALL, width=3))
-
-        br_target = br_base_live + br_off_live
-        # Dynamic target for RET/IND/ICALL blocks comes from commit_tgt.
-        br_target = (br_is_ret | br_is_ind | br_is_icall)._select_internal(commit_tgt_live, br_target)
-        # Allow SETC.TGT to override fixed targets for DIRECT/CALL/COND blocks.
-        br_target = (~(br_is_ret | br_is_ind | br_is_icall) & (~commit_tgt_live.__eq__(consts.zero64)))._select_internal(commit_tgt_live, br_target)
-
-        br_take = (
-            br_is_call
-            | br_is_direct
-            | br_is_ind
-            | br_is_icall
-            | (br_is_cond & commit_cond_live)
-            | (br_is_ret & commit_cond_live)
-        )
-
-        fire = can_run & commit_allow & rob_valids[slot] & rob_dones[slot]
-
-        # Template macro blocks (FENTRY/FEXIT/FRET.*) must reach the head of the
-        # ROB so the macro microcode engine can run before the macro commits.
-        # With commit_w>1, a macro could otherwise commit in the same cycle as
-        # an older non-macro (slot>0) and skip the required save/restore.
-        if slot != 0:
-            fire = fire & (~is_macro)
-
-        # Boundary-authoritative correction:
-        # BRU mismatch only records correction; redirect is consumed at boundary commit.
-        corr_epoch_match = br_corr_pending_live & br_corr_epoch_live.__eq__(br_epoch_live)
-        corr_for_boundary = fire & is_boundary & corr_epoch_match
-        br_take_eff = corr_for_boundary._select_internal(br_corr_take_live, br_take)
-        br_target_eff = corr_for_boundary._select_internal(br_corr_target_live, br_target)
-
-        pc_inc = pc_this + ln._zext(width=64)
-        boundary_fallthrough = is_bstart_mid._select_internal(pc_this, pc_inc)
-        pc_next = is_boundary._select_internal(br_take_eff._select_internal(br_target_eff, boundary_fallthrough), pc_inc)
-
-        # Stop commit on redirect, store, or halt.
-        is_halt = op_is(op, OP_EBREAK, OP_INVALID)
-        # Mid-block BSTART must restart fetch at its own PC even when the
-        # previous block resolves not-taken; this mirrors QEMU block-end split.
-        redirect = fire & ((is_boundary & br_take_eff) | is_bstart_mid)
-        replay_redirect = (
-            fire
-            & rob_is_stores[slot]
-            & state.replay_pending.out()
-            & commit_idxs[slot].__eq__(state.replay_store_rob.out())
-        )
-        replay_redirect_fire = replay_redirect._select_internal(consts.one1, replay_redirect_fire)
-
-        # FRET.* are explicit control-flow ops (return via RA). They behave like
-        # a taken boundary when the marker is entered (i.e., not skipped by a
-        # prior taken branch at this boundary).
-        is_fret = op_is(op, OP_FRET_RA, OP_FRET_STK)
-        fret_redirect = fire & is_fret & (~redirect)
-        pc_next = fret_redirect._select_internal(ret_ra_val, pc_next)
-        redirect = redirect | fret_redirect
-        pc_next = replay_redirect._select_internal(state.replay_pc.out(), pc_next)
-        redirect = redirect | replay_redirect
-        commit_next_pcs.append(pc_next)
-
-        stbuf_has_space = stbuf_count.out().ult(c(p.sq_entries, width=p.sq_w + 1))
-        # This milestone keeps a 1-store-per-cycle commit enqueue path while
-        # allowing other younger non-store commits in the same cycle.
-        fire = fire & ((~rob_is_stores[slot]) | ((~commit_store_seen) & stbuf_has_space))
-        # Block-authoritative retirement gate:
-        # BSTOP can retire only when the active block has no BROB work pending,
-        # or BROB marked the block ready/exception.
-        bstop_gate_ok = (~is_bstop) | (~brob_active_allocated_i) | brob_active_ready_i | brob_active_exception_i
-        fire = fire & bstop_gate_ok
-        store_commit = fire & rob_is_stores[slot]
-        stop = redirect | (fire & is_halt)
-
-        commit_fires.append(fire)
-        commit_count = commit_count + fire._zext(width=3)
-
-        redirect_valid = redirect._select_internal(consts.one1, redirect_valid)
-        redirect_pc = redirect._select_internal(pc_next, redirect_pc)
-        redirect_ckpt_sel = corr_for_boundary._select_internal(br_corr_checkpoint_id_live, rob_checkpoint_ids[slot])
-        redirect_checkpoint_id = redirect._select_internal(redirect_ckpt_sel, redirect_checkpoint_id)
-        redirect_from_corr = (redirect & corr_for_boundary)._select_internal(consts.one1, redirect_from_corr)
-
-        commit_store_fire = store_commit._select_internal(consts.one1, commit_store_fire)
-        commit_store_addr = store_commit._select_internal(rob_st_addrs[slot], commit_store_addr)
-        commit_store_data = store_commit._select_internal(rob_st_datas[slot], commit_store_data)
-        commit_store_size = store_commit._select_internal(rob_st_sizes[slot], commit_store_size)
-        commit_store_seen = store_commit._select_internal(consts.one1, commit_store_seen)
-        bstart_commit = fire & is_bstart
-        block_uid_this = bstart_commit._select_internal(block_uid_ctr_live, active_block_uid_live)
-        block_bid_this = bstart_commit._select_internal(block_bid_ctr_live, active_block_bid_live)
-        commit_is_bstarts.append(bstart_commit)
-        bstop_commit = fire & is_bstop
-        commit_is_bstops.append(bstop_commit)
-        commit_block_uids.append(block_uid_this)
-        commit_block_bids.append(block_bid_this)
-        commit_core_ids.append(c(0, width=2))
-        bstop_take = bstop_commit & (~brob_retire_fire)
-        brob_retire_fire = bstop_take._select_internal(consts.one1, brob_retire_fire)
-        brob_retire_bid = bstop_take._select_internal(active_block_bid_live, brob_retire_bid)
-        active_block_uid_live = bstart_commit._select_internal(block_uid_this, active_block_uid_live)
-        block_uid_ctr_live = bstart_commit._select_internal(block_uid_ctr_live + c(1, width=64), block_uid_ctr_live)
-        active_block_bid_live = bstart_commit._select_internal(block_bid_this, active_block_bid_live)
-        block_bid_ctr_live = bstart_commit._select_internal(block_bid_ctr_live + c(1, width=64), block_bid_ctr_live)
-        active_block_bid_live = (fire & is_bstop)._select_internal(consts.zero64, active_block_bid_live)
-
-        # --- sequential architectural state updates across commit slots ---
-        op_setc_any = is_setc_any(op, op_is)
-        op_setc_tgt = is_setc_tgt(op, op_is)
-        commit_cond_live = (fire & is_boundary)._select_internal(consts.zero1, commit_cond_live)
-        commit_tgt_live = (fire & is_boundary)._select_internal(consts.zero64, commit_tgt_live)
-        commit_cond_live = (fire & op_setc_any)._select_internal(val._trunc(width=1), commit_cond_live)
-        commit_tgt_live = (fire & op_setc_tgt)._select_internal(val, commit_tgt_live)
-        commit_cond_live = (fire & op_setc_tgt)._select_internal(consts.one1, commit_cond_live)
-
-        br_kind_live = (fire & is_boundary & br_take_eff)._select_internal(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = (fire & is_boundary & br_take_eff)._select_internal(pc_this, br_base_live)
-        br_off_live = (fire & is_boundary & br_take_eff)._select_internal(consts.zero64, br_off_live)
-        br_pred_take_live = (fire & is_boundary & br_take_eff)._select_internal(consts.zero1, br_pred_take_live)
-
-        enter_new_block = fire & is_bstart & (~br_take_eff)
-        meta_off = rob_boundary_targets[slot] - pc_this
-        br_kind_live = enter_new_block._select_internal(rob_boundary_kinds[slot], br_kind_live)
-        br_base_live = enter_new_block._select_internal(pc_this, br_base_live)
-        br_off_live = enter_new_block._select_internal(meta_off, br_off_live)
-        br_pred_take_live = enter_new_block._select_internal(rob_pred_takes[slot], br_pred_take_live)
-
-        # Macro blocks (FENTRY/FEXIT/FRET.*) are standalone fall-through blocks.
-        macro_enter = fire & is_macro & (~br_take_eff)
-        br_kind_live = macro_enter._select_internal(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = macro_enter._select_internal(pc_this, br_base_live)
-        br_off_live = macro_enter._select_internal(consts.zero64, br_off_live)
-        br_pred_take_live = macro_enter._select_internal(consts.zero1, br_pred_take_live)
-
-        br_kind_live = (fire & is_bstop)._select_internal(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = (fire & is_bstop)._select_internal(pc_this, br_base_live)
-        br_off_live = (fire & is_bstop)._select_internal(consts.zero64, br_off_live)
-        br_pred_take_live = (fire & is_bstop)._select_internal(consts.zero1, br_pred_take_live)
-
-        clear_corr_boundary = fire & is_boundary & corr_epoch_match
-        br_corr_pending_live = clear_corr_boundary._select_internal(consts.zero1, br_corr_pending_live)
-
-        br_epoch_advance = fire & is_boundary
-        br_epoch_live = br_epoch_advance._select_internal(br_epoch_live + c(1, width=16), br_epoch_live)
-
-        # Track whether next committed instruction should be interpreted as the
-        # block head marker.
-        block_head_live = (fire & (is_boundary | redirect))._select_internal(consts.one1, block_head_live)
-        block_head_live = (fire & is_bstart_head)._select_internal(consts.zero1, block_head_live)
-
-        pc_live = fire._select_internal(pc_next, pc_live)
-
-        commit_allow = commit_allow & fire & (~stop)
-
-    # Canonical retired-store selection from committed slots (oldest first).
-    # This is the single source used for memory side effects and same-cycle
-    # forwarding to keep side effects aligned with retire trace semantics.
-    store_sel_fire = consts.zero1
-    store_sel_addr = consts.zero64
-    store_sel_data = consts.zero64
-    store_sel_size = consts.zero4
-    for slot in range(p.commit_w):
-        slot_store = commit_fires[slot] & rob_is_stores[slot]
-        take = slot_store & (~store_sel_fire)
-        store_sel_fire = slot_store._select_internal(consts.one1, store_sel_fire)
-        store_sel_addr = take._select_internal(rob_st_addrs[slot], store_sel_addr)
-        store_sel_data = take._select_internal(rob_st_datas[slot], store_sel_data)
-        store_sel_size = take._select_internal(rob_st_sizes[slot], store_sel_size)
-    commit_store_fire = store_sel_fire
-    commit_store_addr = store_sel_addr
-    commit_store_data = store_sel_data
-    commit_store_size = store_sel_size
+    lsid_issue_ptr_live = state.lsid_issue_ptr.out()
+    lsid_complete_ptr_live = state.lsid_complete_ptr.out()
 
     commit_fire = commit_fires[0]
     commit_redirect = redirect_valid
@@ -805,18 +1228,27 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         sl_vals.append(mux_by_uindex(m, idx=uop_sls[slot], items=prf, default=consts.zero64))
         sr_vals.append(mux_by_uindex(m, idx=uop_srs[slot], items=prf, default=consts.zero64))
         sp_vals.append(mux_by_uindex(m, idx=uop_sps[slot], items=prf, default=consts.zero64))
+        ex_mod = m.instance_auto(
+            build_linxcore_exec_uop_comb,
+            name=f"exec_uop{slot}",
+            module_name="LinxCoreExecUopComb",
+            op=uop_ops[slot],
+            pc=uop_pcs[slot],
+            imm=uop_imms[slot],
+            srcl_val=sl_vals[slot],
+            srcr_val=sr_vals[slot],
+            srcr_type=uop_srcr_types[slot],
+            shamt=uop_shamts[slot],
+            srcp_val=sp_vals[slot],
+        )
         exs.append(
-            exec_uop_comb(
-                m,
-                op=uop_ops[slot],
-                pc=uop_pcs[slot],
-                imm=uop_imms[slot],
-                srcl_val=sl_vals[slot],
-                srcr_val=sr_vals[slot],
-                srcr_type=uop_srcr_types[slot],
-                shamt=uop_shamts[slot],
-                srcp_val=sp_vals[slot],
-                consts=consts,
+            ExecOut(
+                alu=ex_mod["alu"],
+                is_load=ex_mod["is_load"],
+                is_store=ex_mod["is_store"],
+                size=ex_mod["size"],
+                addr=ex_mod["addr"],
+                wdata=ex_mod["wdata"],
             )
         )
 
@@ -833,34 +1265,34 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BSTORE, width=12))._select_internal(sr_vals[cmd_slot], cmd_payload_lane)
 
     # Memory disambiguation/forwarding for the LSU lane (lane0).
+    m.assign(lsu_probe_fire_i, issue_fires[0] & exs[0].is_load)
+    m.assign(lsu_probe_addr_i, exs[0].addr)
+    m.assign(rob_bank_in["lsu_probe_fire"], lsu_probe_fire_i)
+    m.assign(rob_bank_in["lsu_probe_addr"], lsu_probe_addr_i)
+    m.assign(rob_bank_in["lsu_probe_rob"], uop_robs[0])
+    m.assign(rob_bank_in["lsu_probe_sub_head"], sub_head)
+
     lsu_stage_args = {
         "issue_fire_lane0_raw": issue_fires[0],
         "ex0_is_load": exs[0].is_load,
         "ex0_is_store": exs[0].is_store,
         "ex0_addr": exs[0].addr,
-        "ex0_rob": uop_robs[0],
         "ex0_lsid": mux_by_uindex(m, idx=uop_robs[0], items=rob.load_store_id, default=c(0, width=32)),
         "lsid_issue_ptr": state.lsid_issue_ptr.out(),
-        "sub_head": sub_head,
         "commit_store_fire": commit_store_fire,
         "commit_store_addr": commit_store_addr,
         "commit_store_data": commit_store_data,
+        "rob_older_store_pending_i": rob_bank["lsu_older_store_pending_lane0"],
+        "rob_forward_hit_i": rob_bank["lsu_forward_hit_lane0"],
+        "rob_forward_data_i": rob_bank["lsu_forward_data_lane0"],
+        "stbuf_forward_hit_i": stbuf_lsu_fwd_hit,
+        "stbuf_forward_data_i": stbuf_lsu_fwd_data,
     }
-    for i in range(p.rob_depth):
-        lsu_stage_args[f"rob_valid{i}"] = rob.valid[i].out()
-        lsu_stage_args[f"rob_done{i}"] = rob.done[i].out()
-        lsu_stage_args[f"rob_is_store{i}"] = rob.is_store[i].out()
-        lsu_stage_args[f"rob_store_addr{i}"] = rob.store_addr[i].out()
-        lsu_stage_args[f"rob_store_data{i}"] = rob.store_data[i].out()
-    for i in range(p.sq_entries):
-        lsu_stage_args[f"stbuf_valid{i}"] = stbuf_valid[i].out()
-        lsu_stage_args[f"stbuf_addr{i}"] = stbuf_addr[i].out()
-        lsu_stage_args[f"stbuf_data{i}"] = stbuf_data[i].out()
 
     lsu_stage = m.instance_auto(
         build_lsu_stage,
         name="lsu_stage",
-        params={"rob_depth": p.rob_depth, "rob_w": p.rob_w, "sq_entries": p.sq_entries, "sq_w": p.sq_w},
+        params={"rob_w": p.rob_w},
         **lsu_stage_args,
     )
     lsu_load_fire_raw = lsu_stage["lsu_load_fire_raw"]
@@ -880,21 +1312,31 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     lsid_complete_ptr_live = do_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_complete_ptr_live)
 
     load_fires = []
-    load_mem_fires = []
     store_fires = []
-    any_load_mem_fire = consts.zero1
-    load_addr = consts.zero64
     for slot in range(p.issue_w):
         ld = issue_fires_eff[slot] & exs[slot].is_load
         st = issue_fires_eff[slot] & exs[slot].is_store
-        ld_mem = ld
-        if slot == 0:
-            ld_mem = ld & (~lsu_forward_hit_lane0)
         load_fires.append(ld)
-        load_mem_fires.append(ld_mem)
         store_fires.append(st)
-        any_load_mem_fire = any_load_mem_fire | ld_mem
-        load_addr = ld_mem._select_internal(exs[slot].addr, load_addr)
+
+    # Provide load requests to StbufStage for D-memory read arbitration.
+    #
+    # IMPORTANT: keep D-memory arbitration independent of LinxCoreLsuStage outputs.
+    # This avoids an artificial (stbuf<->lsu) SCC at the backend top in event-driven
+    # C++ simulation.
+    mem_read_arb_args = {}
+    for slot in range(p.issue_w):
+        mem_read_arb_args[f"fire{slot}"] = issue_fires[slot]
+        mem_read_arb_args[f"is_load{slot}"] = exs[slot].is_load
+        mem_read_arb_args[f"addr{slot}"] = exs[slot].addr
+    mem_read_arb = m.instance_auto(
+        build_mem_read_arb_stage,
+        name="mem_read_arb",
+        params={"issue_w": p.issue_w},
+        **mem_read_arb_args,
+    )
+    m.assign(lsu_load_fire_i, mem_read_arb["fire"])
+    m.assign(lsu_load_addr_i, mem_read_arb["addr"])
 
     issued_is_load = load_fires[0]
     issued_is_store = store_fires[0]
@@ -944,9 +1386,12 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_uop_is_sp_add = ctu["uop_is_sp_add"]
     macro_uop_is_setc_tgt = ctu["uop_is_setc_tgt"]
 
-    # D-memory read arbitration: macro restore-load > LSU load.
-    macro_mem_read = macro_uop_is_load
-    dmem_raddr = macro_mem_read._select_internal(macro_uop_addr, any_load_mem_fire._select_internal(load_addr, consts.zero64))
+    # StbufStage owns:
+    # - committed-store buffering + MMIO decode
+    # - single write port arbitration (macro store / commit WT / drain)
+    # - D-memory read arbitration (macro restore-load > LSU load)
+    m.assign(macro_load_fire_i, macro_uop_is_load)
+    m.assign(macro_load_addr_i, macro_uop_addr)
 
     # Macro/template uop operand reads.
     cmap_now = [ren.cmap[i].out() for i in range(p.aregs)]
@@ -961,94 +1406,12 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_store_data = macro_reg_val
     macro_store_size = c(8, width=4)
 
-    # MMIO (QEMU virt).
-    #
-    # - UART data: 0x1000_0000 (write low byte)
-    # - EXIT:      0x1000_0004 (write exit code; stop simulation)
-    mmio_uart = commit_store_fire & commit_store_addr.__eq__(c(0x1000_0000, width=64))
-    mmio_exit = commit_store_fire & commit_store_addr.__eq__(c(0x1000_0004, width=64))
-    mmio_any = mmio_uart | mmio_exit
-
-    mmio_uart_data = mmio_uart._select_internal(commit_store_data._trunc(width=8), c(0, width=8))
-    mmio_exit_code = mmio_exit._select_internal(commit_store_data._trunc(width=32), c(0, width=32))
-
-    # Preserve store ordering:
-    # - If the committed-store buffer already has older entries, enqueue all new
-    #   committed stores (unless MMIO) so younger writes cannot bypass older ones.
-    # - If macro uses the single write port this cycle, enqueue as well.
-    stbuf_empty = stbuf_count.out().__eq__(c(0, width=p.sq_w + 1))
-    commit_store_defer = commit_store_fire & (~mmio_any) & (macro_store_fire | (~stbuf_empty))
-    stbuf_enq_fire = commit_store_defer
-    stbuf_enq_idx = stbuf_tail.out()
-    stbuf_enq_tail = stbuf_tail.out() + c(1, width=p.sq_w)
-
-    stbuf_drain_fire = (~macro_store_fire) & (~commit_store_fire) & (~stbuf_count.out().__eq__(c(0, width=p.sq_w + 1)))
-    stbuf_drain_addr = mux_by_uindex(m, idx=stbuf_head.out(), items=stbuf_addr, default=consts.zero64)
-    stbuf_drain_data = mux_by_uindex(m, idx=stbuf_head.out(), items=stbuf_data, default=consts.zero64)
-    stbuf_drain_size = mux_by_uindex(m, idx=stbuf_head.out(), items=stbuf_size, default=consts.zero4)
-    stbuf_drain_head = stbuf_head.out() + c(1, width=p.sq_w)
-
-    commit_store_write_through = commit_store_fire & (~mmio_any) & (~commit_store_defer)
-    mem_wvalid = macro_store_fire | commit_store_write_through | stbuf_drain_fire
-    mem_waddr = macro_store_fire._select_internal(
-        macro_store_addr,
-        commit_store_write_through._select_internal(commit_store_addr, stbuf_drain_addr),
-    )
-    dmem_wdata = macro_store_fire._select_internal(
-        macro_store_data,
-        commit_store_write_through._select_internal(commit_store_data, stbuf_drain_data),
-    )
-    mem_wsize = macro_store_fire._select_internal(
-        macro_store_size,
-        commit_store_write_through._select_internal(commit_store_size, stbuf_drain_size),
-    )
-
-    dmem_wsrc = c(0, width=2)
-    dmem_wsrc = macro_store_fire._select_internal(c(1, width=2), dmem_wsrc)
-    dmem_wsrc = commit_store_write_through._select_internal(c(2, width=2), dmem_wsrc)
-    dmem_wsrc = stbuf_drain_fire._select_internal(c(3, width=2), dmem_wsrc)
-
-    # Store write port (writes at clk edge). Stop-at-store ensures that at most
-    # one store commits per cycle in this bring-up model; the macro engine
-    # consumes the same single write port.
-    wstrb = consts.zero8
-    wstrb = mem_wsize.__eq__(c(1, width=4))._select_internal(c(0x01, width=8), wstrb)
-    wstrb = mem_wsize.__eq__(c(2, width=4))._select_internal(c(0x03, width=8), wstrb)
-    wstrb = mem_wsize.__eq__(c(4, width=4))._select_internal(c(0x0F, width=8), wstrb)
-    wstrb = mem_wsize.__eq__(c(8, width=4))._select_internal(c(0xFF, width=8), wstrb)
-
-    # Store buffer register updates.
-    for i in range(p.sq_entries):
-        idx = c(i, width=p.sq_w)
-        do_enq = stbuf_enq_fire & stbuf_enq_idx.__eq__(idx)
-        do_drain = stbuf_drain_fire & stbuf_head.out().__eq__(idx)
-        v_next = stbuf_valid[i].out()
-        v_next = do_drain._select_internal(consts.zero1, v_next)
-        v_next = do_enq._select_internal(consts.one1, v_next)
-        stbuf_valid[i].set(v_next)
-        stbuf_addr[i].set(commit_store_addr, when=do_enq)
-        stbuf_data[i].set(commit_store_data, when=do_enq)
-        stbuf_size[i].set(commit_store_size, when=do_enq)
-
-    stbuf_head_next = stbuf_head.out()
-    stbuf_tail_next = stbuf_tail.out()
-    stbuf_count_next = stbuf_count.out()
-    stbuf_tail_next = stbuf_enq_fire._select_internal(stbuf_enq_tail, stbuf_tail_next)
-    stbuf_count_next = stbuf_enq_fire._select_internal(stbuf_count_next + c(1, width=p.sq_w + 1), stbuf_count_next)
-    stbuf_head_next = stbuf_drain_fire._select_internal(stbuf_drain_head, stbuf_head_next)
-    stbuf_count_next = stbuf_drain_fire._select_internal(stbuf_count_next - c(1, width=p.sq_w + 1), stbuf_count_next)
-    stbuf_head.set(stbuf_head_next)
-    stbuf_tail.set(stbuf_tail_next)
-    stbuf_count.set(stbuf_count_next)
+    m.assign(macro_store_fire_i, macro_store_fire)
+    m.assign(macro_store_addr_i, macro_store_addr)
+    m.assign(macro_store_data_i, macro_store_data)
+    m.assign(macro_store_size_i, macro_store_size)
 
     dmem_rdata = dmem_rdata_i
-    macro_load_fwd_hit = consts.zero1
-    macro_load_fwd_data = consts.zero64
-    for i in range(p.sq_entries):
-        st_match = stbuf_valid[i].out() & stbuf_addr[i].out().__eq__(macro_uop_addr)
-        macro_load_fwd_hit = (macro_uop_is_load & st_match)._select_internal(consts.one1, macro_load_fwd_hit)
-        macro_load_fwd_data = (macro_uop_is_load & st_match)._select_internal(stbuf_data[i].out(), macro_load_fwd_data)
-    macro_load_data = macro_load_fwd_hit._select_internal(macro_load_fwd_data, dmem_rdata)
     # FRET.STK must consume the loaded stack RA value. Only FRET.RA uses the
     # saved-RA bypass path.
     macro_restore_ra = macro_uop_is_load & op_is(macro_op, OP_FRET_RA) & macro_uop_reg.__eq__(c(10, width=6))
@@ -1134,6 +1497,31 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         wb_fire_has_dsts.append(wb_fire_has_dst)
         wb_onehots.append(onehot_from_tag(m, tag=wb_pdst, width=p.pregs, tag_width=p.ptag_w))
 
+    # --- ROB event pipe (forced hierarchy) ---
+    #
+    # Register the issue/execute event bundle before it fans into the ROB bank.
+    # This breaks a large SCC at the backend top and materially improves the
+    # event-driven C++ simulation convergence behavior.
+    rob_evt_pipe_args = {"clk": clk, "rst": rst, "do_flush": do_flush}
+    for slot in range(p.issue_w):
+        rob_evt_pipe_args[f"wb_fire_i{slot}"] = wb_fires[slot]
+        rob_evt_pipe_args[f"wb_rob_i{slot}"] = wb_robs[slot]
+        rob_evt_pipe_args[f"wb_value_i{slot}"] = wb_values[slot]
+        rob_evt_pipe_args[f"store_fire_i{slot}"] = store_fires[slot]
+        rob_evt_pipe_args[f"load_fire_i{slot}"] = load_fires[slot]
+        rob_evt_pipe_args[f"ex_addr_i{slot}"] = exs[slot].addr
+        rob_evt_pipe_args[f"ex_wdata_i{slot}"] = exs[slot].wdata
+        rob_evt_pipe_args[f"ex_size_i{slot}"] = exs[slot].size
+        rob_evt_pipe_args[f"ex_src0_i{slot}"] = sl_vals[slot]
+        rob_evt_pipe_args[f"ex_src1_i{slot}"] = sr_vals[slot]
+
+    rob_evt_pipe = m.instance_auto(
+        build_rob_event_pipe_stage,
+        name="rob_evt_pipe",
+        params={"issue_w": p.issue_w, "rob_w": p.rob_w},
+        **rob_evt_pipe_args,
+    )
+
     # BRU validation for SETC.cond: compare actual result vs predicted direction.
     # Mismatch is recorded as deferred boundary correction (not immediate redirect).
     bru_corr_set = consts.zero1
@@ -1148,6 +1536,14 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     bru_actual_take_dbg = consts.zero1
     bru_pred_take_dbg = state.br_pred_take.out()
     bru_boundary_pc_dbg = state.br_base_pc.out()
+    bru_target = consts.zero64
+    bru_fire = consts.zero1
+    bru_op = c(0, width=12)
+    bru_rob = c(0, width=p.rob_w)
+    bru_epoch = c(0, width=16)
+    bru_checkpoint = c(0, width=6)
+    bru_actual_take = consts.zero1
+    bru_is_setc_cond = consts.zero1
     if p.bru_w > 0:
         bru_slot = p.lsu_w
         bru_fire = issue_fires_eff[bru_slot]
@@ -1164,13 +1560,29 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         bru_target = state.br_base_pc.out() + state.br_off.out()
         bru_target = state.br_kind.out().__eq__(c(BK_RET, width=3))._select_internal(state.commit_tgt.out(), bru_target)
 
-        bru_target_known = consts.zero1
-        bru_target_is_bstart = consts.zero1
-        for i in range(pcb_depth):
-            pc_hit = pcb_valid[i].out() & pcb_pc[i].out().__eq__(bru_target)
-            hit = pc_hit & pcb_is_bstart[i].out()
-            bru_target_known = pc_hit._select_internal(consts.one1, bru_target_known)
-            bru_target_is_bstart = hit._select_internal(consts.one1, bru_target_is_bstart)
+    pcbuf_args = {
+        "clk": clk,
+        "rst": rst,
+        "lookup_pc_i": bru_target,
+    }
+    for slot in range(p.dispatch_w):
+        pcbuf_args[f"wr_valid{slot}"] = pcbuf_wr_valid_i[slot]
+        pcbuf_args[f"wr_pc{slot}"] = pcbuf_wr_pc_i[slot]
+        pcbuf_args[f"wr_kind{slot}"] = pcbuf_wr_kind_i[slot]
+        pcbuf_args[f"wr_target{slot}"] = pcbuf_wr_target_i[slot]
+        pcbuf_args[f"wr_pred_take{slot}"] = pcbuf_wr_pred_take_i[slot]
+        pcbuf_args[f"wr_is_bstart{slot}"] = pcbuf_wr_is_bstart_i[slot]
+    pcbuf_stage = m.instance_auto(
+        build_pcbuf_stage,
+        name="pcbuf_stage",
+        module_name="LinxCorePcBufStage",
+        params={"depth": p.rob_depth, "idx_w": p.rob_w, "dispatch_w": p.dispatch_w},
+        **pcbuf_args,
+    )
+    bru_target_known = pcbuf_stage["lookup_hit"]
+    bru_target_is_bstart = pcbuf_stage["lookup_is_bstart"]
+
+    if p.bru_w > 0:
         bru_validate_en = (
             (state.br_kind.out().__eq__(c(BK_COND, width=3)) | state.br_kind.out().__eq__(c(BK_RET, width=3)))
             & bru_target_known
@@ -1187,35 +1599,20 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         bru_fault_set = bru_mismatch & bru_target_known & (~bru_target_is_bstart)
         bru_fault_rob = bru_rob
 
-    # LSU violation detection: if an older store resolves to the same address
-    # as a younger already-executed load, request replay from that load PC.
-    for slot in range(p.issue_w):
-        st_fire = store_fires[slot]
-        st_rob = wb_robs[slot]
-        st_addr = exs[slot].addr
-        st_dist = st_rob + sub_head
+    # LSU violation detection (owned by ROB bank hierarchy): if an older store
+    # resolves to the same address as a younger already-executed load, request
+    # replay from that load PC.
+    lsu_violation_hit = rob_bank["lsu_violation_hit"]
+    lsu_violation_store_rob = rob_bank["lsu_violation_store_rob"]
+    lsu_violation_pc = rob_bank["lsu_violation_pc"]
 
-        hit = consts.zero1
-        hit_pc = consts.zero64
-        hit_age = c((1 << p.rob_w) - 1, width=p.rob_w)
-        for i in range(p.rob_depth):
-            idx = c(i, width=p.rob_w)
-            dist = idx + sub_head
-            younger = st_dist.ult(dist)
-            ld_done = rob.valid[i].out() & rob.done[i].out() & rob.is_load[i].out()
-            addr_match = rob.load_addr[i].out().__eq__(st_addr)
-            cand = st_fire & ld_done & younger & addr_match
-            better = (~hit) | dist.ult(hit_age)
-            take = cand & better
-            hit = take._select_internal(consts.one1, hit)
-            hit_age = take._select_internal(dist, hit_age)
-            hit_pc = take._select_internal(rob.pc[i].out(), hit_pc)
-
-        set_this = hit & (~state.replay_pending.out()) & (~replay_set)
-        replay_set = set_this._select_internal(consts.one1, replay_set)
-        replay_set_store_rob = set_this._select_internal(st_rob, replay_set_store_rob)
-        replay_set_pc = set_this._select_internal(hit_pc, replay_set_pc)
-
+    set_this = lsu_violation_hit & (~state.replay_pending.out()) & (~replay_set)
+    # NOTE: this engine is still evaluated via Python during JIT compilation
+    # (via a call from LinxCoreBackend). Avoid Python boolean conditionals on
+    # wires; use explicit mux ops.
+    replay_set = set_this._select_internal(consts.one1, replay_set)
+    replay_set_store_rob = set_this._select_internal(lsu_violation_store_rob, replay_set_store_rob)
+    replay_set_pc = set_this._select_internal(lsu_violation_pc, replay_set_pc)
     lsu_violation_detected = replay_set
 
     # --- dispatch decode stage ---
@@ -1293,46 +1690,15 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     dec_op = decode_stage["dec_op"]
     disp_count = decode_stage["dispatch_count"]
 
-    # Frontend-decoded BSTART metadata capture (PC buffer equivalent).
-    pcb_wr_valids = []
-    pcb_wr_idxs = []
-    pcb_wr_pcs = []
-    pcb_wr_kinds = []
-    pcb_wr_targets = []
-    pcb_wr_preds = []
-    pcb_tail_tmp = pcb_tail.out()
+    # Frontend-decoded BSTART metadata capture (pcbuf hierarchy inputs).
     for slot in range(p.dispatch_w):
         wr = f4_valid_i & disp_valids[slot] & disp_is_bstart[slot]
-        pcb_wr_valids.append(wr)
-        pcb_wr_idxs.append(pcb_tail_tmp)
-        pcb_wr_pcs.append(disp_pcs[slot])
-        pcb_wr_kinds.append(disp_boundary_kind[slot])
-        pcb_wr_targets.append(disp_boundary_target[slot])
-        pcb_wr_preds.append(disp_pred_take[slot])
-        pcb_tail_tmp = wr._select_internal(pcb_tail_tmp + c(1, width=pcb_w), pcb_tail_tmp)
-    pcb_tail.set(pcb_tail_tmp)
-    for i in range(pcb_depth):
-        idx = c(i, width=pcb_w)
-        v_next = pcb_valid[i].out()
-        pc_next = pcb_pc[i].out()
-        kind_next = pcb_kind[i].out()
-        tgt_next = pcb_target[i].out()
-        pred_next = pcb_pred_take[i].out()
-        isb_next = pcb_is_bstart[i].out()
-        for slot in range(p.dispatch_w):
-            hit = pcb_wr_valids[slot] & pcb_wr_idxs[slot].__eq__(idx)
-            v_next = hit._select_internal(consts.one1, v_next)
-            pc_next = hit._select_internal(pcb_wr_pcs[slot], pc_next)
-            kind_next = hit._select_internal(pcb_wr_kinds[slot], kind_next)
-            tgt_next = hit._select_internal(pcb_wr_targets[slot], tgt_next)
-            pred_next = hit._select_internal(pcb_wr_preds[slot], pred_next)
-            isb_next = hit._select_internal(consts.one1, isb_next)
-        pcb_valid[i].set(v_next)
-        pcb_pc[i].set(pc_next)
-        pcb_kind[i].set(kind_next)
-        pcb_target[i].set(tgt_next)
-        pcb_pred_take[i].set(pred_next)
-        pcb_is_bstart[i].set(isb_next)
+        m.assign(pcbuf_wr_valid_i[slot], wr)
+        m.assign(pcbuf_wr_pc_i[slot], disp_pcs[slot])
+        m.assign(pcbuf_wr_kind_i[slot], disp_boundary_kind[slot])
+        m.assign(pcbuf_wr_target_i[slot], disp_boundary_target[slot])
+        m.assign(pcbuf_wr_pred_take_i[slot], disp_pred_take[slot])
+        m.assign(pcbuf_wr_is_bstart_i[slot], consts.one1)
 
     dispatch_stage_args = {
         "can_run": can_run,
@@ -1509,27 +1875,18 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         wdata = hit_macro._select_internal(macro_prf_data, wdata)
         prf[i].set(wdata, when=we)
 
-    # --- ROB updates ---
-    rob_ctrl_args = {
-        "do_flush": do_flush,
-        "commit_fire": commit_fire,
-        "dispatch_fire": dispatch_fire,
-        "rob_head": rob.head.out(),
-        "rob_tail": rob.tail.out(),
-        "rob_count": rob.count.out(),
-        "commit_count": commit_count,
-        "disp_count": disp_count,
-    }
+    # --- ROB bank input connections ---
+    m.assign(rob_bank_in["do_flush"], do_flush)
+    m.assign(rob_bank_in["commit_fire"], commit_fire)
+    m.assign(rob_bank_in["dispatch_fire"], dispatch_fire)
+    m.assign(rob_bank_in["commit_count"], commit_count)
+    m.assign(rob_bank_in["disp_count"], disp_count)
     for slot in range(p.dispatch_w):
-        rob_ctrl_args[f"disp_valid{slot}"] = disp_valids[slot]
-    rob_ctrl = m.instance_auto(
-        build_rob_ctrl_stage,
-        name="rob_ctrl_stage",
-        params={"dispatch_w": p.dispatch_w, "rob_w": p.rob_w},
-        **rob_ctrl_args,
-    )
-    disp_rob_idxs = [rob_ctrl[f"disp_rob_idx{slot}"] for slot in range(p.dispatch_w)]
-    disp_fires = [rob_ctrl[f"disp_fire{slot}"] for slot in range(p.dispatch_w)]
+        m.assign(rob_bank_in[f"disp_valid{slot}"], disp_valids[slot])
+    for slot in range(p.commit_w):
+        m.assign(rob_bank_in[f"commit_fire{slot}"], commit_fires[slot])
+        m.assign(rob_bank_in[f"commit_idx{slot}"], commit_idxs[slot])
+
     disp_uop_uids = []
     disp_parent_uids = []
     disp_block_epochs = []
@@ -1537,152 +1894,43 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         disp_uop_uids.append(disp_decode_uop_uids[slot])
         disp_parent_uids.append(consts.zero64)
         disp_block_epochs.append(dispatch_stage[f"disp_block_epoch{slot}"])
-
-    for i in range(p.rob_depth):
-        rob_entry_args = {
-            "idx": c(i, width=p.rob_w),
-            "do_flush": do_flush,
-            "old_valid": rob.valid[i].out(),
-            "old_done": rob.done[i].out(),
-            "old_pc": rob.pc[i].out(),
-            "old_op": rob.op[i].out(),
-            "old_len": rob.len_bytes[i].out(),
-            "old_insn_raw": rob.insn_raw[i].out(),
-            "old_checkpoint_id": rob.checkpoint_id[i].out(),
-            "old_dst_kind": rob.dst_kind[i].out(),
-            "old_dst_areg": rob.dst_areg[i].out(),
-            "old_pdst": rob.pdst[i].out(),
-            "old_value": rob.value[i].out(),
-            "old_src0_reg": rob.src0_reg[i].out(),
-            "old_src1_reg": rob.src1_reg[i].out(),
-            "old_src0_value": rob.src0_value[i].out(),
-            "old_src1_value": rob.src1_value[i].out(),
-            "old_src0_valid": rob.src0_valid[i].out(),
-            "old_src1_valid": rob.src1_valid[i].out(),
-            "old_is_store": rob.is_store[i].out(),
-            "old_store_addr": rob.store_addr[i].out(),
-            "old_store_data": rob.store_data[i].out(),
-            "old_store_size": rob.store_size[i].out(),
-            "old_is_load": rob.is_load[i].out(),
-            "old_load_addr": rob.load_addr[i].out(),
-            "old_load_data": rob.load_data[i].out(),
-            "old_load_size": rob.load_size[i].out(),
-            "old_is_boundary": rob.is_boundary[i].out(),
-            "old_is_bstart": rob.is_bstart[i].out(),
-            "old_is_bstop": rob.is_bstop[i].out(),
-            "old_boundary_kind": rob.boundary_kind[i].out(),
-            "old_boundary_target": rob.boundary_target[i].out(),
-            "old_pred_take": rob.pred_take[i].out(),
-            "old_block_epoch": rob.block_epoch[i].out(),
-            "old_block_uid": rob.block_uid[i].out(),
-            "old_block_bid": rob.block_bid[i].out(),
-            "old_load_store_id": rob.load_store_id[i].out(),
-            "old_resolved_d2": rob.resolved_d2[i].out(),
-            "old_macro_begin": rob.macro_begin[i].out(),
-            "old_macro_end": rob.macro_end[i].out(),
-            "old_uop_uid": rob.uop_uid[i].out(),
-            "old_parent_uid": rob.parent_uid[i].out(),
-        }
-        for slot in range(p.commit_w):
-            rob_entry_args[f"commit_fire{slot}"] = commit_fires[slot]
-            rob_entry_args[f"commit_idx{slot}"] = commit_idxs[slot]
-        for slot in range(p.dispatch_w):
-            rob_entry_args[f"disp_fire{slot}"] = disp_fires[slot]
-            rob_entry_args[f"disp_rob_idx{slot}"] = disp_rob_idxs[slot]
-            rob_entry_args[f"disp_pc{slot}"] = disp_pcs[slot]
-            rob_entry_args[f"disp_op{slot}"] = disp_ops[slot]
-            rob_entry_args[f"disp_len{slot}"] = disp_lens[slot]
-            rob_entry_args[f"disp_insn_raw{slot}"] = disp_insn_raws[slot]
-            rob_entry_args[f"disp_checkpoint_id{slot}"] = disp_checkpoint_ids[slot]
-            rob_entry_args[f"disp_dst_kind{slot}"] = disp_dst_kind[slot]
-            rob_entry_args[f"disp_regdst{slot}"] = disp_regdsts[slot]
-            rob_entry_args[f"disp_pdst{slot}"] = disp_pdsts[slot]
-            rob_entry_args[f"disp_imm{slot}"] = disp_imms[slot]
-            rob_entry_args[f"disp_is_store{slot}"] = disp_is_store[slot]
-            rob_entry_args[f"disp_is_boundary{slot}"] = disp_is_boundary[slot]
-            rob_entry_args[f"disp_is_bstart{slot}"] = disp_is_bstart[slot]
-            rob_entry_args[f"disp_is_bstop{slot}"] = disp_is_bstop[slot]
-            rob_entry_args[f"disp_boundary_kind{slot}"] = disp_boundary_kind[slot]
-            rob_entry_args[f"disp_boundary_target{slot}"] = disp_boundary_target[slot]
-            rob_entry_args[f"disp_pred_take{slot}"] = disp_pred_take[slot]
-            rob_entry_args[f"disp_block_epoch{slot}"] = disp_block_epochs[slot]
-            rob_entry_args[f"disp_block_uid{slot}"] = disp_block_uids[slot]
-            rob_entry_args[f"disp_block_bid{slot}"] = disp_block_bids[slot]
-            rob_entry_args[f"disp_load_store_id{slot}"] = disp_load_store_ids[slot]
-            rob_entry_args[f"disp_resolved_d2{slot}"] = disp_resolved_d2[slot]
-            rob_entry_args[f"disp_srcl{slot}"] = disp_srcls[slot]
-            rob_entry_args[f"disp_srcr{slot}"] = disp_srcrs[slot]
-            rob_entry_args[f"disp_uop_uid{slot}"] = disp_uop_uids[slot]
-            rob_entry_args[f"disp_parent_uid{slot}"] = disp_parent_uids[slot]
-        for slot in range(p.issue_w):
-            rob_entry_args[f"wb_fire{slot}"] = wb_fires[slot]
-            rob_entry_args[f"wb_rob{slot}"] = wb_robs[slot]
-            rob_entry_args[f"wb_value{slot}"] = wb_values[slot]
-            rob_entry_args[f"store_fire{slot}"] = store_fires[slot]
-            rob_entry_args[f"load_fire{slot}"] = load_fires[slot]
-            rob_entry_args[f"ex_addr{slot}"] = exs[slot].addr
-            rob_entry_args[f"ex_wdata{slot}"] = exs[slot].wdata
-            rob_entry_args[f"ex_size{slot}"] = exs[slot].size
-            rob_entry_args[f"ex_src0{slot}"] = sl_vals[slot]
-            rob_entry_args[f"ex_src1{slot}"] = sr_vals[slot]
-
-        rob_entry = m.instance_auto(
-            build_rob_entry_update_stage,
-            name=f"rob_entry_update_stage_{i}",
-            params={
-                "dispatch_w": p.dispatch_w,
-                "issue_w": p.issue_w,
-                "commit_w": p.commit_w,
-                "rob_w": p.rob_w,
-                "ptag_w": p.ptag_w,
-            },
-            **rob_entry_args,
-        )
-        rob.valid[i].set(rob_entry["valid_next"])
-        rob.done[i].set(rob_entry["done_next"])
-        rob.pc[i].set(rob_entry["pc_next"])
-        rob.op[i].set(rob_entry["op_next"])
-        rob.len_bytes[i].set(rob_entry["len_next"])
-        rob.insn_raw[i].set(rob_entry["insn_raw_next"])
-        rob.checkpoint_id[i].set(rob_entry["checkpoint_id_next"])
-        rob.dst_kind[i].set(rob_entry["dst_kind_next"])
-        rob.dst_areg[i].set(rob_entry["dst_areg_next"])
-        rob.pdst[i].set(rob_entry["pdst_next"])
-        rob.value[i].set(rob_entry["value_next"])
-        rob.src0_reg[i].set(rob_entry["src0_reg_next"])
-        rob.src1_reg[i].set(rob_entry["src1_reg_next"])
-        rob.src0_value[i].set(rob_entry["src0_value_next"])
-        rob.src1_value[i].set(rob_entry["src1_value_next"])
-        rob.src0_valid[i].set(rob_entry["src0_valid_next"])
-        rob.src1_valid[i].set(rob_entry["src1_valid_next"])
-        rob.is_store[i].set(rob_entry["is_store_next"])
-        rob.store_addr[i].set(rob_entry["store_addr_next"])
-        rob.store_data[i].set(rob_entry["store_data_next"])
-        rob.store_size[i].set(rob_entry["store_size_next"])
-        rob.is_load[i].set(rob_entry["is_load_next"])
-        rob.load_addr[i].set(rob_entry["load_addr_next"])
-        rob.load_data[i].set(rob_entry["load_data_next"])
-        rob.load_size[i].set(rob_entry["load_size_next"])
-        rob.is_boundary[i].set(rob_entry["is_boundary_next"])
-        rob.is_bstart[i].set(rob_entry["is_bstart_next"])
-        rob.is_bstop[i].set(rob_entry["is_bstop_next"])
-        rob.boundary_kind[i].set(rob_entry["boundary_kind_next"])
-        rob.boundary_target[i].set(rob_entry["boundary_target_next"])
-        rob.pred_take[i].set(rob_entry["pred_take_next"])
-        rob.block_epoch[i].set(rob_entry["block_epoch_next"])
-        rob.block_uid[i].set(rob_entry["block_uid_next"])
-        rob.block_bid[i].set(rob_entry["block_bid_next"])
-        rob.load_store_id[i].set(rob_entry["load_store_id_next"])
-        rob.resolved_d2[i].set(rob_entry["resolved_d2_next"])
-        rob.macro_begin[i].set(rob_entry["macro_begin_next"])
-        rob.macro_end[i].set(rob_entry["macro_end_next"])
-        rob.uop_uid[i].set(rob_entry["uop_uid_next"])
-        rob.parent_uid[i].set(rob_entry["parent_uid_next"])
-
-    # ROB pointers/count.
-    rob.head.set(rob_ctrl["head_next"])
-    rob.tail.set(rob_ctrl["tail_next"])
-    rob.count.set(rob_ctrl["count_next"])
+    for slot in range(p.dispatch_w):
+        m.assign(rob_bank_in[f"disp_pc{slot}"], disp_pcs[slot])
+        m.assign(rob_bank_in[f"disp_op{slot}"], disp_ops[slot])
+        m.assign(rob_bank_in[f"disp_len{slot}"], disp_lens[slot])
+        m.assign(rob_bank_in[f"disp_insn_raw{slot}"], disp_insn_raws[slot])
+        m.assign(rob_bank_in[f"disp_checkpoint_id{slot}"], disp_checkpoint_ids[slot])
+        m.assign(rob_bank_in[f"disp_dst_kind{slot}"], disp_dst_kind[slot])
+        m.assign(rob_bank_in[f"disp_regdst{slot}"], disp_regdsts[slot])
+        m.assign(rob_bank_in[f"disp_pdst{slot}"], disp_pdsts[slot])
+        m.assign(rob_bank_in[f"disp_imm{slot}"], disp_imms[slot])
+        m.assign(rob_bank_in[f"disp_is_store{slot}"], disp_is_store[slot])
+        m.assign(rob_bank_in[f"disp_is_boundary{slot}"], disp_is_boundary[slot])
+        m.assign(rob_bank_in[f"disp_is_bstart{slot}"], disp_is_bstart[slot])
+        m.assign(rob_bank_in[f"disp_is_bstop{slot}"], disp_is_bstop[slot])
+        m.assign(rob_bank_in[f"disp_boundary_kind{slot}"], disp_boundary_kind[slot])
+        m.assign(rob_bank_in[f"disp_boundary_target{slot}"], disp_boundary_target[slot])
+        m.assign(rob_bank_in[f"disp_pred_take{slot}"], disp_pred_take[slot])
+        m.assign(rob_bank_in[f"disp_block_epoch{slot}"], disp_block_epochs[slot])
+        m.assign(rob_bank_in[f"disp_block_uid{slot}"], disp_block_uids[slot])
+        m.assign(rob_bank_in[f"disp_block_bid{slot}"], disp_block_bids[slot])
+        m.assign(rob_bank_in[f"disp_load_store_id{slot}"], disp_load_store_ids[slot])
+        m.assign(rob_bank_in[f"disp_resolved_d2{slot}"], disp_resolved_d2[slot])
+        m.assign(rob_bank_in[f"disp_srcl{slot}"], disp_srcls[slot])
+        m.assign(rob_bank_in[f"disp_srcr{slot}"], disp_srcrs[slot])
+        m.assign(rob_bank_in[f"disp_uop_uid{slot}"], disp_uop_uids[slot])
+        m.assign(rob_bank_in[f"disp_parent_uid{slot}"], disp_parent_uids[slot])
+    for slot in range(p.issue_w):
+        m.assign(rob_bank_in[f"wb_fire{slot}"], rob_evt_pipe[f"wb_fire{slot}"])
+        m.assign(rob_bank_in[f"wb_rob{slot}"], rob_evt_pipe[f"wb_rob{slot}"])
+        m.assign(rob_bank_in[f"wb_value{slot}"], rob_evt_pipe[f"wb_value{slot}"])
+        m.assign(rob_bank_in[f"store_fire{slot}"], rob_evt_pipe[f"store_fire{slot}"])
+        m.assign(rob_bank_in[f"load_fire{slot}"], rob_evt_pipe[f"load_fire{slot}"])
+        m.assign(rob_bank_in[f"ex_addr{slot}"], rob_evt_pipe[f"ex_addr{slot}"])
+        m.assign(rob_bank_in[f"ex_wdata{slot}"], rob_evt_pipe[f"ex_wdata{slot}"])
+        m.assign(rob_bank_in[f"ex_size{slot}"], rob_evt_pipe[f"ex_size{slot}"])
+        m.assign(rob_bank_in[f"ex_src0{slot}"], rob_evt_pipe[f"ex_src0{slot}"])
+        m.assign(rob_bank_in[f"ex_src1{slot}"], rob_evt_pipe[f"ex_src1{slot}"])
 
     # --- IQ updates ---
     def update_iq_from_stage(*, name: str, iq, disp_to: list, alloc_idxs: list, issue_fires_q: list, issue_idxs_q: list) -> None:
@@ -2104,79 +2352,65 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     # Template blocks (FENTRY/FEXIT/FRET.*) are traced as restartable
     # per-step retire events to match QEMU commit semantics exactly.
     # The internal macro ROB commit is hidden from the trace stream.
-    macro_trace_fire = macro_uop_valid
-    macro_adj_nonzero = ~macro_frame_adj.__eq__(consts.zero64)
-    macro_trace_pc = state.pc.out()
-    macro_trace_seq_pc = macro_trace_pc + head_len._zext(width=64)
-    macro_enc = map_template_child_encoding(
-        m,
-        macro_op=macro_op,
-        macro_insn_raw=head_insn_raw,
-        uop_is_sp_sub=macro_uop_is_sp_sub,
-        uop_is_sp_add=macro_uop_is_sp_add,
-        uop_is_store=macro_uop_is_store,
-        uop_is_load=macro_uop_is_load,
-        uop_is_setc_tgt=macro_uop_is_setc_tgt,
+    macro_trace_prep = m.instance_auto(
+        build_macro_trace_prep_stage,
+        name="macro_trace_prep_stage",
+        module_name="LinxCoreMacroTracePrepStage",
+        params={"rob_w": p.rob_w},
+        pc_i=state.pc.out(),
+        rob_head_i=rob.head.out(),
+        head_len_i=head_len,
+        head_value_i=head_value,
+        head_insn_raw_i=head_insn_raw,
+        macro_op_i=macro_op,
+        macro_uop_valid_i=macro_uop_valid,
+        macro_stacksize_i=macro_stacksize,
+        macro_frame_adj_i=macro_frame_adj,
+        macro_reg_write_i=macro_reg_write,
+        macro_uop_reg_i=macro_uop_reg,
+        macro_uop_addr_i=macro_uop_addr,
+        macro_uop_is_sp_sub_i=macro_uop_is_sp_sub,
+        macro_uop_is_sp_add_i=macro_uop_is_sp_add,
+        macro_uop_is_store_i=macro_uop_is_store,
+        macro_uop_is_load_i=macro_uop_is_load,
+        macro_uop_is_setc_tgt_i=macro_uop_is_setc_tgt,
+        macro_reg_is_gpr_i=macro_reg_is_gpr,
+        macro_reg_not_zero_i=macro_reg_not_zero,
+        macro_store_fire_i=macro_store_fire,
+        macro_store_data_i=macro_store_data,
+        macro_load_data_eff_i=macro_load_data_eff,
+        macro_sp_val_i=macro_sp_val,
+        step_done_i=step_done,
+        commit_tgt_live_i=commit_tgt_live,
     )
-    macro_trace_op = macro_enc["op"]
-    macro_trace_val = head_value
-    macro_trace_rob = rob.head.out()
-    macro_trace_len = head_len
-    macro_trace_insn = head_insn_raw
-
-    macro_trace_wb_load = macro_reg_write
-    macro_trace_wb_sp_sub = macro_uop_is_sp_sub & macro_adj_nonzero
-    macro_trace_wb_sp_add = macro_uop_is_sp_add & macro_adj_nonzero
-    macro_trace_wb_valid = macro_trace_fire & (macro_trace_wb_load | macro_trace_wb_sp_sub | macro_trace_wb_sp_add)
-    macro_trace_wb_rd = c(0, width=6)
-    macro_trace_wb_rd = macro_trace_wb_load._select_internal(macro_uop_reg, macro_trace_wb_rd)
-    macro_trace_wb_rd = (macro_trace_wb_sp_sub | macro_trace_wb_sp_add)._select_internal(c(1, width=6), macro_trace_wb_rd)
-    macro_trace_wb_data = consts.zero64
-    macro_trace_wb_data = macro_trace_wb_load._select_internal(macro_load_data_eff, macro_trace_wb_data)
-    macro_trace_wb_data = macro_trace_wb_sp_add._select_internal(macro_sp_val + macro_frame_adj, macro_trace_wb_data)
-    macro_trace_wb_data = macro_trace_wb_sp_sub._select_internal(macro_sp_val - macro_frame_adj, macro_trace_wb_data)
-
-    macro_trace_mem_store = macro_store_fire
-    macro_trace_mem_load = macro_uop_is_load & macro_reg_is_gpr & macro_reg_not_zero
-    macro_trace_mem_valid = macro_trace_fire & (macro_trace_mem_store | macro_trace_mem_load)
-    macro_trace_mem_is_store = macro_trace_fire & macro_trace_mem_store
-    macro_trace_mem_addr = macro_uop_addr
-    macro_trace_mem_wdata = macro_trace_mem_store._select_internal(macro_store_data, consts.zero64)
-    macro_trace_mem_rdata = macro_trace_mem_load._select_internal(macro_load_data_eff, consts.zero64)
-    macro_trace_mem_size = macro_trace_mem_valid._select_internal(c(8, width=4), consts.zero4)
-    macro_trace_src0_valid = macro_trace_fire & (macro_uop_is_sp_sub | macro_uop_is_sp_add | macro_store_fire | macro_uop_is_load)
-    macro_trace_src0_reg = c(1, width=6)
-    macro_trace_src0_reg = macro_store_fire._select_internal(macro_uop_reg, macro_trace_src0_reg)
-    macro_trace_src0_data = macro_sp_val
-    macro_trace_src0_data = macro_store_fire._select_internal(macro_store_data, macro_trace_src0_data)
-    macro_trace_src1_valid = consts.zero1
-    macro_trace_src1_reg = c(0, width=6)
-    macro_trace_src1_data = consts.zero64
-    macro_trace_dst_valid = macro_trace_wb_valid
-    macro_trace_dst_reg = macro_trace_wb_rd
-    macro_trace_dst_data = macro_trace_wb_data
-
-    macro_trace_is_fentry = macro_op.__eq__(c(OP_FENTRY, width=12))
-    macro_trace_is_fexit = macro_op.__eq__(c(OP_FEXIT, width=12))
-    macro_trace_is_fret = op_is(macro_op, OP_FRET_RA, OP_FRET_STK)
-    macro_trace_done_fentry = (macro_uop_is_sp_sub & macro_stacksize.__eq__(consts.zero64)) | (macro_uop_is_store & step_done)
-    macro_trace_done_fexit = macro_uop_is_load & step_done & macro_trace_is_fexit
-    macro_trace_done_fret = macro_uop_is_load & step_done & macro_trace_is_fret
-    macro_trace_next_pc = macro_trace_pc
-    macro_trace_next_pc = macro_trace_done_fentry._select_internal(macro_trace_seq_pc, macro_trace_next_pc)
-    macro_trace_next_pc = macro_trace_done_fexit._select_internal(macro_trace_seq_pc, macro_trace_next_pc)
-    macro_trace_next_pc = macro_trace_done_fret._select_internal(commit_tgt_live, macro_trace_next_pc)
-    # QEMU commit-trace emits a side-effect-free template marker before the
-    # first architecturally visible FRET template micro-op.
-    macro_shadow_fire = macro_trace_fire & (
-        (macro_is_fret_stk & macro_uop_is_sp_add) |
-        (macro_is_fret_ra & macro_uop_is_setc_tgt)
-    )
-    # Keep dynamic uop IDs unique even when we emit both a shadow marker and
-    # the architecturally visible template uop in the same cycle.
-    macro_shadow_uid = macro_uop_uid | c(1 << 62, width=64)
-    macro_shadow_uid_alt = macro_shadow_uid | c(1, width=64)
-
+    macro_trace_fire = macro_trace_prep["macro_trace_fire"]
+    macro_trace_pc = macro_trace_prep["macro_trace_pc"]
+    macro_trace_rob = macro_trace_prep["macro_trace_rob"]
+    macro_trace_op = macro_trace_prep["macro_trace_op"]
+    macro_trace_val = macro_trace_prep["macro_trace_val"]
+    macro_trace_len = macro_trace_prep["macro_trace_len"]
+    macro_trace_insn = macro_trace_prep["macro_trace_insn_raw"]
+    macro_trace_wb_valid = macro_trace_prep["macro_trace_wb_valid"]
+    macro_trace_wb_rd = macro_trace_prep["macro_trace_wb_rd"]
+    macro_trace_wb_data = macro_trace_prep["macro_trace_wb_data"]
+    macro_trace_src0_valid = macro_trace_prep["macro_trace_src0_valid"]
+    macro_trace_src0_reg = macro_trace_prep["macro_trace_src0_reg"]
+    macro_trace_src0_data = macro_trace_prep["macro_trace_src0_data"]
+    macro_trace_src1_valid = macro_trace_prep["macro_trace_src1_valid"]
+    macro_trace_src1_reg = macro_trace_prep["macro_trace_src1_reg"]
+    macro_trace_src1_data = macro_trace_prep["macro_trace_src1_data"]
+    macro_trace_dst_valid = macro_trace_prep["macro_trace_dst_valid"]
+    macro_trace_dst_reg = macro_trace_prep["macro_trace_dst_reg"]
+    macro_trace_dst_data = macro_trace_prep["macro_trace_dst_data"]
+    macro_trace_mem_valid = macro_trace_prep["macro_trace_mem_valid"]
+    macro_trace_mem_is_store = macro_trace_prep["macro_trace_mem_is_store"]
+    macro_trace_mem_addr = macro_trace_prep["macro_trace_mem_addr"]
+    macro_trace_mem_wdata = macro_trace_prep["macro_trace_mem_wdata"]
+    macro_trace_mem_rdata = macro_trace_prep["macro_trace_mem_rdata"]
+    macro_trace_mem_size = macro_trace_prep["macro_trace_mem_size"]
+    macro_trace_next_pc = macro_trace_prep["macro_trace_next_pc"]
+    macro_shadow_fire = macro_trace_prep["macro_shadow_fire"]
+    macro_shadow_emit_uop = macro_trace_prep["macro_shadow_emit_uop"]
     # Keep retire trace strictly instruction-driven; qemu-specific boundary-only
     # metadata commits are filtered in the lockstep runner.
     shadow_boundary_fire = consts.zero1
@@ -2186,396 +2420,137 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     # These additional signals help debug multi-commit cycles where older
     # commits may not appear in a slot0-only log.
     max_commit_slots = 4
+    def _slot(items, idx: int, default):
+        return items[idx] if idx < len(items) else default
+
+    commit_trace_args = {
+        "shadow_boundary_fire": shadow_boundary_fire,
+        "shadow_boundary_fire1": shadow_boundary_fire1,
+        "trap_pending": state.trap_pending.out(),
+        "trap_rob": state.trap_rob.out(),
+        "trap_cause": state.trap_cause.out(),
+        "macro_trace_fire": macro_trace_fire,
+        "macro_trace_pc": macro_trace_pc,
+        "macro_trace_rob": macro_trace_rob,
+        "macro_trace_op": macro_trace_op,
+        "macro_trace_val": macro_trace_val,
+        "macro_trace_len": macro_trace_len,
+        "macro_trace_insn_raw": macro_trace_insn,
+        "macro_uop_uid": macro_uop_uid,
+        "macro_uop_parent_uid": macro_uop_parent_uid,
+        "macro_uop_template_kind": macro_uop_template_kind,
+        "macro_trace_wb_valid": macro_trace_wb_valid,
+        "macro_trace_wb_rd": macro_trace_wb_rd,
+        "macro_trace_wb_data": macro_trace_wb_data,
+        "macro_trace_src0_valid": macro_trace_src0_valid,
+        "macro_trace_src0_reg": macro_trace_src0_reg,
+        "macro_trace_src0_data": macro_trace_src0_data,
+        "macro_trace_src1_valid": macro_trace_src1_valid,
+        "macro_trace_src1_reg": macro_trace_src1_reg,
+        "macro_trace_src1_data": macro_trace_src1_data,
+        "macro_trace_dst_valid": macro_trace_dst_valid,
+        "macro_trace_dst_reg": macro_trace_dst_reg,
+        "macro_trace_dst_data": macro_trace_dst_data,
+        "macro_trace_mem_valid": macro_trace_mem_valid,
+        "macro_trace_mem_is_store": macro_trace_mem_is_store,
+        "macro_trace_mem_addr": macro_trace_mem_addr,
+        "macro_trace_mem_wdata": macro_trace_mem_wdata,
+        "macro_trace_mem_rdata": macro_trace_mem_rdata,
+        "macro_trace_mem_size": macro_trace_mem_size,
+        "macro_trace_next_pc": macro_trace_next_pc,
+        "macro_shadow_fire": macro_shadow_fire,
+        "macro_shadow_emit_uop": macro_shadow_emit_uop,
+    }
+
+    for i in range(p.sq_entries):
+        commit_trace_args[f"stbuf_valid{i}"] = stbuf_valid[i]
+        commit_trace_args[f"stbuf_addr{i}"] = stbuf_addr[i]
+        commit_trace_args[f"stbuf_data{i}"] = stbuf_data[i]
+
+    commit_w = p.commit_w if p.commit_w <= max_commit_slots else max_commit_slots
     for slot in range(max_commit_slots):
-        fire = consts.zero1
-        pc = consts.zero64
-        rob_idx = c(0, width=p.rob_w)
-        uop_uid = consts.zero64
-        parent_uid = consts.zero64
-        template_kind = c(0, width=3)
-        op = c(0, width=12)
-        val = consts.zero64
-        ln = consts.zero3
-        insn_raw = consts.zero64
-        wb_valid = consts.zero1
-        wb_rd = c(0, width=6)
-        wb_data = consts.zero64
-        src0_valid = consts.zero1
-        src0_reg = c(0, width=6)
-        src0_data = consts.zero64
-        src1_valid = consts.zero1
-        src1_reg = c(0, width=6)
-        src1_data = consts.zero64
-        dst_valid = consts.zero1
-        dst_reg = c(0, width=6)
-        dst_data = consts.zero64
-        mem_valid = consts.zero1
-        mem_is_store = consts.zero1
-        mem_addr = consts.zero64
-        mem_wdata = consts.zero64
-        mem_rdata = consts.zero64
-        mem_size = consts.zero4
-        trap_valid = consts.zero1
-        trap_cause = c(0, width=32)
-        next_pc = consts.zero64
-        checkpoint_id = c(0, width=6)
-        if slot < p.commit_w:
-            fire_raw = commit_fires[slot]
-            pc = rob_pcs[slot]
-            rob_idx = commit_idxs[slot]
-            op = rob_ops[slot]
-            val = rob_values[slot]
-            ln = rob_lens[slot]
-            insn_raw = rob_insn_raws[slot]
-            uop_uid = rob_uop_uids[slot]
-            parent_uid = rob_parent_uids[slot]
-            is_macro_commit = op_is(op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
-            fire = fire_raw & (~is_macro_commit)
-            is_gpr_dst = rob_dst_kinds[slot].__eq__(c(1, width=2))
-            wb_trace_suppress = op_is(
-                op,
-                OP_C_BSTART_STD,
-                OP_C_BSTART_COND,
-                OP_C_BSTART_DIRECT,
-                OP_BSTART_STD_FALL,
-                OP_BSTART_STD_DIRECT,
-                OP_BSTART_STD_COND,
-                OP_BSTART_STD_CALL,
-                OP_C_BSTOP,
-            )
-            rd = rob_dst_aregs[slot]
-            wb_valid = fire & is_gpr_dst & (~rd.__eq__(c(0, width=6))) & (~wb_trace_suppress)
-            wb_rd = rd
-            wb_data = rob_values[slot]
-            src0_valid = fire & rob_src0_valids[slot]
-            src0_reg = rob_src0_regs[slot]
-            src0_data = rob_src0_values[slot]
-            src1_valid = fire & rob_src1_valids[slot]
-            src1_reg = rob_src1_regs[slot]
-            src1_data = rob_src1_values[slot]
-            dst_valid = wb_valid
-            dst_reg = wb_rd
-            dst_data = wb_data
-            next_pc_slot = commit_next_pcs[slot]
-            is_store = rob_is_stores[slot]
-            is_load = rob_is_loads[slot]
-            ld_trace_data = rob_ld_datas[slot]
-            for i in range(p.sq_entries):
-                st_hit = stbuf_valid[i].out() & stbuf_addr[i].out().__eq__(rob_ld_addrs[slot])
-                ld_trace_data = st_hit._select_internal(stbuf_data[i].out(), ld_trace_data)
-            mem_valid = fire & (is_store | is_load)
-            mem_is_store = fire & is_store
-            mem_addr = is_store._select_internal(rob_st_addrs[slot], rob_ld_addrs[slot])
-            mem_wdata = is_store._select_internal(rob_st_datas[slot], consts.zero64)
-            mem_rdata = is_load._select_internal(ld_trace_data, consts.zero64)
-            mem_size = is_store._select_internal(rob_st_sizes[slot], rob_ld_sizes[slot])
-            next_pc = next_pc_slot
-            checkpoint_id = rob_checkpoint_ids[slot]
-            trap_hit = state.trap_pending.out() & commit_idxs[slot].__eq__(state.trap_rob.out())
-            trap_valid = fire & trap_hit
-            trap_cause = trap_hit._select_internal(state.trap_cause.out(), trap_cause)
+        commit_trace_args[f"commit_fire{slot}_i"] = _slot(commit_fires, slot, consts.zero1)
+        commit_trace_args[f"commit_pc{slot}_i"] = _slot(commit_pcs, slot, consts.zero64)
+        commit_trace_args[f"commit_next_pc{slot}_i"] = _slot(commit_next_pcs, slot, consts.zero64)
+        commit_trace_args[f"commit_idx{slot}_i"] = _slot(commit_idxs, slot, c(0, width=p.rob_w))
+        commit_trace_args[f"rob_pc{slot}"] = _slot(rob_pcs, slot, consts.zero64)
+        commit_trace_args[f"rob_op{slot}"] = _slot(rob_ops, slot, c(0, width=12))
+        commit_trace_args[f"rob_value{slot}"] = _slot(rob_values, slot, consts.zero64)
+        commit_trace_args[f"rob_len{slot}"] = _slot(rob_lens, slot, consts.zero3)
+        commit_trace_args[f"rob_insn_raw{slot}"] = _slot(rob_insn_raws, slot, consts.zero64)
+        commit_trace_args[f"rob_uop_uid{slot}"] = _slot(rob_uop_uids, slot, consts.zero64)
+        commit_trace_args[f"rob_parent_uid{slot}"] = _slot(rob_parent_uids, slot, consts.zero64)
+        commit_trace_args[f"rob_dst_kind{slot}"] = _slot(rob_dst_kinds, slot, c(0, width=2))
+        commit_trace_args[f"rob_dst_areg{slot}"] = _slot(rob_dst_aregs, slot, c(0, width=6))
+        commit_trace_args[f"rob_src0_valid{slot}"] = _slot(rob_src0_valids, slot, consts.zero1)
+        commit_trace_args[f"rob_src0_reg{slot}"] = _slot(rob_src0_regs, slot, c(0, width=6))
+        commit_trace_args[f"rob_src0_data{slot}"] = _slot(rob_src0_values, slot, consts.zero64)
+        commit_trace_args[f"rob_src1_valid{slot}"] = _slot(rob_src1_valids, slot, consts.zero1)
+        commit_trace_args[f"rob_src1_reg{slot}"] = _slot(rob_src1_regs, slot, c(0, width=6))
+        commit_trace_args[f"rob_src1_data{slot}"] = _slot(rob_src1_values, slot, consts.zero64)
+        commit_trace_args[f"rob_is_store{slot}"] = _slot(rob_is_stores, slot, consts.zero1)
+        commit_trace_args[f"rob_store_addr{slot}"] = _slot(rob_st_addrs, slot, consts.zero64)
+        commit_trace_args[f"rob_store_data{slot}"] = _slot(rob_st_datas, slot, consts.zero64)
+        commit_trace_args[f"rob_store_size{slot}"] = _slot(rob_st_sizes, slot, consts.zero4)
+        commit_trace_args[f"rob_is_load{slot}"] = _slot(rob_is_loads, slot, consts.zero1)
+        commit_trace_args[f"rob_load_addr{slot}"] = _slot(rob_ld_addrs, slot, consts.zero64)
+        commit_trace_args[f"rob_load_data{slot}"] = _slot(rob_ld_datas, slot, consts.zero64)
+        commit_trace_args[f"rob_load_size{slot}"] = _slot(rob_ld_sizes, slot, consts.zero4)
+        commit_trace_args[f"rob_checkpoint_id{slot}"] = _slot(rob_checkpoint_ids, slot, c(0, width=6))
+        commit_trace_args[f"rob_load_store_id{slot}"] = _slot(rob_load_store_ids, slot, c(0, width=32))
 
-        # When `shadow_boundary_fire` is active, shift real retire records up
-        # by one slot so slot0 can carry the synthetic boundary marker event.
-        if slot > 0 and (slot - 1) < p.commit_w:
-            prev = slot - 1
-            fire_prev_raw = commit_fires[prev]
-            pc_prev = commit_pcs[prev]
-            rob_prev = commit_idxs[prev]
-            op_prev = rob_ops[prev]
-            val_prev = rob_values[prev]
-            ln_prev = rob_lens[prev]
-            insn_prev = rob_insn_raws[prev]
-            uid_prev = rob_uop_uids[prev]
-            parent_prev = rob_parent_uids[prev]
-            is_macro_prev = op_is(op_prev, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK)
-            fire_prev = fire_prev_raw & (~is_macro_prev)
-            is_gpr_prev = rob_dst_kinds[prev].__eq__(c(1, width=2))
-            wb_suppress_prev = op_is(
-                op_prev,
-                OP_C_BSTART_STD,
-                OP_C_BSTART_COND,
-                OP_C_BSTART_DIRECT,
-                OP_BSTART_STD_FALL,
-                OP_BSTART_STD_DIRECT,
-                OP_BSTART_STD_COND,
-                OP_BSTART_STD_CALL,
-                OP_C_BSTOP,
-            )
-            rd_prev = rob_dst_aregs[prev]
-            wb_valid_prev = fire_prev & is_gpr_prev & (~rd_prev.__eq__(c(0, width=6))) & (~wb_suppress_prev)
-            wb_rd_prev = rd_prev
-            wb_data_prev = rob_values[prev]
-            src0_valid_prev = fire_prev & rob_src0_valids[prev]
-            src0_reg_prev = rob_src0_regs[prev]
-            src0_data_prev = rob_src0_values[prev]
-            src1_valid_prev = fire_prev & rob_src1_valids[prev]
-            src1_reg_prev = rob_src1_regs[prev]
-            src1_data_prev = rob_src1_values[prev]
-            dst_valid_prev = wb_valid_prev
-            dst_reg_prev = wb_rd_prev
-            dst_data_prev = wb_data_prev
-            next_pc_prev = commit_next_pcs[prev]
-            is_store_prev = rob_is_stores[prev]
-            is_load_prev = rob_is_loads[prev]
-            ld_trace_prev = rob_ld_datas[prev]
-            for i in range(p.sq_entries):
-                st_hit_prev = stbuf_valid[i].out() & stbuf_addr[i].out().__eq__(rob_ld_addrs[prev])
-                ld_trace_prev = st_hit_prev._select_internal(stbuf_data[i].out(), ld_trace_prev)
-            mem_valid_prev = fire_prev & (is_store_prev | is_load_prev)
-            mem_is_store_prev = fire_prev & is_store_prev
-            mem_addr_prev = is_store_prev._select_internal(rob_st_addrs[prev], rob_ld_addrs[prev])
-            mem_wdata_prev = is_store_prev._select_internal(rob_st_datas[prev], consts.zero64)
-            mem_rdata_prev = is_load_prev._select_internal(ld_trace_prev, consts.zero64)
-            mem_size_prev = is_store_prev._select_internal(rob_st_sizes[prev], rob_ld_sizes[prev])
-            checkpoint_prev = rob_checkpoint_ids[prev]
-            shift_active = shadow_boundary_fire
-            if slot > 1:
-                shift_active = shift_active | shadow_boundary_fire1
+        commit_trace_args[f"commit_block_uid{slot}_i"] = _slot(commit_block_uids, slot, consts.zero64)
+        commit_trace_args[f"commit_block_bid{slot}_i"] = _slot(commit_block_bids, slot, consts.zero64)
+        commit_trace_args[f"commit_core_id{slot}_i"] = _slot(commit_core_ids, slot, c(0, width=2))
+        commit_trace_args[f"commit_is_bstart{slot}_i"] = _slot(commit_is_bstarts, slot, consts.zero1)
+        commit_trace_args[f"commit_is_bstop{slot}_i"] = _slot(commit_is_bstops, slot, consts.zero1)
 
-            fire = shift_active._select_internal(fire_prev, fire)
-            pc = shift_active._select_internal(pc_prev, pc)
-            rob_idx = shift_active._select_internal(rob_prev, rob_idx)
-            op = shift_active._select_internal(op_prev, op)
-            val = shift_active._select_internal(val_prev, val)
-            ln = shift_active._select_internal(ln_prev, ln)
-            insn_raw = shift_active._select_internal(insn_prev, insn_raw)
-            uop_uid = shift_active._select_internal(uid_prev, uop_uid)
-            parent_uid = shift_active._select_internal(parent_prev, parent_uid)
-            wb_valid = shift_active._select_internal(wb_valid_prev, wb_valid)
-            wb_rd = shift_active._select_internal(wb_rd_prev, wb_rd)
-            wb_data = shift_active._select_internal(wb_data_prev, wb_data)
-            src0_valid = shift_active._select_internal(src0_valid_prev, src0_valid)
-            src0_reg = shift_active._select_internal(src0_reg_prev, src0_reg)
-            src0_data = shift_active._select_internal(src0_data_prev, src0_data)
-            src1_valid = shift_active._select_internal(src1_valid_prev, src1_valid)
-            src1_reg = shift_active._select_internal(src1_reg_prev, src1_reg)
-            src1_data = shift_active._select_internal(src1_data_prev, src1_data)
-            dst_valid = shift_active._select_internal(dst_valid_prev, dst_valid)
-            dst_reg = shift_active._select_internal(dst_reg_prev, dst_reg)
-            dst_data = shift_active._select_internal(dst_data_prev, dst_data)
-            mem_valid = shift_active._select_internal(mem_valid_prev, mem_valid)
-            mem_is_store = shift_active._select_internal(mem_is_store_prev, mem_is_store)
-            mem_addr = shift_active._select_internal(mem_addr_prev, mem_addr)
-            mem_wdata = shift_active._select_internal(mem_wdata_prev, mem_wdata)
-            mem_rdata = shift_active._select_internal(mem_rdata_prev, mem_rdata)
-            mem_size = shift_active._select_internal(mem_size_prev, mem_size)
-            next_pc = shift_active._select_internal(next_pc_prev, next_pc)
-            checkpoint_id = shift_active._select_internal(checkpoint_prev, checkpoint_id)
-
-        if slot == 0:
-            fire = shadow_boundary_fire._select_internal(consts.one1, fire)
-            pc = shadow_boundary_fire._select_internal(commit_pcs[0], pc)
-            rob_idx = shadow_boundary_fire._select_internal(commit_idxs[0], rob_idx)
-            op = shadow_boundary_fire._select_internal(rob_ops[0], op)
-            val = shadow_boundary_fire._select_internal(rob_values[0], val)
-            ln = shadow_boundary_fire._select_internal(rob_lens[0], ln)
-            insn_raw = shadow_boundary_fire._select_internal(rob_insn_raws[0], insn_raw)
-            uop_uid = shadow_boundary_fire._select_internal(rob_uop_uids[0], uop_uid)
-            parent_uid = shadow_boundary_fire._select_internal(rob_parent_uids[0], parent_uid)
-            wb_valid = shadow_boundary_fire._select_internal(consts.zero1, wb_valid)
-            wb_rd = shadow_boundary_fire._select_internal(c(0, width=6), wb_rd)
-            wb_data = shadow_boundary_fire._select_internal(consts.zero64, wb_data)
-            src0_valid = shadow_boundary_fire._select_internal(consts.zero1, src0_valid)
-            src0_reg = shadow_boundary_fire._select_internal(c(0, width=6), src0_reg)
-            src0_data = shadow_boundary_fire._select_internal(consts.zero64, src0_data)
-            src1_valid = shadow_boundary_fire._select_internal(consts.zero1, src1_valid)
-            src1_reg = shadow_boundary_fire._select_internal(c(0, width=6), src1_reg)
-            src1_data = shadow_boundary_fire._select_internal(consts.zero64, src1_data)
-            dst_valid = shadow_boundary_fire._select_internal(consts.zero1, dst_valid)
-            dst_reg = shadow_boundary_fire._select_internal(c(0, width=6), dst_reg)
-            dst_data = shadow_boundary_fire._select_internal(consts.zero64, dst_data)
-            mem_valid = shadow_boundary_fire._select_internal(consts.zero1, mem_valid)
-            mem_is_store = shadow_boundary_fire._select_internal(consts.zero1, mem_is_store)
-            mem_addr = shadow_boundary_fire._select_internal(consts.zero64, mem_addr)
-            mem_wdata = shadow_boundary_fire._select_internal(consts.zero64, mem_wdata)
-            mem_rdata = shadow_boundary_fire._select_internal(consts.zero64, mem_rdata)
-            mem_size = shadow_boundary_fire._select_internal(consts.zero4, mem_size)
-            next_pc = shadow_boundary_fire._select_internal(commit_pcs[0], next_pc)
-            checkpoint_id = shadow_boundary_fire._select_internal(rob_checkpoint_ids[0], checkpoint_id)
-
-            fire = macro_trace_fire._select_internal(consts.one1, fire)
-            pc = macro_trace_fire._select_internal(macro_trace_pc, pc)
-            rob_idx = macro_trace_fire._select_internal(macro_trace_rob, rob_idx)
-            op = macro_trace_fire._select_internal(macro_trace_op, op)
-            val = macro_trace_fire._select_internal(macro_trace_val, val)
-            ln = macro_trace_fire._select_internal(macro_trace_len, ln)
-            insn_raw = macro_trace_fire._select_internal(macro_trace_insn, insn_raw)
-            uop_uid = macro_trace_fire._select_internal(macro_uop_uid, uop_uid)
-            parent_uid = macro_trace_fire._select_internal(macro_uop_parent_uid, parent_uid)
-            template_kind = macro_trace_fire._select_internal(macro_uop_template_kind, template_kind)
-            wb_valid = macro_trace_fire._select_internal(macro_trace_wb_valid, wb_valid)
-            wb_rd = macro_trace_fire._select_internal(macro_trace_wb_rd, wb_rd)
-            wb_data = macro_trace_fire._select_internal(macro_trace_wb_data, wb_data)
-            src0_valid = macro_trace_fire._select_internal(macro_trace_src0_valid, src0_valid)
-            src0_reg = macro_trace_fire._select_internal(macro_trace_src0_reg, src0_reg)
-            src0_data = macro_trace_fire._select_internal(macro_trace_src0_data, src0_data)
-            src1_valid = macro_trace_fire._select_internal(macro_trace_src1_valid, src1_valid)
-            src1_reg = macro_trace_fire._select_internal(macro_trace_src1_reg, src1_reg)
-            src1_data = macro_trace_fire._select_internal(macro_trace_src1_data, src1_data)
-            dst_valid = macro_trace_fire._select_internal(macro_trace_dst_valid, dst_valid)
-            dst_reg = macro_trace_fire._select_internal(macro_trace_dst_reg, dst_reg)
-            dst_data = macro_trace_fire._select_internal(macro_trace_dst_data, dst_data)
-            mem_valid = macro_trace_fire._select_internal(macro_trace_mem_valid, mem_valid)
-            mem_is_store = macro_trace_fire._select_internal(macro_trace_mem_is_store, mem_is_store)
-            mem_addr = macro_trace_fire._select_internal(macro_trace_mem_addr, mem_addr)
-            mem_wdata = macro_trace_fire._select_internal(macro_trace_mem_wdata, mem_wdata)
-            mem_rdata = macro_trace_fire._select_internal(macro_trace_mem_rdata, mem_rdata)
-            mem_size = macro_trace_fire._select_internal(macro_trace_mem_size, mem_size)
-            next_pc = macro_trace_fire._select_internal(macro_trace_next_pc, next_pc)
-            uop_uid = macro_shadow_fire._select_internal(macro_shadow_uid, uop_uid)
-            wb_valid = macro_shadow_fire._select_internal(consts.zero1, wb_valid)
-            wb_rd = macro_shadow_fire._select_internal(c(0, width=6), wb_rd)
-            wb_data = macro_shadow_fire._select_internal(consts.zero64, wb_data)
-            src0_valid = macro_shadow_fire._select_internal(consts.zero1, src0_valid)
-            src0_reg = macro_shadow_fire._select_internal(c(0, width=6), src0_reg)
-            src0_data = macro_shadow_fire._select_internal(consts.zero64, src0_data)
-            src1_valid = macro_shadow_fire._select_internal(consts.zero1, src1_valid)
-            src1_reg = macro_shadow_fire._select_internal(c(0, width=6), src1_reg)
-            src1_data = macro_shadow_fire._select_internal(consts.zero64, src1_data)
-            dst_valid = macro_shadow_fire._select_internal(consts.zero1, dst_valid)
-            dst_reg = macro_shadow_fire._select_internal(c(0, width=6), dst_reg)
-            dst_data = macro_shadow_fire._select_internal(consts.zero64, dst_data)
-            mem_valid = macro_shadow_fire._select_internal(consts.zero1, mem_valid)
-            mem_is_store = macro_shadow_fire._select_internal(consts.zero1, mem_is_store)
-            mem_addr = macro_shadow_fire._select_internal(consts.zero64, mem_addr)
-            mem_wdata = macro_shadow_fire._select_internal(consts.zero64, mem_wdata)
-            mem_rdata = macro_shadow_fire._select_internal(consts.zero64, mem_rdata)
-            mem_size = macro_shadow_fire._select_internal(consts.zero4, mem_size)
-            next_pc = macro_shadow_fire._select_internal(macro_trace_pc, next_pc)
-        else:
-            if slot == 1 and p.commit_w > 1:
-                fire = shadow_boundary_fire1._select_internal(consts.one1, fire)
-                pc = shadow_boundary_fire1._select_internal(commit_pcs[1], pc)
-                rob_idx = shadow_boundary_fire1._select_internal(commit_idxs[1], rob_idx)
-                op = shadow_boundary_fire1._select_internal(rob_ops[1], op)
-                val = shadow_boundary_fire1._select_internal(rob_values[1], val)
-                ln = shadow_boundary_fire1._select_internal(rob_lens[1], ln)
-                insn_raw = shadow_boundary_fire1._select_internal(rob_insn_raws[1], insn_raw)
-                uop_uid = shadow_boundary_fire1._select_internal(rob_uop_uids[1], uop_uid)
-                parent_uid = shadow_boundary_fire1._select_internal(rob_parent_uids[1], parent_uid)
-                wb_valid = shadow_boundary_fire1._select_internal(consts.zero1, wb_valid)
-                wb_rd = shadow_boundary_fire1._select_internal(c(0, width=6), wb_rd)
-                wb_data = shadow_boundary_fire1._select_internal(consts.zero64, wb_data)
-                src0_valid = shadow_boundary_fire1._select_internal(consts.zero1, src0_valid)
-                src0_reg = shadow_boundary_fire1._select_internal(c(0, width=6), src0_reg)
-                src0_data = shadow_boundary_fire1._select_internal(consts.zero64, src0_data)
-                src1_valid = shadow_boundary_fire1._select_internal(consts.zero1, src1_valid)
-                src1_reg = shadow_boundary_fire1._select_internal(c(0, width=6), src1_reg)
-                src1_data = shadow_boundary_fire1._select_internal(consts.zero64, src1_data)
-                dst_valid = shadow_boundary_fire1._select_internal(consts.zero1, dst_valid)
-                dst_reg = shadow_boundary_fire1._select_internal(c(0, width=6), dst_reg)
-                dst_data = shadow_boundary_fire1._select_internal(consts.zero64, dst_data)
-                mem_valid = shadow_boundary_fire1._select_internal(consts.zero1, mem_valid)
-                mem_is_store = shadow_boundary_fire1._select_internal(consts.zero1, mem_is_store)
-                mem_addr = shadow_boundary_fire1._select_internal(consts.zero64, mem_addr)
-                mem_wdata = shadow_boundary_fire1._select_internal(consts.zero64, mem_wdata)
-                mem_rdata = shadow_boundary_fire1._select_internal(consts.zero64, mem_rdata)
-                mem_size = shadow_boundary_fire1._select_internal(consts.zero4, mem_size)
-                next_pc = shadow_boundary_fire1._select_internal(commit_pcs[1], next_pc)
-                checkpoint_id = shadow_boundary_fire1._select_internal(rob_checkpoint_ids[1], checkpoint_id)
-            if slot == 1:
-                fire = macro_shadow_fire._select_internal(consts.one1, fire)
-                pc = macro_shadow_fire._select_internal(macro_trace_pc, pc)
-                rob_idx = macro_shadow_fire._select_internal(macro_trace_rob, rob_idx)
-                op = macro_shadow_fire._select_internal(macro_trace_op, op)
-                val = macro_shadow_fire._select_internal(macro_trace_val, val)
-                ln = macro_shadow_fire._select_internal(macro_trace_len, ln)
-                insn_raw = macro_shadow_fire._select_internal(macro_trace_insn, insn_raw)
-                uop_uid = macro_shadow_fire._select_internal(macro_shadow_uid_alt, uop_uid)
-                parent_uid = macro_shadow_fire._select_internal(macro_uop_parent_uid, parent_uid)
-                template_kind = macro_shadow_fire._select_internal(macro_uop_template_kind, template_kind)
-                wb_valid = macro_shadow_fire._select_internal(macro_trace_wb_valid, wb_valid)
-                wb_rd = macro_shadow_fire._select_internal(macro_trace_wb_rd, wb_rd)
-                wb_data = macro_shadow_fire._select_internal(macro_trace_wb_data, wb_data)
-                src0_valid = macro_shadow_fire._select_internal(macro_trace_src0_valid, src0_valid)
-                src0_reg = macro_shadow_fire._select_internal(macro_trace_src0_reg, src0_reg)
-                src0_data = macro_shadow_fire._select_internal(macro_trace_src0_data, src0_data)
-                src1_valid = macro_shadow_fire._select_internal(macro_trace_src1_valid, src1_valid)
-                src1_reg = macro_shadow_fire._select_internal(macro_trace_src1_reg, src1_reg)
-                src1_data = macro_shadow_fire._select_internal(macro_trace_src1_data, src1_data)
-                dst_valid = macro_shadow_fire._select_internal(macro_trace_dst_valid, dst_valid)
-                dst_reg = macro_shadow_fire._select_internal(macro_trace_dst_reg, dst_reg)
-                dst_data = macro_shadow_fire._select_internal(macro_trace_dst_data, dst_data)
-                mem_valid = macro_shadow_fire._select_internal(macro_trace_mem_valid, mem_valid)
-                mem_is_store = macro_shadow_fire._select_internal(macro_trace_mem_is_store, mem_is_store)
-                mem_addr = macro_shadow_fire._select_internal(macro_trace_mem_addr, mem_addr)
-                mem_wdata = macro_shadow_fire._select_internal(macro_trace_mem_wdata, mem_wdata)
-                mem_rdata = macro_shadow_fire._select_internal(macro_trace_mem_rdata, mem_rdata)
-                mem_size = macro_shadow_fire._select_internal(macro_trace_mem_size, mem_size)
-                next_pc = macro_shadow_fire._select_internal(macro_trace_next_pc, next_pc)
-            macro_slot_keep = consts.zero1
-            if slot == 1:
-                macro_slot_keep = macro_shadow_fire
-            macro_kill = macro_trace_fire & (~macro_slot_keep)
-            fire = macro_kill._select_internal(consts.zero1, fire)
-            pc = macro_kill._select_internal(consts.zero64, pc)
-            rob_idx = macro_kill._select_internal(c(0, width=p.rob_w), rob_idx)
-            op = macro_kill._select_internal(c(0, width=12), op)
-            val = macro_kill._select_internal(consts.zero64, val)
-            ln = macro_kill._select_internal(consts.zero3, ln)
-            insn_raw = macro_kill._select_internal(consts.zero64, insn_raw)
-            uop_uid = macro_kill._select_internal(consts.zero64, uop_uid)
-            parent_uid = macro_kill._select_internal(consts.zero64, parent_uid)
-            template_kind = macro_kill._select_internal(c(0, width=3), template_kind)
-            wb_valid = macro_kill._select_internal(consts.zero1, wb_valid)
-            wb_rd = macro_kill._select_internal(c(0, width=6), wb_rd)
-            wb_data = macro_kill._select_internal(consts.zero64, wb_data)
-            src0_valid = macro_kill._select_internal(consts.zero1, src0_valid)
-            src0_reg = macro_kill._select_internal(c(0, width=6), src0_reg)
-            src0_data = macro_kill._select_internal(consts.zero64, src0_data)
-            src1_valid = macro_kill._select_internal(consts.zero1, src1_valid)
-            src1_reg = macro_kill._select_internal(c(0, width=6), src1_reg)
-            src1_data = macro_kill._select_internal(consts.zero64, src1_data)
-            dst_valid = macro_kill._select_internal(consts.zero1, dst_valid)
-            dst_reg = macro_kill._select_internal(c(0, width=6), dst_reg)
-            dst_data = macro_kill._select_internal(consts.zero64, dst_data)
-            mem_valid = macro_kill._select_internal(consts.zero1, mem_valid)
-            mem_is_store = macro_kill._select_internal(consts.zero1, mem_is_store)
-            mem_addr = macro_kill._select_internal(consts.zero64, mem_addr)
-            mem_wdata = macro_kill._select_internal(consts.zero64, mem_wdata)
-            mem_rdata = macro_kill._select_internal(consts.zero64, mem_rdata)
-            mem_size = macro_kill._select_internal(consts.zero4, mem_size)
-            next_pc = macro_kill._select_internal(consts.zero64, next_pc)
-            checkpoint_id = macro_kill._select_internal(c(0, width=6), checkpoint_id)
-        m.output(f"commit_fire{slot}", fire)
-        m.output(f"commit_pc{slot}", pc)
-        m.output(f"commit_rob{slot}", rob_idx)
-        m.output(f"commit_op{slot}", op)
-        m.output(f"commit_uop_uid{slot}", uop_uid)
-        m.output(f"commit_parent_uop_uid{slot}", parent_uid)
-        m.output(f"commit_block_uid{slot}", commit_block_uids[slot])
-        m.output(f"commit_block_bid{slot}", commit_block_bids[slot])
-        m.output(f"commit_core_id{slot}", commit_core_ids[slot])
-        m.output(f"commit_is_bstart{slot}", commit_is_bstarts[slot])
-        m.output(f"commit_is_bstop{slot}", commit_is_bstops[slot])
-        m.output(f"commit_load_store_id{slot}", rob_load_store_ids[slot])
-        m.output(f"commit_template_kind{slot}", template_kind)
-        m.output(f"commit_value{slot}", val)
-        m.output(f"commit_len{slot}", ln)
-        m.output(f"commit_insn_raw{slot}", insn_raw)
-        m.output(f"commit_wb_valid{slot}", wb_valid)
-        m.output(f"commit_wb_rd{slot}", wb_rd)
-        m.output(f"commit_wb_data{slot}", wb_data)
-        m.output(f"commit_src0_valid{slot}", src0_valid)
-        m.output(f"commit_src0_reg{slot}", src0_reg)
-        m.output(f"commit_src0_data{slot}", src0_data)
-        m.output(f"commit_src1_valid{slot}", src1_valid)
-        m.output(f"commit_src1_reg{slot}", src1_reg)
-        m.output(f"commit_src1_data{slot}", src1_data)
-        m.output(f"commit_dst_valid{slot}", dst_valid)
-        m.output(f"commit_dst_reg{slot}", dst_reg)
-        m.output(f"commit_dst_data{slot}", dst_data)
-        m.output(f"commit_mem_valid{slot}", mem_valid)
-        m.output(f"commit_mem_is_store{slot}", mem_is_store)
-        m.output(f"commit_mem_addr{slot}", mem_addr)
-        m.output(f"commit_mem_wdata{slot}", mem_wdata)
-        m.output(f"commit_mem_rdata{slot}", mem_rdata)
-        m.output(f"commit_mem_size{slot}", mem_size)
-        m.output(f"commit_trap_valid{slot}", trap_valid)
-        m.output(f"commit_trap_cause{slot}", trap_cause)
-        m.output(f"commit_next_pc{slot}", next_pc)
-        m.output(f"commit_checkpoint_id{slot}", checkpoint_id)
+    commit_trace_stage = m.instance_auto(
+        build_commit_trace_stage,
+        name="commit_trace_stage",
+        module_name="LinxCoreCommitTraceStage",
+        params={"commit_w": commit_w, "max_commit_slots": max_commit_slots, "rob_w": p.rob_w, "sq_entries": p.sq_entries},
+        **commit_trace_args,
+    )
+    for slot in range(max_commit_slots):
+        m.output(f"commit_fire{slot}", commit_trace_stage[f"commit_fire{slot}"])
+        m.output(f"commit_pc{slot}", commit_trace_stage[f"commit_pc{slot}"])
+        m.output(f"commit_rob{slot}", commit_trace_stage[f"commit_rob{slot}"])
+        m.output(f"commit_op{slot}", commit_trace_stage[f"commit_op{slot}"])
+        m.output(f"commit_uop_uid{slot}", commit_trace_stage[f"commit_uop_uid{slot}"])
+        m.output(f"commit_parent_uop_uid{slot}", commit_trace_stage[f"commit_parent_uop_uid{slot}"])
+        m.output(f"commit_block_uid{slot}", commit_trace_stage[f"commit_block_uid{slot}"])
+        m.output(f"commit_block_bid{slot}", commit_trace_stage[f"commit_block_bid{slot}"])
+        m.output(f"commit_core_id{slot}", commit_trace_stage[f"commit_core_id{slot}"])
+        m.output(f"commit_is_bstart{slot}", commit_trace_stage[f"commit_is_bstart{slot}"])
+        m.output(f"commit_is_bstop{slot}", commit_trace_stage[f"commit_is_bstop{slot}"])
+        m.output(f"commit_load_store_id{slot}", commit_trace_stage[f"commit_load_store_id{slot}"])
+        m.output(f"commit_template_kind{slot}", commit_trace_stage[f"commit_template_kind{slot}"])
+        m.output(f"commit_value{slot}", commit_trace_stage[f"commit_value{slot}"])
+        m.output(f"commit_len{slot}", commit_trace_stage[f"commit_len{slot}"])
+        m.output(f"commit_insn_raw{slot}", commit_trace_stage[f"commit_insn_raw{slot}"])
+        m.output(f"commit_wb_valid{slot}", commit_trace_stage[f"commit_wb_valid{slot}"])
+        m.output(f"commit_wb_rd{slot}", commit_trace_stage[f"commit_wb_rd{slot}"])
+        m.output(f"commit_wb_data{slot}", commit_trace_stage[f"commit_wb_data{slot}"])
+        m.output(f"commit_src0_valid{slot}", commit_trace_stage[f"commit_src0_valid{slot}"])
+        m.output(f"commit_src0_reg{slot}", commit_trace_stage[f"commit_src0_reg{slot}"])
+        m.output(f"commit_src0_data{slot}", commit_trace_stage[f"commit_src0_data{slot}"])
+        m.output(f"commit_src1_valid{slot}", commit_trace_stage[f"commit_src1_valid{slot}"])
+        m.output(f"commit_src1_reg{slot}", commit_trace_stage[f"commit_src1_reg{slot}"])
+        m.output(f"commit_src1_data{slot}", commit_trace_stage[f"commit_src1_data{slot}"])
+        m.output(f"commit_dst_valid{slot}", commit_trace_stage[f"commit_dst_valid{slot}"])
+        m.output(f"commit_dst_reg{slot}", commit_trace_stage[f"commit_dst_reg{slot}"])
+        m.output(f"commit_dst_data{slot}", commit_trace_stage[f"commit_dst_data{slot}"])
+        m.output(f"commit_mem_valid{slot}", commit_trace_stage[f"commit_mem_valid{slot}"])
+        m.output(f"commit_mem_is_store{slot}", commit_trace_stage[f"commit_mem_is_store{slot}"])
+        m.output(f"commit_mem_addr{slot}", commit_trace_stage[f"commit_mem_addr{slot}"])
+        m.output(f"commit_mem_wdata{slot}", commit_trace_stage[f"commit_mem_wdata{slot}"])
+        m.output(f"commit_mem_rdata{slot}", commit_trace_stage[f"commit_mem_rdata{slot}"])
+        m.output(f"commit_mem_size{slot}", commit_trace_stage[f"commit_mem_size{slot}"])
+        m.output(f"commit_trap_valid{slot}", commit_trace_stage[f"commit_trap_valid{slot}"])
+        m.output(f"commit_trap_cause{slot}", commit_trace_stage[f"commit_trap_cause{slot}"])
+        m.output(f"commit_next_pc{slot}", commit_trace_stage[f"commit_next_pc{slot}"])
+        m.output(f"commit_checkpoint_id{slot}", commit_trace_stage[f"commit_checkpoint_id{slot}"])
     m.output("rob_count", rob.count)
 
     # Debug: committed vs speculative hand tops (T0/U0).
@@ -2616,6 +2591,9 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     m.output("macro_store_fire_dbg", macro_store_fire)
     m.output("commit_store_wt_fire_dbg", commit_store_write_through)
     m.output("frontend_ready", frontend_ready)
+    # Exported flush indicator for cross-module kill/clear (BISQ/BROB/TMA/etc).
+    m.output("do_flush", do_flush)
+    m.output("flush_bid", state.flush_bid.out())
     m.output("redirect_valid", commit_redirect_any)
     m.output("redirect_pc", redirect_pc_any)
     m.output("redirect_checkpoint_id", redirect_checkpoint_id_any)

@@ -2,13 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 TMP_DIR="$(mktemp -d -t linxcore_cbstop_guard.XXXXXX)"
-CORE_ELF="/Users/zhoubot/linx-isa/workloads/generated/elf/coremark.elf"
+CORE_ELF="${LINX_ROOT}/workloads/generated/elf/coremark.elf"
 CORE_MEMH="${TMP_DIR}/coremark_from_elf.memh"
 QEMU_TRACE="${TMP_DIR}/coremark_qemu_commit.jsonl"
 DUT_TRACE="${TMP_DIR}/coremark_dut_commit.jsonl"
 REPORT_DIR="${TMP_DIR}/report"
-LLVM_READELF="${LLVM_READELF:-/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-readelf}"
+LLVM_READELF="${LLVM_READELF:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-readelf}"
 
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -47,7 +48,7 @@ PYC_QEMU_TRACE="${QEMU_TRACE}" \
 PYC_XCHECK_MODE=diagnostic \
 PYC_XCHECK_MAX_COMMITS=1000 \
 PYC_XCHECK_REPORT="${REPORT_DIR}/crosscheck" \
-PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}" \
+PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}" \
   bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${CORE_MEMH}" >/dev/null
 
 python3 "${ROOT_DIR}/tools/trace/crosscheck_qemu_linxcore.py" \

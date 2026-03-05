@@ -28,9 +28,21 @@ def run_readelf(args: list[str]) -> str:
         or shutil.which("greadelf")
     )
     if not tool:
-        fallback = Path("/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-readelf")
-        if fallback.is_file():
-            tool = str(fallback)
+        linx_root_env = os.environ.get("LINX_ROOT", "").strip()
+        if linx_root_env:
+            fallback = Path(linx_root_env) / "compiler/llvm/build-linxisa-clang/bin/llvm-readelf"
+            if fallback.is_file():
+                tool = str(fallback)
+    if not tool:
+        p = Path(__file__).resolve()
+        for _ in range(12):
+            cand = p / "compiler/llvm/build-linxisa-clang/bin/llvm-readelf"
+            if cand.is_file():
+                tool = str(cand)
+                break
+            if p.parent == p:
+                break
+            p = p.parent
     if not tool:
         raise RuntimeError("no readelf tool found")
     proc = subprocess.run([tool, *args], check=False, capture_output=True, text=True)

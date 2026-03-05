@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-LINXISA_DIR="${LINXISA_DIR:-${HOME}/linx-isa}"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
+LINXISA_DIR="${LINXISA_DIR:-${LINX_ROOT}}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/tests/benchmarks_latest_llvm_musl}"
 BUILD_DIR="${BUILD_DIR:-${OUT_DIR}/elf}"
 MEMH_DIR="${MEMH_DIR:-${OUT_DIR}/memh}"
@@ -64,14 +65,22 @@ find_latest_clang() {
     echo "${LLVM_CLANG}"
     return 0
   fi
+
+  local default_clang="${LINXISA_DIR}/compiler/llvm/build-linxisa-clang/bin/clang"
+  if [[ -x "${default_clang}" ]]; then
+    echo "${default_clang}"
+    return 0
+  fi
+
   local cands=()
   while IFS= read -r p; do
     if [[ -x "${p}" ]]; then
       cands+=("${p}")
     fi
-  done < <(find /Users/zhoubot/llvm-project -maxdepth 4 \( -type f -o -type l \) -path "*/bin/clang" 2>/dev/null | sort)
+  done < <(find "${LINXISA_DIR}/compiler/llvm" -maxdepth 6 \( -type f -o -type l \) -path "*/bin/clang" 2>/dev/null | sort)
   if [[ ${#cands[@]} -eq 0 ]]; then
-    echo "error: no clang candidates found under /Users/zhoubot/llvm-project" >&2
+    echo "error: no clang candidates found under ${LINXISA_DIR}/compiler/llvm" >&2
+    echo "hint: build the in-repo toolchain or pass --clang /path/to/clang" >&2
     exit 2
   fi
   local newest=""

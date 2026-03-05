@@ -1,5 +1,8 @@
 # generated outputs
 generated/
+out/
+.ninja_log
+.ninja_deps
 
 # local binaries
 cosim/linxcore_lockstep_runner
@@ -17,6 +20,7 @@ tests/**/*.sock
 tests/tmp_*/
 tests/benchmarks/
 tests/benchmarks_linxcore/
+tests/benchmarks_specint_stage_a/elf/*_manifest.json
 
 # python cache
 __pycache__/

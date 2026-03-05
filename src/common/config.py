@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, ct, meta, template
+from pycircuit import Circuit, ct, spec
+
+meta = spec
 
 
-@template
 def frontend_config(m: Circuit, *, ibuf_depth: int = 8, ftq_depth: int = 16):
     _ = m
     spec = (
@@ -19,7 +20,6 @@ def frontend_config(m: Circuit, *, ibuf_depth: int = 8, ftq_depth: int = 16):
     )
 
 
-@template
 def icache_config(
     m: Circuit,
     *,
@@ -69,7 +69,6 @@ def icache_config(
     )
 
 
-@template
 def top_config(
     m: Circuit,
     *,

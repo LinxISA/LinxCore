@@ -2,26 +2,31 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-PYC_ROOT="/Users/zhoubot/pyCircuit"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
-GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
+GEN_HDR="${GEN_CPP_DIR}/LinxcoreTop.hpp"
 CPP_MANIFEST="${GEN_CPP_DIR}/cpp_compile_manifest.json"
 SRC="${ROOT_DIR}/tests/test_rob_bookkeeping.cpp"
 EXE="${GEN_CPP_DIR}/test_rob_bookkeeping"
-MEMH="${PYC_TEST_MEMH:-/Users/zhoubot/pyCircuit/designs/examples/linx_cpu/programs/test_or.memh}"
 TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -Wall -Wextra}"
 GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
 RUN_TOP_CPP="${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh"
-PYC_API_INCLUDE="${PYC_ROOT}/include"
-if [[ ! -f "${PYC_API_INCLUDE}/pyc/cpp/pyc_sim.hpp" ]]; then
-  cand="$(find "${PYC_ROOT}" -path '*/include/pyc/cpp/pyc_sim.hpp' -print -quit 2>/dev/null || true)"
-  if [[ -n "${cand}" ]]; then
-    PYC_API_INCLUDE="${cand%/pyc/cpp/pyc_sim.hpp}"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
+find_pyc_root() {
+  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
+    echo "${PYC_ROOT}"
+    return 0
   fi
-fi
-PYC_COMPAT_INCLUDE="${ROOT_DIR}/generated/include_compat"
-mkdir -p "${PYC_COMPAT_INCLUDE}/pyc"
-ln -sfn "${PYC_ROOT}/runtime/cpp" "${PYC_COMPAT_INCLUDE}/pyc/cpp"
+  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
+    echo "${LINX_ROOT}/tools/pyCircuit"
+    return 0
+  fi
+  return 1
+}
+PYC_ROOT_DIR="$(find_pyc_root)" || {
+  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
+  exit 2
+}
+MEMH="${PYC_TEST_MEMH:-${PYC_ROOT_DIR}/designs/examples/linx_cpu/programs/test_or.memh}"
 
 if [[ ! -f "${GEN_HDR}" ]]; then
   bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
@@ -88,10 +93,7 @@ PY
     fi
   done
   "${CXX:-clang++}" -std=c++17 ${TB_CXXFLAGS} \
-    -I "${PYC_COMPAT_INCLUDE}" \
-    -I "${PYC_API_INCLUDE}" \
-    -I "${PYC_ROOT}/runtime" \
-    -I "${PYC_ROOT}/runtime/cpp" \
+    -I "${PYC_ROOT_DIR}/runtime" \
     -I "${GEN_CPP_DIR}" \
     -c "${SRC}" \
     -o "${GEN_CPP_DIR}/test_rob_bookkeeping.o"
@@ -106,7 +108,24 @@ if [[ ! -x "${EXE}" ]]; then
   exit 2
 fi
 
-PYC_BOOT_PC=0x10000 \
+BOOT_PC="$(
+python3 - <<'PY' "${MEMH}"
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+addr = None
+for tok in p.read_text().split():
+    if tok.startswith("@"):
+        addr = int(tok[1:], 16)
+        break
+if addr is None:
+    raise SystemExit(f"no @addr found in memh: {p}")
+print(f"0x{addr:x}")
+PY
+)"
+
+PYC_BOOT_PC="${BOOT_PC}" \
 PYC_BOOT_SP=0x00000000000ff000 \
 PYC_MAX_CYCLES=12000 \
   "${EXE}" "${MEMH}"

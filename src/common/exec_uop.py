@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pycircuit import Circuit, Wire, function
+from pycircuit import Circuit, Wire, function, module, unsigned
 
 from .isa import (
     OP_ADDTPC,
@@ -149,7 +149,7 @@ from .isa import (
     OP_SWI,
     OP_XORW,
 )
-from .util import Consts, ashr_var, lshr_var, shl_var
+from .util import Consts, ashr_var, lshr_var, make_consts, shl_var
 
 
 @dataclass(frozen=True)
@@ -162,6 +162,7 @@ class ExecOut:
     wdata: Wire
 
 
+@function
 def exec_uop_comb(
     m: Circuit,
     *,
@@ -447,25 +448,25 @@ def exec_uop_comb(
     alu = op_maddw._select_internal((srcp_val + (srcl_val * srcr_val))._trunc(width=32)._sext(width=64), alu)
 
     alu = op_div._select_internal(srcl_val.as_signed() // srcr_val.as_signed(), alu)
-    alu = op_divu._select_internal(srcl_val.as_unsigned() // srcr_val.as_unsigned(), alu)
+    alu = op_divu._select_internal(unsigned(srcl_val) // unsigned(srcr_val), alu)
 
     divw_l32 = srcl_val._trunc(width=32)._sext(width=64).as_signed()
     divw_r32 = srcr_val._trunc(width=32)._sext(width=64).as_signed()
     alu = op_divw._select_internal((divw_l32 // divw_r32)._trunc(width=32)._sext(width=64), alu)
 
-    divuw_l32 = srcl_val._trunc(width=32)._zext(width=64).as_unsigned()
-    divuw_r32 = srcr_val._trunc(width=32)._zext(width=64).as_unsigned()
+    divuw_l32 = unsigned(srcl_val._trunc(width=32)._zext(width=64))
+    divuw_r32 = unsigned(srcr_val._trunc(width=32)._zext(width=64))
     alu = op_divuw._select_internal((divuw_l32 // divuw_r32)._trunc(width=32)._sext(width=64), alu)
 
     alu = op_rem._select_internal(srcl_val.as_signed() % srcr_val.as_signed(), alu)
-    alu = op_remu._select_internal(srcl_val.as_unsigned() % srcr_val.as_unsigned(), alu)
+    alu = op_remu._select_internal(unsigned(srcl_val) % unsigned(srcr_val), alu)
 
     remw_l32 = srcl_val._trunc(width=32)._sext(width=64).as_signed()
     remw_r32 = srcr_val._trunc(width=32)._sext(width=64).as_signed()
     alu = op_remw._select_internal((remw_l32 % remw_r32)._trunc(width=32)._sext(width=64), alu)
 
-    remuw_l32 = srcl_val._trunc(width=32)._zext(width=64).as_unsigned()
-    remuw_r32 = srcr_val._trunc(width=32)._zext(width=64).as_unsigned()
+    remuw_l32 = unsigned(srcl_val._trunc(width=32)._zext(width=64))
+    remuw_r32 = unsigned(srcr_val._trunc(width=32)._zext(width=64))
     alu = op_remuw._select_internal((remuw_l32 % remuw_r32)._trunc(width=32)._sext(width=64), alu)
 
     alu = op_sll._select_internal(shl_var(m, srcl_val, srcr_val), alu)
@@ -1182,7 +1183,7 @@ def exec_uop(
             addr = z64
             wdata = z64
         if op_divu:
-            alu = srcl_val.as_unsigned() // srcr_val.as_unsigned()
+            alu = unsigned(srcl_val) // unsigned(srcr_val)
             is_load = z1
             is_store = z1
             size = z4
@@ -1198,8 +1199,8 @@ def exec_uop(
             addr = z64
             wdata = z64
         if op_divuw:
-            l32 = srcl_val._trunc(width=32)._zext(width=64).as_unsigned()
-            r32 = srcr_val._trunc(width=32)._zext(width=64).as_unsigned()
+            l32 = unsigned(srcl_val._trunc(width=32)._zext(width=64))
+            r32 = unsigned(srcr_val._trunc(width=32)._zext(width=64))
             alu = (l32 // r32)._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
@@ -1214,7 +1215,7 @@ def exec_uop(
             addr = z64
             wdata = z64
         if op_remu:
-            alu = srcl_val.as_unsigned() % srcr_val.as_unsigned()
+            alu = unsigned(srcl_val) % unsigned(srcr_val)
             is_load = z1
             is_store = z1
             size = z4
@@ -1230,8 +1231,8 @@ def exec_uop(
             addr = z64
             wdata = z64
         if op_remuw:
-            l32 = srcl_val._trunc(width=32)._zext(width=64).as_unsigned()
-            r32 = srcr_val._trunc(width=32)._zext(width=64).as_unsigned()
+            l32 = unsigned(srcl_val._trunc(width=32)._zext(width=64))
+            r32 = unsigned(srcr_val._trunc(width=32)._zext(width=64))
             alu = (l32 % r32)._trunc(width=32)._sext(width=64)
             is_load = z1
             is_store = z1
@@ -2088,3 +2089,41 @@ def exec_uop(
             wdata = z64
 
         return ExecOut(alu=alu, is_load=is_load, is_store=is_store, size=size, addr=addr, wdata=wdata)
+
+
+@module(name="LinxCoreExecUopComb")
+def build_linxcore_exec_uop_comb(m: Circuit) -> None:
+    """Forced-hierarchy wrapper around `exec_uop_comb`.
+
+    `exec_uop_comb()` is large and used per issue lane; keeping it as a module
+    prevents frontend inlining from duplicating the exec tree N times in the
+    backend top.
+    """
+    op = m.input("op", width=12)
+    pc = m.input("pc", width=64)
+    imm = m.input("imm", width=64)
+    srcl_val = m.input("srcl_val", width=64)
+    srcr_val = m.input("srcr_val", width=64)
+    srcr_type = m.input("srcr_type", width=2)
+    shamt = m.input("shamt", width=6)
+    srcp_val = m.input("srcp_val", width=64)
+
+    consts = make_consts(m)
+    out = exec_uop_comb(
+        m,
+        op=op,
+        pc=pc,
+        imm=imm,
+        srcl_val=srcl_val,
+        srcr_val=srcr_val,
+        srcr_type=srcr_type,
+        shamt=shamt,
+        srcp_val=srcp_val,
+        consts=consts,
+    )
+    m.output("alu", out.alu)
+    m.output("is_load", out.is_load)
+    m.output("is_store", out.is_store)
+    m.output("size", out.size)
+    m.output("addr", out.addr)
+    m.output("wdata", out.wdata)

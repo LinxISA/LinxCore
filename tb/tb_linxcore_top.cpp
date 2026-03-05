@@ -11,31 +11,15 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
-#if __has_include(<pyc/cpp/pyc_tb.hpp>)
-#include <pyc/cpp/pyc_tb.hpp>
-#elif __has_include(<cpp/pyc_tb.hpp>)
 #include <cpp/pyc_tb.hpp>
-#elif __has_include(<pyc_tb.hpp>)
-#include <pyc_tb.hpp>
-#else
-#error "pyc_tb.hpp not found; set include path for pyCircuit runtime headers"
-#endif
-
-#if __has_include(<pyc/cpp/pyc_linxtrace.hpp>)
-#include <pyc/cpp/pyc_linxtrace.hpp>
-#elif __has_include(<cpp/pyc_linxtrace.hpp>)
 #include <cpp/pyc_linxtrace.hpp>
-#elif __has_include(<pyc_linxtrace.hpp>)
-#include <pyc_linxtrace.hpp>
-#else
-#error "pyc_linxtrace.hpp not found; set include path for pyCircuit runtime headers"
-#endif
 
-#include "linxcore_top.hpp"
+#include "LinxcoreTop.hpp"
 #include "tb_linxcore_trace_util.hpp"
 
 using pyc::cpp::Testbench;
@@ -47,14 +31,96 @@ constexpr std::uint64_t kBootPc = 0x0000'0000'0001'0000ull;
 constexpr std::uint64_t kBootSp = 0x0000'0000'07fe'fff0ull;
 constexpr std::uint64_t kDefaultMaxCycles = 50000000ull;
 constexpr std::uint64_t kDefaultDeadlockCycles = 200000ull;
-constexpr const char *kDefaultDisasmTool = "/Users/zhoubot/linx-isa/tools/isa/linxdisasm.py";
-constexpr const char *kDefaultDisasmSpec = "/Users/zhoubot/linx-isa/isa/v0.3/linxisa-v0.3.json";
-constexpr const char *kDefaultObjdumpTool = "/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-objdump";
-constexpr const char *kDefaultIsaPy = "/Users/zhoubot/LinxCore/src/common/isa.py";
 
 using linxcore::tb::disasmInsn;
 using linxcore::tb::loadObjdumpPcMap;
 using linxcore::tb::loadOpNameMap;
+
+static bool pathExists(const std::filesystem::path &p) {
+  std::error_code ec;
+  return std::filesystem::exists(p, ec);
+}
+
+static std::optional<std::filesystem::path> findLinxcoreRoot(const std::filesystem::path &start) {
+  std::filesystem::path p = start;
+  for (int i = 0; i < 12; i++) {
+    if (pathExists(p / "src" / "linxcore_top.py") &&
+        pathExists(p / "tools" / "generate" / "run_linxcore_top_cpp.sh")) {
+      return p;
+    }
+    if (!p.has_parent_path())
+      break;
+    const auto parent = p.parent_path();
+    if (parent == p)
+      break;
+    p = parent;
+  }
+  return std::nullopt;
+}
+
+static std::filesystem::path resolveLinxcoreRoot() {
+  if (const char *env = std::getenv("LINXCORE_ROOT"); env && env[0] != '\0') {
+    std::filesystem::path p(env);
+    if (pathExists(p))
+      return p;
+  }
+  if (const auto found = findLinxcoreRoot(std::filesystem::current_path()); found.has_value()) {
+    return *found;
+  }
+  return std::filesystem::current_path();
+}
+
+static std::filesystem::path resolveLinxRoot() {
+  if (const char *env = std::getenv("LINX_ROOT"); env && env[0] != '\0') {
+    std::filesystem::path p(env);
+    if (pathExists(p))
+      return p;
+  }
+  const auto linxcoreRoot = resolveLinxcoreRoot();
+  if (linxcoreRoot.filename() == "LinxCore" && linxcoreRoot.parent_path().filename() == "rtl") {
+    return linxcoreRoot.parent_path().parent_path();
+  }
+  return linxcoreRoot;
+}
+
+static std::filesystem::path defaultGenCppDir() {
+  return resolveLinxcoreRoot() / "generated" / "cpp" / "linxcore_top";
+}
+
+static std::filesystem::path defaultGenLinxtraceDir() {
+  return resolveLinxcoreRoot() / "generated" / "linxtrace";
+}
+
+static std::string defaultDisasmTool() {
+  const auto tool = resolveLinxRoot() / "tools" / "isa" / "linxdisasm.py";
+  if (pathExists(tool))
+    return tool.string();
+  return "linxdisasm.py";
+}
+
+static std::string defaultDisasmSpec() {
+  const auto spec = resolveLinxRoot() / "isa" / "v0.3" / "linxisa-v0.3.json";
+  if (pathExists(spec))
+    return spec.string();
+  return "";
+}
+
+static std::string defaultObjdumpTool() {
+  if (const char *env = std::getenv("LLVM_OBJDUMP"); env && env[0] != '\0') {
+    return env;
+  }
+  const auto tool = resolveLinxRoot() / "compiler" / "llvm" / "build-linxisa-clang" / "bin" / "llvm-objdump";
+  if (pathExists(tool))
+    return tool.string();
+  return "llvm-objdump";
+}
+
+static std::string defaultIsaPy() {
+  const auto isaPy = resolveLinxcoreRoot() / "src" / "common" / "isa.py";
+  if (pathExists(isaPy))
+    return isaPy.string();
+  return "isa.py";
+}
 
 static bool envFlag(const char *name) {
   const char *v = std::getenv(name);
@@ -260,9 +326,20 @@ static bool isMacroMarker32(std::uint32_t insn) {
 }
 
 static bool isMetadataCommit(const XcheckCommit &r) {
-  // Keep architectural BSTART/macro instructions in lockstep compare.
-  // Only treat fully zeroed placeholder rows as metadata.
-  return (r.len == 0) && (r.insn == 0) && (r.pc == 0);
+  // Match crosscheck normalization rules:
+  // - fully zeroed placeholders are metadata
+  // - side-effect-free template parent markers are metadata (QEMU may emit them
+  //   even when LinxCore hides the internal parent retire)
+  if ((r.len == 0) && (r.insn == 0) && (r.pc == 0)) {
+    return true;
+  }
+  if (r.len == 4) {
+    const std::uint32_t insn32 = static_cast<std::uint32_t>(maskInsn(r.insn, r.len) & 0xFFFF'FFFFull);
+    if (isMacroMarker32(insn32) && r.trap_valid == 0 && r.wb_valid == 0 && r.mem_valid == 0 && r.dst_valid == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 struct XcheckMismatch {
@@ -554,23 +631,84 @@ int main(int argc, char **argv) {
   }
   const std::string memhPath = argv[1];
 
-  pyc::gen::linxcore_top dut{};
+  pyc::gen::LinxcoreTop dut{};
   const bool simStatsEnabled = envFlag("PYC_SIM_STATS");
   auto dumpSimStats = [&]() {
     if (!simStatsEnabled)
       return;
+    auto dumpPrefixed = [&](std::ostream &os, const char *prefix, const auto *inst) {
+      if (!inst || !prefix || prefix[0] == '\0')
+        return;
+      std::ostringstream buf;
+      inst->dump_sim_stats(buf);
+      std::istringstream iss(buf.str());
+      std::string line;
+      while (std::getline(iss, line)) {
+        if (line.empty())
+          continue;
+        os << prefix << line << "\n";
+      }
+    };
+    auto dumpAll = [&](std::ostream &os) {
+      // Preserve the legacy top-level key names for grep-based workflows.
+      dut.dump_sim_stats(os);
+      os << "env.PYC_SIM_FAST=" << (envFlag("PYC_SIM_FAST") ? 1 : 0) << "\n";
+      os << "env.PYC_SIM_STATS=" << (envFlag("PYC_SIM_STATS") ? 1 : 0) << "\n";
+      os << "top._pyc_sim_fast_enable=" << (dut._pyc_sim_fast_enable ? 1 : 0) << "\n";
+      // Add per-child stats with stable prefixes for aggregation.
+      dumpPrefixed(os, "child.janus_backend.", dut.janus_backend.get());
+      if (dut.janus_backend) {
+        os << "child.janus_backend._pyc_sim_fast_enable=" << (dut.janus_backend->_pyc_sim_fast_enable ? 1 : 0) << "\n";
+      }
+      dumpPrefixed(os, "child.janus_bctrl.", dut.janus_bctrl.get());
+      dumpPrefixed(os, "child.janus_bisq.", dut.janus_bisq.get());
+      dumpPrefixed(os, "child.janus_brenu.", dut.janus_brenu.get());
+      dumpPrefixed(os, "child.janus_brob.", dut.janus_brob.get());
+      dumpPrefixed(os, "child.janus_cube.", dut.janus_cube.get());
+      dumpPrefixed(os, "child.janus_dec1.", dut.janus_dec1.get());
+      dumpPrefixed(os, "child.janus_dec2.", dut.janus_dec2.get());
+      dumpPrefixed(os, "child.janus_iex.", dut.janus_iex.get());
+      dumpPrefixed(os, "child.janus_ifu_ctrl.", dut.janus_ifu_ctrl.get());
+      dumpPrefixed(os, "child.janus_ifu_f0.", dut.janus_ifu_f0.get());
+      dumpPrefixed(os, "child.janus_ifu_f1.", dut.janus_ifu_f1.get());
+      dumpPrefixed(os, "child.janus_ifu_f2.", dut.janus_ifu_f2.get());
+      dumpPrefixed(os, "child.janus_ifu_f3.", dut.janus_ifu_f3.get());
+      dumpPrefixed(os, "child.janus_ifu_f4.", dut.janus_ifu_f4.get());
+      dumpPrefixed(os, "child.janus_ifu_icache.", dut.janus_ifu_icache.get());
+      dumpPrefixed(os, "child.janus_l1d.", dut.janus_l1d.get());
+      dumpPrefixed(os, "child.janus_lhq.", dut.janus_lhq.get());
+      dumpPrefixed(os, "child.janus_liq.", dut.janus_liq.get());
+      dumpPrefixed(os, "child.janus_lsu.", dut.janus_lsu.get());
+      dumpPrefixed(os, "child.janus_mdb.", dut.janus_mdb.get());
+      dumpPrefixed(os, "child.janus_pcbuf.", dut.janus_pcbuf.get());
+      dumpPrefixed(os, "child.janus_ren.", dut.janus_ren.get());
+      dumpPrefixed(os, "child.janus_rob.", dut.janus_rob.get());
+      dumpPrefixed(os, "child.janus_s1.", dut.janus_s1.get());
+      dumpPrefixed(os, "child.janus_s2.", dut.janus_s2.get());
+      dumpPrefixed(os, "child.janus_stq.", dut.janus_stq.get());
+      dumpPrefixed(os, "child.janus_tau.", dut.janus_tau.get());
+      dumpPrefixed(os, "child.janus_tma.", dut.janus_tma.get());
+      dumpPrefixed(os, "child.janus_tmu_noc.", dut.janus_tmu_noc.get());
+      dumpPrefixed(os, "child.janus_tmu_tilereg.", dut.janus_tmu_tilereg.get());
+      dumpPrefixed(os, "child.linxcore_vec.", dut.linxcore_vec.get());
+      dumpPrefixed(os, "child.mem2r1w.", dut.mem2r1w.get());
+      dumpPrefixed(os, "child.uid_allocator.", dut.uid_allocator.get());
+    };
     const char *path = std::getenv("PYC_SIM_STATS_PATH");
     if (path && path[0] != '\0') {
       std::filesystem::path out(path);
       if (out.has_parent_path())
         std::filesystem::create_directories(out.parent_path());
-      dut.dump_sim_stats_to_path(path);
+      std::ofstream ofs(out, std::ios::out | std::ios::trunc);
+      if (ofs.is_open()) {
+        dumpAll(ofs);
+      }
       return;
     }
-    dut.dump_sim_stats(std::cerr);
+    dumpAll(std::cerr);
   };
 
-  if (!loadMemh(dut.mem2r1w.imem, memhPath) || !loadMemh(dut.mem2r1w.dmem, memhPath)) {
+  if (!loadMemh(dut.mem2r1w->imem, memhPath) || !loadMemh(dut.mem2r1w->dmem, memhPath)) {
     return 2;
   }
 
@@ -602,7 +740,7 @@ int main(int argc, char **argv) {
   dut.ic_l2_rsp_data = Wire<512>(0);
   dut.ic_l2_rsp_error = Wire<1>(0);
 
-  Testbench<pyc::gen::linxcore_top> tb(dut);
+  Testbench<pyc::gen::LinxcoreTop> tb(dut);
 
   std::ofstream commitTrace{};
   if (const char *p = std::getenv("PYC_COMMIT_TRACE"); p && p[0] != '\0') {
@@ -631,8 +769,8 @@ int main(int argc, char **argv) {
   const bool traceVcd = envFlag("PYC_VCD");
   const bool traceLinxTrace = envFlag("PYC_LINXTRACE");
   if (traceVcd) {
-    std::filesystem::create_directories("/Users/zhoubot/LinxCore/generated/cpp/linxcore_top");
-    tb.enableVcd("/Users/zhoubot/LinxCore/generated/cpp/linxcore_top/tb_linxcore_top.vcd",
+    std::filesystem::create_directories(defaultGenCppDir());
+    tb.enableVcd((defaultGenCppDir() / "tb_linxcore_top.vcd").string(),
                  "tb_linxcore_top");
     tb.vcdTrace(dut.clk, "clk");
     tb.vcdTrace(dut.rst, "rst");
@@ -648,7 +786,7 @@ int main(int argc, char **argv) {
       outPath = std::filesystem::path(p);
     } else {
       const std::string stem = std::filesystem::path(memhPath).stem().string();
-      outPath = std::filesystem::path("/Users/zhoubot/LinxCore/generated/cpp/linxcore_top") /
+      outPath = defaultGenCppDir() /
                 ("tb_linxcore_top_cpp_" + (stem.empty() ? std::string("program") : stem) + ".linxtrace.jsonl");
     }
     if (outPath.has_parent_path()) {
@@ -671,13 +809,13 @@ int main(int argc, char **argv) {
   std::uint64_t icMissCycles = 20;
   if (const char *env = std::getenv("PYC_IC_MISS_CYCLES"))
     icMissCycles = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
-  std::string disasmTool = kDefaultDisasmTool;
+  std::string disasmTool = defaultDisasmTool();
   if (const char *env = std::getenv("PYC_DISASM_TOOL"); env && env[0] != '\0')
     disasmTool = env;
-  std::string disasmSpec = kDefaultDisasmSpec;
+  std::string disasmSpec = defaultDisasmSpec();
   if (const char *env = std::getenv("PYC_DISASM_SPEC"); env && env[0] != '\0')
     disasmSpec = env;
-  std::string objdumpTool = kDefaultObjdumpTool;
+  std::string objdumpTool = defaultObjdumpTool();
   if (const char *env = std::getenv("PYC_OBJDUMP_TOOL"); env && env[0] != '\0')
     objdumpTool = env;
   std::string objdumpElf{};
@@ -691,12 +829,18 @@ int main(int argc, char **argv) {
         objdumpElf = p.string();
     }
   }
-  std::string isaPyPath = kDefaultIsaPy;
+  std::string isaPyPath = defaultIsaPy();
   if (const char *env = std::getenv("PYC_ISA_PY"); env && env[0] != '\0')
     isaPyPath = env;
   const auto acceptedExitCodes = parseAcceptedExitCodes();
-  const auto opNameMap = loadOpNameMap(isaPyPath);
-  const auto objdumpPcMap = loadObjdumpPcMap(objdumpTool, objdumpElf);
+  // These maps are only needed when producing human-readable trace labels.
+  // Keep no-trace simulation fast by avoiding `llvm-objdump` parsing.
+  std::unordered_map<std::uint64_t, std::string> opNameMap{};
+  std::unordered_map<std::uint64_t, std::string> objdumpPcMap{};
+  if (traceLinxTrace) {
+    opNameMap = loadOpNameMap(isaPyPath);
+    objdumpPcMap = loadObjdumpPcMap(objdumpTool, objdumpElf);
+  }
 
   const char *xcheckTraceEnv = std::getenv("PYC_QEMU_TRACE");
   const bool xcheckEnabled = xcheckTraceEnv && xcheckTraceEnv[0] != '\0';
@@ -803,11 +947,6 @@ int main(int argc, char **argv) {
       return "template_child";
     }
   };
-  auto pvLaneToken = [](int lane) -> std::string {
-    std::ostringstream ss;
-    ss << "c0.l" << (lane < 0 ? 0 : lane);
-    return ss.str();
-  };
   auto pvFmtOperand = [](bool valid, std::uint32_t reg, std::uint64_t data) -> std::string {
     if (!valid) {
       return "-";
@@ -852,7 +991,7 @@ int main(int argc, char **argv) {
     (void)reason;
     for (const auto &kv : pvByUid) {
       const PvEntry &e = kv.second;
-      konata.presenceV5(e.id, pvLaneToken(e.lane), "FLS", 1, "global_flush");
+      konata.presence(e.id, e.lane, "FLS", 1, "global_flush");
       konata.retire(e.id, e.id, 1);
       pvUidLastRetireCycle[kv.first] = curCycleKonata;
     }
@@ -873,7 +1012,7 @@ int main(int argc, char **argv) {
       }
     } else {
       const std::string stem = std::filesystem::path(memhPath).stem().string();
-      base = std::filesystem::path("/Users/zhoubot/LinxCore/generated/linxtrace") /
+      base = defaultGenLinxtraceDir() /
              ((stem.empty() ? std::string("program") : stem) + "_crosscheck");
     }
     XcheckReportPaths out{};
@@ -1055,7 +1194,7 @@ int main(int argc, char **argv) {
 
     auto it = pvByUid.find(uid);
     if (it == pvByUid.end()) {
-      auto fetched = fetchInsnAtPc(dut.mem2r1w.imem, pc);
+      auto fetched = fetchInsnAtPc(dut.mem2r1w->imem, pc);
       const std::uint64_t raw = fetched.first;
       const std::uint8_t len = normalizeLen(fetched.second);
       std::string disasm{};
@@ -1091,16 +1230,16 @@ int main(int argc, char **argv) {
 
     e.stageId = stageId;
     e.lane = lane;
-    konata.presenceV5(
+    konata.presence(
         e.id,
-        pvLaneToken(lane),
+        lane,
         kTraceStageNames[static_cast<std::size_t>(stageId)],
         stall ? 1 : 0,
         std::to_string(stallCause));
 
     if (kind == kTraceKindFlush || kind == kTraceKindReplay || stageId == static_cast<int>(kTraceSidFls)) {
       if (stageId != static_cast<int>(kTraceSidFls)) {
-        konata.presenceV5(e.id, pvLaneToken(e.lane), "FLS", 1, "flush");
+        konata.presence(e.id, e.lane, "FLS", 1, "flush");
       }
       konata.retire(e.id, e.id, 1);
       dfxRetiredKeysCycle.insert(pvRetireKey(e.pc, e.rob, e.lane));
@@ -1128,7 +1267,7 @@ int main(int argc, char **argv) {
       const std::uint64_t base = lineAddr + static_cast<std::uint64_t>(wi) * 8ull;
       for (unsigned bi = 0; bi < 8; bi++) {
         const std::uint64_t a = base + static_cast<std::uint64_t>(bi);
-        w |= (static_cast<std::uint64_t>(dut.mem2r1w.imem.peekByte(static_cast<std::size_t>(a))) << (8u * bi));
+        w |= (static_cast<std::uint64_t>(dut.mem2r1w->imem.peekByte(static_cast<std::size_t>(a))) << (8u * bi));
       }
       out.setWord(wi, w);
     }
@@ -2023,8 +2162,11 @@ int main(int argc, char **argv) {
                    << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                    << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
             konata.label(itLive->second.id, 1, detail.str());
-            konata.presenceV5(itLive->second.id, pvLaneToken(itLive->second.lane),
-                              kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
+            konata.presence(itLive->second.id,
+                            itLive->second.lane,
+                            kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)],
+                            1,
+                            "xcheck");
             xcheckAnnotated = true;
           }
         }
@@ -2034,7 +2176,7 @@ int main(int argc, char **argv) {
             auto liveIt = pvByUid.find(uopUid);
             if (liveIt != pvByUid.end()) {
               if (dfxTouchedUidCycle.find(uopUid) == dfxTouchedUidCycle.end()) {
-                konata.presenceV5(liveIt->second.id, pvLaneToken(slot), "ROB", 0, "0");
+                konata.presence(liveIt->second.id, slot, "ROB", 0, "0");
               }
               konata.retire(liveIt->second.id, liveIt->second.id, trapValid ? 1 : 0);
               pvUidLastRetireCycle[uopUid] = curCycleKonata;
@@ -2056,7 +2198,7 @@ int main(int argc, char **argv) {
                      << " wb=" << (wbValid ? (std::to_string(wbRd) + ":" + toHex(wbData)) : std::string("-"))
                      << " mem=" << (memValid ? (std::string(memIsStore ? "S@" : "L@") + toHex(memAddr)) : std::string("-"));
               konata.label(id, 1, detail.str());
-              konata.presenceV5(id, pvLaneToken(slot), "ROB", 0, "0");
+              konata.presence(id, slot, "ROB", 0, "0");
               konata.retire(id, id, trapValid ? 1 : 0);
               pvUidLastRetireCycle[uopUid] = curCycleKonata;
             }
@@ -2071,7 +2213,7 @@ int main(int argc, char **argv) {
             const std::uint64_t id = pvNextKonataId++;
             konata.insnV5(id, toHex(id), 0, "0x0", trapValid ? "trap" : "normal");
             konata.label(id, 0, pvInsnText(pc, useDisasm));
-            konata.presenceV5(id, pvLaneToken(slot), "ROB", 0, "0");
+            konata.presence(id, slot, "ROB", 0, "0");
             if (xcheckMismatch) {
               std::ostringstream detail;
               detail << "XCHECK_FAIL seq=" << xcheckMm.seq
@@ -2094,7 +2236,7 @@ int main(int argc, char **argv) {
                      << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                      << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
               konata.label(id, 1, detail.str());
-              konata.presenceV5(id, pvLaneToken(slot), kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
+              konata.presence(id, slot, kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
               xcheckAnnotated = true;
             }
             konata.retire(id, id, trapValid ? 1 : 0);
@@ -2126,7 +2268,7 @@ int main(int argc, char **argv) {
                  << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                  << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
           konata.label(id, 1, detail.str());
-          konata.presenceV5(id, pvLaneToken(slot), kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
+          konata.presence(id, slot, kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
           konata.retire(id, id, 1);
         }
       }

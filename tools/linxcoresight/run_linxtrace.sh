@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 
 python3 "${ROOT_DIR}/tools/linxcoresight/lint_trace_contract_sync.py"
 
@@ -14,8 +15,8 @@ MEMH="$1"
 MAX_COMMITS="${2:-${PYC_LINXTRACE_MAX_COMMITS:-0}}"
 name="$(basename "${MEMH}")"
 name="${name%.memh}"
-LLVM_READELF="${LLVM_READELF:-/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-readelf}"
-LINXISA_DIR="${LINXISA_DIR:-${HOME}/linx-isa}"
+LLVM_READELF="${LLVM_READELF:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-readelf}"
+LINXISA_DIR="${LINXISA_DIR:-${LINX_ROOT}}"
 
 out_dir="${ROOT_DIR}/generated/linxtrace"
 if [[ "${name}" == *"coremark"* ]]; then

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from functools import partial
-from types import SimpleNamespace
 
-from pycircuit import Circuit, function, module
+from pycircuit import Circuit, function, module, u
 
 from .helpers import mask_bit
 from .lsu import is_load_op, is_store_op
@@ -11,21 +10,22 @@ from .lsu import is_load_op, is_store_op
 
 @function
 def pick_oldest(m: Circuit, *, p, consts, can_issue: list, iq, width: int, sub_head):
-    c = m.const
+    # TODO: remove this legacy IQ-struct picker once all callers use
+    # pick_oldest_from_arrays.
     issue_valids = []
     issue_idxs = []
     for slot in range(width):
         v = consts.zero1
-        idx = c(0, width=p.iq_w)
-        best_age = c((1 << p.rob_w) - 1, width=p.rob_w)
+        idx = u(p.iq_w, 0)
+        best_age = u(p.rob_w, (1 << p.rob_w) - 1)
         for i in range(p.iq_depth):
-            cidx = c(i, width=p.iq_w)
+            cidx = u(p.iq_w, i)
             exclude = consts.zero1
             for prev in range(slot):
-                exclude = exclude | (issue_valids[prev] & issue_idxs[prev].__eq__(cidx))
+                exclude = exclude | (issue_valids[prev] & (issue_idxs[prev] == cidx))
             cand = can_issue[i] & (~exclude)
             age = iq.rob[i].out() + sub_head
-            better = (~v) | age.ult(best_age)
+            better = (~v) | (age < best_age)
             take = cand & better
             v = take._select_internal(consts.one1, v)
             idx = take._select_internal(cidx, idx)
@@ -37,21 +37,20 @@ def pick_oldest(m: Circuit, *, p, consts, can_issue: list, iq, width: int, sub_h
 
 @function
 def pick_oldest_from_arrays(m: Circuit, *, p, consts, can_issue: list, rob_tags: list, width: int, sub_head):
-    c = m.const
     issue_valids = []
     issue_idxs = []
     for slot in range(width):
         v = consts.zero1
-        idx = c(0, width=p.iq_w)
-        best_age = c((1 << p.rob_w) - 1, width=p.rob_w)
+        idx = u(p.iq_w, 0)
+        best_age = u(p.rob_w, (1 << p.rob_w) - 1)
         for i in range(p.iq_depth):
-            cidx = c(i, width=p.iq_w)
+            cidx = u(p.iq_w, i)
             exclude = consts.zero1
             for prev in range(slot):
-                exclude = exclude | (issue_valids[prev] & issue_idxs[prev].__eq__(cidx))
+                exclude = exclude | (issue_valids[prev] & (issue_idxs[prev] == cidx))
             cand = can_issue[i] & (~exclude)
             age = rob_tags[i] + sub_head
-            better = (~v) | age.ult(best_age)
+            better = (~v) | (age < best_age)
             take = cand & better
             v = take._select_internal(consts.one1, v)
             idx = take._select_internal(cidx, idx)
@@ -59,6 +58,63 @@ def pick_oldest_from_arrays(m: Circuit, *, p, consts, can_issue: list, rob_tags:
         issue_valids.append(v)
         issue_idxs.append(idx)
     return issue_valids, issue_idxs
+
+
+@module(name="LinxCoreIssuePicker")
+def build_issue_picker(
+    m: Circuit,
+    *,
+    iq_depth: int = 32,
+    iq_w: int = 5,
+    rob_w: int = 6,
+    width: int = 2,
+) -> None:
+    """Pick up to `width` oldest-ready IQ entries (by ROB age)."""
+
+    if iq_depth <= 0:
+        raise ValueError("iq_depth must be > 0")
+    if width <= 0:
+        raise ValueError("width must be > 0")
+
+    sub_head = m.input("sub_head", width=rob_w)
+
+    can_issue = []
+    rob_tags = []
+    for i in range(iq_depth):
+        can_issue.append(m.input(f"can_issue{i}", width=1))
+        rob_tags.append(m.input(f"rob_tag{i}", width=rob_w))
+
+    # Local const anchors (avoid m.const in this module).
+    zero1 = can_issue[0] & 0
+    one1 = ~zero1
+
+    issue_valids = []
+    issue_idxs = []
+    for slot in range(width):
+        v = zero1
+        # Note: JIT `if <wire>:` phi construction requires assigned variables to
+        # be Wire/int/bool (LiteralValue is not allowed as a phi base).
+        idx = zero1 + u(iq_w, 0)
+        best_age = (sub_head & 0) + u(rob_w, (1 << rob_w) - 1)
+        for i in range(iq_depth):
+            cidx = u(iq_w, i)
+            exclude = zero1
+            for prev in range(slot):
+                exclude = exclude | (issue_valids[prev] & (issue_idxs[prev] == cidx))
+            cand = can_issue[i] & (~exclude)
+            age = rob_tags[i] + sub_head
+            better = (~v) | (age < best_age)
+            take = cand & better
+            if take:
+                v = one1
+                idx = cidx
+                best_age = age
+        issue_valids.append(v)
+        issue_idxs.append(idx)
+
+    for slot in range(width):
+        m.output(f"issue_valid{slot}", issue_valids[slot])
+        m.output(f"issue_idx{slot}", issue_idxs[slot])
 
 
 @module(name="LinxCoreIssueStage")
@@ -73,8 +129,10 @@ def build_issue_stage(
     bru_w: int = 1,
     lsu_w: int = 1,
 ) -> None:
-    c = m.const
     can_run = m.input("can_run", width=1)
+    # Local const anchors (avoid m.const in this module).
+    zero1 = can_run & 0
+    one1 = ~zero1
     commit_redirect = m.input("commit_redirect", width=1)
     ready_mask = m.input("ready_mask", width=pregs)
     rob_head = m.input("rob_head", width=rob_w)
@@ -117,7 +175,7 @@ def build_issue_stage(
         iq_lsu_srcr.append(m.input(f"iq_lsu_srcr{i}", width=(pregs - 1).bit_length()))
         iq_lsu_srcp.append(m.input(f"iq_lsu_srcp{i}", width=(pregs - 1).bit_length()))
 
-    sub_head = (~rob_head) + c(1, width=rob_w)
+    sub_head = (~rob_head) + u(rob_w, 1)
 
     # Compute per-IQ readiness and can-issue masks.
     alu_can_issue = []
@@ -149,36 +207,44 @@ def build_issue_stage(
         lsu_is_store.append(is_store_i)
         lsu_can_issue.append(ready)
 
-    p_tmp = SimpleNamespace(iq_depth=iq_depth, iq_w=iq_w, rob_w=rob_w)
-    consts_tmp = SimpleNamespace(zero1=c(0, width=1), one1=c(1, width=1))
+    alu_pick_args = {"sub_head": sub_head}
+    for i in range(iq_depth):
+        alu_pick_args[f"can_issue{i}"] = alu_can_issue[i]
+        alu_pick_args[f"rob_tag{i}"] = iq_alu_rob[i]
+    alu_picker = m.new(
+        build_issue_picker,
+        name="alu_picker",
+        bind=alu_pick_args,
+        params={"iq_depth": iq_depth, "iq_w": iq_w, "rob_w": rob_w, "width": alu_w},
+    ).outputs
+    alu_issue_valids = [alu_picker[f"issue_valid{slot}"] for slot in range(alu_w)]
+    alu_issue_idxs = [alu_picker[f"issue_idx{slot}"] for slot in range(alu_w)]
 
-    alu_issue_valids, alu_issue_idxs = pick_oldest_from_arrays(
-        m=m,
-        p=p_tmp,
-        consts=consts_tmp,
-        can_issue=alu_can_issue,
-        rob_tags=iq_alu_rob,
-        width=alu_w,
-        sub_head=sub_head,
-    )
-    bru_issue_valids, bru_issue_idxs = pick_oldest_from_arrays(
-        m=m,
-        p=p_tmp,
-        consts=consts_tmp,
-        can_issue=bru_can_issue,
-        rob_tags=iq_bru_rob,
-        width=bru_w,
-        sub_head=sub_head,
-    )
-    lsu_issue_valids, lsu_issue_idxs = pick_oldest_from_arrays(
-        m=m,
-        p=p_tmp,
-        consts=consts_tmp,
-        can_issue=lsu_can_issue,
-        rob_tags=iq_lsu_rob,
-        width=lsu_w,
-        sub_head=sub_head,
-    )
+    bru_pick_args = {"sub_head": sub_head}
+    for i in range(iq_depth):
+        bru_pick_args[f"can_issue{i}"] = bru_can_issue[i]
+        bru_pick_args[f"rob_tag{i}"] = iq_bru_rob[i]
+    bru_picker = m.new(
+        build_issue_picker,
+        name="bru_picker",
+        bind=bru_pick_args,
+        params={"iq_depth": iq_depth, "iq_w": iq_w, "rob_w": rob_w, "width": bru_w},
+    ).outputs
+    bru_issue_valids = [bru_picker[f"issue_valid{slot}"] for slot in range(bru_w)]
+    bru_issue_idxs = [bru_picker[f"issue_idx{slot}"] for slot in range(bru_w)]
+
+    lsu_pick_args = {"sub_head": sub_head}
+    for i in range(iq_depth):
+        lsu_pick_args[f"can_issue{i}"] = lsu_can_issue[i]
+        lsu_pick_args[f"rob_tag{i}"] = iq_lsu_rob[i]
+    lsu_picker = m.new(
+        build_issue_picker,
+        name="lsu_picker",
+        bind=lsu_pick_args,
+        params={"iq_depth": iq_depth, "iq_w": iq_w, "rob_w": rob_w, "width": lsu_w},
+    ).outputs
+    lsu_issue_valids = [lsu_picker[f"issue_valid{slot}"] for slot in range(lsu_w)]
+    lsu_issue_idxs = [lsu_picker[f"issue_idx{slot}"] for slot in range(lsu_w)]
 
     issue_valids = lsu_issue_valids + bru_issue_valids + alu_issue_valids
     issue_fires = []
@@ -215,10 +281,9 @@ def build_issue_stage(
 
 @function
 def _op_is(m: Circuit, op, *codes: int):
-    c = m.const
-    v = c(0, width=1)
+    v = op[0] & 0
     for code in codes:
-        v = v | op.__eq__(c(code, width=12))
+        v = v | (op == u(12, code))
     return v
 
 
