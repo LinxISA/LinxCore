@@ -28,6 +28,7 @@ PARAM_HASH_CFG="${GEN_CPP_DIR}/.pyc_param_hash"
 TB_SRC="${ROOT_DIR}/tb/tb_linxcore_top.cpp"
 TB_TRACE_UTIL_SRC="${ROOT_DIR}/tb/tb_linxcore_trace_util.cpp"
 TB_TRACE_UTIL_HDR="${ROOT_DIR}/tb/tb_linxcore_trace_util.hpp"
+PYC_LINXTRACE_HDR="${PYC_ROOT_DIR}/runtime/cpp/pyc_linxtrace.hpp"
 TB_EXE="${GEN_CPP_DIR}/tb_linxcore_top_cpp"
 TB_OBJ_DIR="${GEN_CPP_DIR}/.tb_obj"
 GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
@@ -187,6 +188,8 @@ elif [[ ! -f "${TB_CXXFLAGS_CFG}" || "$(cat "${TB_CXXFLAGS_CFG}")" != "${TB_CXXF
   need_build=1
 elif [[ "${TB_SRC}" -nt "${TB_MAIN_OBJ}" || "${HDR}" -nt "${TB_MAIN_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_MAIN_OBJ}" ]]; then
   need_build=1
+elif [[ -f "${PYC_LINXTRACE_HDR}" && "${PYC_LINXTRACE_HDR}" -nt "${TB_MAIN_OBJ}" ]]; then
+  need_build=1
 elif [[ "${TB_TRACE_UTIL_SRC}" -nt "${TB_TRACE_UTIL_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_TRACE_UTIL_OBJ}" ]]; then
   need_build=1
 elif [[ "${TB_MAIN_OBJ}" -nt "${TB_EXE}" || "${TB_TRACE_UTIL_OBJ}" -nt "${TB_EXE}" ]]; then
@@ -291,6 +294,8 @@ PY
     need_build_locked=1
   elif [[ "${TB_SRC}" -nt "${TB_MAIN_OBJ}" || "${HDR}" -nt "${TB_MAIN_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_MAIN_OBJ}" ]]; then
     need_build_locked=1
+  elif [[ -f "${PYC_LINXTRACE_HDR}" && "${PYC_LINXTRACE_HDR}" -nt "${TB_MAIN_OBJ}" ]]; then
+    need_build_locked=1
   elif [[ "${TB_TRACE_UTIL_SRC}" -nt "${TB_TRACE_UTIL_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_TRACE_UTIL_OBJ}" ]]; then
     need_build_locked=1
   elif [[ "${TB_MAIN_OBJ}" -nt "${TB_EXE}" || "${TB_TRACE_UTIL_OBJ}" -nt "${TB_EXE}" ]]; then
@@ -349,7 +354,7 @@ PY
     if [[ ! -f "${TB_TRACE_UTIL_OBJ}" || "${TB_TRACE_UTIL_SRC}" -nt "${TB_TRACE_UTIL_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_TRACE_UTIL_OBJ}" ]]; then
       compile_pairs+=("${TB_TRACE_UTIL_SRC}"$'\t'"${TB_TRACE_UTIL_OBJ}")
     fi
-    if [[ ! -f "${TB_MAIN_OBJ}" || "${TB_SRC}" -nt "${TB_MAIN_OBJ}" || "${HDR}" -nt "${TB_MAIN_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_MAIN_OBJ}" ]]; then
+    if [[ ! -f "${TB_MAIN_OBJ}" || "${TB_SRC}" -nt "${TB_MAIN_OBJ}" || "${HDR}" -nt "${TB_MAIN_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_MAIN_OBJ}" || ( -f "${PYC_LINXTRACE_HDR}" && "${PYC_LINXTRACE_HDR}" -nt "${TB_MAIN_OBJ}" ) ]]; then
       compile_pairs+=("${TB_SRC}"$'\t'"${TB_MAIN_OBJ}")
     fi
 

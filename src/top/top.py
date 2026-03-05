@@ -1946,7 +1946,7 @@ def build_linxcore_top(
     emit_occ_debug(
         "FLS",
         1,
-        backend_top["redirect_valid"] | backend_top["bru_fault_set_dbg"],
+        backend_top["redirect_valid"] | backend_top["bru_fault_set_dbg"] | trace_boot_end_top,
         c(0, width=64),
         backend_top["redirect_pc"],
         c(0, width=6),

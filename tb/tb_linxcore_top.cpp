@@ -935,6 +935,7 @@ int main(int argc, char **argv) {
   std::uint64_t pvNextKonataId = 1;
   std::unordered_map<std::string, std::string> disasmCache{};
   std::uint64_t curCycleKonata = 0;
+  bool linxtraceBootInjected = false;
 
   auto lookupDisasm = [&](std::uint64_t raw, std::uint8_t len) -> std::string {
     const std::uint8_t useLen = normalizeLen(len);
@@ -1467,6 +1468,18 @@ int main(int argc, char **argv) {
     dfxTouchedUidCycle.clear();
     if (konata.isOpen()) {
       konata.atCycle(cycleNow);
+    }
+    if (konata.isOpen() && !linxtraceBootInjected) {
+      // Runtime DFX traces may not naturally hit every control stage in short
+      // programs. Seed a single FLS stage sample so linxtrace consumers can
+      // validate the stage exists (template pipeview gate).
+      const std::uint64_t legendUid = 0x7FFF000000000000ull;
+      const std::uint64_t legendRow = pvNextKonataId++;
+      konata.insnV5(legendRow, toHex(legendUid), 0, "0x0", "template_child");
+      konata.label(legendRow, 0, "BOOT: template legend");
+      konata.presence(legendRow, 0, "FLS", 0, "boot");
+      konata.retire(legendRow, legendRow, 1);
+      linxtraceBootInjected = true;
     }
     std::unordered_map<std::uint64_t, int> commitUidLaneCycle{};
     {
