@@ -34,6 +34,7 @@ from common.isa import (
     OP_C_BSTOP,
     OP_C_LDI,
     OP_C_LWI,
+    OP_C_SETRET,
     OP_C_SETC_NE,
     OP_C_SDI,
     OP_C_SWI,
@@ -92,6 +93,7 @@ from common.isa import (
     OP_SETC_NEI,
     OP_SETC_OR,
     OP_SETC_ORI,
+    OP_SETRET,
     OP_SDI,
     OP_SWI,
     REG_INVALID,
@@ -352,12 +354,16 @@ def build_commit_select_stage(
         if slot != 0:
             fire = fire & (~is_macro)
 
-        # Boundary-authoritative correction:
-        # BRU mismatch only records correction; redirect is consumed at boundary commit.
+        # Boundary correction is advisory only.
+        #
+        # The architectural redirect decision at a boundary must follow the
+        # committed `commit_cond` / `commit_tgt` state, not an earlier BRU
+        # prediction mismatch record (which can be stale when multiple SETC
+        # uops appear in one block).
         corr_epoch_match = br_corr_pending_live & (br_corr_epoch_live == br_epoch_live)
-        corr_for_boundary = fire & is_boundary & corr_epoch_match
-        br_take_eff = br_corr_take_live if corr_for_boundary else br_take
-        br_target_eff = br_corr_target_live if corr_for_boundary else br_target
+        corr_for_boundary = consts.zero1
+        br_take_eff = br_take
+        br_target_eff = br_target
 
         pc_inc = pc_this + ln
         boundary_fallthrough = pc_this if is_bstart_mid else pc_inc
@@ -778,6 +784,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     stbuf_size = [stbuf_stage[f"size{i}"] for i in range(p.sq_entries)]
     stbuf_enq_fire = stbuf_stage["enq_fire"]
     stbuf_drain_fire = stbuf_stage["drain_fire"]
+    stbuf_count = stbuf_stage["count"]
     commit_store_write_through = stbuf_stage["commit_store_write_through"]
     dmem_raddr = stbuf_stage["dmem_raddr"]
     mem_wvalid = stbuf_stage["dmem_wvalid"]
@@ -944,7 +951,12 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         macro_uop_uid_i=template_uid_base,
         macro_uop_parent_uid_i=head_uop_uid,
     )
-    macro_start = ctu["start_fire"]
+    # Only start a macro template block once all older committed stores have
+    # drained. Otherwise the stbuf forwarding path can override macro stores
+    # (which bypass the stbuf) and break FENTRY/FRET.STK semantics.
+    stbuf_empty = stbuf_count == u(p.sq_w + 1, 0)
+    macro_start_raw = ctu["start_fire"]
+    macro_start = macro_start_raw & stbuf_empty
     macro_block = ctu["block_ifu"]
 
     can_run = base_can_run & (~macro_block)
@@ -1762,6 +1774,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     disp_block_uids = []
     disp_block_bids = []
     disp_load_store_ids = []
+    disp_is_setret = []
+    disp_setret_vals = []
     for slot in range(p.dispatch_w):
         disp_to_alu.append(dispatch_stage[f"to_alu{slot}"])
         disp_to_bru.append(dispatch_stage[f"to_bru{slot}"])
@@ -1780,6 +1794,9 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         disp_block_uids.append(dispatch_stage[f"disp_block_uid{slot}"])
         disp_block_bids.append(dispatch_stage[f"disp_block_bid{slot}"])
         disp_load_store_ids.append(dispatch_stage[f"disp_load_store_id{slot}"])
+        is_setret = op_is_any(m, disp_ops[slot], OP_SETRET, OP_C_SETRET)
+        disp_is_setret.append(is_setret)
+        disp_setret_vals.append(disp_pcs[slot] + disp_imms[slot])
 
     # Source PTAGs from SMAP with intra-cycle rename forwarding across lanes.
     rename_stage_args = {"dispatch_fire": dispatch_fire}
@@ -1858,6 +1875,16 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     for slot in range(p.issue_w):
         wb_set_mask = wb_fire_has_dsts[slot]._select_internal(wb_set_mask | wb_onehots[slot], wb_set_mask)
     ready_next = ready_next | wb_set_mask
+    # Dispatch-resolved immediate producers (SETRET/C.SETRET) do not flow through
+    # IQ/issue/writeback, so they must mark their destination physical register
+    # as ready in the same cycle as allocation.
+    setret_set_mask = u(p.pregs, 0)
+    for slot in range(p.dispatch_w):
+        fire = disp_fires[slot] & disp_need_pdst[slot] & disp_is_setret[slot]
+        fire_mask = u(p.pregs, 0) - fire
+        onehot = onehot_from_tag(m, tag=disp_pdsts[slot], width=p.pregs, tag_width=p.ptag_w)
+        setret_set_mask = setret_set_mask | (onehot & fire_mask)
+    ready_next = ready_next | setret_set_mask
     ready_next = do_flush._select_internal(c((1 << p.pregs) - 1, width=p.pregs), ready_next)
     ready_next = restore_from_ckpt._select_internal(flush_ready_from_ckpt, ready_next)
     ren.ready_mask.set(ready_next)
@@ -1873,6 +1900,18 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         hit_macro = macro_prf_we & macro_prf_tag.__eq__(c(i, width=p.ptag_w))
         we = we | hit_macro
         wdata = hit_macro._select_internal(macro_prf_data, wdata)
+        # Dispatch-resolved immediate producers write PRF directly.
+        setret_we = u(1, 0)
+        setret_data = u(64, 0)
+        for slot in range(p.dispatch_w):
+            fire = disp_fires[slot] & disp_need_pdst[slot] & disp_is_setret[slot]
+            hit = fire & (disp_pdsts[slot] == u(p.ptag_w, i))
+            setret_we = setret_we | hit
+            mask = u(64, 0) - hit
+            setret_data = (mask & disp_setret_vals[slot]) | (~mask & setret_data)
+        we = we | setret_we
+        mask = u(64, 0) - setret_we
+        wdata = (mask & setret_data) | (~mask & wdata)
         prf[i].set(wdata, when=we)
 
     # --- ROB bank input connections ---
@@ -1903,7 +1942,16 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         m.assign(rob_bank_in[f"disp_dst_kind{slot}"], disp_dst_kind[slot])
         m.assign(rob_bank_in[f"disp_regdst{slot}"], disp_regdsts[slot])
         m.assign(rob_bank_in[f"disp_pdst{slot}"], disp_pdsts[slot])
-        m.assign(rob_bank_in[f"disp_imm{slot}"], disp_imms[slot])
+        # ROB stores a single "value" field. For dispatch-resolved ops, feed
+        # the final value directly here to avoid needing a writeback path.
+        # - boundary d2 ops: no architectural dst, keep value=0 for clean traces
+        # - SETRET/C.SETRET: value = pc + imm
+        imm_rob = disp_imms[slot]
+        bmask = u(64, 0) - disp_resolved_d2[slot]
+        imm_rob = (~bmask) & imm_rob
+        smask = u(64, 0) - disp_is_setret[slot]
+        imm_rob = (smask & disp_setret_vals[slot]) | (~smask & imm_rob)
+        m.assign(rob_bank_in[f"disp_imm{slot}"], imm_rob)
         m.assign(rob_bank_in[f"disp_is_store{slot}"], disp_is_store[slot])
         m.assign(rob_bank_in[f"disp_is_boundary{slot}"], disp_is_boundary[slot])
         m.assign(rob_bank_in[f"disp_is_bstart{slot}"], disp_is_bstart[slot])
@@ -1915,7 +1963,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         m.assign(rob_bank_in[f"disp_block_uid{slot}"], disp_block_uids[slot])
         m.assign(rob_bank_in[f"disp_block_bid{slot}"], disp_block_bids[slot])
         m.assign(rob_bank_in[f"disp_load_store_id{slot}"], disp_load_store_ids[slot])
-        m.assign(rob_bank_in[f"disp_resolved_d2{slot}"], disp_resolved_d2[slot])
+        m.assign(rob_bank_in[f"disp_resolved_d2{slot}"], disp_resolved_d2[slot] | disp_is_setret[slot])
         m.assign(rob_bank_in[f"disp_srcl{slot}"], disp_srcls[slot])
         m.assign(rob_bank_in[f"disp_srcr{slot}"], disp_srcrs[slot])
         m.assign(rob_bank_in[f"disp_uop_uid{slot}"], disp_uop_uids[slot])
@@ -2742,6 +2790,20 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         m.output(f"issue_block_uid{slot}", block_uid)
         m.output(f"issue_block_bid{slot}", block_bid)
         m.output(f"issue_load_store_id{slot}", load_store_id)
+
+    # ROB writeback visibility: writeback bundle enters the ROB through a 1-cycle
+    # pipe stage (rob_evt_pipe). Export it for deadlock triage.
+    for slot in range(max_issue_slots):
+        fire = consts.zero1
+        rob_i = c(0, width=p.rob_w)
+        value = consts.zero64
+        if slot < p.issue_w:
+            fire = rob_evt_pipe[f"wb_fire{slot}"]
+            rob_i = rob_evt_pipe[f"wb_rob{slot}"]
+            value = rob_evt_pipe[f"wb_value{slot}"]
+        m.output(f"wb_pipe_fire{slot}", fire)
+        m.output(f"wb_pipe_rob{slot}", rob_i)
+        m.output(f"wb_pipe_value{slot}", value)
 
     # Canonical IQ residency visibility: expose up to 4 resident uops
     # (LSU/BRU/ALU/CMD queues) for DFX pipeview IQ-stage tracking.

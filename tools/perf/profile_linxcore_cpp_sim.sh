@@ -102,7 +102,7 @@ if [[ "${ENABLE_COMMIT_TRACE}" == "1" ]]; then
   rm -f "${commit_trace_path}" >/dev/null 2>&1 || true
 fi
 if [[ "${ENABLE_LINXTRACE}" == "1" ]]; then
-  linxtrace_path="${OUT_DIR}/cpp_sim_${STAMP}.linxtrace.jsonl"
+  linxtrace_path="${OUT_DIR}/cpp_sim_${STAMP}.linxtrace"
   rm -f "${linxtrace_path}" >/dev/null 2>&1 || true
 fi
 

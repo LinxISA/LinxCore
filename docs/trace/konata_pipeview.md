@@ -6,8 +6,8 @@ Use LinxTrace v1 + LinxCoreSight:
 
 ```bash
 bash /Users/zhoubot/LinxCore/tools/linxcoresight/run_linxtrace.sh <program.memh> [max_commits]
-python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py <trace.linxtrace.jsonl>
-bash /Users/zhoubot/LinxCore/tools/linxcoresight/open_linxcoresight.sh <trace.linxtrace.jsonl>
+python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py <trace.linxtrace>
+bash /Users/zhoubot/LinxCore/tools/linxcoresight/open_linxcoresight.sh <trace.linxtrace>
 ```
 
 Contracts:

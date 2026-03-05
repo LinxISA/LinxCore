@@ -5,8 +5,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_CPP_SCRIPT="${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh"
 CHECK_SCRIPT="${ROOT_DIR}/tools/linxcoresight/lint_linxtrace.py"
 MEMH="${ROOT_DIR}/tests/artifacts/suites/branch.memh"
-OUT="${ROOT_DIR}/generated/linxtrace/coremark/linxtrace_dfx_template_test.linxtrace.jsonl"
-META="${ROOT_DIR}/generated/linxtrace/coremark/linxtrace_dfx_template_test.linxtrace.meta.json"
+OUT="${ROOT_DIR}/generated/linxtrace/coremark/linxtrace_dfx_template_test.linxtrace"
 
 if [[ ! -f "${MEMH}" ]]; then
   echo "error: missing template smoke memh: ${MEMH}" >&2
@@ -21,7 +20,7 @@ PYC_LINXTRACE_PATH="${OUT}" \
 PYC_MAX_CYCLES="${PYC_MAX_CYCLES:-800}" \
   bash "${RUN_CPP_SCRIPT}" "${MEMH}" >/dev/null 2>&1 || true
 
-python3 "${CHECK_SCRIPT}" "${OUT}" --meta "${META}" --require-stages F1,D3,ROB,FLS
+python3 "${CHECK_SCRIPT}" "${OUT}" --require-stages F1,D3,ROB,FLS
 
 python3 - <<PY
 import json

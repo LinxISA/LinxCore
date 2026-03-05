@@ -22,6 +22,7 @@ from common.isa import (
     OP_C_SETC_EQ,
     OP_C_SETC_NE,
     OP_C_SETC_TGT,
+    OP_SETRET,
     OP_SETC_AND,
     OP_SETC_ANDI,
     OP_SETC_EQ,
@@ -69,10 +70,12 @@ def classify_dispatch_target(m: Circuit, op, op_is):
         OP_BSTART_STD_DIRECT,
         OP_BSTART_STD_COND,
         OP_BSTART_STD_CALL,
+        # SETRET is an immediate-only producer; resolve at dispatch (no IQ).
+        OP_SETRET,
+        OP_C_SETRET,
     )
     is_bru = op_is(
         op,
-        OP_C_SETRET,
         OP_C_SETC_EQ,
         OP_C_SETC_NE,
         OP_C_SETC_TGT,

@@ -12,12 +12,12 @@ Outputs:
 
 ## LinxCoreSight Strict Mode
 
-LinxCoreSight consumes LinxTrace v1 (`*.linxtrace.jsonl` + `*.linxtrace.meta.json`) in this flow.
+LinxCoreSight consumes LinxTrace v1 single-file traces (`*.linxtrace`, with in-band `META`) in this flow.
 `run_linxtrace.sh` runs strict contract + trace lint gates before opening:
 
 ```bash
 python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py \
-  <trace.linxtrace.jsonl> \
+  <trace.linxtrace> \
   --require-stages F0,F3,D1,D3,IQ,BROB,CMT \
   --single-stage-per-cycle
 ```
@@ -27,10 +27,10 @@ Any lifecycle violation is fatal (post-retire command, invalid lane/stage token,
 LinxCoreSight-side CLI diagnostics:
 
 ```bash
-node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js lint <trace.linxtrace.jsonl>
-node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js stats <trace.linxtrace.jsonl>
-node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js first-failure <trace.linxtrace.jsonl>
-node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js schema-check <trace.linxtrace.jsonl>
+node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js lint <trace.linxtrace>
+node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js stats <trace.linxtrace>
+node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js first-failure <trace.linxtrace>
+node /Users/zhoubot/LinxCoreSight/scripts/linxtrace_cli.js schema-check <trace.linxtrace>
 ```
 
 ## Run C++ Testbench

@@ -4,10 +4,8 @@
 
 ## Files
 
-1. Event stream: `*.linxtrace.jsonl`
-2. Metadata sidecar: `*.linxtrace.meta.json`
-
-Both files are required.
+1. Event stream + metadata: `*.linxtrace`
+2. The first non-empty JSONL record must be `{"type":"META", ...}`.
 
 ## Meta Schema
 
@@ -24,7 +22,7 @@ Required top-level fields:
 
 ## Event Types
 
-Each JSONL row includes `type`.
+Each JSONL row includes `type`. The first row is always `META`.
 
 - `OP_DEF`: row identity attach
 - `LABEL`: left/detail label updates
@@ -39,4 +37,3 @@ Each JSONL row includes `type`.
 - Row order/grouping is emitter-owned.
 - Unknown stage/lane/row is a hard error.
 - Zero `OCC` rows is a hard error.
-
