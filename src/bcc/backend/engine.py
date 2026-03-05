@@ -110,7 +110,9 @@ from .rename import build_commit_rename_stage, build_rename_stage
 from .rob import is_macro_op, is_start_marker_op
 from .state import make_core_ctrl_regs, make_iq_regs, make_prf, make_rename_regs
 from .wakeup import build_head_wait_stage, compose_replay_cause, compose_wakeup_reason
+from .modules.mem_read_arb_stage import build_mem_read_arb_stage
 from .modules.rob_bank import build_rob_bank_top
+from .modules.rob_event_pipe_stage import build_rob_event_pipe_stage
 from .modules.commit_trace_stage import build_commit_trace_stage
 from .modules.macro_trace_prep_stage import build_macro_trace_prep_stage
 from .modules.pcbuf_stage import build_pcbuf_stage
@@ -1310,25 +1312,31 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     lsid_complete_ptr_live = do_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_complete_ptr_live)
 
     load_fires = []
-    load_mem_fires = []
     store_fires = []
-    any_load_mem_fire = consts.zero1
-    load_addr = consts.zero64
     for slot in range(p.issue_w):
         ld = issue_fires_eff[slot] & exs[slot].is_load
         st = issue_fires_eff[slot] & exs[slot].is_store
-        ld_mem = ld
-        if slot == 0:
-            ld_mem = ld & (~lsu_forward_hit_lane0)
         load_fires.append(ld)
-        load_mem_fires.append(ld_mem)
         store_fires.append(st)
-        any_load_mem_fire = any_load_mem_fire | ld_mem
-        load_addr = ld_mem._select_internal(exs[slot].addr, load_addr)
 
-    # Provide LSU load requests to StbufStage for D-memory read arbitration.
-    m.assign(lsu_load_fire_i, any_load_mem_fire)
-    m.assign(lsu_load_addr_i, load_addr)
+    # Provide load requests to StbufStage for D-memory read arbitration.
+    #
+    # IMPORTANT: keep D-memory arbitration independent of LinxCoreLsuStage outputs.
+    # This avoids an artificial (stbuf<->lsu) SCC at the backend top in event-driven
+    # C++ simulation.
+    mem_read_arb_args = {}
+    for slot in range(p.issue_w):
+        mem_read_arb_args[f"fire{slot}"] = issue_fires[slot]
+        mem_read_arb_args[f"is_load{slot}"] = exs[slot].is_load
+        mem_read_arb_args[f"addr{slot}"] = exs[slot].addr
+    mem_read_arb = m.instance_auto(
+        build_mem_read_arb_stage,
+        name="mem_read_arb",
+        params={"issue_w": p.issue_w},
+        **mem_read_arb_args,
+    )
+    m.assign(lsu_load_fire_i, mem_read_arb["fire"])
+    m.assign(lsu_load_addr_i, mem_read_arb["addr"])
 
     issued_is_load = load_fires[0]
     issued_is_store = store_fires[0]
@@ -1488,6 +1496,31 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         wb_values.append(wb_value)
         wb_fire_has_dsts.append(wb_fire_has_dst)
         wb_onehots.append(onehot_from_tag(m, tag=wb_pdst, width=p.pregs, tag_width=p.ptag_w))
+
+    # --- ROB event pipe (forced hierarchy) ---
+    #
+    # Register the issue/execute event bundle before it fans into the ROB bank.
+    # This breaks a large SCC at the backend top and materially improves the
+    # event-driven C++ simulation convergence behavior.
+    rob_evt_pipe_args = {"clk": clk, "rst": rst, "do_flush": do_flush}
+    for slot in range(p.issue_w):
+        rob_evt_pipe_args[f"wb_fire_i{slot}"] = wb_fires[slot]
+        rob_evt_pipe_args[f"wb_rob_i{slot}"] = wb_robs[slot]
+        rob_evt_pipe_args[f"wb_value_i{slot}"] = wb_values[slot]
+        rob_evt_pipe_args[f"store_fire_i{slot}"] = store_fires[slot]
+        rob_evt_pipe_args[f"load_fire_i{slot}"] = load_fires[slot]
+        rob_evt_pipe_args[f"ex_addr_i{slot}"] = exs[slot].addr
+        rob_evt_pipe_args[f"ex_wdata_i{slot}"] = exs[slot].wdata
+        rob_evt_pipe_args[f"ex_size_i{slot}"] = exs[slot].size
+        rob_evt_pipe_args[f"ex_src0_i{slot}"] = sl_vals[slot]
+        rob_evt_pipe_args[f"ex_src1_i{slot}"] = sr_vals[slot]
+
+    rob_evt_pipe = m.instance_auto(
+        build_rob_event_pipe_stage,
+        name="rob_evt_pipe",
+        params={"issue_w": p.issue_w, "rob_w": p.rob_w},
+        **rob_evt_pipe_args,
+    )
 
     # BRU validation for SETC.cond: compare actual result vs predicted direction.
     # Mismatch is recorded as deferred boundary correction (not immediate redirect).
@@ -1888,16 +1921,16 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         m.assign(rob_bank_in[f"disp_uop_uid{slot}"], disp_uop_uids[slot])
         m.assign(rob_bank_in[f"disp_parent_uid{slot}"], disp_parent_uids[slot])
     for slot in range(p.issue_w):
-        m.assign(rob_bank_in[f"wb_fire{slot}"], wb_fires[slot])
-        m.assign(rob_bank_in[f"wb_rob{slot}"], wb_robs[slot])
-        m.assign(rob_bank_in[f"wb_value{slot}"], wb_values[slot])
-        m.assign(rob_bank_in[f"store_fire{slot}"], store_fires[slot])
-        m.assign(rob_bank_in[f"load_fire{slot}"], load_fires[slot])
-        m.assign(rob_bank_in[f"ex_addr{slot}"], exs[slot].addr)
-        m.assign(rob_bank_in[f"ex_wdata{slot}"], exs[slot].wdata)
-        m.assign(rob_bank_in[f"ex_size{slot}"], exs[slot].size)
-        m.assign(rob_bank_in[f"ex_src0{slot}"], sl_vals[slot])
-        m.assign(rob_bank_in[f"ex_src1{slot}"], sr_vals[slot])
+        m.assign(rob_bank_in[f"wb_fire{slot}"], rob_evt_pipe[f"wb_fire{slot}"])
+        m.assign(rob_bank_in[f"wb_rob{slot}"], rob_evt_pipe[f"wb_rob{slot}"])
+        m.assign(rob_bank_in[f"wb_value{slot}"], rob_evt_pipe[f"wb_value{slot}"])
+        m.assign(rob_bank_in[f"store_fire{slot}"], rob_evt_pipe[f"store_fire{slot}"])
+        m.assign(rob_bank_in[f"load_fire{slot}"], rob_evt_pipe[f"load_fire{slot}"])
+        m.assign(rob_bank_in[f"ex_addr{slot}"], rob_evt_pipe[f"ex_addr{slot}"])
+        m.assign(rob_bank_in[f"ex_wdata{slot}"], rob_evt_pipe[f"ex_wdata{slot}"])
+        m.assign(rob_bank_in[f"ex_size{slot}"], rob_evt_pipe[f"ex_size{slot}"])
+        m.assign(rob_bank_in[f"ex_src0{slot}"], rob_evt_pipe[f"ex_src0{slot}"])
+        m.assign(rob_bank_in[f"ex_src1{slot}"], rob_evt_pipe[f"ex_src1{slot}"])
 
     # --- IQ updates ---
     def update_iq_from_stage(*, name: str, iq, disp_to: list, alloc_idxs: list, issue_fires_q: list, issue_idxs_q: list) -> None:
