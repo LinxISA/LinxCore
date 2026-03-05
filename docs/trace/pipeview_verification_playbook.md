@@ -23,7 +23,6 @@ bash /Users/zhoubot/LinxCore/tools/linxcoresight/run_linxtrace.sh \
 
 ```bash
 python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py \
-  /Users/zhoubot/LinxCore/generated/linxtrace/coremark/coremark_real_1000insn.linxtrace.jsonl \
-  --meta /Users/zhoubot/LinxCore/generated/linxtrace/coremark/coremark_real_1000insn.linxtrace.meta.json \
+  /Users/zhoubot/LinxCore/generated/linxtrace/coremark/coremark_real_1000insn.linxtrace \
   --require-stages F0,F1,D3,IQ,P1,ROB,CMT,FLS
 ```

@@ -4,8 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 TMP_DIR="$(mktemp -d -t linxcore_konata_sanity.XXXXXX)"
-LINXTRACE="${TMP_DIR}/trace.linxtrace.jsonl"
-LINXMETA="${TMP_DIR}/trace.linxtrace.meta.json"
+LINXTRACE="${TMP_DIR}/trace.linxtrace"
 TRACE="${TMP_DIR}/commit.jsonl"
 MEMH="${PYC_LINXTRACE_TEST_MEMH:-}"
 
@@ -63,12 +62,7 @@ if [[ ! -s "${TRACE}" ]]; then
   exit 1
 fi
 
-if [[ ! -s "${LINXMETA}" ]]; then
-  echo "error: missing linxtrace meta output" >&2
-  exit 1
-fi
-
-python3 "${ROOT_DIR}/tools/linxcoresight/lint_linxtrace.py" "${LINXTRACE}" --meta "${LINXMETA}"
+python3 "${ROOT_DIR}/tools/linxcoresight/lint_linxtrace.py" "${LINXTRACE}"
 
 python3 - <<PY
 from pathlib import Path

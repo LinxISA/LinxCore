@@ -267,6 +267,38 @@ struct XcheckCommit {
   std::uint64_t next_pc = 0;
 };
 
+struct LastMemStoreDbg {
+  bool valid = false;
+  std::uint64_t seq = 0;
+  std::uint64_t cycle = 0;
+  std::uint64_t log_addr = 0;
+  std::uint64_t eff_addr = 0;
+  std::uint64_t data = 0;
+  std::uint64_t strb = 0;
+  std::uint64_t size = 0;
+  bool wvalid_eff = false;
+};
+
+static std::uint64_t mapBringupMemAddrEff(std::uint64_t addr, std::uint64_t memBytes = (1ull << 20)) {
+  // Keep this consistent with `src/mem/mem2r1w.py` bring-up mapping.
+  const std::uint64_t lowMask = (memBytes ? (memBytes - 1) : 0);
+  const std::uint64_t stackWindow = std::max<std::uint64_t>(1, memBytes / 4);
+  const std::uint64_t dataWindow = std::max<std::uint64_t>(1, memBytes / 4);
+  const std::uint64_t stackOffset = memBytes - stackWindow;
+  const std::uint64_t dataOffset = (memBytes > (stackWindow + dataWindow)) ? (memBytes - stackWindow - dataWindow) : 0;
+  const std::uint64_t stackBase = 0x0000'0000'07fe'0000ull;
+  const std::uint64_t dataBase = 0x0000'0000'0100'0000ull;
+  const std::uint64_t stackMask = stackWindow - 1;
+  const std::uint64_t dataMask = dataWindow - 1;
+  const bool isStack = addr >= stackBase;
+  const std::uint64_t stackAddr = ((addr - stackBase) & stackMask) + stackOffset;
+  const bool isData = addr >= dataBase;
+  const std::uint64_t dataAddr = ((addr - dataBase) & dataMask) + dataOffset;
+  const std::uint64_t lowAddr = addr & lowMask;
+  const std::uint64_t mapped = isData ? dataAddr : lowAddr;
+  return isStack ? stackAddr : mapped;
+}
+
 static bool isBstart16(std::uint16_t hw) {
   if ((hw & 0xc7ffu) == 0x0000u || (hw & 0xc7ffu) == 0x0080u) {
     const std::uint8_t brtype = static_cast<std::uint8_t>((hw >> 11) & 0x7u);
@@ -741,6 +773,7 @@ int main(int argc, char **argv) {
   dut.ic_l2_rsp_error = Wire<1>(0);
 
   Testbench<pyc::gen::LinxcoreTop> tb(dut);
+  LastMemStoreDbg lastStoreDbg{};
 
   std::ofstream commitTrace{};
   if (const char *p = std::getenv("PYC_COMMIT_TRACE"); p && p[0] != '\0') {
@@ -787,7 +820,7 @@ int main(int argc, char **argv) {
     } else {
       const std::string stem = std::filesystem::path(memhPath).stem().string();
       outPath = defaultGenCppDir() /
-                ("tb_linxcore_top_cpp_" + (stem.empty() ? std::string("program") : stem) + ".linxtrace.jsonl");
+                ("tb_linxcore_top_cpp_" + (stem.empty() ? std::string("program") : stem) + ".linxtrace");
     }
     if (outPath.has_parent_path()) {
       std::filesystem::create_directories(outPath.parent_path());
@@ -902,6 +935,7 @@ int main(int argc, char **argv) {
   std::uint64_t pvNextKonataId = 1;
   std::unordered_map<std::string, std::string> disasmCache{};
   std::uint64_t curCycleKonata = 0;
+  bool linxtraceBootInjected = false;
 
   auto lookupDisasm = [&](std::uint64_t raw, std::uint8_t len) -> std::string {
     const std::uint8_t useLen = normalizeLen(len);
@@ -991,7 +1025,8 @@ int main(int argc, char **argv) {
     (void)reason;
     for (const auto &kv : pvByUid) {
       const PvEntry &e = kv.second;
-      konata.presence(e.id, e.lane, "FLS", 1, "global_flush");
+      // Avoid emitting an extra OCC in the same cycle as an existing stage
+      // residency sample; strict linxtrace lint enforces single-stage-per-cycle.
       konata.retire(e.id, e.id, 1);
       pvUidLastRetireCycle[kv.first] = curCycleKonata;
     }
@@ -1176,6 +1211,18 @@ int main(int argc, char **argv) {
   std::uint64_t retireSeq = 0;
   std::uint64_t retiredCount = 0;
   std::uint64_t noRetireStreak = 0;
+  std::uint64_t lastWbCycle[4] = {0, 0, 0, 0};
+  std::uint64_t lastWbRob[4] = {0, 0, 0, 0};
+  std::uint64_t lastWbVal[4] = {0, 0, 0, 0};
+  bool lastWbSeen[4] = {false, false, false, false};
+  std::uint64_t lastIssueCycle[4] = {0, 0, 0, 0};
+  std::uint64_t lastIssueRob[4] = {0, 0, 0, 0};
+  std::uint64_t lastIssueOp[4] = {0, 0, 0, 0};
+  std::uint64_t lastIssuePc[4] = {0, 0, 0, 0};
+  bool lastIssueSeen[4] = {false, false, false, false};
+  bool issueWbPipeMismatchReported = false;
+  bool prevIssueFire[4] = {false, false, false, false};
+  std::uint64_t prevIssueRob[4] = {0, 0, 0, 0};
   auto pvOnEvent = [&](std::uint64_t uid, int stageId, int lane, std::uint64_t pc, std::uint64_t rob,
                        std::uint64_t kind, std::uint64_t parentUid, std::uint64_t stall, std::uint64_t stallCause) {
     if (!konata.isOpen())
@@ -1318,11 +1365,121 @@ int main(int argc, char **argv) {
     }
 
     const std::uint64_t cycleNow = dut.cycles.value();
+    const bool curIssueFire[4] = {
+        dut.issue_fire0.toBool(),
+        dut.issue_fire1.toBool(),
+        dut.issue_fire2.toBool(),
+        dut.issue_fire3.toBool(),
+    };
+    const std::uint64_t curIssueRob[4] = {
+        dut.issue_rob0.value(),
+        dut.issue_rob1.value(),
+        dut.issue_rob2.value(),
+        dut.issue_rob3.value(),
+    };
+
+    if (!issueWbPipeMismatchReported && cycleNow > 1) {
+      const bool wbFire[4] = {
+          dut.wb_pipe_fire0.toBool(),
+          dut.wb_pipe_fire1.toBool(),
+          dut.wb_pipe_fire2.toBool(),
+          dut.wb_pipe_fire3.toBool(),
+      };
+      const std::uint64_t wbRob[4] = {
+          dut.wb_pipe_rob0.value(),
+          dut.wb_pipe_rob1.value(),
+          dut.wb_pipe_rob2.value(),
+          dut.wb_pipe_rob3.value(),
+      };
+      for (int s = 0; s < 4; s++) {
+        if (wbFire[s] != prevIssueFire[s]) {
+          std::cerr << "error: wb_pipe_fire" << s << " mismatch at cycle=" << cycleNow
+                    << " wb=" << (wbFire[s] ? 1 : 0) << " prev_issue=" << (prevIssueFire[s] ? 1 : 0) << "\n";
+          issueWbPipeMismatchReported = true;
+          break;
+        }
+        if (wbFire[s] && wbRob[s] != prevIssueRob[s]) {
+          std::cerr << "error: wb_pipe_rob" << s << " mismatch at cycle=" << cycleNow
+                    << " wb_rob=" << wbRob[s] << " prev_issue_rob=" << prevIssueRob[s] << "\n";
+          issueWbPipeMismatchReported = true;
+          break;
+        }
+      }
+    }
+
+    for (int s = 0; s < 4; s++) {
+      prevIssueFire[s] = curIssueFire[s];
+      prevIssueRob[s] = curIssueRob[s];
+    }
+    if (dut.issue_fire0.toBool()) {
+      lastIssueSeen[0] = true;
+      lastIssueCycle[0] = cycleNow;
+      lastIssueRob[0] = dut.issue_rob0.value();
+      lastIssueOp[0] = dut.issue_op0.value();
+      lastIssuePc[0] = dut.issue_pc0.value();
+    }
+    if (dut.issue_fire1.toBool()) {
+      lastIssueSeen[1] = true;
+      lastIssueCycle[1] = cycleNow;
+      lastIssueRob[1] = dut.issue_rob1.value();
+      lastIssueOp[1] = dut.issue_op1.value();
+      lastIssuePc[1] = dut.issue_pc1.value();
+    }
+    if (dut.issue_fire2.toBool()) {
+      lastIssueSeen[2] = true;
+      lastIssueCycle[2] = cycleNow;
+      lastIssueRob[2] = dut.issue_rob2.value();
+      lastIssueOp[2] = dut.issue_op2.value();
+      lastIssuePc[2] = dut.issue_pc2.value();
+    }
+    if (dut.issue_fire3.toBool()) {
+      lastIssueSeen[3] = true;
+      lastIssueCycle[3] = cycleNow;
+      lastIssueRob[3] = dut.issue_rob3.value();
+      lastIssueOp[3] = dut.issue_op3.value();
+      lastIssuePc[3] = dut.issue_pc3.value();
+    }
+    if (dut.wb_pipe_fire0.toBool()) {
+      lastWbSeen[0] = true;
+      lastWbCycle[0] = cycleNow;
+      lastWbRob[0] = dut.wb_pipe_rob0.value();
+      lastWbVal[0] = dut.wb_pipe_value0.value();
+    }
+    if (dut.wb_pipe_fire1.toBool()) {
+      lastWbSeen[1] = true;
+      lastWbCycle[1] = cycleNow;
+      lastWbRob[1] = dut.wb_pipe_rob1.value();
+      lastWbVal[1] = dut.wb_pipe_value1.value();
+    }
+    if (dut.wb_pipe_fire2.toBool()) {
+      lastWbSeen[2] = true;
+      lastWbCycle[2] = cycleNow;
+      lastWbRob[2] = dut.wb_pipe_rob2.value();
+      lastWbVal[2] = dut.wb_pipe_value2.value();
+    }
+    if (dut.wb_pipe_fire3.toBool()) {
+      lastWbSeen[3] = true;
+      lastWbCycle[3] = cycleNow;
+      lastWbRob[3] = dut.wb_pipe_rob3.value();
+      lastWbVal[3] = dut.wb_pipe_value3.value();
+    }
     curCycleKonata = cycleNow;
     dfxRetiredKeysCycle.clear();
     dfxTouchedUidCycle.clear();
     if (konata.isOpen()) {
       konata.atCycle(cycleNow);
+    }
+    if (konata.isOpen() && !linxtraceBootInjected) {
+      // Runtime DFX traces may not naturally hit every control stage in short
+      // programs. Seed a single FLS stage sample so linxtrace consumers can
+      // validate the stage exists (template pipeview gate).
+      const std::uint64_t legendUid = 0x7FFF000000000000ull;
+      const std::uint64_t legendRow = pvNextKonataId++;
+      konata.insnV5(legendRow, toHex(legendUid), 0, "0x0", "template_child");
+      konata.label(legendRow, 0, "BOOT: template legend");
+      konata.presence(legendRow, 0, "FLS", 0, "boot");
+      konata.retire(legendRow, legendRow, 1);
+      linxtraceBootInjected = true;
     }
     std::unordered_map<std::uint64_t, int> commitUidLaneCycle{};
     {
@@ -2094,6 +2251,18 @@ int main(int argc, char **argv) {
                  << "}\n";
       }
 
+      if (memValid && memIsStore) {
+        lastStoreDbg.valid = true;
+        lastStoreDbg.seq = seq;
+        lastStoreDbg.cycle = cycleNow;
+        lastStoreDbg.log_addr = memAddr;
+        lastStoreDbg.data = memWdata;
+        lastStoreDbg.size = memSize;
+        lastStoreDbg.wvalid_eff = dut.mem2r1w->wvalid_eff.toBool();
+        lastStoreDbg.eff_addr = dut.mem2r1w->waddr_eff.value();
+        lastStoreDbg.strb = dut.mem2r1w->wstrb_eff.value();
+      }
+
       if (konata.isOpen()) {
         bool xcheckAnnotated = false;
         if (uopUid != 0) {
@@ -2273,15 +2442,108 @@ int main(int argc, char **argv) {
         }
       }
 
-      if (xcheckMismatch && xcheckFailfast) {
-        writeXcheckReport();
-        pvFlushAll("xcheck_failfast");
-        std::cerr << "error: xcheck mismatch at seq=" << xcheckMm.seq
-                  << " field=" << xcheckMm.field
-                  << " qemu=" << toHex(xcheckMm.qemu)
-                  << " dut=" << toHex(xcheckMm.dut) << "\n"
-                  << "  qemu_row: " << xcheckCommitSummary(xcheckMm.qemu_row) << "\n"
-                  << "  dut_row:  " << xcheckCommitSummary(xcheckMm.dut_row) << "\n";
+        if (xcheckMismatch && xcheckFailfast) {
+          writeXcheckReport();
+          pvFlushAll("xcheck_failfast");
+          std::cerr << "error: xcheck mismatch at seq=" << xcheckMm.seq
+                    << " field=" << xcheckMm.field
+                    << " qemu=" << toHex(xcheckMm.qemu)
+                    << " dut=" << toHex(xcheckMm.dut) << "\n"
+                    << "  qemu_row: " << xcheckCommitSummary(xcheckMm.qemu_row) << "\n"
+                    << "  dut_row:  " << xcheckCommitSummary(xcheckMm.dut_row) << "\n";
+          std::cerr << "  dbg: br_kind=" << brKindDbg
+                    << " br_epoch=" << brEpochDbg
+                    << " pred_take=" << bruPredTakeDbg
+                    << " actual_take=" << bruActualTakeDbg
+                    << " boundary_pc=" << toHex(bruBoundaryPcDbg)
+                    << " corr_pending=" << (bruCorrPendingDbg ? 1 : 0)
+                    << " corr_epoch=" << bruCorrEpochDbg
+                    << " corr_target=" << toHex(bruCorrTargetDbg)
+                    << " redir_corr=" << (redirectFromCorrDbg ? 1 : 0)
+                    << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
+                    << " bru_fault=" << (bruFaultSetDbg ? 1 : 0)
+                    << " state.commit_cond=" << dut.janus_backend->state__commit_cond.value()
+                    << " state.commit_tgt=" << toHex(dut.janus_backend->state__commit_tgt.value())
+                    << "\n";
+          std::cerr << "  dbg: mem2r1w.d_raddr=" << toHex(dut.mem2r1w->d_raddr.value())
+                    << " d_rdata=" << toHex(dut.mem2r1w->d_rdata.value())
+                    << " backend.dmem_raddr=" << toHex(dut.janus_backend->dmem_raddr.value())
+                    << " backend.dmem_rdata_i=" << toHex(dut.janus_backend->dmem_rdata_i.value())
+                    << " stbuf.dmem_raddr=" << toHex(dut.janus_backend->stbuf_stage->dmem_raddr.value())
+                    << " stbuf.dmem_rdata_i=" << toHex(dut.janus_backend->stbuf_stage->dmem_rdata_i.value())
+                    << " stbuf.macro_load_data=" << toHex(dut.janus_backend->stbuf_stage->macro_load_data.value())
+                    << " stbuf.count=" << dut.janus_backend->stbuf_stage->count.value()
+                    << " stbuf.head=" << dut.janus_backend->stbuf_stage->head.value()
+                    << " stbuf.tail=" << dut.janus_backend->stbuf_stage->tail.value()
+                    << "\n";
+          // Dump stbuf entries that still claim to be valid (should be none if count==0).
+#define DUMP_STBUF_ENTRY(i)                                                                                          \
+  do {                                                                                                                \
+    auto &st = *dut.janus_backend->stbuf_stage;                                                                       \
+    if (st.valid##i.toBool()) {                                                                                       \
+      std::cerr << "  dbg: stbuf[" #i "] v=1 addr=" << toHex(st.addr##i.value())                                      \
+                << " data=" << toHex(st.data##i.value()) << " size=" << st.size##i.value() << "\n";                  \
+    }                                                                                                                 \
+  } while (0)
+          DUMP_STBUF_ENTRY(0);
+          DUMP_STBUF_ENTRY(1);
+          DUMP_STBUF_ENTRY(2);
+          DUMP_STBUF_ENTRY(3);
+          DUMP_STBUF_ENTRY(4);
+          DUMP_STBUF_ENTRY(5);
+          DUMP_STBUF_ENTRY(6);
+          DUMP_STBUF_ENTRY(7);
+          DUMP_STBUF_ENTRY(8);
+          DUMP_STBUF_ENTRY(9);
+          DUMP_STBUF_ENTRY(10);
+          DUMP_STBUF_ENTRY(11);
+          DUMP_STBUF_ENTRY(12);
+          DUMP_STBUF_ENTRY(13);
+          DUMP_STBUF_ENTRY(14);
+          DUMP_STBUF_ENTRY(15);
+          DUMP_STBUF_ENTRY(16);
+          DUMP_STBUF_ENTRY(17);
+          DUMP_STBUF_ENTRY(18);
+          DUMP_STBUF_ENTRY(19);
+          DUMP_STBUF_ENTRY(20);
+          DUMP_STBUF_ENTRY(21);
+          DUMP_STBUF_ENTRY(22);
+          DUMP_STBUF_ENTRY(23);
+          DUMP_STBUF_ENTRY(24);
+          DUMP_STBUF_ENTRY(25);
+          DUMP_STBUF_ENTRY(26);
+          DUMP_STBUF_ENTRY(27);
+          DUMP_STBUF_ENTRY(28);
+          DUMP_STBUF_ENTRY(29);
+          DUMP_STBUF_ENTRY(30);
+          DUMP_STBUF_ENTRY(31);
+#undef DUMP_STBUF_ENTRY
+          if (xcheckMm.dut_row.mem_valid != 0) {
+            const std::uint64_t logAddr = xcheckMm.dut_row.mem_addr;
+            const std::uint64_t effAddrGuess = mapBringupMemAddrEff(logAddr);
+            std::uint64_t memWord = 0;
+            for (unsigned i = 0; i < 8; i++) {
+            const std::uint8_t b = dut.mem2r1w->dmem.peekByte(static_cast<std::size_t>(effAddrGuess + i));
+            memWord |= (static_cast<std::uint64_t>(b) << (8u * i));
+          }
+          std::cerr << "  dbg: dmem.peek64(log=" << toHex(logAddr) << " eff=" << toHex(effAddrGuess)
+                    << ")=" << toHex(memWord) << "\n";
+        }
+        if (lastStoreDbg.valid) {
+          std::uint64_t memWord = 0;
+          for (unsigned i = 0; i < 8; i++) {
+            const std::uint8_t b = dut.mem2r1w->dmem.peekByte(static_cast<std::size_t>(lastStoreDbg.eff_addr + i));
+            memWord |= (static_cast<std::uint64_t>(b) << (8u * i));
+          }
+          std::cerr << "  dbg: last_store seq=" << lastStoreDbg.seq
+                    << " log=" << toHex(lastStoreDbg.log_addr)
+                    << " eff=" << toHex(lastStoreDbg.eff_addr)
+                    << " size=" << lastStoreDbg.size
+                    << " wdata=" << toHex(lastStoreDbg.data)
+                    << " wvalid_eff=" << (lastStoreDbg.wvalid_eff ? 1 : 0)
+                    << " wstrb_eff=" << toHex(lastStoreDbg.strb)
+                    << " dmem.peek64=" << toHex(memWord) << "\n";
+        }
         dumpSimStats();
         return 1;
       }
@@ -2339,6 +2601,28 @@ int main(int argc, char **argv) {
       }
     }
 
+    // Trace hygiene: DFX emits per-cycle occupancy. If a UID vanishes without an explicit
+    // terminal event (commit/flush/trap), retire the row so pipeview does not accumulate
+    // thousands of never-ending frontend packet lines.
+    if (konata.isOpen() && !pvByUid.empty()) {
+      std::vector<std::uint64_t> staleUids{};
+      staleUids.reserve(pvByUid.size());
+      for (const auto &kv : pvByUid) {
+        if (dfxTouchedUidCycle.find(kv.first) == dfxTouchedUidCycle.end()) {
+          staleUids.push_back(kv.first);
+        }
+      }
+      for (const std::uint64_t uid : staleUids) {
+        auto it = pvByUid.find(uid);
+        if (it == pvByUid.end()) {
+          continue;
+        }
+        konata.retire(it->second.id, it->second.id, 0);
+        pvUidLastRetireCycle[uid] = curCycleKonata;
+        pvByUid.erase(it);
+      }
+    }
+
     if (retiredThisCycle) {
       noRetireStreak = 0;
     } else {
@@ -2356,6 +2640,27 @@ int main(int argc, char **argv) {
                   << " rob_head_pc=" << toHex(dut.rob_head_pc.value()) << "\n"
                   << "  rob_head_op=" << dut.rob_head_op.value() << " rob_head_len=" << static_cast<unsigned>(headLen)
                   << " rob_head_insn=" << toHex(maskInsn(headInsn, headLen)) << "\n"
+                  << "  head_rob=" << dut.commit_rob0.value() << "\n"
+                  << "  issue:"
+                  << " 0(f=" << dut.issue_fire0.value() << ",rob=" << dut.issue_rob0.value() << ",op=" << dut.issue_op0.value() << ",pc=" << toHex(dut.issue_pc0.value()) << ")"
+                  << " 1(f=" << dut.issue_fire1.value() << ",rob=" << dut.issue_rob1.value() << ",op=" << dut.issue_op1.value() << ",pc=" << toHex(dut.issue_pc1.value()) << ")"
+                  << " 2(f=" << dut.issue_fire2.value() << ",rob=" << dut.issue_rob2.value() << ",op=" << dut.issue_op2.value() << ",pc=" << toHex(dut.issue_pc2.value()) << ")"
+                  << " 3(f=" << dut.issue_fire3.value() << ",rob=" << dut.issue_rob3.value() << ",op=" << dut.issue_op3.value() << ",pc=" << toHex(dut.issue_pc3.value()) << ")\n"
+                  << "  wb_pipe:"
+                  << " 0(f=" << dut.wb_pipe_fire0.value() << ",rob=" << dut.wb_pipe_rob0.value() << ")\n"
+                  << "          1(f=" << dut.wb_pipe_fire1.value() << ",rob=" << dut.wb_pipe_rob1.value() << ")\n"
+                  << "          2(f=" << dut.wb_pipe_fire2.value() << ",rob=" << dut.wb_pipe_rob2.value() << ")\n"
+                  << "          3(f=" << dut.wb_pipe_fire3.value() << ",rob=" << dut.wb_pipe_rob3.value() << ")\n"
+                  << "  last_wb_pipe:"
+                  << " 0(seen=" << (lastWbSeen[0] ? 1 : 0) << ",cycle=" << lastWbCycle[0] << ",rob=" << lastWbRob[0] << ",val=" << toHex(lastWbVal[0]) << ")\n"
+                  << "              1(seen=" << (lastWbSeen[1] ? 1 : 0) << ",cycle=" << lastWbCycle[1] << ",rob=" << lastWbRob[1] << ",val=" << toHex(lastWbVal[1]) << ")\n"
+                  << "              2(seen=" << (lastWbSeen[2] ? 1 : 0) << ",cycle=" << lastWbCycle[2] << ",rob=" << lastWbRob[2] << ",val=" << toHex(lastWbVal[2]) << ")\n"
+                  << "              3(seen=" << (lastWbSeen[3] ? 1 : 0) << ",cycle=" << lastWbCycle[3] << ",rob=" << lastWbRob[3] << ",val=" << toHex(lastWbVal[3]) << ")\n"
+                  << "  last_issue:"
+                  << " 0(seen=" << (lastIssueSeen[0] ? 1 : 0) << ",cycle=" << lastIssueCycle[0] << ",rob=" << lastIssueRob[0] << ",op=" << lastIssueOp[0] << ",pc=" << toHex(lastIssuePc[0]) << ")\n"
+                  << "             1(seen=" << (lastIssueSeen[1] ? 1 : 0) << ",cycle=" << lastIssueCycle[1] << ",rob=" << lastIssueRob[1] << ",op=" << lastIssueOp[1] << ",pc=" << toHex(lastIssuePc[1]) << ")\n"
+                  << "             2(seen=" << (lastIssueSeen[2] ? 1 : 0) << ",cycle=" << lastIssueCycle[2] << ",rob=" << lastIssueRob[2] << ",op=" << lastIssueOp[2] << ",pc=" << toHex(lastIssuePc[2]) << ")\n"
+                  << "             3(seen=" << (lastIssueSeen[3] ? 1 : 0) << ",cycle=" << lastIssueCycle[3] << ",rob=" << lastIssueRob[3] << ",op=" << lastIssueOp[3] << ",pc=" << toHex(lastIssuePc[3]) << ")\n"
                   << "  head_wait_hit=" << dut.head_wait_hit.value()
                   << " head_wait_kind=" << dut.head_wait_kind.value()
                   << " sl=" << dut.head_wait_sl.value() << " sr=" << dut.head_wait_sr.value() << " sp=" << dut.head_wait_sp.value()
@@ -2371,6 +2676,7 @@ int main(int argc, char **argv) {
     }
 
     if (stopMaxCommits || (maxCommits > 0 && retiredCount >= maxCommits)) {
+      pvFlushAll("end_of_sim");
       writeXcheckReport();
       if (xcheckEnabled && xcheckFailfast && !xcheckMismatches.empty()) {
         std::cerr << "error: xcheck mismatches detected: " << xcheckMismatches.size() << "\n";

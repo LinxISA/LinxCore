@@ -18,8 +18,7 @@ Any pipeline-stage change (add/remove/rename/reorder) must update all of:
 
 Every run must emit:
 
-- `*.linxtrace.jsonl`
-- `*.linxtrace.meta.json`
+- `*.linxtrace` (single file, with in-band `META` first record)
 
 Metadata must include:
 
@@ -36,8 +35,7 @@ Run:
 
 ```bash
 python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_trace_contract_sync.py
-python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py <trace.linxtrace.jsonl>
+python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py <trace.linxtrace>
 ```
 
 Both must pass before merge.
-

@@ -292,7 +292,7 @@ def build_rob_entry_update_stage(
         hit = disp_fires[slot] & disp_rob_idxs[slot].__eq__(idx)
         is_macro = disp_ops[slot].__eq__(c(OP_FENTRY, width=12)) | disp_ops[slot].__eq__(c(OP_FEXIT, width=12))
         is_macro = is_macro | disp_ops[slot].__eq__(c(OP_FRET_RA, width=12)) | disp_ops[slot].__eq__(c(OP_FRET_STK, width=12))
-        value_next = (hit & is_macro)._select_internal(disp_imms[slot], value_next)
+        value_next = (hit & (is_macro | disp_resolved_d2s[slot]))._select_internal(disp_imms[slot], value_next)
     for slot in range(issue_w):
         hit = wb_fires[slot] & wb_robs[slot].__eq__(idx)
         value_next = hit._select_internal(wb_values[slot], value_next)

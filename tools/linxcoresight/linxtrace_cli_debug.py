@@ -9,7 +9,7 @@ from pathlib import Path
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Inspect LinxTrace rows/stages quickly.")
-    ap.add_argument("trace", help="Path to .linxtrace.jsonl")
+    ap.add_argument("trace", help="Path to .linxtrace")
     ap.add_argument("--top", type=int, default=12, help="Number of rows to print")
     args = ap.parse_args()
 
@@ -30,6 +30,8 @@ def main() -> int:
             rec = json.loads(line)
             total += 1
             t = rec.get("type")
+            if t == "META":
+                continue
             if t == "LABEL" and rec.get("label_type") == "left":
                 row_left[int(rec["row_id"])] = str(rec.get("text", ""))
             elif t == "OCC":
@@ -54,4 +56,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -29,12 +29,19 @@ def build_rob_event_pipe_stage(
 
     do_flush = m.input("do_flush", width=1)
 
-    # Full-width clear masks: 0 when not flushing, all-ones when flushing
-    # (wraparound subtraction).
-    clr1 = u(1, 0) - unsigned(do_flush)
-    clr4 = u(4, 0) - unsigned(do_flush)
-    clr64 = u(64, 0) - unsigned(do_flush)
-    clr_rob = u(rob_w, 0) - unsigned(do_flush)
+    # Full-width clear masks: 0 when not flushing, all-ones when flushing.
+    #
+    # IMPORTANT: keep mask widths explicit. Using a 1b `do_flush` directly in
+    # arithmetic/bitwise ops can lead to truncation (e.g. only preserving the
+    # LSB of wb_rob/wb_value), which breaks ROB completion.
+    df1 = unsigned(do_flush) + u(1, 0)
+    df4 = unsigned(do_flush) + u(4, 0)
+    df64 = unsigned(do_flush) + u(64, 0)
+    dfrob = unsigned(do_flush) + u(rob_w, 0)
+    clr1 = u(1, 0) - df1
+    clr4 = u(4, 0) - df4
+    clr64 = u(64, 0) - df64
+    clr_rob = u(rob_w, 0) - dfrob
 
     wb_fire_regs = []
     wb_rob_regs = []
@@ -105,4 +112,3 @@ def build_rob_event_pipe_stage(
         m.output(f"ex_size{slot}", ex_size_regs[slot])
         m.output(f"ex_src0{slot}", ex_src0_regs[slot])
         m.output(f"ex_src1{slot}", ex_src1_regs[slot])
-

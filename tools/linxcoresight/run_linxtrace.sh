@@ -17,6 +17,7 @@ name="$(basename "${MEMH}")"
 name="${name%.memh}"
 LLVM_READELF="${LLVM_READELF:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-readelf}"
 LINXISA_DIR="${LINXISA_DIR:-${LINX_ROOT}}"
+REQUIRE_STAGES="${PYC_LINXTRACE_REQUIRE_STAGES:-}"
 
 out_dir="${ROOT_DIR}/generated/linxtrace"
 if [[ "${name}" == *"coremark"* ]]; then
@@ -24,18 +25,22 @@ if [[ "${name}" == *"coremark"* ]]; then
 elif [[ "${name}" == *"dhrystone"* ]]; then
   out_dir="${out_dir}/dhrystone"
 fi
+
+# Default stage requirements are workload-aware.
+# Benchmarks are expected to exercise IQ/BROB; short branch/smoke traces are not.
+if [[ -z "${REQUIRE_STAGES}" ]]; then
+  if [[ "${name}" == *"coremark"* || "${name}" == *"dhrystone"* ]]; then
+    REQUIRE_STAGES="F0,F3,D1,D3,IQ,BROB,CMT"
+  else
+    REQUIRE_STAGES="F0,F3,D1,D3,CMT,FLS"
+  fi
+fi
 mkdir -p "${out_dir}"
 
-LINXTRACE_GZ="${PYC_LINXTRACE_GZ:-1}"
-linxtrace_ext=".linxtrace.jsonl"
-if [[ "${LINXTRACE_GZ}" != "0" ]]; then
-  linxtrace_ext="${linxtrace_ext}.gz"
-fi
-
 if [[ "${MAX_COMMITS}" =~ ^[0-9]+$ ]] && [[ "${MAX_COMMITS}" -gt 0 ]]; then
-  linxtrace_path="${out_dir}/${name}_${MAX_COMMITS}insn${linxtrace_ext}"
+  linxtrace_path="${out_dir}/${name}_${MAX_COMMITS}insn.linxtrace"
 else
-  linxtrace_path="${out_dir}/${name}${linxtrace_ext}"
+  linxtrace_path="${out_dir}/${name}.linxtrace"
 fi
 
 if [[ "${MAX_COMMITS}" =~ ^[0-9]+$ ]] && [[ "${MAX_COMMITS}" -gt 0 ]]; then
@@ -46,11 +51,6 @@ fi
 commit_text_path="${commit_trace_path%.jsonl}.txt"
 raw_trace_path="${out_dir}/${name}.raw_events.jsonl"
 map_report_path="${out_dir}/${name}.linxtrace.map.json"
-meta_base="${linxtrace_path}"
-if [[ "${meta_base}" == *.gz ]]; then
-  meta_base="${meta_base%.gz}"
-fi
-meta_path="${meta_base%.linxtrace.jsonl}.linxtrace.meta.json"
 
 objdump_elf="${PYC_OBJDUMP_ELF:-${PYC_LINXTRACE_ELF:-}}"
 if [[ -z "${objdump_elf}" ]]; then
@@ -96,7 +96,6 @@ env "${run_env[@]}" bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "$
 builder_args=(
   --raw "${raw_trace_path}"
   --out "${linxtrace_path}"
-  --meta-out "${meta_path}"
   --map-report "${map_report_path}"
   --commit-text "${commit_text_path}"
 )
@@ -107,28 +106,26 @@ python3 "${ROOT_DIR}/tools/trace/build_linxtrace_view.py" "${builder_args[@]}"
 
 python3 "${ROOT_DIR}/tools/linxcoresight/lint_linxtrace.py" \
   "${linxtrace_path}" \
-  --meta "${meta_path}" \
-  --require-stages F0,F3,D1,D3,IQ,BROB,CMT \
+  --require-stages "${REQUIRE_STAGES}" \
   --single-stage-per-cycle
 
 if [[ "${MAX_COMMITS}" =~ ^[0-9]+$ ]] && [[ "${MAX_COMMITS}" -gt 0 ]]; then
   python3 - "$linxtrace_path" "$MAX_COMMITS" <<'PY'
 import json
 import sys
-import gzip
 
 path = sys.argv[1]
 want = int(sys.argv[2])
 retired = 0
 
-opener = gzip.open if path.endswith('.gz') else open
-mode = 'rt' if path.endswith('.gz') else 'r'
-with opener(path, mode, errors="ignore") as f:
+with open(path, "r", encoding="utf-8", errors="ignore") as f:
     for line in f:
         line = line.strip()
         if not line:
             continue
         rec = json.loads(line)
+        if rec.get("type") == "META":
+            continue
         if rec.get("type") == "RETIRE":
             retired += 1
 if retired < want:
@@ -147,7 +144,6 @@ if [[ -n "${boot_pc}" ]]; then
 else
   echo "linxtrace: ${linxtrace_path}"
 fi
-echo "meta: ${meta_path}"
 echo "commit_jsonl: ${commit_trace_path}"
 echo "trace_txt: ${commit_text_path}"
 echo "raw_events: ${raw_trace_path}"

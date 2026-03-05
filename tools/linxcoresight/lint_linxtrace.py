@@ -5,7 +5,6 @@ import argparse
 import json
 from collections import Counter, defaultdict
 from pathlib import Path
-import gzip
 from typing import Dict, List, Set, Tuple
 
 
@@ -24,27 +23,24 @@ def _contract_id(stage_ids: List[str], lane_ids: List[str], row_schema: List[Tup
     return f"{schema_id}-{h:016X}"
 
 
-def _read_meta(meta_path: Path) -> dict:
-    if not meta_path.exists():
-        raise SystemExit(f"missing meta file: {meta_path}")
-    try:
-        return json.loads(meta_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise SystemExit(f"invalid meta JSON: {meta_path} ({exc})") from exc
-
-
-def _read_events(trace_path: Path) -> List[dict]:
+def _read_trace(trace_path: Path) -> Tuple[dict, List[dict]]:
     if not trace_path.exists():
         raise SystemExit(f"missing LinxTrace file: {trace_path}")
-    events: List[dict] = []
 
-    opener = None
     if trace_path.name.endswith(".gz"):
-        opener = lambda: gzip.open(trace_path, "rt", encoding="utf-8", errors="replace")
-    else:
-        opener = lambda: trace_path.open("r", encoding="utf-8", errors="replace")
+        raise SystemExit(
+            f"unsupported LinxTrace format: {trace_path} (compressed traces are disabled; regenerate as *.linxtrace)"
+        )
+    if trace_path.name.endswith(".linxtrace.jsonl") or trace_path.name.endswith(".linxtrace.meta.json"):
+        raise SystemExit(
+            f"unsupported legacy LinxTrace artifact: {trace_path} (expected single-file *.linxtrace with in-band META)"
+        )
+    if not trace_path.name.endswith(".linxtrace"):
+        raise SystemExit(f"unsupported trace extension: {trace_path} (expected *.linxtrace)")
 
-    with opener() as f:
+    meta: dict | None = None
+    events: List[dict] = []
+    with trace_path.open("r", encoding="utf-8", errors="replace") as f:
         for lineno, line in enumerate(f, 1):
             line = line.strip()
             if not line:
@@ -55,31 +51,28 @@ def _read_events(trace_path: Path) -> List[dict]:
                 raise SystemExit(f"line {lineno}: invalid JSON ({exc})") from exc
             if not isinstance(rec, dict):
                 raise SystemExit(f"line {lineno}: event must be a JSON object")
+            if meta is None:
+                if str(rec.get("type", "")) != "META":
+                    raise SystemExit(f"line {lineno}: first non-empty record must be META")
+                meta = dict(rec)
+                meta.pop("type", None)
+                continue
             rec["_lineno"] = lineno
             events.append(rec)
-    return events
+    if meta is None:
+        raise SystemExit("trace missing META record")
+    return meta, events
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Strict LinxTrace v1 linter.")
-    ap.add_argument("trace", help="Path to *.linxtrace.jsonl")
-    ap.add_argument("--meta", default="", help="Optional explicit meta path")
+    ap.add_argument("trace", help="Path to *.linxtrace")
     ap.add_argument("--require-stages", default="", help="Comma-separated stages that must appear in OCC.")
     ap.add_argument("--single-stage-per-cycle", action="store_true", help="Fail if a row appears in multiple stages in one cycle.")
     args = ap.parse_args()
 
     trace_path = Path(args.trace)
-    if args.meta:
-        meta_path = Path(args.meta)
-    elif trace_path.name.endswith(".linxtrace.jsonl"):
-        meta_path = trace_path.with_name(trace_path.name.replace(".linxtrace.jsonl", ".linxtrace.meta.json"))
-    elif trace_path.name.endswith(".linxtrace.jsonl.gz"):
-        meta_path = trace_path.with_name(trace_path.name.replace(".linxtrace.jsonl.gz", ".linxtrace.meta.json"))
-    else:
-        meta_path = trace_path.with_suffix(trace_path.suffix + ".meta.json")
-
-    meta = _read_meta(meta_path)
-    events = _read_events(trace_path)
+    meta, events = _read_trace(trace_path)
 
     if meta.get("format") != "linxtrace.v1":
         raise SystemExit(f"meta format mismatch: expected linxtrace.v1, got {meta.get('format')!r}")

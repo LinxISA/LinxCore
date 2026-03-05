@@ -220,7 +220,6 @@ def build_linxcore_top(
     )
 
     backend_ready_top = m.new_wire(width=1)
-    backend_ready_q_top = m.out("backend_ready_q_top", clk=clk_top, rst=rst_top, width=1, init=1, en=1)
     bisq_enq_ready_wire = m.new_wire(width=1)
     brob_active_allocated_wire = m.new_wire(width=1)
     brob_active_ready_wire = m.new_wire(width=1)
@@ -244,7 +243,7 @@ def build_linxcore_top(
         f2_to_f3_stage_miss_f2=ifu_f2["f2_to_f3_stage_miss_f2"],
         f2_to_f3_stage_stall_f2=ifu_f2["f2_to_f3_stage_stall_f2"],
         ctrl_to_f3_stage_checkpoint_id_f3=ifu_ctrl,
-        backend_ready_top=backend_ready_q_top.out(),
+        backend_ready_top=backend_ready_top,
         flush_valid_fls=flush_valid_q_top.out(),
     )
     m.assign(f3_to_f2_ready_wire_f3, ifu_f3["f3_ibuf_ready_f3"])
@@ -327,7 +326,6 @@ def build_linxcore_top(
     m.output("tb_ifu_stub_ready", backend_ready_top)
     m.assign(flush_valid_fls, backend_top["redirect_valid"])
     m.assign(flush_pc_fls, backend_top["redirect_pc"])
-    backend_ready_q_top.set(backend_ready_top)
     flush_valid_q_top.set(flush_valid_fls)
     flush_pc_q_top.set(flush_pc_fls)
     if ifu_bypass:
@@ -1649,7 +1647,12 @@ def build_linxcore_top(
     # Keep fetch packet identity in high bits, and encode stage in low bits so
     # F0/F1/F2/F3/IB/F4 occupancy does not collapse into one sample per cycle.
     def frontend_uid(pkt_uid_top, stage_tag_top: int):
-        return (pkt_uid_top.shl(amount=6)) | c(stage_tag_top & 0x3F, width=64)
+        # IMPORTANT: Keep this namespace disjoint from the OOO `uop_uid`
+        # namespace used by commit traces; otherwise, frontend packet-residency
+        # rows can collide with real uop rows and corrupt pipeview.
+        #
+        # Bit63=1 marks "frontend packet residency" (not an OOO uop id).
+        return (pkt_uid_top.shl(amount=6)) | u(64, stage_tag_top & 0x3F) | u(64, 1 << 63)
 
     f0_uid_top = frontend_uid(ifu_f0["f0_to_f1_stage_pkt_uid_f0"], 1)
     f1_uid_top = frontend_uid(ifu_f1["f1_to_icache_stage_pkt_uid_f1"], 2)
@@ -1943,7 +1946,7 @@ def build_linxcore_top(
     emit_occ_debug(
         "FLS",
         1,
-        backend_top["redirect_valid"] | backend_top["bru_fault_set_dbg"],
+        backend_top["redirect_valid"] | backend_top["bru_fault_set_dbg"] | trace_boot_end_top,
         c(0, width=64),
         backend_top["redirect_pc"],
         c(0, width=6),
@@ -2074,6 +2077,9 @@ def build_linxcore_top(
         m.output(f"issue_block_uid{slot}", backend_top[f"issue_block_uid{slot}"])
         m.output(f"issue_block_bid{slot}", backend_top[f"issue_block_bid{slot}"])
         m.output(f"issue_load_store_id{slot}", backend_top[f"issue_load_store_id{slot}"])
+        m.output(f"wb_pipe_fire{slot}", backend_top[f"wb_pipe_fire{slot}"])
+        m.output(f"wb_pipe_rob{slot}", backend_top[f"wb_pipe_rob{slot}"])
+        m.output(f"wb_pipe_value{slot}", backend_top[f"wb_pipe_value{slot}"])
         m.output(f"commit_fire{slot}", backend_top[f"commit_fire{slot}"])
         m.output(f"commit_pc{slot}", backend_top[f"commit_pc{slot}"])
         m.output(f"commit_rob{slot}", backend_top[f"commit_rob{slot}"])

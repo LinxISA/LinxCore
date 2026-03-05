@@ -543,6 +543,22 @@ def build_commit_trace_stage(
             next_pc = z64 if macro_kill else next_pc
             checkpoint_id = u(6, 0) if macro_kill else checkpoint_id
 
+        # Commit-trace normalization (match QEMU linx_commit_trace canonicalization):
+        # For 32-bit bstart_* opcodes, mask to the low 24-bit payload.
+        is_bstart_op = op_is_any(
+            m,
+            op,
+            OP_C_BSTART_STD,
+            OP_C_BSTART_COND,
+            OP_C_BSTART_DIRECT,
+            OP_BSTART_STD_FALL,
+            OP_BSTART_STD_DIRECT,
+            OP_BSTART_STD_COND,
+            OP_BSTART_STD_CALL,
+        )
+        is_len4 = ln == u(3, 4)
+        insn_raw = (insn_raw & u(64, 0x00FFFFFF)) if (is_bstart_op & is_len4) else insn_raw
+
         m.output(f"commit_fire{slot}", fire)
         m.output(f"commit_pc{slot}", pc)
         m.output(f"commit_rob{slot}", rob_idx)
