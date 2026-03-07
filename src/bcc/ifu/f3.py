@@ -29,7 +29,7 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
 
     f2_to_f3_stage_pc_f2 = m.input("f2_to_f3_stage_pc_f2", width=64)
     f2_to_f3_stage_window_f2 = m.input("f2_to_f3_stage_window_f2", width=64)
-    m.input("f2_to_f3_stage_bundle128_f2", width=1024)
+    m.input("f2_to_f3_stage_bundle128_f2", width=128)
     m.input("f2_to_f3_stage_bundle_base_pc_f2", width=64)
     m.input("f2_to_f3_stage_slot_base_offset_f2", width=7)
     f2_to_f3_stage_pkt_uid_f2 = m.input("f2_to_f3_stage_pkt_uid_f2", width=64)

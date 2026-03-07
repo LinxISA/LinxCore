@@ -33,7 +33,7 @@ INTERFACE_SPEC: InterfaceSpec = {
     ),
     "f1_to_f2_stage": (
         InterfaceField("pc", 64),
-        InterfaceField("bundle128", 1024),
+        InterfaceField("bundle128", 128),
         InterfaceField("bundle_base_pc", 64),
         InterfaceField("slot_base_offset", 7),
         InterfaceField("hit", 1),
@@ -45,7 +45,7 @@ INTERFACE_SPEC: InterfaceSpec = {
     "f2_to_f3_stage": (
         InterfaceField("pc", 64),
         InterfaceField("window", 64),
-        InterfaceField("bundle128", 1024),
+        InterfaceField("bundle128", 128),
         InterfaceField("bundle_base_pc", 64),
         InterfaceField("slot_base_offset", 7),
         InterfaceField("next_pc", 64),

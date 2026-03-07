@@ -62,7 +62,7 @@ def main() -> int:
             "ic_ways": w,
             "ib_depth": d,
             "ic_line_bytes": 64,
-            "ifetch_bundle_bytes": 128,
+            "ifetch_bundle_bits": 128,
         }
         results.append(run_once(args.memh, params, args.max_cycles))
 
@@ -74,4 +74,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

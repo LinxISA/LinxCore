@@ -63,6 +63,22 @@ def main() -> int:
     _must_contain(parser_ts, parser_text, "contract_id")
     _must_contain(parser_ts, parser_text, "1469598103934665603")
 
+    worker_ts = sight_root / "src" / "workers" / "traceIndex.worker.ts"
+    worker_text = _read(worker_ts)
+    _must_contain(worker_ts, worker_text, "unknown stage_id")
+    _must_contain(worker_ts, worker_text, "row_sid")
+    _must_contain(worker_ts, worker_text, "contract_id")
+
+    canvas_tsx = sight_root / "src" / "components" / "trace" / "TraceCanvasView.tsx"
+    canvas_text = _read(canvas_tsx)
+    _must_contain(canvas_tsx, canvas_text, "no drawable OCC events")
+    _must_contain(canvas_tsx, canvas_text, "stageColorsOverride")
+
+    themes_ts = sight_root / "src" / "styles" / "traceThemes.ts"
+    themes_text = _read(themes_ts)
+    _must_contain(themes_ts, themes_text, "STAGE_PALETTES")
+    _must_contain(themes_ts, themes_text, "high_contrast")
+
     cli_js = sight_root / "scripts" / "linxtrace_cli.js"
     cli_text = _read(cli_js)
     _must_contain(cli_js, cli_text, "schema-check")

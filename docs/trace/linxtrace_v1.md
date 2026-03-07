@@ -4,8 +4,8 @@
 
 ## Files
 
-1. Event stream: `*.linxtrace.jsonl`
-2. Metadata sidecar: `*.linxtrace.meta.json`
+1. Event stream: `*.linxtrace`
+2. Metadata sidecar: `*(in-band META)`
 
 Both files are required.
 
@@ -30,7 +30,11 @@ Each JSONL row includes `type`.
 - `LABEL`: left/detail label updates
 - `OCC`: occupancy event (`cycle,row_id,stage_id,lane_id,stall,cause`)
 - `RETIRE`: row terminal status (`cycle,row_id,status`)
-- `BLOCK_EVT`: block lifecycle (`open|close|redirect|fault`)
+- `BLOCK_EVT`: block lifecycle (`open|resolved|retired|redirect|fault`)
+
+`resolved` is emitted when the block body is resolved at ROB-side commit
+(typically BSTOP/last-block-body retire). `retired` is emitted when that block
+is retired at BROB (oldest-ready ordering).
 - `XCHECK`: cross-check mismatch annotation (optional)
 
 ## Design Rules
@@ -39,4 +43,3 @@ Each JSONL row includes `type`.
 - Row order/grouping is emitter-owned.
 - Unknown stage/lane/row is a hard error.
 - Zero `OCC` rows is a hard error.
-

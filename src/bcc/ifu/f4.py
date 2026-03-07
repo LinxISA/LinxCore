@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pycircuit import Circuit, module
+from common.decode_f4 import decode_f4_bundle
 
 
 @module(name="JanusBccIfuF4")

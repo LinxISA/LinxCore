@@ -17,7 +17,7 @@ For `occ`, `commit`, and `blk_evt` records, include:
 4. `block_bid`
 5. stage/lane/pc/rob metadata
 
-## Konata rendering rules
+## LinxCoreSight rendering rules
 
 1. One row per block lifecycle (`BLOCK` row).
 2. One row per dynamic uop.

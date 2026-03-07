@@ -2,7 +2,7 @@
 
 ## Goal
 
-Move LinxCore Konata generation from legacy synthetic `trace_evt_*` aggregation to pyCircuit DFX occupancy probes (`dbg__occ_*`) that expose per-stage, per-lane uop residency.
+Move LinxCore trace generation from legacy synthetic `trace_evt_*` aggregation to pyCircuit DFX occupancy probes (`dbg__occ_*`) that expose per-stage, per-lane uop residency.
 
 ## Legacy vs DFX
 
@@ -47,15 +47,15 @@ Kinds:
 
 ## Cutover gates
 
-1. `tb_linxcore_top.cpp` consumes DFX probes as the primary Konata source.
-2. Konata checker passes without duplicate instruction IDs.
+1. `tb_linxcore_top.cpp` consumes DFX probes as the primary LinxTrace source.
+2. LinxTrace checker passes without duplicate instruction IDs.
 3. Stage checker confirms required stages are present in CoreMark trace.
 4. Labels include `pc + disassembly + uid/op/src/dst summary`.
 5. Co-sim/commit JSON schema remains unchanged.
 
 ## Current status
 
-- Konata TB consumes DFX `dbg__occ_*` probes as the canonical source.
+- Trace TB consumes DFX `dbg__occ_*` probes as the canonical source.
 - `IQ` is a first-class stage in the emitted probe/trace order.
 - Validation scripts force `PYC_KONATA_SYNTHETIC=0`.
-- Konata writer emits `Kanata 0005` with `P` occupancy records.
+- LinxTrace writer emits v1 JSONL occupancy records.

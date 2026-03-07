@@ -57,3 +57,23 @@ This repository follows strict architecture-ownership and bring-up rules.
 - If contract sync fails, treat as a hard error; do not land partial emitter/viewer updates.
 - Renderer asserts must never degrade into a silent blank pipeline pane:
   - in strict mode, LinxCoreSight must show an explicit on-canvas error banner with actionable reason.
+
+### Render Touchpoint Checklist (mandatory on pipeline flow changes)
+
+When stage flow, row semantics, or trace fields change, update all touchpoints in one change:
+
+- Emitter:
+  - `tb/tb_linxcore_top.cpp`
+  - `tools/trace/build_linxtrace_view.py`
+- Contract + lint:
+  - `src/common/stage_tokens.py`
+  - `tools/linxcoresight/lint_linxtrace.py`
+  - `tools/linxcoresight/lint_trace_contract_sync.py`
+- Viewer:
+  - `/Users/zhoubot/LinxCoreSight/src/lib/linxtrace.ts`
+  - `/Users/zhoubot/LinxCoreSight/src/workers/traceIndex.worker.ts`
+  - `/Users/zhoubot/LinxCoreSight/src/components/trace/TraceCanvasView.tsx`
+  - `/Users/zhoubot/LinxCoreSight/src/styles/traceThemes.ts`
+  - `/Users/zhoubot/LinxCoreSight/src/components/LinxTraceViewer.tsx`
+
+Any mismatch is a merge blocker.

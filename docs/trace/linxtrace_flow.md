@@ -1,4 +1,4 @@
-# Deprecated: Konata Flow
+# Deprecated: Legacy Pipeview Flow
 
 The active viewer flow is LinxCoreSight + LinxTrace v1.
 
@@ -6,7 +6,7 @@ Use:
 
 ```bash
 bash /Users/zhoubot/LinxCore/tools/linxcoresight/run_linxtrace.sh <program.memh> [max_commits]
-bash /Users/zhoubot/LinxCore/tools/linxcoresight/open_linxcoresight.sh <trace.linxtrace.jsonl>
+bash /Users/zhoubot/LinxCore/tools/linxcoresight/open_linxcoresight.sh <trace.linxtrace>
 ```
 
 Canonical trace spec:

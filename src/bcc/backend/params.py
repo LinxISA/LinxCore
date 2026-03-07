@@ -22,8 +22,8 @@ class OooParams:
     iq_depth: int = 32
 
     # Pipeline widths (bring-up: keep these values small).
-    fetch_w: int = 4
-    dispatch_w: int = 4
+    fetch_w: int = 1
+    dispatch_w: int = 1
     issue_w: int = 4
     commit_w: int = 4
 
