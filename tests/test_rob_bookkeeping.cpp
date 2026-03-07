@@ -6,10 +6,14 @@
 
 #include <pyc/cpp/pyc_tb.hpp>
 
+#include "../tb/linxcore_host_mem_shadow.hpp"
 #include "linxcore_top.hpp"
 
 using pyc::cpp::Testbench;
 using pyc::cpp::Wire;
+using linxcore::sim::HostMemShadow;
+using linxcore::sim::replayPreloadWords;
+using linxcore::sim::resolveMemBytesFromEnv;
 
 namespace {
 
@@ -17,30 +21,6 @@ constexpr std::uint64_t kBootPc = 0x0000'0000'0001'0000ull;
 constexpr std::uint64_t kBootSp = 0x0000'0000'0002'0000ull;
 constexpr std::uint64_t kDefaultMaxCycles = 20000ull;
 constexpr std::uint64_t kRobDepth = 64ull;
-
-template <typename MemT>
-bool loadMemh(MemT &mem, const std::string &path) {
-  std::ifstream f(path);
-  if (!f.is_open()) {
-    std::cerr << "failed to open memh: " << path << "\n";
-    return false;
-  }
-
-  std::uint64_t addr = 0;
-  std::string tok;
-  while (f >> tok) {
-    if (tok.empty())
-      continue;
-    if (tok[0] == '@') {
-      addr = std::stoull(tok.substr(1), nullptr, 16);
-      continue;
-    }
-    const unsigned v = std::stoul(tok, nullptr, 16) & 0xFFu;
-    mem.pokeByte(static_cast<std::size_t>(addr), static_cast<std::uint8_t>(v));
-    addr++;
-  }
-  return true;
-}
 
 struct CommitSlot {
   bool fire = false;
@@ -85,20 +65,6 @@ CommitSlot readSlot(const pyc::gen::linxcore_top &dut, int slot) {
   return s;
 }
 
-Wire<512> buildIcacheLine(const pyc::gen::linxcore_top &dut, std::uint64_t lineAddr) {
-  Wire<512> out(0);
-  for (unsigned wi = 0; wi < 8; wi++) {
-    std::uint64_t w = 0;
-    const std::uint64_t base = lineAddr + static_cast<std::uint64_t>(wi) * 8ull;
-    for (unsigned bi = 0; bi < 8; bi++) {
-      const std::uint64_t a = base + static_cast<std::uint64_t>(bi);
-      w |= (static_cast<std::uint64_t>(dut.mem2r1w.imem.peekByte(static_cast<std::size_t>(a))) << (8u * bi));
-    }
-    out.setWord(wi, w);
-  }
-  return out;
-}
-
 } // namespace
 
 int main(int argc, char **argv) {
@@ -109,7 +75,10 @@ int main(int argc, char **argv) {
   const std::string memhPath = argv[1];
 
   pyc::gen::linxcore_top dut{};
-  if (!loadMemh(dut.mem2r1w.imem, memhPath) || !loadMemh(dut.mem2r1w.dmem, memhPath)) {
+  HostMemShadow memShadow(resolveMemBytesFromEnv());
+  std::string memhError{};
+  if (!memShadow.loadMemh(memhPath, &memhError)) {
+    std::cerr << "failed to load memh: " << memhPath << " (" << memhError << ")\n";
     return 2;
   }
 
@@ -135,10 +104,36 @@ int main(int argc, char **argv) {
   dut.ic_l2_rsp_addr = Wire<64>(0);
   dut.ic_l2_rsp_data = Wire<512>(0);
   dut.ic_l2_rsp_error = Wire<1>(0);
+  dut.tb_ifu_stub_enable = Wire<1>(1);
+  dut.tb_ifu_stub_valid = Wire<1>(0);
+  dut.tb_ifu_stub_pc = Wire<64>(0);
+  dut.tb_ifu_stub_window = Wire<64>(0);
+  dut.tb_ifu_stub_checkpoint = Wire<6>(0);
+  dut.tb_ifu_stub_pkt_uid = Wire<64>(0);
+  dut.callframe_size_i = Wire<64>(0);
 
   Testbench<pyc::gen::linxcore_top> tb(dut);
   tb.addClock(dut.clk, 1);
   tb.reset(dut.rst, 2, 1);
+  dut.ic_l2_req_ready = Wire<1>(0);
+  dut.ic_l2_rsp_valid = Wire<1>(0);
+  dut.ic_l2_rsp_addr = Wire<64>(0);
+  dut.ic_l2_rsp_data = Wire<512>(0);
+  dut.ic_l2_rsp_error = Wire<1>(0);
+  replayPreloadWords(memShadow, [&](std::uint64_t guestAddr, std::uint64_t data, std::uint8_t strb) {
+    dut.host_wvalid = Wire<1>(1);
+    dut.host_waddr = Wire<64>(guestAddr);
+    dut.host_wdata = Wire<64>(data);
+    dut.host_wstrb = Wire<8>(strb);
+    tb.runCycles(1);
+  });
+  dut.host_wvalid = Wire<1>(0);
+  dut.host_waddr = Wire<64>(0);
+  dut.host_wdata = Wire<64>(0);
+  dut.host_wstrb = Wire<8>(0);
+  dut.tb_ifu_stub_enable = Wire<1>(0);
+  dut.ic_l2_req_ready = Wire<1>(1);
+  const std::uint64_t startCycle = dut.cycles.value();
 
   std::uint64_t commits = 0;
   std::uint64_t icMissCycles = 20;
@@ -149,12 +144,12 @@ int main(int argc, char **argv) {
   std::uint64_t icReqAddrPending = 0;
   std::uint64_t icReqRemainCycles = 0;
 
-  while (dut.cycles.value() < maxCycles) {
+  while ((dut.cycles.value() - startCycle) < maxCycles) {
     dut.ic_l2_req_ready = Wire<1>(icReqPending ? 0 : 1);
     if (icRspDriveNow) {
       dut.ic_l2_rsp_valid = Wire<1>(1);
       dut.ic_l2_rsp_addr = Wire<64>(icReqAddrPending);
-      dut.ic_l2_rsp_data = buildIcacheLine(dut, icReqAddrPending);
+      dut.ic_l2_rsp_data = memShadow.buildIcacheLine(icReqAddrPending);
       dut.ic_l2_rsp_error = Wire<1>(0);
     } else {
       dut.ic_l2_rsp_valid = Wire<1>(0);
@@ -167,6 +162,10 @@ int main(int argc, char **argv) {
     const std::uint64_t icReqAddrPre = dut.ic_l2_req_addr.value() & ~0x3Full;
 
     tb.runCycles(1);
+    if (dut.dmem_wvalid.toBool()) {
+      memShadow.storeGuestWord(dut.dmem_waddr.value(), dut.dmem_wdata.value(),
+                               static_cast<std::uint8_t>(dut.dmem_wstrb.value()));
+    }
 
     if (icRspDriveNow) {
       icReqPending = false;

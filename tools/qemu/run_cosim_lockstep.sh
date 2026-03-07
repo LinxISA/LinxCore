@@ -2,8 +2,29 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
-PYC_ROOT="/Users/zhoubot/pyCircuit"
+source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
+LINXISA_HOME="${LINXISA_ROOT:-${LINXISA_DIR:-$(linxcore_resolve_linxisa_root "${ROOT_DIR}" || true)}}"
+PYC_ROOT="${LINXCORE_PYC_ROOT:-${PYC_ROOT:-$(linxcore_resolve_pyc_root "${ROOT_DIR}" || true)}}"
+if [[ -z "${PYC_ROOT}" || ! -d "${PYC_ROOT}" ]]; then
+  echo "error: pyCircuit root not found: ${PYC_ROOT:-<unset>}" >&2
+  echo "hint: set LINXCORE_PYC_ROOT=... or PYC_ROOT=..." >&2
+  exit 2
+fi
+BUILD_PROFILE="${LINXCORE_BUILD_PROFILE:-dev-fast}"
+case "${BUILD_PROFILE}" in
+  dev-fast|release) ;;
+  *)
+    echo "error: unsupported LINXCORE_BUILD_PROFILE=${BUILD_PROFILE} (expected dev-fast|release)" >&2
+    exit 2
+    ;;
+esac
+if [[ -z "${CXX:-}" ]]; then
+  if [[ -x "/opt/homebrew/bin/g++-15" ]]; then
+    export CXX="/opt/homebrew/bin/g++-15"
+  elif command -v clang++ >/dev/null 2>&1; then
+    export CXX="$(command -v clang++)"
+  fi
+fi
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
 CPP_MANIFEST="${GEN_CPP_DIR}/cpp_compile_manifest.json"
@@ -24,7 +45,7 @@ BOOT_PC=""
 BOOT_SP="0x20000"
 TRIGGER_PC=""
 TERMINATE_PC=""
-QEMU_BIN="${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64"
+QEMU_BIN="${QEMU_BIN:-$(linxcore_resolve_qemu_bin "${ROOT_DIR}" || true)}"
 SOCKET_PATH="${ROOT_DIR}/tests/linxcore_cosim.sock"
 SNAPSHOT_PATH="${ROOT_DIR}/tests/linxcore_snapshot.bin"
 RUNNER_BIN="${ROOT_DIR}/cosim/linxcore_lockstep_runner"
@@ -93,6 +114,11 @@ if [[ -z "${ELF}" || -z "${TRIGGER_PC}" || -z "${TERMINATE_PC}" ]]; then
   usage
   exit 1
 fi
+if [[ -z "${QEMU_BIN}" || ! -x "${QEMU_BIN}" ]]; then
+  echo "error: qemu-system-linx64 not found: ${QEMU_BIN:-<unset>}" >&2
+  echo "hint: set QEMU_BIN=... or LINXISA_ROOT=..." >&2
+  exit 2
+fi
 if [[ ${#QEMU_ARGS[@]} -eq 0 ]]; then
   echo "error: missing qemu args after --" >&2
   usage
@@ -125,6 +151,7 @@ elif find "${ROOT_DIR}/src" -name '*.py' -newer "${GEN_HDR}" | grep -q .; then
 fi
 if [[ "${need_regen}" -ne 0 ]]; then
   echo "[cosim] generating LinxCore artifacts"
+  LINXCORE_BUILD_PROFILE="${BUILD_PROFILE}" \
   bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
 fi
 
@@ -136,12 +163,17 @@ elif [[ "${ROOT_DIR}/cosim/linxcore_lockstep_runner.cpp" -nt "${RUNNER_BIN}" || 
 fi
 if [[ "${need_runner_build}" -ne 0 ]]; then
   echo "[cosim] building lockstep runner"
-  # Allow faster local debug builds via PYC_TB_CXXFLAGS (e.g. -O0).
-  # Default keeps optimized runner behavior.
-  CXXFLAGS_EXTRA="${PYC_TB_CXXFLAGS:--O2}"
+if [[ -n "${PYC_TB_CXXFLAGS:-}" ]]; then
+  CXXFLAGS_EXTRA="${PYC_TB_CXXFLAGS}"
+elif [[ "${BUILD_PROFILE}" == "release" ]]; then
+  CXXFLAGS_EXTRA="-O3 -DNDEBUG -g0"
+else
+  CXXFLAGS_EXTRA="-O1 -DNDEBUG -g0"
+fi
 
   # Ensure generated model objects exist before we try to link the runner.
   # Use the dedicated model-object builder (faster than building the full TB).
+  LINXCORE_BUILD_PROFILE="${BUILD_PROFILE}" \
   PYC_MODEL_CXXFLAGS="${CXXFLAGS_EXTRA}" \
     bash "${ROOT_DIR}/tools/generate/build_linxcore_model_objects.sh" >/dev/null
 
@@ -184,7 +216,7 @@ PY
     fi
   done
 
-  "${CXX:-clang++}" -std=c++17 -O2 -Wall -Wextra \
+  "${CXX:-clang++}" -std=c++17 -Wall -Wextra \
     ${CXXFLAGS_EXTRA} \
     -I "${PYC_COMPAT_INCLUDE}" \
     -I "${PYC_API_INCLUDE}" \

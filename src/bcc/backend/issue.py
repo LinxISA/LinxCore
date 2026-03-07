@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from functools import partial
-from types import SimpleNamespace
 
 from pycircuit import Circuit, function, module
 
@@ -10,54 +9,52 @@ from .lsu import is_load_op, is_store_op
 
 
 @function
-def pick_oldest(m: Circuit, *, p, consts, can_issue: list, iq, width: int, sub_head):
+def pick_oldest_from_arrays(
+    m: Circuit,
+    *,
+    iq_depth: int,
+    iq_w: int,
+    rob_w: int,
+    can_issue: list,
+    rob_tags: list,
+    width: int,
+    sub_head,
+):
     c = m.const
+    iq_depth_n = int(iq_depth)
+    iq_w_n = int(iq_w)
+    rob_w_n = int(rob_w)
+    width_n = int(width)
+    if iq_depth_n <= 0:
+        raise ValueError("pick_oldest_from_arrays iq_depth must be > 0")
+    if iq_w_n <= 0:
+        raise ValueError("pick_oldest_from_arrays iq_w must be > 0")
+    if rob_w_n <= 0:
+        raise ValueError("pick_oldest_from_arrays rob_w must be > 0")
+    if width_n <= 0:
+        raise ValueError("pick_oldest_from_arrays width must be > 0")
+
+    zero1 = c(0, width=1)
+    one1 = c(1, width=1)
+
     issue_valids = []
     issue_idxs = []
-    for slot in range(width):
-        v = consts.zero1
-        idx = c(0, width=p.iq_w)
-        best_age = c((1 << p.rob_w) - 1, width=p.rob_w)
-        for i in range(p.iq_depth):
-            cidx = c(i, width=p.iq_w)
-            exclude = consts.zero1
+    for slot in range(width_n):
+        best_v = zero1
+        best_idx = c(0, width=iq_w_n)
+        best_age = c(0, width=rob_w_n)
+        for i in range(iq_depth_n):
+            blocked = zero1
             for prev in range(slot):
-                exclude = exclude | (issue_valids[prev] & issue_idxs[prev].__eq__(cidx))
-            cand = can_issue[i] & (~exclude)
-            age = iq.rob[i].out() + sub_head
-            better = (~v) | age.ult(best_age)
-            take = cand & better
-            v = take._select_internal(consts.one1, v)
-            idx = take._select_internal(cidx, idx)
-            best_age = take._select_internal(age, best_age)
-        issue_valids.append(v)
-        issue_idxs.append(idx)
-    return issue_valids, issue_idxs
-
-
-@function
-def pick_oldest_from_arrays(m: Circuit, *, p, consts, can_issue: list, rob_tags: list, width: int, sub_head):
-    c = m.const
-    issue_valids = []
-    issue_idxs = []
-    for slot in range(width):
-        v = consts.zero1
-        idx = c(0, width=p.iq_w)
-        best_age = c((1 << p.rob_w) - 1, width=p.rob_w)
-        for i in range(p.iq_depth):
-            cidx = c(i, width=p.iq_w)
-            exclude = consts.zero1
-            for prev in range(slot):
-                exclude = exclude | (issue_valids[prev] & issue_idxs[prev].__eq__(cidx))
-            cand = can_issue[i] & (~exclude)
-            age = rob_tags[i] + sub_head
-            better = (~v) | age.ult(best_age)
-            take = cand & better
-            v = take._select_internal(consts.one1, v)
-            idx = take._select_internal(cidx, idx)
-            best_age = take._select_internal(age, best_age)
-        issue_valids.append(v)
-        issue_idxs.append(idx)
+                blocked = blocked | (issue_valids[prev] & issue_idxs[prev].__eq__(c(i, width=iq_w_n)))
+            cand = can_issue[i] & (~blocked)
+            age_i = rob_tags[i] + sub_head
+            take = cand & ((~best_v) | age_i.ult(best_age))
+            best_v = take._select_internal(one1, best_v)
+            best_idx = take._select_internal(c(i, width=iq_w_n), best_idx)
+            best_age = take._select_internal(age_i, best_age)
+        issue_valids.append(best_v)
+        issue_idxs.append(best_idx)
     return issue_valids, issue_idxs
 
 
@@ -74,9 +71,24 @@ def build_issue_stage(
     lsu_w: int = 1,
 ) -> None:
     c = m.const
+    iq_depth_n = int(iq_depth)
+    iq_w_n = int(iq_w)
+    rob_w_n = int(rob_w)
+    pregs_n = int(pregs)
+    if iq_depth_n <= 0:
+        raise ValueError("issue iq_depth must be > 0")
+    if iq_w_n <= 0:
+        raise ValueError("issue iq_w must be > 0")
+    if rob_w_n <= 0:
+        raise ValueError("issue rob_w must be > 0")
+    if pregs_n <= 0:
+        raise ValueError("issue pregs must be > 0")
+
+    ptag_w = max(1, (pregs_n - 1).bit_length())
+
     can_run = m.input("can_run", width=1)
     commit_redirect = m.input("commit_redirect", width=1)
-    ready_mask = m.input("ready_mask", width=pregs)
+    ready_mask = m.input("ready_mask", width=pregs_n)
     rob_head = m.input("rob_head", width=rob_w)
 
     iq_alu_valid = []
@@ -87,9 +99,9 @@ def build_issue_stage(
     for i in range(iq_depth):
         iq_alu_valid.append(m.input(f"iq_alu_valid{i}", width=1))
         iq_alu_rob.append(m.input(f"iq_alu_rob{i}", width=rob_w))
-        iq_alu_srcl.append(m.input(f"iq_alu_srcl{i}", width=(pregs - 1).bit_length()))
-        iq_alu_srcr.append(m.input(f"iq_alu_srcr{i}", width=(pregs - 1).bit_length()))
-        iq_alu_srcp.append(m.input(f"iq_alu_srcp{i}", width=(pregs - 1).bit_length()))
+        iq_alu_srcl.append(m.input(f"iq_alu_srcl{i}", width=ptag_w))
+        iq_alu_srcr.append(m.input(f"iq_alu_srcr{i}", width=ptag_w))
+        iq_alu_srcp.append(m.input(f"iq_alu_srcp{i}", width=ptag_w))
 
     iq_bru_valid = []
     iq_bru_rob = []
@@ -99,9 +111,9 @@ def build_issue_stage(
     for i in range(iq_depth):
         iq_bru_valid.append(m.input(f"iq_bru_valid{i}", width=1))
         iq_bru_rob.append(m.input(f"iq_bru_rob{i}", width=rob_w))
-        iq_bru_srcl.append(m.input(f"iq_bru_srcl{i}", width=(pregs - 1).bit_length()))
-        iq_bru_srcr.append(m.input(f"iq_bru_srcr{i}", width=(pregs - 1).bit_length()))
-        iq_bru_srcp.append(m.input(f"iq_bru_srcp{i}", width=(pregs - 1).bit_length()))
+        iq_bru_srcl.append(m.input(f"iq_bru_srcl{i}", width=ptag_w))
+        iq_bru_srcr.append(m.input(f"iq_bru_srcr{i}", width=ptag_w))
+        iq_bru_srcp.append(m.input(f"iq_bru_srcp{i}", width=ptag_w))
 
     iq_lsu_valid = []
     iq_lsu_rob = []
@@ -113,34 +125,34 @@ def build_issue_stage(
         iq_lsu_valid.append(m.input(f"iq_lsu_valid{i}", width=1))
         iq_lsu_rob.append(m.input(f"iq_lsu_rob{i}", width=rob_w))
         iq_lsu_op.append(m.input(f"iq_lsu_op{i}", width=12))
-        iq_lsu_srcl.append(m.input(f"iq_lsu_srcl{i}", width=(pregs - 1).bit_length()))
-        iq_lsu_srcr.append(m.input(f"iq_lsu_srcr{i}", width=(pregs - 1).bit_length()))
-        iq_lsu_srcp.append(m.input(f"iq_lsu_srcp{i}", width=(pregs - 1).bit_length()))
+        iq_lsu_srcl.append(m.input(f"iq_lsu_srcl{i}", width=ptag_w))
+        iq_lsu_srcr.append(m.input(f"iq_lsu_srcr{i}", width=ptag_w))
+        iq_lsu_srcp.append(m.input(f"iq_lsu_srcp{i}", width=ptag_w))
 
     sub_head = (~rob_head) + c(1, width=rob_w)
 
     # Compute per-IQ readiness and can-issue masks.
     alu_can_issue = []
     for i in range(iq_depth):
-        sl_rdy = mask_bit(m, mask=ready_mask, idx=iq_alu_srcl[i], width=pregs)
-        sr_rdy = mask_bit(m, mask=ready_mask, idx=iq_alu_srcr[i], width=pregs)
-        sp_rdy = mask_bit(m, mask=ready_mask, idx=iq_alu_srcp[i], width=pregs)
+        sl_rdy = mask_bit(m, mask=ready_mask, idx=iq_alu_srcl[i], width=pregs_n)
+        sr_rdy = mask_bit(m, mask=ready_mask, idx=iq_alu_srcr[i], width=pregs_n)
+        sp_rdy = mask_bit(m, mask=ready_mask, idx=iq_alu_srcp[i], width=pregs_n)
         alu_can_issue.append(iq_alu_valid[i] & sl_rdy & sr_rdy & sp_rdy)
 
     bru_can_issue = []
     for i in range(iq_depth):
-        sl_rdy = mask_bit(m, mask=ready_mask, idx=iq_bru_srcl[i], width=pregs)
-        sr_rdy = mask_bit(m, mask=ready_mask, idx=iq_bru_srcr[i], width=pregs)
-        sp_rdy = mask_bit(m, mask=ready_mask, idx=iq_bru_srcp[i], width=pregs)
+        sl_rdy = mask_bit(m, mask=ready_mask, idx=iq_bru_srcl[i], width=pregs_n)
+        sr_rdy = mask_bit(m, mask=ready_mask, idx=iq_bru_srcr[i], width=pregs_n)
+        sp_rdy = mask_bit(m, mask=ready_mask, idx=iq_bru_srcp[i], width=pregs_n)
         bru_can_issue.append(iq_bru_valid[i] & sl_rdy & sr_rdy & sp_rdy)
 
     lsu_can_issue = []
     lsu_is_load = []
     lsu_is_store = []
     for i in range(iq_depth):
-        sl_rdy = mask_bit(m, mask=ready_mask, idx=iq_lsu_srcl[i], width=pregs)
-        sr_rdy = mask_bit(m, mask=ready_mask, idx=iq_lsu_srcr[i], width=pregs)
-        sp_rdy = mask_bit(m, mask=ready_mask, idx=iq_lsu_srcp[i], width=pregs)
+        sl_rdy = mask_bit(m, mask=ready_mask, idx=iq_lsu_srcl[i], width=pregs_n)
+        sr_rdy = mask_bit(m, mask=ready_mask, idx=iq_lsu_srcr[i], width=pregs_n)
+        sp_rdy = mask_bit(m, mask=ready_mask, idx=iq_lsu_srcp[i], width=pregs_n)
         op_is = partial(_op_is, m)
         is_load_i = is_load_op(m, iq_lsu_op[i], op_is)
         is_store_i = is_store_op(m, iq_lsu_op[i], op_is)
@@ -149,13 +161,11 @@ def build_issue_stage(
         lsu_is_store.append(is_store_i)
         lsu_can_issue.append(ready)
 
-    p_tmp = SimpleNamespace(iq_depth=iq_depth, iq_w=iq_w, rob_w=rob_w)
-    consts_tmp = SimpleNamespace(zero1=c(0, width=1), one1=c(1, width=1))
-
     alu_issue_valids, alu_issue_idxs = pick_oldest_from_arrays(
         m=m,
-        p=p_tmp,
-        consts=consts_tmp,
+        iq_depth=iq_depth_n,
+        iq_w=iq_w_n,
+        rob_w=rob_w_n,
         can_issue=alu_can_issue,
         rob_tags=iq_alu_rob,
         width=alu_w,
@@ -163,8 +173,9 @@ def build_issue_stage(
     )
     bru_issue_valids, bru_issue_idxs = pick_oldest_from_arrays(
         m=m,
-        p=p_tmp,
-        consts=consts_tmp,
+        iq_depth=iq_depth_n,
+        iq_w=iq_w_n,
+        rob_w=rob_w_n,
         can_issue=bru_can_issue,
         rob_tags=iq_bru_rob,
         width=bru_w,
@@ -172,8 +183,9 @@ def build_issue_stage(
     )
     lsu_issue_valids, lsu_issue_idxs = pick_oldest_from_arrays(
         m=m,
-        p=p_tmp,
-        consts=consts_tmp,
+        iq_depth=iq_depth_n,
+        iq_w=iq_w_n,
+        rob_w=rob_w_n,
         can_issue=lsu_can_issue,
         rob_tags=iq_lsu_rob,
         width=lsu_w,

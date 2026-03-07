@@ -24,12 +24,16 @@
 
 #include <pyc/cpp/pyc_tb.hpp>
 
+#include "../tb/linxcore_host_mem_shadow.hpp"
 #include "linxcore_top.hpp"
 
 namespace {
 
 using pyc::cpp::Testbench;
 using pyc::cpp::Wire;
+using linxcore::sim::HostMemShadow;
+using linxcore::sim::replayPreloadWords;
+using linxcore::sim::resolveMemBytesFromEnv;
 
 struct SnapshotHeader {
   char magic[8];
@@ -57,11 +61,17 @@ struct CommitRecord {
   std::uint64_t seq = 0;
   std::uint64_t pc = 0;
   std::uint64_t op = 0;
+  std::uint64_t template_kind = 0;
   std::uint64_t insn = 0;
   std::uint64_t len = 0;
   std::uint64_t wb_valid = 0;
   std::uint64_t wb_rd = 0;
   std::uint64_t wb_data = 0;
+  // QEMU commit JSON also includes a more general dst_* writeback description.
+  // Some operations may not populate wb_* but do populate dst_*.
+  std::uint64_t dst_valid = 0;
+  std::uint64_t dst_reg = 0;
+  std::uint64_t dst_data = 0;
   std::uint64_t mem_valid = 0;
   std::uint64_t mem_is_store = 0;
   std::uint64_t mem_addr = 0;
@@ -89,8 +99,10 @@ struct RunnerOptions {
   std::uint64_t deadlock_cycles = 200000ull;
   bool accept_max_commits_end = false;
   bool force_mismatch = false;
-  std::string disasm_spec = "/Users/zhoubot/linxisa/isa/spec/current/linxisa-v0.3.json";
-  std::string disasm_tool = "/Users/zhoubot/linxisa/tools/isa/linxdisasm.py";
+  // Default paths (can be overridden by CLI args and env).
+  // Keep in sync with the superproject layout.
+  std::string disasm_spec = "/Users/zhoubot/linx-isa/isa/v0.3/linxisa-v0.3.json";
+  std::string disasm_tool = "/Users/zhoubot/linx-isa/tools/isa/linxdisasm.py";
 };
 
 static bool getJsonKeyPos(const std::string &line, const std::string &key, std::size_t &value_pos) {
@@ -162,6 +174,23 @@ static std::uint64_t maskInsn(std::uint64_t raw, std::uint64_t len) {
     return raw & 0xFFFF'FFFF'FFFFull;
   }
   return raw;
+}
+
+static std::uint8_t normalizeLen(std::uint64_t len) {
+  return (len == 2 || len == 4 || len == 6) ? static_cast<std::uint8_t>(len) : 4;
+}
+
+static std::uint64_t buildIfuStubWindow(std::uint64_t raw, std::uint64_t len) {
+  const std::uint8_t useLen = normalizeLen(len);
+  std::uint64_t payloadMask = 0xFFFF'FFFFull;
+  if (useLen == 2) {
+    payloadMask = 0xFFFFull;
+  } else if (useLen == 6) {
+    payloadMask = 0xFFFF'FFFF'FFFFull;
+  }
+  const std::uint64_t payload = maskInsn(raw, useLen) & payloadMask;
+  // Pad remaining bytes with 0xFF so slot-decode sees invalid padding.
+  return (0xFFFF'FFFF'FFFF'FFFFull & ~payloadMask) | payload;
 }
 
 static bool isBstart16(std::uint16_t hw) {
@@ -303,9 +332,18 @@ static std::string disasmInsn(const RunnerOptions &opts, std::uint64_t raw, std:
 }
 
 static std::string formatCommit(const CommitRecord &r) {
+  const std::uint64_t eff_wb_valid = r.wb_valid | r.dst_valid;
+  const std::uint64_t eff_wb_rd = r.wb_valid ? r.wb_rd : (r.dst_valid ? r.dst_reg : 0);
+  const std::uint64_t eff_wb_data = r.wb_valid ? r.wb_data : (r.dst_valid ? r.dst_data : 0);
+  const char *wb_src = r.wb_valid ? "wb" : (r.dst_valid ? "dst" : "none");
+
   std::ostringstream oss;
-  oss << "cycle=" << r.cycle << " pc=" << toHex(r.pc) << " op=" << r.op << " insn=" << toHex(maskInsn(r.insn, r.len)) << " len=" << r.len
-      << " wb_valid=" << r.wb_valid << " wb_rd=" << r.wb_rd << " wb_data=" << toHex(r.wb_data)
+  oss << "cycle=" << r.cycle << " pc=" << toHex(r.pc) << " op=" << r.op;
+  if (r.template_kind != 0) {
+    oss << " tmpl=" << r.template_kind;
+  }
+  oss << " insn=" << toHex(maskInsn(r.insn, r.len)) << " len=" << r.len
+      << " wb_valid=" << eff_wb_valid << " wb_src=" << wb_src << " wb_rd=" << eff_wb_rd << " wb_data=" << toHex(eff_wb_data)
       << " mem_valid=" << r.mem_valid << " mem_is_store=" << r.mem_is_store << " mem_addr=" << toHex(r.mem_addr)
       << " mem_wdata=" << toHex(r.mem_wdata) << " mem_rdata=" << toHex(r.mem_rdata) << " mem_size=" << r.mem_size
       << " trap_valid=" << r.trap_valid << " trap_cause=" << r.trap_cause << " traparg0=" << toHex(r.traparg0)
@@ -442,6 +480,10 @@ struct DeadlockDebug {
   std::uint64_t cycles = 0;
   std::uint64_t pc = 0;
   std::uint64_t fpc = 0;
+  std::uint64_t frontend_ready = 0;
+  std::uint64_t tb_ifu_stub_ready = 0;
+  std::uint64_t ctu_block_ifu = 0;
+  std::uint64_t redirect_valid = 0;
   std::uint64_t rob_count = 0;
   std::uint64_t rob_head_valid = 0;
   std::uint64_t rob_head_done = 0;
@@ -462,6 +504,26 @@ template <typename T, typename = void>
 struct HasMember_fpc : std::false_type {};
 template <typename T>
 struct HasMember_fpc<T, std::void_t<decltype(std::declval<T &>().fpc)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasMember_frontend_ready : std::false_type {};
+template <typename T>
+struct HasMember_frontend_ready<T, std::void_t<decltype(std::declval<T &>().frontend_ready)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasMember_tb_ifu_stub_ready : std::false_type {};
+template <typename T>
+struct HasMember_tb_ifu_stub_ready<T, std::void_t<decltype(std::declval<T &>().tb_ifu_stub_ready)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasMember_ctu_block_ifu : std::false_type {};
+template <typename T>
+struct HasMember_ctu_block_ifu<T, std::void_t<decltype(std::declval<T &>().ctu_block_ifu)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasMember_redirect_valid : std::false_type {};
+template <typename T>
+struct HasMember_redirect_valid<T, std::void_t<decltype(std::declval<T &>().redirect_valid)>> : std::true_type {};
 
 template <typename T, typename = void>
 struct HasMember_rob_count : std::false_type {};
@@ -517,6 +579,7 @@ class IDutStepper {
 public:
   virtual ~IDutStepper() = default;
   virtual bool init(const SnapshotImage &snap, std::uint64_t boot_pc, std::uint64_t boot_sp, std::uint64_t boot_ra) = 0;
+  virtual void enqueueFrontendInsn(const CommitRecord &qemu) = 0;
   virtual bool nextCommit(CommitRecord &out) = 0;
   virtual std::size_t pendingCommits() const = 0;
   virtual DeadlockDebug debugState() const = 0;
@@ -531,7 +594,15 @@ template <typename DutT>
 class DutStepperImpl final : public IDutStepper {
 public:
   explicit DutStepperImpl(const RunnerOptions &opts)
-      : opts_(opts), max_cycles_(opts.max_dut_cycles), deadlock_cycles_(opts.deadlock_cycles) {}
+      : opts_(opts), max_cycles_(opts.max_dut_cycles), deadlock_cycles_(opts.deadlock_cycles),
+        mem_shadow_(resolveMemBytesFromEnv()) {}
+
+  struct IfuStubPacket {
+    std::uint64_t pc = 0;
+    std::uint64_t window = 0;
+    std::uint8_t checkpoint = 0;
+    std::uint64_t pkt_uid = 0;
+  };
 
   bool init(const SnapshotImage &snap, std::uint64_t boot_pc, std::uint64_t boot_sp, std::uint64_t boot_ra) override {
     dut_ = std::make_unique<DutT>();
@@ -554,12 +625,40 @@ public:
     dut_->ic_l2_rsp_addr = Wire<64>(0);
     dut_->ic_l2_rsp_data = Wire<512>(0);
     dut_->ic_l2_rsp_error = Wire<1>(0);
+    dut_->tb_ifu_stub_enable = Wire<1>(1);
+    dut_->tb_ifu_stub_valid = Wire<1>(0);
+    dut_->tb_ifu_stub_pc = Wire<64>(0);
+    dut_->tb_ifu_stub_window = Wire<64>(0);
+    dut_->tb_ifu_stub_checkpoint = Wire<6>(0);
+    dut_->tb_ifu_stub_pkt_uid = Wire<64>(0);
+    dut_->callframe_size_i = Wire<64>(0);
 
     tb_ = std::make_unique<Testbench<DutT>>(*dut_);
     tb_->addClock(dut_->clk, 1);
     tb_->reset(dut_->rst, 2, 1);
+    dut_->ic_l2_req_ready = Wire<1>(0);
+    dut_->ic_l2_rsp_valid = Wire<1>(0);
+    dut_->ic_l2_rsp_addr = Wire<64>(0);
+    dut_->ic_l2_rsp_data = Wire<512>(0);
+    dut_->ic_l2_rsp_error = Wire<1>(0);
+    replayPreloadWords(mem_shadow_, [&](std::uint64_t guestAddr, std::uint64_t data, std::uint8_t strb) {
+      dut_->host_wvalid = Wire<1>(1);
+      dut_->host_waddr = Wire<64>(guestAddr);
+      dut_->host_wdata = Wire<64>(data);
+      dut_->host_wstrb = Wire<8>(strb);
+      tb_->runCycles(1);
+    });
+    dut_->host_wvalid = Wire<1>(0);
+    dut_->host_waddr = Wire<64>(0);
+    dut_->host_wdata = Wire<64>(0);
+    dut_->host_wstrb = Wire<8>(0);
+    // Hard-cut frontend: keep IFU stub enabled so the runner can feed the IB.
+    dut_->tb_ifu_stub_enable = Wire<1>(1);
+    dut_->ic_l2_req_ready = Wire<1>(1);
+    start_cycle_ = dut_->cycles.value();
 
     retire_q_.clear();
+    ifu_q_.clear();
     ic_req_pending_ = false;
     ic_rsp_drive_now_ = false;
     ic_req_addr_pending_ = 0;
@@ -569,18 +668,55 @@ public:
     return true;
   }
 
+  void enqueueFrontendInsn(const CommitRecord &qemu) override {
+    if (qemu.pc == 0) {
+      return;
+    }
+    const std::uint8_t useLen = static_cast<std::uint8_t>(qemu.len);
+    if (!(useLen == 2 || useLen == 4 || useLen == 6)) {
+      return;
+    }
+
+    // QEMU template commits (FENTRY/FEXIT/FRET.*) report the macro-marker
+    // encoding for *each* template micro-op. The DUT only needs to see the
+    // macro-marker instruction once to start its template engine; re-enqueuing
+    // the same marker for every micro-op will re-trigger the template and
+    // desynchronize lockstep.
+    const std::uint64_t insn_m = maskInsn(qemu.insn, useLen);
+    const bool is_macro_marker = (useLen == 4) && isMacroMarker32(static_cast<std::uint32_t>(insn_m));
+    if (is_macro_marker) {
+      if (last_macro_pc_valid_ && qemu.pc == last_macro_pc_enqueued_) {
+        return;
+      }
+      last_macro_pc_enqueued_ = qemu.pc;
+      last_macro_pc_valid_ = true;
+    } else {
+      last_macro_pc_valid_ = false;
+    }
+
+    IfuStubPacket pkt{};
+    pkt.pc = qemu.pc;
+    pkt.window = buildIfuStubWindow(insn_m, useLen);
+    pkt.checkpoint = static_cast<std::uint8_t>(qemu.seq & 0x3Full);
+    pkt.pkt_uid = (qemu.seq + 1ull) & 0xFFFF'FFFF'FFFF'FFFFull;
+    ifu_q_.push_back(pkt);
+  }
+
   bool nextCommit(CommitRecord &out) override {
     std::uint64_t stall_cycles = 0;
     while (retire_q_.empty()) {
-      if (dut_->cycles.value() >= max_cycles_) {
+      const std::uint64_t elapsed_cycles = dut_->cycles.value() - start_cycle_;
+      if (elapsed_cycles >= max_cycles_) {
         std::ostringstream oss;
-        oss << "runner: DUT exceeded max cycles: " << max_cycles_;
+        oss << "runner: DUT exceeded max cycles: " << max_cycles_ << " elapsed=" << elapsed_cycles;
         last_error_ = oss.str();
         std::cerr << last_error_ << "\n";
         return false;
       }
+      driveIfuStub();
       driveIcacheL2();
       tb_->runCycles(1);
+      retireIfuStubIfFired();
       updateIcacheL2State();
       sampleMemWrite();
       sampleDispatch();
@@ -608,46 +744,30 @@ public:
   DeadlockDebug debugState() const override { return snapshotDebug(); }
 
   std::uint64_t peekMem(std::uint64_t guest_addr, std::uint64_t size) const override {
-    if (!dut_) {
-      return 0;
-    }
-    const std::size_t mem_bytes = dut_->mem2r1w.dmem.mem_.size();
-    const std::size_t base = mapGuestAddr(guest_addr, mem_bytes);
-    const std::uint64_t n = (size == 0 || size > 8) ? 8 : size;
-    std::uint64_t v = 0;
-    for (std::uint64_t i = 0; i < n; i++) {
-      const std::uint64_t b = dut_->mem2r1w.dmem.peekByte(base + static_cast<std::size_t>(i));
-      v |= (b << (8u * i));
-    }
-    return v;
+    return mem_shadow_.loadGuestWord(guest_addr, size);
   }
 
   std::uint64_t peekIMem(std::uint64_t guest_addr, std::uint64_t size) const override {
-    if (!dut_) {
-      return 0;
-    }
-    const std::size_t mem_bytes = dut_->mem2r1w.imem.mem_.size();
-    const std::size_t base = mapGuestAddr(guest_addr, mem_bytes);
-    const std::uint64_t n = (size == 0 || size > 8) ? 8 : size;
-    std::uint64_t v = 0;
-    for (std::uint64_t i = 0; i < n; i++) {
-      const std::uint64_t b = dut_->mem2r1w.imem.peekByte(base + static_cast<std::size_t>(i));
-      v |= (b << (8u * i));
-    }
-    return v;
+    return mem_shadow_.loadGuestWord(guest_addr, size);
   }
 
   std::string recentWriteSummary(std::uint64_t guest_addr) const override {
     std::ostringstream oss;
+    const std::uint64_t guest_eff = static_cast<std::uint64_t>(mem_shadow_.mapGuestAddr(guest_addr));
     unsigned shown = 0;
     for (auto it = write_events_.rbegin(); it != write_events_.rend() && shown < 4; ++it) {
-      if (it->addr != guest_addr) {
+      if (dut_) {
+        if (it->addr_eff != guest_eff) {
+          continue;
+        }
+      } else if (it->addr != guest_addr) {
         continue;
       }
       if (shown == 0) {
         oss << "last_writes";
       }
-      oss << " [cycle=" << it->cycle << " data=" << toHex(it->data) << " strb=" << toHex(it->strb) << " src=" << it->src
+      oss << " [cycle=" << it->cycle << " addr=" << toHex(it->addr) << " eff=" << toHex(it->addr_eff)
+          << " data=" << toHex(it->data) << " strb=" << toHex(it->strb) << " src=" << it->src
           << " fire_mask=0x" << std::hex << it->fire_mask << std::dec
           << " pc0=" << toHex(it->pc0) << " pc1=" << toHex(it->pc1)
           << " pc2=" << toHex(it->pc2) << " pc3=" << toHex(it->pc3) << "]";
@@ -681,6 +801,7 @@ private:
   struct MemWriteEvent {
     std::uint64_t cycle = 0;
     std::uint64_t addr = 0;
+    std::uint64_t addr_eff = 0;
     std::uint64_t data = 0;
     std::uint64_t strb = 0;
     std::uint64_t src = 0;
@@ -713,6 +834,18 @@ private:
     }
     if constexpr (HasMember_fpc<DutT>::value) {
       d.fpc = dut_->fpc.value();
+    }
+    if constexpr (HasMember_frontend_ready<DutT>::value) {
+      d.frontend_ready = dut_->frontend_ready.toBool() ? 1 : 0;
+    }
+    if constexpr (HasMember_tb_ifu_stub_ready<DutT>::value) {
+      d.tb_ifu_stub_ready = dut_->tb_ifu_stub_ready.toBool() ? 1 : 0;
+    }
+    if constexpr (HasMember_ctu_block_ifu<DutT>::value) {
+      d.ctu_block_ifu = dut_->ctu_block_ifu.toBool() ? 1 : 0;
+    }
+    if constexpr (HasMember_redirect_valid<DutT>::value) {
+      d.redirect_valid = dut_->redirect_valid.toBool() ? 1 : 0;
     }
     if constexpr (HasMember_rob_count<DutT>::value) {
       d.rob_count = dut_->rob_count.value();
@@ -747,6 +880,10 @@ private:
     oss << "runner: deadlock detected after " << stall_cycles << " cycles with no retire\n"
         << "  cycle=" << d.cycles << " halted=" << d.halted << " mmio_exit=" << d.mmio_exit_valid << "\n"
         << "  pc=" << toHex(d.pc) << " fpc=" << toHex(d.fpc) << " rob_count=" << d.rob_count << "\n"
+        << "  frontend_ready=" << d.frontend_ready
+        << " tb_ifu_stub_ready=" << d.tb_ifu_stub_ready
+        << " ctu_block_ifu=" << d.ctu_block_ifu
+        << " redirect_valid=" << d.redirect_valid << "\n"
         << "  rob_head_valid=" << d.rob_head_valid << " rob_head_done=" << d.rob_head_done << " rob_head_pc=" << toHex(d.rob_head_pc)
         << "\n"
         << "  rob_head_op=" << d.rob_head_op << " rob_head_len=" << d.rob_head_len
@@ -766,8 +903,10 @@ private:
     MemWriteEvent ev{};
     ev.cycle = dut_->cycles.value();
     ev.addr = dut_->dmem_waddr.value();
+    ev.addr_eff = static_cast<std::uint64_t>(mem_shadow_.mapGuestAddr(ev.addr));
     ev.data = dut_->dmem_wdata.value();
     ev.strb = dut_->dmem_wstrb.value();
+    mem_shadow_.storeGuestWord(ev.addr, ev.data, static_cast<std::uint8_t>(ev.strb));
     if constexpr (HasMember_dmem_wsrc<DutT>::value) {
       ev.src = dut_->dmem_wsrc.value();
     }
@@ -827,40 +966,8 @@ private:
     }
   }
 
-  static std::size_t mapGuestAddr(std::uint64_t addr, std::size_t mem_bytes) {
-    if (mem_bytes == 0) {
-      return 0;
-    }
-
-    const std::uint64_t low_mask = static_cast<std::uint64_t>(mem_bytes - 1);
-    std::size_t stack_window = mem_bytes / 2;
-    if (stack_window == 0) {
-      stack_window = 1;
-    }
-    const std::uint64_t stack_offset = static_cast<std::uint64_t>(mem_bytes - stack_window);
-    const std::uint64_t stack_mask = static_cast<std::uint64_t>(stack_window - 1);
-    constexpr std::uint64_t kStackBase = 0x0000000007FE0000ull;
-
-    if (addr >= kStackBase) {
-      const std::uint64_t stack_addr = ((addr - kStackBase) & stack_mask) + stack_offset;
-      return static_cast<std::size_t>(stack_addr);
-    }
-    return static_cast<std::size_t>(addr & low_mask);
-  }
-
   Wire<512> buildIcacheLine(std::uint64_t line_addr) const {
-    Wire<512> out(0);
-    const std::size_t mem_bytes = dut_->mem2r1w.imem.mem_.size();
-    for (unsigned wi = 0; wi < 8; wi++) {
-      std::uint64_t w = 0;
-      for (unsigned bi = 0; bi < 8; bi++) {
-        const std::uint64_t guest = line_addr + static_cast<std::uint64_t>(wi * 8 + bi);
-        const std::size_t addr = mapGuestAddr(guest, mem_bytes);
-        w |= (static_cast<std::uint64_t>(dut_->mem2r1w.imem.peekByte(addr)) << (8u * bi));
-      }
-      out.setWord(wi, w);
-    }
-    return out;
+    return mem_shadow_.buildIcacheLine(line_addr);
   }
 
   void driveIcacheL2() {
@@ -916,7 +1023,8 @@ private:
   }
 
   bool loadSnapshotIntoMem(const SnapshotImage &snap) {
-    const std::size_t mem_bytes = dut_->mem2r1w.imem.mem_.size();
+    mem_shadow_.clear();
+    const std::size_t mem_bytes = mem_shadow_.bytes();
     if (mem_bytes == 0) {
       last_error_ = "runner: DUT memory depth is zero";
       std::cerr << last_error_ << "\n";
@@ -938,7 +1046,7 @@ private:
       const std::uint64_t base = r.meta.base;
       for (std::size_t i = 0; i < r.bytes.size(); i++) {
         const std::uint64_t guest_addr = base + static_cast<std::uint64_t>(i);
-        const std::size_t addr = mapGuestAddr(guest_addr, mem_bytes);
+        const std::size_t addr = mem_shadow_.mapGuestAddr(guest_addr);
         if (seen[addr]) {
           std::ostringstream oss;
           oss << "runner: snapshot range aliases DUT memory (wrap/collision): base=" << toHex(r.meta.base)
@@ -953,8 +1061,7 @@ private:
         }
         seen[addr] = 1;
         const auto b = r.bytes[i];
-        dut_->mem2r1w.imem.pokeByte(addr, b);
-        dut_->mem2r1w.dmem.pokeByte(addr, b);
+        mem_shadow_.storeGuestByte(guest_addr, b, true);
       }
     }
     return true;
@@ -969,6 +1076,7 @@ private:
       fire = dut_->commit_fire0.toBool();
       c.pc = dut_->commit_pc0.value();
       c.op = dut_->commit_op0.value();
+      c.template_kind = dut_->commit_template_kind0.value();
       c.insn = dut_->commit_insn_raw0.value();
       c.len = dut_->commit_len0.value() & 0x7u;
       c.wb_valid = dut_->commit_wb_valid0.toBool() ? 1 : 0;
@@ -987,6 +1095,7 @@ private:
       fire = dut_->commit_fire1.toBool();
       c.pc = dut_->commit_pc1.value();
       c.op = dut_->commit_op1.value();
+      c.template_kind = dut_->commit_template_kind1.value();
       c.insn = dut_->commit_insn_raw1.value();
       c.len = dut_->commit_len1.value() & 0x7u;
       c.wb_valid = dut_->commit_wb_valid1.toBool() ? 1 : 0;
@@ -1005,6 +1114,7 @@ private:
       fire = dut_->commit_fire2.toBool();
       c.pc = dut_->commit_pc2.value();
       c.op = dut_->commit_op2.value();
+      c.template_kind = dut_->commit_template_kind2.value();
       c.insn = dut_->commit_insn_raw2.value();
       c.len = dut_->commit_len2.value() & 0x7u;
       c.wb_valid = dut_->commit_wb_valid2.toBool() ? 1 : 0;
@@ -1023,6 +1133,7 @@ private:
       fire = dut_->commit_fire3.toBool();
       c.pc = dut_->commit_pc3.value();
       c.op = dut_->commit_op3.value();
+      c.template_kind = dut_->commit_template_kind3.value();
       c.insn = dut_->commit_insn_raw3.value();
       c.len = dut_->commit_len3.value() & 0x7u;
       c.wb_valid = dut_->commit_wb_valid3.toBool() ? 1 : 0;
@@ -1053,21 +1164,56 @@ private:
     }
   }
 
+  void driveIfuStub() {
+    ifu_fire_pending_ = false;
+    // Always keep the stub enabled; drive valid only when a packet is queued.
+    dut_->tb_ifu_stub_enable = Wire<1>(1);
+    if (ifu_q_.empty()) {
+      dut_->tb_ifu_stub_valid = Wire<1>(0);
+      dut_->tb_ifu_stub_pc = Wire<64>(0);
+      dut_->tb_ifu_stub_window = Wire<64>(0);
+      dut_->tb_ifu_stub_checkpoint = Wire<6>(0);
+      dut_->tb_ifu_stub_pkt_uid = Wire<64>(0);
+      return;
+    }
+    const IfuStubPacket &pkt = ifu_q_.front();
+    dut_->tb_ifu_stub_valid = Wire<1>(1);
+    dut_->tb_ifu_stub_pc = Wire<64>(pkt.pc);
+    dut_->tb_ifu_stub_window = Wire<64>(pkt.window);
+    dut_->tb_ifu_stub_checkpoint = Wire<6>(pkt.checkpoint & 0x3Fu);
+    dut_->tb_ifu_stub_pkt_uid = Wire<64>(pkt.pkt_uid);
+    // Top-level accepts a packet only when tb_ifu_stub_ready is asserted.
+    ifu_fire_pending_ = dut_->tb_ifu_stub_ready.toBool();
+  }
+
+  void retireIfuStubIfFired() {
+    if (ifu_fire_pending_ && !ifu_q_.empty()) {
+      ifu_q_.pop_front();
+    }
+    ifu_fire_pending_ = false;
+  }
+
   std::unique_ptr<DutT> dut_{};
   std::unique_ptr<Testbench<DutT>> tb_{};
   std::deque<CommitRecord> retire_q_{};
+  std::deque<IfuStubPacket> ifu_q_{};
+  bool ifu_fire_pending_ = false;
   std::deque<MemWriteEvent> write_events_{};
   std::deque<DispatchEvent> dispatch_events_{};
+  std::uint64_t last_macro_pc_enqueued_ = 0;
+  bool last_macro_pc_valid_ = false;
   bool ic_req_pending_ = false;
   bool ic_rsp_drive_now_ = false;
   std::uint64_t ic_req_addr_pending_ = 0;
   std::uint64_t ic_req_remain_cycles_ = 0;
   bool ic_req_seen_pre_ = false;
   std::uint64_t ic_req_addr_pre_ = 0;
+  std::uint64_t start_cycle_ = 0;
   RunnerOptions opts_{};
   std::uint64_t max_cycles_ = 0;
   std::uint64_t deadlock_cycles_ = 0;
   std::string last_error_{};
+  HostMemShadow mem_shadow_;
 };
 
 static bool parseQemuCommit(const std::string &line, CommitRecord &rec) {
@@ -1075,17 +1221,31 @@ static bool parseQemuCommit(const std::string &line, CommitRecord &rec) {
   if (!getJsonString(line, "type", type) || type != "commit") {
     return false;
   }
-  return getJsonU64(line, "seq", rec.seq) && getJsonU64(line, "pc", rec.pc) && getJsonU64(line, "insn", rec.insn) &&
-         getJsonU64(line, "len", rec.len) && getJsonU64(line, "wb_valid", rec.wb_valid) && getJsonU64(line, "wb_rd", rec.wb_rd) &&
-         getJsonU64(line, "wb_data", rec.wb_data) && getJsonU64(line, "mem_valid", rec.mem_valid) &&
-         getJsonU64(line, "mem_is_store", rec.mem_is_store) && getJsonU64(line, "mem_addr", rec.mem_addr) &&
-         getJsonU64(line, "mem_wdata", rec.mem_wdata) && getJsonU64(line, "mem_rdata", rec.mem_rdata) &&
-         getJsonU64(line, "mem_size", rec.mem_size) && getJsonU64(line, "trap_valid", rec.trap_valid) &&
-         getJsonU64(line, "trap_cause", rec.trap_cause) && getJsonU64(line, "traparg0", rec.traparg0) &&
-         getJsonU64(line, "next_pc", rec.next_pc);
+  const bool ok =
+      getJsonU64(line, "seq", rec.seq) && getJsonU64(line, "pc", rec.pc) && getJsonU64(line, "insn", rec.insn) &&
+      getJsonU64(line, "len", rec.len) && getJsonU64(line, "wb_valid", rec.wb_valid) &&
+      getJsonU64(line, "wb_rd", rec.wb_rd) && getJsonU64(line, "wb_data", rec.wb_data) &&
+      getJsonU64(line, "mem_valid", rec.mem_valid) && getJsonU64(line, "mem_is_store", rec.mem_is_store) &&
+      getJsonU64(line, "mem_addr", rec.mem_addr) && getJsonU64(line, "mem_wdata", rec.mem_wdata) &&
+      getJsonU64(line, "mem_rdata", rec.mem_rdata) && getJsonU64(line, "mem_size", rec.mem_size) &&
+      getJsonU64(line, "trap_valid", rec.trap_valid) && getJsonU64(line, "trap_cause", rec.trap_cause) &&
+      getJsonU64(line, "traparg0", rec.traparg0) && getJsonU64(line, "next_pc", rec.next_pc);
+  if (!ok) {
+    return false;
+  }
+  // dst_* is optional for backwards compatibility with older traces, but is
+  // present in current QEMU cosim JSON.
+  (void)getJsonU64(line, "dst_valid", rec.dst_valid);
+  (void)getJsonU64(line, "dst_reg", rec.dst_reg);
+  (void)getJsonU64(line, "dst_data", rec.dst_data);
+  return true;
 }
 
 static std::optional<Mismatch> compareCommit(const CommitRecord &qemu, const CommitRecord &dut) {
+  const std::uint64_t qemu_eff_wb_valid = qemu.wb_valid | qemu.dst_valid;
+  const std::uint64_t qemu_eff_wb_rd = qemu.wb_valid ? qemu.wb_rd : (qemu.dst_valid ? qemu.dst_reg : 0);
+  const std::uint64_t qemu_eff_wb_data = qemu.wb_valid ? qemu.wb_data : (qemu.dst_valid ? qemu.dst_data : 0);
+
   auto cmp = [&](const char *field, std::uint64_t qv, std::uint64_t dv) -> std::optional<Mismatch> {
     if (qv != dv) {
       return Mismatch{field, qv, dv};
@@ -1097,14 +1257,20 @@ static std::optional<Mismatch> compareCommit(const CommitRecord &qemu, const Com
     return mm;
   if (auto mm = cmp("len", qemu.len, dut.len))
     return mm;
-  if (auto mm = cmp("insn", maskInsn(qemu.insn, qemu.len), maskInsn(dut.insn, dut.len)))
-    return mm;
-  if (auto mm = cmp("wb_valid", qemu.wb_valid, dut.wb_valid))
-    return mm;
-  if (qemu.wb_valid) {
-    if (auto mm = cmp("wb_rd", qemu.wb_rd, dut.wb_rd))
+  // Template micro-ops (expanded from FENTRY/FEXIT/FRET.*) do not have a stable
+  // architectural encoding in the instruction stream. QEMU reports the macro
+  // marker encoding, while the DUT emits a synthetic per-uop scalar encoding
+  // for pipeview readability. Compare by architectural effects, not insn bits.
+  if (dut.template_kind == 0) {
+    if (auto mm = cmp("insn", maskInsn(qemu.insn, qemu.len), maskInsn(dut.insn, dut.len)))
       return mm;
-    if (auto mm = cmp("wb_data", qemu.wb_data, dut.wb_data))
+  }
+  if (auto mm = cmp("wb_valid", qemu_eff_wb_valid, dut.wb_valid))
+    return mm;
+  if (qemu_eff_wb_valid) {
+    if (auto mm = cmp("wb_rd", qemu_eff_wb_rd, dut.wb_rd))
+      return mm;
+    if (auto mm = cmp("wb_data", qemu_eff_wb_data, dut.wb_data))
       return mm;
   }
 
@@ -1143,22 +1309,89 @@ static std::optional<Mismatch> compareCommit(const CommitRecord &qemu, const Com
 
 static bool isMetadataCommit(const CommitRecord &r) {
   const bool zero_meta = (r.len == 0) && (r.insn == 0) && (r.pc == 0);
+  const std::uint64_t eff_wb_valid = r.wb_valid | r.dst_valid;
   const std::uint64_t insn_m = maskInsn(r.insn, r.len);
   const bool is_bstart =
       ((r.len == 2) && isBstart16(static_cast<std::uint16_t>(insn_m))) ||
       ((r.len == 4) && isBstart32(static_cast<std::uint32_t>(insn_m))) ||
       ((r.len == 6) && isBstart48(insn_m));
+  const bool is_cbstop = (r.len == 2) && (static_cast<std::uint16_t>(insn_m) == 0x0000u);
   const bool is_macro_marker = (r.len == 4) && isMacroMarker32(static_cast<std::uint32_t>(insn_m));
+  const bool is_template_uop = (r.template_kind != 0);
   // Boundary markers can appear as trace-only records (QEMU and DUT may differ
   // in whether a side-effect-free marker is emitted separately). Treat any
   // side-effect-free BSTART marker as metadata so commit streams stay aligned.
   const bool bstart_metadata =
       is_bstart &&
-      (r.wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0);
+      (eff_wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0);
   const bool macro_metadata =
       is_macro_marker &&
-      (r.wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0);
-  return zero_meta || bstart_metadata || macro_metadata;
+      (eff_wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0);
+  const bool template_metadata =
+      is_template_uop &&
+      (eff_wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0);
+  // QEMU commit traces can suppress certain template micro-ops as shadow records.
+  // In particular, FRET.STK uses a side-effect-free marker before the first
+  // architecturally visible template uop. The DUT currently emits an explicit
+  // SP adjust (SP_ADD) template uop; treat that as metadata so lockstep stays
+  // aligned with QEMU.
+  //
+  // template_kind mapping (DUT):
+  // 1=fentry,2=fexit,3=fret_ra,4=fret_stk
+  const bool fretstk_sp_shadow =
+      is_template_uop &&
+      (r.template_kind == 4) &&
+      (r.wb_valid != 0) && (r.wb_rd == 1) &&
+      (r.mem_valid == 0) && (r.trap_valid == 0) &&
+      (r.next_pc == r.pc);
+  const bool cbstop_metadata =
+      is_cbstop &&
+      (eff_wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0);
+  return zero_meta || bstart_metadata || macro_metadata || template_metadata || fretstk_sp_shadow || cbstop_metadata;
+}
+
+static bool isRedirectingMetadataCommit(const CommitRecord &r) {
+  if (!isMetadataCommit(r)) {
+    return false;
+  }
+  // Some metadata records are pure shadow markers (pc holds or falls through).
+  // Others represent taken boundary redirects without WB/MEM/TRAP side effects.
+  //
+  // Redirecting metadata commits must act as synchronization barriers in
+  // lockstep, otherwise the runner can feed/ack new-PC packets that the DUT
+  // will flush when it eventually applies the redirect.
+  if (r.len == 0) {
+    return false;
+  }
+  const std::uint64_t insn_m = maskInsn(r.insn, r.len);
+  const bool is_bstart =
+      ((r.len == 2) && isBstart16(static_cast<std::uint16_t>(insn_m))) ||
+      ((r.len == 4) && isBstart32(static_cast<std::uint32_t>(insn_m))) ||
+      ((r.len == 6) && isBstart48(insn_m));
+  if (is_bstart) {
+    // BSTART can induce a flush/refetch even when the architectural next PC is a
+    // simple fallthrough (QEMU and DUT may disagree on whether a "hold" record
+    // is emitted). Treat every side-effect-free BSTART marker as a barrier so
+    // the runner never enqueues a next instruction that the DUT might drop via
+    // flush.
+    return true;
+  }
+
+  const std::uint64_t fallthrough = r.pc + static_cast<std::uint64_t>(r.len);
+  if ((r.next_pc != r.pc) && (r.next_pc != fallthrough)) {
+    const bool is_macro_marker =
+        (r.len == 4) && isMacroMarker32(static_cast<std::uint32_t>(insn_m));
+    // QEMU can emit trace-only macro-marker redirects (template/macro engine
+    // bookkeeping) that do not correspond to a DUT-retired instruction. Treat
+    // these as non-barrier metadata so the runner can realign on subsequent
+    // architectural commits.
+    if (is_macro_marker) {
+      return false;
+    }
+    return true;
+  }
+
+  return false;
 }
 
 static bool sendAckOk(int fd, std::uint64_t seq) {
@@ -1398,7 +1631,102 @@ int main(int argc, char **argv) {
       // 1) zeroed pseudo-commit records (pc/insn/len all zero),
       // 2) C.BSTART shadow records that hold at the same PC with no WB/MEM.
       const bool qemu_meta_commit = isMetadataCommit(qemu);
+      const std::uint64_t qemu_insn_m = maskInsn(qemu.insn, qemu.len);
+      const bool qemu_is_macro_marker =
+          (qemu.len == 4) && isMacroMarker32(static_cast<std::uint32_t>(qemu_insn_m));
+      const bool qemu_is_bstart =
+          ((qemu.len == 2) && isBstart16(static_cast<std::uint16_t>(qemu_insn_m))) ||
+          ((qemu.len == 4) && isBstart32(static_cast<std::uint32_t>(qemu_insn_m))) ||
+          ((qemu.len == 6) && isBstart48(qemu_insn_m));
+      const std::uint64_t qemu_fallthrough = qemu.pc + static_cast<std::uint64_t>(qemu.len);
+      const bool qemu_is_redirect =
+          (qemu.len != 0) && (qemu.next_pc != qemu.pc) && (qemu.next_pc != qemu_fallthrough);
+      const bool qemu_macro_marker_redirect = qemu_meta_commit && qemu_is_macro_marker && qemu_is_redirect;
+
+      // Hard-cut frontend: feed the DUT instruction stream from QEMU commits.
+      // Metadata commits are still instructions (e.g. side-effect-free BSTART),
+      // so enqueue before the metadata skip decision.
+      //
+      // Macro-marker redirect metadata commits are QEMU bookkeeping and may
+      // carry a synthetic PC. Do not enqueue them into the DUT frontend.
+      if (!qemu_macro_marker_redirect) {
+        dut->enqueueFrontendInsn(qemu);
+      } else if (opts.verbose) {
+        std::cerr << "runner: skip enqueue macro-marker redirect pc=" << toHex(qemu.pc)
+                  << " next_pc=" << toHex(qemu.next_pc) << "\n";
+      }
       if (qemu_meta_commit) {
+        // Redirecting metadata commits (taken boundaries with no WB/MEM/TRAP)
+        // must still synchronize with the DUT, otherwise the runner can enqueue
+        // new-PC packets that the DUT will flush when it later applies the
+        // redirect, leading to a deadlock.
+        if (isRedirectingMetadataCommit(qemu)) {
+          if (opts.verbose) {
+            std::cerr << "runner: meta redirect barrier seq=" << qemu.seq
+                      << " pc=" << toHex(qemu.pc)
+                      << " len=" << qemu.len
+                      << " insn=" << toHex(maskInsn(qemu.insn, qemu.len))
+                      << " next_pc=" << toHex(qemu.next_pc) << "\n";
+          }
+          CommitRecord dut_barrier{};
+          while (true) {
+            if (!dut->nextCommit(dut_barrier)) {
+              const Mismatch mm{"dut_no_commit_meta_redirect", 1, 0};
+              (void)sendAckMismatch(client_fd, qemu.seq, mm);
+              const DeadlockDebug dbg = dut->debugState();
+              std::cerr << "runner: DUT could not reach meta-redirect barrier for seq=" << qemu.seq
+                        << " (pc=" << toHex(dbg.pc) << " expected_next_pc=" << toHex(qemu.next_pc) << ")\n";
+              if (opts.verbose) {
+                std::cerr << "  qemu_barrier: " << formatCommit(qemu) << "\n";
+              }
+              if (!dut->lastError().empty()) {
+                std::cerr << dut->lastError() << "\n";
+              }
+              ::close(client_fd);
+            ::close(server_fd);
+	              return 4;
+	            }
+	            // Only metadata commits are expected while waiting for a metadata barrier.
+	            if (!isMetadataCommit(dut_barrier)) {
+              const Mismatch mm{"dut_nonmeta_on_meta_redirect", dut_barrier.pc, qemu.pc};
+              (void)sendAckMismatch(client_fd, qemu.seq, mm);
+              if (opts.verbose) {
+                std::cerr << "runner: DUT produced non-meta commit while waiting for meta redirect barrier\n"
+                          << "  qemu_barrier: " << formatCommit(qemu) << "\n"
+                          << "  dut_commit : " << formatCommit(dut_barrier) << "\n";
+              }
+              ::close(client_fd);
+	              ::close(server_fd);
+	              return 4;
+	            }
+	            const std::uint64_t dut_insn_m = maskInsn(dut_barrier.insn, dut_barrier.len);
+	            const bool dut_is_bstart =
+	                ((dut_barrier.len == 2) && isBstart16(static_cast<std::uint16_t>(dut_insn_m))) ||
+	                ((dut_barrier.len == 4) && isBstart32(static_cast<std::uint32_t>(dut_insn_m))) ||
+	                ((dut_barrier.len == 6) && isBstart48(dut_insn_m));
+	            bool insn_match =
+	                (dut_barrier.len == qemu.len) &&
+	                (dut_insn_m == qemu_insn_m);
+	            // BSTART metadata records can induce a flush/refetch even when QEMU
+	            // reports a fall-through next_pc. Accept either next_pc outcome for
+	            // the DUT barrier, as long as we observe a matching BSTART commit at
+	            // the same PC.
+	            if (dut_barrier.pc == qemu.pc && insn_match) {
+	              if (qemu_is_bstart && dut_is_bstart) {
+	                break;
+	              }
+	              if (dut_barrier.next_pc == qemu.next_pc) {
+	                break;
+	              }
+	            }
+	            if (opts.verbose) {
+	              std::cerr << "runner: skip dut meta while waiting for redirect barrier pc=" << toHex(dut_barrier.pc)
+                        << " insn=" << toHex(maskInsn(dut_barrier.insn, dut_barrier.len))
+                        << " next_pc=" << toHex(dut_barrier.next_pc) << "\n";
+            }
+          }
+        }
+
         if (!sendAckOk(client_fd, qemu.seq)) {
           std::cerr << "runner: failed to send ack for metadata commit\n";
           ::close(client_fd);
@@ -1406,8 +1734,14 @@ int main(int argc, char **argv) {
           return 3;
         }
         if (opts.verbose) {
+          const std::uint64_t qemu_eff_wb_valid = qemu.wb_valid | qemu.dst_valid;
+          const char *qemu_wb_src = qemu.wb_valid ? "wb" : (qemu.dst_valid ? "dst" : "none");
           std::cerr << "runner: skip metadata commit seq=" << qemu.seq
-                    << " wb_valid=" << qemu.wb_valid
+                    << " pc=" << toHex(qemu.pc)
+                    << " len=" << qemu.len
+                    << " insn=" << toHex(maskInsn(qemu.insn, qemu.len))
+                    << " next_pc=" << toHex(qemu.next_pc)
+                    << " wb_valid=" << qemu_eff_wb_valid << " wb_src=" << qemu_wb_src
                     << " mem_valid=" << qemu.mem_valid << "\n";
         }
         expected_seq++;
@@ -1422,6 +1756,9 @@ int main(int argc, char **argv) {
           const DeadlockDebug dbg = dut->debugState();
           std::cerr << "runner: DUT could not produce commit for seq=" << qemu.seq
                     << " (pc=" << toHex(dbg.pc) << " rob_head_pc=" << toHex(dbg.rob_head_pc) << ")\n";
+          if (opts.verbose) {
+            std::cerr << "  qemu_waiting_for: " << formatCommit(qemu) << "\n";
+          }
           if (!dut->lastError().empty()) {
             std::cerr << dut->lastError() << "\n";
           }

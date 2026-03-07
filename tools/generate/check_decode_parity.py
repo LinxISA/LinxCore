@@ -5,10 +5,11 @@ import argparse
 from pathlib import Path
 
 from opcode_catalog_lib import load_catalog, load_qemu_entries
+from workspace_paths import resolve_linxcore_root, resolve_qemu_linx_dir
 
 THIS_FILE = Path(__file__).resolve()
-LINXCORE_ROOT = THIS_FILE.parents[2]
-LINXISA_ROOT = THIS_FILE.parents[4]
+LINXCORE_ROOT = resolve_linxcore_root(THIS_FILE)
+DEFAULT_QEMU_LINX_DIR = resolve_qemu_linx_dir(LINXCORE_ROOT)
 
 
 def _norm(records: list[dict]) -> dict[str, dict]:
@@ -20,10 +21,12 @@ def _norm(records: list[dict]) -> dict[str, dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Check QEMU vs LinxCore opcode catalog parity")
-    ap.add_argument("--qemu-linx-dir", default=str(LINXISA_ROOT / "emulator/qemu/target/linx"))
+    ap.add_argument("--qemu-linx-dir", default=str(DEFAULT_QEMU_LINX_DIR) if DEFAULT_QEMU_LINX_DIR is not None else "")
     ap.add_argument("--catalog", default=str(LINXCORE_ROOT / "src/common/opcode_catalog.yaml"))
     args = ap.parse_args()
 
+    if not args.qemu_linx_dir:
+        raise SystemExit("error: could not resolve qemu/target/linx; set --qemu-linx-dir or QEMU_LINX_DIR")
     expected_entries = load_qemu_entries(Path(args.qemu_linx_dir))
     actual = load_catalog(Path(args.catalog))
 

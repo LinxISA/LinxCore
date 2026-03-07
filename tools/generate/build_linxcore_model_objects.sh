@@ -9,7 +9,21 @@ set -euo pipefail
 # compiling the huge JanusBccBackendCompat__tick TU).
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-PYC_ROOT="/Users/zhoubot/pyCircuit"
+source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
+PYC_ROOT="${LINXCORE_PYC_ROOT:-${PYC_ROOT:-$(linxcore_resolve_pyc_root "${ROOT_DIR}" || true)}}"
+if [[ -z "${PYC_ROOT}" || ! -d "${PYC_ROOT}" ]]; then
+  echo "error: pyCircuit root not found: ${PYC_ROOT:-<unset>}" >&2
+  echo "hint: set LINXCORE_PYC_ROOT=... or PYC_ROOT=..." >&2
+  exit 2
+fi
+BUILD_PROFILE="${LINXCORE_BUILD_PROFILE:-dev-fast}"
+case "${BUILD_PROFILE}" in
+  dev-fast|release) ;;
+  *)
+    echo "error: unsupported LINXCORE_BUILD_PROFILE=${BUILD_PROFILE} (expected dev-fast|release)" >&2
+    exit 2
+    ;;
+esac
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 CPP_MANIFEST="${PYC_MANIFEST_PATH:-${GEN_CPP_DIR}/cpp_compile_manifest.json}"
 GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
@@ -18,7 +32,15 @@ NINJA_FILE="${GEN_CPP_DIR}/build_model.ninja"
 NINJA_TARGET="model_objects"
 NINJA_GEN_TOOL="${ROOT_DIR}/tools/generate/gen_linxcore_model_ninja.py"
 
-MODEL_CXXFLAGS="${PYC_MODEL_CXXFLAGS:-${PYC_TB_CXXFLAGS:--O3 -DNDEBUG}}"
+if [[ -n "${PYC_MODEL_CXXFLAGS:-}" ]]; then
+  MODEL_CXXFLAGS="${PYC_MODEL_CXXFLAGS}"
+elif [[ -n "${PYC_TB_CXXFLAGS:-}" ]]; then
+  MODEL_CXXFLAGS="${PYC_TB_CXXFLAGS}"
+elif [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  MODEL_CXXFLAGS="-O1 -DNDEBUG -g0"
+else
+  MODEL_CXXFLAGS="-O3 -DNDEBUG -g0"
+fi
 
 # Choose compiler:
 # - If PYC_MODEL_CXX is set, it wins.
@@ -91,6 +113,7 @@ elif find "${ROOT_DIR}/src" -name '*.py' -newer "${HDR}" | grep -q .; then
   need_regen=1
 fi
 if [[ "${need_regen}" -ne 0 ]]; then
+  LINXCORE_BUILD_PROFILE="${BUILD_PROFILE}" \
   bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
 fi
 

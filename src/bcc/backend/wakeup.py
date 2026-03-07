@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, function, module
 
 from .helpers import mask_bit
 
 
-def compose_wakeup_reason(*, m, p, wb_fire_has_dsts, lsu_forward_active, commit_redirect, dispatch_fire):
+@function
+def compose_wakeup_reason(m: Circuit, *, p, wb_fire_has_dsts, lsu_forward_active, commit_redirect, dispatch_fire):
     c = m.const
     any_wakeup = c(0, width=1)
     for slot in range(p.issue_w):
@@ -18,7 +19,8 @@ def compose_wakeup_reason(*, m, p, wb_fire_has_dsts, lsu_forward_active, commit_
     return wakeup_reason
 
 
-def compose_replay_cause(*, m, lsu_block_lane0, issued_is_load, older_store_pending, lsu_violation_detected, replay_redirect_fire):
+@function
+def compose_replay_cause(m: Circuit, *, lsu_block_lane0, issued_is_load, older_store_pending, lsu_violation_detected, replay_redirect_fire):
     c = m.const
     replay_cause = c(0, width=8)
     replay_cause = lsu_block_lane0._select_internal(replay_cause | c(1 << 0, width=8), replay_cause)
@@ -125,3 +127,44 @@ def build_head_wait_stage(
     m.output("head_wait_sl_rdy", head_wait_sl_rdy)
     m.output("head_wait_sr_rdy", head_wait_sr_rdy)
     m.output("head_wait_sp_rdy", head_wait_sp_rdy)
+
+
+@module(name="LinxCoreHeadWaitIqScanStage")
+def build_head_wait_iq_scan_stage(
+    m: Circuit,
+    *,
+    iq_depth: int = 32,
+    rob_w: int = 6,
+    ptag_w: int = 6,
+) -> None:
+    c = m.const
+    head_idx = m.input("head_idx", width=rob_w)
+    tag0 = c(0, width=ptag_w)
+
+    valid = []
+    rob = []
+    srcl = []
+    srcr = []
+    srcp = []
+    for i in range(iq_depth):
+        valid.append(m.input(f"valid{i}", width=1))
+        rob.append(m.input(f"rob{i}", width=rob_w))
+        srcl.append(m.input(f"srcl{i}", width=ptag_w))
+        srcr.append(m.input(f"srcr{i}", width=ptag_w))
+        srcp.append(m.input(f"srcp{i}", width=ptag_w))
+
+    hit_any = c(0, width=1)
+    wait_sl = tag0
+    wait_sr = tag0
+    wait_sp = tag0
+    for i in range(iq_depth):
+        hit = valid[i] & rob[i].__eq__(head_idx)
+        hit_any = hit._select_internal(c(1, width=1), hit_any)
+        wait_sl = hit._select_internal(srcl[i], wait_sl)
+        wait_sr = hit._select_internal(srcr[i], wait_sr)
+        wait_sp = hit._select_internal(srcp[i], wait_sp)
+
+    m.output("hit", hit_any)
+    m.output("sl", wait_sl)
+    m.output("sr", wait_sr)
+    m.output("sp", wait_sp)

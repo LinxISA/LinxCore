@@ -12,9 +12,13 @@ ALLOWLIST = {
     SRC / "linxcore_top.py",
     SRC / "__init__.py",
     SRC / "top" / "__init__.py",
+    SRC / "top" / "modules" / "export.py",  # compose-only root wrapper
     SRC / "bcc" / "__init__.py",
     SRC / "bcc" / "backend" / "__init__.py",
     SRC / "bcc" / "backend" / "backend.py",  # thin shell by design
+    SRC / "bcc" / "backend" / "modules" / "exec_uop_wrap.py",  # combinational wrapper around exec_uop_comb
+    SRC / "bcc" / "backend" / "modules" / "trace_export.py",  # compose-only root wrapper
+    SRC / "bcc" / "block_struct" / "test_block_struct_rtl_smoke.py",  # unittest helper, not synthesizable RTL
 }
 
 TARGET_DIRS = [
@@ -29,7 +33,7 @@ TARGET_DIRS = [
 NON_EMPTY = re.compile(r"\S")
 COMMENT = re.compile(r"^\s*#")
 OUTPUT_RE = re.compile(r"m\.(?:output|out)\(")
-STATE_RE = re.compile(r"\.set\(|m\.out\([^\n]*clk=|m\.instance\(")
+STATE_RE = re.compile(r"\.set\(|m\.out\([^\n]*clk=|m\.instance(?:_auto)?\(")
 DATAFLOW_RE = re.compile(r"_select_internal\(|\.select\(|for\s+\w+\s+in\s+range\(")
 
 

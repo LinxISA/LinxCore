@@ -3,11 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
-GEN_HDR="${GEN_CPP_DIR}/JanusBccBackendCompat.hpp"
+GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
 RUN_CPP="${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh"
-MEMH="${ROOT_DIR}/tests/artifacts/suites/arithmetic.memh"
+# Hard-cut frontend: IB is QEMU/host fed. Use a stable in-repo artifact pair.
+MEMH="${PYC_TEST_MEMH:-${ROOT_DIR}/tests/artifacts/linx-qemu-tests-arith.memh}"
+QEMU_TRACE="${PYC_TEST_QEMU_TRACE:-${ROOT_DIR}/tests/artifacts/arith.commit.jsonl}"
 
-bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
+LINXCORE_BUILD_PROFILE="${LINXCORE_BUILD_PROFILE:-dev-fast}" \
+  bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
 
 python3 - <<'PY' "${GEN_CPP_DIR}" "${GEN_HDR}"
 import pathlib
@@ -16,9 +19,11 @@ import sys
 
 gen_dir = pathlib.Path(sys.argv[1])
 hdr = pathlib.Path(sys.argv[2])
-parts = [hdr.read_text(encoding='utf-8', errors='replace')]
-for cpp in sorted(gen_dir.glob('*.cpp')):
-    parts.append(cpp.read_text(encoding='utf-8', errors='replace'))
+parts = []
+for p in sorted(gen_dir.rglob('*.hpp')):
+    parts.append(p.read_text(encoding='utf-8', errors='replace'))
+for p in sorted(gen_dir.rglob('*.cpp')):
+    parts.append(p.read_text(encoding='utf-8', errors='replace'))
 text = "\n".join(parts)
 
 if "void _pyc_validate_primitive_bindings() const" not in text:
@@ -51,18 +56,31 @@ if [[ ! -f "${MEMH}" ]]; then
   echo "missing test memh: ${MEMH}" >&2
   exit 2
 fi
+if [[ ! -f "${QEMU_TRACE}" ]]; then
+  echo "missing QEMU trace jsonl for IB mode: ${QEMU_TRACE}" >&2
+  exit 2
+fi
 
 # Baseline smoke: program completes and exits normally.
-PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}" \
+PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O1 -DNDEBUG -g0}" \
+PYC_IFU_STUB_QEMU=1 \
+PYC_QEMU_TRACE="${QEMU_TRACE}" \
+PYC_XCHECK_MODE="${PYC_XCHECK_MODE:-diagnostic}" \
+PYC_MAX_COMMITS="${PYC_MAX_COMMITS:-64}" \
 PYC_MAX_CYCLES=50000 \
+LINXCORE_BUILD_PROFILE="${LINXCORE_BUILD_PROFILE:-dev-fast}" \
   bash "${RUN_CPP}" "${MEMH}" >/tmp/linxcore_cpp_gate_baseline.log 2>&1
 
 # Constructor-eval stress: should not abort; max-cycle timeout is expected here.
 set +e
 ctor_out="$({
-  PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}" \
+  PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O1 -DNDEBUG -g0}" \
   PYC_ENABLE_CTOR_EVAL=1 \
+  PYC_IFU_STUB_QEMU=1 \
+  PYC_QEMU_TRACE="${QEMU_TRACE}" \
+  PYC_XCHECK_MODE="${PYC_XCHECK_MODE:-diagnostic}" \
   PYC_MAX_CYCLES=1 \
+  LINXCORE_BUILD_PROFILE="${LINXCORE_BUILD_PROFILE:-dev-fast}" \
     bash "${RUN_CPP}" "${MEMH}"
 } 2>&1)"
 ctor_rc=$?

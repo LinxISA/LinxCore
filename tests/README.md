@@ -24,6 +24,8 @@
 - Purpose: run real CoreMark for 1000 commits, compare QEMU vs LinxCore commit-by-commit, and require zero mismatch.
 - `test_cbstop_inflation_guard.sh`
 - Purpose: guard against early-window `C.BSTOP` inflation by comparing QEMU and LinxCore first-1000 commit histograms.
+- `test_benchmarks_trace_cosim.sh`
+- Purpose: end-to-end benchmark lane for CoreMark + Dhrystone with latest LinxTrace/DFX artifacts and QEMU lockstep cosim.
 
 Run all:
 
@@ -40,4 +42,5 @@ bash /Users/zhoubot/LinxCore/tests/test_konata_template_pipeview.sh
 bash /Users/zhoubot/LinxCore/tests/test_cpp_codegen_safety_gate.sh
 bash /Users/zhoubot/LinxCore/tests/test_coremark_crosscheck_1000.sh
 bash /Users/zhoubot/LinxCore/tests/test_cbstop_inflation_guard.sh
+bash /Users/zhoubot/LinxCore/tests/test_benchmarks_trace_cosim.sh
 ```

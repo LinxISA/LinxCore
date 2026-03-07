@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
+source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
 
 ELF=""
 MEMH=""
@@ -12,9 +12,9 @@ MAX_COMMITS="1000"
 TB_MAX_CYCLES="50000000"
 BOOT_PC=""
 BOOT_SP="${BOOT_SP:-0x0000000007fefff0}"
-QEMU_BIN="${QEMU_BIN:-${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
+QEMU_BIN="${QEMU_BIN:-$(linxcore_resolve_qemu_bin "${ROOT_DIR}" || true)}"
 QEMU_MAX_SECONDS="${QEMU_MAX_SECONDS:-0}"
-LLVM_READELF="${LLVM_READELF:-/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-readelf}"
+LLVM_READELF="${LLVM_READELF:-$(linxcore_resolve_llvm_readelf "${ROOT_DIR}" || true)}"
 
 usage() {
   cat <<USAGE
@@ -74,6 +74,7 @@ fi
 if [[ -z "${BOOT_PC}" ]]; then
   if [[ ! -x "${LLVM_READELF}" ]]; then
     echo "error: missing llvm-readelf: ${LLVM_READELF}" >&2
+    echo "hint: set LLVM_READELF=..." >&2
     exit 2
   fi
   BOOT_PC="$(${LLVM_READELF} -h "${ELF}" | awk '/Entry point address:/ {print $4; exit}')"

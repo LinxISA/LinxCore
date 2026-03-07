@@ -38,17 +38,12 @@ def build_janus_bcc_lsu_dcache_stub(
     c = m.const
 
     req_valid = m.input("dcache_req_valid", width=1)
-    req_ready = m.output("dcache_req_ready", c(0, width=1))
     req_entry_id = m.input("dcache_req_entry_id", width=entry_id_w)
     req_line = m.input("dcache_req_line", width=paddr_w)
     req_mask = m.input("dcache_req_mask", width=64)
     req_data = m.input("dcache_req_data", width=512)
 
-    resp_valid = m.output("dcache_resp_valid", c(0, width=1))
     resp_ready = m.input("dcache_resp_ready", width=1)
-    resp_entry_id = m.output("dcache_resp_entry_id", c(0, width=entry_id_w))
-    resp_ok = m.output("dcache_resp_ok", c(1, width=1))
-    resp_err = m.output("dcache_resp_err_code", c(0, width=err_w))
 
     idx_w = _clog2(depth)
     head = m.out("head", clk=clk, rst=rst, width=idx_w, init=c(0, width=idx_w), en=c(1, width=1))
@@ -75,12 +70,12 @@ def build_janus_bcc_lsu_dcache_stub(
         q_mask.append(m.out(f"mask{i}", clk=clk, rst=rst, width=64, init=c(0, width=64), en=c(1, width=1)))
         q_data.append(m.out(f"data{i}", clk=clk, rst=rst, width=512, init=c(0, width=512), en=c(1, width=1)))
 
-    full = count.out().eq(c(depth, width=idx_w + 1))
-    req_ready.set(~full)
-    enq_fire = req_valid & req_ready
+    full = count.out() == c(depth, width=idx_w + 1)
+    req_ready_w = ~full
+    enq_fire = req_valid & req_ready_w
 
     for i in range(depth):
-        is_tail = tail.out().eq(c(i, width=idx_w))
+        is_tail = tail.out() == c(i, width=idx_w)
         q_v[i].set(c(1, width=1), when=enq_fire & is_tail)
         q_eid[i].set(req_entry_id, when=enq_fire & is_tail)
         q_due[i].set((cyc.out() + c(latency, width=due_w))._trunc(width=due_w), when=enq_fire & is_tail)
@@ -88,36 +83,39 @@ def build_janus_bcc_lsu_dcache_stub(
         q_mask[i].set(req_mask, when=enq_fire & is_tail)
         q_data[i].set(req_data, when=enq_fire & is_tail)
 
-    tail_next = enq_fire.select((tail.out() + c(1, width=idx_w))._trunc(width=idx_w), tail.out())
-    count_next = enq_fire.select(count.out() + c(1, width=idx_w + 1), count.out())
+    tail_next = (tail.out() + c(1, width=idx_w))._trunc(width=idx_w) if enq_fire else tail.out()
+    count_next = (count.out() + c(1, width=idx_w + 1)) if enq_fire else count.out()
 
     head_v = c(0, width=1)
     head_eid = c(0, width=entry_id_w)
     head_due = c(0, width=due_w)
     for i in range(depth):
-        is_head = head.out().eq(c(i, width=idx_w))
-        head_v = is_head.select(q_v[i].out(), head_v)
-        head_eid = is_head.select(q_eid[i].out(), head_eid)
-        head_due = is_head.select(q_due[i].out(), head_due)
+        is_head = head.out() == c(i, width=idx_w)
+        head_v = q_v[i].out() if is_head else head_v
+        head_eid = q_eid[i].out() if is_head else head_eid
+        head_due = q_due[i].out() if is_head else head_due
 
     can_resp = head_v & head_due.ule(cyc.out())
-    resp_valid.set(can_resp)
-    resp_entry_id.set(head_eid)
+    resp_valid_w = can_resp
+    resp_entry_id_w = head_eid
 
-    resp_fire = resp_valid & resp_ready
+    resp_fire = resp_valid_w & resp_ready
     for i in range(depth):
-        is_head = head.out().eq(c(i, width=idx_w))
+        is_head = head.out() == c(i, width=idx_w)
         q_v[i].set(c(0, width=1), when=resp_fire & is_head)
 
-    head_next = resp_fire.select((head.out() + c(1, width=idx_w))._trunc(width=idx_w), head.out())
-    count_next = resp_fire.select(count_next - c(1, width=idx_w + 1), count_next)
+    head_next = (head.out() + c(1, width=idx_w))._trunc(width=idx_w) if resp_fire else head.out()
+    count_next = (count_next - c(1, width=idx_w + 1)) if resp_fire else count_next
 
     head.set(head_next)
     tail.set(tail_next)
     count.set(count_next)
 
-    resp_ok.set(c(1, width=1))
-    resp_err.set(c(0, width=err_w))
+    m.output("dcache_req_ready", req_ready_w)
+    m.output("dcache_resp_valid", resp_valid_w)
+    m.output("dcache_resp_entry_id", resp_entry_id_w)
+    m.output("dcache_resp_ok", c(1, width=1))
+    m.output("dcache_resp_err_code", c(0, width=err_w))
 
     m.output("dcache_stub_count", count.out())
     m.output("dcache_stub_full", full)

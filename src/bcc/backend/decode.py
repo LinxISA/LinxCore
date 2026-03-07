@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pycircuit import Circuit, function, module
 
-from common.decode_f4 import decode_f4_bundle
 from common.isa import (
     BK_CALL,
     BK_COND,
@@ -19,6 +18,7 @@ from common.isa import (
     OP_C_BSTART_COND,
     OP_C_BSTART_DIRECT,
     OP_C_BSTART_STD,
+    OP_C_SETRET,
     OP_C_LWI,
     OP_C_SDI,
     OP_C_SWI,
@@ -34,6 +34,7 @@ from common.isa import (
     OP_SBI,
     OP_SD,
     OP_SDI,
+    OP_SETRET,
     OP_SH,
     OP_SHI,
     OP_SW,
@@ -41,6 +42,7 @@ from common.isa import (
     REG_INVALID,
 )
 from common.util import lshr_var
+from .modules.decode_window import build_decode_window
 
 
 @function
@@ -61,25 +63,78 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
     f4_pkt_uid = m.input("f4_pkt_uid", width=64)
 
     c = m.const
-    f4_bundle = decode_f4_bundle(m, f4_window)
+    z4 = c(0, width=4)
+    b8 = c(8, width=4)
+    b2 = c(2, width=4)
+
+    decode_wins = []
+    decode_wins.append(f4_window)
+    decoders = []
+    decoders.append(
+        m.instance_auto(
+            build_decode_window,
+            name="decode_window_0",
+            window=decode_wins[0],
+        )
+    )
+
+    dec_lens = []
+    dec_lens.append(decoders[0]["len_bytes"]._zext(width=4))
+    slot_valids = []
+    slot_valids.append(~dec_lens[0].__eq__(z4))
+    slot_offsets = []
+    slot_offsets.append(z4)
+
+    is_macro0 = (
+        decoders[0]["op"].__eq__(c(OP_FENTRY, width=12))
+        | decoders[0]["op"].__eq__(c(OP_FEXIT, width=12))
+        | decoders[0]["op"].__eq__(c(OP_FRET_RA, width=12))
+        | decoders[0]["op"].__eq__(c(OP_FRET_STK, width=12))
+    )
+
+    prev_rem = b8 - dec_lens[0]
+    prev_valid = slot_valids[0]
+    prev_off = dec_lens[0]
+
+    for slot in range(1, dispatch_w):
+        shift = prev_off._zext(width=6).shl(amount=3)
+        win = lshr_var(m, f4_window, shift)
+        decode_wins.append(win)
+        dec = m.instance_auto(
+            build_decode_window,
+            name=f"decode_window_{slot}",
+            window=win,
+        )
+        decoders.append(dec)
+        dec_len = dec["len_bytes"]._zext(width=4)
+        dec_lens.append(dec_len)
+        slot_offsets.append(prev_off)
+        if slot == 1:
+            slot_valid = prev_valid & (~is_macro0) & prev_rem.uge(b2) & (~dec_len.__eq__(z4)) & dec_len.ule(prev_rem)
+        else:
+            slot_valid = prev_valid & prev_rem.uge(b2) & (~dec_len.__eq__(z4)) & dec_len.ule(prev_rem)
+        slot_valids.append(slot_valid)
+        prev_rem = prev_rem - dec_len
+        prev_off = prev_off + dec_len
+        prev_valid = slot_valid
 
     disp_count = c(0, width=3)
 
     for slot in range(dispatch_w):
-        dec = f4_bundle.dec[slot]
-        v = f4_valid & f4_bundle.valid[slot]
-        off = f4_bundle.off_bytes[slot]
+        dec = decoders[slot]
+        v = f4_valid & slot_valids[slot]
+        off = slot_offsets[slot]
         pc = f4_pc + off._zext(width=64)
 
-        op = dec.op
-        ln = dec.len_bytes
-        regdst = dec.regdst
-        srcl = dec.srcl
-        srcr = dec.srcr
-        srcr_type = dec.srcr_type
-        shamt = dec.shamt
-        srcp = dec.srcp
-        imm = dec.imm
+        op = dec["op"]
+        ln = dec["len_bytes"]
+        regdst = dec["regdst"]
+        srcl = dec["srcl"]
+        srcr = dec["srcr"]
+        srcr_type = dec["srcr_type"]
+        shamt = dec["shamt"]
+        srcp = dec["srcp"]
+        imm = dec["imm"]
         off_sh = off._zext(width=6).shl(amount=3)
         slot_window = lshr_var(m, f4_window, off_sh)
         insn_raw = slot_window
@@ -143,7 +198,7 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         pred_take = c(1, width=1)
         pred_take = boundary_kind.__eq__(c(BK_COND, width=3))._select_internal(cond_pred_take, pred_take)
         pred_take = boundary_kind.__eq__(c(BK_RET, width=3))._select_internal(c(0, width=1), pred_take)
-        resolved_d2 = is_boundary
+        resolved_d2 = is_boundary | _op_is(m, op, OP_SETRET, OP_C_SETRET)
         push_t = regdst.__eq__(c(31, width=6)) | op.__eq__(c(OP_C_LWI, width=12))
         push_u = regdst.__eq__(c(30, width=6))
         is_store = _op_is(
@@ -212,4 +267,4 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         disp_count = disp_count + v._zext(width=3)
 
     m.output("dispatch_count", disp_count)
-    m.output("dec_op", f4_bundle.dec[0].op)
+    m.output("dec_op", decoders[0]["op"])

@@ -1,64 +1,102 @@
-# LinxCore Branch Recovery Rules
+# LinxCore Branch and Block Recovery Rules
 
-This document defines the canonical LinxISA block-control behavior implemented in:
+This document defines the canonical LinxCore block-control behavior implemented
+by the current backend path:
 
-- `/Users/zhoubot/LinxCore/src/bcc/backend/engine.py`
-- `/Users/zhoubot/LinxCore/src/bcc/backend/rob.py`
-- `/Users/zhoubot/LinxCore/src/bcc/backend/decode.py`
+- `/Users/zhoubot/LinxCore/src/bcc/backend/modules/commit_slot_step.py`
+- `/Users/zhoubot/LinxCore/src/bcc/backend/modules/block_meta_step.py`
+- `/Users/zhoubot/LinxCore/src/bcc/backend/modules/commit_redirect.py`
+- `/Users/zhoubot/LinxCore/src/bcc/backend/modules/recovery_checks.py`
+- `/Users/zhoubot/LinxCore/src/bcc/backend/modules/trace_export_core.py`
+- `/Users/zhoubot/LinxCore/src/common/decode.py`
+- `/Users/zhoubot/LinxCore/src/common/exec_uop.py`
 
-## Rule 1: Boundary-authoritative redirect
+## Boundary-authoritative redirect
 
-Architectural redirect is resolved at block boundary commit.
+Architectural redirect is resolved at commit-side block boundary handling.
 
-- BRU `setc.cond` does not directly change architectural PC.
-- BRU mismatch only records deferred correction (`br_corr_*`) and epoch tags.
-- Boundary commit consumes deferred correction if epoch-matched.
+- `setc.cond` executes in BRU and may record deferred correction
+  (`br_corr_pending`, `br_corr_take`, `br_corr_target`, `br_corr_epoch`,
+  `br_corr_checkpoint_id`)
+- execution does not directly rewrite architectural control flow
+- `commit_slot_step.py` selects the redirect target at boundary commit
+- `commit_redirect.py` packages the already-selected redirect result; it is not
+  a second control-flow decision point
 
-## Rule 2: BSTART head vs in-body behavior
+## BSTART head versus in-body behavior
 
-LinxCore tracks whether next instruction is block-head (`state.block_head`).
+Committed block state keeps an explicit `block_head` bit and active block
+identity.
 
-- `BSTART` at block head: block begin marker (no old-block redirect).
-- `BSTART` in block body: behaves as old-block terminator; for `C.BSTART.STD` it may fall through to the same PC and restart block decode.
+- `BSTART` at block head opens or re-opens the committed block context
+- `BSTART` seen in block body terminates the previous committed block
+- a mid-block `BSTART` that is not taken can immediately seed the next block
+  metadata
+- the fall-through case for a mid-block `BSTART` may restart at the same PC so
+  the instruction can be observed again as the next block head
 
-This matches the QEMU split behavior where a BSTART seen in-body can first close the previous block, then be re-executed as the next block head.
+This is the split behavior needed to keep LinxCore aligned with QEMU on block
+boundaries such as `C.BSTART.STD`.
 
-## Rule 3: BSTART/BSTOP are ROB-visible and D2-resolved
+## ROB-visible boundary uops
 
-`BSTART/BSTOP` allocate ROB entries and are marked resolved at D2:
+`BSTART` and `BSTOP` are architectural boundary uops, not hidden control
+markers.
 
-- no IQ/FU issue required,
-- still retire in-order with full commit trace payload.
+- they allocate ROB entries
+- they are resolved in decode/D2 rather than waiting for a normal execute unit
+- they still retire in order and carry full commit-visible metadata
 
-## Rule 4: SETC validation contract
+The same commit path also treats `FENTRY`, `FEXIT`, `FRET.RA`, and `FRET.STK`
+as block-boundary-visible macro control instructions.
 
-`setc.cond` is validated in BRU against carried prediction metadata:
+## Explicit target materialization
 
-- `actual_take` from BRU execute,
-- `pred_take` from active block context.
+LinxCore follows the Linx ISA rule that dynamic targets are explicit.
 
-Mismatch sets deferred correction state, consumed only by boundary commit.
+- `RET`, `IND`, and `ICALL` blocks require `SETC.TGT` in the same block
+- returning `BSTART.CALL` headers require adjacent `SETRET` or `C.SETRET`
+- `BSTART.CALL` itself does not implicitly write `ra`
+- `SETRET` computes the explicit return label, and `SETC.TGT` selects the
+  dynamic branch/return target source
 
-## Rule 5: BSTOP-only block-private release
+If the program violates these rules, that is an ISA contract violation, not a
+microarchitectural shortcut.
 
-Block-private resources are released only when `BSTOP` retires (`commit_is_bstop=1`):
+## Macro block treatment
 
-- T/U queues,
-- BARG valid state.
+Macro control instructions are treated as standalone fall-through blocks in the
+committed block metadata.
 
-No release is allowed on `BSTART`.
+- `FENTRY`, `FEXIT`, `FRET.RA`, and `FRET.STK` are considered block boundaries
+- on macro entry, live committed block metadata becomes conservative
+  fall-through metadata rooted at that macro PC
+- after a taken boundary or a committed `BSTOP`, live block metadata is reset to
+  conservative fall-through state until the next `BSTART` head installs new
+  decoded metadata
 
-## Rule 6: Recovery target safety and precise trap
+## Recovery target safety
 
-Any BRU/deferred correction target must map to valid BSTART metadata in PC buffer.
+Deferred correction is only valid when the target is a legal block boundary.
 
-If target is invalid:
+- `recovery_checks.py` validates `setc.cond` mismatch only for the relevant
+  boundary kinds (`COND` and `RET`) and only when the epoch matches
+- the target must be known in the PC buffer and tagged as `is_bstart`
+- a known target that is not a legal block start raises a precise trap:
+  `TRAP_BRU_RECOVERY_NOT_BSTART (0x0000B001)`
+- an unknown target does not authorize a correction; the correction path only
+  arms when the target metadata is present and legal
 
-- precise trap is raised,
-- `trap_cause = TRAP_BRU_RECOVERY_NOT_BSTART (0x0000B001)`,
-- trap is attributed to the offending ROB entry.
+## Block-private release and block retire
 
-## Rule 7: No implicit RA write on BSTART.CALL
+Block-private state is released only by `BSTOP`, never by `BSTART`.
 
-`BSTART.CALL` does not implicitly write RA.
-RA updates are only from explicit `setret`/`setc.tgt` behavior.
+- `T/U` queues and block-private argument state are released on `BSTOP` commit
+- `BSTOP` retirement is additionally gated by BROB state for engine-backed
+  blocks
+- when `BSTOP` commits, commit emits the BROB retire event for the active block
+  BID
+
+This keeps block resource lifetime aligned with the ISA-level rule that `BSTART`
+starts a new block but does not implicitly retire the previous block's private
+resources.

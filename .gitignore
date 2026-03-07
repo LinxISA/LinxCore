@@ -25,5 +25,11 @@ __pycache__/
 # local venv
 .venv/
 
+# local editor + build scratch
+.vscode/
+.ninja_deps
+.ninja_log
+.ninja_lock
+
 # macOS
 .DS_Store

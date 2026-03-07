@@ -2,7 +2,21 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-PYC_ROOT="/Users/zhoubot/pyCircuit"
+source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
+PYC_ROOT="${LINXCORE_PYC_ROOT:-${PYC_ROOT:-$(linxcore_resolve_pyc_root "${ROOT_DIR}" || true)}}"
+if [[ -z "${PYC_ROOT}" || ! -d "${PYC_ROOT}" ]]; then
+  echo "error: pyCircuit root not found: ${PYC_ROOT:-<unset>}" >&2
+  echo "hint: set LINXCORE_PYC_ROOT=... or PYC_ROOT=..." >&2
+  exit 2
+fi
+BUILD_PROFILE="${LINXCORE_BUILD_PROFILE:-dev-fast}"
+case "${BUILD_PROFILE}" in
+  dev-fast|release) ;;
+  *)
+    echo "error: unsupported LINXCORE_BUILD_PROFILE=${BUILD_PROFILE} (expected dev-fast|release)" >&2
+    exit 2
+    ;;
+esac
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
 CPP_MANIFEST="${PYC_MANIFEST_PATH:-${GEN_CPP_DIR}/cpp_compile_manifest.json}"
@@ -17,18 +31,25 @@ GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
 MODEL_OBJ_BUILDER="${ROOT_DIR}/tools/generate/build_linxcore_model_objects.sh"
 TB_MAIN_OBJ="${TB_OBJ_DIR}/tb_linxcore_top.o"
 TB_TRACE_UTIL_OBJ="${TB_OBJ_DIR}/tb_linxcore_trace_util.o"
-TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O3 -DNDEBUG}"
+if [[ -n "${PYC_TB_CXXFLAGS:-}" ]]; then
+  TB_CXXFLAGS="${PYC_TB_CXXFLAGS}"
+elif [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  TB_CXXFLAGS="-O1 -DNDEBUG -g0"
+else
+  TB_CXXFLAGS="-O3 -DNDEBUG -g0"
+fi
 if [[ -z "${PYC_TB_CXXFLAGS:-}" && "${PYC_TB_FAST:-0}" == "1" ]]; then
-  TB_CXXFLAGS="-O3 -DNDEBUG -march=native -flto"
+  TB_CXXFLAGS="${TB_CXXFLAGS} -march=native -flto"
 fi
 if [[ -z "${CXX:-}" ]]; then
-  if command -v clang++ >/dev/null 2>&1; then
-    export CXX="$(command -v clang++)"
-  elif [[ -x "/opt/homebrew/bin/g++-15" ]]; then
+  if [[ -x "/opt/homebrew/bin/g++-15" ]]; then
     export CXX="/opt/homebrew/bin/g++-15"
+  elif command -v clang++ >/dev/null 2>&1; then
+    export CXX="$(command -v clang++)"
   fi
 fi
 TB_CXX="${CXX:-clang++}"
+TB_CXX_CFG="${GEN_CPP_DIR}/.tb_cxx"
 TB_CXXFLAGS_CFG="${GEN_CPP_DIR}/.tb_cxxflags"
 TB_MANIFEST_HASH_CFG="${GEN_CPP_DIR}/.tb_manifest_hash"
 BUILD_LOCK_DIR="${GEN_CPP_DIR}/.tb_build_lock"
@@ -160,6 +181,7 @@ fi
 
 if [[ "${need_regen}" -ne 0 ]]; then
   LINXCORE_CALLFRAME_SIZE="${CALLFRAME_SIZE}" \
+  LINXCORE_BUILD_PROFILE="${BUILD_PROFILE}" \
     bash "${ROOT_DIR}/tools/generate/update_generated_linxcore.sh" >/dev/null
   printf '%s\n' "${PARAM_ENV_HASH}" > "${PARAM_HASH_CFG}"
 fi
@@ -180,6 +202,8 @@ elif [[ ! -f "${CPP_MANIFEST}" ]]; then
 elif [[ -z "${CURRENT_MANIFEST_HASH}" ]]; then
   need_build=1
 elif [[ ! -f "${TB_MANIFEST_HASH_CFG}" || "$(cat "${TB_MANIFEST_HASH_CFG}")" != "${CURRENT_MANIFEST_HASH}" ]]; then
+  need_build=1
+elif [[ ! -f "${TB_CXX_CFG}" || "$(cat "${TB_CXX_CFG}")" != "${TB_CXX}" ]]; then
   need_build=1
 elif [[ ! -f "${TB_CXXFLAGS_CFG}" || "$(cat "${TB_CXXFLAGS_CFG}")" != "${TB_CXXFLAGS}" ]]; then
   need_build=1
@@ -285,6 +309,8 @@ PY
     need_build_locked=1
   elif [[ ! -f "${TB_MANIFEST_HASH_CFG}" || "$(cat "${TB_MANIFEST_HASH_CFG}")" != "${CURRENT_MANIFEST_HASH}" ]]; then
     need_build_locked=1
+  elif [[ ! -f "${TB_CXX_CFG}" || "$(cat "${TB_CXX_CFG}")" != "${TB_CXX}" ]]; then
+    need_build_locked=1
   elif [[ ! -f "${TB_CXXFLAGS_CFG}" || "$(cat "${TB_CXXFLAGS_CFG}")" != "${TB_CXXFLAGS}" ]]; then
     need_build_locked=1
   elif [[ "${TB_SRC}" -nt "${TB_MAIN_OBJ}" || "${HDR}" -nt "${TB_MAIN_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_MAIN_OBJ}" ]]; then
@@ -346,14 +372,6 @@ PY
       fi
     fi
 
-    compile_pairs=()
-    if [[ ! -f "${TB_TRACE_UTIL_OBJ}" || "${TB_TRACE_UTIL_SRC}" -nt "${TB_TRACE_UTIL_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_TRACE_UTIL_OBJ}" ]]; then
-      compile_pairs+=("${TB_TRACE_UTIL_SRC}"$'\t'"${TB_TRACE_UTIL_OBJ}")
-    fi
-    if [[ ! -f "${TB_MAIN_OBJ}" || "${TB_SRC}" -nt "${TB_MAIN_OBJ}" || "${HDR}" -nt "${TB_MAIN_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_MAIN_OBJ}" ]]; then
-      compile_pairs+=("${TB_SRC}"$'\t'"${TB_MAIN_OBJ}")
-    fi
-
     manifest_hash_cfg=""
     if [[ -f "${TB_MANIFEST_HASH_CFG}" ]]; then
       manifest_hash_cfg="$(cat "${TB_MANIFEST_HASH_CFG}")"
@@ -362,8 +380,33 @@ PY
     if [[ -f "${TB_CXXFLAGS_CFG}" ]]; then
       cxxflags_cfg="$(cat "${TB_CXXFLAGS_CFG}")"
     fi
+    tb_cxx_cfg=""
+    if [[ -f "${TB_CXX_CFG}" ]]; then
+      tb_cxx_cfg="$(cat "${TB_CXX_CFG}")"
+    fi
+
+    # If the compile configuration changed, force-rebuild TB objects to avoid
+    # ABI mismatches (e.g. clang++ vs g++ stdlib types).
+    force_recompile_tb=0
+    if [[ -z "${manifest_hash_cfg}" || "${manifest_hash_cfg}" != "${CURRENT_MANIFEST_HASH}" ]]; then
+      force_recompile_tb=1
+    elif [[ -z "${cxxflags_cfg}" || "${cxxflags_cfg}" != "${TB_CXXFLAGS}" ]]; then
+      force_recompile_tb=1
+    elif [[ -z "${tb_cxx_cfg}" || "${tb_cxx_cfg}" != "${TB_CXX}" ]]; then
+      force_recompile_tb=1
+    fi
+
+    compile_pairs=()
+    if [[ "${force_recompile_tb}" -eq 1 || ! -f "${TB_TRACE_UTIL_OBJ}" || "${TB_TRACE_UTIL_SRC}" -nt "${TB_TRACE_UTIL_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_TRACE_UTIL_OBJ}" ]]; then
+      compile_pairs+=("${TB_TRACE_UTIL_SRC}"$'\t'"${TB_TRACE_UTIL_OBJ}")
+    fi
+    if [[ "${force_recompile_tb}" -eq 1 || ! -f "${TB_MAIN_OBJ}" || "${TB_SRC}" -nt "${TB_MAIN_OBJ}" || "${HDR}" -nt "${TB_MAIN_OBJ}" || "${TB_TRACE_UTIL_HDR}" -nt "${TB_MAIN_OBJ}" ]]; then
+      compile_pairs+=("${TB_SRC}"$'\t'"${TB_MAIN_OBJ}")
+    fi
+
     # Build/refresh the generated model objects via the shared builder.
     if [[ -x "${MODEL_OBJ_BUILDER}" ]]; then
+      LINXCORE_BUILD_PROFILE="${BUILD_PROFILE}" \
       PYC_MODEL_CXXFLAGS="${TB_CXXFLAGS}" \
         bash "${MODEL_OBJ_BUILDER}" >/dev/null
     fi
@@ -460,6 +503,7 @@ PY
     tmp_exe="${TB_EXE}.tmp.$$"
     "${TB_CXX}" "${link_flags[@]}" -o "${tmp_exe}" "${TB_MAIN_OBJ}" "${TB_TRACE_UTIL_OBJ}" "${gen_objs[@]}" -lz
     mv -f "${tmp_exe}" "${TB_EXE}"
+    printf '%s\n' "${TB_CXX}" > "${TB_CXX_CFG}"
     printf '%s\n' "${TB_CXXFLAGS}" > "${TB_CXXFLAGS_CFG}"
     printf '%s\n' "${CURRENT_MANIFEST_HASH}" > "${TB_MANIFEST_HASH_CFG}"
   fi

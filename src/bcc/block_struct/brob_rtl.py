@@ -1,22 +1,26 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, Wire, module
+from pycircuit import Circuit, Wire, function, module
 
 
+@function
 def mask_bit(m: Circuit, *, mask: Wire, idx: Wire, width: int) -> Wire:
     """Return mask[idx] as i1, using a linear mux chain."""
     c = m.const
     out = c(0, width=1)
     for i in range(int(width)):
-        out = idx.eq(c(i, width=idx.width)).select(mask[i], out)
+        hit = idx.__eq__(c(i, width=idx.width))
+        out = hit._select_internal(mask[i], out)
     return out
 
 
+@function
 def onehot_from_tag(m: Circuit, *, tag: Wire, width: int, tag_width: int) -> Wire:
     c = m.const
     out = c(0, width=width)
     for i in range(int(width)):
-        out = tag.eq(c(i, width=tag_width)).select(c(1 << i, width=width), out)
+        hit = tag.__eq__(c(i, width=tag_width))
+        out = hit._select_internal(c(1 << i, width=width), out)
     return out
 
 
@@ -114,30 +118,30 @@ def build_janus_bcc_block_struct_brob(
     exc_next = exception.out()
 
     # Allocation writes
-    alloc_next = alloc_fire.select(alloc_next | alloc_onehot, alloc_next)
+    alloc_next = alloc_fire._select_internal(alloc_next | alloc_onehot, alloc_next)
     # Clear done/exception bits for allocated slot
-    scalar_next = alloc_fire.select(scalar_next & (~alloc_onehot), scalar_next)
-    engine_next = alloc_fire.select(engine_next & (~alloc_onehot), engine_next)
-    exc_next = alloc_fire.select(exc_next & (~alloc_onehot), exc_next)
-    needs_engine_bits = alloc_needs_engine.select(alloc_onehot, c(0, width=slots))
-    needs_engine_next = alloc_fire.select((needs_engine_next & (~alloc_onehot)) | needs_engine_bits, needs_engine_next)
+    scalar_next = alloc_fire._select_internal(scalar_next & (~alloc_onehot), scalar_next)
+    engine_next = alloc_fire._select_internal(engine_next & (~alloc_onehot), engine_next)
+    exc_next = alloc_fire._select_internal(exc_next & (~alloc_onehot), exc_next)
+    needs_engine_bits = alloc_needs_engine._select_internal(alloc_onehot, c(0, width=slots))
+    needs_engine_next = alloc_fire._select_internal((needs_engine_next & (~alloc_onehot)) | needs_engine_bits, needs_engine_next)
 
     # Scalar completion sets scalar_done, may set exception
-    scalar_next = scalar_fire.select(scalar_next | scalar_hit, scalar_next)
-    exc_next = (scalar_fire & scalar_done_trap_valid).select(exc_next | scalar_hit, exc_next)
+    scalar_next = scalar_fire._select_internal(scalar_next | scalar_hit, scalar_next)
+    exc_next = (scalar_fire & scalar_done_trap_valid)._select_internal(exc_next | scalar_hit, exc_next)
 
     # Engine completion sets engine_done, may set exception
-    engine_next = engine_fire.select(engine_next | engine_hit, engine_next)
-    exc_next = (engine_fire & engine_done_trap_valid).select(exc_next | engine_hit, exc_next)
+    engine_next = engine_fire._select_internal(engine_next | engine_hit, engine_next)
+    exc_next = (engine_fire & engine_done_trap_valid)._select_internal(exc_next | engine_hit, exc_next)
 
     # Retire/free: only allow freeing allocated entries (gated by allocated bit)
     retire_fire = retire_valid
     retire_mask = retire_hit & allocated.out()
-    alloc_next = retire_fire.select(alloc_next & (~retire_mask), alloc_next)
-    scalar_next = retire_fire.select(scalar_next & (~retire_mask), scalar_next)
-    engine_next = retire_fire.select(engine_next & (~retire_mask), engine_next)
-    needs_engine_next = retire_fire.select(needs_engine_next & (~retire_mask), needs_engine_next)
-    exc_next = retire_fire.select(exc_next & (~retire_mask), exc_next)
+    alloc_next = retire_fire._select_internal(alloc_next & (~retire_mask), alloc_next)
+    scalar_next = retire_fire._select_internal(scalar_next & (~retire_mask), scalar_next)
+    engine_next = retire_fire._select_internal(engine_next & (~retire_mask), engine_next)
+    needs_engine_next = retire_fire._select_internal(needs_engine_next & (~retire_mask), needs_engine_next)
+    exc_next = retire_fire._select_internal(exc_next & (~retire_mask), exc_next)
 
     allocated.set(alloc_next)
     scalar_done.set(scalar_next)
@@ -148,7 +152,7 @@ def build_janus_bcc_block_struct_brob(
     # Slot payload updates
     for i in range(int(slots)):
         slot_i = c(i, width=4)
-        slot_hit = alloc_slot.eq(slot_i)
+        slot_hit = alloc_slot == slot_i
         do_write = alloc_fire & slot_hit
         bid_slot[i].set(alloc_bid, when=do_write)
         blocktype_slot[i].set(alloc_blocktype, when=do_write)
@@ -167,8 +171,8 @@ def build_janus_bcc_block_struct_brob(
     query_idx = c(0, width=4)
     for i in range(int(slots)):
         take = query_hit[i] & (~qv)
-        qv = take.select(c(1, width=1), qv)
-        query_idx = take.select(c(i, width=4), query_idx)
+        qv = take._select_internal(c(1, width=1), qv)
+        query_idx = take._select_internal(c(i, width=4), query_idx)
 
     q_alloc_bit = query_any & mask_bit(m, mask=alloc_next, idx=query_idx, width=slots)
     q_scalar_bit = query_any & mask_bit(m, mask=scalar_next, idx=query_idx, width=slots)
@@ -180,9 +184,9 @@ def build_janus_bcc_block_struct_brob(
     q_blocktype = c(0, width=blocktype_w)
     q_trap_cause = c(0, width=trap_cause_w)
     for i in range(int(slots)):
-        is_i = query_idx.eq(c(i, width=4))
-        q_blocktype = is_i.select(blocktype_slot[i].out(), q_blocktype)
-        q_trap_cause = is_i.select(trap_cause_slot[i].out(), q_trap_cause)
+        is_i = query_idx == c(i, width=4)
+        q_blocktype = is_i._select_internal(blocktype_slot[i].out(), q_blocktype)
+        q_trap_cause = is_i._select_internal(trap_cause_slot[i].out(), q_trap_cause)
 
     m.output("alloc_ok", alloc_ok)
     m.output("alloc_fire", alloc_fire)

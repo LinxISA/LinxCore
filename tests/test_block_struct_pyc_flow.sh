@@ -2,34 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
 
-find_pyc_root() {
-  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
-    echo "${PYC_ROOT}"
-    return 0
-  fi
-
-  local super
-  super="$(git -C "${ROOT_DIR}" rev-parse --show-superproject-working-tree 2>/dev/null || true)"
-  if [[ -n "${super}" && -d "${super}/tools/pyCircuit" ]]; then
-    echo "${super}/tools/pyCircuit"
-    return 0
-  fi
-
-  local cand
-  cand="${ROOT_DIR}/../../tools/pyCircuit"
-  if [[ -d "${cand}" ]]; then
-    echo "${cand}"
-    return 0
-  fi
-
-  return 1
-}
-
-PYC_ROOT_DIR="$(find_pyc_root)" || {
+PYC_ROOT_DIR="$(linxcore_resolve_pyc_root "${ROOT_DIR}" || true)"
+if [[ -z "${PYC_ROOT_DIR}" || ! -d "${PYC_ROOT_DIR}" ]]; then
   echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
   exit 2
-}
+fi
 
 # shellcheck disable=SC1090
 source "${PYC_ROOT_DIR}/flows/scripts/lib.sh"

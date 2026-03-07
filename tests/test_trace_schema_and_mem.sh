@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-MEMH="${PYC_TEST_MEMH:-/Users/zhoubot/pyCircuit/designs/examples/linx_cpu/programs/test_or.memh}"
+MEMH="${PYC_TEST_MEMH:-${ROOT_DIR}/tests/artifacts/linx-qemu-tests-arith.memh}"
+QEMU_TRACE="${PYC_TEST_QEMU_TRACE:-${ROOT_DIR}/tests/artifacts/arith.flushfix.commit.jsonl}"
 TMP_DIR="$(mktemp -d -t linxcore_trace_schema.XXXXXX)"
 TRACE="${TMP_DIR}/trace.jsonl"
 
@@ -22,12 +23,21 @@ if [[ ! -f "${MEMH}" ]]; then
   echo "error: missing memh after benchmark build: ${MEMH}" >&2
   exit 2
 fi
+if [[ ! -f "${QEMU_TRACE}" ]]; then
+  echo "error: missing QEMU trace jsonl for IB mode: ${QEMU_TRACE}" >&2
+  exit 2
+fi
 
 PYC_BOOT_PC=0x10000 \
-PYC_BOOT_SP=0x00000000000ff000 \
+PYC_BOOT_SP=0x20000 \
 PYC_MAX_CYCLES=12000 \
-PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O0 -g0}" \
+PYC_IFU_STUB_QEMU=1 \
+PYC_QEMU_TRACE="${QEMU_TRACE}" \
+PYC_XCHECK_MODE="${PYC_XCHECK_MODE:-diagnostic}" \
+PYC_MAX_COMMITS="${PYC_MAX_COMMITS:-256}" \
+PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O1 -DNDEBUG -g0}" \
 PYC_COMMIT_TRACE="${TRACE}" \
+LINXCORE_BUILD_PROFILE="${LINXCORE_BUILD_PROFILE:-dev-fast}" \
   bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${MEMH}" >/dev/null 2>&1 || true
 
 if [[ ! -s "${TRACE}" ]]; then

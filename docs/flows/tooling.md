@@ -6,6 +6,23 @@
 bash /Users/zhoubot/LinxCore/tools/generate/update_generated_linxcore.sh
 ```
 
+Build profile defaults:
+
+- `LINXCORE_BUILD_PROFILE=dev-fast` (default): lower compile latency (`--noinline`, tighter sharding, reduced logic depth).
+- `LINXCORE_BUILD_PROFILE=release`: canonical closure lane settings.
+
+Compile-cost hard-gate knobs used by this flow:
+
+- `PYC_MANIFEST_COST_MAX_TOP_TU` (default `250000`)
+- `PYC_MANIFEST_COST_MAX_TOP_MODULE` (default `1500000`)
+- `PYC_MANIFEST_COST_MAX_TOTAL` (default `2300000`)
+- `PYC_MANIFEST_COST_BASELINE_DIR` (default `/Users/zhoubot/LinxCore/generated/perf/baselines`)
+- `PYC_MANIFEST_COST_BASELINE_JSON` (default `<baseline_dir>/cpp_compile_manifest.<profile>.json`)
+- `PYC_MANIFEST_COST_MAX_REGRESS_PCT` (default `25`)
+- `PYC_MANIFEST_COST_AUTO_BOOTSTRAP` (default `1`, auto-create baseline on first run)
+- `PYC_MANIFEST_COST_UPDATE_BASELINE=1` (force-refresh baseline from current manifest)
+- `PYC_MANIFEST_COST_STRICT=1` (optional hard-fail mode; default is warn-only)
+
 Outputs:
 - `/Users/zhoubot/LinxCore/generated/cpp/linxcore_top`
 - `/Users/zhoubot/LinxCore/generated/verilog/linxcore_top`
@@ -42,6 +59,11 @@ bash /Users/zhoubot/LinxCore/tools/generate/run_linxcore_top_cpp.sh <program.mem
 Manifest-driven parallel C++ build knobs:
 
 - `PYC_BUILD_JOBS=<n>` controls generated TU compile parallelism.
+- `PYC_GEN_CXXFLAGS="<flags>"` sets C++ flags for generated pycc TUs only.
+- `PYC_TB_CXXFLAGS="<flags>"` sets C++ flags for TB/host sources only.
+- `PYC_TB_PCH=1|0` enables/disables TB precompiled-header acceleration (default: `1` on clang).
+- `PYC_CXX_LAUNCHER=<tool>` prepends a compile launcher (for example `ccache`).
+  If unset and `ccache` is installed, `run_linxcore_top_cpp.sh` auto-enables it.
 - `PYC_MANIFEST_PATH=<path>` overrides manifest path (default:
   `/Users/zhoubot/LinxCore/generated/cpp/linxcore_top/cpp_compile_manifest.json`).
 
@@ -123,6 +145,27 @@ SimPoint-style BBV approximation over committed `pc->next_pc` edges.
 
 ```bash
 bash /Users/zhoubot/LinxCore/tools/image/run_linxcore_benchmarks.sh
+```
+
+## Generate LinxTrace for CoreMark + Dhrystone
+
+```bash
+# Optional: limit trace to the first N retired instructions (default: 1000).
+bash /Users/zhoubot/LinxCore/tools/linxcoresight/run_linxtrace_benchmarks.sh 1000
+```
+
+## Run QEMU Lockstep Co-Sim for CoreMark + Dhrystone
+
+```bash
+# Samples the first N commits from each workload (default: 1000).
+bash /Users/zhoubot/LinxCore/tools/qemu/run_cosim_benchmarks.sh
+```
+
+## Run Benchmark Trace + Co-Sim Gate (CoreMark + Dhrystone)
+
+```bash
+# Produces/validates LinxTrace+DFX artifacts and then runs QEMU lockstep co-sim.
+bash /Users/zhoubot/LinxCore/tests/test_benchmarks_trace_cosim.sh
 ```
 
 ## Run QEMU Lockstep Co-Sim

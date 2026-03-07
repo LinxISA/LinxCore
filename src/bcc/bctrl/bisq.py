@@ -20,6 +20,9 @@ def build_janus_bcc_bctrl_bisq(m: Circuit, *, depth: int = 16, idx_w: int = 4) -
     deq_ready_bisq = m.input("deq_ready_bisq", width=1)
 
     # Flush younger blocks: keep entries with bid <= flush_bid.
+    # `flush_valid_bisq` freezes the queue for the redirect/flush cycle(s).
+    # `flush_fire_bisq` performs the kill/update when asserted.
+    flush_valid_bisq = m.input("flush_valid_bisq", width=1)
     flush_fire_bisq = m.input("flush_fire_bisq", width=1)
     flush_bid_bisq = m.input("flush_bid_bisq", width=64)
 
@@ -53,8 +56,8 @@ def build_janus_bcc_bctrl_bisq(m: Circuit, *, depth: int = 16, idx_w: int = 4) -
     head_tile_bisq = mux_by_uindex(m, idx=head_bisq.out(), items=q_tile_bisq, default=c(0, width=6))
     head_rob_bisq = mux_by_uindex(m, idx=head_bisq.out(), items=q_rob_bisq, default=c(0, width=6))
 
-    fire_enq_bisq = enq_valid_bisq & enq_ready_bisq
-    fire_deq_bisq = deq_valid_bisq & deq_ready_bisq
+    fire_enq_bisq = enq_valid_bisq & enq_ready_bisq & (~flush_valid_bisq)
+    fire_deq_bisq = deq_valid_bisq & deq_ready_bisq & (~flush_valid_bisq)
 
     # On flush: find the kept prefix length in dequeue order.
     # We assume (as designed) that younger blocks appear as a suffix in BISQ.
@@ -121,3 +124,4 @@ def build_janus_bcc_bctrl_bisq(m: Circuit, *, depth: int = 16, idx_w: int = 4) -
     m.output("bisq_count_bisq", count_bisq.out())
     m.output("bisq_enq_ready_bisq", enq_ready_bisq)
     m.output("bisq_deq_fire_bisq", fire_deq_bisq)
+

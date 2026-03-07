@@ -2,14 +2,28 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-PYC_ROOT="/Users/zhoubot/pyCircuit"
+source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
+PYC_ROOT="${LINXCORE_PYC_ROOT:-${PYC_ROOT:-$(linxcore_resolve_pyc_root "${ROOT_DIR}" || true)}}"
+if [[ -z "${PYC_ROOT}" || ! -d "${PYC_ROOT}" ]]; then
+  echo "error: pyCircuit root not found: ${PYC_ROOT:-<unset>}" >&2
+  echo "hint: set LINXCORE_PYC_ROOT=... or PYC_ROOT=..." >&2
+  exit 2
+fi
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
 CPP_MANIFEST="${GEN_CPP_DIR}/cpp_compile_manifest.json"
 SRC="${ROOT_DIR}/tests/test_rob_bookkeeping.cpp"
 EXE="${GEN_CPP_DIR}/test_rob_bookkeeping"
-MEMH="${PYC_TEST_MEMH:-/Users/zhoubot/pyCircuit/designs/examples/linx_cpu/programs/test_or.memh}"
+DEFAULT_MEMH="${PYC_ROOT}/designs/examples/linx_cpu/programs/test_or.memh"
+MEMH="${PYC_TEST_MEMH:-${DEFAULT_MEMH}}"
 TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -Wall -Wextra}"
+if [[ -z "${CXX:-}" ]]; then
+  if [[ -x "/opt/homebrew/bin/g++-15" ]]; then
+    export CXX="/opt/homebrew/bin/g++-15"
+  elif command -v clang++ >/dev/null 2>&1; then
+    export CXX="$(command -v clang++)"
+  fi
+fi
 GEN_OBJ_DIR="${GEN_CPP_DIR}/.obj"
 RUN_TOP_CPP="${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh"
 PYC_API_INCLUDE="${PYC_ROOT}/include"

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from pycircuit import Circuit, Wire, function, meta, template
+from pycircuit import Circuit, Wire, const, function, spec
 
 from .decode16 import decode16_meta
 from .decode32 import decode32_meta
@@ -244,10 +244,10 @@ def _decode_set_if(
     return op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm
 
 
-@template
+@const
 def _decode_rule_table_16(m: Circuit):
     _ = m
-    rule = meta.DecodeRule.from_mapping
+    rule = spec.DecodeRule.from_mapping
     return (
         rule(
             name="c_addi",
@@ -493,7 +493,6 @@ def _decode_apply_rule_table(
         )
 
     return op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm
-
 
 @function
 def decode_window(m: Circuit, window: Wire) -> Decode:

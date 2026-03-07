@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, module, u
 
 
 @module(name="JanusTma")
@@ -16,32 +16,33 @@ def build_janus_tma(m: Circuit) -> None:
     flush_fire_tma = m.input("flush_fire_tma", width=1)
     flush_bid_tma = m.input("flush_bid_tma", width=64)
 
-    c = m.const
-
-    busy_tma = m.out("busy_tma", clk=clk_tma, rst=rst_tma, width=1, init=c(0, width=1), en=c(1, width=1))
-    wait_tma = m.out("wait_tma", clk=clk_tma, rst=rst_tma, width=3, init=c(0, width=3), en=c(1, width=1))
-    tag_q_tma = m.out("tag_q_tma", clk=clk_tma, rst=rst_tma, width=8, init=c(0, width=8), en=c(1, width=1))
-    payload_q_tma = m.out("payload_q_tma", clk=clk_tma, rst=rst_tma, width=64, init=c(0, width=64), en=c(1, width=1))
-    bid_q_tma = m.out("bid_q_tma", clk=clk_tma, rst=rst_tma, width=64, init=c(0, width=64), en=c(1, width=1))
+    busy_tma = m.out("busy_tma", clk=clk_tma, rst=rst_tma, width=1, init=u(1, 0), en=u(1, 1))
+    wait_tma = m.out("wait_tma", clk=clk_tma, rst=rst_tma, width=3, init=u(3, 0), en=u(1, 1))
+    tag_q_tma = m.out("tag_q_tma", clk=clk_tma, rst=rst_tma, width=8, init=u(8, 0), en=u(1, 1))
+    payload_q_tma = m.out("payload_q_tma", clk=clk_tma, rst=rst_tma, width=64, init=u(64, 0), en=u(1, 1))
+    bid_q_tma = m.out("bid_q_tma", clk=clk_tma, rst=rst_tma, width=64, init=u(64, 0), en=u(1, 1))
 
     cmd_ready_tma = ~busy_tma.out()
     accept_tma = cmd_valid_tma & cmd_ready_tma
 
     busy_next_tma = busy_tma.out()
     wait_next_tma = wait_tma.out()
-    busy_next_tma = accept_tma._select_internal(c(1, width=1), busy_next_tma)
-    wait_next_tma = accept_tma._select_internal(c(2, width=3), wait_next_tma)
+    if accept_tma:
+        busy_next_tma = u(1, 1)
+        wait_next_tma = u(3, 2)
 
-    count_down_tma = busy_tma.out() & wait_tma.out().ugt(c(0, width=3))
-    wait_next_tma = count_down_tma._select_internal(wait_tma.out() - c(1, width=3), wait_next_tma)
+    count_down_tma = busy_tma.out() & (wait_tma.out() > u(3, 0))
+    if count_down_tma:
+        wait_next_tma = wait_tma.out() - u(3, 1)
 
-    rsp_fire_tma = busy_tma.out() & wait_tma.out().__eq__(c(0, width=3))
-    flush_kill_tma = flush_fire_tma & busy_tma.out() & flush_bid_tma.ult(bid_q_tma.out())
-    rsp_fire_tma = flush_kill_tma._select_internal(c(0, width=1), rsp_fire_tma)
+    flush_kill_tma = flush_fire_tma & busy_tma.out() & (flush_bid_tma < bid_q_tma.out())
+    rsp_fire_tma = busy_tma.out() & (wait_tma.out() == u(3, 0))
 
-    busy_next_tma = rsp_fire_tma._select_internal(c(0, width=1), busy_next_tma)
-    busy_next_tma = flush_kill_tma._select_internal(c(0, width=1), busy_next_tma)
-    wait_next_tma = flush_kill_tma._select_internal(c(0, width=3), wait_next_tma)
+    if rsp_fire_tma:
+        busy_next_tma = u(1, 0)
+    if flush_kill_tma:
+        busy_next_tma = u(1, 0)
+        wait_next_tma = u(3, 0)
 
     busy_tma.set(busy_next_tma)
     wait_tma.set(wait_next_tma)
@@ -52,6 +53,7 @@ def build_janus_tma(m: Circuit) -> None:
     m.output("cmd_ready_tma", cmd_ready_tma)
     m.output("rsp_valid_tma", rsp_fire_tma)
     m.output("rsp_tag_tma", tag_q_tma.out())
-    m.output("rsp_status_tma", c(0, width=4))
-    m.output("rsp_data0_tma", payload_q_tma.out() + c(1, width=64))
+    m.output("rsp_bid_tma", bid_q_tma.out())
+    m.output("rsp_status_tma", u(4, 0))
+    m.output("rsp_data0_tma", payload_q_tma.out() + u(64, 1))
     m.output("rsp_data1_tma", payload_q_tma.out())

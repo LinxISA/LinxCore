@@ -128,6 +128,10 @@ def parse_decode_file(path: Path, enc_len: int) -> List[DecodeEntry]:
 
 
 def load_qemu_entries(qemu_linx_dir: Path) -> List[DecodeEntry]:
+    missing = [fname for fname, _ in QEMU_DECODE_FILES if not (qemu_linx_dir / fname).is_file()]
+    if missing:
+        missing_txt = ", ".join(missing)
+        raise FileNotFoundError(f"missing QEMU decode files under {qemu_linx_dir}: {missing_txt}")
     all_entries: List[DecodeEntry] = []
     for fname, width in QEMU_DECODE_FILES:
         all_entries.extend(parse_decode_file(qemu_linx_dir / fname, width))

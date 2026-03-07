@@ -1,200 +1,176 @@
-# LinxCore OOO PYC Design (Memory-First)
+# LinxCore Top Design (Memory-First Bring-up)
 
 ## Scope
 
-This document describes the standalone LinxCore stage-mapped OoO refactor implemented in:
+This document describes the current canonical LinxCore top-level graph and the
+architecture-visible ownership boundaries that matter for block control, jump
+handling, memory, and trace/export behavior.
+
+Authority order for implementation mapping:
 
 - `/Users/zhoubot/LinxCore/src/linxcore_top.py`
-- `/Users/zhoubot/LinxCore/src/*`
+- `/Users/zhoubot/LinxCore/src/top/top.py`
+- `/Users/zhoubot/LinxCore/src/top/modules/export_core.py`
+- `/Users/zhoubot/LinxCore/src/bcc/backend/backend.py`
+- `/Users/zhoubot/LinxCore/src/bcc/backend/modules/trace_export_core.py`
 
-Primary goals:
+Older references to a monolithic `backend/engine.py` are obsolete for the
+current design. Legacy Janus stage modules still exist for stage-map continuity,
+DFX, and migration tracking, but they are not the architectural authority for
+commit, redirect, block metadata, or trace export.
 
-- Split source by hardware component and pipeline stage.
-- Keep the M1 retire-trace schema stable for QEMU lockstep tools.
-- Improve memory-side throughput with I/D separation and store-retire decoupling.
+## Canonical module graph
 
-## Module split
+Top-level structure:
 
-Top-level modules instantiated with real `m.instance` boundaries:
+- `linxcore_top.py` is the canonical wrapper used by emit/build flows
+- `top/top.py` instantiates the real top module hierarchy
+- `top/modules/export_core.py` is the active integration root for:
+  - host/QEMU instruction supply
+  - IB
+  - backend composition
+  - memory bridge
+  - block fabric
+  - DFX and LinxTrace export
+- `bcc/backend/backend.py` is a thin shell
+- `bcc/backend/modules/trace_export_core.py` owns the real backend composition
+  and the architecture-visible control-state plumbing
 
-- `LinxCoreTop` integration (`/Users/zhoubot/LinxCore/src/top/top.py`)
-- `LinxCoreMem2R1W` (`/Users/zhoubot/LinxCore/src/mem/mem2r1w.py`)
-- `LinxCoreBackend` thin compatibility shell (`/Users/zhoubot/LinxCore/src/bcc/backend/backend.py`)
-- Backend engine implementation (`/Users/zhoubot/LinxCore/src/bcc/backend/engine.py`)
+Supporting ownership blocks:
 
-Shared/common logic:
+- block issue fabric:
+  `/Users/zhoubot/LinxCore/src/bcc/bctrl/{bisq.py,bctrl.py,brob.py}`
+- top-level IB:
+  `/Users/zhoubot/LinxCore/src/top/modules/ib.py`
+- trace/DFX composition:
+  `/Users/zhoubot/LinxCore/src/top/modules/{trace_event.py,stage_probe.py,dfx_pipeview.py}`
+- UID allocation:
+  `/Users/zhoubot/LinxCore/src/common/uid_allocator.py`
+- memory model:
+  `/Users/zhoubot/LinxCore/src/mem/mem2r1w.py`
 
-- `/Users/zhoubot/LinxCore/src/common/{isa.py,opcode_catalog.yaml,opcode_ids_gen.py,opcode_meta_gen.py,decode.py,decode16.py,decode32.py,decode48.py,decode64.py,decode_f4.py,exec_uop.py,types.py,params.py,util.py}`
+## Frontend and instruction supply
 
-BCC stage contracts are split into dedicated files:
+The active bring-up lane uses a hard-cut frontend.
 
-- IFU: `/Users/zhoubot/LinxCore/src/bcc/ifu/{f0.py,f1.py,f2.py,f3.py,f4.py,icache.py,ctrl.py}`
-- OOO: `/Users/zhoubot/LinxCore/src/bcc/ooo/{dec1.py,dec2.py,ren.py,s1.py,s2.py,rob.py,pc_buffer.py,flush_ctrl.py,renu.py}`
-- IEX: `/Users/zhoubot/LinxCore/src/bcc/iex/{iex.py,iex_alu.py,iex_bru.py,iex_fsu.py,iex_agu.py,iex_std.py}`
-- BCtrl: `/Users/zhoubot/LinxCore/src/bcc/bctrl/{bctrl.py,bisq.py,brenu.py,brob.py}`
-- LSU: `/Users/zhoubot/LinxCore/src/bcc/lsu/{liq.py,lhq.py,stq.py,scb.py,mdb.py,l1d.py}`
-- TMU/TMA/CUBE/VEC/TAU: `/Users/zhoubot/LinxCore/src/tmu/*`, `/Users/zhoubot/LinxCore/src/tma/tma.py`, `/Users/zhoubot/LinxCore/src/cube/cube.py`, `/Users/zhoubot/LinxCore/src/vec/vec.py`, `/Users/zhoubot/LinxCore/src/tau/tau.py`
+- the functional IFU and I-cache are not the canonical instruction source in the
+  current top-level graph
+- host/QEMU supplies F4-like packets into the on-chip IB
+- backend consumes the IB output as its instruction stream
+- backend redirect flushes the IB so control-flow recovery still uses the same
+  architectural redirect path
+
+This is why architecture docs must not describe the current LinxCore path as
+"IFU prediction authoritative." Prediction may exist in auxiliary code or older
+modules, but architectural control flow is committed by the backend boundary
+logic.
 
 ## Memory-first behavior
 
-- I/D path separation via dual memories in `LinxCoreMem2R1W`:
-  - `imem` read port for fetch.
-  - `dmem` read/write path for LSU.
-  - host writes mirrored to both memories.
-- Store-retire decoupling:
-  - retired stores enqueue into a committed store buffer.
-  - independent drain path writes one store/cycle to `dmem`.
-  - MMIO stores at commit still fire immediately:
-    - `0x10000000` UART
-    - `0x10000004` EXIT
-- LSU ordering/forwarding:
-  - stall load if an older unresolved store exists.
-  - forward load data from older completed store or committed store buffer on address match.
+The current bring-up path still follows the memory-first split introduced during
+the OOO refactor:
 
-## Block BID + BROB lifecycle
+- `LinxCoreMem2R1W` provides separate instruction and data views, with host
+  writes mirrored into both memories
+- committed stores are decoupled from retire and drain through the LSU path
+- MMIO commit behavior remains explicit for the bring-up addresses used by the
+  testbench/runtime harness
 
-- Dynamic block identity now carries both:
-  - `block_uid` (dynamic block instance identity), and
-  - `block_bid` (BROB identity, low bits = BROB slot, high bits = debug uniqueness).
-- `block_bid` is stored in ROB entries and propagated through dispatch/issue/commit trace taps.
-- CMD pipe -> BISQ now carries `cmd_bid`, and BCtrl forwards this BID to PE paths and BROB issue paths.
-- BROB now exposes explicit queried lifecycle state for the active block:
-  - `allocated`
-  - `ready`
-  - `retired`
-  - `exception`
-- `BSTOP` retirement is gated by BROB state:
-  - retire allowed when block is not allocated in BROB, or BROB marks it ready/exception.
-  - successful `BSTOP` emits BROB retire event (`brob_retire_fire/bid`).
+This memory-first policy is still a bring-up choice, but it is part of the
+current canonical top graph.
 
-## LSU store-drain bring-up (SCB↔D$ stub)
+## Block identity and engine-backed block lifecycle
 
-As of 2026-02, the LSU store path is being refactored toward the final-core
-contract where SCB drains into a D$-facing interface (not CHI directly).
+LinxCore tracks two related block identities:
 
-Current bring-up implementation (policy B: committed stores are non-flush):
+- `block_uid`: dynamic block instance identity used for trace/debug
+- `block_bid`: BROB/BISQ/engine identity used for block-fabric routing and flush
 
-- Committed/retired stores are selected in backend engine as:
-  - `commit_store_fire/addr/data/size`
-- LSU packs scalar stores into 64B-line format:
-  - `src/bcc/lsu/store_pack.py` (addr+data+size → line_base + 64b mask + 512b data)
-- SCB coalesces by 64B line and issues downstream requests using `entry_id`:
-  - `src/bcc/lsu/scb.py` (SCB↔D$ ready/valid req+resp)
-- A functional D$ stub closes the loop during bring-up:
-  - `src/bcc/lsu/dcache_stub.py` (FIFO completion after fixed latency)
-- The path is wrapped by:
-  - `src/bcc/lsu/lsu_store_drain.py` and `src/bcc/lsu/lsu.py`
+Current block-fabric rules:
 
-Top-level integration uses `JanusBccLsu` (see `src/top/top.py`).
+- `BSTART` dispatch allocates a new BID from BROB
+- CMD enqueue into BISQ carries `cmd_bid`
+- `bctrl` forwards that BID to PE paths and derives `cmd_tag = bid[7:0]`
+- `cmd_epoch` is currently a compatibility field and is driven as zero
+- BROB tracks `allocated`, `ready`, `retired`, and `exception` per live BID
+- `BSTOP` retirement is gated by the active BROB state for engine-backed blocks
 
-Next steps (not yet implemented in this doc section): load hit-only path, then
-forwarding/MDB/nuke/miss plumbing, plus per-module pyc UTs.
+Flush semantics are BID-based throughout the active path:
 
-## LSID-ordered LSU (no memory speculation)
+- keep `bid <= flush_bid`
+- kill `bid > flush_bid`
 
-- Dispatch allocates per-memory-uop `load_store_id` (LSID).
-- ROB retains LSID for each memory uop.
-- LSU lane0 may issue only when:
-  - LSU dependency checks pass, and
-  - `uop.load_store_id == lsid_issue_ptr`.
-- On effective LSU issue, `lsid_issue_ptr`/`lsid_complete_ptr` advance in-order.
-- On redirect/flush, LSID issue/complete pointers are rebased to allocation head to avoid stale-ID deadlock after younger speculative drops.
+That rule applies to BROB, BISQ, and any other queue that carries BID.
 
-## Retire trace contract
+## Block and jump control design
 
-Per-commit-slot taps exported at top level (slot `0..3`):
+The current implementation matches the Linx ISA block-structure contract:
 
-- `commit_fireX`, `commit_pcX`, `commit_robX`, `commit_opX`
-- `commit_lenX`, `commit_insn_rawX`
-- `commit_wb_validX`, `commit_wb_rdX`, `commit_wb_dataX`
-- `commit_mem_validX`, `commit_mem_is_storeX`, `commit_mem_addrX`, `commit_mem_wdataX`, `commit_mem_rdataX`, `commit_mem_sizeX`
-- `commit_trap_validX`, `commit_trap_causeX`, `commit_next_pcX`
+- `BSTART` and `BSTOP` are ROB-visible boundary uops
+- boundary redirect is chosen at commit, not directly by execute-stage BRU
+- BRU only records deferred correction when `setc.cond` mismatches committed
+  block metadata
+- committed block metadata is updated by
+  `/Users/zhoubot/LinxCore/src/bcc/backend/modules/block_meta_step.py`
+- redirect packaging is done by
+  `/Users/zhoubot/LinxCore/src/bcc/backend/modules/commit_redirect.py`
 
-These are consumed by:
+Call/return and dynamic-target rules:
 
-- `/Users/zhoubot/LinxCore/tb/tb_linxcore_top.cpp`
-- `/Users/zhoubot/LinxCore/cosim/linxcore_lockstep_runner.cpp`
+- `BSTART.CALL` has no implicit `ra` write
+- returning call headers require adjacent `SETRET` or `C.SETRET`
+- `RET`, `IND`, and `ICALL` require explicit `SETC.TGT` in the same block
+- `SETRET` and `SETC.TGT` are the architectural source of dynamic control-flow
+  targets
 
-## Branch/block control semantics
+Macro boundary rules:
 
-Branch/block behavior is enforced in the canonical backend path:
+- `FENTRY`, `FEXIT`, `FRET.RA`, and `FRET.STK` are treated as standalone macro
+  blocks
+- committed live block metadata treats those macro boundaries as fall-through
+  blocks until the next explicit `BSTART` head installs new metadata
 
-- `BSTART` metadata is decoded in frontend/decode and stored in a PC-buffer table (`pc/kind/target/pred_take`).
-- `pred_take` is carried as boundary metadata; baseline policy uses `pred_take=0` for conditional/return classes.
-- `setc.cond` is validated in BRU against carried `pred_take`; mismatch raises redirect/fault handling.
-- architectural redirect is boundary-authoritative:
-  - BRU mismatch writes deferred correction state (`br_corr_*`), and
-  - redirect is consumed at boundary commit with epoch match checks.
-- `BSTART/BSTOP` always allocate ROB entries and resolve at D2 (`resolved_d2=1`), without FU execution.
-- backend tracks block-head state (`state.block_head`) so `BSTART` can act as:
-  - block head marker, or
-  - in-body boundary terminator that restarts fetch at the resolved boundary PC.
-- Block-private release (`T/U/BARG`) is keyed only by `BSTOP` commit (`commit_is_bstop`), not by `BSTART`.
-- BRU recovery target validity is checked against PC-buffer `is_bstart` entries; invalid targets raise precise trap with cause `TRAP_BRU_RECOVERY_NOT_BSTART (0x0000B001)`.
+Recovery safety rule:
 
-Important compatibility rule:
+- a dynamic target used for correction or recovery must resolve to a legal block
+  start in the PC buffer
+- a known target that is not a legal block start raises the precise trap
+  `TRAP_BRU_RECOVERY_NOT_BSTART (0x0000B001)`
 
-- `BSTART.CALL` does not perform implicit RA write. Return-address writeback must come from explicit `setret` instruction behavior.
+## DFX, LinxTrace, and cross-check ownership
 
-## Tile/SIMT strict-v0.3 contracts
+Current DFX ownership is top-export centric.
 
-LinxCore/QEMU bring-up is aligned on these enforced contracts:
+- `m.debug_occ(...)` sites are emitted from
+  `/Users/zhoubot/LinxCore/src/top/modules/export_core.py`
+  through reusable child modules in
+  `/Users/zhoubot/LinxCore/src/top/modules/trace_event.py`
+- backend per-uop identity, commit payload, replay, and block metadata come from
+  `/Users/zhoubot/LinxCore/src/bcc/backend/modules/trace_export_core.py`
+- ROB lineage storage remains in
+  `/Users/zhoubot/LinxCore/src/bcc/backend/state.py`
+- template child-uop identity comes from
+  `/Users/zhoubot/LinxCore/src/bcc/backend/code_template_unit.py`
 
-- Legacy `MCALL` naming maps to executable `BSTART.MPAR`/`BSTART.MSEQ` forms.
-- Tile descriptor families are `B.IOT` (dynamic size via `RegSrc`) and `B.IOTI` (immediate size via `SizeCode`).
-  `B.IOD` is deprecated for strict canonical streams.
-- Dynamic `B.IOT` size is fail-fast validated to strict `512B..4KB` policy.
-- Strict-v0.3 tile `DataType` mapping (u5):
-  - floating: `FP64=0`, `FP32=1`, `FP16=2`, `FP8=3`, `BF16=6`, `FPL8=7`, `FP4=11`, `FPL4=12`
-  - signed integer: `INT64=16`, `INT32=17`, `INT16=18`, `INT8=19`, `INT4=20`
-  - unsigned integer: `UINT64=24`, `UINT32=25`, `UINT16=26`, `UINT8=27`, `UINT4=28`
-- `TLOAD/TSTORE` use a 2D memory model: `LB0/LB1` define cols/rows and stride comes from `B.IOR` (`RegSrc0`) with `LB2`
-  fallback; runtime enforces stride alignment and `stride >= row_span`.
-- CUBE uses a singleton implicit ACC (no encoded ACC tile id). Canonical chain is:
-  `TMATMUL` -> zero or more `TMATMUL.ACC` -> `ACCCVT`.
-- Tile-byte legality is enforced with `ceil(dim0*dim1*dim2*element_bits/8) <= 4KB`
-  (block-family `dim2` default `1` when absent; `element_bits` derives from `DataType`).
-- For SIMT body blocks (`MPAR`, `MSEQ`, `VPAR`, `VSEQ`), header descriptor ingestion enforces at most 3 unique tile inputs
-  and 1 tile output.
-- `B.ATTR` full fields are captured in runtime state; SIMT bring-up currently restricts body-block usage to `aq/rl` bits.
+LinxTrace v1 ownership:
 
-## Scripts
+- raw/testbench emission:
+  `/Users/zhoubot/LinxCore/tb/tb_linxcore_top.cpp`
+- canonical builder:
+  `/Users/zhoubot/LinxCore/tools/trace/build_linxtrace_view.py`
+- contract lint:
+  `/Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py`
 
-- Generate split artifacts:
-  - `/Users/zhoubot/LinxCore/tools/generate/update_generated_linxcore.sh`
-- Build/run C++ TB:
-  - `/Users/zhoubot/LinxCore/tools/generate/run_linxcore_top_cpp.sh`
-- Run lockstep co-sim:
-  - `/Users/zhoubot/LinxCore/tools/qemu/run_cosim_lockstep.sh`
-- Benchmark harness:
-  - `/Users/zhoubot/LinxCore/tools/image/run_linxcore_benchmarks.sh`
-  - `/Users/zhoubot/LinxCore/tools/image/build_linxisa_benchmarks_memh_compat.sh` resolves real benchmark ELFs from `/Users/zhoubot/linx-isa/workloads/generated/elf/` first, with optional strict mode `LINX_BENCH_REQUIRE_REAL=1`.
-- QEMU commit-trace + cross-check:
-  - `/Users/zhoubot/LinxCore/tools/qemu/run_qemu_commit_trace.sh`
-  - `/Users/zhoubot/LinxCore/tools/trace/crosscheck_qemu_linxcore.py`
+## Related design documents
 
-## Validation gates
+These documents hold the architecture-visible details that this top-design note
+depends on:
 
-- `/Users/zhoubot/LinxCore/tests/test_runner_protocol.sh`
-- `/Users/zhoubot/LinxCore/tests/test_trace_schema_and_mem.sh`
-- `/Users/zhoubot/LinxCore/tests/test_cosim_smoke.sh`
-- `/Users/zhoubot/LinxCore/tests/test_stage_connectivity.sh`
+- `/Users/zhoubot/LinxCore/docs/architecture/block_fabric_contract.md`
+- `/Users/zhoubot/LinxCore/docs/architecture/branch_recovery_rules.md`
+- `/Users/zhoubot/LinxCore/docs/architecture/linxisa_block_control_flow.md`
+- `/Users/zhoubot/LinxCore/docs/architecture/lsid_memory_ordering.md`
+- `/Users/zhoubot/linx-isa/docs/reference/linxisa-call-ret-contract.md`
 
-## DFX pipeview
-
-- Top-level DFX probe wiring is emitted from `/Users/zhoubot/LinxCore/src/top/top.py` using `m.debug_occ(...)`.
-- Backend exports per-uop identity fields (`dispatch_uop_uid*`, `issue_uop_uid*`, `commit_uop_uid*`, `ctu_uop_uid`) from `/Users/zhoubot/LinxCore/src/bcc/backend/engine.py`.
-- ROB tracks dynamic uop lineage via `uop_uid`/`parent_uid` arrays in `/Users/zhoubot/LinxCore/src/bcc/backend/state.py`.
-- `CodeTemplateUnit` emits template-uop identity metadata in `/Users/zhoubot/LinxCore/src/bcc/backend/code_template_unit.py`.
-- Global UID allocation is centralized in `/Users/zhoubot/LinxCore/src/common/uid_allocator.py`.
-- LinxTrace format is `linxtrace.v1`, written via explicit occupancy records from `/Users/zhoubot/LinxCore/tb/tb_linxcore_top.cpp` and `/Users/zhoubot/LinxCore/tools/trace/build_linxtrace_view.py`.
-- In-TB QEMU cross-check uses `PYC_QEMU_TRACE` with modes:
-  - `PYC_XCHECK_MODE=diagnostic|failfast`
-  - `PYC_XCHECK_MAX_COMMITS=<N>`
-  - `PYC_XCHECK_REPORT=<path_prefix>`
-- LinxTrace mismatch annotations emit one-cycle `XCHK` marker on mismatched retire events.
-
-## Notes
-
-Co-sim smoke is validated with `trigger_pc == boot_pc` and bounded terminate windows.
-CoreMark/Dhrystone completion is supported by script; cycle tuning remains iterative.
+If wording diverges, Linx ISA architecture docs remain normative and LinxCore
+implementation docs must be updated to match them.

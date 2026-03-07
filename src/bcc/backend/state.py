@@ -21,9 +21,9 @@ class CoreCtrlRegs:
     br_base_pc: Reg
     br_off: Reg
     br_pred_take: Reg
-    block_uid_ctr: Reg
+    assign_block_uid: Reg
     active_block_uid: Reg
-    block_bid_ctr: Reg
+    assign_block_bid: Reg
     active_block_bid: Reg
     lsid_alloc_ctr: Reg
     lsid_issue_ptr: Reg
@@ -168,9 +168,12 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         br_base_pc = m.out("br_base_pc", clk=clk, rst=rst, width=64, init=boot_pc, en=consts.one1)
         br_off = m.out("br_off", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
         br_pred_take = m.out("br_pred_take", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
-        block_uid_ctr = m.out("block_uid_ctr", clk=clk, rst=rst, width=64, init=c(2, width=64), en=consts.one1)
-        active_block_uid = m.out("active_block_uid", clk=clk, rst=rst, width=64, init=c(1, width=64), en=consts.one1)
-        block_bid_ctr = m.out("block_bid_ctr", clk=clk, rst=rst, width=64, init=c(1, width=64), en=consts.one1)
+        # Block identity:
+        # - assign_* are D1-time identities used for tagging new uops at dispatch.
+        # - active_* are retire-stream identities (architecture-visible for flush semantics).
+        assign_block_uid = m.out("assign_block_uid", clk=clk, rst=rst, width=64, init=c(0, width=64), en=consts.one1)
+        active_block_uid = m.out("active_block_uid", clk=clk, rst=rst, width=64, init=c(0, width=64), en=consts.one1)
+        assign_block_bid = m.out("assign_block_bid", clk=clk, rst=rst, width=64, init=c(0, width=64), en=consts.one1)
         active_block_bid = m.out("active_block_bid", clk=clk, rst=rst, width=64, init=c(0, width=64), en=consts.one1)
         lsid_alloc_ctr = m.out("lsid_alloc_ctr", clk=clk, rst=rst, width=32, init=c(0, width=32), en=consts.one1)
         lsid_issue_ptr = m.out("lsid_issue_ptr", clk=clk, rst=rst, width=32, init=c(0, width=32), en=consts.one1)
@@ -230,9 +233,9 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         br_base_pc=br_base_pc,
         br_off=br_off,
         br_pred_take=br_pred_take,
-        block_uid_ctr=block_uid_ctr,
+        assign_block_uid=assign_block_uid,
         active_block_uid=active_block_uid,
-        block_bid_ctr=block_bid_ctr,
+        assign_block_bid=assign_block_bid,
         active_block_bid=active_block_bid,
         lsid_alloc_ctr=lsid_alloc_ctr,
         lsid_issue_ptr=lsid_issue_ptr,
@@ -279,19 +282,6 @@ def make_ifu_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, consts
         f4_window = m.out("f4_window", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
 
     return IfuRegs(f4_valid=f4_valid, f4_pc=f4_pc, f4_window=f4_window)
-
-
-def make_prf(m: Circuit, clk: Signal, rst: Signal, *, boot_sp: Wire, boot_ra: Wire, consts: Consts, p: OooParams) -> list[Reg]:
-    with m.scope("prf"):
-        prf: list[Reg] = []
-        for i in range(p.pregs):
-            init = consts.zero64
-            if i == 1:
-                init = boot_sp
-            if i == 10:
-                init = boot_ra
-            prf.append(m.out(f"p{i}", clk=clk, rst=rst, width=64, init=init, en=consts.one1))
-        return prf
 
 
 def make_rename_regs(m: Circuit, clk: Signal, rst: Signal, *, consts: Consts, p: OooParams) -> RenameRegs:

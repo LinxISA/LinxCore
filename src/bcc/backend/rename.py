@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pycircuit import Circuit, function, module
 
+from common.util import shl_var
+
 
 @function
 def resolve_source_tags(m: Circuit, *, mux_by_uindex, smap_live, srcl_areg, srcr_areg, srcp_areg, reg_invalid: int, tag0):
@@ -26,11 +28,12 @@ def _mux_by_uindex(m: Circuit, *, idx, items: list, default):
 
 @function
 def _onehot_from_tag(m: Circuit, *, tag, width: int, tag_width: int):
+    # Avoid O(width) compare/select expansion. All current call sites use a
+    # ptag width that already matches clog2(width), so a simple variable shift
+    # is sufficient and compiles far faster (in pycc + C++).
+    _ = tag_width
     c = m.const
-    out = c(0, width=width)
-    for i in range(width):
-        out = tag.__eq__(c(i, width=tag_width))._select_internal(c(1 << i, width=width), out)
-    return out
+    return shl_var(m, c(1, width=width), tag)
 
 
 @module(name="LinxCoreRenameStage")

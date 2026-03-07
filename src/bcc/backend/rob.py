@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, module
+from pycircuit import Circuit, function, module
 
 from common.isa import (
     OP_BSTART_STD_CALL,
@@ -15,6 +15,8 @@ from common.isa import (
     OP_FRET_RA,
     OP_FRET_STK,
 )
+from common.isa import BK_FALL, REG_INVALID
+from .modules.index_mux import banked_mux_by_uindex
 
 
 def is_macro_op(op, op_is):
@@ -32,6 +34,180 @@ def is_start_marker_op(op, op_is):
         OP_BSTART_STD_COND,
         OP_BSTART_STD_CALL,
     ) | is_macro_op(op, op_is)
+
+
+def rob_entry_field_defs(*, ptag_w: int) -> tuple[tuple[str, int, int], ...]:
+    return (
+        ("valid", 1, 0),
+        ("done", 1, 0),
+        ("pc", 64, 0),
+        ("op", 12, 0),
+        ("len", 3, 0),
+        ("insn_raw", 64, 0),
+        ("checkpoint_id", 6, 0),
+        ("dst_kind", 2, 0),
+        ("dst_areg", 6, REG_INVALID),
+        ("pdst", ptag_w, 0),
+        ("value", 64, 0),
+        ("src0_reg", 6, 0),
+        ("src1_reg", 6, 0),
+        ("src0_value", 64, 0),
+        ("src1_value", 64, 0),
+        ("src0_valid", 1, 0),
+        ("src1_valid", 1, 0),
+        ("is_store", 1, 0),
+        ("store_addr", 64, 0),
+        ("store_data", 64, 0),
+        ("store_size", 4, 0),
+        ("is_load", 1, 0),
+        ("load_addr", 64, 0),
+        ("load_data", 64, 0),
+        ("load_size", 4, 0),
+        ("is_boundary", 1, 0),
+        ("is_bstart", 1, 0),
+        ("is_bstop", 1, 0),
+        ("boundary_kind", 3, BK_FALL),
+        ("boundary_target", 64, 0),
+        ("pred_take", 1, 0),
+        ("block_epoch", 16, 0),
+        ("block_uid", 64, 0),
+        ("block_bid", 64, 0),
+        ("load_store_id", 32, 0),
+        ("resolved_d2", 1, 0),
+        ("macro_begin", 6, 0),
+        ("macro_end", 6, 0),
+        ("uop_uid", 64, 0),
+        ("parent_uid", 64, 0),
+    )
+
+
+@function
+def _commit_read_field(m: Circuit, *, idx, items, default):
+    norm_items = [item.out() if hasattr(item, "out") else item for item in items]
+    return banked_mux_by_uindex(m, idx=idx, items=norm_items, default=default, bank_depth=16)
+
+
+@module(name="LinxCoreRobCommitReadStage")
+def build_rob_commit_read_stage(
+    m: Circuit,
+    *,
+    rob_depth: int = 64,
+    rob_w: int = 6,
+    ptag_w: int = 6,
+) -> None:
+    c = m.const
+    idx = m.input("idx", width=rob_w)
+    field_defs = rob_entry_field_defs(ptag_w=ptag_w)
+
+    field_inputs: dict[str, list[object]] = {}
+    for field_name, width, _default_value in field_defs:
+        field_inputs[field_name] = [m.input(f"{field_name}{i}", width=width) for i in range(rob_depth)]
+
+    for field_name, width, default_value in field_defs:
+        m.output(
+            f"{field_name}_o",
+            _commit_read_field(
+                m,
+                idx=idx,
+                items=field_inputs[field_name],
+                default=c(default_value, width=width),
+            ),
+        )
+
+
+@module(name="LinxCoreRobEntryCell")
+def build_rob_entry_cell(
+    m: Circuit,
+    *,
+    dispatch_w: int = 4,
+    issue_w: int = 4,
+    commit_w: int = 4,
+    rob_w: int = 6,
+    ptag_w: int = 6,
+) -> None:
+    clk = m.clock("clk")
+    rst = m.reset("rst")
+    c = m.const
+    idx = m.input("idx", width=rob_w)
+    do_flush = m.input("do_flush", width=1)
+    field_defs = rob_entry_field_defs(ptag_w=ptag_w)
+
+    state_regs: dict[str, object] = {}
+    for field_name, width, default_value in field_defs:
+        state_regs[field_name] = m.out(
+            field_name,
+            clk=clk,
+            rst=rst,
+            width=width,
+            init=c(default_value, width=width),
+            en=c(1, width=1),
+        )
+
+    update_bind: dict[str, object] = {"idx": idx, "do_flush": do_flush}
+    for field_name, _width, _default_value in field_defs:
+        update_bind[f"old_{field_name}"] = state_regs[field_name].out()
+
+    for slot in range(commit_w):
+        update_bind[f"commit_fire{slot}"] = m.input(f"commit_fire{slot}", width=1)
+        update_bind[f"commit_idx{slot}"] = m.input(f"commit_idx{slot}", width=rob_w)
+
+    for slot in range(dispatch_w):
+        update_bind[f"disp_fire{slot}"] = m.input(f"disp_fire{slot}", width=1)
+        update_bind[f"disp_rob_idx{slot}"] = m.input(f"disp_rob_idx{slot}", width=rob_w)
+        update_bind[f"disp_pc{slot}"] = m.input(f"disp_pc{slot}", width=64)
+        update_bind[f"disp_op{slot}"] = m.input(f"disp_op{slot}", width=12)
+        update_bind[f"disp_len{slot}"] = m.input(f"disp_len{slot}", width=3)
+        update_bind[f"disp_insn_raw{slot}"] = m.input(f"disp_insn_raw{slot}", width=64)
+        update_bind[f"disp_checkpoint_id{slot}"] = m.input(f"disp_checkpoint_id{slot}", width=6)
+        update_bind[f"disp_dst_kind{slot}"] = m.input(f"disp_dst_kind{slot}", width=2)
+        update_bind[f"disp_regdst{slot}"] = m.input(f"disp_regdst{slot}", width=6)
+        update_bind[f"disp_pdst{slot}"] = m.input(f"disp_pdst{slot}", width=ptag_w)
+        update_bind[f"disp_imm{slot}"] = m.input(f"disp_imm{slot}", width=64)
+        update_bind[f"disp_is_store{slot}"] = m.input(f"disp_is_store{slot}", width=1)
+        update_bind[f"disp_is_boundary{slot}"] = m.input(f"disp_is_boundary{slot}", width=1)
+        update_bind[f"disp_is_bstart{slot}"] = m.input(f"disp_is_bstart{slot}", width=1)
+        update_bind[f"disp_is_bstop{slot}"] = m.input(f"disp_is_bstop{slot}", width=1)
+        update_bind[f"disp_boundary_kind{slot}"] = m.input(f"disp_boundary_kind{slot}", width=3)
+        update_bind[f"disp_boundary_target{slot}"] = m.input(f"disp_boundary_target{slot}", width=64)
+        update_bind[f"disp_pred_take{slot}"] = m.input(f"disp_pred_take{slot}", width=1)
+        update_bind[f"disp_block_epoch{slot}"] = m.input(f"disp_block_epoch{slot}", width=16)
+        update_bind[f"disp_block_uid{slot}"] = m.input(f"disp_block_uid{slot}", width=64)
+        update_bind[f"disp_block_bid{slot}"] = m.input(f"disp_block_bid{slot}", width=64)
+        update_bind[f"disp_load_store_id{slot}"] = m.input(f"disp_load_store_id{slot}", width=32)
+        update_bind[f"disp_resolved_d2{slot}"] = m.input(f"disp_resolved_d2{slot}", width=1)
+        update_bind[f"disp_srcl{slot}"] = m.input(f"disp_srcl{slot}", width=6)
+        update_bind[f"disp_srcr{slot}"] = m.input(f"disp_srcr{slot}", width=6)
+        update_bind[f"disp_uop_uid{slot}"] = m.input(f"disp_uop_uid{slot}", width=64)
+        update_bind[f"disp_parent_uid{slot}"] = m.input(f"disp_parent_uid{slot}", width=64)
+
+    for slot in range(issue_w):
+        update_bind[f"wb_fire{slot}"] = m.input(f"wb_fire{slot}", width=1)
+        update_bind[f"wb_rob{slot}"] = m.input(f"wb_rob{slot}", width=rob_w)
+        update_bind[f"wb_value{slot}"] = m.input(f"wb_value{slot}", width=64)
+        update_bind[f"store_fire{slot}"] = m.input(f"store_fire{slot}", width=1)
+        update_bind[f"load_fire{slot}"] = m.input(f"load_fire{slot}", width=1)
+        update_bind[f"ex_addr{slot}"] = m.input(f"ex_addr{slot}", width=64)
+        update_bind[f"ex_wdata{slot}"] = m.input(f"ex_wdata{slot}", width=64)
+        update_bind[f"ex_size{slot}"] = m.input(f"ex_size{slot}", width=4)
+        update_bind[f"ex_src0{slot}"] = m.input(f"ex_src0{slot}", width=64)
+        update_bind[f"ex_src1{slot}"] = m.input(f"ex_src1{slot}", width=64)
+
+    entry_update = m.new(
+        build_rob_entry_update_stage,
+        name="entry_update",
+        bind=update_bind,
+        params={
+            "dispatch_w": dispatch_w,
+            "issue_w": issue_w,
+            "commit_w": commit_w,
+            "rob_w": rob_w,
+            "ptag_w": ptag_w,
+        },
+    )
+
+    for field_name, _width, _default_value in field_defs:
+        state_regs[field_name].set(entry_update.outputs[f"{field_name}_next"])
+        m.output(f"{field_name}_o", state_regs[field_name].out())
 
 
 @module(name="LinxCoreRobCtrlStage")
@@ -292,7 +468,7 @@ def build_rob_entry_update_stage(
         hit = disp_fires[slot] & disp_rob_idxs[slot].__eq__(idx)
         is_macro = disp_ops[slot].__eq__(c(OP_FENTRY, width=12)) | disp_ops[slot].__eq__(c(OP_FEXIT, width=12))
         is_macro = is_macro | disp_ops[slot].__eq__(c(OP_FRET_RA, width=12)) | disp_ops[slot].__eq__(c(OP_FRET_STK, width=12))
-        value_next = (hit & is_macro)._select_internal(disp_imms[slot], value_next)
+        value_next = (hit & (is_macro | disp_resolved_d2s[slot]))._select_internal(disp_imms[slot], value_next)
     for slot in range(issue_w):
         hit = wb_fires[slot] & wb_robs[slot].__eq__(idx)
         value_next = hit._select_internal(wb_values[slot], value_next)

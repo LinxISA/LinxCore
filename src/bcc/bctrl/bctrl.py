@@ -12,11 +12,6 @@ def build_janus_bcc_bctrl(m: Circuit) -> None:
     bisq_head_tile_bisq = m.input("bisq_head_tile_bisq", width=6)
     bisq_head_rob_bisq = m.input("bisq_head_rob_bisq", width=6)
 
-    brenu_tag_brenu = m.input("brenu_tag_brenu", width=8)
-    brenu_bid_brenu = m.input("brenu_bid_brenu", width=64)
-    brenu_epoch_brenu = m.input("brenu_epoch_brenu", width=8)
-    brenu_issue_ready_brenu = m.input("brenu_issue_ready_brenu", width=1)
-
     cmd_ready_tma_tma = m.input("cmd_ready_tma_tma", width=1)
     cmd_ready_cube_cube = m.input("cmd_ready_cube_cube", width=1)
     cmd_ready_vec_vec = m.input("cmd_ready_vec_vec", width=1)
@@ -65,10 +60,13 @@ def build_janus_bcc_bctrl(m: Circuit) -> None:
     selected_ready_bctrl = to_vec_bctrl._select_internal(cmd_ready_vec_vec, selected_ready_bctrl)
     selected_ready_bctrl = to_tau_bctrl._select_internal(cmd_ready_tau_tau, selected_ready_bctrl)
 
-    cmd_fire_bctrl = cmd_issue_bctrl & selected_ready_bctrl & brenu_issue_ready_brenu
+    cmd_fire_bctrl = cmd_issue_bctrl & selected_ready_bctrl
+
+    # Strict tag routing contract: cmd_tag == BID[7:0].
+    cmd_tag_bctrl = bisq_head_bid_bisq._trunc(width=8)
+    cmd_epoch_bctrl = c(0, width=8)
 
     m.output("deq_ready_bisq", cmd_fire_bctrl)
-    m.output("issue_fire_brenu", cmd_fire_bctrl)
     m.output("issue_fire_brob", cmd_fire_bctrl)
     m.output("issue_tag_brob", cmd_tag_bctrl)
     m.output("issue_bid_brob", bisq_head_bid_bisq)
@@ -82,7 +80,7 @@ def build_janus_bcc_bctrl(m: Circuit) -> None:
     m.output("bisq_to_bctrl_stage_cmd_tile_bisq", bisq_head_tile_bisq)
     m.output("bisq_to_bctrl_stage_cmd_payload_bisq", bisq_head_payload_bisq)
     m.output("bisq_to_bctrl_stage_cmd_src_rob_bisq", bisq_head_rob_bisq)
-    m.output("bisq_to_bctrl_stage_cmd_epoch_bisq", brenu_epoch_brenu)
+    m.output("bisq_to_bctrl_stage_cmd_epoch_bisq", cmd_epoch_bctrl)
     m.output("bisq_to_bctrl_stage_cmd_bid_bisq", bisq_head_bid_bisq)
 
     # Shared command bus contract.
@@ -92,7 +90,7 @@ def build_janus_bcc_bctrl(m: Circuit) -> None:
     m.output("bctrl_to_pe_stage_cmd_src_rob_bctrl", bisq_head_rob_bisq)
     m.output("bctrl_to_pe_stage_cmd_tag_bctrl", cmd_tag_bctrl)
     m.output("bctrl_to_pe_stage_cmd_bid_bctrl", bisq_head_bid_bisq)
-    m.output("bctrl_to_pe_stage_cmd_epoch_bctrl", brenu_epoch_brenu)
+    m.output("bctrl_to_pe_stage_cmd_epoch_bctrl", cmd_epoch_bctrl)
     m.output("bctrl_to_pe_stage_cmd_valid_bctrl", cmd_fire_bctrl)
 
     m.output("cmd_tma_valid_bctrl", cmd_fire_bctrl & to_tma_bctrl)
@@ -108,7 +106,7 @@ def build_janus_bcc_bctrl(m: Circuit) -> None:
     m.output("bctrl_to_tma_stage_cmd_payload_bctrl", bisq_head_payload_bisq)
     m.output("bctrl_to_tma_stage_cmd_src_rob_bctrl", bisq_head_rob_bisq)
     m.output("bctrl_to_tma_stage_cmd_bid_bctrl", bisq_head_bid_bisq)
-    m.output("bctrl_to_tma_stage_cmd_epoch_bctrl", brenu_epoch_brenu)
+    m.output("bctrl_to_tma_stage_cmd_epoch_bctrl", cmd_epoch_bctrl)
 
     m.output("bctrl_to_cube_stage_cmd_valid_bctrl", cmd_fire_bctrl & to_cube_bctrl)
     m.output("bctrl_to_cube_stage_cmd_ready_bctrl", cmd_ready_cube_cube)
@@ -118,7 +116,7 @@ def build_janus_bcc_bctrl(m: Circuit) -> None:
     m.output("bctrl_to_cube_stage_cmd_payload_bctrl", bisq_head_payload_bisq)
     m.output("bctrl_to_cube_stage_cmd_src_rob_bctrl", bisq_head_rob_bisq)
     m.output("bctrl_to_cube_stage_cmd_bid_bctrl", bisq_head_bid_bisq)
-    m.output("bctrl_to_cube_stage_cmd_epoch_bctrl", brenu_epoch_brenu)
+    m.output("bctrl_to_cube_stage_cmd_epoch_bctrl", cmd_epoch_bctrl)
 
     m.output("bctrl_to_vec_stage_cmd_valid_bctrl", cmd_fire_bctrl & to_vec_bctrl)
     m.output("bctrl_to_vec_stage_cmd_ready_bctrl", cmd_ready_vec_vec)
@@ -128,7 +126,7 @@ def build_janus_bcc_bctrl(m: Circuit) -> None:
     m.output("bctrl_to_vec_stage_cmd_payload_bctrl", bisq_head_payload_bisq)
     m.output("bctrl_to_vec_stage_cmd_src_rob_bctrl", bisq_head_rob_bisq)
     m.output("bctrl_to_vec_stage_cmd_bid_bctrl", bisq_head_bid_bisq)
-    m.output("bctrl_to_vec_stage_cmd_epoch_bctrl", brenu_epoch_brenu)
+    m.output("bctrl_to_vec_stage_cmd_epoch_bctrl", cmd_epoch_bctrl)
 
     m.output("bctrl_to_tau_stage_cmd_valid_bctrl", cmd_fire_bctrl & to_tau_bctrl)
     m.output("bctrl_to_tau_stage_cmd_ready_bctrl", cmd_ready_tau_tau)
@@ -138,7 +136,7 @@ def build_janus_bcc_bctrl(m: Circuit) -> None:
     m.output("bctrl_to_tau_stage_cmd_payload_bctrl", bisq_head_payload_bisq)
     m.output("bctrl_to_tau_stage_cmd_src_rob_bctrl", bisq_head_rob_bisq)
     m.output("bctrl_to_tau_stage_cmd_bid_bctrl", bisq_head_bid_bisq)
-    m.output("bctrl_to_tau_stage_cmd_epoch_bctrl", brenu_epoch_brenu)
+    m.output("bctrl_to_tau_stage_cmd_epoch_bctrl", cmd_epoch_bctrl)
 
     rsp_valid_brob = rsp_tma_valid_tma | rsp_cube_valid_cube | rsp_vec_valid_vec | rsp_tau_valid_tau
     rsp_tag_brob = rsp_vec_valid_vec._select_internal(rsp_vec_tag_vec, rsp_tau_tag_tau)

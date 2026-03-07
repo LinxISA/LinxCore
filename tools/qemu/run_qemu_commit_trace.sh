@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
-
-QEMU_BIN="${QEMU_BIN:-${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
+source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
+LINXISA_ROOT="${LINXISA_ROOT:-${LINXISA_DIR:-$(linxcore_resolve_linxisa_root "${ROOT_DIR}" || true)}}"
+QEMU_BIN="${QEMU_BIN:-$(linxcore_resolve_qemu_bin "${ROOT_DIR}" || true)}"
 ELF=""
 OUT=""
 MAX_SECONDS="${MAX_SECONDS:-0}"
@@ -60,6 +60,10 @@ if [[ -z "${ELF}" || -z "${OUT}" ]]; then
 fi
 if [[ ! -x "${QEMU_BIN}" ]]; then
   echo "error: qemu binary not found: ${QEMU_BIN}" >&2
+  echo "hint: set QEMU_BIN=... or QEMU_LINX_DIR=..." >&2
+  if [[ -n "${LINXISA_ROOT}" ]]; then
+    echo "hint: resolved LINXISA_ROOT=${LINXISA_ROOT}" >&2
+  fi
   exit 2
 fi
 if [[ ! -f "${ELF}" ]]; then

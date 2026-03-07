@@ -2,9 +2,24 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
-QEMU_LINX_DIR="${QEMU_LINX_DIR:-${LINX_ROOT}/emulator/qemu/target/linx}"
-PYC_ROOT="/Users/zhoubot/pyCircuit"
+source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
+LINXISA_ROOT="${LINXISA_ROOT:-${LINXISA_DIR:-$(linxcore_resolve_linxisa_root "${ROOT_DIR}" || true)}}"
+
+QEMU_LINX_DIR="${QEMU_LINX_DIR:-$(linxcore_resolve_qemu_linx_dir "${ROOT_DIR}" || true)}"
+if [[ ! -d "${QEMU_LINX_DIR}" ]]; then
+  echo "error: QEMU Linx decode tree not found: ${QEMU_LINX_DIR}" >&2
+  echo "hint: set QEMU_LINX_DIR=/abs/path/to/qemu/target/linx" >&2
+  echo "hint: or set LINXCORE_QEMU_ROOT=/abs/path/to/qemu" >&2
+  echo "hint: or set LINXISA_ROOT=/abs/path/to/linx-isa" >&2
+  exit 1
+fi
+
+PYC_ROOT="${LINXCORE_PYC_ROOT:-${PYC_ROOT:-$(linxcore_resolve_pyc_root "${ROOT_DIR}" || true)}}"
+if [[ ! -d "${PYC_ROOT}" ]]; then
+  echo "error: pyCircuit root not found: ${PYC_ROOT}" >&2
+  echo "hint: set LINXCORE_PYC_ROOT=/abs/path/to/pyCircuit" >&2
+  exit 1
+fi
 CALLFRAME_SIZE_RAW="${LINXCORE_CALLFRAME_SIZE:-0}"
 CALLFRAME_SIZE="$(
 python3 - <<'PY' "${CALLFRAME_SIZE_RAW}"
@@ -38,28 +53,65 @@ if [[ -f "${PYC_ROOT}/scripts/lib.sh" ]]; then
 elif [[ -f "${PYC_ROOT}/flows/scripts/lib.sh" ]]; then
   # Current pyCircuit tree layout.
   source "${PYC_ROOT}/flows/scripts/lib.sh"
-else
-  PYC_COMPILE="${PYC_ROOT}/build-top/bin/pyc-compile"
 fi
 
-if [[ -z "${PYC_COMPILE:-}" && -x "${PYC_ROOT}/build-top/bin/pyc-compile" ]]; then
-  PYC_COMPILE="${PYC_ROOT}/build-top/bin/pyc-compile"
-fi
-
+# Backend tool: prefer pycc, fallback to pyc-compile for older trees.
 if [[ -z "${PYC_COMPILE:-}" ]]; then
-  if command -v pyc_find_pyc_compile >/dev/null 2>&1; then
-    if ! pyc_find_pyc_compile; then
-      PYC_COMPILE="${PYC_ROOT}/build-top/bin/pyc-compile"
-    fi
-  else
-    PYC_COMPILE="${PYC_ROOT}/build-top/bin/pyc-compile"
+  if [[ -n "${PYCC:-}" && -x "${PYCC}" ]]; then
+    PYC_COMPILE="${PYCC}"
   fi
 fi
 
-if [[ ! -x "${PYC_COMPILE}" ]]; then
-  echo "error: pyc-compile not found: ${PYC_COMPILE}" >&2
+if [[ -z "${PYC_COMPILE:-}" ]]; then
+  for cand in \
+    "${PYC_ROOT}/build-top/bin/pycc" \
+    "${PYC_ROOT}/build/bin/pycc" \
+    "${PYC_ROOT}/compiler/mlir/build2/bin/pycc" \
+    "${PYC_ROOT}/compiler/mlir/build/bin/pycc"
+  do
+    if [[ -x "${cand}" ]]; then
+      PYC_COMPILE="${cand}"
+      break
+    fi
+  done
+fi
+
+if [[ -z "${PYC_COMPILE:-}" ]]; then
+  found="$(command -v pycc 2>/dev/null || true)"
+  if [[ -n "${found}" ]]; then
+    PYC_COMPILE="${found}"
+  fi
+fi
+
+if [[ -z "${PYC_COMPILE:-}" ]]; then
+  for cand in \
+    "${PYC_ROOT}/build-top/bin/pyc-compile" \
+    "${PYC_ROOT}/build/bin/pyc-compile" \
+    "${PYC_ROOT}/compiler/mlir/build2/bin/pyc-compile" \
+    "${PYC_ROOT}/compiler/mlir/build/bin/pyc-compile"
+  do
+    if [[ -x "${cand}" ]]; then
+      PYC_COMPILE="${cand}"
+      break
+    fi
+  done
+fi
+
+if [[ -z "${PYC_COMPILE:-}" || ! -x "${PYC_COMPILE}" ]]; then
+  echo "error: pycc backend not found (PYC_COMPILE=${PYC_COMPILE:-<unset>})" >&2
+  echo "hint: build it in pyCircuit: cd \"${PYC_ROOT}\" && bash flows/scripts/pyc build" >&2
+  echo "hint: or set PYCC=/absolute/path/to/pycc" >&2
   exit 1
 fi
+
+BUILD_PROFILE="${LINXCORE_BUILD_PROFILE:-dev-fast}"
+case "${BUILD_PROFILE}" in
+  dev-fast|release) ;;
+  *)
+    echo "error: unsupported LINXCORE_BUILD_PROFILE=${BUILD_PROFILE} (expected dev-fast|release)" >&2
+    exit 2
+    ;;
+esac
 
 OUT_CPP="${ROOT_DIR}/generated/cpp/linxcore_top"
 OUT_V="${ROOT_DIR}/generated/verilog/linxcore_top"
@@ -113,7 +165,53 @@ sync_dir() {
   fi
 }
 
-LOGIC_DEPTH="${PYC_LOGIC_DEPTH:-128}"
+if [[ -n "${PYC_LOGIC_DEPTH:-}" ]]; then
+  LOGIC_DEPTH="${PYC_LOGIC_DEPTH}"
+else
+  # The current WIP backend split builds substantially deeper comb trees than
+  # the earlier closure baseline. Keep a higher default budget so bring-up
+  # runs compile without requiring a local override.
+  LOGIC_DEPTH=2048
+fi
+
+if [[ -n "${PYC_CPP_SHARD_THRESHOLD_LINES:-}" ]]; then
+  CPP_SHARD_LINES="${PYC_CPP_SHARD_THRESHOLD_LINES}"
+elif [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  CPP_SHARD_LINES=8000
+else
+  CPP_SHARD_LINES=30000
+fi
+
+if [[ -n "${PYC_CPP_SHARD_THRESHOLD_BYTES:-}" ]]; then
+  CPP_SHARD_BYTES="${PYC_CPP_SHARD_THRESHOLD_BYTES}"
+elif [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  CPP_SHARD_BYTES=393216
+else
+  CPP_SHARD_BYTES=1048576
+fi
+
+if [[ -n "${PYC_CPP_SHARD_MAX_AST_NODES:-}" ]]; then
+  CPP_SHARD_MAX_AST_NODES="${PYC_CPP_SHARD_MAX_AST_NODES}"
+elif [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  CPP_SHARD_MAX_AST_NODES=96
+else
+  CPP_SHARD_MAX_AST_NODES=0
+fi
+
+NOINLINE_DEFAULT=0
+if [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  NOINLINE_DEFAULT=1
+fi
+
+INLINE_POLICY="${PYC_INLINE_POLICY:-}"
+if [[ -z "${INLINE_POLICY}" && "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  INLINE_POLICY="off"
+fi
+
+CANONICALIZE_BUDGET="${PYC_CANONICALIZE_BUDGET:-0}"
+if [[ "${CANONICALIZE_BUDGET}" == "0" && "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  CANONICALIZE_BUDGET=2
+fi
 
 TMP_PYC="$(mktemp -t linxcore_top.XXXXXX.pyc)"
 
@@ -145,10 +243,32 @@ else
 fi
 
 TRY_V_OUTDIR="${LINXCORE_TRY_V_OUTDIR:-0}"
+PYC_HELP="$("${PYC_COMPILE}" --help 2>&1 || true)"
+PYCC_COMMON_ARGS=(--logic-depth="${LOGIC_DEPTH}")
+if grep -q -- '--build-profile' <<<"${PYC_HELP}"; then
+  PYCC_COMMON_ARGS+=(--build-profile="${BUILD_PROFILE}")
+fi
+if grep -q -- '--hierarchy-policy' <<<"${PYC_HELP}"; then
+  # pyc4: hierarchy must be strict to preserve module boundaries.
+  PYCC_COMMON_ARGS+=(--hierarchy-policy="strict")
+fi
+if [[ -n "${INLINE_POLICY}" ]] && grep -q -- '--inline-policy' <<<"${PYC_HELP}"; then
+  PYCC_COMMON_ARGS+=(--inline-policy="${INLINE_POLICY}")
+fi
+if [[ "${CANONICALIZE_BUDGET}" =~ ^[0-9]+$ ]] && [[ "${CANONICALIZE_BUDGET}" -gt 0 ]] && grep -q -- '--canonicalize-budget' <<<"${PYC_HELP}"; then
+  PYCC_COMMON_ARGS+=(--canonicalize-budget="${CANONICALIZE_BUDGET}")
+fi
+if [[ -n "${PYC_PYCC_PROFILE_JSON:-}" ]] && grep -q -- '--profile-json' <<<"${PYC_HELP}"; then
+  PYCC_COMMON_ARGS+=(--profile-json="${PYC_PYCC_PROFILE_JSON}")
+  if [[ "${PYC_PYCC_PROFILE_PASS_TIMING:-1}" != "0" ]] && grep -q -- '--profile-pass-timing' <<<"${PYC_HELP}"; then
+    PYCC_COMMON_ARGS+=(--profile-pass-timing)
+  fi
+fi
+
 if [[ "${TRY_V_OUTDIR}" == "1" ]]; then
-  if ! "${PYC_COMPILE}" "${TMP_PYC}" --emit=verilog --logic-depth="${LOGIC_DEPTH}" --out-dir="${OUT_V_TMP}" >/dev/null 2>&1; then
+  if ! "${PYC_COMPILE}" "${TMP_PYC}" --emit=verilog "${PYCC_COMMON_ARGS[@]}" --out-dir="${OUT_V_TMP}" >/dev/null 2>&1; then
     MONO_V="${OUT_V_TMP}/linxcore_top.v"
-    "${PYC_COMPILE}" "${TMP_PYC}" --emit=verilog --logic-depth="${LOGIC_DEPTH}" -o "${MONO_V}"
+    "${PYC_COMPILE}" "${TMP_PYC}" --emit=verilog "${PYCC_COMMON_ARGS[@]}" -o "${MONO_V}"
     python3 "${ROOT_DIR}/tools/generate/split_verilog_modules.py" \
       --src "${MONO_V}" \
       --out-dir "${OUT_V_TMP}" \
@@ -156,31 +276,32 @@ if [[ "${TRY_V_OUTDIR}" == "1" ]]; then
   fi
 else
   MONO_V="${OUT_V_TMP}/linxcore_top.v"
-  "${PYC_COMPILE}" "${TMP_PYC}" --emit=verilog --logic-depth="${LOGIC_DEPTH}" -o "${MONO_V}"
+  "${PYC_COMPILE}" "${TMP_PYC}" --emit=verilog "${PYCC_COMMON_ARGS[@]}" -o "${MONO_V}"
   python3 "${ROOT_DIR}/tools/generate/split_verilog_modules.py" \
     --src "${MONO_V}" \
     --out-dir "${OUT_V_TMP}" \
     --top "linxcore_top"
 fi
 
-# Default shard thresholds tuned for developer iteration on large designs.
-# Smaller shards reduce single-TU compiler stress (esp. JanusBccBackendCompat tick) and
-# improve incremental rebuild latency.
-CPP_SHARD_LINES="${PYC_CPP_SHARD_THRESHOLD_LINES:-30000}"
-CPP_SHARD_BYTES="${PYC_CPP_SHARD_THRESHOLD_BYTES:-1048576}"
 NOINLINE_FLAG=()
-if [[ "${PYC_NOINLINE:-1}" != "0" ]]; then
+if [[ "${PYC_NOINLINE:-${NOINLINE_DEFAULT}}" != "0" ]]; then
   NOINLINE_FLAG=(--noinline)
+fi
+
+CPP_AST_SHARD_FLAG=()
+if [[ "${CPP_SHARD_MAX_AST_NODES}" =~ ^[0-9]+$ ]] && [[ "${CPP_SHARD_MAX_AST_NODES}" -gt 0 ]] && grep -q -- '--cpp-shard-max-ast-nodes' <<<"${PYC_HELP}"; then
+  CPP_AST_SHARD_FLAG=(--cpp-shard-max-ast-nodes="${CPP_SHARD_MAX_AST_NODES}")
 fi
 
 "${PYC_COMPILE}" "${TMP_PYC}" \
   --emit=cpp \
-  --logic-depth="${LOGIC_DEPTH}" \
+  "${PYCC_COMMON_ARGS[@]}" \
   --out-dir="${OUT_CPP_TMP}" \
   --cpp-split=module \
   "${NOINLINE_FLAG[@]}" \
   --cpp-shard-threshold-lines="${CPP_SHARD_LINES}" \
-  --cpp-shard-threshold-bytes="${CPP_SHARD_BYTES}"
+  --cpp-shard-threshold-bytes="${CPP_SHARD_BYTES}" \
+  "${CPP_AST_SHARD_FLAG[@]}"
 
 # Sync temp outputs into the stable generated directories.
 sync_dir "${OUT_CPP_TMP}" "${OUT_CPP}"
@@ -188,6 +309,37 @@ sync_dir "${OUT_V_TMP}" "${OUT_V}"
 
 printf '%s\n' "${CALLFRAME_SIZE}" > "${OUT_CPP}/.callframe_size"
 printf '%s\n' "${CALLFRAME_SIZE}" > "${OUT_V}/.callframe_size"
+printf '%s\n' "${BUILD_PROFILE}" > "${OUT_CPP}/.build_profile"
+printf '%s\n' "${BUILD_PROFILE}" > "${OUT_V}/.build_profile"
+
+MANIFEST_JSON="${OUT_CPP}/cpp_compile_manifest.json"
+MANIFEST_COST_CHECK="${ROOT_DIR}/tools/perf/check_manifest_compile_cost_thresholds.py"
+if [[ -f "${MANIFEST_JSON}" && -f "${MANIFEST_COST_CHECK}" ]]; then
+  BASELINE_DIR="${PYC_MANIFEST_COST_BASELINE_DIR:-${ROOT_DIR}/generated/perf/baselines}"
+  BASELINE_JSON="${PYC_MANIFEST_COST_BASELINE_JSON:-${BASELINE_DIR}/cpp_compile_manifest.${BUILD_PROFILE}.json}"
+  mkdir -p "${BASELINE_DIR}" "$(dirname -- "${BASELINE_JSON}")"
+
+  if [[ "${PYC_MANIFEST_COST_UPDATE_BASELINE:-0}" == "1" ]]; then
+    cp -f "${MANIFEST_JSON}" "${BASELINE_JSON}"
+  elif [[ ! -f "${BASELINE_JSON}" && "${PYC_MANIFEST_COST_AUTO_BOOTSTRAP:-1}" == "1" ]]; then
+    cp -f "${MANIFEST_JSON}" "${BASELINE_JSON}"
+  fi
+
+  cost_args=(
+    --manifest-json "${MANIFEST_JSON}"
+    --max-regress-pct "${PYC_MANIFEST_COST_MAX_REGRESS_PCT:-25}"
+    --max-top-tu-cost "${PYC_MANIFEST_COST_MAX_TOP_TU:-250000}"
+    --max-top-module-cost "${PYC_MANIFEST_COST_MAX_TOP_MODULE:-1500000}"
+    --max-total-cost "${PYC_MANIFEST_COST_MAX_TOTAL:-2300000}"
+  )
+  if [[ -f "${BASELINE_JSON}" ]]; then
+    cost_args+=(--baseline-json "${BASELINE_JSON}")
+  fi
+  if [[ "${PYC_MANIFEST_COST_STRICT:-0}" != "0" ]]; then
+    cost_args+=(--strict)
+  fi
+  python3 "${MANIFEST_COST_CHECK}" "${cost_args[@]}"
+fi
 
 python3 - <<'PY' "${OUT_CPP}/manifest.json" "${OUT_V}/manifest.json"
 from __future__ import annotations
@@ -198,13 +350,6 @@ from pathlib import Path
 
 required = [
     "linxcore_top",
-    "JanusBccIfuF0Top",
-    "JanusBccIfuF1Top",
-    "JanusBccIfuICacheTop",
-    "JanusBccIfuF2Top",
-    "JanusBccIfuCtrlTop",
-    "JanusBccIfuF3Top",
-    "JanusBccIfuF4Top",
     "JanusBccOooDec1Top",
     "JanusBccOooDec2Top",
     "JanusBccOooRenTop",
@@ -221,7 +366,6 @@ required = [
     "JanusBccLsuL1DTop",
     "JanusBccLsuMdbTop",
     "JanusBccBisqTop",
-    "JanusBccBrenuTop",
     "JanusBccBctrlTop",
     "JanusBccBrobTop",
     "JanusTmuNocNodeTop",

@@ -1,24 +1,18 @@
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
-from types import SimpleNamespace
-
 # ENGINE_ORCHESTRATION_ONLY:
 # Stage/component ownership is migrating to focused files. Keep this file as
 # composition glue; avoid adding new monolithic stage logic.
 
 from pycircuit import Circuit, module
-from pycircuit.dsl import Signal
 
-from common.exec_uop import exec_uop_comb
+from common.exec_uop import ExecOut
 from common.isa import (
     OP_BIOR,
     OP_BLOAD,
     BK_CALL,
     BK_COND,
     BK_DIRECT,
-    BK_FALL,
     BK_ICALL,
     BK_IND,
     OP_BSTORE,
@@ -98,35 +92,34 @@ from common.isa import (
     TRAP_BRU_RECOVERY_NOT_BSTART,
 )
 from common.util import make_consts
-from .code_template_unit import build_code_template_unit
-from .commit import build_commit_ctrl_stage, build_commit_head_stage, is_setc_any, is_setc_tgt
-from .decode import build_decode_stage
-from .dispatch import build_dispatch_stage
-from .helpers import mask_bit, mux_by_uindex, onehot_from_tag
-from .issue import build_iq_update_stage, build_issue_stage, pick_oldest_from_arrays
-from .lsu import build_lsu_stage
-from .params import OooParams
-from .rename import build_commit_rename_stage, build_rename_stage
-from .rob import build_rob_ctrl_stage, build_rob_entry_update_stage, is_macro_op, is_start_marker_op
-from .state import make_core_ctrl_regs, make_iq_regs, make_prf, make_rename_regs, make_rob_regs
-from .wakeup import build_head_wait_stage, compose_replay_cause, compose_wakeup_reason
+from ..code_template_unit import build_code_template_unit
+from ..commit import build_commit_ctrl_stage, build_commit_head_stage, is_setc_any, is_setc_tgt
+from ..helpers import mask_bit, mux_by_uindex, onehot_from_tag
+from ..lsu import build_lsu_stage
+from .dispatch_frontend import build_dispatch_frontend
+from .block_fabric import build_block_fabric
+from .commit_slot_step import build_commit_slot_step
+from .commit_redirect import build_commit_redirect
+from .exec_uop_wrap import build_exec_uop
+from .ingress_decode import build_ingress_decode
+from .iq_bank import build_iq_bank_top
+from .recovery_checks import build_bru_recovery_owner
+from .rename_bank import build_rename_bank_top
+from .rob_bank import build_rob_bank_top
+from .trace_occ import build_backend_occ_frontend, build_backend_occ_schedule
+from ..params import OooParams
+from ..prf import build_prf
+from ..rename import build_commit_rename_stage, build_rename_stage
+from ..state import make_core_ctrl_regs
+from ..template_uop_encoding import map_template_child_encoding
+from ..wakeup import compose_replay_cause, compose_wakeup_reason
 
-
-@dataclass(frozen=True)
-class BccOooExports:
-    clk: Signal
-    rst: Signal
-    block_cmd_valid: Signal
-    block_cmd_kind: Signal
-    block_cmd_payload: Signal
-    block_cmd_tile: Signal
-    block_cmd_tag: Signal
-    block_cmd_bid: Signal
-    cycles: Signal
-    halted: Signal
-
-
-def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None) -> BccOooExports:
+def _build_trace_export_core(
+    m: Circuit,
+    *,
+    mem_bytes: int,
+    params: OooParams | None = None,
+) -> None:
     p = params or OooParams()
 
     clk = m.clock("clk")
@@ -152,28 +145,16 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     brob_active_ready_i = m.input("brob_active_ready_i", width=1)
     brob_active_exception_i = m.input("brob_active_exception_i", width=1)
     brob_active_retired_i = m.input("brob_active_retired_i", width=1)
+    # BROB allocator (D1-time BID assignment): peek+fire.
+    brob_alloc_ready_i = m.input("brob_alloc_ready_i", width=1)
+    brob_alloc_bid_i = m.input("brob_alloc_bid_i", width=64)
     # Global dynamic-UID allocator input for template-child uops.
     template_uid_i = m.input("template_uid_i", width=64)
+    # Optional fixed callframe addend is a boundary value port.
+    callframe_size_i = m.input("callframe_size_i", width=64)
 
     c = m.const
     consts = make_consts(m)
-
-    # Optional fixed template frame addend knob.
-    #
-    # Architectural default follows immediate-only frame semantics:
-    #   f.entry:   sp -= stacksize
-    #   f.exit/*:  sp += stacksize
-    #
-    # Set LINXCORE_CALLFRAME_SIZE to a non-zero multiple of 8 to include an
-    # additional fixed outgoing-call frame.
-    callframe_env = os.getenv("LINXCORE_CALLFRAME_SIZE", "0")
-    try:
-        callframe_size_cfg = int(callframe_env, 0)
-    except ValueError:
-        callframe_size_cfg = 0
-    if callframe_size_cfg < 0 or (callframe_size_cfg & 0x7) != 0:
-        callframe_size_cfg = 0
-    callframe_size_cfg &= (1 << 64) - 1
 
     def op_is(op, *codes: int):
         v = consts.zero1
@@ -183,6 +164,25 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
 
     tag0 = c(0, width=p.ptag_w)
 
+    ingress_decode = m.instance_auto(
+        build_ingress_decode,
+        name="ingress_decode",
+        module_name="LinxCoreIngressDecodeBackend",
+        clk=clk,
+        rst=rst,
+        in_f4_valid=f4_valid_i,
+        in_f4_pc=f4_pc_i,
+        in_f4_window=f4_window_i,
+        in_f4_checkpoint=f4_checkpoint_i,
+        in_f4_pkt_uid=f4_pkt_uid_i,
+        ready_i=consts.one1,
+    )
+    f4_valid = ingress_decode["out_f4_valid"]
+    f4_pc = ingress_decode["out_f4_pc"]
+    f4_window = ingress_decode["out_f4_window"]
+    f4_checkpoint = ingress_decode["out_f4_checkpoint"]
+    f4_pkt_uid = ingress_decode["out_f4_pkt_uid"]
+
     # --- core state (architectural) ---
     state = make_core_ctrl_regs(m, clk, rst, boot_pc=boot_pc, consts=consts, p=p)
 
@@ -190,21 +190,430 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     do_flush = state.flush_pending.out()
 
     # --- physical register file (PRF) ---
-    prf = make_prf(m, clk, rst, boot_sp=boot_sp, boot_ra=boot_ra, consts=consts, p=p)
+    # Keep PRF as a dedicated module so codegen can shard it for faster C++
+    # builds, and keep backend engine orchestration focused on control flow.
+    prf_rd_ret_ra = 0
+    prf_rd_op_base = prf_rd_ret_ra + 1
+    prf_rd_macro_reg = prf_rd_op_base + (p.issue_w * 3)
+    prf_rd_macro_sp = prf_rd_macro_reg + 1
+    prf_read_ports = prf_rd_macro_sp + 1
 
-    # --- rename state ---
-    ren = make_rename_regs(m, clk, rst, consts=consts, p=p)
-    ckpt_entries = len(ren.ckpt_valid)
-    ckpt_w = (ckpt_entries - 1).bit_length()
+    prf_raddr = [m.new_wire(width=p.ptag_w) for _ in range(prf_read_ports)]
+    prf_wen = [m.new_wire(width=1) for _ in range(p.issue_w + 1)]
+    prf_waddr = [m.new_wire(width=p.ptag_w) for _ in range(p.issue_w + 1)]
+    prf_wdata = [m.new_wire(width=64) for _ in range(p.issue_w + 1)]
 
-    # --- ROB (in-order commit) ---
-    rob = make_rob_regs(m, clk, rst, consts=consts, p=p)
+    prf_ports = {"clk": clk, "rst": rst, "boot_sp": boot_sp, "boot_ra": boot_ra}
+    for i in range(prf_read_ports):
+        prf_ports[f"raddr{i}"] = prf_raddr[i]
+    for i in range(p.issue_w + 1):
+        prf_ports[f"wen{i}"] = prf_wen[i]
+        prf_ports[f"waddr{i}"] = prf_waddr[i]
+        prf_ports[f"wdata{i}"] = prf_wdata[i]
 
-    # --- issue queues (bring-up split) ---
-    iq_alu = make_iq_regs(m, clk, rst, consts=consts, p=p, name="iq_alu")
-    iq_bru = make_iq_regs(m, clk, rst, consts=consts, p=p, name="iq_bru")
-    iq_lsu = make_iq_regs(m, clk, rst, consts=consts, p=p, name="iq_lsu")
-    iq_cmd = make_iq_regs(m, clk, rst, consts=consts, p=p, name="iq_cmd")
+    prf_inst = m.instance_auto(
+        build_prf,
+        name="prf",
+        module_name="LinxCorePrfTop",
+        params={
+            "pregs": p.pregs,
+            "read_ports": prf_read_ports,
+            "write_ports": p.issue_w + 1,
+            "init_sp_tag": 1,
+            "init_ra_tag": 10,
+        },
+        **prf_ports,
+    )
+    prf_rdata = [prf_inst[f"rdata{i}"] for i in range(prf_read_ports)]
+
+    # --- rename bank (hierarchical; owns SMAP/CMAP/freelist/ready/checkpoints) ---
+    ren_dispatch_fire = m.new_wire(width=1)
+    ren_disp_alloc_mask = m.new_wire(width=p.pregs)
+    ren_flush_checkpoint_id = m.new_wire(width=6)
+    ren_macro_uop_reg = m.new_wire(width=6)
+    ren_wb_set_mask = m.new_wire(width=p.pregs)
+
+    ren_disp_valids = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    ren_disp_srcls = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
+    ren_disp_srcrs = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
+    ren_disp_srcps = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
+    ren_disp_is_start_markers = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    ren_disp_push_ts = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    ren_disp_push_us = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    ren_disp_dst_is_gprs = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    ren_disp_regdsts = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
+    ren_disp_pdsts = [m.new_wire(width=p.ptag_w) for _ in range(p.dispatch_w)]
+    ren_disp_checkpoint_ids = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
+
+    ren_commit_fires = [m.new_wire(width=1) for _ in range(p.commit_w)]
+    ren_commit_is_bstops = [m.new_wire(width=1) for _ in range(p.commit_w)]
+    ren_rob_dst_kinds = [m.new_wire(width=2) for _ in range(p.commit_w)]
+    ren_rob_dst_aregs = [m.new_wire(width=6) for _ in range(p.commit_w)]
+    ren_rob_pdsts = [m.new_wire(width=p.ptag_w) for _ in range(p.commit_w)]
+
+    rename_bank_args = {
+        "clk": clk,
+        "rst": rst,
+        "do_flush": do_flush,
+        "dispatch_fire": ren_dispatch_fire,
+        "disp_alloc_mask": ren_disp_alloc_mask,
+        "flush_checkpoint_id": ren_flush_checkpoint_id,
+        "macro_uop_reg": ren_macro_uop_reg,
+        "wb_set_mask": ren_wb_set_mask,
+    }
+    for slot in range(p.dispatch_w):
+        rename_bank_args[f"disp_valid{slot}"] = ren_disp_valids[slot]
+        rename_bank_args[f"disp_srcl{slot}"] = ren_disp_srcls[slot]
+        rename_bank_args[f"disp_srcr{slot}"] = ren_disp_srcrs[slot]
+        rename_bank_args[f"disp_srcp{slot}"] = ren_disp_srcps[slot]
+        rename_bank_args[f"disp_is_start_marker{slot}"] = ren_disp_is_start_markers[slot]
+        rename_bank_args[f"disp_push_t{slot}"] = ren_disp_push_ts[slot]
+        rename_bank_args[f"disp_push_u{slot}"] = ren_disp_push_us[slot]
+        rename_bank_args[f"disp_dst_is_gpr{slot}"] = ren_disp_dst_is_gprs[slot]
+        rename_bank_args[f"disp_regdst{slot}"] = ren_disp_regdsts[slot]
+        rename_bank_args[f"disp_pdst{slot}"] = ren_disp_pdsts[slot]
+        rename_bank_args[f"disp_checkpoint_id{slot}"] = ren_disp_checkpoint_ids[slot]
+    for slot in range(p.commit_w):
+        rename_bank_args[f"commit_fire{slot}"] = ren_commit_fires[slot]
+        rename_bank_args[f"commit_is_bstop{slot}"] = ren_commit_is_bstops[slot]
+        rename_bank_args[f"rob_dst_kind{slot}"] = ren_rob_dst_kinds[slot]
+        rename_bank_args[f"rob_dst_areg{slot}"] = ren_rob_dst_aregs[slot]
+        rename_bank_args[f"rob_pdst{slot}"] = ren_rob_pdsts[slot]
+
+    rename_bank = m.instance_auto(
+        build_rename_bank_top,
+        name="rename_bank",
+        module_name="LinxCoreRenameBankTop",
+        params={"dispatch_w": p.dispatch_w, "commit_w": p.commit_w, "pregs": p.pregs},
+        **rename_bank_args,
+    )
+
+    ren_free_mask = rename_bank["free_mask_o"]
+    ren_ready_mask = rename_bank["ready_mask_o"]
+    ren_cmap_sp = rename_bank["cmap_sp_o"]
+    ren_cmap_a0 = rename_bank["cmap_a0_o"]
+    ren_cmap_a1 = rename_bank["cmap_a1_o"]
+    ren_cmap_ra = rename_bank["cmap_ra_o"]
+    ren_cmap_ct0 = rename_bank["cmap_ct0_o"]
+    ren_cmap_cu0 = rename_bank["cmap_cu0_o"]
+    ren_smap_st0 = rename_bank["smap_st0_o"]
+    ren_smap_su0 = rename_bank["smap_su0_o"]
+    ren_macro_reg_tag = rename_bank["macro_reg_tag_o"]
+    disp_srcl_tags = [rename_bank[f"disp_srcl_tag{slot}_o"] for slot in range(p.dispatch_w)]
+    disp_srcr_tags = [rename_bank[f"disp_srcr_tag{slot}_o"] for slot in range(p.dispatch_w)]
+    disp_srcp_tags = [rename_bank[f"disp_srcp_tag{slot}_o"] for slot in range(p.dispatch_w)]
+
+    # --- ROB bank (hierarchical; owns ROB state) ---
+    rob_commit_count = m.new_wire(width=3)
+    rob_disp_count = m.new_wire(width=3)
+    rob_dispatch_fire = m.new_wire(width=1)
+    rob_commit_fires = [m.new_wire(width=1) for _ in range(p.commit_w)]
+    rob_disp_valids = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+
+    rob_disp_pcs = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    rob_disp_ops = [m.new_wire(width=12) for _ in range(p.dispatch_w)]
+    rob_disp_lens = [m.new_wire(width=3) for _ in range(p.dispatch_w)]
+    rob_disp_insn_raws = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    rob_disp_checkpoint_ids = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
+    rob_disp_dst_kinds = [m.new_wire(width=2) for _ in range(p.dispatch_w)]
+    rob_disp_regdsts = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
+    rob_disp_pdsts = [m.new_wire(width=p.ptag_w) for _ in range(p.dispatch_w)]
+    rob_disp_imms = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    rob_disp_is_stores = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    rob_disp_is_boundaries = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    rob_disp_is_bstarts = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    rob_disp_is_bstops = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    rob_disp_boundary_kinds = [m.new_wire(width=3) for _ in range(p.dispatch_w)]
+    rob_disp_boundary_targets = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    rob_disp_pred_takes = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    rob_disp_block_epochs = [m.new_wire(width=16) for _ in range(p.dispatch_w)]
+    rob_disp_block_uids = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    rob_disp_block_bids = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    rob_disp_load_store_ids = [m.new_wire(width=32) for _ in range(p.dispatch_w)]
+    rob_disp_resolved_d2s = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    rob_disp_srcls = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
+    rob_disp_srcrs = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
+    rob_disp_uop_uids = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+
+    rob_wb_fires = [m.new_wire(width=1) for _ in range(p.issue_w)]
+    rob_wb_robs = [m.new_wire(width=p.rob_w) for _ in range(p.issue_w)]
+    rob_wb_values = [m.new_wire(width=64) for _ in range(p.issue_w)]
+    rob_store_fires = [m.new_wire(width=1) for _ in range(p.issue_w)]
+    rob_load_fires = [m.new_wire(width=1) for _ in range(p.issue_w)]
+    rob_ex_addrs = [m.new_wire(width=64) for _ in range(p.issue_w)]
+    rob_ex_wdatas = [m.new_wire(width=64) for _ in range(p.issue_w)]
+    rob_ex_sizes = [m.new_wire(width=4) for _ in range(p.issue_w)]
+    rob_ex_src0s = [m.new_wire(width=64) for _ in range(p.issue_w)]
+    rob_ex_src1s = [m.new_wire(width=64) for _ in range(p.issue_w)]
+    rob_issue_fire_lane0_raw = m.new_wire(width=1)
+    rob_ex0_is_load = m.new_wire(width=1)
+    rob_ex0_addr = m.new_wire(width=64)
+    rob_ex0_rob = m.new_wire(width=p.rob_w)
+    rob_meta_query_slots = p.issue_w + 1 + 4
+    rob_meta_query_idxs = [m.new_wire(width=p.rob_w) for _ in range(rob_meta_query_slots)]
+
+    rob_bank_args = {
+        "clk": clk,
+        "rst": rst,
+        "do_flush": do_flush,
+        "commit_count": rob_commit_count,
+        "disp_count": rob_disp_count,
+        "dispatch_fire": rob_dispatch_fire,
+        "replay_pending": state.replay_pending.out(),
+        "issue_fire_lane0_raw": rob_issue_fire_lane0_raw,
+        "ex0_is_load": rob_ex0_is_load,
+        "ex0_addr": rob_ex0_addr,
+        "ex0_rob": rob_ex0_rob,
+    }
+    for slot in range(p.dispatch_w):
+        rob_bank_args[f"disp_valid{slot}"] = rob_disp_valids[slot]
+        rob_bank_args[f"disp_pc{slot}"] = rob_disp_pcs[slot]
+        rob_bank_args[f"disp_op{slot}"] = rob_disp_ops[slot]
+        rob_bank_args[f"disp_len{slot}"] = rob_disp_lens[slot]
+        rob_bank_args[f"disp_insn_raw{slot}"] = rob_disp_insn_raws[slot]
+        rob_bank_args[f"disp_checkpoint_id{slot}"] = rob_disp_checkpoint_ids[slot]
+        rob_bank_args[f"disp_dst_kind{slot}"] = rob_disp_dst_kinds[slot]
+        rob_bank_args[f"disp_regdst{slot}"] = rob_disp_regdsts[slot]
+        rob_bank_args[f"disp_pdst{slot}"] = rob_disp_pdsts[slot]
+        rob_bank_args[f"disp_imm{slot}"] = rob_disp_imms[slot]
+        rob_bank_args[f"disp_is_store{slot}"] = rob_disp_is_stores[slot]
+        rob_bank_args[f"disp_is_boundary{slot}"] = rob_disp_is_boundaries[slot]
+        rob_bank_args[f"disp_is_bstart{slot}"] = rob_disp_is_bstarts[slot]
+        rob_bank_args[f"disp_is_bstop{slot}"] = rob_disp_is_bstops[slot]
+        rob_bank_args[f"disp_boundary_kind{slot}"] = rob_disp_boundary_kinds[slot]
+        rob_bank_args[f"disp_boundary_target{slot}"] = rob_disp_boundary_targets[slot]
+        rob_bank_args[f"disp_pred_take{slot}"] = rob_disp_pred_takes[slot]
+        rob_bank_args[f"disp_block_epoch{slot}"] = rob_disp_block_epochs[slot]
+        rob_bank_args[f"disp_block_uid{slot}"] = rob_disp_block_uids[slot]
+        rob_bank_args[f"disp_block_bid{slot}"] = rob_disp_block_bids[slot]
+        rob_bank_args[f"disp_load_store_id{slot}"] = rob_disp_load_store_ids[slot]
+        rob_bank_args[f"disp_resolved_d2{slot}"] = rob_disp_resolved_d2s[slot]
+        rob_bank_args[f"disp_srcl{slot}"] = rob_disp_srcls[slot]
+        rob_bank_args[f"disp_srcr{slot}"] = rob_disp_srcrs[slot]
+        rob_bank_args[f"disp_uop_uid{slot}"] = rob_disp_uop_uids[slot]
+        rob_bank_args[f"disp_parent_uid{slot}"] = consts.zero64
+
+    for slot in range(p.commit_w):
+        rob_bank_args[f"commit_fire{slot}"] = rob_commit_fires[slot]
+
+    for slot in range(p.issue_w):
+        rob_bank_args[f"wb_fire{slot}"] = rob_wb_fires[slot]
+        rob_bank_args[f"wb_rob{slot}"] = rob_wb_robs[slot]
+        rob_bank_args[f"wb_value{slot}"] = rob_wb_values[slot]
+        rob_bank_args[f"store_fire{slot}"] = rob_store_fires[slot]
+        rob_bank_args[f"load_fire{slot}"] = rob_load_fires[slot]
+        rob_bank_args[f"ex_addr{slot}"] = rob_ex_addrs[slot]
+        rob_bank_args[f"ex_wdata{slot}"] = rob_ex_wdatas[slot]
+        rob_bank_args[f"ex_size{slot}"] = rob_ex_sizes[slot]
+        rob_bank_args[f"ex_src0{slot}"] = rob_ex_src0s[slot]
+        rob_bank_args[f"ex_src1{slot}"] = rob_ex_src1s[slot]
+    for slot in range(rob_meta_query_slots):
+        rob_bank_args[f"meta_query_idx{slot}"] = rob_meta_query_idxs[slot]
+
+    rob_bank = m.instance_auto(
+        build_rob_bank_top,
+        name="rob_bank",
+        params={
+            "dispatch_w": p.dispatch_w,
+            "issue_w": p.issue_w,
+            "commit_w": p.commit_w,
+            "rob_depth": p.rob_depth,
+            "rob_w": p.rob_w,
+            "ptag_w": p.ptag_w,
+            "meta_query_slots": rob_meta_query_slots,
+        },
+        **rob_bank_args,
+    )
+    rob_head = rob_bank["head_o"]
+    rob_tail = rob_bank["tail_o"]
+    rob_count = rob_bank["count_o"]
+    disp_rob_idxs = [rob_bank[f"disp_rob_idx{slot}_o"] for slot in range(p.dispatch_w)]
+    disp_fires = [rob_bank[f"disp_fire{slot}_o"] for slot in range(p.dispatch_w)]
+    rob_lsu_older_store_pending_lane0 = rob_bank["lsu_older_store_pending_lane0_o"]
+    rob_lsu_forward_hit_lane0 = rob_bank["lsu_forward_hit_lane0_o"]
+    rob_lsu_forward_data_lane0 = rob_bank["lsu_forward_data_lane0_o"]
+    rob_lsu_violation_replay_set = rob_bank["lsu_violation_replay_set_o"]
+    rob_lsu_violation_replay_store_rob = rob_bank["lsu_violation_replay_store_rob_o"]
+    rob_lsu_violation_replay_pc = rob_bank["lsu_violation_replay_pc_o"]
+    rob_issue_query_uop_uids = [rob_bank[f"meta_query_uop_uid{slot}_o"] for slot in range(p.issue_w)]
+    rob_issue_query_parent_uids = [rob_bank[f"meta_query_parent_uid{slot}_o"] for slot in range(p.issue_w)]
+    rob_issue_query_block_uids = [rob_bank[f"meta_query_block_uid{slot}_o"] for slot in range(p.issue_w)]
+    rob_issue_query_block_bids = [rob_bank[f"meta_query_block_bid{slot}_o"] for slot in range(p.issue_w)]
+    rob_issue_query_load_store_ids = [rob_bank[f"meta_query_load_store_id{slot}_o"] for slot in range(p.issue_w)]
+    rob_bru_query_slot = p.issue_w
+    rob_bru_query_block_epoch = rob_bank[f"meta_query_block_epoch{rob_bru_query_slot}_o"]
+    rob_bru_query_checkpoint_id = rob_bank[f"meta_query_checkpoint_id{rob_bru_query_slot}_o"]
+    rob_iq_query_base = p.issue_w + 1
+    rob_iq_query_uop_uids = [rob_bank[f"meta_query_uop_uid{rob_iq_query_base + slot}_o"] for slot in range(4)]
+    rob_iq_query_parent_uids = [rob_bank[f"meta_query_parent_uid{rob_iq_query_base + slot}_o"] for slot in range(4)]
+    rob_iq_query_block_uids = [rob_bank[f"meta_query_block_uid{rob_iq_query_base + slot}_o"] for slot in range(4)]
+    rob_iq_query_block_bids = [rob_bank[f"meta_query_block_bid{rob_iq_query_base + slot}_o"] for slot in range(4)]
+    rob_iq_query_load_store_ids = [rob_bank[f"meta_query_load_store_id{rob_iq_query_base + slot}_o"] for slot in range(4)]
+
+    # --- issue queues (bring-up split; hierarchical banks) ---
+    iq_disp_ops = [m.new_wire(width=12) for _ in range(p.dispatch_w)]
+    iq_disp_pcs = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    iq_disp_imms = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
+    iq_disp_srcl_tags = [m.new_wire(width=p.ptag_w) for _ in range(p.dispatch_w)]
+    iq_disp_srcr_tags = [m.new_wire(width=p.ptag_w) for _ in range(p.dispatch_w)]
+    iq_disp_srcr_types = [m.new_wire(width=2) for _ in range(p.dispatch_w)]
+    iq_disp_shamts = [m.new_wire(width=6) for _ in range(p.dispatch_w)]
+    iq_disp_srcp_tags = [m.new_wire(width=p.ptag_w) for _ in range(p.dispatch_w)]
+    iq_disp_pdsts = [m.new_wire(width=p.ptag_w) for _ in range(p.dispatch_w)]
+    iq_disp_need_pdsts = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+
+    iq_alu_disp_tos = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    iq_bru_disp_tos = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    iq_lsu_disp_tos = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    iq_cmd_disp_tos = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+
+    iq_alu_alloc_idxs = [m.new_wire(width=p.iq_w) for _ in range(p.dispatch_w)]
+    iq_bru_alloc_idxs = [m.new_wire(width=p.iq_w) for _ in range(p.dispatch_w)]
+    iq_lsu_alloc_idxs = [m.new_wire(width=p.iq_w) for _ in range(p.dispatch_w)]
+    iq_cmd_alloc_idxs = [m.new_wire(width=p.iq_w) for _ in range(p.dispatch_w)]
+
+    iq_alu_issue_fires = [m.new_wire(width=1) for _ in range(p.alu_w)]
+    iq_alu_issue_idxs = [m.new_wire(width=p.iq_w) for _ in range(p.alu_w)]
+    iq_bru_issue_fires = [m.new_wire(width=1) for _ in range(p.bru_w)]
+    iq_bru_issue_idxs = [m.new_wire(width=p.iq_w) for _ in range(p.bru_w)]
+    iq_lsu_issue_fires = [m.new_wire(width=1) for _ in range(p.lsu_w)]
+    iq_lsu_issue_idxs = [m.new_wire(width=p.iq_w) for _ in range(p.lsu_w)]
+    iq_cmd_issue_fires = [m.new_wire(width=1)]
+    iq_cmd_issue_idxs = [m.new_wire(width=p.iq_w)]
+
+    iq_common_disp_args = {}
+    for slot in range(p.dispatch_w):
+        iq_common_disp_args[f"disp_fire{slot}"] = disp_fires[slot]
+        iq_common_disp_args[f"disp_rob_idx{slot}"] = disp_rob_idxs[slot]
+        iq_common_disp_args[f"disp_op{slot}"] = iq_disp_ops[slot]
+        iq_common_disp_args[f"disp_pc{slot}"] = iq_disp_pcs[slot]
+        iq_common_disp_args[f"disp_imm{slot}"] = iq_disp_imms[slot]
+        iq_common_disp_args[f"disp_srcl_tag{slot}"] = iq_disp_srcl_tags[slot]
+        iq_common_disp_args[f"disp_srcr_tag{slot}"] = iq_disp_srcr_tags[slot]
+        iq_common_disp_args[f"disp_srcr_type{slot}"] = iq_disp_srcr_types[slot]
+        iq_common_disp_args[f"disp_shamt{slot}"] = iq_disp_shamts[slot]
+        iq_common_disp_args[f"disp_srcp_tag{slot}"] = iq_disp_srcp_tags[slot]
+        iq_common_disp_args[f"disp_pdst{slot}"] = iq_disp_pdsts[slot]
+        iq_common_disp_args[f"disp_need_pdst{slot}"] = iq_disp_need_pdsts[slot]
+
+    iq_alu_bank_args = {
+        "clk": clk,
+        "rst": rst,
+        "do_flush": do_flush,
+        "ready_mask": ren_ready_mask,
+        "head_idx": rob_head,
+        **iq_common_disp_args,
+    }
+    iq_bru_bank_args = {
+        "clk": clk,
+        "rst": rst,
+        "do_flush": do_flush,
+        "ready_mask": ren_ready_mask,
+        "head_idx": rob_head,
+        **iq_common_disp_args,
+    }
+    iq_lsu_bank_args = {
+        "clk": clk,
+        "rst": rst,
+        "do_flush": do_flush,
+        "ready_mask": ren_ready_mask,
+        "head_idx": rob_head,
+        **iq_common_disp_args,
+    }
+    iq_cmd_bank_args = {
+        "clk": clk,
+        "rst": rst,
+        "do_flush": do_flush,
+        "ready_mask": ren_ready_mask,
+        "head_idx": rob_head,
+        **iq_common_disp_args,
+    }
+
+    for slot in range(p.dispatch_w):
+        iq_alu_bank_args[f"disp_to{slot}"] = iq_alu_disp_tos[slot]
+        iq_bru_bank_args[f"disp_to{slot}"] = iq_bru_disp_tos[slot]
+        iq_lsu_bank_args[f"disp_to{slot}"] = iq_lsu_disp_tos[slot]
+        iq_cmd_bank_args[f"disp_to{slot}"] = iq_cmd_disp_tos[slot]
+
+        iq_alu_bank_args[f"alloc_idx{slot}"] = iq_alu_alloc_idxs[slot]
+        iq_bru_bank_args[f"alloc_idx{slot}"] = iq_bru_alloc_idxs[slot]
+        iq_lsu_bank_args[f"alloc_idx{slot}"] = iq_lsu_alloc_idxs[slot]
+        iq_cmd_bank_args[f"alloc_idx{slot}"] = iq_cmd_alloc_idxs[slot]
+
+    for slot in range(p.alu_w):
+        iq_alu_bank_args[f"issue_fire{slot}"] = iq_alu_issue_fires[slot]
+        iq_alu_bank_args[f"issue_idx{slot}"] = iq_alu_issue_idxs[slot]
+    for slot in range(p.bru_w):
+        iq_bru_bank_args[f"issue_fire{slot}"] = iq_bru_issue_fires[slot]
+        iq_bru_bank_args[f"issue_idx{slot}"] = iq_bru_issue_idxs[slot]
+    for slot in range(p.lsu_w):
+        iq_lsu_bank_args[f"issue_fire{slot}"] = iq_lsu_issue_fires[slot]
+        iq_lsu_bank_args[f"issue_idx{slot}"] = iq_lsu_issue_idxs[slot]
+
+    iq_cmd_bank_args["issue_fire0"] = iq_cmd_issue_fires[0]
+    iq_cmd_bank_args["issue_idx0"] = iq_cmd_issue_idxs[0]
+
+    iq_alu_bank = m.instance_auto(
+        build_iq_bank_top,
+        name="iq_alu_bank",
+        params={
+            "iq_depth": p.iq_depth,
+            "iq_w": p.iq_w,
+            "rob_w": p.rob_w,
+            "ptag_w": p.ptag_w,
+            "dispatch_w": p.dispatch_w,
+            "issue_w": p.alu_w,
+            "pregs": p.pregs,
+        },
+        **iq_alu_bank_args,
+    )
+    iq_bru_bank = m.instance_auto(
+        build_iq_bank_top,
+        name="iq_bru_bank",
+        params={
+            "iq_depth": p.iq_depth,
+            "iq_w": p.iq_w,
+            "rob_w": p.rob_w,
+            "ptag_w": p.ptag_w,
+            "dispatch_w": p.dispatch_w,
+            "issue_w": p.bru_w,
+            "pregs": p.pregs,
+        },
+        **iq_bru_bank_args,
+    )
+    iq_lsu_bank = m.instance_auto(
+        build_iq_bank_top,
+        name="iq_lsu_bank",
+        params={
+            "iq_depth": p.iq_depth,
+            "iq_w": p.iq_w,
+            "rob_w": p.rob_w,
+            "ptag_w": p.ptag_w,
+            "dispatch_w": p.dispatch_w,
+            "issue_w": p.lsu_w,
+            "pregs": p.pregs,
+        },
+        **iq_lsu_bank_args,
+    )
+    iq_cmd_bank = m.instance_auto(
+        build_iq_bank_top,
+        name="iq_cmd_bank",
+        params={
+            "iq_depth": p.iq_depth,
+            "iq_w": p.iq_w,
+            "rob_w": p.rob_w,
+            "ptag_w": p.ptag_w,
+            "dispatch_w": p.dispatch_w,
+            "issue_w": 1,
+            "pregs": p.pregs,
+        },
+        **iq_cmd_bank_args,
+    )
+
+    iq_alu_valid_mask = iq_alu_bank["valid_mask_o"]
+    iq_bru_valid_mask = iq_bru_bank["valid_mask_o"]
+    iq_lsu_valid_mask = iq_lsu_bank["valid_mask_o"]
+    iq_cmd_valid_mask = iq_cmd_bank["valid_mask_o"]
 
     # --- committed store buffer (drains stores to D-memory) ---
     with m.scope("stbuf"):
@@ -221,108 +630,48 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             stbuf_data.append(m.out(f"d{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
             stbuf_size.append(m.out(f"s{i}", clk=clk, rst=rst, width=4, init=consts.zero4, en=consts.one1))
 
-    # --- frontend BSTART metadata buffer (PC buffer equivalent) ---
-    pcb_depth = p.rob_depth
-    pcb_w = p.rob_w
-    with m.scope("pcbuf"):
-        pcb_tail = m.out("tail", clk=clk, rst=rst, width=pcb_w, init=c(0, width=pcb_w), en=consts.one1)
-        pcb_valid = []
-        pcb_pc = []
-        pcb_kind = []
-        pcb_target = []
-        pcb_pred_take = []
-        pcb_is_bstart = []
-        for i in range(pcb_depth):
-            pcb_valid.append(m.out(f"v{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
-            pcb_pc.append(m.out(f"pc{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
-            pcb_kind.append(m.out(f"k{i}", clk=clk, rst=rst, width=3, init=c(BK_FALL, width=3), en=consts.one1))
-            pcb_target.append(m.out(f"t{i}", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1))
-            pcb_pred_take.append(m.out(f"p{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
-            pcb_is_bstart.append(m.out(f"b{i}", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1))
-
     # --- commit selection (up to commit_w, stop on redirect/store/halt) ---
-    commit_idxs = []
-    rob_pcs = []
-    rob_valids = []
-    rob_dones = []
-    rob_ops = []
-    rob_lens = []
-    rob_dst_kinds = []
-    rob_dst_aregs = []
-    rob_pdsts = []
-    rob_values = []
-    rob_src0_regs = []
-    rob_src1_regs = []
-    rob_src0_values = []
-    rob_src1_values = []
-    rob_src0_valids = []
-    rob_src1_valids = []
-    rob_is_stores = []
-    rob_st_addrs = []
-    rob_st_datas = []
-    rob_st_sizes = []
-    rob_is_loads = []
-    rob_ld_addrs = []
-    rob_ld_datas = []
-    rob_ld_sizes = []
-    rob_is_boundaries = []
-    rob_is_bstarts = []
-    rob_is_bstops = []
-    rob_boundary_kinds = []
-    rob_boundary_targets = []
-    rob_pred_takes = []
-    rob_block_epochs = []
-    rob_block_bids = []
-    rob_load_store_ids = []
-    rob_resolved_d2s = []
-    rob_insn_raws = []
-    rob_checkpoint_ids = []
-    rob_macro_begins = []
-    rob_macro_ends = []
-    rob_uop_uids = []
-    rob_parent_uids = []
-    for slot in range(p.commit_w):
-        idx = rob.head.out() + c(slot, width=p.rob_w)
-        commit_idxs.append(idx)
-        rob_pcs.append(mux_by_uindex(m, idx=idx, items=rob.pc, default=consts.zero64))
-        rob_valids.append(mux_by_uindex(m, idx=idx, items=rob.valid, default=consts.zero1))
-        rob_dones.append(mux_by_uindex(m, idx=idx, items=rob.done, default=consts.zero1))
-        rob_ops.append(mux_by_uindex(m, idx=idx, items=rob.op, default=c(0, width=12)))
-        rob_lens.append(mux_by_uindex(m, idx=idx, items=rob.len_bytes, default=consts.zero3))
-        rob_dst_kinds.append(mux_by_uindex(m, idx=idx, items=rob.dst_kind, default=c(0, width=2)))
-        rob_dst_aregs.append(mux_by_uindex(m, idx=idx, items=rob.dst_areg, default=c(REG_INVALID, width=6)))
-        rob_pdsts.append(mux_by_uindex(m, idx=idx, items=rob.pdst, default=tag0))
-        rob_values.append(mux_by_uindex(m, idx=idx, items=rob.value, default=consts.zero64))
-        rob_src0_regs.append(mux_by_uindex(m, idx=idx, items=rob.src0_reg, default=c(0, width=6)))
-        rob_src1_regs.append(mux_by_uindex(m, idx=idx, items=rob.src1_reg, default=c(0, width=6)))
-        rob_src0_values.append(mux_by_uindex(m, idx=idx, items=rob.src0_value, default=consts.zero64))
-        rob_src1_values.append(mux_by_uindex(m, idx=idx, items=rob.src1_value, default=consts.zero64))
-        rob_src0_valids.append(mux_by_uindex(m, idx=idx, items=rob.src0_valid, default=consts.zero1))
-        rob_src1_valids.append(mux_by_uindex(m, idx=idx, items=rob.src1_valid, default=consts.zero1))
-        rob_is_stores.append(mux_by_uindex(m, idx=idx, items=rob.is_store, default=consts.zero1))
-        rob_st_addrs.append(mux_by_uindex(m, idx=idx, items=rob.store_addr, default=consts.zero64))
-        rob_st_datas.append(mux_by_uindex(m, idx=idx, items=rob.store_data, default=consts.zero64))
-        rob_st_sizes.append(mux_by_uindex(m, idx=idx, items=rob.store_size, default=consts.zero4))
-        rob_is_loads.append(mux_by_uindex(m, idx=idx, items=rob.is_load, default=consts.zero1))
-        rob_ld_addrs.append(mux_by_uindex(m, idx=idx, items=rob.load_addr, default=consts.zero64))
-        rob_ld_datas.append(mux_by_uindex(m, idx=idx, items=rob.load_data, default=consts.zero64))
-        rob_ld_sizes.append(mux_by_uindex(m, idx=idx, items=rob.load_size, default=consts.zero4))
-        rob_is_boundaries.append(mux_by_uindex(m, idx=idx, items=rob.is_boundary, default=consts.zero1))
-        rob_is_bstarts.append(mux_by_uindex(m, idx=idx, items=rob.is_bstart, default=consts.zero1))
-        rob_is_bstops.append(mux_by_uindex(m, idx=idx, items=rob.is_bstop, default=consts.zero1))
-        rob_boundary_kinds.append(mux_by_uindex(m, idx=idx, items=rob.boundary_kind, default=c(BK_FALL, width=3)))
-        rob_boundary_targets.append(mux_by_uindex(m, idx=idx, items=rob.boundary_target, default=consts.zero64))
-        rob_pred_takes.append(mux_by_uindex(m, idx=idx, items=rob.pred_take, default=consts.zero1))
-        rob_block_epochs.append(mux_by_uindex(m, idx=idx, items=rob.block_epoch, default=c(0, width=16)))
-        rob_block_bids.append(mux_by_uindex(m, idx=idx, items=rob.block_bid, default=consts.zero64))
-        rob_load_store_ids.append(mux_by_uindex(m, idx=idx, items=rob.load_store_id, default=c(0, width=32)))
-        rob_resolved_d2s.append(mux_by_uindex(m, idx=idx, items=rob.resolved_d2, default=consts.zero1))
-        rob_insn_raws.append(mux_by_uindex(m, idx=idx, items=rob.insn_raw, default=consts.zero64))
-        rob_checkpoint_ids.append(mux_by_uindex(m, idx=idx, items=rob.checkpoint_id, default=c(0, width=6)))
-        rob_macro_begins.append(mux_by_uindex(m, idx=idx, items=rob.macro_begin, default=c(0, width=6)))
-        rob_macro_ends.append(mux_by_uindex(m, idx=idx, items=rob.macro_end, default=c(0, width=6)))
-        rob_uop_uids.append(mux_by_uindex(m, idx=idx, items=rob.uop_uid, default=consts.zero64))
-        rob_parent_uids.append(mux_by_uindex(m, idx=idx, items=rob.parent_uid, default=consts.zero64))
+    commit_idxs = [rob_bank[f"commit_idx{slot}_o"] for slot in range(p.commit_w)]
+    rob_pcs = [rob_bank[f"commit_pc{slot}_o"] for slot in range(p.commit_w)]
+    rob_valids = [rob_bank[f"commit_valid{slot}_o"] for slot in range(p.commit_w)]
+    rob_dones = [rob_bank[f"commit_done{slot}_o"] for slot in range(p.commit_w)]
+    rob_ops = [rob_bank[f"commit_op{slot}_o"] for slot in range(p.commit_w)]
+    rob_lens = [rob_bank[f"commit_len{slot}_o"] for slot in range(p.commit_w)]
+    rob_dst_kinds = [rob_bank[f"commit_dst_kind{slot}_o"] for slot in range(p.commit_w)]
+    rob_dst_aregs = [rob_bank[f"commit_dst_areg{slot}_o"] for slot in range(p.commit_w)]
+    rob_pdsts = [rob_bank[f"commit_pdst{slot}_o"] for slot in range(p.commit_w)]
+    rob_values = [rob_bank[f"commit_value{slot}_o"] for slot in range(p.commit_w)]
+    rob_src0_regs = [rob_bank[f"commit_src0_reg{slot}_o"] for slot in range(p.commit_w)]
+    rob_src1_regs = [rob_bank[f"commit_src1_reg{slot}_o"] for slot in range(p.commit_w)]
+    rob_src0_values = [rob_bank[f"commit_src0_value{slot}_o"] for slot in range(p.commit_w)]
+    rob_src1_values = [rob_bank[f"commit_src1_value{slot}_o"] for slot in range(p.commit_w)]
+    rob_src0_valids = [rob_bank[f"commit_src0_valid{slot}_o"] for slot in range(p.commit_w)]
+    rob_src1_valids = [rob_bank[f"commit_src1_valid{slot}_o"] for slot in range(p.commit_w)]
+    rob_is_stores = [rob_bank[f"commit_is_store{slot}_o"] for slot in range(p.commit_w)]
+    rob_st_addrs = [rob_bank[f"commit_store_addr{slot}_o"] for slot in range(p.commit_w)]
+    rob_st_datas = [rob_bank[f"commit_store_data{slot}_o"] for slot in range(p.commit_w)]
+    rob_st_sizes = [rob_bank[f"commit_store_size{slot}_o"] for slot in range(p.commit_w)]
+    rob_is_loads = [rob_bank[f"commit_is_load{slot}_o"] for slot in range(p.commit_w)]
+    rob_ld_addrs = [rob_bank[f"commit_load_addr{slot}_o"] for slot in range(p.commit_w)]
+    rob_ld_datas = [rob_bank[f"commit_load_data{slot}_o"] for slot in range(p.commit_w)]
+    rob_ld_sizes = [rob_bank[f"commit_load_size{slot}_o"] for slot in range(p.commit_w)]
+    rob_is_boundaries = [rob_bank[f"commit_is_boundary{slot}_o"] for slot in range(p.commit_w)]
+    rob_is_bstarts = [rob_bank[f"commit_is_bstart{slot}_o"] for slot in range(p.commit_w)]
+    rob_is_bstops = [rob_bank[f"commit_is_bstop{slot}_o"] for slot in range(p.commit_w)]
+    rob_boundary_kinds = [rob_bank[f"commit_boundary_kind{slot}_o"] for slot in range(p.commit_w)]
+    rob_boundary_targets = [rob_bank[f"commit_boundary_target{slot}_o"] for slot in range(p.commit_w)]
+    rob_pred_takes = [rob_bank[f"commit_pred_take{slot}_o"] for slot in range(p.commit_w)]
+    rob_block_epochs = [rob_bank[f"commit_block_epoch{slot}_o"] for slot in range(p.commit_w)]
+    rob_block_uids = [rob_bank[f"commit_block_uid{slot}_o"] for slot in range(p.commit_w)]
+    rob_block_bids = [rob_bank[f"commit_block_bid{slot}_o"] for slot in range(p.commit_w)]
+    rob_load_store_ids = [rob_bank[f"commit_load_store_id{slot}_o"] for slot in range(p.commit_w)]
+    rob_resolved_d2s = [rob_bank[f"commit_resolved_d2{slot}_o"] for slot in range(p.commit_w)]
+    rob_insn_raws = [rob_bank[f"commit_insn_raw{slot}_o"] for slot in range(p.commit_w)]
+    rob_checkpoint_ids = [rob_bank[f"commit_checkpoint_id{slot}_o"] for slot in range(p.commit_w)]
+    rob_macro_begins = [rob_bank[f"commit_macro_begin{slot}_o"] for slot in range(p.commit_w)]
+    rob_macro_ends = [rob_bank[f"commit_macro_end{slot}_o"] for slot in range(p.commit_w)]
+    rob_uop_uids = [rob_bank[f"commit_uop_uid{slot}_o"] for slot in range(p.commit_w)]
+    rob_parent_uids = [rob_bank[f"commit_parent_uid{slot}_o"] for slot in range(p.commit_w)]
 
     head_op = rob_ops[0]
     head_len = rob_lens[0]
@@ -387,10 +736,14 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_block = ctu["block_ifu"]
 
     can_run = base_can_run & (~macro_block)
+    # Macro/template expansion must only block frontend progress. Commit still
+    # has to run so the macro head can retire and clear macro_wait_commit.
+    commit_can_run = base_can_run
 
     # Return target for FRET.* (via RA, possibly restored by the macro engine).
-    ret_ra_tag = ren.cmap[10].out()
-    ret_ra_val = mux_by_uindex(m, idx=ret_ra_tag, items=prf, default=consts.zero64)
+    ret_ra_tag = ren_cmap_ra
+    m.assign(prf_raddr[prf_rd_ret_ra], ret_ra_tag)
+    ret_ra_val = prf_rdata[prf_rd_ret_ra]
 
     commit_allow = consts.one1
     commit_fires = []
@@ -406,6 +759,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
 
     redirect_valid = consts.zero1
     redirect_pc = state.pc.out()
+    redirect_bid = state.flush_bid.out()
     redirect_checkpoint_id = c(0, width=6)
     redirect_from_corr = consts.zero1
     replay_redirect_fire = consts.zero1
@@ -427,9 +781,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     br_off_live = state.br_off.out()
     br_pred_take_live = state.br_pred_take.out()
     active_block_uid_live = state.active_block_uid.out()
-    block_uid_ctr_live = state.block_uid_ctr.out()
     active_block_bid_live = state.active_block_bid.out()
-    block_bid_ctr_live = state.block_bid_ctr.out()
     lsid_issue_ptr_live = state.lsid_issue_ptr.out()
     lsid_complete_ptr_live = state.lsid_complete_ptr.out()
     block_head_live = state.block_head.out()
@@ -439,182 +791,102 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     br_corr_target_live = state.br_corr_target.out()
     br_corr_checkpoint_id_live = state.br_corr_checkpoint_id.out()
 
+    stbuf_has_space = stbuf_count.out().ult(c(p.sq_entries, width=p.sq_w + 1))
+
     for slot in range(p.commit_w):
-        # Use the ROB-captured instruction PC for commit/control-flow math.
-        # Deriving from `pc_live` can drift when hidden/internal retire events
-        # are present (e.g. macro template expansion), which can misalign fetch.
-        pc_this = rob_valids[slot]._select_internal(rob_pcs[slot], pc_live)
-        commit_pcs.append(pc_this)
-        op = rob_ops[slot]
-        ln = rob_lens[slot]
-        val = rob_values[slot]
-
-        is_macro = is_macro_op(op, op_is)
-        is_bstart = rob_is_bstarts[slot]
-        is_bstop = rob_is_bstops[slot]
-        is_bstart_head = is_bstart & block_head_live
-        is_bstart_mid = is_bstart & (~block_head_live)
-        is_start_marker = is_bstart_head | is_macro
-        is_boundary = is_bstart_mid | is_bstop | is_macro
-
-        br_is_fall = br_kind_live.__eq__(c(BK_FALL, width=3))
-        br_is_cond = br_kind_live.__eq__(c(BK_COND, width=3))
-        br_is_call = br_kind_live.__eq__(c(BK_CALL, width=3))
-        br_is_ret = br_kind_live.__eq__(c(BK_RET, width=3))
-        br_is_direct = br_kind_live.__eq__(c(BK_DIRECT, width=3))
-        br_is_ind = br_kind_live.__eq__(c(BK_IND, width=3))
-        br_is_icall = br_kind_live.__eq__(c(BK_ICALL, width=3))
-
-        br_target = br_base_live + br_off_live
-        # Dynamic target for RET/IND/ICALL blocks comes from commit_tgt.
-        br_target = (br_is_ret | br_is_ind | br_is_icall)._select_internal(commit_tgt_live, br_target)
-        # Allow SETC.TGT to override fixed targets for DIRECT/CALL/COND blocks.
-        br_target = (~(br_is_ret | br_is_ind | br_is_icall) & (~commit_tgt_live.__eq__(consts.zero64)))._select_internal(commit_tgt_live, br_target)
-
-        br_take = (
-            br_is_call
-            | br_is_direct
-            | br_is_ind
-            | br_is_icall
-            | (br_is_cond & commit_cond_live)
-            | (br_is_ret & commit_cond_live)
+        allow_macro = consts.one1 if slot == 0 else consts.zero1
+        commit_slot = m.instance_auto(
+            build_commit_slot_step,
+            name=f"commit_slot_step_{slot}",
+            can_run_i=commit_can_run,
+            allow_macro_i=allow_macro,
+            commit_allow_i=commit_allow,
+            commit_count_i=commit_count,
+            redirect_valid_i=redirect_valid,
+            redirect_pc_i=redirect_pc,
+            redirect_bid_i=redirect_bid,
+            redirect_checkpoint_id_i=redirect_checkpoint_id,
+            redirect_from_corr_i=redirect_from_corr,
+            replay_redirect_fire_i=replay_redirect_fire,
+            commit_store_seen_i=commit_store_seen,
+            stbuf_has_space_i=stbuf_has_space,
+            brob_retire_fire_i=brob_retire_fire,
+            brob_retire_bid_i=brob_retire_bid,
+            pc_live_i=pc_live,
+            commit_cond_i=commit_cond_live,
+            commit_tgt_i=commit_tgt_live,
+            br_kind_i=br_kind_live,
+            br_epoch_i=br_epoch_live,
+            br_base_i=br_base_live,
+            br_off_i=br_off_live,
+            br_pred_take_i=br_pred_take_live,
+            active_block_uid_i=active_block_uid_live,
+            active_block_bid_i=active_block_bid_live,
+            block_head_i=block_head_live,
+            br_corr_pending_i=br_corr_pending_live,
+            br_corr_epoch_i=br_corr_epoch_live,
+            br_corr_take_i=br_corr_take_live,
+            br_corr_target_i=br_corr_target_live,
+            br_corr_checkpoint_id_i=br_corr_checkpoint_id_live,
+            replay_pending_i=state.replay_pending.out(),
+            replay_store_rob_i=state.replay_store_rob.out(),
+            replay_pc_i=state.replay_pc.out(),
+            ret_ra_val_i=ret_ra_val,
+            brob_active_allocated_i=brob_active_allocated_i,
+            brob_active_ready_i=brob_active_ready_i,
+            brob_active_exception_i=brob_active_exception_i,
+            rob_valid_i=rob_valids[slot],
+            rob_done_i=rob_dones[slot],
+            rob_pc_i=rob_pcs[slot],
+            rob_op_i=rob_ops[slot],
+            rob_len_i=rob_lens[slot],
+            rob_value_i=rob_values[slot],
+            rob_is_store_i=rob_is_stores[slot],
+            rob_store_addr_i=rob_st_addrs[slot],
+            rob_store_data_i=rob_st_datas[slot],
+            rob_store_size_i=rob_st_sizes[slot],
+            rob_is_bstart_i=rob_is_bstarts[slot],
+            rob_is_bstop_i=rob_is_bstops[slot],
+            rob_boundary_kind_i=rob_boundary_kinds[slot],
+            rob_boundary_target_i=rob_boundary_targets[slot],
+            rob_pred_take_i=rob_pred_takes[slot],
+            rob_block_uid_i=rob_block_uids[slot],
+            rob_block_bid_i=rob_block_bids[slot],
+            rob_checkpoint_id_i=rob_checkpoint_ids[slot],
+            commit_idx_i=commit_idxs[slot],
         )
-
-        fire = can_run & commit_allow & rob_valids[slot] & rob_dones[slot]
-
-        # Template macro blocks (FENTRY/FEXIT/FRET.*) must reach the head of the
-        # ROB so the macro microcode engine can run before the macro commits.
-        # With commit_w>1, a macro could otherwise commit in the same cycle as
-        # an older non-macro (slot>0) and skip the required save/restore.
-        if slot != 0:
-            fire = fire & (~is_macro)
-
-        # Boundary-authoritative correction:
-        # BRU mismatch only records correction; redirect is consumed at boundary commit.
-        corr_epoch_match = br_corr_pending_live & br_corr_epoch_live.__eq__(br_epoch_live)
-        corr_for_boundary = fire & is_boundary & corr_epoch_match
-        br_take_eff = corr_for_boundary._select_internal(br_corr_take_live, br_take)
-        br_target_eff = corr_for_boundary._select_internal(br_corr_target_live, br_target)
-
-        pc_inc = pc_this + ln._zext(width=64)
-        boundary_fallthrough = is_bstart_mid._select_internal(pc_this, pc_inc)
-        pc_next = is_boundary._select_internal(br_take_eff._select_internal(br_target_eff, boundary_fallthrough), pc_inc)
-
-        # Stop commit on redirect, store, or halt.
-        is_halt = op_is(op, OP_EBREAK, OP_INVALID)
-        # Mid-block BSTART must restart fetch at its own PC even when the
-        # previous block resolves not-taken; this mirrors QEMU block-end split.
-        redirect = fire & ((is_boundary & br_take_eff) | is_bstart_mid)
-        replay_redirect = (
-            fire
-            & rob_is_stores[slot]
-            & state.replay_pending.out()
-            & commit_idxs[slot].__eq__(state.replay_store_rob.out())
-        )
-        replay_redirect_fire = replay_redirect._select_internal(consts.one1, replay_redirect_fire)
-
-        # FRET.* are explicit control-flow ops (return via RA). They behave like
-        # a taken boundary when the marker is entered (i.e., not skipped by a
-        # prior taken branch at this boundary).
-        is_fret = op_is(op, OP_FRET_RA, OP_FRET_STK)
-        fret_redirect = fire & is_fret & (~redirect)
-        pc_next = fret_redirect._select_internal(ret_ra_val, pc_next)
-        redirect = redirect | fret_redirect
-        pc_next = replay_redirect._select_internal(state.replay_pc.out(), pc_next)
-        redirect = redirect | replay_redirect
-        commit_next_pcs.append(pc_next)
-
-        stbuf_has_space = stbuf_count.out().ult(c(p.sq_entries, width=p.sq_w + 1))
-        # This milestone keeps a 1-store-per-cycle commit enqueue path while
-        # allowing other younger non-store commits in the same cycle.
-        fire = fire & ((~rob_is_stores[slot]) | ((~commit_store_seen) & stbuf_has_space))
-        # Block-authoritative retirement gate:
-        # BSTOP can retire only when the active block has no BROB work pending,
-        # or BROB marked the block ready/exception.
-        bstop_gate_ok = (~is_bstop) | (~brob_active_allocated_i) | brob_active_ready_i | brob_active_exception_i
-        fire = fire & bstop_gate_ok
-        store_commit = fire & rob_is_stores[slot]
-        stop = redirect | (fire & is_halt)
-
-        commit_fires.append(fire)
-        commit_count = commit_count + fire._zext(width=3)
-
-        redirect_valid = redirect._select_internal(consts.one1, redirect_valid)
-        redirect_pc = redirect._select_internal(pc_next, redirect_pc)
-        redirect_ckpt_sel = corr_for_boundary._select_internal(br_corr_checkpoint_id_live, rob_checkpoint_ids[slot])
-        redirect_checkpoint_id = redirect._select_internal(redirect_ckpt_sel, redirect_checkpoint_id)
-        redirect_from_corr = (redirect & corr_for_boundary)._select_internal(consts.one1, redirect_from_corr)
-
-        commit_store_fire = store_commit._select_internal(consts.one1, commit_store_fire)
-        commit_store_addr = store_commit._select_internal(rob_st_addrs[slot], commit_store_addr)
-        commit_store_data = store_commit._select_internal(rob_st_datas[slot], commit_store_data)
-        commit_store_size = store_commit._select_internal(rob_st_sizes[slot], commit_store_size)
-        commit_store_seen = store_commit._select_internal(consts.one1, commit_store_seen)
-        bstart_commit = fire & is_bstart
-        block_uid_this = bstart_commit._select_internal(block_uid_ctr_live, active_block_uid_live)
-        block_bid_this = bstart_commit._select_internal(block_bid_ctr_live, active_block_bid_live)
-        commit_is_bstarts.append(bstart_commit)
-        bstop_commit = fire & is_bstop
-        commit_is_bstops.append(bstop_commit)
-        commit_block_uids.append(block_uid_this)
-        commit_block_bids.append(block_bid_this)
+        commit_fires.append(commit_slot["commit_fire_o"])
+        commit_pcs.append(commit_slot["pc_o"])
+        commit_next_pcs.append(commit_slot["pc_next_o"])
+        commit_is_bstarts.append(commit_slot["commit_is_bstart_o"])
+        commit_is_bstops.append(commit_slot["commit_is_bstop_o"])
+        commit_block_uids.append(commit_slot["commit_block_uid_o"])
+        commit_block_bids.append(commit_slot["commit_block_bid_o"])
         commit_core_ids.append(c(0, width=2))
-        bstop_take = bstop_commit & (~brob_retire_fire)
-        brob_retire_fire = bstop_take._select_internal(consts.one1, brob_retire_fire)
-        brob_retire_bid = bstop_take._select_internal(active_block_bid_live, brob_retire_bid)
-        active_block_uid_live = bstart_commit._select_internal(block_uid_this, active_block_uid_live)
-        block_uid_ctr_live = bstart_commit._select_internal(block_uid_ctr_live + c(1, width=64), block_uid_ctr_live)
-        active_block_bid_live = bstart_commit._select_internal(block_bid_this, active_block_bid_live)
-        block_bid_ctr_live = bstart_commit._select_internal(block_bid_ctr_live + c(1, width=64), block_bid_ctr_live)
-        active_block_bid_live = (fire & is_bstop)._select_internal(consts.zero64, active_block_bid_live)
 
-        # --- sequential architectural state updates across commit slots ---
-        op_setc_any = is_setc_any(op, op_is)
-        op_setc_tgt = is_setc_tgt(op, op_is)
-        commit_cond_live = (fire & is_boundary)._select_internal(consts.zero1, commit_cond_live)
-        commit_tgt_live = (fire & is_boundary)._select_internal(consts.zero64, commit_tgt_live)
-        commit_cond_live = (fire & op_setc_any)._select_internal(val._trunc(width=1), commit_cond_live)
-        commit_tgt_live = (fire & op_setc_tgt)._select_internal(val, commit_tgt_live)
-        commit_cond_live = (fire & op_setc_tgt)._select_internal(consts.one1, commit_cond_live)
-
-        br_kind_live = (fire & is_boundary & br_take_eff)._select_internal(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = (fire & is_boundary & br_take_eff)._select_internal(pc_this, br_base_live)
-        br_off_live = (fire & is_boundary & br_take_eff)._select_internal(consts.zero64, br_off_live)
-        br_pred_take_live = (fire & is_boundary & br_take_eff)._select_internal(consts.zero1, br_pred_take_live)
-
-        enter_new_block = fire & is_bstart & (~br_take_eff)
-        meta_off = rob_boundary_targets[slot] - pc_this
-        br_kind_live = enter_new_block._select_internal(rob_boundary_kinds[slot], br_kind_live)
-        br_base_live = enter_new_block._select_internal(pc_this, br_base_live)
-        br_off_live = enter_new_block._select_internal(meta_off, br_off_live)
-        br_pred_take_live = enter_new_block._select_internal(rob_pred_takes[slot], br_pred_take_live)
-
-        # Macro blocks (FENTRY/FEXIT/FRET.*) are standalone fall-through blocks.
-        macro_enter = fire & is_macro & (~br_take_eff)
-        br_kind_live = macro_enter._select_internal(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = macro_enter._select_internal(pc_this, br_base_live)
-        br_off_live = macro_enter._select_internal(consts.zero64, br_off_live)
-        br_pred_take_live = macro_enter._select_internal(consts.zero1, br_pred_take_live)
-
-        br_kind_live = (fire & is_bstop)._select_internal(c(BK_FALL, width=3), br_kind_live)
-        br_base_live = (fire & is_bstop)._select_internal(pc_this, br_base_live)
-        br_off_live = (fire & is_bstop)._select_internal(consts.zero64, br_off_live)
-        br_pred_take_live = (fire & is_bstop)._select_internal(consts.zero1, br_pred_take_live)
-
-        clear_corr_boundary = fire & is_boundary & corr_epoch_match
-        br_corr_pending_live = clear_corr_boundary._select_internal(consts.zero1, br_corr_pending_live)
-
-        br_epoch_advance = fire & is_boundary
-        br_epoch_live = br_epoch_advance._select_internal(br_epoch_live + c(1, width=16), br_epoch_live)
-
-        # Track whether next committed instruction should be interpreted as the
-        # block head marker.
-        block_head_live = (fire & (is_boundary | redirect))._select_internal(consts.one1, block_head_live)
-        block_head_live = (fire & is_bstart_head)._select_internal(consts.zero1, block_head_live)
-
-        pc_live = fire._select_internal(pc_next, pc_live)
-
-        commit_allow = commit_allow & fire & (~stop)
+        commit_allow = commit_slot["commit_allow_o"]
+        commit_count = commit_slot["commit_count_o"]
+        redirect_valid = commit_slot["redirect_valid_o"]
+        redirect_pc = commit_slot["redirect_pc_o"]
+        redirect_bid = commit_slot["redirect_bid_o"]
+        redirect_checkpoint_id = commit_slot["redirect_checkpoint_id_o"]
+        redirect_from_corr = commit_slot["redirect_from_corr_o"]
+        replay_redirect_fire = commit_slot["replay_redirect_fire_o"]
+        commit_store_seen = commit_slot["commit_store_seen_o"]
+        brob_retire_fire = commit_slot["brob_retire_fire_o"]
+        brob_retire_bid = commit_slot["brob_retire_bid_o"]
+        pc_live = commit_slot["pc_live_o"]
+        commit_cond_live = commit_slot["commit_cond_o"]
+        commit_tgt_live = commit_slot["commit_tgt_o"]
+        br_kind_live = commit_slot["br_kind_o"]
+        br_epoch_live = commit_slot["br_epoch_o"]
+        br_base_live = commit_slot["br_base_o"]
+        br_off_live = commit_slot["br_off_o"]
+        br_pred_take_live = commit_slot["br_pred_take_o"]
+        active_block_uid_live = commit_slot["active_block_uid_o"]
+        active_block_bid_live = commit_slot["active_block_bid_o"]
+        block_head_live = commit_slot["block_head_o"]
+        br_corr_pending_live = commit_slot["br_corr_pending_o"]
 
     # Canonical retired-store selection from committed slots (oldest first).
     # This is the single source used for memory side effects and same-cycle
@@ -639,87 +911,83 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     commit_redirect = redirect_valid
 
     # --- store tracking (for conservative load ordering) ---
-    store_pending = consts.zero1
-    for i in range(p.rob_depth):
-        store_pending = store_pending | (rob.valid[i].out() & rob.is_store[i].out())
+    store_pending = rob_bank["store_pending_o"]
 
     # --- issue selection (up to issue_w ready IQ entries) ---
-    issue_stage_args = {
-        "can_run": can_run,
-        "commit_redirect": commit_redirect,
-        "ready_mask": ren.ready_mask.out(),
-        "rob_head": rob.head.out(),
-    }
-    for i in range(p.iq_depth):
-        issue_stage_args[f"iq_alu_valid{i}"] = iq_alu.valid[i].out()
-        issue_stage_args[f"iq_alu_rob{i}"] = iq_alu.rob[i].out()
-        issue_stage_args[f"iq_alu_srcl{i}"] = iq_alu.srcl[i].out()
-        issue_stage_args[f"iq_alu_srcr{i}"] = iq_alu.srcr[i].out()
-        issue_stage_args[f"iq_alu_srcp{i}"] = iq_alu.srcp[i].out()
-        issue_stage_args[f"iq_bru_valid{i}"] = iq_bru.valid[i].out()
-        issue_stage_args[f"iq_bru_rob{i}"] = iq_bru.rob[i].out()
-        issue_stage_args[f"iq_bru_srcl{i}"] = iq_bru.srcl[i].out()
-        issue_stage_args[f"iq_bru_srcr{i}"] = iq_bru.srcr[i].out()
-        issue_stage_args[f"iq_bru_srcp{i}"] = iq_bru.srcp[i].out()
-        issue_stage_args[f"iq_lsu_valid{i}"] = iq_lsu.valid[i].out()
-        issue_stage_args[f"iq_lsu_rob{i}"] = iq_lsu.rob[i].out()
-        issue_stage_args[f"iq_lsu_op{i}"] = iq_lsu.op[i].out()
-        issue_stage_args[f"iq_lsu_srcl{i}"] = iq_lsu.srcl[i].out()
-        issue_stage_args[f"iq_lsu_srcr{i}"] = iq_lsu.srcr[i].out()
-        issue_stage_args[f"iq_lsu_srcp{i}"] = iq_lsu.srcp[i].out()
 
-    issue_stage = m.instance_auto(
-        build_issue_stage,
-        name="issue_stage",
-        params={
-            "iq_depth": p.iq_depth,
-            "iq_w": p.iq_w,
-            "rob_w": p.rob_w,
-            "pregs": p.pregs,
-            "alu_w": p.alu_w,
-            "bru_w": p.bru_w,
-            "lsu_w": p.lsu_w,
-        },
-        **issue_stage_args,
-    )
-
-    sub_head = issue_stage["sub_head"]
-
-    alu_issue_valids = [issue_stage[f"alu_issue_valid{i}"] for i in range(p.alu_w)]
-    alu_issue_idxs = [issue_stage[f"alu_issue_idx{i}"] for i in range(p.alu_w)]
-    bru_issue_valids = [issue_stage[f"bru_issue_valid{i}"] for i in range(p.bru_w)]
-    bru_issue_idxs = [issue_stage[f"bru_issue_idx{i}"] for i in range(p.bru_w)]
-    lsu_issue_valids = [issue_stage[f"lsu_issue_valid{i}"] for i in range(p.lsu_w)]
-    lsu_issue_idxs = [issue_stage[f"lsu_issue_idx{i}"] for i in range(p.lsu_w)]
+    alu_issue_valids = [iq_alu_bank[f"issue_pick_valid{i}_o"] for i in range(p.alu_w)]
+    alu_issue_idxs = [iq_alu_bank[f"issue_pick_idx{i}_o"] for i in range(p.alu_w)]
+    alu_uop_robs = [iq_alu_bank[f"issue_pick_rob{i}_o"] for i in range(p.alu_w)]
+    alu_uop_ops = [iq_alu_bank[f"issue_pick_op{i}_o"] for i in range(p.alu_w)]
+    alu_uop_pcs = [iq_alu_bank[f"issue_pick_pc{i}_o"] for i in range(p.alu_w)]
+    alu_uop_imms = [iq_alu_bank[f"issue_pick_imm{i}_o"] for i in range(p.alu_w)]
+    alu_uop_sls = [iq_alu_bank[f"issue_pick_srcl{i}_o"] for i in range(p.alu_w)]
+    alu_uop_srs = [iq_alu_bank[f"issue_pick_srcr{i}_o"] for i in range(p.alu_w)]
+    alu_uop_srcr_types = [iq_alu_bank[f"issue_pick_srcr_type{i}_o"] for i in range(p.alu_w)]
+    alu_uop_shamts = [iq_alu_bank[f"issue_pick_shamt{i}_o"] for i in range(p.alu_w)]
+    alu_uop_sps = [iq_alu_bank[f"issue_pick_srcp{i}_o"] for i in range(p.alu_w)]
+    alu_uop_pdsts = [iq_alu_bank[f"issue_pick_pdst{i}_o"] for i in range(p.alu_w)]
+    alu_uop_has_dsts = [iq_alu_bank[f"issue_pick_has_dst{i}_o"] for i in range(p.alu_w)]
+    bru_issue_valids = [iq_bru_bank[f"issue_pick_valid{i}_o"] for i in range(p.bru_w)]
+    bru_issue_idxs = [iq_bru_bank[f"issue_pick_idx{i}_o"] for i in range(p.bru_w)]
+    bru_uop_robs = [iq_bru_bank[f"issue_pick_rob{i}_o"] for i in range(p.bru_w)]
+    bru_uop_ops = [iq_bru_bank[f"issue_pick_op{i}_o"] for i in range(p.bru_w)]
+    bru_uop_pcs = [iq_bru_bank[f"issue_pick_pc{i}_o"] for i in range(p.bru_w)]
+    bru_uop_imms = [iq_bru_bank[f"issue_pick_imm{i}_o"] for i in range(p.bru_w)]
+    bru_uop_sls = [iq_bru_bank[f"issue_pick_srcl{i}_o"] for i in range(p.bru_w)]
+    bru_uop_srs = [iq_bru_bank[f"issue_pick_srcr{i}_o"] for i in range(p.bru_w)]
+    bru_uop_srcr_types = [iq_bru_bank[f"issue_pick_srcr_type{i}_o"] for i in range(p.bru_w)]
+    bru_uop_shamts = [iq_bru_bank[f"issue_pick_shamt{i}_o"] for i in range(p.bru_w)]
+    bru_uop_sps = [iq_bru_bank[f"issue_pick_srcp{i}_o"] for i in range(p.bru_w)]
+    bru_uop_pdsts = [iq_bru_bank[f"issue_pick_pdst{i}_o"] for i in range(p.bru_w)]
+    bru_uop_has_dsts = [iq_bru_bank[f"issue_pick_has_dst{i}_o"] for i in range(p.bru_w)]
+    lsu_issue_valids = [iq_lsu_bank[f"issue_pick_valid{i}_o"] for i in range(p.lsu_w)]
+    lsu_issue_idxs = [iq_lsu_bank[f"issue_pick_idx{i}_o"] for i in range(p.lsu_w)]
+    lsu_uop_robs = [iq_lsu_bank[f"issue_pick_rob{i}_o"] for i in range(p.lsu_w)]
+    lsu_uop_ops = [iq_lsu_bank[f"issue_pick_op{i}_o"] for i in range(p.lsu_w)]
+    lsu_uop_pcs = [iq_lsu_bank[f"issue_pick_pc{i}_o"] for i in range(p.lsu_w)]
+    lsu_uop_imms = [iq_lsu_bank[f"issue_pick_imm{i}_o"] for i in range(p.lsu_w)]
+    lsu_uop_sls = [iq_lsu_bank[f"issue_pick_srcl{i}_o"] for i in range(p.lsu_w)]
+    lsu_uop_srs = [iq_lsu_bank[f"issue_pick_srcr{i}_o"] for i in range(p.lsu_w)]
+    lsu_uop_srcr_types = [iq_lsu_bank[f"issue_pick_srcr_type{i}_o"] for i in range(p.lsu_w)]
+    lsu_uop_shamts = [iq_lsu_bank[f"issue_pick_shamt{i}_o"] for i in range(p.lsu_w)]
+    lsu_uop_sps = [iq_lsu_bank[f"issue_pick_srcp{i}_o"] for i in range(p.lsu_w)]
+    lsu_uop_pdsts = [iq_lsu_bank[f"issue_pick_pdst{i}_o"] for i in range(p.lsu_w)]
+    lsu_uop_has_dsts = [iq_lsu_bank[f"issue_pick_has_dst{i}_o"] for i in range(p.lsu_w)]
 
     # Slot ordering: LSU, BRU, ALU (stable debug lane0 = LSU).
+    issue_valids = lsu_issue_valids + bru_issue_valids + alu_issue_valids
     issue_idxs = lsu_issue_idxs + bru_issue_idxs + alu_issue_idxs
-    issue_iqs = ([iq_lsu] * p.lsu_w) + ([iq_bru] * p.bru_w) + ([iq_alu] * p.alu_w)
-    issue_fires = [issue_stage[f"issue_fire{slot}"] for slot in range(p.issue_w)]
+    issue_fires = [(can_run & (~commit_redirect) & issue_valids[slot]) for slot in range(p.issue_w)]
+    uop_robs = lsu_uop_robs + bru_uop_robs + alu_uop_robs
+    uop_ops = lsu_uop_ops + bru_uop_ops + alu_uop_ops
+    uop_pcs = lsu_uop_pcs + bru_uop_pcs + alu_uop_pcs
+    uop_imms = lsu_uop_imms + bru_uop_imms + alu_uop_imms
+    uop_sls = lsu_uop_sls + bru_uop_sls + alu_uop_sls
+    uop_srs = lsu_uop_srs + bru_uop_srs + alu_uop_srs
+    uop_srcr_types = lsu_uop_srcr_types + bru_uop_srcr_types + alu_uop_srcr_types
+    uop_shamts = lsu_uop_shamts + bru_uop_shamts + alu_uop_shamts
+    uop_sps = lsu_uop_sps + bru_uop_sps + alu_uop_sps
+    uop_pdsts = lsu_uop_pdsts + bru_uop_pdsts + alu_uop_pdsts
+    uop_has_dsts = lsu_uop_has_dsts + bru_uop_has_dsts + alu_uop_has_dsts
 
     # CMD IQ/pipe selection:
     # - command split uops are queued in iq_cmd
     # - command enqueue into BISQ is the completion event
     # - when CMD is present, it overlays the last issue slot
-    cmd_can_issue = []
-    for i in range(p.iq_depth):
-        sl_rdy = mask_bit(m, mask=ren.ready_mask.out(), idx=iq_cmd.srcl[i].out(), width=p.pregs)
-        sr_rdy = mask_bit(m, mask=ren.ready_mask.out(), idx=iq_cmd.srcr[i].out(), width=p.pregs)
-        sp_rdy = mask_bit(m, mask=ren.ready_mask.out(), idx=iq_cmd.srcp[i].out(), width=p.pregs)
-        cmd_can_issue.append(iq_cmd.valid[i].out() & sl_rdy & sr_rdy & sp_rdy)
-    cmd_pick_p = SimpleNamespace(iq_depth=p.iq_depth, iq_w=p.iq_w, rob_w=p.rob_w)
-    cmd_pick_consts = SimpleNamespace(zero1=consts.zero1, one1=consts.one1)
-    cmd_issue_valids, cmd_issue_idxs = pick_oldest_from_arrays(
-        m=m,
-        p=cmd_pick_p,
-        consts=cmd_pick_consts,
-        can_issue=cmd_can_issue,
-        rob_tags=[iq_cmd.rob[i].out() for i in range(p.iq_depth)],
-        width=1,
-        sub_head=sub_head,
-    )
-    cmd_issue_valid = cmd_issue_valids[0]
-    cmd_issue_idx = cmd_issue_idxs[0]
+    cmd_issue_valid = iq_cmd_bank["issue_pick_valid0_o"]
+    cmd_issue_idx = iq_cmd_bank["issue_pick_idx0_o"]
+    cmd_uop_rob = iq_cmd_bank["issue_pick_rob0_o"]
+    cmd_uop_op = iq_cmd_bank["issue_pick_op0_o"]
+    cmd_uop_pc = iq_cmd_bank["issue_pick_pc0_o"]
+    cmd_uop_imm = iq_cmd_bank["issue_pick_imm0_o"]
+    cmd_uop_sl = iq_cmd_bank["issue_pick_srcl0_o"]
+    cmd_uop_sr = iq_cmd_bank["issue_pick_srcr0_o"]
+    cmd_uop_srcr_type = iq_cmd_bank["issue_pick_srcr_type0_o"]
+    cmd_uop_shamt = iq_cmd_bank["issue_pick_shamt0_o"]
+    cmd_uop_sp = iq_cmd_bank["issue_pick_srcp0_o"]
+    cmd_uop_pdst = iq_cmd_bank["issue_pick_pdst0_o"]
+    cmd_uop_has_dst = iq_cmd_bank["issue_pick_has_dst0_o"]
     cmd_slot = p.issue_w - 1
     cmd_issue_fire_raw = can_run & (~commit_redirect) & cmd_issue_valid
     cmd_issue_fire_eff = cmd_issue_fire_raw & bisq_enq_ready_i
@@ -728,45 +996,6 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
 
     # Lane0 retained for trace/debug outputs.
     issue_fire = issue_fires[0]
-    issue_idx = issue_idxs[0]
-
-    uop_robs = []
-    uop_ops = []
-    uop_pcs = []
-    uop_imms = []
-    uop_sls = []
-    uop_srs = []
-    uop_srcr_types = []
-    uop_shamts = []
-    uop_sps = []
-    uop_pdsts = []
-    uop_has_dsts = []
-    for slot in range(p.issue_w):
-        iq = issue_iqs[slot]
-        idx = issue_idxs[slot]
-        uop_robs.append(mux_by_uindex(m, idx=idx, items=iq.rob, default=c(0, width=p.rob_w)))
-        uop_ops.append(mux_by_uindex(m, idx=idx, items=iq.op, default=c(0, width=12)))
-        uop_pcs.append(mux_by_uindex(m, idx=idx, items=iq.pc, default=consts.zero64))
-        uop_imms.append(mux_by_uindex(m, idx=idx, items=iq.imm, default=consts.zero64))
-        uop_sls.append(mux_by_uindex(m, idx=idx, items=iq.srcl, default=tag0))
-        uop_srs.append(mux_by_uindex(m, idx=idx, items=iq.srcr, default=tag0))
-        uop_srcr_types.append(mux_by_uindex(m, idx=idx, items=iq.srcr_type, default=c(0, width=2)))
-        uop_shamts.append(mux_by_uindex(m, idx=idx, items=iq.shamt, default=consts.zero6))
-        uop_sps.append(mux_by_uindex(m, idx=idx, items=iq.srcp, default=tag0))
-        uop_pdsts.append(mux_by_uindex(m, idx=idx, items=iq.pdst, default=tag0))
-        uop_has_dsts.append(mux_by_uindex(m, idx=idx, items=iq.has_dst, default=consts.zero1))
-
-    cmd_uop_rob = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.rob, default=c(0, width=p.rob_w))
-    cmd_uop_op = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.op, default=c(0, width=12))
-    cmd_uop_pc = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.pc, default=consts.zero64)
-    cmd_uop_imm = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.imm, default=consts.zero64)
-    cmd_uop_sl = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.srcl, default=tag0)
-    cmd_uop_sr = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.srcr, default=tag0)
-    cmd_uop_srcr_type = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.srcr_type, default=c(0, width=2))
-    cmd_uop_shamt = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.shamt, default=consts.zero6)
-    cmd_uop_sp = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.srcp, default=tag0)
-    cmd_uop_pdst = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.pdst, default=tag0)
-    cmd_uop_has_dst = mux_by_uindex(m, idx=cmd_issue_idx, items=iq_cmd.has_dst, default=consts.zero1)
 
     uop_robs[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_rob, uop_robs[cmd_slot])
     uop_ops[cmd_slot] = cmd_slot_sel._select_internal(cmd_uop_op, uop_ops[cmd_slot])
@@ -782,8 +1011,9 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     uop_uids = []
     uop_parent_uids = []
     for slot in range(p.issue_w):
-        uop_uids.append(mux_by_uindex(m, idx=uop_robs[slot], items=rob.uop_uid, default=consts.zero64))
-        uop_parent_uids.append(mux_by_uindex(m, idx=uop_robs[slot], items=rob.parent_uid, default=consts.zero64))
+        m.assign(rob_meta_query_idxs[slot], uop_robs[slot])
+        uop_uids.append(rob_issue_query_uop_uids[slot])
+        uop_parent_uids.append(rob_issue_query_parent_uids[slot])
 
     # Lane0 named views (stable trace hooks).
     uop_rob = uop_robs[0]
@@ -802,21 +1032,33 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     sp_vals = []
     exs = []
     for slot in range(p.issue_w):
-        sl_vals.append(mux_by_uindex(m, idx=uop_sls[slot], items=prf, default=consts.zero64))
-        sr_vals.append(mux_by_uindex(m, idx=uop_srs[slot], items=prf, default=consts.zero64))
-        sp_vals.append(mux_by_uindex(m, idx=uop_sps[slot], items=prf, default=consts.zero64))
+        prf_base = prf_rd_op_base + (slot * 3)
+        m.assign(prf_raddr[prf_base + 0], uop_sls[slot])
+        m.assign(prf_raddr[prf_base + 1], uop_srs[slot])
+        m.assign(prf_raddr[prf_base + 2], uop_sps[slot])
+        sl_vals.append(prf_rdata[prf_base + 0])
+        sr_vals.append(prf_rdata[prf_base + 1])
+        sp_vals.append(prf_rdata[prf_base + 2])
+        exec_inst = m.instance_auto(
+            build_exec_uop,
+            name=f"exec_uop_{slot}",
+            op_i=uop_ops[slot],
+            pc_i=uop_pcs[slot],
+            imm_i=uop_imms[slot],
+            srcl_val_i=sl_vals[slot],
+            srcr_val_i=sr_vals[slot],
+            srcr_type_i=uop_srcr_types[slot],
+            shamt_i=uop_shamts[slot],
+            srcp_val_i=sp_vals[slot],
+        )
         exs.append(
-            exec_uop_comb(
-                m,
-                op=uop_ops[slot],
-                pc=uop_pcs[slot],
-                imm=uop_imms[slot],
-                srcl_val=sl_vals[slot],
-                srcr_val=sr_vals[slot],
-                srcr_type=uop_srcr_types[slot],
-                shamt=uop_shamts[slot],
-                srcp_val=sp_vals[slot],
-                consts=consts,
+            ExecOut(
+                alu=exec_inst["alu_o"],
+                is_load=exec_inst["is_load_o"],
+                is_store=exec_inst["is_store_o"],
+                size=exec_inst["size_o"],
+                addr=exec_inst["addr_o"],
+                wdata=exec_inst["wdata_o"],
             )
         )
 
@@ -833,25 +1075,24 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     cmd_payload_lane = cmd_uop_op.__eq__(c(OP_BSTORE, width=12))._select_internal(sr_vals[cmd_slot], cmd_payload_lane)
 
     # Memory disambiguation/forwarding for the LSU lane (lane0).
+    m.assign(rob_issue_fire_lane0_raw, issue_fires[0])
+    m.assign(rob_ex0_is_load, exs[0].is_load)
+    m.assign(rob_ex0_addr, exs[0].addr)
+    m.assign(rob_ex0_rob, uop_robs[0])
     lsu_stage_args = {
         "issue_fire_lane0_raw": issue_fires[0],
         "ex0_is_load": exs[0].is_load,
         "ex0_is_store": exs[0].is_store,
         "ex0_addr": exs[0].addr,
-        "ex0_rob": uop_robs[0],
-        "ex0_lsid": mux_by_uindex(m, idx=uop_robs[0], items=rob.load_store_id, default=c(0, width=32)),
+        "ex0_lsid": rob_issue_query_load_store_ids[0],
         "lsid_issue_ptr": state.lsid_issue_ptr.out(),
-        "sub_head": sub_head,
         "commit_store_fire": commit_store_fire,
         "commit_store_addr": commit_store_addr,
         "commit_store_data": commit_store_data,
+        "rob_older_store_pending_lane0": rob_lsu_older_store_pending_lane0,
+        "rob_forward_hit_lane0": rob_lsu_forward_hit_lane0,
+        "rob_forward_data_lane0": rob_lsu_forward_data_lane0,
     }
-    for i in range(p.rob_depth):
-        lsu_stage_args[f"rob_valid{i}"] = rob.valid[i].out()
-        lsu_stage_args[f"rob_done{i}"] = rob.done[i].out()
-        lsu_stage_args[f"rob_is_store{i}"] = rob.is_store[i].out()
-        lsu_stage_args[f"rob_store_addr{i}"] = rob.store_addr[i].out()
-        lsu_stage_args[f"rob_store_data{i}"] = rob.store_data[i].out()
     for i in range(p.sq_entries):
         lsu_stage_args[f"stbuf_valid{i}"] = stbuf_valid[i].out()
         lsu_stage_args[f"stbuf_addr{i}"] = stbuf_addr[i].out()
@@ -860,7 +1101,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     lsu_stage = m.instance_auto(
         build_lsu_stage,
         name="lsu_stage",
-        params={"rob_depth": p.rob_depth, "rob_w": p.rob_w, "sq_entries": p.sq_entries, "sq_w": p.sq_w},
+        params={"sq_entries": p.sq_entries, "sq_w": p.sq_w},
         **lsu_stage_args,
     )
     lsu_load_fire_raw = lsu_stage["lsu_load_fire_raw"]
@@ -879,25 +1120,24 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     lsid_issue_ptr_live = do_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_issue_ptr_live)
     lsid_complete_ptr_live = do_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_complete_ptr_live)
 
-    load_fires = []
+    issue_is_loads = []
+    issue_is_stores = []
     load_mem_fires = []
-    store_fires = []
     any_load_mem_fire = consts.zero1
     load_addr = consts.zero64
     for slot in range(p.issue_w):
+        issue_is_loads.append(exs[slot].is_load)
+        issue_is_stores.append(exs[slot].is_store)
         ld = issue_fires_eff[slot] & exs[slot].is_load
-        st = issue_fires_eff[slot] & exs[slot].is_store
         ld_mem = ld
         if slot == 0:
             ld_mem = ld & (~lsu_forward_hit_lane0)
-        load_fires.append(ld)
         load_mem_fires.append(ld_mem)
-        store_fires.append(st)
         any_load_mem_fire = any_load_mem_fire | ld_mem
         load_addr = ld_mem._select_internal(exs[slot].addr, load_addr)
 
-    issued_is_load = load_fires[0]
-    issued_is_store = store_fires[0]
+    issued_is_load = issue_fires_eff[0] & issue_is_loads[0]
+    issued_is_store = issue_fires_eff[0] & issue_is_stores[0]
     older_store_pending = lsu_older_store_pending_lane0
 
     # LSU violation replay state (updated after wb metadata is formed).
@@ -913,8 +1153,11 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_begin = state.macro_begin.out()
     macro_end = state.macro_end.out()
     macro_stacksize = state.macro_stacksize.out()
-    # Optional fixed callframe addend.
-    macro_callframe_size = c(callframe_size_cfg, width=64)
+    # Optional fixed callframe addend via boundary value port.
+    # Enforce the same alignment rule as old env parsing: non-8B-aligned
+    # values are treated as zero.
+    callframe_align_ok = (callframe_size_i & c(0x7, width=64)).__eq__(consts.zero64)
+    macro_callframe_size = callframe_align_ok._select_internal(callframe_size_i, consts.zero64)
     macro_frame_adj = macro_stacksize + macro_callframe_size
     macro_reg = state.macro_reg.out()
     macro_i = state.macro_i.out()
@@ -934,6 +1177,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_uop_valid = ctu["uop_valid"]
     macro_uop_kind = ctu["uop_kind"]
     macro_uop_reg = ctu["uop_reg"]
+    m.assign(ren_macro_uop_reg, macro_uop_reg)
     macro_uop_addr = ctu["uop_addr"]
     macro_uop_uid = ctu["uop_uid"]
     macro_uop_parent_uid = ctu["uop_parent_uid"]
@@ -949,11 +1193,12 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     dmem_raddr = macro_mem_read._select_internal(macro_uop_addr, any_load_mem_fire._select_internal(load_addr, consts.zero64))
 
     # Macro/template uop operand reads.
-    cmap_now = [ren.cmap[i].out() for i in range(p.aregs)]
-    macro_reg_tag = mux_by_uindex(m, idx=macro_uop_reg, items=cmap_now, default=tag0)
-    macro_reg_val = mux_by_uindex(m, idx=macro_reg_tag, items=prf, default=consts.zero64)
-    macro_sp_tag = ren.cmap[1].out()
-    macro_sp_val = mux_by_uindex(m, idx=macro_sp_tag, items=prf, default=consts.zero64)
+    macro_reg_tag = ren_macro_reg_tag
+    macro_sp_tag = ren_cmap_sp
+    m.assign(prf_raddr[prf_rd_macro_reg], macro_reg_tag)
+    m.assign(prf_raddr[prf_rd_macro_sp], macro_sp_tag)
+    macro_reg_val = prf_rdata[prf_rd_macro_reg]
+    macro_sp_val = prf_rdata[prf_rd_macro_sp]
     macro_reg_is_gpr = macro_uop_reg.ult(c(24, width=6))
     macro_reg_not_zero = ~macro_uop_reg.__eq__(c(0, width=6))
     macro_store_fire = macro_uop_is_store & macro_reg_is_gpr & macro_reg_not_zero
@@ -1088,17 +1333,17 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     load_lw = load32._sext(width=64)
     load_lwu = load32._zext(width=64)
     load_ld = dmem_rdata
-    lsu_forward_active = (issue_fires_eff[0] & exs[0].is_load) & lsu_forward_hit_lane0
+    lsu_forward_active = (issue_fires_eff[0] & issue_is_loads[0]) & lsu_forward_hit_lane0
+    issue_result_values = []
     wb_fires = []
     wb_robs = []
     wb_pdsts = []
     wb_values = []
     wb_fire_has_dsts = []
+    load_fires = []
+    store_fires = []
     wb_onehots = []
     for slot in range(p.issue_w):
-        wb_fire = issue_fires_eff[slot]
-        wb_rob = uop_robs[slot]
-        wb_pdst = uop_pdsts[slot]
         op = uop_ops[slot]
         load_val = load_lw
         load_val = op_is(op, OP_LB, OP_LBI, OP_HL_LB_PCR)._select_internal(load_lb, load_val)
@@ -1121,113 +1366,60 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
             load_fwd = op_is(op, OP_LWU, OP_LWUI, OP_HL_LWU_PCR)._select_internal(fwd32._zext(width=64), load_fwd)
             load_fwd = op_is(op, OP_LD, OP_LDI, OP_C_LDI, OP_HL_LD_PCR)._select_internal(lsu_forward_data_lane0, load_fwd)
             load_val = lsu_forward_active._select_internal(load_fwd, load_val)
-        wb_value = load_fires[slot]._select_internal(load_val, exs[slot].alu)
+        wb_value = issue_is_loads[slot]._select_internal(load_val, exs[slot].alu)
         if slot == cmd_slot:
             wb_value = cmd_slot_sel._select_internal(cmd_payload_lane, wb_value)
-        wb_has_dst = uop_has_dsts[slot] & (~store_fires[slot])
-        wb_fire_has_dst = wb_fire & wb_has_dst
-
+        issue_result_values.append(wb_value)
+        wb_fire = issue_fires_eff[slot]
         wb_fires.append(wb_fire)
-        wb_robs.append(wb_rob)
-        wb_pdsts.append(wb_pdst)
+        wb_robs.append(uop_robs[slot])
+        wb_pdsts.append(uop_pdsts[slot])
         wb_values.append(wb_value)
-        wb_fire_has_dsts.append(wb_fire_has_dst)
-        wb_onehots.append(onehot_from_tag(m, tag=wb_pdst, width=p.pregs, tag_width=p.ptag_w))
+        wb_fire_has_dsts.append(wb_fire & uop_has_dsts[slot] & (~issue_is_stores[slot]))
+        load_fires.append(wb_fire & issue_is_loads[slot])
+        store_fires.append(wb_fire & issue_is_stores[slot])
+        wb_onehots.append(onehot_from_tag(m, tag=uop_pdsts[slot], width=p.pregs, tag_width=p.ptag_w))
 
-    # BRU validation for SETC.cond: compare actual result vs predicted direction.
-    # Mismatch is recorded as deferred boundary correction (not immediate redirect).
-    bru_corr_set = consts.zero1
-    bru_corr_take = consts.zero1
-    bru_corr_target = consts.zero64
-    bru_corr_checkpoint_id = c(0, width=6)
-    bru_corr_epoch = c(0, width=16)
-    bru_fault_set = consts.zero1
-    bru_fault_rob = c(0, width=p.rob_w)
-    bru_validate_fire = consts.zero1
-    bru_mismatch_evt = consts.zero1
-    bru_actual_take_dbg = consts.zero1
-    bru_pred_take_dbg = state.br_pred_take.out()
-    bru_boundary_pc_dbg = state.br_base_pc.out()
-    if p.bru_w > 0:
-        bru_slot = p.lsu_w
-        bru_fire = issue_fires_eff[bru_slot]
-        bru_op = uop_ops[bru_slot]
-        bru_rob = uop_robs[bru_slot]
-        bru_epoch = mux_by_uindex(m, idx=bru_rob, items=rob.block_epoch, default=c(0, width=16))
-        bru_checkpoint = mux_by_uindex(m, idx=bru_rob, items=rob.checkpoint_id, default=c(0, width=6))
-        bru_actual_take = wb_values[bru_slot]._trunc(width=1)
-        bru_is_setc_cond = is_setc_any(bru_op, op_is) & (~is_setc_tgt(bru_op, op_is))
-        bru_validate_fire = bru_fire & bru_is_setc_cond
-        bru_actual_take_dbg = bru_actual_take
-        bru_pred_take_dbg = state.br_pred_take.out()
-        bru_boundary_pc_dbg = state.br_base_pc.out()
-        bru_target = state.br_base_pc.out() + state.br_off.out()
-        bru_target = state.br_kind.out().__eq__(c(BK_RET, width=3))._select_internal(state.commit_tgt.out(), bru_target)
-
-        bru_target_known = consts.zero1
-        bru_target_is_bstart = consts.zero1
-        for i in range(pcb_depth):
-            pc_hit = pcb_valid[i].out() & pcb_pc[i].out().__eq__(bru_target)
-            hit = pc_hit & pcb_is_bstart[i].out()
-            bru_target_known = pc_hit._select_internal(consts.one1, bru_target_known)
-            bru_target_is_bstart = hit._select_internal(consts.one1, bru_target_is_bstart)
-        bru_validate_en = (
-            (state.br_kind.out().__eq__(c(BK_COND, width=3)) | state.br_kind.out().__eq__(c(BK_RET, width=3)))
-            & bru_target_known
-            & bru_epoch.__eq__(state.br_epoch.out())
-        )
-        bru_mismatch = bru_fire & bru_is_setc_cond & bru_validate_en & (~bru_actual_take.__eq__(state.br_pred_take.out()))
-        bru_mismatch_evt = bru_mismatch
-        bru_target_ok = (~bru_target_known) | bru_target_is_bstart
-        bru_corr_set = bru_mismatch & bru_target_ok
-        bru_corr_take = bru_actual_take
-        bru_corr_target = bru_target
-        bru_corr_checkpoint_id = bru_checkpoint
-        bru_corr_epoch = bru_epoch
-        bru_fault_set = bru_mismatch & bru_target_known & (~bru_target_is_bstart)
-        bru_fault_rob = bru_rob
-
-    # LSU violation detection: if an older store resolves to the same address
-    # as a younger already-executed load, request replay from that load PC.
-    for slot in range(p.issue_w):
-        st_fire = store_fires[slot]
-        st_rob = wb_robs[slot]
-        st_addr = exs[slot].addr
-        st_dist = st_rob + sub_head
-
-        hit = consts.zero1
-        hit_pc = consts.zero64
-        hit_age = c((1 << p.rob_w) - 1, width=p.rob_w)
-        for i in range(p.rob_depth):
-            idx = c(i, width=p.rob_w)
-            dist = idx + sub_head
-            younger = st_dist.ult(dist)
-            ld_done = rob.valid[i].out() & rob.done[i].out() & rob.is_load[i].out()
-            addr_match = rob.load_addr[i].out().__eq__(st_addr)
-            cand = st_fire & ld_done & younger & addr_match
-            better = (~hit) | dist.ult(hit_age)
-            take = cand & better
-            hit = take._select_internal(consts.one1, hit)
-            hit_age = take._select_internal(dist, hit_age)
-            hit_pc = take._select_internal(rob.pc[i].out(), hit_pc)
-
-        set_this = hit & (~state.replay_pending.out()) & (~replay_set)
-        replay_set = set_this._select_internal(consts.one1, replay_set)
-        replay_set_store_rob = set_this._select_internal(st_rob, replay_set_store_rob)
-        replay_set_pc = set_this._select_internal(hit_pc, replay_set_pc)
-
+    replay_set = rob_lsu_violation_replay_set
+    replay_set_store_rob = replay_set._select_internal(rob_lsu_violation_replay_store_rob, state.replay_store_rob.out())
+    replay_set_pc = replay_set._select_internal(rob_lsu_violation_replay_pc, state.replay_pc.out())
     lsu_violation_detected = replay_set
 
-    # --- dispatch decode stage ---
-    decode_stage = m.instance_auto(
-        build_decode_stage,
-        name="decode_stage",
-        params={"dispatch_w": p.dispatch_w},
-        f4_valid=f4_valid_i,
-        f4_pc=f4_pc_i,
-        f4_window=f4_window_i,
-        f4_checkpoint_id=f4_checkpoint_i,
-        f4_pkt_uid=f4_pkt_uid_i,
+    # --- dispatch frontend cluster ---
+    dispatch_frontend = m.instance_auto(
+        build_dispatch_frontend,
+        name="dispatch_frontend",
+        params={
+            "dispatch_w": p.dispatch_w,
+            "iq_depth": p.iq_depth,
+            "iq_w": p.iq_w,
+            "rob_depth": p.rob_depth,
+            "rob_w": p.rob_w,
+            "pregs": p.pregs,
+            "ptag_w": p.ptag_w,
+        },
+        clk=clk,
+        rst=rst,
+        can_run=can_run,
+        commit_redirect=commit_redirect,
+        f4_valid=f4_valid,
+        f4_pc=f4_pc,
+        f4_window=f4_window,
+        f4_checkpoint_id=f4_checkpoint,
+        f4_pkt_uid=f4_pkt_uid,
+        block_head_in=state.block_head.out(),
+        block_epoch_in=state.br_epoch.out(),
+        block_uid_in=state.assign_block_uid.out(),
+        block_bid_in=state.assign_block_bid.out(),
+        brob_alloc_ready_i=brob_alloc_ready_i,
+        brob_alloc_bid_i=brob_alloc_bid_i,
+        lsid_alloc_base=state.lsid_alloc_ctr.out(),
+        rob_count=rob_count,
+        ren_free_mask=ren_free_mask,
+        iq_alu_valid_mask=iq_alu_valid_mask,
+        iq_bru_valid_mask=iq_bru_valid_mask,
+        iq_lsu_valid_mask=iq_lsu_valid_mask,
+        iq_cmd_valid_mask=iq_cmd_valid_mask,
     )
 
     disp_valids = []
@@ -1260,124 +1452,116 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     disp_decode_uop_uids = []
 
     for slot in range(p.dispatch_w):
-        disp_valids.append(decode_stage[f"valid{slot}"])
-        disp_pcs.append(decode_stage[f"pc{slot}"])
-        disp_ops.append(decode_stage[f"op{slot}"])
-        disp_lens.append(decode_stage[f"len{slot}"])
-        disp_regdsts.append(decode_stage[f"regdst{slot}"])
-        disp_srcls.append(decode_stage[f"srcl{slot}"])
-        disp_srcrs.append(decode_stage[f"srcr{slot}"])
-        disp_srcr_types.append(decode_stage[f"srcr_type{slot}"])
-        disp_shamts.append(decode_stage[f"shamt{slot}"])
-        disp_srcps.append(decode_stage[f"srcp{slot}"])
-        disp_imms.append(decode_stage[f"imm{slot}"])
-        disp_insn_raws.append(decode_stage[f"insn_raw{slot}"])
-        disp_is_start_marker.append(decode_stage[f"is_start_marker{slot}"])
-        disp_push_t.append(decode_stage[f"push_t{slot}"])
-        disp_push_u.append(decode_stage[f"push_u{slot}"])
-        disp_is_store.append(decode_stage[f"is_store{slot}"])
-        disp_is_boundary.append(decode_stage[f"is_boundary{slot}"])
-        disp_is_bstart.append(decode_stage[f"is_bstart{slot}"])
-        disp_is_bstop.append(decode_stage[f"is_bstop{slot}"])
-        disp_boundary_kind.append(decode_stage[f"boundary_kind{slot}"])
-        disp_boundary_target.append(decode_stage[f"boundary_target{slot}"])
-        disp_pred_take.append(decode_stage[f"pred_take{slot}"])
-        disp_resolved_d2.append(decode_stage[f"resolved_d2{slot}"])
-        disp_dst_is_gpr.append(decode_stage[f"dst_is_gpr{slot}"])
-        disp_need_pdst.append(decode_stage[f"need_pdst{slot}"])
-        disp_dst_kind.append(decode_stage[f"dst_kind{slot}"])
-        disp_checkpoint_ids.append(decode_stage[f"checkpoint_id{slot}"])
-        disp_decode_uop_uids.append(decode_stage[f"uop_uid{slot}"])
+        disp_valids.append(dispatch_frontend[f"valid{slot}"])
+        disp_pcs.append(dispatch_frontend[f"pc{slot}"])
+        disp_ops.append(dispatch_frontend[f"op{slot}"])
+        disp_lens.append(dispatch_frontend[f"len{slot}"])
+        disp_regdsts.append(dispatch_frontend[f"regdst{slot}"])
+        disp_srcls.append(dispatch_frontend[f"srcl{slot}"])
+        disp_srcrs.append(dispatch_frontend[f"srcr{slot}"])
+        disp_srcr_types.append(dispatch_frontend[f"srcr_type{slot}"])
+        disp_shamts.append(dispatch_frontend[f"shamt{slot}"])
+        disp_srcps.append(dispatch_frontend[f"srcp{slot}"])
+        disp_imms.append(dispatch_frontend[f"imm{slot}"])
+        disp_insn_raws.append(dispatch_frontend[f"insn_raw{slot}"])
+        disp_is_start_marker.append(dispatch_frontend[f"is_start_marker{slot}"])
+        disp_push_t.append(dispatch_frontend[f"push_t{slot}"])
+        disp_push_u.append(dispatch_frontend[f"push_u{slot}"])
+        disp_is_store.append(dispatch_frontend[f"is_store{slot}"])
+        disp_is_boundary.append(dispatch_frontend[f"is_boundary{slot}"])
+        disp_is_bstart.append(dispatch_frontend[f"is_bstart{slot}"])
+        disp_is_bstop.append(dispatch_frontend[f"is_bstop{slot}"])
+        disp_boundary_kind.append(dispatch_frontend[f"boundary_kind{slot}"])
+        disp_boundary_target.append(dispatch_frontend[f"boundary_target{slot}"])
+        disp_pred_take.append(dispatch_frontend[f"pred_take{slot}"])
+        disp_resolved_d2.append(dispatch_frontend[f"resolved_d2{slot}"])
+        disp_dst_is_gpr.append(dispatch_frontend[f"dst_is_gpr{slot}"])
+        disp_need_pdst.append(dispatch_frontend[f"need_pdst{slot}"])
+        disp_dst_kind.append(dispatch_frontend[f"dst_kind{slot}"])
+        disp_checkpoint_ids.append(dispatch_frontend[f"checkpoint_id{slot}"])
+        disp_decode_uop_uids.append(dispatch_frontend[f"uop_uid{slot}"])
+
+    # BRU validation for SETC.cond: compare actual result vs predicted direction.
+    # Keep BSTART-history state inside the recovery owner; parent only sees the
+    # compact correction/fault result.
+    bru_corr_set = consts.zero1
+    bru_corr_take = consts.zero1
+    bru_corr_target = consts.zero64
+    bru_corr_checkpoint_id = c(0, width=6)
+    bru_corr_epoch = c(0, width=16)
+    bru_fault_set = consts.zero1
+    bru_fault_rob = c(0, width=p.rob_w)
+    bru_validate_fire = consts.zero1
+    bru_mismatch_evt = consts.zero1
+    bru_actual_take_dbg = consts.zero1
+    bru_meta_query_idx = c(0, width=p.rob_w)
+    bru_pred_take_dbg = state.br_pred_take.out()
+    bru_boundary_pc_dbg = state.br_base_pc.out()
+    if p.bru_w > 0:
+        bru_slot = p.lsu_w
+        bru_fire = issue_fires_eff[bru_slot]
+        bru_op = uop_ops[bru_slot]
+        bru_rob = uop_robs[bru_slot]
+        bru_meta_query_idx = bru_rob
+        bru_epoch = rob_bru_query_block_epoch
+        bru_checkpoint = rob_bru_query_checkpoint_id
+        bru_actual_take = issue_result_values[bru_slot]._trunc(width=1)
+        bru_is_setc_cond = is_setc_any(bru_op, op_is) & (~is_setc_tgt(bru_op, op_is))
+        bru_validate_fire = bru_fire & bru_is_setc_cond
+        bru_actual_take_dbg = bru_actual_take
+        bru_pred_take_dbg = state.br_pred_take.out()
+        bru_boundary_pc_dbg = state.br_base_pc.out()
+        bru_target = state.br_base_pc.out() + state.br_off.out()
+        bru_target = state.br_kind.out().__eq__(c(BK_RET, width=3))._select_internal(state.commit_tgt.out(), bru_target)
+        bru_recovery_owner = m.instance_auto(
+            build_bru_recovery_owner,
+            name="bru_recovery_owner",
+            params={
+                "dispatch_w": p.dispatch_w,
+                "pcb_depth": p.rob_depth,
+                "pcb_w": p.rob_w,
+                "rob_w": p.rob_w,
+            },
+            clk=clk,
+            rst=rst,
+            f4_valid=f4_valid,
+            bru_fire=bru_fire,
+            bru_is_setc_cond=bru_is_setc_cond,
+            bru_target=bru_target,
+            bru_actual_take=bru_actual_take,
+            bru_checkpoint=bru_checkpoint,
+            bru_epoch=bru_epoch,
+            bru_rob=bru_rob,
+            state_br_kind=state.br_kind.out(),
+            state_br_epoch=state.br_epoch.out(),
+            state_br_pred_take=state.br_pred_take.out(),
+            **{f"disp_valid{slot}": disp_valids[slot] for slot in range(p.dispatch_w)},
+            **{f"disp_pc{slot}": disp_pcs[slot] for slot in range(p.dispatch_w)},
+            **{f"disp_is_bstart{slot}": disp_is_bstart[slot] for slot in range(p.dispatch_w)},
+        )
+        bru_mismatch_evt = bru_recovery_owner["bru_mismatch_evt"]
+        bru_corr_set = bru_recovery_owner["bru_corr_set"]
+        bru_corr_take = bru_recovery_owner["bru_corr_take"]
+        bru_corr_target = bru_recovery_owner["bru_corr_target"]
+        bru_corr_checkpoint_id = bru_recovery_owner["bru_corr_checkpoint_id"]
+        bru_corr_epoch = bru_recovery_owner["bru_corr_epoch"]
+        bru_fault_set = bru_recovery_owner["bru_fault_set"]
+        bru_fault_rob = bru_recovery_owner["bru_fault_rob"]
+    m.assign(rob_meta_query_idxs[rob_bru_query_slot], bru_meta_query_idx)
 
     # Lane0 decode (stable trace hook).
-    dec_op = decode_stage["dec_op"]
-    disp_count = decode_stage["dispatch_count"]
+    dec_op = dispatch_frontend["dec_op"]
+    disp_count = dispatch_frontend["dispatch_count"]
 
-    # Frontend-decoded BSTART metadata capture (PC buffer equivalent).
-    pcb_wr_valids = []
-    pcb_wr_idxs = []
-    pcb_wr_pcs = []
-    pcb_wr_kinds = []
-    pcb_wr_targets = []
-    pcb_wr_preds = []
-    pcb_tail_tmp = pcb_tail.out()
-    for slot in range(p.dispatch_w):
-        wr = f4_valid_i & disp_valids[slot] & disp_is_bstart[slot]
-        pcb_wr_valids.append(wr)
-        pcb_wr_idxs.append(pcb_tail_tmp)
-        pcb_wr_pcs.append(disp_pcs[slot])
-        pcb_wr_kinds.append(disp_boundary_kind[slot])
-        pcb_wr_targets.append(disp_boundary_target[slot])
-        pcb_wr_preds.append(disp_pred_take[slot])
-        pcb_tail_tmp = wr._select_internal(pcb_tail_tmp + c(1, width=pcb_w), pcb_tail_tmp)
-    pcb_tail.set(pcb_tail_tmp)
-    for i in range(pcb_depth):
-        idx = c(i, width=pcb_w)
-        v_next = pcb_valid[i].out()
-        pc_next = pcb_pc[i].out()
-        kind_next = pcb_kind[i].out()
-        tgt_next = pcb_target[i].out()
-        pred_next = pcb_pred_take[i].out()
-        isb_next = pcb_is_bstart[i].out()
-        for slot in range(p.dispatch_w):
-            hit = pcb_wr_valids[slot] & pcb_wr_idxs[slot].__eq__(idx)
-            v_next = hit._select_internal(consts.one1, v_next)
-            pc_next = hit._select_internal(pcb_wr_pcs[slot], pc_next)
-            kind_next = hit._select_internal(pcb_wr_kinds[slot], kind_next)
-            tgt_next = hit._select_internal(pcb_wr_targets[slot], tgt_next)
-            pred_next = hit._select_internal(pcb_wr_preds[slot], pred_next)
-            isb_next = hit._select_internal(consts.one1, isb_next)
-        pcb_valid[i].set(v_next)
-        pcb_pc[i].set(pc_next)
-        pcb_kind[i].set(kind_next)
-        pcb_target[i].set(tgt_next)
-        pcb_pred_take[i].set(pred_next)
-        pcb_is_bstart[i].set(isb_next)
-
-    dispatch_stage_args = {
-        "can_run": can_run,
-        "commit_redirect": commit_redirect,
-        "f4_valid": f4_valid_i,
-        "block_epoch_in": state.br_epoch.out(),
-        "block_uid_in": state.active_block_uid.out(),
-        "block_bid_in": state.active_block_bid.out(),
-        "lsid_alloc_base": state.lsid_alloc_ctr.out(),
-        "rob_count": rob.count.out(),
-        "disp_count": disp_count,
-        "ren_free_mask": ren.free_mask.out(),
-    }
-    for slot in range(p.dispatch_w):
-        dispatch_stage_args[f"disp_valid{slot}"] = disp_valids[slot]
-        dispatch_stage_args[f"disp_op{slot}"] = disp_ops[slot]
-        dispatch_stage_args[f"disp_need_pdst{slot}"] = disp_need_pdst[slot]
-    for i in range(p.iq_depth):
-        dispatch_stage_args[f"iq_alu_valid{i}"] = iq_alu.valid[i].out()
-        dispatch_stage_args[f"iq_bru_valid{i}"] = iq_bru.valid[i].out()
-        dispatch_stage_args[f"iq_lsu_valid{i}"] = iq_lsu.valid[i].out()
-        dispatch_stage_args[f"iq_cmd_valid{i}"] = iq_cmd.valid[i].out()
-
-    dispatch_stage = m.instance_auto(
-        build_dispatch_stage,
-        name="dispatch_stage",
-        params={
-            "dispatch_w": p.dispatch_w,
-            "iq_depth": p.iq_depth,
-            "iq_w": p.iq_w,
-            "rob_depth": p.rob_depth,
-            "rob_w": p.rob_w,
-            "pregs": p.pregs,
-            "ptag_w": p.ptag_w,
-        },
-        **dispatch_stage_args,
-    )
-
-    rob_space_ok = dispatch_stage["rob_space_ok"]
-    iq_alloc_ok = dispatch_stage["iq_alloc_ok"]
-    preg_alloc_ok = dispatch_stage["preg_alloc_ok"]
-    frontend_ready = dispatch_stage["frontend_ready"]
-    dispatch_fire = dispatch_stage["dispatch_fire"]
-    disp_alloc_mask = dispatch_stage["disp_alloc_mask"]
-    lsid_alloc_next = dispatch_stage["lsid_alloc_next"]
+    rob_space_ok = dispatch_frontend["rob_space_ok"]
+    iq_alloc_ok = dispatch_frontend["iq_alloc_ok"]
+    preg_alloc_ok = dispatch_frontend["preg_alloc_ok"]
+    bid_alloc_ok = dispatch_frontend["bid_alloc_ok"]
+    frontend_ready = dispatch_frontend["frontend_ready"]
+    dispatch_fire = dispatch_frontend["dispatch_fire"]
+    brob_alloc_fire = dispatch_frontend["brob_alloc_fire"]
+    disp_alloc_mask = dispatch_frontend["disp_alloc_mask"]
+    lsid_alloc_next = dispatch_frontend["lsid_alloc_next"]
 
     disp_to_alu = []
     disp_to_bru = []
@@ -1397,357 +1581,131 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     disp_block_bids = []
     disp_load_store_ids = []
     for slot in range(p.dispatch_w):
-        disp_to_alu.append(dispatch_stage[f"to_alu{slot}"])
-        disp_to_bru.append(dispatch_stage[f"to_bru{slot}"])
-        disp_to_lsu.append(dispatch_stage[f"to_lsu{slot}"])
-        disp_to_d2.append(dispatch_stage[f"to_d2{slot}"])
-        disp_to_cmd.append(dispatch_stage[f"to_cmd{slot}"])
-        alu_alloc_valids.append(dispatch_stage[f"alu_alloc_valid{slot}"])
-        alu_alloc_idxs.append(dispatch_stage[f"alu_alloc_idx{slot}"])
-        bru_alloc_valids.append(dispatch_stage[f"bru_alloc_valid{slot}"])
-        bru_alloc_idxs.append(dispatch_stage[f"bru_alloc_idx{slot}"])
-        lsu_alloc_valids.append(dispatch_stage[f"lsu_alloc_valid{slot}"])
-        lsu_alloc_idxs.append(dispatch_stage[f"lsu_alloc_idx{slot}"])
-        cmd_alloc_valids.append(dispatch_stage[f"cmd_alloc_valid{slot}"])
-        cmd_alloc_idxs.append(dispatch_stage[f"cmd_alloc_idx{slot}"])
-        disp_pdsts.append(dispatch_stage[f"disp_pdst{slot}"])
-        disp_block_uids.append(dispatch_stage[f"disp_block_uid{slot}"])
-        disp_block_bids.append(dispatch_stage[f"disp_block_bid{slot}"])
-        disp_load_store_ids.append(dispatch_stage[f"disp_load_store_id{slot}"])
+        disp_to_alu.append(dispatch_frontend[f"to_alu{slot}"])
+        disp_to_bru.append(dispatch_frontend[f"to_bru{slot}"])
+        disp_to_lsu.append(dispatch_frontend[f"to_lsu{slot}"])
+        disp_to_d2.append(dispatch_frontend[f"to_d2{slot}"])
+        disp_to_cmd.append(dispatch_frontend[f"to_cmd{slot}"])
+        alu_alloc_valids.append(dispatch_frontend[f"alu_alloc_valid{slot}"])
+        alu_alloc_idxs.append(dispatch_frontend[f"alu_alloc_idx{slot}"])
+        bru_alloc_valids.append(dispatch_frontend[f"bru_alloc_valid{slot}"])
+        bru_alloc_idxs.append(dispatch_frontend[f"bru_alloc_idx{slot}"])
+        lsu_alloc_valids.append(dispatch_frontend[f"lsu_alloc_valid{slot}"])
+        lsu_alloc_idxs.append(dispatch_frontend[f"lsu_alloc_idx{slot}"])
+        cmd_alloc_valids.append(dispatch_frontend[f"cmd_alloc_valid{slot}"])
+        cmd_alloc_idxs.append(dispatch_frontend[f"cmd_alloc_idx{slot}"])
+        disp_pdsts.append(dispatch_frontend[f"disp_pdst{slot}"])
+        disp_block_uids.append(dispatch_frontend[f"disp_block_uid{slot}"])
+        disp_block_bids.append(dispatch_frontend[f"disp_block_bid{slot}"])
+        disp_load_store_ids.append(dispatch_frontend[f"disp_load_store_id{slot}"])
 
-    # Source PTAGs from SMAP with intra-cycle rename forwarding across lanes.
-    rename_stage_args = {"dispatch_fire": dispatch_fire}
-    for i in range(p.aregs):
-        rename_stage_args[f"smap{i}"] = ren.smap[i].out()
-    for slot in range(p.dispatch_w):
-        rename_stage_args[f"disp_valid{slot}"] = disp_valids[slot]
-        rename_stage_args[f"disp_srcl{slot}"] = disp_srcls[slot]
-        rename_stage_args[f"disp_srcr{slot}"] = disp_srcrs[slot]
-        rename_stage_args[f"disp_srcp{slot}"] = disp_srcps[slot]
-        rename_stage_args[f"disp_is_start_marker{slot}"] = disp_is_start_marker[slot]
-        rename_stage_args[f"disp_push_t{slot}"] = disp_push_t[slot]
-        rename_stage_args[f"disp_push_u{slot}"] = disp_push_u[slot]
-        rename_stage_args[f"disp_dst_is_gpr{slot}"] = disp_dst_is_gpr[slot]
-        rename_stage_args[f"disp_regdst{slot}"] = disp_regdsts[slot]
-        rename_stage_args[f"disp_pdst{slot}"] = disp_pdsts[slot]
-
-    rename_stage = m.instance_auto(
-        build_rename_stage,
-        name="rename_stage",
-        params={
-            "dispatch_w": p.dispatch_w,
-            "aregs": p.aregs,
-            "ptag_w": p.ptag_w,
-            "reg_invalid": REG_INVALID,
-        },
-        **rename_stage_args,
-    )
-
-    disp_srcl_tags = []
-    disp_srcr_tags = []
-    disp_srcp_tags = []
-    for slot in range(p.dispatch_w):
-        disp_srcl_tags.append(rename_stage[f"srcl_tag{slot}"])
-        disp_srcr_tags.append(rename_stage[f"srcr_tag{slot}"])
-        disp_srcp_tags.append(rename_stage[f"srcp_tag{slot}"])
-    smap_live = [rename_stage[f"smap_next{i}"] for i in range(p.aregs)]
-
-    rename_free_after_dispatch = dispatch_fire._select_internal(ren.free_mask.out() & (~disp_alloc_mask), ren.free_mask.out())
-    rename_ready_after_dispatch = dispatch_fire._select_internal(ren.ready_mask.out() & (~disp_alloc_mask), ren.ready_mask.out())
-
-    # Snapshot rename/freelist state for branch/start-marker recovery.
-    ckpt_write = consts.zero1
-    ckpt_write_idx = c(0, width=ckpt_w)
-    for slot in range(p.dispatch_w):
-        lane_fire = dispatch_fire & disp_valids[slot]
-        is_ckpt = lane_fire & disp_is_start_marker[slot]
-        ckpt_idx = disp_checkpoint_ids[slot]._trunc(width=ckpt_w)
-        ckpt_write = is_ckpt._select_internal(consts.one1, ckpt_write)
-        ckpt_write_idx = is_ckpt._select_internal(ckpt_idx, ckpt_write_idx)
-
-    for ci in range(ckpt_entries):
-        ciw = c(ci, width=ckpt_w)
-        do_ckpt = ckpt_write & ckpt_write_idx.__eq__(ciw)
-        valid_next = ren.ckpt_valid[ci].out()
-        valid_next = do_ckpt._select_internal(consts.one1, valid_next)
-        ren.ckpt_valid[ci].set(valid_next)
-        ren.ckpt_free_mask[ci].set(rename_free_after_dispatch, when=do_ckpt)
-        ren.ckpt_ready_mask[ci].set(rename_ready_after_dispatch, when=do_ckpt)
-        for r in range(p.aregs):
-            ren.ckpt_smap[ci][r].set(smap_live[r], when=do_ckpt)
-
-    flush_ckpt_idx = state.flush_checkpoint_id.out()._trunc(width=ckpt_w)
-    flush_ckpt_valid = mux_by_uindex(m, idx=flush_ckpt_idx, items=ren.ckpt_valid, default=consts.zero1)
-    flush_free_from_ckpt = mux_by_uindex(m, idx=flush_ckpt_idx, items=ren.ckpt_free_mask, default=ren.free_mask.out())
-    flush_ready_from_ckpt = mux_by_uindex(m, idx=flush_ckpt_idx, items=ren.ckpt_ready_mask, default=ren.ready_mask.out())
-    # Bring-up fallback: recover rename state from committed map on flush.
-    # Checkpoint restore remains wired but disabled until checkpoint parity is stable.
-    restore_from_ckpt = consts.zero1
-
-    # --- ready table updates ---
-    ready_next = ren.ready_mask.out()
-    ready_next = dispatch_fire._select_internal(ready_next & (~disp_alloc_mask), ready_next)
+    # Wire rename bank inputs (hierarchical SMAP/CMAP + ready/free).
+    m.assign(ren_dispatch_fire, dispatch_fire)
+    m.assign(ren_disp_alloc_mask, disp_alloc_mask)
+    m.assign(ren_flush_checkpoint_id, state.flush_checkpoint_id.out())
 
     wb_set_mask = c(0, width=p.pregs)
     for slot in range(p.issue_w):
         wb_set_mask = wb_fire_has_dsts[slot]._select_internal(wb_set_mask | wb_onehots[slot], wb_set_mask)
-    ready_next = ready_next | wb_set_mask
-    ready_next = do_flush._select_internal(c((1 << p.pregs) - 1, width=p.pregs), ready_next)
-    ready_next = restore_from_ckpt._select_internal(flush_ready_from_ckpt, ready_next)
-    ren.ready_mask.set(ready_next)
+    m.assign(ren_wb_set_mask, wb_set_mask)
 
-    # PRF writes (up to issue_w writebacks per cycle).
-    for i in range(p.pregs):
-        we = consts.zero1
-        wdata = consts.zero64
-        for slot in range(p.issue_w):
-            hit = wb_fire_has_dsts[slot] & wb_pdsts[slot].__eq__(c(i, width=p.ptag_w))
-            we = we | hit
-            wdata = hit._select_internal(wb_values[slot], wdata)
-        hit_macro = macro_prf_we & macro_prf_tag.__eq__(c(i, width=p.ptag_w))
-        we = we | hit_macro
-        wdata = hit_macro._select_internal(macro_prf_data, wdata)
-        prf[i].set(wdata, when=we)
-
-    # --- ROB updates ---
-    rob_ctrl_args = {
-        "do_flush": do_flush,
-        "commit_fire": commit_fire,
-        "dispatch_fire": dispatch_fire,
-        "rob_head": rob.head.out(),
-        "rob_tail": rob.tail.out(),
-        "rob_count": rob.count.out(),
-        "commit_count": commit_count,
-        "disp_count": disp_count,
-    }
     for slot in range(p.dispatch_w):
-        rob_ctrl_args[f"disp_valid{slot}"] = disp_valids[slot]
-    rob_ctrl = m.instance_auto(
-        build_rob_ctrl_stage,
-        name="rob_ctrl_stage",
-        params={"dispatch_w": p.dispatch_w, "rob_w": p.rob_w},
-        **rob_ctrl_args,
-    )
-    disp_rob_idxs = [rob_ctrl[f"disp_rob_idx{slot}"] for slot in range(p.dispatch_w)]
-    disp_fires = [rob_ctrl[f"disp_fire{slot}"] for slot in range(p.dispatch_w)]
-    disp_uop_uids = []
-    disp_parent_uids = []
-    disp_block_epochs = []
+        m.assign(ren_disp_valids[slot], disp_valids[slot])
+        m.assign(ren_disp_srcls[slot], disp_srcls[slot])
+        m.assign(ren_disp_srcrs[slot], disp_srcrs[slot])
+        m.assign(ren_disp_srcps[slot], disp_srcps[slot])
+        m.assign(ren_disp_is_start_markers[slot], disp_is_start_marker[slot])
+        m.assign(ren_disp_push_ts[slot], disp_push_t[slot])
+        m.assign(ren_disp_push_us[slot], disp_push_u[slot])
+        m.assign(ren_disp_dst_is_gprs[slot], disp_dst_is_gpr[slot])
+        m.assign(ren_disp_regdsts[slot], disp_regdsts[slot])
+        m.assign(ren_disp_pdsts[slot], disp_pdsts[slot])
+        m.assign(ren_disp_checkpoint_ids[slot], disp_checkpoint_ids[slot])
+
+    for slot in range(p.commit_w):
+        m.assign(ren_commit_fires[slot], commit_fires[slot])
+        m.assign(ren_commit_is_bstops[slot], commit_is_bstops[slot])
+        m.assign(ren_rob_dst_kinds[slot], rob_dst_kinds[slot])
+        m.assign(ren_rob_dst_aregs[slot], rob_dst_aregs[slot])
+        m.assign(ren_rob_pdsts[slot], rob_pdsts[slot])
+
+    # PRF writes (up to issue_w writebacks per cycle + macro write port).
+    for slot in range(p.issue_w):
+        m.assign(prf_wen[slot], wb_fire_has_dsts[slot])
+        m.assign(prf_waddr[slot], wb_pdsts[slot])
+        m.assign(prf_wdata[slot], wb_values[slot])
+    m.assign(prf_wen[p.issue_w], macro_prf_we)
+    m.assign(prf_waddr[p.issue_w], macro_prf_tag)
+    m.assign(prf_wdata[p.issue_w], macro_prf_data)
+
+    # Wire ROB bank update/control inputs.
+    m.assign(rob_commit_count, commit_count)
+    for slot in range(p.commit_w):
+        m.assign(rob_commit_fires[slot], commit_fires[slot])
+
+    m.assign(rob_disp_count, disp_count)
+    m.assign(rob_dispatch_fire, dispatch_fire)
     for slot in range(p.dispatch_w):
-        disp_uop_uids.append(disp_decode_uop_uids[slot])
-        disp_parent_uids.append(consts.zero64)
-        disp_block_epochs.append(dispatch_stage[f"disp_block_epoch{slot}"])
+        m.assign(rob_disp_valids[slot], disp_valids[slot])
+        m.assign(rob_disp_pcs[slot], disp_pcs[slot])
+        m.assign(rob_disp_ops[slot], disp_ops[slot])
+        m.assign(rob_disp_lens[slot], disp_lens[slot])
+        m.assign(rob_disp_insn_raws[slot], disp_insn_raws[slot])
+        m.assign(rob_disp_checkpoint_ids[slot], disp_checkpoint_ids[slot])
+        m.assign(rob_disp_dst_kinds[slot], disp_dst_kind[slot])
+        m.assign(rob_disp_regdsts[slot], disp_regdsts[slot])
+        m.assign(rob_disp_pdsts[slot], disp_pdsts[slot])
+        m.assign(rob_disp_imms[slot], disp_imms[slot])
+        m.assign(rob_disp_is_stores[slot], disp_is_store[slot])
+        m.assign(rob_disp_is_boundaries[slot], disp_is_boundary[slot])
+        m.assign(rob_disp_is_bstarts[slot], disp_is_bstart[slot])
+        m.assign(rob_disp_is_bstops[slot], disp_is_bstop[slot])
+        m.assign(rob_disp_boundary_kinds[slot], disp_boundary_kind[slot])
+        m.assign(rob_disp_boundary_targets[slot], disp_boundary_target[slot])
+        m.assign(rob_disp_pred_takes[slot], disp_pred_take[slot])
+        m.assign(rob_disp_block_epochs[slot], dispatch_frontend[f"disp_block_epoch{slot}"])
+        m.assign(rob_disp_block_uids[slot], disp_block_uids[slot])
+        m.assign(rob_disp_block_bids[slot], disp_block_bids[slot])
+        m.assign(rob_disp_load_store_ids[slot], disp_load_store_ids[slot])
+        m.assign(rob_disp_resolved_d2s[slot], disp_resolved_d2[slot])
+        m.assign(rob_disp_srcls[slot], disp_srcls[slot])
+        m.assign(rob_disp_srcrs[slot], disp_srcrs[slot])
+        m.assign(rob_disp_uop_uids[slot], disp_decode_uop_uids[slot])
 
-    for i in range(p.rob_depth):
-        rob_entry_args = {
-            "idx": c(i, width=p.rob_w),
-            "do_flush": do_flush,
-            "old_valid": rob.valid[i].out(),
-            "old_done": rob.done[i].out(),
-            "old_pc": rob.pc[i].out(),
-            "old_op": rob.op[i].out(),
-            "old_len": rob.len_bytes[i].out(),
-            "old_insn_raw": rob.insn_raw[i].out(),
-            "old_checkpoint_id": rob.checkpoint_id[i].out(),
-            "old_dst_kind": rob.dst_kind[i].out(),
-            "old_dst_areg": rob.dst_areg[i].out(),
-            "old_pdst": rob.pdst[i].out(),
-            "old_value": rob.value[i].out(),
-            "old_src0_reg": rob.src0_reg[i].out(),
-            "old_src1_reg": rob.src1_reg[i].out(),
-            "old_src0_value": rob.src0_value[i].out(),
-            "old_src1_value": rob.src1_value[i].out(),
-            "old_src0_valid": rob.src0_valid[i].out(),
-            "old_src1_valid": rob.src1_valid[i].out(),
-            "old_is_store": rob.is_store[i].out(),
-            "old_store_addr": rob.store_addr[i].out(),
-            "old_store_data": rob.store_data[i].out(),
-            "old_store_size": rob.store_size[i].out(),
-            "old_is_load": rob.is_load[i].out(),
-            "old_load_addr": rob.load_addr[i].out(),
-            "old_load_data": rob.load_data[i].out(),
-            "old_load_size": rob.load_size[i].out(),
-            "old_is_boundary": rob.is_boundary[i].out(),
-            "old_is_bstart": rob.is_bstart[i].out(),
-            "old_is_bstop": rob.is_bstop[i].out(),
-            "old_boundary_kind": rob.boundary_kind[i].out(),
-            "old_boundary_target": rob.boundary_target[i].out(),
-            "old_pred_take": rob.pred_take[i].out(),
-            "old_block_epoch": rob.block_epoch[i].out(),
-            "old_block_uid": rob.block_uid[i].out(),
-            "old_block_bid": rob.block_bid[i].out(),
-            "old_load_store_id": rob.load_store_id[i].out(),
-            "old_resolved_d2": rob.resolved_d2[i].out(),
-            "old_macro_begin": rob.macro_begin[i].out(),
-            "old_macro_end": rob.macro_end[i].out(),
-            "old_uop_uid": rob.uop_uid[i].out(),
-            "old_parent_uid": rob.parent_uid[i].out(),
-        }
-        for slot in range(p.commit_w):
-            rob_entry_args[f"commit_fire{slot}"] = commit_fires[slot]
-            rob_entry_args[f"commit_idx{slot}"] = commit_idxs[slot]
-        for slot in range(p.dispatch_w):
-            rob_entry_args[f"disp_fire{slot}"] = disp_fires[slot]
-            rob_entry_args[f"disp_rob_idx{slot}"] = disp_rob_idxs[slot]
-            rob_entry_args[f"disp_pc{slot}"] = disp_pcs[slot]
-            rob_entry_args[f"disp_op{slot}"] = disp_ops[slot]
-            rob_entry_args[f"disp_len{slot}"] = disp_lens[slot]
-            rob_entry_args[f"disp_insn_raw{slot}"] = disp_insn_raws[slot]
-            rob_entry_args[f"disp_checkpoint_id{slot}"] = disp_checkpoint_ids[slot]
-            rob_entry_args[f"disp_dst_kind{slot}"] = disp_dst_kind[slot]
-            rob_entry_args[f"disp_regdst{slot}"] = disp_regdsts[slot]
-            rob_entry_args[f"disp_pdst{slot}"] = disp_pdsts[slot]
-            rob_entry_args[f"disp_imm{slot}"] = disp_imms[slot]
-            rob_entry_args[f"disp_is_store{slot}"] = disp_is_store[slot]
-            rob_entry_args[f"disp_is_boundary{slot}"] = disp_is_boundary[slot]
-            rob_entry_args[f"disp_is_bstart{slot}"] = disp_is_bstart[slot]
-            rob_entry_args[f"disp_is_bstop{slot}"] = disp_is_bstop[slot]
-            rob_entry_args[f"disp_boundary_kind{slot}"] = disp_boundary_kind[slot]
-            rob_entry_args[f"disp_boundary_target{slot}"] = disp_boundary_target[slot]
-            rob_entry_args[f"disp_pred_take{slot}"] = disp_pred_take[slot]
-            rob_entry_args[f"disp_block_epoch{slot}"] = disp_block_epochs[slot]
-            rob_entry_args[f"disp_block_uid{slot}"] = disp_block_uids[slot]
-            rob_entry_args[f"disp_block_bid{slot}"] = disp_block_bids[slot]
-            rob_entry_args[f"disp_load_store_id{slot}"] = disp_load_store_ids[slot]
-            rob_entry_args[f"disp_resolved_d2{slot}"] = disp_resolved_d2[slot]
-            rob_entry_args[f"disp_srcl{slot}"] = disp_srcls[slot]
-            rob_entry_args[f"disp_srcr{slot}"] = disp_srcrs[slot]
-            rob_entry_args[f"disp_uop_uid{slot}"] = disp_uop_uids[slot]
-            rob_entry_args[f"disp_parent_uid{slot}"] = disp_parent_uids[slot]
-        for slot in range(p.issue_w):
-            rob_entry_args[f"wb_fire{slot}"] = wb_fires[slot]
-            rob_entry_args[f"wb_rob{slot}"] = wb_robs[slot]
-            rob_entry_args[f"wb_value{slot}"] = wb_values[slot]
-            rob_entry_args[f"store_fire{slot}"] = store_fires[slot]
-            rob_entry_args[f"load_fire{slot}"] = load_fires[slot]
-            rob_entry_args[f"ex_addr{slot}"] = exs[slot].addr
-            rob_entry_args[f"ex_wdata{slot}"] = exs[slot].wdata
-            rob_entry_args[f"ex_size{slot}"] = exs[slot].size
-            rob_entry_args[f"ex_src0{slot}"] = sl_vals[slot]
-            rob_entry_args[f"ex_src1{slot}"] = sr_vals[slot]
+    for slot in range(p.issue_w):
+        m.assign(rob_wb_fires[slot], wb_fires[slot])
+        m.assign(rob_wb_robs[slot], wb_robs[slot])
+        m.assign(rob_wb_values[slot], wb_values[slot])
+        m.assign(rob_store_fires[slot], store_fires[slot])
+        m.assign(rob_load_fires[slot], load_fires[slot])
+        m.assign(rob_ex_addrs[slot], exs[slot].addr)
+        m.assign(rob_ex_wdatas[slot], exs[slot].wdata)
+        m.assign(rob_ex_sizes[slot], exs[slot].size)
+        m.assign(rob_ex_src0s[slot], sl_vals[slot])
+        m.assign(rob_ex_src1s[slot], sr_vals[slot])
 
-        rob_entry = m.instance_auto(
-            build_rob_entry_update_stage,
-            name=f"rob_entry_update_stage_{i}",
-            params={
-                "dispatch_w": p.dispatch_w,
-                "issue_w": p.issue_w,
-                "commit_w": p.commit_w,
-                "rob_w": p.rob_w,
-                "ptag_w": p.ptag_w,
-            },
-            **rob_entry_args,
-        )
-        rob.valid[i].set(rob_entry["valid_next"])
-        rob.done[i].set(rob_entry["done_next"])
-        rob.pc[i].set(rob_entry["pc_next"])
-        rob.op[i].set(rob_entry["op_next"])
-        rob.len_bytes[i].set(rob_entry["len_next"])
-        rob.insn_raw[i].set(rob_entry["insn_raw_next"])
-        rob.checkpoint_id[i].set(rob_entry["checkpoint_id_next"])
-        rob.dst_kind[i].set(rob_entry["dst_kind_next"])
-        rob.dst_areg[i].set(rob_entry["dst_areg_next"])
-        rob.pdst[i].set(rob_entry["pdst_next"])
-        rob.value[i].set(rob_entry["value_next"])
-        rob.src0_reg[i].set(rob_entry["src0_reg_next"])
-        rob.src1_reg[i].set(rob_entry["src1_reg_next"])
-        rob.src0_value[i].set(rob_entry["src0_value_next"])
-        rob.src1_value[i].set(rob_entry["src1_value_next"])
-        rob.src0_valid[i].set(rob_entry["src0_valid_next"])
-        rob.src1_valid[i].set(rob_entry["src1_valid_next"])
-        rob.is_store[i].set(rob_entry["is_store_next"])
-        rob.store_addr[i].set(rob_entry["store_addr_next"])
-        rob.store_data[i].set(rob_entry["store_data_next"])
-        rob.store_size[i].set(rob_entry["store_size_next"])
-        rob.is_load[i].set(rob_entry["is_load_next"])
-        rob.load_addr[i].set(rob_entry["load_addr_next"])
-        rob.load_data[i].set(rob_entry["load_data_next"])
-        rob.load_size[i].set(rob_entry["load_size_next"])
-        rob.is_boundary[i].set(rob_entry["is_boundary_next"])
-        rob.is_bstart[i].set(rob_entry["is_bstart_next"])
-        rob.is_bstop[i].set(rob_entry["is_bstop_next"])
-        rob.boundary_kind[i].set(rob_entry["boundary_kind_next"])
-        rob.boundary_target[i].set(rob_entry["boundary_target_next"])
-        rob.pred_take[i].set(rob_entry["pred_take_next"])
-        rob.block_epoch[i].set(rob_entry["block_epoch_next"])
-        rob.block_uid[i].set(rob_entry["block_uid_next"])
-        rob.block_bid[i].set(rob_entry["block_bid_next"])
-        rob.load_store_id[i].set(rob_entry["load_store_id_next"])
-        rob.resolved_d2[i].set(rob_entry["resolved_d2_next"])
-        rob.macro_begin[i].set(rob_entry["macro_begin_next"])
-        rob.macro_end[i].set(rob_entry["macro_end_next"])
-        rob.uop_uid[i].set(rob_entry["uop_uid_next"])
-        rob.parent_uid[i].set(rob_entry["parent_uid_next"])
+    # --- IQ updates (owned by LinxCoreIqBankTop) ---
+    for slot in range(p.dispatch_w):
+        m.assign(iq_disp_ops[slot], disp_ops[slot])
+        m.assign(iq_disp_pcs[slot], disp_pcs[slot])
+        m.assign(iq_disp_imms[slot], disp_imms[slot])
+        m.assign(iq_disp_srcl_tags[slot], disp_srcl_tags[slot])
+        m.assign(iq_disp_srcr_tags[slot], disp_srcr_tags[slot])
+        m.assign(iq_disp_srcr_types[slot], disp_srcr_types[slot])
+        m.assign(iq_disp_shamts[slot], disp_shamts[slot])
+        m.assign(iq_disp_srcp_tags[slot], disp_srcp_tags[slot])
+        m.assign(iq_disp_pdsts[slot], disp_pdsts[slot])
+        m.assign(iq_disp_need_pdsts[slot], disp_need_pdst[slot])
 
-    # ROB pointers/count.
-    rob.head.set(rob_ctrl["head_next"])
-    rob.tail.set(rob_ctrl["tail_next"])
-    rob.count.set(rob_ctrl["count_next"])
+        m.assign(iq_lsu_disp_tos[slot], disp_to_lsu[slot])
+        m.assign(iq_bru_disp_tos[slot], disp_to_bru[slot])
+        m.assign(iq_alu_disp_tos[slot], disp_to_alu[slot])
+        m.assign(iq_cmd_disp_tos[slot], disp_to_cmd[slot])
 
-    # --- IQ updates ---
-    def update_iq_from_stage(*, name: str, iq, disp_to: list, alloc_idxs: list, issue_fires_q: list, issue_idxs_q: list) -> None:
-        stage_args = {"do_flush": do_flush}
-        for i in range(p.iq_depth):
-            stage_args[f"iq_valid{i}"] = iq.valid[i].out()
-            stage_args[f"iq_rob{i}"] = iq.rob[i].out()
-            stage_args[f"iq_op{i}"] = iq.op[i].out()
-            stage_args[f"iq_pc{i}"] = iq.pc[i].out()
-            stage_args[f"iq_imm{i}"] = iq.imm[i].out()
-            stage_args[f"iq_srcl{i}"] = iq.srcl[i].out()
-            stage_args[f"iq_srcr{i}"] = iq.srcr[i].out()
-            stage_args[f"iq_srcr_type{i}"] = iq.srcr_type[i].out()
-            stage_args[f"iq_shamt{i}"] = iq.shamt[i].out()
-            stage_args[f"iq_srcp{i}"] = iq.srcp[i].out()
-            stage_args[f"iq_pdst{i}"] = iq.pdst[i].out()
-            stage_args[f"iq_has_dst{i}"] = iq.has_dst[i].out()
-
-        for slot in range(p.dispatch_w):
-            stage_args[f"disp_fire{slot}"] = disp_fires[slot]
-            stage_args[f"disp_to{slot}"] = disp_to[slot]
-            stage_args[f"alloc_idx{slot}"] = alloc_idxs[slot]
-            stage_args[f"disp_rob_idx{slot}"] = disp_rob_idxs[slot]
-            stage_args[f"disp_op{slot}"] = disp_ops[slot]
-            stage_args[f"disp_pc{slot}"] = disp_pcs[slot]
-            stage_args[f"disp_imm{slot}"] = disp_imms[slot]
-            stage_args[f"disp_srcl_tag{slot}"] = disp_srcl_tags[slot]
-            stage_args[f"disp_srcr_tag{slot}"] = disp_srcr_tags[slot]
-            stage_args[f"disp_srcr_type{slot}"] = disp_srcr_types[slot]
-            stage_args[f"disp_shamt{slot}"] = disp_shamts[slot]
-            stage_args[f"disp_srcp_tag{slot}"] = disp_srcp_tags[slot]
-            stage_args[f"disp_pdst{slot}"] = disp_pdsts[slot]
-            stage_args[f"disp_need_pdst{slot}"] = disp_need_pdst[slot]
-
-        for slot in range(len(issue_fires_q)):
-            stage_args[f"issue_fire{slot}"] = issue_fires_q[slot]
-            stage_args[f"issue_idx{slot}"] = issue_idxs_q[slot]
-
-        iq_stage = m.instance_auto(
-            build_iq_update_stage,
-            name=name,
-            params={
-                "iq_depth": p.iq_depth,
-                "iq_w": p.iq_w,
-                "rob_w": p.rob_w,
-                "ptag_w": p.ptag_w,
-                "dispatch_w": p.dispatch_w,
-                "issue_w": len(issue_fires_q),
-            },
-            **stage_args,
-        )
-
-        for i in range(p.iq_depth):
-            iq.valid[i].set(iq_stage[f"iq_valid_next{i}"])
-            iq.rob[i].set(iq_stage[f"iq_rob_next{i}"])
-            iq.op[i].set(iq_stage[f"iq_op_next{i}"])
-            iq.pc[i].set(iq_stage[f"iq_pc_next{i}"])
-            iq.imm[i].set(iq_stage[f"iq_imm_next{i}"])
-            iq.srcl[i].set(iq_stage[f"iq_srcl_next{i}"])
-            iq.srcr[i].set(iq_stage[f"iq_srcr_next{i}"])
-            iq.srcr_type[i].set(iq_stage[f"iq_srcr_type_next{i}"])
-            iq.shamt[i].set(iq_stage[f"iq_shamt_next{i}"])
-            iq.srcp[i].set(iq_stage[f"iq_srcp_next{i}"])
-            iq.pdst[i].set(iq_stage[f"iq_pdst_next{i}"])
-            iq.has_dst[i].set(iq_stage[f"iq_has_dst_next{i}"])
+        m.assign(iq_lsu_alloc_idxs[slot], lsu_alloc_idxs[slot])
+        m.assign(iq_bru_alloc_idxs[slot], bru_alloc_idxs[slot])
+        m.assign(iq_alu_alloc_idxs[slot], alu_alloc_idxs[slot])
+        m.assign(iq_cmd_alloc_idxs[slot], cmd_alloc_idxs[slot])
 
     lsu_base = 0
     bru_base = p.lsu_w
@@ -1756,89 +1714,36 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     cmd_slot_in_alu = cmd_slot - alu_base
     if (cmd_slot_in_alu >= 0) and (cmd_slot_in_alu < p.alu_w):
         alu_issue_fires_eff[cmd_slot_in_alu] = alu_issue_fires_eff[cmd_slot_in_alu] & (~cmd_slot_sel)
-    update_iq_from_stage(
-        name="iq_lsu_update_stage",
-        iq=iq_lsu,
-        disp_to=disp_to_lsu,
-        alloc_idxs=lsu_alloc_idxs,
-        issue_fires_q=issue_fires_eff[lsu_base : lsu_base + p.lsu_w],
-        issue_idxs_q=lsu_issue_idxs,
-    )
-    update_iq_from_stage(
-        name="iq_bru_update_stage",
-        iq=iq_bru,
-        disp_to=disp_to_bru,
-        alloc_idxs=bru_alloc_idxs,
-        issue_fires_q=issue_fires_eff[bru_base : bru_base + p.bru_w],
-        issue_idxs_q=bru_issue_idxs,
-    )
-    update_iq_from_stage(
-        name="iq_alu_update_stage",
-        iq=iq_alu,
-        disp_to=disp_to_alu,
-        alloc_idxs=alu_alloc_idxs,
-        issue_fires_q=alu_issue_fires_eff,
-        issue_idxs_q=alu_issue_idxs,
-    )
-    update_iq_from_stage(
-        name="iq_cmd_update_stage",
-        iq=iq_cmd,
-        disp_to=disp_to_cmd,
-        alloc_idxs=cmd_alloc_idxs,
-        issue_fires_q=[cmd_issue_fire_eff],
-        issue_idxs_q=[cmd_issue_idx],
-    )
+    for slot in range(p.lsu_w):
+        m.assign(iq_lsu_issue_fires[slot], issue_fires_eff[lsu_base + slot])
+        m.assign(iq_lsu_issue_idxs[slot], lsu_issue_idxs[slot])
+    for slot in range(p.bru_w):
+        m.assign(iq_bru_issue_fires[slot], issue_fires_eff[bru_base + slot])
+        m.assign(iq_bru_issue_idxs[slot], bru_issue_idxs[slot])
+    for slot in range(p.alu_w):
+        m.assign(iq_alu_issue_fires[slot], alu_issue_fires_eff[slot])
+        m.assign(iq_alu_issue_idxs[slot], alu_issue_idxs[slot])
+    m.assign(iq_cmd_issue_fires[0], cmd_issue_fire_eff)
+    m.assign(iq_cmd_issue_idxs[0], cmd_issue_idx)
 
-    # --- SMAP updates (rename) ---
-    for i in range(p.aregs):
-        nxt = smap_live[i]
-        nxt = do_flush._select_internal(ren.cmap[i].out(), nxt)
-        ckpt_smap_i = mux_by_uindex(
-            m,
-            idx=flush_ckpt_idx,
-            items=[ren.ckpt_smap[ci][i] for ci in range(ckpt_entries)],
-            default=ren.cmap[i].out(),
-        )
-        nxt = restore_from_ckpt._select_internal(ckpt_smap_i, nxt)
-        if i == 0:
-            nxt = tag0
-        ren.smap[i].set(nxt)
-
-    # --- CMAP + freelist updates (commit) ---
-    rename_commit_args = {"free_in": rename_free_after_dispatch}
-    for i in range(p.aregs):
-        rename_commit_args[f"cmap{i}"] = ren.cmap[i].out()
-    for slot in range(p.commit_w):
-        rename_commit_args[f"commit_fire{slot}"] = commit_fires[slot]
-        rename_commit_args[f"commit_is_bstop{slot}"] = commit_is_bstops[slot]
-        rename_commit_args[f"rob_dst_kind{slot}"] = rob_dst_kinds[slot]
-        rename_commit_args[f"rob_dst_areg{slot}"] = rob_dst_aregs[slot]
-        rename_commit_args[f"rob_pdst{slot}"] = rob_pdsts[slot]
-
-    rename_commit = m.instance_auto(
-        build_commit_rename_stage,
-        name="rename_commit_stage",
-        params={"aregs": p.aregs, "pregs": p.pregs, "ptag_w": p.ptag_w, "commit_w": p.commit_w},
-        **rename_commit_args,
-    )
-    for i in range(p.aregs):
-        ren.cmap[i].set(rename_commit[f"cmap_out{i}"])
-    free_live = rename_commit["free_out"]
-
-    # Flush recomputes freelist from CMAP to drop speculative allocations.
-    used = c(0, width=p.pregs)
-    for i in range(p.aregs):
-        used = used | onehot_from_tag(m, tag=ren.cmap[i].out(), width=p.pregs, tag_width=p.ptag_w)
-    free_recomputed = ~used
-    free_next = do_flush._select_internal(free_recomputed, free_live)
-    free_next = restore_from_ckpt._select_internal(flush_free_from_ckpt, free_next)
-    ren.free_mask.set(free_next)
+    # Rename state updates are owned by LinxCoreRenameBankTop.
 
     # --- commit state updates (pc/br/control regs) ---
     state.pc.set(pc_live)
     # Architectural redirect authority is boundary-commit only.
-    commit_redirect_any = commit_redirect
-    redirect_pc_any = redirect_pc
+    commit_redirect_stage = m.instance_auto(
+        build_commit_redirect,
+        name="commit_redirect_stage",
+        module_name="LinxCoreCommitRedirectBackend",
+        clk=clk,
+        rst=rst,
+        commit_fire=commit_redirect,
+        commit_next_pc=redirect_pc,
+        commit_bid=redirect_bid,
+    )
+    commit_redirect_any = commit_redirect_stage["redirect_valid_o"]
+    redirect_pc_any = commit_redirect_stage["redirect_pc_o"]
+    redirect_bid_any = commit_redirect_stage["redirect_bid_o"]
     redirect_checkpoint_id_any = redirect_checkpoint_id
 
     # Deferred BRU correction/fault tracking.
@@ -1864,8 +1769,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
 
     commit_ctrl_args = {
         "do_flush": do_flush,
-        "f4_valid": f4_valid_i,
-        "f4_pc": f4_pc_i,
+        "f4_valid": f4_valid,
+        "f4_pc": f4_pc,
         "commit_redirect": commit_redirect_any,
         "redirect_pc": redirect_pc_any,
         "redirect_checkpoint_id": redirect_checkpoint_id_any,
@@ -1896,6 +1801,9 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     state.flush_pc.set(commit_ctrl["flush_pc_next"])
     state.flush_checkpoint_id.set(commit_ctrl["flush_checkpoint_id_next"])
     state.flush_pending.set(commit_ctrl["flush_pending_next"])
+    flush_bid_n = state.flush_bid.out()
+    flush_bid_n = commit_redirect_any._select_internal(redirect_bid_any, flush_bid_n)
+    state.flush_bid.set(flush_bid_n)
     state.replay_pending.set(commit_ctrl["replay_pending_next"])
     state.replay_store_rob.set(commit_ctrl["replay_store_rob_next"])
     state.replay_pc.set(commit_ctrl["replay_pc_next"])
@@ -1930,9 +1838,17 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     state.br_off.set(br_off_live)
     state.br_pred_take.set(br_pred_take_live)
     state.active_block_uid.set(active_block_uid_live)
-    state.block_uid_ctr.set(block_uid_ctr_live)
     state.active_block_bid.set(active_block_bid_live)
-    state.block_bid_ctr.set(block_bid_ctr_live)
+    # D1-time block identity: follow BROB allocator for new BSTARTs, and restore
+    # assignment domain to the retire-stream identity on flush.
+    assign_block_uid_n = state.assign_block_uid.out()
+    assign_block_bid_n = state.assign_block_bid.out()
+    assign_block_uid_n = do_flush._select_internal(active_block_uid_live, assign_block_uid_n)
+    assign_block_bid_n = do_flush._select_internal(active_block_bid_live, assign_block_bid_n)
+    assign_block_uid_n = brob_alloc_fire._select_internal(brob_alloc_bid_i, assign_block_uid_n)
+    assign_block_bid_n = brob_alloc_fire._select_internal(brob_alloc_bid_i, assign_block_bid_n)
+    state.assign_block_uid.set(assign_block_uid_n)
+    state.assign_block_bid.set(assign_block_bid_n)
     state.lsid_alloc_ctr.set(lsid_alloc_next)
     state.lsid_issue_ptr.set(lsid_issue_ptr_live)
     state.lsid_complete_ptr.set(lsid_complete_ptr_live)
@@ -2064,37 +1980,13 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     state.macro_saved_ra.set(macro_saved_ra_n)
 
     # --- outputs ---
-    a0_tag = ren.cmap[2].out()
-    a1_tag = ren.cmap[3].out()
-    ra_tag = ren.cmap[10].out()
-    sp_tag = ren.cmap[1].out()
-
     m.output("halted", state.halted)
     m.output("cycles", state.cycles)
     m.output("pc", state.pc)
     m.output("fpc", state.fpc)
-    m.output("a0", mux_by_uindex(m, idx=a0_tag, items=prf, default=consts.zero64))
-    m.output("a1", mux_by_uindex(m, idx=a1_tag, items=prf, default=consts.zero64))
-    m.output("ra", mux_by_uindex(m, idx=ra_tag, items=prf, default=consts.zero64))
-    m.output("sp", mux_by_uindex(m, idx=sp_tag, items=prf, default=consts.zero64))
-    m.output("commit_op", head_op)
-    m.output("commit_fire", commit_fire)
-    m.output("commit_value", head_value)
-    m.output("commit_dst_kind", head_dst_kind)
-    m.output("commit_dst_areg", head_dst_areg)
-    m.output("commit_pdst", head_pdst)
-    m.output("commit_cond", state.commit_cond)
-    m.output("commit_tgt", state.commit_tgt)
-    m.output("br_kind", state.br_kind)
-    m.output("br_base_pc", state.br_base_pc)
-    m.output("br_off", state.br_off)
-    m.output("commit_store_fire", commit_store_fire)
-    m.output("commit_store_addr", commit_store_addr)
-    m.output("commit_store_data", commit_store_data)
-    m.output("commit_store_size", commit_store_size)
     m.output("rob_head_valid", rob_valids[0])
     m.output("rob_head_done", rob_dones[0])
-    m.output("rob_head_pc", mux_by_uindex(m, idx=rob.head.out(), items=rob.pc, default=consts.zero64))
+    m.output("rob_head_pc", rob_pcs[0])
     m.output("rob_head_insn_raw", head_insn_raw)
     m.output("rob_head_len", head_len)
     m.output("rob_head_op", head_op)
@@ -2120,13 +2012,15 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     )
     macro_trace_op = macro_enc["op"]
     macro_trace_val = head_value
-    macro_trace_rob = rob.head.out()
-    macro_trace_len = head_len
-    macro_trace_insn = head_insn_raw
+    macro_trace_rob = rob_head
+    macro_trace_len = macro_enc["len"]
+    macro_trace_insn = macro_enc["insn_raw"]
 
     macro_trace_wb_load = macro_reg_write
     macro_trace_wb_sp_sub = macro_uop_is_sp_sub & macro_adj_nonzero
-    macro_trace_wb_sp_add = macro_uop_is_sp_add & macro_adj_nonzero
+    # QEMU commit trace does not currently report the SP adjust micro-op for
+    # FRET.STK; hide it from the retire trace to keep lockstep stable.
+    macro_trace_wb_sp_add = macro_uop_is_sp_add & macro_adj_nonzero & (~macro_is_fret_stk)
     macro_trace_wb_valid = macro_trace_fire & (macro_trace_wb_load | macro_trace_wb_sp_sub | macro_trace_wb_sp_add)
     macro_trace_wb_rd = c(0, width=6)
     macro_trace_wb_rd = macro_trace_wb_load._select_internal(macro_uop_reg, macro_trace_wb_rd)
@@ -2182,9 +2076,6 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     shadow_boundary_fire = consts.zero1
     shadow_boundary_fire1 = consts.zero1
 
-    # `commit_fire` / `commit_op` / `commit_value` remain lane0-compatible.
-    # These additional signals help debug multi-commit cycles where older
-    # commits may not appear in a slot0-only log.
     max_commit_slots = 4
     for slot in range(max_commit_slots):
         fire = consts.zero1
@@ -2505,6 +2396,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
                 mem_size = macro_shadow_fire._select_internal(macro_trace_mem_size, mem_size)
                 next_pc = macro_shadow_fire._select_internal(macro_trace_next_pc, next_pc)
             macro_slot_keep = consts.zero1
+            if slot == 0:
+                macro_slot_keep = consts.one1
             if slot == 1:
                 macro_slot_keep = macro_shadow_fire
             macro_kill = macro_trace_fire & (~macro_slot_keep)
@@ -2576,112 +2469,53 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         m.output(f"commit_trap_cause{slot}", trap_cause)
         m.output(f"commit_next_pc{slot}", next_pc)
         m.output(f"commit_checkpoint_id{slot}", checkpoint_id)
-    m.output("rob_count", rob.count)
+    m.output("rob_count", rob_count)
 
-    # Debug: committed vs speculative hand tops (T0/U0).
-    ct0_tag = ren.cmap[24].out()
-    cu0_tag = ren.cmap[28].out()
-    st0_tag = ren.smap[24].out()
-    su0_tag = ren.smap[28].out()
-    m.output("ct0", mux_by_uindex(m, idx=ct0_tag, items=prf, default=consts.zero64))
-    m.output("cu0", mux_by_uindex(m, idx=cu0_tag, items=prf, default=consts.zero64))
-    m.output("st0", mux_by_uindex(m, idx=st0_tag, items=prf, default=consts.zero64))
-    m.output("su0", mux_by_uindex(m, idx=su0_tag, items=prf, default=consts.zero64))
-
-    # Debug: issue/memory arbitration visibility.
     m.output("issue_fire", issue_fire)
-    m.output("issue_op", uop_op)
-    m.output("issue_pc", uop_pc)
-    m.output("issue_rob", uop_rob)
-    m.output("issue_sl", uop_sl)
-    m.output("issue_sr", uop_sr)
-    m.output("issue_sp", uop_sp)
-    m.output("issue_pdst", uop_pdst)
-    m.output("issue_sl_val", sl_val)
-    m.output("issue_sr_val", sr_val)
-    m.output("issue_sp_val", sp_val)
-    m.output("issue_is_load", issued_is_load)
-    m.output("issue_is_store", issued_is_store)
-    m.output("store_pending", store_pending)
-    m.output("store_pending_older", older_store_pending)
-    m.output("mem_raddr", dmem_raddr)
     m.output("dmem_raddr", dmem_raddr)
     m.output("dmem_wvalid", mem_wvalid)
     m.output("dmem_waddr", mem_waddr)
     m.output("dmem_wdata", dmem_wdata)
     m.output("dmem_wstrb", wstrb)
     m.output("dmem_wsrc", dmem_wsrc)
-    m.output("stbuf_enq_fire", stbuf_enq_fire)
-    m.output("stbuf_drain_fire", stbuf_drain_fire)
-    m.output("macro_store_fire_dbg", macro_store_fire)
-    m.output("commit_store_wt_fire_dbg", commit_store_write_through)
     m.output("frontend_ready", frontend_ready)
     m.output("redirect_valid", commit_redirect_any)
     m.output("redirect_pc", redirect_pc_any)
-    m.output("redirect_checkpoint_id", redirect_checkpoint_id_any)
+    m.output("redirect_bid", redirect_bid_any)
     m.output("ctu_block_ifu", macro_block)
     m.output("ctu_uop_valid", macro_uop_valid)
-    m.output("ctu_uop_kind", macro_uop_kind)
-    m.output("ctu_uop_reg", macro_uop_reg)
-    m.output("ctu_uop_addr", macro_uop_addr)
-    m.output("ctu_uop_uid", macro_uop_uid)
-    m.output("ctu_uop_parent_uid", macro_uop_parent_uid)
-    m.output("ctu_uop_template_kind", macro_uop_template_kind)
-    m.output("bru_validate_fire_dbg", bru_validate_fire)
-    m.output("bru_mismatch_dbg", bru_mismatch_evt)
-    m.output("bru_actual_take_dbg", bru_actual_take_dbg)
-    m.output("bru_pred_take_dbg", bru_pred_take_dbg)
-    m.output("bru_boundary_pc_dbg", bru_boundary_pc_dbg)
-    m.output("bru_corr_set_dbg", bru_corr_set)
-    m.output("bru_corr_pending_dbg", state.br_corr_pending.out())
-    m.output("bru_corr_target_dbg", state.br_corr_target.out())
-    m.output("bru_corr_epoch_dbg", state.br_corr_epoch.out())
-    m.output("br_epoch_dbg", state.br_epoch.out())
-    m.output("br_kind_dbg", state.br_kind.out())
-    m.output("redirect_from_corr_dbg", redirect_from_corr)
-    m.output("redirect_from_boundary_dbg", commit_redirect_any & (~redirect_from_corr))
     m.output("bru_fault_set_dbg", bru_fault_set)
 
     # Deadlock diagnostics: locate the IQ entry currently backing ROB head.
-    head_wait_args = {"ready_mask": ren.ready_mask.out(), "head_idx": rob.head.out()}
-    for i in range(p.iq_depth):
-        head_wait_args[f"lsu_valid{i}"] = iq_lsu.valid[i].out()
-        head_wait_args[f"lsu_rob{i}"] = iq_lsu.rob[i].out()
-        head_wait_args[f"lsu_srcl{i}"] = iq_lsu.srcl[i].out()
-        head_wait_args[f"lsu_srcr{i}"] = iq_lsu.srcr[i].out()
-        head_wait_args[f"lsu_srcp{i}"] = iq_lsu.srcp[i].out()
-        head_wait_args[f"bru_valid{i}"] = iq_bru.valid[i].out()
-        head_wait_args[f"bru_rob{i}"] = iq_bru.rob[i].out()
-        head_wait_args[f"bru_srcl{i}"] = iq_bru.srcl[i].out()
-        head_wait_args[f"bru_srcr{i}"] = iq_bru.srcr[i].out()
-        head_wait_args[f"bru_srcp{i}"] = iq_bru.srcp[i].out()
-        head_wait_args[f"alu_valid{i}"] = iq_alu.valid[i].out()
-        head_wait_args[f"alu_rob{i}"] = iq_alu.rob[i].out()
-        head_wait_args[f"alu_srcl{i}"] = iq_alu.srcl[i].out()
-        head_wait_args[f"alu_srcr{i}"] = iq_alu.srcr[i].out()
-        head_wait_args[f"alu_srcp{i}"] = iq_alu.srcp[i].out()
-        head_wait_args[f"cmd_valid{i}"] = iq_cmd.valid[i].out()
-        head_wait_args[f"cmd_rob{i}"] = iq_cmd.rob[i].out()
-        head_wait_args[f"cmd_srcl{i}"] = iq_cmd.srcl[i].out()
-        head_wait_args[f"cmd_srcr{i}"] = iq_cmd.srcr[i].out()
-        head_wait_args[f"cmd_srcp{i}"] = iq_cmd.srcp[i].out()
-    head_wait = m.instance_auto(
-        build_head_wait_stage,
-        name="head_wait_stage",
-        params={"iq_depth": p.iq_depth, "iq_w": p.iq_w, "rob_w": p.rob_w, "ptag_w": p.ptag_w, "pregs": p.pregs},
-        **head_wait_args,
+    head_wait_hit = (
+        iq_lsu_bank["head_wait_hit_o"]
+        | iq_bru_bank["head_wait_hit_o"]
+        | iq_alu_bank["head_wait_hit_o"]
+        | iq_cmd_bank["head_wait_hit_o"]
     )
-    m.output("head_wait_hit", head_wait["head_wait_hit"])
-    m.output("head_wait_kind", head_wait["head_wait_kind"])
-    m.output("head_wait_sl", head_wait["head_wait_sl"])
-    m.output("head_wait_sr", head_wait["head_wait_sr"])
-    m.output("head_wait_sp", head_wait["head_wait_sp"])
-    m.output("head_wait_sl_rdy", head_wait["head_wait_sl_rdy"])
-    m.output("head_wait_sr_rdy", head_wait["head_wait_sr_rdy"])
-    m.output("head_wait_sp_rdy", head_wait["head_wait_sp_rdy"])
+    head_wait_kind = c(0, width=2)
+    head_wait_sl = c(0, width=p.ptag_w)
+    head_wait_sr = c(0, width=p.ptag_w)
+    head_wait_sp = c(0, width=p.ptag_w)
+    head_wait_kind = iq_lsu_bank["head_wait_hit_o"]._select_internal(c(3, width=2), head_wait_kind)
+    head_wait_kind = iq_bru_bank["head_wait_hit_o"]._select_internal(c(2, width=2), head_wait_kind)
+    head_wait_kind = iq_alu_bank["head_wait_hit_o"]._select_internal(c(1, width=2), head_wait_kind)
+    head_wait_kind = iq_cmd_bank["head_wait_hit_o"]._select_internal(c(0, width=2), head_wait_kind)
+    head_wait_sl = iq_lsu_bank["head_wait_hit_o"]._select_internal(iq_lsu_bank["head_wait_sl_o"], head_wait_sl)
+    head_wait_sr = iq_lsu_bank["head_wait_hit_o"]._select_internal(iq_lsu_bank["head_wait_sr_o"], head_wait_sr)
+    head_wait_sp = iq_lsu_bank["head_wait_hit_o"]._select_internal(iq_lsu_bank["head_wait_sp_o"], head_wait_sp)
+    head_wait_sl = iq_bru_bank["head_wait_hit_o"]._select_internal(iq_bru_bank["head_wait_sl_o"], head_wait_sl)
+    head_wait_sr = iq_bru_bank["head_wait_hit_o"]._select_internal(iq_bru_bank["head_wait_sr_o"], head_wait_sr)
+    head_wait_sp = iq_bru_bank["head_wait_hit_o"]._select_internal(iq_bru_bank["head_wait_sp_o"], head_wait_sp)
+    head_wait_sl = iq_alu_bank["head_wait_hit_o"]._select_internal(iq_alu_bank["head_wait_sl_o"], head_wait_sl)
+    head_wait_sr = iq_alu_bank["head_wait_hit_o"]._select_internal(iq_alu_bank["head_wait_sr_o"], head_wait_sr)
+    head_wait_sp = iq_alu_bank["head_wait_hit_o"]._select_internal(iq_alu_bank["head_wait_sp_o"], head_wait_sp)
+    head_wait_sl = iq_cmd_bank["head_wait_hit_o"]._select_internal(iq_cmd_bank["head_wait_sl_o"], head_wait_sl)
+    head_wait_sr = iq_cmd_bank["head_wait_hit_o"]._select_internal(iq_cmd_bank["head_wait_sr_o"], head_wait_sr)
+    head_wait_sp = iq_cmd_bank["head_wait_hit_o"]._select_internal(iq_cmd_bank["head_wait_sp_o"], head_wait_sp)
     # Debug taps for scheduler/LSU replay bring-up.
     wakeup_reason = compose_wakeup_reason(
-        m=m,
+        m,
         p=p,
         wb_fire_has_dsts=wb_fire_has_dsts,
         lsu_forward_active=lsu_forward_active,
@@ -2689,7 +2523,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         dispatch_fire=dispatch_fire,
     )
     replay_cause = compose_replay_cause(
-        m=m,
+        m,
         lsu_block_lane0=lsu_block_lane0,
         issued_is_load=issued_is_load,
         older_store_pending=older_store_pending,
@@ -2699,101 +2533,57 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     m.output("wakeup_reason", wakeup_reason)
     m.output("replay_cause", replay_cause)
     m.output("dispatch_fire", dispatch_fire)
-    m.output("dec_op", dec_op)
 
-    # Dispatch slot visibility (trace hook): per-slot PC/op/ROB for pipeview tools.
-    max_disp_slots = 4
-    for slot in range(max_disp_slots):
-        fire = consts.zero1
-        pc = consts.zero64
-        rob_i = c(0, width=p.rob_w)
-        op = c(0, width=12)
-        uid = consts.zero64
-        parent_uid = consts.zero64
-        block_uid = consts.zero64
-        block_bid = consts.zero64
-        load_store_id = c(0, width=32)
-        if slot < p.dispatch_w:
-            fire = disp_fires[slot]
-            pc = disp_pcs[slot]
-            rob_i = disp_rob_idxs[slot]
-            op = disp_ops[slot]
-            uid = disp_uop_uids[slot]
-            parent_uid = disp_parent_uids[slot]
-            block_uid = disp_block_uids[slot]
-            block_bid = disp_block_bids[slot]
-            load_store_id = disp_load_store_ids[slot]
-        m.output(f"dispatch_fire{slot}", fire)
-        m.output(f"dispatch_pc{slot}", pc)
-        m.output(f"dispatch_rob{slot}", rob_i)
-        m.output(f"dispatch_op{slot}", op)
-        m.output(f"dispatch_uop_uid{slot}", uid)
-        m.output(f"dispatch_parent_uop_uid{slot}", parent_uid)
-        m.output(f"dispatch_block_uid{slot}", block_uid)
-        m.output(f"dispatch_block_bid{slot}", block_bid)
-        m.output(f"dispatch_load_store_id{slot}", load_store_id)
-
-    # Issue slot visibility (trace hook): per-slot PC/op/ROB for pipeview tools.
-    max_issue_slots = 4
-    for slot in range(max_issue_slots):
-        fire = consts.zero1
-        pc = consts.zero64
-        rob_i = c(0, width=p.rob_w)
-        op = c(0, width=12)
-        uid = consts.zero64
-        parent_uid = consts.zero64
-        block_uid = consts.zero64
-        block_bid = consts.zero64
-        load_store_id = c(0, width=32)
-        if slot < p.issue_w:
-            fire = issue_fires_eff[slot]
-            pc = uop_pcs[slot]
-            rob_i = uop_robs[slot]
-            op = uop_ops[slot]
-            uid = uop_uids[slot]
-            parent_uid = uop_parent_uids[slot]
-            block_uid = mux_by_uindex(m, idx=rob_i, items=rob.block_uid, default=consts.zero64)
-            block_bid = mux_by_uindex(m, idx=rob_i, items=rob.block_bid, default=consts.zero64)
-            load_store_id = mux_by_uindex(m, idx=rob_i, items=rob.load_store_id, default=c(0, width=32))
-        m.output(f"issue_fire{slot}", fire)
-        m.output(f"issue_pc{slot}", pc)
-        m.output(f"issue_rob{slot}", rob_i)
-        m.output(f"issue_op{slot}", op)
-        m.output(f"issue_uop_uid{slot}", uid)
-        m.output(f"issue_parent_uop_uid{slot}", parent_uid)
-        m.output(f"issue_block_uid{slot}", block_uid)
-        m.output(f"issue_block_bid{slot}", block_bid)
-        m.output(f"issue_load_store_id{slot}", load_store_id)
+    frontend_occ_args = {}
+    for stage in ("d1", "d2", "d3", "s1", "s2"):
+        for slot in range(4):
+            valid = consts.zero1
+            pc = consts.zero64
+            uid = consts.zero64
+            stall = consts.zero1
+            stall_cause = c(0, width=8)
+            if slot < p.dispatch_w:
+                valid = dispatch_frontend[f"stage_{stage}_valid{slot}"]
+                pc = dispatch_frontend[f"stage_{stage}_pc{slot}"]
+                uid = dispatch_frontend[f"stage_{stage}_uop_uid{slot}"]
+                stall = dispatch_frontend[f"stage_{stage}_stall{slot}"]
+                stall_cause = dispatch_frontend[f"stage_{stage}_stall_cause{slot}"]
+            frontend_occ_args[f"{stage}_valid{slot}"] = valid
+            frontend_occ_args[f"{stage}_uid{slot}"] = uid
+            frontend_occ_args[f"{stage}_pc{slot}"] = pc
+            frontend_occ_args[f"{stage}_stall{slot}"] = stall
+            frontend_occ_args[f"{stage}_stall_cause{slot}"] = stall_cause
+    m.instance_auto(
+        build_backend_occ_frontend,
+        name="backend_occ_frontend",
+        module_name="LinxCoreBackendOccFrontend",
+        **frontend_occ_args,
+    )
 
     # Canonical IQ residency visibility: expose up to 4 resident uops
     # (LSU/BRU/ALU/CMD queues) for DFX pipeview IQ-stage tracking.
-    def first_iq_entry(iq_regs):
-        valid = consts.zero1
-        rob_idx = c(0, width=p.rob_w)
-        pc = consts.zero64
-        for i in range(p.iq_depth):
-            hit = (~valid) & iq_regs.valid[i].out()
-            valid = hit._select_internal(consts.one1, valid)
-            rob_idx = hit._select_internal(iq_regs.rob[i].out(), rob_idx)
-            pc = hit._select_internal(iq_regs.pc[i].out(), pc)
-        uid = mux_by_uindex(m, idx=rob_idx, items=rob.uop_uid, default=consts.zero64)
-        parent_uid = mux_by_uindex(m, idx=rob_idx, items=rob.parent_uid, default=consts.zero64)
-        block_uid = mux_by_uindex(m, idx=rob_idx, items=rob.block_uid, default=consts.zero64)
-        block_bid = mux_by_uindex(m, idx=rob_idx, items=rob.block_bid, default=consts.zero64)
-        load_store_id = mux_by_uindex(m, idx=rob_idx, items=rob.load_store_id, default=c(0, width=32))
-        return valid, pc, rob_idx, uid, parent_uid, block_uid, block_bid, load_store_id
-
-    iq_slot_regs = [iq_lsu, iq_bru, iq_alu, iq_cmd]
-    for slot, iq_regs in enumerate(iq_slot_regs):
-        iq_valid, iq_pc, iq_rob, iq_uid, iq_parent_uid, iq_block_uid, iq_block_bid, iq_load_store_id = first_iq_entry(iq_regs)
-        m.output(f"iq_valid{slot}", iq_valid)
-        m.output(f"iq_pc{slot}", iq_pc)
-        m.output(f"iq_rob{slot}", iq_rob)
-        m.output(f"iq_uop_uid{slot}", iq_uid)
-        m.output(f"iq_parent_uop_uid{slot}", iq_parent_uid)
-        m.output(f"iq_block_uid{slot}", iq_block_uid)
-        m.output(f"iq_block_bid{slot}", iq_block_bid)
-        m.output(f"iq_load_store_id{slot}", iq_load_store_id)
+    iq_slot_views = [iq_lsu_bank, iq_bru_bank, iq_alu_bank, iq_cmd_bank]
+    schedule_occ_args = {}
+    for slot, iq_view in enumerate(iq_slot_views):
+        iq_valid = iq_view["resident_valid_o"]
+        iq_pc = iq_view["resident_pc_o"]
+        iq_rob = iq_view["resident_rob_o"]
+        m.assign(rob_meta_query_idxs[rob_iq_query_base + slot], iq_rob)
+        iq_uid = rob_iq_query_uop_uids[slot]
+        iq_parent_uid = rob_iq_query_parent_uids[slot]
+        iq_block_uid = rob_iq_query_block_uids[slot]
+        schedule_occ_args[f"iq_valid{slot}"] = iq_valid
+        schedule_occ_args[f"iq_uid{slot}"] = iq_uid
+        schedule_occ_args[f"iq_pc{slot}"] = iq_pc
+        schedule_occ_args[f"iq_rob{slot}"] = iq_rob
+        schedule_occ_args[f"iq_parent{slot}"] = iq_parent_uid
+        schedule_occ_args[f"iq_block{slot}"] = iq_block_uid
+    m.instance_auto(
+        build_backend_occ_schedule,
+        name="backend_occ_schedule",
+        module_name="LinxCoreBackendOccSchedule",
+        **schedule_occ_args,
+    )
 
     # MMIO visibility for testbenches (UART + exit).
     m.output("mmio_uart_valid", mmio_uart)
@@ -2812,14 +2602,30 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     cmd_payload = cmd_payload_lane
     cmd_tile = cmd_payload._trunc(width=6)
     cmd_src_rob = cmd_uop_rob
-    cmd_bid = mux_by_uindex(m, idx=cmd_uop_rob, items=rob.block_bid, default=consts.zero64)
-    cmd_tag = state.cycles.out()._trunc(width=8)
+    cmd_bid = rob_issue_query_block_bids[cmd_slot]
+    block_fabric = m.instance_auto(
+        build_block_fabric,
+        name="block_fabric",
+        module_name="LinxCoreBlockFabricBackend",
+        clk=clk,
+        rst=rst,
+        blk_bisq_enq_ready=bisq_enq_ready_i,
+        blk_brob_active_allocated=brob_active_allocated_i,
+        blk_brob_active_ready=brob_active_ready_i,
+        blk_brob_active_exception=brob_active_exception_i,
+        blk_brob_active_retired=brob_active_retired_i,
+        blk_template_uid=template_uid_i,
+        cmd_valid_i=cmd_issue_fire_eff,
+        cmd_bid_i=cmd_bid,
+    )
+    # Block command tags must route by BID identity.
+    cmd_tag = block_fabric["cmd_tag_o"]
 
     block_cmd_valid = cmd_issue_fire_eff
     block_cmd_kind = cmd_kind
     block_cmd_payload = cmd_payload
     block_cmd_tile = cmd_tile
-    block_cmd_bid = cmd_bid
+    block_cmd_bid = block_fabric["cmd_bid_o"]
     block_cmd_tag = cmd_tag
     m.output("cmd_to_bisq_stage_cmd_valid", block_cmd_valid)
     m.output("cmd_to_bisq_stage_cmd_kind", block_cmd_kind)
@@ -2828,31 +2634,15 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     m.output("cmd_to_bisq_stage_cmd_tile", block_cmd_tile)
     m.output("cmd_to_bisq_stage_cmd_src_rob", cmd_src_rob)
 
-    ooo_4wide = c(1 if (p.fetch_w == 4 and p.dispatch_w == 4 and p.issue_w == 4 and p.commit_w == 4) else 0, width=1)
-    m.output("ooo_4wide", ooo_4wide)
     m.output("block_cmd_valid", block_cmd_valid)
-    m.output("block_cmd_kind", block_cmd_kind)
-    m.output("block_cmd_payload", block_cmd_payload)
-    m.output("block_cmd_tile", block_cmd_tile)
-    m.output("block_cmd_bid", block_cmd_bid)
-    m.output("block_cmd_tag", block_cmd_tag)
     m.output("active_block_bid", state.active_block_bid.out())
+    m.output("brob_alloc_fire", brob_alloc_fire)
     m.output("brob_retire_fire", brob_retire_fire)
     m.output("brob_retire_bid", brob_retire_bid)
-    m.output("lsid_alloc_ctr", state.lsid_alloc_ctr.out())
-    m.output("lsid_issue_ptr", state.lsid_issue_ptr.out())
-    m.output("lsid_complete_ptr", state.lsid_complete_ptr.out())
-    m.output("lsu_lsid_block_lane0", lsu_lsid_block_lane0)
 
-    return BccOooExports(
-        clk=clk,
-        rst=rst,
-        block_cmd_valid=block_cmd_valid.sig,
-        block_cmd_kind=block_cmd_kind.sig,
-        block_cmd_payload=block_cmd_payload.sig,
-        block_cmd_tile=block_cmd_tile.sig,
-        block_cmd_tag=block_cmd_tag.sig,
-        block_cmd_bid=block_cmd_bid.sig,
-        cycles=state.cycles.out().sig,
-        halted=state.halted.out().sig,
-    )
+    return None
+
+
+@module(name="LinxCoreTraceExport")
+def build_trace_export(m: Circuit, *, mem_bytes: int = (1 << 20)) -> None:
+    _build_trace_export_core(m, mem_bytes=mem_bytes, params=None)

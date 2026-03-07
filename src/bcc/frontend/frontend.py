@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pycircuit import Circuit, ct, meta, module
+from pycircuit import Circuit, ct, module, spec
 
 from common.config import frontend_config
 from .bpu import build_bpu_lite
@@ -20,7 +20,7 @@ def build_frontend(m: Circuit, *, ibuf_depth: int = 8, ftq_depth: int = 16) -> N
     ftq_w = max(1, int(ct.clog2(ftq_depth_i)))
 
     in_spec = (
-        meta.bundle("frontend_in")
+        spec.bundle("frontend_in")
         .field("boot_pc", width=64)
         .field("imem_rdata", width=64)
         .field("backend_ready", width=1)
@@ -30,7 +30,7 @@ def build_frontend(m: Circuit, *, ibuf_depth: int = 8, ftq_depth: int = 16) -> N
         .field("flush_pc", width=64)
         .build()
     )
-    ins = m.io_in(in_spec, prefix="")
+    ins = m.inputs(in_spec, prefix="")
 
     boot_pc = ins["boot_pc"].read()
     imem_rdata = ins["imem_rdata"].read()
@@ -43,40 +43,40 @@ def build_frontend(m: Circuit, *, ibuf_depth: int = 8, ftq_depth: int = 16) -> N
     c = m.const
 
     do_redirect = redirect_valid | flush_valid
-    redirect_target = flush_valid._select_internal(flush_pc, redirect_pc)
+    redirect_target = flush_pc if flush_valid else redirect_pc
 
     ibuf_push_ready_w = m.new_wire(width=1)
     pred_valid_w = m.new_wire(width=1)
     pred_taken_w = m.new_wire(width=1)
     pred_target_w = m.new_wire(width=64)
 
-    ifetch = m.instance(
+    ifetch = m.instance_auto(
         build_ifetch,
         name="ifetch",
-        clk=m.as_connector(clk, name="clk"),
-        rst=m.as_connector(rst, name="rst"),
-        boot_pc=m.as_connector(boot_pc, name="boot_pc"),
-        imem_rdata=m.as_connector(imem_rdata, name="imem_rdata"),
-        stall_i=m.as_connector(~ibuf_push_ready_w, name="stall_i"),
-        redirect_valid=m.as_connector(do_redirect, name="redirect_valid"),
-        redirect_pc=m.as_connector(redirect_target, name="redirect_pc"),
-        pred_valid=m.as_connector(pred_valid_w, name="pred_valid"),
-        pred_taken=m.as_connector(pred_taken_w, name="pred_taken"),
-        pred_target=m.as_connector(pred_target_w, name="pred_target"),
+        clk=clk,
+        rst=rst,
+        boot_pc=boot_pc,
+        imem_rdata=imem_rdata,
+        stall_i=~ibuf_push_ready_w,
+        redirect_valid=do_redirect,
+        redirect_pc=redirect_target,
+        pred_valid=pred_valid_w,
+        pred_taken=pred_taken_w,
+        pred_target=pred_target_w,
     )
 
-    bpu = m.instance(
+    bpu = m.instance_auto(
         build_bpu_lite,
         name="bpu",
         params={"tag_bits": 8},
-        clk=m.as_connector(clk, name="clk"),
-        rst=m.as_connector(rst, name="rst"),
+        clk=clk,
+        rst=rst,
         req_valid=ifetch["fetch_valid"],
         req_pc=ifetch["fetch_pc"],
-        update_valid=m.as_connector(do_redirect, name="update_valid"),
-        update_pc=m.as_connector(redirect_target, name="update_pc"),
-        update_taken=m.as_connector(do_redirect, name="update_taken"),
-        update_target=m.as_connector(redirect_target, name="update_target"),
+        update_valid=do_redirect,
+        update_pc=redirect_target,
+        update_taken=do_redirect,
+        update_target=redirect_target,
     )
 
     # Keep prediction disabled for strict lockstep bring-up; FTQ/BPU metadata
@@ -85,36 +85,36 @@ def build_frontend(m: Circuit, *, ibuf_depth: int = 8, ftq_depth: int = 16) -> N
     m.assign(pred_taken_w, c(0, width=1))
     m.assign(pred_target_w, c(0, width=64))
 
-    ibuf = m.instance(
+    ibuf = m.instance_auto(
         build_ibuffer,
         name="ibuffer",
         params={"depth": ibuf_depth_i},
-        clk=m.as_connector(clk, name="clk"),
-        rst=m.as_connector(rst, name="rst"),
+        clk=clk,
+        rst=rst,
         push_valid=ifetch["fetch_valid"],
         push_pc=ifetch["fetch_pc"],
         push_window=ifetch["fetch_window"],
-        pop_ready=m.as_connector(backend_ready, name="backend_ready"),
-        flush_valid=m.as_connector(do_redirect, name="flush_valid"),
+        pop_ready=backend_ready,
+        flush_valid=do_redirect,
     )
     m.assign(ibuf_push_ready_w, ibuf["push_ready"])
 
-    ftq = m.instance(
+    ftq = m.instance_auto(
         build_ftq_lite,
         name="ftq",
         params={"depth": ftq_depth_i},
-        clk=m.as_connector(clk, name="clk"),
-        rst=m.as_connector(rst, name="rst"),
+        clk=clk,
+        rst=rst,
         enq_valid=ifetch["fetch_valid"],
         enq_pc=ifetch["fetch_pc"],
         enq_npc=ifetch["fetch_next_pc"],
         enq_checkpoint=bpu["checkpoint_id"],
         deq_ready=ibuf["pop_fire"],
-        flush_valid=m.as_connector(do_redirect, name="flush_valid"),
+        flush_valid=do_redirect,
     )
 
     out_spec = (
-        meta.bundle("frontend_out")
+        spec.bundle("frontend_out")
         .field("imem_raddr", width=64)
         .field("f4_valid", width=1)
         .field("f4_pc", width=64)
@@ -126,7 +126,7 @@ def build_frontend(m: Circuit, *, ibuf_depth: int = 8, ftq_depth: int = 16) -> N
         .field("checkpoint_id", width=6)
         .build()
     )
-    m.io_out(
+    m.outputs(
         out_spec,
         {
             "imem_raddr": ifetch["imem_raddr"],

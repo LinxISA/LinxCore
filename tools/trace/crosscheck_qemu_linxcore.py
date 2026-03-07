@@ -37,6 +37,7 @@ class Commit:
     trap_cause: int
     traparg0: int
     next_pc: int
+    template_kind: int
 
 
 def _mask_insn(raw: int, length: int) -> int:
@@ -116,9 +117,29 @@ def _is_sideeffect_free_sysreg_marker(r: Commit) -> bool:
     return True
 
 
+def _is_sideeffect_free_boundary_marker(r: Commit) -> bool:
+    eff_wb_valid = r.wb_valid | r.dst_valid
+    if eff_wb_valid != 0 or r.mem_valid != 0 or r.trap_valid != 0:
+        return False
+    if r.length == 2:
+        insn = _mask_insn(r.insn, r.length)
+        return _is_bstart16(insn) or insn == 0
+    if r.length == 4:
+        return _is_bstart32(_mask_insn(r.insn, r.length))
+    if r.length == 6:
+        return _is_bstart48(_mask_insn(r.insn, r.length))
+    return False
+
+
 def _is_metadata_commit(r: Commit) -> bool:
-    # Treat fully zeroed placeholders and template parent markers as metadata.
-    return ((r.length == 0) and (r.insn == 0) and (r.pc == 0)) or _is_template_parent_marker(r)
+    # Keep filtering aligned with the TB-side xcheck metadata rules.
+    if ((r.length == 0) and (r.insn == 0) and (r.pc == 0)):
+        return True
+    if _is_template_parent_marker(r) or _is_sideeffect_free_boundary_marker(r):
+        return True
+    if r.template_kind != 0 and r.wb_valid == 0 and r.dst_valid == 0 and r.mem_valid == 0 and r.trap_valid == 0:
+        return True
+    return False
 
 
 def _to_int(v: Any, default: int = 0) -> int:
@@ -168,6 +189,7 @@ def _load_trace(path: Path, limit: int) -> list[Commit]:
                 trap_cause=_to_int(obj.get("trap_cause", 0)),
                 traparg0=_to_int(obj.get("traparg0", 0)),
                 next_pc=_to_int(obj.get("next_pc", 0)),
+                template_kind=_to_int(obj.get("template_kind", 0)),
             )
             rows.append(row)
             if limit > 0 and len(rows) >= limit:

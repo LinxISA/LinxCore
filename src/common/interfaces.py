@@ -275,3 +275,13 @@ INTERFACE_SPEC: InterfaceSpec = {
 def iter_signal_names(prefix: str) -> Tuple[str, ...]:
     fields = INTERFACE_SPEC[prefix]
     return tuple(f"{prefix}_{field.name}" for field in fields)
+
+
+# Named module bundle contracts consumed through common.module_specs.
+MODULE_INTERFACE_NAMES: Tuple[str, ...] = (
+    "backend_frontend_in_spec",
+    "backend_mem_if_spec",
+    "backend_block_if_spec",
+    "backend_trace_if_spec",
+    "top_module_io_spec",
+)

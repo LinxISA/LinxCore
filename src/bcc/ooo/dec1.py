@@ -25,7 +25,9 @@ def build_janus_bcc_ooo_dec1(m: Circuit) -> None:
         f4_pkt_uid=f4_to_d1_stage_pkt_uid_f4,
     )
 
-    m.output("d1_to_d2_stage_valid_d1", decode_d1["valid0"])
+    valid_d1 = decode_d1["valid0"]
+    valid_d1 = valid_d1._select_internal(valid_d1, valid_d1)
+    m.output("d1_to_d2_stage_valid_d1", valid_d1)
     m.output("d1_to_d2_stage_pc_d1", decode_d1["pc0"])
     m.output("d1_to_d2_stage_op_d1", decode_d1["op0"])
     m.output("d1_to_d2_stage_len_d1", decode_d1["len0"])

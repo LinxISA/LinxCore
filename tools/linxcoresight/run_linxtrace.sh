@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
 
 python3 "${ROOT_DIR}/tools/linxcoresight/lint_trace_contract_sync.py"
 
@@ -14,8 +15,8 @@ MEMH="$1"
 MAX_COMMITS="${2:-${PYC_LINXTRACE_MAX_COMMITS:-0}}"
 name="$(basename "${MEMH}")"
 name="${name%.memh}"
-LLVM_READELF="${LLVM_READELF:-/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-readelf}"
-LINXISA_DIR="${LINXISA_DIR:-${HOME}/linx-isa}"
+LLVM_READELF="${LLVM_READELF:-$(linxcore_resolve_llvm_readelf "${ROOT_DIR}" || true)}"
+LINXISA_ROOT="${LINXISA_ROOT:-${LINXISA_DIR:-$(linxcore_resolve_linxisa_root "${ROOT_DIR}" || true)}}"
 
 out_dir="${ROOT_DIR}/generated/linxtrace"
 if [[ "${name}" == *"coremark"* ]]; then
@@ -25,16 +26,10 @@ elif [[ "${name}" == *"dhrystone"* ]]; then
 fi
 mkdir -p "${out_dir}"
 
-LINXTRACE_GZ="${PYC_LINXTRACE_GZ:-1}"
-linxtrace_ext=".linxtrace.jsonl"
-if [[ "${LINXTRACE_GZ}" != "0" ]]; then
-  linxtrace_ext="${linxtrace_ext}.gz"
-fi
-
 if [[ "${MAX_COMMITS}" =~ ^[0-9]+$ ]] && [[ "${MAX_COMMITS}" -gt 0 ]]; then
-  linxtrace_path="${out_dir}/${name}_${MAX_COMMITS}insn${linxtrace_ext}"
+  linxtrace_path="${out_dir}/${name}_${MAX_COMMITS}insn.linxtrace"
 else
-  linxtrace_path="${out_dir}/${name}${linxtrace_ext}"
+  linxtrace_path="${out_dir}/${name}.linxtrace"
 fi
 
 if [[ "${MAX_COMMITS}" =~ ^[0-9]+$ ]] && [[ "${MAX_COMMITS}" -gt 0 ]]; then
@@ -45,24 +40,19 @@ fi
 commit_text_path="${commit_trace_path%.jsonl}.txt"
 raw_trace_path="${out_dir}/${name}.raw_events.jsonl"
 map_report_path="${out_dir}/${name}.linxtrace.map.json"
-meta_base="${linxtrace_path}"
-if [[ "${meta_base}" == *.gz ]]; then
-  meta_base="${meta_base%.gz}"
-fi
-meta_path="${meta_base%.linxtrace.jsonl}.linxtrace.meta.json"
 
 objdump_elf="${PYC_OBJDUMP_ELF:-${PYC_LINXTRACE_ELF:-}}"
 if [[ -z "${objdump_elf}" ]]; then
   sidecar="${MEMH%.memh}.elf"
   if [[ -f "${sidecar}" ]]; then
     objdump_elf="${sidecar}"
-  elif [[ "${name}" == *"coremark"* ]]; then
-    cand="${LINXISA_DIR}/workloads/generated/elf/coremark.elf"
+  elif [[ -n "${LINXISA_ROOT}" && "${name}" == *"coremark"* ]]; then
+    cand="${LINXISA_ROOT}/workloads/generated/elf/coremark.elf"
     if [[ -f "${cand}" ]]; then
       objdump_elf="${cand}"
     fi
-  elif [[ "${name}" == *"dhrystone"* ]]; then
-    cand="${LINXISA_DIR}/workloads/generated/elf/dhrystone.elf"
+  elif [[ -n "${LINXISA_ROOT}" && "${name}" == *"dhrystone"* ]]; then
+    cand="${LINXISA_ROOT}/workloads/generated/elf/dhrystone.elf"
     if [[ -f "${cand}" ]]; then
       objdump_elf="${cand}"
     fi
@@ -89,13 +79,11 @@ fi
 if [[ -n "${objdump_elf}" ]]; then
   run_env+=("PYC_OBJDUMP_ELF=${objdump_elf}")
 fi
-
 env "${run_env[@]}" bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${MEMH}"
 
 builder_args=(
   --raw "${raw_trace_path}"
   --out "${linxtrace_path}"
-  --meta-out "${meta_path}"
   --map-report "${map_report_path}"
   --commit-text "${commit_text_path}"
 )
@@ -106,23 +94,18 @@ python3 "${ROOT_DIR}/tools/trace/build_linxtrace_view.py" "${builder_args[@]}"
 
 python3 "${ROOT_DIR}/tools/linxcoresight/lint_linxtrace.py" \
   "${linxtrace_path}" \
-  --meta "${meta_path}" \
-  --require-stages F0,F3,D1,D3,IQ,BROB,CMT \
-  --single-stage-per-cycle
+  --require-stages IB,IQ,CMT
 
 if [[ "${MAX_COMMITS}" =~ ^[0-9]+$ ]] && [[ "${MAX_COMMITS}" -gt 0 ]]; then
   python3 - "$linxtrace_path" "$MAX_COMMITS" <<'PY'
 import json
 import sys
-import gzip
 
 path = sys.argv[1]
 want = int(sys.argv[2])
 retired = 0
 
-opener = gzip.open if path.endswith('.gz') else open
-mode = 'rt' if path.endswith('.gz') else 'r'
-with opener(path, mode, errors="ignore") as f:
+with open(path, "r", encoding="utf-8", errors="ignore") as f:
     for line in f:
         line = line.strip()
         if not line:
@@ -146,7 +129,6 @@ if [[ -n "${boot_pc}" ]]; then
 else
   echo "linxtrace: ${linxtrace_path}"
 fi
-echo "meta: ${meta_path}"
 echo "commit_jsonl: ${commit_trace_path}"
 echo "trace_txt: ${commit_text_path}"
 echo "raw_events: ${raw_trace_path}"

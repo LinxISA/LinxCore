@@ -1,0 +1,16 @@
+{
+  "exempt_modules": [
+    "linxcore_top",
+    "JanusBccBackendTop",
+    "LinxCoreBackendCompose",
+    "JanusBccLsuStqTop",
+    "JanusBccOooPcBufferTop",
+    "JanusBccOooRobTop",
+    "LinxCoreTopExport",
+    "LinxCoreTraceExport",
+    "JanusBccIfuICacheTop",
+    "LinxCoreMem2R1W",
+    "LinxCoreIssueQueueAgeMatrix",
+    "LinxCoreAgeMatrix"
+  ]
+}

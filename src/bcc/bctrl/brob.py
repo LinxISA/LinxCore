@@ -3,21 +3,40 @@ from __future__ import annotations
 from pycircuit import Circuit, module
 
 
-@module(name="JanusBccBctrlBrob")
-def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
-    clk_brob = m.clock("clk")
-    rst_brob = m.reset("rst")
+def _build_janus_bcc_bctrl_brob_core(m: Circuit, *, entries: int) -> None:
+    """Block Reorder Buffer (BROB).
 
+    Strict contract (see $linx-core skill doc):
+    - default entries=128
+    - BID encoding: slot_id=BID[6:0], uniq=BID[63:7]
+    - cmd_tag == BID[7:0]
+    - flush: keep bid<=flush_bid, kill bid>flush_bid (roll back tail)
+    """
+
+    if entries != 128:
+        raise ValueError("strict LinxCore BROB requires entries=128")
+
+    clk = m.clock("clk")
+    rst = m.reset("rst")
+    c = m.const
+
+    # --- BID allocation (BSTART dispatch) ---
+    alloc_fire_brob = m.input("alloc_fire_brob", width=1)
+
+    # --- Engine command issue/response tracking (per active block BID) ---
     issue_fire_brob = m.input("issue_fire_brob", width=1)
     issue_tag_brob = m.input("issue_tag_brob", width=8)
     issue_bid_brob = m.input("issue_bid_brob", width=64)
     issue_src_rob_brob = m.input("issue_src_rob_brob", width=6)
+
     retire_fire_brob = m.input("retire_fire_brob", width=1)
     retire_bid_brob = m.input("retire_bid_brob", width=64)
     query_bid_brob = m.input("query_bid_brob", width=64)
 
-    # Flush younger blocks: when flushing within a block, keep entries with
-    # bid <= flush_bid and clear all younger (bid > flush_bid).
+    # Flush younger blocks: keep bid<=flush_bid, kill bid>flush_bid.
+    # `flush_valid_brob` freezes the queue for the redirect/flush cycle(s).
+    # `flush_fire_brob` performs the kill/update when asserted.
+    flush_valid_brob = m.input("flush_valid_brob", width=1)
     flush_fire_brob = m.input("flush_fire_brob", width=1)
     flush_bid_brob = m.input("flush_bid_brob", width=64)
 
@@ -29,114 +48,218 @@ def build_janus_bcc_bctrl_brob(m: Circuit) -> None:
     rsp_trap_valid_brob = m.input("rsp_trap_valid_brob", width=1)
     rsp_trap_cause_brob = m.input("rsp_trap_cause_brob", width=32)
 
-    c = m.const
+    # --- Queue state ---
+    # tail_bid is the next BID to allocate (BID=0 reserved for "no block").
+    tail_bid = m.out("tail_bid_brob", clk=clk, rst=rst, width=64, init=c(1, width=64), en=c(1, width=1))
+    count = m.out("count_brob", clk=clk, rst=rst, width=8, init=c(0, width=8), en=c(1, width=1))
 
-    allocated_brob = m.out("allocated_brob", clk=clk_brob, rst=rst_brob, width=16, init=c(0, width=16), en=c(1, width=1))
-    ready_brob = m.out("ready_brob", clk=clk_brob, rst=rst_brob, width=16, init=c(0, width=16), en=c(1, width=1))
-    retired_brob = m.out("retired_brob", clk=clk_brob, rst=rst_brob, width=16, init=c(0, width=16), en=c(1, width=1))
-    exception_brob = m.out("exception_brob", clk=clk_brob, rst=rst_brob, width=16, init=c(0, width=16), en=c(1, width=1))
-    src_rob_slot_brob = []
-    bid_slot_brob = []
-    for i in range(16):
-        src_rob_slot_brob.append(m.out(f"src_rob{i}_brob", clk=clk_brob, rst=rst_brob, width=6, init=c(0, width=6), en=c(1, width=1)))
-        bid_slot_brob.append(m.out(f"bid{i}_brob", clk=clk_brob, rst=rst_brob, width=64, init=c(0, width=64), en=c(1, width=1)))
+    has_cmd = m.out("allocated_brob", clk=clk, rst=rst, width=entries, init=c(0, width=entries), en=c(1, width=1))
+    ready = m.out("ready_brob", clk=clk, rst=rst, width=entries, init=c(0, width=entries), en=c(1, width=1))
+    retired = m.out("retired_brob", clk=clk, rst=rst, width=entries, init=c(0, width=entries), en=c(1, width=1))
+    exception = m.out("exception_brob", clk=clk, rst=rst, width=entries, init=c(0, width=entries), en=c(1, width=1))
 
-    issue_slot_brob = issue_tag_brob[0:4]
-    rsp_slot_brob = rsp_tag_brob[0:4]
-    retire_slot_brob = retire_bid_brob[0:4]
-    query_slot_brob = query_bid_brob[0:4]
+    # Debug: src ROB per slot (packed).
+    src_rob_w = 6
+    src_rob_packed_w = entries * src_rob_w
+    src_rob_packed = m.out(
+        "src_rob_packed_brob",
+        clk=clk,
+        rst=rst,
+        width=src_rob_packed_w,
+        init=c(0, width=src_rob_packed_w),
+        en=c(1, width=1),
+    )
 
-    issue_bit_brob = c(0, width=16)
-    rsp_bit_brob = c(0, width=16)
-    retire_bit_brob = c(0, width=16)
-    rsp_src_rob_brob = c(0, width=6)
-    rsp_bid_brob = c(0, width=64)
-    rsp_slot_alloc_brob = c(0, width=1)
-    rsp_slot_retired_brob = c(0, width=1)
-    query_alloc_brob = c(0, width=1)
-    query_ready_brob = c(0, width=1)
-    query_retired_brob = c(0, width=1)
-    query_exception_brob = c(0, width=1)
-    for i in range(16):
-        slot_hit_issue_brob = issue_slot_brob.__eq__(c(i, width=4))
-        slot_hit_rsp_brob = rsp_slot_brob.__eq__(c(i, width=4))
-        slot_hit_retire_brob = retire_slot_brob.__eq__(c(i, width=4))
-        slot_hit_query_brob = query_slot_brob.__eq__(c(i, width=4))
-        issue_bit_brob = slot_hit_issue_brob._select_internal(c(1 << i, width=16), issue_bit_brob)
-        rsp_bit_brob = slot_hit_rsp_brob._select_internal(c(1 << i, width=16), rsp_bit_brob)
-        retire_bit_brob = slot_hit_retire_brob._select_internal(c(1 << i, width=16), retire_bit_brob)
-        rsp_src_rob_brob = slot_hit_rsp_brob._select_internal(src_rob_slot_brob[i].out(), rsp_src_rob_brob)
-        rsp_bid_brob = slot_hit_rsp_brob._select_internal(bid_slot_brob[i].out(), rsp_bid_brob)
-        rsp_slot_alloc_brob = slot_hit_rsp_brob._select_internal(allocated_brob.out()[i], rsp_slot_alloc_brob)
-        rsp_slot_retired_brob = slot_hit_rsp_brob._select_internal(retired_brob.out()[i], rsp_slot_retired_brob)
-        query_alloc_brob = slot_hit_query_brob._select_internal(allocated_brob.out()[i], query_alloc_brob)
-        query_ready_brob = slot_hit_query_brob._select_internal(ready_brob.out()[i], query_ready_brob)
-        query_retired_brob = slot_hit_query_brob._select_internal(retired_brob.out()[i], query_retired_brob)
-        query_exception_brob = slot_hit_query_brob._select_internal(exception_brob.out()[i], query_exception_brob)
+    head_bid = tail_bid.out() - count.out()._zext(width=64)
+    head_slot = head_bid[0:7]
 
-        src_rob_slot_brob[i].set(issue_src_rob_brob, when=issue_fire_brob & slot_hit_issue_brob)
-        bid_slot_brob[i].set(issue_bid_brob, when=issue_fire_brob & slot_hit_issue_brob)
+    # Bring-up safety fallback:
+    # keep allocation non-blocking and recycle oldest slot on saturation.
+    alloc_ready = c(1, width=1)
+    alloc_bid = tail_bid.out()
+    alloc_slot = alloc_bid[0:7]
 
-    rsp_fire_brob = rsp_valid_brob & rsp_slot_alloc_brob & (~rsp_slot_retired_brob)
-    rsp_exception_brob = rsp_trap_valid_brob | (~rsp_status_brob.__eq__(c(0, width=4)))
+    def slot_live_and_bid(slot7, *, bid_in):
+        # Because entries=128, (slot7 - head_slot) wraps modulo 128 naturally.
+        dist7 = slot7 - head_slot
+        dist8 = dist7._zext(width=8)
+        live = dist8.ult(count.out())
+        bid_calc = head_bid + dist8._zext(width=64)
+        match = live & bid_calc.__eq__(bid_in)
+        return live, bid_calc, match
 
-    alloc_next_brob = allocated_brob.out()
-    ready_next_brob = ready_brob.out()
-    retired_next_brob = retired_brob.out()
-    exception_next_brob = exception_brob.out()
+    def slot_live_and_calc_bid(slot7):
+        dist7 = slot7 - head_slot
+        dist8 = dist7._zext(width=8)
+        live = dist8.ult(count.out())
+        bid_calc = head_bid + dist8._zext(width=64)
+        return live, bid_calc
 
-    alloc_next_brob = issue_fire_brob._select_internal(alloc_next_brob | issue_bit_brob, alloc_next_brob)
-    ready_next_brob = issue_fire_brob._select_internal(ready_next_brob & (~issue_bit_brob), ready_next_brob)
-    retired_next_brob = issue_fire_brob._select_internal(retired_next_brob & (~issue_bit_brob), retired_next_brob)
-    exception_next_brob = issue_fire_brob._select_internal(exception_next_brob & (~issue_bit_brob), exception_next_brob)
+    def bit_at_slot(bits, slot7):
+        v = c(0, width=1)
+        for i in range(entries):
+            v = slot7.__eq__(c(i, width=7))._select_internal(bits[i], v)
+        return v
 
-    ready_next_brob = rsp_fire_brob._select_internal(ready_next_brob | rsp_bit_brob, ready_next_brob)
-    exception_next_brob = (rsp_fire_brob & rsp_exception_brob)._select_internal(exception_next_brob | rsp_bit_brob, exception_next_brob)
+    def src_rob_at_slot(slot7):
+        v = c(0, width=src_rob_w)
+        for i in range(entries):
+            lo = i * src_rob_w
+            hi = lo + src_rob_w
+            v = slot7.__eq__(c(i, width=7))._select_internal(src_rob_packed.out()[lo:hi], v)
+        return v
 
-    retire_fire_ok_brob = retire_fire_brob & query_alloc_brob & (~query_retired_brob)
-    alloc_next_brob = retire_fire_ok_brob._select_internal(alloc_next_brob & (~retire_bit_brob), alloc_next_brob)
-    retired_next_brob = retire_fire_ok_brob._select_internal(retired_next_brob | retire_bit_brob, retired_next_brob)
+    def onehot_for_slot(slot7):
+        oh = c(0, width=entries)
+        for i in range(entries):
+            oh = slot7.__eq__(c(i, width=7))._select_internal(c(1 << i, width=entries), oh)
+        return oh
 
-    # Flush younger blocks (bid > flush_bid).
-    flush_kill_mask = c(0, width=entries)
+    # --- Query (active block state) ---
+    query_slot = query_bid_brob[0:7]
+    _, _, query_match = slot_live_and_bid(query_slot, bid_in=query_bid_brob)
+    query_has_cmd = query_match._select_internal(bit_at_slot(has_cmd.out(), query_slot), c(0, width=1))
+    query_ready = query_match._select_internal(bit_at_slot(ready.out(), query_slot), c(0, width=1))
+    query_retired = query_match._select_internal(bit_at_slot(retired.out(), query_slot), c(0, width=1))
+    query_exception = query_match._select_internal(bit_at_slot(exception.out(), query_slot), c(0, width=1))
+
+    brob_state = c(0, width=4)
+    brob_state = query_has_cmd._select_internal(brob_state | c(0x1, width=4), brob_state)
+    brob_state = query_ready._select_internal(brob_state | c(0x2, width=4), brob_state)
+    brob_state = query_retired._select_internal(brob_state | c(0x4, width=4), brob_state)
+    brob_state = query_exception._select_internal(brob_state | c(0x8, width=4), brob_state)
+
+    # --- Issue (command enqueue) ---
+    issue_slot = issue_bid_brob[0:7]
+    _, issue_bid_calc, issue_bid_match = slot_live_and_bid(issue_slot, bid_in=issue_bid_brob)
+    issue_tag_ok = issue_tag_brob.__eq__(issue_bid_calc._trunc(width=8))
+    issue_fire_ok = issue_fire_brob & issue_bid_match & issue_tag_ok & (~flush_valid_brob)
+
+    # --- Response (PE -> BROB) ---
+    rsp_slot = rsp_tag_brob[0:7]
+    rsp_live, rsp_bid_calc = slot_live_and_calc_bid(rsp_slot)
+    rsp_tag_ok = rsp_tag_brob.__eq__(rsp_bid_calc._trunc(width=8))
+    rsp_has_cmd = bit_at_slot(has_cmd.out(), rsp_slot)
+    rsp_retired = bit_at_slot(retired.out(), rsp_slot)
+    rsp_fire_ok = rsp_valid_brob & rsp_live & rsp_tag_ok & rsp_has_cmd & (~rsp_retired) & (~flush_valid_brob)
+    rsp_exception = rsp_trap_valid_brob | (~rsp_status_brob.__eq__(c(0, width=4)))
+    rsp_src_rob = src_rob_at_slot(rsp_slot)
+
+    # --- Retire (BSTOP commit) ---
+    retire_slot = retire_bid_brob[0:7]
+    # Compatibility path for bring-up:
+    # some older producer paths can emit retire_bid=0 on valid BSTOP retirement.
+    # Treat BID=0 as "retire current head" to avoid BROB saturation deadlock.
+    retire_bid_wildcard = retire_bid_brob.__eq__(c(0, width=64))
+    retire_bid_match = retire_bid_brob.__eq__(head_bid) | retire_bid_wildcard
+    retire_ok = retire_fire_brob & retire_bid_match & count.out().ugt(c(0, width=8)) & (~flush_valid_brob)
+
+    # --- Flush (BID rollback) ---
+    # Keep bid <= flush_bid, kill bid > flush_bid.
+    #
+    # Clamp the kept range to the live window [head_bid, tail_bid):
+    # this avoids count underflow/wrap if flush_bid is older than head.
+    flush_tail_bid = flush_bid_brob + c(1, width=64)
+    flush_active = flush_fire_brob & flush_valid_brob
+    keep_count_flush = count.out()
+    keep_count_flush = flush_tail_bid.ule(head_bid)._select_internal(c(0, width=8), keep_count_flush)
+    flush_mid = flush_tail_bid.ugt(head_bid) & flush_tail_bid.ult(tail_bid.out())
+    keep_mid = (flush_tail_bid - head_bid)._trunc(width=8)
+    keep_count_flush = flush_mid._select_internal(keep_mid, keep_count_flush)
+    count_after_flush = flush_active._select_internal(keep_count_flush, count.out())
+    tail_bid_after_flush = flush_active._select_internal(head_bid + keep_count_flush._zext(width=64), tail_bid.out())
+
+    # --- Next-state ---
+    tail_bid_n = tail_bid_after_flush
+    count_n = count_after_flush
+
+    has_cmd_n = has_cmd.out()
+    ready_n = ready.out()
+    retired_n = retired.out()
+    exception_n = exception.out()
+    src_rob_packed_n = src_rob_packed.out()
+
+    # Allocation consumes the current alloc_bid.
+    alloc_fire_ok = alloc_fire_brob & (~flush_valid_brob)
+    alloc_oh = onehot_for_slot(alloc_slot)
+    has_cmd_n = alloc_fire_ok._select_internal(has_cmd_n & (~alloc_oh), has_cmd_n)
+    ready_n = alloc_fire_ok._select_internal(ready_n & (~alloc_oh), ready_n)
+    retired_n = alloc_fire_ok._select_internal(retired_n & (~alloc_oh), retired_n)
+    exception_n = alloc_fire_ok._select_internal(exception_n & (~alloc_oh), exception_n)
+    alloc_can_grow = count_n.ult(c(entries, width=8))
+    count_n = (alloc_fire_ok & alloc_can_grow)._select_internal(count_n + c(1, width=8), count_n)
+    tail_bid_n = alloc_fire_ok._select_internal(tail_bid_n + c(1, width=64), tail_bid_n)
+
+    # Retire clears command state for the retiring slot and advances head via count--.
+    retire_oh = onehot_for_slot(retire_slot)
+    has_cmd_n = retire_ok._select_internal(has_cmd_n & (~retire_oh), has_cmd_n)
+    ready_n = retire_ok._select_internal(ready_n & (~retire_oh), ready_n)
+    exception_n = retire_ok._select_internal(exception_n & (~retire_oh), exception_n)
+    retired_n = retire_ok._select_internal(retired_n | retire_oh, retired_n)
+    count_n = retire_ok._select_internal(count_n - c(1, width=8), count_n)
+
+    # Command issue: mark active block "has_cmd", clear done flags, capture src_rob.
+    issue_oh = onehot_for_slot(issue_slot)
+    has_cmd_n = issue_fire_ok._select_internal(has_cmd_n | issue_oh, has_cmd_n)
+    ready_n = issue_fire_ok._select_internal(ready_n & (~issue_oh), ready_n)
+    exception_n = issue_fire_ok._select_internal(exception_n & (~issue_oh), exception_n)
+    retired_n = issue_fire_ok._select_internal(retired_n & (~issue_oh), retired_n)
+
+    # Update src_rob packed (6b slice per slot) when issue fires.
+    full_mask = (1 << src_rob_packed_w) - 1
     for i in range(entries):
-        kill_i = alloc_next_brob[i] & flush_bid_brob.ult(bid_slot_brob[i].out())
-        flush_kill_mask = kill_i._select_internal(flush_kill_mask | c(1 << i, width=entries), flush_kill_mask)
-    alloc_next_brob = flush_fire_brob._select_internal(alloc_next_brob & (~flush_kill_mask), alloc_next_brob)
-    ready_next_brob = flush_fire_brob._select_internal(ready_next_brob & (~flush_kill_mask), ready_next_brob)
-    retired_next_brob = flush_fire_brob._select_internal(retired_next_brob & (~flush_kill_mask), retired_next_brob)
-    exception_next_brob = flush_fire_brob._select_internal(exception_next_brob & (~flush_kill_mask), exception_next_brob)
+        hit = issue_fire_ok & issue_slot.__eq__(c(i, width=7))
+        shift = i * src_rob_w
+        clear_mask = full_mask ^ (((1 << src_rob_w) - 1) << shift)
+        cleared = src_rob_packed_n & c(clear_mask, width=src_rob_packed_w)
+        inserted = issue_src_rob_brob._zext(width=src_rob_packed_w).shl(amount=shift)
+        src_rob_packed_n = hit._select_internal(cleared | inserted, src_rob_packed_n)
 
-    allocated_brob.set(alloc_next_brob)
-    ready_brob.set(ready_next_brob)
-    retired_brob.set(retired_next_brob)
-    exception_brob.set(exception_next_brob)
+    # Response: mark ready/exception for the slot (has_cmd remains set until retire).
+    rsp_oh = onehot_for_slot(rsp_slot)
+    ready_n = rsp_fire_ok._select_internal(ready_n | rsp_oh, ready_n)
+    exception_n = (rsp_fire_ok & rsp_exception)._select_internal(exception_n | rsp_oh, exception_n)
 
-    pending_brob = alloc_next_brob & (~ready_next_brob) & (~retired_next_brob)
-    brob_state_brob = c(0, width=4)
-    brob_state_brob = query_alloc_brob._select_internal(brob_state_brob | c(0x1, width=4), brob_state_brob)
-    brob_state_brob = query_ready_brob._select_internal(brob_state_brob | c(0x2, width=4), brob_state_brob)
-    brob_state_brob = query_retired_brob._select_internal(brob_state_brob | c(0x4, width=4), brob_state_brob)
-    brob_state_brob = query_exception_brob._select_internal(brob_state_brob | c(0x8, width=4), brob_state_brob)
+    tail_bid.set(tail_bid_n)
+    count.set(count_n)
+    has_cmd.set(has_cmd_n)
+    ready.set(ready_n)
+    retired.set(retired_n)
+    exception.set(exception_n)
+    src_rob_packed.set(src_rob_packed_n)
 
-    m.output("brob_pending_brob", pending_brob)
-    m.output("brob_rsp_fire_brob", rsp_fire_brob)
-    m.output("brob_query_state_brob", brob_state_brob)
-    m.output("brob_query_allocated_brob", query_alloc_brob)
-    m.output("brob_query_ready_brob", query_ready_brob)
-    m.output("brob_query_exception_brob", query_exception_brob)
-    m.output("brob_query_retired_brob", query_retired_brob)
+    pending = has_cmd_n & (~ready_n) & (~retired_n)
 
-    m.output("brob_to_rob_stage_rsp_valid_brob", rsp_fire_brob)
+    m.output("brob_alloc_ready_brob", alloc_ready)
+    m.output("brob_alloc_bid_brob", alloc_bid)
+    m.output("brob_head_bid_brob", head_bid)
+    m.output("brob_count_brob", count.out())
+
+    m.output("brob_pending_brob", pending)
+    m.output("brob_rsp_fire_brob", rsp_fire_ok)
+    m.output("brob_query_state_brob", brob_state)
+    m.output("brob_query_allocated_brob", query_has_cmd)
+    m.output("brob_query_ready_brob", query_ready)
+    m.output("brob_query_exception_brob", query_exception)
+    m.output("brob_query_retired_brob", query_retired)
+
+    # Response export (debug/DFX).
+    m.output("brob_to_rob_stage_rsp_valid_brob", rsp_fire_ok)
     m.output("brob_to_rob_stage_rsp_tag_brob", rsp_tag_brob)
     m.output("brob_to_rob_stage_rsp_status_brob", rsp_status_brob)
     m.output("brob_to_rob_stage_rsp_data0_brob", rsp_data0_brob)
     m.output("brob_to_rob_stage_rsp_data1_brob", rsp_data1_brob)
     m.output("brob_to_rob_stage_rsp_trap_valid_brob", rsp_trap_valid_brob)
     m.output("brob_to_rob_stage_rsp_trap_cause_brob", rsp_trap_cause_brob)
-    m.output("brob_to_rob_stage_rsp_src_rob_brob", rsp_src_rob_brob)
-    m.output("brob_to_rob_stage_rsp_bid_brob", rsp_bid_brob)
-    m.output("brob_to_rob_stage_brob_state_brob", brob_state_brob)
-    m.output("brob_to_rob_stage_brob_ready_brob", query_ready_brob)
-    m.output("brob_to_rob_stage_brob_exception_brob", query_exception_brob)
-    m.output("brob_to_rob_stage_brob_retired_brob", query_retired_brob)
+    m.output("brob_to_rob_stage_rsp_src_rob_brob", rsp_src_rob)
+    m.output("brob_to_rob_stage_rsp_bid_brob", rsp_bid_calc)
+    m.output("brob_to_rob_stage_brob_state_brob", brob_state)
+    m.output("brob_to_rob_stage_brob_ready_brob", query_ready)
+    m.output("brob_to_rob_stage_brob_exception_brob", query_exception)
+    m.output("brob_to_rob_stage_brob_retired_brob", query_retired)
+
+
+@module(name="JanusBccBctrlBrob")
+def build_janus_bcc_bctrl_brob(m: Circuit, *, entries: int = 128) -> None:
+    # Keep the @module body minimal to avoid frontend AST restrictions.
+    _build_janus_bcc_bctrl_brob_core(m, entries=entries)

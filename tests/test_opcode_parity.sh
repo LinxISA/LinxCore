@@ -2,8 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
-QEMU_LINX_DIR="${QEMU_LINX_DIR:-${LINX_ROOT}/emulator/qemu/target/linx}"
+source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
+
+QEMU_LINX_DIR="${QEMU_LINX_DIR:-$(linxcore_resolve_qemu_linx_dir "${ROOT_DIR}" || true)}"
+if [[ -z "${QEMU_LINX_DIR}" || ! -d "${QEMU_LINX_DIR}" ]]; then
+  echo "error: QEMU Linx decode tree not found" >&2
+  echo "hint: set QEMU_LINX_DIR=... or LINXISA_ROOT=..." >&2
+  exit 2
+fi
 
 python3 "${ROOT_DIR}/tools/generate/extract_qemu_opcode_matrix.py" \
   --qemu-linx-dir "${QEMU_LINX_DIR}" \

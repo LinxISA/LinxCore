@@ -86,7 +86,7 @@ def page_align_up(value: int, page_size: int) -> int:
 
 
 
-def collect_alloc_ranges(elf_path: Path, page_size: int) -> list[Range]:
+def collect_alloc_ranges(elf_path: Path, page_size: int, *, include_nobits: bool) -> list[Range]:
     ranges: list[Range] = []
     try:
         out = run_readelf(["-W", "-S", str(elf_path)])
@@ -94,8 +94,12 @@ def collect_alloc_ranges(elf_path: Path, page_size: int) -> list[Range]:
             m = SECTION_RE.match(line)
             if not m:
                 continue
-            _name, _stype, addr_s, size_s, flags = m.groups()
+            _name, stype, addr_s, size_s, flags = m.groups()
             if "A" not in flags:
+                continue
+            if not include_nobits and stype.upper() == "NOBITS":
+                # Skip large zero-fill sections by default to avoid aliasing when
+                # the DUT models a bounded/aliased physical memory window.
                 continue
             addr = int(addr_s, 16)
             size = int(size_s, 16)
@@ -177,6 +181,7 @@ def main() -> int:
     ap.add_argument("--boot-sp", type=lambda x: int(x, 0), default=0x20000, help="Boot SP for stack window (default: 0x20000)")
     ap.add_argument("--stack-window", type=lambda x: int(x, 0), default=0x8000, help="Stack window bytes around boot SP (default: 0x8000)")
     ap.add_argument("--page-size", type=lambda x: int(x, 0), default=4096, help="Page size for alignment (default: 4096)")
+    ap.add_argument("--include-nobits", action="store_true", help="Include NOBITS (BSS) sections in the alloc ranges (default: off).")
     ap.add_argument("--et-rel-low-bss-base", type=lambda x: int(x, 0), default=0x10000, help="Synthetic low BSS base for ET_REL (default: 0x10000)")
     ap.add_argument("--et-rel-low-bss-size", type=lambda x: int(x, 0), default=0x20000, help="Synthetic low BSS size for ET_REL (default: 0x20000)")
     ap.add_argument("--force-et-rel", action="store_true", help="Force ET_REL low-BSS window even when ELF type cannot be determined")
@@ -194,7 +199,7 @@ def main() -> int:
         print("error: --page-size must be a positive power of two", file=sys.stderr)
         return 1
 
-    ranges = collect_alloc_ranges(elf_path, args.page_size)
+    ranges = collect_alloc_ranges(elf_path, args.page_size, include_nobits=bool(args.include_nobits))
 
     elf_type = parse_elf_type(elf_path)
     if elf_type == "REL" or args.force_et_rel:
