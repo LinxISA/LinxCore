@@ -123,11 +123,11 @@ def _is_sideeffect_free_boundary_marker(r: Commit) -> bool:
         return False
     if r.length == 2:
         insn = _mask_insn(r.insn, r.length)
-        return _is_bstart16(insn) or insn == 0
+        return ((_is_bstart16(insn) and (r.next_pc == r.pc + r.length)) or insn == 0)
     if r.length == 4:
-        return _is_bstart32(_mask_insn(r.insn, r.length))
+        return _is_bstart32(_mask_insn(r.insn, r.length)) and (r.next_pc == r.pc + r.length)
     if r.length == 6:
-        return _is_bstart48(_mask_insn(r.insn, r.length))
+        return _is_bstart48(_mask_insn(r.insn, r.length)) and (r.next_pc == r.pc + r.length)
     return False
 
 

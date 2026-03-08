@@ -268,7 +268,8 @@ static bool isMetadataCommit(const XcheckCommit &r) {
   const bool is_macro_marker = (r.len == 4) && isMacroMarker32(static_cast<std::uint32_t>(insn_m));
   const bool is_template_uop = (r.template_kind != 0);
 
-  const bool bstart_metadata = is_bstart && (eff_wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0);
+  const bool bstart_metadata = is_bstart && (eff_wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0) &&
+                               (r.next_pc == (r.pc + r.len));
   const bool macro_metadata =
       is_macro_marker && (eff_wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0);
   const bool template_metadata =
