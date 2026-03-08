@@ -82,6 +82,18 @@ def _pattern_to_mask_match(bits: str) -> tuple[int, int]:
     return mask, match
 
 
+def _normalize_qemu_pattern(bits: str, enc_len: int, file_name: str) -> str | None:
+    if len(bits) == enc_len:
+        return bits
+    if file_name == "insn48.decode" and enc_len == 64 and len(bits) == 48:
+        # QEMU decodes 48-bit instructions through a 64-bit container with the
+        # top 16 bits zeroed. Some insn48 forms spell those container bits
+        # explicitly; others only spell the low 48 payload bits. Normalize both
+        # forms to the same packed-64 representation.
+        return ("0" * 16) + bits
+    return None
+
+
 def parse_decode_file(path: Path, enc_len: int) -> List[DecodeEntry]:
     out: List[DecodeEntry] = []
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -107,18 +119,19 @@ def parse_decode_file(path: Path, enc_len: int) -> List[DecodeEntry]:
         if not patt:
             continue
         bits = "".join(patt)
-        if len(bits) != enc_len:
+        normalized_bits = _normalize_qemu_pattern(bits, enc_len, path.name)
+        if normalized_bits is None:
             # Decodetree lines can be malformed for our parser only if non-bit
             # tokens got mixed in; skip those lines safely.
             continue
-        mask, match = _pattern_to_mask_match(bits)
+        mask, match = _pattern_to_mask_match(normalized_bits)
         fields = toks[idx:]
         out.append(
             DecodeEntry(
                 mnemonic=mnemonic,
                 file=path.name,
                 enc_len=enc_len,
-                pattern=bits,
+                pattern=normalized_bits,
                 mask=mask,
                 match=match,
                 fields=fields,
