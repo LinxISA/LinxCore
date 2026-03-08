@@ -40,7 +40,10 @@ def build_code_template_unit(m: Circuit) -> None:
         & (~head_skip)
         & head_ready
     )
-    block_ifu = macro_active_i | start_fire
+    # Keep IFU blocked until the parent macro commit retires and hands off its
+    # redirect/next-PC state. Dropping the block as soon as template uops finish
+    # lets the IFU run ahead on stale PCs during the macro_wait_commit window.
+    block_ifu = macro_active_i | macro_wait_commit_i | start_fire
 
     ph_init = c(0, width=2)
     ph_mem = c(1, width=2)
