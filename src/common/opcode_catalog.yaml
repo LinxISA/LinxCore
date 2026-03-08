@@ -33,7 +33,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 427
+      "op_id": 452
     },
     {
       "mnemonic": "acre",
@@ -52,7 +52,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 428
+      "op_id": 453
     },
     {
       "mnemonic": "add",
@@ -128,7 +128,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 249
+      "op_id": 274
     },
     {
       "mnemonic": "addw",
@@ -242,7 +242,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 468
+      "op_id": 493
     },
     {
       "mnemonic": "b_arg",
@@ -470,7 +470,7 @@
       "cmd_kind": "BIOR",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 372
+      "op_id": 397
     },
     {
       "mnemonic": "b_iot",
@@ -489,7 +489,7 @@
       "cmd_kind": "BLOAD",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 373
+      "op_id": 398
     },
     {
       "mnemonic": "b_ioti",
@@ -508,7 +508,7 @@
       "cmd_kind": "BSTORE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 374
+      "op_id": 399
     },
     {
       "mnemonic": "b_lt",
@@ -584,7 +584,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 250
+      "op_id": 275
     },
     {
       "mnemonic": "b_text",
@@ -603,7 +603,7 @@
       "cmd_kind": "BTEXT",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 375
+      "op_id": 400
     },
     {
       "mnemonic": "b_z",
@@ -622,7 +622,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 251
+      "op_id": 276
     },
     {
       "mnemonic": "bc_iall",
@@ -641,7 +641,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 469
+      "op_id": 494
     },
     {
       "mnemonic": "bc_iva",
@@ -660,7 +660,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 470
+      "op_id": 495
     },
     {
       "mnemonic": "bcnt",
@@ -736,7 +736,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 471
+      "op_id": 496
     },
     {
       "mnemonic": "bstart_call",
@@ -1173,7 +1173,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 472
+      "op_id": 497
     },
     {
       "mnemonic": "bwe",
@@ -1192,7 +1192,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 473
+      "op_id": 498
     },
     {
       "mnemonic": "bwi",
@@ -1211,7 +1211,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 474
+      "op_id": 499
     },
     {
       "mnemonic": "bwt",
@@ -1230,7 +1230,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 475
+      "op_id": 500
     },
     {
       "mnemonic": "bxs",
@@ -1287,7 +1287,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 445
+      "op_id": 470
     },
     {
       "mnemonic": "c_addi",
@@ -1306,7 +1306,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 446
+      "op_id": 471
     },
     {
       "mnemonic": "c_and",
@@ -1325,7 +1325,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 447
+      "op_id": 472
     },
     {
       "mnemonic": "c_b_dim",
@@ -1344,7 +1344,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 448
+      "op_id": 473
     },
     {
       "mnemonic": "c_b_dimi",
@@ -1363,7 +1363,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 449
+      "op_id": 474
     },
     {
       "mnemonic": "c_bstart_cond",
@@ -1686,7 +1686,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 268
+      "op_id": 293
     },
     {
       "mnemonic": "c_cmp_nei",
@@ -1705,7 +1705,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 269
+      "op_id": 294
     },
     {
       "mnemonic": "c_ebreak",
@@ -1724,7 +1724,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 450
+      "op_id": 475
     },
     {
       "mnemonic": "c_ldi",
@@ -1743,7 +1743,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 451
+      "op_id": 476
     },
     {
       "mnemonic": "c_lwi",
@@ -1762,7 +1762,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 452
+      "op_id": 477
     },
     {
       "mnemonic": "c_movi",
@@ -1781,7 +1781,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 453
+      "op_id": 478
     },
     {
       "mnemonic": "c_movr",
@@ -1800,7 +1800,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 454
+      "op_id": 479
     },
     {
       "mnemonic": "c_or",
@@ -1819,7 +1819,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 455
+      "op_id": 480
     },
     {
       "mnemonic": "c_sdi",
@@ -1838,7 +1838,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 456
+      "op_id": 481
     },
     {
       "mnemonic": "c_setc_eq",
@@ -1857,7 +1857,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 270
+      "op_id": 295
     },
     {
       "mnemonic": "c_setc_ne",
@@ -1876,7 +1876,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 271
+      "op_id": 296
     },
     {
       "mnemonic": "c_setc_tgt",
@@ -1895,7 +1895,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 272
+      "op_id": 297
     },
     {
       "mnemonic": "c_sext_b",
@@ -1914,7 +1914,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 457
+      "op_id": 482
     },
     {
       "mnemonic": "c_sext_h",
@@ -1933,7 +1933,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 458
+      "op_id": 483
     },
     {
       "mnemonic": "c_sext_w",
@@ -1952,7 +1952,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 459
+      "op_id": 484
     },
     {
       "mnemonic": "c_slli",
@@ -1971,7 +1971,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 460
+      "op_id": 485
     },
     {
       "mnemonic": "c_srli",
@@ -1990,7 +1990,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 461
+      "op_id": 486
     },
     {
       "mnemonic": "c_ssrget",
@@ -2009,7 +2009,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 462
+      "op_id": 487
     },
     {
       "mnemonic": "c_sub",
@@ -2028,7 +2028,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 463
+      "op_id": 488
     },
     {
       "mnemonic": "c_swi",
@@ -2047,7 +2047,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 464
+      "op_id": 489
     },
     {
       "mnemonic": "c_zext_b",
@@ -2066,7 +2066,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 465
+      "op_id": 490
     },
     {
       "mnemonic": "c_zext_h",
@@ -2085,7 +2085,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 466
+      "op_id": 491
     },
     {
       "mnemonic": "c_zext_w",
@@ -2104,7 +2104,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn16.decode",
-      "op_id": 467
+      "op_id": 492
     },
     {
       "mnemonic": "clz",
@@ -2142,7 +2142,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 252
+      "op_id": 277
     },
     {
       "mnemonic": "cmp_andi",
@@ -2161,7 +2161,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 253
+      "op_id": 278
     },
     {
       "mnemonic": "cmp_eq",
@@ -2180,7 +2180,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 254
+      "op_id": 279
     },
     {
       "mnemonic": "cmp_eqi",
@@ -2199,7 +2199,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 255
+      "op_id": 280
     },
     {
       "mnemonic": "cmp_ge",
@@ -2218,7 +2218,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 256
+      "op_id": 281
     },
     {
       "mnemonic": "cmp_gei",
@@ -2237,7 +2237,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 257
+      "op_id": 282
     },
     {
       "mnemonic": "cmp_geu",
@@ -2256,7 +2256,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 258
+      "op_id": 283
     },
     {
       "mnemonic": "cmp_geui",
@@ -2275,7 +2275,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 259
+      "op_id": 284
     },
     {
       "mnemonic": "cmp_lt",
@@ -2294,7 +2294,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 260
+      "op_id": 285
     },
     {
       "mnemonic": "cmp_lti",
@@ -2313,7 +2313,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 261
+      "op_id": 286
     },
     {
       "mnemonic": "cmp_ltu",
@@ -2332,7 +2332,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 262
+      "op_id": 287
     },
     {
       "mnemonic": "cmp_ltui",
@@ -2351,7 +2351,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 263
+      "op_id": 288
     },
     {
       "mnemonic": "cmp_ne",
@@ -2370,7 +2370,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 264
+      "op_id": 289
     },
     {
       "mnemonic": "cmp_nei",
@@ -2389,7 +2389,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 265
+      "op_id": 290
     },
     {
       "mnemonic": "cmp_or",
@@ -2408,7 +2408,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 266
+      "op_id": 291
     },
     {
       "mnemonic": "cmp_ori",
@@ -2427,7 +2427,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 267
+      "op_id": 292
     },
     {
       "mnemonic": "csel",
@@ -2484,7 +2484,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 478
+      "op_id": 503
     },
     {
       "mnemonic": "dc_civa",
@@ -2503,7 +2503,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 479
+      "op_id": 504
     },
     {
       "mnemonic": "dc_csw",
@@ -2522,7 +2522,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 480
+      "op_id": 505
     },
     {
       "mnemonic": "dc_cva",
@@ -2541,7 +2541,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 481
+      "op_id": 506
     },
     {
       "mnemonic": "dc_iall",
@@ -2560,7 +2560,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 482
+      "op_id": 507
     },
     {
       "mnemonic": "dc_isw",
@@ -2579,7 +2579,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 483
+      "op_id": 508
     },
     {
       "mnemonic": "dc_iva",
@@ -2598,7 +2598,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 484
+      "op_id": 509
     },
     {
       "mnemonic": "dc_zva",
@@ -2617,7 +2617,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 485
+      "op_id": 510
     },
     {
       "mnemonic": "div",
@@ -2712,7 +2712,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 429
+      "op_id": 454
     },
     {
       "mnemonic": "ercov",
@@ -2731,7 +2731,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 376
+      "op_id": 401
     },
     {
       "mnemonic": "esave",
@@ -2750,7 +2750,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 377
+      "op_id": 402
     },
     {
       "mnemonic": "fabs",
@@ -2769,7 +2769,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 430
+      "op_id": 455
     },
     {
       "mnemonic": "fadd",
@@ -2788,7 +2788,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 431
+      "op_id": 456
     },
     {
       "mnemonic": "fcvt",
@@ -2807,7 +2807,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 432
+      "op_id": 457
     },
     {
       "mnemonic": "fcvtz",
@@ -2826,7 +2826,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 433
+      "op_id": 458
     },
     {
       "mnemonic": "fdiv",
@@ -2845,7 +2845,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 434
+      "op_id": 459
     },
     {
       "mnemonic": "fence_d",
@@ -2864,7 +2864,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 486
+      "op_id": 511
     },
     {
       "mnemonic": "fence_i",
@@ -2883,7 +2883,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 487
+      "op_id": 512
     },
     {
       "mnemonic": "fentry",
@@ -2902,7 +2902,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 378
+      "op_id": 403
     },
     {
       "mnemonic": "feq",
@@ -2921,7 +2921,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 435
+      "op_id": 460
     },
     {
       "mnemonic": "fexit",
@@ -2940,7 +2940,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 379
+      "op_id": 404
     },
     {
       "mnemonic": "fge",
@@ -2959,7 +2959,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 436
+      "op_id": 461
     },
     {
       "mnemonic": "flt",
@@ -2978,7 +2978,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 437
+      "op_id": 462
     },
     {
       "mnemonic": "fmul",
@@ -2997,7 +2997,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 438
+      "op_id": 463
     },
     {
       "mnemonic": "fret_ra",
@@ -3016,7 +3016,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 380
+      "op_id": 405
     },
     {
       "mnemonic": "fret_stk",
@@ -3035,7 +3035,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 381
+      "op_id": 406
     },
     {
       "mnemonic": "fsub",
@@ -3054,7 +3054,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 439
+      "op_id": 464
     },
     {
       "mnemonic": "hl_addi",
@@ -3111,7 +3111,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 273
+      "op_id": 298
     },
     {
       "mnemonic": "hl_andi",
@@ -3152,6 +3152,25 @@
       "op_id": 77
     },
     {
+      "mnemonic": "hl_bfi",
+      "symbol": "OP_HL_BFI",
+      "enc_len": 64,
+      "pattern": "00000000000000000000000..........010.....1001101............1110",
+      "mask": "0xfffffe00707f000f",
+      "match": "0x204d000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "IMMR",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 78
+    },
+    {
       "mnemonic": "hl_bstart_fp_call",
       "symbol": "OP_HL_BSTART_FP_CALL",
       "enc_len": 64,
@@ -3168,7 +3187,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 78
+      "op_id": 79
     },
     {
       "mnemonic": "hl_bstart_fp_cond",
@@ -3187,7 +3206,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 79
+      "op_id": 80
     },
     {
       "mnemonic": "hl_bstart_fp_direct",
@@ -3206,7 +3225,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 80
+      "op_id": 81
     },
     {
       "mnemonic": "hl_bstart_fp_fall",
@@ -3225,7 +3244,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 81
+      "op_id": 82
     },
     {
       "mnemonic": "hl_bstart_std_call",
@@ -3320,7 +3339,121 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 82
+      "op_id": 83
+    },
+    {
+      "mnemonic": "hl_casb",
+      "symbol": "OP_HL_CASB",
+      "enc_len": 64,
+      "pattern": "00000000000000000000.............110.....000101100000.....001110",
+      "mask": "0xfffff000707ff83f",
+      "match": "0x600b000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "NONE",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 84
+    },
+    {
+      "mnemonic": "hl_casd",
+      "symbol": "OP_HL_CASD",
+      "enc_len": 64,
+      "pattern": "00000000000000000011.............110.....000101100000.....001110",
+      "mask": "0xfffff000707ff83f",
+      "match": "0x3000600b000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "NONE",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 85
+    },
+    {
+      "mnemonic": "hl_cash",
+      "symbol": "OP_HL_CASH",
+      "enc_len": 64,
+      "pattern": "00000000000000000001.............110.....000101100000.....001110",
+      "mask": "0xfffff000707ff83f",
+      "match": "0x1000600b000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "NONE",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 86
+    },
+    {
+      "mnemonic": "hl_casw",
+      "symbol": "OP_HL_CASW",
+      "enc_len": 64,
+      "pattern": "00000000000000000010.............110.....000101100000.....001110",
+      "mask": "0xfffff000707ff83f",
+      "match": "0x2000600b000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "NONE",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 87
+    },
+    {
+      "mnemonic": "hl_ccat",
+      "symbol": "OP_HL_CCAT",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................001.....1011101.....00000001110",
+      "mask": "0xffff0000707f07ff",
+      "match": "0x105d000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "NONE",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "NONE",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 88
+    },
+    {
+      "mnemonic": "hl_ccatw",
+      "symbol": "OP_HL_CCATW",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................010.....1011101.....00000001110",
+      "mask": "0xffff0000707f07ff",
+      "match": "0x205d000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "NONE",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "NONE",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 89
     },
     {
       "mnemonic": "hl_cmp_andi",
@@ -3339,7 +3472,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 83
+      "op_id": 90
     },
     {
       "mnemonic": "hl_cmp_eqi",
@@ -3358,7 +3491,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 84
+      "op_id": 91
     },
     {
       "mnemonic": "hl_cmp_gei",
@@ -3377,7 +3510,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 85
+      "op_id": 92
     },
     {
       "mnemonic": "hl_cmp_geui",
@@ -3396,7 +3529,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 86
+      "op_id": 93
     },
     {
       "mnemonic": "hl_cmp_lti",
@@ -3415,7 +3548,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 87
+      "op_id": 94
     },
     {
       "mnemonic": "hl_cmp_ltui",
@@ -3434,7 +3567,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 88
+      "op_id": 95
     },
     {
       "mnemonic": "hl_cmp_nei",
@@ -3453,7 +3586,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 89
+      "op_id": 96
     },
     {
       "mnemonic": "hl_cmp_ori",
@@ -3472,7 +3605,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 90
+      "op_id": 97
     },
     {
       "mnemonic": "hl_lb_pcr",
@@ -3491,7 +3624,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 385
+      "op_id": 410
     },
     {
       "mnemonic": "hl_lb_po",
@@ -3510,7 +3643,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 103
+      "op_id": 110
     },
     {
       "mnemonic": "hl_lb_pr",
@@ -3529,7 +3662,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 104
+      "op_id": 111
     },
     {
       "mnemonic": "hl_lbi",
@@ -3548,7 +3681,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 91
+      "op_id": 98
     },
     {
       "mnemonic": "hl_lbi_po",
@@ -3567,7 +3700,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 93
+      "op_id": 100
     },
     {
       "mnemonic": "hl_lbi_pr",
@@ -3586,7 +3719,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 94
+      "op_id": 101
     },
     {
       "mnemonic": "hl_lbip",
@@ -3605,7 +3738,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 92
+      "op_id": 99
     },
     {
       "mnemonic": "hl_lbp",
@@ -3624,7 +3757,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 95
+      "op_id": 102
     },
     {
       "mnemonic": "hl_lbu_pcr",
@@ -3643,7 +3776,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 384
+      "op_id": 409
     },
     {
       "mnemonic": "hl_lbu_po",
@@ -3662,7 +3795,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 101
+      "op_id": 108
     },
     {
       "mnemonic": "hl_lbu_pr",
@@ -3681,7 +3814,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 102
+      "op_id": 109
     },
     {
       "mnemonic": "hl_lbui",
@@ -3700,7 +3833,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 96
+      "op_id": 103
     },
     {
       "mnemonic": "hl_lbui_po",
@@ -3719,7 +3852,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 98
+      "op_id": 105
     },
     {
       "mnemonic": "hl_lbui_pr",
@@ -3738,7 +3871,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 99
+      "op_id": 106
     },
     {
       "mnemonic": "hl_lbuip",
@@ -3757,7 +3890,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 97
+      "op_id": 104
     },
     {
       "mnemonic": "hl_lbup",
@@ -3776,7 +3909,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 100
+      "op_id": 107
     },
     {
       "mnemonic": "hl_ld_pcr",
@@ -3795,7 +3928,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 386
+      "op_id": 411
     },
     {
       "mnemonic": "hl_ld_po",
@@ -3814,7 +3947,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 114
+      "op_id": 121
     },
     {
       "mnemonic": "hl_ld_pr",
@@ -3833,7 +3966,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 115
+      "op_id": 122
     },
     {
       "mnemonic": "hl_ldi",
@@ -3852,7 +3985,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 105
+      "op_id": 112
     },
     {
       "mnemonic": "hl_ldi_po",
@@ -3871,7 +4004,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 108
+      "op_id": 115
     },
     {
       "mnemonic": "hl_ldi_pr",
@@ -3890,7 +4023,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 109
+      "op_id": 116
     },
     {
       "mnemonic": "hl_ldi_u",
@@ -3909,7 +4042,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 110
+      "op_id": 117
     },
     {
       "mnemonic": "hl_ldi_upo",
@@ -3928,7 +4061,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 111
+      "op_id": 118
     },
     {
       "mnemonic": "hl_ldi_upr",
@@ -3947,7 +4080,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 112
+      "op_id": 119
     },
     {
       "mnemonic": "hl_ldip",
@@ -3966,7 +4099,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 106
+      "op_id": 113
     },
     {
       "mnemonic": "hl_ldip_u",
@@ -3985,7 +4118,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 107
+      "op_id": 114
     },
     {
       "mnemonic": "hl_ldp",
@@ -4004,7 +4137,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 113
+      "op_id": 120
     },
     {
       "mnemonic": "hl_lh_pcr",
@@ -4023,7 +4156,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 388
+      "op_id": 413
     },
     {
       "mnemonic": "hl_lh_po",
@@ -4042,7 +4175,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 136
+      "op_id": 143
     },
     {
       "mnemonic": "hl_lh_pr",
@@ -4061,7 +4194,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 137
+      "op_id": 144
     },
     {
       "mnemonic": "hl_lhi",
@@ -4080,7 +4213,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 116
+      "op_id": 123
     },
     {
       "mnemonic": "hl_lhi_po",
@@ -4099,7 +4232,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 119
+      "op_id": 126
     },
     {
       "mnemonic": "hl_lhi_pr",
@@ -4118,7 +4251,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 120
+      "op_id": 127
     },
     {
       "mnemonic": "hl_lhi_u",
@@ -4137,7 +4270,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 121
+      "op_id": 128
     },
     {
       "mnemonic": "hl_lhi_upo",
@@ -4156,7 +4289,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 122
+      "op_id": 129
     },
     {
       "mnemonic": "hl_lhi_upr",
@@ -4175,7 +4308,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 123
+      "op_id": 130
     },
     {
       "mnemonic": "hl_lhip",
@@ -4194,7 +4327,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 117
+      "op_id": 124
     },
     {
       "mnemonic": "hl_lhip_u",
@@ -4213,7 +4346,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 118
+      "op_id": 125
     },
     {
       "mnemonic": "hl_lhp",
@@ -4232,7 +4365,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 124
+      "op_id": 131
     },
     {
       "mnemonic": "hl_lhu_pcr",
@@ -4251,7 +4384,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 387
+      "op_id": 412
     },
     {
       "mnemonic": "hl_lhu_po",
@@ -4270,7 +4403,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 134
+      "op_id": 141
     },
     {
       "mnemonic": "hl_lhu_pr",
@@ -4289,7 +4422,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 135
+      "op_id": 142
     },
     {
       "mnemonic": "hl_lhui",
@@ -4308,7 +4441,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 125
+      "op_id": 132
     },
     {
       "mnemonic": "hl_lhui_po",
@@ -4327,7 +4460,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 128
+      "op_id": 135
     },
     {
       "mnemonic": "hl_lhui_pr",
@@ -4346,7 +4479,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 129
+      "op_id": 136
     },
     {
       "mnemonic": "hl_lhui_u",
@@ -4365,7 +4498,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 130
+      "op_id": 137
     },
     {
       "mnemonic": "hl_lhui_upo",
@@ -4384,7 +4517,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 131
+      "op_id": 138
     },
     {
       "mnemonic": "hl_lhui_upr",
@@ -4403,7 +4536,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 132
+      "op_id": 139
     },
     {
       "mnemonic": "hl_lhuip",
@@ -4422,7 +4555,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 126
+      "op_id": 133
     },
     {
       "mnemonic": "hl_lhuip_u",
@@ -4441,7 +4574,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 127
+      "op_id": 134
     },
     {
       "mnemonic": "hl_lhup",
@@ -4460,7 +4593,45 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 133
+      "op_id": 140
+    },
+    {
+      "mnemonic": "hl_lis",
+      "symbol": "OP_HL_LIS",
+      "enc_len": 64,
+      "pattern": "0000000000000000.........................0001101............1110",
+      "mask": "0xffff0000007f000f",
+      "match": "0xd000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM32",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 145
+    },
+    {
+      "mnemonic": "hl_liu",
+      "symbol": "OP_HL_LIU",
+      "enc_len": 64,
+      "pattern": "0000000000000000.........................0011101............1110",
+      "mask": "0xffff0000007f000f",
+      "match": "0x1d000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "IMM32",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 146
     },
     {
       "mnemonic": "hl_lui",
@@ -4479,7 +4650,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 138
+      "op_id": 147
     },
     {
       "mnemonic": "hl_lw_pcr",
@@ -4498,7 +4669,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 390
+      "op_id": 415
     },
     {
       "mnemonic": "hl_lw_po",
@@ -4517,7 +4688,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 159
+      "op_id": 168
     },
     {
       "mnemonic": "hl_lw_pr",
@@ -4536,7 +4707,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 160
+      "op_id": 169
     },
     {
       "mnemonic": "hl_lwi",
@@ -4555,7 +4726,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 139
+      "op_id": 148
     },
     {
       "mnemonic": "hl_lwi_po",
@@ -4574,7 +4745,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 142
+      "op_id": 151
     },
     {
       "mnemonic": "hl_lwi_pr",
@@ -4593,7 +4764,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 143
+      "op_id": 152
     },
     {
       "mnemonic": "hl_lwi_u",
@@ -4612,7 +4783,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 144
+      "op_id": 153
     },
     {
       "mnemonic": "hl_lwi_upo",
@@ -4631,7 +4802,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 145
+      "op_id": 154
     },
     {
       "mnemonic": "hl_lwi_upr",
@@ -4650,7 +4821,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 146
+      "op_id": 155
     },
     {
       "mnemonic": "hl_lwip",
@@ -4669,7 +4840,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 140
+      "op_id": 149
     },
     {
       "mnemonic": "hl_lwip_u",
@@ -4688,7 +4859,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 141
+      "op_id": 150
     },
     {
       "mnemonic": "hl_lwp",
@@ -4707,7 +4878,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 147
+      "op_id": 156
     },
     {
       "mnemonic": "hl_lwu_pcr",
@@ -4726,7 +4897,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 389
+      "op_id": 414
     },
     {
       "mnemonic": "hl_lwu_po",
@@ -4745,7 +4916,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 157
+      "op_id": 166
     },
     {
       "mnemonic": "hl_lwu_pr",
@@ -4764,7 +4935,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 158
+      "op_id": 167
     },
     {
       "mnemonic": "hl_lwui",
@@ -4783,7 +4954,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 148
+      "op_id": 157
     },
     {
       "mnemonic": "hl_lwui_po",
@@ -4802,7 +4973,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 151
+      "op_id": 160
     },
     {
       "mnemonic": "hl_lwui_pr",
@@ -4821,7 +4992,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 152
+      "op_id": 161
     },
     {
       "mnemonic": "hl_lwui_u",
@@ -4840,7 +5011,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 153
+      "op_id": 162
     },
     {
       "mnemonic": "hl_lwui_upo",
@@ -4859,7 +5030,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 154
+      "op_id": 163
     },
     {
       "mnemonic": "hl_lwui_upr",
@@ -4878,7 +5049,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 155
+      "op_id": 164
     },
     {
       "mnemonic": "hl_lwuip",
@@ -4897,7 +5068,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 149
+      "op_id": 158
     },
     {
       "mnemonic": "hl_lwuip_u",
@@ -4916,7 +5087,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 150
+      "op_id": 159
     },
     {
       "mnemonic": "hl_lwup",
@@ -4935,7 +5106,45 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 156
+      "op_id": 165
+    },
+    {
+      "mnemonic": "hl_miadd",
+      "symbol": "OP_HL_MIADD",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................000.....1001101............1110",
+      "mask": "0xffff0000707f000f",
+      "match": "0x4d000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "UIMM19",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 170
+    },
+    {
+      "mnemonic": "hl_misub",
+      "symbol": "OP_HL_MISUB",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................001.....1001101............1110",
+      "mask": "0xffff0000707f000f",
+      "match": "0x104d000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "UIMM19",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 171
     },
     {
       "mnemonic": "hl_ori",
@@ -4954,7 +5163,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 161
+      "op_id": 172
     },
     {
       "mnemonic": "hl_oriw",
@@ -4973,7 +5182,140 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 162
+      "op_id": 173
+    },
+    {
+      "mnemonic": "hl_prf",
+      "symbol": "OP_HL_PRF",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................111.....0001001.....00000011110",
+      "mask": "0xffff0000707f07ff",
+      "match": "0x7009001e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "NONE",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 174
+    },
+    {
+      "mnemonic": "hl_prf_a",
+      "symbol": "OP_HL_PRF_A",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................111.....0001001.....00000011110",
+      "mask": "0xffff0000707f07ff",
+      "match": "0x7009001e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "NONE",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 177
+    },
+    {
+      "mnemonic": "hl_prfi_u",
+      "symbol": "OP_HL_PRFI_U",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................111000000101001..........001110",
+      "mask": "0xffff00007fff003f",
+      "match": "0x7029000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "NONE",
+      "rs1_kind": "REG",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM17_6_S5_36_12",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 175
+    },
+    {
+      "mnemonic": "hl_prfi_ua",
+      "symbol": "OP_HL_PRFI_UA",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................111.....0101001..........011110",
+      "mask": "0xffff0000707f003f",
+      "match": "0x7029001e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM17_6_S5_36_12",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 176
+    },
+    {
+      "mnemonic": "hl_qmt",
+      "symbol": "OP_HL_QMT",
+      "enc_len": 64,
+      "pattern": "0000000000000000000..............000.....11111010000000000001110",
+      "mask": "0xffffe000707fffff",
+      "match": "0x7d000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "NONE",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 178
+    },
+    {
+      "mnemonic": "hl_qpop",
+      "symbol": "OP_HL_QPOP",
+      "enc_len": 64,
+      "pattern": "000000000000000000000............010.....1111101.....00000001110",
+      "mask": "0xfffff800707f07ff",
+      "match": "0x207d000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "NONE",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "NONE",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 179
+    },
+    {
+      "mnemonic": "hl_qpush",
+      "symbol": "OP_HL_QPUSH",
+      "enc_len": 64,
+      "pattern": "00000000000000000000.............001.....11111010000000000001110",
+      "mask": "0xfffff000707fffff",
+      "match": "0x107d000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "REG",
+      "rs1_kind": "REG",
+      "rs2_kind": "REG",
+      "imm_kind": "NONE",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 180
     },
     {
       "mnemonic": "hl_sb_pcr",
@@ -4992,7 +5334,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 391
+      "op_id": 416
     },
     {
       "mnemonic": "hl_sb_po",
@@ -5011,7 +5353,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 168
+      "op_id": 186
     },
     {
       "mnemonic": "hl_sb_pr",
@@ -5030,7 +5372,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 169
+      "op_id": 187
     },
     {
       "mnemonic": "hl_sbi",
@@ -5049,7 +5391,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 163
+      "op_id": 181
     },
     {
       "mnemonic": "hl_sbi_po",
@@ -5068,7 +5410,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 165
+      "op_id": 183
     },
     {
       "mnemonic": "hl_sbi_pr",
@@ -5087,7 +5429,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 166
+      "op_id": 184
     },
     {
       "mnemonic": "hl_sbip",
@@ -5106,7 +5448,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 164
+      "op_id": 182
     },
     {
       "mnemonic": "hl_sbp",
@@ -5125,7 +5467,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 167
+      "op_id": 185
     },
     {
       "mnemonic": "hl_sd_pcr",
@@ -5144,7 +5486,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 392
+      "op_id": 417
     },
     {
       "mnemonic": "hl_sd_po",
@@ -5163,7 +5505,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 180
+      "op_id": 198
     },
     {
       "mnemonic": "hl_sd_pr",
@@ -5182,7 +5524,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 181
+      "op_id": 199
     },
     {
       "mnemonic": "hl_sd_upo",
@@ -5201,7 +5543,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 182
+      "op_id": 200
     },
     {
       "mnemonic": "hl_sd_upr",
@@ -5220,7 +5562,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 183
+      "op_id": 201
     },
     {
       "mnemonic": "hl_sdi",
@@ -5239,7 +5581,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 170
+      "op_id": 188
     },
     {
       "mnemonic": "hl_sdi_po",
@@ -5258,7 +5600,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 173
+      "op_id": 191
     },
     {
       "mnemonic": "hl_sdi_pr",
@@ -5277,7 +5619,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 174
+      "op_id": 192
     },
     {
       "mnemonic": "hl_sdi_u",
@@ -5296,7 +5638,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 175
+      "op_id": 193
     },
     {
       "mnemonic": "hl_sdi_upo",
@@ -5315,7 +5657,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 176
+      "op_id": 194
     },
     {
       "mnemonic": "hl_sdi_upr",
@@ -5334,7 +5676,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 177
+      "op_id": 195
     },
     {
       "mnemonic": "hl_sdip",
@@ -5353,7 +5695,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 171
+      "op_id": 189
     },
     {
       "mnemonic": "hl_sdip_u",
@@ -5372,7 +5714,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 172
+      "op_id": 190
     },
     {
       "mnemonic": "hl_sdp",
@@ -5391,7 +5733,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 178
+      "op_id": 196
     },
     {
       "mnemonic": "hl_sdp_u",
@@ -5410,7 +5752,140 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 179
+      "op_id": 197
+    },
+    {
+      "mnemonic": "hl_setc_eqi",
+      "symbol": "OP_HL_SETC_EQI",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................000.....1110101............1110",
+      "mask": "0xffff0000707f000f",
+      "match": "0x75000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "NONE",
+      "rs1_kind": "REG",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM24",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 202
+    },
+    {
+      "mnemonic": "hl_setc_gei",
+      "symbol": "OP_HL_SETC_GEI",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................101.....1110101............1110",
+      "mask": "0xffff0000707f000f",
+      "match": "0x5075000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "NONE",
+      "rs1_kind": "REG",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM24",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 203
+    },
+    {
+      "mnemonic": "hl_setc_geui",
+      "symbol": "OP_HL_SETC_GEUI",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................111.....1110101............1110",
+      "mask": "0xffff0000707f000f",
+      "match": "0x7075000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "NONE",
+      "rs1_kind": "REG",
+      "rs2_kind": "NONE",
+      "imm_kind": "UIMM24",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 204
+    },
+    {
+      "mnemonic": "hl_setc_lti",
+      "symbol": "OP_HL_SETC_LTI",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................100.....1110101............1110",
+      "mask": "0xffff0000707f000f",
+      "match": "0x4075000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "NONE",
+      "rs1_kind": "REG",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM24",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 205
+    },
+    {
+      "mnemonic": "hl_setc_ltui",
+      "symbol": "OP_HL_SETC_LTUI",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................110.....1110101............1110",
+      "mask": "0xffff0000707f000f",
+      "match": "0x6075000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "NONE",
+      "rs1_kind": "REG",
+      "rs2_kind": "NONE",
+      "imm_kind": "UIMM24",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 206
+    },
+    {
+      "mnemonic": "hl_setc_nei",
+      "symbol": "OP_HL_SETC_NEI",
+      "enc_len": 64,
+      "pattern": "0000000000000000.................001.....1110101............1110",
+      "mask": "0xffff0000707f000f",
+      "match": "0x1075000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "NONE",
+      "rs1_kind": "REG",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM24",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 207
+    },
+    {
+      "mnemonic": "hl_setret",
+      "symbol": "OP_HL_SETRET",
+      "enc_len": 64,
+      "pattern": "0000000000000000....................010100000111............1110",
+      "mask": "0xffff00000fff000f",
+      "match": "0x507000e",
+      "major_cat": "ALU_INT",
+      "minor_cat": "hl_alu",
+      "rd_kind": "NONE",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "IMM32",
+      "block_kind": "NONE",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn48.decode",
+      "op_id": 208
     },
     {
       "mnemonic": "hl_sh_pcr",
@@ -5429,7 +5904,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 393
+      "op_id": 418
     },
     {
       "mnemonic": "hl_sh_po",
@@ -5448,7 +5923,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 194
+      "op_id": 219
     },
     {
       "mnemonic": "hl_sh_pr",
@@ -5467,7 +5942,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 195
+      "op_id": 220
     },
     {
       "mnemonic": "hl_sh_upo",
@@ -5486,7 +5961,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 196
+      "op_id": 221
     },
     {
       "mnemonic": "hl_sh_upr",
@@ -5505,7 +5980,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 197
+      "op_id": 222
     },
     {
       "mnemonic": "hl_shi",
@@ -5524,7 +5999,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 184
+      "op_id": 209
     },
     {
       "mnemonic": "hl_shi_po",
@@ -5543,7 +6018,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 187
+      "op_id": 212
     },
     {
       "mnemonic": "hl_shi_pr",
@@ -5562,7 +6037,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 188
+      "op_id": 213
     },
     {
       "mnemonic": "hl_shi_u",
@@ -5581,7 +6056,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 189
+      "op_id": 214
     },
     {
       "mnemonic": "hl_shi_upo",
@@ -5600,7 +6075,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 190
+      "op_id": 215
     },
     {
       "mnemonic": "hl_shi_upr",
@@ -5619,7 +6094,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 191
+      "op_id": 216
     },
     {
       "mnemonic": "hl_ship",
@@ -5638,7 +6113,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 185
+      "op_id": 210
     },
     {
       "mnemonic": "hl_ship_u",
@@ -5657,7 +6132,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 186
+      "op_id": 211
     },
     {
       "mnemonic": "hl_shp",
@@ -5676,7 +6151,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 192
+      "op_id": 217
     },
     {
       "mnemonic": "hl_shp_u",
@@ -5695,7 +6170,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 193
+      "op_id": 218
     },
     {
       "mnemonic": "hl_ssrget",
@@ -5714,7 +6189,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 440
+      "op_id": 465
     },
     {
       "mnemonic": "hl_ssrset",
@@ -5733,7 +6208,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 441
+      "op_id": 466
     },
     {
       "mnemonic": "hl_subi",
@@ -5752,7 +6227,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 198
+      "op_id": 223
     },
     {
       "mnemonic": "hl_subiw",
@@ -5771,7 +6246,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 199
+      "op_id": 224
     },
     {
       "mnemonic": "hl_sw_pcr",
@@ -5790,7 +6265,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 394
+      "op_id": 419
     },
     {
       "mnemonic": "hl_sw_po",
@@ -5809,7 +6284,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 210
+      "op_id": 235
     },
     {
       "mnemonic": "hl_sw_pr",
@@ -5828,7 +6303,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 211
+      "op_id": 236
     },
     {
       "mnemonic": "hl_sw_upo",
@@ -5847,7 +6322,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 212
+      "op_id": 237
     },
     {
       "mnemonic": "hl_sw_upr",
@@ -5866,7 +6341,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 213
+      "op_id": 238
     },
     {
       "mnemonic": "hl_swi",
@@ -5885,7 +6360,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 200
+      "op_id": 225
     },
     {
       "mnemonic": "hl_swi_po",
@@ -5904,7 +6379,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 203
+      "op_id": 228
     },
     {
       "mnemonic": "hl_swi_pr",
@@ -5923,7 +6398,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 204
+      "op_id": 229
     },
     {
       "mnemonic": "hl_swi_u",
@@ -5942,7 +6417,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 205
+      "op_id": 230
     },
     {
       "mnemonic": "hl_swi_upo",
@@ -5961,7 +6436,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 206
+      "op_id": 231
     },
     {
       "mnemonic": "hl_swi_upr",
@@ -5980,7 +6455,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 207
+      "op_id": 232
     },
     {
       "mnemonic": "hl_swip",
@@ -5999,7 +6474,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 201
+      "op_id": 226
     },
     {
       "mnemonic": "hl_swip_u",
@@ -6018,7 +6493,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 202
+      "op_id": 227
     },
     {
       "mnemonic": "hl_swp",
@@ -6037,7 +6512,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 208
+      "op_id": 233
     },
     {
       "mnemonic": "hl_swp_u",
@@ -6056,7 +6531,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 209
+      "op_id": 234
     },
     {
       "mnemonic": "hl_xori",
@@ -6075,7 +6550,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 214
+      "op_id": 239
     },
     {
       "mnemonic": "hl_xoriw",
@@ -6094,7 +6569,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn48.decode",
-      "op_id": 215
+      "op_id": 240
     },
     {
       "mnemonic": "ic_iall",
@@ -6113,7 +6588,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 488
+      "op_id": 513
     },
     {
       "mnemonic": "ic_iva",
@@ -6132,7 +6607,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 489
+      "op_id": 514
     },
     {
       "mnemonic": "internal_c_bstart_std",
@@ -6151,7 +6626,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "internal",
-      "op_id": 476
+      "op_id": 501
     },
     {
       "mnemonic": "internal_c_setret",
@@ -6170,7 +6645,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "internal",
-      "op_id": 477
+      "op_id": 502
     },
     {
       "mnemonic": "internal_invalid",
@@ -6208,7 +6683,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 491
+      "op_id": 516
     },
     {
       "mnemonic": "jr",
@@ -6227,7 +6702,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 492
+      "op_id": 517
     },
     {
       "mnemonic": "lb",
@@ -6246,7 +6721,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 292
+      "op_id": 317
     },
     {
       "mnemonic": "lb_pcr",
@@ -6265,7 +6740,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 297
+      "op_id": 322
     },
     {
       "mnemonic": "lbi",
@@ -6284,7 +6759,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 293
+      "op_id": 318
     },
     {
       "mnemonic": "lbu",
@@ -6303,7 +6778,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 294
+      "op_id": 319
     },
     {
       "mnemonic": "lbu_pcr",
@@ -6322,7 +6797,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 296
+      "op_id": 321
     },
     {
       "mnemonic": "lbui",
@@ -6341,7 +6816,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 295
+      "op_id": 320
     },
     {
       "mnemonic": "ld",
@@ -6360,7 +6835,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 298
+      "op_id": 323
     },
     {
       "mnemonic": "ld_add",
@@ -6379,7 +6854,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 301
+      "op_id": 326
     },
     {
       "mnemonic": "ld_and",
@@ -6398,7 +6873,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 302
+      "op_id": 327
     },
     {
       "mnemonic": "ld_or",
@@ -6417,7 +6892,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 303
+      "op_id": 328
     },
     {
       "mnemonic": "ld_pcr",
@@ -6436,7 +6911,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 304
+      "op_id": 329
     },
     {
       "mnemonic": "ld_smax",
@@ -6455,7 +6930,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 305
+      "op_id": 330
     },
     {
       "mnemonic": "ld_smin",
@@ -6474,7 +6949,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 306
+      "op_id": 331
     },
     {
       "mnemonic": "ld_umax",
@@ -6493,7 +6968,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 307
+      "op_id": 332
     },
     {
       "mnemonic": "ld_umin",
@@ -6512,7 +6987,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 308
+      "op_id": 333
     },
     {
       "mnemonic": "ld_xor",
@@ -6531,7 +7006,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 309
+      "op_id": 334
     },
     {
       "mnemonic": "ldi",
@@ -6550,7 +7025,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 299
+      "op_id": 324
     },
     {
       "mnemonic": "ldi_u",
@@ -6569,7 +7044,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 300
+      "op_id": 325
     },
     {
       "mnemonic": "lh",
@@ -6588,7 +7063,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 310
+      "op_id": 335
     },
     {
       "mnemonic": "lh_pcr",
@@ -6607,7 +7082,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 317
+      "op_id": 342
     },
     {
       "mnemonic": "lhi",
@@ -6626,7 +7101,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 311
+      "op_id": 336
     },
     {
       "mnemonic": "lhi_u",
@@ -6645,7 +7120,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 312
+      "op_id": 337
     },
     {
       "mnemonic": "lhu",
@@ -6664,7 +7139,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 313
+      "op_id": 338
     },
     {
       "mnemonic": "lhu_pcr",
@@ -6683,7 +7158,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 316
+      "op_id": 341
     },
     {
       "mnemonic": "lhui",
@@ -6702,7 +7177,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 314
+      "op_id": 339
     },
     {
       "mnemonic": "lhui_u",
@@ -6721,7 +7196,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 315
+      "op_id": 340
     },
     {
       "mnemonic": "lr_b",
@@ -6740,7 +7215,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 493
+      "op_id": 518
     },
     {
       "mnemonic": "lr_d",
@@ -6759,7 +7234,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 494
+      "op_id": 519
     },
     {
       "mnemonic": "lr_h",
@@ -6778,7 +7253,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 495
+      "op_id": 520
     },
     {
       "mnemonic": "lr_w",
@@ -6797,7 +7272,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 496
+      "op_id": 521
     },
     {
       "mnemonic": "lsrget",
@@ -6816,7 +7291,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 497
+      "op_id": 522
     },
     {
       "mnemonic": "lui",
@@ -6835,7 +7310,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 216
+      "op_id": 241
     },
     {
       "mnemonic": "lw",
@@ -6854,7 +7329,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 318
+      "op_id": 343
     },
     {
       "mnemonic": "lw_add",
@@ -6873,7 +7348,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 325
+      "op_id": 350
     },
     {
       "mnemonic": "lw_and",
@@ -6892,7 +7367,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 326
+      "op_id": 351
     },
     {
       "mnemonic": "lw_or",
@@ -6911,7 +7386,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 327
+      "op_id": 352
     },
     {
       "mnemonic": "lw_pcr",
@@ -6930,7 +7405,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 328
+      "op_id": 353
     },
     {
       "mnemonic": "lw_smax",
@@ -6949,7 +7424,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 329
+      "op_id": 354
     },
     {
       "mnemonic": "lw_smin",
@@ -6968,7 +7443,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 330
+      "op_id": 355
     },
     {
       "mnemonic": "lw_umax",
@@ -6987,7 +7462,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 331
+      "op_id": 356
     },
     {
       "mnemonic": "lw_umin",
@@ -7006,7 +7481,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 332
+      "op_id": 357
     },
     {
       "mnemonic": "lw_xor",
@@ -7025,7 +7500,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 333
+      "op_id": 358
     },
     {
       "mnemonic": "lwi",
@@ -7044,7 +7519,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 319
+      "op_id": 344
     },
     {
       "mnemonic": "lwi_u",
@@ -7063,7 +7538,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 320
+      "op_id": 345
     },
     {
       "mnemonic": "lwu",
@@ -7082,7 +7557,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 321
+      "op_id": 346
     },
     {
       "mnemonic": "lwu_pcr",
@@ -7101,7 +7576,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 324
+      "op_id": 349
     },
     {
       "mnemonic": "lwui",
@@ -7120,7 +7595,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 322
+      "op_id": 347
     },
     {
       "mnemonic": "lwui_u",
@@ -7139,7 +7614,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 323
+      "op_id": 348
     },
     {
       "mnemonic": "madd",
@@ -7158,7 +7633,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 498
+      "op_id": 523
     },
     {
       "mnemonic": "maddw",
@@ -7177,7 +7652,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 499
+      "op_id": 524
     },
     {
       "mnemonic": "max",
@@ -7196,7 +7671,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 500
+      "op_id": 525
     },
     {
       "mnemonic": "maxu",
@@ -7215,7 +7690,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 501
+      "op_id": 526
     },
     {
       "mnemonic": "mcopy",
@@ -7234,7 +7709,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 382
+      "op_id": 407
     },
     {
       "mnemonic": "min",
@@ -7253,7 +7728,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 502
+      "op_id": 527
     },
     {
       "mnemonic": "minu",
@@ -7272,7 +7747,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 503
+      "op_id": 528
     },
     {
       "mnemonic": "mset",
@@ -7291,7 +7766,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 383
+      "op_id": 408
     },
     {
       "mnemonic": "mul",
@@ -7310,7 +7785,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 217
+      "op_id": 242
     },
     {
       "mnemonic": "mulu",
@@ -7329,7 +7804,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 218
+      "op_id": 243
     },
     {
       "mnemonic": "muluw",
@@ -7348,7 +7823,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 219
+      "op_id": 244
     },
     {
       "mnemonic": "mulw",
@@ -7367,7 +7842,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 220
+      "op_id": 245
     },
     {
       "mnemonic": "or",
@@ -7386,7 +7861,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 221
+      "op_id": 246
     },
     {
       "mnemonic": "ori",
@@ -7405,7 +7880,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 222
+      "op_id": 247
     },
     {
       "mnemonic": "oriw",
@@ -7424,7 +7899,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 223
+      "op_id": 248
     },
     {
       "mnemonic": "orw",
@@ -7443,7 +7918,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 224
+      "op_id": 249
     },
     {
       "mnemonic": "prf",
@@ -7462,7 +7937,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 504
+      "op_id": 529
     },
     {
       "mnemonic": "prfi_u",
@@ -7481,7 +7956,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 505
+      "op_id": 530
     },
     {
       "mnemonic": "rem",
@@ -7500,7 +7975,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 225
+      "op_id": 250
     },
     {
       "mnemonic": "remu",
@@ -7519,7 +7994,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 226
+      "op_id": 251
     },
     {
       "mnemonic": "remuw",
@@ -7538,7 +8013,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 227
+      "op_id": 252
     },
     {
       "mnemonic": "remw",
@@ -7557,7 +8032,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 228
+      "op_id": 253
     },
     {
       "mnemonic": "rev",
@@ -7576,7 +8051,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 506
+      "op_id": 531
     },
     {
       "mnemonic": "sb",
@@ -7595,7 +8070,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 334
+      "op_id": 359
     },
     {
       "mnemonic": "sb_pcr",
@@ -7614,7 +8089,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 336
+      "op_id": 361
     },
     {
       "mnemonic": "sbi",
@@ -7633,7 +8108,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 335
+      "op_id": 360
     },
     {
       "mnemonic": "sc_b",
@@ -7652,7 +8127,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 508
+      "op_id": 533
     },
     {
       "mnemonic": "sc_d",
@@ -7671,7 +8146,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 509
+      "op_id": 534
     },
     {
       "mnemonic": "sc_h",
@@ -7690,7 +8165,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 510
+      "op_id": 535
     },
     {
       "mnemonic": "sc_w",
@@ -7709,7 +8184,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 511
+      "op_id": 536
     },
     {
       "mnemonic": "scvtf",
@@ -7728,7 +8203,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 507
+      "op_id": 532
     },
     {
       "mnemonic": "sd",
@@ -7747,7 +8222,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 337
+      "op_id": 362
     },
     {
       "mnemonic": "sd_add",
@@ -7766,7 +8241,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 340
+      "op_id": 365
     },
     {
       "mnemonic": "sd_and",
@@ -7785,7 +8260,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 341
+      "op_id": 366
     },
     {
       "mnemonic": "sd_or",
@@ -7804,7 +8279,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 342
+      "op_id": 367
     },
     {
       "mnemonic": "sd_pcr",
@@ -7823,7 +8298,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 343
+      "op_id": 368
     },
     {
       "mnemonic": "sd_smax",
@@ -7842,7 +8317,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 344
+      "op_id": 369
     },
     {
       "mnemonic": "sd_smin",
@@ -7861,7 +8336,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 345
+      "op_id": 370
     },
     {
       "mnemonic": "sd_u",
@@ -7880,7 +8355,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 346
+      "op_id": 371
     },
     {
       "mnemonic": "sd_umax",
@@ -7899,7 +8374,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 347
+      "op_id": 372
     },
     {
       "mnemonic": "sd_umin",
@@ -7918,7 +8393,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 348
+      "op_id": 373
     },
     {
       "mnemonic": "sd_xor",
@@ -7937,7 +8412,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 349
+      "op_id": 374
     },
     {
       "mnemonic": "sdi",
@@ -7956,7 +8431,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 338
+      "op_id": 363
     },
     {
       "mnemonic": "sdi_u",
@@ -7975,7 +8450,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 339
+      "op_id": 364
     },
     {
       "mnemonic": "setc_and",
@@ -7994,7 +8469,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 274
+      "op_id": 299
     },
     {
       "mnemonic": "setc_andi",
@@ -8013,7 +8488,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 275
+      "op_id": 300
     },
     {
       "mnemonic": "setc_eq",
@@ -8032,7 +8507,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 276
+      "op_id": 301
     },
     {
       "mnemonic": "setc_eqi",
@@ -8051,7 +8526,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 277
+      "op_id": 302
     },
     {
       "mnemonic": "setc_ge",
@@ -8070,7 +8545,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 278
+      "op_id": 303
     },
     {
       "mnemonic": "setc_gei",
@@ -8089,7 +8564,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 279
+      "op_id": 304
     },
     {
       "mnemonic": "setc_geu",
@@ -8108,7 +8583,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 280
+      "op_id": 305
     },
     {
       "mnemonic": "setc_geui",
@@ -8127,7 +8602,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 281
+      "op_id": 306
     },
     {
       "mnemonic": "setc_lt",
@@ -8146,7 +8621,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 282
+      "op_id": 307
     },
     {
       "mnemonic": "setc_lti",
@@ -8165,7 +8640,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 283
+      "op_id": 308
     },
     {
       "mnemonic": "setc_ltu",
@@ -8184,7 +8659,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 284
+      "op_id": 309
     },
     {
       "mnemonic": "setc_ltui",
@@ -8203,7 +8678,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 285
+      "op_id": 310
     },
     {
       "mnemonic": "setc_ne",
@@ -8222,7 +8697,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 286
+      "op_id": 311
     },
     {
       "mnemonic": "setc_nei",
@@ -8241,7 +8716,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 287
+      "op_id": 312
     },
     {
       "mnemonic": "setc_or",
@@ -8260,7 +8735,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 288
+      "op_id": 313
     },
     {
       "mnemonic": "setc_ori",
@@ -8279,7 +8754,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 289
+      "op_id": 314
     },
     {
       "mnemonic": "setc_tgt",
@@ -8298,7 +8773,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 290
+      "op_id": 315
     },
     {
       "mnemonic": "setret",
@@ -8317,7 +8792,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 291
+      "op_id": 316
     },
     {
       "mnemonic": "sh",
@@ -8336,7 +8811,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 350
+      "op_id": 375
     },
     {
       "mnemonic": "sh_pcr",
@@ -8355,7 +8830,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 353
+      "op_id": 378
     },
     {
       "mnemonic": "sh_u",
@@ -8374,7 +8849,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 354
+      "op_id": 379
     },
     {
       "mnemonic": "shi",
@@ -8393,7 +8868,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 351
+      "op_id": 376
     },
     {
       "mnemonic": "shi_u",
@@ -8412,7 +8887,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 352
+      "op_id": 377
     },
     {
       "mnemonic": "sll",
@@ -8431,7 +8906,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 229
+      "op_id": 254
     },
     {
       "mnemonic": "slli",
@@ -8450,7 +8925,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 230
+      "op_id": 255
     },
     {
       "mnemonic": "slliw",
@@ -8469,7 +8944,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 231
+      "op_id": 256
     },
     {
       "mnemonic": "sllw",
@@ -8488,7 +8963,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 232
+      "op_id": 257
     },
     {
       "mnemonic": "sra",
@@ -8507,7 +8982,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 233
+      "op_id": 258
     },
     {
       "mnemonic": "srai",
@@ -8526,7 +9001,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 234
+      "op_id": 259
     },
     {
       "mnemonic": "sraiw",
@@ -8545,7 +9020,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 235
+      "op_id": 260
     },
     {
       "mnemonic": "sraw",
@@ -8564,7 +9039,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 236
+      "op_id": 261
     },
     {
       "mnemonic": "srl",
@@ -8583,7 +9058,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 237
+      "op_id": 262
     },
     {
       "mnemonic": "srli",
@@ -8602,7 +9077,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 238
+      "op_id": 263
     },
     {
       "mnemonic": "srliw",
@@ -8621,7 +9096,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 239
+      "op_id": 264
     },
     {
       "mnemonic": "srlw",
@@ -8640,7 +9115,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 240
+      "op_id": 265
     },
     {
       "mnemonic": "ssrget",
@@ -8659,7 +9134,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 442
+      "op_id": 467
     },
     {
       "mnemonic": "ssrset",
@@ -8678,7 +9153,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 443
+      "op_id": 468
     },
     {
       "mnemonic": "ssrswap",
@@ -8697,7 +9172,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 444
+      "op_id": 469
     },
     {
       "mnemonic": "sub",
@@ -8716,7 +9191,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 241
+      "op_id": 266
     },
     {
       "mnemonic": "subi",
@@ -8735,7 +9210,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 242
+      "op_id": 267
     },
     {
       "mnemonic": "subiw",
@@ -8754,7 +9229,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 243
+      "op_id": 268
     },
     {
       "mnemonic": "subw",
@@ -8773,7 +9248,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 244
+      "op_id": 269
     },
     {
       "mnemonic": "sw",
@@ -8792,7 +9267,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 355
+      "op_id": 380
     },
     {
       "mnemonic": "sw_add",
@@ -8811,7 +9286,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 362
+      "op_id": 387
     },
     {
       "mnemonic": "sw_and",
@@ -8830,7 +9305,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 363
+      "op_id": 388
     },
     {
       "mnemonic": "sw_or",
@@ -8849,7 +9324,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 364
+      "op_id": 389
     },
     {
       "mnemonic": "sw_pcr",
@@ -8868,7 +9343,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 365
+      "op_id": 390
     },
     {
       "mnemonic": "sw_smax",
@@ -8887,7 +9362,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 366
+      "op_id": 391
     },
     {
       "mnemonic": "sw_smin",
@@ -8906,7 +9381,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 367
+      "op_id": 392
     },
     {
       "mnemonic": "sw_u",
@@ -8925,7 +9400,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 368
+      "op_id": 393
     },
     {
       "mnemonic": "sw_umax",
@@ -8944,7 +9419,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 369
+      "op_id": 394
     },
     {
       "mnemonic": "sw_umin",
@@ -8963,7 +9438,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 370
+      "op_id": 395
     },
     {
       "mnemonic": "sw_xor",
@@ -8982,7 +9457,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 371
+      "op_id": 396
     },
     {
       "mnemonic": "swapb",
@@ -9001,7 +9476,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 356
+      "op_id": 381
     },
     {
       "mnemonic": "swapd",
@@ -9020,7 +9495,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 357
+      "op_id": 382
     },
     {
       "mnemonic": "swaph",
@@ -9039,7 +9514,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 358
+      "op_id": 383
     },
     {
       "mnemonic": "swapw",
@@ -9058,7 +9533,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 359
+      "op_id": 384
     },
     {
       "mnemonic": "swi",
@@ -9077,7 +9552,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 360
+      "op_id": 385
     },
     {
       "mnemonic": "swi_u",
@@ -9096,7 +9571,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 361
+      "op_id": 386
     },
     {
       "mnemonic": "tlb_ia",
@@ -9115,7 +9590,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 512
+      "op_id": 537
     },
     {
       "mnemonic": "tlb_iall",
@@ -9134,7 +9609,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 513
+      "op_id": 538
     },
     {
       "mnemonic": "tlb_iav",
@@ -9153,7 +9628,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 514
+      "op_id": 539
     },
     {
       "mnemonic": "tlb_iv",
@@ -9172,7 +9647,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 515
+      "op_id": 540
     },
     {
       "mnemonic": "ucvtf",
@@ -9191,7 +9666,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 516
+      "op_id": 541
     },
     {
       "mnemonic": "v_add",
@@ -9210,7 +9685,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 395
+      "op_id": 420
     },
     {
       "mnemonic": "v_cmp_eq",
@@ -9229,7 +9704,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 396
+      "op_id": 421
     },
     {
       "mnemonic": "v_cmp_ge",
@@ -9248,7 +9723,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 397
+      "op_id": 422
     },
     {
       "mnemonic": "v_cmp_geu",
@@ -9267,7 +9742,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 398
+      "op_id": 423
     },
     {
       "mnemonic": "v_cmp_lt",
@@ -9286,7 +9761,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 399
+      "op_id": 424
     },
     {
       "mnemonic": "v_cmp_ltu",
@@ -9305,7 +9780,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 400
+      "op_id": 425
     },
     {
       "mnemonic": "v_cmp_ne",
@@ -9324,7 +9799,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 401
+      "op_id": 426
     },
     {
       "mnemonic": "v_csel",
@@ -9343,7 +9818,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 402
+      "op_id": 427
     },
     {
       "mnemonic": "v_fabs",
@@ -9362,7 +9837,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 403
+      "op_id": 428
     },
     {
       "mnemonic": "v_fadd",
@@ -9381,7 +9856,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 404
+      "op_id": 429
     },
     {
       "mnemonic": "v_fdiv",
@@ -9400,7 +9875,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 405
+      "op_id": 430
     },
     {
       "mnemonic": "v_feq",
@@ -9419,7 +9894,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 406
+      "op_id": 431
     },
     {
       "mnemonic": "v_fge",
@@ -9438,7 +9913,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 407
+      "op_id": 432
     },
     {
       "mnemonic": "v_flt",
@@ -9457,7 +9932,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 408
+      "op_id": 433
     },
     {
       "mnemonic": "v_fmul",
@@ -9476,7 +9951,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 409
+      "op_id": 434
     },
     {
       "mnemonic": "v_fne",
@@ -9495,7 +9970,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 410
+      "op_id": 435
     },
     {
       "mnemonic": "v_fsub",
@@ -9514,7 +9989,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 411
+      "op_id": 436
     },
     {
       "mnemonic": "v_lw",
@@ -9533,7 +10008,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 412
+      "op_id": 437
     },
     {
       "mnemonic": "v_lw_brg",
@@ -9552,7 +10027,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 413
+      "op_id": 438
     },
     {
       "mnemonic": "v_mul",
@@ -9571,7 +10046,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 414
+      "op_id": 439
     },
     {
       "mnemonic": "v_rdadd",
@@ -9590,7 +10065,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 415
+      "op_id": 440
     },
     {
       "mnemonic": "v_rdand",
@@ -9609,7 +10084,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 416
+      "op_id": 441
     },
     {
       "mnemonic": "v_rdfadd",
@@ -9628,7 +10103,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 417
+      "op_id": 442
     },
     {
       "mnemonic": "v_rdfmax",
@@ -9647,7 +10122,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 418
+      "op_id": 443
     },
     {
       "mnemonic": "v_rdfmin",
@@ -9666,7 +10141,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 419
+      "op_id": 444
     },
     {
       "mnemonic": "v_rdmax",
@@ -9685,7 +10160,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 420
+      "op_id": 445
     },
     {
       "mnemonic": "v_rdmin",
@@ -9704,7 +10179,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 421
+      "op_id": 446
     },
     {
       "mnemonic": "v_rdor",
@@ -9723,7 +10198,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 422
+      "op_id": 447
     },
     {
       "mnemonic": "v_rdxor",
@@ -9742,7 +10217,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 423
+      "op_id": 448
     },
     {
       "mnemonic": "v_sub",
@@ -9761,7 +10236,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 424
+      "op_id": 449
     },
     {
       "mnemonic": "v_sw",
@@ -9780,7 +10255,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 425
+      "op_id": 450
     },
     {
       "mnemonic": "v_sw_brg",
@@ -9799,7 +10274,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn64.decode",
-      "op_id": 426
+      "op_id": 451
     },
     {
       "mnemonic": "xor",
@@ -9818,7 +10293,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 245
+      "op_id": 270
     },
     {
       "mnemonic": "xori",
@@ -9837,7 +10312,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 246
+      "op_id": 271
     },
     {
       "mnemonic": "xoriw",
@@ -9856,7 +10331,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 247
+      "op_id": 272
     },
     {
       "mnemonic": "xorw",
@@ -9875,7 +10350,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 248
+      "op_id": 273
     }
   ]
 }
