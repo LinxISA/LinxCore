@@ -2,50 +2,27 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
-QEMU_LINX_DIR="${QEMU_LINX_DIR:-${LINX_ROOT}/emulator/qemu/target/linx}"
+source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
+LINXISA_ROOT="${LINXISA_ROOT:-${LINXISA_DIR:-$(linxcore_resolve_linxisa_root "${ROOT_DIR}" || true)}}"
 
-find_python_bin() {
-  if [[ -n "${PYC_PYTHON:-}" && -x "${PYC_PYTHON}" ]]; then
-    echo "${PYC_PYTHON}"
-    return 0
-  fi
-  local cand
-  for cand in \
-    "${PYC_PYTHON_BIN:-}" \
-    "/opt/homebrew/bin/python3" \
-    "python3.14" \
-    "python3.13" \
-    "python3.12" \
-    "python3.11" \
-    "python3.10" \
-    "python3"
-  do
-    [[ -n "${cand}" ]] || continue
-    local exe="${cand}"
-    if [[ "${exe}" != /* ]]; then
-      if ! command -v "${exe}" >/dev/null 2>&1; then
-        continue
-      fi
-      exe="$(command -v "${exe}")"
-    elif [[ ! -x "${exe}" ]]; then
-      continue
-    fi
-    if "${exe}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-      echo "${exe}"
-      return 0
-    fi
-  done
-  return 1
-}
+QEMU_LINX_DIR="${QEMU_LINX_DIR:-$(linxcore_resolve_qemu_linx_dir "${ROOT_DIR}" || true)}"
+if [[ ! -d "${QEMU_LINX_DIR}" ]]; then
+  echo "error: QEMU Linx decode tree not found: ${QEMU_LINX_DIR}" >&2
+  echo "hint: set QEMU_LINX_DIR=/abs/path/to/qemu/target/linx" >&2
+  echo "hint: or set LINXCORE_QEMU_ROOT=/abs/path/to/qemu" >&2
+  echo "hint: or set LINXISA_ROOT=/abs/path/to/linx-isa" >&2
+  exit 1
+fi
 
-PYTHON_BIN="$(find_python_bin)" || {
-  echo "error: need python>=3.10 to run pyc4 frontend (set PYC_PYTHON_BIN=...)" >&2
-  exit 2
-}
+PYC_ROOT="${LINXCORE_PYC_ROOT:-${PYC_ROOT:-$(linxcore_resolve_pyc_root "${ROOT_DIR}" || true)}}"
+if [[ ! -d "${PYC_ROOT}" ]]; then
+  echo "error: pyCircuit root not found: ${PYC_ROOT}" >&2
+  echo "hint: set LINXCORE_PYC_ROOT=/abs/path/to/pyCircuit" >&2
+  exit 1
+fi
 CALLFRAME_SIZE_RAW="${LINXCORE_CALLFRAME_SIZE:-0}"
 CALLFRAME_SIZE="$(
-"${PYTHON_BIN}" - <<'PY' "${CALLFRAME_SIZE_RAW}"
+python3 - <<'PY' "${CALLFRAME_SIZE_RAW}"
 import sys
 s = sys.argv[1]
 try:
@@ -59,45 +36,86 @@ PY
 )"
 
 # Keep opcode ids/meta synchronized with QEMU decode trees.
-"${PYTHON_BIN}" "${ROOT_DIR}/tools/generate/extract_qemu_opcode_matrix.py" \
+python3 "${ROOT_DIR}/tools/generate/extract_qemu_opcode_matrix.py" \
   --qemu-linx-dir "${QEMU_LINX_DIR}" \
   --out "${ROOT_DIR}/src/common/opcode_catalog.yaml"
-"${PYTHON_BIN}" "${ROOT_DIR}/tools/generate/gen_opcode_tables.py" \
+python3 "${ROOT_DIR}/tools/generate/gen_opcode_tables.py" \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml" \
   --linxcore-common "${ROOT_DIR}/src/common" \
   --qemu-linx-dir "${QEMU_LINX_DIR}"
-"${PYTHON_BIN}" "${ROOT_DIR}/tools/generate/check_decode_parity.py" \
+python3 "${ROOT_DIR}/tools/generate/check_decode_parity.py" \
   --qemu-linx-dir "${QEMU_LINX_DIR}" \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml"
 
-find_pyc_root() {
-  if [[ -n "${PYC_ROOT:-}" && -d "${PYC_ROOT}" ]]; then
-    echo "${PYC_ROOT}"
-    return 0
-  fi
-  if [[ -d "${LINX_ROOT}/tools/pyCircuit" ]]; then
-    echo "${LINX_ROOT}/tools/pyCircuit"
-    return 0
-  fi
-  return 1
-}
+if [[ -f "${PYC_ROOT}/scripts/lib.sh" ]]; then
+  # Legacy pyCircuit tree layout.
+  source "${PYC_ROOT}/scripts/lib.sh"
+elif [[ -f "${PYC_ROOT}/flows/scripts/lib.sh" ]]; then
+  # Current pyCircuit tree layout.
+  source "${PYC_ROOT}/flows/scripts/lib.sh"
+fi
 
-PYC_ROOT_DIR="$(find_pyc_root)" || {
-  echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
-  exit 2
-}
+# Backend tool: prefer pycc, fallback to pyc-compile for older trees.
+if [[ -z "${PYC_COMPILE:-}" ]]; then
+  if [[ -n "${PYCC:-}" && -x "${PYCC}" ]]; then
+    PYC_COMPILE="${PYCC}"
+  fi
+fi
 
-# shellcheck disable=SC1090
-source "${PYC_ROOT_DIR}/flows/scripts/lib.sh"
-pyc_find_pycc
+if [[ -z "${PYC_COMPILE:-}" ]]; then
+  for cand in \
+    "${PYC_ROOT}/build-top/bin/pycc" \
+    "${PYC_ROOT}/build/bin/pycc" \
+    "${PYC_ROOT}/compiler/mlir/build2/bin/pycc" \
+    "${PYC_ROOT}/compiler/mlir/build/bin/pycc"
+  do
+    if [[ -x "${cand}" ]]; then
+      PYC_COMPILE="${cand}"
+      break
+    fi
+  done
+fi
+
+if [[ -z "${PYC_COMPILE:-}" ]]; then
+  found="$(command -v pycc 2>/dev/null || true)"
+  if [[ -n "${found}" ]]; then
+    PYC_COMPILE="${found}"
+  fi
+fi
+
+if [[ -z "${PYC_COMPILE:-}" ]]; then
+  for cand in \
+    "${PYC_ROOT}/build-top/bin/pyc-compile" \
+    "${PYC_ROOT}/build/bin/pyc-compile" \
+    "${PYC_ROOT}/compiler/mlir/build2/bin/pyc-compile" \
+    "${PYC_ROOT}/compiler/mlir/build/bin/pyc-compile"
+  do
+    if [[ -x "${cand}" ]]; then
+      PYC_COMPILE="${cand}"
+      break
+    fi
+  done
+fi
+
+if [[ -z "${PYC_COMPILE:-}" || ! -x "${PYC_COMPILE}" ]]; then
+  echo "error: pycc backend not found (PYC_COMPILE=${PYC_COMPILE:-<unset>})" >&2
+  echo "hint: build it in pyCircuit: cd \"${PYC_ROOT}\" && bash flows/scripts/pyc build" >&2
+  echo "hint: or set PYCC=/absolute/path/to/pycc" >&2
+  exit 1
+fi
+
+BUILD_PROFILE="${LINXCORE_BUILD_PROFILE:-dev-fast}"
+case "${BUILD_PROFILE}" in
+  dev-fast|release) ;;
+  *)
+    echo "error: unsupported LINXCORE_BUILD_PROFILE=${BUILD_PROFILE} (expected dev-fast|release)" >&2
+    exit 2
+    ;;
+esac
 
 OUT_CPP="${ROOT_DIR}/generated/cpp/linxcore_top"
 OUT_V="${ROOT_DIR}/generated/verilog/linxcore_top"
 mkdir -p "${OUT_CPP}" "${OUT_V}"
-
-# C++ simulation does not require Verilog emission; keep it enabled by default
-# for full-stack flows but allow callers (e.g. C++ sim gates) to skip it.
-SKIP_VERILOG="${LINXCORE_SKIP_VERILOG:-0}"
 
 # IMPORTANT: incremental build performance
 # --------------------------------------
@@ -105,11 +123,9 @@ SKIP_VERILOG="${LINXCORE_SKIP_VERILOG:-0}"
 # Deleting all .cpp/.hpp forces a full C++ rebuild (minutes) even when the design is unchanged.
 # Instead, emit into temp dirs and only update files whose contents actually changed.
 OUT_CPP_TMP="$(mktemp -d -t linxcore_cpp.XXXXXX)"
-OUT_V_TMP=""
-if [[ "${SKIP_VERILOG}" == "0" ]]; then
-  OUT_V_TMP="$(mktemp -d -t linxcore_v.XXXXXX)"
-fi
-trap 'rm -rf "${OUT_CPP_TMP}" "${OUT_V_TMP}" "${TMP_PYC}"' EXIT
+OUT_V_TMP="$(mktemp -d -t linxcore_v.XXXXXX)"
+TMP_PROBE_DIR="$(mktemp -d -t linxcore_probe.XXXXXX)"
+trap 'rm -rf "${OUT_CPP_TMP}" "${OUT_V_TMP}" "${TMP_PYC}" "${TMP_PROBE_DIR}"' EXIT
 
 sync_dir() {
   local src="$1"
@@ -150,39 +166,60 @@ sync_dir() {
   fi
 }
 
-# LinxCore currently has very deep combinational paths (functional model +
-# large priority muxes). Keep a higher default so regeneration works out of the
-# box, but allow callers to tighten this as we burn down depth.
-LOGIC_DEPTH="${PYC_LOGIC_DEPTH:-2048}"
-BUILD_PROFILE="${LINXCORE_BUILD_PROFILE:-release}"
-if [[ "${BUILD_PROFILE}" != "release" && "${BUILD_PROFILE}" != "dev-fast" ]]; then
-  echo "error: unknown LINXCORE_BUILD_PROFILE=${BUILD_PROFILE} (expected: release|dev-fast)" >&2
-  exit 2
-fi
-
-PYCC_HELP="$("${PYCC}" --help 2>/dev/null || true)"
-pycc_has_flag() {
-  local flag="$1"
-  printf '%s' "${PYCC_HELP}" | grep -Fq -- "${flag}"
-}
-
-PYCC_COMMON_ARGS=()
-if pycc_has_flag "--build-profile="; then
-  PYCC_COMMON_ARGS+=(--build-profile="${BUILD_PROFILE}")
-fi
-
-HIER_ARGS=()
-if pycc_has_flag "--hierarchy-policy="; then
-  # pyc4 default is strict, but pass explicitly to make the intent obvious and
-  # prevent accidental legacy behavior in older environments.
-  HIER_ARGS+=(--hierarchy-policy=strict)
+if [[ -n "${PYC_LOGIC_DEPTH:-}" ]]; then
+  LOGIC_DEPTH="${PYC_LOGIC_DEPTH}"
 else
-  # Best-effort hierarchy preservation for older pycc builds.
-  HIER_ARGS+=(--noinline)
+  # The current WIP backend split builds substantially deeper comb trees than
+  # the earlier closure baseline. Keep a higher default budget so bring-up
+  # runs compile without requiring a local override.
+  LOGIC_DEPTH=2048
+fi
+
+if [[ -n "${PYC_CPP_SHARD_THRESHOLD_LINES:-}" ]]; then
+  CPP_SHARD_LINES="${PYC_CPP_SHARD_THRESHOLD_LINES}"
+elif [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  CPP_SHARD_LINES=8000
+else
+  CPP_SHARD_LINES=30000
+fi
+
+if [[ -n "${PYC_CPP_SHARD_THRESHOLD_BYTES:-}" ]]; then
+  CPP_SHARD_BYTES="${PYC_CPP_SHARD_THRESHOLD_BYTES}"
+elif [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  CPP_SHARD_BYTES=393216
+else
+  CPP_SHARD_BYTES=1048576
+fi
+
+if [[ -n "${PYC_CPP_SHARD_MAX_AST_NODES:-}" ]]; then
+  CPP_SHARD_MAX_AST_NODES="${PYC_CPP_SHARD_MAX_AST_NODES}"
+elif [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  CPP_SHARD_MAX_AST_NODES=96
+else
+  CPP_SHARD_MAX_AST_NODES=0
+fi
+
+NOINLINE_DEFAULT=0
+if [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  NOINLINE_DEFAULT=1
+fi
+
+INLINE_POLICY="${PYC_INLINE_POLICY:-}"
+if [[ -z "${INLINE_POLICY}" && "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  INLINE_POLICY="off"
+fi
+
+CANONICALIZE_BUDGET="${PYC_CANONICALIZE_BUDGET:-0}"
+if [[ "${CANONICALIZE_BUDGET}" == "0" && "${BUILD_PROFILE}" == "dev-fast" ]]; then
+  CANONICALIZE_BUDGET=2
 fi
 
 TMP_PYC="$(mktemp -t linxcore_top.XXXXXX.pyc)"
-PYTHONPATH_VAL="$(pyc_pythonpath):${ROOT_DIR}/src"
+
+PYC_PYTHON_DIR="${PYC_ROOT}/python"
+if [[ ! -d "${PYC_PYTHON_DIR}/pycircuit" && -d "${PYC_ROOT}/compiler/frontend/pycircuit" ]]; then
+  PYC_PYTHON_DIR="${PYC_ROOT}/compiler/frontend"
+fi
 
 EMIT_PARAM_ARGS=()
 while IFS='=' read -r key value; do
@@ -197,96 +234,195 @@ done < <(env)
 if [[ "${#EMIT_PARAM_ARGS[@]}" -gt 0 ]]; then
   PYTHONDONTWRITEBYTECODE=1 \
   LINXCORE_CALLFRAME_SIZE="${CALLFRAME_SIZE}" \
-  PYTHONPATH="${PYTHONPATH_VAL}" \
-  "${PYTHON_BIN}" -m pycircuit.cli emit "${ROOT_DIR}/src/linxcore_top.py" -o "${TMP_PYC}" "${EMIT_PARAM_ARGS[@]}"
+  PYTHONPATH="${PYC_PYTHON_DIR}:${ROOT_DIR}/src" \
+  python3 -m pycircuit.cli emit "${ROOT_DIR}/src/linxcore_top.py" -o "${TMP_PYC}" "${EMIT_PARAM_ARGS[@]}"
 else
   PYTHONDONTWRITEBYTECODE=1 \
   LINXCORE_CALLFRAME_SIZE="${CALLFRAME_SIZE}" \
-  PYTHONPATH="${PYTHONPATH_VAL}" \
-  "${PYTHON_BIN}" -m pycircuit.cli emit "${ROOT_DIR}/src/linxcore_top.py" -o "${TMP_PYC}"
+  PYTHONPATH="${PYC_PYTHON_DIR}:${ROOT_DIR}/src" \
+  python3 -m pycircuit.cli emit "${ROOT_DIR}/src/linxcore_top.py" -o "${TMP_PYC}"
 fi
 
-if [[ "${SKIP_VERILOG}" == "0" ]]; then
-  "${PYCC}" "${TMP_PYC}" \
-    --emit=verilog \
-    --logic-depth="${LOGIC_DEPTH}" \
-    --out-dir="${OUT_V_TMP}" \
-    "${PYCC_COMMON_ARGS[@]}" \
-    "${HIER_ARGS[@]}"
+PROBE_PROJECT_MANIFEST="${TMP_PROBE_DIR}/project_manifest.json"
+PROBE_CATALOG_JSON="${TMP_PROBE_DIR}/probe_catalog.json"
+PROBE_PLAN_JSON="${TMP_PROBE_DIR}/probe_plan.json"
+
+PYTHONDONTWRITEBYTECODE=1 \
+LINXCORE_CALLFRAME_SIZE="${CALLFRAME_SIZE}" \
+PYTHONPATH="${PYC_PYTHON_DIR}:${ROOT_DIR}/src" \
+python3 - <<'PY' "${ROOT_DIR}/src/linxcore_top.py" "${PROBE_PROJECT_MANIFEST}"
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+from pycircuit import compile
+from pycircuit.cli import _collect_jit_params, _load_py_file, _top_name_for_build
+
+src = Path(sys.argv[1]).resolve()
+out = Path(sys.argv[2]).resolve()
+mod = _load_py_file(src)
+build = getattr(mod, "build")
+overrides = []
+for key, value in sorted(os.environ.items()):
+    if not key.startswith("PYC_PARAM_"):
+        continue
+    name = key[len("PYC_PARAM_") :].strip().lower()
+    if name:
+        overrides.append(f"{name}={value}")
+jit_params = _collect_jit_params(build, overrides=overrides)
+design = compile(build, name=_top_name_for_build(src, build), **jit_params)
+manifest = design.emit_project_manifest(module_dir_rel="device/modules")
+out.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+PY
+
+TRY_V_OUTDIR="${LINXCORE_TRY_V_OUTDIR:-0}"
+PYC_HELP="$("${PYC_COMPILE}" --help 2>&1 || true)"
+PYCC_COMMON_ARGS=(--logic-depth="${LOGIC_DEPTH}")
+if grep -q -- '--build-profile' <<<"${PYC_HELP}"; then
+  PYCC_COMMON_ARGS+=(--build-profile="${BUILD_PROFILE}")
 fi
-
-# Default shard thresholds tuned for developer iteration on large designs.
-# Smaller shards reduce single-TU compiler stress (esp. JanusBccBackendCompat tick) and
-# improve incremental rebuild latency.
-CPP_SHARD_LINES="${PYC_CPP_SHARD_THRESHOLD_LINES:-}"
-CPP_SHARD_BYTES="${PYC_CPP_SHARD_THRESHOLD_BYTES:-}"
-CPP_SHARD_MAX_AST_NODES="${PYC_CPP_SHARD_MAX_AST_NODES:-}"
-
-# Local defaults (only when caller didn't override). These are intentionally
-# smaller than pycc's release defaults to avoid mega-TUs in LinxCore.
-if [[ -z "${CPP_SHARD_LINES}" ]]; then
-  if [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
-    CPP_SHARD_LINES="16000"
-  else
-    CPP_SHARD_LINES="30000"
+if grep -q -- '--hierarchy-policy' <<<"${PYC_HELP}"; then
+  # pyc4: hierarchy must be strict to preserve module boundaries.
+  PYCC_COMMON_ARGS+=(--hierarchy-policy="strict")
+fi
+if [[ -n "${INLINE_POLICY}" ]] && grep -q -- '--inline-policy' <<<"${PYC_HELP}"; then
+  PYCC_COMMON_ARGS+=(--inline-policy="${INLINE_POLICY}")
+fi
+if [[ "${CANONICALIZE_BUDGET}" =~ ^[0-9]+$ ]] && [[ "${CANONICALIZE_BUDGET}" -gt 0 ]] && grep -q -- '--canonicalize-budget' <<<"${PYC_HELP}"; then
+  PYCC_COMMON_ARGS+=(--canonicalize-budget="${CANONICALIZE_BUDGET}")
+fi
+if [[ -n "${PYC_PYCC_PROFILE_JSON:-}" ]] && grep -q -- '--profile-json' <<<"${PYC_HELP}"; then
+  PYCC_COMMON_ARGS+=(--profile-json="${PYC_PYCC_PROFILE_JSON}")
+  if [[ "${PYC_PYCC_PROFILE_PASS_TIMING:-1}" != "0" ]] && grep -q -- '--profile-pass-timing' <<<"${PYC_HELP}"; then
+    PYCC_COMMON_ARGS+=(--profile-pass-timing)
   fi
 fi
-if [[ -z "${CPP_SHARD_BYTES}" ]]; then
-  if [[ "${BUILD_PROFILE}" == "dev-fast" ]]; then
-    CPP_SHARD_BYTES="$((768 * 1024))"
-  else
-    CPP_SHARD_BYTES="1048576"
-  fi
-fi
 
-CPP_SHARD_ARGS=(
-  --cpp-shard-threshold-lines="${CPP_SHARD_LINES}"
-  --cpp-shard-threshold-bytes="${CPP_SHARD_BYTES}"
-)
-if [[ -n "${CPP_SHARD_MAX_AST_NODES}" ]] && pycc_has_flag "--cpp-shard-max-ast-nodes="; then
-  CPP_SHARD_ARGS+=(--cpp-shard-max-ast-nodes="${CPP_SHARD_MAX_AST_NODES}")
-fi
-
-"${PYCC}" "${TMP_PYC}" \
-  --emit=cpp \
-  --logic-depth="${LOGIC_DEPTH}" \
-  --out-dir="${OUT_CPP_TMP}" \
-  --cpp-split=module \
+"${PYC_COMPILE}" "${TMP_PYC}" \
+  --emit=none \
   "${PYCC_COMMON_ARGS[@]}" \
-  "${HIER_ARGS[@]}" \
-  "${CPP_SHARD_ARGS[@]}"
+  --probe-manifest="${PROBE_CATALOG_JSON}"
 
-# Sync temp outputs into the stable generated directories.
-sync_dir "${OUT_CPP_TMP}" "${OUT_CPP}"
-if [[ "${SKIP_VERILOG}" == "0" ]]; then
-  sync_dir "${OUT_V_TMP}" "${OUT_V}"
-fi
-
-printf '%s\n' "${CALLFRAME_SIZE}" > "${OUT_CPP}/.callframe_size"
-if [[ "${SKIP_VERILOG}" == "0" ]]; then
-  printf '%s\n' "${CALLFRAME_SIZE}" > "${OUT_V}/.callframe_size"
-fi
-
-# Make the compile manifest stable and relocatable: pycc writes absolute temp
-# include paths into include_dirs; after syncing into OUT_CPP, rewrite to a
-# relative include for consumers.
-python3 - <<'PY' "${OUT_CPP}/cpp_compile_manifest.json"
+PYTHONDONTWRITEBYTECODE=1 \
+LINXCORE_CALLFRAME_SIZE="${CALLFRAME_SIZE}" \
+PYTHONPATH="${PYC_PYTHON_DIR}:${ROOT_DIR}/src" \
+python3 - <<'PY' "${ROOT_DIR}/src/linxcore_top.py" "${PROBE_PROJECT_MANIFEST}" "${PROBE_CATALOG_JSON}" "${TMP_PROBE_DIR}"
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
 
-p = Path(sys.argv[1])
-if not p.exists():
-    raise SystemExit(0)
-data = json.loads(p.read_text(encoding="utf-8"))
-data["include_dirs"] = ["."]
-p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+from pycircuit.cli import _load_py_file, _resolve_probe_outputs
+
+src = Path(sys.argv[1]).resolve()
+manifest_path = Path(sys.argv[2]).resolve()
+catalog_path = Path(sys.argv[3]).resolve()
+out_dir = Path(sys.argv[4]).resolve()
+mod = _load_py_file(src)
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+_resolve_probe_outputs(
+    mod=mod,
+    manifest=manifest,
+    probe_catalog_path=catalog_path,
+    out_dir=out_dir,
+)
 PY
 
-if [[ "${SKIP_VERILOG}" == "0" ]]; then
-  python3 - <<'PY' "${OUT_CPP}/manifest.json" "${OUT_V}/manifest.json"
+VERILOG_CMD=("${PYC_COMPILE}" "${TMP_PYC}" --emit=verilog)
+VERILOG_CMD+=("${PYCC_COMMON_ARGS[@]}")
+CPP_CMD=("${PYC_COMPILE}" "${TMP_PYC}" --emit=cpp)
+CPP_CMD+=("${PYCC_COMMON_ARGS[@]}")
+if [[ -f "${PROBE_PLAN_JSON}" ]]; then
+  VERILOG_CMD+=(--probe-plan="${PROBE_PLAN_JSON}")
+  CPP_CMD+=(--probe-plan="${PROBE_PLAN_JSON}")
+fi
+
+if [[ "${TRY_V_OUTDIR}" == "1" ]]; then
+  VERILOG_OUTDIR_CMD=("${VERILOG_CMD[@]}" --out-dir="${OUT_V_TMP}")
+  if ! "${VERILOG_OUTDIR_CMD[@]}" >/dev/null 2>&1; then
+    MONO_V="${OUT_V_TMP}/linxcore_top.v"
+    VERILOG_MONO_CMD=("${VERILOG_CMD[@]}" -o "${MONO_V}")
+    "${VERILOG_MONO_CMD[@]}"
+    python3 "${ROOT_DIR}/tools/generate/split_verilog_modules.py" \
+      --src "${MONO_V}" \
+      --out-dir "${OUT_V_TMP}" \
+      --top "linxcore_top"
+  fi
+else
+  MONO_V="${OUT_V_TMP}/linxcore_top.v"
+  VERILOG_MONO_CMD=("${VERILOG_CMD[@]}" -o "${MONO_V}")
+  "${VERILOG_MONO_CMD[@]}"
+  python3 "${ROOT_DIR}/tools/generate/split_verilog_modules.py" \
+    --src "${MONO_V}" \
+    --out-dir "${OUT_V_TMP}" \
+    --top "linxcore_top"
+fi
+
+if [[ "${PYC_NOINLINE:-${NOINLINE_DEFAULT}}" != "0" ]]; then
+  CPP_CMD+=(--noinline)
+fi
+
+if [[ "${CPP_SHARD_MAX_AST_NODES}" =~ ^[0-9]+$ ]] && [[ "${CPP_SHARD_MAX_AST_NODES}" -gt 0 ]] && grep -q -- '--cpp-shard-max-ast-nodes' <<<"${PYC_HELP}"; then
+  CPP_CMD+=(--cpp-shard-max-ast-nodes="${CPP_SHARD_MAX_AST_NODES}")
+fi
+
+CPP_CMD+=(
+  --out-dir="${OUT_CPP_TMP}"
+  --cpp-split=module
+  --cpp-shard-threshold-lines="${CPP_SHARD_LINES}"
+  --cpp-shard-threshold-bytes="${CPP_SHARD_BYTES}"
+)
+"${CPP_CMD[@]}"
+
+for probe_json in probe_catalog.json probe_manifest.json probe_plan.json; do
+  if [[ -f "${TMP_PROBE_DIR}/${probe_json}" ]]; then
+    cp -f "${TMP_PROBE_DIR}/${probe_json}" "${OUT_CPP_TMP}/${probe_json}"
+  fi
+done
+
+# Sync temp outputs into the stable generated directories.
+sync_dir "${OUT_CPP_TMP}" "${OUT_CPP}"
+sync_dir "${OUT_V_TMP}" "${OUT_V}"
+
+printf '%s\n' "${CALLFRAME_SIZE}" > "${OUT_CPP}/.callframe_size"
+printf '%s\n' "${CALLFRAME_SIZE}" > "${OUT_V}/.callframe_size"
+printf '%s\n' "${BUILD_PROFILE}" > "${OUT_CPP}/.build_profile"
+printf '%s\n' "${BUILD_PROFILE}" > "${OUT_V}/.build_profile"
+
+MANIFEST_JSON="${OUT_CPP}/cpp_compile_manifest.json"
+MANIFEST_COST_CHECK="${ROOT_DIR}/tools/perf/check_manifest_compile_cost_thresholds.py"
+if [[ -f "${MANIFEST_JSON}" && -f "${MANIFEST_COST_CHECK}" ]]; then
+  BASELINE_DIR="${PYC_MANIFEST_COST_BASELINE_DIR:-${ROOT_DIR}/generated/perf/baselines}"
+  BASELINE_JSON="${PYC_MANIFEST_COST_BASELINE_JSON:-${BASELINE_DIR}/cpp_compile_manifest.${BUILD_PROFILE}.json}"
+  mkdir -p "${BASELINE_DIR}" "$(dirname -- "${BASELINE_JSON}")"
+
+  if [[ "${PYC_MANIFEST_COST_UPDATE_BASELINE:-0}" == "1" ]]; then
+    cp -f "${MANIFEST_JSON}" "${BASELINE_JSON}"
+  elif [[ ! -f "${BASELINE_JSON}" && "${PYC_MANIFEST_COST_AUTO_BOOTSTRAP:-1}" == "1" ]]; then
+    cp -f "${MANIFEST_JSON}" "${BASELINE_JSON}"
+  fi
+
+  cost_args=(
+    --manifest-json "${MANIFEST_JSON}"
+    --max-regress-pct "${PYC_MANIFEST_COST_MAX_REGRESS_PCT:-25}"
+    --max-top-tu-cost "${PYC_MANIFEST_COST_MAX_TOP_TU:-250000}"
+    --max-top-module-cost "${PYC_MANIFEST_COST_MAX_TOP_MODULE:-1500000}"
+    --max-total-cost "${PYC_MANIFEST_COST_MAX_TOTAL:-2300000}"
+  )
+  if [[ -f "${BASELINE_JSON}" ]]; then
+    cost_args+=(--baseline-json "${BASELINE_JSON}")
+  fi
+  if [[ "${PYC_MANIFEST_COST_STRICT:-0}" != "0" ]]; then
+    cost_args+=(--strict)
+  fi
+  python3 "${MANIFEST_COST_CHECK}" "${cost_args[@]}"
+fi
+
+python3 - <<'PY' "${OUT_CPP}/manifest.json" "${OUT_V}/manifest.json"
 from __future__ import annotations
 
 import json
@@ -294,15 +430,7 @@ import sys
 from pathlib import Path
 
 required = [
-    # Note: module names are canonicalized to CamelCase symbols in emitted artifacts.
-    "LinxcoreTop",
-    "JanusBccIfuF0Top",
-    "JanusBccIfuF1Top",
-    "JanusBccIfuICacheTop",
-    "JanusBccIfuF2Top",
-    "JanusBccIfuCtrlTop",
-    "JanusBccIfuF3Top",
-    "JanusBccIfuF4Top",
+    "linxcore_top",
     "JanusBccOooDec1Top",
     "JanusBccOooDec2Top",
     "JanusBccOooRenTop",
@@ -315,11 +443,10 @@ required = [
     "JanusBccLsuLiqTop",
     "JanusBccLsuLhqTop",
     "JanusBccLsuStqTop",
-    "JanusBccLsuScb",
+    "JanusBccLsuScbTop",
     "JanusBccLsuL1DTop",
     "JanusBccLsuMdbTop",
     "JanusBccBisqTop",
-    "JanusBccBrenuTop",
     "JanusBccBctrlTop",
     "JanusBccBrobTop",
     "JanusTmuNocNodeTop",
@@ -343,63 +470,6 @@ for manifest_path in [Path(sys.argv[1]), Path(sys.argv[2])]:
 
 print("manifest module split check passed")
 PY
-else
-  python3 - <<'PY' "${OUT_CPP}/manifest.json"
-from __future__ import annotations
-
-import json
-import sys
-from pathlib import Path
-
-required = [
-    # Note: module names are canonicalized to CamelCase symbols in emitted artifacts.
-    "LinxcoreTop",
-    "JanusBccIfuF0Top",
-    "JanusBccIfuF1Top",
-    "JanusBccIfuICacheTop",
-    "JanusBccIfuF2Top",
-    "JanusBccIfuCtrlTop",
-    "JanusBccIfuF3Top",
-    "JanusBccIfuF4Top",
-    "JanusBccOooDec1Top",
-    "JanusBccOooDec2Top",
-    "JanusBccOooRenTop",
-    "JanusBccOooS1Top",
-    "JanusBccOooS2Top",
-    "JanusBccIexTop",
-    "JanusBccOooRobTop",
-    "JanusBccOooFlushTop",
-    "JanusBccOooRenuTop",
-    "JanusBccLsuLiqTop",
-    "JanusBccLsuLhqTop",
-    "JanusBccLsuStqTop",
-    "JanusBccLsuScb",
-    "JanusBccLsuL1DTop",
-    "JanusBccLsuMdbTop",
-    "JanusBccBisqTop",
-    "JanusBccBrenuTop",
-    "JanusBccBctrlTop",
-    "JanusBccBrobTop",
-    "JanusTmuNocNodeTop",
-    "JanusTmuTileRegTop",
-    "JanusTmaTop",
-    "JanusCubeTop",
-    "JanusTauTop",
-    "LinxCoreVecTop",
-]
-
-manifest_path = Path(sys.argv[1])
-data = json.loads(manifest_path.read_text(encoding="utf-8"))
-mods = set()
-for item in data.get("cpp_modules", []):
-    stem = item.rsplit("/", 1)[-1].rsplit(".", 1)[0]
-    mods.add(stem)
-missing = [m for m in required if m not in mods]
-if missing:
-    raise SystemExit(f"error: {manifest_path} missing required modules: {', '.join(missing)}")
-print("manifest module split check passed (cpp-only)")
-PY
-fi
 
 echo "${OUT_CPP}"
 echo "${OUT_V}"

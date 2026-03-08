@@ -21,7 +21,8 @@ class OooParams:
     rob_depth: int = 64
     iq_depth: int = 32
 
-    # Pipeline widths (bring-up: keep these values small).
+    # Pipeline widths. Architecture docs require a 4-wide frontend and
+    # superscalar retire/issue closure; keep defaults aligned to that contract.
     fetch_w: int = 4
     dispatch_w: int = 4
     issue_w: int = 4

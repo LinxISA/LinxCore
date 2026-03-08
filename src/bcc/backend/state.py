@@ -21,9 +21,9 @@ class CoreCtrlRegs:
     br_base_pc: Reg
     br_off: Reg
     br_pred_take: Reg
-    block_uid_ctr: Reg
+    assign_block_uid: Reg
     active_block_uid: Reg
-    block_bid_ctr: Reg
+    assign_block_bid: Reg
     active_block_bid: Reg
     lsid_alloc_ctr: Reg
     lsid_issue_ptr: Reg
@@ -55,6 +55,10 @@ class CoreCtrlRegs:
     post_macro_handoff: Reg
     macro_phase: Reg
     macro_op: Reg
+    macro_pc: Reg
+    macro_len: Reg
+    macro_insn_raw: Reg
+    macro_parent_uid: Reg
     macro_begin: Reg
     macro_end: Reg
     macro_stacksize: Reg
@@ -168,9 +172,12 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         br_base_pc = m.out("br_base_pc", clk=clk, rst=rst, width=64, init=boot_pc, en=consts.one1)
         br_off = m.out("br_off", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
         br_pred_take = m.out("br_pred_take", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
-        block_uid_ctr = m.out("block_uid_ctr", clk=clk, rst=rst, width=64, init=c(2, width=64), en=consts.one1)
-        active_block_uid = m.out("active_block_uid", clk=clk, rst=rst, width=64, init=c(1, width=64), en=consts.one1)
-        block_bid_ctr = m.out("block_bid_ctr", clk=clk, rst=rst, width=64, init=c(1, width=64), en=consts.one1)
+        # Block identity:
+        # - assign_* are D1-time identities used for tagging new uops at dispatch.
+        # - active_* are retire-stream identities (architecture-visible for flush semantics).
+        assign_block_uid = m.out("assign_block_uid", clk=clk, rst=rst, width=64, init=c(0, width=64), en=consts.one1)
+        active_block_uid = m.out("active_block_uid", clk=clk, rst=rst, width=64, init=c(0, width=64), en=consts.one1)
+        assign_block_bid = m.out("assign_block_bid", clk=clk, rst=rst, width=64, init=c(0, width=64), en=consts.one1)
         active_block_bid = m.out("active_block_bid", clk=clk, rst=rst, width=64, init=c(0, width=64), en=consts.one1)
         lsid_alloc_ctr = m.out("lsid_alloc_ctr", clk=clk, rst=rst, width=32, init=c(0, width=32), en=consts.one1)
         lsid_issue_ptr = m.out("lsid_issue_ptr", clk=clk, rst=rst, width=32, init=c(0, width=32), en=consts.one1)
@@ -212,6 +219,10 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         post_macro_handoff = m.out("post_macro_handoff", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
         macro_phase = m.out("macro_phase", clk=clk, rst=rst, width=2, init=consts.zero1._zext(width=2), en=consts.one1)
         macro_op = m.out("macro_op", clk=clk, rst=rst, width=12, init=c(0, width=12), en=consts.one1)
+        macro_pc = m.out("macro_pc", clk=clk, rst=rst, width=64, init=boot_pc, en=consts.one1)
+        macro_len = m.out("macro_len", clk=clk, rst=rst, width=3, init=consts.zero3, en=consts.one1)
+        macro_insn_raw = m.out("macro_insn_raw", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
+        macro_parent_uid = m.out("macro_parent_uid", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
         macro_begin = m.out("macro_begin", clk=clk, rst=rst, width=6, init=c(0, width=6), en=consts.one1)
         macro_end = m.out("macro_end", clk=clk, rst=rst, width=6, init=c(0, width=6), en=consts.one1)
         macro_stacksize = m.out("macro_stacksize", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
@@ -230,9 +241,9 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         br_base_pc=br_base_pc,
         br_off=br_off,
         br_pred_take=br_pred_take,
-        block_uid_ctr=block_uid_ctr,
+        assign_block_uid=assign_block_uid,
         active_block_uid=active_block_uid,
-        block_bid_ctr=block_bid_ctr,
+        assign_block_bid=assign_block_bid,
         active_block_bid=active_block_bid,
         lsid_alloc_ctr=lsid_alloc_ctr,
         lsid_issue_ptr=lsid_issue_ptr,
@@ -262,6 +273,10 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         post_macro_handoff=post_macro_handoff,
         macro_phase=macro_phase,
         macro_op=macro_op,
+        macro_pc=macro_pc,
+        macro_len=macro_len,
+        macro_insn_raw=macro_insn_raw,
+        macro_parent_uid=macro_parent_uid,
         macro_begin=macro_begin,
         macro_end=macro_end,
         macro_stacksize=macro_stacksize,
@@ -279,19 +294,6 @@ def make_ifu_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, consts
         f4_window = m.out("f4_window", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
 
     return IfuRegs(f4_valid=f4_valid, f4_pc=f4_pc, f4_window=f4_window)
-
-
-def make_prf(m: Circuit, clk: Signal, rst: Signal, *, boot_sp: Wire, boot_ra: Wire, consts: Consts, p: OooParams) -> list[Reg]:
-    with m.scope("prf"):
-        prf: list[Reg] = []
-        for i in range(p.pregs):
-            init = consts.zero64
-            if i == 1:
-                init = boot_sp
-            if i == 10:
-                init = boot_ra
-            prf.append(m.out(f"p{i}", clk=clk, rst=rst, width=64, init=init, en=consts.one1))
-        return prf
 
 
 def make_rename_regs(m: Circuit, clk: Signal, rst: Signal, *, consts: Consts, p: OooParams) -> RenameRegs:

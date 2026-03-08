@@ -11,19 +11,50 @@
 #include <optional>
 #include <sstream>
 #include <string>
-#include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
+#if __has_include(<pyc/cpp/pyc_tb.hpp>)
+#include <pyc/cpp/pyc_tb.hpp>
+#elif __has_include(<cpp/pyc_tb.hpp>)
 #include <cpp/pyc_tb.hpp>
-#include <cpp/pyc_linxtrace.hpp>
+#elif __has_include(<pyc_tb.hpp>)
+#include <pyc_tb.hpp>
+#else
+#error "pyc_tb.hpp not found; set include path for pyCircuit runtime headers"
+#endif
 
-#include "LinxcoreTop.hpp"
+#if __has_include(<pyc/cpp/pyc_linxtrace.hpp>)
+#include <pyc/cpp/pyc_linxtrace.hpp>
+#elif __has_include(<cpp/pyc_linxtrace.hpp>)
+#include <cpp/pyc_linxtrace.hpp>
+#elif __has_include(<pyc_linxtrace.hpp>)
+#include <pyc_linxtrace.hpp>
+#else
+#error "pyc_linxtrace.hpp not found; set include path for pyCircuit runtime headers"
+#endif
+
+#if __has_include(<pyc/cpp/pyc_probe_registry.hpp>)
+#include <pyc/cpp/pyc_probe_registry.hpp>
+#elif __has_include(<cpp/pyc_probe_registry.hpp>)
+#include <cpp/pyc_probe_registry.hpp>
+#elif __has_include(<pyc_probe_registry.hpp>)
+#include <pyc_probe_registry.hpp>
+#else
+#error "pyc_probe_registry.hpp not found; set include path for pyCircuit runtime headers"
+#endif
+
+#include "linxcore_top.hpp"
+#include "linxcore_host_mem_shadow.hpp"
 #include "tb_linxcore_trace_util.hpp"
 
 using pyc::cpp::Testbench;
 using pyc::cpp::Wire;
+using pyc::cpp::ProbeRegistry;
+using linxcore::sim::HostMemShadow;
+using linxcore::sim::replayPreloadWords;
+using linxcore::sim::resolveMemBytesFromEnv;
 
 namespace {
 
@@ -31,96 +62,14 @@ constexpr std::uint64_t kBootPc = 0x0000'0000'0001'0000ull;
 constexpr std::uint64_t kBootSp = 0x0000'0000'07fe'fff0ull;
 constexpr std::uint64_t kDefaultMaxCycles = 50000000ull;
 constexpr std::uint64_t kDefaultDeadlockCycles = 200000ull;
+constexpr const char *kDefaultDisasmTool = "/Users/zhoubot/linx-isa/tools/isa/linxdisasm.py";
+constexpr const char *kDefaultDisasmSpec = "/Users/zhoubot/linx-isa/isa/v0.3/linxisa-v0.3.json";
+constexpr const char *kDefaultObjdumpTool = "/Users/zhoubot/llvm-project/build-linxisa-clang/bin/llvm-objdump";
+constexpr const char *kDefaultOpcodeIdsPy = "/Users/zhoubot/LinxCore/src/common/opcode_ids_gen.py";
 
 using linxcore::tb::disasmInsn;
 using linxcore::tb::loadObjdumpPcMap;
 using linxcore::tb::loadOpNameMap;
-
-static bool pathExists(const std::filesystem::path &p) {
-  std::error_code ec;
-  return std::filesystem::exists(p, ec);
-}
-
-static std::optional<std::filesystem::path> findLinxcoreRoot(const std::filesystem::path &start) {
-  std::filesystem::path p = start;
-  for (int i = 0; i < 12; i++) {
-    if (pathExists(p / "src" / "linxcore_top.py") &&
-        pathExists(p / "tools" / "generate" / "run_linxcore_top_cpp.sh")) {
-      return p;
-    }
-    if (!p.has_parent_path())
-      break;
-    const auto parent = p.parent_path();
-    if (parent == p)
-      break;
-    p = parent;
-  }
-  return std::nullopt;
-}
-
-static std::filesystem::path resolveLinxcoreRoot() {
-  if (const char *env = std::getenv("LINXCORE_ROOT"); env && env[0] != '\0') {
-    std::filesystem::path p(env);
-    if (pathExists(p))
-      return p;
-  }
-  if (const auto found = findLinxcoreRoot(std::filesystem::current_path()); found.has_value()) {
-    return *found;
-  }
-  return std::filesystem::current_path();
-}
-
-static std::filesystem::path resolveLinxRoot() {
-  if (const char *env = std::getenv("LINX_ROOT"); env && env[0] != '\0') {
-    std::filesystem::path p(env);
-    if (pathExists(p))
-      return p;
-  }
-  const auto linxcoreRoot = resolveLinxcoreRoot();
-  if (linxcoreRoot.filename() == "LinxCore" && linxcoreRoot.parent_path().filename() == "rtl") {
-    return linxcoreRoot.parent_path().parent_path();
-  }
-  return linxcoreRoot;
-}
-
-static std::filesystem::path defaultGenCppDir() {
-  return resolveLinxcoreRoot() / "generated" / "cpp" / "linxcore_top";
-}
-
-static std::filesystem::path defaultGenLinxtraceDir() {
-  return resolveLinxcoreRoot() / "generated" / "linxtrace";
-}
-
-static std::string defaultDisasmTool() {
-  const auto tool = resolveLinxRoot() / "tools" / "isa" / "linxdisasm.py";
-  if (pathExists(tool))
-    return tool.string();
-  return "linxdisasm.py";
-}
-
-static std::string defaultDisasmSpec() {
-  const auto spec = resolveLinxRoot() / "isa" / "v0.3" / "linxisa-v0.3.json";
-  if (pathExists(spec))
-    return spec.string();
-  return "";
-}
-
-static std::string defaultObjdumpTool() {
-  if (const char *env = std::getenv("LLVM_OBJDUMP"); env && env[0] != '\0') {
-    return env;
-  }
-  const auto tool = resolveLinxRoot() / "compiler" / "llvm" / "build-linxisa-clang" / "bin" / "llvm-objdump";
-  if (pathExists(tool))
-    return tool.string();
-  return "llvm-objdump";
-}
-
-static std::string defaultIsaPy() {
-  const auto isaPy = resolveLinxcoreRoot() / "src" / "common" / "isa.py";
-  if (pathExists(isaPy))
-    return isaPy.string();
-  return "isa.py";
-}
 
 static bool envFlag(const char *name) {
   const char *v = std::getenv(name);
@@ -160,30 +109,6 @@ static std::unordered_set<std::uint32_t> parseAcceptedExitCodes() {
   return accepted;
 }
 
-template <typename MemT>
-static bool loadMemh(MemT &mem, const std::string &path) {
-  std::ifstream f(path);
-  if (!f.is_open()) {
-    std::cerr << "ERROR: failed to open memh: " << path << "\n";
-    return false;
-  }
-
-  std::uint64_t addr = 0;
-  std::string tok;
-  while (f >> tok) {
-    if (tok.empty())
-      continue;
-    if (tok[0] == '@') {
-      addr = std::stoull(tok.substr(1), nullptr, 16);
-      continue;
-    }
-    unsigned v = std::stoul(tok, nullptr, 16) & 0xFFu;
-    mem.pokeByte(static_cast<std::size_t>(addr), static_cast<std::uint8_t>(v));
-    addr++;
-  }
-  return true;
-}
-
 static std::uint64_t maskInsn(std::uint64_t raw, std::uint8_t len) {
   switch (len) {
   case 2:
@@ -201,20 +126,32 @@ static std::uint8_t normalizeLen(std::uint8_t len) {
   return (len == 2 || len == 4 || len == 6) ? len : 4;
 }
 
+static std::uint64_t buildIfuStubWindow(std::uint64_t raw, std::uint8_t len) {
+  const std::uint8_t useLen = normalizeLen(len);
+  std::uint64_t payloadMask = 0xFFFF'FFFFull;
+  if (useLen == 2) {
+    payloadMask = 0xFFFFull;
+  } else if (useLen == 6) {
+    payloadMask = 0xFFFF'FFFF'FFFFull;
+  }
+  const std::uint64_t payload = maskInsn(raw, useLen) & payloadMask;
+  // Pad remaining bytes with 0xFF so slot-decode sees invalid padding.
+  return (0xFFFF'FFFF'FFFF'FFFFull & ~payloadMask) | payload;
+}
+
 static std::uint8_t inferLenFromInsn16(std::uint16_t insn16) {
   if ((insn16 & 0xFu) == 0xEu)
     return 6;
   return (insn16 & 0x1u) ? 4 : 2;
 }
 
-template <typename MemT>
-static std::pair<std::uint64_t, std::uint8_t> fetchInsnAtPc(const MemT &mem, std::uint64_t pc) {
-  const std::uint16_t insn16 = static_cast<std::uint16_t>(mem.peekByte(static_cast<std::size_t>(pc)) |
-                                                           (static_cast<std::uint16_t>(mem.peekByte(static_cast<std::size_t>(pc + 1))) << 8));
+static std::pair<std::uint64_t, std::uint8_t> fetchInsnAtPc(const HostMemShadow &mem, std::uint64_t pc) {
+  const std::uint16_t insn16 = static_cast<std::uint16_t>(mem.loadGuestByte(pc) |
+                                                           (static_cast<std::uint16_t>(mem.loadGuestByte(pc + 1)) << 8));
   const std::uint8_t len = inferLenFromInsn16(insn16);
   std::uint64_t raw = 0;
   for (std::uint8_t i = 0; i < len; i++) {
-    raw |= static_cast<std::uint64_t>(mem.peekByte(static_cast<std::size_t>(pc + i))) << (8u * i);
+    raw |= static_cast<std::uint64_t>(mem.loadGuestByte(pc + i)) << (8u * i);
   }
   return {maskInsn(raw, len), len};
 }
@@ -241,6 +178,7 @@ static std::string insnHexToken(std::uint64_t raw, std::uint8_t len) {
 struct XcheckCommit {
   std::uint64_t seq = 0;
   std::uint64_t pc = 0;
+  std::uint64_t template_kind = 0;
   std::uint64_t insn = 0;
   std::uint8_t len = 0;
   std::uint64_t wb_valid = 0;
@@ -266,38 +204,6 @@ struct XcheckCommit {
   std::uint64_t traparg0 = 0;
   std::uint64_t next_pc = 0;
 };
-
-struct LastMemStoreDbg {
-  bool valid = false;
-  std::uint64_t seq = 0;
-  std::uint64_t cycle = 0;
-  std::uint64_t log_addr = 0;
-  std::uint64_t eff_addr = 0;
-  std::uint64_t data = 0;
-  std::uint64_t strb = 0;
-  std::uint64_t size = 0;
-  bool wvalid_eff = false;
-};
-
-static std::uint64_t mapBringupMemAddrEff(std::uint64_t addr, std::uint64_t memBytes = (1ull << 20)) {
-  // Keep this consistent with `src/mem/mem2r1w.py` bring-up mapping.
-  const std::uint64_t lowMask = (memBytes ? (memBytes - 1) : 0);
-  const std::uint64_t stackWindow = std::max<std::uint64_t>(1, memBytes / 4);
-  const std::uint64_t dataWindow = std::max<std::uint64_t>(1, memBytes / 4);
-  const std::uint64_t stackOffset = memBytes - stackWindow;
-  const std::uint64_t dataOffset = (memBytes > (stackWindow + dataWindow)) ? (memBytes - stackWindow - dataWindow) : 0;
-  const std::uint64_t stackBase = 0x0000'0000'07fe'0000ull;
-  const std::uint64_t dataBase = 0x0000'0000'0100'0000ull;
-  const std::uint64_t stackMask = stackWindow - 1;
-  const std::uint64_t dataMask = dataWindow - 1;
-  const bool isStack = addr >= stackBase;
-  const std::uint64_t stackAddr = ((addr - stackBase) & stackMask) + stackOffset;
-  const bool isData = addr >= dataBase;
-  const std::uint64_t dataAddr = ((addr - dataBase) & dataMask) + dataOffset;
-  const std::uint64_t lowAddr = addr & lowMask;
-  const std::uint64_t mapped = isData ? dataAddr : lowAddr;
-  return isStack ? stackAddr : mapped;
-}
 
 static bool isBstart16(std::uint16_t hw) {
   if ((hw & 0xc7ffu) == 0x0000u || (hw & 0xc7ffu) == 0x0080u) {
@@ -358,20 +264,30 @@ static bool isMacroMarker32(std::uint32_t insn) {
 }
 
 static bool isMetadataCommit(const XcheckCommit &r) {
-  // Match crosscheck normalization rules:
-  // - fully zeroed placeholders are metadata
-  // - side-effect-free template parent markers are metadata (QEMU may emit them
-  //   even when LinxCore hides the internal parent retire)
-  if ((r.len == 0) && (r.insn == 0) && (r.pc == 0)) {
+  const bool zero_meta = (r.len == 0) && (r.insn == 0) && (r.pc == 0);
+  if (zero_meta) {
     return true;
   }
-  if (r.len == 4) {
-    const std::uint32_t insn32 = static_cast<std::uint32_t>(maskInsn(r.insn, r.len) & 0xFFFF'FFFFull);
-    if (isMacroMarker32(insn32) && r.trap_valid == 0 && r.wb_valid == 0 && r.mem_valid == 0 && r.dst_valid == 0) {
-      return true;
-    }
-  }
-  return false;
+
+  const std::uint64_t eff_wb_valid = r.wb_valid | r.dst_valid;
+  const std::uint64_t insn_m = maskInsn(r.insn, r.len);
+  const bool is_bstart =
+      ((r.len == 2) && isBstart16(static_cast<std::uint16_t>(insn_m))) ||
+      ((r.len == 4) && isBstart32(static_cast<std::uint32_t>(insn_m))) ||
+      ((r.len == 6) && isBstart48(insn_m));
+  const bool is_cbstop = (r.len == 2) && (static_cast<std::uint16_t>(insn_m) == 0x0000u);
+  const bool is_macro_marker = (r.len == 4) && isMacroMarker32(static_cast<std::uint32_t>(insn_m));
+  const bool is_template_uop = (r.template_kind != 0);
+
+  const bool bstart_metadata = is_bstart && (eff_wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0) &&
+                               (r.next_pc == (r.pc + r.len));
+  const bool macro_metadata =
+      is_macro_marker && (eff_wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0);
+  const bool template_metadata =
+      is_template_uop && (eff_wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0);
+  const bool cbstop_metadata = is_cbstop && (eff_wb_valid == 0) && (r.mem_valid == 0) && (r.trap_valid == 0);
+
+  return bstart_metadata || macro_metadata || template_metadata || cbstop_metadata;
 }
 
 struct XcheckMismatch {
@@ -391,6 +307,7 @@ static std::string xcheckCommitSummary(const XcheckCommit &r) {
   std::ostringstream oss;
   oss << "pc=" << toHex(r.pc)
       << " len=" << static_cast<unsigned>(r.len)
+      << " tmpl=" << r.template_kind
       << " insn=" << toHex(maskInsn(r.insn, r.len))
       << " wb(v=" << r.wb_valid << ",rd=" << r.wb_rd << ",data=" << toHex(r.wb_data) << ")"
       << " src0(v=" << r.src0_valid << ",r=" << r.src0_reg << ",d=" << toHex(r.src0_data) << ")"
@@ -443,6 +360,7 @@ static bool getJsonU64(const std::string &line, const std::string &key, std::uin
 static bool parseJsonCommitLine(const std::string &line, std::uint64_t seq_default, XcheckCommit &out) {
   out.seq = seq_default;
   (void)getJsonU64(line, "seq", out.seq);
+  (void)getJsonU64(line, "template_kind", out.template_kind);
   std::uint64_t len64 = 0;
   if (!getJsonU64(line, "pc", out.pc) ||
       !getJsonU64(line, "insn", out.insn) ||
@@ -557,8 +475,14 @@ static std::optional<XcheckMismatch> compareXcheckCommit(std::uint64_t seq, cons
     return mm;
   if (auto mm = cmp("len", q.len, d.len))
     return mm;
-  if (auto mm = cmp("insn", maskInsn(q.insn, q.len), maskInsn(d.insn, d.len)))
-    return mm;
+  // Template micro-ops (expanded from FENTRY/FEXIT/FRET.*) do not have a stable
+  // architectural encoding in the instruction stream. QEMU reports the macro
+  // marker encoding, while the DUT emits a synthetic per-uop scalar encoding.
+  // Compare by architectural effects, not insn bits.
+  if (d.template_kind == 0) {
+    if (auto mm = cmp("insn", maskInsn(q.insn, q.len), maskInsn(d.insn, d.len)))
+      return mm;
+  }
   if (auto mm = cmp("wb_valid", q.wb_valid, d.wb_valid))
     return mm;
   if (q.wb_valid) {
@@ -663,84 +587,28 @@ int main(int argc, char **argv) {
   }
   const std::string memhPath = argv[1];
 
-  pyc::gen::LinxcoreTop dut{};
+  pyc::gen::linxcore_top dut{};
+  ProbeRegistry probeRegistry{};
+  dut.pyc_register_probes(probeRegistry, "dut");
   const bool simStatsEnabled = envFlag("PYC_SIM_STATS");
   auto dumpSimStats = [&]() {
     if (!simStatsEnabled)
       return;
-    auto dumpPrefixed = [&](std::ostream &os, const char *prefix, const auto *inst) {
-      if (!inst || !prefix || prefix[0] == '\0')
-        return;
-      std::ostringstream buf;
-      inst->dump_sim_stats(buf);
-      std::istringstream iss(buf.str());
-      std::string line;
-      while (std::getline(iss, line)) {
-        if (line.empty())
-          continue;
-        os << prefix << line << "\n";
-      }
-    };
-    auto dumpAll = [&](std::ostream &os) {
-      // Preserve the legacy top-level key names for grep-based workflows.
-      dut.dump_sim_stats(os);
-      os << "env.PYC_SIM_FAST=" << (envFlag("PYC_SIM_FAST") ? 1 : 0) << "\n";
-      os << "env.PYC_SIM_STATS=" << (envFlag("PYC_SIM_STATS") ? 1 : 0) << "\n";
-      os << "top._pyc_sim_fast_enable=" << (dut._pyc_sim_fast_enable ? 1 : 0) << "\n";
-      // Add per-child stats with stable prefixes for aggregation.
-      dumpPrefixed(os, "child.janus_backend.", dut.janus_backend.get());
-      if (dut.janus_backend) {
-        os << "child.janus_backend._pyc_sim_fast_enable=" << (dut.janus_backend->_pyc_sim_fast_enable ? 1 : 0) << "\n";
-      }
-      dumpPrefixed(os, "child.janus_bctrl.", dut.janus_bctrl.get());
-      dumpPrefixed(os, "child.janus_bisq.", dut.janus_bisq.get());
-      dumpPrefixed(os, "child.janus_brenu.", dut.janus_brenu.get());
-      dumpPrefixed(os, "child.janus_brob.", dut.janus_brob.get());
-      dumpPrefixed(os, "child.janus_cube.", dut.janus_cube.get());
-      dumpPrefixed(os, "child.janus_dec1.", dut.janus_dec1.get());
-      dumpPrefixed(os, "child.janus_dec2.", dut.janus_dec2.get());
-      dumpPrefixed(os, "child.janus_iex.", dut.janus_iex.get());
-      dumpPrefixed(os, "child.janus_ifu_ctrl.", dut.janus_ifu_ctrl.get());
-      dumpPrefixed(os, "child.janus_ifu_f0.", dut.janus_ifu_f0.get());
-      dumpPrefixed(os, "child.janus_ifu_f1.", dut.janus_ifu_f1.get());
-      dumpPrefixed(os, "child.janus_ifu_f2.", dut.janus_ifu_f2.get());
-      dumpPrefixed(os, "child.janus_ifu_f3.", dut.janus_ifu_f3.get());
-      dumpPrefixed(os, "child.janus_ifu_f4.", dut.janus_ifu_f4.get());
-      dumpPrefixed(os, "child.janus_ifu_icache.", dut.janus_ifu_icache.get());
-      dumpPrefixed(os, "child.janus_l1d.", dut.janus_l1d.get());
-      dumpPrefixed(os, "child.janus_lhq.", dut.janus_lhq.get());
-      dumpPrefixed(os, "child.janus_liq.", dut.janus_liq.get());
-      dumpPrefixed(os, "child.janus_lsu.", dut.janus_lsu.get());
-      dumpPrefixed(os, "child.janus_mdb.", dut.janus_mdb.get());
-      dumpPrefixed(os, "child.janus_pcbuf.", dut.janus_pcbuf.get());
-      dumpPrefixed(os, "child.janus_ren.", dut.janus_ren.get());
-      dumpPrefixed(os, "child.janus_rob.", dut.janus_rob.get());
-      dumpPrefixed(os, "child.janus_s1.", dut.janus_s1.get());
-      dumpPrefixed(os, "child.janus_s2.", dut.janus_s2.get());
-      dumpPrefixed(os, "child.janus_stq.", dut.janus_stq.get());
-      dumpPrefixed(os, "child.janus_tau.", dut.janus_tau.get());
-      dumpPrefixed(os, "child.janus_tma.", dut.janus_tma.get());
-      dumpPrefixed(os, "child.janus_tmu_noc.", dut.janus_tmu_noc.get());
-      dumpPrefixed(os, "child.janus_tmu_tilereg.", dut.janus_tmu_tilereg.get());
-      dumpPrefixed(os, "child.linxcore_vec.", dut.linxcore_vec.get());
-      dumpPrefixed(os, "child.mem2r1w.", dut.mem2r1w.get());
-      dumpPrefixed(os, "child.uid_allocator.", dut.uid_allocator.get());
-    };
     const char *path = std::getenv("PYC_SIM_STATS_PATH");
     if (path && path[0] != '\0') {
       std::filesystem::path out(path);
       if (out.has_parent_path())
         std::filesystem::create_directories(out.parent_path());
-      std::ofstream ofs(out, std::ios::out | std::ios::trunc);
-      if (ofs.is_open()) {
-        dumpAll(ofs);
-      }
+      dut.dump_sim_stats_to_path(path);
       return;
     }
-    dumpAll(std::cerr);
+    dut.dump_sim_stats(std::cerr);
   };
 
-  if (!loadMemh(dut.mem2r1w->imem, memhPath) || !loadMemh(dut.mem2r1w->dmem, memhPath)) {
+  HostMemShadow memShadow(resolveMemBytesFromEnv());
+  std::string memhError{};
+  if (!memShadow.loadMemh(memhPath, &memhError)) {
+    std::cerr << "ERROR: failed to preload memh: " << memhPath << " (" << memhError << ")\n";
     return 2;
   }
 
@@ -771,9 +639,40 @@ int main(int argc, char **argv) {
   dut.ic_l2_rsp_addr = Wire<64>(0);
   dut.ic_l2_rsp_data = Wire<512>(0);
   dut.ic_l2_rsp_error = Wire<1>(0);
+  dut.tb_ifu_stub_enable = Wire<1>(0);
+  dut.tb_ifu_stub_valid = Wire<1>(0);
+  dut.tb_ifu_stub_pc = Wire<64>(0);
+  dut.tb_ifu_stub_window = Wire<64>(0);
+  dut.tb_ifu_stub_checkpoint = Wire<6>(0);
+  dut.tb_ifu_stub_pkt_uid = Wire<64>(0);
+  dut.callframe_size_i = Wire<64>(0);
 
-  Testbench<pyc::gen::LinxcoreTop> tb(dut);
-  LastMemStoreDbg lastStoreDbg{};
+  Testbench<pyc::gen::linxcore_top> tb(dut);
+  tb.addClock(dut.clk, 1);
+  tb.reset(dut.rst, 2, 1);
+
+  // Host memory replay drives a clocked SRAM write port, so it must happen
+  // after the testbench clock/reset are established and with fetch held off.
+  dut.tb_ifu_stub_enable = Wire<1>(0);
+  dut.ic_l2_req_ready = Wire<1>(0);
+  dut.ic_l2_rsp_valid = Wire<1>(0);
+  dut.ic_l2_rsp_addr = Wire<64>(0);
+  dut.ic_l2_rsp_data = Wire<512>(0);
+  dut.ic_l2_rsp_error = Wire<1>(0);
+  replayPreloadWords(memShadow, [&](std::uint64_t guestAddr, std::uint64_t data, std::uint8_t strb) {
+    dut.host_wvalid = Wire<1>(1);
+    dut.host_waddr = Wire<64>(guestAddr);
+    dut.host_wdata = Wire<64>(data);
+    dut.host_wstrb = Wire<8>(strb);
+    tb.runCyclesAuto(1);
+  });
+  dut.host_wvalid = Wire<1>(0);
+  dut.host_waddr = Wire<64>(0);
+  dut.host_wdata = Wire<64>(0);
+  dut.host_wstrb = Wire<8>(0);
+  dut.tb_ifu_stub_enable = Wire<1>(1);
+  dut.ic_l2_req_ready = Wire<1>(1);
+  const std::uint64_t startCycle = dut.cycles.value();
 
   std::ofstream commitTrace{};
   if (const char *p = std::getenv("PYC_COMMIT_TRACE"); p && p[0] != '\0') {
@@ -798,12 +697,13 @@ int main(int argc, char **argv) {
       std::cerr << "WARN: cannot open raw trace output: " << out << "\n";
     }
   }
+  const bool rawTraceProbes = envFlag("PYC_RAW_TRACE_PROBES");
 
   const bool traceVcd = envFlag("PYC_VCD");
   const bool traceLinxTrace = envFlag("PYC_LINXTRACE");
   if (traceVcd) {
-    std::filesystem::create_directories(defaultGenCppDir());
-    tb.enableVcd((defaultGenCppDir() / "tb_linxcore_top.vcd").string(),
+    std::filesystem::create_directories("/Users/zhoubot/LinxCore/generated/cpp/linxcore_top");
+    tb.enableVcd("/Users/zhoubot/LinxCore/generated/cpp/linxcore_top/tb_linxcore_top.vcd",
                  "tb_linxcore_top");
     tb.vcdTrace(dut.clk, "clk");
     tb.vcdTrace(dut.rst, "rst");
@@ -812,20 +712,20 @@ int main(int argc, char **argv) {
     tb.vcdTrace(dut.pc, "pc");
   }
 
-  pyc::cpp::LinxTraceWriter konata{};
+  pyc::cpp::LinxTraceWriter linxtrace_writer{};
   if (traceLinxTrace) {
     std::filesystem::path outPath{};
     if (const char *p = std::getenv("PYC_LINXTRACE_PATH"); p && p[0] != '\0') {
       outPath = std::filesystem::path(p);
     } else {
       const std::string stem = std::filesystem::path(memhPath).stem().string();
-      outPath = defaultGenCppDir() /
+      outPath = std::filesystem::path("/Users/zhoubot/LinxCore/generated/cpp/linxcore_top") /
                 ("tb_linxcore_top_cpp_" + (stem.empty() ? std::string("program") : stem) + ".linxtrace");
     }
     if (outPath.has_parent_path()) {
       std::filesystem::create_directories(outPath.parent_path());
     }
-    if (!konata.open(outPath, dut.cycles.value())) {
+    if (!linxtrace_writer.open(outPath, dut.cycles.value())) {
       std::cerr << "WARN: cannot open LinxTrace output: " << outPath << "\n";
     }
   }
@@ -833,6 +733,9 @@ int main(int argc, char **argv) {
   std::uint64_t maxCycles = kDefaultMaxCycles;
   if (const char *env = std::getenv("PYC_MAX_CYCLES"))
     maxCycles = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
+  std::uint64_t debugIfuStubCycles = 0;
+  if (const char *env = std::getenv("PYC_DEBUG_IFU_STUB_CYCLES"))
+    debugIfuStubCycles = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
   std::uint64_t maxCommits = 0;
   if (const char *env = std::getenv("PYC_MAX_COMMITS"))
     maxCommits = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
@@ -842,13 +745,17 @@ int main(int argc, char **argv) {
   std::uint64_t icMissCycles = 20;
   if (const char *env = std::getenv("PYC_IC_MISS_CYCLES"))
     icMissCycles = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
-  std::string disasmTool = defaultDisasmTool();
+  const bool debugIcache = envFlag("PYC_DEBUG_ICACHE");
+  std::uint64_t debugIcacheCycles = 200;
+  if (const char *env = std::getenv("PYC_DEBUG_ICACHE_CYCLES"))
+    debugIcacheCycles = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
+  std::string disasmTool = kDefaultDisasmTool;
   if (const char *env = std::getenv("PYC_DISASM_TOOL"); env && env[0] != '\0')
     disasmTool = env;
-  std::string disasmSpec = defaultDisasmSpec();
+  std::string disasmSpec = kDefaultDisasmSpec;
   if (const char *env = std::getenv("PYC_DISASM_SPEC"); env && env[0] != '\0')
     disasmSpec = env;
-  std::string objdumpTool = defaultObjdumpTool();
+  std::string objdumpTool = kDefaultObjdumpTool;
   if (const char *env = std::getenv("PYC_OBJDUMP_TOOL"); env && env[0] != '\0')
     objdumpTool = env;
   std::string objdumpElf{};
@@ -862,18 +769,16 @@ int main(int argc, char **argv) {
         objdumpElf = p.string();
     }
   }
-  std::string isaPyPath = defaultIsaPy();
-  if (const char *env = std::getenv("PYC_ISA_PY"); env && env[0] != '\0')
-    isaPyPath = env;
-  const auto acceptedExitCodes = parseAcceptedExitCodes();
-  // These maps are only needed when producing human-readable trace labels.
-  // Keep no-trace simulation fast by avoiding `llvm-objdump` parsing.
-  std::unordered_map<std::uint64_t, std::string> opNameMap{};
-  std::unordered_map<std::uint64_t, std::string> objdumpPcMap{};
-  if (traceLinxTrace) {
-    opNameMap = loadOpNameMap(isaPyPath);
-    objdumpPcMap = loadObjdumpPcMap(objdumpTool, objdumpElf);
+  std::string opcodeIdsPath = kDefaultOpcodeIdsPy;
+  if (const char *env = std::getenv("PYC_OPCODE_IDS_PY"); env && env[0] != '\0') {
+    opcodeIdsPath = env;
+  } else if (const char *env = std::getenv("PYC_ISA_PY"); env && env[0] != '\0') {
+    // Backward-compatible override.
+    opcodeIdsPath = env;
   }
+  const auto acceptedExitCodes = parseAcceptedExitCodes();
+  const auto opNameMap = loadOpNameMap(opcodeIdsPath);
+  const auto objdumpPcMap = loadObjdumpPcMap(objdumpTool, objdumpElf);
 
   const char *xcheckTraceEnv = std::getenv("PYC_QEMU_TRACE");
   const bool xcheckEnabled = xcheckTraceEnv && xcheckTraceEnv[0] != '\0';
@@ -896,22 +801,317 @@ int main(int argc, char **argv) {
     }
   }
 
-  tb.addClock(dut.clk, 1);
-  tb.reset(dut.rst, 2, 1);
+  // Optional IFU stub trace input independent of xcheck. This is the
+  // fast-path for large benchmarks: feed the core from a QEMU commit trace
+  // without doing per-commit cross-check comparisons.
+  const char *ifuTraceEnv = std::getenv("PYC_IFU_STUB_TRACE");
+  std::uint64_t ifuTraceMaxCommits = 0;
+  if (const char *env = std::getenv("PYC_IFU_STUB_TRACE_MAX_COMMITS"); env && env[0] != '\0') {
+    ifuTraceMaxCommits = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
+  }
+  std::vector<XcheckCommit> ifuStubTraceRows{};
+  const std::vector<XcheckCommit> *ifuStubRows = nullptr;
+  if (ifuTraceEnv && ifuTraceEnv[0] != '\0') {
+    if (!loadXcheckTrace(ifuTraceEnv, ifuTraceMaxCommits, ifuStubTraceRows)) {
+      return 2;
+    }
+    ifuStubRows = &ifuStubTraceRows;
+  }
 
-  static constexpr std::array<const char *, 39> kTraceStageNames = {
+  bool ifuStubFromQemu = false;
+  if (ifuStubRows != nullptr) {
+    ifuStubFromQemu = true;
+  } else {
+    if (const char *env = std::getenv("PYC_IFU_STUB_QEMU"); env && env[0] != '\0') {
+      ifuStubFromQemu = !(env[0] == '0' && env[1] == '\0');
+    } else {
+      ifuStubFromQemu = xcheckEnabled;
+    }
+    if (ifuStubFromQemu && !xcheckEnabled) {
+      std::cerr << "WARN: PYC_IFU_STUB_QEMU requested but PYC_QEMU_TRACE is missing; "
+                   "set PYC_IFU_STUB_TRACE=/path/to/qemu_trace.jsonl or unset PYC_IFU_STUB_QEMU; "
+                   "falling back to memh-backed IFU stub\n";
+      ifuStubFromQemu = false;
+    }
+    if (ifuStubFromQemu) {
+      ifuStubRows = &qemuXcheckRows;
+    }
+  }
+  struct IfuStubPacket {
+    std::uint64_t pc = 0;
+    std::uint64_t window = 0;
+    std::uint64_t checkpoint = 0;
+    std::uint64_t pkt_uid = 0;
+    std::uint8_t insn_count = 1;
+    std::uint8_t len_bytes = 4;
+    bool is_macro_marker = false;
+  };
+  std::size_t ifuStubTraceCursor = 0;
+  std::size_t ifuStubPendingNextTraceCursor = 0;
+  std::optional<IfuStubPacket> ifuStubPending{};
+  auto makeTraceIfuStubPacket = [&](std::size_t cursor, IfuStubPacket &outPkt, std::size_t &outNextCursor) -> bool {
+    if (!ifuStubFromQemu || ifuStubRows == nullptr) {
+      return false;
+    }
+    const auto &rows = *ifuStubRows;
+    std::size_t rowCursor = cursor;
+
+    // Find next usable instruction row.
+    while (rowCursor < rows.size()) {
+      const auto &r = rows[rowCursor];
+      const std::uint8_t len = normalizeLen(static_cast<std::uint8_t>(r.len & 0xFFu));
+      if ((len == 2 || len == 4 || len == 6) && r.pc != 0) {
+        break;
+      }
+      rowCursor++;
+    }
+    if (rowCursor >= rows.size()) {
+      return false;
+    }
+
+    const auto &r0 = rows[rowCursor];
+    const std::uint64_t basePc = r0.pc;
+    const std::uint64_t checkpoint = (r0.seq & 0x3Full);
+    const std::uint64_t pktUid = ((r0.seq + 1ull) & 0xFFFF'FFFF'FFFF'FFFFull);
+
+    std::uint64_t window = 0;
+    std::uint8_t consumed = 0;
+    std::uint8_t packed = 0;
+    bool macro0 = false;
+    bool bstart0 = false;
+    std::uint64_t raw0 = 0;
+    std::uint8_t len0 = 0;
+
+    // Coalesce up to 4 sequential instructions into a single 8B decode window.
+    // This improves throughput substantially for trace-fed runs.
+    while (rowCursor < rows.size() && packed < 4) {
+      const auto &r = rows[rowCursor];
+      const std::uint8_t len = normalizeLen(static_cast<std::uint8_t>(r.len & 0xFFu));
+      if (!(len == 2 || len == 4 || len == 6) || r.pc == 0) {
+        rowCursor++;
+        continue;
+      }
+      if (packed != 0) {
+        if (r.pc != (basePc + static_cast<std::uint64_t>(consumed)))
+          break;
+        if (macro0)
+          break;
+      }
+      if (consumed + len > 8)
+        break;
+
+      const std::uint64_t raw = maskInsn(r.insn, len);
+      const bool isMacro = (len == 4) && isMacroMarker32(static_cast<std::uint32_t>(raw & 0xFFFF'FFFFu));
+      bool isBstart = false;
+      if (len == 2) {
+        isBstart = isBstart16(static_cast<std::uint16_t>(raw & 0xFFFFu));
+      } else if (len == 4) {
+        isBstart = isBstart32(static_cast<std::uint32_t>(raw & 0xFFFF'FFFFu));
+      } else if (len == 6) {
+        isBstart = isBstart48(raw);
+      }
+      // Keep template macro blocks as standalone fetch bundles (slot0 only).
+      if (isMacro && packed != 0) {
+        break;
+      }
+      // Keep BSTART markers as standalone bundles (slot0 only) for strict
+      // block semantics (BID assignment + BROB allocation).
+      if (isBstart && packed != 0) {
+        break;
+      }
+      for (std::uint8_t i = 0; i < len; i++) {
+        const std::uint8_t b = static_cast<std::uint8_t>((raw >> (8u * i)) & 0xFFu);
+        window |= static_cast<std::uint64_t>(b) << (8u * (consumed + i));
+      }
+      if (packed == 0) {
+        raw0 = raw;
+        len0 = len;
+        macro0 = isMacro;
+        bstart0 = isBstart;
+      }
+      consumed = static_cast<std::uint8_t>(consumed + len);
+      packed = static_cast<std::uint8_t>(packed + 1);
+      rowCursor++;
+      if (macro0 || bstart0) {
+        break;
+      }
+    }
+
+    // QEMU traces emit multiple commit rows for template macro markers
+    // (FENTRY/FEXIT/FRET.*) to describe internal micro-ops. Only the first row
+    // represents the architectural fetch instruction; skip the rest.
+    if (macro0) {
+      while (rowCursor < rows.size()) {
+        const auto &r = rows[rowCursor];
+        const std::uint8_t len = normalizeLen(static_cast<std::uint8_t>(r.len & 0xFFu));
+        if (!(len == 2 || len == 4 || len == 6) || r.pc == 0) {
+          rowCursor++;
+          continue;
+        }
+        const std::uint64_t raw = maskInsn(r.insn, len);
+        const bool isMacro = (len == 4) && isMacroMarker32(static_cast<std::uint32_t>(raw & 0xFFFF'FFFFu));
+        if (!(isMacro && r.pc == basePc && len == len0 && raw == raw0)) {
+          break;
+        }
+        rowCursor++;
+      }
+    }
+    for (std::uint8_t i = consumed; i < 8; i++) {
+      window |= 0xFFull << (8u * i);
+    }
+
+    if (consumed == 0) {
+      consumed = 4;
+      window = 0xFFFF'FFFF'FFFF'FFFFull;
+    }
+
+    outPkt = IfuStubPacket{
+        basePc,
+        window,
+        checkpoint,
+        pktUid,
+        (packed == 0) ? static_cast<std::uint8_t>(1) : packed,
+        consumed,
+        macro0,
+    };
+    outNextCursor = rowCursor;
+    return true;
+  };
+  // Packet UID and checkpoint sequence are decoupled:
+  // - pkt_uid is a per-packet unique identifier (used for uop_uid synthesis).
+  // - checkpoint is a per-instruction sequence (decode uses base+slot for
+  //   start-marker checkpoint tags), so packed bundles must advance it by the
+  //   number of instructions, not by packets.
+  std::uint64_t ifuStubMemPktUid = 1;
+  std::uint64_t ifuStubMemCkptSeq = 1;
+  std::uint64_t ifuStubMemPc = bootPc;
+
+  auto makeMemIfuStubPacket = [&](std::uint64_t pc, bool allow_pack) -> std::optional<IfuStubPacket> {
+    if (pc == 0)
+      return std::nullopt;
+
+    if (!allow_pack) {
+      // Conservative bring-up mode: fetch one instruction and pad remaining
+      // bytes. This keeps template/macro redirection behavior deterministic.
+      auto fetched = fetchInsnAtPc(memShadow, pc);
+      const std::uint64_t raw = fetched.first;
+      const std::uint8_t len = normalizeLen(fetched.second);
+      const bool isMacro = (len == 4) && isMacroMarker32(static_cast<std::uint32_t>(raw & 0xFFFF'FFFFu));
+      return IfuStubPacket{
+          pc,
+          buildIfuStubWindow(raw, len),
+          (ifuStubMemCkptSeq & 0x3Full),
+          ifuStubMemPktUid,
+          1,
+          len,
+          isMacro,
+      };
+    }
+
+    // Pack up to 4 sequential instructions into an 8B window. Enforce the same
+    // "macro/template must be slot0" rule as decode_bundle_8B.
+    std::uint64_t window = 0;
+    std::uint8_t consumed = 0;
+    std::uint8_t packed = 0;
+    bool macro0 = false;
+    bool bstart0 = false;
+
+    while (packed < 4) {
+      const std::uint64_t slotPc = pc + static_cast<std::uint64_t>(consumed);
+      auto fetched = fetchInsnAtPc(memShadow, slotPc);
+      const std::uint64_t raw = fetched.first;
+      const std::uint8_t len = normalizeLen(fetched.second);
+      if (consumed + len > 8) {
+        break;
+      }
+
+      const bool isMacro = (len == 4) && isMacroMarker32(static_cast<std::uint32_t>(raw & 0xFFFF'FFFFu));
+      bool isBstart = false;
+      if (len == 2) {
+        isBstart = isBstart16(static_cast<std::uint16_t>(raw & 0xFFFFu));
+      } else if (len == 4) {
+        isBstart = isBstart32(static_cast<std::uint32_t>(raw & 0xFFFF'FFFFu));
+      } else if (len == 6) {
+        isBstart = isBstart48(raw);
+      }
+
+      // Keep macro/template blocks and BSTART markers aligned to slot0.
+      if (packed != 0 && (isMacro || isBstart)) {
+        break;
+      }
+
+      for (std::uint8_t i = 0; i < len; i++) {
+        const std::uint8_t b = static_cast<std::uint8_t>((raw >> (8u * i)) & 0xFFu);
+        window |= static_cast<std::uint64_t>(b) << (8u * (consumed + i));
+      }
+
+      if (packed == 0) {
+        macro0 = isMacro;
+        bstart0 = isBstart;
+      }
+
+      consumed = static_cast<std::uint8_t>(consumed + len);
+      packed = static_cast<std::uint8_t>(packed + 1);
+
+      if (macro0 || bstart0) {
+        break;
+      }
+    }
+
+    for (std::uint8_t i = consumed; i < 8; i++) {
+      window |= 0xFFull << (8u * i);
+    }
+
+    if (consumed == 0) {
+      consumed = 4;
+      window = 0xFFFF'FFFF'FFFF'FFFFull;
+    }
+
+    return IfuStubPacket{
+        pc,
+        window,
+        (ifuStubMemCkptSeq & 0x3Full),
+        ifuStubMemPktUid,
+        (packed == 0) ? static_cast<std::uint8_t>(1) : packed,
+        consumed,
+        macro0,
+    };
+  };
+
+  // Hard-cut: instruction supply is always host/QEMU-driven into the on-chip IB.
+  dut.tb_ifu_stub_enable = Wire<1>(1);
+
+  static constexpr std::array<const char *, 39> kTraceProbeStageNames = {
       "F0", "F1", "F2", "F3", "F4", "D1", "D2", "D3", "IQ", "S1", "S2", "P1", "I1",
       "I2", "E1", "E2", "E3", "E4", "W1", "W2", "LIQ", "LHQ", "STQ", "SCB", "MDB",
       "L1D", "BISQ", "BCTRL", "TMU", "TMA", "CUBE", "VEC", "TAU", "BROB", "ROB", "CMT", "FLS", "XCHK", "IB",
   };
-  static constexpr std::uint64_t kTraceSidRob = 34;
-  static constexpr std::uint64_t kTraceSidCmt = 35;
-  static constexpr std::uint64_t kTraceSidFls = 36;
-  static constexpr std::uint64_t kTraceSidXchk = 37;
+  static constexpr std::array<const char *, 16> kTraceStageNames = {
+      "IB", "D1", "D2", "D3", "S1", "S2", "IQ", "P1",
+      "I1", "I2", "E1", "W1", "W2", "CMT", "FLS", "XCHK",
+  };
+  static constexpr std::uint64_t kTraceSidIb = 0;
+  static constexpr std::uint64_t kTraceSidD1 = 1;
+  static constexpr std::uint64_t kTraceSidD2 = 2;
+  static constexpr std::uint64_t kTraceSidD3 = 3;
+  static constexpr std::uint64_t kTraceSidS1 = 4;
+  static constexpr std::uint64_t kTraceSidS2 = 5;
+  static constexpr std::uint64_t kTraceSidIq = 6;
+  static constexpr std::uint64_t kTraceSidP1 = 7;
+  static constexpr std::uint64_t kTraceSidI1 = 8;
+  static constexpr std::uint64_t kTraceSidI2 = 9;
+  static constexpr std::uint64_t kTraceSidE1 = 10;
+  static constexpr std::uint64_t kTraceSidW1 = 11;
+  static constexpr std::uint64_t kTraceSidW2 = 12;
+  static constexpr std::uint64_t kTraceSidCmt = 13;
+  static constexpr std::uint64_t kTraceSidFls = 14;
+  static constexpr std::uint64_t kTraceSidXchk = 15;
   static constexpr std::uint64_t kTraceKindNormal = 0;
   static constexpr std::uint64_t kTraceKindFlush = 1;
   static constexpr std::uint64_t kTraceKindTrap = 2;
   static constexpr std::uint64_t kTraceKindReplay = 3;
+  static constexpr std::uint64_t kTraceKindTemplate = 4;
+  static constexpr std::uint64_t kTraceKindPacket = 5;
 
   struct PvEntry {
     std::uint64_t id = 0;
@@ -927,15 +1127,16 @@ int main(int argc, char **argv) {
   std::unordered_map<std::uint64_t, PvEntry> pvByUid{};
   std::unordered_map<std::uint64_t, std::uint64_t> pvUidToKid{};
   std::unordered_map<std::uint64_t, std::uint64_t> pvUidLastRetireCycle{};
+  std::unordered_map<std::uint64_t, std::uint64_t> rawUidLastTerminalCycle{};
   std::array<std::uint64_t, 64> blockBidByRob{};
   std::unordered_map<std::uint64_t, std::uint64_t> blockBidByUid{};
+  std::unordered_map<std::uint64_t, std::uint64_t> blockUidByBid{};
   std::uint64_t nextSyntheticBlockBidHi = 1;
   std::unordered_set<std::uint64_t> dfxRetiredKeysCycle{};
   std::unordered_set<std::uint64_t> dfxTouchedUidCycle{};
-  std::uint64_t pvNextKonataId = 1;
+  std::uint64_t pvNextTraceRowId = 1;
   std::unordered_map<std::string, std::string> disasmCache{};
-  std::uint64_t curCycleKonata = 0;
-  bool linxtraceBootInjected = false;
+  std::uint64_t curCycleTrace = 0;
 
   auto lookupDisasm = [&](std::uint64_t raw, std::uint8_t len) -> std::string {
     const std::uint8_t useLen = normalizeLen(len);
@@ -948,15 +1149,47 @@ int main(int argc, char **argv) {
     return d;
   };
 
-  auto pvDisasmForLabel = [&](const std::string &disasm, std::uint64_t op) {
+  auto opNameFromDisasm = [](const std::string &disasm) -> std::string {
+    if (disasm.empty() || disasm == "<disasm-unavailable>")
+      return {};
+    std::size_t i = 0;
+    while (i < disasm.size() && std::isspace(static_cast<unsigned char>(disasm[i])) != 0)
+      i++;
+    std::size_t j = i;
+    while (j < disasm.size()) {
+      const char ch = disasm[j];
+      if (std::isspace(static_cast<unsigned char>(ch)) != 0 || ch == ',' || ch == ';')
+        break;
+      j++;
+    }
+    if (j <= i)
+      return {};
+    return disasm.substr(i, j - i);
+  };
+
+  auto fallbackInsnToken = [](std::uint64_t insn, std::uint8_t len) -> std::string {
+    std::ostringstream ss;
+    ss << "insn_" << insnHexToken(insn, len);
+    return ss.str();
+  };
+
+  auto resolveOpName = [&](std::uint64_t op, std::uint64_t insn, std::uint8_t len, const std::string &disasm) -> std::string {
+    auto it = opNameMap.find(op);
+    if (it != opNameMap.end() && !it->second.empty())
+      return it->second;
+    const std::string parsed = opNameFromDisasm(disasm);
+    if (!parsed.empty())
+      return parsed;
+    return fallbackInsnToken(insn, len);
+  };
+
+  auto pvDisasmForLabel = [&](const std::string &disasm, std::uint64_t op, std::uint64_t insn, std::uint8_t len) {
     if (disasm != "<disasm-unavailable>")
       return disasm;
     auto it = opNameMap.find(op);
-    if (it != opNameMap.end())
+    if (it != opNameMap.end() && !it->second.empty())
       return it->second;
-    std::ostringstream ss;
-    ss << "uop_op" << op;
-    return ss.str();
+    return fallbackInsnToken(insn, len);
   };
 
   auto pvInsnText = [](std::uint64_t pc, const std::string &disasm) {
@@ -977,9 +1210,373 @@ int main(int argc, char **argv) {
       return "trap";
     case 3:
       return "replay";
+    case 5:
+      return "packet";
     default:
       return "template_child";
     }
+  };
+  auto canonicalStageFromProbeSid = [&](int probeSid, std::uint64_t kind) -> int {
+    if (probeSid < 0 || probeSid >= static_cast<int>(kTraceProbeStageNames.size()))
+      return -1;
+    if (kind == kTraceKindPacket)
+      return -1;
+    const std::string_view probe = kTraceProbeStageNames[static_cast<std::size_t>(probeSid)];
+    if (probe == "FLS")
+      return static_cast<int>(kTraceSidFls);
+    if (probe == "XCHK")
+      return static_cast<int>(kTraceSidXchk);
+    if (probe == "IB" || probe == "F0" || probe == "F1" || probe == "F2" || probe == "F3" || probe == "F4")
+      return static_cast<int>(kTraceSidIb);
+    if (probe == "D1")
+      return static_cast<int>(kTraceSidD1);
+    if (probe == "D2")
+      return static_cast<int>(kTraceSidD2);
+    if (probe == "D3")
+      return static_cast<int>(kTraceSidD3);
+    if (probe == "S1")
+      return static_cast<int>(kTraceSidS1);
+    if (probe == "S2")
+      return static_cast<int>(kTraceSidS2);
+    if (probe == "IQ")
+      return static_cast<int>(kTraceSidIq);
+    if (probe == "P1")
+      return static_cast<int>(kTraceSidP1);
+    if (probe == "I1")
+      return static_cast<int>(kTraceSidI1);
+    if (probe == "I2")
+      return static_cast<int>(kTraceSidI2);
+    if (probe == "E1")
+      return static_cast<int>(kTraceSidE1);
+    if (probe == "W1")
+      return static_cast<int>(kTraceSidW1);
+    if (probe == "W2")
+      return static_cast<int>(kTraceSidW2);
+    return -1;
+  };
+  auto probeSidFromStageToken = [&](std::string_view stageToken) -> int {
+    std::string upper{};
+    upper.reserve(stageToken.size());
+    for (char ch : stageToken) {
+      upper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(ch))));
+    }
+    for (std::size_t sid = 0; sid < kTraceProbeStageNames.size(); ++sid) {
+      if (upper == kTraceProbeStageNames[sid]) {
+        return static_cast<int>(sid);
+      }
+    }
+    return -1;
+  };
+  auto readProbeValue = [&](const ProbeRegistry::Entry *entry) -> std::uint64_t {
+    if (!entry || entry->ptr == nullptr) {
+      return 0;
+    }
+    switch (entry->width_bits) {
+    case 1:
+      return reinterpret_cast<const Wire<1> *>(entry->ptr)->value();
+    case 2:
+      return reinterpret_cast<const Wire<2> *>(entry->ptr)->value();
+    case 3:
+      return reinterpret_cast<const Wire<3> *>(entry->ptr)->value();
+    case 4:
+      return reinterpret_cast<const Wire<4> *>(entry->ptr)->value();
+    case 6:
+      return reinterpret_cast<const Wire<6> *>(entry->ptr)->value();
+    case 8:
+      return reinterpret_cast<const Wire<8> *>(entry->ptr)->value();
+    case 12:
+      return reinterpret_cast<const Wire<12> *>(entry->ptr)->value();
+    case 16:
+      return reinterpret_cast<const Wire<16> *>(entry->ptr)->value();
+    case 24:
+      return reinterpret_cast<const Wire<24> *>(entry->ptr)->value();
+    case 32:
+      return reinterpret_cast<const Wire<32> *>(entry->ptr)->value();
+    case 64:
+      return reinterpret_cast<const Wire<64> *>(entry->ptr)->value();
+    default:
+      return 0;
+    }
+  };
+  auto readProbeBool = [&](const ProbeRegistry::Entry *entry) -> bool { return readProbeValue(entry) != 0; };
+  std::vector<std::string> missingProbePaths{};
+  auto requireProbe = [&](const std::string &path) -> const ProbeRegistry::Entry * {
+    if (const auto *entry = probeRegistry.findByPath(path)) {
+      return entry;
+    }
+    missingProbePaths.push_back(path);
+    return nullptr;
+  };
+  struct OccProbeSet {
+    int probeSid = -1;
+    int lane = 0;
+    const ProbeRegistry::Entry *valid = nullptr;
+    const ProbeRegistry::Entry *uid = nullptr;
+    const ProbeRegistry::Entry *pc = nullptr;
+    const ProbeRegistry::Entry *rob = nullptr;
+    const ProbeRegistry::Entry *kind = nullptr;
+    const ProbeRegistry::Entry *parent = nullptr;
+    const ProbeRegistry::Entry *blockUid = nullptr;
+    const ProbeRegistry::Entry *coreId = nullptr;
+    const ProbeRegistry::Entry *stall = nullptr;
+    const ProbeRegistry::Entry *stallCause = nullptr;
+  };
+  std::unordered_map<std::string, OccProbeSet> occProbeMap{};
+  for (const auto *entry : probeRegistry.findByGlob("dut:probe.pipeview.**")) {
+    const std::string &path = entry->path;
+    const std::size_t colonPos = path.rfind(':');
+    if (colonPos == std::string::npos) {
+      continue;
+    }
+    const std::string leaf = path.substr(colonPos + 1);
+    static constexpr std::string_view kOccPrefix = "probe.pipeview.";
+    if (leaf.rfind(kOccPrefix, 0) != 0) {
+      continue;
+    }
+    const std::string rel = leaf.substr(kOccPrefix.size());
+    const std::size_t dot0 = rel.find('.');
+    const std::size_t dot1 = (dot0 == std::string::npos) ? std::string::npos : rel.find('.', dot0 + 1);
+    if (dot0 == std::string::npos || dot1 == std::string::npos || rel.find('.', dot1 + 1) != std::string::npos) {
+      continue;
+    }
+    const std::string stage = rel.substr(0, dot0);
+    const std::string laneToken = rel.substr(dot0 + 1, dot1 - (dot0 + 1));
+    if (laneToken.rfind("lane", 0) != 0) {
+      continue;
+    }
+    const std::string laneText = laneToken.substr(4);
+    int lane = 0;
+    try {
+      lane = std::stoi(laneText);
+    } catch (...) {
+      continue;
+    }
+    const std::string field = rel.substr(dot1 + 1);
+    std::string key = stage;
+    key.push_back('#');
+    key.append(std::to_string(lane));
+    auto &probe = occProbeMap[key];
+    probe.probeSid = probeSidFromStageToken(stage);
+    probe.lane = lane;
+    if (field == "valid") {
+      probe.valid = entry;
+    } else if (field == "uop_uid") {
+      probe.uid = entry;
+    } else if (field == "pc") {
+      probe.pc = entry;
+    } else if (field == "rob") {
+      probe.rob = entry;
+    } else if (field == "kind") {
+      probe.kind = entry;
+    } else if (field == "parent_uid") {
+      probe.parent = entry;
+    } else if (field == "block_uid") {
+      probe.blockUid = entry;
+    } else if (field == "core_id") {
+      probe.coreId = entry;
+    } else if (field == "stall") {
+      probe.stall = entry;
+    } else if (field == "stall_cause") {
+      probe.stallCause = entry;
+    }
+  }
+  std::vector<OccProbeSet> occProbes{};
+  occProbes.reserve(occProbeMap.size());
+  for (const auto &kv : occProbeMap) {
+    const auto &probe = kv.second;
+    if (probe.probeSid < 0 || !probe.valid || !probe.uid || !probe.pc) {
+      continue;
+    }
+    occProbes.push_back(probe);
+  }
+  std::sort(occProbes.begin(), occProbes.end(), [](const OccProbeSet &a, const OccProbeSet &b) {
+    if (a.probeSid != b.probeSid) {
+      return a.probeSid < b.probeSid;
+    }
+    return a.lane < b.lane;
+  });
+  if (occProbes.empty()) {
+    std::cerr << "ERROR: ProbeRegistry did not expose any probe.pipeview occupancy probes\n";
+    return 2;
+  }
+  struct CommitRedirectProbeSet {
+    const ProbeRegistry::Entry *valid = nullptr;
+    const ProbeRegistry::Entry *pc = nullptr;
+    const ProbeRegistry::Entry *bid = nullptr;
+    const ProbeRegistry::Entry *replayCause = nullptr;
+    const ProbeRegistry::Entry *bruFaultSet = nullptr;
+  };
+  struct CommitSlotProbeSet {
+    const ProbeRegistry::Entry *fire = nullptr;
+    const ProbeRegistry::Entry *pc = nullptr;
+    const ProbeRegistry::Entry *rob = nullptr;
+    const ProbeRegistry::Entry *op = nullptr;
+    const ProbeRegistry::Entry *uopUid = nullptr;
+    const ProbeRegistry::Entry *parentUopUid = nullptr;
+    const ProbeRegistry::Entry *blockUid = nullptr;
+    const ProbeRegistry::Entry *blockBid = nullptr;
+    const ProbeRegistry::Entry *coreId = nullptr;
+    const ProbeRegistry::Entry *isBstart = nullptr;
+    const ProbeRegistry::Entry *isBstop = nullptr;
+    const ProbeRegistry::Entry *loadStoreId = nullptr;
+    const ProbeRegistry::Entry *templateKind = nullptr;
+    const ProbeRegistry::Entry *len = nullptr;
+    const ProbeRegistry::Entry *insnRaw = nullptr;
+    const ProbeRegistry::Entry *wbValid = nullptr;
+    const ProbeRegistry::Entry *wbRd = nullptr;
+    const ProbeRegistry::Entry *wbData = nullptr;
+    const ProbeRegistry::Entry *src0Valid = nullptr;
+    const ProbeRegistry::Entry *src0Reg = nullptr;
+    const ProbeRegistry::Entry *src0Data = nullptr;
+    const ProbeRegistry::Entry *src1Valid = nullptr;
+    const ProbeRegistry::Entry *src1Reg = nullptr;
+    const ProbeRegistry::Entry *src1Data = nullptr;
+    const ProbeRegistry::Entry *dstValid = nullptr;
+    const ProbeRegistry::Entry *dstReg = nullptr;
+    const ProbeRegistry::Entry *dstData = nullptr;
+    const ProbeRegistry::Entry *memValid = nullptr;
+    const ProbeRegistry::Entry *memIsStore = nullptr;
+    const ProbeRegistry::Entry *memAddr = nullptr;
+    const ProbeRegistry::Entry *memWdata = nullptr;
+    const ProbeRegistry::Entry *memRdata = nullptr;
+    const ProbeRegistry::Entry *memSize = nullptr;
+    const ProbeRegistry::Entry *trapValid = nullptr;
+    const ProbeRegistry::Entry *trapCause = nullptr;
+    const ProbeRegistry::Entry *nextPc = nullptr;
+  };
+  struct BlockProbeSet {
+    const ProbeRegistry::Entry *activeBid = nullptr;
+    const ProbeRegistry::Entry *queryState = nullptr;
+    const ProbeRegistry::Entry *queryAllocated = nullptr;
+    const ProbeRegistry::Entry *queryReady = nullptr;
+    const ProbeRegistry::Entry *queryException = nullptr;
+    const ProbeRegistry::Entry *queryRetired = nullptr;
+    const ProbeRegistry::Entry *count = nullptr;
+    const ProbeRegistry::Entry *allocReady = nullptr;
+    const ProbeRegistry::Entry *allocBid = nullptr;
+    const ProbeRegistry::Entry *rspValid = nullptr;
+    const ProbeRegistry::Entry *rspSrcRob = nullptr;
+    const ProbeRegistry::Entry *rspBid = nullptr;
+    const ProbeRegistry::Entry *retireFire = nullptr;
+    const ProbeRegistry::Entry *retireBid = nullptr;
+    const ProbeRegistry::Entry *issueFire = nullptr;
+    const ProbeRegistry::Entry *issueBid = nullptr;
+    const ProbeRegistry::Entry *issueSrcRob = nullptr;
+  };
+  struct CommitDbgProbeSet {
+    const ProbeRegistry::Entry *redirectFromCorr = nullptr;
+    const ProbeRegistry::Entry *brKind = nullptr;
+    const ProbeRegistry::Entry *brEpoch = nullptr;
+    const ProbeRegistry::Entry *brPredTake = nullptr;
+    const ProbeRegistry::Entry *brBase = nullptr;
+    const ProbeRegistry::Entry *brOff = nullptr;
+    const ProbeRegistry::Entry *commitCond = nullptr;
+    const ProbeRegistry::Entry *brCorrPending = nullptr;
+    const ProbeRegistry::Entry *brCorrEpoch = nullptr;
+    const ProbeRegistry::Entry *brCorrTake = nullptr;
+    const ProbeRegistry::Entry *brCorrTarget = nullptr;
+  };
+  auto commitSlotPath = [](int slot, std::string_view field) -> std::string {
+    return std::string("dut:probe.commit.slot") + std::to_string(slot) + "." + std::string(field);
+  };
+  CommitRedirectProbeSet commitRedirectProbes{};
+  commitRedirectProbes.valid = requireProbe("dut:probe.commit.redirect.valid");
+  commitRedirectProbes.pc = requireProbe("dut:probe.commit.redirect.pc");
+  commitRedirectProbes.bid = requireProbe("dut:probe.commit.redirect.bid");
+  commitRedirectProbes.replayCause = requireProbe("dut:probe.commit.redirect.replay_cause");
+  commitRedirectProbes.bruFaultSet = requireProbe("dut:probe.commit.redirect.bru_fault_set");
+  std::array<CommitSlotProbeSet, 4> commitSlotProbes{};
+  for (int slot = 0; slot < 4; ++slot) {
+    auto &probe = commitSlotProbes[static_cast<std::size_t>(slot)];
+    probe.fire = requireProbe(commitSlotPath(slot, "fire"));
+    probe.pc = requireProbe(commitSlotPath(slot, "pc"));
+    probe.rob = requireProbe(commitSlotPath(slot, "rob"));
+    probe.op = requireProbe(commitSlotPath(slot, "op"));
+    probe.uopUid = requireProbe(commitSlotPath(slot, "uop_uid"));
+    probe.parentUopUid = requireProbe(commitSlotPath(slot, "parent_uop_uid"));
+    probe.blockUid = requireProbe(commitSlotPath(slot, "block_uid"));
+    probe.blockBid = requireProbe(commitSlotPath(slot, "block_bid"));
+    probe.coreId = requireProbe(commitSlotPath(slot, "core_id"));
+    probe.isBstart = requireProbe(commitSlotPath(slot, "is_bstart"));
+    probe.isBstop = requireProbe(commitSlotPath(slot, "is_bstop"));
+    probe.loadStoreId = requireProbe(commitSlotPath(slot, "load_store_id"));
+    probe.templateKind = requireProbe(commitSlotPath(slot, "template_kind"));
+    probe.len = requireProbe(commitSlotPath(slot, "len"));
+    probe.insnRaw = requireProbe(commitSlotPath(slot, "insn_raw"));
+    probe.wbValid = requireProbe(commitSlotPath(slot, "wb_valid"));
+    probe.wbRd = requireProbe(commitSlotPath(slot, "wb_rd"));
+    probe.wbData = requireProbe(commitSlotPath(slot, "wb_data"));
+    probe.src0Valid = requireProbe(commitSlotPath(slot, "src0_valid"));
+    probe.src0Reg = requireProbe(commitSlotPath(slot, "src0_reg"));
+    probe.src0Data = requireProbe(commitSlotPath(slot, "src0_data"));
+    probe.src1Valid = requireProbe(commitSlotPath(slot, "src1_valid"));
+    probe.src1Reg = requireProbe(commitSlotPath(slot, "src1_reg"));
+    probe.src1Data = requireProbe(commitSlotPath(slot, "src1_data"));
+    probe.dstValid = requireProbe(commitSlotPath(slot, "dst_valid"));
+    probe.dstReg = requireProbe(commitSlotPath(slot, "dst_reg"));
+    probe.dstData = requireProbe(commitSlotPath(slot, "dst_data"));
+    probe.memValid = requireProbe(commitSlotPath(slot, "mem_valid"));
+    probe.memIsStore = requireProbe(commitSlotPath(slot, "mem_is_store"));
+    probe.memAddr = requireProbe(commitSlotPath(slot, "mem_addr"));
+    probe.memWdata = requireProbe(commitSlotPath(slot, "mem_wdata"));
+    probe.memRdata = requireProbe(commitSlotPath(slot, "mem_rdata"));
+    probe.memSize = requireProbe(commitSlotPath(slot, "mem_size"));
+    probe.trapValid = requireProbe(commitSlotPath(slot, "trap_valid"));
+    probe.trapCause = requireProbe(commitSlotPath(slot, "trap_cause"));
+    probe.nextPc = requireProbe(commitSlotPath(slot, "next_pc"));
+  }
+  BlockProbeSet blockProbes{};
+  blockProbes.activeBid = requireProbe("dut:probe.block.brob.active_bid");
+  blockProbes.queryState = requireProbe("dut:probe.block.brob.query_state");
+  blockProbes.queryAllocated = requireProbe("dut:probe.block.brob.query_allocated");
+  blockProbes.queryReady = requireProbe("dut:probe.block.brob.query_ready");
+  blockProbes.queryException = requireProbe("dut:probe.block.brob.query_exception");
+  blockProbes.queryRetired = requireProbe("dut:probe.block.brob.query_retired");
+  blockProbes.count = requireProbe("dut:probe.block.brob.count");
+  blockProbes.allocReady = requireProbe("dut:probe.block.brob.alloc_ready");
+  blockProbes.allocBid = requireProbe("dut:probe.block.brob.alloc_bid");
+  blockProbes.rspValid = requireProbe("dut:probe.block.brob.rsp_valid");
+  blockProbes.rspSrcRob = requireProbe("dut:probe.block.brob.rsp_src_rob");
+  blockProbes.rspBid = requireProbe("dut:probe.block.brob.rsp_bid");
+  blockProbes.retireFire = requireProbe("dut:probe.block.brob.retire_fire");
+  blockProbes.retireBid = requireProbe("dut:probe.block.brob.retire_bid");
+  blockProbes.issueFire = requireProbe("dut:probe.block.bctrl.issue_fire");
+  blockProbes.issueBid = requireProbe("dut:probe.block.bctrl.issue_bid");
+  blockProbes.issueSrcRob = requireProbe("dut:probe.block.bctrl.issue_src_rob");
+  CommitDbgProbeSet commitDbgProbes{};
+  commitDbgProbes.redirectFromCorr =
+      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:redirect_from_corr_dbg");
+  commitDbgProbes.brKind =
+      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_kind_dbg");
+  commitDbgProbes.brEpoch =
+      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_epoch_dbg");
+  commitDbgProbes.brPredTake =
+      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_pred_take_dbg");
+  commitDbgProbes.brBase =
+      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_base_dbg");
+  commitDbgProbes.brOff =
+      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_off_dbg");
+  commitDbgProbes.commitCond =
+      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:commit_cond_dbg");
+  commitDbgProbes.brCorrPending =
+      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_corr_pending_dbg");
+  commitDbgProbes.brCorrEpoch =
+      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_corr_epoch_dbg");
+  commitDbgProbes.brCorrTake =
+      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_corr_take_dbg");
+  commitDbgProbes.brCorrTarget =
+      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_corr_target_dbg");
+  if (!missingProbePaths.empty()) {
+    std::cerr << "ERROR: ProbeRegistry is missing required probe paths:\n";
+    for (const auto &path : missingProbePaths) {
+      std::cerr << "  " << path << "\n";
+    }
+    return 2;
+  }
+  auto pvLaneToken = [](int lane) -> std::string {
+    std::ostringstream ss;
+    ss << "c0.l" << (lane < 0 ? 0 : lane);
+    return ss.str();
   };
   auto pvFmtOperand = [](bool valid, std::uint32_t reg, std::uint64_t data) -> std::string {
     if (!valid) {
@@ -1020,15 +1617,14 @@ int main(int argc, char **argv) {
   };
 
   auto pvFlushAll = [&](const char *reason) {
-    if (!konata.isOpen())
+    if (!linxtrace_writer.isOpen())
       return;
     (void)reason;
     for (const auto &kv : pvByUid) {
       const PvEntry &e = kv.second;
-      // Avoid emitting an extra OCC in the same cycle as an existing stage
-      // residency sample; strict linxtrace lint enforces single-stage-per-cycle.
-      konata.retire(e.id, e.id, 1);
-      pvUidLastRetireCycle[kv.first] = curCycleKonata;
+      linxtrace_writer.presenceV5(e.id, pvLaneToken(e.lane), "FLS", 1, "global_flush");
+      linxtrace_writer.retire(e.id, e.id, 1);
+      pvUidLastRetireCycle[kv.first] = curCycleTrace;
     }
     pvByUid.clear();
   };
@@ -1047,7 +1643,7 @@ int main(int argc, char **argv) {
       }
     } else {
       const std::string stem = std::filesystem::path(memhPath).stem().string();
-      base = defaultGenLinxtraceDir() /
+      base = std::filesystem::path("/Users/zhoubot/LinxCore/generated/linxtrace") /
              ((stem.empty() ? std::string("program") : stem) + "_crosscheck");
     }
     XcheckReportPaths out{};
@@ -1211,21 +1807,9 @@ int main(int argc, char **argv) {
   std::uint64_t retireSeq = 0;
   std::uint64_t retiredCount = 0;
   std::uint64_t noRetireStreak = 0;
-  std::uint64_t lastWbCycle[4] = {0, 0, 0, 0};
-  std::uint64_t lastWbRob[4] = {0, 0, 0, 0};
-  std::uint64_t lastWbVal[4] = {0, 0, 0, 0};
-  bool lastWbSeen[4] = {false, false, false, false};
-  std::uint64_t lastIssueCycle[4] = {0, 0, 0, 0};
-  std::uint64_t lastIssueRob[4] = {0, 0, 0, 0};
-  std::uint64_t lastIssueOp[4] = {0, 0, 0, 0};
-  std::uint64_t lastIssuePc[4] = {0, 0, 0, 0};
-  bool lastIssueSeen[4] = {false, false, false, false};
-  bool issueWbPipeMismatchReported = false;
-  bool prevIssueFire[4] = {false, false, false, false};
-  std::uint64_t prevIssueRob[4] = {0, 0, 0, 0};
   auto pvOnEvent = [&](std::uint64_t uid, int stageId, int lane, std::uint64_t pc, std::uint64_t rob,
                        std::uint64_t kind, std::uint64_t parentUid, std::uint64_t stall, std::uint64_t stallCause) {
-    if (!konata.isOpen())
+    if (!linxtrace_writer.isOpen())
       return;
     if (uid == 0) {
       // Global redirect/fault probes do not identify a specific dynamic uop.
@@ -1241,7 +1825,7 @@ int main(int argc, char **argv) {
 
     auto it = pvByUid.find(uid);
     if (it == pvByUid.end()) {
-      auto fetched = fetchInsnAtPc(dut.mem2r1w->imem, pc);
+      auto fetched = fetchInsnAtPc(memShadow, pc);
       const std::uint64_t raw = fetched.first;
       const std::uint8_t len = normalizeLen(fetched.second);
       std::string disasm{};
@@ -1249,10 +1833,10 @@ int main(int argc, char **argv) {
       if (itObjdump != objdumpPcMap.end()) {
         disasm = itObjdump->second;
       } else {
-        disasm = pvDisasmForLabel(lookupDisasm(raw, len), 0);
+        disasm = pvDisasmForLabel(lookupDisasm(raw, len), 0, raw, len);
       }
       PvEntry ent{};
-      ent.id = pvNextKonataId++;
+      ent.id = pvNextTraceRowId++;
       ent.lane = lane;
       ent.stageId = -1;
       ent.pc = pc;
@@ -1260,11 +1844,11 @@ int main(int argc, char **argv) {
       ent.raw = raw;
       ent.len = len;
       ent.disasm = disasm;
-      konata.insnV5(ent.id, toHex(uid), 0, toHex(parentUid), pvKindText(kind));
-      konata.label(ent.id, 0, pvInsnText(pc, disasm));
+      linxtrace_writer.insnV5(ent.id, toHex(uid), 0, toHex(parentUid), pvKindText(kind));
+      linxtrace_writer.label(ent.id, 0, pvInsnText(pc, disasm));
       std::ostringstream detail;
       detail << "uid=" << uid << " parent=" << parentUid << " kind=" << kind << " rob=" << rob;
-      konata.label(ent.id, 1, detail.str());
+      linxtrace_writer.label(ent.id, 1, detail.str());
       it = pvByUid.emplace(uid, std::move(ent)).first;
       pvUidToKid[uid] = it->second.id;
     }
@@ -1277,28 +1861,28 @@ int main(int argc, char **argv) {
 
     e.stageId = stageId;
     e.lane = lane;
-    konata.presence(
+    linxtrace_writer.presenceV5(
         e.id,
-        lane,
+        pvLaneToken(lane),
         kTraceStageNames[static_cast<std::size_t>(stageId)],
         stall ? 1 : 0,
         std::to_string(stallCause));
 
     if (kind == kTraceKindFlush || kind == kTraceKindReplay || stageId == static_cast<int>(kTraceSidFls)) {
       if (stageId != static_cast<int>(kTraceSidFls)) {
-        konata.presence(e.id, e.lane, "FLS", 1, "flush");
+        linxtrace_writer.presenceV5(e.id, pvLaneToken(e.lane), "FLS", 1, "flush");
       }
-      konata.retire(e.id, e.id, 1);
+      linxtrace_writer.retire(e.id, e.id, 1);
       dfxRetiredKeysCycle.insert(pvRetireKey(e.pc, e.rob, e.lane));
-      pvUidLastRetireCycle[uid] = curCycleKonata;
+      pvUidLastRetireCycle[uid] = curCycleTrace;
       pvByUid.erase(it);
       return;
     }
 
     if (kind == kTraceKindTrap || stageId == static_cast<int>(kTraceSidCmt)) {
-      konata.retire(e.id, e.id, (kind == kTraceKindTrap) ? 1 : 0);
+      linxtrace_writer.retire(e.id, e.id, (kind == kTraceKindTrap) ? 1 : 0);
       dfxRetiredKeysCycle.insert(pvRetireKey(e.pc, e.rob, e.lane));
-      pvUidLastRetireCycle[uid] = curCycleKonata;
+      pvUidLastRetireCycle[uid] = curCycleTrace;
       pvByUid.erase(it);
     }
   };
@@ -1308,20 +1892,154 @@ int main(int argc, char **argv) {
   std::uint64_t icReqAddrPending = 0;
   std::uint64_t icReqRemainCycles = 0;
   auto buildIcacheLine = [&](std::uint64_t lineAddr) -> Wire<512> {
-    Wire<512> out(0);
-    for (unsigned wi = 0; wi < 8; wi++) {
-      std::uint64_t w = 0;
-      const std::uint64_t base = lineAddr + static_cast<std::uint64_t>(wi) * 8ull;
-      for (unsigned bi = 0; bi < 8; bi++) {
-        const std::uint64_t a = base + static_cast<std::uint64_t>(bi);
-        w |= (static_cast<std::uint64_t>(dut.mem2r1w->imem.peekByte(static_cast<std::size_t>(a))) << (8u * bi));
-      }
-      out.setWord(wi, w);
-    }
-    return out;
+    return memShadow.buildIcacheLine(lineAddr);
   };
 
-  while (dut.cycles.value() < maxCycles) {
+  struct CtuDebugSnapshot {
+    bool pre = false;
+    std::uint64_t cycle = 0;
+    std::uint64_t core_pc = 0;
+    std::uint64_t rob_head_pc = 0;
+    std::uint64_t rob_head_op = 0;
+    std::uint64_t br_kind = 0;
+    std::uint64_t br_epoch = 0;
+    std::uint64_t br_pred_take = 0;
+    bool commit_cond = false;
+    bool br_corr_pending = false;
+    std::uint64_t br_corr_epoch = 0;
+    std::uint64_t br_corr_take = 0;
+    std::uint64_t br_corr_target = 0;
+    bool redirect_from_corr = false;
+    std::uint64_t rob_head_valid = 0;
+    std::uint64_t rob_head_done = 0;
+    bool macro_active = false;
+    bool macro_wait_commit = false;
+    bool ctu_start_fire = false;
+    bool ctu_head_ready = false;
+    bool ctu_head_is_macro = false;
+    bool ctu_head_skip = false;
+    bool ctu_block_ifu = false;
+    std::uint64_t force_pc = 0;
+    bool ifu_valid = false;
+    bool ifu_ready = false;
+    std::uint64_t ifu_pc = 0;
+    bool blk_evt_valid = false;
+    std::uint64_t blk_evt_kind = 0;
+    std::uint64_t blk_evt_pc = 0;
+  };
+  constexpr std::size_t kCtuDbgRingSize = 32;
+  std::array<CtuDebugSnapshot, kCtuDbgRingSize> ctuDbgRing{};
+  std::size_t ctuDbgHead = 0;
+  std::size_t ctuDbgCount = 0;
+  std::uint64_t ctuDbgForcePc = 0;
+  std::uint32_t ctuDbgForceCycles = 0;
+  auto pushCtuDbg = [&](const CtuDebugSnapshot &snap) {
+    ctuDbgRing[ctuDbgHead] = snap;
+    ctuDbgHead = (ctuDbgHead + 1) % kCtuDbgRingSize;
+    if (ctuDbgCount < kCtuDbgRingSize) {
+      ctuDbgCount++;
+    }
+  };
+  auto dumpCtuDbg = [&]() {
+    if (ctuDbgCount == 0) {
+      return;
+    }
+    std::cerr << "  ctu_debug_recent (most recent last):\n";
+    const std::size_t base = (ctuDbgHead + kCtuDbgRingSize - ctuDbgCount) % kCtuDbgRingSize;
+    for (std::size_t i = 0; i < ctuDbgCount; i++) {
+      const std::size_t idx = (base + i) % kCtuDbgRingSize;
+      const auto &s = ctuDbgRing[idx];
+      std::cerr << "    ph=" << (s.pre ? "pre" : "post")
+                << " cyc=" << s.cycle
+                << " core_pc=" << toHex(s.core_pc)
+                << " ifu(v=" << (s.ifu_valid ? 1 : 0) << ",r=" << (s.ifu_ready ? 1 : 0)
+                << ",pc=" << toHex(s.ifu_pc) << ")"
+                << " rob_head_pc=" << toHex(s.rob_head_pc)
+                << " rob_head_op=" << s.rob_head_op
+                << " rob_head(v=" << s.rob_head_valid << ",d=" << s.rob_head_done << ")"
+                << " br_kind=" << s.br_kind
+                << " br_epoch=" << s.br_epoch
+                << " pred_take=" << s.br_pred_take
+                << " cond=" << (s.commit_cond ? 1 : 0)
+                << " corr(p=" << (s.br_corr_pending ? 1 : 0)
+                << ",e=" << s.br_corr_epoch
+                << ",take=" << s.br_corr_take
+                << ",tgt=" << toHex(s.br_corr_target) << ")"
+                << " redir_corr=" << (s.redirect_from_corr ? 1 : 0)
+                << " force_pc=" << toHex(s.force_pc)
+                << " blk_evt(v=" << (s.blk_evt_valid ? 1 : 0) << ",k=" << s.blk_evt_kind
+                << ",pc=" << toHex(s.blk_evt_pc) << ")"
+                << " macro(active=" << (s.macro_active ? 1 : 0) << ",wait=" << (s.macro_wait_commit ? 1 : 0) << ")"
+                << " ctu(start=" << (s.ctu_start_fire ? 1 : 0)
+                << ",head_ready=" << (s.ctu_head_ready ? 1 : 0)
+                << ",head_macro=" << (s.ctu_head_is_macro ? 1 : 0)
+                << ",head_skip=" << (s.ctu_head_skip ? 1 : 0)
+                << ",block_ifu=" << (s.ctu_block_ifu ? 1 : 0) << ")"
+                << "\n";
+    }
+  };
+
+  while ((dut.cycles.value() - startCycle) < maxCycles) {
+    const std::uint64_t cycleNow = dut.cycles.value();
+
+    if (xcheckEnabled && ctuDbgForceCycles == 0 && xcheckQemuCursor < qemuXcheckRows.size()) {
+      const auto &qPeek = qemuXcheckRows[static_cast<std::size_t>(xcheckQemuCursor)];
+      const std::uint8_t qLen = normalizeLen(qPeek.len);
+      const std::uint64_t qInsn = maskInsn(qPeek.insn, qLen);
+      const bool qIsMacro = (qLen == 4) && isMacroMarker32(static_cast<std::uint32_t>(qInsn & 0xFFFF'FFFFu));
+      if (qIsMacro && qPeek.pc != 0) {
+        ctuDbgForcePc = qPeek.pc;
+        ctuDbgForceCycles = 32;
+      }
+    }
+
+    bool ifuStubFire = false;
+    if (!ifuStubPending.has_value()) {
+      if (ifuStubFromQemu) {
+        IfuStubPacket pkt{};
+        std::size_t nextCursor = ifuStubTraceCursor;
+        if (makeTraceIfuStubPacket(ifuStubTraceCursor, pkt, nextCursor)) {
+          ifuStubPending = pkt;
+          ifuStubPendingNextTraceCursor = nextCursor;
+        }
+      } else {
+        // Default memh mode is conservative (1 insn per packet) for stability.
+        // Enable packing explicitly when you want higher IPC from memh runs.
+        const bool allowPack = envFlag("PYC_MEMH_PACK") && !dut.ctu_block_ifu.toBool();
+        ifuStubPending = makeMemIfuStubPacket(ifuStubMemPc, allowPack);
+      }
+    }
+    dut.tb_ifu_stub_enable = Wire<1>(1);
+    if (ifuStubPending.has_value()) {
+      const auto &pkt = *ifuStubPending;
+      dut.tb_ifu_stub_valid = Wire<1>(1);
+      dut.tb_ifu_stub_pc = Wire<64>(pkt.pc);
+      dut.tb_ifu_stub_window = Wire<64>(pkt.window);
+      dut.tb_ifu_stub_checkpoint = Wire<6>(pkt.checkpoint);
+      dut.tb_ifu_stub_pkt_uid = Wire<64>(pkt.pkt_uid);
+      ifuStubFire = dut.tb_ifu_stub_ready.toBool();
+    } else {
+      dut.tb_ifu_stub_valid = Wire<1>(0);
+      dut.tb_ifu_stub_pc = Wire<64>(0);
+      dut.tb_ifu_stub_window = Wire<64>(0);
+      dut.tb_ifu_stub_checkpoint = Wire<6>(0);
+      dut.tb_ifu_stub_pkt_uid = Wire<64>(0);
+    }
+    if (debugIfuStubCycles != 0 && (dut.cycles.value() - startCycle) < debugIfuStubCycles) {
+      std::cerr << "[ifustub-pre] cyc=" << cycleNow
+                << " tb_steps=" << tb.timeSteps()
+                << " clk=" << dut.clk.toBool()
+                << " rst=" << dut.rst.toBool()
+                << " valid=" << dut.tb_ifu_stub_valid.toBool()
+                << " ready=" << dut.tb_ifu_stub_ready.toBool()
+                << " pending=" << (ifuStubPending.has_value() ? 1 : 0)
+                << " pending_pc=" << toHex(ifuStubPending.has_value() ? ifuStubPending->pc : 0)
+                << " drive_pc=" << toHex(dut.tb_ifu_stub_pc.value())
+                << " pkt_uid=" << dut.tb_ifu_stub_pkt_uid.value()
+                << " chk=" << dut.tb_ifu_stub_checkpoint.value()
+                << " cycles_sig=" << dut.cycles.value()
+                << "\n";
+    }
     dut.ic_l2_req_ready = Wire<1>(icReqPending ? 0 : 1);
     if (icRspDriveNow) {
       dut.ic_l2_rsp_valid = Wire<1>(1);
@@ -1337,10 +2055,108 @@ int main(int argc, char **argv) {
 
     const bool icReqSeenPre = (!icReqPending) && dut.ic_l2_req_valid.toBool() && dut.ic_l2_req_ready.toBool();
     const std::uint64_t icReqAddrPre = dut.ic_l2_req_addr.value() & ~0x3Full;
+    if (debugIcache && cycleNow < debugIcacheCycles) {
+      std::cerr << "[icdbg-pre] cyc=" << cycleNow
+                << " req_v=" << dut.ic_l2_req_valid.toBool()
+                << " req_r=" << dut.ic_l2_req_ready.toBool()
+                << " req_a=0x" << std::hex << dut.ic_l2_req_addr.value()
+                << " rsp_v=" << dut.ic_l2_rsp_valid.toBool()
+                << " rsp_a=0x" << std::hex << dut.ic_l2_rsp_addr.value()
+                << " miss_act=" << std::dec << dut.icache_miss_active_dbg.toBool()
+                << " miss_w=" << dut.icache_miss_wait_dbg.toBool()
+                << " miss_p=" << dut.icache_miss_phase_dbg.toBool()
+                << " miss_n0=" << dut.icache_miss_need0_dbg.toBool()
+                << " miss_n1=" << dut.icache_miss_need1_dbg.toBool()
+                << " f1_v=" << dut.icache_f1_valid_dbg.toBool()
+                << " f1_h=" << dut.icache_f1_hit_dbg.toBool()
+                << " f1_m=" << dut.icache_f1_miss_dbg.toBool()
+                << " f1_s=" << dut.icache_f1_stall_dbg.toBool()
+                << " pend=" << icReqPending
+                << " rem=" << std::dec << icReqRemainCycles
+                << " pc=0x" << std::hex << dut.pc.value()
+                << std::dec << "\n";
+    }
+
+    const std::uint64_t brKindPre = 0;
+    const bool macroActivePre = false;
+    const bool macroWaitCommitPre = false;
+    const bool ctuStartFirePre = false;
+    const bool ctuHeadReadyPre = false;
+    const bool ctuHeadIsMacroPre = false;
+    const bool ctuHeadSkipPre = false;
+    const bool ctuBlockIfuPre = dut.ctu_block_ifu.toBool();
+    const bool blkEvtValidPre = false;
+    const std::uint64_t blkEvtKindPre = 0;
+    const std::uint64_t blkEvtPcPre = 0;
+    const std::uint64_t robHeadValidPre = dut.rob_head_valid.value();
+    const std::uint8_t headLenPre = normalizeLen(static_cast<std::uint8_t>(dut.rob_head_len.value() & 0x7u));
+    const std::uint64_t headInsnPre = maskInsn(dut.rob_head_insn_raw.value(), headLenPre);
+    const bool headInsnIsMacroPre = (headLenPre == 4) && isMacroMarker32(static_cast<std::uint32_t>(headInsnPre));
+    if ((robHeadValidPre != 0 && headInsnIsMacroPre) || macroActivePre || macroWaitCommitPre || ctuStartFirePre ||
+        ctuDbgForceCycles > 0) {
+      pushCtuDbg(CtuDebugSnapshot{
+          true,
+          cycleNow,
+          dut.pc.value(),
+          dut.rob_head_pc.value(),
+          dut.rob_head_op.value(),
+          brKindPre,
+          0,
+          0,
+          false,
+          false,
+          0,
+          0,
+          0,
+          false,
+          robHeadValidPre,
+          dut.rob_head_done.value(),
+          macroActivePre,
+          macroWaitCommitPre,
+          ctuStartFirePre,
+          ctuHeadReadyPre,
+          ctuHeadIsMacroPre,
+          ctuHeadSkipPre,
+          ctuBlockIfuPre,
+          ctuDbgForcePc,
+          dut.tb_ifu_stub_valid.toBool(),
+          dut.tb_ifu_stub_ready.toBool(),
+          dut.tb_ifu_stub_pc.value(),
+          blkEvtValidPre,
+          blkEvtKindPre,
+          blkEvtPcPre,
+      });
+    }
 
     // Use Testbench fast-path when clock topology matches (single clock,
     // half-period 1). This cuts redundant comb eval work on negedge.
     tb.runCyclesAuto(1);
+    if (debugIfuStubCycles != 0 && (cycleNow - startCycle) < debugIfuStubCycles) {
+      std::cerr << "[ifustub-post] cyc=" << cycleNow
+                << " tb_steps=" << tb.timeSteps()
+                << " clk=" << dut.clk.toBool()
+                << " rst=" << dut.rst.toBool()
+                << " valid=" << dut.tb_ifu_stub_valid.toBool()
+                << " ready=" << dut.tb_ifu_stub_ready.toBool()
+                << " fire=" << (ifuStubFire ? 1 : 0)
+                << " cycles_sig=" << dut.cycles.value()
+                << " pc_sig=" << toHex(dut.pc.value())
+                << "\n";
+    }
+    if (dut.dmem_wvalid.toBool()) {
+      memShadow.storeGuestWord(dut.dmem_waddr.value(), dut.dmem_wdata.value(),
+                               static_cast<std::uint8_t>(dut.dmem_wstrb.value()));
+    }
+    if (ifuStubFire && ifuStubPending.has_value()) {
+      if (ifuStubFromQemu) {
+        ifuStubTraceCursor = ifuStubPendingNextTraceCursor;
+      } else {
+        ifuStubMemPc += static_cast<std::uint64_t>(ifuStubPending->len_bytes);
+        ifuStubMemPktUid++;
+        ifuStubMemCkptSeq += static_cast<std::uint64_t>(ifuStubPending->insn_count);
+      }
+      ifuStubPending.reset();
+    }
 
     if (icRspDriveNow) {
       icReqPending = false;
@@ -1363,158 +2179,67 @@ int main(int argc, char **argv) {
         icRspDriveNow = false;
       }
     }
-
-    const std::uint64_t cycleNow = dut.cycles.value();
-    const bool curIssueFire[4] = {
-        dut.issue_fire0.toBool(),
-        dut.issue_fire1.toBool(),
-        dut.issue_fire2.toBool(),
-        dut.issue_fire3.toBool(),
-    };
-    const std::uint64_t curIssueRob[4] = {
-        dut.issue_rob0.value(),
-        dut.issue_rob1.value(),
-        dut.issue_rob2.value(),
-        dut.issue_rob3.value(),
-    };
-
-    if (!issueWbPipeMismatchReported && cycleNow > 1) {
-      const bool wbFire[4] = {
-          dut.wb_pipe_fire0.toBool(),
-          dut.wb_pipe_fire1.toBool(),
-          dut.wb_pipe_fire2.toBool(),
-          dut.wb_pipe_fire3.toBool(),
-      };
-      const std::uint64_t wbRob[4] = {
-          dut.wb_pipe_rob0.value(),
-          dut.wb_pipe_rob1.value(),
-          dut.wb_pipe_rob2.value(),
-          dut.wb_pipe_rob3.value(),
-      };
-      for (int s = 0; s < 4; s++) {
-        if (wbFire[s] != prevIssueFire[s]) {
-          std::cerr << "error: wb_pipe_fire" << s << " mismatch at cycle=" << cycleNow
-                    << " wb=" << (wbFire[s] ? 1 : 0) << " prev_issue=" << (prevIssueFire[s] ? 1 : 0) << "\n";
-          issueWbPipeMismatchReported = true;
-          break;
-        }
-        if (wbFire[s] && wbRob[s] != prevIssueRob[s]) {
-          std::cerr << "error: wb_pipe_rob" << s << " mismatch at cycle=" << cycleNow
-                    << " wb_rob=" << wbRob[s] << " prev_issue_rob=" << prevIssueRob[s] << "\n";
-          issueWbPipeMismatchReported = true;
-          break;
-        }
-      }
+    if (debugIcache && cycleNow < debugIcacheCycles) {
+      std::cerr << "[icdbg-post] cyc=" << cycleNow
+                << " req_v=" << dut.ic_l2_req_valid.toBool()
+                << " req_r=" << dut.ic_l2_req_ready.toBool()
+                << " req_a=0x" << std::hex << dut.ic_l2_req_addr.value()
+                << " rsp_v=" << dut.ic_l2_rsp_valid.toBool()
+                << " rsp_a=0x" << std::hex << dut.ic_l2_rsp_addr.value()
+                << " miss_act=" << std::dec << dut.icache_miss_active_dbg.toBool()
+                << " miss_w=" << dut.icache_miss_wait_dbg.toBool()
+                << " miss_p=" << dut.icache_miss_phase_dbg.toBool()
+                << " miss_n0=" << dut.icache_miss_need0_dbg.toBool()
+                << " miss_n1=" << dut.icache_miss_need1_dbg.toBool()
+                << " f1_v=" << dut.icache_f1_valid_dbg.toBool()
+                << " f1_h=" << dut.icache_f1_hit_dbg.toBool()
+                << " f1_m=" << dut.icache_f1_miss_dbg.toBool()
+                << " f1_s=" << dut.icache_f1_stall_dbg.toBool()
+                << " pend=" << icReqPending
+                << " rem=" << std::dec << icReqRemainCycles
+                << " pc=0x" << std::hex << dut.pc.value()
+                << std::dec << "\n";
     }
 
-    for (int s = 0; s < 4; s++) {
-      prevIssueFire[s] = curIssueFire[s];
-      prevIssueRob[s] = curIssueRob[s];
-    }
-    if (dut.issue_fire0.toBool()) {
-      lastIssueSeen[0] = true;
-      lastIssueCycle[0] = cycleNow;
-      lastIssueRob[0] = dut.issue_rob0.value();
-      lastIssueOp[0] = dut.issue_op0.value();
-      lastIssuePc[0] = dut.issue_pc0.value();
-    }
-    if (dut.issue_fire1.toBool()) {
-      lastIssueSeen[1] = true;
-      lastIssueCycle[1] = cycleNow;
-      lastIssueRob[1] = dut.issue_rob1.value();
-      lastIssueOp[1] = dut.issue_op1.value();
-      lastIssuePc[1] = dut.issue_pc1.value();
-    }
-    if (dut.issue_fire2.toBool()) {
-      lastIssueSeen[2] = true;
-      lastIssueCycle[2] = cycleNow;
-      lastIssueRob[2] = dut.issue_rob2.value();
-      lastIssueOp[2] = dut.issue_op2.value();
-      lastIssuePc[2] = dut.issue_pc2.value();
-    }
-    if (dut.issue_fire3.toBool()) {
-      lastIssueSeen[3] = true;
-      lastIssueCycle[3] = cycleNow;
-      lastIssueRob[3] = dut.issue_rob3.value();
-      lastIssueOp[3] = dut.issue_op3.value();
-      lastIssuePc[3] = dut.issue_pc3.value();
-    }
-    if (dut.wb_pipe_fire0.toBool()) {
-      lastWbSeen[0] = true;
-      lastWbCycle[0] = cycleNow;
-      lastWbRob[0] = dut.wb_pipe_rob0.value();
-      lastWbVal[0] = dut.wb_pipe_value0.value();
-    }
-    if (dut.wb_pipe_fire1.toBool()) {
-      lastWbSeen[1] = true;
-      lastWbCycle[1] = cycleNow;
-      lastWbRob[1] = dut.wb_pipe_rob1.value();
-      lastWbVal[1] = dut.wb_pipe_value1.value();
-    }
-    if (dut.wb_pipe_fire2.toBool()) {
-      lastWbSeen[2] = true;
-      lastWbCycle[2] = cycleNow;
-      lastWbRob[2] = dut.wb_pipe_rob2.value();
-      lastWbVal[2] = dut.wb_pipe_value2.value();
-    }
-    if (dut.wb_pipe_fire3.toBool()) {
-      lastWbSeen[3] = true;
-      lastWbCycle[3] = cycleNow;
-      lastWbRob[3] = dut.wb_pipe_rob3.value();
-      lastWbVal[3] = dut.wb_pipe_value3.value();
-    }
-    curCycleKonata = cycleNow;
+    curCycleTrace = cycleNow;
     dfxRetiredKeysCycle.clear();
     dfxTouchedUidCycle.clear();
-    if (konata.isOpen()) {
-      konata.atCycle(cycleNow);
-    }
-    if (konata.isOpen() && !linxtraceBootInjected) {
-      // Runtime DFX traces may not naturally hit every control stage in short
-      // programs. Seed a single FLS stage sample so linxtrace consumers can
-      // validate the stage exists (template pipeview gate).
-      const std::uint64_t legendUid = 0x7FFF000000000000ull;
-      const std::uint64_t legendRow = pvNextKonataId++;
-      konata.insnV5(legendRow, toHex(legendUid), 0, "0x0", "template_child");
-      konata.label(legendRow, 0, "BOOT: template legend");
-      konata.presence(legendRow, 0, "FLS", 0, "boot");
-      konata.retire(legendRow, legendRow, 1);
-      linxtraceBootInjected = true;
+    if (linxtrace_writer.isOpen()) {
+      linxtrace_writer.atCycle(cycleNow);
     }
     std::unordered_map<std::uint64_t, int> commitUidLaneCycle{};
     {
-      if (dut.commit_fire0.toBool() && dut.commit_uop_uid0.value() != 0) {
-        commitUidLaneCycle[dut.commit_uop_uid0.value()] = 0;
-      }
-      if (dut.commit_fire1.toBool() && dut.commit_uop_uid1.value() != 0) {
-        commitUidLaneCycle[dut.commit_uop_uid1.value()] = 1;
-      }
-      if (dut.commit_fire2.toBool() && dut.commit_uop_uid2.value() != 0) {
-        commitUidLaneCycle[dut.commit_uop_uid2.value()] = 2;
-      }
-      if (dut.commit_fire3.toBool() && dut.commit_uop_uid3.value() != 0) {
-        commitUidLaneCycle[dut.commit_uop_uid3.value()] = 3;
+      for (int slot = 0; slot < 4; ++slot) {
+        const auto &probe = commitSlotProbes[static_cast<std::size_t>(slot)];
+        if (!readProbeBool(probe.fire)) {
+          continue;
+        }
+        const std::uint64_t uid = readProbeValue(probe.uopUid);
+        if (uid != 0) {
+          commitUidLaneCycle[uid] = slot;
+        }
       }
     }
 
-    if (dut.bctrl_issue_fire_top.toBool()) {
-      const std::uint64_t bid = dut.bctrl_issue_bid_top.value();
-      const std::size_t robIdx = static_cast<std::size_t>(dut.bctrl_issue_src_rob_top.value() & 0x3Fu);
+    if (readProbeBool(blockProbes.issueFire)) {
+      const std::uint64_t bid = readProbeValue(blockProbes.issueBid);
+      const std::size_t robIdx = static_cast<std::size_t>(readProbeValue(blockProbes.issueSrcRob) & 0x3Fu);
       if (bid != 0 && robIdx < blockBidByRob.size()) {
         blockBidByRob[robIdx] = bid;
       }
     }
-    if (dut.brob_to_rob_stage_rsp_valid_top.toBool()) {
-      const std::uint64_t bid = dut.brob_to_rob_stage_rsp_bid_top.value();
-      const std::size_t robIdx = static_cast<std::size_t>(dut.brob_to_rob_stage_rsp_src_rob_top.value() & 0x3Fu);
+    if (readProbeBool(blockProbes.rspValid)) {
+      const std::uint64_t bid = readProbeValue(blockProbes.rspBid);
+      const std::size_t robIdx = static_cast<std::size_t>(readProbeValue(blockProbes.rspSrcRob) & 0x3Fu);
       if (bid != 0 && robIdx < blockBidByRob.size()) {
         blockBidByRob[robIdx] = bid;
       }
     }
 
-    if ((konata.isOpen() || rawTrace.is_open()) && !dut.halted.toBool()) {
+    if ((linxtrace_writer.isOpen() || rawTrace.is_open()) && !dut.halted.toBool()) {
       struct DfxEvent {
         std::uint64_t uid = 0;
+        int probeSid = -1;
         int sid = -1;
         int lane = 0;
         std::uint64_t pc = 0;
@@ -1529,7 +2254,7 @@ int main(int argc, char **argv) {
       };
 
       std::unordered_map<std::uint64_t, std::vector<DfxEvent>> dfxByUid{};
-      std::vector<DfxEvent> dfxGlobalEvents{};
+      std::vector<DfxEvent> probeEvents{};
 
       auto emit = [&](bool valid, std::uint64_t uid, int sid, int lane, std::uint64_t pc, std::uint64_t rob,
                       std::uint64_t kind, std::uint64_t parent, std::uint64_t blockUid = 0,
@@ -1538,7 +2263,8 @@ int main(int argc, char **argv) {
           return;
         DfxEvent ev{};
         ev.uid = uid;
-        ev.sid = sid;
+        ev.probeSid = sid;
+        ev.sid = canonicalStageFromProbeSid(sid, kind);
         ev.lane = lane;
         ev.pc = pc;
         ev.rob = rob;
@@ -1549,201 +2275,32 @@ int main(int argc, char **argv) {
         ev.coreId = coreId;
         ev.stall = stall;
         ev.stallCause = stallCause;
-        if (uid == 0) {
-          dfxGlobalEvents.push_back(ev);
+        if (rawTraceProbes) {
+          probeEvents.push_back(ev);
+        }
+        if (uid == 0 || ev.sid < 0) {
+          return;
+        }
+        if (rawUidLastTerminalCycle.find(uid) != rawUidLastTerminalCycle.end()) {
           return;
         }
         dfxByUid[uid].push_back(ev);
       };
 
-      emit(dut.dbg__occ_f0_valid_lane0_f0.toBool(), dut.dbg__occ_f0_uop_uid_lane0_f0.value(), 0, 0, dut.dbg__occ_f0_pc_lane0_f0.value(),
-           dut.dbg__occ_f0_rob_lane0_f0.value(),
-           dut.dbg__occ_f0_kind_lane0_f0.value(), dut.dbg__occ_f0_parent_uid_lane0_f0.value());
-      emit(dut.dbg__occ_f1_valid_lane0_f1.toBool(), dut.dbg__occ_f1_uop_uid_lane0_f1.value(), 1, 0, dut.dbg__occ_f1_pc_lane0_f1.value(),
-           dut.dbg__occ_f1_rob_lane0_f1.value(),
-           dut.dbg__occ_f1_kind_lane0_f1.value(), dut.dbg__occ_f1_parent_uid_lane0_f1.value());
-      emit(dut.dbg__occ_f2_valid_lane0_f2.toBool(), dut.dbg__occ_f2_uop_uid_lane0_f2.value(), 2, 0, dut.dbg__occ_f2_pc_lane0_f2.value(),
-           dut.dbg__occ_f2_rob_lane0_f2.value(),
-           dut.dbg__occ_f2_kind_lane0_f2.value(), dut.dbg__occ_f2_parent_uid_lane0_f2.value());
-      emit(dut.dbg__occ_f3_valid_lane0_f3.toBool(), dut.dbg__occ_f3_uop_uid_lane0_f3.value(), 3, 0, dut.dbg__occ_f3_pc_lane0_f3.value(),
-           dut.dbg__occ_f3_rob_lane0_f3.value(),
-           dut.dbg__occ_f3_kind_lane0_f3.value(), dut.dbg__occ_f3_parent_uid_lane0_f3.value());
-      emit(dut.dbg__occ_ib_valid_lane0_ib.toBool(), dut.dbg__occ_ib_uop_uid_lane0_ib.value(), 38, 0, dut.dbg__occ_ib_pc_lane0_ib.value(),
-           dut.dbg__occ_ib_rob_lane0_ib.value(),
-           dut.dbg__occ_ib_kind_lane0_ib.value(), dut.dbg__occ_ib_parent_uid_lane0_ib.value(), dut.dbg__occ_ib_block_uid_lane0_ib.value(),
-           dut.dbg__occ_ib_core_id_lane0_ib.value(), dut.dbg__occ_ib_stall_lane0_ib.value(), dut.dbg__occ_ib_stall_cause_lane0_ib.value());
-      emit(dut.dbg__occ_f4_valid_lane0_f4.toBool(), dut.dbg__occ_f4_uop_uid_lane0_f4.value(), 4, 0, dut.dbg__occ_f4_pc_lane0_f4.value(),
-           dut.dbg__occ_f4_rob_lane0_f4.value(),
-           dut.dbg__occ_f4_kind_lane0_f4.value(), dut.dbg__occ_f4_parent_uid_lane0_f4.value());
-      emit(dut.dbg__occ_d1_valid_lane0_d1.toBool(), dut.dbg__occ_d1_uop_uid_lane0_d1.value(), 5, 0, dut.dbg__occ_d1_pc_lane0_d1.value(),
-           dut.dbg__occ_d1_rob_lane0_d1.value(),
-           dut.dbg__occ_d1_kind_lane0_d1.value(), dut.dbg__occ_d1_parent_uid_lane0_d1.value());
-      emit(dut.dbg__occ_d2_valid_lane0_d2.toBool(), dut.dbg__occ_d2_uop_uid_lane0_d2.value(), 6, 0, dut.dbg__occ_d2_pc_lane0_d2.value(),
-           dut.dbg__occ_d2_rob_lane0_d2.value(),
-           dut.dbg__occ_d2_kind_lane0_d2.value(), dut.dbg__occ_d2_parent_uid_lane0_d2.value());
-      emit(dut.dbg__occ_s1_valid_lane0_s1.toBool(), dut.dbg__occ_s1_uop_uid_lane0_s1.value(), 9, 0, dut.dbg__occ_s1_pc_lane0_s1.value(),
-           dut.dbg__occ_s1_rob_lane0_s1.value(),
-           dut.dbg__occ_s1_kind_lane0_s1.value(), dut.dbg__occ_s1_parent_uid_lane0_s1.value());
-      emit(dut.dbg__occ_s2_valid_lane0_s2.toBool(), dut.dbg__occ_s2_uop_uid_lane0_s2.value(), 10, 0, dut.dbg__occ_s2_pc_lane0_s2.value(),
-           dut.dbg__occ_s2_rob_lane0_s2.value(),
-           dut.dbg__occ_s2_kind_lane0_s2.value(), dut.dbg__occ_s2_parent_uid_lane0_s2.value());
-
-      emit(dut.dbg__occ_d3_valid_lane0_d3.toBool(), dut.dbg__occ_d3_uop_uid_lane0_d3.value(), 7, 0, dut.dbg__occ_d3_pc_lane0_d3.value(),
-           dut.dbg__occ_d3_rob_lane0_d3.value(),
-           dut.dbg__occ_d3_kind_lane0_d3.value(), dut.dbg__occ_d3_parent_uid_lane0_d3.value());
-      emit(dut.dbg__occ_d3_valid_lane1_d3.toBool(), dut.dbg__occ_d3_uop_uid_lane1_d3.value(), 7, 1, dut.dbg__occ_d3_pc_lane1_d3.value(),
-           dut.dbg__occ_d3_rob_lane1_d3.value(),
-           dut.dbg__occ_d3_kind_lane1_d3.value(), dut.dbg__occ_d3_parent_uid_lane1_d3.value());
-      emit(dut.dbg__occ_d3_valid_lane2_d3.toBool(), dut.dbg__occ_d3_uop_uid_lane2_d3.value(), 7, 2, dut.dbg__occ_d3_pc_lane2_d3.value(),
-           dut.dbg__occ_d3_rob_lane2_d3.value(),
-           dut.dbg__occ_d3_kind_lane2_d3.value(), dut.dbg__occ_d3_parent_uid_lane2_d3.value());
-      emit(dut.dbg__occ_d3_valid_lane3_d3.toBool(), dut.dbg__occ_d3_uop_uid_lane3_d3.value(), 7, 3, dut.dbg__occ_d3_pc_lane3_d3.value(),
-           dut.dbg__occ_d3_rob_lane3_d3.value(),
-           dut.dbg__occ_d3_kind_lane3_d3.value(), dut.dbg__occ_d3_parent_uid_lane3_d3.value());
-
-      emit(dut.dbg__occ_iq_valid_lane0_iq.toBool(), dut.dbg__occ_iq_uop_uid_lane0_iq.value(), 8, 0, dut.dbg__occ_iq_pc_lane0_iq.value(),
-           dut.dbg__occ_iq_rob_lane0_iq.value(),
-           dut.dbg__occ_iq_kind_lane0_iq.value(), dut.dbg__occ_iq_parent_uid_lane0_iq.value());
-      emit(dut.dbg__occ_iq_valid_lane1_iq.toBool(), dut.dbg__occ_iq_uop_uid_lane1_iq.value(), 8, 1, dut.dbg__occ_iq_pc_lane1_iq.value(),
-           dut.dbg__occ_iq_rob_lane1_iq.value(),
-           dut.dbg__occ_iq_kind_lane1_iq.value(), dut.dbg__occ_iq_parent_uid_lane1_iq.value());
-      emit(dut.dbg__occ_iq_valid_lane2_iq.toBool(), dut.dbg__occ_iq_uop_uid_lane2_iq.value(), 8, 2, dut.dbg__occ_iq_pc_lane2_iq.value(),
-           dut.dbg__occ_iq_rob_lane2_iq.value(),
-           dut.dbg__occ_iq_kind_lane2_iq.value(), dut.dbg__occ_iq_parent_uid_lane2_iq.value());
-      emit(dut.dbg__occ_iq_valid_lane3_iq.toBool(), dut.dbg__occ_iq_uop_uid_lane3_iq.value(), 8, 3, dut.dbg__occ_iq_pc_lane3_iq.value(),
-           dut.dbg__occ_iq_rob_lane3_iq.value(),
-           dut.dbg__occ_iq_kind_lane3_iq.value(), dut.dbg__occ_iq_parent_uid_lane3_iq.value());
-
-      emit(dut.dbg__occ_p1_valid_lane0_p1.toBool(), dut.dbg__occ_p1_uop_uid_lane0_p1.value(), 11, 0, dut.dbg__occ_p1_pc_lane0_p1.value(),
-           dut.dbg__occ_p1_rob_lane0_p1.value(),
-           dut.dbg__occ_p1_kind_lane0_p1.value(), dut.dbg__occ_p1_parent_uid_lane0_p1.value());
-      emit(dut.dbg__occ_p1_valid_lane1_p1.toBool(), dut.dbg__occ_p1_uop_uid_lane1_p1.value(), 11, 1, dut.dbg__occ_p1_pc_lane1_p1.value(),
-           dut.dbg__occ_p1_rob_lane1_p1.value(),
-           dut.dbg__occ_p1_kind_lane1_p1.value(), dut.dbg__occ_p1_parent_uid_lane1_p1.value());
-      emit(dut.dbg__occ_p1_valid_lane2_p1.toBool(), dut.dbg__occ_p1_uop_uid_lane2_p1.value(), 11, 2, dut.dbg__occ_p1_pc_lane2_p1.value(),
-           dut.dbg__occ_p1_rob_lane2_p1.value(),
-           dut.dbg__occ_p1_kind_lane2_p1.value(), dut.dbg__occ_p1_parent_uid_lane2_p1.value());
-      emit(dut.dbg__occ_p1_valid_lane3_p1.toBool(), dut.dbg__occ_p1_uop_uid_lane3_p1.value(), 11, 3, dut.dbg__occ_p1_pc_lane3_p1.value(),
-           dut.dbg__occ_p1_rob_lane3_p1.value(),
-           dut.dbg__occ_p1_kind_lane3_p1.value(), dut.dbg__occ_p1_parent_uid_lane3_p1.value());
-
-      emit(dut.dbg__occ_i1_valid_lane0_i1.toBool(), dut.dbg__occ_i1_uop_uid_lane0_i1.value(), 12, 0, dut.dbg__occ_i1_pc_lane0_i1.value(),
-           dut.dbg__occ_i1_rob_lane0_i1.value(),
-           dut.dbg__occ_i1_kind_lane0_i1.value(), dut.dbg__occ_i1_parent_uid_lane0_i1.value());
-      emit(dut.dbg__occ_i1_valid_lane1_i1.toBool(), dut.dbg__occ_i1_uop_uid_lane1_i1.value(), 12, 1, dut.dbg__occ_i1_pc_lane1_i1.value(),
-           dut.dbg__occ_i1_rob_lane1_i1.value(),
-           dut.dbg__occ_i1_kind_lane1_i1.value(), dut.dbg__occ_i1_parent_uid_lane1_i1.value());
-      emit(dut.dbg__occ_i1_valid_lane2_i1.toBool(), dut.dbg__occ_i1_uop_uid_lane2_i1.value(), 12, 2, dut.dbg__occ_i1_pc_lane2_i1.value(),
-           dut.dbg__occ_i1_rob_lane2_i1.value(),
-           dut.dbg__occ_i1_kind_lane2_i1.value(), dut.dbg__occ_i1_parent_uid_lane2_i1.value());
-      emit(dut.dbg__occ_i1_valid_lane3_i1.toBool(), dut.dbg__occ_i1_uop_uid_lane3_i1.value(), 12, 3, dut.dbg__occ_i1_pc_lane3_i1.value(),
-           dut.dbg__occ_i1_rob_lane3_i1.value(),
-           dut.dbg__occ_i1_kind_lane3_i1.value(), dut.dbg__occ_i1_parent_uid_lane3_i1.value());
-
-      emit(dut.dbg__occ_i2_valid_lane0_i2.toBool(), dut.dbg__occ_i2_uop_uid_lane0_i2.value(), 13, 0, dut.dbg__occ_i2_pc_lane0_i2.value(),
-           dut.dbg__occ_i2_rob_lane0_i2.value(),
-           dut.dbg__occ_i2_kind_lane0_i2.value(), dut.dbg__occ_i2_parent_uid_lane0_i2.value());
-      emit(dut.dbg__occ_i2_valid_lane1_i2.toBool(), dut.dbg__occ_i2_uop_uid_lane1_i2.value(), 13, 1, dut.dbg__occ_i2_pc_lane1_i2.value(),
-           dut.dbg__occ_i2_rob_lane1_i2.value(),
-           dut.dbg__occ_i2_kind_lane1_i2.value(), dut.dbg__occ_i2_parent_uid_lane1_i2.value());
-      emit(dut.dbg__occ_i2_valid_lane2_i2.toBool(), dut.dbg__occ_i2_uop_uid_lane2_i2.value(), 13, 2, dut.dbg__occ_i2_pc_lane2_i2.value(),
-           dut.dbg__occ_i2_rob_lane2_i2.value(),
-           dut.dbg__occ_i2_kind_lane2_i2.value(), dut.dbg__occ_i2_parent_uid_lane2_i2.value());
-      emit(dut.dbg__occ_i2_valid_lane3_i2.toBool(), dut.dbg__occ_i2_uop_uid_lane3_i2.value(), 13, 3, dut.dbg__occ_i2_pc_lane3_i2.value(),
-           dut.dbg__occ_i2_rob_lane3_i2.value(),
-           dut.dbg__occ_i2_kind_lane3_i2.value(), dut.dbg__occ_i2_parent_uid_lane3_i2.value());
-
-      emit(dut.dbg__occ_e1_valid_lane0_e1.toBool(), dut.dbg__occ_e1_uop_uid_lane0_e1.value(), 14, 0, dut.dbg__occ_e1_pc_lane0_e1.value(),
-           dut.dbg__occ_e1_rob_lane0_e1.value(),
-           dut.dbg__occ_e1_kind_lane0_e1.value(), dut.dbg__occ_e1_parent_uid_lane0_e1.value());
-      emit(dut.dbg__occ_e1_valid_lane4_e1.toBool(), dut.dbg__occ_e1_uop_uid_lane4_e1.value(), 14, 4, dut.dbg__occ_e1_pc_lane4_e1.value(),
-           dut.dbg__occ_e1_rob_lane4_e1.value(),
-           dut.dbg__occ_e1_kind_lane4_e1.value(), dut.dbg__occ_e1_parent_uid_lane4_e1.value());
-      emit(dut.dbg__occ_e2_valid_lane0_e2.toBool(), dut.dbg__occ_e2_uop_uid_lane0_e2.value(), 15, 0, dut.dbg__occ_e2_pc_lane0_e2.value(),
-           dut.dbg__occ_e2_rob_lane0_e2.value(),
-           dut.dbg__occ_e2_kind_lane0_e2.value(), dut.dbg__occ_e2_parent_uid_lane0_e2.value());
-      emit(dut.dbg__occ_e3_valid_lane0_e3.toBool(), dut.dbg__occ_e3_uop_uid_lane0_e3.value(), 16, 0, dut.dbg__occ_e3_pc_lane0_e3.value(),
-           dut.dbg__occ_e3_rob_lane0_e3.value(),
-           dut.dbg__occ_e3_kind_lane0_e3.value(), dut.dbg__occ_e3_parent_uid_lane0_e3.value());
-      emit(dut.dbg__occ_e4_valid_lane0_e4.toBool(), dut.dbg__occ_e4_uop_uid_lane0_e4.value(), 17, 0, dut.dbg__occ_e4_pc_lane0_e4.value(),
-           dut.dbg__occ_e4_rob_lane0_e4.value(),
-           dut.dbg__occ_e4_kind_lane0_e4.value(), dut.dbg__occ_e4_parent_uid_lane0_e4.value());
-
-      emit(dut.dbg__occ_w1_valid_lane0_w1.toBool(), dut.dbg__occ_w1_uop_uid_lane0_w1.value(), 18, 0, dut.dbg__occ_w1_pc_lane0_w1.value(),
-           dut.dbg__occ_w1_rob_lane0_w1.value(),
-           dut.dbg__occ_w1_kind_lane0_w1.value(), dut.dbg__occ_w1_parent_uid_lane0_w1.value());
-      emit(dut.dbg__occ_w1_valid_lane1_w1.toBool(), dut.dbg__occ_w1_uop_uid_lane1_w1.value(), 18, 1, dut.dbg__occ_w1_pc_lane1_w1.value(),
-           dut.dbg__occ_w1_rob_lane1_w1.value(),
-           dut.dbg__occ_w1_kind_lane1_w1.value(), dut.dbg__occ_w1_parent_uid_lane1_w1.value());
-      emit(dut.dbg__occ_w1_valid_lane2_w1.toBool(), dut.dbg__occ_w1_uop_uid_lane2_w1.value(), 18, 2, dut.dbg__occ_w1_pc_lane2_w1.value(),
-           dut.dbg__occ_w1_rob_lane2_w1.value(),
-           dut.dbg__occ_w1_kind_lane2_w1.value(), dut.dbg__occ_w1_parent_uid_lane2_w1.value());
-      emit(dut.dbg__occ_w1_valid_lane3_w1.toBool(), dut.dbg__occ_w1_uop_uid_lane3_w1.value(), 18, 3, dut.dbg__occ_w1_pc_lane3_w1.value(),
-           dut.dbg__occ_w1_rob_lane3_w1.value(),
-           dut.dbg__occ_w1_kind_lane3_w1.value(), dut.dbg__occ_w1_parent_uid_lane3_w1.value());
-
-      emit(dut.dbg__occ_w2_valid_lane0_w2.toBool(), dut.dbg__occ_w2_uop_uid_lane0_w2.value(), 19, 0, dut.dbg__occ_w2_pc_lane0_w2.value(),
-           dut.dbg__occ_w2_rob_lane0_w2.value(),
-           dut.dbg__occ_w2_kind_lane0_w2.value(), dut.dbg__occ_w2_parent_uid_lane0_w2.value());
-      emit(dut.dbg__occ_w2_valid_lane1_w2.toBool(), dut.dbg__occ_w2_uop_uid_lane1_w2.value(), 19, 1, dut.dbg__occ_w2_pc_lane1_w2.value(),
-           dut.dbg__occ_w2_rob_lane1_w2.value(),
-           dut.dbg__occ_w2_kind_lane1_w2.value(), dut.dbg__occ_w2_parent_uid_lane1_w2.value());
-      emit(dut.dbg__occ_w2_valid_lane2_w2.toBool(), dut.dbg__occ_w2_uop_uid_lane2_w2.value(), 19, 2, dut.dbg__occ_w2_pc_lane2_w2.value(),
-           dut.dbg__occ_w2_rob_lane2_w2.value(),
-           dut.dbg__occ_w2_kind_lane2_w2.value(), dut.dbg__occ_w2_parent_uid_lane2_w2.value());
-      emit(dut.dbg__occ_w2_valid_lane3_w2.toBool(), dut.dbg__occ_w2_uop_uid_lane3_w2.value(), 19, 3, dut.dbg__occ_w2_pc_lane3_w2.value(),
-           dut.dbg__occ_w2_rob_lane3_w2.value(),
-           dut.dbg__occ_w2_kind_lane3_w2.value(), dut.dbg__occ_w2_parent_uid_lane3_w2.value());
-
-      emit(dut.dbg__occ_liq_valid_lane0_liq.toBool(), dut.dbg__occ_liq_uop_uid_lane0_liq.value(), 20, 0, dut.dbg__occ_liq_pc_lane0_liq.value(),
-           dut.dbg__occ_liq_rob_lane0_liq.value(),
-           dut.dbg__occ_liq_kind_lane0_liq.value(), dut.dbg__occ_liq_parent_uid_lane0_liq.value());
-      emit(dut.dbg__occ_lhq_valid_lane0_lhq.toBool(), dut.dbg__occ_lhq_uop_uid_lane0_lhq.value(), 21, 0, dut.dbg__occ_lhq_pc_lane0_lhq.value(),
-           dut.dbg__occ_lhq_rob_lane0_lhq.value(),
-           dut.dbg__occ_lhq_kind_lane0_lhq.value(), dut.dbg__occ_lhq_parent_uid_lane0_lhq.value());
-      emit(dut.dbg__occ_stq_valid_lane0_stq.toBool(), dut.dbg__occ_stq_uop_uid_lane0_stq.value(), 22, 0, dut.dbg__occ_stq_pc_lane0_stq.value(),
-           dut.dbg__occ_stq_rob_lane0_stq.value(),
-           dut.dbg__occ_stq_kind_lane0_stq.value(), dut.dbg__occ_stq_parent_uid_lane0_stq.value());
-      emit(dut.dbg__occ_scb_valid_lane0_scb.toBool(), dut.dbg__occ_scb_uop_uid_lane0_scb.value(), 23, 0, dut.dbg__occ_scb_pc_lane0_scb.value(),
-           dut.dbg__occ_scb_rob_lane0_scb.value(),
-           dut.dbg__occ_scb_kind_lane0_scb.value(), dut.dbg__occ_scb_parent_uid_lane0_scb.value());
-      emit(dut.dbg__occ_mdb_valid_lane0_mdb.toBool(), dut.dbg__occ_mdb_uop_uid_lane0_mdb.value(), 24, 0, dut.dbg__occ_mdb_pc_lane0_mdb.value(),
-           dut.dbg__occ_mdb_rob_lane0_mdb.value(),
-           dut.dbg__occ_mdb_kind_lane0_mdb.value(), dut.dbg__occ_mdb_parent_uid_lane0_mdb.value());
-      emit(dut.dbg__occ_l1d_valid_lane0_l1d.toBool(), dut.dbg__occ_l1d_uop_uid_lane0_l1d.value(), 25, 0, dut.dbg__occ_l1d_pc_lane0_l1d.value(),
-           dut.dbg__occ_l1d_rob_lane0_l1d.value(),
-           dut.dbg__occ_l1d_kind_lane0_l1d.value(), dut.dbg__occ_l1d_parent_uid_lane0_l1d.value());
-      emit(dut.dbg__occ_bisq_valid_lane0_bisq.toBool(), dut.dbg__occ_bisq_uop_uid_lane0_bisq.value(), 26, 0, dut.dbg__occ_bisq_pc_lane0_bisq.value(),
-           dut.dbg__occ_bisq_rob_lane0_bisq.value(),
-           dut.dbg__occ_bisq_kind_lane0_bisq.value(), dut.dbg__occ_bisq_parent_uid_lane0_bisq.value());
-      emit(dut.dbg__occ_bctrl_valid_lane0_bctrl.toBool(), dut.dbg__occ_bctrl_uop_uid_lane0_bctrl.value(), 27, 0, dut.dbg__occ_bctrl_pc_lane0_bctrl.value(),
-           dut.dbg__occ_bctrl_rob_lane0_bctrl.value(),
-           dut.dbg__occ_bctrl_kind_lane0_bctrl.value(), dut.dbg__occ_bctrl_parent_uid_lane0_bctrl.value());
-      emit(dut.dbg__occ_tmu_valid_lane0_tmu.toBool(), dut.dbg__occ_tmu_uop_uid_lane0_tmu.value(), 28, 0, dut.dbg__occ_tmu_pc_lane0_tmu.value(),
-           dut.dbg__occ_tmu_rob_lane0_tmu.value(),
-           dut.dbg__occ_tmu_kind_lane0_tmu.value(), dut.dbg__occ_tmu_parent_uid_lane0_tmu.value());
-      emit(dut.dbg__occ_tma_valid_lane0_tma.toBool(), dut.dbg__occ_tma_uop_uid_lane0_tma.value(), 29, 0, dut.dbg__occ_tma_pc_lane0_tma.value(),
-           dut.dbg__occ_tma_rob_lane0_tma.value(),
-           dut.dbg__occ_tma_kind_lane0_tma.value(), dut.dbg__occ_tma_parent_uid_lane0_tma.value());
-      emit(dut.dbg__occ_cube_valid_lane0_cube.toBool(), dut.dbg__occ_cube_uop_uid_lane0_cube.value(), 30, 0, dut.dbg__occ_cube_pc_lane0_cube.value(),
-           dut.dbg__occ_cube_rob_lane0_cube.value(),
-           dut.dbg__occ_cube_kind_lane0_cube.value(), dut.dbg__occ_cube_parent_uid_lane0_cube.value());
-      emit(dut.dbg__occ_vec_valid_lane0_vec.toBool(), dut.dbg__occ_vec_uop_uid_lane0_vec.value(), 31, 0, dut.dbg__occ_vec_pc_lane0_vec.value(),
-           dut.dbg__occ_vec_rob_lane0_vec.value(),
-           dut.dbg__occ_vec_kind_lane0_vec.value(), dut.dbg__occ_vec_parent_uid_lane0_vec.value());
-      emit(dut.dbg__occ_tau_valid_lane0_tau.toBool(), dut.dbg__occ_tau_uop_uid_lane0_tau.value(), 32, 0, dut.dbg__occ_tau_pc_lane0_tau.value(),
-           dut.dbg__occ_tau_rob_lane0_tau.value(),
-           dut.dbg__occ_tau_kind_lane0_tau.value(), dut.dbg__occ_tau_parent_uid_lane0_tau.value());
-      emit(dut.dbg__occ_brob_valid_lane0_brob.toBool(), dut.dbg__occ_brob_uop_uid_lane0_brob.value(), 33, 0, dut.dbg__occ_brob_pc_lane0_brob.value(),
-           dut.dbg__occ_brob_rob_lane0_brob.value(),
-           dut.dbg__occ_brob_kind_lane0_brob.value(), dut.dbg__occ_brob_parent_uid_lane0_brob.value());
-      emit(dut.dbg__occ_rob_valid_lane0_rob.toBool(), dut.dbg__occ_rob_uop_uid_lane0_rob.value(), 34, 0, dut.dbg__occ_rob_pc_lane0_rob.value(),
-           dut.dbg__occ_rob_rob_lane0_rob.value(),
-           dut.dbg__occ_rob_kind_lane0_rob.value(), dut.dbg__occ_rob_parent_uid_lane0_rob.value());
-      // Commit completion is emitted from the architectural commit stream below.
-      emit(dut.dbg__occ_fls_valid_lane0_fls.toBool(), dut.dbg__occ_fls_uop_uid_lane0_fls.value(), 36, 0, dut.dbg__occ_fls_pc_lane0_fls.value(),
-           dut.dbg__occ_fls_rob_lane0_fls.value(),
-           dut.dbg__occ_fls_kind_lane0_fls.value(), dut.dbg__occ_fls_parent_uid_lane0_fls.value());
+      for (const auto &probe : occProbes) {
+        emit(readProbeBool(probe.valid),
+             readProbeValue(probe.uid),
+             probe.probeSid,
+             probe.lane,
+             readProbeValue(probe.pc),
+             readProbeValue(probe.rob),
+             readProbeValue(probe.kind),
+             readProbeValue(probe.parent),
+             readProbeValue(probe.blockUid),
+             readProbeValue(probe.coreId),
+             readProbeValue(probe.stall),
+             readProbeValue(probe.stallCause));
+      }
 
       auto eventKindPriority = [&](const DfxEvent &ev) -> int {
         if (ev.sid == static_cast<int>(kTraceSidFls) || ev.kind == kTraceKindFlush || ev.kind == kTraceKindReplay)
@@ -1752,17 +2309,6 @@ int main(int argc, char **argv) {
           return 2;
         return 1;
       };
-
-      std::sort(dfxGlobalEvents.begin(), dfxGlobalEvents.end(), [&](const DfxEvent &a, const DfxEvent &b) {
-        if (eventKindPriority(a) != eventKindPriority(b))
-          return eventKindPriority(a) > eventKindPriority(b);
-        if (a.sid != b.sid)
-          return a.sid < b.sid;
-        return a.lane < b.lane;
-      });
-      for (const auto &ev : dfxGlobalEvents) {
-        pvOnEvent(ev.uid, ev.sid, ev.lane, ev.pc, ev.rob, ev.kind, ev.parent, ev.stall, ev.stallCause);
-      }
 
       std::vector<DfxEvent> allEvents{};
       std::unordered_map<std::uint64_t, DfxEvent> bestEventByUid{};
@@ -1814,7 +2360,7 @@ int main(int argc, char **argv) {
         auto itCommitLane = commitUidLaneCycle.find(uid);
         if (itCommitLane != commitUidLaneCycle.end()) {
           chosen = cand.front();
-          chosen.sid = static_cast<int>(kTraceSidRob);
+          chosen.sid = static_cast<int>(kTraceSidCmt);
           chosen.lane = itCommitLane->second;
           chosen.stall = 0;
           chosen.stallCause = 0;
@@ -1864,7 +2410,16 @@ int main(int argc, char **argv) {
       });
       for (const auto &ev : allEvents) {
         pvOnEvent(ev.uid, ev.sid, ev.lane, ev.pc, ev.rob, ev.kind, ev.parent, ev.stall, ev.stallCause);
-        if (rawTrace.is_open()) {
+        if (ev.uid != 0) {
+          dfxTouchedUidCycle.insert(ev.uid);
+          if (ev.sid == static_cast<int>(kTraceSidFls) || ev.sid == static_cast<int>(kTraceSidXchk) ||
+              ev.kind == kTraceKindFlush || ev.kind == kTraceKindReplay) {
+            rawUidLastTerminalCycle[ev.uid] = cycleNow;
+          }
+        }
+      }
+      if (rawTrace.is_open()) {
+        for (const auto &ev : allEvents) {
           const char *stageName = "UNK";
           if (ev.sid >= 0 && ev.sid < static_cast<int>(kTraceStageNames.size())) {
             stageName = kTraceStageNames[static_cast<std::size_t>(ev.sid)];
@@ -1886,54 +2441,249 @@ int main(int argc, char **argv) {
                    << "\"rob\":" << ev.rob
                    << "}\n";
         }
-        if (ev.uid != 0) {
-          dfxTouchedUidCycle.insert(ev.uid);
+        if (rawTraceProbes) {
+          std::sort(probeEvents.begin(), probeEvents.end(), [&](const DfxEvent &a, const DfxEvent &b) {
+            if (a.uid != b.uid)
+              return a.uid < b.uid;
+            if (a.probeSid != b.probeSid)
+              return a.probeSid < b.probeSid;
+            if (a.lane != b.lane)
+              return a.lane < b.lane;
+            if (a.kind != b.kind)
+              return a.kind < b.kind;
+            if (a.pc != b.pc)
+              return a.pc < b.pc;
+            if (a.rob != b.rob)
+              return a.rob < b.rob;
+            return a.parent < b.parent;
+          });
+          probeEvents.erase(std::unique(probeEvents.begin(), probeEvents.end(), [&](const DfxEvent &a, const DfxEvent &b) {
+                             return a.uid == b.uid && a.probeSid == b.probeSid && a.lane == b.lane &&
+                                    a.kind == b.kind && a.pc == b.pc && a.rob == b.rob &&
+                                    a.parent == b.parent;
+                           }),
+                           probeEvents.end());
+          for (const auto &ev : probeEvents) {
+            const char *stageName = "UNK";
+            if (ev.probeSid >= 0 && ev.probeSid < static_cast<int>(kTraceProbeStageNames.size())) {
+              stageName = kTraceProbeStageNames[static_cast<std::size_t>(ev.probeSid)];
+            }
+            rawTrace << "{"
+                     << "\"type\":\"probe_occ\","
+                     << "\"cycle\":" << cycleNow << ","
+                     << "\"core_id\":" << ev.coreId << ","
+                     << "\"stage\":\"" << stageName << "\","
+                     << "\"lane\":" << ev.lane << ","
+                     << "\"uop_uid\":" << ev.uid << ","
+                     << "\"parent_uid\":" << ev.parent << ","
+                     << "\"block_uid\":" << ev.blockUid << ","
+                     << "\"block_bid\":" << ev.blockBid << ","
+                     << "\"kind\":" << ev.kind << ","
+                     << "\"stall\":" << ev.stall << ","
+                     << "\"stall_cause\":" << ev.stallCause << ","
+                     << "\"pc\":" << ev.pc << ","
+                     << "\"rob\":" << ev.rob
+                     << "}\n";
+          }
         }
       }
     }
 
-    if (rawTrace.is_open() && dut.dbg__blk_evt_valid_top.toBool()) {
+    const bool redirectBlkEvt = readProbeBool(commitRedirectProbes.valid);
+    const bool faultBlkEvt = readProbeBool(commitRedirectProbes.bruFaultSet) && !redirectBlkEvt;
+    const bool blkEvtValid = redirectBlkEvt || faultBlkEvt;
+    const std::uint64_t kindVal = redirectBlkEvt ? 3u : (faultBlkEvt ? 4u : 0u);
+    const std::uint64_t blkEvtPc =
+        redirectBlkEvt ? readProbeValue(commitRedirectProbes.pc) : (faultBlkEvt ? dut.pc.value() : 0u);
+    const std::uint64_t blkEvtBid =
+        redirectBlkEvt ? readProbeValue(commitRedirectProbes.bid) : (faultBlkEvt ? readProbeValue(blockProbes.activeBid) : 0u);
+    if (blkEvtValid) {
+      if (kindVal == 3) {
+        // Redirect events are the canonical host-side PC steering for the
+        // IB-fed frontend (no on-chip IFU/ICache path).
+        const std::uint64_t redirPc = blkEvtPc;
+        if (redirPc != 0) {
+          if (!ifuStubFromQemu) {
+            ifuStubMemPc = redirPc;
+            ifuStubPending.reset();
+          } else if (ifuStubRows != nullptr) {
+            // Trace-fed mode: resync around the committed stream position, not
+            // the prefetch cursor. The IFU stub can run far ahead of retire,
+            // so matching only "the next PC at/after the host cursor" can jump
+            // to the wrong dynamic instance when loops revisit the same PC.
+            const auto &rows = *ifuStubRows;
+            auto isUsableRedirectRow = [&](const XcheckCommit &r) -> bool {
+              const std::uint8_t len = normalizeLen(static_cast<std::uint8_t>(r.len & 0xFFu));
+              return (len == 2 || len == 4 || len == 6) && r.pc == redirPc;
+            };
+
+            std::size_t anchor = ifuStubTraceCursor;
+            if (xcheckEnabled && ifuStubRows == &qemuXcheckRows) {
+              anchor = std::min<std::size_t>(xcheckQemuCursor, rows.size());
+            }
+
+            std::size_t i = rows.size();
+            std::size_t bestDist = rows.size();
+            for (std::size_t cand = 0; cand < rows.size(); cand++) {
+              const auto &r = rows[cand];
+              if (!isUsableRedirectRow(r)) {
+                continue;
+              }
+              const std::size_t dist = (cand >= anchor) ? (cand - anchor) : (anchor - cand);
+              if (dist < bestDist || (dist == bestDist && cand >= anchor && (i < anchor || cand < i))) {
+                i = cand;
+                bestDist = dist;
+                if (dist == 0) {
+                  break;
+                }
+              }
+            }
+            if (i >= rows.size()) {
+              std::cerr << "error: IFU stub trace redirect PC not found: pc=" << toHex(redirPc)
+                        << " cursor=" << ifuStubTraceCursor
+                        << " anchor=" << anchor
+                        << " rows=" << rows.size() << "\n";
+              dumpSimStats();
+              return 1;
+            }
+            ifuStubTraceCursor = i;
+            ifuStubPending.reset();
+            ifuStubPendingNextTraceCursor = ifuStubTraceCursor;
+          }
+          ctuDbgForcePc = redirPc;
+          ctuDbgForceCycles = 16;
+        }
+      }
       std::string kindText = "open";
-      const std::uint64_t kindVal = dut.dbg__blk_evt_kind_top.value();
+      bool emitEvt = true;
       if (kindVal == 2) {
-        kindText = "close";
+        // ROB-side block resolution is emitted from commit is_bstop events below
+        // so block lifecycle is strictly open->resolved->retired.
+        emitEvt = false;
       } else if (kindVal == 3) {
         kindText = "redirect";
       } else if (kindVal == 4) {
         kindText = "fault";
       }
+      if (rawTrace.is_open() && emitEvt) {
+        std::uint64_t evtBlockUid = 0;
+        const std::uint64_t evtBlockBid = blkEvtBid;
+        if (evtBlockBid != 0) {
+          const auto uidIt = blockUidByBid.find(evtBlockBid);
+          if (uidIt != blockUidByBid.end()) {
+            evtBlockUid = uidIt->second;
+          }
+        }
+        if (evtBlockUid != 0 && evtBlockBid != 0) {
+          blockUidByBid[evtBlockBid] = evtBlockUid;
+        }
+        rawTrace << "{"
+                 << "\"type\":\"blk_evt\","
+                 << "\"cycle\":" << cycleNow << ","
+                 << "\"kind\":\"" << kindText << "\","
+                 << "\"kind_code\":" << kindVal << ","
+                 << "\"block_uid\":" << evtBlockUid << ","
+                 << "\"block_bid\":" << evtBlockBid << ","
+                 << "\"core_id\":0,"
+                 << "\"pc\":" << blkEvtPc << ","
+                 << "\"seq\":0"
+                 << "}\n";
+      }
+    }
+
+    if (rawTrace.is_open() && readProbeBool(blockProbes.retireFire)) {
+      const std::uint64_t retiredBid = readProbeValue(blockProbes.retireBid);
+      std::uint64_t retiredUid = 0;
+      const auto uidIt = blockUidByBid.find(retiredBid);
+      if (uidIt != blockUidByBid.end()) {
+        retiredUid = uidIt->second;
+      }
       rawTrace << "{"
                << "\"type\":\"blk_evt\","
                << "\"cycle\":" << cycleNow << ","
-               << "\"kind\":\"" << kindText << "\","
-               << "\"kind_code\":" << kindVal << ","
-               << "\"block_uid\":" << dut.dbg__blk_evt_block_uid_top.value() << ","
-               << "\"block_bid\":" << dut.dbg__blk_evt_block_bid_top.value() << ","
-               << "\"core_id\":" << dut.dbg__blk_evt_core_id_top.value() << ","
-               << "\"pc\":" << dut.dbg__blk_evt_pc_top.value() << ","
-               << "\"seq\":" << dut.dbg__blk_evt_seq_top.value()
+               << "\"kind\":\"retired\","
+               << "\"kind_code\":5,"
+               << "\"block_uid\":" << retiredUid << ","
+               << "\"block_bid\":" << retiredBid << ","
+               << "\"core_id\":0,"
+               << "\"pc\":0,"
+               << "\"seq\":" << retireSeq
                << "}\n";
     }
 
     bool retiredThisCycle = false;
     bool stopMaxCommits = false;
-    const std::uint64_t brKindDbg = dut.br_kind_dbg.value();
-    const std::uint64_t brEpochDbg = dut.br_epoch_dbg.value();
-    const bool bruValidateDbg = dut.bru_validate_fire_dbg.toBool();
-    const bool bruMismatchDbg = dut.bru_mismatch_dbg.toBool();
-    const std::uint64_t bruActualTakeDbg = dut.bru_actual_take_dbg.value();
-    const std::uint64_t bruPredTakeDbg = dut.bru_pred_take_dbg.value();
-    const std::uint64_t bruBoundaryPcDbg = dut.bru_boundary_pc_dbg.value();
-    const bool bruCorrPendingDbg = dut.bru_corr_pending_dbg.toBool();
-    const std::uint64_t bruCorrEpochDbg = dut.bru_corr_epoch_dbg.value();
-    const std::uint64_t bruCorrTargetDbg = dut.bru_corr_target_dbg.value();
-    const bool redirectFromCorrDbg = dut.redirect_from_corr_dbg.toBool();
-    const bool redirectFromBoundaryDbg = dut.redirect_from_boundary_dbg.toBool();
-    const bool bruFaultSetDbg = dut.bru_fault_set_dbg.toBool();
+    const std::uint64_t brKindDbg = readProbeValue(commitDbgProbes.brKind);
+    const std::uint64_t brEpochDbg = readProbeValue(commitDbgProbes.brEpoch);
+    const bool bruValidateDbg = false;
+    const bool bruMismatchDbg = false;
+    const std::uint64_t bruActualTakeDbg = readProbeValue(commitDbgProbes.brCorrTake);
+    const std::uint64_t bruPredTakeDbg = readProbeValue(commitDbgProbes.brPredTake);
+    const std::uint64_t bruBoundaryPcDbg =
+        readProbeValue(commitDbgProbes.brBase) + readProbeValue(commitDbgProbes.brOff);
+    const bool bruCorrPendingDbg = readProbeBool(commitDbgProbes.brCorrPending);
+    const std::uint64_t bruCorrEpochDbg = readProbeValue(commitDbgProbes.brCorrEpoch);
+    const std::uint64_t bruCorrTargetDbg = readProbeValue(commitDbgProbes.brCorrTarget);
+    const bool redirectFromCorrDbg = readProbeBool(commitDbgProbes.redirectFromCorr);
+    const bool redirectFromBoundaryDbg = false;
+    const bool bruFaultSetDbg = readProbeBool(commitRedirectProbes.bruFaultSet);
+    const bool macroActiveDbg = false;
+    const bool macroWaitCommitDbg = false;
+    const bool ctuStartFireDbg = false;
+    const bool ctuHeadReadyDbg = false;
+    const bool ctuHeadIsMacroDbg = false;
+    const bool ctuHeadSkipDbg = false;
+    const bool ctuBlockIfuDbg = dut.ctu_block_ifu.toBool();
+    const bool blkEvtValidDbg = blkEvtValid;
+    const std::uint64_t blkEvtKindDbg = kindVal;
+    const std::uint64_t blkEvtPcDbg = blkEvtPc;
+
+    if (ctuHeadIsMacroDbg || macroActiveDbg || macroWaitCommitDbg || ctuStartFireDbg || ctuDbgForceCycles > 0) {
+      pushCtuDbg(CtuDebugSnapshot{
+          false,
+          cycleNow,
+          dut.pc.value(),
+          dut.rob_head_pc.value(),
+          dut.rob_head_op.value(),
+          brKindDbg,
+          brEpochDbg,
+          bruPredTakeDbg,
+          readProbeBool(commitDbgProbes.commitCond),
+          bruCorrPendingDbg,
+          bruCorrEpochDbg,
+          bruActualTakeDbg,
+          bruCorrTargetDbg,
+          redirectFromCorrDbg,
+          dut.rob_head_valid.value(),
+          dut.rob_head_done.value(),
+          macroActiveDbg,
+          macroWaitCommitDbg,
+          ctuStartFireDbg,
+          ctuHeadReadyDbg,
+          ctuHeadIsMacroDbg,
+          ctuHeadSkipDbg,
+          ctuBlockIfuDbg,
+          ctuDbgForcePc,
+          dut.tb_ifu_stub_valid.toBool(),
+          dut.tb_ifu_stub_ready.toBool(),
+          dut.tb_ifu_stub_pc.value(),
+          blkEvtValidDbg,
+          blkEvtKindDbg,
+          blkEvtPcDbg,
+      });
+    }
+
+    if (ctuDbgForceCycles > 0) {
+      ctuDbgForceCycles--;
+      if (ctuDbgForceCycles == 0) {
+        ctuDbgForcePc = 0;
+      }
+    }
 
     for (int slot = 0; slot < 4; slot++) {
       bool fire = false;
       std::uint64_t pc = 0;
+      std::uint8_t templateKind = 0;
       std::uint64_t insnRaw = 0;
       std::uint8_t len = 0;
       bool wbValid = false;
@@ -1967,152 +2717,43 @@ int main(int argc, char **argv) {
       std::uint64_t coreId = 0;
       bool isBstart = false;
       bool isBstop = false;
-
-      if (slot == 0) {
-        fire = dut.commit_fire0.toBool();
-        pc = dut.commit_pc0.value();
-        op = dut.commit_op0.value();
-        rob = dut.commit_rob0.value();
-        insnRaw = dut.commit_insn_raw0.value();
-        len = static_cast<std::uint8_t>(dut.commit_len0.value() & 0x7u);
-        wbValid = dut.commit_wb_valid0.toBool();
-        wbRd = static_cast<std::uint32_t>(dut.commit_wb_rd0.value());
-        wbData = dut.commit_wb_data0.value();
-        src0Valid = dut.commit_src0_valid0.toBool();
-        src0Reg = static_cast<std::uint32_t>(dut.commit_src0_reg0.value());
-        src0Data = dut.commit_src0_data0.value();
-        src1Valid = dut.commit_src1_valid0.toBool();
-        src1Reg = static_cast<std::uint32_t>(dut.commit_src1_reg0.value());
-        src1Data = dut.commit_src1_data0.value();
-        dstValid = dut.commit_dst_valid0.toBool();
-        dstReg = static_cast<std::uint32_t>(dut.commit_dst_reg0.value());
-        dstData = dut.commit_dst_data0.value();
-        memValid = dut.commit_mem_valid0.toBool();
-        memIsStore = dut.commit_mem_is_store0.toBool();
-        memAddr = dut.commit_mem_addr0.value();
-        memWdata = dut.commit_mem_wdata0.value();
-        memRdata = dut.commit_mem_rdata0.value();
-        memSize = dut.commit_mem_size0.value();
-        trapValid = dut.commit_trap_valid0.toBool();
-        trapCause = static_cast<std::uint32_t>(dut.commit_trap_cause0.value());
-        nextPc = dut.commit_next_pc0.value();
-        uopUid = dut.commit_uop_uid0.value();
-        parentUopUid = dut.commit_parent_uop_uid0.value();
-        blockUid = dut.commit_block_uid0.value();
-        blockBid = dut.commit_block_bid0.value();
-        loadStoreId = dut.commit_load_store_id0.value();
-        coreId = dut.commit_core_id0.value();
-        isBstart = dut.commit_is_bstart0.toBool();
-        isBstop = dut.commit_is_bstop0.toBool();
-      } else if (slot == 1) {
-        fire = dut.commit_fire1.toBool();
-        pc = dut.commit_pc1.value();
-        op = dut.commit_op1.value();
-        rob = dut.commit_rob1.value();
-        insnRaw = dut.commit_insn_raw1.value();
-        len = static_cast<std::uint8_t>(dut.commit_len1.value() & 0x7u);
-        wbValid = dut.commit_wb_valid1.toBool();
-        wbRd = static_cast<std::uint32_t>(dut.commit_wb_rd1.value());
-        wbData = dut.commit_wb_data1.value();
-        src0Valid = dut.commit_src0_valid1.toBool();
-        src0Reg = static_cast<std::uint32_t>(dut.commit_src0_reg1.value());
-        src0Data = dut.commit_src0_data1.value();
-        src1Valid = dut.commit_src1_valid1.toBool();
-        src1Reg = static_cast<std::uint32_t>(dut.commit_src1_reg1.value());
-        src1Data = dut.commit_src1_data1.value();
-        dstValid = dut.commit_dst_valid1.toBool();
-        dstReg = static_cast<std::uint32_t>(dut.commit_dst_reg1.value());
-        dstData = dut.commit_dst_data1.value();
-        memValid = dut.commit_mem_valid1.toBool();
-        memIsStore = dut.commit_mem_is_store1.toBool();
-        memAddr = dut.commit_mem_addr1.value();
-        memWdata = dut.commit_mem_wdata1.value();
-        memRdata = dut.commit_mem_rdata1.value();
-        memSize = dut.commit_mem_size1.value();
-        trapValid = dut.commit_trap_valid1.toBool();
-        trapCause = static_cast<std::uint32_t>(dut.commit_trap_cause1.value());
-        nextPc = dut.commit_next_pc1.value();
-        uopUid = dut.commit_uop_uid1.value();
-        parentUopUid = dut.commit_parent_uop_uid1.value();
-        blockUid = dut.commit_block_uid1.value();
-        blockBid = dut.commit_block_bid1.value();
-        loadStoreId = dut.commit_load_store_id1.value();
-        coreId = dut.commit_core_id1.value();
-        isBstart = dut.commit_is_bstart1.toBool();
-        isBstop = dut.commit_is_bstop1.toBool();
-      } else if (slot == 2) {
-        fire = dut.commit_fire2.toBool();
-        pc = dut.commit_pc2.value();
-        op = dut.commit_op2.value();
-        rob = dut.commit_rob2.value();
-        insnRaw = dut.commit_insn_raw2.value();
-        len = static_cast<std::uint8_t>(dut.commit_len2.value() & 0x7u);
-        wbValid = dut.commit_wb_valid2.toBool();
-        wbRd = static_cast<std::uint32_t>(dut.commit_wb_rd2.value());
-        wbData = dut.commit_wb_data2.value();
-        src0Valid = dut.commit_src0_valid2.toBool();
-        src0Reg = static_cast<std::uint32_t>(dut.commit_src0_reg2.value());
-        src0Data = dut.commit_src0_data2.value();
-        src1Valid = dut.commit_src1_valid2.toBool();
-        src1Reg = static_cast<std::uint32_t>(dut.commit_src1_reg2.value());
-        src1Data = dut.commit_src1_data2.value();
-        dstValid = dut.commit_dst_valid2.toBool();
-        dstReg = static_cast<std::uint32_t>(dut.commit_dst_reg2.value());
-        dstData = dut.commit_dst_data2.value();
-        memValid = dut.commit_mem_valid2.toBool();
-        memIsStore = dut.commit_mem_is_store2.toBool();
-        memAddr = dut.commit_mem_addr2.value();
-        memWdata = dut.commit_mem_wdata2.value();
-        memRdata = dut.commit_mem_rdata2.value();
-        memSize = dut.commit_mem_size2.value();
-        trapValid = dut.commit_trap_valid2.toBool();
-        trapCause = static_cast<std::uint32_t>(dut.commit_trap_cause2.value());
-        nextPc = dut.commit_next_pc2.value();
-        uopUid = dut.commit_uop_uid2.value();
-        parentUopUid = dut.commit_parent_uop_uid2.value();
-        blockUid = dut.commit_block_uid2.value();
-        blockBid = dut.commit_block_bid2.value();
-        loadStoreId = dut.commit_load_store_id2.value();
-        coreId = dut.commit_core_id2.value();
-        isBstart = dut.commit_is_bstart2.toBool();
-        isBstop = dut.commit_is_bstop2.toBool();
-      } else {
-        fire = dut.commit_fire3.toBool();
-        pc = dut.commit_pc3.value();
-        op = dut.commit_op3.value();
-        rob = dut.commit_rob3.value();
-        insnRaw = dut.commit_insn_raw3.value();
-        len = static_cast<std::uint8_t>(dut.commit_len3.value() & 0x7u);
-        wbValid = dut.commit_wb_valid3.toBool();
-        wbRd = static_cast<std::uint32_t>(dut.commit_wb_rd3.value());
-        wbData = dut.commit_wb_data3.value();
-        src0Valid = dut.commit_src0_valid3.toBool();
-        src0Reg = static_cast<std::uint32_t>(dut.commit_src0_reg3.value());
-        src0Data = dut.commit_src0_data3.value();
-        src1Valid = dut.commit_src1_valid3.toBool();
-        src1Reg = static_cast<std::uint32_t>(dut.commit_src1_reg3.value());
-        src1Data = dut.commit_src1_data3.value();
-        dstValid = dut.commit_dst_valid3.toBool();
-        dstReg = static_cast<std::uint32_t>(dut.commit_dst_reg3.value());
-        dstData = dut.commit_dst_data3.value();
-        memValid = dut.commit_mem_valid3.toBool();
-        memIsStore = dut.commit_mem_is_store3.toBool();
-        memAddr = dut.commit_mem_addr3.value();
-        memWdata = dut.commit_mem_wdata3.value();
-        memRdata = dut.commit_mem_rdata3.value();
-        memSize = dut.commit_mem_size3.value();
-        trapValid = dut.commit_trap_valid3.toBool();
-        trapCause = static_cast<std::uint32_t>(dut.commit_trap_cause3.value());
-        nextPc = dut.commit_next_pc3.value();
-        uopUid = dut.commit_uop_uid3.value();
-        parentUopUid = dut.commit_parent_uop_uid3.value();
-        blockUid = dut.commit_block_uid3.value();
-        blockBid = dut.commit_block_bid3.value();
-        loadStoreId = dut.commit_load_store_id3.value();
-        coreId = dut.commit_core_id3.value();
-        isBstart = dut.commit_is_bstart3.toBool();
-        isBstop = dut.commit_is_bstop3.toBool();
-      }
+      const auto &commitProbe = commitSlotProbes[static_cast<std::size_t>(slot)];
+      fire = readProbeBool(commitProbe.fire);
+      pc = readProbeValue(commitProbe.pc);
+      op = readProbeValue(commitProbe.op);
+      rob = readProbeValue(commitProbe.rob);
+      templateKind = static_cast<std::uint8_t>(readProbeValue(commitProbe.templateKind) & 0x7u);
+      insnRaw = readProbeValue(commitProbe.insnRaw);
+      len = static_cast<std::uint8_t>(readProbeValue(commitProbe.len) & 0x7u);
+      wbValid = readProbeBool(commitProbe.wbValid);
+      wbRd = static_cast<std::uint32_t>(readProbeValue(commitProbe.wbRd));
+      wbData = readProbeValue(commitProbe.wbData);
+      src0Valid = readProbeBool(commitProbe.src0Valid);
+      src0Reg = static_cast<std::uint32_t>(readProbeValue(commitProbe.src0Reg));
+      src0Data = readProbeValue(commitProbe.src0Data);
+      src1Valid = readProbeBool(commitProbe.src1Valid);
+      src1Reg = static_cast<std::uint32_t>(readProbeValue(commitProbe.src1Reg));
+      src1Data = readProbeValue(commitProbe.src1Data);
+      dstValid = readProbeBool(commitProbe.dstValid);
+      dstReg = static_cast<std::uint32_t>(readProbeValue(commitProbe.dstReg));
+      dstData = readProbeValue(commitProbe.dstData);
+      memValid = readProbeBool(commitProbe.memValid);
+      memIsStore = readProbeBool(commitProbe.memIsStore);
+      memAddr = readProbeValue(commitProbe.memAddr);
+      memWdata = readProbeValue(commitProbe.memWdata);
+      memRdata = readProbeValue(commitProbe.memRdata);
+      memSize = readProbeValue(commitProbe.memSize);
+      trapValid = readProbeBool(commitProbe.trapValid);
+      trapCause = static_cast<std::uint32_t>(readProbeValue(commitProbe.trapCause));
+      nextPc = readProbeValue(commitProbe.nextPc);
+      uopUid = readProbeValue(commitProbe.uopUid);
+      parentUopUid = readProbeValue(commitProbe.parentUopUid);
+      blockUid = readProbeValue(commitProbe.blockUid);
+      blockBid = readProbeValue(commitProbe.blockBid);
+      loadStoreId = readProbeValue(commitProbe.loadStoreId);
+      coreId = readProbeValue(commitProbe.coreId);
+      isBstart = readProbeBool(commitProbe.isBstart);
+      isBstop = readProbeBool(commitProbe.isBstop);
 
       if (!fire)
         continue;
@@ -2124,6 +2765,35 @@ int main(int argc, char **argv) {
       if (blockBid == 0) {
         blockBid = blockBidLookup(blockUid, rob);
       }
+      if (blockUid != 0 && blockBid != 0) {
+        blockUidByBid[blockBid] = blockUid;
+      }
+      if (rawTrace.is_open() && isBstop) {
+        rawTrace << "{"
+                 << "\"type\":\"blk_evt\","
+                 << "\"cycle\":" << cycleNow << ","
+                 << "\"kind\":\"resolved\","
+                 << "\"kind_code\":2,"
+                 << "\"block_uid\":" << blockUid << ","
+                 << "\"block_bid\":" << blockBid << ","
+                 << "\"core_id\":" << coreId << ","
+                 << "\"pc\":" << pc << ","
+                 << "\"seq\":" << seq
+                 << "}\n";
+      }
+      if (rawTrace.is_open() && isBstart) {
+        rawTrace << "{"
+                 << "\"type\":\"blk_evt\","
+                 << "\"cycle\":" << cycleNow << ","
+                 << "\"kind\":\"open\","
+                 << "\"kind_code\":1,"
+                 << "\"block_uid\":" << blockUid << ","
+                 << "\"block_bid\":" << blockBid << ","
+                 << "\"core_id\":" << coreId << ","
+                 << "\"pc\":" << pc << ","
+                 << "\"seq\":" << seq
+                 << "}\n";
+      }
 
       bool xcheckMismatch = false;
       XcheckMismatch xcheckMm{};
@@ -2132,6 +2802,7 @@ int main(int argc, char **argv) {
         XcheckCommit dutRow{};
         dutRow.seq = seq;
         dutRow.pc = pc;
+        dutRow.template_kind = templateKind;
         dutRow.insn = insn;
         dutRow.len = useLen;
         dutRow.wb_valid = wbValid ? 1 : 0;
@@ -2201,10 +2872,12 @@ int main(int argc, char **argv) {
         }
       }
 
-      std::string opName = "OP_UNKNOWN";
-      auto opIt = opNameMap.find(op);
-      if (opIt != opNameMap.end()) {
-        opName = opIt->second;
+      std::string disasmForOp{};
+      std::string opName{};
+      const bool needOpName = rawTrace.is_open() || commitTrace.is_open() || linxtrace_writer.isOpen();
+      if (needOpName) {
+        disasmForOp = lookupDisasm(insn, useLen);
+        opName = resolveOpName(op, insn, useLen, disasmForOp);
       }
       if (rawTrace.is_open()) {
         rawTrace << "{"
@@ -2249,21 +2922,37 @@ int main(int argc, char **argv) {
                  << "\"traparg0\":0,"
                  << "\"next_pc\":" << nextPc
                  << "}\n";
+        if (uopUid != 0 && dfxTouchedUidCycle.find(uopUid) == dfxTouchedUidCycle.end()) {
+          std::uint64_t occKind = kTraceKindNormal;
+          if (trapValid) {
+            occKind = kTraceKindTrap;
+          } else if (templateKind != 0 || parentUopUid != 0) {
+            occKind = kTraceKindTemplate;
+          }
+          rawTrace << "{"
+                   << "\"type\":\"occ\","
+                   << "\"cycle\":" << cycleNow << ","
+                   << "\"core_id\":" << coreId << ","
+                   << "\"stage\":\"CMT\","
+                   << "\"lane\":" << slot << ","
+                   << "\"uop_uid\":" << uopUid << ","
+                   << "\"parent_uid\":" << parentUopUid << ","
+                   << "\"block_uid\":" << blockUid << ","
+                   << "\"block_bid\":" << blockBid << ","
+                   << "\"kind\":" << occKind << ","
+                   << "\"stall\":0,"
+                   << "\"stall_cause\":0,"
+                   << "\"pc\":" << pc << ","
+                   << "\"rob\":" << rob
+                   << "}\n";
+          dfxTouchedUidCycle.insert(uopUid);
+        }
+        if (uopUid != 0) {
+          rawUidLastTerminalCycle[uopUid] = cycleNow;
+        }
       }
 
-      if (memValid && memIsStore) {
-        lastStoreDbg.valid = true;
-        lastStoreDbg.seq = seq;
-        lastStoreDbg.cycle = cycleNow;
-        lastStoreDbg.log_addr = memAddr;
-        lastStoreDbg.data = memWdata;
-        lastStoreDbg.size = memSize;
-        lastStoreDbg.wvalid_eff = dut.mem2r1w->wvalid_eff.toBool();
-        lastStoreDbg.eff_addr = dut.mem2r1w->waddr_eff.value();
-        lastStoreDbg.strb = dut.mem2r1w->wstrb_eff.value();
-      }
-
-      if (konata.isOpen()) {
+      if (linxtrace_writer.isOpen()) {
         bool xcheckAnnotated = false;
         if (uopUid != 0) {
           auto kidIt = pvUidToKid.find(uopUid);
@@ -2281,13 +2970,13 @@ int main(int argc, char **argv) {
               src1Text = pvFmtOperand(q.src1_valid != 0, static_cast<std::uint32_t>(q.src1_reg), q.src1_data);
               dstText = pvFmtOperand(q.dst_valid != 0, static_cast<std::uint32_t>(q.dst_reg), q.dst_data);
             }
-            const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op);
-            konata.label(kidIt->second, 0, pvInsnText(pc, useDisasm));
+            const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op, insn, useLen);
+            linxtrace_writer.label(kidIt->second, 0, pvInsnText(pc, useDisasm));
             std::ostringstream detail;
             detail << "uid=" << toHex(uopUid)
                    << " parent=" << toHex(parentUopUid)
                    << " bid=" << toHex(blockBid)
-                   << " op=" << op
+                   << " op=" << opName
                    << " src0=" << src0Text
                    << " src1=" << src1Text
                    << " dst=" << dstText
@@ -2304,7 +2993,7 @@ int main(int argc, char **argv) {
                 detail << " dut_dst=" << dstTextDut;
               }
             }
-            konata.label(kidIt->second, 1, detail.str());
+            linxtrace_writer.label(kidIt->second, 1, detail.str());
           }
         }
         if (xcheckMismatch && uopUid != 0) {
@@ -2330,12 +3019,9 @@ int main(int argc, char **argv) {
                    << " redir_corr=" << (redirectFromCorrDbg ? 1 : 0)
                    << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                    << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
-            konata.label(itLive->second.id, 1, detail.str());
-            konata.presence(itLive->second.id,
-                            itLive->second.lane,
-                            kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)],
-                            1,
-                            "xcheck");
+            linxtrace_writer.label(itLive->second.id, 1, detail.str());
+            linxtrace_writer.presenceV5(itLive->second.id, pvLaneToken(itLive->second.lane),
+                              kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
             xcheckAnnotated = true;
           }
         }
@@ -2345,31 +3031,31 @@ int main(int argc, char **argv) {
             auto liveIt = pvByUid.find(uopUid);
             if (liveIt != pvByUid.end()) {
               if (dfxTouchedUidCycle.find(uopUid) == dfxTouchedUidCycle.end()) {
-                konata.presence(liveIt->second.id, slot, "ROB", 0, "0");
+                linxtrace_writer.presenceV5(liveIt->second.id, pvLaneToken(slot), "CMT", 0, "0");
               }
-              konata.retire(liveIt->second.id, liveIt->second.id, trapValid ? 1 : 0);
-              pvUidLastRetireCycle[uopUid] = curCycleKonata;
+              linxtrace_writer.retire(liveIt->second.id, liveIt->second.id, (xcheckMismatch || trapValid) ? 1 : 0);
+              pvUidLastRetireCycle[uopUid] = curCycleTrace;
               pvByUid.erase(liveIt);
             } else {
               // Missing live line for a committed UID: synthesize one so retire stream remains exact.
-              const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op);
-              const std::uint64_t id = pvNextKonataId++;
-              konata.insnV5(id, toHex(uopUid), 0, toHex(parentUopUid), trapValid ? "trap" : "normal");
-              konata.label(id, 0, pvInsnText(pc, useDisasm));
+              const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op, insn, useLen);
+              const std::uint64_t id = pvNextTraceRowId++;
+              linxtrace_writer.insnV5(id, toHex(uopUid), 0, toHex(parentUopUid), trapValid ? "trap" : "normal");
+              linxtrace_writer.label(id, 0, pvInsnText(pc, useDisasm));
               std::ostringstream detail;
               detail << "uid=" << toHex(uopUid)
                      << " parent=" << toHex(parentUopUid)
                      << " bid=" << toHex(blockBid)
-                     << " op=" << op
+                     << " op=" << opName
                      << " src0=" << pvFmtOperand(src0Valid, src0Reg, src0Data)
                      << " src1=" << pvFmtOperand(src1Valid, src1Reg, src1Data)
                      << " dst=" << pvFmtOperand(dstValid, dstReg, dstData)
                      << " wb=" << (wbValid ? (std::to_string(wbRd) + ":" + toHex(wbData)) : std::string("-"))
                      << " mem=" << (memValid ? (std::string(memIsStore ? "S@" : "L@") + toHex(memAddr)) : std::string("-"));
-              konata.label(id, 1, detail.str());
-              konata.presence(id, slot, "ROB", 0, "0");
-              konata.retire(id, id, trapValid ? 1 : 0);
-              pvUidLastRetireCycle[uopUid] = curCycleKonata;
+              linxtrace_writer.label(id, 1, detail.str());
+              linxtrace_writer.presenceV5(id, pvLaneToken(slot), "CMT", 0, "0");
+              linxtrace_writer.retire(id, id, (xcheckMismatch || trapValid) ? 1 : 0);
+              pvUidLastRetireCycle[uopUid] = curCycleTrace;
             }
             dfxRetiredKeysCycle.insert(retireKey);
           }
@@ -2378,11 +3064,11 @@ int main(int argc, char **argv) {
           const std::uint64_t k = pvRetireKey(pc, rob, slot);
           if (dfxRetiredKeysCycle.find(k) == dfxRetiredKeysCycle.end()) {
             const std::uint64_t useRaw = insn;
-            const std::string useDisasm = pvDisasmForLabel(lookupDisasm(useRaw, useLen), op);
-            const std::uint64_t id = pvNextKonataId++;
-            konata.insnV5(id, toHex(id), 0, "0x0", trapValid ? "trap" : "normal");
-            konata.label(id, 0, pvInsnText(pc, useDisasm));
-            konata.presence(id, slot, "ROB", 0, "0");
+            const std::string useDisasm = pvDisasmForLabel(lookupDisasm(useRaw, useLen), op, useRaw, useLen);
+            const std::uint64_t id = pvNextTraceRowId++;
+            linxtrace_writer.insnV5(id, toHex(id), 0, "0x0", trapValid ? "trap" : "normal");
+            linxtrace_writer.label(id, 0, pvInsnText(pc, useDisasm));
+            linxtrace_writer.presenceV5(id, pvLaneToken(slot), "CMT", 0, "0");
             if (xcheckMismatch) {
               std::ostringstream detail;
               detail << "XCHECK_FAIL seq=" << xcheckMm.seq
@@ -2404,18 +3090,18 @@ int main(int argc, char **argv) {
                      << " redir_corr=" << (redirectFromCorrDbg ? 1 : 0)
                      << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                      << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
-              konata.label(id, 1, detail.str());
-              konata.presence(id, slot, kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
+              linxtrace_writer.label(id, 1, detail.str());
+              linxtrace_writer.presenceV5(id, pvLaneToken(slot), kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
               xcheckAnnotated = true;
             }
-            konata.retire(id, id, trapValid ? 1 : 0);
+            linxtrace_writer.retire(id, id, (xcheckMismatch || trapValid) ? 1 : 0);
           }
         }
         if (xcheckMismatch && !xcheckAnnotated) {
-          const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op);
-          const std::uint64_t id = pvNextKonataId++;
-          konata.insnV5(id, toHex(id), 0, "0x0", "flush");
-          konata.label(id, 0, pvInsnText(pc, useDisasm));
+          const std::string useDisasm = pvDisasmForLabel(lookupDisasm(insn, useLen), op, insn, useLen);
+          const std::uint64_t id = pvNextTraceRowId++;
+          linxtrace_writer.insnV5(id, toHex(id), 0, "0x0", "flush");
+          linxtrace_writer.label(id, 0, pvInsnText(pc, useDisasm));
           std::ostringstream detail;
           detail << "XCHECK_FAIL seq=" << xcheckMm.seq
                  << " field=" << xcheckMm.field
@@ -2436,114 +3122,22 @@ int main(int argc, char **argv) {
                  << " redir_corr=" << (redirectFromCorrDbg ? 1 : 0)
                  << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
                  << " bru_fault=" << (bruFaultSetDbg ? 1 : 0);
-          konata.label(id, 1, detail.str());
-          konata.presence(id, slot, kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
-          konata.retire(id, id, 1);
+          linxtrace_writer.label(id, 1, detail.str());
+          linxtrace_writer.presenceV5(id, pvLaneToken(slot), kTraceStageNames[static_cast<std::size_t>(kTraceSidXchk)], 1, "xcheck");
+          linxtrace_writer.retire(id, id, 1);
         }
       }
 
-        if (xcheckMismatch && xcheckFailfast) {
-          writeXcheckReport();
-          pvFlushAll("xcheck_failfast");
-          std::cerr << "error: xcheck mismatch at seq=" << xcheckMm.seq
-                    << " field=" << xcheckMm.field
-                    << " qemu=" << toHex(xcheckMm.qemu)
-                    << " dut=" << toHex(xcheckMm.dut) << "\n"
-                    << "  qemu_row: " << xcheckCommitSummary(xcheckMm.qemu_row) << "\n"
-                    << "  dut_row:  " << xcheckCommitSummary(xcheckMm.dut_row) << "\n";
-          std::cerr << "  dbg: br_kind=" << brKindDbg
-                    << " br_epoch=" << brEpochDbg
-                    << " pred_take=" << bruPredTakeDbg
-                    << " actual_take=" << bruActualTakeDbg
-                    << " boundary_pc=" << toHex(bruBoundaryPcDbg)
-                    << " corr_pending=" << (bruCorrPendingDbg ? 1 : 0)
-                    << " corr_epoch=" << bruCorrEpochDbg
-                    << " corr_target=" << toHex(bruCorrTargetDbg)
-                    << " redir_corr=" << (redirectFromCorrDbg ? 1 : 0)
-                    << " redir_boundary=" << (redirectFromBoundaryDbg ? 1 : 0)
-                    << " bru_fault=" << (bruFaultSetDbg ? 1 : 0)
-                    << " state.commit_cond=" << dut.janus_backend->state__commit_cond.value()
-                    << " state.commit_tgt=" << toHex(dut.janus_backend->state__commit_tgt.value())
-                    << "\n";
-          std::cerr << "  dbg: mem2r1w.d_raddr=" << toHex(dut.mem2r1w->d_raddr.value())
-                    << " d_rdata=" << toHex(dut.mem2r1w->d_rdata.value())
-                    << " backend.dmem_raddr=" << toHex(dut.janus_backend->dmem_raddr.value())
-                    << " backend.dmem_rdata_i=" << toHex(dut.janus_backend->dmem_rdata_i.value())
-                    << " stbuf.dmem_raddr=" << toHex(dut.janus_backend->stbuf_stage->dmem_raddr.value())
-                    << " stbuf.dmem_rdata_i=" << toHex(dut.janus_backend->stbuf_stage->dmem_rdata_i.value())
-                    << " stbuf.macro_load_data=" << toHex(dut.janus_backend->stbuf_stage->macro_load_data.value())
-                    << " stbuf.count=" << dut.janus_backend->stbuf_stage->count.value()
-                    << " stbuf.head=" << dut.janus_backend->stbuf_stage->head.value()
-                    << " stbuf.tail=" << dut.janus_backend->stbuf_stage->tail.value()
-                    << "\n";
-          // Dump stbuf entries that still claim to be valid (should be none if count==0).
-#define DUMP_STBUF_ENTRY(i)                                                                                          \
-  do {                                                                                                                \
-    auto &st = *dut.janus_backend->stbuf_stage;                                                                       \
-    if (st.valid##i.toBool()) {                                                                                       \
-      std::cerr << "  dbg: stbuf[" #i "] v=1 addr=" << toHex(st.addr##i.value())                                      \
-                << " data=" << toHex(st.data##i.value()) << " size=" << st.size##i.value() << "\n";                  \
-    }                                                                                                                 \
-  } while (0)
-          DUMP_STBUF_ENTRY(0);
-          DUMP_STBUF_ENTRY(1);
-          DUMP_STBUF_ENTRY(2);
-          DUMP_STBUF_ENTRY(3);
-          DUMP_STBUF_ENTRY(4);
-          DUMP_STBUF_ENTRY(5);
-          DUMP_STBUF_ENTRY(6);
-          DUMP_STBUF_ENTRY(7);
-          DUMP_STBUF_ENTRY(8);
-          DUMP_STBUF_ENTRY(9);
-          DUMP_STBUF_ENTRY(10);
-          DUMP_STBUF_ENTRY(11);
-          DUMP_STBUF_ENTRY(12);
-          DUMP_STBUF_ENTRY(13);
-          DUMP_STBUF_ENTRY(14);
-          DUMP_STBUF_ENTRY(15);
-          DUMP_STBUF_ENTRY(16);
-          DUMP_STBUF_ENTRY(17);
-          DUMP_STBUF_ENTRY(18);
-          DUMP_STBUF_ENTRY(19);
-          DUMP_STBUF_ENTRY(20);
-          DUMP_STBUF_ENTRY(21);
-          DUMP_STBUF_ENTRY(22);
-          DUMP_STBUF_ENTRY(23);
-          DUMP_STBUF_ENTRY(24);
-          DUMP_STBUF_ENTRY(25);
-          DUMP_STBUF_ENTRY(26);
-          DUMP_STBUF_ENTRY(27);
-          DUMP_STBUF_ENTRY(28);
-          DUMP_STBUF_ENTRY(29);
-          DUMP_STBUF_ENTRY(30);
-          DUMP_STBUF_ENTRY(31);
-#undef DUMP_STBUF_ENTRY
-          if (xcheckMm.dut_row.mem_valid != 0) {
-            const std::uint64_t logAddr = xcheckMm.dut_row.mem_addr;
-            const std::uint64_t effAddrGuess = mapBringupMemAddrEff(logAddr);
-            std::uint64_t memWord = 0;
-            for (unsigned i = 0; i < 8; i++) {
-            const std::uint8_t b = dut.mem2r1w->dmem.peekByte(static_cast<std::size_t>(effAddrGuess + i));
-            memWord |= (static_cast<std::uint64_t>(b) << (8u * i));
-          }
-          std::cerr << "  dbg: dmem.peek64(log=" << toHex(logAddr) << " eff=" << toHex(effAddrGuess)
-                    << ")=" << toHex(memWord) << "\n";
-        }
-        if (lastStoreDbg.valid) {
-          std::uint64_t memWord = 0;
-          for (unsigned i = 0; i < 8; i++) {
-            const std::uint8_t b = dut.mem2r1w->dmem.peekByte(static_cast<std::size_t>(lastStoreDbg.eff_addr + i));
-            memWord |= (static_cast<std::uint64_t>(b) << (8u * i));
-          }
-          std::cerr << "  dbg: last_store seq=" << lastStoreDbg.seq
-                    << " log=" << toHex(lastStoreDbg.log_addr)
-                    << " eff=" << toHex(lastStoreDbg.eff_addr)
-                    << " size=" << lastStoreDbg.size
-                    << " wdata=" << toHex(lastStoreDbg.data)
-                    << " wvalid_eff=" << (lastStoreDbg.wvalid_eff ? 1 : 0)
-                    << " wstrb_eff=" << toHex(lastStoreDbg.strb)
-                    << " dmem.peek64=" << toHex(memWord) << "\n";
-        }
+      if (xcheckMismatch && xcheckFailfast) {
+        writeXcheckReport();
+        pvFlushAll("xcheck_failfast");
+        std::cerr << "error: xcheck mismatch at seq=" << xcheckMm.seq
+                  << " field=" << xcheckMm.field
+                  << " qemu=" << toHex(xcheckMm.qemu)
+                  << " dut=" << toHex(xcheckMm.dut) << "\n"
+                  << "  qemu_row: " << xcheckCommitSummary(xcheckMm.qemu_row) << "\n"
+                  << "  dut_row:  " << xcheckCommitSummary(xcheckMm.dut_row) << "\n";
+        dumpCtuDbg();
         dumpSimStats();
         return 1;
       }
@@ -2569,6 +3163,7 @@ int main(int argc, char **argv) {
                   << "\"pc\":" << pc << ","
                   << "\"op\":" << op << ","
                   << "\"op_name\":\"" << jsonEscape(opName) << "\","
+                  << "\"template_kind\":" << static_cast<unsigned>(templateKind) << ","
                   << "\"insn\":" << insn << ","
                   << "\"len\":" << static_cast<unsigned>(useLen) << ","
                   << "\"wb_valid\":" << (wbValid ? 1 : 0) << ","
@@ -2601,28 +3196,6 @@ int main(int argc, char **argv) {
       }
     }
 
-    // Trace hygiene: DFX emits per-cycle occupancy. If a UID vanishes without an explicit
-    // terminal event (commit/flush/trap), retire the row so pipeview does not accumulate
-    // thousands of never-ending frontend packet lines.
-    if (konata.isOpen() && !pvByUid.empty()) {
-      std::vector<std::uint64_t> staleUids{};
-      staleUids.reserve(pvByUid.size());
-      for (const auto &kv : pvByUid) {
-        if (dfxTouchedUidCycle.find(kv.first) == dfxTouchedUidCycle.end()) {
-          staleUids.push_back(kv.first);
-        }
-      }
-      for (const std::uint64_t uid : staleUids) {
-        auto it = pvByUid.find(uid);
-        if (it == pvByUid.end()) {
-          continue;
-        }
-        konata.retire(it->second.id, it->second.id, 0);
-        pvUidLastRetireCycle[uid] = curCycleKonata;
-        pvByUid.erase(it);
-      }
-    }
-
     if (retiredThisCycle) {
       noRetireStreak = 0;
     } else {
@@ -2634,40 +3207,34 @@ int main(int argc, char **argv) {
         const std::uint64_t headInsn = dut.rob_head_insn_raw.value();
         const std::string disasm = disasmInsn(disasmTool, disasmSpec, headInsn, headLen);
         std::cerr << "error: deadlock detected after " << noRetireStreak << " cycles without retire\n"
-                  << "  cycle=" << dut.cycles.value() << " pc=" << toHex(dut.pc.value()) << " fpc=" << toHex(dut.fpc.value())
-                  << " rob_count=" << dut.rob_count.value() << "\n"
+                  << "  cycle=" << dut.cycles.value() << " pc=" << toHex(dut.pc.value()) << "\n"
+                  << "  commits=" << retiredCount
+                  << " ifu_mode=" << (ifuStubFromQemu ? "trace" : "memh")
+                  << " ifu_cursor=" << ifuStubTraceCursor << "/" << (ifuStubRows ? ifuStubRows->size() : 0ull)
+                  << " ifu_pending=" << (ifuStubPending.has_value() ? 1 : 0)
+                  << " ifu_ready=" << (dut.tb_ifu_stub_ready.toBool() ? 1 : 0)
+                  << " ib_count=" << dut.ib_count_dbg_top.value() << "\n"
+                  << "  gate_dbg commit_fire0=" << readProbeValue(commitSlotProbes[0].fire)
+                  << " ctu_block_ifu=" << dut.ctu_block_ifu.value()
+                  << "\n"
+                  << "  brob_dbg alloc=" << readProbeValue(blockProbes.queryAllocated)
+                  << " ready=" << readProbeValue(blockProbes.queryReady)
+                  << " exc=" << readProbeValue(blockProbes.queryException)
+                  << " retired=" << readProbeValue(blockProbes.queryRetired)
+                  << " state=" << readProbeValue(blockProbes.queryState)
+                  << " count=" << readProbeValue(blockProbes.count)
+                  << " alloc_ready=" << readProbeValue(blockProbes.allocReady)
+                  << " alloc_bid=" << toHex(readProbeValue(blockProbes.allocBid))
+                  << " active_bid=" << toHex(readProbeValue(blockProbes.activeBid))
+                  << " retire_fire=" << readProbeValue(blockProbes.retireFire)
+                  << " bctrl_issue_fire=" << readProbeValue(blockProbes.issueFire)
+                  << " replay_cause=" << readProbeValue(commitRedirectProbes.replayCause) << "\n"
                   << "  rob_head_valid=" << dut.rob_head_valid.value() << " rob_head_done=" << dut.rob_head_done.value()
                   << " rob_head_pc=" << toHex(dut.rob_head_pc.value()) << "\n"
                   << "  rob_head_op=" << dut.rob_head_op.value() << " rob_head_len=" << static_cast<unsigned>(headLen)
                   << " rob_head_insn=" << toHex(maskInsn(headInsn, headLen)) << "\n"
-                  << "  head_rob=" << dut.commit_rob0.value() << "\n"
-                  << "  issue:"
-                  << " 0(f=" << dut.issue_fire0.value() << ",rob=" << dut.issue_rob0.value() << ",op=" << dut.issue_op0.value() << ",pc=" << toHex(dut.issue_pc0.value()) << ")"
-                  << " 1(f=" << dut.issue_fire1.value() << ",rob=" << dut.issue_rob1.value() << ",op=" << dut.issue_op1.value() << ",pc=" << toHex(dut.issue_pc1.value()) << ")"
-                  << " 2(f=" << dut.issue_fire2.value() << ",rob=" << dut.issue_rob2.value() << ",op=" << dut.issue_op2.value() << ",pc=" << toHex(dut.issue_pc2.value()) << ")"
-                  << " 3(f=" << dut.issue_fire3.value() << ",rob=" << dut.issue_rob3.value() << ",op=" << dut.issue_op3.value() << ",pc=" << toHex(dut.issue_pc3.value()) << ")\n"
-                  << "  wb_pipe:"
-                  << " 0(f=" << dut.wb_pipe_fire0.value() << ",rob=" << dut.wb_pipe_rob0.value() << ")\n"
-                  << "          1(f=" << dut.wb_pipe_fire1.value() << ",rob=" << dut.wb_pipe_rob1.value() << ")\n"
-                  << "          2(f=" << dut.wb_pipe_fire2.value() << ",rob=" << dut.wb_pipe_rob2.value() << ")\n"
-                  << "          3(f=" << dut.wb_pipe_fire3.value() << ",rob=" << dut.wb_pipe_rob3.value() << ")\n"
-                  << "  last_wb_pipe:"
-                  << " 0(seen=" << (lastWbSeen[0] ? 1 : 0) << ",cycle=" << lastWbCycle[0] << ",rob=" << lastWbRob[0] << ",val=" << toHex(lastWbVal[0]) << ")\n"
-                  << "              1(seen=" << (lastWbSeen[1] ? 1 : 0) << ",cycle=" << lastWbCycle[1] << ",rob=" << lastWbRob[1] << ",val=" << toHex(lastWbVal[1]) << ")\n"
-                  << "              2(seen=" << (lastWbSeen[2] ? 1 : 0) << ",cycle=" << lastWbCycle[2] << ",rob=" << lastWbRob[2] << ",val=" << toHex(lastWbVal[2]) << ")\n"
-                  << "              3(seen=" << (lastWbSeen[3] ? 1 : 0) << ",cycle=" << lastWbCycle[3] << ",rob=" << lastWbRob[3] << ",val=" << toHex(lastWbVal[3]) << ")\n"
-                  << "  last_issue:"
-                  << " 0(seen=" << (lastIssueSeen[0] ? 1 : 0) << ",cycle=" << lastIssueCycle[0] << ",rob=" << lastIssueRob[0] << ",op=" << lastIssueOp[0] << ",pc=" << toHex(lastIssuePc[0]) << ")\n"
-                  << "             1(seen=" << (lastIssueSeen[1] ? 1 : 0) << ",cycle=" << lastIssueCycle[1] << ",rob=" << lastIssueRob[1] << ",op=" << lastIssueOp[1] << ",pc=" << toHex(lastIssuePc[1]) << ")\n"
-                  << "             2(seen=" << (lastIssueSeen[2] ? 1 : 0) << ",cycle=" << lastIssueCycle[2] << ",rob=" << lastIssueRob[2] << ",op=" << lastIssueOp[2] << ",pc=" << toHex(lastIssuePc[2]) << ")\n"
-                  << "             3(seen=" << (lastIssueSeen[3] ? 1 : 0) << ",cycle=" << lastIssueCycle[3] << ",rob=" << lastIssueRob[3] << ",op=" << lastIssueOp[3] << ",pc=" << toHex(lastIssuePc[3]) << ")\n"
-                  << "  head_wait_hit=" << dut.head_wait_hit.value()
-                  << " head_wait_kind=" << dut.head_wait_kind.value()
-                  << " sl=" << dut.head_wait_sl.value() << " sr=" << dut.head_wait_sr.value() << " sp=" << dut.head_wait_sp.value()
-                  << " sl_rdy=" << dut.head_wait_sl_rdy.value()
-                  << " sr_rdy=" << dut.head_wait_sr_rdy.value()
-                  << " sp_rdy=" << dut.head_wait_sp_rdy.value() << "\n"
                   << "  rob_head_disasm=" << disasm << "\n";
+        dumpCtuDbg();
         pvFlushAll("deadlock_abort");
         writeXcheckReport();
         dumpSimStats();
@@ -2676,7 +3243,6 @@ int main(int argc, char **argv) {
     }
 
     if (stopMaxCommits || (maxCommits > 0 && retiredCount >= maxCommits)) {
-      pvFlushAll("end_of_sim");
       writeXcheckReport();
       if (xcheckEnabled && xcheckFailfast && !xcheckMismatches.empty()) {
         std::cerr << "error: xcheck mismatches detected: " << xcheckMismatches.size() << "\n";
