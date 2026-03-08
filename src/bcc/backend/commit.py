@@ -113,7 +113,7 @@ def build_commit_head_stage(m: Circuit) -> None:
     br_is_ind = br_kind.__eq__(c(BK_IND, width=3))
     br_is_icall = br_kind.__eq__(c(BK_ICALL, width=3))
 
-    br_take = (
+    br_take_nonmacro = (
         br_is_call
         | br_is_direct
         | br_is_ind
@@ -121,7 +121,14 @@ def build_commit_head_stage(m: Circuit) -> None:
         | (br_is_cond & commit_cond)
         | (br_is_ret & commit_cond)
     )
-    head_skip = is_boundary & br_take
+    # Macro headers do not inherit the surrounding live block branch state.
+    # Only FRET.* is control-taking at macro commit; FENTRY/FEXIT are
+    # fall-through after the template engine completes.
+    macro_take = _op_is(m, head_op, OP_FRET_RA, OP_FRET_STK) & commit_cond
+    br_take = is_macro._select_internal(macro_take, br_take_nonmacro)
+    # Macro headers still need CTU expansion even when they are architecturally
+    # control-taking (notably FRET.*). Skip only applies to non-macro markers.
+    head_skip = is_boundary & br_take & (~is_macro)
 
     m.output("head_is_macro", is_macro)
     m.output("head_is_start_marker", is_start_marker)
