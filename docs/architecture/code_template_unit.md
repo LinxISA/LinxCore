@@ -1,18 +1,22 @@
 # LinxCore CodeTemplateUnit
 
+Canonical contract summary:
+
+- `rtl/LinxCore/docs/architecture/microarchitecture.md`
+
 ## Purpose
 
 `CodeTemplateUnit` expands template blocks (`FENTRY`, `FEXIT`, `FRET_RA`, `FRET_STK`) into a one-uop-per-cycle stream and asserts an IFU block while template execution is active.
 
 Source:
 
-- `/Users/zhoubot/LinxCore/src/bcc/backend/code_template_unit.py`
-- `/Users/zhoubot/LinxCore/docs/linxcore_macro_instruction_generation.md`
+- `rtl/LinxCore/src/bcc/backend/code_template_unit.py`
+- `rtl/LinxCore/docs/architecture/macro_instruction_generation.md`
 
 Generated split modules:
 
-- `/Users/zhoubot/LinxCore/generated/cpp/linxcore_top/CodeTemplateUnit__*.hpp`
-- `/Users/zhoubot/LinxCore/generated/verilog/linxcore_top/CodeTemplateUnit__*.v`
+- `rtl/LinxCore/generated/cpp/linxcore_top/CodeTemplateUnit__*.hpp`
+- `rtl/LinxCore/generated/verilog/linxcore_top/CodeTemplateUnit__*.v`
 
 ## Uop model
 
@@ -118,4 +122,4 @@ Primary outputs:
 
 Integration point:
 
-- `/Users/zhoubot/LinxCore/src/bcc/backend/backend.py`
+- `rtl/LinxCore/src/bcc/backend/backend.py`

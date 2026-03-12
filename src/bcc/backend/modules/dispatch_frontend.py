@@ -168,26 +168,23 @@ def build_dispatch_frontend(
         "can_run": can_run,
         "commit_redirect": commit_redirect,
         "f4_valid": packet_valid_s2,
-        "block_head_in": block_head_in,
         "block_epoch_in": block_epoch_in,
         "block_uid_in": block_uid_in,
         "block_bid_in": block_bid_in,
-        "brob_alloc_ready_i": brob_alloc_ready_i,
-        "brob_alloc_bid_i": brob_alloc_bid_i,
         "lsid_alloc_base": lsid_alloc_base,
         "rob_count": rob_count,
         "disp_count": s2_decode["dispatch_count"],
         "ren_free_mask": ren_free_mask,
-        "iq_alu_valid_mask": iq_alu_valid_mask,
-        "iq_bru_valid_mask": iq_bru_valid_mask,
-        "iq_lsu_valid_mask": iq_lsu_valid_mask,
-        "iq_cmd_valid_mask": iq_cmd_valid_mask,
     }
+    for i in range(iq_depth):
+        dispatch_stage_args[f"iq_alu_valid{i}"] = iq_alu_valid_mask[i]
+        dispatch_stage_args[f"iq_bru_valid{i}"] = iq_bru_valid_mask[i]
+        dispatch_stage_args[f"iq_lsu_valid{i}"] = iq_lsu_valid_mask[i]
+        dispatch_stage_args[f"iq_cmd_valid{i}"] = iq_cmd_valid_mask[i]
     for slot in range(dispatch_w):
         dispatch_stage_args[f"disp_valid{slot}"] = s2_decode[f"valid{slot}"]
         dispatch_stage_args[f"disp_op{slot}"] = s2_decode[f"op{slot}"]
         dispatch_stage_args[f"disp_need_pdst{slot}"] = s2_decode[f"need_pdst{slot}"]
-        dispatch_stage_args[f"disp_is_bstart{slot}"] = s2_decode[f"is_bstart{slot}"]
 
     dispatch_stage = m.new(
         build_dispatch_stage,
@@ -204,7 +201,12 @@ def build_dispatch_frontend(
         },
     ).outputs
 
-    dispatch_ready_s2 = dispatch_stage["frontend_ready"]
+    needs_bid_alloc = c(0, width=1)
+    for slot in range(dispatch_w):
+        needs_bid_alloc = needs_bid_alloc | (s2_decode[f"valid{slot}"] & s2_decode[f"is_bstart{slot}"])
+    needs_bid_alloc = packet_valid_s2 & needs_bid_alloc
+    bid_alloc_ok = (~needs_bid_alloc) | brob_alloc_ready_i
+    dispatch_ready_s2 = dispatch_stage["frontend_ready"] & bid_alloc_ok
     move_s2 = packet_vals["s2"]["valid"] & dispatch_ready_s2
     s2_ready = (~packet_vals["s2"]["valid"]) | dispatch_ready_s2
     s1_ready = (~packet_vals["s1"]["valid"]) | s2_ready
@@ -330,14 +332,18 @@ def build_dispatch_frontend(
         "rob_space_ok",
         "iq_alloc_ok",
         "preg_alloc_ok",
-        "bid_alloc_ok",
         "mem_disp_count",
-        "lsid_alloc_next",
-        "disp_alloc_mask",
-        "brob_alloc_fire",
-        "dispatch_fire",
     ):
         m.output(name, dispatch_stage[name])
+    dispatch_fire_eff = dispatch_stage["dispatch_fire"] & bid_alloc_ok
+    brob_alloc_fire = dispatch_fire_eff & needs_bid_alloc
+    disp_alloc_mask_eff = bid_alloc_ok._select_internal(dispatch_stage["disp_alloc_mask"], c(0, width=pregs))
+    lsid_alloc_next_eff = bid_alloc_ok._select_internal(dispatch_stage["lsid_alloc_next"], lsid_alloc_base)
+    m.output("bid_alloc_ok", bid_alloc_ok)
+    m.output("lsid_alloc_next", lsid_alloc_next_eff)
+    m.output("disp_alloc_mask", disp_alloc_mask_eff)
+    m.output("brob_alloc_fire", brob_alloc_fire)
+    m.output("dispatch_fire", dispatch_fire_eff)
     m.output("frontend_ready", (~commit_redirect) & d1_ready)
 
     dispatch_specs = dispatch_slot_field_specs(iq_w=iq_w, ptag_w=ptag_w, pregs=pregs)
@@ -357,6 +363,7 @@ def build_dispatch_frontend(
         dispatch_values = {}
         for name, _width in dispatch_specs:
             dispatch_values[name] = dispatch_stage[f"{name}{slot}"]
+        dispatch_values["disp_fire"] = bid_alloc_ok._select_internal(dispatch_stage[f"disp_fire{slot}"], c(0, width=1))
         dispatch_slot_packs.append(
             _pack_fields(
                 m,

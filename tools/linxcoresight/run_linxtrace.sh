@@ -58,15 +58,31 @@ if [[ -z "${objdump_elf}" ]]; then
   if [[ -f "${sidecar}" ]]; then
     objdump_elf="${sidecar}"
   elif [[ "${name}" == *"coremark"* ]]; then
-    cand="${LINXISA_DIR}/workloads/generated/elf/coremark.elf"
-    if [[ -f "${cand}" ]]; then
-      objdump_elf="${cand}"
-    fi
+    for cand in \
+      "${LINXISA_DIR}/workloads/generated/elf/coremark.elf" \
+      "${ROOT_DIR}/tests/benchmarks_latest_llvm_musl_1000/elf/coremark/coremark.elf" \
+      "${ROOT_DIR}/tests/benchmarks_latest_llvm_musl/elf/coremark/coremark.elf" \
+      "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl_1000/elf/coremark/coremark.elf" \
+      "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl/elf/coremark/coremark.elf"
+    do
+      if [[ -f "${cand}" ]]; then
+        objdump_elf="${cand}"
+        break
+      fi
+    done
   elif [[ "${name}" == *"dhrystone"* ]]; then
-    cand="${LINXISA_DIR}/workloads/generated/elf/dhrystone.elf"
-    if [[ -f "${cand}" ]]; then
-      objdump_elf="${cand}"
-    fi
+    for cand in \
+      "${LINXISA_DIR}/workloads/generated/elf/dhrystone.elf" \
+      "${ROOT_DIR}/tests/benchmarks_latest_llvm_musl_1000/elf/dhrystone/dhrystone.elf" \
+      "${ROOT_DIR}/tests/benchmarks_latest_llvm_musl/elf/dhrystone/dhrystone.elf" \
+      "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl_1000/elf/dhrystone/dhrystone.elf" \
+      "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl/elf/dhrystone/dhrystone.elf"
+    do
+      if [[ -f "${cand}" ]]; then
+        objdump_elf="${cand}"
+        break
+      fi
+    done
   fi
 fi
 

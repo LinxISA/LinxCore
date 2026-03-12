@@ -248,6 +248,8 @@ def build_commit_select_stage(
     rob_boundary_targets = []
     rob_pred_takes = []
     rob_checkpoint_ids = []
+    macro_commit_ready = state.macro_wait_commit.out() & (~state.macro_active.out())
+
     for slot in range(commit_w):
         commit_idxs.append(m.input(f"commit_idx{slot}", width=rob_w))
         rob_pcs.append(m.input(f"rob_pc{slot}", width=64))
@@ -349,6 +351,8 @@ def build_commit_select_stage(
         )
 
         fire = can_run & commit_allow & rob_valids[slot] & rob_dones[slot]
+        allow_macro = macro_commit_ready if slot == 0 else consts.zero1
+        fire = fire & ((~is_macro) | allow_macro)
 
         # Template macro blocks must reach the head of the ROB.
         if slot != 0:
@@ -612,6 +616,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         "clk": clk,
         "rst": rst,
         "do_flush": _rob_in(1),
+        "flush_bid": _rob_in(64),
         "commit_fire": _rob_in(1),
         "dispatch_fire": _rob_in(1),
         "commit_count": _rob_in(3),
@@ -960,13 +965,17 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_block = ctu["block_ifu"]
 
     can_run = base_can_run & (~macro_block)
+    # Template expansion only blocks frontend/issue progress. Commit must keep
+    # running so the macro parent can retire into the wait-to-commit window
+    # once the CTU has started.
+    commit_can_run = base_can_run
 
     # Return target for FRET.* (via RA, possibly restored by the macro engine).
     ret_ra_tag = ren.cmap[10].out()
     ret_ra_val = mux_by_uindex(m, idx=ret_ra_tag, items=prf, default=consts.zero64)
 
     commit_sel_args = {
-        "can_run": can_run,
+        "can_run": commit_can_run,
         "stbuf_has_space": stbuf_has_space,
         "ret_ra_val": ret_ra_val,
         "brob_active_allocated_i": brob_active_allocated_i,
@@ -1514,10 +1523,11 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     # Register the issue/execute event bundle before it fans into the ROB bank.
     # This breaks a large SCC at the backend top and materially improves the
     # event-driven C++ simulation convergence behavior.
-    rob_evt_pipe_args = {"clk": clk, "rst": rst, "do_flush": do_flush}
+    rob_evt_pipe_args = {"clk": clk, "rst": rst, "do_flush": do_flush, "flush_bid": state.flush_bid.out()}
     for slot in range(p.issue_w):
         rob_evt_pipe_args[f"wb_fire_i{slot}"] = wb_fires[slot]
         rob_evt_pipe_args[f"wb_rob_i{slot}"] = wb_robs[slot]
+        rob_evt_pipe_args[f"wb_block_bid_i{slot}"] = state.flush_bid.out()
         rob_evt_pipe_args[f"wb_value_i{slot}"] = wb_values[slot]
         rob_evt_pipe_args[f"store_fire_i{slot}"] = store_fires[slot]
         rob_evt_pipe_args[f"load_fire_i{slot}"] = load_fires[slot]
@@ -1916,6 +1926,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
 
     # --- ROB bank input connections ---
     m.assign(rob_bank_in["do_flush"], do_flush)
+    m.assign(rob_bank_in["flush_bid"], state.flush_bid.out())
     m.assign(rob_bank_in["commit_fire"], commit_fire)
     m.assign(rob_bank_in["dispatch_fire"], dispatch_fire)
     m.assign(rob_bank_in["commit_count"], commit_count)
@@ -2459,10 +2470,25 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     macro_trace_next_pc = macro_trace_prep["macro_trace_next_pc"]
     macro_shadow_fire = macro_trace_prep["macro_shadow_fire"]
     macro_shadow_emit_uop = macro_trace_prep["macro_shadow_emit_uop"]
-    # Keep retire trace strictly instruction-driven; qemu-specific boundary-only
-    # metadata commits are filtered in the lockstep runner.
+    # Mid-block BSTART commits split into two architectural commit rows:
+    # a synthetic boundary-close marker `pc -> pc`, followed by the re-executed
+    # block-head marker `pc -> pc+len`. The functional backend only exposes the
+    # boundary-close retire, so the trace producer must synthesize the extra row.
+    trace_next_pcs = []
     shadow_boundary_fire = consts.zero1
     shadow_boundary_fire1 = consts.zero1
+    for slot in range(commit_w):
+        slot_fire = commit_fires[slot]
+        slot_is_bstart = commit_is_bstarts[slot]
+        slot_pc = commit_pcs[slot]
+        slot_next_pc = commit_next_pcs[slot]
+        slot_head_next_pc = slot_pc + rob_lens[slot]._zext(width=64)
+        slot_split_bstart = slot_fire & slot_is_bstart & slot_next_pc.__eq__(slot_pc)
+        trace_next_pcs.append(slot_split_bstart._select_internal(slot_head_next_pc, slot_next_pc))
+        if slot == 0:
+            shadow_boundary_fire = slot_split_bstart & (~state.post_macro_handoff.out())
+        if slot == 1:
+            shadow_boundary_fire1 = slot_split_bstart
 
     # `commit_fire` / `commit_op` / `commit_value` remain lane0-compatible.
     # These additional signals help debug multi-commit cycles where older
@@ -2519,7 +2545,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     for slot in range(max_commit_slots):
         commit_trace_args[f"commit_fire{slot}_i"] = _slot(commit_fires, slot, consts.zero1)
         commit_trace_args[f"commit_pc{slot}_i"] = _slot(commit_pcs, slot, consts.zero64)
-        commit_trace_args[f"commit_next_pc{slot}_i"] = _slot(commit_next_pcs, slot, consts.zero64)
+        commit_trace_args[f"commit_next_pc{slot}_i"] = _slot(trace_next_pcs, slot, consts.zero64)
         commit_trace_args[f"commit_idx{slot}_i"] = _slot(commit_idxs, slot, c(0, width=p.rob_w))
         commit_trace_args[f"rob_pc{slot}"] = _slot(rob_pcs, slot, consts.zero64)
         commit_trace_args[f"rob_op{slot}"] = _slot(rob_ops, slot, c(0, width=12))
@@ -2853,7 +2879,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     cmd_tile = cmd_payload._trunc(width=6)
     cmd_src_rob = cmd_uop_rob
     cmd_bid = mux_by_uindex(m, idx=cmd_uop_rob, items=rob.block_bid, default=consts.zero64)
-    cmd_tag = state.cycles.out()._trunc(width=8)
+    # Block-control contract: route PE responses by BID-derived tag.
+    cmd_tag = cmd_bid[0:8]
 
     block_cmd_valid = cmd_issue_fire_eff
     block_cmd_kind = cmd_kind

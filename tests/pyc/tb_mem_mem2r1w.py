@@ -38,6 +38,7 @@ def tb(t: Tb) -> None:
     t.expect("wstrb_eff", 0xFF, at=0)
 
     # Cycle 1: host write wins arbitration when both write channels are valid.
+    # Stack addresses map into the upper stack window, above the data window.
     t.drive("d_wvalid", 1, at=1)
     t.drive("d_waddr", 0x80, at=1)
     t.drive("d_wdata", 0xDEADBEEFCAFEBABE, at=1)
@@ -48,17 +49,17 @@ def tb(t: Tb) -> None:
     t.drive("host_wdata", 0xAABBCCDDEEFF0011, at=1)
     t.drive("host_wstrb", 0xF0, at=1)
     t.expect("wvalid_eff", 1, at=1)
-    t.expect("waddr_eff", 0x0000000000080020, at=1)
+    t.expect("waddr_eff", 0x00000000000C0020, at=1)
     t.expect("wdata_eff", 0xAABBCCDDEEFF0011, at=1)
     t.expect("wstrb_eff", 0xF0, at=1)
 
-    # Cycle 2: d-port stack-window write uses mapped upper-half address window.
+    # Cycle 2: d-port stack-window write uses the dedicated upper stack window.
     t.drive("d_wvalid", 1, at=2)
     t.drive("d_waddr", stack_base + 0x10, at=2)
     t.drive("d_wdata", 0x0102030405060708, at=2)
     t.drive("d_wstrb", 0xFF, at=2)
     t.expect("wvalid_eff", 1, at=2)
-    t.expect("waddr_eff", 0x0000000000080010, at=2)
+    t.expect("waddr_eff", 0x00000000000C0010, at=2)
 
     # Cycle 3+: hold read addresses; this TB focuses on arbitration + address mapping
     # via explicit `*_eff` outputs (byte_mem read timing is backend-dependent).

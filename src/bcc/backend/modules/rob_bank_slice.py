@@ -30,6 +30,7 @@ def build_rob_bank_slice(
 
     slice_base_i = m.input("slice_base_i", width=rob_w)
     do_flush = m.input("do_flush", width=1)
+    flush_bid = m.input("flush_bid", width=64)
 
     commit_fires = []
     commit_idxs = []
@@ -212,6 +213,7 @@ def build_rob_bank_slice(
         entry_args = {
             "idx": idx,
             "do_flush": do_flush,
+            "flush_bid": flush_bid,
             "old_valid": valid[j].out(),
             "old_done": done[j].out(),
             "old_pc": pc[j].out(),

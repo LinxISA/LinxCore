@@ -1,10 +1,14 @@
 # LinxCore Branch Recovery Rules
 
+Canonical contract summary:
+
+- `rtl/LinxCore/docs/architecture/microarchitecture.md`
+
 This document defines the canonical LinxISA block-control behavior implemented in:
 
-- `/Users/zhoubot/LinxCore/src/bcc/backend/engine.py`
-- `/Users/zhoubot/LinxCore/src/bcc/backend/rob.py`
-- `/Users/zhoubot/LinxCore/src/bcc/backend/decode.py`
+- `rtl/LinxCore/src/bcc/backend/engine.py`
+- `rtl/LinxCore/src/bcc/backend/rob.py`
+- `rtl/LinxCore/src/bcc/backend/decode.py`
 
 ## Rule 1: Boundary-authoritative redirect
 

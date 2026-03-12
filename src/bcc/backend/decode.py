@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pycircuit import Circuit, function, module
 
-from common.decode_f4 import decode_f4_bundle
+from common.decode import build_decode_bundle_8b
 from common.isa import (
     BK_CALL,
     BK_COND,
@@ -20,6 +20,7 @@ from common.isa import (
     OP_C_BSTART_DIRECT,
     OP_C_BSTART_STD,
     OP_C_LWI,
+    OP_C_SETRET,
     OP_C_SDI,
     OP_C_SWI,
     OP_FENTRY,
@@ -34,6 +35,7 @@ from common.isa import (
     OP_SBI,
     OP_SD,
     OP_SDI,
+    OP_SETRET,
     OP_SH,
     OP_SHI,
     OP_SW,
@@ -61,25 +63,29 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
     f4_pkt_uid = m.input("f4_pkt_uid", width=64)
 
     c = m.const
-    f4_bundle = decode_f4_bundle(m, f4_window, name="f4_bundle")
+    f4_bundle = m.instance_auto(
+        build_decode_bundle_8b,
+        name="f4_bundle",
+        module_name="LinxCoreDecodeBundle8B",
+        window=f4_window,
+    )
 
     disp_count = c(0, width=3)
 
     for slot in range(dispatch_w):
-        dec = f4_bundle.dec[slot]
-        v = f4_valid & f4_bundle.valid[slot]
-        off = f4_bundle.off_bytes[slot]
+        v = f4_valid & f4_bundle[f"valid{slot}"]
+        off = f4_bundle[f"off_bytes{slot}"]
         pc = f4_pc + off._zext(width=64)
 
-        op = dec.op
-        ln = dec.len_bytes
-        regdst = dec.regdst
-        srcl = dec.srcl
-        srcr = dec.srcr
-        srcr_type = dec.srcr_type
-        shamt = dec.shamt
-        srcp = dec.srcp
-        imm = dec.imm
+        op = f4_bundle[f"op{slot}"]
+        ln = f4_bundle[f"len_bytes{slot}"]
+        regdst = f4_bundle[f"regdst{slot}"]
+        srcl = f4_bundle[f"srcl{slot}"]
+        srcr = f4_bundle[f"srcr{slot}"]
+        srcr_type = f4_bundle[f"srcr_type{slot}"]
+        shamt = f4_bundle[f"shamt{slot}"]
+        srcp = f4_bundle[f"srcp{slot}"]
+        imm = f4_bundle[f"imm{slot}"]
         off_sh = off._zext(width=6).shl(amount=3)
         slot_window = lshr_var(m, f4_window, off_sh)
         insn_raw = slot_window
@@ -143,7 +149,9 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         pred_take = c(1, width=1)
         pred_take = boundary_kind.__eq__(c(BK_COND, width=3))._select_internal(cond_pred_take, pred_take)
         pred_take = boundary_kind.__eq__(c(BK_RET, width=3))._select_internal(c(0, width=1), pred_take)
-        resolved_d2 = is_boundary
+        # D2-resolved uops retire from the dispatch side without entering IQ.
+        is_setret = _op_is(m, op, OP_SETRET, OP_C_SETRET)
+        resolved_d2 = is_boundary | is_setret
         push_t = regdst.__eq__(c(31, width=6)) | op.__eq__(c(OP_C_LWI, width=12))
         push_u = regdst.__eq__(c(30, width=6))
         is_store = _op_is(
@@ -212,4 +220,4 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         disp_count = disp_count + v._zext(width=3)
 
     m.output("dispatch_count", disp_count)
-    m.output("dec_op", f4_bundle.dec[0].op)
+    m.output("dec_op", f4_bundle["op0"])

@@ -146,6 +146,7 @@ def _declare_rob_bank_common_ports(
         "clk": m.clock("clk"),
         "rst": m.reset("rst"),
         "do_flush": m.input("do_flush", width=1),
+        "flush_bid": m.input("flush_bid", width=64),
         "commit_fires": [m.input(f"commit_fire{slot}", width=1) for slot in range(commit_w)],
         "commit_idxs": [m.input(f"commit_idx{slot}", width=rob_w) for slot in range(commit_w)],
         "disp_fires": [m.input(f"disp_fire{slot}", width=1) for slot in range(dispatch_w)],
@@ -196,6 +197,7 @@ def _populate_rob_bank_common_bind(
     bind: dict[str, object],
     *,
     do_flush: object,
+    flush_bid: object,
     commit_fires: list[object],
     commit_idxs: list[object],
     disp_fires: list[object],
@@ -239,6 +241,7 @@ def _populate_rob_bank_common_bind(
 ) -> None:
     _ = m
     bind["do_flush"] = do_flush
+    bind["flush_bid"] = flush_bid
     for slot in range(len(commit_fires)):
         bind[f"commit_fire{slot}"] = commit_fires[slot]
         bind[f"commit_idx{slot}"] = commit_idxs[slot]
@@ -496,6 +499,7 @@ def build_rob_bank_slice(
 
     bank_base = m.input("bank_base", width=rob_w)
     do_flush = m.input("do_flush", width=1)
+    flush_bid = m.input("flush_bid", width=64)
 
     state_regs: dict[str, list[object]] = {}
     for field_name, _width, _default in field_defs:
@@ -513,7 +517,7 @@ def build_rob_bank_slice(
                 )
             )
 
-    entry_bind: dict[str, object] = {"do_flush": do_flush}
+    entry_bind: dict[str, object] = {"do_flush": do_flush, "flush_bid": flush_bid}
     commit_idxs: list[object] = []
     for slot in range(commit_w):
         commit_fire = m.input(f"commit_fire{slot}", width=1)
@@ -630,6 +634,56 @@ def build_rob_bank_slice(
     ).outputs
     m.output("query_hit_mask_o", local_meta_query["query_hit_mask_o"])
     m.output("query_pack_o", local_meta_query["query_pack_o"])
+
+
+@module(name="LinxCoreRobFlushScanBank")
+def build_rob_flush_scan_bank(
+    m: Circuit,
+    *,
+    bank_depth: int = 8,
+    rob_w: int = 6,
+) -> None:
+    c = m.const
+    bank_depth = int(bank_depth)
+    rob_w = int(rob_w)
+    start_w = max(1, (bank_depth - 1).bit_length())
+    flush_bid = m.input("flush_bid", width=64)
+    start_offset = m.input("start_offset", width=start_w)
+    valid_items = [m.input(f"valid{i}", width=1) for i in range(bank_depth)]
+    bid_items = [m.input(f"block_bid{i}", width=64) for i in range(bank_depth)]
+
+    prefix_counts = []
+    all_keep_flags = []
+    for start in range(bank_depth):
+        keep_count_i = c(0, width=rob_w + 1)
+        keep_open_i = c(1, width=1)
+        for local_idx in range(start, bank_depth):
+            keep_i = keep_open_i & valid_items[local_idx] & (~flush_bid.ult(bid_items[local_idx]))
+            keep_count_i = keep_count_i + keep_i._zext(width=rob_w + 1)
+            keep_open_i = keep_open_i & keep_i
+        prefix_counts.append(keep_count_i)
+        all_keep_flags.append(keep_open_i)
+
+    m.output(
+        "prefix_count_o",
+        banked_mux_by_uindex(
+            m,
+            idx=start_offset,
+            items=prefix_counts,
+            default=c(0, width=rob_w + 1),
+            bank_depth=bank_depth,
+        ),
+    )
+    m.output(
+        "all_keep_o",
+        banked_mux_by_uindex(
+            m,
+            idx=start_offset,
+            items=all_keep_flags,
+            default=c(0, width=1),
+            bank_depth=bank_depth,
+        ),
+    )
 
 
 @module(name="LinxCoreRobBankCommitStage")
@@ -918,6 +972,7 @@ def build_rob_bank_pair(
         m,
         left_bind,
         do_flush=ports["do_flush"],
+        flush_bid=ports["flush_bid"],
         commit_fires=ports["commit_fires"],
         commit_idxs=ports["commit_idxs"],
         disp_fires=ports["disp_fires"],
@@ -980,6 +1035,7 @@ def build_rob_bank_pair(
         m,
         right_bind,
         do_flush=ports["do_flush"],
+        flush_bid=ports["flush_bid"],
         commit_fires=ports["commit_fires"],
         commit_idxs=ports["commit_idxs"],
         disp_fires=ports["disp_fires"],
@@ -1113,6 +1169,7 @@ def build_rob_bank_quad(
         m,
         left_bind,
         do_flush=ports["do_flush"],
+        flush_bid=ports["flush_bid"],
         commit_fires=ports["commit_fires"],
         commit_idxs=ports["commit_idxs"],
         disp_fires=ports["disp_fires"],
@@ -1175,6 +1232,7 @@ def build_rob_bank_quad(
         m,
         right_bind,
         do_flush=ports["do_flush"],
+        flush_bid=ports["flush_bid"],
         commit_fires=ports["commit_fires"],
         commit_idxs=ports["commit_idxs"],
         disp_fires=ports["disp_fires"],
@@ -1297,6 +1355,7 @@ def build_rob_bank_top(
     commit_result_specs = rob_commit_result_slot_field_defs(m, ptag_w=ptag_w)
 
     do_flush = m.input("do_flush", width=1)
+    flush_bid = m.input("flush_bid", width=64)
 
     commit_count = m.input("commit_count", width=3)
     disp_count = m.input("disp_count", width=3)
@@ -1440,7 +1499,7 @@ def build_rob_bank_top(
     bank_depth = 8 if rob_depth > 8 else rob_depth
     bank_count = (rob_depth + bank_depth - 1) // bank_depth
 
-    bank_bind: dict[str, object] = {"clk": clk, "rst": rst, "do_flush": do_flush}
+    bank_bind: dict[str, object] = {"clk": clk, "rst": rst, "do_flush": do_flush, "flush_bid": flush_bid}
     for slot in range(commit_w):
         bank_bind[f"commit_fire{slot}"] = commit_fires[slot]
         bank_bind[f"commit_idx{slot}"] = commit_idxs_now[slot]
@@ -1569,9 +1628,67 @@ def build_rob_bank_top(
             for field_name, _width, _default in field_defs:
                 entry_outputs[field_name].append(slice_out[f"{field_name}{local_idx}_o"])
 
-    head.set(head_next)
-    tail.set(tail_next)
-    count.set(count_next)
+    # After a BID-based flush, the surviving ROB window is the contiguous
+    # prefix from head through the last entry with bid <= flush_bid.
+    # Build the scan from bank-local helpers so ROB top stays wiring/combine
+    # only and does not trip pyc compile-cost gates.
+    bank_sel_w = max(1, (bank_count - 1).bit_length())
+    bank_off_w = max(1, (bank_depth - 1).bit_length())
+    head_bank_idx = head.out().slice(lsb=bank_off_w, width=bank_sel_w) if bank_count > 1 else c(0, width=bank_sel_w)
+    head_bank_off = head.out().slice(lsb=0, width=bank_off_w) if bank_depth > 1 else c(0, width=bank_off_w)
+    flush_scan_counts = []
+    flush_scan_alls = []
+    for bank_idx in range(bank_count):
+        scan_bind = {
+            "flush_bid": flush_bid,
+            "start_offset": head_bank_idx.__eq__(c(bank_idx, width=bank_sel_w))._select_internal(
+                head_bank_off, c(0, width=bank_off_w)
+            ),
+        }
+        for local_idx in range(bank_depth):
+            global_idx = bank_idx * bank_depth + local_idx
+            if global_idx >= rob_depth:
+                scan_bind[f"valid{local_idx}"] = c(0, width=1)
+                scan_bind[f"block_bid{local_idx}"] = c(0, width=64)
+            else:
+                scan_bind[f"valid{local_idx}"] = entry_outputs["valid"][global_idx]
+                scan_bind[f"block_bid{local_idx}"] = entry_outputs["block_bid"][global_idx]
+        scan_out = m.new(
+            build_rob_flush_scan_bank,
+            name=f"rob_flush_scan_bank_{bank_idx}",
+            bind=scan_bind,
+            params={"bank_depth": bank_depth, "rob_w": rob_w},
+        ).outputs
+        flush_scan_counts.append(scan_out["prefix_count_o"])
+        flush_scan_alls.append(scan_out["all_keep_o"])
+
+    flush_keep_count = c(0, width=rob_w + 1)
+    flush_keep_open = c(1, width=1)
+    for bank_step in range(bank_count):
+        bank_idx_i = (head_bank_idx + c(bank_step, width=bank_sel_w))._trunc(width=bank_sel_w)
+        bank_count_i = banked_mux_by_uindex(
+            m,
+            idx=bank_idx_i,
+            items=flush_scan_counts,
+            default=c(0, width=rob_w + 1),
+            bank_depth=bank_count,
+        )
+        bank_all_i = banked_mux_by_uindex(
+            m,
+            idx=bank_idx_i,
+            items=flush_scan_alls,
+            default=c(0, width=1),
+            bank_depth=bank_count,
+        )
+        flush_keep_count = flush_keep_count + flush_keep_open._select_internal(
+            bank_count_i, c(0, width=rob_w + 1)
+        )
+        flush_keep_open = flush_keep_open & bank_all_i
+    flush_tail_next = (head.out() + flush_keep_count._trunc(width=rob_w))._trunc(width=rob_w)
+
+    head.set(do_flush._select_internal(head.out(), head_next))
+    tail.set(do_flush._select_internal(flush_tail_next, tail_next))
+    count.set(do_flush._select_internal(flush_keep_count, count_next))
 
     commit_idxs = [(head.out() + c(slot, width=rob_w))._trunc(width=rob_w) for slot in range(commit_w)]
     commit_outputs: dict[str, list[object]] = {}

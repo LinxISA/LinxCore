@@ -1,5 +1,10 @@
 # Pipeview Verification Playbook
 
+Canonical contract summary:
+
+- `rtl/LinxCore/docs/architecture/interfaces.md`
+- `rtl/LinxCore/docs/trace/linxtrace_v1.md`
+
 ## Goal
 
 Validate that LinxCoreSight reflects exact cycle-stage residency for dynamic uops.
@@ -8,8 +13,8 @@ Validate that LinxCoreSight reflects exact cycle-stage residency for dynamic uop
 
 ```bash
 PYC_MAX_COMMITS=1000 \
-bash /Users/zhoubot/LinxCore/tools/linxcoresight/run_linxtrace.sh \
-  /Users/zhoubot/LinxCore/tests/benchmarks/build/coremark_real.memh 1000
+bash rtl/LinxCore/tools/linxcoresight/run_linxtrace.sh \
+  rtl/LinxCore/tests/benchmarks/build/coremark_real.memh 1000
 ```
 
 ## Required visual checks
@@ -22,7 +27,7 @@ bash /Users/zhoubot/LinxCore/tools/linxcoresight/run_linxtrace.sh \
 ## Automated checks
 
 ```bash
-python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py \
-  /Users/zhoubot/LinxCore/generated/linxtrace/coremark/coremark_real_1000insn.linxtrace \
+python3 rtl/LinxCore/tools/linxcoresight/lint_linxtrace.py \
+  rtl/LinxCore/generated/linxtrace/coremark/coremark_real_1000insn.linxtrace \
   --require-stages F0,F1,D3,IQ,P1,ROB,CMT,FLS
 ```

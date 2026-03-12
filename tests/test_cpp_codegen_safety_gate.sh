@@ -5,7 +5,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 GEN_CPP_DIR="${ROOT_DIR}/generated/cpp/linxcore_top"
 # Use the stable top-level header as the scan anchor; internal module names may
 # evolve as hierarchy is refactored.
-GEN_HDR="${GEN_CPP_DIR}/LinxcoreTop.hpp"
+GEN_HDR="${GEN_CPP_DIR}/linxcore_top.hpp"
 RUN_CPP="${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh"
 LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 find_pyc_root() {
@@ -30,10 +30,12 @@ PYC_ROOT_DIR="$(find_pyc_root)" || {
 MEMH="${PYC_TEST_MEMH:-}"
 if [[ -z "${MEMH}" ]]; then
   build_out="$("${ROOT_DIR}/tools/image/build_linxisa_benchmarks_memh_compat.sh")"
-  memh2="$(printf "%s\n" "${build_out}" | sed -n '2p')"
-  if [[ -n "${memh2}" ]]; then
-    MEMH="${memh2}"
-  fi
+  while IFS= read -r memh_cand; do
+    if [[ -n "${memh_cand}" && -f "${memh_cand}" ]]; then
+      MEMH="${memh_cand}"
+      break
+    fi
+  done < <(printf "%s\n" "${build_out}")
 fi
 
 need_regen=0
@@ -54,6 +56,10 @@ import sys
 gen_dir = pathlib.Path(sys.argv[1])
 hdr = pathlib.Path(sys.argv[2])
 parts = [hdr.read_text(encoding='utf-8', errors='replace')]
+for hpp in sorted(gen_dir.glob('*.hpp')):
+    if hpp == hdr:
+        continue
+    parts.append(hpp.read_text(encoding='utf-8', errors='replace'))
 for cpp in sorted(gen_dir.glob('*.cpp')):
     parts.append(cpp.read_text(encoding='utf-8', errors='replace'))
 text = "\n".join(parts)
@@ -89,11 +95,28 @@ if [[ ! -f "${MEMH}" ]]; then
   exit 2
 fi
 
-# Baseline smoke: program completes and exits normally.
-PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}" \
-PYC_ACCEPT_EXIT_CODES="${PYC_ACCEPT_EXIT_CODES:-0,1}" \
-PYC_MAX_CYCLES=50000 \
-  bash "${RUN_CPP}" "${MEMH}" >/tmp/linxcore_cpp_gate_baseline.log 2>&1
+# Baseline smoke: generated model runs under a normal cycle budget without
+# primitive-binding failures or crashes. Completion is workload-dependent.
+set +e
+baseline_out="$({
+  PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}" \
+  PYC_ACCEPT_EXIT_CODES="${PYC_ACCEPT_EXIT_CODES:-0,1}" \
+  PYC_MAX_CYCLES=50000 \
+    bash "${RUN_CPP}" "${MEMH}"
+} 2>&1)"
+baseline_rc=$?
+set -e
+
+if [[ "${baseline_rc}" -ne 0 && "${baseline_rc}" -ne 1 ]]; then
+  echo "unexpected baseline rc=${baseline_rc}" >&2
+  echo "${baseline_out}" >&2
+  exit 3
+fi
+if grep -Eiq "(Segmentation fault|AddressSanitizer|pointer being freed|null reg binding|abort)" <<<"${baseline_out}"; then
+  echo "baseline run indicates primitive binding failure" >&2
+  echo "${baseline_out}" >&2
+  exit 4
+fi
 
 # Constructor-eval stress: should not abort; max-cycle timeout is expected here.
 set +e
@@ -110,17 +133,17 @@ set -e
 if [[ "${ctor_rc}" -ne 1 ]]; then
   echo "unexpected ctor-eval rc=${ctor_rc}" >&2
   echo "${ctor_out}" >&2
-  exit 3
+  exit 5
 fi
 if ! grep -q "max cycles reached" <<<"${ctor_out}"; then
   echo "ctor-eval run did not hit expected timeout path" >&2
   echo "${ctor_out}" >&2
-  exit 4
+  exit 6
 fi
 if grep -Eiq "(Segmentation fault|AddressSanitizer|pointer being freed|null reg binding|abort)" <<<"${ctor_out}"; then
   echo "ctor-eval run indicates primitive binding failure" >&2
   echo "${ctor_out}" >&2
-  exit 5
+  exit 7
 fi
 
 echo "cpp codegen safety gate passed"

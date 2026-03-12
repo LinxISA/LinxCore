@@ -739,6 +739,27 @@ int main(int argc, char **argv) {
   std::uint64_t maxCommits = 0;
   if (const char *env = std::getenv("PYC_MAX_COMMITS"))
     maxCommits = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
+  bool stopOnIdleLoop = false;
+  std::uint64_t idleLoopPcA = 0;
+  std::uint64_t idleLoopPcB = 0;
+  std::uint64_t idleLoopStreakTarget = 0;
+  if (const char *env = std::getenv("PYC_IDLE_LOOP_PC_A"); env && env[0] != '\0') {
+    idleLoopPcA = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
+    stopOnIdleLoop = true;
+  }
+  if (const char *env = std::getenv("PYC_IDLE_LOOP_PC_B"); env && env[0] != '\0') {
+    idleLoopPcB = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
+    stopOnIdleLoop = stopOnIdleLoop && true;
+  } else {
+    stopOnIdleLoop = false;
+  }
+  if (const char *env = std::getenv("PYC_IDLE_LOOP_STREAK"); env && env[0] != '\0') {
+    idleLoopStreakTarget = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
+  }
+  if (idleLoopStreakTarget == 0) {
+    idleLoopStreakTarget = 256;
+  }
+  stopOnIdleLoop = stopOnIdleLoop && (idleLoopPcA != idleLoopPcB);
   std::uint64_t deadlockCycles = kDefaultDeadlockCycles;
   if (const char *env = std::getenv("PYC_DEADLOCK_CYCLES"))
     deadlockCycles = static_cast<std::uint64_t>(std::stoull(env, nullptr, 0));
@@ -849,6 +870,15 @@ int main(int argc, char **argv) {
   std::size_t ifuStubTraceCursor = 0;
   std::size_t ifuStubPendingNextTraceCursor = 0;
   std::optional<IfuStubPacket> ifuStubPending{};
+  bool ifuStubFiredThisCycle = false;
+  std::uint64_t ifuStubFiredPcThisCycle = 0;
+  bool ifuStubFiredLastCycle = false;
+  std::uint64_t ifuStubFiredPcLastCycle = 0;
+  std::size_t ifuStubTraceCursorBeforeLastFire = 0;
+  std::size_t ifuStubTraceCursorBeforeFire = 0;
+  std::uint64_t ifuStubTracePktUid = 1;
+  std::uint64_t ifuStubTraceCkptSeq = 1;
+  const bool ifuStubTracePack = envFlag("PYC_IFU_STUB_TRACE_PACK");
   auto makeTraceIfuStubPacket = [&](std::size_t cursor, IfuStubPacket &outPkt, std::size_t &outNextCursor) -> bool {
     if (!ifuStubFromQemu || ifuStubRows == nullptr) {
       return false;
@@ -871,8 +901,8 @@ int main(int argc, char **argv) {
 
     const auto &r0 = rows[rowCursor];
     const std::uint64_t basePc = r0.pc;
-    const std::uint64_t checkpoint = (r0.seq & 0x3Full);
-    const std::uint64_t pktUid = ((r0.seq + 1ull) & 0xFFFF'FFFF'FFFF'FFFFull);
+    const std::uint64_t checkpoint = (ifuStubTraceCkptSeq & 0x3Full);
+    const std::uint64_t pktUid = ifuStubTracePktUid;
 
     std::uint64_t window = 0;
     std::uint8_t consumed = 0;
@@ -882,8 +912,8 @@ int main(int argc, char **argv) {
     std::uint64_t raw0 = 0;
     std::uint8_t len0 = 0;
 
-    // Coalesce up to 4 sequential instructions into a single 8B decode window.
-    // This improves throughput substantially for trace-fed runs.
+    // Default to one-instruction packets for the strict QEMU lane. Enable
+    // packing explicitly for throughput-focused trace-fed runs.
     while (rowCursor < rows.size() && packed < 4) {
       const auto &r = rows[rowCursor];
       const std::uint8_t len = normalizeLen(static_cast<std::uint8_t>(r.len & 0xFFu));
@@ -932,15 +962,21 @@ int main(int argc, char **argv) {
       consumed = static_cast<std::uint8_t>(consumed + len);
       packed = static_cast<std::uint8_t>(packed + 1);
       rowCursor++;
+      if (!ifuStubTracePack) {
+        break;
+      }
       if (macro0 || bstart0) {
         break;
       }
     }
 
-    // QEMU traces emit multiple commit rows for template macro markers
-    // (FENTRY/FEXIT/FRET.*) to describe internal micro-ops. Only the first row
-    // represents the architectural fetch instruction; skip the rest.
-    if (macro0) {
+    // QEMU traces emit duplicate commit rows for some single-fetch markers:
+    // - template macro markers (FENTRY/FEXIT/FRET.*) to describe internal uops
+    // - boundary markers such as BSTART.CALL while the architectural marker and
+    //   its metadata side effects are both reported in the retire stream
+    // Feed exactly one fetch packet for those rows and skip the trailing
+    // duplicate retire-only rows.
+    if (macro0 || bstart0) {
       while (rowCursor < rows.size()) {
         const auto &r = rows[rowCursor];
         const std::uint8_t len = normalizeLen(static_cast<std::uint8_t>(r.len & 0xFFu));
@@ -950,7 +986,17 @@ int main(int argc, char **argv) {
         }
         const std::uint64_t raw = maskInsn(r.insn, len);
         const bool isMacro = (len == 4) && isMacroMarker32(static_cast<std::uint32_t>(raw & 0xFFFF'FFFFu));
-        if (!(isMacro && r.pc == basePc && len == len0 && raw == raw0)) {
+        bool isBstartDup = false;
+        if (len == 2) {
+          isBstartDup = isBstart16(static_cast<std::uint16_t>(raw & 0xFFFFu));
+        } else if (len == 4) {
+          isBstartDup = isBstart32(static_cast<std::uint32_t>(raw & 0xFFFF'FFFFu));
+        } else if (len == 6) {
+          isBstartDup = isBstart48(raw);
+        }
+        const bool sameFetchMarker =
+            (r.pc == basePc) && (len == len0) && (raw == raw0) && ((macro0 && isMacro) || (bstart0 && isBstartDup));
+        if (!sameFetchMarker) {
           break;
         }
         rowCursor++;
@@ -1086,26 +1132,33 @@ int main(int argc, char **argv) {
       "I2", "E1", "E2", "E3", "E4", "W1", "W2", "LIQ", "LHQ", "STQ", "SCB", "MDB",
       "L1D", "BISQ", "BCTRL", "TMU", "TMA", "CUBE", "VEC", "TAU", "BROB", "ROB", "CMT", "FLS", "XCHK", "IB",
   };
-  static constexpr std::array<const char *, 16> kTraceStageNames = {
-      "IB", "D1", "D2", "D3", "S1", "S2", "IQ", "P1",
-      "I1", "I2", "E1", "W1", "W2", "CMT", "FLS", "XCHK",
+  static constexpr std::array<const char *, 39> kTraceStageNames = {
+      "F0", "F1", "F2", "F3", "F4", "D1", "D2", "D3", "IQ", "S1", "S2", "P1", "I1",
+      "I2", "E1", "E2", "E3", "E4", "W1", "W2", "LIQ", "LHQ", "STQ", "SCB", "MDB",
+      "L1D", "BISQ", "BCTRL", "TMU", "TMA", "CUBE", "VEC", "TAU", "BROB", "ROB", "CMT", "FLS", "XCHK", "IB",
   };
-  static constexpr std::uint64_t kTraceSidIb = 0;
-  static constexpr std::uint64_t kTraceSidD1 = 1;
-  static constexpr std::uint64_t kTraceSidD2 = 2;
-  static constexpr std::uint64_t kTraceSidD3 = 3;
-  static constexpr std::uint64_t kTraceSidS1 = 4;
-  static constexpr std::uint64_t kTraceSidS2 = 5;
-  static constexpr std::uint64_t kTraceSidIq = 6;
-  static constexpr std::uint64_t kTraceSidP1 = 7;
-  static constexpr std::uint64_t kTraceSidI1 = 8;
-  static constexpr std::uint64_t kTraceSidI2 = 9;
-  static constexpr std::uint64_t kTraceSidE1 = 10;
-  static constexpr std::uint64_t kTraceSidW1 = 11;
-  static constexpr std::uint64_t kTraceSidW2 = 12;
-  static constexpr std::uint64_t kTraceSidCmt = 13;
-  static constexpr std::uint64_t kTraceSidFls = 14;
-  static constexpr std::uint64_t kTraceSidXchk = 15;
+  static constexpr std::uint64_t kTraceSidF0 = 0;
+  static constexpr std::uint64_t kTraceSidF1 = 1;
+  static constexpr std::uint64_t kTraceSidF2 = 2;
+  static constexpr std::uint64_t kTraceSidF3 = 3;
+  static constexpr std::uint64_t kTraceSidF4 = 4;
+  static constexpr std::uint64_t kTraceSidIb = 38;
+  static constexpr std::uint64_t kTraceSidBrob = 33;
+  static constexpr std::uint64_t kTraceSidD1 = 5;
+  static constexpr std::uint64_t kTraceSidD2 = 6;
+  static constexpr std::uint64_t kTraceSidD3 = 7;
+  static constexpr std::uint64_t kTraceSidS1 = 9;
+  static constexpr std::uint64_t kTraceSidS2 = 10;
+  static constexpr std::uint64_t kTraceSidIq = 8;
+  static constexpr std::uint64_t kTraceSidP1 = 11;
+  static constexpr std::uint64_t kTraceSidI1 = 12;
+  static constexpr std::uint64_t kTraceSidI2 = 13;
+  static constexpr std::uint64_t kTraceSidE1 = 14;
+  static constexpr std::uint64_t kTraceSidW1 = 18;
+  static constexpr std::uint64_t kTraceSidW2 = 19;
+  static constexpr std::uint64_t kTraceSidCmt = 35;
+  static constexpr std::uint64_t kTraceSidFls = 36;
+  static constexpr std::uint64_t kTraceSidXchk = 37;
   static constexpr std::uint64_t kTraceKindNormal = 0;
   static constexpr std::uint64_t kTraceKindFlush = 1;
   static constexpr std::uint64_t kTraceKindTrap = 2;
@@ -1226,7 +1279,17 @@ int main(int argc, char **argv) {
       return static_cast<int>(kTraceSidFls);
     if (probe == "XCHK")
       return static_cast<int>(kTraceSidXchk);
-    if (probe == "IB" || probe == "F0" || probe == "F1" || probe == "F2" || probe == "F3" || probe == "F4")
+    if (probe == "F0")
+      return static_cast<int>(kTraceSidF0);
+    if (probe == "F1")
+      return static_cast<int>(kTraceSidF1);
+    if (probe == "F2")
+      return static_cast<int>(kTraceSidF2);
+    if (probe == "F3")
+      return static_cast<int>(kTraceSidF3);
+    if (probe == "F4")
+      return static_cast<int>(kTraceSidF4);
+    if (probe == "IB")
       return static_cast<int>(kTraceSidIb);
     if (probe == "D1")
       return static_cast<int>(kTraceSidD1);
@@ -1252,7 +1315,37 @@ int main(int argc, char **argv) {
       return static_cast<int>(kTraceSidW1);
     if (probe == "W2")
       return static_cast<int>(kTraceSidW2);
+    if (probe == "BROB")
+      return static_cast<int>(kTraceSidBrob);
     return -1;
+  };
+  auto frontendProbeUid = [&](int probeSid, std::uint64_t rawUid) -> std::uint64_t {
+    if (rawUid == 0)
+      return 0;
+    std::uint64_t stageTag = 0;
+    switch (probeSid) {
+    case static_cast<int>(kTraceSidF0):
+      stageTag = 1;
+      break;
+    case static_cast<int>(kTraceSidF1):
+      stageTag = 2;
+      break;
+    case static_cast<int>(kTraceSidF2):
+      stageTag = 3;
+      break;
+    case static_cast<int>(kTraceSidF3):
+      stageTag = 4;
+      break;
+    case static_cast<int>(kTraceSidF4):
+      stageTag = 6;
+      break;
+    case static_cast<int>(kTraceSidIb):
+      stageTag = 5;
+      break;
+    default:
+      return rawUid;
+    }
+    return (rawUid << 6) | stageTag | (std::uint64_t{1} << 63);
   };
   auto probeSidFromStageToken = [&](std::string_view stageToken) -> int {
     std::string upper{};
@@ -1399,6 +1492,48 @@ int main(int argc, char **argv) {
     std::cerr << "ERROR: ProbeRegistry did not expose any probe.pipeview occupancy probes\n";
     return 2;
   }
+  auto dumpOccSummary = [&](std::uint64_t focusPc) {
+    bool any = false;
+    std::cerr << "  occ_dbg";
+    if (focusPc != 0 || dut.rob_head_valid.value() != 0) {
+      std::cerr << " focus_pc=" << toHex(focusPc);
+    }
+    std::cerr << ":\n";
+    for (const auto &probe : occProbes) {
+      if (!readProbeBool(probe.valid)) {
+        continue;
+      }
+      const std::uint64_t pc = readProbeValue(probe.pc);
+      const std::uint64_t rob = probe.rob ? readProbeValue(probe.rob) : 0;
+      const bool focusHit = (focusPc == pc);
+      any = true;
+      std::cerr << "    " << (focusHit ? '*' : ' ')
+                << kTraceStageNames[static_cast<std::size_t>(probe.probeSid)]
+                << ".lane" << probe.lane
+                << " uid=" << readProbeValue(probe.uid)
+                << " rob=" << rob
+                << " pc=" << toHex(pc);
+      if (probe.kind) {
+        std::cerr << " kind=" << readProbeValue(probe.kind);
+      }
+      if (probe.parent) {
+        std::cerr << " parent=" << readProbeValue(probe.parent);
+      }
+      if (probe.blockUid) {
+        std::cerr << " block_uid=" << readProbeValue(probe.blockUid);
+      }
+      if (probe.stall && readProbeValue(probe.stall) != 0) {
+        std::cerr << " stall=1";
+        if (probe.stallCause) {
+          std::cerr << " cause=" << readProbeValue(probe.stallCause);
+        }
+      }
+      std::cerr << "\n";
+    }
+    if (!any) {
+      std::cerr << "    <no active occupancy probes>\n";
+    }
+  };
   struct CommitRedirectProbeSet {
     const ProbeRegistry::Entry *valid = nullptr;
     const ProbeRegistry::Entry *pc = nullptr;
@@ -1476,6 +1611,22 @@ int main(int argc, char **argv) {
     const ProbeRegistry::Entry *brCorrTake = nullptr;
     const ProbeRegistry::Entry *brCorrTarget = nullptr;
   };
+  struct CtuDbgProbeSet {
+    const ProbeRegistry::Entry *macroActive = nullptr;
+    const ProbeRegistry::Entry *macroPc = nullptr;
+    const ProbeRegistry::Entry *macroWaitCommit = nullptr;
+    const ProbeRegistry::Entry *macroWaitCommitNext = nullptr;
+    const ProbeRegistry::Entry *ctuUopValid = nullptr;
+    const ProbeRegistry::Entry *startFire = nullptr;
+    const ProbeRegistry::Entry *headReady = nullptr;
+    const ProbeRegistry::Entry *headIsMacro = nullptr;
+    const ProbeRegistry::Entry *headSkip = nullptr;
+  };
+  struct BackendDbgProbeSet {
+    const ProbeRegistry::Entry *brobAllocFire = nullptr;
+    const ProbeRegistry::Entry *assignBlockBid = nullptr;
+    const ProbeRegistry::Entry *flushBid = nullptr;
+  };
   auto commitSlotPath = [](int slot, std::string_view field) -> std::string {
     return std::string("dut:probe.commit.slot") + std::to_string(slot) + "." + std::string(field);
   };
@@ -1545,27 +1696,53 @@ int main(int argc, char **argv) {
   blockProbes.issueSrcRob = requireProbe("dut:probe.block.bctrl.issue_src_rob");
   CommitDbgProbeSet commitDbgProbes{};
   commitDbgProbes.redirectFromCorr =
-      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:redirect_from_corr_dbg");
+      requireProbe("dut.linxcore_top_root.janus_backend:redirect_from_corr_dbg");
   commitDbgProbes.brKind =
-      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_kind_dbg");
+      requireProbe("dut.linxcore_top_root.janus_backend:br_kind_dbg");
   commitDbgProbes.brEpoch =
-      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_epoch_dbg");
+      requireProbe("dut.linxcore_top_root.janus_backend:br_epoch_dbg");
   commitDbgProbes.brPredTake =
-      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_pred_take_dbg");
+      requireProbe("dut.linxcore_top_root.janus_backend:br_pred_take_dbg");
   commitDbgProbes.brBase =
-      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_base_dbg");
+      requireProbe("dut.linxcore_top_root.janus_backend:br_base_dbg");
   commitDbgProbes.brOff =
-      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_off_dbg");
+      requireProbe("dut.linxcore_top_root.janus_backend:br_off_dbg");
   commitDbgProbes.commitCond =
-      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:commit_cond_dbg");
+      requireProbe("dut.linxcore_top_root.janus_backend:commit_cond_dbg");
   commitDbgProbes.brCorrPending =
-      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_corr_pending_dbg");
+      requireProbe("dut.linxcore_top_root.janus_backend:br_corr_pending_dbg");
   commitDbgProbes.brCorrEpoch =
-      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_corr_epoch_dbg");
+      requireProbe("dut.linxcore_top_root.janus_backend:br_corr_epoch_dbg");
   commitDbgProbes.brCorrTake =
-      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_corr_take_dbg");
+      requireProbe("dut.linxcore_top_root.janus_backend:br_corr_take_dbg");
   commitDbgProbes.brCorrTarget =
-      requireProbe("dut.linxcore_top_root.linxcore_top_export.janus_backend:br_corr_target_dbg");
+      requireProbe("dut.linxcore_top_root.janus_backend:br_corr_target_dbg");
+  CtuDbgProbeSet ctuDbgProbes{};
+  ctuDbgProbes.macroActive =
+      requireProbe("dut.linxcore_top_root.janus_backend:state__macro_active");
+  ctuDbgProbes.macroPc =
+      requireProbe("dut.linxcore_top_root.janus_backend:state__macro_pc");
+  ctuDbgProbes.macroWaitCommit =
+      requireProbe("dut.linxcore_top_root.janus_backend:state__macro_wait_commit");
+  ctuDbgProbes.macroWaitCommitNext =
+      requireProbe("dut.linxcore_top_root.janus_backend:state__macro_wait_commit__next");
+  ctuDbgProbes.ctuUopValid =
+      requireProbe("dut.linxcore_top_root.janus_backend:ctu_uop_valid");
+  ctuDbgProbes.startFire =
+      requireProbe("dut.linxcore_top_root.janus_backend.code_template_unit:start_fire");
+  ctuDbgProbes.headReady =
+      requireProbe("dut.linxcore_top_root.janus_backend.code_template_unit:head_ready__code_template_unit__L34");
+  ctuDbgProbes.headIsMacro =
+      requireProbe("dut.linxcore_top_root.janus_backend.code_template_unit:head_is_macro");
+  ctuDbgProbes.headSkip =
+      requireProbe("dut.linxcore_top_root.janus_backend.code_template_unit:head_skip");
+  BackendDbgProbeSet backendDbgProbes{};
+  backendDbgProbes.brobAllocFire =
+      requireProbe("dut.linxcore_top_root.janus_backend:brob_alloc_fire");
+  backendDbgProbes.assignBlockBid =
+      requireProbe("dut.linxcore_top_root.janus_backend:state__assign_block_bid");
+  backendDbgProbes.flushBid =
+      requireProbe("dut.linxcore_top_root.janus_backend:state__flush_bid");
   if (!missingProbePaths.empty()) {
     std::cerr << "ERROR: ProbeRegistry is missing required probe paths:\n";
     for (const auto &path : missingProbePaths) {
@@ -1807,6 +1984,9 @@ int main(int argc, char **argv) {
   std::uint64_t retireSeq = 0;
   std::uint64_t retiredCount = 0;
   std::uint64_t noRetireStreak = 0;
+  std::uint64_t idleLoopMatchCount = 0;
+  int idleLoopLastTag = -1;
+  bool idleLoopReached = false;
   auto pvOnEvent = [&](std::uint64_t uid, int stageId, int lane, std::uint64_t pc, std::uint64_t rob,
                        std::uint64_t kind, std::uint64_t parentUid, std::uint64_t stall, std::uint64_t stallCause) {
     if (!linxtrace_writer.isOpen())
@@ -1913,7 +2093,10 @@ int main(int argc, char **argv) {
     std::uint64_t rob_head_valid = 0;
     std::uint64_t rob_head_done = 0;
     bool macro_active = false;
+    std::uint64_t macro_pc = 0;
     bool macro_wait_commit = false;
+    bool macro_wait_commit_next = false;
+    bool ctu_uop_valid = false;
     bool ctu_start_fire = false;
     bool ctu_head_ready = false;
     bool ctu_head_is_macro = false;
@@ -1969,8 +2152,12 @@ int main(int argc, char **argv) {
                 << " force_pc=" << toHex(s.force_pc)
                 << " blk_evt(v=" << (s.blk_evt_valid ? 1 : 0) << ",k=" << s.blk_evt_kind
                 << ",pc=" << toHex(s.blk_evt_pc) << ")"
-                << " macro(active=" << (s.macro_active ? 1 : 0) << ",wait=" << (s.macro_wait_commit ? 1 : 0) << ")"
-                << " ctu(start=" << (s.ctu_start_fire ? 1 : 0)
+                << " macro(active=" << (s.macro_active ? 1 : 0)
+                << ",pc=" << toHex(s.macro_pc)
+                << ",wait=" << (s.macro_wait_commit ? 1 : 0)
+                << ",wait_n=" << (s.macro_wait_commit_next ? 1 : 0) << ")"
+                << " ctu(uop=" << (s.ctu_uop_valid ? 1 : 0)
+                << ",start=" << (s.ctu_start_fire ? 1 : 0)
                 << ",head_ready=" << (s.ctu_head_ready ? 1 : 0)
                 << ",head_macro=" << (s.ctu_head_is_macro ? 1 : 0)
                 << ",head_skip=" << (s.ctu_head_skip ? 1 : 0)
@@ -1979,8 +2166,164 @@ int main(int argc, char **argv) {
     }
   };
 
+  struct BackendFocusSnapshot {
+    std::uint64_t cycle = 0;
+    std::uint64_t focusPc = 0;
+    std::uint64_t headDone = 0;
+    std::uint64_t s2Valid = 0;
+    std::uint64_t s2Pc = 0;
+    std::uint64_t decOp = 0;
+    std::uint64_t dispatchFire = 0;
+    std::uint64_t frontendReady = 0;
+    std::uint64_t iqAllocOk = 0;
+    std::uint64_t pregAllocOk = 0;
+    std::uint64_t brobAllocFire = 0;
+    std::uint64_t brobAllocReady = 0;
+    std::uint64_t brobAllocBid = 0;
+    std::uint64_t activeBlockBid = 0;
+    std::uint64_t assignBlockBid = 0;
+    std::uint64_t flushBid = 0;
+    std::uint64_t commitRedirectValid = 0;
+    std::uint64_t commitRedirectPc = 0;
+    std::uint64_t commitRedirectBid = 0;
+    std::uint64_t issueFire0 = 0;
+    std::uint64_t issuePc0 = 0;
+    std::uint64_t issueRob0 = 0;
+    std::uint64_t issueFire2 = 0;
+    std::uint64_t issuePc2 = 0;
+    std::uint64_t issueRob2 = 0;
+    std::uint64_t commitFire0 = 0;
+    std::uint64_t commitPc0 = 0;
+    std::uint64_t commitRob0 = 0;
+    std::uint64_t commitFire1 = 0;
+    std::uint64_t commitPc1 = 0;
+    std::uint64_t commitRob1 = 0;
+    std::uint64_t commitFire2 = 0;
+    std::uint64_t commitPc2 = 0;
+    std::uint64_t commitRob2 = 0;
+    std::uint64_t commitFire3 = 0;
+    std::uint64_t commitPc3 = 0;
+    std::uint64_t commitRob3 = 0;
+    std::uint64_t rawCommitFire0 = 0;
+    std::uint64_t rawCommitPc0 = 0;
+    std::uint64_t rawCommitRob0 = 0;
+    std::uint64_t rawCommitFire1 = 0;
+    std::uint64_t rawCommitPc1 = 0;
+    std::uint64_t rawCommitRob1 = 0;
+    std::uint64_t rawCommitFire2 = 0;
+    std::uint64_t rawCommitPc2 = 0;
+    std::uint64_t rawCommitRob2 = 0;
+    std::uint64_t rawCommitFire3 = 0;
+    std::uint64_t rawCommitPc3 = 0;
+    std::uint64_t rawCommitRob3 = 0;
+    std::uint64_t aluResidentValid = 0;
+    std::uint64_t aluResidentPc = 0;
+    std::uint64_t aluPick0Valid = 0;
+    std::uint64_t aluPick0Pc = 0;
+    std::uint64_t aluPick1Valid = 0;
+    std::uint64_t aluPick1Pc = 0;
+    std::uint64_t p1v0 = 0;
+    std::uint64_t p1pc0 = 0;
+    std::uint64_t p1v2 = 0;
+    std::uint64_t p1pc2 = 0;
+    std::uint64_t p1v3 = 0;
+    std::uint64_t p1pc3 = 0;
+    std::uint64_t e1v2 = 0;
+    std::uint64_t e1pc2 = 0;
+    std::uint64_t w1v2 = 0;
+    std::uint64_t w1pc2 = 0;
+    std::uint64_t w2v0 = 0;
+    std::uint64_t w2pc0 = 0;
+    std::uint64_t w2v2 = 0;
+    std::uint64_t w2pc2 = 0;
+    std::uint64_t w2v3 = 0;
+    std::uint64_t w2pc3 = 0;
+  };
+  constexpr std::size_t kBackendFocusRingSize = 32;
+  std::array<BackendFocusSnapshot, kBackendFocusRingSize> backendFocusRing{};
+  std::size_t backendFocusHead = 0;
+  std::size_t backendFocusCount = 0;
+  auto pushBackendFocus = [&](const BackendFocusSnapshot &snap) {
+    backendFocusRing[backendFocusHead] = snap;
+    backendFocusHead = (backendFocusHead + 1) % kBackendFocusRingSize;
+    if (backendFocusCount < kBackendFocusRingSize) {
+      backendFocusCount++;
+    }
+  };
+  auto dumpBackendFocus = [&]() {
+    if (backendFocusCount == 0) {
+      return;
+    }
+    std::cerr << "  backend_focus_recent (most recent last):\n";
+    const std::size_t base = (backendFocusHead + kBackendFocusRingSize - backendFocusCount) % kBackendFocusRingSize;
+    for (std::size_t i = 0; i < backendFocusCount; i++) {
+      const auto &s = backendFocusRing[(base + i) % kBackendFocusRingSize];
+      std::cerr << "    cyc=" << s.cycle
+                << " focus_pc=" << toHex(s.focusPc)
+                << " head_done=" << s.headDone
+                << " s2(v=" << s.s2Valid << ",pc=" << toHex(s.s2Pc) << ",op=" << s.decOp << ")"
+                << " disp(fire=" << s.dispatchFire
+                << ",ready=" << s.frontendReady
+                << ",iq_ok=" << s.iqAllocOk
+                << ",preg_ok=" << s.pregAllocOk << ")"
+                << " brob(f=" << s.brobAllocFire
+                << ",r=" << s.brobAllocReady
+                << ",bid=" << toHex(s.brobAllocBid)
+                << ",act=" << toHex(s.activeBlockBid)
+                << ",asn=" << toHex(s.assignBlockBid)
+                << ",fl=" << toHex(s.flushBid) << ")"
+                << " redir(v=" << s.commitRedirectValid
+                << ",pc=" << toHex(s.commitRedirectPc)
+                << ",bid=" << toHex(s.commitRedirectBid) << ")"
+                << " issue0(f=" << s.issueFire0
+                << ",pc=" << toHex(s.issuePc0)
+                << ",rob=" << s.issueRob0 << ")"
+                << " issue2(f=" << s.issueFire2
+                << ",pc=" << toHex(s.issuePc2)
+                << ",rob=" << s.issueRob2 << ")"
+                << " cmt0(f=" << s.commitFire0
+                << ",pc=" << toHex(s.commitPc0)
+                << ",rob=" << s.commitRob0 << ")"
+                << " cmt1(f=" << s.commitFire1
+                << ",pc=" << toHex(s.commitPc1)
+                << ",rob=" << s.commitRob1 << ")"
+                << " cmt2(f=" << s.commitFire2
+                << ",pc=" << toHex(s.commitPc2)
+                << ",rob=" << s.commitRob2 << ")"
+                << " cmt3(f=" << s.commitFire3
+                << ",pc=" << toHex(s.commitPc3)
+                << ",rob=" << s.commitRob3 << ")"
+                << " raw0(f=" << s.rawCommitFire0
+                << ",pc=" << toHex(s.rawCommitPc0)
+                << ",rob=" << s.rawCommitRob0 << ")"
+                << " raw1(f=" << s.rawCommitFire1
+                << ",pc=" << toHex(s.rawCommitPc1)
+                << ",rob=" << s.rawCommitRob1 << ")"
+                << " raw2(f=" << s.rawCommitFire2
+                << ",pc=" << toHex(s.rawCommitPc2)
+                << ",rob=" << s.rawCommitRob2 << ")"
+                << " raw3(f=" << s.rawCommitFire3
+                << ",pc=" << toHex(s.rawCommitPc3)
+                << ",rob=" << s.rawCommitRob3 << ")"
+                << " alu_iq(res=" << s.aluResidentValid << "@" << toHex(s.aluResidentPc)
+                << ",pick0=" << s.aluPick0Valid << "@" << toHex(s.aluPick0Pc)
+                << ",pick1=" << s.aluPick1Valid << "@" << toHex(s.aluPick1Pc) << ")"
+                << " p1(slot0=" << s.p1v0 << "@" << toHex(s.p1pc0)
+                << ",slot2=" << s.p1v2 << "@" << toHex(s.p1pc2)
+                << ",slot3=" << s.p1v3 << "@" << toHex(s.p1pc3) << ")"
+                << " e1(slot2=" << s.e1v2 << "@" << toHex(s.e1pc2) << ")"
+                << " w1(slot2=" << s.w1v2 << "@" << toHex(s.w1pc2) << ")"
+                << " w2(slot0=" << s.w2v0 << "@" << toHex(s.w2pc0)
+                << ",slot2=" << s.w2v2 << "@" << toHex(s.w2pc2)
+                << ",slot3=" << s.w2v3 << "@" << toHex(s.w2pc3) << ")\n";
+    }
+  };
+
   while ((dut.cycles.value() - startCycle) < maxCycles) {
     const std::uint64_t cycleNow = dut.cycles.value();
+    ifuStubFiredThisCycle = false;
+    ifuStubFiredPcThisCycle = 0;
+    ifuStubTraceCursorBeforeFire = ifuStubTraceCursor;
 
     if (xcheckEnabled && ctuDbgForceCycles == 0 && xcheckQemuCursor < qemuXcheckRows.size()) {
       const auto &qPeek = qemuXcheckRows[static_cast<std::size_t>(xcheckQemuCursor)];
@@ -2078,12 +2421,15 @@ int main(int argc, char **argv) {
     }
 
     const std::uint64_t brKindPre = 0;
-    const bool macroActivePre = false;
-    const bool macroWaitCommitPre = false;
-    const bool ctuStartFirePre = false;
-    const bool ctuHeadReadyPre = false;
-    const bool ctuHeadIsMacroPre = false;
-    const bool ctuHeadSkipPre = false;
+    const bool macroActivePre = readProbeBool(ctuDbgProbes.macroActive);
+    const std::uint64_t macroPcPre = readProbeValue(ctuDbgProbes.macroPc);
+    const bool macroWaitCommitPre = readProbeBool(ctuDbgProbes.macroWaitCommit);
+    const bool macroWaitCommitNextPre = readProbeBool(ctuDbgProbes.macroWaitCommitNext);
+    const bool ctuUopValidPre = readProbeBool(ctuDbgProbes.ctuUopValid);
+    const bool ctuStartFirePre = readProbeBool(ctuDbgProbes.startFire);
+    const bool ctuHeadReadyPre = readProbeBool(ctuDbgProbes.headReady);
+    const bool ctuHeadIsMacroPre = readProbeBool(ctuDbgProbes.headIsMacro);
+    const bool ctuHeadSkipPre = readProbeBool(ctuDbgProbes.headSkip);
     const bool ctuBlockIfuPre = dut.ctu_block_ifu.toBool();
     const bool blkEvtValidPre = false;
     const std::uint64_t blkEvtKindPre = 0;
@@ -2112,7 +2458,10 @@ int main(int argc, char **argv) {
           robHeadValidPre,
           dut.rob_head_done.value(),
           macroActivePre,
+          macroPcPre,
           macroWaitCommitPre,
+          macroWaitCommitNextPre,
+          ctuUopValidPre,
           ctuStartFirePre,
           ctuHeadReadyPre,
           ctuHeadIsMacroPre,
@@ -2143,13 +2492,57 @@ int main(int argc, char **argv) {
                 << " pc_sig=" << toHex(dut.pc.value())
                 << "\n";
     }
+    const bool ctuStartFirePost = readProbeBool(ctuDbgProbes.startFire);
+    if (ifuStubFromQemu && ctuStartFirePost && ifuStubRows != nullptr) {
+      // Macro start flushes younger frontend state. For the trace-fed IFU,
+      // resume from the first QEMU row after the current macro's dynamic rows
+      // so the post-template path stays aligned with commit order.
+      const auto &rows = *ifuStubRows;
+      const std::uint64_t macroPc = dut.rob_head_pc.value();
+      std::size_t anchor = ifuStubTraceCursor;
+      if (xcheckEnabled && ifuStubRows == &qemuXcheckRows) {
+        anchor = std::min<std::size_t>(xcheckQemuCursor, rows.size());
+      }
+
+      std::size_t macroIdx = rows.size();
+      for (std::size_t i = anchor; i < rows.size(); i++) {
+        if (rows[i].pc == macroPc) {
+          macroIdx = i;
+          break;
+        }
+      }
+      if (macroIdx >= rows.size()) {
+        for (std::size_t i = 0; i < anchor; i++) {
+          if (rows[i].pc == macroPc) {
+            macroIdx = i;
+            break;
+          }
+        }
+      }
+      if (macroIdx < rows.size()) {
+        std::size_t resumeIdx = macroIdx;
+        while (resumeIdx < rows.size() && rows[resumeIdx].pc == macroPc) {
+          resumeIdx++;
+        }
+        ifuStubTraceCursor = resumeIdx;
+        ifuStubPending.reset();
+        ifuStubPendingNextTraceCursor = ifuStubTraceCursor;
+        ifuStubFire = false;
+      }
+    }
     if (dut.dmem_wvalid.toBool()) {
       memShadow.storeGuestWord(dut.dmem_waddr.value(), dut.dmem_wdata.value(),
                                static_cast<std::uint8_t>(dut.dmem_wstrb.value()));
     }
     if (ifuStubFire && ifuStubPending.has_value()) {
+      ifuStubFiredThisCycle = true;
+      ifuStubFiredPcThisCycle = ifuStubPending->pc;
+      ifuStubTraceCursorBeforeFire = ifuStubTraceCursor;
+      ifuStubTraceCursorBeforeLastFire = ifuStubTraceCursorBeforeFire;
       if (ifuStubFromQemu) {
         ifuStubTraceCursor = ifuStubPendingNextTraceCursor;
+        ifuStubTracePktUid++;
+        ifuStubTraceCkptSeq += static_cast<std::uint64_t>(ifuStubPending->insn_count);
       } else {
         ifuStubMemPc += static_cast<std::uint64_t>(ifuStubPending->len_bytes);
         ifuStubMemPktUid++;
@@ -2157,6 +2550,8 @@ int main(int argc, char **argv) {
       }
       ifuStubPending.reset();
     }
+    ifuStubFiredLastCycle = ifuStubFiredThisCycle;
+    ifuStubFiredPcLastCycle = ifuStubFiredPcThisCycle;
 
     if (icRspDriveNow) {
       icReqPending = false;
@@ -2289,7 +2684,7 @@ int main(int argc, char **argv) {
 
       for (const auto &probe : occProbes) {
         emit(readProbeBool(probe.valid),
-             readProbeValue(probe.uid),
+             frontendProbeUid(probe.probeSid, readProbeValue(probe.uid)),
              probe.probeSid,
              probe.lane,
              readProbeValue(probe.pc),
@@ -2507,6 +2902,11 @@ int main(int argc, char **argv) {
             ifuStubMemPc = redirPc;
             ifuStubPending.reset();
           } else if (ifuStubRows != nullptr) {
+            if (ifuStubFiredThisCycle && ifuStubFiredPcThisCycle == redirPc) {
+              ifuStubTraceCursor = ifuStubTraceCursorBeforeFire;
+              ifuStubPending.reset();
+              ifuStubPendingNextTraceCursor = ifuStubTraceCursor;
+            } else {
             // Trace-fed mode: resync around the committed stream position, not
             // the prefetch cursor. The IFU stub can run far ahead of retire,
             // so matching only "the next PC at/after the host cursor" can jump
@@ -2543,12 +2943,27 @@ int main(int argc, char **argv) {
                         << " cursor=" << ifuStubTraceCursor
                         << " anchor=" << anchor
                         << " rows=" << rows.size() << "\n";
+              const std::size_t dumpBegin = (anchor > 4) ? (anchor - 4) : 0;
+              const std::size_t dumpEnd = std::min<std::size_t>(rows.size(), anchor + 5);
+              std::cerr << "  qemu_rows_near_anchor:\n";
+              for (std::size_t dumpIdx = dumpBegin; dumpIdx < dumpEnd; dumpIdx++) {
+                const auto &r = rows[dumpIdx];
+                std::cerr << "    idx=" << dumpIdx
+                          << " pc=" << toHex(r.pc)
+                          << " len=" << static_cast<unsigned>(normalizeLen(static_cast<std::uint8_t>(r.len & 0xFFu)))
+                          << " tmpl=" << r.template_kind
+                          << " insn=" << toHex(maskInsn(r.insn, normalizeLen(static_cast<std::uint8_t>(r.len & 0xFFu))))
+                          << "\n";
+              }
+              dumpBackendFocus();
+              dumpCtuDbg();
               dumpSimStats();
               return 1;
             }
             ifuStubTraceCursor = i;
             ifuStubPending.reset();
             ifuStubPendingNextTraceCursor = ifuStubTraceCursor;
+            }
           }
           ctuDbgForcePc = redirPc;
           ctuDbgForceCycles = 16;
@@ -2627,12 +3042,15 @@ int main(int argc, char **argv) {
     const bool redirectFromCorrDbg = readProbeBool(commitDbgProbes.redirectFromCorr);
     const bool redirectFromBoundaryDbg = false;
     const bool bruFaultSetDbg = readProbeBool(commitRedirectProbes.bruFaultSet);
-    const bool macroActiveDbg = false;
-    const bool macroWaitCommitDbg = false;
-    const bool ctuStartFireDbg = false;
-    const bool ctuHeadReadyDbg = false;
-    const bool ctuHeadIsMacroDbg = false;
-    const bool ctuHeadSkipDbg = false;
+    const bool macroActiveDbg = readProbeBool(ctuDbgProbes.macroActive);
+    const std::uint64_t macroPcDbg = readProbeValue(ctuDbgProbes.macroPc);
+    const bool macroWaitCommitDbg = readProbeBool(ctuDbgProbes.macroWaitCommit);
+    const bool macroWaitCommitNextDbg = readProbeBool(ctuDbgProbes.macroWaitCommitNext);
+    const bool ctuUopValidDbg = readProbeBool(ctuDbgProbes.ctuUopValid);
+    const bool ctuStartFireDbg = readProbeBool(ctuDbgProbes.startFire);
+    const bool ctuHeadReadyDbg = readProbeBool(ctuDbgProbes.headReady);
+    const bool ctuHeadIsMacroDbg = readProbeBool(ctuDbgProbes.headIsMacro);
+    const bool ctuHeadSkipDbg = readProbeBool(ctuDbgProbes.headSkip);
     const bool ctuBlockIfuDbg = dut.ctu_block_ifu.toBool();
     const bool blkEvtValidDbg = blkEvtValid;
     const std::uint64_t blkEvtKindDbg = kindVal;
@@ -2657,7 +3075,10 @@ int main(int argc, char **argv) {
           dut.rob_head_valid.value(),
           dut.rob_head_done.value(),
           macroActiveDbg,
+          macroPcDbg,
           macroWaitCommitDbg,
+          macroWaitCommitNextDbg,
+          ctuUopValidDbg,
           ctuStartFireDbg,
           ctuHeadReadyDbg,
           ctuHeadIsMacroDbg,
@@ -2678,6 +3099,88 @@ int main(int argc, char **argv) {
       if (ctuDbgForceCycles == 0) {
         ctuDbgForcePc = 0;
       }
+    }
+
+    if (((dut.cycles.value() - startCycle) <= 24) || ctuDbgForceCycles > 0 || xcheckEnabled) {
+      auto *backend = dut.linxcore_top_root->janus_backend.get();
+      auto *dispatch = backend->dispatch_frontend.get();
+      auto *commitTrace = backend->backend_commit_trace.get();
+      auto *aluIq = backend->iq_alu_bank.get();
+      auto *lsuIq = backend->iq_lsu_bank.get();
+      auto *execPipe = backend->backend_exec_pipe.get();
+      pushBackendFocus(BackendFocusSnapshot{
+          dut.cycles.value(),
+          dut.rob_head_valid.value() ? dut.rob_head_pc.value() : 0,
+          dut.rob_head_done.value(),
+          dispatch->probe_s2_valid_0.value(),
+          dispatch->probe_s2_pc_0.value(),
+          dispatch->dec_op.value(),
+          dispatch->dispatch_fire.value(),
+          dispatch->frontend_ready.value(),
+          dispatch->iq_alloc_ok.value(),
+          dispatch->preg_alloc_ok.value(),
+          readProbeValue(backendDbgProbes.brobAllocFire),
+          readProbeValue(blockProbes.allocReady),
+          readProbeValue(blockProbes.allocBid),
+          readProbeValue(blockProbes.activeBid),
+          readProbeValue(backendDbgProbes.assignBlockBid),
+          readProbeValue(backendDbgProbes.flushBid),
+          readProbeValue(commitRedirectProbes.valid),
+          readProbeValue(commitRedirectProbes.pc),
+          readProbeValue(commitRedirectProbes.bid),
+          lsuIq->issue_pick_valid0_o.value(),
+          lsuIq->issue_pick_pc0_o.value(),
+          lsuIq->issue_pick_rob0_o.value(),
+          aluIq->issue_pick_valid0_o.value(),
+          aluIq->issue_pick_pc0_o.value(),
+          aluIq->issue_pick_rob0_o.value(),
+          commitTrace->commit_fire0.value(),
+          commitTrace->commit_pc0.value(),
+          commitTrace->commit_rob0.value(),
+          commitTrace->commit_fire1.value(),
+          commitTrace->commit_pc1.value(),
+          commitTrace->commit_rob1.value(),
+          commitTrace->commit_fire2.value(),
+          commitTrace->commit_pc2.value(),
+          commitTrace->commit_rob2.value(),
+          commitTrace->commit_fire3.value(),
+          commitTrace->commit_pc3.value(),
+          commitTrace->commit_rob3.value(),
+          backend->raw_commit_fire0_dbg.value(),
+          backend->raw_commit_pc0_dbg.value(),
+          backend->raw_commit_rob0_dbg.value(),
+          backend->raw_commit_fire1_dbg.value(),
+          backend->raw_commit_pc1_dbg.value(),
+          backend->raw_commit_rob1_dbg.value(),
+          backend->raw_commit_fire2_dbg.value(),
+          backend->raw_commit_pc2_dbg.value(),
+          backend->raw_commit_rob2_dbg.value(),
+          backend->raw_commit_fire3_dbg.value(),
+          backend->raw_commit_pc3_dbg.value(),
+          backend->raw_commit_rob3_dbg.value(),
+          aluIq->resident_valid_o.value(),
+          aluIq->resident_pc_o.value(),
+          aluIq->issue_pick_valid0_o.value(),
+          aluIq->issue_pick_pc0_o.value(),
+          aluIq->issue_pick_valid1_o.value(),
+          aluIq->issue_pick_pc1_o.value(),
+          execPipe->probe_p1_valid_0.value(),
+          execPipe->probe_p1_pc_0.value(),
+          execPipe->probe_p1_valid_2.value(),
+          execPipe->probe_p1_pc_2.value(),
+          execPipe->probe_p1_valid_3.value(),
+          execPipe->probe_p1_pc_3.value(),
+          execPipe->probe_e1_valid_2.value(),
+          execPipe->probe_e1_pc_2.value(),
+          execPipe->probe_w1_valid_2.value(),
+          execPipe->probe_w1_pc_2.value(),
+          execPipe->probe_w2_valid_0.value(),
+          execPipe->probe_w2_pc_0.value(),
+          execPipe->probe_w2_valid_2.value(),
+          execPipe->probe_w2_pc_2.value(),
+          execPipe->probe_w2_valid_3.value(),
+          execPipe->probe_w2_pc_3.value(),
+      });
     }
 
     for (int slot = 0; slot < 4; slot++) {
@@ -3137,6 +3640,7 @@ int main(int argc, char **argv) {
                   << " dut=" << toHex(xcheckMm.dut) << "\n"
                   << "  qemu_row: " << xcheckCommitSummary(xcheckMm.qemu_row) << "\n"
                   << "  dut_row:  " << xcheckCommitSummary(xcheckMm.dut_row) << "\n";
+        dumpBackendFocus();
         dumpCtuDbg();
         dumpSimStats();
         return 1;
@@ -3152,6 +3656,7 @@ int main(int argc, char **argv) {
       commitTrace << "{"
                   << "\"cycle\":" << commitTraceSeq++ << ","
                   << "\"seq\":" << seq << ","
+                  << "\"slot\":" << slot << ","
                   << "\"core_id\":" << coreId << ","
                   << "\"uop_uid\":" << uopUid << ","
                   << "\"parent_uid\":" << parentUopUid << ","
@@ -3194,6 +3699,28 @@ int main(int argc, char **argv) {
         stopMaxCommits = true;
         break;
       }
+
+      if (stopOnIdleLoop) {
+        int idleTag = -1;
+        if (pc == idleLoopPcA && nextPc == idleLoopPcB) {
+          idleTag = 0;
+        } else if (pc == idleLoopPcB && nextPc == idleLoopPcA) {
+          idleTag = 1;
+        }
+        if (idleTag < 0) {
+          idleLoopMatchCount = 0;
+          idleLoopLastTag = -1;
+        } else if (idleLoopMatchCount == 0 || idleTag != idleLoopLastTag) {
+          idleLoopMatchCount++;
+          idleLoopLastTag = idleTag;
+        } else {
+          idleLoopMatchCount = 1;
+          idleLoopLastTag = idleTag;
+        }
+        if (idleLoopMatchCount >= idleLoopStreakTarget) {
+          idleLoopReached = true;
+        }
+      }
     }
 
     if (retiredThisCycle) {
@@ -3213,7 +3740,7 @@ int main(int argc, char **argv) {
                   << " ifu_cursor=" << ifuStubTraceCursor << "/" << (ifuStubRows ? ifuStubRows->size() : 0ull)
                   << " ifu_pending=" << (ifuStubPending.has_value() ? 1 : 0)
                   << " ifu_ready=" << (dut.tb_ifu_stub_ready.toBool() ? 1 : 0)
-                  << " ib_count=" << dut.ib_count_dbg_top.value() << "\n"
+                  << "\n"
                   << "  gate_dbg commit_fire0=" << readProbeValue(commitSlotProbes[0].fire)
                   << " ctu_block_ifu=" << dut.ctu_block_ifu.value()
                   << "\n"
@@ -3234,6 +3761,8 @@ int main(int argc, char **argv) {
                   << "  rob_head_op=" << dut.rob_head_op.value() << " rob_head_len=" << static_cast<unsigned>(headLen)
                   << " rob_head_insn=" << toHex(maskInsn(headInsn, headLen)) << "\n"
                   << "  rob_head_disasm=" << disasm << "\n";
+        dumpOccSummary(dut.rob_head_valid.value() ? dut.rob_head_pc.value() : 0);
+        dumpBackendFocus();
         dumpCtuDbg();
         pvFlushAll("deadlock_abort");
         writeXcheckReport();
@@ -3298,6 +3827,25 @@ int main(int argc, char **argv) {
         std::cerr << "warn: xcheck mismatches detected (diagnostic mode): " << xcheckMismatches.size() << "\n";
       }
       std::cout << "\nok: core halted, cycles=" << dut.cycles.value() << " commits=" << retiredCount << "\n";
+      dumpSimStats();
+      return 0;
+    }
+
+    if (idleLoopReached) {
+      pvFlushAll("end_of_sim");
+      writeXcheckReport();
+      if (xcheckEnabled && xcheckFailfast && !xcheckMismatches.empty()) {
+        std::cerr << "error: xcheck mismatches detected: " << xcheckMismatches.size() << "\n";
+        dumpSimStats();
+        return 1;
+      }
+      if (xcheckEnabled && !xcheckFailfast && !xcheckMismatches.empty()) {
+        std::cerr << "warn: xcheck mismatches detected (diagnostic mode): " << xcheckMismatches.size() << "\n";
+      }
+      std::cout << "\nok: terminal idle loop reached, cycles=" << dut.cycles.value()
+                << " commits=" << retiredCount
+                << " pc_a=" << toHex(idleLoopPcA)
+                << " pc_b=" << toHex(idleLoopPcB) << "\n";
       dumpSimStats();
       return 0;
     }

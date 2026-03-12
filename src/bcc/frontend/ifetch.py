@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pycircuit import Circuit, module
 
-from common.decode_f4 import decode_f4_bundle
+from common.decode import build_decode_bundle_8b
+from common.decode_f4 import decode_f4_bundle_view
 
 
 @module(name="LinxCoreIFetch")
@@ -27,7 +28,13 @@ def build_ifetch(m: Circuit) -> None:
     with m.scope("ifetch"):
         fpc = m.out("fpc", clk=clk, rst=rst, width=64, init=boot_pc, en=c(1, width=1))
 
-    fetch_bundle = decode_f4_bundle(m, imem_rdata, name="fetch_bundle")
+    fetch_bundle_inst = m.instance_auto(
+        build_decode_bundle_8b,
+        name="fetch_bundle",
+        module_name="LinxCoreDecodeBundle8B",
+        window=imem_rdata,
+    )
+    fetch_bundle = decode_f4_bundle_view(m, bundle=fetch_bundle_inst)
     fetch_advance4 = fetch_bundle.total_len_bytes
     fetch_advance4 = fetch_advance4.__eq__(c(0, width=4))._select_internal(c(2, width=4), fetch_advance4)
     fetch_advance64 = fetch_advance4._zext(width=64)

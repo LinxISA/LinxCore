@@ -4,12 +4,33 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 TMP_DIR="$(mktemp -d -t linxcore_cbstop_guard.XXXXXX)"
-CORE_ELF="${LINX_ROOT}/workloads/generated/elf/coremark.elf"
 CORE_MEMH="${TMP_DIR}/coremark_from_elf.memh"
 QEMU_TRACE="${TMP_DIR}/coremark_qemu_commit.jsonl"
 DUT_TRACE="${TMP_DIR}/coremark_dut_commit.jsonl"
 REPORT_DIR="${TMP_DIR}/report"
 LLVM_READELF="${LLVM_READELF:-${LINX_ROOT}/compiler/llvm/build-linxisa-clang/bin/llvm-readelf}"
+
+resolve_coremark_elf() {
+  local cand
+  for cand in \
+    "${LINX_ROOT}/workloads/generated/elf/coremark.elf" \
+    "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl_1000/elf/coremark/coremark.elf" \
+    "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl/elf/coremark/coremark.elf" \
+    "${ROOT_DIR}/tests/benchmarks_latest_llvm_musl_1000/elf/coremark/coremark.elf" \
+    "${ROOT_DIR}/tests/benchmarks_latest_llvm_musl/elf/coremark/coremark.elf"
+  do
+    if [[ -f "${cand}" ]]; then
+      echo "${cand}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+CORE_ELF="$(resolve_coremark_elf)" || {
+  echo "error: missing CoreMark ELF in canonical or fixture locations" >&2
+  exit 2
+}
 
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -33,32 +54,21 @@ fi
 
 bash "${ROOT_DIR}/tools/image/elf_to_memh.sh" "${CORE_ELF}" "${CORE_MEMH}" >/dev/null
 
-bash "${ROOT_DIR}/tools/qemu/run_qemu_commit_trace.sh" \
+bash "${ROOT_DIR}/tools/trace/run_crosscheck_fifo.sh" \
   --elf "${CORE_ELF}" \
-  --out "${QEMU_TRACE}" \
-  -- \
-  -nographic -monitor none -machine virt -kernel "${CORE_ELF}" >/dev/null
-
-PYC_BOOT_PC="${BOOT_PC}" \
-PYC_BOOT_SP=0x0000000007fefff0 \
-PYC_MAX_COMMITS=1000 \
-PYC_MAX_CYCLES=50000000 \
-PYC_COMMIT_TRACE="${DUT_TRACE}" \
-PYC_QEMU_TRACE="${QEMU_TRACE}" \
-PYC_XCHECK_MODE=diagnostic \
-PYC_XCHECK_MAX_COMMITS=1000 \
-PYC_XCHECK_REPORT="${REPORT_DIR}/crosscheck" \
-PYC_TB_CXXFLAGS="${PYC_TB_CXXFLAGS:--O2 -DNDEBUG}" \
-  bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${CORE_MEMH}" >/dev/null
-
-python3 "${ROOT_DIR}/tools/trace/crosscheck_qemu_linxcore.py" \
-  --qemu-trace "${QEMU_TRACE}" \
-  --dut-trace "${DUT_TRACE}" \
+  --memh "${CORE_MEMH}" \
+  --out-dir "${REPORT_DIR}" \
   --mode diagnostic \
   --max-commits 1000 \
-  --report-dir "${REPORT_DIR}" >/dev/null
+  --tb-max-cycles 50000000 \
+  --boot-pc "${BOOT_PC}" \
+  --boot-sp 0x0000000007fefff0 \
+  --qemu-max-seconds "${QEMU_MAX_SECONDS:-30}" >/dev/null
 
-python3 - <<'PY' "${REPORT_DIR}/crosscheck_report.json"
+cp -f "${REPORT_DIR}/qemu_trace.jsonl" "${QEMU_TRACE}"
+cp -f "${REPORT_DIR}/dut_trace.jsonl" "${DUT_TRACE}"
+
+python3 - <<'PY' "${REPORT_DIR}/report/crosscheck_report.json"
 import json
 import pathlib
 import sys

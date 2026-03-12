@@ -1,5 +1,9 @@
 # LinxISA Block Control Flow (LinxCore/QEMU Parity)
 
+Canonical contract summary:
+
+- `rtl/LinxCore/docs/architecture/microarchitecture.md`
+
 This note records the block-structured control-flow contract used for lockstep parity.
 
 ## 1) IFU prediction contract

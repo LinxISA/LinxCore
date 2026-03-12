@@ -63,8 +63,11 @@ CORE_TRACE="${TRACE_DIR}/coremark_commit.jsonl"
 DHRY_TRACE="${TRACE_DIR}/dhrystone_commit.jsonl"
 CORE_TRACE_TXT="${TRACE_DIR}/coremark_commit.txt"
 DHRY_TRACE_TXT="${TRACE_DIR}/dhrystone_commit.txt"
+CORE_RAW_TRACE="${TRACE_DIR}/coremark_raw_events.jsonl"
+DHRY_RAW_TRACE="${TRACE_DIR}/dhrystone_raw_events.jsonl"
 rm -f "${CORE_TRACE}" "${DHRY_TRACE}"
 rm -f "${CORE_TRACE_TXT}" "${DHRY_TRACE_TXT}"
+rm -f "${CORE_RAW_TRACE}" "${DHRY_RAW_TRACE}"
 
 run_one() {
   local name="$1"
@@ -75,43 +78,26 @@ run_one() {
   local accept_exit_codes="$6"
   local log="${LOG_DIR}/${name}_linxcore_cpp.log"
   local linxtrace="${LINXTRACE_DIR}/${name}.linxtrace"
+  local raw_trace="${TRACE_DIR}/${name}_raw_events.jsonl"
   echo "[bench] ${name}"
+  local run_env=(
+    "PYC_BOOT_PC=${boot_pc}"
+    "PYC_BOOT_SP=${BOOT_SP}"
+    "PYC_MAX_CYCLES=${MAX_CYCLES}"
+    "PYC_ACCEPT_EXIT_CODES=${accept_exit_codes}"
+  )
   if [[ "${BENCH_TRACE}" == "1" ]]; then
-    if [[ "${BENCH_LINXTRACE}" == "1" ]]; then
-      PYC_BOOT_PC="${boot_pc}" \
-      PYC_BOOT_SP="${BOOT_SP}" \
-      PYC_MAX_CYCLES="${MAX_CYCLES}" \
-      PYC_COMMIT_TRACE="${trace}" \
-      PYC_COMMIT_TRACE_TEXT="${trace_txt}" \
-      PYC_ACCEPT_EXIT_CODES="${accept_exit_codes}" \
-      PYC_LINXTRACE=1 \
-      PYC_LINXTRACE_PATH="${linxtrace}" \
-      bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${memh}" > "${log}" 2>&1
-    else
-      PYC_BOOT_PC="${boot_pc}" \
-      PYC_BOOT_SP="${BOOT_SP}" \
-      PYC_MAX_CYCLES="${MAX_CYCLES}" \
-      PYC_COMMIT_TRACE="${trace}" \
-      PYC_COMMIT_TRACE_TEXT="${trace_txt}" \
-      PYC_ACCEPT_EXIT_CODES="${accept_exit_codes}" \
-      bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${memh}" > "${log}" 2>&1
-    fi
-  else
-    if [[ "${BENCH_LINXTRACE}" == "1" ]]; then
-      PYC_BOOT_PC="${boot_pc}" \
-      PYC_BOOT_SP="${BOOT_SP}" \
-      PYC_MAX_CYCLES="${MAX_CYCLES}" \
-      PYC_ACCEPT_EXIT_CODES="${accept_exit_codes}" \
-      PYC_LINXTRACE=1 \
-      PYC_LINXTRACE_PATH="${linxtrace}" \
-      bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${memh}" > "${log}" 2>&1
-    else
-      PYC_BOOT_PC="${boot_pc}" \
-      PYC_BOOT_SP="${BOOT_SP}" \
-      PYC_MAX_CYCLES="${MAX_CYCLES}" \
-      PYC_ACCEPT_EXIT_CODES="${accept_exit_codes}" \
-      bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${memh}" > "${log}" 2>&1
-    fi
+    run_env+=("PYC_COMMIT_TRACE=${trace}" "PYC_COMMIT_TRACE_TEXT=${trace_txt}")
+  fi
+  if [[ "${BENCH_LINXTRACE}" == "1" ]]; then
+    run_env+=("PYC_LINXTRACE=0" "PYC_RAW_TRACE=${raw_trace}")
+  fi
+  env "${run_env[@]}" bash "${ROOT_DIR}/tools/generate/run_linxcore_top_cpp.sh" "${memh}" > "${log}" 2>&1
+  if [[ "${BENCH_LINXTRACE}" == "1" ]]; then
+    python3 "${ROOT_DIR}/tools/trace/build_linxtrace_view.py" \
+      --raw "${raw_trace}" \
+      --out "${linxtrace}" \
+      --commit-text "${trace_txt}" >/dev/null
   fi
   tail -n 1 "${log}"
 }

@@ -8,7 +8,7 @@
     },
     "src/bcc/backend/commit.py": {
       ".__eq__(": 9,
-      "._select_internal(": 12,
+      "._select_internal(": 13,
       "m.const": 3
     },
     "src/bcc/backend/decode.py": {
@@ -25,10 +25,10 @@
       "m.const": 3
     },
     "src/bcc/backend/engine.py": {
-      ".__eq__(": 34,
-      "._select_internal(": 145,
+      ".__eq__(": 28,
+      "._select_internal(": 120,
       "._sext(": 7,
-      "._trunc(": 11,
+      "._trunc(": 10,
       "._zext(": 7,
       "m.const": 1
     },
@@ -41,8 +41,76 @@
       "m.const": 3
     },
     "src/bcc/backend/lsu.py": {
+      "._select_internal(": 2
+    },
+    "src/bcc/backend/modules/block_fabric.py": {
+      ".__eq__(": 3,
+      "._select_internal(": 5,
+      "._trunc(": 2,
+      "m.const": 2
+    },
+    "src/bcc/backend/modules/block_meta_step.py": {
+      "._select_internal(": 21,
+      "m.const": 1
+    },
+    "src/bcc/backend/modules/commit_redirect.py": {
+      "m.const": 1
+    },
+    "src/bcc/backend/modules/commit_slot_step.py": {
+      ".__eq__(": 13,
+      "._select_internal(": 52,
+      "._trunc(": 1,
+      "._zext(": 2,
+      "m.const": 1
+    },
+    "src/bcc/backend/modules/dispatch_frontend.py": {
+      ".__eq__(": 1,
+      "._select_internal(": 10,
+      "m.const": 1
+    },
+    "src/bcc/backend/modules/exec_pipe_cluster.py": {
+      "._select_internal(": 2,
+      "m.const": 1
+    },
+    "src/bcc/backend/modules/ingress_decode.py": {
+      "m.const": 1
+    },
+    "src/bcc/backend/modules/iq_bank.py": {
       ".__eq__(": 4,
-      "._select_internal(": 3,
+      "._select_internal(": 49,
+      "m.const": 1
+    },
+    "src/bcc/backend/modules/recovery_checks.py": {
+      ".__eq__(": 8,
+      "._select_internal(": 13,
+      "m.const": 4
+    },
+    "src/bcc/backend/modules/rename_bank.py": {
+      ".__eq__(": 13,
+      "._select_internal(": 32,
+      "m.const": 1
+    },
+    "src/bcc/backend/modules/rob_bank.py": {
+      ".__eq__(": 3,
+      "._select_internal(": 22,
+      "._trunc(": 14,
+      "._zext(": 1,
+      "m.const": 11
+    },
+    "src/bcc/backend/modules/rob_event_pipe_stage.py": {
+      "._select_internal(": 11
+    },
+    "src/bcc/backend/modules/trace_export_core.py": {
+      ".__eq__(": 42,
+      "._select_internal(": 378,
+      "._sext(": 7,
+      "._trunc(": 9,
+      "._zext(": 8,
+      "m.const": 2
+    },
+    "src/bcc/backend/prf.py": {
+      ".__eq__(": 1,
+      "._select_internal(": 1,
       "m.const": 1
     },
     "src/bcc/backend/rename.py": {
@@ -51,11 +119,11 @@
       "m.const": 4
     },
     "src/bcc/backend/rob.py": {
-      ".__eq__(": 24,
-      "._select_internal(": 85,
+      ".__eq__(": 26,
+      "._select_internal(": 94,
       "._trunc(": 2,
       "._zext(": 4,
-      "m.const": 2
+      "m.const": 4
     },
     "src/bcc/backend/state.py": {
       "._zext(": 2,
@@ -96,6 +164,7 @@
       "m.const": 3
     },
     "src/bcc/block_struct/rob_rtl.py": {
+      "._select_internal(": 17,
       "m.const": 1
     },
     "src/bcc/frontend/bpu.py": {
@@ -272,7 +341,7 @@
       "m.const": 1
     },
     "src/mem/mem2r1w.py": {
-      "._select_internal(": 4,
+      "._select_internal(": 3,
       "m.const": 1
     },
     "src/tmu/noc/node.py": {
@@ -287,9 +356,26 @@
       "._select_internal(": 1,
       "m.const": 1
     },
+    "src/top/modules/export_core.py": {
+      ".__eq__(": 13,
+      "._select_internal(": 3,
+      "._zext(": 1,
+      "m.const": 1
+    },
+    "src/top/modules/export_store_drain.py": {
+      "._trunc(": 1,
+      "._zext(": 1,
+      "m.const": 1
+    },
+    "src/top/modules/ib.py": {
+      ".__eq__(": 2,
+      "._select_internal(": 10,
+      "m.const": 1
+    },
     "src/top/top.py": {
-      ".__eq__(": 8,
-      "._select_internal(": 46,
+      ".__eq__(": 20,
+      "._select_internal(": 48,
+      "._zext(": 1,
       "m.const": 1
     }
   },

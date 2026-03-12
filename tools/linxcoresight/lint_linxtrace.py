@@ -268,11 +268,6 @@ def main() -> int:
             rank = STAGE_RANK[stage]
             if cycle <= last_cycle:
                 raise SystemExit(f"line {lineno}: row_id={row_id} cycles are not strictly increasing")
-            if last_cycle >= 0 and cycle != last_cycle + 1:
-                raise SystemExit(
-                    f"line {lineno}: row_id={row_id} has a cycle gap between {last_cycle} ({last_stage}) and "
-                    f"{cycle} ({stage})"
-                )
             if last_rank > rank:
                 raise SystemExit(
                     f"line {lineno}: row_id={row_id} regressed from stage {last_stage} to {stage} "

@@ -1172,7 +1172,10 @@ def main() -> int:
                         "cycle": open_cycle,
                         "row_id": row_id,
                         "lane_id": f"c{block.core_id}.l0",
-                        "stage_id": "IB",
+                        # Block rows are backend-resident lifecycle objects.
+                        # Starting them at IQ keeps stage order monotonic under
+                        # the canonical pipeline ordering used by the linter.
+                        "stage_id": "IQ",
                         "stall": 0,
                         "cause": "block_open",
                     },

@@ -32,10 +32,12 @@ trap cleanup EXIT INT TERM
 
 if [[ ! -f "${MEMH}" ]]; then
   build_out="$("${ROOT_DIR}/tools/image/build_linxisa_benchmarks_memh_compat.sh")"
-  memh2="$(printf "%s\n" "${build_out}" | sed -n '2p')"
-  if [[ -n "${memh2}" && -f "${memh2}" ]]; then
-    MEMH="${memh2}"
-  fi
+  while IFS= read -r memh_cand; do
+    if [[ -n "${memh_cand}" && -f "${memh_cand}" ]]; then
+      MEMH="${memh_cand}"
+      break
+    fi
+  done < <(printf "%s\n" "${build_out}")
 fi
 if [[ ! -f "${MEMH}" ]]; then
   echo "error: missing memh after benchmark build: ${MEMH}" >&2

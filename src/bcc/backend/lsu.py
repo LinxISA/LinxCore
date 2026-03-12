@@ -101,9 +101,15 @@ def build_lsu_stage(
     m: Circuit,
     *,
     rob_w: int = 6,
+    sq_entries: int = 32,
+    sq_w: int = 5,
 ) -> None:
     if rob_w <= 0:
         raise ValueError("rob_w must be > 0")
+    if sq_entries <= 0:
+        raise ValueError("sq_entries must be > 0")
+    if sq_w <= 0:
+        raise ValueError("sq_w must be > 0")
 
     issue_fire_lane0_raw = m.input("issue_fire_lane0_raw", width=1)
     ex0_is_load = m.input("ex0_is_load", width=1)
@@ -115,28 +121,40 @@ def build_lsu_stage(
     commit_store_addr = m.input("commit_store_addr", width=64)
     commit_store_data = m.input("commit_store_data", width=64)
 
-    rob_older_store_pending_i = m.input("rob_older_store_pending_i", width=1)
-    rob_forward_hit_i = m.input("rob_forward_hit_i", width=1)
-    rob_forward_data_i = m.input("rob_forward_data_i", width=64)
+    rob_older_store_pending_lane0 = m.input("rob_older_store_pending_lane0", width=1)
+    rob_forward_hit_lane0 = m.input("rob_forward_hit_lane0", width=1)
+    rob_forward_data_lane0 = m.input("rob_forward_data_lane0", width=64)
 
-    stbuf_forward_hit_i = m.input("stbuf_forward_hit_i", width=1)
-    stbuf_forward_data_i = m.input("stbuf_forward_data_i", width=64)
+    stbuf_valid = []
+    stbuf_addr = []
+    stbuf_data = []
+    for i in range(int(sq_entries)):
+        stbuf_valid.append(m.input(f"stbuf_valid{i}", width=1))
+        stbuf_addr.append(m.input(f"stbuf_addr{i}", width=64))
+        stbuf_data.append(m.input(f"stbuf_data{i}", width=64))
 
     lsu_mem_fire_raw = issue_fire_lane0_raw & (ex0_is_load | ex0_is_store)
     lsu_load_fire_raw = issue_fire_lane0_raw & ex0_is_load
     lsu_lsid_block_lane0 = lsu_mem_fire_raw & (ex0_lsid != lsid_issue_ptr)
 
-    lsu_older_store_pending_lane0 = rob_older_store_pending_i
+    lsu_older_store_pending_lane0 = rob_older_store_pending_lane0
 
     commit_store_match_lane0 = lsu_load_fire_raw & commit_store_fire & (commit_store_addr == ex0_addr)
+    stbuf_forward_hit_lane0 = u(1, 0)
+    stbuf_forward_data_lane0 = u(64, 0)
+    for i in range(int(sq_entries)):
+        hit = lsu_load_fire_raw & stbuf_valid[i] & (stbuf_addr[i] == ex0_addr)
+        stbuf_forward_hit_lane0 = stbuf_forward_hit_lane0 | hit
+        stbuf_forward_data_lane0 = hit._select_internal(stbuf_data[i], stbuf_forward_data_lane0)
+
     lsu_forward_hit_lane0 = u(1, 0)
     lsu_forward_data_lane0 = u(64, 0)
-    fwd_hit = [rob_forward_hit_i, stbuf_forward_hit_i, commit_store_match_lane0]
-    fwd_data = [rob_forward_data_i, stbuf_forward_data_i, commit_store_data]
+    fwd_hit = [rob_forward_hit_lane0, stbuf_forward_hit_lane0, commit_store_match_lane0]
+    fwd_data = [rob_forward_data_lane0, stbuf_forward_data_lane0, commit_store_data]
     for i in range(3):
         hit = fwd_hit[i]
         lsu_forward_hit_lane0 = lsu_forward_hit_lane0 | hit
-        lsu_forward_data_lane0 = fwd_data[i] if hit else lsu_forward_data_lane0
+        lsu_forward_data_lane0 = hit._select_internal(fwd_data[i], lsu_forward_data_lane0)
 
     lsu_block_lane0 = lsu_lsid_block_lane0 | (lsu_load_fire_raw & lsu_older_store_pending_lane0)
     issue_fire_lane0_eff = issue_fire_lane0_raw & (~lsu_block_lane0)

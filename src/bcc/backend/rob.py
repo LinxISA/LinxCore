@@ -132,6 +132,7 @@ def build_rob_entry_cell(
     c = m.const
     idx = m.input("idx", width=rob_w)
     do_flush = m.input("do_flush", width=1)
+    flush_bid = m.input("flush_bid", width=64)
     field_defs = rob_entry_field_defs(ptag_w=ptag_w)
 
     state_regs: dict[str, object] = {}
@@ -145,7 +146,7 @@ def build_rob_entry_cell(
             en=c(1, width=1),
         )
 
-    update_bind: dict[str, object] = {"idx": idx, "do_flush": do_flush}
+    update_bind: dict[str, object] = {"idx": idx, "do_flush": do_flush, "flush_bid": flush_bid}
     for field_name, _width, _default_value in field_defs:
         update_bind[f"old_{field_name}"] = state_regs[field_name].out()
 
@@ -290,6 +291,7 @@ def build_rob_entry_update_stage(
     c = m.const
     idx = m.input("idx", width=rob_w)
     do_flush = m.input("do_flush", width=1)
+    flush_bid = m.input("flush_bid", width=64)
 
     old_valid = m.input("old_valid", width=1)
     old_done = m.input("old_done", width=1)
@@ -429,13 +431,15 @@ def build_rob_entry_update_stage(
     for slot in range(issue_w):
         wb_hit = wb_hit | (wb_fires[slot] & wb_robs[slot].__eq__(idx))
 
+    keep_on_flush = old_valid & (~flush_bid.ult(old_block_bid))
+
     valid_next = old_valid
-    valid_next = do_flush._select_internal(c(0, width=1), valid_next)
+    valid_next = do_flush._select_internal(keep_on_flush, valid_next)
     valid_next = commit_hit._select_internal(c(0, width=1), valid_next)
     valid_next = disp_hit._select_internal(c(1, width=1), valid_next)
 
     done_next = old_done
-    done_next = do_flush._select_internal(c(0, width=1), done_next)
+    done_next = do_flush._select_internal(keep_on_flush & old_done, done_next)
     done_next = commit_hit._select_internal(c(0, width=1), done_next)
     done_next = disp_hit._select_internal(c(0, width=1), done_next)
     for slot in range(dispatch_w):
@@ -484,12 +488,12 @@ def build_rob_entry_update_stage(
     src0_value_next = old_src0_value
     src1_value_next = old_src1_value
 
-    src0_valid_next = do_flush._select_internal(c(0, width=1), src0_valid_next)
-    src1_valid_next = do_flush._select_internal(c(0, width=1), src1_valid_next)
+    src0_valid_next = do_flush._select_internal(keep_on_flush & old_src0_valid, src0_valid_next)
+    src1_valid_next = do_flush._select_internal(keep_on_flush & old_src1_valid, src1_valid_next)
     src0_valid_next = commit_hit._select_internal(c(0, width=1), src0_valid_next)
     src1_valid_next = commit_hit._select_internal(c(0, width=1), src1_valid_next)
-    src0_value_next = do_flush._select_internal(c(0, width=64), src0_value_next)
-    src1_value_next = do_flush._select_internal(c(0, width=64), src1_value_next)
+    src0_value_next = do_flush._select_internal(keep_on_flush._select_internal(old_src0_value, c(0, width=64)), src0_value_next)
+    src1_value_next = do_flush._select_internal(keep_on_flush._select_internal(old_src1_value, c(0, width=64)), src1_value_next)
     src0_value_next = commit_hit._select_internal(c(0, width=64), src0_value_next)
     src1_value_next = commit_hit._select_internal(c(0, width=64), src1_value_next)
     src0_value_next = disp_hit._select_internal(c(0, width=64), src0_value_next)
@@ -565,13 +569,16 @@ def build_rob_entry_update_stage(
         load_store_id_next = hit._select_internal(disp_load_store_ids[slot], load_store_id_next)
         resolved_d2_next = hit._select_internal(disp_resolved_d2s[slot], resolved_d2_next)
     block_epoch_next = commit_hit._select_internal(c(0, width=16), block_epoch_next)
-    block_epoch_next = do_flush._select_internal(c(0, width=16), block_epoch_next)
+    block_epoch_next = do_flush._select_internal(keep_on_flush._select_internal(old_block_epoch, c(0, width=16)), block_epoch_next)
     block_uid_next = commit_hit._select_internal(c(0, width=64), block_uid_next)
-    block_uid_next = do_flush._select_internal(c(0, width=64), block_uid_next)
+    block_uid_next = do_flush._select_internal(keep_on_flush._select_internal(old_block_uid, c(0, width=64)), block_uid_next)
     block_bid_next = commit_hit._select_internal(c(0, width=64), block_bid_next)
-    block_bid_next = do_flush._select_internal(c(0, width=64), block_bid_next)
+    block_bid_next = do_flush._select_internal(keep_on_flush._select_internal(old_block_bid, c(0, width=64)), block_bid_next)
     load_store_id_next = commit_hit._select_internal(c(0, width=32), load_store_id_next)
-    load_store_id_next = do_flush._select_internal(c(0, width=32), load_store_id_next)
+    load_store_id_next = do_flush._select_internal(
+        keep_on_flush._select_internal(old_load_store_id, c(0, width=32)),
+        load_store_id_next,
+    )
 
     macro_begin_next = old_macro_begin
     macro_end_next = old_macro_end
@@ -585,8 +592,11 @@ def build_rob_entry_update_stage(
         parent_uid_next = hit._select_internal(disp_parent_uids[slot], parent_uid_next)
     uop_uid_next = commit_hit._select_internal(c(0, width=64), uop_uid_next)
     parent_uid_next = commit_hit._select_internal(c(0, width=64), parent_uid_next)
-    uop_uid_next = do_flush._select_internal(c(0, width=64), uop_uid_next)
-    parent_uid_next = do_flush._select_internal(c(0, width=64), parent_uid_next)
+    uop_uid_next = do_flush._select_internal(keep_on_flush._select_internal(old_uop_uid, c(0, width=64)), uop_uid_next)
+    parent_uid_next = do_flush._select_internal(
+        keep_on_flush._select_internal(old_parent_uid, c(0, width=64)),
+        parent_uid_next,
+    )
 
     m.output("valid_next", valid_next)
     m.output("done_next", done_next)
