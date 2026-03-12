@@ -6,6 +6,7 @@ LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
 QEMU_LINX_DIR="${QEMU_LINX_DIR:-${LINX_ROOT}/emulator/qemu/target/linx}"
 
 python3 "${ROOT_DIR}/tools/generate/lint_stage_naming.py"
+python3 "${ROOT_DIR}/tools/generate/lint_stage_spec_ownership.py"
 python3 "${ROOT_DIR}/tools/generate/lint_no_stubs.py"
 python3 "${ROOT_DIR}/tools/generate/lint_engine_ownership.py"
 python3 "${ROOT_DIR}/tools/linxcoresight/lint_trace_contract_sync.py"

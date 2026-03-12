@@ -37,7 +37,6 @@ from common.isa import (
     OP_SETC_ORI,
 )
 from ..commit import _op_is
-from .block_meta_step import build_block_meta_step
 
 
 COMMIT_SLOT_INPUT_FIELD_SPECS = (
@@ -239,8 +238,22 @@ def build_commit_slot_step(m: Circuit) -> None:
     is_fret_stk = op.__eq__(c(OP_FRET_STK, width=12))
     is_bstart = rob_is_bstart
     is_bstop = rob_is_bstop
-    bstart_bid_diff = ~(rob_block_bid.__eq__(active_block_bid))
-    is_bstart_head = is_bstart & (block_head | bstart_bid_diff)
+    # Current dispatch path still stamps some BSTART rows with the closing
+    # block's BID. For the live BROB/BRENU encoding, the architectural
+    # successor BID advances by one tag slot and one uniq step together.
+    # Preserve the runnable path by repairing that stale head-row identity here
+    # until the ROB-visible dispatch stamp can carry the new BID directly.
+    bstart_bid_succ = active_block_bid + c(0x11, width=64)
+    bstart_stale_bid = is_bstart & (
+        rob_block_bid.__eq__(c(0, width=64)) |
+        rob_block_bid.__eq__(active_block_bid)
+    )
+    block_uid_this = bstart_stale_bid._select_internal(bstart_bid_succ, rob_block_uid)
+    block_bid_this = bstart_stale_bid._select_internal(bstart_bid_succ, rob_block_bid)
+    # Head-vs-mid is architectural block position, not a derived BID check.
+    # In-body BSTART may still restart at the same PC even when the row's live
+    # BID is repaired to the successor block instance.
+    is_bstart_head = is_bstart & block_head
     is_bstart_mid = is_bstart & (~is_bstart_head)
     is_boundary = is_bstart_mid | is_bstop | is_macro
 
@@ -299,13 +312,22 @@ def build_commit_slot_step(m: Circuit) -> None:
     bstop_gate_ok = (~is_bstop) | (~brob_active_allocated) | brob_active_ready | brob_active_exception
     fire = fire & bstop_gate_ok
     store_commit = fire & rob_is_store
-    stop = redirect_pre | (fire & is_halt)
+    # Macro parents retire as serialized handoff points: once one retires, do
+    # not let younger raw ROB slots commit in the same sweep before the
+    # template-backed rows are emitted.
+    stop = redirect_pre | (fire & (is_halt | is_macro))
 
     commit_count = commit_count + fire._zext(width=3)
 
     redirect_valid = redirect_pre._select_internal(c(1, width=1), redirect_valid)
     redirect_pc = redirect_pre._select_internal(pc_next, redirect_pc)
-    redirect_bid = redirect_pre._select_internal(active_block_bid, redirect_bid)
+    redirect_bid_sel = active_block_bid
+    # BSTART redirect/fallthrough handoff moves execution into the marker's new
+    # block domain. The flush must therefore preserve entries already tagged
+    # with the BSTART-carried BID, not the older active block BID that is being
+    # closed.
+    redirect_bid_sel = is_bstart._select_internal(block_bid_this, redirect_bid_sel)
+    redirect_bid = redirect_pre._select_internal(redirect_bid_sel, redirect_bid)
     redirect_ckpt_sel = rob_checkpoint_id
     redirect_checkpoint_id = redirect_pre._select_internal(redirect_ckpt_sel, redirect_checkpoint_id)
     redirect_from_corr = (redirect_pre & corr_for_boundary)._select_internal(c(1, width=1), redirect_from_corr)
@@ -346,38 +368,38 @@ def build_commit_slot_step(m: Circuit) -> None:
     commit_tgt = (fire & op_setc_tgt)._select_internal(val, commit_tgt)
     commit_cond = (fire & op_setc_tgt)._select_internal(c(1, width=1), commit_cond)
 
-    block_meta_step = m.instance_auto(
-        build_block_meta_step,
-        name="block_meta_step",
-        fire_i=fire,
-        redirect_i=redirect_pre,
-        is_boundary_i=is_boundary,
-        is_bstart_head_i=is_bstart_head,
-        is_bstart_mid_i=is_bstart_mid,
-        is_bstop_i=is_bstop,
-        is_macro_i=is_macro,
-        br_take_eff_i=br_take_eff,
-        pc_this_i=pc_this,
-        boundary_kind_i=rob_boundary_kind,
-        boundary_target_i=rob_boundary_target,
-        pred_take_i=rob_pred_take,
-        block_uid_this_i=rob_block_uid,
-        block_bid_this_i=rob_block_bid,
-        active_block_uid_i=active_block_uid,
-        active_block_bid_i=active_block_bid,
-        br_kind_i=br_kind,
-        br_base_i=br_base,
-        br_off_i=br_off,
-        br_pred_take_i=br_pred_take,
-        block_head_i=block_head,
-    )
-    active_block_uid = block_meta_step["active_block_uid_o"]
-    active_block_bid = block_meta_step["active_block_bid_o"]
-    br_kind = block_meta_step["br_kind_o"]
-    br_base = block_meta_step["br_base_o"]
-    br_off = block_meta_step["br_off_o"]
-    br_pred_take = block_meta_step["br_pred_take_o"]
-    block_head = block_meta_step["block_head_o"]
+    bstart_commit = fire & (is_bstart_head | is_bstart_mid)
+    enter_new_block = bstart_commit & (~br_take_eff)
+    macro_enter = fire & is_macro & (~br_take_eff)
+    boundary_taken = fire & is_boundary & br_take_eff
+    meta_off = rob_boundary_target - pc_this
+
+    active_block_uid = bstart_commit._select_internal(block_uid_this, active_block_uid)
+    active_block_bid = bstart_commit._select_internal(block_bid_this, active_block_bid)
+    active_block_bid = bstop_commit._select_internal(c(0, width=64), active_block_bid)
+
+    br_kind = boundary_taken._select_internal(c(BK_FALL, width=3), br_kind)
+    br_base = boundary_taken._select_internal(pc_this, br_base)
+    br_off = boundary_taken._select_internal(c(0, width=64), br_off)
+    br_pred_take = boundary_taken._select_internal(c(0, width=1), br_pred_take)
+
+    br_kind = enter_new_block._select_internal(rob_boundary_kind, br_kind)
+    br_base = enter_new_block._select_internal(pc_this, br_base)
+    br_off = enter_new_block._select_internal(meta_off, br_off)
+    br_pred_take = enter_new_block._select_internal(rob_pred_take, br_pred_take)
+
+    br_kind = macro_enter._select_internal(c(BK_FALL, width=3), br_kind)
+    br_base = macro_enter._select_internal(pc_this, br_base)
+    br_off = macro_enter._select_internal(c(0, width=64), br_off)
+    br_pred_take = macro_enter._select_internal(c(0, width=1), br_pred_take)
+
+    br_kind = bstop_commit._select_internal(c(BK_FALL, width=3), br_kind)
+    br_base = bstop_commit._select_internal(pc_this, br_base)
+    br_off = bstop_commit._select_internal(c(0, width=64), br_off)
+    br_pred_take = bstop_commit._select_internal(c(0, width=1), br_pred_take)
+
+    block_head = (fire & (is_boundary | redirect_pre))._select_internal(c(1, width=1), block_head)
+    block_head = (fire & is_bstart_head)._select_internal(c(0, width=1), block_head)
 
     # Head BSTART commits begin a fresh block metadata / condition domain even
     # though they are not redirecting boundaries themselves. Advance the BRU
@@ -391,7 +413,6 @@ def build_commit_slot_step(m: Circuit) -> None:
     pc_live = fire._select_internal(pc_next, pc_live)
     commit_allow = commit_allow & fire & (~stop)
 
-    bstart_commit = fire & is_bstart
     bstop_commit = fire & is_bstop
 
     m.output(
@@ -405,8 +426,8 @@ def build_commit_slot_step(m: Circuit) -> None:
                 "pc_next": pc_next,
                 "commit_is_bstart": bstart_commit,
                 "commit_is_bstop": bstop_commit,
-                "commit_block_uid": rob_block_uid,
-                "commit_block_bid": rob_block_bid,
+                "commit_block_uid": block_uid_this,
+                "commit_block_bid": block_bid_this,
             },
         ),
     )

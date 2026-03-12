@@ -1,5 +1,10 @@
 # LinxTrace v1
 
+Canonical contract summary:
+
+- `rtl/LinxCore/docs/architecture/interfaces.md`
+- `rtl/LinxCore/docs/trace/linxtrace_pipeline_refresh_rule.md`
+
 `linxtrace.v1` is the canonical LinxCore pipeview exchange format for LinxCoreSight.
 
 ## Files

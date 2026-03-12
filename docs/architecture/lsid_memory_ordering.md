@@ -1,5 +1,9 @@
 # LSID Memory Ordering (Bring-Up)
 
+Canonical contract summary:
+
+- `rtl/LinxCore/docs/architecture/microarchitecture.md`
+
 ## Goal
 
 Enforce a strict, per-core load/store issue order without memory speculation.

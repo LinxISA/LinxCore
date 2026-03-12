@@ -26,7 +26,7 @@
 
 #include <cpp/pyc_tb.hpp>
 
-#include "LinxcoreTop.hpp"
+#include "linxcore_top.hpp"
 
 namespace {
 
@@ -812,12 +812,13 @@ public:
     if (!dut_) {
       return 0;
     }
-    const std::size_t mem_bytes = dut_->mem2r1w->dmem.mem_.size();
+    const auto *mem = dut_->linxcore_top_root->mem2r1w.get();
+    const std::size_t mem_bytes = mem->dmem.mem_.size();
     const std::size_t base = mapGuestAddr(guest_addr, mem_bytes);
     const std::uint64_t n = (size == 0 || size > 8) ? 8 : size;
     std::uint64_t v = 0;
     for (std::uint64_t i = 0; i < n; i++) {
-      const std::uint64_t b = dut_->mem2r1w->dmem.peekByte(base + static_cast<std::size_t>(i));
+      const std::uint64_t b = mem->dmem.peekByte(base + static_cast<std::size_t>(i));
       v |= (b << (8u * i));
     }
     return v;
@@ -827,12 +828,13 @@ public:
     if (!dut_) {
       return 0;
     }
-    const std::size_t mem_bytes = dut_->mem2r1w->imem.mem_.size();
+    const auto *mem = dut_->linxcore_top_root->mem2r1w.get();
+    const std::size_t mem_bytes = mem->imem.mem_.size();
     const std::size_t base = mapGuestAddr(guest_addr, mem_bytes);
     const std::uint64_t n = (size == 0 || size > 8) ? 8 : size;
     std::uint64_t v = 0;
     for (std::uint64_t i = 0; i < n; i++) {
-      const std::uint64_t b = dut_->mem2r1w->imem.peekByte(base + static_cast<std::size_t>(i));
+      const std::uint64_t b = mem->imem.peekByte(base + static_cast<std::size_t>(i));
       v |= (b << (8u * i));
     }
     return v;
@@ -979,21 +981,22 @@ private:
     if constexpr (HasMember_dmem_wsrc<DutT>::value) {
       ev.src = dut_->dmem_wsrc.value();
     }
-    if (dut_->commit_fire0.toBool()) {
+    auto *commit_trace = dut_->linxcore_top_root->janus_backend->backend_commit_trace.get();
+    if (commit_trace->commit_fire0.toBool()) {
       ev.fire_mask |= 0x1u;
-      ev.pc0 = dut_->commit_pc0.value();
+      ev.pc0 = commit_trace->commit_pc0.value();
     }
-    if (dut_->commit_fire1.toBool()) {
+    if (commit_trace->commit_fire1.toBool()) {
       ev.fire_mask |= 0x2u;
-      ev.pc1 = dut_->commit_pc1.value();
+      ev.pc1 = commit_trace->commit_pc1.value();
     }
-    if (dut_->commit_fire2.toBool()) {
+    if (commit_trace->commit_fire2.toBool()) {
       ev.fire_mask |= 0x4u;
-      ev.pc2 = dut_->commit_pc2.value();
+      ev.pc2 = commit_trace->commit_pc2.value();
     }
-    if (dut_->commit_fire3.toBool()) {
+    if (commit_trace->commit_fire3.toBool()) {
       ev.fire_mask |= 0x8u;
-      ev.pc3 = dut_->commit_pc3.value();
+      ev.pc3 = commit_trace->commit_pc3.value();
     }
     write_events_.push_back(ev);
     if (write_events_.size() > 4096) {
@@ -1005,34 +1008,9 @@ private:
     if (!dut_) {
       return;
     }
-    if constexpr (!HasMember_dispatch_fire0<DutT>::value) {
-      return;
-    }
-    DispatchEvent ev{};
-    ev.cycle = dut_->cycles.value();
-    if (dut_->dispatch_fire0.toBool()) {
-      ev.fire_mask |= 0x1u;
-      ev.pc0 = dut_->dispatch_pc0.value();
-    }
-    if (dut_->dispatch_fire1.toBool()) {
-      ev.fire_mask |= 0x2u;
-      ev.pc1 = dut_->dispatch_pc1.value();
-    }
-    if (dut_->dispatch_fire2.toBool()) {
-      ev.fire_mask |= 0x4u;
-      ev.pc2 = dut_->dispatch_pc2.value();
-    }
-    if (dut_->dispatch_fire3.toBool()) {
-      ev.fire_mask |= 0x8u;
-      ev.pc3 = dut_->dispatch_pc3.value();
-    }
-    if (ev.fire_mask == 0) {
-      return;
-    }
-    dispatch_events_.push_back(ev);
-    if (dispatch_events_.size() > 256) {
-      dispatch_events_.pop_front();
-    }
+    // The live pyc4 top no longer exports the older per-slot dispatch debug
+    // surface this runner used. Keep protocol behavior unchanged and leave the
+    // dispatch summary empty until the runner is rebound to the new probe path.
   }
 
   bool driveFetchStub() {
@@ -1115,13 +1093,14 @@ private:
 
   Wire<512> buildIcacheLine(std::uint64_t line_addr) const {
     Wire<512> out(0);
-    const std::size_t mem_bytes = dut_->mem2r1w->imem.mem_.size();
+    const auto *mem = dut_->linxcore_top_root->mem2r1w.get();
+    const std::size_t mem_bytes = mem->imem.mem_.size();
     for (unsigned wi = 0; wi < 8; wi++) {
       std::uint64_t w = 0;
       for (unsigned bi = 0; bi < 8; bi++) {
         const std::uint64_t guest = line_addr + static_cast<std::uint64_t>(wi * 8 + bi);
         const std::size_t addr = mapGuestAddr(guest, mem_bytes);
-        w |= (static_cast<std::uint64_t>(dut_->mem2r1w->imem.peekByte(addr)) << (8u * bi));
+        w |= (static_cast<std::uint64_t>(mem->imem.peekByte(addr)) << (8u * bi));
       }
       out.setWord(wi, w);
     }
@@ -1181,7 +1160,8 @@ private:
   }
 
   bool loadSnapshotIntoMem(const SnapshotImage &snap) {
-    const std::size_t mem_bytes = dut_->mem2r1w->imem.mem_.size();
+    auto *mem = dut_->linxcore_top_root->mem2r1w.get();
+    const std::size_t mem_bytes = mem->imem.mem_.size();
     if (mem_bytes == 0) {
       last_error_ = "runner: DUT memory depth is zero";
       std::cerr << last_error_ << "\n";
@@ -1218,8 +1198,8 @@ private:
         }
         seen[addr] = 1;
         const auto b = r.bytes[i];
-        dut_->mem2r1w->imem.pokeByte(addr, b);
-        dut_->mem2r1w->dmem.pokeByte(addr, b);
+        mem->imem.pokeByte(addr, b);
+        mem->dmem.pokeByte(addr, b);
       }
     }
     return true;
@@ -1229,79 +1209,80 @@ private:
     bool fire = false;
     CommitRecord c{};
     c.cycle = dut_->cycles.value();
+    auto *commit_trace = dut_->linxcore_top_root->janus_backend->backend_commit_trace.get();
 
     if (slot == 0) {
-      fire = dut_->commit_fire0.toBool();
-      c.pc = dut_->commit_pc0.value();
-      c.op = dut_->commit_op0.value();
-      c.insn = dut_->commit_insn_raw0.value();
-      c.len = dut_->commit_len0.value() & 0x7u;
-      c.wb_valid = dut_->commit_wb_valid0.toBool() ? 1 : 0;
-      c.wb_rd = dut_->commit_wb_rd0.value();
-      c.wb_data = dut_->commit_wb_data0.value();
-      c.mem_valid = dut_->commit_mem_valid0.toBool() ? 1 : 0;
-      c.mem_is_store = dut_->commit_mem_is_store0.toBool() ? 1 : 0;
-      c.mem_addr = dut_->commit_mem_addr0.value();
-      c.mem_wdata = dut_->commit_mem_wdata0.value();
-      c.mem_rdata = dut_->commit_mem_rdata0.value();
-      c.mem_size = dut_->commit_mem_size0.value();
-      c.trap_valid = dut_->commit_trap_valid0.toBool() ? 1 : 0;
-      c.trap_cause = dut_->commit_trap_cause0.value();
-      c.next_pc = dut_->commit_next_pc0.value();
+      fire = commit_trace->commit_fire0.toBool();
+      c.pc = commit_trace->commit_pc0.value();
+      c.op = commit_trace->commit_op0.value();
+      c.insn = commit_trace->commit_insn_raw0.value();
+      c.len = commit_trace->commit_len0.value() & 0x7u;
+      c.wb_valid = commit_trace->commit_wb_valid0.toBool() ? 1 : 0;
+      c.wb_rd = commit_trace->commit_wb_rd0.value();
+      c.wb_data = commit_trace->commit_wb_data0.value();
+      c.mem_valid = commit_trace->commit_mem_valid0.toBool() ? 1 : 0;
+      c.mem_is_store = commit_trace->commit_mem_is_store0.toBool() ? 1 : 0;
+      c.mem_addr = commit_trace->commit_mem_addr0.value();
+      c.mem_wdata = commit_trace->commit_mem_wdata0.value();
+      c.mem_rdata = commit_trace->commit_mem_rdata0.value();
+      c.mem_size = commit_trace->commit_mem_size0.value();
+      c.trap_valid = commit_trace->commit_trap_valid0.toBool() ? 1 : 0;
+      c.trap_cause = commit_trace->commit_trap_cause0.value();
+      c.next_pc = commit_trace->commit_next_pc0.value();
     } else if (slot == 1) {
-      fire = dut_->commit_fire1.toBool();
-      c.pc = dut_->commit_pc1.value();
-      c.op = dut_->commit_op1.value();
-      c.insn = dut_->commit_insn_raw1.value();
-      c.len = dut_->commit_len1.value() & 0x7u;
-      c.wb_valid = dut_->commit_wb_valid1.toBool() ? 1 : 0;
-      c.wb_rd = dut_->commit_wb_rd1.value();
-      c.wb_data = dut_->commit_wb_data1.value();
-      c.mem_valid = dut_->commit_mem_valid1.toBool() ? 1 : 0;
-      c.mem_is_store = dut_->commit_mem_is_store1.toBool() ? 1 : 0;
-      c.mem_addr = dut_->commit_mem_addr1.value();
-      c.mem_wdata = dut_->commit_mem_wdata1.value();
-      c.mem_rdata = dut_->commit_mem_rdata1.value();
-      c.mem_size = dut_->commit_mem_size1.value();
-      c.trap_valid = dut_->commit_trap_valid1.toBool() ? 1 : 0;
-      c.trap_cause = dut_->commit_trap_cause1.value();
-      c.next_pc = dut_->commit_next_pc1.value();
+      fire = commit_trace->commit_fire1.toBool();
+      c.pc = commit_trace->commit_pc1.value();
+      c.op = commit_trace->commit_op1.value();
+      c.insn = commit_trace->commit_insn_raw1.value();
+      c.len = commit_trace->commit_len1.value() & 0x7u;
+      c.wb_valid = commit_trace->commit_wb_valid1.toBool() ? 1 : 0;
+      c.wb_rd = commit_trace->commit_wb_rd1.value();
+      c.wb_data = commit_trace->commit_wb_data1.value();
+      c.mem_valid = commit_trace->commit_mem_valid1.toBool() ? 1 : 0;
+      c.mem_is_store = commit_trace->commit_mem_is_store1.toBool() ? 1 : 0;
+      c.mem_addr = commit_trace->commit_mem_addr1.value();
+      c.mem_wdata = commit_trace->commit_mem_wdata1.value();
+      c.mem_rdata = commit_trace->commit_mem_rdata1.value();
+      c.mem_size = commit_trace->commit_mem_size1.value();
+      c.trap_valid = commit_trace->commit_trap_valid1.toBool() ? 1 : 0;
+      c.trap_cause = commit_trace->commit_trap_cause1.value();
+      c.next_pc = commit_trace->commit_next_pc1.value();
     } else if (slot == 2) {
-      fire = dut_->commit_fire2.toBool();
-      c.pc = dut_->commit_pc2.value();
-      c.op = dut_->commit_op2.value();
-      c.insn = dut_->commit_insn_raw2.value();
-      c.len = dut_->commit_len2.value() & 0x7u;
-      c.wb_valid = dut_->commit_wb_valid2.toBool() ? 1 : 0;
-      c.wb_rd = dut_->commit_wb_rd2.value();
-      c.wb_data = dut_->commit_wb_data2.value();
-      c.mem_valid = dut_->commit_mem_valid2.toBool() ? 1 : 0;
-      c.mem_is_store = dut_->commit_mem_is_store2.toBool() ? 1 : 0;
-      c.mem_addr = dut_->commit_mem_addr2.value();
-      c.mem_wdata = dut_->commit_mem_wdata2.value();
-      c.mem_rdata = dut_->commit_mem_rdata2.value();
-      c.mem_size = dut_->commit_mem_size2.value();
-      c.trap_valid = dut_->commit_trap_valid2.toBool() ? 1 : 0;
-      c.trap_cause = dut_->commit_trap_cause2.value();
-      c.next_pc = dut_->commit_next_pc2.value();
+      fire = commit_trace->commit_fire2.toBool();
+      c.pc = commit_trace->commit_pc2.value();
+      c.op = commit_trace->commit_op2.value();
+      c.insn = commit_trace->commit_insn_raw2.value();
+      c.len = commit_trace->commit_len2.value() & 0x7u;
+      c.wb_valid = commit_trace->commit_wb_valid2.toBool() ? 1 : 0;
+      c.wb_rd = commit_trace->commit_wb_rd2.value();
+      c.wb_data = commit_trace->commit_wb_data2.value();
+      c.mem_valid = commit_trace->commit_mem_valid2.toBool() ? 1 : 0;
+      c.mem_is_store = commit_trace->commit_mem_is_store2.toBool() ? 1 : 0;
+      c.mem_addr = commit_trace->commit_mem_addr2.value();
+      c.mem_wdata = commit_trace->commit_mem_wdata2.value();
+      c.mem_rdata = commit_trace->commit_mem_rdata2.value();
+      c.mem_size = commit_trace->commit_mem_size2.value();
+      c.trap_valid = commit_trace->commit_trap_valid2.toBool() ? 1 : 0;
+      c.trap_cause = commit_trace->commit_trap_cause2.value();
+      c.next_pc = commit_trace->commit_next_pc2.value();
     } else {
-      fire = dut_->commit_fire3.toBool();
-      c.pc = dut_->commit_pc3.value();
-      c.op = dut_->commit_op3.value();
-      c.insn = dut_->commit_insn_raw3.value();
-      c.len = dut_->commit_len3.value() & 0x7u;
-      c.wb_valid = dut_->commit_wb_valid3.toBool() ? 1 : 0;
-      c.wb_rd = dut_->commit_wb_rd3.value();
-      c.wb_data = dut_->commit_wb_data3.value();
-      c.mem_valid = dut_->commit_mem_valid3.toBool() ? 1 : 0;
-      c.mem_is_store = dut_->commit_mem_is_store3.toBool() ? 1 : 0;
-      c.mem_addr = dut_->commit_mem_addr3.value();
-      c.mem_wdata = dut_->commit_mem_wdata3.value();
-      c.mem_rdata = dut_->commit_mem_rdata3.value();
-      c.mem_size = dut_->commit_mem_size3.value();
-      c.trap_valid = dut_->commit_trap_valid3.toBool() ? 1 : 0;
-      c.trap_cause = dut_->commit_trap_cause3.value();
-      c.next_pc = dut_->commit_next_pc3.value();
+      fire = commit_trace->commit_fire3.toBool();
+      c.pc = commit_trace->commit_pc3.value();
+      c.op = commit_trace->commit_op3.value();
+      c.insn = commit_trace->commit_insn_raw3.value();
+      c.len = commit_trace->commit_len3.value() & 0x7u;
+      c.wb_valid = commit_trace->commit_wb_valid3.toBool() ? 1 : 0;
+      c.wb_rd = commit_trace->commit_wb_rd3.value();
+      c.wb_data = commit_trace->commit_wb_data3.value();
+      c.mem_valid = commit_trace->commit_mem_valid3.toBool() ? 1 : 0;
+      c.mem_is_store = commit_trace->commit_mem_is_store3.toBool() ? 1 : 0;
+      c.mem_addr = commit_trace->commit_mem_addr3.value();
+      c.mem_wdata = commit_trace->commit_mem_wdata3.value();
+      c.mem_rdata = commit_trace->commit_mem_rdata3.value();
+      c.mem_size = commit_trace->commit_mem_size3.value();
+      c.trap_valid = commit_trace->commit_trap_valid3.toBool() ? 1 : 0;
+      c.trap_cause = commit_trace->commit_trap_cause3.value();
+      c.next_pc = commit_trace->commit_next_pc3.value();
     }
 
     if (!fire) {
@@ -1562,7 +1543,7 @@ int main(int argc, char **argv) {
     CommitRecord dut{};
   };
   std::deque<RecentPair> recent_pairs{};
-  std::unique_ptr<IDutStepper> dut = std::make_unique<DutStepperImpl<pyc::gen::LinxcoreTop>>(opts);
+  std::unique_ptr<IDutStepper> dut = std::make_unique<DutStepperImpl<pyc::gen::linxcore_top>>(opts);
   std::string line;
 
   while (recvLine(client_fd, line)) {

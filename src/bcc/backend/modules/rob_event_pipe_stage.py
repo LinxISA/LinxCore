@@ -28,6 +28,7 @@ def build_rob_event_pipe_stage(
     rst = m.reset("rst")
 
     do_flush = m.input("do_flush", width=1)
+    flush_bid = m.input("flush_bid", width=64)
 
     # Full-width clear masks: 0 when not flushing, all-ones when flushing.
     #
@@ -45,6 +46,7 @@ def build_rob_event_pipe_stage(
 
     wb_fire_regs = []
     wb_rob_regs = []
+    wb_block_bid_regs = []
     wb_value_regs = []
     store_fire_regs = []
     load_fire_regs = []
@@ -57,6 +59,7 @@ def build_rob_event_pipe_stage(
     for slot in range(issue_w):
         wb_fire_i = m.input(f"wb_fire_i{slot}", width=1)
         wb_rob_i = m.input(f"wb_rob_i{slot}", width=rob_w)
+        wb_block_bid_i = m.input(f"wb_block_bid_i{slot}", width=64)
         wb_value_i = m.input(f"wb_value_i{slot}", width=64)
         store_fire_i = m.input(f"store_fire_i{slot}", width=1)
         load_fire_i = m.input(f"load_fire_i{slot}", width=1)
@@ -68,6 +71,7 @@ def build_rob_event_pipe_stage(
 
         wb_fire_o = m.out(f"wb_fire{slot}", clk=clk, rst=rst, width=1, init=0, en=1)
         wb_rob_o = m.out(f"wb_rob{slot}", clk=clk, rst=rst, width=rob_w, init=0, en=1)
+        wb_block_bid_o = m.out(f"wb_block_bid{slot}", clk=clk, rst=rst, width=64, init=0, en=1)
         wb_value_o = m.out(f"wb_value{slot}", clk=clk, rst=rst, width=64, init=0, en=1)
         store_fire_o = m.out(f"store_fire{slot}", clk=clk, rst=rst, width=1, init=0, en=1)
         load_fire_o = m.out(f"load_fire{slot}", clk=clk, rst=rst, width=1, init=0, en=1)
@@ -77,21 +81,28 @@ def build_rob_event_pipe_stage(
         ex_src0_o = m.out(f"ex_src0{slot}", clk=clk, rst=rst, width=64, init=0, en=1)
         ex_src1_o = m.out(f"ex_src1{slot}", clk=clk, rst=rst, width=64, init=0, en=1)
 
-        # Clear all fires and payload on flush to avoid feeding stale events
-        # into the ROB after a redirect.
-        wb_fire_o.set(wb_fire_i & ~clr1)
-        wb_rob_o.set(wb_rob_i & ~clr_rob)
-        wb_value_o.set(wb_value_i & ~clr64)
-        store_fire_o.set(store_fire_i & ~clr1)
-        load_fire_o.set(load_fire_i & ~clr1)
-        ex_addr_o.set(ex_addr_i & ~clr64)
-        ex_wdata_o.set(ex_wdata_i & ~clr64)
-        ex_size_o.set(ex_size_i & ~clr4)
-        ex_src0_o.set(ex_src0_i & ~clr64)
-        ex_src1_o.set(ex_src1_i & ~clr64)
+        # Keep event payload only when the event survives the BID-based flush.
+        bid_keep = ~flush_bid.ult(wb_block_bid_i)
+        wb_fire_next = do_flush._select_internal(wb_fire_i & bid_keep, wb_fire_i)
+        store_fire_next = do_flush._select_internal(store_fire_i & bid_keep, store_fire_i)
+        load_fire_next = do_flush._select_internal(load_fire_i & bid_keep, load_fire_i)
+        event_keep = wb_fire_next | store_fire_next | load_fire_next
+
+        wb_fire_o.set(wb_fire_next)
+        wb_rob_o.set(event_keep._select_internal(wb_rob_i, u(rob_w, 0)))
+        wb_block_bid_o.set(event_keep._select_internal(wb_block_bid_i, u(64, 0)))
+        wb_value_o.set(event_keep._select_internal(wb_value_i, u(64, 0)))
+        store_fire_o.set(store_fire_next)
+        load_fire_o.set(load_fire_next)
+        ex_addr_o.set(event_keep._select_internal(ex_addr_i, u(64, 0)))
+        ex_wdata_o.set(event_keep._select_internal(ex_wdata_i, u(64, 0)))
+        ex_size_o.set(event_keep._select_internal(ex_size_i, u(4, 0)))
+        ex_src0_o.set(event_keep._select_internal(ex_src0_i, u(64, 0)))
+        ex_src1_o.set(event_keep._select_internal(ex_src1_i, u(64, 0)))
 
         wb_fire_regs.append(wb_fire_o)
         wb_rob_regs.append(wb_rob_o)
+        wb_block_bid_regs.append(wb_block_bid_o)
         wb_value_regs.append(wb_value_o)
         store_fire_regs.append(store_fire_o)
         load_fire_regs.append(load_fire_o)
@@ -104,6 +115,7 @@ def build_rob_event_pipe_stage(
     for slot in range(issue_w):
         m.output(f"wb_fire{slot}", wb_fire_regs[slot])
         m.output(f"wb_rob{slot}", wb_rob_regs[slot])
+        m.output(f"wb_block_bid{slot}", wb_block_bid_regs[slot])
         m.output(f"wb_value{slot}", wb_value_regs[slot])
         m.output(f"store_fire{slot}", store_fire_regs[slot])
         m.output(f"load_fire{slot}", load_fire_regs[slot])

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pycircuit import ProbeBuilder, ProbeView, probe
 
-_TOP = "linxcore_top_root.linxcore_top_export"
+_TOP = "linxcore_top_root"
 _BACKEND = f"{_TOP}.janus_backend"
-_COMMIT = f"{_BACKEND}.backend_trace_export.backend_commit_trace"
+_COMMIT = f"{_BACKEND}.backend_commit_trace"
 
 
 def define_commit_probe(target):

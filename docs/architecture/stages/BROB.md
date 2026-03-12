@@ -1,5 +1,10 @@
 # BROB (Block Reorder Buffer) — stage spec
 
+Canonical contract summary:
+
+- `rtl/LinxCore/docs/architecture/microarchitecture.md`
+- `rtl/LinxCore/docs/architecture/interfaces.md`
+
 BROB is the lifetime tracker for block-structured execution.
 
 BROB entries are indexed by **BID**.

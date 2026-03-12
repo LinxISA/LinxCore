@@ -1,5 +1,10 @@
 # Block Fabric Contract
 
+Canonical contract summary:
+
+- `rtl/LinxCore/docs/architecture/microarchitecture.md`
+- `rtl/LinxCore/docs/architecture/interfaces.md`
+
 This document defines the authoritative BCC block-command fabric interfaces used by:
 
 - `src/bcc/bctrl/{bisq,brenu,bctrl,brob}.py`

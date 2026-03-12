@@ -1,16 +1,20 @@
 # LinxTrace Pipeline Refresh Rule (Strict)
 
+Canonical contract summary:
+
+- `rtl/LinxCore/docs/architecture/interfaces.md`
+
 This repository enforces a hard synchronization contract between LinxCore and LinxCoreSight.
 
 ## Rule
 
 Any pipeline-stage change (add/remove/rename/reorder) must update all of:
 
-- `/Users/zhoubot/LinxCore/src/common/stage_tokens.py`
-- `/Users/zhoubot/LinxCore/tb/tb_linxcore_top.cpp`
-- `/Users/zhoubot/LinxCore/tools/trace/build_linxtrace_view.py`
-- `/Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py`
-- `/Users/zhoubot/LinxCore/tools/linxcoresight/lint_trace_contract_sync.py`
+- `rtl/LinxCore/src/common/stage_tokens.py`
+- `rtl/LinxCore/tb/tb_linxcore_top.cpp`
+- `rtl/LinxCore/tools/trace/build_linxtrace_view.py`
+- `rtl/LinxCore/tools/linxcoresight/lint_linxtrace.py`
+- `rtl/LinxCore/tools/linxcoresight/lint_trace_contract_sync.py`
 - `/Users/zhoubot/LinxCoreSight/src/lib/linxtrace.ts`
 - `/Users/zhoubot/LinxCoreSight/src/components/LinxTraceViewer.tsx`
 
@@ -34,8 +38,8 @@ Metadata must include:
 Run:
 
 ```bash
-python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_trace_contract_sync.py
-python3 /Users/zhoubot/LinxCore/tools/linxcoresight/lint_linxtrace.py <trace.linxtrace>
+python3 rtl/LinxCore/tools/linxcoresight/lint_trace_contract_sync.py
+python3 rtl/LinxCore/tools/linxcoresight/lint_linxtrace.py <trace.linxtrace>
 ```
 
 Both must pass before merge.

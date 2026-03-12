@@ -15,6 +15,7 @@ ALLOWLIST = {
     SRC / "bcc" / "__init__.py",
     SRC / "bcc" / "backend" / "__init__.py",
     SRC / "bcc" / "backend" / "backend.py",  # thin shell by design
+    SRC / "bcc" / "backend" / "modules" / "index_mux.py",  # small reusable mux helper
     SRC / "bcc" / "block_struct" / "test_block_struct_rtl_smoke.py",
 }
 

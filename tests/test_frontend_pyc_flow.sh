@@ -91,7 +91,7 @@ run_case() {
       --out-dir "${out_dir}" \
       --target both \
       --jobs "${PYC_SIM_JOBS:-4}" \
-      --logic-depth "${PYC_SIM_LOGIC_DEPTH:-128}" \
+      --logic-depth "${PYC_SIM_LOGIC_DEPTH:-1024}" \
       --run-verilator
 
   local cpp_bin

@@ -33,6 +33,20 @@ from bcc.ooo.renu import build_janus_bcc_ooo_renu
 from bcc.ooo.rob import build_janus_bcc_ooo_rob
 from bcc.ooo.s1 import build_janus_bcc_ooo_s1
 from bcc.ooo.s2 import build_janus_bcc_ooo_s2
+from common.isa import (
+    OP_BSTART_STD_CALL,
+    OP_BSTART_STD_COND,
+    OP_BSTART_STD_DIRECT,
+    OP_BSTART_STD_FALL,
+    OP_C_BSTART_COND,
+    OP_C_BSTART_DIRECT,
+    OP_C_BSTART_STD,
+    OP_C_BSTOP,
+    OP_FENTRY,
+    OP_FEXIT,
+    OP_FRET_RA,
+    OP_FRET_STK,
+)
 from cube.cube import build_janus_cube
 from tau.tau import build_janus_tau
 from tma.tma import build_janus_tma
@@ -322,10 +336,45 @@ def build_linxcore_top(
     m.assign(uid_alloc_template_count_top, backend_top["ctu_uop_valid"])
     m.assign(uid_alloc_replay_count_top, (~backend_top["replay_cause"].__eq__(c(0, width=8))))
 
-    m.assign(backend_ready_top, backend_top["frontend_ready"])
+    rob_head_op_top = backend_top["rob_head_op"]
+    rob_head_is_macro_top = (
+        rob_head_op_top.__eq__(c(OP_FENTRY, width=12))
+        | rob_head_op_top.__eq__(c(OP_FEXIT, width=12))
+        | rob_head_op_top.__eq__(c(OP_FRET_RA, width=12))
+        | rob_head_op_top.__eq__(c(OP_FRET_STK, width=12))
+    )
+    rob_head_is_boundary_top = rob_head_is_macro_top
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_C_BSTOP, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_C_BSTART_STD, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_C_BSTART_COND, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_C_BSTART_DIRECT, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_BSTART_STD_FALL, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_BSTART_STD_DIRECT, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_BSTART_STD_COND, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_BSTART_STD_CALL, width=12))
+    boundary_head_block_top = backend_top["rob_head_valid"] & backend_top["rob_head_done"] & rob_head_is_boundary_top
+
+    if ifu_bypass:
+        m.assign(backend_ready_top, backend_top["frontend_ready"])
+    else:
+        m.assign(
+            backend_ready_top,
+            backend_top["frontend_ready"]
+            & (~backend_top["redirect_valid"])
+            & (~backend_top["ctu_start_fire"])
+            & (~backend_top["ctu_block_ifu"])
+            & (~boundary_head_block_top),
+        )
     m.output("tb_ifu_stub_ready", backend_ready_top)
-    m.assign(flush_valid_fls, backend_top["redirect_valid"])
-    m.assign(flush_pc_fls, backend_top["redirect_pc"])
+    m.assign(flush_valid_fls, backend_top["redirect_valid"] | backend_top["ctu_start_fire"])
+    macro_resume_pc_top = backend_top["rob_head_pc"] + backend_top["rob_head_len"]._zext(width=64)
+    m.assign(
+        flush_pc_fls,
+        backend_top["redirect_valid"]._select_internal(
+            backend_top["redirect_pc"],
+            backend_top["ctu_start_fire"]._select_internal(macro_resume_pc_top, backend_top["pc"]),
+        ),
+    )
     flush_valid_q_top.set(flush_valid_fls)
     flush_pc_q_top.set(flush_pc_fls)
     if ifu_bypass:
@@ -710,7 +759,10 @@ def build_linxcore_top(
     )
 
     m.assign(deq_ready_bisq_wire, bctrl_top["deq_ready_bisq"])
-    m.assign(issue_fire_brenu_wire, bctrl_top["issue_fire_brenu"])
+    # BROB/BID allocation must advance at backend dispatch time so newly
+    # dispatched BSTARTs receive a distinct block identity before any later
+    # command issue reaches BISQ/BCTRL.
+    m.assign(issue_fire_brenu_wire, backend_top["brob_alloc_fire"])
     m.output("brenu_bid_top", brenu_top["brenu_bid_brenu"])
     m.output("brenu_slot_id_top", brenu_top["brenu_slot_id_brenu"])
 
@@ -1626,21 +1678,22 @@ def build_linxcore_top(
         stall_top=None,
         stall_cause_top=None,
     ):
-        m.debug_occ(
+        # Pipeview probe emission migrated to standalone `@probe(...)`
+        # definitions under `src/probes/`. Keep this helper as a no-op so the
+        # legacy top file remains parseable under pyc4 API hygiene.
+        _ = (
             stage_top,
             lane_top,
-            {
-                "valid": valid_top,
-                "uop_uid": uid_top,
-                "pc": pc_top,
-                "rob": rob_top,
-                "kind": kind_top,
-                "parent_uid": parent_uid_top,
-                "block_uid": c(0, width=64) if block_uid_top is None else block_uid_top,
-                "core_id": c(0, width=2) if core_id_top is None else core_id_top,
-                "stall": c(0, width=1) if stall_top is None else stall_top,
-                "stall_cause": c(0, width=8) if stall_cause_top is None else stall_cause_top,
-            },
+            valid_top,
+            uid_top,
+            pc_top,
+            rob_top,
+            kind_top,
+            parent_uid_top,
+            block_uid_top,
+            core_id_top,
+            stall_top,
+            stall_cause_top,
         )
 
     # Frontend stage-residency UID namespace.
@@ -2021,6 +2074,7 @@ def build_linxcore_top(
         "rob_head_insn_raw",
         "rob_head_len",
         "rob_head_op",
+        "ctu_start_fire",
         "ctu_block_ifu",
         "ctu_uop_valid",
         "ctu_uop_kind",

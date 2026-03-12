@@ -64,6 +64,8 @@ fi
 
 if [[ -z "${PYC_COMPILE:-}" ]]; then
   for cand in \
+    "${PYC_ROOT}/.pycircuit_out/toolchain/install/bin/pycc" \
+    "${PYC_ROOT}/.pycircuit_out/toolchain/build/bin/pycc" \
     "${PYC_ROOT}/build-top/bin/pycc" \
     "${PYC_ROOT}/build/bin/pycc" \
     "${PYC_ROOT}/compiler/mlir/build2/bin/pycc" \
@@ -85,6 +87,8 @@ fi
 
 if [[ -z "${PYC_COMPILE:-}" ]]; then
   for cand in \
+    "${PYC_ROOT}/.pycircuit_out/toolchain/install/bin/pyc-compile" \
+    "${PYC_ROOT}/.pycircuit_out/toolchain/build/bin/pyc-compile" \
     "${PYC_ROOT}/build-top/bin/pyc-compile" \
     "${PYC_ROOT}/build/bin/pyc-compile" \
     "${PYC_ROOT}/compiler/mlir/build2/bin/pyc-compile" \

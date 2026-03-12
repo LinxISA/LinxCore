@@ -5,17 +5,16 @@ from pycircuit import Circuit, module
 from common.config import top_config
 from common.uid_allocator import build_uid_allocator
 from bcc.backend.backend import build_backend
+from bcc.bctrl.brenu import build_janus_bcc_bctrl_brenu
 from mem.mem2r1w import build_mem2r1w
 from bcc.bctrl.bctrl import build_janus_bcc_bctrl
 from bcc.bctrl.bisq import build_janus_bcc_bctrl_bisq
 from bcc.bctrl.brob import build_janus_bcc_bctrl_brob
 from bcc.iex.iex import build_janus_bcc_iex
-from bcc.lsu.dcache_stub import build_janus_bcc_lsu_dcache_stub
 from bcc.lsu.l1d import build_janus_bcc_lsu_l1d
 from bcc.lsu.lhq import build_janus_bcc_lsu_lhq
 from bcc.lsu.liq import build_janus_bcc_lsu_liq
 from bcc.lsu.mdb import build_janus_bcc_lsu_mdb
-from bcc.lsu.scb import build_janus_bcc_lsu_scb
 from bcc.lsu.stq import build_janus_bcc_lsu_stq
 from bcc.ooo.dec1 import build_janus_bcc_ooo_dec1
 from bcc.ooo.dec2 import build_janus_bcc_ooo_dec2
@@ -26,6 +25,20 @@ from bcc.ooo.renu import build_janus_bcc_ooo_renu
 from bcc.ooo.rob import build_janus_bcc_ooo_rob
 from bcc.ooo.s1 import build_janus_bcc_ooo_s1
 from bcc.ooo.s2 import build_janus_bcc_ooo_s2
+from common.isa import (
+    OP_BSTART_STD_CALL,
+    OP_BSTART_STD_COND,
+    OP_BSTART_STD_DIRECT,
+    OP_BSTART_STD_FALL,
+    OP_C_BSTART_COND,
+    OP_C_BSTART_DIRECT,
+    OP_C_BSTART_STD,
+    OP_C_BSTOP,
+    OP_FENTRY,
+    OP_FEXIT,
+    OP_FRET_RA,
+    OP_FRET_STK,
+)
 from cube.cube import build_janus_cube
 from tau.tau import build_janus_tau
 from tma.tma import build_janus_tma
@@ -33,6 +46,7 @@ from tmu.noc.node import build_janus_tmu_noc_node
 from tmu.sram.tilereg import build_janus_tmu_tilereg
 from vec.vec import build_linxcore_vec
 from .ib import build_ib
+from .export_store_drain import build_export_store_drain
 @module(name="LinxCoreTopExport", value_params={"callframe_size_i": "i64"})
 def build_top_export(
     m: Circuit,
@@ -135,10 +149,15 @@ def build_top_export(
     m.output("icache_f1_valid_dbg", c(0, width=1))
 
     backend_ready_top = m.new_wire(width=1)
-    # Handshake seen by the host/QEMU stub. Keep this as a direct IB signal to
-    # avoid intermediate aliasing during aggressive lowering/folding.
+    # Handshake seen by the host/QEMU stub. Keep the shell redirect-aware so a
+    # packet is never acknowledged in the same cycle it would be flushed from
+    # the IB by a backend redirect.
     tb_ifu_stub_ready_top = m.new_wire(width=1)
+    ib_push_valid_top = m.new_wire(width=1)
+    ib_push_ready_top = m.new_wire(width=1)
+    ib_push_accept_top = m.new_wire(width=1)
     ib_flush_top = m.new_wire(width=1)
+    ib_macro_head_block_top = m.new_wire(width=1)
     bisq_enq_ready_wire = m.new_wire(width=1)
     brob_active_allocated_wire = m.new_wire(width=1)
     brob_active_ready_wire = m.new_wire(width=1)
@@ -154,10 +173,9 @@ def build_top_export(
         params={"depth": 32},
         clk=clk_top,
         rst=rst_top,
-        # Handshake contract: valid must be driven independently from ready.
-        # The IB provides decoupling from backend stalls, so host/QEMU should
-        # be allowed to enqueue whenever IB has space.
-        push_valid=tb_ifu_stub_enable_top & tb_ifu_stub_valid_top,
+        # Redirect kills must dominate host-fed enqueue/ack for the cycle so
+        # the refetch target is not spuriously consumed then flushed.
+        push_valid=ib_push_valid_top,
         push_pc=tb_ifu_stub_pc_top,
         push_window=tb_ifu_stub_window_top,
         push_checkpoint=tb_ifu_stub_checkpoint_top,
@@ -204,14 +222,49 @@ def build_top_export(
     m.assign(uid_alloc_replay_count_top, (~backend_top["replay_cause"].__eq__(c(0, width=8))))
 
     m.assign(backend_ready_top, backend_top["frontend_ready"])
-    m.assign(ib_flush_top, backend_top["redirect_valid"])
-    ib_push_ready_top = ib_top["push_ready"]
-    # Acknowledge host/QEMU packets exactly when the IB can accept a push.
+    m.assign(ib_flush_top, backend_top["redirect_valid"] | backend_top["ctu_start_fire"])
+    rob_head_op_top = backend_top["rob_head_op"]
+    rob_head_is_macro_top = (
+        rob_head_op_top.__eq__(c(OP_FENTRY, width=12))
+        | rob_head_op_top.__eq__(c(OP_FEXIT, width=12))
+        | rob_head_op_top.__eq__(c(OP_FRET_RA, width=12))
+        | rob_head_op_top.__eq__(c(OP_FRET_STK, width=12))
+    )
+    rob_head_is_boundary_top = rob_head_is_macro_top
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_C_BSTOP, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_C_BSTART_STD, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_C_BSTART_COND, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_C_BSTART_DIRECT, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_BSTART_STD_FALL, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_BSTART_STD_DIRECT, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_BSTART_STD_COND, width=12))
+    rob_head_is_boundary_top = rob_head_is_boundary_top | rob_head_op_top.__eq__(c(OP_BSTART_STD_CALL, width=12))
+    m.assign(
+        ib_macro_head_block_top,
+        backend_top["rob_head_valid"] & backend_top["rob_head_done"] & rob_head_is_boundary_top,
+    )
+    m.assign(
+        ib_push_accept_top,
+        backend_top["frontend_ready"]
+        & (~ib_flush_top)
+        & (~backend_top["ctu_block_ifu"])
+        & (~ib_macro_head_block_top),
+    )
+    m.assign(ib_push_valid_top, tb_ifu_stub_enable_top & tb_ifu_stub_valid_top & ib_push_accept_top)
+    m.assign(ib_push_ready_top, ib_top["push_ready"] & ib_push_accept_top)
+    # Acknowledge host/QEMU packets exactly when the IB can accept a push and
+    # the packet will survive the cycle.
     m.assign(tb_ifu_stub_ready_top, ib_push_ready_top)
     m.output("tb_ifu_stub_ready", tb_ifu_stub_ready_top)
-    m.output("ib_count_dbg_top", ib_top["count_dbg"])
-    m.assign(flush_valid_fls, backend_top["redirect_valid"])
-    m.assign(flush_pc_fls, backend_top["redirect_pc"])
+    m.assign(flush_valid_fls, backend_top["redirect_valid"] | backend_top["ctu_start_fire"])
+    macro_resume_pc_top = backend_top["rob_head_pc"] + backend_top["rob_head_len"]._zext(width=64)
+    m.assign(
+        flush_pc_fls,
+        backend_top["redirect_valid"]._select_internal(
+            backend_top["redirect_pc"],
+            backend_top["ctu_start_fire"]._select_internal(macro_resume_pc_top, backend_top["pc"]),
+        ),
+    )
     m.assign(uid_alloc_fetch_count_top, ib_top["pop_fire"] | flush_valid_fls)
 
     mem_top = m.instance_auto(
@@ -447,61 +500,17 @@ def build_top_export(
         dmem_rdata_top=dmem_rdata_top,
     )
 
-    # SCB is currently a stage-map/DFX model (functional stores go through
-    # backend_top["dmem_w*"]). Wire it up with the v4.0 SCB interface so the
-    # module compiles and provides stable observation points.
-    dcache_req_ready_top = m.new_wire(width=1)
-    dcache_resp_valid_top = m.new_wire(width=1)
-    dcache_resp_entry_id_top = m.new_wire(width=4)
-    dcache_resp_ok_top = m.new_wire(width=1)
-    dcache_resp_err_code_top = m.new_wire(width=4)
-
-    scb_enq_valid_top = stq_top["stq_head_store_valid_stq"]
-    scb_enq_line_top = stq_top["stq_head_store_addr_stq"] & (~c(63, width=64))
-    # Stage-map packing: assume 8B store at byte offset 0 (no dynamic shifts in v4).
-    scb_enq_mask_top = c(0xFF, width=64)
-    scb_enq_data_top = stq_top["stq_head_store_data_stq"]._zext(width=512)
-    scb_sid_ctr_top = m.out("scb_sid_ctr_top", clk=clk_top, rst=rst_top, width=6, init=c(1, width=6), en=c(1, width=1))
-    scb_top = m.instance_auto(
-        build_janus_bcc_lsu_scb,
-        name="janus_scb",
-        module_name="JanusBccLsuScbTop",
+    m.instance_auto(
+        build_export_store_drain,
+        name="export_store_drain",
+        module_name="LinxCoreTopExportStoreDrainTop",
+        keep=True,
         clk=clk_top,
         rst=rst_top,
-        enq_valid=scb_enq_valid_top,
-        enq_line=scb_enq_line_top,
-        enq_mask=scb_enq_mask_top,
-        enq_data=scb_enq_data_top,
-        enq_sid=scb_sid_ctr_top.out(),
-        dcache_req_ready=dcache_req_ready_top,
-        dcache_resp_valid=dcache_resp_valid_top,
-        dcache_resp_entry_id=dcache_resp_entry_id_top,
-        dcache_resp_ok=dcache_resp_ok_top,
-        dcache_resp_err_code=dcache_resp_err_code_top,
+        store_valid_i=stq_top["stq_head_store_valid_stq"],
+        store_addr_i=stq_top["stq_head_store_addr_stq"],
+        store_data_i=stq_top["stq_head_store_data_stq"],
     )
-    scb_enq_fire_top = scb_enq_valid_top & scb_top["enq_ready"]
-    scb_sid_ctr_top.set((scb_sid_ctr_top.out() + c(1, width=6))._trunc(width=6), when=scb_enq_fire_top)
-
-    dcache_stub_top = m.instance_auto(
-        build_janus_bcc_lsu_dcache_stub,
-        name="janus_dcache_stub",
-        module_name="JanusBccLsuDCacheStubTop",
-        clk=clk_top,
-        rst=rst_top,
-        dcache_req_valid=scb_top["dcache_req_valid"],
-        dcache_req_entry_id=scb_top["dcache_req_entry_id"],
-        dcache_req_line=scb_top["dcache_req_line"],
-        dcache_req_mask=scb_top["dcache_req_mask"],
-        dcache_req_data=scb_top["dcache_req_data"],
-        dcache_resp_ready=scb_top["dcache_resp_ready"],
-    )
-    m.assign(dcache_req_ready_top, dcache_stub_top["dcache_req_ready"])
-    m.assign(dcache_resp_valid_top, dcache_stub_top["dcache_resp_valid"])
-    m.assign(dcache_resp_entry_id_top, dcache_stub_top["dcache_resp_entry_id"])
-    m.assign(dcache_resp_ok_top, dcache_stub_top["dcache_resp_ok"])
-    m.assign(dcache_resp_err_code_top, dcache_stub_top["dcache_resp_err_code"])
-
-    scb_issue_fire_top = scb_top["dcache_req_valid"] & dcache_stub_top["dcache_req_ready"]
 
     deq_ready_bisq_wire = m.new_wire(width=1)
     rsp_tma_valid_wire = m.new_wire(width=1)
@@ -528,6 +537,16 @@ def build_top_export(
     cmd_ready_cube_wire = m.new_wire(width=1)
     cmd_ready_vec_wire = m.new_wire(width=1)
     cmd_ready_tau_wire = m.new_wire(width=1)
+    issue_fire_brenu_wire = m.new_wire(width=1)
+
+    brenu_top = m.instance_auto(
+        build_janus_bcc_bctrl_brenu,
+        name="janus_brenu",
+        module_name="JanusBccBctrlBrenu",
+        clk=clk_top,
+        rst=rst_top,
+        issue_fire_brenu=issue_fire_brenu_wire,
+    )
 
     bisq_top = m.instance_auto(
         build_janus_bcc_bctrl_bisq,
@@ -543,7 +562,6 @@ def build_top_export(
         enq_tile_bisq=backend_top["cmd_to_bisq_stage_cmd_tile"],
         enq_rob_bisq=backend_top["cmd_to_bisq_stage_cmd_src_rob"],
         deq_ready_bisq=deq_ready_bisq_wire,
-        flush_valid_bisq=backend_top["redirect_valid"],
         flush_fire_bisq=backend_top["redirect_valid"],
         flush_bid_bisq=backend_top["redirect_bid"],
     )
@@ -582,6 +600,10 @@ def build_top_export(
         bisq_head_payload_bisq=bisq_top["bisq_head_payload_bisq"],
         bisq_head_tile_bisq=bisq_top["bisq_head_tile_bisq"],
         bisq_head_rob_bisq=bisq_top["bisq_head_rob_bisq"],
+        brenu_tag_brenu=brenu_top["brenu_tag_brenu"],
+        brenu_bid_brenu=brenu_top["brenu_bid_brenu"],
+        brenu_epoch_brenu=brenu_top["brenu_epoch_brenu"],
+        brenu_issue_ready_brenu=brenu_top["brenu_issue_ready_brenu"],
         cmd_ready_tma_tma=cmd_ready_tma_wire,
         cmd_ready_cube_cube=cmd_ready_cube_wire,
         cmd_ready_vec_vec=cmd_ready_vec_wire,
@@ -609,6 +631,10 @@ def build_top_export(
     )
 
     m.assign(deq_ready_bisq_wire, bctrl_top["deq_ready_bisq"])
+    # BROB/BID allocation must advance at backend dispatch time so newly
+    # dispatched BSTARTs receive a distinct block identity before any later
+    # command issue reaches BISQ/BCTRL.
+    m.assign(issue_fire_brenu_wire, backend_top["brob_alloc_fire"])
 
     tma_top = m.instance_auto(
         build_janus_tma,
@@ -697,7 +723,6 @@ def build_top_export(
         module_name="JanusBccBrobTop",
         clk=clk_top,
         rst=rst_top,
-        alloc_fire_brob=backend_top["brob_alloc_fire"],
         issue_fire_brob=bctrl_top["issue_fire_brob"],
         issue_tag_brob=bctrl_top["issue_tag_brob"],
         issue_bid_brob=bctrl_top["issue_bid_brob"],
@@ -705,7 +730,6 @@ def build_top_export(
         retire_fire_brob=backend_top["brob_retire_fire"],
         retire_bid_brob=backend_top["brob_retire_bid"],
         query_bid_brob=backend_top["active_block_bid"],
-        flush_valid_brob=flush_valid_fls,
         flush_fire_brob=flush_valid_fls,
         flush_bid_brob=backend_top["redirect_bid"],
         rsp_valid_brob=bctrl_top["rsp_valid_brob"],
@@ -724,17 +748,18 @@ def build_top_export(
     m.output("brob_query_ready_top", brob_top["brob_query_ready_brob"])
     m.output("brob_query_exception_top", brob_top["brob_query_exception_brob"])
     m.output("brob_query_retired_top", brob_top["brob_query_retired_brob"])
-    m.output("brob_count_dbg_top", brob_top["brob_count_brob"])
-    m.output("brob_alloc_ready_dbg_top", brob_top["brob_alloc_ready_brob"])
-    m.output("brob_alloc_bid_dbg_top", brob_top["brob_alloc_bid_brob"])
+    m.output("active_block_bid_top", backend_top["active_block_bid"])
+    m.output("brob_count_dbg_top", brob_top["brob_pending_brob"])
+    m.output("brob_alloc_ready_dbg_top", brenu_top["brenu_issue_ready_brenu"])
+    m.output("brob_alloc_bid_dbg_top", brenu_top["brenu_bid_brenu"])
     m.output("brob_retire_fire_top", backend_top["brob_retire_fire"])
     m.output("brob_retire_bid_top", backend_top["brob_retire_bid"])
     m.assign(brob_active_allocated_wire, brob_top["brob_query_allocated_brob"])
     m.assign(brob_active_ready_wire, brob_top["brob_query_ready_brob"])
     m.assign(brob_active_exception_wire, brob_top["brob_query_exception_brob"])
     m.assign(brob_active_retired_wire, brob_top["brob_query_retired_brob"])
-    m.assign(brob_alloc_ready_wire, brob_top["brob_alloc_ready_brob"])
-    m.assign(brob_alloc_bid_wire, brob_top["brob_alloc_bid_brob"])
+    m.assign(brob_alloc_ready_wire, brenu_top["brenu_issue_ready_brenu"])
+    m.assign(brob_alloc_bid_wire, brenu_top["brenu_bid_brenu"])
     m.output("bctrl_issue_bid_top", bctrl_top["issue_bid_brob"])
     m.output("bctrl_issue_fire_top", bctrl_top["issue_fire_brob"])
     m.output("bctrl_issue_src_rob_top", bctrl_top["issue_src_rob_brob"])
@@ -758,6 +783,7 @@ def build_top_export(
         "rob_head_insn_raw",
         "rob_head_len",
         "rob_head_op",
+        "ctu_start_fire",
         "ctu_block_ifu",
         "replay_cause",
         "bru_fault_set_dbg",

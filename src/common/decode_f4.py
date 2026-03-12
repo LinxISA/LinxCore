@@ -6,13 +6,9 @@ from .decode import Decode, DecodeBundle, build_decode_bundle_8b
 
 
 @function
-def decode_f4_bundle(m: Circuit, f4_window: Wire, *, name: str) -> DecodeBundle:
-    """Decode wrapper for 64-bit F4 fetch windows.
-
-    This helper instantiates a forced-hierarchy decode bundle to avoid inlining
-    the instruction decode tree multiple times into every stage that needs it.
-    """
-    b = m.instance_auto(build_decode_bundle_8b, name=str(name), module_name="LinxCoreDecodeBundle8B", window=f4_window)
+def decode_f4_bundle_view(m: Circuit, *, bundle: object) -> DecodeBundle:
+    """Wrap a decode-bundle instance view into the shared DecodeBundle shape."""
+    b = bundle
     valid = [b[f"valid{i}"] for i in range(4)]
     off_bytes = [b[f"off_bytes{i}"] for i in range(4)]
     dec = []

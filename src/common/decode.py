@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from pycircuit import Circuit, Wire, const, function, spec
+from pycircuit import Circuit, Wire, const, function, module, spec
 
 from .decode16 import decode16_meta
 from .decode32 import decode32_meta
@@ -1327,6 +1327,28 @@ def decode_bundle_8B(m: Circuit, window: Wire) -> DecodeBundle:
         dec=[dec0, dec1, dec2, dec3],
         total_len_bytes=total,
     )
+
+
+@module(name="LinxCoreDecodeBundle8B")
+def build_decode_bundle_8b(m: Circuit) -> None:
+    window = m.input("window", width=64)
+    bundle = decode_bundle_8B(m, window)
+
+    for slot in range(4):
+        dec = bundle.dec[slot]
+        m.output(f"valid{slot}", bundle.valid[slot])
+        m.output(f"off_bytes{slot}", bundle.off_bytes[slot])
+        m.output(f"op{slot}", dec.op)
+        m.output(f"len_bytes{slot}", dec.len_bytes)
+        m.output(f"regdst{slot}", dec.regdst)
+        m.output(f"srcl{slot}", dec.srcl)
+        m.output(f"srcr{slot}", dec.srcr)
+        m.output(f"srcr_type{slot}", dec.srcr_type)
+        m.output(f"shamt{slot}", dec.shamt)
+        m.output(f"srcp{slot}", dec.srcp)
+        m.output(f"imm{slot}", dec.imm)
+
+    m.output("total_len_bytes", bundle.total_len_bytes)
 
 
 @dataclass(frozen=True)

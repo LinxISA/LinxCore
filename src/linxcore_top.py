@@ -5,7 +5,7 @@ from pycircuit import Circuit, module
 from probes.block_probe import define_block_probe
 from probes.commit_probe import define_commit_probe
 from probes.pipeview_probe import define_pipeview_probe
-from top.top import build_linxcore_top
+from top.modules.export_core import build_top_export
 
 
 @module(name="linxcore_top", value_params={"callframe_size_i": "i64"})
@@ -53,7 +53,7 @@ def build(
     tb_ifu_stub_pkt_uid = m.input("tb_ifu_stub_pkt_uid", width=64)
 
     top = m.instance_auto(
-        build_linxcore_top,
+        build_top_export,
         name="linxcore_top_root",
         module_name="LinxCoreTopRoot",
         params={

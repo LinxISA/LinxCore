@@ -181,6 +181,9 @@ dut_pid=$!
 set +e
 wait "${dut_pid}"
 dut_rc=$?
+if [[ "${dut_rc}" -ne 0 && -n "${reader_d_pid:-}" ]]; then
+  kill "${reader_d_pid}" >/dev/null 2>&1 || true
+fi
 if kill -0 "${qemu_pid}" >/dev/null 2>&1; then
   # DUT reached requested compare window; stop QEMU producer so flow does not
   # depend on external timeout binaries.
@@ -193,6 +196,9 @@ fi
 stop_qemu_for_elf
 wait "${qemu_pid}"
 qemu_rc=$?
+if [[ "${qemu_rc}" -ne 0 && -n "${reader_q_pid:-}" ]]; then
+  kill "${reader_q_pid}" >/dev/null 2>&1 || true
+fi
 wait "${reader_q_pid}"
 reader_q_rc=$?
 wait "${reader_d_pid}"

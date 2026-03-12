@@ -296,6 +296,28 @@ def make_ifu_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, consts
     return IfuRegs(f4_valid=f4_valid, f4_pc=f4_pc, f4_window=f4_window)
 
 
+def make_prf(
+    m: Circuit,
+    clk: Signal,
+    rst: Signal,
+    *,
+    boot_sp: Wire,
+    boot_ra: Wire,
+    consts: Consts,
+    p: OooParams,
+) -> list[Reg]:
+    with m.scope("prf"):
+        prf: list[Reg] = []
+        for i in range(p.pregs):
+            init = consts.zero64
+            if i == 1:
+                init = boot_sp
+            elif i == 10:
+                init = boot_ra
+            prf.append(m.out(f"p{i}", clk=clk, rst=rst, width=64, init=init, en=consts.one1))
+        return prf
+
+
 def make_rename_regs(m: Circuit, clk: Signal, rst: Signal, *, consts: Consts, p: OooParams) -> RenameRegs:
     c = m.const
     ckpt_depth = 16

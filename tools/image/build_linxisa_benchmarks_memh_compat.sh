@@ -31,6 +31,17 @@ find_pyc_root() {
   return 1
 }
 
+pick_first_existing() {
+  local cand
+  for cand in "$@"; do
+    if [[ -n "${cand}" && -f "${cand}" ]]; then
+      echo "${cand}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 PYC_ROOT_DIR="$(find_pyc_root)" || {
   echo "error: cannot locate pyCircuit; set PYC_ROOT=..." >&2
   exit 2
@@ -67,10 +78,22 @@ fi
 core_fallback="${ROOT_DIR}/tests/benchmarks/build/coremark_compat.memh"
 dhry_fallback="${ROOT_DIR}/tests/benchmarks/build/dhrystone_compat.memh"
 if [[ ! -f "${core_fallback}" ]]; then
-  core_fallback="${PYC_ROOT_DIR}/designs/examples/linx_cpu/programs/test_csel_fixed.memh"
+  core_fallback="$(pick_first_existing \
+    "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl_1000/memh/coremark_latest_llvm_musl.memh" \
+    "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl/memh/coremark_latest_llvm_musl.memh" \
+    "${ROOT_DIR}/tests/benchmarks_latest_llvm_musl_1000/memh/coremark_latest_llvm_musl.memh" \
+    "${ROOT_DIR}/tests/benchmarks_latest_llvm_musl/memh/coremark_latest_llvm_musl.memh" \
+    "${PYC_ROOT_DIR}/designs/examples/linx_cpu/programs/test_csel_fixed.memh" \
+  )"
 fi
 if [[ ! -f "${dhry_fallback}" ]]; then
-  dhry_fallback="${PYC_ROOT_DIR}/designs/examples/linx_cpu/programs/test_or.memh"
+  dhry_fallback="$(pick_first_existing \
+    "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl_1000/memh/dhrystone_latest_llvm_musl.memh" \
+    "/Users/zhoubot/LinxCore/tests/benchmarks_latest_llvm_musl/memh/dhrystone_latest_llvm_musl.memh" \
+    "${ROOT_DIR}/tests/benchmarks_latest_llvm_musl_1000/memh/dhrystone_latest_llvm_musl.memh" \
+    "${ROOT_DIR}/tests/benchmarks_latest_llvm_musl/memh/dhrystone_latest_llvm_musl.memh" \
+    "${PYC_ROOT_DIR}/designs/examples/linx_cpu/programs/test_or.memh" \
+  )"
 fi
 
 if [[ ! -f "${core_fallback}" || ! -f "${dhry_fallback}" ]]; then

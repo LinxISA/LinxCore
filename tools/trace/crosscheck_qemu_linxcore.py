@@ -8,6 +8,34 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+REQUIRED_TRACE_FIELDS = [
+    "pc",
+    "insn",
+    "len",
+    "wb_valid",
+    "wb_rd",
+    "wb_data",
+    "src0_valid",
+    "src0_reg",
+    "src0_data",
+    "src1_valid",
+    "src1_reg",
+    "src1_data",
+    "dst_valid",
+    "dst_reg",
+    "dst_data",
+    "mem_valid",
+    "mem_is_store",
+    "mem_addr",
+    "mem_wdata",
+    "mem_rdata",
+    "mem_size",
+    "trap_valid",
+    "trap_cause",
+    "traparg0",
+    "next_pc",
+]
+
 
 @dataclass
 class Commit:
@@ -117,8 +145,34 @@ def _is_sideeffect_free_sysreg_marker(r: Commit) -> bool:
 
 
 def _is_metadata_commit(r: Commit) -> bool:
-    # Treat fully zeroed placeholders and template parent markers as metadata.
-    return ((r.length == 0) and (r.insn == 0) and (r.pc == 0)) or _is_template_parent_marker(r)
+    if ((r.length == 0) and (r.insn == 0) and (r.pc == 0)):
+        return True
+    if _is_template_parent_marker(r):
+        return True
+
+    eff_wb_valid = int(r.wb_valid != 0 or r.dst_valid != 0)
+    insn = _mask_insn(r.insn, r.length)
+    is_bstart = (
+        (r.length == 2 and _is_bstart16(insn))
+        or (r.length == 4 and _is_bstart32(insn))
+        or (r.length == 6 and _is_bstart48(insn))
+    )
+    is_cbstop = (r.length == 2) and (insn == 0)
+    is_macro_marker = (r.length == 4) and _is_macro_marker32(insn)
+    is_template_uop = int(getattr(r, "template_kind", 0)) != 0
+
+    bstart_metadata = (
+        is_bstart
+        and eff_wb_valid == 0
+        and r.mem_valid == 0
+        and r.trap_valid == 0
+        and r.next_pc == (r.pc + r.length)
+    )
+    macro_metadata = is_macro_marker and eff_wb_valid == 0 and r.mem_valid == 0 and r.trap_valid == 0
+    template_metadata = is_template_uop and eff_wb_valid == 0 and r.mem_valid == 0 and r.trap_valid == 0
+    cbstop_metadata = is_cbstop and eff_wb_valid == 0 and r.mem_valid == 0 and r.trap_valid == 0
+
+    return bstart_metadata or macro_metadata or template_metadata or cbstop_metadata or _is_sideeffect_free_sysreg_marker(r)
 
 
 def _to_int(v: Any, default: int = 0) -> int:
@@ -140,6 +194,11 @@ def _load_trace(path: Path, limit: int) -> list[Commit]:
             if not line:
                 continue
             obj = json.loads(line)
+            missing = [field for field in REQUIRED_TRACE_FIELDS if field not in obj]
+            if missing:
+                raise SystemExit(
+                    f"error: {path}: row {idx} missing mandatory commit fields: {', '.join(missing)}"
+                )
             seq = _to_int(obj.get("seq", len(rows)))
             row = Commit(
                 seq=seq,

@@ -112,6 +112,7 @@ from .commit_slot_step import (
     build_commit_slot_step,
 )
 from .commit_redirect import build_commit_redirect
+from .commit_trace_stage import build_commit_trace_stage
 from .exec_pipe_cluster import build_backend_exec_pipe
 from .exec_uop_wrap import build_exec_uop
 from .ingress_decode import build_ingress_decode
@@ -225,6 +226,7 @@ def _commit_trace_macro_field_specs(*, rob_w: int):
         ("mem_size", 4),
         ("next_pc", 64),
         ("shadow_fire", 1),
+        ("shadow_emit_uop", 1),
         ("shadow_uid", 64),
         ("shadow_uid_alt", 64),
     )
@@ -255,6 +257,9 @@ def build_commit_trace_export(
     stbuf_pack = m.input("stbuf_pack_i", width=sq_entries * _trace_field_width_sum(_COMMIT_TRACE_STBUF_ENTRY_SPECS))
     shadow_boundary_fire = m.input("shadow_boundary_fire_i", width=1)
     shadow_boundary_fire1 = m.input("shadow_boundary_fire1_i", width=1)
+    post_macro_handoff = m.input("post_macro_handoff_i", width=1)
+    macro_wait_commit = m.input("macro_wait_commit_i", width=1)
+    macro_pc = m.input("macro_pc_i", width=64)
     trap_pending = m.input("trap_pending_i", width=1)
     trap_rob = m.input("trap_rob_i", width=rob_w)
     trap_cause = m.input("trap_cause_i", width=32)
@@ -343,6 +348,12 @@ def build_commit_trace_export(
             trap_hit = trap_pending & raw["rob"].__eq__(trap_rob)
             trap_valid = fire & trap_hit
             trap_cause_slot = trap_hit._select_internal(trap_cause, trap_cause_slot)
+            macro_pending_raw_kill = macro_wait_commit & (~raw["pc"].__eq__(macro_pc))
+            macro_pending_raw_kill = macro_pending_raw_kill & (~_op_is(m, raw["op"], OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK))
+            fire = macro_pending_raw_kill._select_internal(c(0, width=1), fire)
+            sideeffect_free_boundary_dup = post_macro_handoff & (raw["is_bstart"] | raw["is_bstop"]) & (~wb_valid)
+            sideeffect_free_boundary_dup = sideeffect_free_boundary_dup & (~mem_valid) & (~trap_valid)
+            fire = sideeffect_free_boundary_dup._select_internal(c(0, width=1), fire)
 
         if slot > 0 and (slot - 1) < commit_w:
             prev = raw_slots[slot - 1]
@@ -898,6 +909,7 @@ def _build_trace_export_core(
         "clk": clk,
         "rst": rst,
         "do_flush": do_flush,
+        "flush_bid": state.flush_bid.out(),
         "commit_count": rob_commit_count,
         "disp_count": rob_disp_count,
         "dispatch_fire": rob_dispatch_fire,
@@ -1043,6 +1055,7 @@ def _build_trace_export_core(
     iq_disp_srcp_tags = [m.new_wire(width=p.ptag_w) for _ in range(p.dispatch_w)]
     iq_disp_pdsts = [m.new_wire(width=p.ptag_w) for _ in range(p.dispatch_w)]
     iq_disp_need_pdsts = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
+    iq_disp_block_bids = [m.new_wire(width=64) for _ in range(p.dispatch_w)]
 
     iq_alu_disp_tos = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
     iq_bru_disp_tos = [m.new_wire(width=1) for _ in range(p.dispatch_w)]
@@ -1077,11 +1090,13 @@ def _build_trace_export_core(
         iq_common_disp_args[f"disp_srcp_tag{slot}"] = iq_disp_srcp_tags[slot]
         iq_common_disp_args[f"disp_pdst{slot}"] = iq_disp_pdsts[slot]
         iq_common_disp_args[f"disp_need_pdst{slot}"] = iq_disp_need_pdsts[slot]
+        iq_common_disp_args[f"disp_block_bid{slot}"] = iq_disp_block_bids[slot]
 
     iq_alu_bank_args = {
         "clk": clk,
         "rst": rst,
         "do_flush": do_flush,
+        "flush_bid": state.flush_bid.out(),
         "ready_mask": ren_ready_mask,
         "head_idx": rob_head,
         **iq_common_disp_args,
@@ -1090,6 +1105,7 @@ def _build_trace_export_core(
         "clk": clk,
         "rst": rst,
         "do_flush": do_flush,
+        "flush_bid": state.flush_bid.out(),
         "ready_mask": ren_ready_mask,
         "head_idx": rob_head,
         **iq_common_disp_args,
@@ -1098,6 +1114,7 @@ def _build_trace_export_core(
         "clk": clk,
         "rst": rst,
         "do_flush": do_flush,
+        "flush_bid": state.flush_bid.out(),
         "ready_mask": ren_ready_mask,
         "head_idx": rob_head,
         **iq_common_disp_args,
@@ -1106,6 +1123,7 @@ def _build_trace_export_core(
         "clk": clk,
         "rst": rst,
         "do_flush": do_flush,
+        "flush_bid": state.flush_bid.out(),
         "ready_mask": ren_ready_mask,
         "head_idx": rob_head,
         **iq_common_disp_args,
@@ -1335,13 +1353,18 @@ def _build_trace_export_core(
 
     # Template blocks (FENTRY/FEXIT/FRET.*) expand into template-uops through
     # CodeTemplateUnit, which blocks IFU while active/starting.
+    # Keep CTU start live across a frontend flush window: a macro header can
+    # become the ROB head exactly when `flush_pending` is set by the preceding
+    # boundary redirect, and suppressing `start_fire` there drops the macro
+    # instead of handing it to the template engine.
+    ctu_base_can_run = ~state.halted.out()
     # UID class encoding:
     # [2:0] 0..3 = decoded slot, 4 = template child, 5 = replay clone.
     template_uid_base = (template_uid_i.shl(amount=3)) | c(4, width=64)
     ctu = m.instance_auto(
         build_code_template_unit,
         name="code_template_unit",
-        base_can_run=base_can_run,
+        base_can_run=ctu_base_can_run,
         head_is_macro=head_is_macro,
         head_skip=head_skip,
         head_valid=rob_valids[0],
@@ -1754,10 +1777,13 @@ def _build_trace_export_core(
     issue_fire = issue_fires_eff[0]
     lsid_issue_ptr_live = lsu_lsid_issue_advance._select_internal(lsid_issue_ptr_live + c(1, width=32), lsid_issue_ptr_live)
     lsid_complete_ptr_live = lsu_lsid_issue_advance._select_internal(lsid_complete_ptr_live + c(1, width=32), lsid_complete_ptr_live)
-    # Redirect/flush drops in-flight younger memory ops: rebase LSID issue/complete
-    # pointers to the current allocation head so stale IDs cannot deadlock LSU.
-    lsid_issue_ptr_live = do_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_issue_ptr_live)
-    lsid_complete_ptr_live = do_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_complete_ptr_live)
+    frontend_flush = do_flush | macro_start
+    # Frontend flush drops younger packets after they may already have consumed
+    # speculative LSIDs at dispatch. Rebase the LSU issue/complete cursors to
+    # the current allocation head so cancelled IDs cannot permanently block the
+    # next surviving load/store.
+    lsid_issue_ptr_live = frontend_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_issue_ptr_live)
+    lsid_complete_ptr_live = frontend_flush._select_internal(state.lsid_alloc_ctr.out(), lsid_complete_ptr_live)
 
     issue_is_loads = []
     issue_is_stores = []
@@ -1998,13 +2024,14 @@ def _build_trace_export_core(
         issue_result_values.append(wb_value)
 
     bru_slot = p.lsu_w
-    issue_bundle_w = (1 + 64 + 64 + p.rob_w + p.ptag_w + 1 + 1 + 1 + 12 + 4) + (64 * 5)
-    w2_meta_w = 1 + p.rob_w + p.ptag_w + 1 + 1 + 1 + 4
+    issue_bundle_w = (1 + 64 + 64 + p.rob_w + p.ptag_w + 1 + 1 + 1 + 12 + 4 + 64) + (64 * 5)
+    w2_meta_w = 1 + p.rob_w + p.ptag_w + 1 + 1 + 1 + 4 + 64
     w2_data_w = 64 * 5
     w2_bundle_w = w2_meta_w + w2_data_w
     issue_bundles = []
     for slot in range(p.issue_w):
         issue_meta = m.concat(
+            rob_issue_query_block_bids[slot],
             exs[slot].size,
             uop_ops[slot],
             issue_is_stores[slot],
@@ -2038,6 +2065,7 @@ def _build_trace_export_core(
         clk=clk,
         rst=rst,
         flush_i=do_flush | commit_redirect,
+        flush_bid_i=state.flush_bid.out(),
         issue_pack=pack_bus(issue_bundles),
         aux_in_pack=m.concat(
             rob_issue_query_block_bids[cmd_slot],
@@ -2057,6 +2085,7 @@ def _build_trace_export_core(
     load_fires = []
     store_fires = []
     wb_onehots = []
+    wb_block_bids = []
     wb_addrs = []
     wb_wdatas = []
     wb_sizes = []
@@ -2073,6 +2102,7 @@ def _build_trace_export_core(
         wb_is_load = slot_meta.slice(lsb=2 + p.rob_w + p.ptag_w, width=1)
         wb_is_store = slot_meta.slice(lsb=3 + p.rob_w + p.ptag_w, width=1)
         wb_size = slot_meta.slice(lsb=4 + p.rob_w + p.ptag_w, width=4)
+        wb_block_bid = slot_meta.slice(lsb=8 + p.rob_w + p.ptag_w, width=64)
         wb_value = slot_data.slice(lsb=0, width=64)
         wb_addr = slot_data.slice(lsb=64, width=64)
         wb_wdata = slot_data.slice(lsb=128, width=64)
@@ -2086,6 +2116,7 @@ def _build_trace_export_core(
         load_fires.append(wb_fire & wb_is_load)
         store_fires.append(wb_fire & wb_is_store)
         wb_onehots.append(onehot_from_tag(m, tag=wb_pdst, width=p.pregs, tag_width=p.ptag_w))
+        wb_block_bids.append(wb_block_bid)
         wb_addrs.append(wb_addr)
         wb_wdatas.append(wb_wdata)
         wb_sizes.append(wb_size)
@@ -2130,7 +2161,7 @@ def _build_trace_export_core(
         clk=clk,
         rst=rst,
         can_run=can_run,
-        commit_redirect=commit_redirect,
+        commit_redirect=commit_redirect | macro_start,
         f4_valid=f4_valid,
         f4_pc=f4_pc,
         f4_window=f4_window,
@@ -2205,9 +2236,16 @@ def _build_trace_export_core(
     disp_resolved_d2_valids = []
     disp_resolved_d2_values = []
     disp_resolved_d2_onehots = []
+    disp_block_uid_live = state.assign_block_uid.out()
+    disp_block_bid_live = state.assign_block_bid.out()
     for slot in range(p.dispatch_w):
         decode_fields = unpack_slot_pack(decode_pack, decode_specs, slot)
         dispatch_fields = unpack_slot_pack(dispatch_pack, dispatch_specs, slot)
+        slot_take_new_bid = dispatch_fields["disp_fire"] & decode_fields["is_bstart"] & brob_alloc_ready_i
+        # Keep the current slot on the live block identity. A dispatched BSTART
+        # only hands the freshly allocated BID to younger same-packet slots.
+        slot_block_uid = disp_block_uid_live
+        slot_block_bid = disp_block_bid_live
         disp_valids.append(decode_fields["valid"])
         disp_pcs.append(decode_fields["pc"])
         disp_ops.append(decode_fields["op"])
@@ -2251,8 +2289,8 @@ def _build_trace_export_core(
         cmd_alloc_idxs.append(dispatch_fields["cmd_alloc_idx"])
         disp_pdsts.append(dispatch_fields["disp_pdst"])
         disp_block_epochs.append(dispatch_fields["disp_block_epoch"])
-        disp_block_uids.append(dispatch_fields["disp_block_uid"])
-        disp_block_bids.append(dispatch_fields["disp_block_bid"])
+        disp_block_uids.append(slot_block_uid)
+        disp_block_bids.append(slot_block_bid)
         disp_load_store_ids.append(dispatch_fields["disp_load_store_id"])
         resolved_d2_is_setret = _op_is(m, decode_fields["op"], OP_SETRET, OP_C_SETRET)
         resolved_d2_value = resolved_d2_is_setret._select_internal(
@@ -2265,6 +2303,8 @@ def _build_trace_export_core(
         disp_resolved_d2_onehots.append(
             onehot_from_tag(m, tag=dispatch_fields["disp_pdst"], width=p.pregs, tag_width=p.ptag_w)
         )
+        disp_block_uid_live = slot_take_new_bid._select_internal(brob_alloc_bid_i, disp_block_uid_live)
+        disp_block_bid_live = slot_take_new_bid._select_internal(brob_alloc_bid_i, disp_block_bid_live)
 
     # BRU validation for SETC.cond: compare actual result vs predicted direction.
     # Keep BSTART-history state inside the recovery owner; parent only sees the
@@ -2444,6 +2484,7 @@ def _build_trace_export_core(
         m.assign(iq_disp_srcp_tags[slot], disp_srcp_tags[slot])
         m.assign(iq_disp_pdsts[slot], disp_pdsts[slot])
         m.assign(iq_disp_need_pdsts[slot], disp_need_pdst[slot])
+        m.assign(iq_disp_block_bids[slot], disp_block_bids[slot])
 
         m.assign(iq_lsu_disp_tos[slot], disp_to_lsu[slot])
         m.assign(iq_bru_disp_tos[slot], disp_to_bru[slot])
@@ -2699,8 +2740,19 @@ def _build_trace_export_core(
     for slot in range(p.commit_w):
         op = rob_ops[slot]
         fire = commit_fires[slot]
+        macro_commit_pc_match = fire & commit_pcs[slot].__eq__(state.macro_pc.out())
         macro_committed = macro_committed | (fire & op_is(op, OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK))
+        # Same-PC redirect handoff can invalidate the raw ROB head view before
+        # the wait-to-commit latch observes the macro opcode. Use the latched
+        # parent PC as a second commit witness so the handoff window cannot
+        # leave `macro_wait_commit` stuck high.
+        macro_committed = macro_committed | (state.macro_wait_commit.out() & macro_commit_pc_match)
     macro_wait_n = macro_committed._select_internal(consts.zero1, macro_wait_n)
+    # Once the template engine has finished, do not keep the macro in the
+    # wait-to-commit window indefinitely. In the current block-fed bring-up
+    # path the parent marker can be consumed by the redirect handoff, so CTU
+    # completion itself must release the latch.
+    macro_wait_n = done_macro._select_internal(consts.zero1, macro_wait_n)
 
     # Suppress one synthetic C.BSTART boundary-dup right after a macro
     # commit handoff (macro commit advances to a new PC).
@@ -2750,6 +2802,10 @@ def _build_trace_export_core(
     m.output("rob_head_insn_raw", head_insn_raw)
     m.output("rob_head_len", head_len)
     m.output("rob_head_op", head_op)
+    for slot in range(min(p.commit_w, 4)):
+        m.output(f"raw_commit_fire{slot}_dbg", commit_fires[slot])
+        m.output(f"raw_commit_pc{slot}_dbg", commit_pcs[slot])
+        m.output(f"raw_commit_rob{slot}_dbg", commit_idxs[slot])
 
     macro_trace_fire = macro_uop_valid
     macro_adj_nonzero = ~macro_frame_adj.__eq__(consts.zero64)
@@ -2810,10 +2866,27 @@ def _build_trace_export_core(
         (macro_is_fret_stk & macro_uop_is_sp_add) |
         (macro_is_fret_ra & macro_uop_is_setc_tgt)
     )
+    macro_shadow_emit_uop = macro_shadow_fire & (~(macro_is_fret_stk & macro_uop_is_sp_add))
     macro_shadow_uid = macro_uop_uid | c(1 << 62, width=64)
     macro_shadow_uid_alt = macro_shadow_uid | c(1, width=64)
+    # Mid-block BSTART traces split into a synthetic boundary-close row and a
+    # real block-head row. The latter advances sequentially (`pc + len`) even
+    # though the functional redirect restarts fetch at the same PC.
+    trace_next_pcs = []
     shadow_boundary_fire = consts.zero1
     shadow_boundary_fire1 = consts.zero1
+    for slot in range(p.commit_w):
+        slot_fire = commit_fires[slot]
+        slot_is_bstart = commit_is_bstarts[slot]
+        slot_pc = commit_pcs[slot]
+        slot_next_pc = commit_next_pcs[slot]
+        slot_head_next_pc = slot_pc + rob_lens[slot]._zext(width=64)
+        slot_split_bstart = slot_fire & slot_is_bstart & slot_next_pc.__eq__(slot_pc)
+        trace_next_pcs.append(slot_split_bstart._select_internal(slot_head_next_pc, slot_next_pc))
+        if slot == 0:
+            shadow_boundary_fire = slot_split_bstart & (~state.post_macro_handoff.out())
+        if slot == 1:
+            shadow_boundary_fire1 = slot_split_bstart
 
     raw_slot_specs = _commit_trace_raw_slot_field_specs(rob_w=p.rob_w)
     raw_slot_packs = []
@@ -2824,7 +2897,7 @@ def _build_trace_export_core(
                 {
                     "fire": commit_fires[slot],
                     "pc": commit_pcs[slot],
-                    "next_pc": commit_next_pcs[slot],
+                    "next_pc": trace_next_pcs[slot],
                     "rob": commit_idxs[slot],
                     "op": rob_ops[slot],
                     "value": rob_values[slot],
@@ -2867,8 +2940,8 @@ def _build_trace_export_core(
             "rob": rob_head,
             "op": macro_enc["op"],
             "value": head_value,
-            "len": macro_enc["len"],
-            "insn_raw": macro_enc["insn_raw"],
+            "len": state.macro_len.out(),
+            "insn_raw": state.macro_insn_raw.out(),
             "uop_uid": macro_uop_uid,
             "parent_uid": macro_uop_parent_uid,
             "template_kind": macro_uop_template_kind,
@@ -2892,6 +2965,7 @@ def _build_trace_export_core(
             "mem_size": macro_trace_mem_size,
             "next_pc": macro_trace_next_pc,
             "shadow_fire": macro_shadow_fire,
+            "shadow_emit_uop": macro_shadow_emit_uop,
             "shadow_uid": macro_shadow_uid,
             "shadow_uid_alt": macro_shadow_uid_alt,
         },
@@ -2924,6 +2998,9 @@ def _build_trace_export_core(
         stbuf_pack_i=pack_bus(stbuf_packs),
         shadow_boundary_fire_i=shadow_boundary_fire,
         shadow_boundary_fire1_i=shadow_boundary_fire1,
+        post_macro_handoff_i=state.post_macro_handoff.out(),
+        macro_wait_commit_i=state.macro_wait_commit.out(),
+        macro_pc_i=state.macro_pc.out(),
         trap_pending_i=state.trap_pending.out(),
         trap_rob_i=state.trap_rob.out(),
         trap_cause_i=state.trap_cause.out(),
@@ -2938,6 +3015,7 @@ def _build_trace_export_core(
     m.output("redirect_pc", redirect_pc_any)
     m.output("redirect_bid", redirect_bid_any)
     m.output("redirect_from_corr_dbg", redirect_from_corr)
+    m.output("ctu_start_fire", macro_start)
     m.output("ctu_block_ifu", macro_block)
     m.output("ctu_uop_valid", macro_uop_valid)
     m.output("bru_fault_set_dbg", bru_fault_set)
@@ -2981,7 +3059,7 @@ def _build_trace_export_core(
     head_wait_sp = iq_cmd_bank["head_wait_hit_o"]._select_internal(iq_cmd_bank["head_wait_sp_o"], head_wait_sp)
     # Debug taps for scheduler/LSU replay bring-up.
     replay_cause = compose_replay_cause(
-        m,
+        m=m,
         lsu_block_lane0=lsu_block_lane0,
         issued_is_load=issued_is_load,
         older_store_pending=older_store_pending,

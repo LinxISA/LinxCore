@@ -1,5 +1,10 @@
 # Block Pipeview Contract
 
+Canonical contract summary:
+
+- `rtl/LinxCore/docs/architecture/interfaces.md`
+- `rtl/LinxCore/docs/trace/linxtrace_v1.md`
+
 ## Required IDs
 
 1. `uop_uid`: dynamic micro-op identity.
