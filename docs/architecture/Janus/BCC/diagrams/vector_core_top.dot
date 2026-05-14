@@ -1,0 +1,60 @@
+digraph VECTOR_CORE_TOP {
+  graph [
+    rankdir=LR,
+    label="Vector Core Top Microarchitecture",
+    labelloc=t,
+    fontsize=20,
+    fontname="Microsoft YaHei"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#F7F9FC",
+    color="#4A5568",
+    fontname="Microsoft YaHei",
+    fontsize=12
+  ];
+
+  edge [
+    color="#4A5568",
+    arrowsize=0.8,
+    fontname="Microsoft YaHei",
+    fontsize=10
+  ];
+
+  BCC [label="BCC BlockISQ\nblock / TileOp dispatch", fillcolor="#EBF8FF"];
+  BB [label="Block Buffer\nrequest queue"];
+  LOOP [label="Loop Ctrl\nLB0/LB1/LB2 -> groups"];
+  GB [label="Group Buffer\n4 banks\nissue count"];
+  GROB [label="Group ROB\nBID + block count"];
+  VIFU [label="VIFU\nICache / TileOp Generator"];
+  OOO [label="Vector OOO\nDecode / Rename / Dispatch"];
+  VALU [label="VALU ISQ\n4W / 2 pick"];
+  VSTD [label="VSTD ISQ\n4W / 1 pick"];
+  SALU [label="Scalar ALU ISQ\nGet / scalar ops"];
+  AGU [label="AGU ISQ\nld/st addr"];
+  RF [label="Vector RF\n4 banks\n128 x 2K"];
+  TBUF [label="TBuffer\n2-way x 32 x 2048b"];
+  TILE [label="Tile Register\nUnified Buffer"];
+  BCC_RSP [label="BCC\nresolve / commit / GPR get", fillcolor="#EBF8FF"];
+
+  BCC -> BB;
+  BB -> LOOP;
+  LOOP -> GB;
+  LOOP -> GROB;
+  GB -> VIFU;
+  VIFU -> OOO;
+  OOO -> VALU;
+  OOO -> VSTD;
+  OOO -> SALU;
+  OOO -> AGU;
+  VALU -> RF;
+  VSTD -> RF;
+  SALU -> RF;
+  AGU -> TBUF;
+  RF -> TBUF [label="load/store data"];
+  TBUF -> TILE [label="read/writeback"];
+  GROB -> BCC_RSP [label="block resolve"];
+  SALU -> BCC_RSP [label="Get Global Register"];
+}

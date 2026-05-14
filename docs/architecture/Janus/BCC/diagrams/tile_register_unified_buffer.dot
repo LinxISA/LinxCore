@@ -1,0 +1,45 @@
+digraph TILE_REGISTER_UNIFIED_BUFFER {
+  graph [
+    rankdir=LR,
+    label="Tile Register / Unified Buffer Access",
+    labelloc=t,
+    fontsize=20,
+    fontname="Microsoft YaHei"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#F7F9FC",
+    color="#4A5568",
+    fontname="Microsoft YaHei",
+    fontsize=12
+  ];
+
+  edge [
+    color="#4A5568",
+    arrowsize=0.8,
+    fontname="Microsoft YaHei",
+    fontsize=10
+  ];
+
+  VECTOR [label="Vector Tile Access\n1R/1W 2048b"];
+  CUBE [label="Cube Tile Access\n1R/1W 2048b"];
+  TMA [label="TMA Tile Access\n1R/1W 2048b"];
+  ARB [label="Port Arbiter\nread/write port sharing"];
+  BANKS [label="Unified Buffer SRAM\n16 x 256 x 512b\nsingle-port banks"];
+  CONFLICT [label="Bank Conflict\ncancel / retry"];
+  RENAME [label="BCC TileRename\nTile tag -> addr"];
+
+  RENAME -> VECTOR [label="src/dst addr"];
+  RENAME -> CUBE [label="src/dst addr"];
+  RENAME -> TMA [label="src/dst addr"];
+  VECTOR -> ARB;
+  CUBE -> ARB;
+  TMA -> ARB;
+  ARB -> BANKS [label="banked access"];
+  BANKS -> CONFLICT [label="conflict detected"];
+  CONFLICT -> VECTOR [style=dashed, label="cancel/retry"];
+  CONFLICT -> CUBE [style=dashed, label="cancel/retry"];
+  CONFLICT -> TMA [style=dashed, label="cancel/retry"];
+}

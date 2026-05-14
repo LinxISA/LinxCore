@@ -1,0 +1,33 @@
+digraph JCORE_MEMORY_HIERARCHY {
+  graph [
+    rankdir=TB,
+    label="JCore Memory Hierarchy",
+    labelloc=t,
+    fontsize=20,
+    fontname="Microsoft YaHei"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#F7F9FC",
+    color="#4A5568",
+    fontname="Microsoft YaHei",
+    fontsize=12
+  ];
+
+  edge [
+    color="#4A5568",
+    arrowsize=0.8,
+    fontname="Microsoft YaHei",
+    fontsize=10
+  ];
+
+  GMEM [label="Level 1: Global Memory\nBCC L2 / LLC / DDR\nJCore downstream"];
+  TILE [label="Level 2: Tile Register\nblock-to-block data exchange\nCube / Vector / TMA"];
+  LOCAL [label="Level 3: Local Buffer / Register\nblock-internal micro-op data\nVector RF, BCC RF, Cube L0A/B/C"];
+
+  GMEM -> TILE [label="TMA LSU"];
+  TILE -> LOCAL [label="PE local read/write"];
+  LOCAL -> TILE [label="block output writeback"];
+}

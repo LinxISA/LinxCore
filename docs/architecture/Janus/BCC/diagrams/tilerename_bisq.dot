@@ -1,0 +1,78 @@
+digraph TILERENAME_BISQ {
+  graph [
+    rankdir=TB,
+    label="TileRename and BISQ Dependency Resolution",
+    labelloc=t,
+    fontsize=20,
+    fontname="Microsoft YaHei"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#F7F9FC",
+    color="#4A5568",
+    fontname="Microsoft YaHei",
+    fontsize=12
+  ];
+
+  edge [
+    color="#4A5568",
+    arrowsize=0.8,
+    fontname="Microsoft YaHei",
+    fontsize=10
+  ];
+
+  subgraph cluster_rename {
+    label="TileRename";
+    color="#90CDF4";
+    style="rounded";
+    IOT_REQ [label="B.IOT request\nsrc index / dst index / dst size"];
+    CREDIT [label="Credit Manager\nfree entries + free size"];
+    PTRS [label="alloc ptr / deque ptr\nalloc addr ptr"];
+    MAP_T [label="T map FIFO\n512 KB"];
+    MAP_U [label="U map FIFO\n256 KB"];
+    MAP_M [label="M map FIFO\n128 KB"];
+    MAP_N [label="N map FIFO\n128 KB"];
+    READY [label="ReadyTable\n1 bit per map entry"];
+  }
+
+  subgraph cluster_bisq {
+    label="BlockISQ / BISQ";
+    color="#9AE6B4";
+    style="rounded";
+    VQ [label="Vector BISQ\nVCALL"];
+    CQ [label="Cube BISQ\nsingle Cube unit\nACC chain field"];
+    AQ [label="TMA BISQ\nTLOAD/TSTORE/TCOPY/MCALL"];
+  }
+
+  BROB [label="BROB\nresolve wakeup / commit release", fillcolor="#FFF5F5"];
+  CORE [label="Special Core\nblock resolve", fillcolor="#FFFAF0"];
+
+  IOT_REQ -> CREDIT;
+  CREDIT -> PTRS;
+  PTRS -> MAP_T;
+  PTRS -> MAP_U;
+  PTRS -> MAP_M;
+  PTRS -> MAP_N;
+  MAP_T -> READY;
+  MAP_U -> READY;
+  MAP_M -> READY;
+  MAP_N -> READY;
+
+  READY -> VQ [label="src ready init"];
+  READY -> CQ [label="src ready init"];
+  READY -> AQ [label="src ready init"];
+
+  MAP_T -> VQ [label="tag / base addr"];
+  MAP_U -> VQ [label="tag / base addr"];
+  MAP_M -> AQ [label="tag / base addr"];
+  MAP_N -> AQ [label="tag / base addr"];
+
+  VQ -> CORE;
+  CQ -> CORE;
+  AQ -> CORE;
+  CORE -> BROB [label="bid_resolve"];
+  BROB -> READY [label="set dst tag ready"];
+  BROB -> CREDIT [label="commit release credit"];
+}

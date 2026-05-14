@@ -1,0 +1,45 @@
+digraph BROB_RESOLVE_COMMIT {
+  graph [
+    rankdir=LR,
+    label="BROB Resolve and Commit Flow",
+    labelloc=t,
+    fontsize=20,
+    fontname="Microsoft YaHei"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#F7F9FC",
+    color="#4A5568",
+    fontname="Microsoft YaHei",
+    fontsize=12
+  ];
+
+  edge [
+    color="#4A5568",
+    arrowsize=0.8,
+    fontname="Microsoft YaHei",
+    fontsize=10
+  ];
+
+  CORE [label="Vector / Cube / TMA\nbid_resolve"];
+  BROB_ENTRY [label="BROB entry\nvalid / tid / bid / type / dst_tile"];
+  RESOLVE [label="Resolve point\nentry.resolved = 1"];
+  TILE_WAKE [label="Tile wakeup\nReadyTable[tag] = 1"];
+  BISQ_WAKE [label="BISQ CAM wakeup\nsrcN_rdy = 1"];
+  COMMIT_CHECK [label="Commit check\noldest && resolved && no exception"];
+  GPR_COMMIT [label="GPR commit\nMAPQ -> CMAP"];
+  TILE_RELEASE [label="Tile release\nfree map entry + size credit"];
+  CLEAR [label="BROB entry free\ncommit_ptr++"];
+
+  CORE -> BROB_ENTRY;
+  BROB_ENTRY -> RESOLVE;
+  RESOLVE -> TILE_WAKE [label="dst_tile_vld"];
+  TILE_WAKE -> BISQ_WAKE;
+  RESOLVE -> COMMIT_CHECK;
+  COMMIT_CHECK -> GPR_COMMIT;
+  COMMIT_CHECK -> TILE_RELEASE;
+  GPR_COMMIT -> CLEAR;
+  TILE_RELEASE -> CLEAR;
+}

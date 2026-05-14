@@ -1,0 +1,54 @@
+digraph BLOCK_HEADER_DISPATCH {
+  graph [
+    rankdir=LR,
+    label="Block Header Dispatch Flow",
+    labelloc=t,
+    fontsize=20,
+    fontname="Microsoft YaHei"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#F7F9FC",
+    color="#4A5568",
+    fontname="Microsoft YaHei",
+    fontsize=12
+  ];
+
+  edge [
+    color="#4A5568",
+    arrowsize=0.8,
+    fontname="Microsoft YaHei",
+    fontsize=10
+  ];
+
+  BSTART [label="BSTART\nblock type / datatype / tileop"];
+  BIOR [label="B.IOR\nGPR getlist / setlist"];
+  BIOT [label="B.IOT\nTile src/dst + dst size"];
+  BDIM [label="B.DIM / B.ATTR / B.TEXT\nloop bound / attr / body PC"];
+
+  BROB_ALLOC [label="BROB allocate\nBID / TID"];
+  BISQ_ALLOC [label="BlockDispatch\nallocate BISQ entry"];
+  GPR_RENAME [label="GPR Rename\nget ptag / allocate set ptag"];
+  SIZE_READ [label="Read size GPR\nfor dst TileReg"];
+  TILE_RENAME [label="TileRename E1\nsrc lookup / dst allocate"];
+  CMD_ISQ [label="CMD_ISQ\n2W2P config pipe"];
+  BISQ_WRITE [label="BISQ entry population\nIOR / IOT / DIM / TEXT"];
+  READY_CHECK [label="Issue condition\nallInstReceived + configReady + ready"];
+  DISPATCH [label="Dispatch to\nVector / Cube / TMA"];
+
+  BSTART -> BROB_ALLOC;
+  BSTART -> BISQ_ALLOC;
+  BIOR -> GPR_RENAME;
+  GPR_RENAME -> CMD_ISQ [label="ptag / ready"];
+  BIOT -> SIZE_READ;
+  SIZE_READ -> TILE_RENAME;
+  TILE_RENAME -> BISQ_WRITE [label="tile tag / addr / ready"];
+  BDIM -> CMD_ISQ;
+  CMD_ISQ -> BISQ_WRITE [label="config write"];
+  BROB_ALLOC -> BISQ_WRITE [label="BID / TID"];
+  BISQ_ALLOC -> BISQ_WRITE [label="entry index"];
+  BISQ_WRITE -> READY_CHECK;
+  READY_CHECK -> DISPATCH;
+}

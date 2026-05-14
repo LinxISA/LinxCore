@@ -1,0 +1,48 @@
+digraph VECTOR_TBUFFER_FLOW {
+  graph [
+    rankdir=LR,
+    label="Vector TBuffer Request Flow",
+    labelloc=t,
+    fontsize=20,
+    fontname="Microsoft YaHei"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#F7F9FC",
+    color="#4A5568",
+    fontname="Microsoft YaHei",
+    fontsize=12
+  ];
+
+  edge [
+    color="#4A5568",
+    arrowsize=0.8,
+    fontname="Microsoft YaHei",
+    fontsize=10
+  ];
+
+  LDQ [label="Load Queue\nISQ load / repick"];
+  STQ [label="Store Queue\nstore issue"];
+  PREF [label="BCC Prefetch\nsrc0/src1 TBD"];
+  CAM [label="TBuffer CAM\nTag + BID match"];
+  HIT [label="Hit\nread/merge in TBuffer"];
+  MISS [label="Miss\nTileReg access"];
+  TBUF [label="TBuffer Entry\nTag/Data/State/WMask/BID/GID"];
+  TILE [label="Tile Register\nbanked SRAM"];
+  WB [label="WriteBack Control\nflush Modified entries"];
+  BCC [label="BCC\nBlock Resolved"];
+
+  LDQ -> CAM [label="read"];
+  STQ -> CAM [label="write"];
+  PREF -> CAM [label="low-priority prefetch"];
+  CAM -> HIT [label="hit"];
+  CAM -> MISS [label="miss"];
+  HIT -> TBUF [label="read data / merge"];
+  MISS -> TILE [label="fill / evict"];
+  TILE -> TBUF [label="fill data / retry"];
+  TBUF -> WB [label="Modified entries"];
+  WB -> TILE [label="writeback"];
+  WB -> BCC [label="all writeback done"];
+}

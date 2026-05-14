@@ -1,0 +1,18 @@
+{
+  "head": {
+    "text": "Block Header Rename / Dispatch Timing"
+  },
+  "signal": [
+    { "name": "clk", "wave": "p.........." },
+    { "name": "BSTART", "wave": "01.0......", "data": ["alloc BID/BISQ"] },
+    { "name": "B.IOR", "wave": "0.1.0.....", "data": ["get/set GPR"] },
+    { "name": "B.IOT", "wave": "0..1.0....", "data": ["tile src/dst"] },
+    { "name": "B.DIM/TEXT", "wave": "0...1.0...", "data": ["dim/body pc"] },
+    { "name": "BROB alloc", "wave": "0.1.0.....", "data": ["BID/TID"] },
+    { "name": "GPR rename", "wave": "0..1.0....", "data": ["ptag"] },
+    { "name": "TileRename E1", "wave": "0...1.0...", "data": ["tag/addr"] },
+    { "name": "BISQ write E2", "wave": "0....1.0..", "data": ["config"] },
+    { "name": "configReady", "wave": "0......1..", "data": ["counter=0"] },
+    { "name": "Issue", "wave": "0.......1.", "data": ["dispatch"] }
+  ]
+}

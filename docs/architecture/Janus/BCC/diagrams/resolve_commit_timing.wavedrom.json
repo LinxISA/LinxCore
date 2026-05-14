@@ -1,0 +1,16 @@
+{
+  "head": {
+    "text": "BROB Resolve vs Commit Timing"
+  },
+  "signal": [
+    { "name": "clk", "wave": "p.........." },
+    { "name": "core bid_resolve", "wave": "0.1.0.....", "data": ["BID"] },
+    { "name": "BROB.resolved", "wave": "0..1......", "data": ["set"] },
+    { "name": "ReadyTable[dst]", "wave": "0...1.....", "data": ["ready"] },
+    { "name": "BISQ src wakeup", "wave": "0....1.0..", "data": ["match tag"] },
+    { "name": "oldest at head", "wave": "0.....1...", "data": ["head"] },
+    { "name": "block commit", "wave": "0......1.0", "data": ["commit"] },
+    { "name": "GPR MAPQ->CMAP", "wave": "0.......1.", "data": ["commit gpr"] },
+    { "name": "Tile release", "wave": "0.......1.", "data": ["free tile"] }
+  ]
+}

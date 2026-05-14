@@ -1,0 +1,104 @@
+digraph BCC_TOP {
+  graph [
+    rankdir=TB,
+    label="JCore BCC Top Architecture",
+    labelloc=t,
+    fontsize=20,
+    fontname="Microsoft YaHei"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#F7F9FC",
+    color="#4A5568",
+    fontname="Microsoft YaHei",
+    fontsize=12
+  ];
+
+  edge [
+    color="#4A5568",
+    arrowsize=0.8,
+    fontname="Microsoft YaHei",
+    fontsize=10
+  ];
+
+  subgraph cluster_ext {
+    label="External Blocks";
+    color="#CBD5E0";
+    style="rounded";
+    RIU [label="RIU\nCXB / msgbuf"];
+    TH_CTRL [label="TH_CTRL\nthread resource"];
+    PMU_CTRL [label="PMU_CTRL\nPMU event bus"];
+    INT [label="INT\nexception interrupt"];
+    REG_SLV [label="REG_SLV\nCSR access"];
+    L2 [label="L2 Cache\nI/D miss"];
+  }
+
+  subgraph cluster_ifu {
+    label="IFU";
+    color="#90CDF4";
+    style="rounded";
+    FETCH [label="Fetch / Predict\nuBTB F1 / MainPred F4"];
+    HBB [label="HBB\nheader PC / offset"];
+    CT [label="IFU_CT\nC0 / C1 / C2"];
+    IB [label="IBCT_INST_BUF\nSTD + CT + headers"];
+    BROB [label="IFU_BROB\nBID/TID resolve commit"];
+  }
+
+  subgraph cluster_pe {
+    label="BCC Scalar PE / IOE";
+    color="#9AE6B4";
+    style="rounded";
+    DECODE [label="D1/D2 Decode\nthread RR + header decode"];
+    RENAME [label="Rename\nGPR MAPQ + ClockHands MAPQ"];
+    CMD_ISQ [label="CMD_ISQ\nB.IOR / B.IOT / B.DIM"];
+    TILERENAME [label="TileRename\nT/U/M/N maps + ReadyTable"];
+    BISQ [label="BlockISQ\nVector / Cube / TMA"];
+    PE_ROB [label="PE_ROB\nuop commit / flush"];
+    RF [label="RF\nPRF + UTRF + special ports"];
+    BN_EXE [label="BN / EXE\nB.TEXT TPC + B.DIM +imm"];
+    LSU [label="LSU\nTBD integration"];
+  }
+
+  subgraph cluster_cores {
+    label="Special Cores";
+    color="#FBD38D";
+    style="rounded";
+    VEC [label="Vector Core"];
+    CUBE [label="Cube Core"];
+    TMA [label="TMA\nTile Memory Access"];
+  }
+
+  REG_SLV -> DECODE [label="CSR"];
+  RIU -> RF [label="msgbuf / command"];
+  TH_CTRL -> FETCH [label="thread wake/release"];
+  PMU_CTRL <- BROB [label="events"];
+  INT <- PE_ROB [label="exception"];
+  L2 -> FETCH [label="I miss"];
+  L2 -> LSU [label="D miss"];
+
+  FETCH -> HBB;
+  FETCH -> CT;
+  HBB -> IB;
+  CT -> IB;
+  IB -> DECODE;
+  DECODE -> RENAME;
+  RENAME -> CMD_ISQ [label="B.IOR / B.IOT / B.DIM"];
+  RENAME -> TILERENAME [label="tile rename req"];
+  CMD_ISQ -> BISQ [label="config write"];
+  TILERENAME -> BISQ [label="tag / addr / ready"];
+  BISQ -> VEC [label="VCALL dispatch"];
+  BISQ -> CUBE [label="Cube dispatch"];
+  BISQ -> TMA [label="TLOAD/TSTORE/TCOPY/MCALL"];
+  VEC -> BROB [label="bid_resolve"];
+  CUBE -> BROB [label="bid_resolve"];
+  TMA -> BROB [label="bid_resolve"];
+  BROB -> TILERENAME [label="resolve wakeup / commit release"];
+  BROB -> RENAME [label="GPR MAPQ -> CMAP"];
+  PE_ROB -> FETCH [label="flush redirect"];
+  BROB -> FETCH [label="block flush / commit pc"];
+  VEC -> RF [label="get/set GPR"];
+  CUBE -> RF [label="get GPR"];
+  TMA -> RF [label="get/set GPR"];
+}

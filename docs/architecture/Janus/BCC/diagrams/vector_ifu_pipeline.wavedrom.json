@@ -1,0 +1,17 @@
+{
+  "head": {
+    "text": "Vector IFU Pipeline Flow"
+  },
+  "signal": [
+    { "name": "clk", "wave": "p............" },
+    { "name": "OriginBuffer PC", "wave": "x3...........", "data": ["redirect/seq PC"] },
+    { "name": "RR thread pick", "wave": "0.1.0........", "data": ["tid"] },
+    { "name": "F1 TLB/Tag/Data", "wave": "0..1.0.......", "data": ["lookup"] },
+    { "name": "F2 hit/miss", "wave": "0...1.0......", "data": ["hit"] },
+    { "name": "F3 align/predecode", "wave": "0....1.0.....", "data": ["bundle"] },
+    { "name": "F4 branch/BSTOP check", "wave": "0.....1.0....", "data": ["pc ctrl"] },
+    { "name": "InstBuffer write", "wave": "0......1.0...", "data": ["up to 4 inst"] },
+    { "name": "D0 OOO thread select", "wave": "0.......1.0..", "data": ["dispatch"] },
+    { "name": "intra_flush", "wave": "0.....10.....", "data": ["direct/indirect/BSTOP"] }
+  ]
+}

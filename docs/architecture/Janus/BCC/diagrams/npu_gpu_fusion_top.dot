@@ -1,0 +1,52 @@
+digraph NPU_GPU_FUSION_TOP {
+  graph [
+    rankdir=TB,
+    label="JCore NPU-GPU Fusion Architecture",
+    labelloc=t,
+    fontsize=20,
+    fontname="Microsoft YaHei"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#F7F9FC",
+    color="#4A5568",
+    fontname="Microsoft YaHei",
+    fontsize=12
+  ];
+
+  edge [
+    color="#4A5568",
+    arrowsize=0.8,
+    fontname="Microsoft YaHei",
+    fontsize=10
+  ];
+
+  BCC [label="BCC\nBlock Control Core\nblock header + scalar body", fillcolor="#EBF8FF"];
+  CUBE [label="Cube Core\nmatrix compute", fillcolor="#FFFAF0"];
+  VECTOR [label="Vector Core\nvector / SIMT compute", fillcolor="#F0FFF4"];
+  TMA [label="TMA\nTile Memory Access\nDDR <-> TileReg", fillcolor="#FFF5F5"];
+  TILE [label="Tile Register\nUnified Buffer\ndata exchange center", fillcolor="#FAF5FF"];
+  GMEM [label="Global Memory\nL2 / LLC / DDR", fillcolor="#EDF2F7"];
+  LOCAL [label="Local Buffer / Register\nVector RF, BCC RF, Cube L0A/L0B/L0C", fillcolor="#EDF2F7"];
+
+  BCC -> CUBE [label="dispatch Cube block / TileOp"];
+  BCC -> VECTOR [label="dispatch Vector block / TileOp"];
+  BCC -> TMA [label="dispatch TLOAD/TSTORE/TCOPY/MCALL"];
+
+  CUBE -> TILE [label="read/write"];
+  VECTOR -> TILE [label="read/write"];
+  TMA -> TILE [label="read/write"];
+  TMA -> GMEM [label="load/store"];
+  CUBE -> LOCAL [style=dashed, label="L0 buffers"];
+  VECTOR -> LOCAL [style=dashed, label="RF / TBuffer"];
+  BCC -> LOCAL [style=dashed, label="scalar RF"];
+
+  CUBE -> BCC [label="resolve"];
+  VECTOR -> BCC [label="resolve / get GPR"];
+  TMA -> BCC [label="resolve / get GPR"];
+  BCC -> CUBE [style=dashed, label="flush"];
+  BCC -> VECTOR [style=dashed, label="flush"];
+  BCC -> TMA [style=dashed, label="flush"];
+}
