@@ -1,0 +1,32 @@
+digraph JCORE_INSTRUCTION_HIERARCHY {
+  graph [
+    rankdir=TB,
+    label="JCore Instruction Hierarchy",
+    labelloc=t,
+    fontsize=20,
+    fontname="Microsoft YaHei"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#F7F9FC",
+    color="#4A5568",
+    fontname="Microsoft YaHei",
+    fontsize=12
+  ];
+
+  edge [
+    color="#4A5568",
+    arrowsize=0.8,
+    fontname="Microsoft YaHei",
+    fontsize=10
+  ];
+
+  TILEOP [label="TileOp / Block\nmacro instruction\nloop count and payload in header"];
+  GROUP [label="Group\none VecLen-sized execution slice\ncreated by Loop Ctrl"];
+  UOP [label="MicroOp\nLinxISA block-body micro-instruction"];
+
+  TILEOP -> GROUP [label="decompose by LB0/LB1/LB2"];
+  GROUP -> UOP [label="fetch/generate micro-ops"];
+}
