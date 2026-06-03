@@ -757,12 +757,18 @@ matmul uop[i] 完成（写入 ACC slice）
 
 ### 11.3 FixPipe 流水线
 
-**流水线阶段**：
+**流水线阶段**（详细）：
 ```
-Stage 0: ACC 读取（256 B/cycle）
-Stage 1: nz → nd 格式转换
-Stage 2: 量化/rowmax
-Stage 3: 输出缓冲
+Stage 0-3: ACC 读取（256 B/cy，4 拍读 1 KB）
+Stage 4:   数据缓冲
+Stage 5-6: nz → nd 格式转换（2 cycles）
+Stage 7:   量化/格式转换（1 cycle）
+Stage 8:   rowmax 计算（可选，1 cycle）
+Stage 9:   输出缓冲
+Stage 10:  TileStore 请求生成
+
+总延迟：~11 cycles per slice
+吞吐量：4 cycles per slice（流水线满载）
 ```
 
 **格式转换（nz → nd）**：

@@ -486,14 +486,18 @@ Bank 7: slices 7, 15, 23, ...
 
 **用途**：格式转换和数据重排
 
-**流水线阶段**：
+**流水线阶段**（详细）：
 ```
-Stage 0: ACC 读取（256 B/cycle）
-Stage 1: nz → nd 转换（重排序）
-Stage 2: 量化/格式转换
-Stage 3: rowmax 计算（可选）
-Stage 4: 输出缓冲
-Stage 5: TileStore 请求
+Stage 0-3: ACC 读取（256 B/cy，4 拍读 1 KB）
+Stage 4:   数据缓冲
+Stage 5-6: nz → nd 格式转换（2 cycles）
+Stage 7:   量化/格式转换（1 cycle）
+Stage 8:   rowmax 计算（可选，1 cycle）
+Stage 9:   输出缓冲（1 cycle）
+Stage 10:  TileStore 请求生成
+
+总延迟：~11 cycles per slice
+吞吐量：4 cycles per slice（流水线满载）
 ```
 
 ### 6.2 格式转换（nz → nd）
@@ -639,19 +643,20 @@ BufferC：
   14          BufferC 累加                 1
 
 ACC 写入（每 K_chunk）：
-  15-18       ACC RMW（读 + 加 + 写）      4
+  15-23       ACC RMW（读 + 加 + 写）      9
+              - 读取 1 KB：4 cycles (256 B/cy)
+              - FP32 加法：1 cycle
+              - 写回 1 KB：4 cycles (256 B/cy)
 
 输出路径（acccvt）：
   0-3         ACC 读取                     4
-  4-5         nz → nd 转换                 2
-  6           量化/rowmax                  1
-  7           输出缓冲                     1
-  8-10        TileStore 请求               3
+  4-10        FixPipe（nz→nd + 量化）      7
+  11-13       TileStore 请求               3
 
 ================================================================
 总延迟：
   - 单个 uop（无 ACC RMW）：~15 cycles
-  - 单个 uop（有 ACC RMW）：~19 cycles
+  - 单个 uop（有 ACC RMW）：~24 cycles
   - acccvt（per slice）：~11 cycles
 ```
 
