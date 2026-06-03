@@ -50,60 +50,75 @@ TileReg (TMU)
 
 ## 2. 输入路径
 
-### 2.1 TReg Burst 接口
+### 2.1 TMU Ring 接口
 
-**带宽**：2048 B/cycle（读或写，不能同时）
+**TMU Ring 协议**：
+- CUBE 通过 **node1/pipe1** 读取 TileReg
+- 每个请求是一个 **256B flit**
+- 读取 512B L0 entry 需要 **2 个 flit**
 
 **Tile 读取时序**：
 ```
 Cycle 0: 预取请求（FSM 拆分时生成）
-Cycle 1: 等待 TMU 仲裁
-Cycle 2: TMU 选中 CUBE 请求
-Cycle 3: TRegFile 读取
-Cycle 4: Burst 传输（2048 B）
+Cycle 1: 发送到 TMU Ring（flit #1，256B）
+Cycle 5: TMU 返回数据（flit #1，延迟4 cycles）
+Cycle 2: 发送到 TMU Ring（flit #2，256B）
+Cycle 6: TMU 返回数据（flit #2，延迟4 cycles）
+Cycle 6: L0 Cache entry 填充完成（512B = 2×256B）
 ```
 
-**接口信号**：
+**接口信号（TMU Ring协议）**：
 ```verilog
-// CUBE → TMU 读请求
+// CUBE → TMU 读请求（通过 node1/pipe1）
 output wire        cube_tmu_rd_req_valid
 input  wire        tmu_cube_rd_req_ready
-output wire [5:0]  cube_tmu_rd_req_tile       // Tile 索引
-output wire [15:0] cube_tmu_rd_req_offset     // Tile 内偏移
-output wire [63:0] cube_tmu_rd_req_bid        // BID
+output wire [19:0] cube_tmu_rd_req_addr      // 20-bit 字节地址
+output wire [7:0]  cube_tmu_rd_req_tag       // 请求tag（用于匹配响应）
 
 // TMU → CUBE 读响应
 input  wire        tmu_cube_rd_rsp_valid
 output wire        cube_tmu_rd_rsp_ready
-input  wire [2047:0][7:0] tmu_cube_rd_rsp_data  // 2048 B
-input  wire [63:0] tmu_cube_rd_rsp_bid
+input  wire [7:0]  tmu_cube_rd_rsp_tag       // 响应tag
+input  wire [255:0][7:0] tmu_cube_rd_rsp_data  // 256 B（单个flit）
 ```
+
+**Prefetch Buffer**：
+- 深度：**32 entries**
+- 每个 entry：一个 TMU 读请求（256B flit + meta）
+- 作用：
+  - 缓冲 FSM 生成的预取请求
+  - 处理 TMU Ring 背压
+  - 支持优先级排序（块内 > 块外）
 
 ### 2.2 L0A/L0B Cache（输入数据缓存）
 
 **用途**：缓存 A 和 B 操作数，支持跨 tileop 的数据复用
 
 **L0A Cache（A 操作数）**：
-- 容量：待定（例如 8 KB，16 个 entry × 512 B）
-- 组织：多路组相联（例如 4-way）
+- 容量：**64 KB**
+- 组织：4-way set-associative
 - 每个 entry：512 B（16 行 × 32 B）
+- 总 entries：128（64KB / 512B）
+- Set 数：32（128 / 4-way）
 
 **L0B Cache（B 操作数）**：
-- 容量：待定（例如 8 KB，16 个 entry × 512 B）
-- 组织：多路组相联（例如 4-way）
+- 容量：**64 KB**
+- 组织：4-way set-associative
 - 每个 entry：512 B（32 B × 16 列）
 - FP4 特殊：1024 B（32 B × 32 列）
+- 总 entries：128（64KB / 512B）
+- Set 数：32（128 / 4-way）
 
 **Cache Entry 结构**：
 ```verilog
 struct l0_cache_entry_t {
     valid:      1 bit;        // 条目有效
-    tile_addr:  6 bits;       // TileReg 索引
-    offset:     16 bits;      // Tile 内偏移
+    tag:        ? bits;       // Tag（地址高位）
     data:       512 B;        // 缓存数据（FP4 的 B: 1024 B）
-    priority:   2 bits;       // 优先级（3=块内, 0=块外）
-    lru:        2 bits;       // LRU 位（4-way）
-    uop_ref:    8 bits;       // 引用此 entry 的 uop 计数
+    priority:   2 bits;       // 优先级（3=块内, 2=预取, 1=块外）
+    lru:        2 bits;       // PLRU 位（4-way）
+    pending:    1 bit;        // 填充中（等待TMU响应）
+    flit_mask:  2 bits;       // 标记哪些flit已到达（512B需要2个flit）
 };
 ```
 
@@ -179,40 +194,60 @@ FSM 拆分时标记：
 
 **预取触发**：
 - FSM 在 Fractal 拆分时预测需要的 tile 地址
-- 提前生成 tileload 请求
-- 请求入队预取 buffer
+- 提前生成 TMU 读请求（256B粒度）
+- 请求入队 Prefetch Buffer
 
-**预取 Buffer**：
+**Prefetch Buffer**：
 ```verilog
 struct prefetch_buffer_entry_t {
     valid:      1 bit;
-    tile_addr:  6 bits;
-    offset:     16 bits;
-    priority:   2 bits;      // 块内=3, 块外=0
-    issued:     1 bit;       // 是否已发送到 TMU
+    addr:       20 bits;      // TMU地址（20-bit字节地址）
+    tag:        8 bits;       // TMU请求tag
+    priority:   2 bits;       // 3=块内, 2=预取, 1=块外
+    target:     1 bit;        // 0=L0A, 1=L0B
+    cache_idx:  ? bits;       // 目标L0 Cache entry索引
+    flit_seq:   1 bit;        // 0=第1个flit, 1=第2个flit（512B需要2个）
 };
 ```
 
-**预取队列深度**：8-16 个 entry（可配置）
+**预取队列深度**：**32 entries**
 
 **预取策略**：
 ```
 1. FSM 拆分生成 uop
 2. 对于每个 uop，计算需要的 A/B 地址
 3. 检查 L0A/L0B Cache
-   - 如果已在 cache，跳过
-   - 如果不在，生成 prefetch 请求
-4. Prefetch 请求入队
-5. 按优先级发送到 TMU
-   - 块内数据优先
-   - 块外数据次之
-6. TMU 返回数据后填充 cache
+   - 如果已在 cache 或 pending，跳过
+   - 如果不在，生成 2 个 prefetch 请求（512B = 2×256B）
+4. Prefetch 请求入队（按优先级）
+   - 块内数据：priority = 3
+   - 预取数据：priority = 2
+   - 块外数据：priority = 1
+5. 按优先级发送到 TMU node1（读通道）
+6. TMU 返回数据后填充 L0 Cache
+   - 第1个flit到达：填充entry的前256B
+   - 第2个flit到达：填充entry的后256B，entry完整可用
 ```
 
-**读口仲裁**：
-- CUBE 与 VEC/TMA/TAU 竞争 TMU 读口
-- TMU 按优先级仲裁
-- CUBE 优先级：高（但低于 TMA）
+**L0 Cache填充示例**：
+```
+填充一个512B entry（需要2个TMU flit）：
+
+Cycle 0: FSM发现L0 miss，分配entry_id=5
+Cycle 1: 生成2个预取请求
+  Req1: addr=0x1000, tag=0x10, flit_seq=0, cache_idx=5
+  Req2: addr=0x1100, tag=0x11, flit_seq=1, cache_idx=5
+Cycle 2: 发送Req1到TMU
+Cycle 3: 发送Req2到TMU
+Cycle 6: TMU返回flit1（tag=0x10）
+         → L0[5].data[0:255] = flit1.data
+         → L0[5].flit_mask[0] = 1
+Cycle 7: TMU返回flit2（tag=0x11）
+         → L0[5].data[256:511] = flit2.data
+         → L0[5].flit_mask[1] = 1
+         → L0[5].pending = 0（entry完整，可用）
+Cycle 8: 更新ISQ中依赖此entry的uop.src_ready
+```
 
 ### 2.6 数据流（L0 Cache → MAC）
 
@@ -357,9 +392,9 @@ Stage 6: 归约准备
 
 ### 4.1 用途和组织
 
-**问题**：每个 K 迭代都需要 RMW ACC，延迟高
+**问题**：如果每个 K 迭代都访问 ACC，会导致频繁的 RMW 操作
 
-**解决**：BufferC 作为 K 方向的中间累加器
+**解决**：BufferC 作为 K 方向的完整累加器
 
 **容量**：
 - 非 FP4：1 KB（16×16×FP32）
@@ -369,50 +404,58 @@ Stage 6: 归约准备
 
 ### 4.2 累加策略
 
-**K-chunk 机制**：
+**K 方向完整累加**：
 ```
-K_chunk = 4（可配置）
+对于单个输出位置 C[mi,nj]（所有 K 方向累加）：
 
-for k in 0..K_tiles-1:
-    MAC_result = MAC_array_output
-    
-    if (k % K_chunk == 0):
-        BufferC = MAC_result        // 清零并初始化
-    else:
-        BufferC += MAC_result        // 累加
-    
-    if ((k+1) % K_chunk == 0 || k == K_tiles-1):
-        ACC[slice] += BufferC        // 提交到物理 ACC
-```
+k=0:  BufferC = MAC_array_output           // 初始化
+k=1:  BufferC += MAC_array_output          // FP32加法，1 cycle
+k=2:  BufferC += MAC_array_output          // FP32加法，1 cycle
+...
+k=K_tiles-1: BufferC += MAC_array_output   // FP32加法，1 cycle
 
-**示例**（K=8 个 tile）：
-```
-K=0: BufferC = MAC[0]
-K=1: BufferC += MAC[1]
-K=2: BufferC += MAC[2]
-K=3: BufferC += MAC[3]
-     ACC += BufferC          → RMW #1
-
-K=4: BufferC = MAC[4]
-K=5: BufferC += MAC[5]
-K=6: BufferC += MAC[6]
-K=7: BufferC += MAC[7]
-     ACC += BufferC          → RMW #2
-
-总 RMW：2 次（vs 无 BufferC 的 8 次）
+完成后：
+  tmatmul:     ACC[slice] = BufferC        // 写入（4 cycles，256 B/cy）
+  tmatmul.acc: ACC[slice] += BufferC       // RMW（9 cycles）
 ```
 
-### 4.3 性能优化
+**关键点**：
+- BufferC 完成**整个 K 方向**的累加（所有 K_tiles）
+- 只在 K 方向全部完成后才访问 ACC
+- 对于 tmatmul：仅需写入，无 RMW
+- 对于 tmatmul.acc：需要 RMW（读取前值 + 累加）
 
-**RMW 减少**：
-- 无 BufferC：每个 K 迭代 1 次 RMW
-- 有 BufferC（K_chunk=4）：每 4 个 K 迭代 1 次 RMW
-- **RMW 减少 4×**
+### 4.3 性能优势
 
-**延迟权衡**：
-- BufferC 累加：1 cycle（FP32 加法）
-- ACC RMW：3 cycles（读 + 加 + 写）
-- **净收益**：每 4 个 K 迭代节省 8 cycles
+**避免频繁 ACC 访问**：
+```
+无 BufferC 方案（K=16）：
+  k=0:  ACC[slice] = MAC_output              // 写（4 cycles）
+  k=1:  ACC[slice] += MAC_output             // RMW（9 cycles）
+  k=2:  ACC[slice] += MAC_output             // RMW（9 cycles）
+  ...
+  k=15: ACC[slice] += MAC_output             // RMW（9 cycles）
+  总计：4 + 15×9 = 139 cycles
+
+有 BufferC 方案（K=16）：
+  k=0:  BufferC = MAC_output                 // 初始化（寄存器）
+  k=1:  BufferC += MAC_output                // FP32加法（1 cycle）
+  k=2:  BufferC += MAC_output                // FP32加法（1 cycle）
+  ...
+  k=15: BufferC += MAC_output                // FP32加法（1 cycle）
+        ACC[slice] = BufferC                 // 写（4 cycles）
+  总计：16 + 4 = 20 cycles
+
+节省：119 cycles（85%）
+```
+
+**tmatmul.acc 链的优势**：
+```
+tmatmul:     BufferC完成K累加 → ACC写入（4 cycles）
+tmatmul.acc: BufferC完成K累加 → ACC RMW（9 cycles）
+
+vs 无BufferC：每个K都需要RMW ACC
+```
 
 ---
 
@@ -726,18 +769,16 @@ K=64              ~95%          接近峰值
 
 ### 8.2 BufferC 优化
 
-**K_chunk 调优**：
-```
-K_chunk 过小（例如 2）：
-  - RMW 频繁，延迟高
-  - BufferC 利用率低
+**设计优势**：
+- K 方向完整累加在片上完成
+- 避免频繁的 ACC RMW 操作
+- 对于 tmatmul：仅需写入（4 cycles）
+- 对于 tmatmul.acc：需要 RMW（9 cycles）
 
-K_chunk 过大（例如 16）：
-  - BufferC 累加误差增大（FP32 精度）
-  - 灵活性降低
-
-推荐：K_chunk = 4-8
-```
+**精度考虑**：
+- FP32 累加精度足够（IEEE 754）
+- K 方向累加次数通常 ≤ 64
+- 累加误差在可接受范围内
 
 ### 8.3 FixPipe 优化
 
@@ -756,9 +797,38 @@ K_chunk 过大（例如 16）：
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
-| TReg Burst 带宽 | 2048 B/cycle | 读或写 |
+| **TMU接口** | | |
+| TMU Flit 大小 | 256 B | 单个flit |
+| TMU 读通道 | node1/pipe1 | CUBE读数据 |
+| TMU 写通道 | node3/pipe3 | CUBE写数据 |
+| TMU 访问延迟 | 4 cycles | 本地访问（H=0） |
+| Prefetch Buffer 深度 | 32 entry | 每entry = 1个TMU读请求 |
+| **L0 Cache** | | |
+| L0A 容量 | 64 KB | 4-way set-associative |
+| L0B 容量 | 64 KB | 4-way set-associative |
+| L0 Entry 大小 | 512 B | 需要2个TMU flit填充 |
 | L0A 读带宽 | 512 B/cycle | A 操作数 |
 | L0B 读带宽 | 512 B/cycle | B 操作数（FP4: 1024 B） |
+| **MAC 阵列** | | |
+| MAC 阵列 | 16×16 脉动阵列 | 4096 MACs (FP16) |
+| 脉动延迟 | ~7 cycles | 流水线 |
+| **BufferC** | | |
+| BufferC 容量 | 1 KB | 非 FP4 |
+| **ACC Pool** | | |
+| ACC 写带宽 | 256 B/cycle | nz 格式 |
+| ACC 读带宽 | 256 B/cycle | 到 FixPipe |
+| **FixPipe** | | |
+| FixPipe 延迟 | ~11 cycles | per slice |
+| FixPipe 吞吐量 | 4 cycles | per slice（流水线） |
+| FixPipe 输出带宽 | 256 B/cycle | |
+| TileStore Queue 深度 | 8 entry | 每entry = 1个TMU写请求 |
+
+---
+
+**文档状态**：完成  
+**最后更新**：2026-06-03
+
+
 | MAC 阵列 | 16×16 脉动阵列 | 4096 MACs (FP16) |
 | 脉动延迟 | ~7 cycles | 流水线 |
 | BufferC 容量 | 1 KB | 非 FP4 |

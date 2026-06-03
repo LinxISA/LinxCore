@@ -559,38 +559,63 @@ tmatmul 64×64，拆分为 4×4×8 = 128 uop
 
 ---
 
-## 8. BufferC（KACC）
+## 8. BufferC（K-Accumulator）
 
 ### 8.1 用途
 
-**K 方向中间累加**：
-- 减少对 ACC 的 RMW（读-改-写）次数
-- K 方向多次计算的部分和先累加到 BufferC
-- 达到阈值后一次性写入 ACC
+**K 方向完整累加**：
+- 避免频繁的 ACC RMW（读-改-写）操作
+- 在 BufferC 中完成单个输出位置的所有 K 方向累加
+- 累加完成后一次性写入 ACC
 
 ### 8.2 组织
 
-**容量**：16×16×FP32 = 1 KB（一个 uop 的输出）
+**容量**：16×16×FP32 = 1 KB（匹配单个 fractal 的输出）
 
 **操作**：
 ```
-for k in 0..K_tiles-1:
-    部分和 = MAC_array_output
-    if (k % K_chunk == 0):
-        BufferC = 部分和
-    else:
-        BufferC += 部分和
-    
-    if ((k+1) % K_chunk == 0 || k == K_tiles-1):
-        ACC[C_slice] += BufferC
+对于单个输出位置 C[mi,nj]（M方向tile mi，N方向tile nj）：
+
+k=0:  BufferC = MAC_array_output       // 初始化
+k=1:  BufferC += MAC_array_output      // FP32加法，1 cycle
+k=2:  BufferC += MAC_array_output      // FP32加法，1 cycle
+...
+k=K_tiles-1: BufferC += MAC_array_output
+
+完成后：
+  tmatmul:     ACC[slice] = BufferC    // 写入（4 cycles，256 B/cy）
+  tmatmul.acc: ACC[slice] += BufferC   // RMW（9 cycles）
 ```
 
-### 8.3 性能优化
+**关键点**：
+- BufferC 把整个 K 方向（所有 K_tiles）的累加都在片上完成
+- 只在 K 方向全部完成后才访问 ACC
+- 对于 tmatmul：仅需写入，不需要 RMW
+- 对于 tmatmul.acc：需要 RMW（读取前值 + 累加 BufferC）
 
-**减少 RMW**：
-- 无 BufferC：每个 K 迭代 1 次 RMW
-- 有 BufferC（K_chunk=4）：每 4 个 K 迭代 1 次 RMW
-- RMW 减少 4×
+### 8.3 性能优势
+
+**避免频繁 ACC 访问**：
+```
+无 BufferC 方案：
+  k=0:  ACC[slice] = MAC_output                  // 写（4 cycles）
+  k=1:  ACC[slice] = ACC[slice] + MAC_output     // RMW（9 cycles）
+  k=2:  ACC[slice] = ACC[slice] + MAC_output     // RMW（9 cycles）
+  ...
+  k=15: ACC[slice] = ACC[slice] + MAC_output     // RMW（9 cycles）
+  总计：4 + 15×9 = 139 cycles
+
+有 BufferC 方案：
+  k=0:  BufferC = MAC_output                     // 写（寄存器，<1 cycle）
+  k=1:  BufferC += MAC_output                    // FP32加法（1 cycle）
+  k=2:  BufferC += MAC_output                    // FP32加法（1 cycle）
+  ...
+  k=15: BufferC += MAC_output                    // FP32加法（1 cycle）
+        ACC[slice] = BufferC                     // 写（4 cycles）
+  总计：16 + 4 = 20 cycles
+
+节省：119 cycles（85%）
+```
 
 ---
 
@@ -689,33 +714,77 @@ slice 5 released
 - CUBE 根据 acc_chain 标记路由
 - 维护每条链的依赖关系
 
-### 10.3 ACC 依赖索引
+### 10.3 ACC 映射表和细粒度依赖
 
-**依赖建立**：
+**细粒度依赖关系**：
+
+CUBE 支持 **per-输出位置** 的细粒度依赖，不需要等待整个 tileop 完成：
+
 ```
-tmatmul z0, ..., acc_chain=0
-  → 分配 ACC slices: [s0, s1, s2, ...]
-  → 记录 mapping: (acc_chain=0, z0) → [s0, s1, s2, ...]
+tmatmul z0, tA0, tB0, 128×128, chain=0      // 生成 8×8×K_tiles 个uop
+tmatmul.acc z0, tA1, tB1, 128×128, chain=0  // 生成 8×8×K_tiles 个uop
 
-tmatmul.acc z0, ..., acc_chain=0
-  → 查询 mapping: (acc_chain=0, z0) → [s0, s1, s2, ...]
-  → 累加到相同的 ACC slices
+依赖关系（针对单个输出位置[mi,nj]）：
+  第一个tmatmul的 uop[mi,nj,K_tiles-1] 完成
+    ↓ 唤醒
+  第二个tmatmul.acc的 uop[mi,nj,0] 可以开始
 
-acccvt z0, ..., acc_chain=0
-  → 查询 mapping: (acc_chain=0, z0) → [s0, s1, s2, ...]
-  → 拆分 acccvtuop，建立与 matmul uop 的依赖
+关键点：
+- 依赖是 per-输出位置 的，不是 per-tileop
+- 第二个tmatmul.acc可以部分开始（无需等第一个全部完成）
+- 不同输出位置的uop可以流水线并行
 ```
 
-**依赖表**：
+**依赖建立示例**：
+```
+第一个 tmatmul：
+  for mi in 0..M_tiles-1:
+    for nj in 0..N_tiles-1:
+      slice_id = alloc_acc_slice()
+      slice_list[mi*N_tiles + nj] = slice_id
+      for ki in 0..K_tiles-1:
+        uop[mi,nj,ki].slice_id = slice_id
+        if ki == 0:
+          uop[mi,nj,ki].deps = none
+        else:
+          uop[mi,nj,ki].deps = uop[mi,nj,ki-1]
+      last_uop_id[mi*N_tiles + nj] = uop[mi,nj,K_tiles-1].uop_id
+
+第二个 tmatmul.acc：
+  查询 ACC 映射表：slice_list = acc_mapping[chain][z0]
+  
+  for mi in 0..M_tiles-1:
+    for nj in 0..N_tiles-1:
+      slice_id = slice_list[mi*N_tiles + nj]  // 复用slice
+      for ki in 0..K_tiles-1:
+        uop[mi,nj,ki].slice_id = slice_id
+        if ki == 0:
+          uop[mi,nj,ki].deps = last_uop_id[mi*N_tiles + nj]  // 细粒度依赖
+        else:
+          uop[mi,nj,ki].deps = uop[mi,nj,ki-1]
+```
+
+**ACC 映射表结构**：
 ```verilog
 struct acc_chain_table_t {
     valid:        1 bit;
-    acc_chain:    2 bits;     // 链标记
-    arch_acc:     2 bits;     // 架构累加器 (z0-z3)
-    slice_list:   128 bits;   // 位图，标记分配的 slices
-    num_uops:     8 bits;     // 总 uop 数
-    completed:    8 bits;     // 已完成 uop 数
+    acc_chain:    2 bits;          // 链标记
+    arch_acc:     2 bits;          // 架构累加器 (z0-z3)
+    num_outputs:  12 bits;         // 输出位置数量 (M_tiles × N_tiles)
+    slice_list:   [256][7:0];      // 每个输出位置的slice_id（最多256个）
+    last_uop_id:  [256][7:0];      // 每个输出位置的最后一个uop_id
 };
+```
+
+**Wakeup 机制**：
+```
+uop[mi,nj,K_tiles-1] 完成：
+  1. 广播 uop_id
+  2. ISQ 中查找所有 deps == uop_id 的 entry
+  3. 对应的下一个 tileop 的 uop[mi,nj,0] 被 wakeup
+  4. 如果 src_ready 也满足，可以发射
+
+不同输出位置独立 wakeup，支持流水线并行
 ```
 
 ---
@@ -832,52 +901,86 @@ acccvtuop[2] → TileReg[tC] offset 2KB
 
 ### 12.1 TileStore 请求
 
-**接口信号**：
+**接口信号（TMU Ring协议）**：
 ```verilog
-// CUBE → TMU 写请求
+// CUBE → TMU 写请求（通过 node3/pipe3）
 output wire        cube_tmu_wr_req_valid
 input  wire        tmu_cube_wr_req_ready
-output wire [5:0]  cube_tmu_wr_req_tile      // TileReg 索引
-output wire [?:0]  cube_tmu_wr_req_offset    // Tile 内偏移
-output wire [?:0]  cube_tmu_wr_req_size      // 写入大小
-output wire [2047:0][7:0] cube_tmu_wr_req_data // 数据
-output wire [63:0] cube_tmu_wr_req_bid       // BID
+output wire [19:0] cube_tmu_wr_req_addr      // 20-bit 字节地址
+output wire [7:0]  cube_tmu_wr_req_tag       // 请求tag（用于匹配响应）
+output wire [255:0][7:0] cube_tmu_wr_req_data // 256 B（单个TMU flit）
 ```
 
-**请求队列**：
-- 深度：待定（例如 8-16）
-- 每拍最多发起 1 个新请求
-- 支持多个请求在途
+**TMU Ring 接口说明**：
+- CUBE 通过 **node3/pipe3** 写数据到 TileReg
+- 每个请求是一个 **256B flit**
+- 传输 1KB slice 需要 **4 个 flit**（4 × 256B）
+- TMU Ring 延迟：4 + 2×H cycles（H = Ring跳数）
+
+**TileStore 队列**：
+- 深度：**8 entries**
+- 每个 entry：一个 256B TMU 写请求
+- 作用：
+  - 缓冲 FixPipe 输出（256 B/cycle）
+  - 添加 TMU Ring meta（addr, tag）
+  - 处理 TMU 背压（Ring busy）
 
 ### 12.2 写回流程
 
 ```
 1. acccvtuop 通过 FixPipe 完成格式转换
-2. 生成 TileStore 请求
-   - 指定 tile 索引和偏移
-   - 携带数据和 BID
-3. TileStore 请求入队
-4. TMU 仲裁和写入 TileReg
-5. 写完成响应返回
-6. 释放对应 ACC slice
+   - 输出：256 B/cycle（流水线）
+   
+2. 生成 TileStore 请求（256B粒度）
+   - 计算 TMU 地址（20-bit）
+   - 分配 tag（8-bit）
+   - 携带 BID
+   
+3. TileStore 请求入队（8-deep queue）
+   
+4. 发送到 TMU node3（写通道）
+   - 每个 slice（1KB）需要 4 个 flit
+   - 按序发送
+   
+5. TMU Ring 传输和写入 TileReg
+   
+6. 写完成响应返回
+   
+7. 释放对应 ACC slice
+```
+
+**传输示例（1个slice = 1KB）**：
+```
+Cycle 0: FixPipe 输出 256B（第1/4）→ TileStore Queue
+Cycle 1: 发送 flit #1 到 TMU（tag=0x10, offset=0）
+Cycle 4: FixPipe 输出 256B（第2/4）→ TileStore Queue
+Cycle 5: 发送 flit #2 到 TMU（tag=0x11, offset=256B）
+Cycle 8: FixPipe 输出 256B（第3/4）→ TileStore Queue
+Cycle 9: 发送 flit #3 到 TMU（tag=0x12, offset=512B）
+Cycle 12: FixPipe 输出 256B（第4/4）→ TileStore Queue
+Cycle 13: 发送 flit #4 到 TMU（tag=0x13, offset=768B）
+Cycle 17-20: 4个响应陆续返回
+Cycle 20: 释放 ACC slice
 ```
 
 ### 12.3 响应和释放
 
-**写完成响应**：
+**写完成响应（TMU Ring协议）**：
 ```verilog
-// TMU → CUBE 写完成
+// TMU → CUBE 写完成（通过 node3）
 input  wire        tmu_cube_wr_done_valid
-input  wire [5:0]  tmu_cube_wr_done_tile
-input  wire [63:0] tmu_cube_wr_done_bid
-input  wire [?:0]  tmu_cube_wr_done_slice_id  // 对应的 ACC slice
+input  wire [7:0]  tmu_cube_wr_done_tag      // 响应tag（匹配请求）
+input  wire [63:0] tmu_cube_wr_done_bid      // BID
 ```
 
 **ACC slice 释放**：
 ```
-1. 接收写完成响应
-2. 释放对应 ACC slice
-3. 更新空闲位图
+1. 接收写完成响应（通过tag匹配）
+2. 确认该slice的所有4个flit都已完成
+3. 释放对应 ACC slice
+4. 更新空闲位图
+5. 如果所有 acccvtuop 完成，向 BROB 报告完成
+```
 4. 如果所有 acccvtuop 完成，向 BROB 报告完成
 ```
 
@@ -1076,23 +1179,24 @@ input wire [63:0] bcc_cube_flush_bid         // 第一个被杀死的 BID
 
 ### 17.1 与 TMU 的交互
 
-**TileReg 管理**：
-- TileReg 由 TMU（Tile Movement Unit）统一管理
-- CUBE 通过 TMU 访问 TileReg
-- TMU 负责仲裁多个引擎的访问请求
+**TMU Ring 接口**：
+- CUBE 通过 TMU Ring 互联访问 TileReg
+- **读通道**：node1/pipe1（128KB SRAM）
+- **写通道**：node3/pipe3（128KB SRAM）
+- **Flit大小**：256 B
+- **峰值带宽**：256 B/cycle per channel
 
-**共享 TRegFile**：
-- CUBE 与 VEC/TMA/TAU 共享同一个 TRegFile
-- 所有引擎通过 TMU 访问
-- TMU 提供仲裁和带宽管理
+**TMU Ring 协议**：
+- 8站点双向Ring拓扑
+- 静态最短路径路由
+- Token/bubble防死锁机制
+- 请求/响应独立Ring通道
 
-**TileStore 写回竞争**：
-- CUBE 的 TileStore 请求与其他引擎竞争 TMU 带宽
-- 优先级仲裁：
-  - TMA：优先级最高（Tile 专用引擎）
-  - CUBE：优先级高（高吞吐量）
-  - VEC/TAU：优先级中等
-- CUBE 每拍最多 1 个写请求，避免过度占用带宽
+**访问延迟**：
+- 本地访问（node访问自身pipe）：4 cycles
+- 跨节点访问：4 + 2×H cycles（H = Ring跳数）
+- CUBE node1→pipe1（H=0）：4 cycles
+- CUBE node3→pipe3（H=0）：4 cycles
 
 ### 17.2 与 VEC/TMA/TAU 的关系
 
@@ -1137,22 +1241,43 @@ input wire [63:0] bcc_cube_flush_bid         // 第一个被杀死的 BID
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
+| **MAC 阵列** | | |
 | MAC 单元（FP16） | 4096 | 16×16 阵列 |
 | MAC 单元（FP8） | 8192 | 2× 算力 |
 | MAC 单元（FP4） | 32768 | 8× 算力 |
 | 脉动阵列延迟 | ~7 cycles | 流水线 |
-| ISQ 深度 | 32 uop | 可配置 |
+| **ISQ** | | |
+| ISQ 深度 | 32 uop | 待定组织方式 |
+| **L0 Cache** | | |
+| L0A 容量 | 64 KB | 4-way set-associative |
+| L0B 容量 | 64 KB | 4-way set-associative |
+| L0 Entry 大小 | 512 B | 需要2个TMU flit填充 |
 | L0A 读带宽 | 512 B/cycle | |
 | L0B 读带宽 | 512 B/cycle | FP4: 1024 B/cy |
-| ACC 容量 | 128 KB | 128 slices |
-| ACC Slice 大小 | 1 KB | 16×16×FP32 |
+| Prefetch Buffer 深度 | 32 entry | 每entry = 1个TMU读请求 |
+| **BufferC** | | |
+| BufferC 容量 | 1 KB | 16×16×FP32，K方向完整累加 |
+| **ACC Pool** | | |
+| ACC 容量 | 128 KB | 128 slices（非FP4） |
+| ACC Slice 大小 | 1 KB | 16×16×FP32（非FP4） |
+| ACC Slice 大小（FP4） | 2 KB | 16×32×FP32 |
 | ACC 写带宽 | 256 B/cycle | nz 格式 |
-| FixPipe 带宽 | 256 B/cycle | |
-| TileStore 请求 | 1/cycle | 最大 |
+| ACC 读带宽 | 256 B/cycle | 到FixPipe |
+| **FixPipe** | | |
+| FixPipe 延迟 | ~11 cycles | per slice |
+| FixPipe 吞吐量 | 4 cycles | per slice（流水线） |
+| FixPipe 输出带宽 | 256 B/cycle | |
+| **TMU 接口** | | |
+| TMU Flit 大小 | 256 B | 单个flit |
+| TMU 读通道 | node1/pipe1 | CUBE读数据 |
+| TMU 写通道 | node3/pipe3 | CUBE写数据 |
+| TileStore Queue 深度 | 8 entry | 每entry = 1个TMU写请求 |
+| TMU 访问延迟 | 4 cycles | 本地访问（H=0） |
+| **并发** | | |
 | 并发 ACC 链 | 2-4 | 可配置 |
 
 ---
 
 **文档状态**：设计中 v2.0  
-**最后更新**：2026-06-02
+**最后更新**：2026-06-03
 
