@@ -120,6 +120,22 @@ if [[ "${BOOT_PC}" != "${TRIGGER_PC}" ]]; then
   exit 2
 fi
 
+maybe_add_bios_none() {
+  local has_bios=0
+  local arg
+  for arg in "${QEMU_ARGS[@]}"; do
+    if [[ "${arg}" == "-bios" ]]; then
+      has_bios=1
+      break
+    fi
+  done
+  if [[ "${has_bios}" -eq 0 && "$(basename -- "${QEMU_BIN}")" != *bios-none ]]; then
+    QEMU_ARGS+=(-bios none)
+  fi
+}
+
+maybe_add_bios_none
+
 mkdir -p "$(dirname -- "${SOCKET_PATH}")" "$(dirname -- "${SNAPSHOT_PATH}")"
 
 need_regen=0

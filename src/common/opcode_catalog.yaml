@@ -7408,6 +7408,177 @@
       "op_id": 616
     },
     {
+      "mnemonic": "l_bstart_fp_call",
+      "symbol": "OP_L_BSTART_FP_CALL",
+      "enc_len": 64,
+      "pattern": ".................100000100000001.........................0001111",
+      "mask": "0x7fff0000007f",
+      "match": "0x41010000000f",
+      "major_cat": "MISC",
+      "minor_cat": "misc",
+      "rd_kind": "NONE",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM42_7_S25_47_17",
+      "block_kind": "CALL",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn64.decode",
+      "op_id": 622
+    },
+    {
+      "mnemonic": "l_bstart_fp_cond",
+      "symbol": "OP_L_BSTART_FP_COND",
+      "enc_len": 64,
+      "pattern": ".................011000100000001.........................0001111",
+      "mask": "0x7fff0000007f",
+      "match": "0x31010000000f",
+      "major_cat": "MISC",
+      "minor_cat": "misc",
+      "rd_kind": "NONE",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM42_7_S25_47_17",
+      "block_kind": "COND",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn64.decode",
+      "op_id": 623
+    },
+    {
+      "mnemonic": "l_bstart_fp_direct",
+      "symbol": "OP_L_BSTART_FP_DIRECT",
+      "enc_len": 64,
+      "pattern": ".................010000100000001.........................0001111",
+      "mask": "0x7fff0000007f",
+      "match": "0x21010000000f",
+      "major_cat": "MISC",
+      "minor_cat": "misc",
+      "rd_kind": "NONE",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM42_7_S25_47_17",
+      "block_kind": "DIRECT",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn64.decode",
+      "op_id": 624
+    },
+    {
+      "mnemonic": "l_bstart_fp_fall",
+      "symbol": "OP_L_BSTART_FP_FALL",
+      "enc_len": 64,
+      "pattern": ".................001000100000001.........................0001111",
+      "mask": "0x7fff0000007f",
+      "match": "0x11010000000f",
+      "major_cat": "MISC",
+      "minor_cat": "misc",
+      "rd_kind": "NONE",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM42_7_S25_47_17",
+      "block_kind": "FALL",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn64.decode",
+      "op_id": 625
+    },
+    {
+      "mnemonic": "l_bstart_std_call",
+      "symbol": "OP_L_BSTART_STD_CALL",
+      "enc_len": 64,
+      "pattern": ".................100000000000001.........................0001111",
+      "mask": "0x7fff0000007f",
+      "match": "0x40010000000f",
+      "major_cat": "MISC",
+      "minor_cat": "misc",
+      "rd_kind": "NONE",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM42_7_S25_47_17",
+      "block_kind": "CALL",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn64.decode",
+      "op_id": 626
+    },
+    {
+      "mnemonic": "l_bstart_std_cond",
+      "symbol": "OP_L_BSTART_STD_COND",
+      "enc_len": 64,
+      "pattern": ".................011000000000001.........................0001111",
+      "mask": "0x7fff0000007f",
+      "match": "0x30010000000f",
+      "major_cat": "MISC",
+      "minor_cat": "misc",
+      "rd_kind": "NONE",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM42_7_S25_47_17",
+      "block_kind": "COND",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn64.decode",
+      "op_id": 627
+    },
+    {
+      "mnemonic": "l_bstart_std_direct",
+      "symbol": "OP_L_BSTART_STD_DIRECT",
+      "enc_len": 64,
+      "pattern": ".................010000000000001.........................0001111",
+      "mask": "0x7fff0000007f",
+      "match": "0x20010000000f",
+      "major_cat": "MISC",
+      "minor_cat": "misc",
+      "rd_kind": "NONE",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM42_7_S25_47_17",
+      "block_kind": "DIRECT",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn64.decode",
+      "op_id": 628
+    },
+    {
+      "mnemonic": "l_bstart_std_fall",
+      "symbol": "OP_L_BSTART_STD_FALL",
+      "enc_len": 64,
+      "pattern": ".................001000000000001.........................0001111",
+      "mask": "0x7fff0000007f",
+      "match": "0x10010000000f",
+      "major_cat": "MISC",
+      "minor_cat": "misc",
+      "rd_kind": "NONE",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM42_7_S25_47_17",
+      "block_kind": "FALL",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn64.decode",
+      "op_id": 629
+    },
+    {
+      "mnemonic": "l_bstart_sys",
+      "symbol": "OP_L_BSTART_SYS",
+      "enc_len": 64,
+      "pattern": ".................001000010000001.........................0001111",
+      "mask": "0x7fff0000007f",
+      "match": "0x10810000000f",
+      "major_cat": "MISC",
+      "minor_cat": "misc",
+      "rd_kind": "NONE",
+      "rs1_kind": "NONE",
+      "rs2_kind": "NONE",
+      "imm_kind": "SIMM42_7_S25_47_17",
+      "block_kind": "BLOCK",
+      "cmd_kind": "NONE",
+      "flags": "",
+      "source_file": "insn64.decode",
+      "op_id": 630
+    },
+    {
       "mnemonic": "lb",
       "symbol": "OP_LB",
       "enc_len": 32,
@@ -8336,7 +8507,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 622
+      "op_id": 631
     },
     {
       "mnemonic": "maddw",
@@ -8355,7 +8526,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 623
+      "op_id": 632
     },
     {
       "mnemonic": "max",
@@ -8374,7 +8545,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 624
+      "op_id": 633
     },
     {
       "mnemonic": "maxu",
@@ -8393,7 +8564,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 625
+      "op_id": 634
     },
     {
       "mnemonic": "mcopy",
@@ -8431,7 +8602,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 626
+      "op_id": 635
     },
     {
       "mnemonic": "minu",
@@ -8450,7 +8621,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 627
+      "op_id": 636
     },
     {
       "mnemonic": "mset",
@@ -8640,7 +8811,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 628
+      "op_id": 637
     },
     {
       "mnemonic": "prfi_u",
@@ -8659,7 +8830,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 629
+      "op_id": 638
     },
     {
       "mnemonic": "rem",
@@ -8754,7 +8925,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 630
+      "op_id": 639
     },
     {
       "mnemonic": "sb",
@@ -8830,7 +9001,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 632
+      "op_id": 641
     },
     {
       "mnemonic": "sc_d",
@@ -8849,7 +9020,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 633
+      "op_id": 642
     },
     {
       "mnemonic": "sc_h",
@@ -8868,7 +9039,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 634
+      "op_id": 643
     },
     {
       "mnemonic": "sc_w",
@@ -8887,7 +9058,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 635
+      "op_id": 644
     },
     {
       "mnemonic": "scvtf",
@@ -8906,7 +9077,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 631
+      "op_id": 640
     },
     {
       "mnemonic": "sd",
@@ -10293,7 +10464,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 636
+      "op_id": 645
     },
     {
       "mnemonic": "tlb_iall",
@@ -10312,7 +10483,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 637
+      "op_id": 646
     },
     {
       "mnemonic": "tlb_iav",
@@ -10331,7 +10502,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 638
+      "op_id": 647
     },
     {
       "mnemonic": "tlb_iv",
@@ -10350,7 +10521,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 639
+      "op_id": 648
     },
     {
       "mnemonic": "ucvtf",
@@ -10369,7 +10540,7 @@
       "cmd_kind": "NONE",
       "flags": "",
       "source_file": "insn32.decode",
-      "op_id": 640
+      "op_id": 649
     },
     {
       "mnemonic": "v_add",
