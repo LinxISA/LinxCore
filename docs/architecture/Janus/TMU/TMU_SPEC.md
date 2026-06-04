@@ -196,7 +196,7 @@ free_slots[channel]     >= TOKEN_RESERVE
 
 | 事件 | token / occupancy 更新 |
 |------|------------------------|
-| SPB 或 response inject FIFO 向 Ring 注入 1 个 flit | 消耗 1 个可注入 token，`inflight_flits++` |
+| SPB 向 Ring 注入 1 个 flit | 消耗 1 个可注入 token，`inflight_flits++` |
 | Ring flit 在目的站成功 eject 到 pipe/MGB | 释放 1 个 token，`inflight_flits--` |
 | Ring flit 仅在相邻 link 间 forward | token 数不变 |
 | 本地目的站暂时不能接收，flit 继续绕行重试 | token 数不变 |
@@ -206,7 +206,6 @@ free_slots[channel]     >= TOKEN_RESERVE
 ```
 can_inject(channel) =
     outgoing_link_empty(channel)
-    && inject_fifo_not_empty(channel)
     && (free_slots[channel] > TOKEN_RESERVE)
 ```
 
@@ -216,7 +215,66 @@ can_inject(channel) =
 
 响应 flit 到达目的 node 但对应 MGB 满时，不允许永久占住该 station 的输入 link。推荐实现为 **on-full forward / retry**：该 flit 保持原方向继续 forward，在下一圈再次尝试 eject。若 RTL 选择使用专用 escape buffer，也必须保证该 buffer 不消耗 `TOKEN_RESERVE` 对应的逃逸空槽。
 
-该规则将“目的端 MGB 满”从 Ring 级阻塞转换为端点反压，配合 bubble 保证不会出现所有 link 互相等待的环形死锁。
+该规则将”目的端 MGB 满”从 Ring 级阻塞转换为端点反压，配合 bubble 保证不会出现所有 link 互相等待的环形死锁。
+
+### 3.7 长延时检查与通道锁 (Starvation Detection & Channel Lock)
+
+Token/bubble 机制保证死锁免疫，但在极端负载下仍可能出现**饥饿**——某个 SPB 长期无法注入，或 Ring 上某个 flit 长期无法 eject。长延时检查机制通过周期计数检测饥饿状态，超过阈值后触发通道锁/资源预留来恢复公平性。
+
+#### 3.7.1 SPB 侧：注入饥饿检测与通道锁定
+
+每个 SPB 为其头部 flit 维护一个 `stall_cycles` 计数器：
+
+```
+每拍 SPB 头部 flit 就绪但无法注入时:
+  stall_cycles++
+
+当 stall_cycles >= starvation_threshold:
+  SPB 对该 flit 的目标方向发起通道锁定 (channel lock)
+```
+
+**通道锁定规则**：
+- SPB 发起通道锁定后，该方向 Ring 的下一个空闲 slot **优先分配给发起锁定的 SPB**
+- 若多个 SPB 同时锁定同一方向，按 SPB 编号或 RR 仲裁
+- SPB 成功注入 1 个 flit 后，通道**自动解锁**
+- 锁定期间不影响 Ring 上已有 flit 的 forward（forward 仍优先于注入）
+
+通道锁定不破坏 token 不变式——锁定仅影响多个 SPB 之间的注入优先级，注入仍需满足 `can_inject(ring)` 条件。
+
+#### 3.7.2 Ring 侧：Eject 饥饿检测与 MGB 资源预留
+
+Ring 上每个 flit 维护一个 `eject_stall_cycles` 计数器，由 flit 经过的每个 station 根据本地 dst 匹配情况更新：
+
+```
+每拍 flit 到达目的 node（dst == 本站）但 MGB 满无法 eject:
+  flit.eject_stall_cycles++
+
+当 flit.eject_stall_cycles >= starvation_threshold:
+  flit 向目标 MGB 发起资源预留请求
+```
+
+**MGB 资源预留规则**：
+- MGB 收到预留请求后，为即将到来的 flit 保留 1 个 entry（MGB 有效深度 -1）
+- 目标 flit 下一次经过目的 node 时，MGB 预留的 entry 确保其成功 eject
+- flit 成功 eject 后释放预留，MGB 恢复正常深度
+- 若 flit 在下一次到达前已被其他方式 eject（如 MGB 空出），预留自动取消
+
+#### 3.7.3 参数配置
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `starvation_threshold` | 待定（建议 64~256 cycles） | 饥饿检测阈值，需大于 Ring 最大绕行延迟 |
+
+阈值设置过小会导致频繁触发锁/预留（增加开销），过大则饥饿恢复延迟过长。建议值为 `RING_STATIONS * 最大预期绕行圈数 * 2`。
+
+#### 3.7.4 与 Token/Bubble 的配合
+
+| 机制 | 解决问题 | 手段 |
+|------|---------|------|
+| Token / Bubble (§3.6) | **死锁** | 保留 escape slot，限制注入 |
+| 通道锁 + 资源预留 (§3.7) | **饿死** | 超时检测 → 优先级提升 / 资源预留 |
+
+Token 保证系统不会永久停滞，通道锁/预留保证在公平性被破坏时恢复。两者协同工作：Token 是安全网，通道锁/预留是公平性纠正器。
 
 ---
 
@@ -232,34 +290,46 @@ Flit Data = 32 x 64-bit words = 256 Bytes
 
 ### 4.2 请求 Flit Meta 格式
 
-请求 flit 的 meta 信息打包在一个 64-bit 字段中：
+请求 flit 的 meta 信息打包在一个 64-bit 字段中。`destType` 字段为 REQ 和 RSP 共有，位于固定位置（LSB=1），供 Ring 上每个 station 快速判断 flit 的目标类型：
 
 ```
-[63                                    REQ_ADDR_LSB] [REQ_TAG_LSB] [REQ_DST_LSB] [REQ_SRC_LSB] [0]
-|<------------- addr (20b) ---------->|<- tag (8b) ->|<- dst (3b) ->|<- src (3b) ->|<- write (1b) ->|
+[63                                    REQ_ADDR_LSB] [REQ_TAG_LSB] [REQ_DST_LSB] [REQ_SRC_LSB] [1] [0]
+|<------------- addr (20b) ---------->|<- tag (8b) ->|<- dst (3b) ->|<- src (3b) ->|dT | wr|
+                                                                                    (1b)(1b)
 ```
 
 | 字段 | 位宽 | LSB | 含义 |
 |------|------|-----|------|
 | write | 1 | 0 | 读/写标志（1=写，0=读） |
-| src | 3 (node_bits) | 1 | 源节点编号 |
-| dst | 3 (node_bits) | 4 | 目的节点编号（= pipe 编号） |
-| tag | 8 | 7 | 请求标签，用于匹配响应 |
-| addr | 20 (addr_bits) | 15 | 字节地址 |
+| destType | 1 | 1 | 目标类型：0 = TREG（访问 TileReg），1 = CORE（PE 间消息） |
+| src | 3 (node_bits) | 2 | 源节点编号 |
+| dst | 3 (node_bits) | 5 | 目的节点编号（= pipe/TileReg 编号或目标 PE node） |
+| tag | 8 | 8 | 请求标签，用于匹配响应 |
+| addr | 20 (addr_bits) | 16 | 字节地址 |
 
 ### 4.3 响应 Flit Meta 格式
 
 ```
 [63                    RSP_TAG_LSB] [RSP_DST_LSB] [RSP_SRC_LSB] [0]
-|<-------- tag (8b) -------->|<- dst (3b) ->|<- src (3b) ->|<- write (1b) ->|
+|<-------- tag (8b) -------->|<- dst (3b) ->|<- src (3b) ->| wr|
+                                                            (1b)
 ```
 
 | 字段 | 位宽 | LSB | 含义 |
 |------|------|-----|------|
-| write | 1 | 0 | 原始请求的读/写标志 |
-| src | 3 | 1 | 响应源（= pipe 编号） |
+| write | 1 | 0 | 原始请求的读/写标志 
+| src | 3 | 1 | 响应源（= pipe 编号或响应 PE node） |
 | dst | 3 | 4 | 响应目的（= 原始请求的 src） |
 | tag | 8 | 7 | 原始请求的 tag，原样返回 |
+
+### 4.4 destType 路由语义
+
+| destType | 请求方向 | 响应方向 | 目的站 MGB 弹出后 |
+|----------|---------|---------|-------------------|
+| **TREG (0)** | PE → 目标 node 的 TileReg | TileReg → 请求方 PE | REQ → FRQ → SRAM；RSP → PE 响应通道 |
+| **CORE (1)** | PE → 目标 PE node | 目标 PE → 请求方 PE | REQ → 直接送 PE 响应通道（不经 TileReg）；RSP → PE 响应通道 |
+
+> CORE 模式实现 PE ↔ PE 信息交换：请求 flit 携带消息数据（data[0:31]），到达目的 node 后经 MGB 直接分发至目标 PE，不经过 FRQ/SRAM 路径。目标 PE 可生成响应 flit（destType=CORE）经 SPB → Rsp Ring → MGB 回复源 PE，完成双向握手。
 
 ---
 
@@ -334,44 +404,82 @@ index_bits = addr_bits - offset_bits - pipe_bits  # 9 for 1MB
 每个 node 包含以下组件：
 
 ```
-                          ┌──────────────────────────────────┐
-                          │           Node i                  │
-                          │                                   │
-  外部请求 ──req_valid──> │  ┌─────────┐    ┌─────────┐      │
-  (valid/ready)           │  │ SPB_CW  │    │ SPB_CC  │      │
-  req_write ────────────> │  │ depth=4 │    │ depth=4 │      │
-  req_addr ─────────────> │  │ 1W2R    │    │ 1W2R    │      │
-  req_tag ──────────────> │  └────┬────┘    └────┬────┘      │
-  req_data[0:31] ───────> │       │              │            │
-  <──── req_ready ─────── │       v              v            │
-                          │   ┌──────────────────────┐        │
-                          │   │   Request Ring       │        │
-                          │   │   CW/CC 注入/转发    │        │
-                          │   └──────────────────────┘        │
-                          │                                   │
-                          │   ┌──────────────────────┐        │
-                          │   │   Pipe SRAM          │        │
-                          │   │   (32 x byte_mem)    │        │
-                          │   └──────────────────────┘        │
-                          │                                   │
-                          │   ┌──────────────────────┐        │
-                          │   │   Response Ring      │        │
-                          │   │   CW/CC 注入/转发    │        │
-                          │   └──────────────────────┘        │
-                          │       │              │            │
-                          │  ┌────┴────┐    ┌────┴────┐      │
-                          │  │ MGB_CW  │    │ MGB_CC  │      │
-                          │  │ depth=4 │    │ depth=4 │      │
-                          │  │ 2W1R    │    │ 2W1R    │      │
-                          │  └────┬────┘    └────┬────┘      │
-                          │       │    RR 仲裁    │           │
-                          │       └──────┬───────┘            │
-  <──── resp_valid ────── │              │                    │
-  <──── resp_tag ──────── │              v                    │
-  <──── resp_data[0:31] ─ │         resp output               │
-  <──── resp_is_write ─── │                                   │
-  ──── resp_ready ──────> │                                   │
-                          └──────────────────────────────────┘
+                          ┌──────────────────────────────────────────────┐
+                          │              Node i                          │
+                          │                SPB 1W2R                      │
+  外部请求 ──req_valid──> │  ┌─────────┐        ┌─────────┐              │
+  (valid/ready)           │  │ SPB_CW  │        │ SPB_CC  │              │
+  req_write ────────────> │  │ depth=4 │        │ depth=4 │              │
+  req_addr ─────────────> │  │         │        │         │              │
+  req_tag ──────────────> │  └────┬────┘        └────┬────┘              │
+  req_data[0:31] ───────> │       │   Req Ring       │                  │
+  <──── req_ready ─────── │       v   注入           v                  │
+                          │   ┌──────────────────────────┐               │
+                          │   │     Request Ring          │               │
+                          │   │     CW/CC 转发/弹出       │               │
+                          │   └──────────┬───────────────┘               │
+                          │              │ Req Ring 弹出                  │
+                          │              v                                │
+                          │   ┌──────────────────────────┐               │
+                          │   │     MGB (Merge Buffer)│               │
+                          │   │  mgb_cw       mgb_cc     │               │
+                          │   │  depth=4      depth=4    │               │
+                          │   │  2W1R, RR仲裁出队         │               │
+                          │   └──────────┬───────────────┘               │
+                          │              │ REQ 出队                       │
+                          │              v                                │
+                          │   ┌──────────────────────────┐               │
+                          │   │     FRQ                   │               │
+                          │   │  (FIFO Request Queue)     │               │
+                          │   │  ┌─────────┐ ┌─────────┐  │               │
+                          │   │  │ rd_queue│ │ wr_queue│  │               │
+                          │   │  │ depth=10│ │ depth=10│  │               │
+                          │   │  └────┬────┘ └────┬────┘  │               │
+                          │   └───────┼──────────┼────────┘               │
+                          │           │          │                        │
+                          │           └────┬─────┘                        │
+                          │                v                              │
+                          │   ┌──────────────────────────┐               │
+                          │   │     TileReg               │               │
+                          │   │  ┌───────────────────┐    │               │
+                          │   │  │  SRAM             │    │               │
+                          │   │  │  (32 x byte_mem)  │    │               │
+                          │   │  │  128KB / pipe     │    │               │
+                          │   │  └───────────────────┘    │               │
+                          │   └──────────┬───────────────┘               │
+                          │              │ SRAM 完成                      │
+                          │              │ FRQ 弹出 req → 打包 rsp        │
+                          │              v                                │
+                          │   ┌──────────────────────────┐               │
+                          │   │   SPB                    │
+                          │   │   CW/CC 方向，depth=4    │               │
+                          │   └──────────┬───────────────┘               │
+                          │              │                                │
+                          │              v                                │
+                          │   ┌──────────────────────────┐               │
+                          │   │     Response Ring         │               │
+                          │   │     CW/CC 转发/弹出       │               │
+                          │   └──────────┬───────────────┘               │
+                          │              │ Rsp Ring 弹出                  │
+                          │              v                                │
+                          │   ┌──────────────────────────┐               │
+                          │   │     MGB (Merge Buffer)│               │
+                          │   │  mgb_cw       mgb_cc     │               │
+                          │   │  depth=4      depth=4    │               │
+                          │   │  2W1R, RR仲裁出队         │               │
+                          │   └──────────┬───────────────┘               │
+  <──── resp_valid ────── │              │                                │
+  <──── resp_tag ──────── │              v                                │
+  <──── resp_data[0:31] ─ │         resp output (至 PE)                  │
+  <──── resp_is_write ─── │                                               │
+  ──── resp_ready ──────> │                                               │
+                          └──────────────────────────────────────────────┘
+
+  关键数据通道（由 flit.destType 决定路由）：
+  TREG(0): PE → SPB → Req Ring → MGB → FRQ(rd/wr) → SRAM
+           SRAM 完成 → FRQ 弹出 → 打包 rsp → SPB → Rsp Ring → MGB → PE
+  CORE(1): PE → SPB → Req Ring → MGB → 直送 PE 响应通道（不经 TileReg）
+           目标 PE 可回复 CORE 响应 flit → SPB → Rsp Ring → MGB → 源 PE
 ```
 
 ### 6.1 节点外部接口
@@ -407,38 +515,44 @@ index_bits = addr_bits - offset_bits - pipe_bits  # 9 for 1MB
 
 ### 7.1 功能概述
 
-SPB 是请求上 Ring 的缓冲区，位于每个 node 的请求注入端。每个 node 有两个 SPB：
-- **SPB_CW**: 缓存将要向 CW 方向发送的请求
-- **SPB_CC**: 缓存将要向 CC 方向发送的请求
+SPB 内部**区分 CW/CC 子队列**——flit 按到达顺序写入，由 SPB 根据 flit 的 `src`/`dst` 字段实时计算方向（`CW_PREF[src][dst]`）并发送到对应的 CW FIFO 或 CC FIFO。
+
+SPB 可以同时接收 PE 产生的请求 flit 和 TileReg/FRQ 产生的响应 flit，两者共享 FIFO。
 
 ### 7.2 SPB 规格
 
 | 参数 | 值 |
 |------|-----|
 | 深度 | 4 entries |
-| 端口 | 1 写 2 读（一拍可同时 pick CW 和 CC 各一个请求上 Ring） |
-| Bypass | **不支持** bypass SPB 上 Ring（请求必须先入 SPB 再注入 Ring） |
-| 反压 | SPB 满时，`req_ready` 拉低，反压外部请求 |
+| 端口 | 1 写（PE + FRQ 两路来源合并）2 读（每拍可以同时注入 flit 到 CW 或 CC Ring） |
+| Bypass | **不支持** bypass SPB 上 Ring（flit 必须先入 SPB 再注入 Ring） |
+| 反压 | SPB 满时，反压来源（REQ 来源反压 PE `req_ready`；RSP 来源反压 FRQ 弹出） |
 
 ### 7.3 SPB 工作流程
 
-1. 外部请求到达 node，根据 `CW_PREF[src][dst]` 确定方向
-2. 请求被写入对应方向的 SPB（CW 或 CC）
-3. 当 Ring 对应方向的 slot 空闲时，SPB 头部的请求被注入 Ring
-4. Ring 上已有 flit 优先前递（forward），SPB 注入优先级低于 Ring 转发
+1. 发送方（PE 产生 REQ，或 TileReg/FRQ 产生 RSP）将 flit 写入 SPB 尾部
+2. 写入时，实时计算 `dir = CW_PREF[flit.src][flit.dst]`，写入对应的FIFO
+3. 若 `dir == CW` 且 CW ring slot 空闲且 `can_inject(req_cw)`，注入 CC ring
+4. 若 `dir == CC` 且 CC ring slot 空闲且 `can_inject(req_cc)`，注入 CW ring
+5. Ring 上已有 flit 转发优先于 SPB 注入
 
 ### 7.4 SPB 注入仲裁
 
 ```
-if ring_slot_has_flit:
-    forward flit (优先)
-    SPB 不注入
-else:
-    if SPB 非空 and 目的不是本地:
-        注入 SPB 头部请求到 Ring
+每拍 CW 和 CC 方向独立判断：
+
+CW 方向:
+  if cw_in 非本地: 转发 cw_in（优先）
+  if SPB_cw.empty() != 1 and can_inject(req_cw):
+      注入 SPB_cw 头部 flit 到 CW Ring，消耗 req_cw token
+
+CC 方向:
+  if cc_in 非本地: 转发 cc_in（优先）
+  if SPB_cc.empty() != 1 and can_inject(req_cc):
+      注入 SPB 头部 flit 到 CC Ring，消耗 req_cc token
 ```
 
-**本地请求优化**: 如果 SPB 头部请求的目的 node 就是本 node（即 src == dst），则该请求直接被弹出送往本地 pipe，不经过 Ring 传输。
+**本地优化**: 如果 SPB 头部 flit 的 `dst == 本站 node_id`，则该 flit 不注入 Ring，直接短接送往 MGB，由 MGB 根据 `destType`/`channelType` 分发至下游。
 
 ---
 
@@ -446,29 +560,27 @@ else:
 
 ### 8.1 功能概述
 
-MGB 是响应下 Ring 的缓冲区，位于每个 node 的响应接收端。每个 node 有两个 MGB：
-- **MGB_CW**: 缓存从 CW 方向到达的响应
-- **MGB_CC**: 缓存从 CC 方向到达的响应
+MGB 内部包含 CW 和 CC 两个方向子队列，接收来自两条 Ring 同一方向的 flit。MGB 出队时统一由 flit 元信息决定分发路径toCore/toTreg。
 
 ### 8.2 MGB 规格
 
 | 参数 | 值 |
 |------|-----|
 | 深度 | 4 entries |
-| 端口 | 2 写 1 读（一拍可同时接收 CW 和 CC 各一个 flit，单路出队） |
+| 端口 | 2 写（CW/CC 各一拍可接收一个 flit，来源可能是 Req Ring 或 Rsp Ring）1 读（单路出队） |
 | Bypass | **支持** bypass 下 Ring（队列为空且仅一个方向到达时可 bypass） |
-| 反压 | MGB 满时不接收本地响应；Ring 上已到达的响应 flit 继续绕行重试，本地响应注入 FIFO 受 token/输出 link 条件限制 |
+| 反压 | MGB 满时不接收任何 Ring 弹出，对应 flit 绕行重试 |
 
 ### 8.3 MGB Bypass 机制
 
-当满足以下条件时，响应可以 bypass MGB 直接输出：
+当满足以下条件时，到达的 flit 可以 bypass MGB 直接分发至下游：
 - MGB 队列为空
-- 仅有一个方向（CW 或 CC）有到达的响应
-- 外部 `resp_ready` 为高
+- 仅有一个方向（CW 或 CC）有到达的 flit
+- 对应下游 ready（见下方分发规则）
 
-### 8.4 MGB 出队仲裁
+### 8.4 MGB 出队仲裁与分发
 
-当 CW 和 CC 两个 MGB 都有数据时，采用 **Round-Robin (RR)** 仲裁：
+MGB 采用 **Round-Robin (RR)** 仲裁选择 CW 或 CC 方向出队：
 
 ```
 rr_reg: 1-bit 寄存器，每次出队后翻转
@@ -477,19 +589,38 @@ if only CC has data:  pick CC
 if both have data:    rr_reg==0 ? pick CW : pick CC
 ```
 
-RR 仲裁确保两个方向的响应不会饿死。
+出队后根据 flit 类型和 `destType` 字段分发至不同下游：
+
+```
+MGB 出队 flit:
+  ── 来自 Request Ring, destType == TREG(0) → FRQ（按 write 分流 rd/wr）→ SRAM
+  ── 来自 Request Ring, destType == CORE(1) → PE 响应通道（PE 间消息，不经 TileReg）
+  ── 来自 Response Ring                     → PE 响应通道（TileReg 读/写响应）
+```
+
+> 注：MGB 不区分"请求侧"和"响应侧"的物理实例——两者共享同一 CW/CC 子队列和同一 RR 仲裁器。flit 来自哪条 Ring 仅作为内部分发依据，不影响 MGB 的 FIFO 管理和仲裁公平性。
 
 ---
 
 ## 9. 请求 Ring 数据通路
 
-### 9.1 请求处理流水线
+### 10.1 请求处理流水线
 
+请求 flit 到达目的 node 后，经 MGB 弹出并根据 `destType` 分流：
+
+**TREG (0) — PE → TileReg 访问**：
 ```
-外部请求 → SPB入队(1 cycle) → Ring传输(N hops) → Pipe SRAM访问(1 cycle) → 响应注入
+PE请求 → SPB入队(1 cycle) → Req Ring传输(N hops) → MGB弹出 → FRQ入队(rd/wr) → SRAM访问
 ```
 
-### 9.2 请求 Ring 每站逻辑
+**CORE (1) — PE ↔ PE 消息**：
+```
+PE请求 → SPB入队(1 cycle) → Req Ring传输(N hops) → MGB弹出 → 直送 PE 响应通道（skip FRQ/SRAM）
+```
+
+CORE 模式不经过 TileReg，flit 的 data[0:31] 即为 PE 间消息体，目标 PE 收到后可通过 `tag` 匹配请求来源。
+
+### 10.2 请求 Ring 每站逻辑
 
 对于 Ring 上的每个 station（按 RING_ORDER 遍历），每拍执行以下逻辑：
 
@@ -499,88 +630,128 @@ cw_in = 从 CW 方向前一站到达的 flit
 cc_in = 从 CC 方向后一站到达的 flit
 ```
 
-**Step 2: 判断是否为本地请求（需要弹出到 pipe）**
+**Step 2: 判断是否为本地请求（需要弹出到 MGB）**
 ```
 ring_cw_local = cw_in.valid AND (cw_in.dst == 本站 node_id)
 ring_cc_local = cc_in.valid AND (cc_in.dst == 本站 node_id)
-spb_cw_local  = spb_cw.valid AND (spb_cw.dst == 本站 node_id)
-spb_cc_local  = spb_cc.valid AND (spb_cc.dst == 本站 node_id)
+spb_local     = spb.valid AND (spb.head.dst == 本站 node_id)
 ```
 
-**Step 3: 优先级仲裁（弹出到 pipe）**
+**Step 3: 优先级仲裁（弹出到 MGB）**
 ```
 优先级从高到低:
-1. Ring CW 方向到达的本地请求
-2. Ring CC 方向到达的本地请求
-3. SPB CW 中目的为本地的请求
-4. SPB CC 中目的为本地的请求
+1. Ring CW 方向到达的本地请求 → 写入 MGB（CW 侧）
+2. Ring CC 方向到达的本地请求 → 写入 MGB（CC 侧）
+3. SPB 中目的为本地的请求 → 直接短接至 MGB（不经 Ring）
 ```
+
+MGB 出队后根据 flit 类型分发：Request Ring 来源 + destType=TREG → FRQ（按 write 分流 rd/wr），destType=CORE → PE 响应通道；Response Ring 来源 → PE 响应通道。
 
 **Step 4: Ring 转发与 SPB 注入**
 ```
 CW 方向:
   if cw_in 非本地: 转发 cw_in（优先）
-  else if SPB_CW 非空且非本地 and can_inject(req_cw):
-      注入 SPB_CW 头部，并消耗 req_cw token
+  else if SPB.head.dir == CW and 目的非本地 and can_inject(req_cw):
+      注入 SPB 头部 flit，并消耗 req_cw token
 
 CC 方向:
   if cc_in 非本地: 转发 cc_in（优先）
-  else if SPB_CC 非空且非本地 and can_inject(req_cc):
-      注入 SPB_CC 头部，并消耗 req_cc token
+  else if SPB.head.dir == CC and 目的非本地 and can_inject(req_cc):
+      注入 SPB 头部 flit，并消耗 req_cc token
 ```
 
 ---
 
-## 10. Pipe SRAM 访问
+## 10. TileReg：SRAM + FRQ 处理队列
 
-### 10.1 Pipe Stage 寄存器
+### 10.1 TileReg 结构概述
 
-从请求 Ring 弹出的请求先经过一级 **pipe stage 寄存器**（1 cycle 延迟），然后访问 SRAM：
+TileReg 是每个 node 上挂载的 Tile 寄存器文件块，**仅处理 `destType == TREG(0)` 的请求**（CORE 消息不进入 TileReg）。TileReg 由两部分组成：
 
-```
-pipe_req_valid → [pipe_stage_valid reg] → SRAM 读/写
-pipe_req_meta  → [pipe_stage_meta  reg] → 地址解码
-pipe_req_data  → [pipe_stage_data  reg] → 写数据
-```
-
-### 10.2 SRAM 读写操作
-
-**写操作**:
-- 条件: `pipe_stage_valid & write`
-- 将 32 个 64-bit word 写入对应 pipe 的 SRAM
-- 写掩码: 全字节写入 (wstrb = 0xFF)
-- 响应数据: 返回写入的数据本身
-
-**读操作**:
-- 条件: `pipe_stage_valid & ~write`
-- 从对应 pipe 的 SRAM 读出 32 个 64-bit word
-- 响应数据: 返回读出的数据
-
-### 10.3 响应生成
-
-SRAM 访问完成后，生成响应 flit：
-```
-rsp_meta = pack(write, src=pipe_id, dst=原始请求的src, tag=原始请求的tag)
-rsp_data = write ? 写入数据 : 读出数据
-rsp_dir  = CW_PREF[pipe_id][原始请求的src]  # 响应方向
-```
-
-响应被送入对应方向的响应注入 FIFO（深度=4），等待注入响应 Ring。响应注入必须遵守对应响应 Ring channel 的 token 规则：
+| 组件 | 全称 | 功能 |
+|------|------|------|
+| **FRQ** | FIFO Request Queue | 统一请求处理队列：接收 MGB 出队的 TREG 请求 → 调度 SRAM 访问 → SRAM 完成后弹出请求并打包响应 |
+| **SRAM** | 静态随机存储器 | 128KB 数据存储（32 × byte_mem），单周期读写 |
 
 ```
-if rsp_inject_fifo 非空 and can_inject(rsp_dir):
-    注入响应 Ring，并消耗 rsp_dir token
-else:
-    响应保留在 inject FIFO 中
+MGB(destType=TREG) → FRQ(rd/wr) → SRAM
+                       ↑ (SRAM完成)
+                    FRQ 弹出 req → 打包 rsp → SPB → Response Ring
+```
+
+### 10.2 FRQ 规格
+
+FRQ 是 TileReg 内部**唯一的请求处理队列**，从 MGB 接收 TREG 请求、调度 SRAM 访问、等待 SRAM 完成、弹出请求并打包响应。FRQ 内部按 `write` 字段分为读写两个子队列，避免读/写互相阻塞：
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| rd_queue 深度 | 10 entries | write=0 的读请求 |
+| wr_queue 深度 | 10 entries | write=1 的写请求 |
+| 入队条件 | MGB 出队有效 + destType==TREG + 对应队列未满 | 按 write 字段分流至 rd_queue 或 wr_queue |
+| 出队条件 | SRAM 访问完成 + 响应已打包送 SPB | 请求完成访存后弹出 |
+| 出队仲裁 | 读优先 (rd_queue > wr_queue)，或 RR | 待实现确定 |
+| 条目内容 | `{write, addr, tag, src, dst, data[0:31]}` | 保存完整的请求上下文 |
+| 反压 | rd_queue/wr_queue 满时反压 MGB | MGB 满 → Ring flit 绕行 |
+
+### 10.3 FRQ 工作流程
+
+**入队阶段**（MGB → FRQ）：
+```
+1. MGB 出队一个 destType==TREG 的请求 flit
+2. 根据 write 字段写入 FRQ.rd_queue 或 FRQ.wr_queue 尾部
+3. 对应队列满 → 反压 MGB → MGB 满 → Ring flit 绕行
+```
+
+**SRAM 访问阶段**：
+```
+1. FRQ 从 rd_queue 或 wr_queue 头部取出请求（按仲裁策略）
+2. 提取地址字段，发起 SRAM 读/写
+3. 写操作: 将 data[0:31] 写入 SRAM（wstrb=0xFF）
+4. 读操作: 从 SRAM 读出 32 个 64-bit word
+5. SRAM 同拍返回结果
+```
+
+**出队阶段**（响应打包）：
+```
+1. SRAM 访问完成，结果数据就绪
+2. FRQ 弹出对应的请求条目
+3. 打包响应 flit：
+   rsp_meta = pack(write, src=node_id, dst=请求的src, tag=请求的tag)
+   rsp_data = write ? 写入数据副本 : SRAM 读出数据
+   rsp_dir  = CW_PREF[node_id][请求的src]
+4. 响应 flit 送入 SPB
+5. SPB 满 → FRQ 暂缓弹出 → FRQ 满 → 暂停从 MGB 接收新请求
+```
+
+### 10.4 FRQ 反压链路
+
+```
+SPB 满 → FRQ 暂缓弹出 → FRQ.rd_queue/wr_queue 满
+→ MGB 无法出队 → MGB 满 → Req Ring flit 绕行 (on-full forward/retry)
+→ 不产生死锁（Ring 保留 bubble）
+```
+
+### 10.5 完整数据路径
+
+```
+PE → SPB → Req Ring → MGB → FRQ(rd/wr) → SRAM → FRQ弹出 → SPB → Rsp Ring → MGB → PE
 ```
 
 ---
 
 ## 11. 响应 Ring 数据通路
 
-### 11.1 响应 Ring 每站逻辑
+### 11.1 响应处理流水线
 
-与请求 Ring 类似，但弹出目标是 MGB 而非 pipe：
+```
+SRAM完成 → FRQ弹出 + 打包rsp → SPB入队(1 cycle) → Rsp Ring传输(N hops) → MGB弹出 → PE响应通道
+```
+
+响应 flit 由 TileReg/FRQ 打包后送入 SPB，注入响应 Ring，到达目的 node（原始请求的 src）后经 MGB 弹出并输出至 PE。
+
+### 11.2 响应 Ring 每站逻辑
+
+与请求 Ring 对称。注入侧为 SPB，弹出侧为 MGB：
 
 **Step 1: 检查到达的 Ring flit**
 ```
@@ -588,7 +759,7 @@ cw_in = 从 CW 方向前一站到达的响应 flit
 cc_in = 从 CC 方向后一站到达的响应 flit
 ```
 
-**Step 2: 判断是否为本地响应**
+**Step 2: 判断是否为本地响应（需要弹出到 MGB → PE）**
 ```
 ring_cw_local = cw_in.valid AND (cw_in.dst == 本站 node_id)
 ring_cc_local = cc_in.valid AND (cc_in.dst == 本站 node_id)
@@ -596,34 +767,34 @@ ring_cc_local = cc_in.valid AND (cc_in.dst == 本站 node_id)
 
 **Step 3: 本地响应送入 MGB**
 ```
-cw_local = ring_cw_local OR rsp_inject_cw_local
-cc_local = ring_cc_local OR rsp_inject_cc_local
-→ 分别送入 MGB_CW 和 MGB_CC
+cw_local = ring_cw_local OR spb_rsp_cw_local
+cc_local = ring_cc_local OR spb_rsp_cc_local
+→ 分别送入 MGB（CW/CC 子队列）
 ```
 
-如果本地 MGB 有空间，则本地响应成功 eject，释放对应响应 Ring channel 的 token。若本地 MGB 满，则该 flit 不得永久阻塞当前 station；它保持原方向继续 forward，并在下一圈再次尝试 eject。
+如果 MGB 有空间，则本地响应成功 eject，释放对应响应 Ring channel 的 token。若 MGB 满（PE 反压），则该 flit 不得永久阻塞当前 station；它保持原方向继续 forward，并在下一圈再次尝试 eject。
 
-**Step 4: Ring 转发与响应注入**
+**Step 4: Ring 转发与 SPB 响应注入**
 ```
 CW 方向:
   if cw_in 非本地: 转发（优先）
-  else if cw_in 本地但 MGB_CW 满: 继续 forward/retry
-  else if rsp_inject_cw 非空且非本地 and can_inject(rsp_cw):
-      注入，并消耗 rsp_cw token
+  else if cw_in 本地但 MGB CW 满: 继续 forward/retry
+  else if SPB 有待注入的 CW 方向 rsp flit and can_inject(rsp_cw):
+      注入 SPB 头部响应 flit，并消耗 rsp_cw token
 
 CC 方向:
   if cc_in 非本地: 转发（优先）
-  else if cc_in 本地但 MGB_CC 满: 继续 forward/retry
-  else if rsp_inject_cc 非空且非本地 and can_inject(rsp_cc):
-      注入，并消耗 rsp_cc token
+  else if cc_in 本地但 MGB CC 满: 继续 forward/retry
+  else if SPB 有待注入的 CC 方向 rsp flit and can_inject(rsp_cc):
+      注入 SPB 头部响应 flit，并消耗 rsp_cc token
 ```
 
-### 11.2 MGB 出队到外部
+### 11.3 MGB 出队到 PE
 
 ```
-MGB_CW 和 MGB_CC 通过 RR 仲裁选择一个输出
+MGB（CW/CC 子队列 RR 仲裁）选择一个输出
 → resp_valid, resp_tag, resp_data, resp_is_write
-← resp_ready (外部反压)
+← resp_ready (PE 外部反压)
 ```
 
 ---
@@ -636,92 +807,107 @@ MGB_CW 和 MGB_CC 通过 RR 仲裁选择一个输出
 
 | 阶段 | 延迟 | 说明 |
 |------|------|------|
-| SPB 入队 | 1 cycle | 请求写入 SPB |
+| SPB 入队 | 1 cycle | PE 请求写入 SPB |
 | 请求 Ring 传输 | H hops | H = src 到 dst 的最短跳数 |
-| Pipe Stage | 1 cycle | pipe stage 寄存器 |
-| SRAM 访问 | 0 cycle | 与 pipe stage 同拍完成 |
-| 响应 Ring 传输 | H hops | H = dst 到 src 的最短跳数（与请求相同） |
-| MGB bypass/出队 | 1 cycle | 响应输出（bypass 时为 0） |
+| MGB 弹出 + FRQ 入队 + SRAM 发起 | 1 cycle | 请求经 MGB 写入 FRQ(rd/wr) 并送入 SRAM |
+| FRQ 弹出 + SPB 入队 | 1 cycle | SRAM 完成，FRQ 弹出并打包响应写入 SPB |
+| 响应 Ring 传输 | H hops | H = dst 到 src 的最短跳数 |
+| MGB bypass/出队 | 1 cycle | 响应输出至 PE（bypass 时为 0） |
 
-**总延迟公式**: `Latency = 4 + 2 * H` cycles（最优情况，无竞争）
+**总延迟公式**: `Latency = 5 + 2 * H` cycles（最优情况，无竞争）
 
 其中 H 为 Ring 上的跳数。
 
+> 注：相比旧版 pipe stage 直连 SRAM（4 + 2*H），FRQ 贡献 1 级额外流水延迟。FRQ 空时 MGB→FRQ→SRAM 可同拍完成（bypass 节省 1 cycle）。
+
 ### 12.2 典型延迟示例
 
-**最短路径示例（Vector 访问 pipe2，H=1）**:
+**最短路径示例（Vector 访问自身 pipe，H=0）**:
 
 ```
-Cycle 1: Vector 请求到达 node2 → SPB 入队
-Cycle 2: SPB 注入请求 Ring → 请求到达 node2（本地，H=0 实际上是自访问）
-Cycle 3: Pipe stage 寄存器 + SRAM 访问
-Cycle 4: 响应 bypass MGB 输出 → 数据可用
-总延迟: 4 cycles
+Cycle 1: PE 请求到达 node2 → SPB 入队
+Cycle 2: SPB → 本地短接至 MGB（不经 Ring）
+Cycle 3: MGB 弹出 → FRQ 入队 + SRAM 访问（同拍）
+Cycle 4: FRQ 弹出 → 打包 rsp → SPB → 本地短接至 MGB
+Cycle 5: MGB bypass 输出 → PE 收到数据
+总延迟: 5 cycles
 ```
 
 **跨节点示例（node0 访问 pipe2，H=1）**:
 
 ```
 Cycle 1: node0 请求 → SPB 入队
-Cycle 2: SPB 注入请求 Ring（CC 方向，node0→node2 跳 1 hop）
-Cycle 3: 请求到达 node2 → 弹出到 pipe2 → pipe stage
-Cycle 4: SRAM 访问完成 → 响应注入响应 Ring
+Cycle 2: SPB 注入 Req Ring（CC 方向，node0→node2 跳 1 hop）
+Cycle 3: 请求到达 node2 → MGB 弹出 → FRQ 入队 + SRAM 访问
+Cycle 4: FRQ 弹出 → 打包 rsp → SPB 注入 Rsp Ring
 Cycle 5: 响应传输 1 hop（node2→node0）
 Cycle 6: 响应到达 node0 → MGB bypass 输出
-总延迟: 6 cycles = 4 + 2*1
+总延迟: 6 cycles ≈ 5 + 2*1
 ```
 
 **远距离示例（node0 访问 pipe7，H=4）**:
 
 ```
-总延迟: 4 + 2*4 = 12 cycles
+总延迟: 6 + 2*4 = 14 cycles
 ```
 
 ### 12.3 各 node 自访问延迟
 
 | 操作 | 延迟 |
 |------|------|
-| node_i 访问 pipe_i（自身 pipe） | 4 cycles |
-| node_i 访问相邻 pipe（H=1） | 6 cycles |
-| node_i 访问 H=2 的 pipe | 8 cycles |
-| node_i 访问 H=3 的 pipe | 10 cycles |
-| node_i 访问 H=4 的 pipe（最远） | 12 cycles |
+| node_i 访问自身 pipe_i（H=0） | 6 cycles |
+| node_i 访问相邻 pipe（H=1） | 7~8 cycles |
+| node_i 访问 H=2 的 pipe | 9~10 cycles |
+| node_i 访问 H=3 的 pipe | 11~12 cycles |
+| node_i 访问 H=4 的 pipe（最远） | 13~14 cycles |
 
 ---
 
 ## 13. 反压与流控
 
-### 13.1 请求侧反压
+### 13.1 请求侧反压（PE → SPB）
 
 ```
-req_ready = dir_cw ? SPB_CW.in_ready : SPB_CC.in_ready
+req_ready = SPB.in_ready
 ```
 
-当对应方向的 SPB 满（4 entries）时，`req_ready` 拉低，外部请求被阻塞。
+当 SPB 满（4 entries）时，`req_ready` 拉低，PE 请求被阻塞。
 
 ### 13.2 Ring 反压
 
-Ring 上的 flit 转发优先于 SPB 注入。当 Ring slot 被占用时，SPB 无法注入，但不会丢失数据（SPB 保持 flit 直到 slot 空闲）。
+Ring 上的 flit 转发优先于 SPB 注入。当 Ring slot 被占用时，SPB 无法注入，但不会丢失数据。
 
-此外，SPB 或 response inject FIFO 即使看到输出 link 空闲，也必须先检查对应 Ring channel 的 token/bubble 条件。若 `free_slots[channel] == TOKEN_RESERVE`，本地注入暂停，只允许 Ring 上已有 flit forward 或目的站 eject 释放 token。
+此外，SPB 或 SPB 即使看到输出 link 空闲，也必须先检查对应 Ring channel 的 token/bubble 条件。若 `free_slots[channel] == TOKEN_RESERVE`，本地注入暂停。
 
-### 13.3 响应侧反压
+### 13.3 FRQ 反压链
 
-MGB 满时，Ring 上到达本站的响应无法弹出，但不得阻塞 Ring 转发。该响应 flit 保持原方向继续绕行，下一圈再次尝试进入目的 MGB。
+FRQ 的满反压构成级联链路，端点阻塞最终传导至 Ring 侧但不产生死锁：
 
-外部 `resp_ready` 为低时，MGB 不出队，可能导致 MGB 满。
+```
+SPB 满 → FRQ 暂缓弹出 → FRQ.rd_queue/wr_queue 满
+→ MGB 无法出队 → MGB 满 → Req Ring flit 绕行重试
+```
 
-### 13.4 Token 反压边界
+FRQ 满 → MGB 反压 → MGB 满 → Ring 反压（flit 绕行）。每一级反压仅影响新请求入队速率，不影响 Ring 上已有 flit 的前进。
+
+### 13.4 响应侧反压（MGB → PE）
+
+MGB 满时，响应 Ring 上到达本站的响应 flit 无法弹出，但不得阻塞 Ring 转发。该 flit 保持原方向继续绕行，下一圈再次尝试进入 MGB。
+
+PE `resp_ready` 为低时，MGB 不出队，可能导致 MGB 满。
+
+### 13.5 Token 反压边界
 
 Token 反压只作用于**新注入**，不作用于 Ring 上已有 flit 的 forward：
 
 | 操作 | 是否受 token 限制 | 说明 |
 |------|-------------------|------|
 | Ring flit forward 到下一 station | 否 | 已在 Ring 上的 flit 必须优先前进 |
-| Ring flit eject 到 pipe/MGB | 否 | eject 会释放 token |
+| Ring flit eject 到 MGB（Req 或 Rsp 侧） | 否 | eject 会释放 token |
 | SPB 注入请求 flit | 是 | 需要 `can_inject(req_cw/req_cc)` |
-| response inject FIFO 注入响应 flit | 是 | 需要 `can_inject(rsp_cw/rsp_cc)` |
-| 本地 MGB 满导致响应绕行 | 否 | token 数不变，flit 保持在 Ring 上 |
+| SPB 注入响应 flit | 是 | 需要 `can_inject(rsp_cw/rsp_cc)` |
+| MGB 满导致请求 flit 绕行 | 否 | token 数不变 |
+| FRQ 满 | 否 | 端点反压，不消耗 Ring token |
 
 ---
 
@@ -735,13 +921,14 @@ Token 反压只作用于**新注入**，不作用于 Ring 上已有 flit 的 for
 
 ### 14.2 FIFO 顺序保证
 
-- SPB 和 MGB 均为 FIFO 结构，保证同方向的请求/响应按序处理
+- SPB、MGB、FRQ 均为 FIFO 结构，保证同方向的请求/响应按序处理
+- FRQ 读写队列分离，内部按仲裁策略（读优先或 RR）保序处理
 - 避免了乱序导致的活锁问题
 
 ### 14.3 Round-Robin 仲裁
 
-- MGB 出队采用 RR 仲裁，确保 CW 和 CC 两个方向的响应公平出队
-- Pipe 访问时，Ring CW/CC 和 SPB CW/CC 四路请求按固定优先级仲裁
+- MGB 和 MGB 出队均采用独立 RR 仲裁，确保 CW/CC 两个方向公平出队
+- FRQ 出队（rd_queue vs wr_queue）采用读优先或 RR 仲裁
 - Ring 转发优先于 SPB 注入，保证 Ring 上的 flit 不会被无限阻塞
 
 ### 14.4 静态路由
@@ -749,16 +936,42 @@ Token 反压只作用于**新注入**，不作用于 Ring 上已有 flit 的 for
 - 最短路径静态路由消除了动态路由可能引入的活锁
 - 请求和响应走独立的 Ring，避免请求-响应死锁
 
-### 14.5 Token 防死锁
+### 14.5 FRQ 反压不引入死锁
+
+FRQ 作为端点 FIFO，其满反压不消耗任何 Ring channel 的 token：
+
+```
+SPB 满 → FRQ 暂缓弹出 → FRQ.rd_queue/wr_queue 满
+→ MGB 暂停出队 → MGB 满 → Req Ring flit 绕行
+```
+
+反压链条中的每一级都是”暂停出队/入队”而非”占用 Ring 资源”。Ring 上的 flit 始终可通过 bubble 继续前进并以 on-full forward/retry 方式绕行。FRQ 的深度（rd=10 + wr=10）提供了充足的缓冲，在正常负载下不会频繁触发绕行。
+
+### 14.6 Token 防死锁
 
 Token/bubble 机制解决 Ring 级环形等待问题：
 
 1. 每条单向 Ring channel 至少保留 `TOKEN_RESERVE` 个 bubble。
 2. 新注入只能消耗普通空槽，不能消耗最后的 escape slot。
-3. 目的端暂时不能接收的响应 flit 不阻塞 station，而是继续绕行重试。
-4. 当任意目的端 pipe/MGB 接收一个 flit 时，对应 channel 释放 token，等待中的注入 FIFO 才能继续注入。
+3. 目的端暂时不能接收的 flit（请求或响应）不阻塞 station，而是继续绕行重试。
+4. 当任意目的端 MGB 接收一个 flit 时，对应 channel 释放 token，等待中的注入源才能继续注入。
 
-因此，即使所有 node 同时产生请求/响应、部分外部端口长期拉低 `resp_ready`，Ring 也不会因为“所有 link 都被占满且每个 flit 都等待下游释放”而进入不可恢复死锁。系统可能因端点持续反压而降吞吐或暂停注入，但 Ring channel 内部仍保留可移动空槽。
+因此，即使所有 node 同时产生请求/响应、部分 PE 长期拉低 `resp_ready`、部分 FRQ 满，Ring 也不会因为”所有 link 都被占满且每个 flit 都等待下游释放”而进入不可恢复死锁。系统可能因端点持续反压而降吞吐或暂停注入，但 Ring channel 内部仍保留可移动空槽。
+
+### 14.7 长延时检查防饿死
+
+Token/bubble 和 FIFO/RR 仲裁分别解决了死锁和活锁，但无法完全消除**饿死**——在极端竞争下，某个 SPB 可能被持续旁路，或某个 flit 在 Ring 上反复绕行而无法 eject。§3.7 所述的长延时检查与通道锁机制提供饿死防护：
+
+| 饿死场景 | 检测方式 | 恢复手段 |
+|---------|---------|---------|
+| SPB 长期无法注入 | SPB 头部 flit 的 `stall_cycles` 超阈值 | **通道锁定**：该方向 Ring 下一个空闲 slot 优先分配给锁定 SPB，注入 1 个 flit 后解锁 |
+| Ring flit 长期无法 eject | flit 的 `eject_stall_cycles` 超阈值 | **MGB 资源预留**：目标 MGB 为即将到达的 flit 保留 1 entry，确保下次经过时成功 eject |
+
+长延时检查与 Token/Bubble 机制协同：
+
+- **Token/Bubble** 是预防层——保证环形依赖不会导致永久停滞（不死锁）
+- **通道锁 + 资源预留** 是纠正层——在检测到不公平状态时主动介入恢复（不饿死）
+- 两者均不破坏 Ring 的确定性转发特性：forward 始终优先于注入，bubble 始终至少保留 1 个
 
 ---
 
@@ -781,6 +994,9 @@ TMU 提供以下调试输出信号，用于波形观察和可视化：
 | `dbg_rsp_cw_free` | log2(RING_STATIONS+1) | 响应 CW channel 当前 free slot 数 |
 | `dbg_rsp_cc_free` | log2(RING_STATIONS+1) | 响应 CC channel 当前 free slot 数 |
 | `dbg_token_stall_{channel}` | 1 | 对应 channel 因 token/bubble 保留而暂停注入 |
+| `dbg_frq_rd_count{i}` | log2(10+1) | node_i FRQ 读队列当前占用数 |
+| `dbg_frq_wr_count{i}` | log2(10+1) | node_i FRQ 写队列当前占用数 |
+| `dbg_mgb_count{i}` | log2(4+1) | node_i MGB 当前占用数 |
 
 配套工具：
 - `janus/tools/plot_tmu_trace.py`: 将 trace CSV 渲染为 SVG 时序图
@@ -847,14 +1063,29 @@ for each node n in [0..7]:
 4. 等待读响应，验证读回数据 == 写入数据
 ```
 
-**Test 3: Token / Bubble 防死锁压力测试**
+**Test 3: FRQ 读写队列分离测试**
 ```
-1. 8 个 node 同时向最远或近似最远 pipe 发起请求，尽量填满 req_cw/req_cc
+1. 向同一 node 连续发送读请求和写请求（交错）
+2. 验证读请求进入 FRQ.rd_queue，写请求进入 FRQ.wr_queue
+3. 验证 rd_queue 满时读请求被反压（MGB 暂停出队），写请求不受影响（反之亦然）
+4. 验证 FRQ 按序处理（先入队的请求先完成）
+```
+
+**Test 4: FRQ 满反压链路测试**
+```
+1. 多个 node 向同一 TileReg 连续发送请求，填满 FRQ（rd=10 + wr=10）
+2. 验证 FRQ 满 → MGB 暂停出队 → MGB 满 → Ring flit 绕行
+3. FRQ 空出后 MGB 恢复出队，所有请求最终完成
+```
+
+**Test 5: Token / Bubble 防死锁压力测试**
+```
+1. 8 个 node 同时向最远 pipe 发起请求，尽量填满 req_cw/req_cc
 2. 随机拉低部分 node 的 resp_ready，使对应 MGB 接近满
-3. 持续注入读写混合流量，覆盖 rsp_cw/rsp_cc 的绕行重试
-4. 检查每条 channel 始终满足:
-   free_slots[channel] >= TOKEN_RESERVE
-5. 恢复所有 resp_ready 后，所有已接收请求最终返回响应，不允许出现永久无进展
+3. 同时随机反压部分 TileReg（限制 FRQ 出队速率）
+4. 持续注入读写混合流量，覆盖 req/rsp channel 的绕行重试
+5. 检查每条 channel 始终满足: free_slots[channel] >= TOKEN_RESERVE
+6. 恢复所有 resp_ready 和 FRQ 后，所有请求最终返回响应
 ```
 
 ### 17.2 验证要点
@@ -863,7 +1094,10 @@ for each node n in [0..7]:
 - 数据完整性：读回的 32 个 64-bit word 必须与写入完全一致
 - resp_is_write：正确反映原始请求类型
 - Token 不变式：每条 Ring channel 的 free slot 数不低于 `TOKEN_RESERVE`
-- MGB 满绕行：响应目的端 MGB 满时，flit 继续绕行且最终可在 MGB 空出后 eject
+- FRQ 读写分离：读/写请求进入正确队列，互不阻塞
+- FRQ 满反压链路：FRQ 满 → MGB 满 → Ring flit 绕行 → 最终完成
+- MGB 满绕行（Req 侧和 Rsp 侧均覆盖）：目的端 MGB 满时 flit 继续绕行
+- FRQ FIFO 保序：同一 TileReg 的请求按入队顺序完成并返回
 - 超时检测：2000 cycle 内未收到响应则报错
 
 ---
@@ -896,14 +1130,16 @@ for each node n in [0..7]:
 | 术语 | 全称 | 含义 |
 |------|------|------|
 | TMU | Tile Management Unit | Tile 管理单元 |
-| TileReg | Tile Register File | Tile 寄存器文件（片上 SRAM 缓冲区） |
-| Ring | Ring Interconnect | 环形互联网络 |
+| TileReg | Tile Register File | Tile 寄存器文件块，包含 SRAM（128KB）和 FRQ 处理队列 |
+| Ring | Ring Interconnect | 环形互联网络（请求 Ring + 响应 Ring 独立） |
 | CS | Circuit Station | 环上的站点 |
 | CW | Clockwise | 顺时针方向 |
 | CC | Counter-Clockwise | 逆时针方向 |
-| SPB | Send/Post Buffer | 发送缓冲区（请求上 Ring） |
-| MGB | Merge Buffer | 合并缓冲区（响应下 Ring） |
-| Flit | Flow control unit | 流控单元（Ring 上传输的最小数据单位） |
+| SPB | Send/Post Buffer | 统一发送缓冲区（depth=4）：每个 node 仅 1 个，不区分 CW/CC 子队列，注入时根据 CW_PREF 实时判断方向并发送至对应 Ring |
+| MGB | Merge Buffer | 统一合并缓冲区（depth=4）：每个 node 仅 1 个，接收请求 Ring 和响应 Ring 的双向弹出 flit，出队后根据 flit 类型（Request Ring+destType / Response Ring）分发至 FRQ 或 PE |
+| FRQ | FIFO Request Queue | TileReg 内部统一请求处理队列：分读队列（rd_queue, depth=10）和写队列（wr_queue, depth=10），按 write 字段分流。接收 MGB 出队的 TREG 请求，调度 SRAM 访问，SRAM 完成后弹出对应条目并打包响应送 SPB |
+| Flit | Flow control unit | 流控单元（Ring 上传输的最小数据单位，256B），meta 中包含 destType 字段 |
+| destType | Destination Type | flit 目标类型字段（1b, LSB=1）：TREG(0) = 访问 TileReg，CORE(1) = PE 间消息 |
 | Pipe | Pipeline SRAM | TileReg 的一个分区（128KB） |
 | BCC | Block Control Core | 块控制核 |
 | TMA | Tile Memory Access | Tile 存储访问单元 |
