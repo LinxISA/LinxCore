@@ -318,9 +318,10 @@ Flit Data = 32 x 64-bit words = 256 Bytes
 | 字段 | 位宽 | LSB | 含义 |
 |------|------|-----|------|
 | write | 1 | 0 | 原始请求的读/写标志 
-| src | 3 | 1 | 响应源（= pipe 编号或响应 PE node） |
-| dst | 3 | 4 | 响应目的（= 原始请求的 src） |
-| tag | 8 | 7 | 原始请求的 tag，原样返回 |
+| destType | 1 | 1 | 目标类型：0 = TREG（访问 TileReg），1 = CORE（PE 间消息） |
+| src | 3 | 2 | 响应源（= pipe 编号或响应 PE node） |
+| dst | 3 | 5 | 响应目的（= 原始请求的 src） |
+| tag | 8 | 8 | 原始请求的 tag，原样返回 |
 
 ### 4.4 destType 路由语义
 
@@ -330,6 +331,42 @@ Flit Data = 32 x 64-bit words = 256 Bytes
 | **CORE (1)** | PE → 目标 PE node | 目标 PE → 请求方 PE | REQ → 直接送 PE 响应通道（不经 TileReg）；RSP → PE 响应通道 |
 
 > CORE 模式实现 PE ↔ PE 信息交换：请求 flit 携带消息数据（data[0:31]），到达目的 node 后经 MGB 直接分发至目标 PE，不经过 FRQ/SRAM 路径。目标 PE 可生成响应 flit（destType=CORE）经 SPB → Rsp Ring → MGB 回复源 PE，完成双向握手。
+
+#### 4.4.1 PE-PE 通信举例：Vscatter
+
+TMU 的 Ring 结构可用于 PE ↔ PE 信息交换。以 VEC 模块执行 vscatter 指令为例：
+
+VEC 模块执行 SIMT 调度，以 vgather/vscatter 指令访存。VEC 与访存模块 TMA 之间有一条小带宽通信接口 BridgeReqBus 和大带宽的 Ring 互连。
+
+**通信流程**：
+
+```
+VEC(STQ entry size=16)                   TMA(BPQ entry size=40)
+|  ───── vscatter req (BridgeReqBus) ────▶  |
+|              (STQ entryID)                 |
+|  ◀──────── DBID rsp (Req Ring) ────────  |
+|       (STQ entryID, BPQ entryID)          |
+|  ───── data Tile (Rsp Ring) ──────────▶  |
+|              (BPQ entryID)                 |
+|  ───── addr Tile (Rsp Ring) ──────────▶  |
+|              (BPQ entryID)                 |
+```
+
+1. VEC 内 LSU 模块通过 BridgeReqBus 向 TMA 发起 vscatter 请求（携带 STQ entryID）
+2. TMA 内分配对应的 BPQ entry 后，打包携带访问许可的 flit（destType=CORE），通过 **请求 Ring** 返回 VEC 的写端口
+3. VEC 收到许可后，通过 **响应 Ring** 返回 data Tile 和 addr Tile
+
+**字段映射**：BPQ entryID 由 flit 的 `tag` 字段携带，STQ entryID 由 `addr` 字段携带。
+
+**通用 TMU 通信流程**：
+
+```
+PE → SPB(Req) → Req Ring → MGB(Req) → destType 分流 ── TREG/PE
+                                                      │ PE/TileReg 处理访问请求生成响应
+                  PE ← MGB(Rsp) ← Rsp Ring ← SPB(Rsp) ←
+```
+
+> 注：BridgeReqBus 为 VEC↔TMA 之间的专用小带宽控制接口，不经过 Ring。vscatter 的 data/addr Tile 传输走 Ring 的 CORE 模式（PE ↔ PE），不占用 TileReg 资源。
 
 ---
 
