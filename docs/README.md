@@ -24,8 +24,12 @@ Published mirrors for superproject architecture navigation are generated into:
 Use:
 
 ```bash
-python3 /Users/zhoubot/linx-isa/tools/bringup/sync_linxcore_arch_docs.py --root /Users/zhoubot/linx-isa
+cd /path/to/linx-isa
+python3 tools/bringup/sync_linxcore_arch_docs.py --root .
 ```
+
+The sync helper lives in the superproject, not in a standalone `LinxCore`
+checkout.
 
 ## Sections
 
@@ -33,3 +37,13 @@ python3 /Users/zhoubot/linx-isa/tools/bringup/sync_linxcore_arch_docs.py --root 
 - `trace/`: LinxTrace, pipeview, and viewer-side contracts
 - `cosim/`: co-simulation protocol notes
 - `flows/`: implementation and tooling workflow notes
+
+## Janus engine specs
+
+- `architecture/Janus/BCC/README.md`: Block Control Core background and design
+  notes
+- `architecture/Janus/TMU/TMU_SPEC_EN.md`: Tile Management Unit specification
+- `architecture/Janus/TMA/TMA_spec_en.md`: Tile Memory Access specification
+- `architecture/Janus/Cube/README.md`: CUBE matrix accelerator specification
+  index
+- `architecture/Janus/Vector/VECTOR_CORE_SPEC_EN.md`: Vector Core specification

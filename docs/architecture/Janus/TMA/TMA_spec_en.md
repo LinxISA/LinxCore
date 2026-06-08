@@ -67,7 +67,23 @@ TMA incorporates an internal cache (BDB) to exploit locality in M requests and s
 
 ## Overall Approach
 
-![TMA Microarchitecture Diagram](TMA_diagram.drawio.svg)
+```mermaid
+flowchart LR
+    EXT["BCC BIQ / BCC LSU / VEC"] --> BPQ["BPQ<br/>request intake and ordering"]
+    BPQ --> TAG["Tag Pipe<br/>hit/miss and allocation"]
+    TAG -->|hit| CAQ["CAQ<br/>BDB read scheduling"]
+    TAG -->|miss| RFB["RFB<br/>downstream read fill"]
+    RFB --> BDB["BDB<br/>Bridge Data Bank"]
+    CAQ --> BDB
+    BDB --> XBAR["Crossbar / data steering"]
+    XBAR --> TILE["TileReg Ring"]
+    XBAR --> MEM["SoC memory path"]
+    BDB --> SWCB["SWCB<br/>dirty victim writeback"]
+    SWCB --> MEM
+```
+
+The diagram above is an inline summary of the current TMA data path so the spec
+remains self-contained until a checked-in SVG source is available.
 
 ### Bridge Pair Queue (BPQ)
 

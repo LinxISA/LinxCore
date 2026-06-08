@@ -233,8 +233,8 @@ Cycle 110: uop1[1,1,0] 开始（依赖uop0[1,1,15]已满足）
 
 ## 📂 相关文档路径
 
-```
-/Users/fengshulin/hw/LinxCore/docs/architecture/Janus/Cube/
+```text
+docs/architecture/Janus/Cube/
 ├── README.md
 ├── architecture.md          ✅ 部分完成
 ├── datapath.md              ⏳ 待修改
@@ -245,8 +245,8 @@ Cycle 110: uop1[1,1,0] 开始（依赖uop0[1,1,15]已满足）
 └── diagrams/
     └── cube_architecture.md ⏳ 待修改
 
-/Users/fengshulin/hw/LinxCore/docs/architecture/Janus/TMU/
-└── TMU_SPEC_EN.md          📖 参考（Ring协议定义）
+docs/architecture/Janus/TMU/
+└── TMU_SPEC_EN.md           📖 参考（Ring协议定义）
 ```
 
 ---

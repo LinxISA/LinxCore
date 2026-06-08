@@ -33,6 +33,14 @@ Do not edit the superproject mirrors by hand.
 - `lsid_memory_ordering.md`
 - `stages/BROB.md`
 
+## Janus engine directories
+
+- `Janus/BCC/`: Block Control Core notes, diagrams, and background material
+- `Janus/TMU/`: Tile Management Unit specifications
+- `Janus/TMA/`: Tile Memory Access specifications
+- `Janus/Cube/`: CUBE matrix accelerator specifications and design notes
+- `Janus/Vector/`: Vector Core specifications
+
 ## Structural specification chapters
 
 - `module-catalog.md`: canonical module families, file ownership, and top-level
