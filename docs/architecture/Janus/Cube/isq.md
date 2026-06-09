@@ -680,8 +680,9 @@ struct isq_alloc_t {
     
     // 分配策略
     if (chain_count[req_chain] >= FAIR_THRESHOLD) {
-        // 该链已占用过多，降低优先级
-        allow = (other_chains_have_space == 0);
+        // 该链已占用过多，只有在其他链有活跃请求且需要空间时才限制
+        // 若其他链无活跃请求，应允许当前链继续分配以达到最大利用率
+        allow = (free_entries > 0) && (other_chains_active_requests == 0);
     } else {
         allow = (free_entries > 0);
     }

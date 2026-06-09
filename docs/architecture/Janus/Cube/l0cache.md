@@ -426,17 +426,24 @@ TMU flit 必须 256B 对齐
 struct prefetch_buffer_entry_t {
     valid:          1 bit;
     tile_addr:      6 bits;
-    offset:         16 bits;
+    base_offset:    16 bits;        // 512B 对齐的基地址
     priority:       2 bits;         // 块内=3, 块外=1
-    issued:         1 bit;          // 已发送到 TMU
     target_cache:   1 bit;          // 0=L0A, 1=L0B
     way:            2 bits;         // 预分配的 way
     set:            4 bits;         // 目标 set
-    flit_seq:       1 bit;          // 当前处理哪个 flit (0 或 1)
+    
+    // 发射状态（每个 entry 代表一个完整的 512B L0 entry 请求）
+    flit0_issued:   1 bit;          // 第一个 256B flit 已发送
+    flit1_issued:   1 bit;          // 第二个 256B flit 已发送
 };
 ```
 
-**Buffer 容量**：32 个 entry（可缓冲 16 个 L0 entry 的请求）
+**Buffer 容量**：32 个 entry（每个 entry 代表一个完整的 512B L0 entry 请求）
+
+**说明**：
+- 每个 prefetch buffer entry 对应一个完整的 512B L0 cache entry
+- 32 个 entry 可以缓冲最多 32 个 L0 entry 的预取请求
+- 每个请求需要发送 2 个 256B TMU flit（连续两拍发射）
 
 **预取请求优先级**：
 ```
@@ -456,11 +463,23 @@ Priority 1: 块外数据预取
 **发射策略**：
 ```
 1. 按优先级排序 prefetch buffer
-2. 选择最高优先级的请求
-3. 发送第一个 256B flit 到 TMU (flit_seq=0)
-4. 分配 MSHR 跟踪
-5. 标记 issued = 1
-6. 下一拍发送第二个 256B flit (flit_seq=1)
+2. 选择最高优先级且未完全发射的请求
+3. 如果 flit0_issued == 0：
+   - 发送第一个 256B flit 到 TMU (addr = base_offset)
+   - 设置 flit0_issued = 1
+4. 否则如果 flit1_issued == 0：
+   - 发送第二个 256B flit 到 TMU (addr = base_offset + 256)
+   - 设置 flit1_issued = 1
+5. 两个 flit 都发射后，分配 MSHR 跟踪响应
+6. 释放 prefetch buffer entry
+```
+
+**发射时序示例**：
+```
+Cycle 0: 选中 prefetch_req[0]（512B L0 entry 请求）
+Cycle 1: 发送 flit0 (addr=0x1000, 256B)，flit0_issued=1
+Cycle 2: 发送 flit1 (addr=0x1100, 256B)，flit1_issued=1，分配 MSHR
+Cycle 3: prefetch_req[0] 完成，释放 buffer entry
 ```
 
 ### 6.5 预取数据填充

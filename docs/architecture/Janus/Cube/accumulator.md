@@ -145,19 +145,32 @@ struct acc_mapping_entry_t {
 ```
 tmatmul.acc 链的依赖是 per-输出位置的：
 
-第一个 tmatmul：
-  uop[i,j,k] → ACC[slice_ij]
-  last_uop_id[slice_ij] = uop[i,j,K_tiles-1].uop_id  // K 方向最后一个
+第一个 tmatmul（FSM 拆分阶段）：
+  FSM 生成 uop[i,j,k]，分配 ACC[slice_ij]
+  FSM 立即更新：last_uop_id[slice_ij] = uop[i,j,K_tiles-1].uop_id
+  // 在 Dispatch Time（译码拆分阶段）就确定并记录最后一个 uop
 
-第二个 tmatmul.acc：
-  uop'[i,j,0].deps_uop_id = last_uop_id[slice_ij]
-  // 只依赖该输出位置的最后一个 uop，无需等待其他位置
+第二个 tmatmul.acc（FSM 拆分阶段）：
+  FSM 查询 ACC 映射表，读取 last_uop_id[slice_ij]
+  FSM 生成 uop'[i,j,0]，设置：
+    uop'[i,j,0].deps_uop_id = last_uop_id[slice_ij]
+  // 在拆分时就建立依赖关系，无需等待执行阶段
+
+关键时序：
+  Cycle 0:   第一个 tmatmul 开始拆分
+  Cycle 1-5: FSM 生成 uop[i,j,0..K-1]，更新 last_uop_id[slice_ij]
+  Cycle 6:   第二个 tmatmul.acc 开始拆分（无需等待第一个执行完成）
+  Cycle 7:   FSM 查询 last_uop_id[slice_ij]，绑定依赖关系
+  Cycle 8:   uop'[i,j,0] 入队 ISQ，携带 deps_uop_id
+  ...
+  Cycle 100: uop[i,j,K-1] 执行完成，broadcast uop_id
+  Cycle 101: uop'[i,j,0].deps_ready = 1（Wakeup）
 
 优势：
-- 第二个 tileop 无需等第一个完全完成
-- uop'[0,0,0] 可以在 uop[0,0,K-1] 完成后立即开始
-- uop'[1,1,0] 可以在 uop[1,1,K-1] 完成后立即开始
-- 支持流水线并行
+- last_uop_id 在 FSM 拆分时更新（Dispatch Time），无需等待执行
+- 第二个 tileop 可以在第一个还在执行时就完成拆分并入队 ISQ
+- 支持跨 tileop 的流水线并行（译码、发射、执行重叠）
+- 依赖检查在执行时动态完成（Wakeup 机制）
 ```
 
 **表容量**：16 个 entry（支持 4 个 ACC 链 × 4 个架构累加器）
