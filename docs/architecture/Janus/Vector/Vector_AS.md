@@ -90,7 +90,7 @@ LB2：第三层循环迭代次数；
 
 硬件掩码生成策略：
 
-当非最后一个Group时：生成全使能掩码（32'bFFFF_FFFF）
+当非最后一个Group时：生成全使能掩码（64'hFFFF_FFFF_FFFF_FFFF）
 
 当是最后一个Group是：根据LB0/1/2及Group Size动态生成对应位宽的使能掩码
 
