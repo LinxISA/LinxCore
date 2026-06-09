@@ -185,6 +185,7 @@ acccvt.rowmax zd, tile_dst, tile_rowmax, mode, acc_chain
 
 | 文档 | 状态 | 行数 | 最后更新 |
 |------|------|------|---------|
+| CUBE_SPEC.md | ✅ 完成 | 693 | 2026-06-09 |
 | architecture.md | ✅ 完成 | 1152 | 2026-06-02 |
 | diagrams/cube_architecture.md | ✅ 完成 | 265 | 2026-06-02 |
 | datapath.md | ✅ 完成 | 769 | 2026-06-02 |
@@ -192,6 +193,7 @@ acccvt.rowmax zd, tile_dst, tile_rowmax, mode, acc_chain
 | l0cache.md | ✅ 完成 | 685 | 2026-06-02 |
 | accumulator.md | ✅ 完成 | 633 | 2026-06-02 |
 | acccvt.md | ✅ 完成 | 658 | 2026-06-02 |
+| WORK_IN_PROGRESS.md | ✅ 进行中 | 255 | 2026-06-09 |
 | memory_interface.md | ⏳ 待完成 | - | - |
 
 ---
@@ -210,4 +212,4 @@ acccvt.rowmax zd, tile_dst, tile_rowmax, mode, acc_chain
 ---
 
 **文档版本**：Janus CUBE v2.0  
-**最后更新**：2026-06-02
+**最后更新**：2026-06-09
