@@ -70,6 +70,15 @@
   - § 10.1 块命令接收接口：详细定义 Tile Cmd Buffer 和反压机制
   - § 10.2.1 ACC 释放信号：新增细粒度 ACC 释放接口
 
+- ✅ `README.md`（2026-06-09 更新）：
+  - 文档状态表：添加 CUBE_SPEC.md 和 WORK_IN_PROGRESS.md
+  - 更新最后修改日期
+
+- ✅ `diagrams/cube_architecture.md`（2026-06-09 更新）：
+  - § 1 顶层模块框图：增加 Tile Cmd Buffer (depth=4) 和反压机制
+  - § 2 数据流图：更新命令接收路径（BCC → Tile Cmd Buffer → FSM）
+  - 更新最后修改日期
+
 ---
 
 ## 🔴 待完成工作（RTL前需要明确）
@@ -237,12 +246,18 @@ Cycle 110: uop1[1,1,0] 开始（依赖uop0[1,1,15]已满足）
 5. **acccvt.md**：
    - 明确acccvtuop与matmul uop的细粒度依赖
 
-6. **diagrams/cube_architecture.md**：
-   - 修正TMU接口为256B
-   - 更新带宽表
+### 已完成
 
-7. **README.md**：
-   - 更新参数表
+6. ✅ **diagrams/cube_architecture.md**（2026-06-09 完成）：
+   - ✅ 增加 Tile Cmd Buffer 到顶层框图
+   - ✅ 更新数据流图中的命令接收路径
+   - ⏳ 修正TMU接口为256B（待完成）
+   - ⏳ 更新带宽表（待完成）
+
+7. ✅ **README.md**（2026-06-09 完成）：
+   - ✅ 更新文档状态表
+   - ✅ 添加 CUBE_SPEC.md 和 WORK_IN_PROGRESS.md 条目
+   - ⏳ 更新参数表（待完成）
 
 ---
 
