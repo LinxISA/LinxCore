@@ -132,7 +132,32 @@ struct acc_mapping_entry_t {
     
     // 依赖信息
     tileop_id:      8 bits;         // 所属 tileop
+    
+    // per-输出位置的 last_uop_id 记录（用于细粒度依赖）
+    // 每个 slice 对应一个输出位置 (mi, nj)
+    // 记录写入该 slice 的最后一个 uop_id
+    last_uop_id:    8 bits[128];    // 每个 slice 一个 last_uop_id
+                                    // 用于 tmatmul.acc 的细粒度依赖
 };
+```
+
+**细粒度依赖管理**：
+```
+tmatmul.acc 链的依赖是 per-输出位置的：
+
+第一个 tmatmul：
+  uop[i,j,k] → ACC[slice_ij]
+  last_uop_id[slice_ij] = uop[i,j,K_tiles-1].uop_id  // K 方向最后一个
+
+第二个 tmatmul.acc：
+  uop'[i,j,0].deps_uop_id = last_uop_id[slice_ij]
+  // 只依赖该输出位置的最后一个 uop，无需等待其他位置
+
+优势：
+- 第二个 tileop 无需等第一个完全完成
+- uop'[0,0,0] 可以在 uop[0,0,K-1] 完成后立即开始
+- uop'[1,1,0] 可以在 uop[1,1,K-1] 完成后立即开始
+- 支持流水线并行
 ```
 
 **表容量**：16 个 entry（支持 4 个 ACC 链 × 4 个架构累加器）
@@ -629,5 +654,5 @@ wire         alloc_valid;
 ---
 
 **文档状态**：完成  
-**最后更新**：2026-06-02
+**最后更新**：2026-06-09
 

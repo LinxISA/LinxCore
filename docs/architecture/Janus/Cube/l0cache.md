@@ -334,7 +334,77 @@ FSM 拆分时标记：
 
 ## 6. 预取机制
 
-### 6.1 预取触发
+### 6.1 TMU Ring 接口和 Flit 匹配
+
+**TMU Ring 协议**：
+- CUBE 通过 **node1/pipe1** 读取 TileReg
+- 每个 TMU 请求是一个 **256B flit**
+- L0 Cache entry = **512B**，需要 **2 个 flit** 填充
+
+**地址对齐和 Flit 序列**：
+```
+单个 512B L0 entry 的填充：
+
+Base Address: 0x1000 (512B 对齐)
+Entry ID: 5
+
+生成 2 个 TMU 读请求：
+  Request 1:
+    addr = 0x1000 (base + 0)
+    size = 256B
+    tag = 0x10
+    flit_seq = 0
+    target_entry = 5
+  
+  Request 2:
+    addr = 0x1100 (base + 256)
+    size = 256B
+    tag = 0x11
+    flit_seq = 1
+    target_entry = 5
+
+填充过程：
+  Cycle N:   TMU 返回 flit 0 (tag=0x10)
+             → L0[5].data[0:255] = flit_data
+             → L0[5].flit_mask[0] = 1
+  
+  Cycle N+1: TMU 返回 flit 1 (tag=0x11)
+             → L0[5].data[256:511] = flit_data
+             → L0[5].flit_mask[1] = 1
+             → L0[5].pending = 0 (entry 完整)
+  
+  Cycle N+2: 通知 ISQ: L0[5] ready
+             → 更新依赖此 entry 的 uop.src_ready
+```
+
+**MSHR Entry 扩展**：
+```verilog
+struct mshr_entry_t {
+    valid:          1 bit;
+    tile_addr:      6 bits;
+    base_offset:    16 bits;        // 512B 对齐的基地址
+    target_entry:   4 bits;         // L0 Cache entry ID
+    target_way:     2 bits;
+    target_set:     4 bits;
+    flit_mask:      2 bits;         // [1]=flit1 arrived, [0]=flit0 arrived
+    pending_uops:   bitmap;         // 等待此 entry 的 uop 列表
+};
+```
+
+**地址对齐要求**：
+```
+L0 entry 必须 512B 对齐
+  addr[8:0] = 0
+
+TMU flit 必须 256B 对齐
+  addr[7:0] = 0
+
+检查逻辑：
+  assert(entry_addr % 512 == 0);
+  assert(flit_addr % 256 == 0);
+```
+
+### 6.2 预取触发
 
 **触发时机**：FSM 在 Fractal 拆分时
 
@@ -349,7 +419,7 @@ FSM 拆分时标记：
 5. 按优先级发送到 TMU
 ```
 
-### 6.2 Prefetch Buffer
+### 6.3 Prefetch Buffer
 
 **Buffer 结构**：
 ```verilog
@@ -362,10 +432,11 @@ struct prefetch_buffer_entry_t {
     target_cache:   1 bit;          // 0=L0A, 1=L0B
     way:            2 bits;         // 预分配的 way
     set:            4 bits;         // 目标 set
+    flit_seq:       1 bit;          // 当前处理哪个 flit (0 或 1)
 };
 ```
 
-**Buffer 容量**：8-16 个 entry
+**Buffer 容量**：32 个 entry（可缓冲 16 个 L0 entry 的请求）
 
 **预取请求优先级**：
 ```
@@ -373,7 +444,7 @@ Priority 3: 块内数据预取
 Priority 1: 块外数据预取
 ```
 
-### 6.3 预取发射
+### 6.4 预取发射
 
 **发射条件**：
 ```
@@ -386,21 +457,27 @@ Priority 1: 块外数据预取
 ```
 1. 按优先级排序 prefetch buffer
 2. 选择最高优先级的请求
-3. 发送到 TMU
+3. 发送第一个 256B flit 到 TMU (flit_seq=0)
 4. 分配 MSHR 跟踪
 5. 标记 issued = 1
+6. 下一拍发送第二个 256B flit (flit_seq=1)
 ```
 
-### 6.4 预取数据填充
+### 6.5 预取数据填充
 
 **填充流程**：
 ```
-1. TMU 返回数据
-2. 查找对应 MSHR
-3. 写入 L0 Cache（预分配的 way）
-4. 设置 priority = 2（预取）
-5. 释放 MSHR
-6. Wakeup 等待此数据的 uop（更新 src_ready）
+1. TMU 返回 flit（带 tag）
+2. 查找对应 MSHR（通过 tag 匹配）
+3. 根据 flit_seq 写入 L0 Cache：
+   - flit_seq=0 → L0[entry].data[0:255]
+   - flit_seq=1 → L0[entry].data[256:511]
+4. 更新 MSHR.flit_mask
+5. 如果 flit_mask == 0b11（两个 flit 都到达）：
+   - 设置 L0[entry].valid = 1
+   - 设置 L0[entry].priority = 2（预取）
+   - 释放 MSHR
+   - Wakeup 等待此数据的 uop（更新 src_ready）
 ```
 
 ---
@@ -681,5 +758,5 @@ wire [2:0]  mshr_occupancy;       // 当前使用的 MSHR 数
 ---
 
 **文档状态**：完成  
-**最后更新**：2026-06-02
+**最后更新**：2026-06-09
 

@@ -685,7 +685,7 @@ MAC 计算：
 BufferC：
   14          BufferC 累加                 1
 
-ACC 写入（每 K_chunk）：
+ACC 写入（K 全部完成后）：
   15-23       ACC RMW（读 + 加 + 写）      9
               - 读取 1 KB：4 cycles (256 B/cy)
               - FP32 加法：1 cycle
@@ -826,19 +826,5 @@ K=64              ~95%          接近峰值
 ---
 
 **文档状态**：完成  
-**最后更新**：2026-06-03
-
-
-| MAC 阵列 | 16×16 脉动阵列 | 4096 MACs (FP16) |
-| 脉动延迟 | ~7 cycles | 流水线 |
-| BufferC 容量 | 1 KB | 非 FP4 |
-| ACC 写带宽 | 256 B/cycle | nz 格式 |
-| ACC 读带宽 | 256 B/cycle | 到 FixPipe |
-| FixPipe 延迟 | ~4 cycles | nz→nd + 量化 |
-| TileStore 带宽 | 2048 B/cycle | Burst 写 |
-
----
-
-**文档状态**：完成  
-**最后更新**：2026-06-02
+**最后更新**：2026-06-09
 

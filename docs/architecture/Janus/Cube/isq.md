@@ -628,6 +628,92 @@ wire        selected_valid;
 
 ---
 
+## 13. ISQ 多链并发组织方式
+
+### 13.1 设计选项
+
+当 2-4 条 ACC 链并发时，32-deep ISQ 可采用以下组织方式：
+
+**选项 A：全局共享（推荐）**
+```
+所有链共享 32 entries
+- 优点：资源利用率高，单链可用全部 32 entries
+- 缺点：需要仲裁机制，可能存在饥饿
+- 适用：链间负载均衡时
+```
+
+**选项 B：静态分区**
+```
+per-chain 固定分配：
+  2 链：每链 16 entries
+  4 链：每链 8 entries
+- 优点：简单，无仲裁，公平性保证
+- 缺点：资源浪费，单链无法使用空闲 entries
+- 适用：链间严格隔离需求
+```
+
+**选项 C：动态分区**
+```
+混合方案：
+  每链最小保证：4 entries（保证前进）
+  共享池：16 entries（动态分配）
+  总计：4×4 + 16 = 32
+
+分配策略：
+  1. 优先满足每链的 4 entries
+  2. 共享池按需分配（先到先得或优先级）
+  3. 单链最多占用 20 entries（4 + 16）
+```
+
+### 13.2 推荐方案
+
+**采用选项 A（全局共享）+ 公平性保证**：
+
+```verilog
+// ISQ entry 分配
+struct isq_alloc_t {
+    // 全局 32 entries，无静态分区
+    entry_pool:     32 entries;
+    
+    // per-chain 计数器（防止饥饿）
+    chain_count[4]: 6 bits each;    // 每链当前 entry 数
+    
+    // 分配策略
+    if (chain_count[req_chain] >= FAIR_THRESHOLD) {
+        // 该链已占用过多，降低优先级
+        allow = (other_chains_have_space == 0);
+    } else {
+        allow = (free_entries > 0);
+    }
+};
+
+// 公平性参数
+FAIR_THRESHOLD = 20;  // 单链最多占 20/32 entries
+MIN_GUARANTEE = 4;    // 每链至少保证 4 entries
+```
+
+**优势**：
+- 单链可用全部 32 entries（其他链空闲时）
+- 多链并发时自动负载均衡
+- 简单的公平性机制防止饥饿
+
+### 13.3 跨链发射仲裁
+
+当多链的 uop 同时 ready 时，选择策略：
+
+```
+1. 按优先级：K_idx==0 > K_idx>0
+2. 同优先级时：round-robin（轮询 acc_chain）
+3. 或：选择最老的 uop（按 age 字段）
+```
+
+**不同链的 uop 完全独立**：
+- 链 0 的 uop[i,j,k] 和链 1 的 uop[i,j,k] 无依赖
+- 可以同时发射到 MAC 阵列（如果支持多 issue）
+- 或轮流发射（单 issue）
+
+---
+
 **文档状态**：完成  
-**最后更新**：2026-06-02
+**最后更新**：2026-06-09
 
