@@ -224,34 +224,38 @@ Cycle 110: uop1[1,1,0] 开始（依赖uop0[1,1,15]已满足）
 
 ## 🔧 需要修改的其他文档
 
-### 待修改（未完成）
-
-1. **datapath.md**：
-   - § 4 BufferC：删除K_chunk
-   - § 2 输入路径：明确Prefetch Buffer 32 entries
-   - § 6 输出路径：明确TileStore Queue 8 entries
-
-2. **isq.md**：
-   - 增加多链并发机制说明
-   - 增加细粒度依赖管理
-
-3. **l0cache.md**：
-   - 明确512B entry需要2个TMU flit
-   - 增加地址对齐和flit匹配逻辑
-
-4. **accumulator.md**：
-   - 增加ACC映射表详细结构
-   - 增加per-输出位置的last_uop_id记录
-
-5. **acccvt.md**：
-   - 明确acccvtuop与matmul uop的细粒度依赖
-
 ### 已完成
+
+1. ✅ **datapath.md**（2026-06-09 完成）：
+   - ✅ § 4 BufferC：删除 K_chunk
+   - ✅ § 2 输入路径：明确 Prefetch Buffer 32 entries
+   - ✅ § 6 输出路径：明确 TileStore Queue 8 entries
+   - ✅ 删除重复的参数表
+
+2. ✅ **isq.md**（2026-06-09 完成）：
+   - ✅ 增加多链并发机制说明（§13）
+   - ✅ 详细说明全局共享、静态分区、动态分区方案
+   - ✅ 补充跨链发射仲裁策略
+
+3. ✅ **l0cache.md**（2026-06-09 完成）：
+   - ✅ 明确 512B entry 需要 2 个 TMU flit（§6.1）
+   - ✅ 增加地址对齐和 flit 匹配逻辑
+   - ✅ 更新 Prefetch Buffer 深度为 32 entries
+
+4. ✅ **accumulator.md**（2026-06-09 完成）：
+   - ✅ 增加 ACC 映射表详细结构（§3.2）
+   - ✅ 增加 per-输出位置的 last_uop_id 记录
+   - ✅ 补充细粒度依赖和流水线并行说明
+
+5. ✅ **acccvt.md**（2026-06-09 完成）：
+   - ✅ 明确 acccvtuop 与 matmul uop 的细粒度依赖（§3.2）
+   - ✅ 删除旧的 K_chunk 提前 Wakeup 概念
+   - ✅ 补充 per-slice 依赖和 Wakeup 示例
 
 6. ✅ **diagrams/cube_architecture.md**（2026-06-09 完成）：
    - ✅ 增加 Tile Cmd Buffer 到顶层框图
    - ✅ 更新数据流图中的命令接收路径
-   - ⏳ 修正TMU接口为256B（待完成）
+   - ⏳ 修正 TMU 接口为 256B（待完成）
    - ⏳ 更新带宽表（待完成）
 
 7. ✅ **README.md**（2026-06-09 完成）：
