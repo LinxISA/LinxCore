@@ -36,9 +36,9 @@ if not isinstance(obj, dict):
 policy = obj.get("spec_policy")
 if not isinstance(policy, dict):
     raise SystemExit(f"error: missing spec_policy in: {path}")
-stage_b = policy.get("stage_b_required")
+stage_b = policy.get("promotion_required")
 if not isinstance(stage_b, list):
-    raise SystemExit(f"error: spec_policy.stage_b_required must be list in: {path}")
+    raise SystemExit(f"error: spec_policy.promotion_required must be list in: {path}")
 excluded = policy.get("excluded_benchmarks", [])
 excluded_set = set(str(x) for x in excluded) if isinstance(excluded, list) else set()
 for bench in stage_b:

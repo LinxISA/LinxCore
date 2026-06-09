@@ -1,4 +1,4 @@
-# LinxCore v0.4 Verification Matrix
+# LinxCore v0.56 Verification Matrix
 
 This matrix ties LinxCore architecture intent to strict required gates.
 

@@ -75,9 +75,6 @@ remain backed by a real owner module.
 - Design role: rename request/translation stage and ROB-visible boundary
   resolution.
 - `BSTART` and `BSTOP` become architecturally visible here.
-- `SETRET` and `C.SETRET` are also D2-resolved here and must not be sent into
-  IQ or late writeback ownership.
-
 ### D3
 
 - Owner module: `src/bcc/ooo/ren.py` (`JanusBccOooRen`)
@@ -256,8 +253,13 @@ remain backed by a real owner module.
 
 ### TMA
 
-- Owner module: `src/tma/tma.py` (`JanusTma`)
-- Design role: tile-matrix engine command/response boundary.
+- Owner modules:
+  - `src/csu/subsystem.py` (`JanusCsuSubsystem`)
+  - `src/csu/tma_cmd_frontend.py` (`JanusCsuTmaCmdFrontend`)
+  - `src/csu/tma_ctx_tracker.py` (`JanusCsuTmaCtxTracker`)
+  - `src/csu/tma_l2_client.py` (`JanusCsuTmaL2Client`)
+- Design role: tile-matrix command/response boundary remains block-visible, but
+  southbound transport is owned inside the CSU subsystem.
 
 ### CUBE
 
@@ -298,8 +300,13 @@ remain backed by a real owner module.
 
 ### TMA
 
-- Owner module: `src/tma/tma.py` (`JanusTma`)
-- Design role: matrix/tile accelerator execution boundary under block control.
+- Owner modules:
+  - `src/csu/subsystem.py`
+  - `src/csu/tma_cmd_frontend.py`
+  - `src/csu/tma_ctx_tracker.py`
+  - `src/csu/tma_l2_client.py`
+- Design role: matrix/tile accelerator execution boundary under block control
+  with CSU-owned L2 transport and completion aggregation.
 
 ### CUBE
 

@@ -9,11 +9,39 @@ SPEC_INPUT_SET="${SPEC_INPUT_SET:-test}"
 OUT_ROOT="${SPEC_XCHECK_OUT_ROOT:-${REPO_ROOT}/workloads/generated/spec2017/stage_a_xcheck}"
 POLICY_MANIFEST="${SPEC_POLICY_MANIFEST:-${REPO_ROOT}/docs/bringup/agent_runs/manifest.yaml}"
 
-BENCHES=(
-  "999.specrand_ir"
-  "505.mcf_r"
-  "531.deepsjeng_r"
+mapfile -t BENCHES < <(python3 - "${POLICY_MANIFEST}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+obj = None
+try:
+    obj = json.loads(text)
+except json.JSONDecodeError:
+    try:
+        import yaml  # type: ignore
+    except ImportError as exc:
+        raise SystemExit(f"error: failed to parse policy manifest as JSON and PyYAML is unavailable: {path}") from exc
+    obj = yaml.safe_load(text)
+if not isinstance(obj, dict):
+    raise SystemExit(f"error: invalid policy manifest root: {path}")
+policy = obj.get("spec_policy")
+if not isinstance(policy, dict):
+    raise SystemExit(f"error: missing spec_policy in: {path}")
+bringup = policy.get("bringup_subset")
+if not isinstance(bringup, list):
+    raise SystemExit(f"error: spec_policy.bringup_subset must be list in: {path}")
+for bench in bringup:
+    print(str(bench))
+PY
 )
+
+if [[ "${#BENCHES[@]}" -eq 0 ]]; then
+  echo "error: no bringup-subset benches resolved from ${POLICY_MANIFEST}" >&2
+  exit 2
+fi
 
 mkdir -p "${OUT_ROOT}"
 
