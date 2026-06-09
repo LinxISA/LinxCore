@@ -1,8 +1,8 @@
-# LinxCore v0.4 Microarchitecture Contract
+# LinxCore v0.56 Microarchitecture Contract
 
 ## Baseline superscalar contract
 
-LinxCore is the canonical superscalar out-of-order core for LinxISA `v0.4`.
+LinxCore is the canonical superscalar out-of-order core for LinxISA `v0.56`.
 It retires precisely, executes out of order, and preserves a block-ordered
 architectural control model across scalar and engine-backed work.
 
@@ -14,14 +14,14 @@ Current baseline limits:
 - commit width: up to 4
 - LSU width: 1
 
-These limits are the live `v0.4` closure baseline. Wider issue or multi-LSU
+These limits are the live `v0.56` closure baseline. Wider issue or multi-LSU
 scaling is a follow-on track, not part of the normative contract here.
 
 ## Architectural state model
 
 LinxCore must preserve the following architectural state classes:
 
-- scalar, control, and privilege state defined by LinxISA `v0.4`,
+- scalar, control, and privilege state defined by LinxISA `v0.56`,
 - CSR, trap, MMU, and interrupt-visible state,
 - block-visible architectural state for `BSTART`, `BSTOP`, and
   boundary-authoritative redirect,
@@ -181,8 +181,6 @@ future canonical updates, but it must not contradict the rules below.
 - `D2` is the rename request and translation stage.
 - `D2` preserves decode-slot program order across one decode group.
 - `D2` resolves boundary metadata and prepares ROB-visible boundary uops.
-- `D2` also resolves immediate-only architectural producers that must bypass
-  IQ allocation and late writeback, including `SETRET` and `C.SETRET`.
 - `D2` carries the canonical architectural uop shape:
 
 ```text
@@ -513,7 +511,7 @@ Detailed BROB and block-fabric behavior remains documented in:
 ## MMU contract (LC-MA-MMU-001)
 
 - Translation success and failure must produce deterministic trap envelopes.
-- MMU behavior must remain aligned with the `v0.4` privileged contract wording.
+- MMU behavior must remain aligned with the `v0.56` privileged contract wording.
 - MMU fault paths must preserve precise retirement and recovery ordering.
 
 ## Interrupt contract (LC-MA-IRQ-001)
@@ -565,8 +563,11 @@ Detailed ordering behavior remains documented in:
 ### Workload-engine composition
 
 - `VEC` remains the general programmable SIMT compute engine.
-- `TMA`, `CUBE`, and `TAU` integrate into LinxCore through the same block/BID
-  contract as the rest of the machine.
+- `TMA` integrates into LinxCore through the same block/BID contract as the
+  rest of the machine, but its southbound memory traffic is owned by the CSU
+  subsystem and targets CSU L2 alongside frontend refill traffic.
+- `CUBE` and `TAU` continue to integrate through the same block/BID contract
+  as peer engines.
 - Engine issue, completion, exception, and flush behavior must remain visible
   to ROB, BROB, and trace machinery through the canonical interfaces.
 

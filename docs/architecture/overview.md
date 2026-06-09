@@ -1,9 +1,9 @@
-# LinxCore v0.4 Superscalar Bring-up Overview
+# LinxCore v0.56 Superscalar Bring-up Overview
 
 ## Scope
 
 This document is the top-level specification overview for LinxCore under the
-live LinxISA `v0.4` contract.
+live LinxISA `v0.56` contract.
 
 LinxCore is specified here as:
 
@@ -13,7 +13,7 @@ LinxCore is specified here as:
 - the owner of precise retirement, recovery, interrupt, MMU, and trace-visible
   execution behavior,
 - the machine that downstream compiler, emulator, pyCircuit, and testbench
-  work must target for canonical `v0.4` behavior.
+  work must target for canonical `v0.56` behavior.
 
 This specification is not a performance wish-list and not a historical bring-up
 log. It defines the live contract the implementation must preserve.
@@ -25,9 +25,9 @@ glue.
 
 ## Normative links
 
-- Base ISA architecture contract: `docs/architecture/v0.4-architecture-contract.md`
-- Workload-to-engine model: `docs/architecture/v0.4-workload-engine-model.md`
-- Rendering command model: `docs/architecture/v0.4-rendering-command-contract.md`
+- Base ISA architecture contract: `docs/architecture/v0.56-architecture-contract.md`
+- Workload-to-engine model: `docs/architecture/v0.56-workload-engine-model.md`
+- Rendering command model: `docs/architecture/v0.56-rendering-command-contract.md`
 - LinxCore microarchitecture contract: `rtl/LinxCore/docs/architecture/microarchitecture.md`
 - LinxCore interface contract: `rtl/LinxCore/docs/architecture/interfaces.md`
 - LinxCore verification matrix: `rtl/LinxCore/docs/architecture/verification-matrix.md`
@@ -57,22 +57,24 @@ stream, completion model, flush rules, and observability rules as scalar work.
 
 ## Architectural role in LinxISA
 
-Under `v0.4`, LinxCore is the execution substrate for the multi-workload
+Under `v0.56`, LinxCore is the execution substrate for the multi-workload
 LinxISA model.
 
 - BCC and the block fabric provide the architectural control and submission
   path.
 - `VEC` is the general programmable SIMT engine for parallel-loop work.
-- `TMA`, `CUBE`, and `TAU` are integrated engines selected through the same
-  block model.
+- `TMA` remains selected through the same block model, but its memory transport
+  is owned by the CSU subsystem rather than by a peer top-level engine shell.
+- `CUBE` and `TAU` remain integrated engines selected through the same block
+  model.
 - Engine-backed work must retire, cancel, redirect, and trace through LinxCore
   rules rather than through a separate architectural domain.
 
 This composition rule is required for consistency with:
 
-- `docs/architecture/v0.4-architecture-contract.md`
-- `docs/architecture/v0.4-workload-engine-model.md`
-- `docs/architecture/v0.4-rendering-command-contract.md`
+- `docs/architecture/v0.56-architecture-contract.md`
+- `docs/architecture/v0.56-workload-engine-model.md`
+- `docs/architecture/v0.56-rendering-command-contract.md`
 
 ## Current architecture closure slice
 
@@ -143,7 +145,7 @@ expand a mechanism, but they must not weaken or redefine the live contract.
 
 The live closure target for this specification is:
 
-- LinxISA `v0.4` architectural behavior,
+- LinxISA `v0.56` architectural behavior,
 - U + S privilege behavior,
 - MMU and interrupt correctness,
 - dual-lane reproducibility (`pin` and `external`),
@@ -158,6 +160,6 @@ This overview does not freeze:
 
 - final frequency, area, or power targets,
 - future width scaling beyond the current live contract,
-- future engine additions not already covered by the LinxISA `v0.4`
+- future engine additions not already covered by the LinxISA `v0.56`
   architecture contract,
 - historical bring-up strategies that are no longer part of the live behavior.

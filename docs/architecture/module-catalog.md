@@ -1,7 +1,7 @@
 # LinxCore Module Catalog
 
 This chapter defines the canonical module structure for LinxCore under the live
-`v0.4` superscalar contract.
+`v0.56` superscalar contract.
 
 It freezes which module families own architectural behavior, which files are
 the canonical owners of those behaviors, and how those modules compose into the
@@ -175,9 +175,6 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 - Owns `D2`.
 - Performs rename request/translation preparation and resolves ROB-visible
   boundary metadata for `BSTART` and `BSTOP`.
-- Also resolves immediate-only return-target producers `SETRET` and
-  `C.SETRET`, which bypass IQ ownership and complete from the D2 path.
-
 ### `src/bcc/ooo/ren.py`
 
 - Owns `D3`.
@@ -392,13 +389,25 @@ metadata, and UID allocation required by the stage, block, and trace contracts.
 
 ## Engine and accelerator modules
 
+### `src/csu/subsystem.py`
+
+- Owns the unified CSU parent subsystem that absorbs IFU refill traffic and
+  CSU-internal TMA transport ownership.
+
+### `src/csu/{tma_cmd_frontend,tma_ctx_tracker,tma_l2_client,client_arb}.py`
+
+- Own the CSU-internal TMA command ingress, context tracking, L2-client
+  translation, and refill-versus-TMA arbitration boundaries.
+
 ### `src/vec/vec.py`
 
 - Owns the `VEC` engine boundary.
 
 ### `src/tma/tma.py`
 
-- Owns the `TMA` engine boundary.
+- Remains the standalone compatibility facade for isolated TMA unit tests.
+- Janus top-level integration no longer treats it as the normative southbound
+  transport owner.
 
 ### `src/cube/cube.py`
 
