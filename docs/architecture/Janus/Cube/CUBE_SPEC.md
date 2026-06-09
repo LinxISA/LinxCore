@@ -53,7 +53,9 @@ CUBE 是 Janus 的**矩阵乘法加速引擎**，专为高吞吐量 GEMM（Gener
                     ┌─────────────────────────────────────────────┐
                     │                   CUBE                      │
                     │                                             │
-  BCC ──(tile cmd)──┤ FSM & Fractal Split                        │
+  BCC ──(tile cmd)──┤ Tile Cmd Buffer (depth=4)                  │
+                    │   ↓                                         │
+                    │ FSM & Fractal Split                        │
                     │   ↓                                         │
                     │ ISQ (32 uop, out-of-order)                 │
                     │   ↓                                         │
@@ -89,7 +91,8 @@ CUBE 是 Janus 的**矩阵乘法加速引擎**，专为高吞吐量 GEMM（Gener
 
 | 模块 | 功能 | 容量/规格 |
 |------|------|----------|
-| **FSM** | 接收 tile 指令，拆分为 16×16 uop | - |
+| **Tile Cmd Buffer** | 接收 BCC 派发的 tile 指令 | 4 entries |
+| **FSM** | 从 Cmd Buffer 取指令，拆分为 16×16 uop | - |
 | **ISQ** | uop 调度队列，乱序执行 | 32 entries |
 | **L0A Cache** | A 矩阵数据缓存 | 64 KB, 4-way, 512B/entry |
 | **L0B Cache** | B 矩阵数据缓存 | 64 KB, 4-way, 512B/entry |
@@ -411,6 +414,12 @@ acc_mapping[acc_chain][zd] = {
 }
 ```
 
+**容量管理**：
+- **所有 ACC chain 共享 128 KB 总容量**，无固定分区
+- 单条 ACC chain 最多可使用全部 128 KB（此时只能执行该链）
+- 2-4 条 ACC chain 并发时，动态分配容量
+- BCC 侧维护每个 chain 的使用量计数器，防止溢出
+
 **分配策略**：
 - Bank-aware allocation: 避免同一 bank 的连续分配
 - 2-4 条 ACC chain 并发管理
@@ -461,9 +470,123 @@ acccvtuop[15]: slice 15 → tC offset 15KB
 
 ---
 
-## 10. Block Fabric 接口
+## 10. BCC 接口
 
-### 10.1 与 TMU 的接口协议
+### 10.1 块命令接收接口
+
+CUBE 接收来自 BCC BISQ 派发的块命令（tile 级指令）。
+
+**Tile Command Buffer**：
+- **深度**：4 entries
+- **功能**：缓冲来自 BCC 的块命令，避免 BCC 与 CUBE FSM 之间的时序耦合
+- **Entry 内容**：完整的 tile 命令（包括下述所有 `cube_cmd_*` 信号）
+- **反压机制**：Buffer 满时，`cube_cmd_ready` 拉低，阻止 BCC 继续派发
+- **FSM 取指**：FSM 从 Buffer 头部取出命令进行 Fractal 拆分
+
+**接口信号**：
+
+| 信号 | 位宽 | 方向 | 说明 |
+|------|------|------|------|
+| `cube_cmd_valid` | 1 | input | 块命令有效 |
+| `cube_cmd_ready` | 1 | output | CUBE 可接收命令 |
+| `cube_cmd_type` | 3 | input | 指令类型（tmatmul=0, tmatmul.acc=1, acccvt=2） |
+| `cube_cmd_iot` | packed | input | I/O Tile 描述（BCC TileRename 后） |
+| `cube_cmd_shape` | 16 | input | 输出矩阵形状（如 64×64） |
+| `cube_cmd_acc_chain` | 2 | input | ACC 链标记（0-3） |
+| `cube_cmd_mode` | 4 | input | acccvt 模式（nz2nd, quant等） |
+| `cube_cmd_brob` | 8 | input | BROB index，用于完成回报 |
+
+**IOT 字段说明**（packed）：
+```
+cube_cmd_iot = {
+    src_A_valid:  1 bit,
+    src_A_tag:    8 bits,     // TileRename tag
+    src_A_addr:   32 bits,    // TileReg 物理地址
+    src_A_ready:  1 bit,      // src ready (应该在 BISQ 已消解)
+    
+    src_B_valid:  1 bit,
+    src_B_tag:    8 bits,
+    src_B_addr:   32 bits,
+    src_B_ready:  1 bit,
+    
+    dst_valid:    1 bit,
+    dst_tag:      8 bits,
+    dst_addr:     32 bits,
+    dst_size:     16 bits     // 输出大小（KB）
+}
+```
+
+### 10.2 块完成回报接口
+
+CUBE 执行完一个 tile 指令后，向 BCC BROB 回报完成。
+
+**接口信号**：
+
+| 信号 | 位宽 | 方向 | 说明 |
+|------|------|------|------|
+| `cube_done_valid` | 1 | output | 块执行完成 |
+| `cube_done_brob` | 8 | output | 对应的 BROB index |
+| `cube_done_status` | 4 | output | 完成状态（0=成功） |
+| `cube_done_error` | 1 | output | 错误标志 |
+| `cube_done_error_code` | 8 | output | 错误码（ACC溢出、TMU超时等） |
+
+**Status 编码**：
+```
+0x0: 成功完成
+0x1: ACC 分配失败
+0x2: L0 Cache thrashing
+0x3: TMU 超时
+0x4-0xF: 保留
+```
+
+### 10.2.1 ACC 释放信号
+
+**用途**：acccvt 执行过程中，每完成一个 acccvtuop 的写回，CUBE 向 BCC 发送 ACC 释放信号。
+
+**接口信号**：
+
+| 信号 | 位宽 | 方向 | 说明 |
+|------|------|------|------|
+| `cube_acc_release_valid` | 1 | output | ACC 释放信号有效 |
+| `cube_acc_release_chain` | 2 | output | 对应的 ACC chain (0-3) |
+| `cube_acc_release_size` | 16 | output | 释放的 ACC 大小（单位：KB 或 Bytes，待定） |
+
+**工作流程**：
+1. acccvt 指令拆分为多个 acccvtuop（每个 uop 处理 1 个 ACC slice）
+2. 每个 acccvtuop 通过 FixPipe 完成格式转换并写回 TileReg
+3. 每完成一个 acccvtuop 写回，CUBE 发送一次 `cube_acc_release_valid`
+4. BCC 侧维护的 `acc_usage[chain]` 计数器递减对应大小
+5. 所有 acccvtuop 完成后，发送 `cube_done_valid` 表示整个块完成
+
+**时序示例（64×64 矩阵，16 个 slices）**：
+```
+Cycle N:   acccvtuop[0] 完成 → cube_acc_release_valid=1, size=1KB
+Cycle N+K: acccvtuop[1] 完成 → cube_acc_release_valid=1, size=1KB
+...
+Cycle M:   所有 acccvtuop 完成 → cube_done_valid=1
+```
+
+### 10.3 Flush 接口
+
+**接口信号**：
+
+| 信号 | 位宽 | 方向 | 说明 |
+|------|------|------|------|
+| `cube_flush_valid` | 1 | input | Flush 请求有效 |
+| `cube_flush_brob` | 8 | input | Flush 的 BROB 边界 |
+| `cube_flush_older` | 1 | input | 1=flush older, 0=flush younger |
+
+**Flush 行为**：
+1. 清空 ISQ 中 younger/older uop
+2. 保留符合条件的 uop 继续执行
+3. 释放被 flush 的 ACC slices
+4. 终止 L0 预取请求
+
+---
+
+## 11. TMU Ring 接口
+
+### 11.1 与 TMU 的接口协议
 
 CUBE 通过 TMU Ring 访问 TileReg：
 
@@ -472,7 +595,7 @@ CUBE 通过 TMU Ring 访问 TileReg：
 | CUBE port0 | node1 | Read | L0A/L0B 数据加载 |
 | CUBE port1 | node3 | Write | FixPipe 结果写回 |
 
-### 10.2 Flit 格式
+### 11.2 Flit 格式
 
 **数据粒度**：256 B per flit
 
@@ -527,9 +650,9 @@ TMU → CUBE:
 
 ---
 
-## 11. 访问时序
+## 12. 访问时序
 
-### 11.1 单个 uop 延迟
+### 12.1 单个 uop 延迟
 
 **无 RMW 情况（K 中间步）**：
 ```
@@ -549,7 +672,7 @@ Cycle 14-17: ACC RMW 写回 (4 cycles)
 Total: 18 cycles (含 9-cycle RMW)
 ```
 
-### 11.2 tmatmul 完整流程时序
+### 12.2 tmatmul 完整流程时序
 
 **64×64×128 矩阵 (4×4×8 uop)**：
 
@@ -568,7 +691,7 @@ Cycle 900:   所有 uop 完成
 Cycle 900:   向 BCC BROB 回报完成
 ```
 
-### 11.3 L0 Cache 访问延迟
+### 12.3 L0 Cache 访问延迟
 
 **Cache hit**：1 cycle
 **Cache miss**：
