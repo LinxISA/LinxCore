@@ -9,6 +9,7 @@
 | 文件 | 内容 |
 | --- | --- |
 | [JCore_BCC_AS.md](JCore_BCC_AS.md) | 主 AS 文档，按 DavinciOO AS 格式组织: 元信息、Change Log、Motivation、Key Parameters、结构、生命周期、接口、恢复、Open Questions |
+| [BCC_AS.md](BCC_AS.md) | 聚焦 BCC SMT/OoO pipeline 的独立规格，收敛标量执行、CMD_ISQ、TileRename、BISQ、BROB 与恢复路径 |
 | [00_BCC_Architecture.md](00_BCC_Architecture.md) | BCC 顶层架构图、块头主数据流、状态提交/释放总览 |
 | [01_TileRename_BlockISQ.md](01_TileRename_BlockISQ.md) | B.IOR/B.IOT、TileRename、ReadyTable、BlockISQ/BISQ、Cube/Vector/AGU 发射规则 |
 | [02_BROB.md](02_BROB.md) | IFU_BROB 职责、BID/TID、block resolve/commit、Tile wakeup/release、GPR CMAP 提交关系 |
@@ -29,6 +30,7 @@
 - 结构体用代码块描述，参数和接口用表格描述。
 - 架构图/结构图优先提供 Graphviz DOT 源，时序图优先提供 WaveDrom 源。
 - 主规格在 [JCore_BCC_AS.md](JCore_BCC_AS.md)，拆分文档保留更细的模块内容，避免信息丢失。
+- [BCC_AS.md](BCC_AS.md) 是面向当前 SMT/OoO pipeline 讨论的收敛版入口，适合先读完整流水与恢复路径再回到拆分章节。
 
 ## 图源
 

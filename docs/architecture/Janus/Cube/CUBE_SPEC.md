@@ -503,12 +503,12 @@ cube_cmd_iot = {
     src_A_tag:    8 bits,     // TileRename tag
     src_A_addr:   32 bits,    // TileReg 物理地址
     src_A_ready:  1 bit,      // src ready (应该在 BISQ 已消解)
-    
+
     src_B_valid:  1 bit,
     src_B_tag:    8 bits,
     src_B_addr:   32 bits,
     src_B_ready:  1 bit,
-    
+
     dst_valid:    1 bit,
     dst_tag:      8 bits,
     dst_addr:     32 bits,
@@ -865,4 +865,3 @@ Cycle 900:   向 BCC BROB 回报完成
 **文档版本**：Janus CUBE v2.0  
 **最后更新**：2026-06-05  
 **维护者**：Janus 架构团队
-
