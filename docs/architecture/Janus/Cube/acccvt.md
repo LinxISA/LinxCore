@@ -117,15 +117,40 @@ acccvtuop[2]: slice 2 → tC offset 2KB
 acccvtuop[15]: slice 15 → tC offset 15KB
 ```
 
-### 3.2 依赖建立
+### 3.2 细粒度依赖建立
 
-**依赖规则**：
+**依赖规则（per-slice）**：
 ```
-acccvtuop[i] 依赖 matmul_uop[i] 完成
+acccvtuop[i] 依赖该 slice 对应的 matmul uop 完成
 
-对于 tmatmul.acc：
-  acccvtuop[i] 依赖所有 K 迭代完成
-  deps = matmul_uop[i, j, K_tiles-1]
+对于单个 tmatmul：
+  slice_i 对应输出位置 (mi, nj)
+  acccvtuop[i].deps = matmul_uop[mi, nj, K_tiles-1].uop_id
+  // 只依赖该输出位置 K 方向的最后一个 uop
+
+对于 tmatmul.acc 链：
+  slice_i 对应输出位置 (mi, nj)
+  acccvtuop[i].deps = acc_mapping.last_uop_id[slice_i]
+  // 依赖写入该 slice 的最后一个 uop（来自最近的 tmatmul/tmatmul.acc）
+```
+
+**细粒度优势**：
+```
+场景：64×64 矩阵，拆分为 16 个 16×16 slice (4×4)
+
+传统粗粒度依赖（等待全部 matmul 完成）：
+  Cycle 0-100:   所有 matmul uop[0-15, K] 计算
+  Cycle 100:     全部完成
+  Cycle 101:     acccvt 开始（等待了 100 cycles）
+
+细粒度依赖（per-slice）：
+  Cycle 20:      matmul uop[0,0,K-1] 完成 → slice_0 ready
+  Cycle 21:      acccvtuop[0] 开始（无需等待其他 slice）
+  Cycle 25:      matmul uop[0,1,K-1] 完成 → slice_1 ready
+  Cycle 26:      acccvtuop[1] 开始
+  ...
+  
+流水线并行：matmul 和 acccvt 重叠执行
 ```
 
 **依赖跟踪**：
@@ -136,8 +161,11 @@ struct acccvtuop_t {
     mode:           8 bits;         // 转换模式
     tile_dst:       6 bits;         // 目标 tile
     offset:         16 bits;        // Tile 内偏移
-    deps_uop_id:    8 bits;         // 依赖的 matmul uop
+    
+    // 细粒度依赖
+    deps_uop_id:    8 bits;         // 依赖的 matmul uop（该 slice 的最后一个）
     deps_ready:     1 bit;          // 依赖满足
+    
     issued:         1 bit;          // 已发射
 };
 ```
@@ -146,7 +174,7 @@ struct acccvtuop_t {
 
 **Wakeup 触发**：
 ```
-当 matmul uop 完成（ACC 写入完成）时：
+当 matmul uop 完成（BufferC 写入 ACC 完成）时：
   broadcast uop_id
   
 for each acccvtuop:
@@ -154,16 +182,30 @@ for each acccvtuop:
         deps_ready = 1  // Wakeup
 ```
 
-**提前 Wakeup 优化**：
+**细粒度 Wakeup 示例**：
 ```
-对于 K_tiles > 1 的情况：
-  acccvtuop 可以在 K_chunk 完成后开始
-  不需要等待所有 K 完成
+M=32, N=32, K=16（拆分为 4 个 16×16 slice）
 
-例如（K=16, K_chunk=4）：
-  K=0-3 完成 → ACC 部分写入
-  acccvtuop 可以开始读取（乐观）
-  同时 K=4-7 继续计算
+matmul uop 完成顺序（示例）：
+  Cycle 20: uop[0,0,K-1] 完成 → broadcast uop_id=15
+            → acccvtuop[slice_0].deps_ready = 1
+  
+  Cycle 24: uop[0,1,K-1] 完成 → broadcast uop_id=31
+            → acccvtuop[slice_1].deps_ready = 1
+  
+  Cycle 28: uop[1,0,K-1] 完成 → broadcast uop_id=47
+            → acccvtuop[slice_2].deps_ready = 1
+  
+  Cycle 32: uop[1,1,K-1] 完成 → broadcast uop_id=63
+            → acccvtuop[slice_3].deps_ready = 1
+
+acccvt 流水线执行：
+  Cycle 21: acccvtuop[0] 发射（slice_0 ready）
+  Cycle 25: acccvtuop[1] 发射（slice_1 ready）
+  Cycle 29: acccvtuop[2] 发射（slice_2 ready）
+  Cycle 33: acccvtuop[3] 发射（slice_3 ready）
+
+无需等待所有 matmul 完成！
 ```
 
 ---
@@ -654,5 +696,5 @@ wire [2:0]  tilestore_queue_occupancy; // 队列占用
 ---
 
 **文档状态**：完成  
-**最后更新**：2026-06-02
+**最后更新**：2026-06-09
 
