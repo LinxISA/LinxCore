@@ -92,7 +92,7 @@ LB2：第三层循环迭代次数；
 
 当非最后一个Group时：生成全使能掩码（64'hFFFF_FFFF_FFFF_FFFF）
 
-当是最后一个Group是：根据LB0/1/2及Group Size动态生成对应位宽的使能掩码
+当是最后一个Group时：根据LB0/1/2及Group Size动态生成对应位宽的使能掩码
 
 举个例子，LB0=5， LB1=4， LB2=4时，（共80个thread），硬件将Block做如下拆分：
 
