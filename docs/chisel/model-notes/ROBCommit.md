@@ -7,6 +7,7 @@
 - LinxCoreModel: `model/LinxCoreModel/model/pe/PECommon/PROBStatus.h`
 - LinxCoreModel: `model/LinxCoreModel/model/pe/PECommon/PROBCommon.h`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryStatus.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala`
 - LinxCoreModel: `model/LinxCoreModel/model/veclite/VectorLiteROB.cpp`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala`
 
@@ -57,12 +58,20 @@ The Chisel `ROBEntryStatus` package is the first Phase 5 preparation slice. It
 locks the `PROBStatus` numeric order and helper predicates that later ROB banks,
 CMT control, and recovery prune modules must share.
 
+The Chisel `ROBEntryBank` is the first status-backed bank skeleton. It preserves
+the model's separate `allocPtr`, `commitPtr`, and `deallocPtr` shape, accepts
+completion by ROB slot, emits monitored commit rows only for contiguous
+completed heads, marks those rows `Retired`, and frees only retired rows on the
+later deallocation walk. Retired rows stay resident and continue to reject
+duplicate `(bid,gid,rid)` allocations until deallocation clears them.
+
 ## Open Items
 
 - Replace the reduced harness with integrated ROB banks and CMT control in
   Phase 5.
-- Connect `ROBEntryStatus` into the first integrated ROB entry bank; do not
-  retrofit status mutation into `ReducedCommitROB`.
+- Add integrated flush-prune, pointer rebasing, rename cleanup, LSU/STQ side
+  effects, precise trap ownership, and restart ownership to the entry-bank/CMT
+  path; do not retrofit those behaviors into `ReducedCommitROB`.
 - Add live Verilator trace dumping once the reduced harness has a small driver.
 - Connect memory side-effect ownership to LSU/STQ instead of test-provided row
   payloads.

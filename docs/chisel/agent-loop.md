@@ -22,7 +22,7 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `rtl/LinxCore` | `a77e3a7dd5e426fcb5fb1b1a7ee5118bb0876199` |
+| `rtl/LinxCore` | `848ac6d712e053d62f82140fccb684c55579a534` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 
 LinxCoreModel was refreshed with `git pull --ff-only` on 2026-06-28 and was
@@ -113,6 +113,7 @@ These packets remain the required base before broad module promotion:
 | R4 | `ReducedCommitROB` | `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_reduced_rob_xcheck.sh` |
 | R5 | `LinxCoreTop` reduced shell | `run_chisel_tests.sh --only LinxCoreTop`, `run_chisel_top_xcheck.sh` |
 | R6 | QEMU adapter | `run_chisel_qemu_crosscheck.sh --dry-run`; full compare when live Chisel commit rows exist |
+| R7 | `ROBEntryBank` integrated skeleton | `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only ROBEntryStatus`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -218,17 +219,15 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Integrated ROB entry bank skeleton: consume `ROBEntryStatus`, preserve
-   separate commit/dealloc pointers, and keep `ReducedCommitROB` as a harness.
-2. Integrated ROB flush-prune helper: implement BID/RID-based prune selection
+1. Integrated ROB flush-prune helper: implement BID/RID-based prune selection
    without side-effect cleanup, then compare against `SPEROB::flush` notes.
-3. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+2. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-4. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+3. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-5. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
+4. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
    D1/D2 opcode table without changing the ingress transport contract.
-6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+5. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 
