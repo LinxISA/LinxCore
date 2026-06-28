@@ -95,11 +95,12 @@ model `GetCrossReq`: the second descriptor is `data >> (first_size * 8)`.
 generated only after the downstream-ready predicate allowed issue, matching the
 model `STQ::commit` order where `free(i)` happens after `sendSimL1`.
 
-When the downstream target is the Chisel SCB path, `SCBCommitBridge` owns final
-STQ frees. It gates descriptors with the model SCB batch-capacity rule and
-converts accepted `last` fragments to `STQEntryBank.commitFreeMask`. Full LSU
-composition should use that bridge free mask rather than treating this
-module's abstract free mask as final.
+When the downstream target is the registered Chisel SCB path,
+`STQSCBCommitPath` owns final STQ frees. It gates drain issue with the
+registered `SCBRowBank` model-batch capacity rule and wires accepted
+`SCBRowBank` `last` fragments to `STQEntryBank.commitFreeMask`. Full LSU
+composition must use that SCB-side free mask rather than treating this module's
+abstract issue/free mask as final.
 
 ## Timing
 

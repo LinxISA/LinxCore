@@ -22,7 +22,8 @@
 `SCBRowBank` is the first registered SCB composition owner. Earlier packets
 proved ingress, model-batch admission, egress selection, lookup classification,
 and row-state update as independent owners. This packet puts those contracts
-around one row bank so later full LSU composition has a single state owner.
+around one row bank so `STQSCBCommitPath` and later LSU owners have a single
+SCB state owner.
 
 The module owns:
 
@@ -35,8 +36,9 @@ The module owns:
 - row-state registration after hit, miss, or decoded memory response.
 
 It does not own raw CHI TxnID decode, L2/CHI queue storage, DCache RAM
-mutation, MDB conflict prediction, store-to-load forwarding, or wiring the
-full `STQEntryBank` free path.
+mutation, MDB conflict prediction, or store-to-load forwarding.
+`STQSCBCommitPath` consumes this module's `commitFreeMask` as the first full
+`STQEntryBank` free path.
 
 ## Interface
 

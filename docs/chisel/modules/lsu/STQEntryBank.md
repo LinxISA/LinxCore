@@ -55,7 +55,7 @@ state owner.
 | `insertValid/insert` | valid plus `STQStoreRequest` | Store allocate or merge request. |
 | `markCommitValid/markCommitIndex` | command | Mark a locally ready `Wait` row as `Commit`. |
 | `commitFreeValid/commitFreeIndex` | command | Free a row that is already in `Commit` state. |
-| `commitFreeMaskValid/commitFreeMask` | command mask | Free one or more rows already in `Commit` state. This is the bank-side target for future `STQCommitQueue` issue lanes. |
+| `commitFreeMaskValid/commitFreeMask` | command mask | Free one or more rows already in `Commit` state. In the full STQ-to-SCB path this is driven by `STQSCBCommitPath` from accepted `SCBRowBank` `last` fragments. |
 
 ### Outputs
 
@@ -106,9 +106,10 @@ and becomes `All`. An incompatible same-ID split-store half raises
 The global `isStqCmtable` age and oldest-block policy is intentionally outside
 this packet.
 
-`commitFree` is the row-clear part of `STQ::commit` after a future owner has
-sent the store to memory-side queues. The legacy single-index command and the
-multi-row mask command both accept only `Commit` rows. Requests targeting
+`commitFree` is the row-clear part of `STQ::commit` after the memory-side owner
+has accepted the store. In the full STQ-to-SCB path, `STQSCBCommitPath` drives
+the mask from `SCBRowBank.commitFreeMask`. The legacy single-index command and
+the multi-row mask command both accept only `Commit` rows. Requests targeting
 WAIT, invalid, or non-COMMIT rows are reported as ignored. Accepted rows are
 de-duplicated through `commitFreeAcceptedMask`, cleared once, and decrement
 `residentCount` by `commitFreeCount`. `outstandingWaitCount` is unchanged

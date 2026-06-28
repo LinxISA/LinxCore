@@ -78,7 +78,12 @@ row image for `Valid -> Lookup`, hit free, miss state, and response-driven
 `Miss -> Lookup` transitions. `SCBRowBank` is the first registered composition
 owner around those contracts: it owns one row image, applies model-batch
 ingress admission, prevents same-line merge into `Lookup` or `Miss` rows, and
-registers the egress/lookup/state-update result for later full LSU wiring.
+registers the egress/lookup/state-update result consumed by the STQ-to-SCB
+commit path and later LSU wiring.
+`STQSCBCommitPath` is the first full STQ-to-SCB composition owner: it wires
+`STQEntryBank`, `STQCommitDrain`, and `SCBRowBank` so SCB accepted `last`
+fragments are the only committed-row free source back into the STQ bank, while
+the earlier drain free mask remains debug-only observability.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the

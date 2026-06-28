@@ -21,6 +21,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBLookupControl.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBStateUpdate.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBRowBank.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
@@ -31,6 +32,7 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBLookupControlSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBStateUpdateSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBRowBankSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQSCBCommitPathSpec.scala`
 
 ## Model Contract
 
@@ -110,11 +112,12 @@ queue after issue.
 `STQCommitDrain` is the first Chisel owner for the model `STQ::commit`
 memory-side boundary. It composes `STQCommitQueue`, checks committed rows
 against downstream single- or split-segment availability, emits one or two
-scalar memory request descriptors, and drives `STQEntryBank.commitFreeMask`
-only for rows that issue to the memory side. It preserves the model rule that
-split stores require both segment queues to be non-stalled before the row is
-freed, while a stalled older row can remain queued as a younger ready row
-drains.
+scalar memory request descriptors, and exposes a standalone issue/free mask for
+early memory-side bring-up. In the full STQ-to-SCB composition, that standalone
+mask is not wired to the STQ bank; `SCBRowBank.commitFreeMask` is the final
+free source. The drain still preserves the model rule that split stores require
+both segment queues to be non-stalled before issue, while a stalled older row
+can remain queued as a younger ready row drains.
 
 `SCBCommitIngress` is the first Chisel owner for scalar SCB insert/coalescing.
 It consumes `STQCommitDrain` descriptors, allocates 64-byte line entries,
@@ -160,8 +163,8 @@ The same-cycle `acceptedMask` plus `freeMask` or `missMask` case is legal when
 the selected row is currently `Valid`; the final state is the hit or miss
 result. Responses to non-`Miss` rows and miss/free requests to non-lookup rows
 are exposed as illegal masks for the future registered SCB composition owner.
-Actual row registers, raw CHI TxnID decode, L2/CHI queues, MDB, forwarding, and
-full STQ-to-SCB composition remain later owner work.
+Raw CHI TxnID decode, L2/CHI queues, MDB, forwarding, and DCache RAM mutation
+remain later owner work.
 
 `SCBRowBank` is the first registered SCB composition owner. It owns one row
 image, keeps the model batch gate based on pre-cycle free count, applies
@@ -170,8 +173,18 @@ committed-store fragments in lane order, and only merges into rows still in
 new same-line store allocates a separate row when free space exists. The bank
 then runs the egress selector, lookup control, and state update over the staged
 row image and registers the result. This creates the full-LSU handoff surface
-for final `STQEntryBank` free authorization without yet owning raw CHI response
-decode, DCache RAM mutation, MDB, forwarding, or full memory-event trace.
+for final `STQEntryBank` free authorization.
+
+`STQSCBCommitPath` is the first Chisel full STQ-to-SCB composition owner. It
+wires `STQEntryBank`, `STQCommitDrain`, and `SCBRowBank` so accepted
+`SCBRowBank` descriptors with `last=1` are the only committed-row free source
+for the STQ bank. It gates the drain with the registered SCB pre-cycle
+model-batch condition and suppresses drain issue when `STQEntryBank` reports an
+active flush-prune cycle, preserving the bank-owned rule that flush cycles
+ignore commit free commands. Older committed rows may drain while a younger row
+is marked commit and enqueued for a later visible row image. This owner still
+stops before raw CHI response decode, DCache RAM mutation, MDB, forwarding, or
+full memory-event trace.
 
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
 forwarding, deadlock checks, data-array banking, MDB conflict learning, CHI
@@ -181,10 +194,9 @@ completion, and BSB window-slide side effects remain future LSU owner work.
 
 - The full scalar LSU needs separate owners for load-queue flush, raw L2/CHI
   response decode, MDB interaction, load forwarding, and queue backpressure.
-  `SCBRowBank` now owns the first registered row-bank composition and should be
-  the SCB-side free-mask source for the later full LSU packet, but that later
-  packet must still wire `STQEntryBank` and remove any direct use of
-  `STQCommitDrain.commitFreeMask` in the full LSU composition.
+  `STQSCBCommitPath` now owns the first full STQ-to-SCB commit/free wiring, so
+  the next SCB packet should decode raw L2/CHI transaction ids into
+  `SCBStateUpdate.memRespEntryIndex` without changing the STQ free path.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both
   `FlushControl` notes and the STQ tests in the same packet.

@@ -1387,3 +1387,85 @@ Skill evolve:
   registered SCB composition invariant: pre-cycle free count controls model
   batch admission, accepted ingress may feed the same-cycle lookup payload, and
   `Lookup`/`Miss` rows remain closed to same-line coalescing.
+
+## 2026-06-28 STQ-to-SCB Commit Path
+
+Scope:
+
+- Added `STQSCBCommitPath` as the first full STQ-to-SCB composition owner.
+- Wired `STQEntryBank`, `STQCommitDrain`, and `SCBRowBank` so accepted
+  `SCBRowBank` `last` fragments are the only committed-row free source back
+  into the STQ bank.
+- Preserved the model `STQ::retire` then `STQ::commit` split: commit marks
+  enqueue row identities, drain issue observes the registered committed row
+  image, and older committed rows may drain while a younger row is marked for a
+  later cycle.
+- Gated drain issue with the registered SCB model-batch condition and
+  suppressed drain issue during STQ flush-prune cycles so the bank cannot
+  ignore a free command after SCB accepts a store.
+- Kept raw CHI TxnID decode, L2/CHI queues, DCache RAM mutation, MDB,
+  forwarding, BSB window-slide side effects, and memory-event trace in later
+  owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath
+bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
+bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `STQSCBCommitPathSpec` covers final `last`-fragment free ownership, closed
+  SCB model-batch backpressure, split-store final free, concurrent older drain
+  plus younger enqueue, and Chisel elaboration with `STQEntryBank`,
+  `STQCommitDrain`, and `SCBRowBank` children.
+- Existing SCB row-bank, STQ drain, STQ bank, STQ queue, ROB/cross-check, QEMU
+  dry-run, reduced RTL xcheck, top-shell xcheck, and Verilator lint gates stay
+  green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath` passed 5
+  tests in `STQSCBCommitPathSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBRowBank` passed 8 tests in
+  `SCBRowBankSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain` passed 5 tests
+  in `STQCommitDrainSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank` passed 7 tests in
+  `STQEntryBankSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue` passed 7 tests
+  in `STQCommitQueueSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `STQSCBCommitPath` adds the reusable
+  full STQ-to-SCB free-path invariant: final committed-row frees come from
+  accepted `SCBRowBank` `last` fragments, while the standalone
+  `STQCommitDrain` free mask is debug-only in the full composition.

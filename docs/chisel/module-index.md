@@ -19,6 +19,7 @@
 | `SCBLookupControl` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBLookupControl.md` | Unit-green R22 SCB lookup outcome owner; writable-hit update/free and L2 write/upgrade request descriptors |
 | `SCBStateUpdate` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBStateUpdate.md` | Unit-green R23 SCB row-state transition owner; hit free, miss state, and response-driven `Miss -> Lookup` masks |
 | `SCBRowBank` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBRowBank.md` | Unit-green R24 registered SCB row-bank composition owner; ingress, egress, lookup, and state-update around one row image |
+| `STQSCBCommitPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQSCBCommitPath.md` | Unit-green R25 STQ-to-SCB composition owner; SCB accepted `last` fragments are the only committed-row free source |
 | `ROBID` | `linxcore.rob` | `docs/chisel/modules/rob/ROBID.md` | Unit-green Packet A |
 | `ROBEntryStatus` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryStatus.md` | Unit-green Phase 5 integrated ROB/CMT status contract |
 | `ROBEntryBank` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryBank.md` | Unit-green Phase 5 integrated ROB/CMT entry-bank skeleton with flush application and native row IDs |

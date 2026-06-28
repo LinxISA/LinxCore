@@ -38,8 +38,9 @@ choosing a valid SCB line to present to those future paths.
 
 `SCBRowBank` is the later registered composition owner that reuses this
 capacity/free-mask contract while also owning one mutable SCB row image around
-egress lookup and state update. Full LSU composition should consume the
-row-bank surface once it replaces the standalone bridge/ingress path.
+egress lookup and state update. `STQSCBCommitPath` is the full LSU composition
+owner that now consumes the row-bank free-mask surface; this standalone bridge
+remains a focused combinational contract and regression point.
 
 ## Interface
 
