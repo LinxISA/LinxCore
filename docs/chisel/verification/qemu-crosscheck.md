@@ -28,7 +28,14 @@ trap_valid trap_cause traparg0 next_pc
 ```
 
 It also preserves sideband fields when present: `seq`, `cycle`, `slot`, `bid`,
-`gid`, `rid`, `rob_valid`, `rob_wrap`, and `rob_value`.
+`gid`, `rid`, `rob_valid`, `rob_wrap`, `rob_value`, `block_bid_valid`, and
+`block_bid`.
+
+For nested Chisel rows, the adapter accepts `identity.bid`, `identity.gid`,
+`identity.rid`, `rob.valid`, `rob.wrap`, `rob.value`, `blockBidValid`,
+`blockBid`, `mem.isStore`, `trap.arg0`, and `nextPc`. Rows with `valid: 0` are
+filtered before sequence numbering so a fixed-width commit vector can be dumped
+without creating false comparator rows.
 
 ## QEMU Binary Selection
 
@@ -57,5 +64,6 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh \
 
 ## Current Status
 
-The adapter and wrapper are ready. The full compare gate is blocked until the
-Chisel top emits real commit rows.
+The adapter, wrapper, and typed Chisel commit-row bundles are ready. The full
+compare gate is blocked until a reduced ROB harness or Chisel top emits live
+commit rows from real retiring slots.

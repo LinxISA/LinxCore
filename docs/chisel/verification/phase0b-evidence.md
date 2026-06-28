@@ -6,6 +6,8 @@ Scope:
 
 - Added the initial Chisel lane skeleton.
 - Added `ROBID` and `CommitIdentity` sources.
+- Added `CommitTraceRow`, memory/trap envelopes, commit-window valid mask, and
+  commit schema tests.
 - Added initial `FlushControl` request, bus, classification, need-flush, and
   older-signal arbitration sources.
 - Added initial `BID` helpers and `BROB` metadata tracker sources.
@@ -21,6 +23,7 @@ Evidence:
 
 ```bash
 bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only
+bash tools/chisel/run_chisel_tests.sh --only CommitTrace
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
 bash tools/chisel/run_chisel_verilator_lint.sh
@@ -45,6 +48,8 @@ Observed result:
   `FlushControlSpec`.
 - `bash tools/chisel/run_chisel_tests.sh --only ROBID` passed 3 tests in
   `ROBIDSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only CommitTrace` passed 5 tests in
+  `CommitTraceSpec`.
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` passed the
   Python semantic check and the Scala ROBID test.
 - `bash tools/chisel/emit_verilog.sh` emitted
@@ -68,3 +73,7 @@ Skill evolve:
   recovery/BROB agents.
 - `skill-evolve: update linx-core` for Packet C because the BROB/BID gate and
   full-BID flush/tag invariants are reusable by future BCTRL/BISQ agents.
+- `skill-evolve: update linx-core` for the commit-trace schema because later
+  agents must preserve `CommitInfo` 32-bit identity separately from the 64-bit
+  hardware `block_bid` sideband and must filter invalid fixed-width slots before
+  QEMU comparison.
