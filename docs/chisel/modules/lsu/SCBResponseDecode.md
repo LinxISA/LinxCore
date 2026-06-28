@@ -6,6 +6,8 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBResponseDecodeSpec.scala`
 - Downstream state owner:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBStateUpdate.scala`
+- Upstream queue owner:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBResponseBuffer.scala`
 - Composition owner:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBRowBank.scala`
 - LinxCoreModel evidence:
@@ -32,8 +34,9 @@ The module owns:
 - stale target detection when the decoded row is not a valid `Miss`,
 - conversion from a raw response to `SCBStateUpdate.memResp*` inputs.
 
-It does not own CHI/L2 queue ordering, response buffering, DCache RAM mutation,
-MDB conflict policy, store-to-load forwarding, or the final SCB row register.
+It does not own CHI/L2 queue storage, response FIFO state, DCache RAM
+mutation, MDB conflict policy, store-to-load forwarding, or the final SCB row
+register.
 
 ## Interface
 
@@ -86,8 +89,10 @@ from `SCBStateUpdate` and reported through the illegal flags.
 
 ## Timing
 
-The decode is combinational in the same abstract cycle as `SCBRowBank` state
-update. Response queue arbitration and ordering remain later owner work.
+The decode is combinational over the head of `SCBResponseBuffer` in the same
+abstract cycle as `SCBRowBank` state update. Illegal heads are not consumed by
+the buffer, so stale-target reporting remains visible until the error is
+handled by a later composition owner.
 
 ## Flush/Recovery
 
@@ -104,6 +109,7 @@ full top emits live memory-event trace payloads.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode`
+- `bash tools/chisel/run_chisel_tests.sh --only SCBResponseBuffer`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBRowBank`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate`
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob`

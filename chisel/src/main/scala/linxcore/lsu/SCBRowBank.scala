@@ -7,6 +7,7 @@ class SCBRowBankIO(
     val stqEntries: Int,
     val scbEntries: Int,
     val requestCount: Int,
+    val responseBufferDepth: Int,
     val addrWidth: Int = 64,
     val dataWidth: Int = 64,
     val sizeWidth: Int = 4,
@@ -16,6 +17,7 @@ class SCBRowBankIO(
   private val freeCountWidth = log2Ceil(requestCount + 1)
   private val entryIndexWidth = math.max(1, log2Ceil(scbEntries))
   private val responseTxnIdWidth = entryIndexWidth + 2
+  private val responseBufferCountWidth = log2Ceil(responseBufferDepth + 1)
 
   val reqs = Input(Vec(requestCount, new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth)))
   val evictEnable = Input(Bool())
@@ -27,6 +29,7 @@ class SCBRowBankIO(
   val rawRespTxnId = Input(UInt(responseTxnIdWidth.W))
   val rawRespWrite = Input(Bool())
   val rawRespUpgrade = Input(Bool())
+  val rawRespReady = Output(Bool())
 
   val modelBatchReady = Output(Bool())
   val modelFull = Output(Bool())
@@ -77,12 +80,20 @@ class SCBRowBankIO(
   val respIndexIllegal = Output(Bool())
   val respStateIllegalMask = Output(UInt(scbEntries.W))
   val respDecodeError = Output(Bool())
+  val respBufferAccepted = Output(Bool())
+  val respBufferHeadValid = Output(Bool())
+  val respBufferHeadConsumed = Output(Bool())
+  val respBufferHeadTxnId = Output(UInt(responseTxnIdWidth.W))
+  val respBufferFull = Output(Bool())
+  val respBufferEmpty = Output(Bool())
+  val respBufferCount = Output(UInt(responseBufferCountWidth.W))
 }
 
 class SCBRowBank(
     val stqEntries: Int = 16,
     val scbEntries: Int = 16,
     val requestCount: Int = 4,
+    val responseBufferDepth: Int = 4,
     val addrWidth: Int = 64,
     val dataWidth: Int = 64,
     val sizeWidth: Int = 4,
@@ -91,6 +102,7 @@ class SCBRowBank(
   require(stqEntries > 1, "STQ entries must be greater than one")
   require(scbEntries > 0, "SCB row bank entries must be nonzero")
   require(requestCount > 0, "SCB row bank request count must be nonzero")
+  require(responseBufferDepth > 0, "SCB response buffer depth must be nonzero")
   require(requestCount <= scbEntries, "SCB row bank model batch width cannot exceed SCB depth")
   require(addrWidth >= 7, "SCB row bank needs at least 7 address bits for 64-byte lines")
   require(dataWidth == 64, "SCB row bank currently models scalar 64-bit store fragments")
@@ -100,7 +112,15 @@ class SCBRowBank(
   private val scbCountWidth = log2Ceil(scbEntries + 1)
   private val freeCountWidth = log2Ceil(requestCount + 1)
 
-  val io = IO(new SCBRowBankIO(stqEntries, scbEntries, requestCount, addrWidth, dataWidth, sizeWidth, lineBytes))
+  val io = IO(new SCBRowBankIO(
+    stqEntries,
+    scbEntries,
+    requestCount,
+    responseBufferDepth,
+    addrWidth,
+    dataWidth,
+    sizeWidth,
+    lineBytes))
 
   private def zeroEntry: SCBLineEntry = {
     val entry = Wire(new SCBLineEntry(addrWidth, lineBytes))
@@ -213,12 +233,19 @@ class SCBRowBank(
   lookup.io.dcacheTagHit := io.dcacheTagHit
   lookup.io.l2RequestReady := io.l2RequestReady
 
+  val responseBuffer = Module(new SCBResponseBuffer(scbEntries, responseBufferDepth))
+  responseBuffer.io.rawValid := io.rawRespValid
+  responseBuffer.io.rawTxnId := io.rawRespTxnId
+  responseBuffer.io.rawWriteResp := io.rawRespWrite
+  responseBuffer.io.rawUpgradeResp := io.rawRespUpgrade
+
   val responseDecode = Module(new SCBResponseDecode(scbEntries, addrWidth, lineBytes))
   responseDecode.io.entries := ingressEntries
-  responseDecode.io.rawValid := io.rawRespValid
-  responseDecode.io.rawTxnId := io.rawRespTxnId
-  responseDecode.io.rawWriteResp := io.rawRespWrite
-  responseDecode.io.rawUpgradeResp := io.rawRespUpgrade
+  responseDecode.io.rawValid := responseBuffer.io.headValid
+  responseDecode.io.rawTxnId := responseBuffer.io.headTxnId
+  responseDecode.io.rawWriteResp := responseBuffer.io.headWriteResp
+  responseDecode.io.rawUpgradeResp := responseBuffer.io.headUpgradeResp
+  responseBuffer.io.headReady := responseDecode.io.memRespValid
 
   val state = Module(new SCBStateUpdate(scbEntries, addrWidth, lineBytes))
   state.io.entries := ingressEntries
@@ -241,6 +268,7 @@ class SCBRowBank(
 
   io.modelBatchReady := modelBatchReady
   io.modelFull := !modelBatchReady
+  io.rawRespReady := responseBuffer.io.rawReady
   io.acceptedMask := acceptedVec.asUInt
   io.structuralBlockedMask := blockedVec.asUInt
   io.stalledMask := validReqMask & ~acceptedVec.asUInt
@@ -286,4 +314,11 @@ class SCBRowBank(
   io.respIndexIllegal := responseDecode.io.indexIllegal
   io.respStateIllegalMask := responseDecode.io.stateIllegalMask
   io.respDecodeError := responseDecode.io.illegal
+  io.respBufferAccepted := responseBuffer.io.rawAccepted
+  io.respBufferHeadValid := responseBuffer.io.headValid
+  io.respBufferHeadConsumed := responseBuffer.io.headConsumed
+  io.respBufferHeadTxnId := responseBuffer.io.headTxnId
+  io.respBufferFull := responseBuffer.io.full
+  io.respBufferEmpty := responseBuffer.io.empty
+  io.respBufferCount := responseBuffer.io.count
 }

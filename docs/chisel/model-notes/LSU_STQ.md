@@ -226,6 +226,15 @@ implemented, and the target row is valid `Miss`. Legal responses feed
 and stale non-`Miss` targets are reported locally and suppressed from the state
 update.
 
+`SCBResponseBuffer` is the first raw response queue boundary in front of that
+decoder. It mirrors the model `SCBuffer::mem_resp_q` shape at the Chisel edge:
+raw WriteResp/UpgradeResp candidates enter a registered FIFO, the FIFO head is
+the only packet presented to `SCBResponseDecode`, and the head is removed only
+after the decoder validates a legal `Miss` target. Illegal or stale heads
+therefore remain visible instead of being silently dropped. The model's later
+`resp_list` retry priority, where response-returned `S_LOOKUP` rows issue
+before ordinary valid-row eviction, remains a separate SCB egress owner.
+
 `SCBRowBank` is the first registered SCB composition owner. It owns one row
 image, keeps the model batch gate based on pre-cycle free count, applies
 committed-store fragments in lane order, and only merges into rows still in
@@ -341,11 +350,11 @@ window-slide side effects remain future LSU owner work.
 
 ## Open Questions
 
-- The full scalar LSU needs separate owners for load-queue flush, raw L2/CHI
-  response queue ordering, MDB integration, and queue backpressure.
-  `SCBResponseDecode` now owns raw transaction-id decode, so a later response
-  queue packet should preserve its illegal/stale-target reporting while adding
-  ordering and backpressure.
+- The full scalar LSU needs separate owners for load-queue flush, the
+  `resp_list` response-retry priority path, MDB integration, and queue
+  backpressure. `SCBResponseBuffer` now owns raw response FIFO ordering before
+  decode; a later egress packet should preserve the model rule that
+  response-returned `S_LOOKUP` rows retry before ordinary valid-row eviction.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both
   `FlushControl` notes and the STQ tests in the same packet.

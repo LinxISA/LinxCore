@@ -2198,3 +2198,90 @@ Skill evolve:
   and should keep miss queue, prefetch set, full L1D/LDQ data buffer,
   ready-table, bypass, precise flush, ResolveQ/LHQ queueing, and trace
   ownership in later packets.
+
+## 2026-06-28 SCB Response Buffer
+
+Scope:
+
+- Added `SCBResponseBuffer` as the raw L2/CHI response FIFO boundary in front
+  of `SCBResponseDecode`.
+- Learned the model path from `SCBuffer::setMemResp`, `SCBuffer::Xfer`,
+  `SCBuffer::handleMemResp`, and `SCBuffer::Work`.
+- Preserved FIFO response order, ready/valid backpressure, and one-head-at-a
+  time decode.
+- Consumed a FIFO head only when `SCBResponseDecode` reports a legal response
+  for a valid `Miss` target; wrong type, wrong tag, out-of-range, duplicate, or
+  stale non-`Miss` heads stay visible instead of being silently dropped.
+- Wired buffer backpressure and observability through `SCBRowBank` and
+  `STQSCBCommitPath`.
+- Kept the model `resp_list` priority path, DCache RAM mutation, full L2/CHI
+  queue storage, MDB, forwarding, BSB window-slide side effects, and
+  memory-event trace in later owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseBuffer
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode
+bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
+bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath
+bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate
+bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
+bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `SCBResponseBufferSpec` covers FIFO order, simultaneous legal-head dequeue
+  plus enqueue, illegal/stale head retention, and Chisel elaboration.
+- Existing raw response decode, row-bank composition, STQ-to-SCB composition,
+  state-update, lookup-control, egress, ROB/cross-check, QEMU dry-run, reduced
+  RTL xcheck, top-shell xcheck, and Verilator lint gates stay green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBResponseBuffer` passed 4
+  tests in `SCBResponseBufferSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode` passed 7
+  tests in `SCBResponseDecodeSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBRowBank` passed 8 tests in
+  `SCBRowBankSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath` passed 5
+  tests in `STQSCBCommitPathSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate` passed 9 tests
+  in `SCBStateUpdateSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl` passed 7
+  tests in `SCBLookupControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect` passed 6
+  tests in `SCBEgressSelectSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `SCBResponseBuffer` adds the
+  reusable SCB completion invariant: raw response queues must preserve FIFO
+  order and backpressure in front of decode, and must retain illegal or stale
+  heads so `SCBResponseDecode` continues to report the failing target instead
+  of silently dropping it.

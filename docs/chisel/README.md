@@ -82,7 +82,9 @@ registers the egress/lookup/state-update result consumed by the STQ-to-SCB
 commit path and later LSU wiring. `SCBResponseDecode` now owns the raw
 WriteResp/UpgradeResp tag boundary: model transaction ids encoded as
 `(entryIndex << 2) | 2` are range-checked and accepted only for valid `Miss`
-rows before they drive `SCBStateUpdate`.
+rows before they drive `SCBStateUpdate`. `SCBResponseBuffer` adds the
+registered raw-response FIFO in front of that decoder, preserving FIFO order,
+backpressure, and illegal/stale-head visibility for later L2/CHI wiring.
 `STQSCBCommitPath` is the first full STQ-to-SCB composition owner: it wires
 `STQEntryBank`, `STQCommitDrain`, and `SCBRowBank` so SCB accepted `last`
 fragments are the only committed-row free source back into the STQ bank, while
@@ -156,6 +158,7 @@ bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
 bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate
 bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
 bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseBuffer
 bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
 bash tools/chisel/run_chisel_tests.sh --only MDBSSIT
 bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout

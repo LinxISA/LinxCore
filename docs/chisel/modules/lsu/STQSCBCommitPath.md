@@ -32,6 +32,7 @@ The module owns:
 - `SCBRowBank` model-batch admission, row-bank insertion, egress lookup, and
   final free-mask authorization for accepted `last` fragments;
 - raw WriteResp/UpgradeResp tag handoff into `SCBRowBank`;
+- raw response backpressure and buffer observability from `SCBRowBank`;
 - the composition rule that drains are held while the registered SCB model
   batch gate is closed or while an STQ flush-prune cycle owns the bank.
 
@@ -54,6 +55,7 @@ side effects, or live memory-event trace rows.
 | `l2RequestReady` | `Bool` | Abstract ownership request queue readiness. |
 | `rawRespValid/rawRespTxnId` | raw response | Raw response tag candidate forwarded into `SCBRowBank`. |
 | `rawRespWrite/rawRespUpgrade` | response type | WriteResp/UpgradeResp type flags forwarded into `SCBRowBank`. |
+| `scbResponseBufferDepth` | parameter | Raw response FIFO depth inside `SCBRowBank`. |
 
 ### Outputs
 
@@ -65,6 +67,7 @@ side effects, or live memory-event trace rows.
 | `stq*` | STQ row image, occupancy, wait/commit masks, flush masks, and final free acknowledgements. |
 | `drain*` | Ordered commit queue observability, issued rows, generated request descriptors, and debug-only early drain free mask. |
 | `scb*` | SCB model-batch status, accepted/stalled masks, final free mask, wakeups, row-bank state, response decode flags, and lookup/state-update descriptors. |
+| `rawRespReady` / `scbRespBuffer*` | Raw response FIFO backpressure, occupancy, and head-consumption observability. |
 
 ## State
 
@@ -134,6 +137,7 @@ until the top can retire live memory operations.
 
 - `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath`
 - `bash tools/chisel/build_chisel.sh`
+- `bash tools/chisel/run_chisel_tests.sh --only SCBResponseBuffer`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBRowBank`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain`
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`

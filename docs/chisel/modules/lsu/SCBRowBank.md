@@ -6,6 +6,7 @@
 - Child Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBEgressSelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBLookupControl.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBResponseBuffer.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBResponseDecode.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBStateUpdate.scala`
 - Related ingress/bridge contracts:
@@ -34,11 +35,13 @@ The module owns:
 - final committed STQ free masks for accepted `last` fragments,
 - lookup candidate selection after accepted ingress updates,
 - DCache/L2 lookup outcome classification,
+- raw response FIFO ordering and backpressure before decode,
 - raw WriteResp/UpgradeResp tag decode for `(entryIndex << 2) | 2`,
 - row-state registration after hit, miss, or decoded memory response.
 
-It does not own L2/CHI queue storage or response arbitration, DCache RAM
-mutation, MDB conflict prediction, or store-to-load forwarding.
+It does not own full L2/CHI queue storage, response-returned lookup retry
+priority, DCache RAM mutation, MDB conflict prediction, or store-to-load
+forwarding.
 `STQSCBCommitPath` consumes this module's `commitFreeMask` as the first full
 `STQEntryBank` free path.
 
@@ -57,6 +60,7 @@ mutation, MDB conflict prediction, or store-to-load forwarding.
 | `rawRespValid` | `Bool` | One raw WriteResp/UpgradeResp candidate is present. |
 | `rawRespTxnId` | `UInt` | Raw model response transaction id encoded as `(entryIndex << 2) | 2`. |
 | `rawRespWrite/rawRespUpgrade` | `Bool` | Response type flags; exactly one must be asserted for a legal decode. |
+| `responseBufferDepth` | parameter | Registered raw-response FIFO depth. |
 
 ### Outputs
 
@@ -72,6 +76,7 @@ mutation, MDB conflict prediction, or store-to-load forwarding.
 | `dcacheUpdate/l2Request` | Abstract DCache update and L2 ownership request descriptors. |
 | `state*Mask/stateError` | Transition and illegal-state observability from `SCBStateUpdate`. |
 | `respDecoded*/resp*Illegal/respDecodeError` | Raw response decode observability from `SCBResponseDecode`. |
+| `rawRespReady` and `respBuffer*` | Raw response FIFO backpressure, occupancy, and head-consumption observability. |
 
 ## State
 
@@ -93,10 +98,12 @@ that order while retaining deterministic single-request egress:
 3. Emit wakeups and final STQ free masks only for accepted ingress lanes.
 4. Select one valid egress candidate from the post-ingress staged row image.
 5. Classify the abstract DCache/L2 outcome with `SCBLookupControl`.
-6. Decode a raw WriteResp/UpgradeResp with `SCBResponseDecode`.
-7. Apply hit clear, miss state, and legal response return with
+6. Enqueue raw WriteResp/UpgradeResp candidates into `SCBResponseBuffer`.
+7. Decode only the FIFO head with `SCBResponseDecode`; consume it only when it
+   is legal for a valid `Miss` target.
+8. Apply hit clear, miss state, and legal response return with
    `SCBStateUpdate`.
-8. Register the resulting row image.
+9. Register the resulting row image.
 
 This owner intentionally keeps the pre-cycle model batch gate. A row freed by
 a same-cycle writable DCache hit does not allow a committed-store fragment to
@@ -108,6 +115,12 @@ The row image updates once per cycle. Ingress is staged combinationally before
 egress lookup classification so a same-cycle merge can be included in the
 lookup payload. The conservative batch gate still uses the registered
 pre-cycle free count.
+
+Response inputs are registered through `SCBResponseBuffer`. A newly accepted
+raw response is not decoded until it reaches the FIFO head. Legal decoded heads
+are consumed in the same cycle that `SCBStateUpdate` observes
+`memRespValid`; illegal or stale heads remain present and keep the decode error
+visible.
 
 ## Flush/Recovery
 
@@ -125,6 +138,7 @@ QEMU-vs-DUT commit comparator.
 
 - `bash tools/chisel/run_chisel_tests.sh --only SCBRowBank`
 - `bash tools/chisel/build_chisel.sh`
+- `bash tools/chisel/run_chisel_tests.sh --only SCBResponseBuffer`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl`
@@ -141,5 +155,5 @@ QEMU-vs-DUT commit comparator.
 Focused reference tests cover model-batch admission, pre-cycle free-count
 gating, same-cycle ingress merge plus writable hit, miss ownership request,
 response return, outstanding-row non-merge, illegal response reporting, and
-Chisel elaboration with the egress/lookup/response-decode/state-update
-children.
+Chisel elaboration with the egress/lookup/response-buffer/response-decode/
+state-update children.

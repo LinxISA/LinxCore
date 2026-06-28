@@ -10,6 +10,7 @@ class STQSCBCommitPathIO(
     val queueEntries: Int,
     val issueWidth: Int,
     val scbEntries: Int,
+    val scbResponseBufferDepth: Int,
     val addrWidth: Int = 64,
     val dataWidth: Int = 64,
     val peIdWidth: Int = 8,
@@ -28,6 +29,7 @@ class STQSCBCommitPathIO(
   private val requestCountWidth = log2Ceil(requestCount + 1)
   private val scbIndexWidth = math.max(1, log2Ceil(scbEntries))
   private val scbResponseTxnIdWidth = scbIndexWidth + 2
+  private val scbResponseBufferCountWidth = log2Ceil(scbResponseBufferDepth + 1)
 
   val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
 
@@ -55,6 +57,7 @@ class STQSCBCommitPathIO(
   val rawRespTxnId = Input(UInt(scbResponseTxnIdWidth.W))
   val rawRespWrite = Input(Bool())
   val rawRespUpgrade = Input(Bool())
+  val rawRespReady = Output(Bool())
 
   val scbReadyForDrain = Output(Bool())
   val drainIssueEnable = Output(Bool())
@@ -126,6 +129,13 @@ class STQSCBCommitPathIO(
   val scbRespIndexIllegal = Output(Bool())
   val scbRespStateIllegalMask = Output(UInt(scbEntries.W))
   val scbRespDecodeError = Output(Bool())
+  val scbRespBufferAccepted = Output(Bool())
+  val scbRespBufferHeadValid = Output(Bool())
+  val scbRespBufferHeadConsumed = Output(Bool())
+  val scbRespBufferHeadTxnId = Output(UInt(scbResponseTxnIdWidth.W))
+  val scbRespBufferFull = Output(Bool())
+  val scbRespBufferEmpty = Output(Bool())
+  val scbRespBufferCount = Output(UInt(scbResponseBufferCountWidth.W))
 
   val stqCommitFreeAcceptedMask = Output(UInt(entries.W))
   val stqCommitFreeIgnoredMask = Output(UInt(entries.W))
@@ -137,6 +147,7 @@ class STQSCBCommitPath(
     val queueEntries: Int = 16,
     val issueWidth: Int = 2,
     val scbEntries: Int = 16,
+    val scbResponseBufferDepth: Int = 4,
     val addrWidth: Int = 64,
     val dataWidth: Int = 64,
     val peIdWidth: Int = 8,
@@ -151,6 +162,7 @@ class STQSCBCommitPath(
   require(issueWidth > 0, "STQ-to-SCB commit issue width must be nonzero")
   require(issueWidth <= queueEntries, "STQ-to-SCB issue width cannot exceed queue depth")
   require(scbEntries > 0, "SCB entries must be nonzero")
+  require(scbResponseBufferDepth > 0, "SCB response buffer depth must be nonzero")
   require(issueWidth * 2 <= scbEntries, "SCB entries must cover the worst-case split-store request batch")
   require((entries & (entries - 1)) == 0, "STQ entries must be a power of two")
   require((queueEntries & (queueEntries - 1)) == 0, "STQ commit queue entries must be a power of two")
@@ -162,6 +174,7 @@ class STQSCBCommitPath(
     queueEntries,
     issueWidth,
     scbEntries,
+    scbResponseBufferDepth,
     addrWidth,
     dataWidth,
     peIdWidth,
@@ -174,7 +187,15 @@ class STQSCBCommitPath(
 
   val stq = Module(new STQEntryBank(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
   val drain = Module(new STQCommitDrain(entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
-  val scb = Module(new SCBRowBank(entries, scbEntries, requestCount, addrWidth, dataWidth, sizeWidth, lineBytes))
+  val scb = Module(new SCBRowBank(
+    entries,
+    scbEntries,
+    requestCount,
+    scbResponseBufferDepth,
+    addrWidth,
+    dataWidth,
+    sizeWidth,
+    lineBytes))
 
   stq.io.flush := io.flush
   stq.io.insertValid := io.insertValid
@@ -259,6 +280,7 @@ class STQSCBCommitPath(
 
   io.scbModelBatchReady := scb.io.modelBatchReady
   io.scbModelFull := scb.io.modelFull
+  io.rawRespReady := scb.io.rawRespReady
   io.scbAcceptedMask := scb.io.acceptedMask
   io.scbStalledMask := scb.io.stalledMask
   io.scbStructuralBlockedMask := scb.io.structuralBlockedMask
@@ -287,6 +309,13 @@ class STQSCBCommitPath(
   io.scbRespIndexIllegal := scb.io.respIndexIllegal
   io.scbRespStateIllegalMask := scb.io.respStateIllegalMask
   io.scbRespDecodeError := scb.io.respDecodeError
+  io.scbRespBufferAccepted := scb.io.respBufferAccepted
+  io.scbRespBufferHeadValid := scb.io.respBufferHeadValid
+  io.scbRespBufferHeadConsumed := scb.io.respBufferHeadConsumed
+  io.scbRespBufferHeadTxnId := scb.io.respBufferHeadTxnId
+  io.scbRespBufferFull := scb.io.respBufferFull
+  io.scbRespBufferEmpty := scb.io.respBufferEmpty
+  io.scbRespBufferCount := scb.io.respBufferCount
 
   io.stqCommitFreeAcceptedMask := stq.io.commitFreeAcceptedMask
   io.stqCommitFreeIgnoredMask := stq.io.commitFreeIgnoredMask

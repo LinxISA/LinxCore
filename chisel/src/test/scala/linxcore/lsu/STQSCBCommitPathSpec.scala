@@ -186,6 +186,8 @@ class STQSCBCommitPathSpec extends AnyFunSuite {
     assert(sv.contains("module SCBRowBank"))
     assert(sv.contains("io_scbCommitFreeMask"))
     assert(sv.contains("io_rawRespTxnId"))
+    assert(sv.contains("io_rawRespReady"))
+    assert(sv.contains("io_scbRespBufferHeadTxnId"))
     assert(sv.contains("io_scbRespDecodeError"))
     assert(sv.contains("io_stqCommitFreeAcceptedMask"))
     assert(sv.contains("io_drainEarlyFreeMask"))

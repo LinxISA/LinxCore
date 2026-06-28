@@ -268,10 +268,13 @@ class SCBRowBankSpec extends AnyFunSuite {
     assert(sv.contains("module SCBRowBank"))
     assert(sv.contains("SCBEgressSelect"))
     assert(sv.contains("SCBLookupControl"))
+    assert(sv.contains("SCBResponseBuffer"))
     assert(sv.contains("SCBResponseDecode"))
     assert(sv.contains("SCBStateUpdate"))
     assert(sv.contains("io_commitFreeMask"))
     assert(sv.contains("io_rawRespTxnId"))
+    assert(sv.contains("io_rawRespReady"))
+    assert(sv.contains("io_respBufferHeadTxnId"))
     assert(sv.contains("io_respDecodeError"))
     assert(sv.contains("io_stateError"))
   }

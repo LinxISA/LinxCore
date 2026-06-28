@@ -110,7 +110,7 @@ class SCBEgressSelectSpec extends AnyFunSuite {
     assert(result.lookupMask == BigInt(0))
   }
 
-  test("lookup and miss entries are ignored until a response owner restores them to valid") {
+  test("lookup and miss entries are ignored until a response-retry owner handles them") {
     val result = select(
       Seq(
         Entry(valid = true, state = Lookup, full = true),
