@@ -154,6 +154,7 @@ These packets remain the required base before broad module promotion:
 | R42 | `DecodeRenameROBPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only GPRRenameCheckpoint`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R43 | `FrontendRegAliasClassify` / `FrontendOperandDecode` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R44 | `DecodeRenameQueue` / `DecodeRenameROBPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R45 | `DecodeLoadStoreIdAssign` / `DecodeRenameROBPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -259,15 +260,15 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. LSID and store-split boundary: add the owner that consumes decoded scalar
-   load/store shapes, assigns LSIDs, and keeps store address/data split logic
-   aligned with LinxCoreModel without moving it back into operand decode.
+1. Store-split payload boundary: consume `storeSplitIntent` and opcode-derived
+   pair/cache-maintain metadata, then clone store rows into STA/STD payloads
+   with shared SID while preserving PCR store source selection.
 2. T/U queue rename boundary: consume `OperandClass.T/U` and
    `DestinationKind.T/U` emitted by `FrontendRegAliasClassify` without
    broadening scalar GPR rename ownership.
-3. Enqueue-time ROB reservation: move BROB/ROB allocation and LSID/SID
-   assignment before `DecodeRenameQueue` enqueue once allocator reservation
-   cursors can advance without duplicate identities.
+3. Enqueue-time ROB reservation: move BROB/ROB allocation before
+   `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
+   without duplicate identities.
 4. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
 5. QEMU full-compare harness: replace reduced synthetic rows with live Chisel

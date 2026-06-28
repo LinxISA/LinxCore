@@ -10,8 +10,9 @@
 | `FrontendRegAliasClassify` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendRegAliasClassify.md` | Unit-green R43 scalar reg6 GPR/T/U alias classifier used by frontend operand decode |
 | `FrontendOperandDecode` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendOperandDecode.md` | Unit-green R43 scalar architectural operand/immediate field owner behind `FrontendDecodeStage` with model-derived GPR/T/U alias classification |
 | `DispatchROBAllocator` | `linxcore.backend` | `docs/chisel/modules/backend/DispatchROBAllocator.md` | Unit-green backend allocation bridge from BROB BID generation to ROB row allocation |
+| `DecodeLoadStoreIdAssign` | `linxcore.backend` | `docs/chisel/modules/backend/DecodeLoadStoreIdAssign.md` | Unit-green R45 reduced STID0 LSID/load_id/sid assignment and store-split-intent owner |
 | `DecodeRenameQueue` | `linxcore.backend` | `docs/chisel/modules/backend/DecodeRenameQueue.md` | Unit-green R44 registered raw decoded-uop queue between frontend decode and scalar rename |
-| `DecodeRenameROBPath` | `linxcore.backend` | `docs/chisel/modules/backend/DecodeRenameROBPath.md` | Unit-green R44 reduced frontend decode to queued scalar rename and ROB/BROB allocation composition |
+| `DecodeRenameROBPath` | `linxcore.backend` | `docs/chisel/modules/backend/DecodeRenameROBPath.md` | Unit-green R45 reduced frontend decode to LSID-annotated queued scalar rename and ROB/BROB allocation composition |
 | `FullBidRecoveryBridge` | `linxcore.recovery` | `docs/chisel/modules/recovery/FullBidRecoveryBridge.md` | Unit-green recovery handoff from full block BID to ring ROBID pruning sidecar |
 | `RecoveryCleanupControl` | `linxcore.recovery` | `docs/chisel/modules/recovery/RecoveryCleanupControl.md` | Unit-green registered cleanup-intent owner for BCTRL, rename, backend, frontend, LSU/STQ, tile, PE, and ROB consumers |
 | `GPRRenameCheckpoint` | `linxcore.rename` | `docs/chisel/modules/rename/GPRRenameCheckpoint.md` | Unit-green R38 scalar GPR rename checkpoint/cleanup owner; consumes `RecoveryCleanupControl` rename flush intent |

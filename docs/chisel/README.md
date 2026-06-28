@@ -51,10 +51,11 @@ request while rejecting reg6 aliases outside the 24-entry scalar GPR owner.
 `DecodeRenameROBPath` now adds the first reduced composition of frontend
 decode, a registered `DecodeRenameQueue`, scalar rename, and real ROB/BROB
 allocation. It selects one decoded slot, queues the raw decoded row, stamps
+reduced memory-order identity when the row is accepted into the queue, stamps
 temporary backend identity from allocator cursors at the queue head, drives
 allocator valid from a pre-ready bridge attempt signal, and keeps enqueue-time
-ROB reservation, LSID, store split, ready-table, and live top integration in
-later owners. The first integrated ROB/CMT
+ROB reservation, full SID/LID payload carry, store split cloning, ready-table,
+and live top integration in later owners. The first integrated ROB/CMT
 preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
 status-backed entry bank with separate commit and deallocation walks, and expose
 the model-derived flush-prune selection rule. The entry bank now consumes that

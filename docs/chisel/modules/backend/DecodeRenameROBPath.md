@@ -11,6 +11,7 @@
   - `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`
 - Related Chisel:
   - `chisel/src/main/scala/linxcore/frontend/FrontendDecodeStage.scala`
+  - `chisel/src/main/scala/linxcore/backend/DecodeLoadStoreIdAssign.scala`
   - `chisel/src/main/scala/linxcore/backend/DecodeRenameQueue.scala`
   - `chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala`
   - `chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
@@ -25,11 +26,12 @@ allocate a real BROB/ROB row in the accepted rename cycle.
 
 The module exists to remove the next layer of fixture wiring. It is still a
 bring-up path, not the final dispatch pipe. It selects one decoded slot per
-cycle, enqueues that raw decoded row into a registered `dec_ren_q` owner,
-stamps temporary ROB identity from allocator cursors when the queue head is
-presented to rename, and leaves enqueue-time ROB reservation, LSID allocation,
-store split, width-wide rename, and full top-level fetch/commit flow to later
-owners.
+cycle, stamps reduced memory-order identity for scalar load/store rows at the
+queue acceptance boundary, enqueues the decoded row into a registered
+`dec_ren_q` owner, stamps temporary ROB identity from allocator cursors when
+the queue head is presented to rename, and leaves enqueue-time ROB
+reservation, full SID/LID carry, store split cloning, width-wide rename, and
+full top-level fetch/commit flow to later owners.
 
 ## Interface
 
@@ -54,6 +56,11 @@ Outputs:
   `decRenValid`, `decRenHead`, `decRenTail`, `decRenCount`, `decRenEmpty`,
   `decRenFull`: registered decode-to-rename queue backpressure and occupancy
   observability.
+- `selectedIsLoad`, `selectedIsStore`, `selectedMemoryValid`,
+  `lsidAssignFire`, `selectedLsId`, `selectedLoadId`, `selectedStoreId`,
+  `nextLsId`, `nextLoadId`, `nextStoreId`, `storeSplitIntent`: reduced
+  memory-order ID and store-split-intent observability from
+  `DecodeLoadStoreIdAssign`.
 - `renamedOutValid/renamedOut`, `accepted`: renamed-uop output and atomic
   path accept event.
 - `robAllocAttemptValid`, `robAllocReady`, `robAllocFire`,
@@ -70,8 +77,11 @@ The path decodes all F4 slots, then selects the lowest-index valid decoded slot
 using `PriorityEncoder`. Later slots are not compacted or retried in this
 module; a later width owner must provide full decode enqueue.
 
-The selected raw decoded row is written into `DecodeRenameQueue` when
-`decRenPushFire` is true. The queue is flushed by direct frontend flush input
+The selected decoded row first passes through `DecodeLoadStoreIdAssign`.
+Memory-order counters advance only on `decRenPushFire`, so a stalled
+decode/rename queue does not consume LSIDs or SID/LID serials. The annotated
+row is written into `DecodeRenameQueue` when `decRenPushFire` is true. The
+queue and the memory-order counters are flushed by direct frontend flush input
 or by backend cleanup intent. `decodeReady` mirrors the queue push-ready signal
 so a future frontend integration can advance D1/F4 only when the selected row
 is accepted.
@@ -107,19 +117,23 @@ The C++ model order being preserved is:
    applicable, then writes the instruction to `dec_ren_q`.
 2. `SPEROB::allocROB()` stores an allocated row, copies `bid/gid/rid`, and
    advances `allocPtr`, `size`, and `osdSize`.
-3. `SPE::Xfer()` calls `dec_ren_q.Work()` to move ready written rows into the
+3. `Decoder::DecodeInst()` and `DCTop::SetLoadStoreID()` assign memory-order
+   IDs before incrementing their counters. The Chisel reduced path now matches
+   that pre-increment rule for one accepted STID0 decoded memory row.
+4. `SPE::Xfer()` calls `dec_ren_q.Work()` to move ready written rows into the
    rename-visible queue image.
-4. `SPERename::Rename()` consumes `dec_ren_q`, maps scalar sources, allocates
+5. `SPERename::Rename()` consumes `dec_ren_q`, maps scalar sources, allocates
    scalar destinations, captures checkpoints for `isLastInBlock`, and forwards
    the renamed uop toward dispatch.
-5. `GPRRename` owns scalar `smap`, `cmap`, checkpoints, free tags, and mapQ.
+6. `GPRRename` owns scalar `smap`, `cmap`, checkpoints, free tags, and mapQ.
 
 `DecodeRenameROBPath` now preserves the registered `dec_ren_q` timing point,
-but it still reduces the model in one important way: the queue stores raw
-decoded rows and the allocator cursor identity is stamped at the queue head.
-This avoids duplicate cursor reservations while the path lacks an
-enqueue-time ROB reservation owner. Full model timing requires moving ROB
-reservation and LSID/SID assignment before enqueue.
+and it assigns reduced memory-order identity before queue enqueue. It still
+reduces the model in one important way: the allocator cursor identity is
+stamped at the queue head. This avoids duplicate cursor reservations while the
+path lacks an enqueue-time ROB reservation owner. Full model timing requires
+moving ROB reservation before enqueue and carrying full `load_id`/`sid`
+payloads into LIQ/STQ owners.
 
 ## Deferred Owners
 
@@ -128,8 +142,9 @@ reservation and LSID/SID assignment before enqueue.
   reduced queue-head allocator cursor stamping.
 - BID-scoped `dec_ren_q` flush pruning rather than coarse queue clear.
 - Top-level frontend backpressure wiring that consumes `decodeReady`.
-- LSID/SID allocation and same-cycle memory ordering.
-- Store split rewrite into STA/STD.
+- Width-wide slot-order LSID/SID allocation and same-cycle memory ordering.
+- Full `load_id`/`sid` payload carry into LIQ/STQ owners.
+- Store split rewrite into STA/STD; the current path exposes split intent only.
 - Automatic checkpoint capture from validated `isLastInBlock`.
 - T/U/SGPR/tile/vector operand classification and rename.
 - Ready-table initialization, issue enqueue, execution completion, and full
@@ -142,6 +157,7 @@ Focused gate:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
 ```
 
@@ -158,6 +174,7 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 ```
 
 The current tests cover first-valid slot selection, queue admission
-backpressure, the allocation attempt contract, IO shape, and CIRCT elaboration
-through frontend decode, `DecodeRenameQueue`, scalar rename, and backend
+backpressure, the reduced memory-order ID observability, the allocation
+attempt contract, IO shape, and CIRCT elaboration through frontend decode,
+`DecodeLoadStoreIdAssign`, `DecodeRenameQueue`, scalar rename, and backend
 allocation.

@@ -20,7 +20,8 @@ class DecodeRenameROBPathIO(
     val tidWidth: Int = 8,
     val blockTypeWidth: Int = 4,
     val trapCauseWidth: Int = 32,
-    val decRenQueueDepth: Int = 4)
+    val decRenQueueDepth: Int = 4,
+    val loadStoreSerialWidth: Int = 64)
     extends Bundle {
   private val slotWidth = math.max(1, log2Ceil(p.decodeWidth))
   private val ptrWidth = log2Ceil(p.robEntries)
@@ -64,6 +65,17 @@ class DecodeRenameROBPathIO(
   val decRenCount = Output(UInt(decRenCountWidth.W))
   val decRenEmpty = Output(Bool())
   val decRenFull = Output(Bool())
+  val selectedIsLoad = Output(Bool())
+  val selectedIsStore = Output(Bool())
+  val selectedMemoryValid = Output(Bool())
+  val lsidAssignFire = Output(Bool())
+  val selectedLsId = Output(UInt(p.lsidWidth.W))
+  val selectedLoadId = Output(UInt(loadStoreSerialWidth.W))
+  val selectedStoreId = Output(UInt(loadStoreSerialWidth.W))
+  val nextLsId = Output(UInt(p.lsidWidth.W))
+  val nextLoadId = Output(UInt(loadStoreSerialWidth.W))
+  val nextStoreId = Output(UInt(loadStoreSerialWidth.W))
+  val storeSplitIntent = Output(Bool())
 
   val renamedOutValid = Output(Bool())
   val renamedOut = Output(new RenamedUop(p))
@@ -129,7 +141,8 @@ class DecodeRenameROBPath(
     val scalarArchRegs: Int = 24,
     val physRegs: Int = 64,
     val mapQDepth: Int = 32,
-    val decRenQueueDepth: Int = 4)
+    val decRenQueueDepth: Int = 4,
+    val loadStoreSerialWidth: Int = 64)
     extends Module {
   require(traceParams.robValueWidth >= p.robIndexWidth, "trace ROB value must hold DecodeRenameROBPath ROB index")
   require(traceParams.commitWidth == p.commitWidth, "trace commit width must match InterfaceParams")
@@ -148,7 +161,8 @@ class DecodeRenameROBPath(
     tidWidth,
     blockTypeWidth,
     trapCauseWidth,
-    decRenQueueDepth
+    decRenQueueDepth,
+    loadStoreSerialWidth
   ))
 
   val decode = Module(new FrontendDecodeStage(p))
@@ -174,6 +188,9 @@ class DecodeRenameROBPath(
     }
   }
 
+  val selectedIsLoad = selectedAny && VecInit(decode.io.loadMask.asBools)(selectedSlot)
+  val selectedIsStore = selectedAny && VecInit(decode.io.storeMask.asBools)(selectedSlot)
+
   val allocator = Module(new DispatchROBAllocator(
     entries = p.robEntries,
     traceParams = traceParams,
@@ -184,14 +201,29 @@ class DecodeRenameROBPath(
     trapCauseWidth = trapCauseWidth
   ))
 
+  val decRenFlush = io.flushValid || (io.cleanup.valid && io.cleanup.backendFlushValid)
+  val memIds = Module(new DecodeLoadStoreIdAssign(p, serialWidth = loadStoreSerialWidth))
+  memIds.io.in := selected
+  memIds.io.isLoad := selectedIsLoad
+  memIds.io.isStore := selectedIsStore
+  memIds.io.isDczva := false.B
+  memIds.io.isLoadStorePair := false.B
+  memIds.io.storeSplitRequest := selectedIsStore
+  memIds.io.stackSetRequest := false.B
+  memIds.io.flushValid := decRenFlush
+  memIds.io.restoreValid := false.B
+  memIds.io.restoreLsId := 0.U
+  memIds.io.restoreLoadId := 0.U
+  memIds.io.restoreStoreId := 0.U
+
   val selectedForQueue = Wire(new DecodedUop(p))
-  selectedForQueue := selected
+  selectedForQueue := memIds.io.out
   selectedForQueue.valid := selectedAny
 
   val decRenQ = Module(new DecodeRenameQueue(p, depth = decRenQueueDepth))
-  val decRenFlush = io.flushValid || (io.cleanup.valid && io.cleanup.backendFlushValid)
   decRenQ.io.push := selectedForQueue
   decRenQ.io.flushValid := decRenFlush
+  memIds.io.accept := decRenQ.io.pushFire
 
   val queuedForRename = Wire(new DecodedUop(p))
   queuedForRename := decRenQ.io.out
@@ -265,6 +297,17 @@ class DecodeRenameROBPath(
   io.decRenCount := decRenQ.io.count
   io.decRenEmpty := decRenQ.io.empty
   io.decRenFull := decRenQ.io.full
+  io.selectedIsLoad := selectedIsLoad
+  io.selectedIsStore := selectedIsStore
+  io.selectedMemoryValid := memIds.io.memoryValid
+  io.lsidAssignFire := memIds.io.assignFire
+  io.selectedLsId := memIds.io.assignedLsId
+  io.selectedLoadId := memIds.io.assignedLoadId
+  io.selectedStoreId := memIds.io.assignedStoreId
+  io.nextLsId := memIds.io.nextLsId
+  io.nextLoadId := memIds.io.nextLoadId
+  io.nextStoreId := memIds.io.nextStoreId
+  io.storeSplitIntent := memIds.io.storeSplitIntent
 
   io.renamedOutValid := rename.io.outValid
   io.renamedOut := rename.io.out

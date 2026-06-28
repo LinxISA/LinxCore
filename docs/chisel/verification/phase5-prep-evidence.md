@@ -2671,3 +2671,74 @@ Skill evolve:
   `DecodeRenameQueue`, stamps allocator identity only when the queue head is
   presented to rename, and requires later top-level integration to advance
   frontend decode only on `decodeReady` / queue acceptance.
+
+### R45 Decode Load/Store ID Assignment
+
+Scope:
+
+- Added `DecodeLoadStoreIdAssign` as the first reduced STID0 owner for
+  decode-side memory-order identity.
+- Wired `DecodeRenameROBPath` so selected load/store rows are LSID-annotated
+  only when the decode/rename queue accepts the row.
+- Exposed 64-bit load/store serial-counter observability and store-split intent
+  without yet adding common-bundle `load_id`/`sid` payloads or STA/STD cloning.
+
+Evidence:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
+bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
+bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `DecodeLoadStoreIdAssignSpec` passes and locks the pre-increment LSID,
+  `load_id`, and `sid` assignment rule.
+- `DecodeRenameROBPathSpec` elaborates through the new memory-order owner and
+  exposes ID/split observability.
+- Queue, rename, frontend, allocator, reduced ROB, top cross-check, QEMU
+  dry-run, build, and Verilator lint gates remain green.
+
+Observed result:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `DecodeLoadStoreIdAssignSpec` passed 6 tests covering load assignment,
+  store/DCZVA assignment, backpressure and non-memory no-advance behavior,
+  load/store-pair split suppression, flush restore, IO widths, and Chisel
+  elaboration.
+- `DecodeRenameROBPathSpec` passed 5 tests and elaborated through
+  `DecodeLoadStoreIdAssign`, `DecodeRenameQueue`, `ScalarDecodeRenameBridge`,
+  and `DispatchROBAllocator`.
+- `DecodeRenameQueueSpec` passed 5 tests.
+- `ScalarDecodeRenameBridgeSpec` passed 6 tests.
+- `FrontendDecodeStageSpec` passed 7 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the top xcheck RTL,
+  built the Verilator harness, compared 3 normalized rows, and reported zero
+  mismatches.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the current top
+  shell and passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R45 adds the reusable invariant
+  that reduced Chisel LSID/load/store serial counters are assigned at the
+  `DecodeRenameQueue` acceptance boundary using the model pre-increment rule,
+  while store splitting remains an explicit later STA/STD cloning owner.
