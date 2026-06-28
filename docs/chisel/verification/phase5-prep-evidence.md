@@ -3187,3 +3187,58 @@ Skill evolve:
   from `offset + 1` behind the allocation pointer, and allocation uses the
   circular physical pointer plus used-count stall policy, not the scalar GPR
   free-list policy.
+
+### R52 T/U Link Cleanup Hooks
+
+Scope:
+
+- Extended `TULinkRename` with local retire, direct dealloc release, block
+  commit, and flush cleanup hooks.
+- Preserved model cleanup priority by blocking new rename while retire, commit,
+  or flush maintenance mutates the T/U queues.
+- Added local flush sequence inputs so the owner can prune by
+  `(flush.bid, flushTSeq/flushUSeq)` and `(flush.bid, flush.rid)`, matching
+  scalar `LocalRegMgr::flush`.
+- Kept the shared ROB/LSU publisher for `flushTSeq/flushUSeq`, relation-cmap
+  ownership, ready-table mutation, and unified renamed-uop composition
+  deferred.
+
+Evidence:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+```
+
+Expected result:
+
+- `TULinkRenameSpec` locks retire marking, direct dealloc release at the
+  deallocation head, block commit freeing retired head rows, flush pruning by
+  local sequence plus BID/RID, physical-pointer rebase to the first pruned row,
+  maintenance backpressure, IO widths, and standalone elaboration.
+- Existing flush ordering, cleanup-intent classification, scalar-GPR-only
+  rename, and reduced ROB bookkeeping remain green.
+
+Observed result:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `TULinkRenameSpec` passed 10 tests.
+- `FlushControlSpec` passed 6 tests.
+- `RecoveryCleanupControlSpec` passed 6 tests.
+- `ScalarDecodeRenameBridgeSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R52 adds the reusable T/U cleanup
+  invariant that scalar local-register flush uses T/U mapQ sequence sidebands:
+  non-base flush pruning requires both `(flush.bid, localSeq) <= (row.bid,
+  row.seq)` and `(flush.bid, flush.rid) <= (row.bid, row.rid)`, and when the
+  flushed instruction owns a T/U destination the recovery publisher must supply
+  the previous local sequence, matching `GetPrevRegSeq`.

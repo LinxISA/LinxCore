@@ -168,6 +168,7 @@ These packets remain the required base before broad module promotion:
 | R49 | `StoreDispatchToSTQ` request bridge | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only StoreDispatchToSTQ`, `run_chisel_tests.sh --only StoreDispatchQueues`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R50 | `STQInsertProbe` / `StoreDispatchSTQPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only STQInsertProbe`, `run_chisel_tests.sh --only StoreDispatchSTQPath`, `run_chisel_tests.sh --only StoreDispatchToSTQ`, `run_chisel_tests.sh --only StoreDispatchQueues`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R51 | `TULinkRename` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R52 | `TULinkRename` cleanup hooks | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -275,19 +276,22 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Compose `TULinkRename` with the scalar decode-rename bridge so accepted
+1. Publish T/U local sequence sidebands from ROB/LSU recovery sources into
+   `TULinkRename.flushTSeq/flushUSeq`, including the model `GetPrevRegSeq`
+   adjustment when the flushed instruction owns a T/U destination.
+2. Compose `TULinkRename` with the scalar decode-rename bridge so accepted
    T/U operands can flow into `RenamedUop` without broadening scalar GPR
    ownership.
-2. Add T/U release and flush cleanup: mirror `SPEROB::ReleaseRelative`,
-   `LocalRegMgr::ReportRetired`, `ReportBlockCommit`, and `flush`.
-3. Enqueue-time ROB reservation: move BROB/ROB allocation before
+3. Add the SPEROB relation-cmap owner around `TULinkRename.retireValid` /
+   `retireDealloc` so long-latency release and block-end release are explicit.
+4. Enqueue-time ROB reservation: move BROB/ROB allocation before
    `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
    without duplicate identities.
-4. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+5. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-5. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+6. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+7. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

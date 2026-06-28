@@ -35,6 +35,16 @@ Inputs:
 
 - `in`: one decoded uop with up to three source operands and one destination.
 - `renameValid`: accepts the decoded uop when `ready` is true.
+- `retireValid`, `retireKind`, `retireSeq`, `retireDealloc`: local
+  `ReportRetired` command. Without `retireDealloc`, this only marks the mapQ
+  row retired. With `retireDealloc`, it frees the row only when the sequence is
+  the current deallocation head.
+- `commitValid`, `commitBid`: block-commit cleanup command. It releases
+  consecutive retired rows at the deallocation head while their BID matches.
+- `flushValid`, `flushBaseOnBid`, `flushBid`, `flushRid`, `flushTSeq`,
+  `flushUSeq`: local-register flush command. T and U sequences are supplied in
+  the local mapQ sequence namespace because model `FlushBus.req.tSeq/uSeq`
+  use `LocalRegMgr` mapQ order, not ROB RID order.
 
 Outputs:
 
@@ -45,14 +55,23 @@ Outputs:
   sequence, current physical tag, accepted allocation, and allocation block.
 - `tSeq` / `uSeq`: current T and U mapQ allocation sequence before any
   same-cycle destination allocation.
+- `tDeallocSeq` / `uDeallocSeq`: current oldest live T/U mapQ sequence.
 - `needsTAlloc` / `needsUAlloc`: decoded destination is a T or U link
   destination.
 - `blockedByTAlloc` / `blockedByUAlloc`: destination allocation would exceed
   that bank's model `CheckStall` pressure rule.
 - `sourceUnderflowMask`: T/U source offsets that do not resolve to a live
   mapQ row.
+- `blockedByMaintenance`: rename was held off by retire, commit, or flush.
+- `retireAccepted`, `retireMiss`, `retireReleaseMismatch`,
+  `retireUnsupported`: local retire/release command diagnostics.
+- `commitAccepted`, `flushApplied`: cleanup command observability.
 - `tAllocPhysTag` / `uAllocPhysTag`: current scalar local physical pointer.
 - `tMapQValidMask` / `uMapQValidMask`: live mapQ rows for observability.
+- `tRetiredMask` / `uRetiredMask`: mapQ rows marked retired.
+- `tReleasedMask` / `uReleasedMask`: rows released by block commit or direct
+  dealloc release this cycle.
+- `tFlushedMask` / `uFlushedMask`: rows pruned by flush this cycle.
 - `tUsedEntries` / `uUsedEntries`: scalar `usedEntrySize[0]` analogs.
 - `tUsedPhys` / `uUsedPhys`: scalar `usedPSize[0]` analogs.
 
@@ -97,6 +116,31 @@ usedPSize[0] + 1 > pSize
 
 matching `LocalRegMgr::CheckStall` for non-vector scalar local registers.
 
+Retire, commit, and flush have priority over new rename. This prevents a
+same-cycle mutation from racing a source lookup or destination allocation.
+
+`ReportRetired(seq, false)` marks the selected row retired and keeps it
+resident. `ReportRetired(seq, true)` marks then frees the row only when `seq`
+is the current deallocation head; otherwise `retireReleaseMismatch` reports
+the illegal release. `ReportBlockCommit(bid)` releases only consecutive retired
+rows at the deallocation head whose BID matches the commit BID.
+
+Flush computes prune masks with the model's two-part scalar local-register
+predicate:
+
+```text
+baseOnBid:    flush.bid <= row.bid
+non-base:     (flush.bid, flushSeq) <= (row.bid, row.seq)
+           && (flush.bid, flush.rid) <= (row.bid, row.rid)
+```
+
+After pruning, allocation sequence is rebased to
+`deallocSeq + remainingUsedEntries`. The physical pointer is reset to the
+physical tag stored in the first pruned/reusable mapQ entry, matching scalar
+`LocalRegMgr::flush`. When the flushed instruction itself owns a T/U
+destination, the recovery publisher must supply the previous local sequence,
+as the LSU model does through `GetPrevRegSeq`.
+
 ## Model Alignment
 
 `SPERename::Build()` creates independent `LocalRegMgr` instances for
@@ -116,11 +160,10 @@ reinterpret the reg6 namespace.
 - Composition with `ScalarDecodeRenameBridge` into a unified accepted renamed
   payload.
 - Ready-table initialization and wakeup state for T/U physical tags.
-- SPEROB release path: `ReportRetired`, relation cmap, long-latency release,
-  and block commit.
-- Flush recovery using `FlushBus.req.tSeq` and `FlushBus.req.uSeq`, including
-  LSU adjustment through `GetPrevRegSeq` when the flushed instruction itself
-  owns a T/U destination.
+- Full SPEROB relation-cmap owner and long-latency release policy around the
+  `retireValid`/`retireDealloc` hooks.
+- Shared recovery interface wiring that publishes `flushTSeq` and `flushUSeq`
+  from ROB/LSU-owned row state.
 - Multi-PE and multi-thread bank replication.
 - Vector, SIMT, predicate, tile, and reuse-link variants.
 
@@ -136,6 +179,8 @@ Affected gates:
 
 ```bash
 sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
 bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
 bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
@@ -149,6 +194,9 @@ The current tests cover:
 - independent T and U banks,
 - source underflow diagnostics,
 - mapQ and local physical-count pressure stalls,
+- retire mark versus dealloc release,
+- block commit freeing only retired deallocation-head rows,
+- flush pruning with local `tSeq/uSeq` and physical-pointer rebase,
 - IO width and sequence observability,
 - elaboration without instantiating `GPRRenameCheckpoint`,
 - stable T/U enum values.
