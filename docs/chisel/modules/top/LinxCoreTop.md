@@ -85,8 +85,12 @@ treated as QEMU/DUT evidence.
 
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreTop`
 - `bash tools/chisel/run_chisel_verilator_lint.sh`
+- `bash tools/chisel/run_chisel_top_xcheck.sh`
 - `bash tools/chisel/build_chisel.sh`
 
 Current tests cover parameter derivation from `CoreParams`, top-level
 elaboration with `ReducedCommitROB` and `CommitTraceMonitor`, and top Verilator
-lint over all emitted SystemVerilog files.
+lint over all emitted SystemVerilog files. The top xcheck emits a dedicated
+8-entry, two-wide `LinxCoreTop` configuration and reuses the reduced ROB
+Verilator trace harness to prove the top-level commit observation surface
+against QEMU-shaped reference rows.

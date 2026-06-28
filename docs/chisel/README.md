@@ -35,6 +35,7 @@ bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
 bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
 bash tools/chisel/run_chisel_tests.sh
 bash tools/chisel/emit_verilog.sh
 bash tools/chisel/run_chisel_verilator_lint.sh

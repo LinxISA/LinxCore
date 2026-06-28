@@ -91,3 +91,11 @@ object Elaborate extends App {
     firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
   )
 }
+
+object EmitLinxCoreTopXcheck extends App {
+  circt.stage.ChiselStage.emitSystemVerilogFile(
+    new LinxCoreTop(CoreParams(robEntries = 8, commitWidth = 2)),
+    args = Array("--target-dir", "../generated/chisel-verilog/top-xcheck"),
+    firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
+  )
+}

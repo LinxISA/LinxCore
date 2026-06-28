@@ -1,4 +1,12 @@
-#include "VReducedCommitROB.h"
+#ifndef LINXCORE_COMMIT_TRACE_DUT_HEADER
+#define LINXCORE_COMMIT_TRACE_DUT_HEADER "VReducedCommitROB.h"
+#endif
+
+#ifndef LINXCORE_COMMIT_TRACE_DUT_CLASS
+#define LINXCORE_COMMIT_TRACE_DUT_CLASS VReducedCommitROB
+#endif
+
+#include LINXCORE_COMMIT_TRACE_DUT_HEADER
 #include "verilated.h"
 
 #include <cstdint>
@@ -9,6 +17,8 @@
 #include <vector>
 
 namespace {
+
+using CommitTraceDut = LINXCORE_COMMIT_TRACE_DUT_CLASS;
 
 struct Args {
   std::string dut_trace;
@@ -72,7 +82,7 @@ Args parse_args(int argc, char **argv) {
   return args;
 }
 
-void clear_inputs(VReducedCommitROB &dut) {
+void clear_inputs(CommitTraceDut &dut) {
   dut.io_allocValid = 0;
   dut.io_allocRow_valid = 0;
   dut.io_allocRow_seq = 0;
@@ -115,9 +125,9 @@ void clear_inputs(VReducedCommitROB &dut) {
   dut.io_completeRobValue = 0;
 }
 
-void eval(VReducedCommitROB &dut) { dut.eval(); }
+void eval(CommitTraceDut &dut) { dut.eval(); }
 
-void tick(VReducedCommitROB &dut) {
+void tick(CommitTraceDut &dut) {
   dut.clock = 0;
   dut.eval();
   dut.clock = 1;
@@ -126,7 +136,7 @@ void tick(VReducedCommitROB &dut) {
   dut.eval();
 }
 
-void reset(VReducedCommitROB &dut) {
+void reset(CommitTraceDut &dut) {
   clear_inputs(dut);
   dut.reset = 1;
   tick(dut);
@@ -135,7 +145,7 @@ void reset(VReducedCommitROB &dut) {
   dut.eval();
 }
 
-void drive_alloc(VReducedCommitROB &dut, const Row &row) {
+void drive_alloc(CommitTraceDut &dut, const Row &row) {
   clear_inputs(dut);
   dut.io_allocValid = 1;
   dut.io_allocRow_valid = 1;
@@ -173,7 +183,7 @@ void drive_alloc(VReducedCommitROB &dut, const Row &row) {
   dut.io_allocRow_nextPc = row.next_pc;
 }
 
-void alloc_row(VReducedCommitROB &dut, const Row &row) {
+void alloc_row(CommitTraceDut &dut, const Row &row) {
   drive_alloc(dut, row);
   eval(dut);
   if (!dut.io_allocReady) {
@@ -185,7 +195,7 @@ void alloc_row(VReducedCommitROB &dut, const Row &row) {
   eval(dut);
 }
 
-void expect_duplicate_rejected(VReducedCommitROB &dut, const Row &row) {
+void expect_duplicate_rejected(CommitTraceDut &dut, const Row &row) {
   drive_alloc(dut, row);
   eval(dut);
   if (!dut.io_allocDuplicateIdentity || dut.io_allocReady) {
@@ -196,7 +206,7 @@ void expect_duplicate_rejected(VReducedCommitROB &dut, const Row &row) {
   eval(dut);
 }
 
-void complete_slot(VReducedCommitROB &dut, std::uint8_t slot) {
+void complete_slot(CommitTraceDut &dut, std::uint8_t slot) {
   clear_inputs(dut);
   dut.io_completeValid = 1;
   dut.io_completeRobValue = slot;
@@ -206,7 +216,7 @@ void complete_slot(VReducedCommitROB &dut, std::uint8_t slot) {
 }
 
 void expect_monitor_clean(
-    const VReducedCommitROB &dut,
+    const CommitTraceDut &dut,
     const char *context,
     std::uint8_t expected_mask,
     std::uint8_t expected_count) {
@@ -295,7 +305,7 @@ Row row2() {
   return r;
 }
 
-void expect_slot0(const VReducedCommitROB &dut, const Row &row, std::uint8_t slot) {
+void expect_slot0(const CommitTraceDut &dut, const Row &row, std::uint8_t slot) {
   if (!dut.io_commit_rows_0_valid || dut.io_commit_rows_0_slot != slot ||
       dut.io_commit_rows_0_identity_bid != row.bid ||
       dut.io_commit_rows_0_identity_gid != row.gid ||
@@ -321,7 +331,7 @@ void expect_slot0(const VReducedCommitROB &dut, const Row &row, std::uint8_t slo
   }
 }
 
-void expect_slot1(const VReducedCommitROB &dut, const Row &row, std::uint8_t slot) {
+void expect_slot1(const CommitTraceDut &dut, const Row &row, std::uint8_t slot) {
   if (!dut.io_commit_rows_1_valid || dut.io_commit_rows_1_slot != slot ||
       dut.io_commit_rows_1_identity_bid != row.bid ||
       dut.io_commit_rows_1_identity_gid != row.gid ||
@@ -375,7 +385,7 @@ void write_qemu_row(std::ofstream &out, const Row &row) {
       << ",\"next_pc\":" << row.next_pc << "}\n";
 }
 
-void write_dut_slot0(std::ofstream &out, const VReducedCommitROB &dut) {
+void write_dut_slot0(std::ofstream &out, const CommitTraceDut &dut) {
   out << "{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_0_valid)
       << ",\"seq\":" << dut.io_commit_rows_0_seq
       << ",\"cycle\":" << dut.io_commit_rows_0_cycle
@@ -415,7 +425,7 @@ void write_dut_slot0(std::ofstream &out, const VReducedCommitROB &dut) {
       << "},\"nextPc\":" << dut.io_commit_rows_0_nextPc << "}\n";
 }
 
-void write_dut_slot1(std::ofstream &out, const VReducedCommitROB &dut) {
+void write_dut_slot1(std::ofstream &out, const CommitTraceDut &dut) {
   out << "{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_1_valid)
       << ",\"seq\":" << dut.io_commit_rows_1_seq
       << ",\"cycle\":" << dut.io_commit_rows_1_cycle
@@ -461,7 +471,7 @@ int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
   const Args args = parse_args(argc, argv);
 
-  VReducedCommitROB dut;
+  CommitTraceDut dut;
   reset(dut);
 
   const std::vector<Row> rows{row0(), row1(), row2()};

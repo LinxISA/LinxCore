@@ -15,6 +15,7 @@ The LinxCore Chisel lane uses explicit targets:
 | `brob-xcheck` | `tools/chisel/run_chisel_tests.sh --only BROB` | Run Packet C BID encoding and BROB metadata lifecycle tests. |
 | `commit-monitor-xcheck` | `tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor` | Run Phase 1 fixed-width commit-window contract checks. |
 | `reduced-rob-xcheck` | `tools/chisel/run_chisel_reduced_rob_xcheck.sh` | Emit `ReducedCommitROB`, build the Verilator harness, assert commit-window monitor outputs, and compare normalized DUT rows against QEMU-shaped reference rows. |
+| `top-xcheck` | `tools/chisel/run_chisel_top_xcheck.sh` | Emit the reduced `LinxCoreTop` xcheck configuration, build the same Verilator harness against top-level IO, assert monitor outputs, and compare normalized DUT rows against QEMU-shaped reference rows. |
 
 The target shape follows the useful part of the OpenXiangShan flow: make Chisel
 generation, simulation/emulator construction, and architectural cross-checking
@@ -30,6 +31,10 @@ SBT-backed wrappers must be run sequentially until `CHISEL-ISSUE-002` is closed.
 Verilator wrappers must pass the full emitted SystemVerilog set, because CIRCT
 emits instantiated Chisel modules as sibling `.sv` files rather than inlining
 them into the top module.
+The top xcheck intentionally emits an 8-entry, two-wide `LinxCoreTop`
+configuration into `generated/chisel-verilog/top-xcheck` so it can reuse the
+same bounded three-row smoke as the reduced ROB harness while the default top
+configuration remains `CoreParams()`.
 
 ## Version Decision
 
