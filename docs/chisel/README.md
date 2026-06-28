@@ -45,7 +45,11 @@ rename/ROB admission remain later owners. `ScalarDecodeRenameBridge` now adds
 the first one-uop D2 decode-to-rename staging owner: it composes scalar
 `GPRRenameCheckpoint`, emits a `RenamedUop`, and produces a ROB allocation row
 request while rejecting reg6 aliases outside the 24-entry scalar GPR owner.
-LSID, store split, ready-table, and live top integration still remain later
+`DecodeRenameROBPath` now adds the first reduced composition of frontend
+decode, scalar rename, and real ROB/BROB allocation. It selects one decoded
+slot, stamps temporary backend identity from allocator cursors, drives
+allocator valid from a pre-ready bridge attempt signal, and keeps registered
+D2 queueing, LSID, store split, ready-table, and live top integration in later
 owners. The first integrated ROB/CMT
 preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
 status-backed entry bank with separate commit and deallocation walks, and expose
@@ -162,6 +166,7 @@ bash tools/chisel/run_chisel_tests.sh --only FrontendInstructionBuffer
 bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeIngress
 bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
 bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
 bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune

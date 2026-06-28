@@ -9,6 +9,7 @@
 | `FrontendDecodeStage` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeStage.md` | Unit-green R39/R40 catalog-driven opcode classification plus scalar operand/immediate extraction plumbing |
 | `FrontendOperandDecode` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendOperandDecode.md` | Unit-green R40 scalar architectural GPR operand and immediate field owner behind `FrontendDecodeStage` |
 | `DispatchROBAllocator` | `linxcore.backend` | `docs/chisel/modules/backend/DispatchROBAllocator.md` | Unit-green backend allocation bridge from BROB BID generation to ROB row allocation |
+| `DecodeRenameROBPath` | `linxcore.backend` | `docs/chisel/modules/backend/DecodeRenameROBPath.md` | Unit-green R42 reduced frontend decode to scalar rename and ROB/BROB allocation composition |
 | `FullBidRecoveryBridge` | `linxcore.recovery` | `docs/chisel/modules/recovery/FullBidRecoveryBridge.md` | Unit-green recovery handoff from full block BID to ring ROBID pruning sidecar |
 | `RecoveryCleanupControl` | `linxcore.recovery` | `docs/chisel/modules/recovery/RecoveryCleanupControl.md` | Unit-green registered cleanup-intent owner for BCTRL, rename, backend, frontend, LSU/STQ, tile, PE, and ROB consumers |
 | `GPRRenameCheckpoint` | `linxcore.rename` | `docs/chisel/modules/rename/GPRRenameCheckpoint.md` | Unit-green R38 scalar GPR rename checkpoint/cleanup owner; consumes `RecoveryCleanupControl` rename flush intent |

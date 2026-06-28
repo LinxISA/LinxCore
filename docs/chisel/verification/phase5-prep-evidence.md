@@ -2485,3 +2485,68 @@ Skill evolve:
   be generated from pyCircuit opcode metadata and must preserve the
   most-specific mask/match selection rule before operand extraction or
   decode-to-rename integration is broadened.
+
+### R42 Decode Rename ROB Path
+
+Implementation:
+
+- Added `DecodeRenameROBPath` as the first reduced composition of
+  `FrontendDecodeStage`, `ScalarDecodeRenameBridge`, and
+  `DispatchROBAllocator`.
+- Added `ScalarDecodeRenameBridge.robAllocAttemptValid` so composition owners
+  can drive allocator `allocValid` from a pre-ready request qualifier while
+  keeping rename mutation tied to accepted allocation.
+- Stamped the selected decoded uop with temporary backend identity from the
+  allocator cursors: current full block BID converted to ring `ROBID`,
+  current ROB allocation value as `rid.value`, and block BID sideband.
+- Left registered D2/D3 queueing, width-wide rename, LSID/SID allocation,
+  store split, ready-table initialization, full block retire, and live
+  top-level commit rows to later packets.
+
+Verification:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
+bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only GPRRenameCheckpoint
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Evidence:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `DecodeRenameROBPathSpec` passed 4 tests covering first-valid slot
+  selection, allocator-ready-independent allocation attempt qualification, IO
+  shape, and CIRCT elaboration through frontend decode, scalar rename, and
+  backend allocation.
+- `ScalarDecodeRenameBridgeSpec` passed 6 tests with the new
+  `robAllocAttemptValid` IO/elaboration checks.
+- `FrontendDecodeStageSpec` passed 6 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `GPRRenameCheckpointSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` compared 3 rows with zero
+  mismatches.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the current top
+  shell and passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `DecodeRenameROBPath` adds the
+  reusable composition invariant that allocator `allocValid` must be driven
+  from a pre-ready bridge attempt signal, while rename mutation and
+  `robAllocValid` remain tied to accepted allocation, avoiding ready feedback
+  through ROB duplicate detection.

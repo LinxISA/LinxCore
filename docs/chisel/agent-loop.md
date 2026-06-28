@@ -149,6 +149,7 @@ These packets remain the required base before broad module promotion:
 | R39 | `FrontendDecodeStage` | `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `run_chisel_tests.sh --only InterfaceBundles` |
 | R40 | `FrontendOperandDecode` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `run_chisel_tests.sh --only InterfaceBundles`, `build_chisel.sh`, `run_chisel_top_xcheck.sh`, `run_chisel_verilator_lint.sh`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R41 | `ScalarDecodeRenameBridge` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only GPRRenameCheckpoint`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R42 | `DecodeRenameROBPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only GPRRenameCheckpoint`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -254,11 +255,11 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Decode/rename/ROB composition: connect `FrontendDecodeStage`,
-   `ScalarDecodeRenameBridge`, and `DispatchROBAllocator` in a reduced top
-   slice so accepted decoded uops allocate real ROB/BROB rows.
-2. Reg6 alias classification: split fixed compressed tags 24/31 and future
+1. Reg6 alias classification: split fixed compressed tags 24/31 and future
    T/U/SGPR aliases away from the scalar GPR owner before they reach rename.
+2. Registered D2/D3 queueing: split the reduced `DecodeRenameROBPath`
+   acceptance boundary into model-like `DCTop -> dec_ren_q -> SPERename`
+   staging while preserving the pre-ready ROB allocation attempt contract.
 3. LSID and store-split boundary: add the owner that consumes decoded scalar
    load/store shapes, assigns LSIDs, and keeps store address/data split logic
    aligned with LinxCoreModel without moving it back into operand decode.

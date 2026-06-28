@@ -35,6 +35,7 @@ class ScalarDecodeRenameBridgeIO(
   val outValid = Output(Bool())
   val out = Output(new RenamedUop(p))
 
+  val robAllocAttemptValid = Output(Bool())
   val robAllocValid = Output(Bool())
   val robAllocRow = Output(new CommitTraceRow(traceParams))
 
@@ -139,6 +140,7 @@ class ScalarDecodeRenameBridge(
 
   val needsRename = dstIsGpr && dstInRange
   val canRename = !needsRename || gpr.io.renameReady
+  val allocAttemptValid = io.in.valid && !maintenanceBusy && !unsupported && canRename && io.outReady
   val canAccept = !maintenanceBusy && !unsupported && canRename && io.robAllocReady && io.outReady
   val accepted = io.in.valid && canAccept
 
@@ -156,6 +158,7 @@ class ScalarDecodeRenameBridge(
   io.inReady := canAccept
   io.accepted := accepted
   io.outValid := accepted
+  io.robAllocAttemptValid := allocAttemptValid
   io.robAllocValid := accepted
   io.needsGprRename := io.in.valid && needsRename
   io.unsupportedSrcMask := srcUnsupported.asUInt

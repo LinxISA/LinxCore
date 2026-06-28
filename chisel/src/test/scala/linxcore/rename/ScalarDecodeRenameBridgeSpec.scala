@@ -107,6 +107,7 @@ class ScalarDecodeRenameBridgeSpec extends AnyFunSuite {
     val io = new ScalarDecodeRenameBridgeIO(p, trace)
 
     assert(io.out.valid.getWidth == 1)
+    assert(io.robAllocAttemptValid.getWidth == 1)
     assert(io.robAllocRow.identity.bid.getWidth == 32)
     assert(io.robAllocRow.pc.getWidth == 64)
     assert(io.unsupportedSrcMask.getWidth == 3)
@@ -125,6 +126,7 @@ class ScalarDecodeRenameBridgeSpec extends AnyFunSuite {
 
     assert(sv.contains("module ScalarDecodeRenameBridge"))
     assert(sv.contains("GPRRenameCheckpoint"))
+    assert(sv.contains("io_robAllocAttemptValid"))
     assert(sv.contains("io_robAllocValid"))
     assert(sv.contains("io_unsupportedDst"))
     assert(sv.contains("io_blockedByRename"))

@@ -47,6 +47,8 @@ Outputs:
 - `inReady`: the input uop can be accepted.
 - `accepted`: the input fired this cycle.
 - `outValid` / `out`: accepted renamed uop.
+- `robAllocAttemptValid`: ROB allocation request is well-formed before
+  applying allocator ready.
 - `robAllocValid` / `robAllocRow`: accepted ROB allocation row request.
 - `needsGprRename`: destination GPR allocation is required for the input.
 - `unsupportedSrcMask`, `unsupportedDst`, `unsupportedOperandClass`,
@@ -71,6 +73,13 @@ surfaces:
 Recovery cleanup, block commit, and explicit checkpoint commands have priority
 over new uop acceptance. This mirrors the state-owner priority already used by
 `GPRRenameCheckpoint` and prevents same-cycle cleanup/rename ambiguity.
+
+`robAllocAttemptValid` is the pre-ready allocation request qualifier used by
+composition owners. It depends on input validity, maintenance state, scalar
+support, rename availability, and output readiness, but it does not depend on
+`robAllocReady`. `robAllocValid` remains the accepted allocation event. This
+split lets `DispatchROBAllocator` compute duplicate-identity readiness from a
+stable request row without feeding allocator ready back into allocator valid.
 
 Accepted source operands with `OperandClass.P` and architectural tags `0..23`
 read `GPRRenameCheckpoint.smap`. Accepted GPR destinations in the same
@@ -155,4 +164,5 @@ The current tests cover:
 - explicit rejection of reg6 aliases outside the scalar GPR owner,
 - initial scalar GPR map and first free physical tag reference behavior,
 - IO width checks for ROB allocation and rename observability,
+- pre-ready ROB allocation attempt visibility,
 - Chisel elaboration through the composed `GPRRenameCheckpoint`.
