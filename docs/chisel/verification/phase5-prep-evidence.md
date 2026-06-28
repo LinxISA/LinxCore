@@ -3048,3 +3048,85 @@ Skill evolve:
 - `skill-evolve: update linx-core` because R49 adds the reusable model-derived
   progress rule that a ready STD half must be allowed to bypass a present STA
   head when STA insertion is blocked but STD insertion can merge into STQ.
+
+### R50 Store Dispatch STQ Path
+
+Scope:
+
+- Added `STQInsertProbe` as the shared read-only owner for STQ insert
+  readiness over a live `STQEntryBank` row image.
+- Routed `STQEntryBank` insert readiness through the same probe used by
+  upstream composition.
+- Added `StoreDispatchSTQPath` to compose `StoreDispatchQueues`,
+  `StoreDispatchToSTQ`, two per-candidate probes, and `STQEntryBank`.
+- Preserved STA priority when both candidates can insert while allowing a
+  mergeable STD to bypass a present STA that cannot allocate into a full STQ.
+- Kept real address generation, store-data selection, load-conflict probes,
+  ready-table updates, memory trace side effects, and live top integration
+  deferred.
+
+Evidence:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only STQInsertProbe
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchQueues
+bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `STQInsertProbeSpec` locks full-STQ complementary merge acceptance,
+  incompatible split conflict, flush-applied suppression, IO widths, and
+  elaboration.
+- `StoreDispatchSTQPathSpec` locks full-STQ STD merge-bypass, STA priority,
+  flush suppression, IO widths, and elaboration through queues, bridge, probes,
+  and bank.
+- Existing store-dispatch, STQ bank, store split, backend path, interface, ROB,
+  top xcheck, QEMU dry-run, build, and Verilator lint gates remain green.
+
+Observed result:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `STQInsertProbeSpec` passed 5 tests covering complementary split merge
+  readiness on a full STQ, incompatible split conflict, flush-applied
+  suppression, IO widths, and elaboration.
+- `StoreDispatchSTQPathSpec` passed 5 tests covering full-STQ STD
+  merge-bypass, STA priority, flush suppression, IO widths, and composition
+  elaboration.
+- `STQEntryBankSpec` passed 7 tests with insert readiness routed through
+  `STQInsertProbe`.
+- `StoreDispatchToSTQSpec` passed 6 tests.
+- `StoreDispatchQueuesSpec` passed 8 tests.
+- `StoreSplitPayloadSpec` passed 7 tests.
+- `DecodeRenameROBPathSpec` passed 6 tests.
+- `InterfaceBundlesSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the top xcheck RTL,
+  built the Verilator harness, compared 3 normalized rows, and reported zero
+  mismatches.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the current top
+  shell and passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R50 adds the reusable invariant
+  that STQ insert readiness must be computed independently per STA/STD
+  candidate from the same live row image; a selected-only bank ready signal is
+  insufficient when STD can merge while STA cannot allocate.

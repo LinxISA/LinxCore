@@ -14,6 +14,7 @@
   - `chisel/src/main/scala/linxcore/rename/StoreSplitPayload.scala`
   - `chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchToSTQ.scala`
+  - `chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala`
   - `chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
 
 ## Purpose
@@ -97,14 +98,14 @@ Chisel path, including PCR source selection and ordinary STA source-zeroing.
 `StoreDispatchQueues` owns the next model-equivalent boundary: finite queue
 admission, backpressure, flush clearing, and visible queue-head handoff.
 `StoreDispatchToSTQ` is the next bridge that consumes those heads after
-explicit execution results are available.
+explicit execution results are available. `StoreDispatchSTQPath` is the first
+composition owner that wires these queues through `StoreDispatchToSTQ`,
+per-candidate `STQInsertProbe` readiness, and `STQEntryBank` mutation.
 
 ## Deferred Owners
 
 - STA address generation and STD data selection.
 - Ready-table/source wakeup effects before store execution.
-- Registered STQ insertion composition after `StoreDispatchToSTQ` forms typed
-  requests.
 - Complementary partial-store merge in `STQEntryBank`.
 - Store-arrival conflict probes to load/MDB logic.
 - Memory-side trace, exception, and recovery side effects.
@@ -122,6 +123,7 @@ Affected gates:
 ```bash
 sbt --client --error 'Test / compile'
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
 bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ
 bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
 bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign

@@ -16,6 +16,8 @@
     - `FakeLSU::mergeStore`
 - Related Chisel:
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchQueues.scala`
+  - `chisel/src/main/scala/linxcore/lsu/STQInsertProbe.scala`
+  - `chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala`
   - `chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
 
 ## Purpose
@@ -41,8 +43,10 @@ Inputs:
   `size`, PE/thread scope, stack marker, scalar/SIMT merge scope, and SIMT
   lane.
 - `staInsertReady`, `stdInsertReady`: downstream per-candidate insert
-  readiness. These are separate because a full STQ can reject a new STA
-  allocation while still accepting a mergeable STD half.
+  readiness. `StoreDispatchSTQPath` now derives these with independent
+  `STQInsertProbe` instances over the live `STQEntryBank` row image. They
+  remain separate because a full STQ can reject a new STA allocation while
+  still accepting a mergeable STD half.
 
 Outputs:
 
@@ -114,10 +118,6 @@ second half completes the store.
 ## Deferred Owners
 
 - Real STA address generation and STD data selection.
-- Per-candidate STQ insert readiness probes derived from the live
-  `STQEntryBank` row image.
-- Registered composition of `StoreDispatchQueues`, `StoreDispatchToSTQ`, and
-  `STQEntryBank`.
 - Load-conflict probe publication after accepted STQ insert.
 - Store-data wakeup, ready-table, memory trace, and exception side effects.
 
@@ -133,6 +133,8 @@ Affected gates:
 
 ```bash
 sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only STQInsertProbe
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
 bash tools/chisel/run_chisel_tests.sh --only StoreDispatchQueues
 bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload

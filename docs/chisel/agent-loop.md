@@ -166,6 +166,7 @@ These packets remain the required base before broad module promotion:
 | R47 | Generated store metadata / reduced store dispatch handoff | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R48 | `StoreDispatchQueues` / queue-backed store dispatch handoff | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only StoreDispatchQueues`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R49 | `StoreDispatchToSTQ` request bridge | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only StoreDispatchToSTQ`, `run_chisel_tests.sh --only StoreDispatchQueues`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R50 | `STQInsertProbe` / `StoreDispatchSTQPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only STQInsertProbe`, `run_chisel_tests.sh --only StoreDispatchSTQPath`, `run_chisel_tests.sh --only StoreDispatchToSTQ`, `run_chisel_tests.sh --only StoreDispatchQueues`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -273,21 +274,17 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. STQ insertion composition: derive per-candidate insert readiness from the
-   live `STQEntryBank` row image, connect `StoreDispatchToSTQ` to
-   `StoreDispatchQueues` and `STQEntryBank`, and keep STD merge-bypass progress
-   when STA allocation is blocked.
-2. T/U queue rename boundary: consume `OperandClass.T/U` and
+1. T/U queue rename boundary: consume `OperandClass.T/U` and
    `DestinationKind.T/U` emitted by `FrontendRegAliasClassify` without
    broadening scalar GPR rename ownership.
-3. Enqueue-time ROB reservation: move BROB/ROB allocation before
+2. Enqueue-time ROB reservation: move BROB/ROB allocation before
    `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
    without duplicate identities.
-4. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+3. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-5. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+4. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+5. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

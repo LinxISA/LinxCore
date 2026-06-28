@@ -173,14 +173,6 @@ class STQEntryBank(
     row
   }
 
-  private def sameStoreId(row: STQEntryBankRow, req: STQStoreRequest): Bool =
-    ROBID.equal(row.bid, req.bid) && ROBID.equal(row.lsId, req.lsId) &&
-      (req.scalarIex || (row.simtLane === req.simtLane))
-
-  private def compatibleMerge(row: STQEntryBankRow, req: STQStoreRequest): Bool =
-    ((req.storeType === STQStoreType.Addr) && (row.storeType === STQStoreType.Data)) ||
-      ((req.storeType === STQStoreType.Data) && (row.storeType === STQStoreType.Addr))
-
   private def mergeRow(row: STQEntryBankRow, req: STQStoreRequest): STQEntryBankRow = {
     val out = Wire(new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
     out := row
@@ -247,30 +239,20 @@ class STQEntryBank(
   io.flushStatusBlockedMask := flushPrune.io.statusBlockedMask
   io.flushFreeCount := flushPrune.io.freeCount
 
-  val mergeCandidateVec = Wire(Vec(entries, Bool()))
-  val mergeConflictVec = Wire(Vec(entries, Bool()))
-  val partialInsert = io.insert.storeType =/= STQStoreType.All
-  for (idx <- 0 until entries) {
-    val sameWaitStore = rows(idx).valid && (rows(idx).status === STQEntryStatus.Wait) && sameStoreId(rows(idx), io.insert)
-    mergeCandidateVec(idx) := io.insertValid && partialInsert && sameWaitStore && compatibleMerge(rows(idx), io.insert)
-    mergeConflictVec(idx) := io.insertValid && partialInsert && sameWaitStore && !compatibleMerge(rows(idx), io.insert)
-  }
+  val insertProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  insertProbe.io.requestValid := io.insertValid
+  insertProbe.io.request := io.insert
+  insertProbe.io.rows := rows
+  insertProbe.io.flushApplied := flushApplied
 
-  val mergeCandidateMask = mergeCandidateVec.asUInt
-  val mergeConflict = mergeConflictVec.asUInt.orR
-  val mergeHit = mergeCandidateMask.orR
-  val mergeIndex = OHToUInt(PriorityEncoderOH(mergeCandidateMask))
-  val freeMask = ~occupiedVec.asUInt
-  val allocateHit = freeMask.orR
-  val allocateIndex = OHToUInt(PriorityEncoderOH(freeMask))
-  val insertCanAllocate = (io.insert.storeType === STQStoreType.All || !mergeHit) && allocateHit
-  val insertCanMerge = partialInsert && mergeHit
+  val mergeIndex = insertProbe.io.mergeIndex
+  val allocateIndex = insertProbe.io.allocateIndex
 
-  io.insertConflict := io.insertValid && mergeConflict && !insertCanMerge
-  io.insertReady := !flushApplied && !io.insertConflict && (insertCanMerge || insertCanAllocate)
+  io.insertConflict := insertProbe.io.conflict
+  io.insertReady := insertProbe.io.ready
   io.insertAccepted := io.insertValid && io.insertReady
-  io.insertMerged := io.insertAccepted && insertCanMerge
-  io.insertAllocated := io.insertAccepted && !insertCanMerge
+  io.insertMerged := io.insertAccepted && insertProbe.io.canMerge
+  io.insertAllocated := io.insertAccepted && !insertProbe.io.canMerge
   io.insertIndex := Mux(io.insertMerged, mergeIndex, allocateIndex)
 
   val markCommitRow = rows(io.markCommitIndex)

@@ -16,6 +16,8 @@
 - LinxCoreModel: `model/LinxCoreModel/model/l1/cluster.cpp`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchQueues.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchToSTQ.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQInsertProbe.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala`
@@ -53,6 +55,8 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/StoreDispatchQueuesSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/StoreDispatchToSTQSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQInsertProbeSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/StoreDispatchSTQPathSpec.scala`
 
 ## Model Contract
 
@@ -120,8 +124,22 @@ request shape, gives ready STA requests priority, and allows a ready STD to
 bypass a present but non-insertable STA. That bypass preserves the model
 progress case where a full STQ rejects a new address allocation but can still
 merge a complementary data half into an existing partial row. The bridge still
-does not compute addresses or data, derive live STQ insert readiness from row
-state, publish load-conflict probes, or mutate STQ rows directly.
+does not compute addresses or data, publish load-conflict probes, or mutate
+STQ rows directly.
+
+`STQInsertProbe` is the shared read-only Chisel owner for the STQ insert
+readiness predicate. It scans live `STQEntryBank` rows, reports free rows,
+complementary split-half merge targets, incompatible same-ID split conflicts,
+and suppresses readiness while the bank applies recovery. `STQEntryBank` uses
+this probe internally, and `StoreDispatchSTQPath` instantiates one probe per
+candidate so STA and STD readiness are computed independently from the same
+pre-cycle row image.
+
+`StoreDispatchSTQPath` is the first queue-to-STQ composition owner. It wires
+`StoreDispatchQueues`, `StoreDispatchToSTQ`, two `STQInsertProbe` instances,
+and `STQEntryBank`. A selected request is the only request sent to the bank in
+one cycle. STA still wins when both candidates can insert, but a mergeable STD
+can bypass a present STA that cannot allocate into a full STQ.
 
 `STQFlushPrune` is the first Chisel LSU cleanup consumer. It mirrors the model
 match predicate and emits:

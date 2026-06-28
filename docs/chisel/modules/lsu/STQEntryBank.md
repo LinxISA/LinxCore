@@ -11,6 +11,8 @@
   - `model/LinxCoreModel/model/lsu/store_unit/stq.h`
   - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQInsertProbe.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchToSTQ.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
@@ -89,17 +91,20 @@ request type from executed store-dispatch queue heads.
 
 ## Logic Design
 
-Allocation follows `STQ::insert`: choose the first invalid row, initialize it
-as valid `Wait`, and derive readiness from store type:
+Allocation readiness is now produced by the internal `STQInsertProbe`, the
+same read-only predicate used by `StoreDispatchSTQPath` for independent STA
+and STD candidate readiness. Allocation follows `STQ::insert`: choose the
+first invalid row, initialize it as valid `Wait`, and derive readiness from
+store type:
 
 - `All`: address-ready and data-ready;
 - `Addr`: address-ready only;
 - `Data`: data-ready only.
 
 Partial-store merge follows `STQ::mergeStore` and `STQueueEntryInfo::init`.
-The bank searches existing `Wait` rows by `(bid, lsId)` and SIMT lane when the
-request is not scalar. A complementary `Addr` plus `Data` pair merges in place
-and becomes `All`. An incompatible same-ID split-store half raises
+The probe searches existing `Wait` rows by `(bid, lsId)` and SIMT lane when
+the request is not scalar. A complementary `Addr` plus `Data` pair merges in
+place and becomes `All`. An incompatible same-ID split-store half raises
 `insertConflict` instead of allocating a duplicate row.
 
 `markCommit` is the local state transition corresponding to the state part of
@@ -146,6 +151,8 @@ events. No architectural commit trace row is emitted by this module.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
+- `bash tools/chisel/run_chisel_tests.sh --only STQInsertProbe`
+- `bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath`
 - `bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune`

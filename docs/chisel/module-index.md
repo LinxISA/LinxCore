@@ -20,6 +20,8 @@
 | `StoreSplitPayload` | `linxcore.rename` | `docs/chisel/modules/rename/StoreSplitPayload.md` | Unit-green R48 renamed store payload split owner feeding `StoreDispatchQueues`; emits atomic STA/STD or ST_ALL payloads with PCR source selection |
 | `StoreDispatchQueues` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchQueues.md` | Unit-green R48 queue-backed STA/STD dispatch boundary behind scalar rename; capacity-only readiness and atomic split enqueue |
 | `StoreDispatchToSTQ` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchToSTQ.md` | Unit-green R49 bridge from executed store-dispatch queue heads to typed STQ insert requests; STA priority with STD merge-bypass progress |
+| `STQInsertProbe` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQInsertProbe.md` | Unit-green R50 read-only STQ insert readiness probe shared by the bank and queue-to-STQ composition |
+| `StoreDispatchSTQPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchSTQPath.md` | Unit-green R50 queue-backed store dispatch to STQ composition with independent STA/STD readiness probes |
 | `STQFlushPrune` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQFlushPrune.md` | Unit-green first LSU/STQ cleanup consumer; emits model-derived free masks for valid `STQ_WAIT` rows |
 | `STQEntryBank` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQEntryBank.md` | Unit-green first STQ state owner; consumes flush-prune masks, owns row sidecars, split-store merge, resident/WAIT counts, and committed-row free masks |
 | `STQCommitQueue` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQCommitQueue.md` | Unit-green R16 store-commit ordering owner; sorted enqueue and downstream-ready issue selection |
