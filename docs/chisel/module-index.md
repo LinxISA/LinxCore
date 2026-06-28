@@ -17,6 +17,7 @@
 | `RecoveryCleanupControl` | `linxcore.recovery` | `docs/chisel/modules/recovery/RecoveryCleanupControl.md` | Unit-green registered cleanup-intent owner for BCTRL, rename, backend, frontend, LSU/STQ, tile, PE, and ROB consumers |
 | `GPRRenameCheckpoint` | `linxcore.rename` | `docs/chisel/modules/rename/GPRRenameCheckpoint.md` | Unit-green R38 scalar GPR rename checkpoint/cleanup owner; consumes `RecoveryCleanupControl` rename flush intent |
 | `ScalarDecodeRenameBridge` | `linxcore.rename` | `docs/chisel/modules/rename/ScalarDecodeRenameBridge.md` | Unit-green R41 one-uop scalar decode-to-rename bridge with ROB allocation-row request and explicit alias rejection |
+| `TULinkRename` | `linxcore.rename` | `docs/chisel/modules/rename/TULinkRename.md` | Unit-green R51 standalone scalar T/U local-register rename owner with model sequence, offset, and pressure contracts |
 | `StoreSplitPayload` | `linxcore.rename` | `docs/chisel/modules/rename/StoreSplitPayload.md` | Unit-green R48 renamed store payload split owner feeding `StoreDispatchQueues`; emits atomic STA/STD or ST_ALL payloads with PCR source selection |
 | `StoreDispatchQueues` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchQueues.md` | Unit-green R48 queue-backed STA/STD dispatch boundary behind scalar rename; capacity-only readiness and atomic split enqueue |
 | `StoreDispatchToSTQ` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchToSTQ.md` | Unit-green R49 bridge from executed store-dispatch queue heads to typed STQ insert requests; STA priority with STD merge-bypass progress |

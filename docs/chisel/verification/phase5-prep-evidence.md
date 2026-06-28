@@ -3130,3 +3130,60 @@ Skill evolve:
   that STQ insert readiness must be computed independently per STA/STD
   candidate from the same live row image; a selected-only bank ready signal is
   insufficient when STD can merge while STA cannot allocate.
+
+### R51 T/U Link Rename Boundary
+
+Scope:
+
+- Added `TULinkRename` as a standalone scalar T/U local-register rename owner.
+- Preserved `ScalarDecodeRenameBridge` as scalar GPR-only; the new owner
+  consumes `OperandClass.T/U` and `DestinationKind.T/U` sidebands without
+  broadening GPR rename.
+- Mirrored the scalar `LocalRegMgr` sequence and pressure contract: source
+  lookup uses `mapQAllocPtr[0] - (offset + 1)`, destination allocation records
+  the pre-allocation sequence, and destination pressure uses `usedEntrySize`
+  plus `usedPSize`.
+- Kept T/U release, ready-table, flush cleanup, and integrated renamed-uop
+  composition deferred.
+
+Evidence:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
+bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+```
+
+Expected result:
+
+- `TULinkRenameSpec` locks pre-allocation `tSeq/uSeq`, source offset lookup,
+  independent T/U banks, underflow diagnostics, mapQ and physical-count
+  pressure, IO widths, enum values, and standalone elaboration without
+  `GPRRenameCheckpoint`.
+- Existing frontend alias classification, scalar-only rename rejection, reduced
+  decode/ROB composition, and reduced ROB bookkeeping remain green.
+
+Observed result:
+
+- `TULinkRenameSpec` passed 7 tests.
+- `sbt --client --error 'Test / compile'` passed.
+- `FrontendDecodeStageSpec` passed 8 tests, including the reg6 alias
+  classifier.
+- `ScalarDecodeRenameBridgeSpec` passed 6 tests, preserving scalar-only alias
+  rejection.
+- `DecodeRenameROBPathSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R51 adds the reusable T/U rename
+  invariant that scalar T/U local registers are independent `LocalRegMgr`
+  queues: sequences are captured before destination allocation, sources resolve
+  from `offset + 1` behind the allocation pointer, and allocation uses the
+  circular physical pointer plus used-count stall policy, not the scalar GPR
+  free-list policy.
