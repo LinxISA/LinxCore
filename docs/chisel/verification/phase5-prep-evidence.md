@@ -2327,3 +2327,47 @@ Skill evolve:
   reusable SCB completion invariant that response-returned `Lookup` rows must
   retry before ordinary valid-row eviction, and retry `Lookup` rows are legal
   `SCBStateUpdate` finish targets only when paired with hit/free or miss masks.
+
+### R37 SCB Response Retry Queue
+
+Implementation:
+
+- Added `SCBResponseRetryQueue` as the ordered row-id FIFO for model
+  `SCBuffer::resp_list`.
+- Wired `SCBRowBank` so legal decoded responses consume the raw response head,
+  enqueue the retry row id, and apply `Miss -> Lookup` only when the retry
+  queue can accept the row id.
+- Updated `SCBResponseRetrySelect` to select the queued retry head, block
+  normal egress on a stale head, and preserve queue order across row indices.
+
+Verification:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseRetryQueue
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseRetrySelect
+bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
+bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseBuffer
+bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect
+bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
+bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath
+```
+
+Evidence:
+
+- `SCBResponseRetryQueueSpec` passed 4 tests covering FIFO row-id ordering,
+  simultaneous pop/enqueue space, full-state backpressure, and elaboration.
+- `SCBResponseRetrySelectSpec` passed 6 tests covering queued-head priority,
+  cross-index retry selection, stale-head blocking, normal fallback,
+  no-candidate reporting, and elaboration.
+- `SCBRowBankSpec` passed 10 tests including ordered response retry queue
+  behavior across row indices.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `SCBResponseRetryQueue` closes the
+  previously deferred exact `resp_list` row-id ordering invariant and adds the
+  accepted-response handshake: raw response consumption, retry enqueue, and
+  `Miss -> Lookup` state update must succeed together.

@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.{log2Ceil, OHToUInt, PriorityEncoderOH}
+import chisel3.util.{log2Ceil, UIntToOH}
 
 class SCBResponseRetrySelectIO(
     val scbEntries: Int,
@@ -11,6 +11,8 @@ class SCBResponseRetrySelectIO(
   val entries = Input(Vec(scbEntries, new SCBLineEntry(addrWidth, lineBytes)))
   val normalLookupRequest = Input(new SCBEgressLookupRequest(scbEntries, addrWidth, lineBytes))
   val normalLookupMask = Input(UInt(scbEntries.W))
+  val retryHeadValid = Input(Bool())
+  val retryHeadEntryIndex = Input(UInt(math.max(1, log2Ceil(scbEntries)).W))
 
   val retryCandidateMask = Output(UInt(scbEntries.W))
   val retryLookupMask = Output(UInt(scbEntries.W))
@@ -18,6 +20,7 @@ class SCBResponseRetrySelectIO(
   val lookupMask = Output(UInt(scbEntries.W))
   val lookupRetry = Output(Bool())
   val lookupNormal = Output(Bool())
+  val retryHeadBlocked = Output(Bool())
   val lookupFull = Output(Bool())
   val lookupNotFull = Output(Bool())
   val noCandidate = Output(Bool())
@@ -39,41 +42,37 @@ class SCBResponseRetrySelect(
 
   val retryCandidateVec = VecInit(io.entries.map(entry => entry.valid && (entry.state === SCBEntryState.Lookup)))
   val retryCandidateMask = retryCandidateVec.asUInt
-  val selectedRetry = retryCandidateMask.orR
-  val retryOH = Mux(selectedRetry, PriorityEncoderOH(retryCandidateMask), 0.U(scbEntries.W))
+  val retryHeadEntry = io.entries(io.retryHeadEntryIndex)
+  val retryHeadReady = io.retryHeadValid && retryHeadEntry.valid && (retryHeadEntry.state === SCBEntryState.Lookup)
+  val retryHeadBlocked = io.retryHeadValid && !retryHeadReady
+  val retryOH = Mux(retryHeadReady, UIntToOH(io.retryHeadEntryIndex, scbEntries), 0.U(scbEntries.W))
 
-  val retryIndex = Wire(UInt(entryIndexWidth.W))
-  retryIndex := 0.U
-  if (scbEntries > 1) {
-    retryIndex := OHToUInt(retryOH)
-  }
-
-  val retryEntry = io.entries(retryIndex)
   val retryRequest = Wire(new SCBEgressLookupRequest(scbEntries, addrWidth, lineBytes))
   retryRequest := 0.U.asTypeOf(retryRequest)
-  retryRequest.valid := selectedRetry
-  retryRequest.entryIndex := retryIndex
-  retryRequest.lineAddr := retryEntry.lineAddr
-  retryRequest.byteMask := retryEntry.byteMask
-  retryRequest.data := retryEntry.data
-  retryRequest.full := retryEntry.full
+  retryRequest.valid := retryHeadReady
+  retryRequest.entryIndex := io.retryHeadEntryIndex
+  retryRequest.lineAddr := retryHeadEntry.lineAddr
+  retryRequest.byteMask := retryHeadEntry.byteMask
+  retryRequest.data := retryHeadEntry.data
+  retryRequest.full := retryHeadEntry.full
 
   val selectedRequest = Wire(new SCBEgressLookupRequest(scbEntries, addrWidth, lineBytes))
   selectedRequest := io.normalLookupRequest
-  when(selectedRetry) {
+  when(io.retryHeadValid) {
     selectedRequest := retryRequest
   }
 
-  val normalSelected = !selectedRetry && io.normalLookupRequest.valid
+  val normalSelected = !io.retryHeadValid && io.normalLookupRequest.valid
 
   io.retryCandidateMask := retryCandidateMask
   io.retryLookupMask := retryOH
   io.normalSelectedMask := Mux(normalSelected, io.normalLookupMask, 0.U(scbEntries.W))
-  io.lookupMask := Mux(selectedRetry, retryOH, io.normalLookupMask)
-  io.lookupRetry := selectedRetry
+  io.lookupMask := Mux(io.retryHeadValid, retryOH, io.normalLookupMask)
+  io.lookupRetry := retryHeadReady
   io.lookupNormal := normalSelected
+  io.retryHeadBlocked := retryHeadBlocked
   io.lookupFull := selectedRequest.valid && selectedRequest.full
   io.lookupNotFull := selectedRequest.valid && !selectedRequest.full
-  io.noCandidate := !selectedRetry && !io.normalLookupRequest.valid
+  io.noCandidate := !io.retryHeadValid && !io.normalLookupRequest.valid
   io.lookupRequest := selectedRequest
 }

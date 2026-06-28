@@ -5,6 +5,8 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBResponseRetrySelect.scala`
 - Upstream normal egress owner:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBEgressSelect.scala`
+- Upstream retry queue:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBResponseRetryQueue.scala`
 - Composition owner:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBRowBank.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBResponseRetrySelectSpec.scala`
@@ -18,21 +20,23 @@
 
 ## Purpose
 
-`SCBResponseRetrySelect` owns the model `resp_list` priority point at the
-Chisel SCB egress boundary. A legal raw response moves an SCB row from `Miss`
-back to `Lookup`; that returned row must retry DCache lookup before ordinary
-`Valid` rows are evicted by `SCBEgressSelect`.
+`SCBResponseRetrySelect` owns the arbitration point between the model
+`resp_list` head and ordinary SCB egress work. A legal raw response moves an
+SCB row from `Miss` back to `Lookup` and pushes its row id into
+`SCBResponseRetryQueue`; this selector retries the queue head before any
+ordinary `Valid` row from `SCBEgressSelect`.
 
 The module owns:
 
-- retry candidate detection for valid rows in `SCBEntryState.Lookup`,
-- first-row retry selection,
+- retry candidate observability for valid rows in `SCBEntryState.Lookup`,
+- queued-head retry selection,
 - priority override of the ordinary `SCBEgressSelect` lookup descriptor,
+- stale/blocked retry-head reporting,
 - final lookup mask and retry/normal observability.
 
-It does not own raw response FIFO storage, transaction-id decode, DCache/L2
-lookup outcome classification, row-state mutation, DCache RAM mutation, MDB
-policy, or memory-event trace rows.
+It does not own raw response FIFO storage, ordered retry row-id storage,
+transaction-id decode, DCache/L2 lookup outcome classification, row-state
+mutation, DCache RAM mutation, MDB policy, or memory-event trace rows.
 
 ## Interface
 
@@ -43,27 +47,29 @@ policy, or memory-event trace rows.
 | `entries` | `Vec[SCBLineEntry]` | Current post-ingress SCB row image. Valid `Lookup` rows are retry candidates. |
 | `normalLookupRequest` | `SCBEgressLookupRequest` | Ordinary valid-row eviction descriptor from `SCBEgressSelect`. |
 | `normalLookupMask` | `UInt(scbEntries.W)` | One-hot ordinary selected row mask from `SCBEgressSelect`. |
+| `retryHeadValid` | `Bool` | `SCBResponseRetryQueue` has an ordered retry head. |
+| `retryHeadEntryIndex` | `UInt` | Ordered retry head row id. |
 
 ### Outputs
 
 | Signal | Description |
 |---|---|
 | `retryCandidateMask` | All valid `Lookup` rows eligible for response retry. |
-| `retryLookupMask` | One-hot selected retry row, or zero when no retry candidate exists. |
+| `retryLookupMask` | One-hot selected retry head, or zero when no legal retry head exists. |
 | `normalSelectedMask` | Forwarded ordinary egress mask when no retry wins. |
 | `lookupMask` | Final one-hot row sent to `SCBLookupControl`. |
 | `lookupRetry/lookupNormal` | Final selection source. |
+| `retryHeadBlocked` | Retry queue head exists but the row is no longer valid `Lookup`. |
 | `lookupFull/lookupNotFull` | Classification of the final selected descriptor. |
 | `noCandidate` | Neither retry nor ordinary egress produced a lookup descriptor. |
 | `lookupRequest` | Final descriptor forwarded to `SCBLookupControl`. |
 
 ## State
 
-The module is combinational. It stores no retry queue. In the current row-bank
-abstraction, a valid `Lookup` row is the durable representation of a
-response-returned retry candidate. A later packet can add a precise ordered
-`resp_list` row-id FIFO if multiple same-cycle response returns require stricter
-model ordering.
+The module is combinational. It stores no retry queue; `SCBResponseRetryQueue`
+owns the ordered row-id FIFO. The selector blocks ordinary egress whenever the
+retry queue has a head, even if that head is stale, so queue-order errors do not
+silently fall through to normal eviction.
 
 ## Logic Design
 
@@ -76,13 +82,16 @@ The model sequence is:
 3. If DCache can issue, the response-returned row retries through
    `SCBuffer::handleLookup()`.
 
-This Chisel owner implements the priority point:
+This Chisel owner implements the arbitration point:
 
 1. Build `retryCandidateMask` from valid rows whose state is `Lookup`.
-2. Select the first retry candidate when any retry row exists.
-3. Otherwise forward the ordinary descriptor and one-hot mask from
+2. If `SCBResponseRetryQueue` has a valid head and that row is valid `Lookup`,
+   format that row as the retry lookup request.
+3. If the queue head exists but is not valid `Lookup`, report
+   `retryHeadBlocked` and suppress ordinary egress.
+4. If the retry queue is empty, forward the ordinary descriptor and one-hot mask from
    `SCBEgressSelect`.
-4. Emit the selected descriptor to `SCBLookupControl`.
+5. Emit the selected descriptor to `SCBLookupControl`.
 
 `SCBEgressSelect` still owns only ordinary `Valid` row eviction, including
 full-line priority and deterministic not-full fallback.
@@ -119,6 +128,6 @@ comparison until live memory sideband trace rows exist.
 - `bash tools/chisel/run_chisel_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_verilator_lint.sh`
 
-Focused reference tests cover retry priority over ordinary egress, first-row
-selection among multiple retry candidates, normal fallback, no-candidate
-reporting, and Chisel elaboration.
+Focused reference tests cover retry priority over ordinary egress,
+queued-head ordering across multiple `Lookup` rows, normal fallback, stale
+head blocking, no-candidate reporting, and Chisel elaboration.

@@ -33,8 +33,8 @@ The module owns:
 - visible count/full/empty/head-consumed observability.
 
 It does not own transaction-id legality, stale-target classification, SCB row
-mutation, response-retry selection, exact `resp_list` row-id ordering, DCache
-RAM mutation, MDB policy, or memory-event trace rows.
+mutation, response-retry selection, `resp_list` row-id storage, DCache RAM
+mutation, MDB policy, or memory-event trace rows.
 
 ## Interface
 
@@ -83,9 +83,10 @@ valid `Miss` row. Wrong type, wrong low-bit tag, out-of-range index, duplicate
 response, or stale non-`Miss` target therefore stays visible at the FIFO head
 instead of being silently dropped.
 
-`SCBResponseRetrySelect` owns the next priority point after this FIFO/decode
-boundary: returned `Lookup` rows are retried before ordinary valid-row
-eviction.
+`SCBResponseRetryQueue` owns the next row-id storage point after this
+FIFO/decode boundary. A legal head is consumed only when that retry queue can
+accept the decoded row id, so the response-buffer head and `Miss -> Lookup`
+state transition share one accepted-response handshake.
 
 ## Timing
 

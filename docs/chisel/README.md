@@ -86,8 +86,10 @@ rows before they drive `SCBStateUpdate`. `SCBResponseBuffer` adds the
 registered raw-response FIFO in front of that decoder, preserving FIFO order,
 backpressure, and illegal/stale-head visibility for later L2/CHI wiring.
 `SCBResponseRetrySelect` owns the next model `resp_list` priority point:
-response-returned `Lookup` rows retry before ordinary `Valid` row eviction,
-while `SCBEgressSelect` remains the normal valid-row selector.
+response-returned `Lookup` rows retry before ordinary `Valid` row eviction.
+`SCBResponseRetryQueue` now stores decoded response row ids in model
+`resp_list` order, while `SCBEgressSelect` remains the normal valid-row
+selector.
 `STQSCBCommitPath` is the first full STQ-to-SCB composition owner: it wires
 `STQEntryBank`, `STQCommitDrain`, and `SCBRowBank` so SCB accepted `last`
 fragments are the only committed-row free source back into the STQ bank, while
@@ -163,6 +165,7 @@ bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
 bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode
 bash tools/chisel/run_chisel_tests.sh --only SCBResponseBuffer
 bash tools/chisel/run_chisel_tests.sh --only SCBResponseRetrySelect
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseRetryQueue
 bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
 bash tools/chisel/run_chisel_tests.sh --only MDBSSIT
 bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout

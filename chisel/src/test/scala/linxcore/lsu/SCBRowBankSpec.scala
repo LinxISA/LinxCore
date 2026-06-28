@@ -14,6 +14,7 @@ object SCBRowBankReference {
     def full: Boolean = mask == ((BigInt(1) << 64) - 1)
   }
   final case class Request(valid: Boolean, addr: BigInt, data: BigInt, size: Int, stqIndex: Int, last: Boolean)
+  private final case class Selected(index: Int, fromRetry: Boolean, retryBlocked: Boolean)
   final case class Result(
       modelBatchReady: Boolean,
       acceptedMask: BigInt,
@@ -30,10 +31,12 @@ object SCBRowBankReference {
       l2Write: Boolean,
       dcacheUpdateMask: BigInt,
       stateError: Boolean,
+      responseRetryQueue: Seq[Int],
       nextEntries: Seq[Entry])
 
   final class Model(entries: Int, requestCount: Int) {
     private var rows = Vector.fill(entries)(Entry(valid = false, state = Empty))
+    private var retryQueue = Vector.empty[Int]
 
     def seed(seedRows: Seq[Entry]): Unit = {
       require(seedRows.size <= entries)
@@ -41,6 +44,7 @@ object SCBRowBankReference {
     }
 
     def snapshot: Seq[Entry] = rows
+    def retrySnapshot: Seq[Int] = retryQueue
 
     def step(
         reqs: Seq[Request],
@@ -86,7 +90,8 @@ object SCBRowBankReference {
       }
       val stalledMask = validReqMask & ~acceptedMask
 
-      val selectedIndex = selectLookup(staged, evictEnable)
+      val selected = selectLookup(staged, evictEnable)
+      val selectedIndex = selected.index
       val selectedValid = selectedIndex >= 0
       val needsL2 = !dcacheWriteHit
       val lookupReady = dcacheReady && (!needsL2 || l2RequestReady)
@@ -108,7 +113,7 @@ object SCBRowBankReference {
         val canLookupDone = entry.valid && (entry.state == Valid || entry.state == Lookup)
         val canResp = entry.valid && entry.state == Miss
         val acceptedOnly = accepted && !free && !miss && !resp
-        if ((acceptedOnly && !canStart) || (miss && !canLookupDone) || (free && !canLookupDone) || (resp && !canResp)) {
+        if (selected.retryBlocked || (acceptedOnly && !canStart) || (miss && !canLookupDone) || (free && !canLookupDone) || (resp && !canResp)) {
           stateError = true
         }
         if (free && canLookupDone) Entry(valid = false, state = Empty)
@@ -118,6 +123,12 @@ object SCBRowBankReference {
         else entry
       }
       rows = next
+      if (lookupFire && selected.fromRetry) {
+        retryQueue = retryQueue.drop(1)
+      }
+      if (memRespValid && !stateError) {
+        retryQueue = retryQueue :+ memRespEntryIndex
+      }
 
       Result(
         modelBatchReady = modelBatchReady,
@@ -135,16 +146,22 @@ object SCBRowBankReference {
         l2Write = lookupFire && !dcacheWriteHit && !dcacheTagHit,
         dcacheUpdateMask = dcacheUpdateMask,
         stateError = stateError,
+        responseRetryQueue = retryQueue,
         nextEntries = next)
     }
 
-    private def selectLookup(entries: Seq[Entry], evictEnable: Boolean): Int = {
-      val retry = entries.indexWhere(row => row.valid && row.state == Lookup)
-      if (retry >= 0) retry
-      else if (!evictEnable) -1
-      else {
+    private def selectLookup(entries: Seq[Entry], evictEnable: Boolean): Selected = {
+      retryQueue.headOption match {
+        case Some(idx) if entries(idx).valid && entries(idx).state == Lookup =>
+          Selected(index = idx, fromRetry = true, retryBlocked = false)
+        case Some(idx) =>
+          Selected(index = -1, fromRetry = false, retryBlocked = true)
+        case None if !evictEnable =>
+          Selected(index = -1, fromRetry = false, retryBlocked = false)
+        case None =>
         val full = entries.indexWhere(row => row.valid && row.state == Valid && row.full)
-        if (full >= 0) full else entries.indexWhere(row => row.valid && row.state == Valid && !row.full)
+          val selected = if (full >= 0) full else entries.indexWhere(row => row.valid && row.state == Valid && !row.full)
+          Selected(index = selected, fromRetry = false, retryBlocked = false)
       }
     }
 
@@ -235,6 +252,7 @@ class SCBRowBankSpec extends AnyFunSuite {
 
     assert(result.acceptedMask == BigInt(1))
     assert(bank.snapshot.head.state == Lookup)
+    assert(bank.retrySnapshot == Seq(0))
     assert(bank.snapshot(1).valid)
     assert(bank.snapshot(1).lineAddr == BigInt(0x5000))
     assert(bank.snapshot(1).state == Valid)
@@ -259,19 +277,58 @@ class SCBRowBankSpec extends AnyFunSuite {
     val bank = new Model(entries = 3, requestCount = 1)
     bank.seed(Seq(
       Entry(valid = true, state = Valid, lineAddr = 0x6800, mask = (BigInt(1) << 64) - 1),
-      Entry(valid = true, state = Lookup, lineAddr = 0x6900, mask = BigInt(0xff)),
+      Entry(valid = true, state = Miss, lineAddr = 0x6900, mask = BigInt(0xff)),
       Entry(valid = false, state = Empty)))
+    val returned = bank.step(
+      Seq(Request(valid = false, addr = 0, data = 0, size = 0, stqIndex = 0, last = false)),
+      memRespValid = true,
+      memRespEntryIndex = 1)
     val result = bank.step(
       Seq(Request(valid = false, addr = 0, data = 0, size = 0, stqIndex = 0, last = false)),
       evictEnable = false,
       dcacheWriteHit = true)
 
+    assert(returned.responseRetryQueue == Seq(1))
     assert(result.lookupFire)
     assert(result.lookupMask == BigInt(2))
     assert(result.freeMask == BigInt(2))
     assert(!result.stateError)
     assert(bank.snapshot.head.state == Valid)
     assert(bank.snapshot(1).state == Empty)
+  }
+
+  test("response retry queue preserves model resp_list order across row indices") {
+    val bank = new Model(entries = 3, requestCount = 1)
+    bank.seed(Seq(
+      Entry(valid = true, state = Miss, lineAddr = 0x7100, mask = BigInt(0x1)),
+      Entry(valid = true, state = Miss, lineAddr = 0x7200, mask = BigInt(0x2)),
+      Entry(valid = true, state = Valid, lineAddr = 0x7300, mask = (BigInt(1) << 64) - 1)))
+
+    val firstReturn = bank.step(
+      Seq(Request(valid = false, addr = 0, data = 0, size = 0, stqIndex = 0, last = false)),
+      memRespValid = true,
+      memRespEntryIndex = 1)
+    val secondReturn = bank.step(
+      Seq(Request(valid = false, addr = 0, data = 0, size = 0, stqIndex = 0, last = false)),
+      dcacheReady = false,
+      memRespValid = true,
+      memRespEntryIndex = 0)
+    val retryFirst = bank.step(
+      Seq(Request(valid = false, addr = 0, data = 0, size = 0, stqIndex = 0, last = false)),
+      evictEnable = true,
+      dcacheWriteHit = true)
+    val retrySecond = bank.step(
+      Seq(Request(valid = false, addr = 0, data = 0, size = 0, stqIndex = 0, last = false)),
+      evictEnable = true,
+      dcacheWriteHit = true)
+
+    assert(firstReturn.responseRetryQueue == Seq(1))
+    assert(secondReturn.responseRetryQueue == Seq(1, 0))
+    assert(retryFirst.lookupMask == BigInt(2))
+    assert(retryFirst.responseRetryQueue == Seq(0))
+    assert(retrySecond.lookupMask == BigInt(1))
+    assert(retrySecond.responseRetryQueue.isEmpty)
+    assert(bank.snapshot(2).state == Valid)
   }
 
   test("illegal memory responses are surfaced through the composition owner") {
@@ -291,6 +348,7 @@ class SCBRowBankSpec extends AnyFunSuite {
 
     assert(sv.contains("module SCBRowBank"))
     assert(sv.contains("SCBEgressSelect"))
+    assert(sv.contains("SCBResponseRetryQueue"))
     assert(sv.contains("SCBResponseRetrySelect"))
     assert(sv.contains("SCBLookupControl"))
     assert(sv.contains("SCBResponseBuffer"))
@@ -298,6 +356,7 @@ class SCBRowBankSpec extends AnyFunSuite {
     assert(sv.contains("SCBStateUpdate"))
     assert(sv.contains("io_commitFreeMask"))
     assert(sv.contains("io_responseRetryMask"))
+    assert(sv.contains("io_responseRetryHeadEntryIndex"))
     assert(sv.contains("io_rawRespTxnId"))
     assert(sv.contains("io_rawRespReady"))
     assert(sv.contains("io_respBufferHeadTxnId"))

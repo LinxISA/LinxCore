@@ -12,11 +12,13 @@ object SCBResponseRetrySelectReference {
 
   final case class Entry(valid: Boolean, state: State, full: Boolean, lineAddr: BigInt = 0, byteMask: BigInt = 0)
   final case class NormalRequest(valid: Boolean, index: Int, full: Boolean)
+  final case class RetryHead(valid: Boolean, index: Int)
   final case class Result(
       selectedValid: Boolean,
       selectedIndex: Int,
       retrySelected: Boolean,
       normalSelected: Boolean,
+      retryHeadBlocked: Boolean,
       retryCandidateMask: BigInt,
       retryLookupMask: BigInt,
       normalSelectedMask: BigInt,
@@ -25,34 +27,35 @@ object SCBResponseRetrySelectReference {
       lookupNotFull: Boolean,
       noCandidate: Boolean)
 
-  def select(entries: Seq[Entry], normal: NormalRequest, normalLookupMask: BigInt): Result = {
+  def select(entries: Seq[Entry], retryHead: RetryHead, normal: NormalRequest, normalLookupMask: BigInt): Result = {
     val retryCandidateMask = entries.zipWithIndex.foldLeft(BigInt(0)) {
       case (mask, (entry, idx)) if entry.valid && entry.state == Lookup => mask | (BigInt(1) << idx)
       case (mask, _) => mask
     }
-    val retrySelected = retryCandidateMask != 0
-    val retryIndex = if (retrySelected) firstSet(retryCandidateMask) else 0
-    val normalSelected = !retrySelected && normal.valid
+    val retryReady = retryHead.valid && entries(retryHead.index).valid && entries(retryHead.index).state == Lookup
+    val retryHeadBlocked = retryHead.valid && !retryReady
+    val normalSelected = !retryHead.valid && normal.valid
+    val retrySelected = retryReady
     val selectedValid = retrySelected || normalSelected
-    val selectedIndex = if (retrySelected) retryIndex else normal.index
-    val selectedFull = if (retrySelected) entries(retryIndex).full else normal.full
+    val selectedIndex = if (retrySelected) retryHead.index else normal.index
+    val selectedFull = if (retrySelected) entries(retryHead.index).full else normal.full
 
     Result(
       selectedValid = selectedValid,
       selectedIndex = selectedIndex,
       retrySelected = retrySelected,
       normalSelected = normalSelected,
+      retryHeadBlocked = retryHeadBlocked,
       retryCandidateMask = retryCandidateMask,
-      retryLookupMask = if (retrySelected) BigInt(1) << retryIndex else BigInt(0),
+      retryLookupMask = if (retrySelected) BigInt(1) << retryHead.index else BigInt(0),
       normalSelectedMask = if (normalSelected) normalLookupMask else BigInt(0),
-      lookupMask = if (retrySelected) BigInt(1) << retryIndex else normalLookupMask,
+      lookupMask = if (retryHead.valid) {
+        if (retrySelected) BigInt(1) << retryHead.index else BigInt(0)
+      } else normalLookupMask,
       lookupFull = selectedValid && selectedFull,
       lookupNotFull = selectedValid && !selectedFull,
-      noCandidate = !retrySelected && !normal.valid)
+      noCandidate = !retryHead.valid && !normal.valid)
   }
-
-  private def firstSet(mask: BigInt): Int =
-    LazyList.from(0).find(idx => ((mask >> idx) & 1) == 1).getOrElse(0)
 }
 
 class SCBResponseRetrySelectSpec extends AnyFunSuite {
@@ -64,6 +67,7 @@ class SCBResponseRetrySelectSpec extends AnyFunSuite {
         Entry(valid = true, state = Valid, full = true),
         Entry(valid = true, state = Lookup, full = false),
         Entry(valid = true, state = Valid, full = false)),
+      retryHead = RetryHead(valid = true, index = 1),
       normal = NormalRequest(valid = true, index = 0, full = true),
       normalLookupMask = BigInt(1))
 
@@ -78,20 +82,22 @@ class SCBResponseRetrySelectSpec extends AnyFunSuite {
     assert(result.lookupNotFull)
   }
 
-  test("first lookup row is selected when multiple retry candidates exist") {
+  test("queued response head selects retry order instead of lowest lookup index") {
     val result = select(
       Seq(
         Entry(valid = true, state = Lookup, full = false),
         Entry(valid = true, state = Lookup, full = true),
         Entry(valid = true, state = Miss, full = false)),
+      retryHead = RetryHead(valid = true, index = 1),
       normal = NormalRequest(valid = false, index = 0, full = false),
       normalLookupMask = BigInt(0))
 
     assert(result.retrySelected)
-    assert(result.selectedIndex == 0)
+    assert(result.selectedIndex == 1)
     assert(result.retryCandidateMask == BigInt(3))
-    assert(result.retryLookupMask == BigInt(1))
-    assert(result.lookupMask == BigInt(1))
+    assert(result.retryLookupMask == BigInt(2))
+    assert(result.lookupMask == BigInt(2))
+    assert(result.lookupFull)
   }
 
   test("normal egress descriptor is forwarded when no retry row exists") {
@@ -99,6 +105,7 @@ class SCBResponseRetrySelectSpec extends AnyFunSuite {
       Seq(
         Entry(valid = true, state = Valid, full = true),
         Entry(valid = true, state = Miss, full = false)),
+      retryHead = RetryHead(valid = false, index = 0),
       normal = NormalRequest(valid = true, index = 0, full = true),
       normalLookupMask = BigInt(1))
 
@@ -111,11 +118,29 @@ class SCBResponseRetrySelectSpec extends AnyFunSuite {
     assert(result.lookupFull)
   }
 
+  test("stale retry head blocks normal egress and reports the blocked head") {
+    val result = select(
+      Seq(
+        Entry(valid = true, state = Valid, full = true),
+        Entry(valid = true, state = Miss, full = false)),
+      retryHead = RetryHead(valid = true, index = 1),
+      normal = NormalRequest(valid = true, index = 0, full = true),
+      normalLookupMask = BigInt(1))
+
+    assert(!result.selectedValid)
+    assert(!result.retrySelected)
+    assert(!result.normalSelected)
+    assert(result.retryHeadBlocked)
+    assert(result.retryCandidateMask == BigInt(0))
+    assert(result.lookupMask == BigInt(0))
+  }
+
   test("reports no candidate when neither retry nor normal egress can issue") {
     val result = select(
       Seq(
         Entry(valid = false, state = Empty, full = false),
         Entry(valid = true, state = Miss, full = false)),
+      retryHead = RetryHead(valid = false, index = 0),
       normal = NormalRequest(valid = false, index = 0, full = false),
       normalLookupMask = BigInt(0))
 
@@ -133,6 +158,7 @@ class SCBResponseRetrySelectSpec extends AnyFunSuite {
     assert(sv.contains("io_retryCandidateMask"))
     assert(sv.contains("io_retryLookupMask"))
     assert(sv.contains("io_normalSelectedMask"))
+    assert(sv.contains("io_retryHeadBlocked"))
     assert(sv.contains("io_lookupRequest_entryIndex"))
   }
 }

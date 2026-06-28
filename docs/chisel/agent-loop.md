@@ -143,6 +143,7 @@ These packets remain the required base before broad module promotion:
 | R34 | `LoadRefillWakeup` | `run_chisel_tests.sh --only LoadRefillWakeup`, `run_chisel_tests.sh --only LoadInflightQueue`, `run_chisel_tests.sh --only LoadReplayWakeup`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R35 | `SCBResponseBuffer` | `run_chisel_tests.sh --only SCBResponseBuffer`, `run_chisel_tests.sh --only SCBResponseDecode`, `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R36 | `SCBResponseRetrySelect` | `run_chisel_tests.sh --only SCBResponseRetrySelect`, `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_tests.sh --only SCBStateUpdate`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R37 | `SCBResponseRetryQueue` | `run_chisel_tests.sh --only SCBResponseRetryQueue`, `run_chisel_tests.sh --only SCBResponseRetrySelect`, `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -248,18 +249,15 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Precise SCB response retry FIFO: add an ordered row-id owner if future
-   multi-response tests need exact model `resp_list` ordering beyond the
-   current durable `Lookup` row priority.
-2. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
+1. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
    first scalar rename restore/checkpoint owner.
-3. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+2. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-4. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+3. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-5. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
+4. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
    D1/D2 opcode table without changing the ingress transport contract.
-6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+5. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

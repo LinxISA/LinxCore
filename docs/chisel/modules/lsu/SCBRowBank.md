@@ -5,6 +5,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBRowBank.scala`
 - Child Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBEgressSelect.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBResponseRetryQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBResponseRetrySelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBLookupControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBResponseBuffer.scala`
@@ -35,15 +36,15 @@ The module owns:
 - committed-store fragment merge only into `Valid` rows or empty rows,
 - final committed STQ free masks for accepted `last` fragments,
 - lookup candidate selection after accepted ingress updates,
-- response-returned `Lookup` retry priority before ordinary valid-row eviction,
+- ordered response-returned `Lookup` retry priority before ordinary valid-row eviction,
 - DCache/L2 lookup outcome classification,
 - raw response FIFO ordering and backpressure before decode,
 - raw WriteResp/UpgradeResp tag decode for `(entryIndex << 2) | 2`,
+- ordered `resp_list` row-id FIFO storage,
 - row-state registration after hit, miss, or decoded memory response.
 
-It does not own full L2/CHI queue storage, exact ordered `resp_list` row-id
-FIFO storage, DCache RAM mutation, MDB conflict prediction, or store-to-load
-forwarding.
+It does not own full L2/CHI queue storage, DCache RAM mutation, MDB conflict
+prediction, or store-to-load forwarding.
 `STQSCBCommitPath` consumes this module's `commitFreeMask` as the first full
 `STQEntryBank` free path.
 
@@ -74,7 +75,7 @@ forwarding.
 | `wakeups` | Post-merge line-valid wakeup descriptors. |
 | `entries/nextEntries` | Current registered row image and next row image. |
 | `validMask/fullLineMask/entryCount/freeCount/ingressFull` | Current row-bank occupancy summary. |
-| `lookupRequest`, candidate masks, retry masks, and lookup classification | Pass-through observability from `SCBEgressSelect`, `SCBResponseRetrySelect`, and `SCBLookupControl`. |
+| `lookupRequest`, candidate masks, retry queue state, retry masks, and lookup classification | Pass-through observability from `SCBEgressSelect`, `SCBResponseRetryQueue`, `SCBResponseRetrySelect`, and `SCBLookupControl`. |
 | `dcacheUpdate/l2Request` | Abstract DCache update and L2 ownership request descriptors. |
 | `state*Mask/stateError` | Transition and illegal-state observability from `SCBStateUpdate`. |
 | `respDecoded*/resp*Illegal/respDecodeError` | Raw response decode observability from `SCBResponseDecode`. |
@@ -100,15 +101,17 @@ that order while retaining deterministic single-request egress:
 3. Emit wakeups and final STQ free masks only for accepted ingress lanes.
 4. Select one ordinary valid-row egress candidate from the post-ingress staged
    row image.
-5. Give any response-returned `Lookup` row priority over that ordinary
-   candidate with `SCBResponseRetrySelect`.
+5. Give the existing ordered retry queue head priority over that ordinary candidate
+   with `SCBResponseRetrySelect`.
 6. Classify the abstract DCache/L2 outcome with `SCBLookupControl`.
 7. Enqueue raw WriteResp/UpgradeResp candidates into `SCBResponseBuffer`.
 8. Decode only the FIFO head with `SCBResponseDecode`; consume it only when it
    is legal for a valid `Miss` target.
-9. Apply hit clear, miss state, and legal response return with
+9. Push legal decoded response row ids into `SCBResponseRetryQueue` only when
+   queue space is available; otherwise retain the raw response-buffer head.
+10. Apply hit clear, miss state, and legal response return with
    `SCBStateUpdate`.
-10. Register the resulting row image.
+11. Register the resulting row image.
 
 This owner intentionally keeps the pre-cycle model batch gate. A row freed by
 a same-cycle writable DCache hit does not allow a committed-store fragment to
@@ -123,9 +126,11 @@ pre-cycle free count.
 
 Response inputs are registered through `SCBResponseBuffer`. A newly accepted
 raw response is not decoded until it reaches the FIFO head. Legal decoded heads
-are consumed in the same cycle that `SCBStateUpdate` observes
-`memRespValid`; illegal or stale heads remain present and keep the decode error
-visible.
+are consumed only when `SCBResponseRetryQueue` accepts the decoded row id.
+`SCBStateUpdate` observes the same accepted-response handshake. Illegal or
+stale raw-response heads remain present and keep the decode error visible.
+Queued retry row ids pop only when `SCBLookupControl` actually fires a retry
+lookup.
 
 ## Flush/Recovery
 
@@ -159,7 +164,8 @@ QEMU-vs-DUT commit comparator.
 
 Focused reference tests cover model-batch admission, pre-cycle free-count
 gating, same-cycle ingress merge plus writable hit, miss ownership request,
-response return, response-returned retry priority over ordinary eviction,
-outstanding-row non-merge, illegal response reporting, and Chisel elaboration
-with the egress/retry/lookup/response-buffer/response-decode/state-update
-children.
+response return, ordered response-returned retry priority over ordinary
+eviction, cross-index `resp_list` ordering, outstanding-row non-merge, illegal
+response reporting, and Chisel elaboration with the
+egress/retry-queue/retry-select/lookup/response-buffer/response-decode/
+state-update children.

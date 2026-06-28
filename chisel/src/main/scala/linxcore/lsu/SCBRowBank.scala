@@ -18,6 +18,7 @@ class SCBRowBankIO(
   private val entryIndexWidth = math.max(1, log2Ceil(scbEntries))
   private val responseTxnIdWidth = entryIndexWidth + 2
   private val responseBufferCountWidth = log2Ceil(responseBufferDepth + 1)
+  private val responseRetryCountWidth = log2Ceil(scbEntries + 1)
 
   val reqs = Input(Vec(requestCount, new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth)))
   val evictEnable = Input(Bool())
@@ -57,6 +58,14 @@ class SCBRowBankIO(
   val normalLookupMask = Output(UInt(scbEntries.W))
   val responseRetryCandidateMask = Output(UInt(scbEntries.W))
   val responseRetryMask = Output(UInt(scbEntries.W))
+  val responseRetryHeadValid = Output(Bool())
+  val responseRetryHeadEntryIndex = Output(UInt(entryIndexWidth.W))
+  val responseRetryHeadBlocked = Output(Bool())
+  val responseRetryHeadConsumed = Output(Bool())
+  val responseRetryPushAccepted = Output(Bool())
+  val responseRetryFull = Output(Bool())
+  val responseRetryEmpty = Output(Bool())
+  val responseRetryCount = Output(UInt(responseRetryCountWidth.W))
   val lookupRetry = Output(Bool())
   val lookupNormal = Output(Bool())
   val lookupFull = Output(Bool())
@@ -231,10 +240,14 @@ class SCBRowBank(
   egress.io.evictEnable := io.evictEnable
   egress.io.entries := ingressEntries
 
+  val responseRetryQueue = Module(new SCBResponseRetryQueue(scbEntries, scbEntries))
+
   val retrySelect = Module(new SCBResponseRetrySelect(scbEntries, addrWidth, lineBytes))
   retrySelect.io.entries := ingressEntries
   retrySelect.io.normalLookupRequest := egress.io.lookupRequest
   retrySelect.io.normalLookupMask := egress.io.lookupMask
+  retrySelect.io.retryHeadValid := responseRetryQueue.io.headValid
+  retrySelect.io.retryHeadEntryIndex := responseRetryQueue.io.headEntryIndex
 
   val lookup = Module(new SCBLookupControl(scbEntries, addrWidth, lineBytes))
   lookup.io.lookupRequest := retrySelect.io.lookupRequest
@@ -255,14 +268,18 @@ class SCBRowBank(
   responseDecode.io.rawTxnId := responseBuffer.io.headTxnId
   responseDecode.io.rawWriteResp := responseBuffer.io.headWriteResp
   responseDecode.io.rawUpgradeResp := responseBuffer.io.headUpgradeResp
-  responseBuffer.io.headReady := responseDecode.io.memRespValid
+  responseBuffer.io.headReady := responseDecode.io.memRespValid && responseRetryQueue.io.pushReady
+
+  responseRetryQueue.io.pushValid := responseDecode.io.memRespValid
+  responseRetryQueue.io.pushEntryIndex := responseDecode.io.memRespEntryIndex
+  responseRetryQueue.io.popReady := lookup.io.lookupFire && retrySelect.io.lookupRetry
 
   val state = Module(new SCBStateUpdate(scbEntries, addrWidth, lineBytes))
   state.io.entries := ingressEntries
   state.io.acceptedMask := lookup.io.acceptedMask
   state.io.missMask := lookup.io.missMask
   state.io.freeMask := lookup.io.freeMask
-  state.io.memRespValid := responseDecode.io.memRespValid
+  state.io.memRespValid := responseRetryQueue.io.pushAccepted
   state.io.memRespEntryIndex := responseDecode.io.memRespEntryIndex
 
   entries := state.io.nextEntries
@@ -301,6 +318,14 @@ class SCBRowBank(
   io.normalLookupMask := egress.io.lookupMask
   io.responseRetryCandidateMask := retrySelect.io.retryCandidateMask
   io.responseRetryMask := retrySelect.io.retryLookupMask
+  io.responseRetryHeadValid := responseRetryQueue.io.headValid
+  io.responseRetryHeadEntryIndex := responseRetryQueue.io.headEntryIndex
+  io.responseRetryHeadBlocked := retrySelect.io.retryHeadBlocked
+  io.responseRetryHeadConsumed := responseRetryQueue.io.headConsumed
+  io.responseRetryPushAccepted := responseRetryQueue.io.pushAccepted
+  io.responseRetryFull := responseRetryQueue.io.full
+  io.responseRetryEmpty := responseRetryQueue.io.empty
+  io.responseRetryCount := responseRetryQueue.io.count
   io.lookupRetry := retrySelect.io.lookupRetry
   io.lookupNormal := retrySelect.io.lookupNormal
   io.lookupFull := retrySelect.io.lookupFull
@@ -318,10 +343,13 @@ class SCBRowBank(
   io.stateMissMask := state.io.missStateMask
   io.stateRespToLookupMask := state.io.respToLookupMask
   io.stateClearedMask := state.io.clearedMask
-  io.stateIllegalMask := state.io.illegalMask | responseDecode.io.stateIllegalMask
-  io.stateError := state.io.stateError || responseDecode.io.illegal
+  io.stateIllegalMask := state.io.illegalMask | responseDecode.io.stateIllegalMask | Mux(
+    retrySelect.io.retryHeadBlocked,
+    responseRetryQueue.io.headMask,
+    0.U(scbEntries.W))
+  io.stateError := state.io.stateError || responseDecode.io.illegal || retrySelect.io.retryHeadBlocked
 
-  io.respDecodedValid := responseDecode.io.memRespValid
+  io.respDecodedValid := responseRetryQueue.io.pushAccepted
   io.respDecodedEntryIndex := responseDecode.io.memRespEntryIndex
   io.respDecodedMask := responseDecode.io.decodedMask
   io.respTypeIllegal := responseDecode.io.typeIllegal
