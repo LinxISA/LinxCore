@@ -29,6 +29,10 @@ The module exists because the C++ model calls `SPEROB::ReleaseRelative()` once
 per deallocated ROB row, while the current Chisel T/U rename owner exposes one
 retire command per cycle. The serializer preserves row-owned metadata until
 the relation-cmap policy can consume every valid row.
+R67 adds the scalar block-clean scheduler: once a block-last source has entered
+the relation-cmap owner, the path blocks further ROB deallocation windows until
+the block-last source's generated mark/release commands have been accepted,
+then pulses `CleanCMAP` through the embedded relation cmap.
 
 ## Interface
 
@@ -64,6 +68,9 @@ Outputs:
 - `cleanupActive`, `sourcePruneCount`, `relationPruneTCount`,
   `relationPruneUCount`: cleanup observability for queued sources and
   embedded relation entries.
+- `autoCleanBlockPending`, `autoCleanBlockValid`, `autoCleanBlockBid`:
+  one-shot scheduler state for the model `CleanCMAP(bid)` event caused by a
+  scalar block-last deallocation source.
 
 ## State
 
@@ -71,6 +78,8 @@ Outputs:
 - Head, tail, and count registers for the source FIFO.
 - Embedded `TULinkRelationCmap` state for T and U relation entries and
   pending mark/release commands.
+- Auto block-clean latch containing the accepted block-last source BID while
+  relation-cmap mark/release commands drain.
 
 The source FIFO depth must be a power of two and at least `sourceWidth`. The
 reduced top uses a conservative queue-credit rule: it accepts a dealloc window
@@ -94,6 +103,15 @@ This keeps flush and commit priority inside `TULinkRename`: if rename rejects
 a retire command because flush or commit maintenance wins, relation-cmap keeps
 the command pending and the source stream does not advance past that policy
 point.
+
+When the relation-cmap owner accepts a source whose `isLast` sidecar is set,
+the path latches that BID as a pending scalar block clean and immediately
+deasserts `sourceWindowReady`. The pending state does not block existing
+relation-cmap commands; it only blocks new ROB deallocation-source admission.
+After `pendingMark`, `pendingPostReleaseT`, and `pendingPostReleaseU` are all
+clear, the path emits one auto `cleanBlock` pulse for the latched BID. This
+matches `SPEROB::dealloc()` calling `ReleaseRelative()` for the block-last row
+before `CommitBlock()` calls `CleanCMAP(bid)`.
 
 Cleanup uses the same predicates on the source FIFO and on the embedded
 relation cmap. Exact block and group clean operations can remove matching rows
@@ -119,15 +137,19 @@ The preserved C++ order is:
   then optionally releases the oldest relation due to block-last or pressure.
 - `LocalRegMgr::ReportRetired(seq, isDealloc)` is the acceptance point for the
   mark or release command.
+- `CommitBlock()` runs `CleanCMAP(bid)` only after that block-last
+  `ReleaseRelative()` work.
 
 `TULinkRetireCommandPath` owns only the width-to-one serialization and the
 acceptance coupling to `TULinkRename`. The detailed relation policy remains in
 `TULinkRelationCmap`, queued source cleanup mirrors that policy before rows
-enter relation-cmap, and the local mapQ mutation remains in `TULinkRename`.
+enter relation-cmap, the scalar block-clean scheduler drives the post-drain
+`CleanCMAP` pulse, and the local mapQ mutation remains in `TULinkRename`.
 
 ## Deferred Owners
 
-- Live block/group commit event wiring for `cleanBlock*` and `cleanGroup*`.
+- External live block/group commit event wiring for `cleanBlock*` and
+  `cleanGroup*`; scalar block-last auto clean is now local.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - Less conservative source FIFO credit that can accept partial windows with an
@@ -155,5 +177,5 @@ bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 
 The tests cover slot-order serialization, conservative full-window credit,
 no-destination block-last row preservation, source FIFO cleanup before
-relation-cmap consumption, and elaboration through the embedded
-`TULinkRelationCmap`.
+relation-cmap consumption, auto block-clean timing after relation commands
+drain, and elaboration through the embedded `TULinkRelationCmap`.

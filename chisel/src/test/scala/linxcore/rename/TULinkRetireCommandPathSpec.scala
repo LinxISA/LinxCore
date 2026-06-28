@@ -63,6 +63,28 @@ object TULinkRetireCommandPathReference {
     def seqs: Seq[Int] = rows.map(_.seq)
   }
 
+  final class BlockCleanScheduler {
+    private var pendingBid: Option[Int] = None
+
+    def sourceWindowReady(rawReady: Boolean, acceptingBlockLast: Boolean): Boolean =
+      rawReady && pendingBid.isEmpty && !acceptingBlockLast
+
+    def step(acceptingBlockLastBid: Option[Int], relationPending: Boolean): Option[Int] = {
+      val clean = pendingBid.filter(_ => !relationPending)
+      clean match {
+        case Some(_) =>
+          pendingBid = None
+        case None =>
+          acceptingBlockLastBid.foreach { bid =>
+            pendingBid = Some(bid)
+          }
+      }
+      clean
+    }
+
+    def pending: Boolean = pendingBid.nonEmpty
+  }
+
   def toRelationRow(source: Source): Row =
     Row(
       bid = ROBIDValue(valid = true, wrap = false, value = 1),
@@ -140,6 +162,22 @@ class TULinkRetireCommandPathSpec extends AnyFunSuite {
     assert(queue.seqs == Seq(3))
   }
 
+  test("reference auto block clean waits until block-last relation commands drain") {
+    val scheduler = new BlockCleanScheduler
+
+    assert(!scheduler.sourceWindowReady(rawReady = true, acceptingBlockLast = true))
+    assert(scheduler.step(acceptingBlockLastBid = Some(7), relationPending = false).isEmpty)
+    assert(scheduler.pending)
+
+    assert(!scheduler.sourceWindowReady(rawReady = true, acceptingBlockLast = false))
+    assert(scheduler.step(acceptingBlockLastBid = None, relationPending = true).isEmpty)
+    assert(scheduler.pending)
+
+    assert(scheduler.step(acceptingBlockLastBid = None, relationPending = false) == Some(7))
+    assert(!scheduler.pending)
+    assert(scheduler.sourceWindowReady(rawReady = true, acceptingBlockLast = false))
+  }
+
   test("TULinkRetireCommandPath elaborates as ROB-source serializer plus relation cmap") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val sv = ChiselStage.emitSystemVerilog(
@@ -162,6 +200,9 @@ class TULinkRetireCommandPathSpec extends AnyFunSuite {
     assert(sv.contains("io_cleanupActive"))
     assert(sv.contains("io_sourcePruneCount"))
     assert(sv.contains("io_relationPruneTCount"))
+    assert(sv.contains("io_autoCleanBlockPending"))
+    assert(sv.contains("io_autoCleanBlockValid"))
+    assert(sv.contains("io_autoCleanBlockBid_value"))
     assert(sv.contains("io_command_valid"))
     assert(sv.contains("io_command_seq_value"))
     assert(sv.contains("io_commandFire"))

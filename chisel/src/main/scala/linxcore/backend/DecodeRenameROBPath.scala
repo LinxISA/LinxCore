@@ -221,6 +221,9 @@ class DecodeRenameROBPathIO(
   val tuRetireCommandSeq = Output(new ROBID(mapQDepth))
   val tuRetireCommandDealloc = Output(Bool())
   val tuRetireCommandFire = Output(Bool())
+  val tuRetireAutoCleanBlockPending = Output(Bool())
+  val tuRetireAutoCleanBlockValid = Output(Bool())
+  val tuRetireAutoCleanBlockBid = Output(new ROBID(p.robEntries))
   val tuRetireUnsupportedDst = Output(Bool())
   val tuRetireRelationPreReleaseT = Output(Bool())
   val tuRetireRelationPreReleaseU = Output(Bool())
@@ -671,6 +674,9 @@ class DecodeRenameROBPath(
   io.tuRetireCommandSeq := tuRetirePath.io.command.seq
   io.tuRetireCommandDealloc := tuRetirePath.io.command.dealloc
   io.tuRetireCommandFire := tuRetirePath.io.commandFire
+  io.tuRetireAutoCleanBlockPending := tuRetirePath.io.autoCleanBlockPending
+  io.tuRetireAutoCleanBlockValid := tuRetirePath.io.autoCleanBlockValid
+  io.tuRetireAutoCleanBlockBid := tuRetirePath.io.autoCleanBlockBid
   io.tuRetireUnsupportedDst := tuRetirePath.io.unsupportedDst
   io.tuRetireRelationPreReleaseT := tuRetirePath.io.preReleaseT
   io.tuRetireRelationPreReleaseU := tuRetirePath.io.preReleaseU

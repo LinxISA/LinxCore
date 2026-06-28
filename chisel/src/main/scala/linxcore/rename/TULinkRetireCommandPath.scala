@@ -53,6 +53,9 @@ class TULinkRetireCommandPathIO(
   val sourcePruneCount = Output(UInt(sourceQueueCountWidth.W))
   val relationPruneTCount = Output(UInt(cmapCountWidth.W))
   val relationPruneUCount = Output(UInt(cmapCountWidth.W))
+  val autoCleanBlockPending = Output(Bool())
+  val autoCleanBlockValid = Output(Bool())
+  val autoCleanBlockBid = Output(new ROBID(p.robEntries))
 }
 
 class TULinkRetireCommandPath(
@@ -98,25 +101,67 @@ class TULinkRetireCommandPath(
   private def zeroCommand: TULinkRetireCommand =
     0.U.asTypeOf(new TULinkRetireCommand(mapQDepth))
 
+  private def zeroRobId: ROBID =
+    0.U.asTypeOf(new ROBID(p.robEntries))
+
   private def flushMatches(source: TULinkRetireSource): Bool =
     Mux(io.flush.baseOnBid, ROBID.lessEqual(io.flush.req.bid, source.bid), ROBID.less(io.flush.req.bid, source.bid))
 
-  private def cleanMatches(source: TULinkRetireSource): Bool =
-    (io.cleanBlockValid && ROBID.equal(source.bid, io.cleanBlockBid)) ||
+  private def cleanMatches(
+      source: TULinkRetireSource,
+      cleanBlockValid: Bool,
+      cleanBlockBid: ROBID): Bool =
+    (cleanBlockValid && ROBID.equal(source.bid, cleanBlockBid)) ||
       (io.cleanGroupValid && ROBID.equal(source.bid, io.cleanGroupBid) && ROBID.equal(source.gid, io.cleanGroupGid))
+
+  private def flushMatchesBid(bid: ROBID): Bool =
+    Mux(io.flush.baseOnBid, ROBID.lessEqual(io.flush.req.bid, bid), ROBID.less(io.flush.req.bid, bid))
 
   val sourceQueue = RegInit(VecInit(Seq.fill(sourceQueueDepth)(zeroSource)))
   val head = RegInit(0.U(ptrWidth.W))
   val tail = RegInit(0.U(ptrWidth.W))
   val count = RegInit(0.U(countWidth.W))
+  val autoCleanBlockPending = RegInit(false.B)
+  val autoCleanBlockBid = RegInit(zeroRobId)
 
   val sourceValidMask = VecInit(io.sources.map(_.valid)).asUInt
   val sourceEnqueueCount = PopCount(sourceValidMask)
   val freeCount = sourceQueueDepth.U(countWidth.W) - count
-  val cleanupActive = io.flush.req.valid || io.cleanBlockValid || io.cleanGroupValid
-  val sourceWindowReady = !io.clear && !cleanupActive && (freeCount >= sourceWidth.U)
-  val enqueueCount = Mux(sourceWindowReady, sourceEnqueueCount, 0.U)
+  val externalCleanupActive = io.flush.req.valid || io.cleanBlockValid || io.cleanGroupValid
   val queueNonEmpty = count =/= 0.U
+
+  val relation = Module(new TULinkRelationCmap(
+    p = p,
+    mapQDepth = mapQDepth,
+    cmapDepth = cmapDepth,
+    releaseThreshold = releaseThreshold,
+    stidWidth = stidWidth
+  ))
+
+  val relationInput = Wire(new TULinkRetireSource(p, mapQDepth, stidWidth))
+  relationInput := Mux(queueNonEmpty, sourceQueue(head), zeroSource)
+  relationInput.valid := queueNonEmpty && !io.clear && !externalCleanupActive && !autoCleanBlockPending
+
+  val autoCleanBlockValid =
+    autoCleanBlockPending && !io.clear && !externalCleanupActive &&
+      !relation.io.pendingMark && !relation.io.pendingPostReleaseT && !relation.io.pendingPostReleaseU
+  val cleanBlockValid = io.cleanBlockValid || autoCleanBlockValid
+  val cleanBlockBid = Mux(io.cleanBlockValid, io.cleanBlockBid, autoCleanBlockBid)
+  val cleanupFire = io.flush.req.valid || cleanBlockValid || io.cleanGroupValid
+  val blockLastAccepted = relation.io.inAccepted && relationInput.isLast
+  val sourceWindowReady =
+    !io.clear && !externalCleanupActive && !autoCleanBlockPending && !blockLastAccepted && (freeCount >= sourceWidth.U)
+  val enqueueCount = Mux(sourceWindowReady, sourceEnqueueCount, 0.U)
+
+  relation.io.in := relationInput
+  relation.io.clear := io.clear
+  relation.io.flush := io.flush
+  relation.io.cleanBlockValid := cleanBlockValid
+  relation.io.cleanBlockBid := cleanBlockBid
+  relation.io.cleanGroupValid := io.cleanGroupValid
+  relation.io.cleanGroupBid := io.cleanGroupBid
+  relation.io.cleanGroupGid := io.cleanGroupGid
+  relation.io.commandReady := io.commandReady && !io.clear && !cleanupFire
 
   val sourceValidVec = Wire(Vec(sourceQueueDepth, Bool()))
   val sourceCleanVec = Wire(Vec(sourceQueueDepth, Bool()))
@@ -125,7 +170,7 @@ class TULinkRetireCommandPath(
   for (offset <- 0 until sourceQueueDepth) {
     val source = sourceQueue(addPtr(head, offset.U))
     sourceValidVec(offset) := offset.U < count
-    sourceCleanVec(offset) := sourceValidVec(offset) && cleanMatches(source)
+    sourceCleanVec(offset) := sourceValidVec(offset) && cleanMatches(source, cleanBlockValid, cleanBlockBid)
     sourceFlushVec(offset) := sourceValidVec(offset) && io.flush.req.valid && flushMatches(source)
   }
   for (offset <- 0 until sourceQueueDepth) {
@@ -150,28 +195,11 @@ class TULinkRetireCommandPath(
   val sourcePruneCount = PopCount(sourcePruneVec.asUInt)
   val sourceCompactedCount = PopCount(sourceKeepVec.asUInt)
 
-  val relation = Module(new TULinkRelationCmap(
-    p = p,
-    mapQDepth = mapQDepth,
-    cmapDepth = cmapDepth,
-    releaseThreshold = releaseThreshold,
-    stidWidth = stidWidth
-  ))
-
-  val relationInput = Wire(new TULinkRetireSource(p, mapQDepth, stidWidth))
-  relationInput := Mux(queueNonEmpty, sourceQueue(head), zeroSource)
-  relationInput.valid := queueNonEmpty && !io.clear && !cleanupActive
-  relation.io.in := relationInput
-  relation.io.clear := io.clear
-  relation.io.flush := io.flush
-  relation.io.cleanBlockValid := io.cleanBlockValid
-  relation.io.cleanBlockBid := io.cleanBlockBid
-  relation.io.cleanGroupValid := io.cleanGroupValid
-  relation.io.cleanGroupBid := io.cleanGroupBid
-  relation.io.cleanGroupGid := io.cleanGroupGid
-  relation.io.commandReady := io.commandReady && !io.clear && !cleanupActive
-
   val dequeueFire = relation.io.inAccepted
+  val pendingCleanPruned =
+    autoCleanBlockPending &&
+      ((io.flush.req.valid && flushMatchesBid(autoCleanBlockBid)) ||
+        (io.cleanBlockValid && ROBID.equal(autoCleanBlockBid, io.cleanBlockBid)))
 
   when(io.clear) {
     for (idx <- 0 until sourceQueueDepth) {
@@ -180,11 +208,17 @@ class TULinkRetireCommandPath(
     head := 0.U
     tail := 0.U
     count := 0.U
-  }.elsewhen(cleanupActive) {
+    autoCleanBlockPending := false.B
+    autoCleanBlockBid := zeroRobId
+  }.elsewhen(cleanupFire) {
     sourceQueue := sourceCompacted
     head := 0.U
     tail := tailFromCount(sourceCompactedCount)
     count := sourceCompactedCount
+    when(autoCleanBlockValid || pendingCleanPruned) {
+      autoCleanBlockPending := false.B
+      autoCleanBlockBid := zeroRobId
+    }
   }.otherwise {
     for (slot <- 0 until sourceWidth) {
       val priorValidCount =
@@ -202,6 +236,10 @@ class TULinkRetireCommandPath(
       tail := addPtr(tail, enqueueCount)
     }
     count := count + enqueueCount - dequeueFire.asUInt
+    when(blockLastAccepted) {
+      autoCleanBlockPending := true.B
+      autoCleanBlockBid := relationInput.bid
+    }
   }
 
   io.sourceWindowReady := sourceWindowReady
@@ -212,7 +250,7 @@ class TULinkRetireCommandPath(
   io.sourceQueueEmpty := count === 0.U
   io.sourceDequeued := dequeueFire
 
-  io.command := Mux(io.clear || cleanupActive, zeroCommand, relation.io.command)
+  io.command := Mux(io.clear || cleanupFire, zeroCommand, relation.io.command)
   io.commandFire := relation.io.commandFire
   io.unsupportedDst := relation.io.unsupportedDst
   io.preReleaseT := relation.io.preReleaseT
@@ -224,8 +262,11 @@ class TULinkRetireCommandPath(
   io.pendingPostReleaseU := relation.io.pendingPostReleaseU
   io.tCount := relation.io.tCount
   io.uCount := relation.io.uCount
-  io.cleanupActive := cleanupActive || relation.io.cleanupActive
+  io.cleanupActive := externalCleanupActive || autoCleanBlockPending || blockLastAccepted || relation.io.cleanupActive
   io.sourcePruneCount := sourcePruneCount
   io.relationPruneTCount := relation.io.cleanupPruneTCount
   io.relationPruneUCount := relation.io.cleanupPruneUCount
+  io.autoCleanBlockPending := autoCleanBlockPending
+  io.autoCleanBlockValid := autoCleanBlockValid
+  io.autoCleanBlockBid := Mux(autoCleanBlockPending, autoCleanBlockBid, zeroRobId)
 }

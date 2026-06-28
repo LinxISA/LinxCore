@@ -4486,3 +4486,80 @@ Skill evolve:
   but the clean command must wait for serialized relation-cmap mark/release
   command acceptance instead of firing at ROB commit or raw deallocation
   acceptance.
+
+## R67 Scalar CleanCMAP Scheduling
+
+Scope:
+
+- Added an internal scalar block-clean scheduler to `TULinkRetireCommandPath`.
+- The path now latches the BID of an accepted block-last retire source,
+  blocks further ROB deallocation-source admission, waits for the block-last
+  source's relation-cmap mark/release commands to drain, and then pulses an
+  internal `cleanBlock` cleanup for that BID.
+- Exposed `autoCleanBlockPending`, `autoCleanBlockValid`, and
+  `autoCleanBlockBid` through `TULinkRetireCommandPath` and reduced
+  `DecodeRenameROBPath` observability.
+- Kept external `cleanGroup*` inactive because scalar `SPEROB::CommitBlock`
+  uses `CleanCMAP`; group cleanup is a vector/MTC owner.
+
+Model evidence:
+
+- `SPEROB::dealloc()` calls `ReleaseRelative(uop)` before `CommitLast(uop)`.
+- `ReleaseRelative()` can emit mark/release work through
+  `ReleaseFunc()`/`LocalRegMgr::ReportRetired`.
+- `CommitLast()` calls `CommitBlock()`, and `CommitBlock()` calls
+  `CleanCMAP(bid)` only after the block-last row's relation release work.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRelationCmap
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git diff --check
+```
+
+Expected result:
+
+- A block-last source can drain its generated relation-cmap mark/release
+  commands before scalar block clean fires.
+- New ROB deallocation-source windows are blocked while a block-last clean is
+  pending.
+- The auto clean pulse prunes queued source rows and relation-cmap entries
+  using the same exact BID predicate as model `CleanCMAP`.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `TULinkRetireCommandPathSpec` passed 6 tests, including the auto block-clean
+  timing reference case.
+- `DecodeRenameROBPathSpec` passed 7 tests with the new auto-clean
+  observability exposed.
+- `TULinkRelationCmapSpec` passed 7 tests.
+- `TULinkRenameSpec` passed 10 tests.
+- `ROBEntryBankSpec` passed 12 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R67 adds a reusable scheduling
+  invariant: scalar `CleanCMAP` is an auto-clean pulse after the accepted
+  block-last source's relation-cmap commands drain, it must block later ROB
+  deallocation-source admission while pending, and it must not block the
+  retire-command stream it is waiting for.
