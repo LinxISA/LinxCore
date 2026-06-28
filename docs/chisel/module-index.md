@@ -5,6 +5,7 @@
 | `InterfaceBundles` | `linxcore.common` | `docs/chisel/interfaces/CommonBundles.md` | Unit-green Phase 1 shared type packet |
 | `F4DecodeWindow` | `linxcore.frontend` | `docs/chisel/modules/frontend/F4DecodeWindow.md` | Unit-green Phase 2 F4/D1 decode-window slice |
 | `FrontendInstructionBuffer` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendInstructionBuffer.md` | Unit-green Phase 2 frontend packet FIFO |
+| `FrontendDecodeIngress` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeIngress.md` | Unit-green Phase 2 IB-to-F4 transport wrapper |
 | `ROBID` | `linxcore.rob` | `docs/chisel/modules/rob/ROBID.md` | Unit-green Packet A |
 | `ReducedCommitROB` | `linxcore.rob` | `docs/chisel/modules/rob/ReducedCommitROB.md` | Unit-green; monitor-backed Verilator xcheck-green reduced harness |
 | `CommitIdentity` / `CommitTraceRow` | `linxcore.commit` | `docs/chisel/modules/commit/CommitTrace.md` | Unit-green Packet 0B schema |

@@ -22,7 +22,7 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `rtl/LinxCore` | `d5791d207ba7e8f387c347701d43c76582558dae` |
+| `rtl/LinxCore` | `cfe73ddc6158e0972fbcb7775fb4bf25e0dcb251` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 
 LinxCoreModel was refreshed with `git pull --ff-only` on 2026-06-28 and was
@@ -218,14 +218,14 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. `FrontendDecodeIngress`: compose `FrontendInstructionBuffer` and
-   `F4DecodeWindow`, keeping transport separate from opcode decode.
-2. Integrated ROB design note: promote `ReducedCommitROB` lessons into the
+1. Integrated ROB design note: promote `ReducedCommitROB` lessons into the
    Phase 5 ROB/CMT owner contract before adding flush pointer rebasing.
-3. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+2. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-4. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+3. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
+4. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
+   D1/D2 opcode table without changing the ingress transport contract.
 5. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.

@@ -16,6 +16,12 @@ Scope:
 - Stored checkpoint identity inside the buffered packet so future F4/D1/D2 work
   treats checkpoint as frontend packet state instead of reconstructing it from
   adjacent control wiring.
+- Added `FrontendDecodeIngress`, a transport wrapper that composes
+  `FrontendInstructionBuffer` and `F4DecodeWindow` without moving opcode decode
+  or uop construction into frontend glue.
+- Preserved the no same-cycle push-to-D1 bypass rule: pushed packets become
+  visible only after FIFO residency, and pop requires `decodeReady &&
+  f4.d1.valid`.
 
 Evidence:
 
@@ -25,6 +31,7 @@ bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
 bash tools/chisel/run_chisel_tests.sh --only CommitTrace
 bash tools/chisel/run_chisel_tests.sh --only F4DecodeWindow
 bash tools/chisel/run_chisel_tests.sh --only FrontendInstructionBuffer
+bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeIngress
 python3 tools/chisel/trace_schema_adapter.py --self-test
 bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
@@ -48,6 +55,11 @@ Observed result:
 - The focused test covers FIFO ordering, packet identity retention,
   simultaneous push/pop count behavior, full backpressure, flush clearing and
   output masking, packet field widths, and Chisel elaboration.
+- `FrontendDecodeIngressSpec` ran 7 tests; all passed.
+- The focused test covers FIFO residency before visibility, decode-side hold
+  and consume, F4 slot slicing with packet identity, flush clearing/masking,
+  ingress backpressure, debug widths, and Chisel elaboration through the IB and
+  F4 child modules.
 - `trace_schema_adapter.py --self-test` passed.
 - `run_chisel_qemu_crosscheck.sh --dry-run` selected
   `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
@@ -65,6 +77,8 @@ Known limitations:
   registered F4/D1 transport, and D1/D2 opcode decode are still future modules.
 - `FrontendInstructionBuffer` is not yet wired into `LinxCoreTop` or a live
   frontend pipeline.
+- `FrontendDecodeIngress` is not yet wired into `LinxCoreTop` or a live
+  frontend pipeline.
 - Full opcode decode and macro-boundary standalone behavior are deferred until
   the Chisel opcode table exists.
 
@@ -76,3 +90,6 @@ Skill evolve:
 - `skill-evolve: update linx-core` because `FrontendInstructionBuffer` is a
   reusable Phase 2 frontend FIFO gate and records that Chisel buffers carry
   checkpoint identity as packet-owned state.
+- `skill-evolve: update linx-core` because `FrontendDecodeIngress` is a
+  reusable Phase 2 frontend transport gate and records the IB-to-F4 pop,
+  flush, and no-bypass composition rules.

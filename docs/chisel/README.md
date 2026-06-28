@@ -10,7 +10,8 @@ Current phase:
 - Phase 0A: model notes
 - Phase 0B: ROB and cross-check infrastructure first
 - Phase 1: interface schema and type-system monitors in progress
-- Phase 2: frontend F4 decode-window and instruction-buffer slicing started
+- Phase 2: frontend F4 decode-window, instruction-buffer, and decode-ingress
+  slicing started
 - Phase 1 top shell: `LinxCoreTop` wraps the monitored reduced ROB so top
   emit/lint uses real commit structure before the full frontend/backend exists
 
@@ -24,7 +25,10 @@ common interface bundles. They are derived from
 `model/LinxCoreModel/model/ModelCommon/bus/`. The first Phase 2 frontend slice
 also follows the LinxCoreModel `CheckMInstSize` instruction-length rule from
 `model/LinxCoreModel/isa/ISACommon/DecodeUtiles.h` and the F4/F5/instBuffer
-queueing flow in `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`.
+queueing flow in `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`. The
+current frontend transport slice composes the instruction buffer with F4
+visibility but still leaves opcode decode, macro-boundary decode, and D1/D2
+uop construction to future decode-owner modules.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -42,6 +46,7 @@ bash tools/chisel/build_chisel.sh
 bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
 bash tools/chisel/run_chisel_tests.sh --only F4DecodeWindow
 bash tools/chisel/run_chisel_tests.sh --only FrontendInstructionBuffer
+bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeIngress
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
