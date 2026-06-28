@@ -57,10 +57,12 @@ temporary backend identity from allocator cursors at the queue head, drives
 allocator valid from a pre-ready bridge attempt signal, gates accepted store
 rows on capacity-only store-dispatch readiness, feeds `StoreSplitPayload`
 STA/STD or ST_ALL payloads into `StoreDispatchQueues`, and exposes finite
-STA/STD queue heads for future execution owners. It keeps enqueue-time ROB
-reservation, full SID/LID payload carry, STA/STD execution, STQ mutation,
-ready-table, and live top integration in later owners. The first integrated
-ROB/CMT
+STA/STD queue heads. `StoreDispatchToSTQ` now maps those heads plus explicit
+execution results into typed `STQStoreRequest` rows, preserving STA priority
+and STD merge-bypass progress without computing address/data itself. The lane
+still keeps enqueue-time ROB reservation, full SID/LID payload carry, real
+STA/STD execution, registered STQ insertion composition, ready-table, and live
+top integration in later owners. The first integrated ROB/CMT
 preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
 status-backed entry bank with separate commit and deallocation walks, and expose
 the model-derived flush-prune selection rule. The entry bank now consumes that
@@ -179,6 +181,7 @@ bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 bash tools/chisel/run_chisel_tests.sh --only StoreDispatchQueues
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
 bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune

@@ -2978,3 +2978,73 @@ Skill evolve:
 - `skill-evolve: update linx-core` because R48 adds the reusable invariant
   that store-dispatch queue readiness must be capacity-only and must not depend
   on splitter-produced payload valid bits or protocol-error diagnostics.
+
+### R49 Store Dispatch To STQ Request Bridge
+
+Scope:
+
+- Added `StoreDispatchToSTQ` as the first bridge from executed
+  `StoreDispatchQueues` heads to typed `STQStoreRequest` rows.
+- Preserved the model distinction between atomic rename-time split admission
+  and partial-merge STQ insertion: STA/STD queue admission is atomic, but STQ
+  insert accepts `ST_ADDR` and `ST_DATA` halves independently and merges them.
+- Kept real address generation, store-data selection, per-candidate STQ
+  readiness probes from live row state, registered STQ insertion composition,
+  load-conflict probes, ready-table updates, and memory trace side effects
+  deferred to later owner packets.
+
+Evidence:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchQueues
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `StoreDispatchToSTQSpec` locks STA priority when both executed candidates can
+  insert, STD bypass when STA cannot insert but STD can, execution-result
+  versus insert backpressure diagnostics, flush suppression, IO widths, enum
+  ordering, and Chisel elaboration.
+- Existing dispatch-queue, STQ bank, store-split, backend path, interface,
+  ROB, top xcheck, QEMU dry-run, build, and Verilator lint gates remain green.
+
+Observed result:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `StoreDispatchToSTQSpec` passed 6 tests covering STA priority, STD
+  merge-bypass, execution-result backpressure, flush suppression, IO widths,
+  enum ordering, and elaboration.
+- `StoreDispatchQueuesSpec` passed 8 tests.
+- `STQEntryBankSpec` passed 7 tests.
+- `StoreSplitPayloadSpec` passed 7 tests.
+- `DecodeRenameROBPathSpec` passed 6 tests.
+- `InterfaceBundlesSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the top xcheck RTL,
+  built the Verilator harness, compared 3 normalized rows, and reported zero
+  mismatches.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the current top
+  shell and passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R49 adds the reusable model-derived
+  progress rule that a ready STD half must be allowed to bypass a present STA
+  head when STA insertion is blocked but STD insertion can merge into STQ.

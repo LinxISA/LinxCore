@@ -110,7 +110,8 @@ mutation in later owners.
   context.
 - Carrying `load_id`/`sid` through common uop bundles into LIQ/STQ owners.
 - DCZVA opcode classification from generated decode metadata.
-- Store execution and STQ insert behind `StoreDispatchQueues`.
+- Store execution, STQ insert readiness, and STQ composition behind
+  `StoreDispatchToSTQ`.
 - Enqueue-time ROB reservation before `DecodeRenameQueue`.
 
 ## Verification

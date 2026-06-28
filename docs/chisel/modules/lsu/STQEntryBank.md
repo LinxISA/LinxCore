@@ -11,6 +11,7 @@
   - `model/LinxCoreModel/model/lsu/store_unit/stq.h`
   - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchToSTQ.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-STQ-BANK-001`
@@ -36,7 +37,8 @@ requests, tile/TTrans side effects, load forwarding, or LSU wakeup routing.
 ### Store Request
 
 `STQStoreRequest` is the Chisel subset of model `MemReqBus` needed by the first
-state owner.
+state owner. `StoreDispatchToSTQ` is the first upstream bridge that forms this
+request type from executed store-dispatch queue heads.
 
 | Field | Description |
 |---|---|
@@ -144,6 +146,7 @@ events. No architectural commit trace row is emitted by this module.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
+- `bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune`
 - `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl`

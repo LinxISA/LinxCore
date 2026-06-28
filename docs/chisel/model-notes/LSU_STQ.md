@@ -15,6 +15,7 @@
 - LinxCoreModel: `model/LinxCoreModel/model/l1/SCB.cpp`
 - LinxCoreModel: `model/LinxCoreModel/model/l1/cluster.cpp`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchQueues.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchToSTQ.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala`
@@ -51,6 +52,7 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadForwardPipelineSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/StoreDispatchQueuesSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/StoreDispatchToSTQSpec.scala`
 
 ## Model Contract
 
@@ -110,6 +112,16 @@ feed payload-valid diagnostics back into rename acceptance. Protocol-shape
 errors are observable and suppress enqueue, but they are not readiness inputs.
 This owner does not compute store addresses or data and does not allocate,
 merge, or free STQ rows.
+
+`StoreDispatchToSTQ` is the first Chisel bridge from those queue heads to typed
+`STQStoreRequest` insert rows. It waits for explicit STA/STD execution result
+inputs, maps `StoreSplitIssuePayload` identity and store type into the STQ
+request shape, gives ready STA requests priority, and allows a ready STD to
+bypass a present but non-insertable STA. That bypass preserves the model
+progress case where a full STQ rejects a new address allocation but can still
+merge a complementary data half into an existing partial row. The bridge still
+does not compute addresses or data, derive live STQ insert readiness from row
+state, publish load-conflict probes, or mutate STQ rows directly.
 
 `STQFlushPrune` is the first Chisel LSU cleanup consumer. It mirrors the model
 match predicate and emits:
