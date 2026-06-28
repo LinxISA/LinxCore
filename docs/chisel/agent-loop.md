@@ -22,7 +22,7 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `rtl/LinxCore` | `774fcb86c1bcecd0a7eea506f871175319d7d8eb` |
+| `rtl/LinxCore` | `135054ee1464a2a25c55af5d0da7d657808acf6e` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 
 LinxCoreModel was refreshed with `git pull --ff-only` on 2026-06-28 and was
@@ -118,6 +118,7 @@ These packets remain the required base before broad module promotion:
 | R9 | `ROBEntryBank` flush application | `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only ROBFlushPrune`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R10 | `ROBEntryBank` native row IDs | `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only ROBFlushPrune`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R11 | `DispatchROBAllocator` | `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only BROB`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R12 | `FullBidRecoveryBridge` | `run_chisel_tests.sh --only FullBidRecoveryBridge`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only ROBEntryBank` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -223,19 +224,16 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Recovery full-BID handoff: define how recovery carries both the full hardware
-   block BID used by BROB and the ring `ROBID` sidecar currently consumed by
-   ROB row pruning.
-2. Recovery cleanup owner: add the next registered ROB/CMT cleanup hooks for
+1. Recovery cleanup owner: add the next registered ROB/CMT cleanup hooks for
    rename/checkpoint restore and LSU/STQ cleanup without moving side effects
    into `ROBFlushPrune`.
-3. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+2. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-4. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+3. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-5. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
+4. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
    D1/D2 opcode table without changing the ingress transport contract.
-6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+5. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

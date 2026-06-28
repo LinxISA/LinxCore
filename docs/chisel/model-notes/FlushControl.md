@@ -53,6 +53,13 @@ Stateful report queues, `CheckFlush`, merge, backend fanout, and block-ROB
 side effects are intentionally deferred until BROB and PE recovery ownership
 are present.
 
+`FullBidRecoveryBridge` adds the first explicit identity bridge for recovery:
+the full hardware `blockBid` passes through for BROB/block cleanup, while
+`FlushBus.req.bid` carries the ring `ROBID` sidecar used by ROB row pruning.
+The conversion uses the full BID low slot bits as `ROBID.value` and the low
+uniqueness bit as `ROBID.wrap`, matching the sidecar produced by
+`DispatchROBAllocator` during allocation.
+
 ## Open Questions
 
 - The model typo `selectPESigal` is preserved only in source citations; Chisel
@@ -60,3 +67,6 @@ are present.
 - Full `SIMT_INNER_FLUSH` group-order comparison needs the `gid` and `lsId`
   policy from the vector and MTC paths before promotion beyond arbitration unit
   tests.
+- Recovery cleanup ownership is still open: rename checkpoint restore,
+  LSU/STQ cleanup, frontend redirect, PE replay fanout, and BROB pointer
+  restoration are not implemented by the bridge.

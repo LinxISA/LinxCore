@@ -2,6 +2,7 @@ package linxcore.recovery
 
 import chisel3._
 
+import linxcore.bctrl.BID
 import linxcore.rob.ROBID
 
 object FlushType extends ChiselEnum {
@@ -37,6 +38,88 @@ class FlushBus(val entries: Int, val peIdWidth: Int = 8, val stidWidth: Int = 8,
   val baseOnThread = Bool()
   val simtReplay = Bool()
   val mtcReplay = Bool()
+}
+
+class FullBidFlushReq(
+    val entries: Int,
+    val bidWidth: Int = BID.DefaultWidth,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
+    extends Bundle {
+  val valid = Bool()
+  val typ = FlushType()
+  val peId = UInt(peIdWidth.W)
+  val tid = UInt(tidWidth.W)
+  val stid = UInt(stidWidth.W)
+  val blockBid = UInt(bidWidth.W)
+  val gid = new ROBID(entries)
+  val rid = new ROBID(entries)
+  val lsId = new ROBID(entries)
+  val execEngine = ExecEngineType()
+  val fetchTpcValid = Bool()
+  val immediateFlush = Bool()
+}
+
+class FullBidRecoveryBridgeIO(
+    val entries: Int,
+    val bidWidth: Int = BID.DefaultWidth,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
+    extends Bundle {
+  val req = Input(new FullBidFlushReq(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val robFlush = Output(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val blockFlushValid = Output(Bool())
+  val blockFlushBid = Output(UInt(bidWidth.W))
+  val robBid = Output(new ROBID(entries))
+  val baseOnBid = Output(Bool())
+}
+
+object FullBidRecoveryBridge {
+  def fullBidToRobId(blockBid: UInt, valid: Bool, entries: Int, bidWidth: Int = BID.DefaultWidth): ROBID = {
+    require(entries > 1, "recovery bridge entries must be greater than one")
+    require((entries & (entries - 1)) == 0, "recovery bridge entries must be a power of two")
+    require(bidWidth > BID.slotBits(entries), "full BID width must include uniqueness bits above the slot")
+
+    val id = Wire(new ROBID(entries))
+    id.valid := valid
+    id.wrap := BID.uniq(blockBid, entries, bidWidth)(0)
+    id.value := BID.slot(blockBid, entries)
+    id
+  }
+}
+
+class FullBidRecoveryBridge(
+    val entries: Int = 16,
+    val bidWidth: Int = BID.DefaultWidth,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
+    extends Module {
+  val io = IO(new FullBidRecoveryBridgeIO(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+
+  val robReq = Wire(new FlushReq(entries, peIdWidth, stidWidth, tidWidth))
+  robReq := 0.U.asTypeOf(robReq)
+  robReq.valid := io.req.valid
+  robReq.typ := io.req.typ
+  robReq.peId := io.req.peId
+  robReq.tid := io.req.tid
+  robReq.stid := io.req.stid
+  robReq.bid := FullBidRecoveryBridge.fullBidToRobId(io.req.blockBid, io.req.valid, entries, bidWidth)
+  robReq.gid := io.req.gid
+  robReq.rid := io.req.rid
+  robReq.lsId := io.req.lsId
+  robReq.execEngine := io.req.execEngine
+  robReq.fetchTpcValid := io.req.fetchTpcValid
+  robReq.immediateFlush := io.req.immediateFlush
+
+  val annotated = FlushControl.annotate(robReq)
+  io.robFlush := annotated
+  io.blockFlushValid := io.req.valid
+  io.blockFlushBid := io.req.blockBid
+  io.robBid := robReq.bid
+  io.baseOnBid := annotated.baseOnBid
 }
 
 object FlushControl {

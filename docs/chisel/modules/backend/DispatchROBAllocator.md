@@ -12,6 +12,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BID.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BROB.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/FlushControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala`
 - Contract IDs: `LC-IF-CHISEL-DISPATCH-ROB-ALLOC-001`
 
@@ -75,8 +76,9 @@ On allocation, the module writes the generated full BID into BROB metadata and
 also overwrites `allocRow.blockBidValid/blockBid` before forwarding the row to
 `ROBEntryBank`. It converts the generated BID to the ROB bank's native
 `ROBID` sidecar by taking the low slot bits as `value` and the low uniqueness
-bit as `wrap`. That sidecar feeds `ROBEntryBank.allocBid`; RID remains
-allocated locally by `ROBEntryBank` from its allocation pointer.
+bit as `wrap` through `FullBidRecoveryBridge.fullBidToRobId`. That sidecar
+feeds `ROBEntryBank.allocBid`; RID remains allocated locally by `ROBEntryBank`
+from its allocation pointer.
 
 `CommitTraceRow.identity` is not synthesized here. It remains the model commit
 trace and duplicate-detection identity supplied by the eventual decode/dispatch
@@ -93,8 +95,9 @@ the same clock edge as the accepted BROB and ROB allocation.
 ROB row flushes are forwarded to `ROBEntryBank`. BROB flush remains an explicit
 full-BID input (`blockFlushValid/blockFlushBid`) because the current Chisel
 recovery bus still uses ring `ROBID` metadata while the hardware block contract
-uses full 64-bit BIDs. A later recovery owner must carry both surfaces or
-replace the temporary bridge with a single typed full-BID recovery contract.
+uses full 64-bit BIDs. `FullBidRecoveryBridge` now owns the shared conversion
+used by both allocation and recovery. A later cleanup owner must still connect
+rename, LSU/STQ, frontend redirect, and BROB pointer restoration side effects.
 
 ## Trace/Observability
 
@@ -106,6 +109,7 @@ adapter's responsibility.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator`
+- `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge`
 - `bash tools/chisel/run_chisel_tests.sh --only BROB`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune`

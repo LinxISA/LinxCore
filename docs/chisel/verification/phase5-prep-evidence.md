@@ -350,3 +350,77 @@ Skill evolve:
   BROB and ROB row state atomically, populate `CommitTraceRow.blockBid`, and
   drive `ROBEntryBank.allocBid` while leaving RID allocation inside the ROB
   bank.
+
+## 2026-06-28 Recovery Full-BID Handoff
+
+Scope:
+
+- Added `FullBidRecoveryBridge` as the first explicit recovery handoff between
+  full hardware block BID and ring `ROBID`.
+- Preserved the full `blockBid` surface for BROB/block cleanup.
+- Produced the ring `FlushBus.req.bid` sidecar for ROB row pruning by taking
+  low BID slot bits as `ROBID.value` and the low uniqueness bit as
+  `ROBID.wrap`.
+- Moved `DispatchROBAllocator` onto the shared conversion helper so allocation
+  and recovery use the same BID split.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only BROB
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+```
+
+Expected result:
+
+- `FullBidRecoveryBridgeSpec` passes and elaborates full-BID and ROB flush
+  surfaces.
+- Existing flush, allocator, BROB, ROB, reduced ROB, adapter, QEMU dry-run,
+  and reduced generated-RTL cross-check gates remain green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge` passed
+  4 tests in `FullBidRecoveryBridgeSpec`.
+- New reference coverage includes full-BID slot/wrap mapping, full block BID
+  preservation, non-BID RID sidecar separation, and Chisel elaboration.
+- `bash tools/chisel/run_chisel_tests.sh --only FlushControl` passed 6 tests
+  in `FlushControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator` passed 5
+  tests in `DispatchROBAllocatorSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only BROB` passed 5 tests in
+  `BROBSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank` passed 9 tests
+  in `ROBEntryBankSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune` passed 6 tests
+  in `ROBFlushPruneSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB` passed 5
+  tests in `ReducedCommitROBSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `FullBidRecoveryBridge` adds a
+  reusable recovery invariant and gate: recovery must carry full hardware BID
+  for BROB/block cleanup and ring `ROBID` for ROB row pruning through one
+  shared conversion contract.

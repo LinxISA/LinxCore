@@ -90,14 +90,16 @@ the bank's `allocBid` from a block owner rather than a unit-test fixture. It
 generates the next full hardware BID, allocates `BrobMetaTracker` and
 `ROBEntryBank` atomically, writes the full BID into the row `blockBid` sideband,
 and converts the full BID into the `ROBID` sidecar consumed by
-`ROBEntryBank`. RID remains allocated by the ROB bank.
+`ROBEntryBank` through the shared `FullBidRecoveryBridge.fullBidToRobId`
+helper. RID remains allocated by the ROB bank.
 
 ## Open Items
 
 - Replace the reduced harness with integrated ROB banks and CMT control in
   Phase 5.
-- Define the recovery handoff between full hardware BID and ring `ROBID`
-  sidecars so BROB flush and ROB row pruning share one explicit contract.
+- Promote the next recovery cleanup owner now that `FullBidRecoveryBridge`
+  defines the full hardware BID to ring `ROBID` handoff for BROB flush and ROB
+  row pruning.
 - Add rename cleanup, LSU/STQ side effects, precise trap ownership, and restart
   ownership to the entry-bank/CMT path; do not retrofit those behaviors into
   `ReducedCommitROB`.

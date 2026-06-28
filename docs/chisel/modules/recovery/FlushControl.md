@@ -3,6 +3,9 @@
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/FlushControl.scala`
+- Tests:
+  - `rtl/LinxCore/chisel/src/test/scala/linxcore/recovery/FlushControlSpec.scala`
+  - `rtl/LinxCore/chisel/src/test/scala/linxcore/recovery/FullBidRecoveryBridgeSpec.scala`
 - Previous pyCircuit owner: deferred; recovery ownership is currently derived
   from model and architecture documents.
 - LinxCoreModel evidence:
@@ -18,6 +21,10 @@
 arbitration used by flush and replay selection. The first Chisel module is a
 combinational `FlushOlderSelector`; it lets ROB/BROB and future PE recovery
 logic share the same C++ model-derived age and priority rules.
+
+`FullBidRecoveryBridge` shares this file and defines the first explicit
+handoff from full hardware block BID to the ring `ROBID` sidecar consumed by
+ROB row pruning.
 
 ## Interface
 
@@ -59,6 +66,17 @@ logic share the same C++ model-derived age and priority rules.
 | Input | `oldestBid` | `ROBID` | combinational | Current oldest block for the source `stid`. |
 | Output | `srcOlder` | `Bool` | combinational | True when `src` is older than or higher priority than `dst`. |
 
+### `FullBidRecoveryBridge`
+
+| Direction | Signal | Type | Valid/ready | Description |
+|---|---|---|---|---|
+| Input | `req` | `FullBidFlushReq` | `req.valid` | Recovery request with full hardware `blockBid` and ring sub-ID sidecars. |
+| Output | `robFlush` | `FlushBus` | `robFlush.req.valid` | Annotated flush request for ROB row pruning. |
+| Output | `blockFlushValid` | `Bool` | valid | Full-BID flush valid for BROB/block cleanup owners. |
+| Output | `blockFlushBid` | `UInt` | with valid | Full hardware BID, passed through unchanged. |
+| Output | `robBid` | `ROBID` | diagnostic | `blockBid` converted to ring ROBID. |
+| Output | `baseOnBid` | `Bool` | diagnostic | BID-classification result from `FlushControl.annotate`. |
+
 ## State
 
 This packet has no internal registers. Future stateful recovery work will add
@@ -78,6 +96,11 @@ priority tree:
 - otherwise use ROBID age, with the oldest block special-case for BID-based
   arbitration.
 
+`FullBidRecoveryBridge.fullBidToRobId` maps a full hardware BID to the ring
+`ROBID` representation by taking the low slot bits as `value` and the low
+uniqueness bit as `wrap`. This helper is also used by
+`DispatchROBAllocator`, so allocation and recovery share the same BID split.
+
 ## Timing
 
 `FlushOlderSelector` is purely combinational. Stateful recovery selection must
@@ -87,7 +110,8 @@ loops from backend flush fanout back into report queues.
 ## Flush/Recovery
 
 This module does not perform a flush. It only tells selection logic whether one
-request should cancel or dominate another request. Actual queue cleanup,
+request should cancel or dominate another request, and now exposes the first
+full-BID handoff for later block and ROB cleanup owners. Actual queue cleanup,
 rename/BROB recovery, PE fanout, vector replay, and MTC replay are deferred.
 
 ## Trace/Observability
@@ -100,6 +124,9 @@ LinxCoreModel cross-check adapters.
 
 - `chisel/src/test/scala/linxcore/recovery/FlushControlSpec.scala` mirrors the
   LinxCoreModel `getSignal` and `CheckOlder` decision table.
+- `chisel/src/test/scala/linxcore/recovery/FullBidRecoveryBridgeSpec.scala`
+  covers full-BID-to-ring-ROBID mapping and bridge elaboration.
+- `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge`
 - `bash tools/chisel/run_chisel_tests.sh --only FlushControl`
 - `bash tools/chisel/build_chisel.sh`
 - `bash tools/chisel/run_chisel_verilator_lint.sh`

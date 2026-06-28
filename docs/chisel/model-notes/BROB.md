@@ -11,6 +11,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BID.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BROB.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/FlushControl.scala`
 
 ## Model Contract
 
@@ -62,7 +63,9 @@ The Chisel packet adds hardware-facing BID helpers for the current RTL contract:
 source for ROB allocation. It keeps a BID cursor, writes the generated full BID
 into `BrobMetaTracker`, stamps the same full BID into the commit row
 `blockBid` sideband, and converts it into the ring `ROBID` sidecar passed to
-`ROBEntryBank.allocBid`.
+`ROBEntryBank.allocBid`. `FullBidRecoveryBridge` owns the same conversion on
+the recovery path so BROB cleanup can keep using full BIDs while ROB pruning
+uses ring `ROBID`.
 
 ## Completion And Commit
 
@@ -110,7 +113,8 @@ Chisel metadata tracker does not implement this pointer yet.
 - The Chisel packet does not yet model per-STID pointer arrays or full
   BCTRL/BISQ dispatch interaction.
 - Recovery still has two BID surfaces in Chisel: BROB flush consumes full
-  hardware BID, while ROB row pruning consumes ring `ROBID`. A future recovery
-  owner must make that handoff explicit.
+  hardware BID, while ROB row pruning consumes ring `ROBID`. The first handoff
+  is explicit in `FullBidRecoveryBridge`; full BROB pointer restoration,
+  rename rollback, and LSU/STQ cleanup remain future work.
 - TileRename release and GPR MAPQ-to-CMAP commit remain tied to future
   integrated BROB/rename work.

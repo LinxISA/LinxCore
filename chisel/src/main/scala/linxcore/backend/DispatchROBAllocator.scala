@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.log2Ceil
 import linxcore.bctrl.{BID, BrobEntryMeta, BrobMetaTracker}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
-import linxcore.recovery.FlushBus
+import linxcore.recovery.{FlushBus, FullBidRecoveryBridge}
 import linxcore.rob.{ROBEntryBank, ROBEntryStatus, ROBID}
 
 class DispatchROBAllocatorIO(
@@ -129,11 +129,7 @@ class DispatchROBAllocator(
   ))
 
   private def bidToRobId(bid: UInt): ROBID = {
-    val id = Wire(new ROBID(entries))
-    id.valid := true.B
-    id.wrap := BID.uniq(bid, entries, bidWidth)(0)
-    id.value := BID.slot(bid, entries)
-    id
+    FullBidRecoveryBridge.fullBidToRobId(bid, true.B, entries, bidWidth)
   }
 
   val blockSlot = RegInit(0.U(ptrWidth.W))

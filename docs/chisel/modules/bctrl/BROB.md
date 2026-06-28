@@ -5,6 +5,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BID.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BROB.scala`
 - Chisel integration: `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
+- Chisel recovery bridge: `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/FlushControl.scala`
 - Previous pyCircuit owner: `rtl/LinxCore/src/bcc/bctrl/brob.py`
 - Reduced block-structure owner: `rtl/LinxCore/src/bcc/block_struct/brob.py`
 - Reduced block-structure RTL: `rtl/LinxCore/src/bcc/block_struct/brob_rtl.py`
@@ -91,7 +92,7 @@ atomically.
 - `DispatchROBAllocator` generates a full BID with `BID.fromParts`, passes it
   to `BrobMetaTracker.allocBid`, writes the same BID into the ROB row
   `blockBid` sideband, and drives `ROBEntryBank.allocBid` from the equivalent
-  ring sidecar.
+  ring sidecar through `FullBidRecoveryBridge.fullBidToRobId`.
 - Scalar completion sets `scalarDone` and captures the first scalar exception.
   Scalar-only blocks become `Completed`.
 - Engine completion sets `engineDone` and captures the first engine exception.
@@ -113,6 +114,9 @@ The implemented flush rule is the strict BID mask from the LinxCore contract:
 keep `bid <= flushBid`, kill `bid > flushBid`. This is intentionally full
 64-bit BID order, not low-slot order.
 
+`FullBidRecoveryBridge` is the first recovery handoff owner between this full
+BID block surface and the ring `ROBID` consumed by `ROBEntryBank` pruning.
+
 Full LinxCoreModel `recoverBlock`, `setFlushed`, PE replay, SIMT/MTC replay,
 rename rollback, TileRename release, and GPR CMAP commit effects are not in
 this packet.
@@ -128,4 +132,5 @@ neutral QEMU/LinxCore commit adapter.
 - `chisel/src/test/scala/linxcore/bctrl/BROBSpec.scala`
 - `bash tools/chisel/run_chisel_tests.sh --only BROB`
 - `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator`
+- `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge`
 - `bash tools/chisel/build_chisel.sh`
