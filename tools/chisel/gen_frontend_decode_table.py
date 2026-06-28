@@ -36,6 +36,11 @@ BOUNDARY = {
     "ICALL": 6,
 }
 
+OPERAND_KIND = {
+    "NONE": 0,
+    "REG": 1,
+}
+
 
 def dispatch_code(meta) -> int:
     if meta.major_cat in {"LOAD", "STORE"}:
@@ -88,6 +93,8 @@ def main() -> None:
 
     categories = sorted({meta.major_cat for meta in metas})
     category_ids = {name: idx for idx, name in enumerate(categories)}
+    imm_kinds = sorted({meta.imm_kind for meta in metas})
+    imm_kind_ids = {name: idx for idx, name in enumerate(imm_kinds)}
 
     lines: list[str] = []
     lines.extend(
@@ -109,6 +116,10 @@ def main() -> None:
             "      category: Int,",
             "      dispatch: Int,",
             "      boundary: Int,",
+            "      rdKind: Int,",
+            "      rs1Kind: Int,",
+            "      rs2Kind: Int,",
+            "      immKind: Int,",
             "      isLoad: Boolean,",
             "      isStore: Boolean,",
             "      isBlockBoundary: Boolean,",
@@ -122,6 +133,12 @@ def main() -> None:
     lines.append("")
     for name, cat_id in category_ids.items():
         lines.append(f"  val Cat{name}: Int = {cat_id}")
+    lines.append("")
+    for name, kind_id in OPERAND_KIND.items():
+        lines.append(f"  val Operand{name}: Int = {kind_id}")
+    lines.append("")
+    for name, imm_id in imm_kind_ids.items():
+        lines.append(f"  val Imm{name}: Int = {imm_id}")
     lines.extend(
         [
             "",
@@ -143,6 +160,10 @@ def main() -> None:
             f"category = Cat{meta.major_cat}, "
             f"dispatch = {dispatch_code(meta)}, "
             f"boundary = {boundary_code(meta)}, "
+            f"rdKind = Operand{meta.rd_kind}, "
+            f"rs1Kind = Operand{meta.rs1_kind}, "
+            f"rs2Kind = Operand{meta.rs2_kind}, "
+            f"immKind = Imm{meta.imm_kind}, "
             f"isLoad = {bool_lit(meta.major_cat == 'LOAD')}, "
             f"isStore = {bool_lit(meta.major_cat == 'STORE')}, "
             f"isBlockBoundary = {bool_lit(is_block_boundary(meta))}, "
@@ -191,6 +212,10 @@ def main() -> None:
             "        meta.majorCategory := rule.category.U(meta.majorCategory.getWidth.W)",
             "        meta.dispatchTarget := dispatchFromCode(rule.dispatch)",
             "        meta.boundaryKind := boundaryFromCode(rule.boundary)",
+            "        meta.rdKind := rule.rdKind.U(meta.rdKind.getWidth.W)",
+            "        meta.rs1Kind := rule.rs1Kind.U(meta.rs1Kind.getWidth.W)",
+            "        meta.rs2Kind := rule.rs2Kind.U(meta.rs2Kind.getWidth.W)",
+            "        meta.immKind := rule.immKind.U(meta.immKind.getWidth.W)",
             "        meta.isLoad := rule.isLoad.B",
             "        meta.isStore := rule.isStore.B",
             "        meta.isBlockBoundary := rule.isBlockBoundary.B",

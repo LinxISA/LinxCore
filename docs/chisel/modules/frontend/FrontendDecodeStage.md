@@ -2,12 +2,12 @@
 
 ## Purpose
 
-`FrontendDecodeStage` is the first Chisel owner that turns `F4DecodeWindow`
-slots into `DecodedUop` records. It is intentionally narrower than the final
-decoder: this packet owns opcode classification, slot identity, basic dispatch
-class, and block/load/store sideband masks. Full operand extraction, immediate
-formation, LSID allocation, block header mutation, and D2/rename admission are
-left to later decode and dispatch owners.
+`FrontendDecodeStage` turns `F4DecodeWindow` slots into `DecodedUop` records.
+It owns opcode classification, slot identity, basic dispatch class, scalar
+operand/immediate extraction through `FrontendOperandDecode`, and
+block/load/store sideband masks. It remains narrower than the final decoder:
+LSID allocation, block header mutation, D2 queueing, rename, ROB admission, and
+store split canonicalization stay in later decode/dispatch owners.
 
 The implementation is grounded in:
 
@@ -29,8 +29,10 @@ Inputs:
 
 Outputs:
 
-- `out[4]`: `DecodedUop` skeletons with valid, PC, opcode, dispatch-kind
-  sideband, raw instruction, length, UID, parent packet UID, and checkpoint.
+- `out[4]`: `DecodedUop` records with valid, PC, opcode, dispatch-kind
+  sideband, scalar source/destination tags where currently supported,
+  immediate value/valid, raw instruction, length, UID, parent packet UID, and
+  checkpoint.
 - `meta[4]`: opcode decode metadata for integration/debug.
 - `outValidMask`: recognized decoded-uop mask.
 - `invalidOpcodeMask`: active slot whose raw instruction did not match the
@@ -65,8 +67,8 @@ The Chisel stage is combinational. For each F4 slot:
    - `uid.fetchPacketUid = d1.pktUid`
    - `uid.fetchSlot = i`
    - `checkpointId = d1.checkpointId`
-5. It sets all operand and destination tags invalid. Operand extraction remains
-   future decode-owner work.
+5. It delegates scalar source/destination and immediate extraction to
+   `FrontendOperandDecode`.
 6. It classifies basic dispatch:
    - `ALU_INT`, `COMPRESSED`, and `HL_PCR` -> `DispatchTarget.Alu`
    - `BRU_SETC_CMP` -> `DispatchTarget.Bru`
@@ -80,14 +82,15 @@ The Chisel stage is combinational. For each F4 slot:
 The C++ SPE `Decoder` receives already-decoded `SimInst` records, converts
 operands, assigns load/store IDs, forwards block-split instructions to a
 sideband queue, and then forwards the instruction to rename. This Chisel packet
-does not claim that whole behavior. It creates the first hardware-visible
-opcode-classification boundary so later packets can attach operand extraction,
-LSID allocation, D2 staging, and rename/ROB admission without re-solving the
-catalog rule.
+does not claim that whole behavior. It creates the first hardware-visible D1
+decode boundary so later packets can attach LSID allocation, D2 staging, and
+rename/ROB admission without re-solving the catalog rule or the scalar field
+layout.
 
 `SPERename` consumes decoder output and performs GPR/SGPR rename. That
-integration remains separate from this packet; `FrontendDecodeStage` only
-prepares recognized `DecodedUop` rows.
+integration remains separate from this packet; `FrontendDecodeStage` prepares
+recognized `DecodedUop` rows with architectural tags but does not allocate or
+look up physical tags.
 
 ## Verification
 
@@ -114,10 +117,12 @@ bash tools/chisel/run_chisel_verilator_lint.sh
 
 ## Open Work
 
-- Port operand extraction and immediate construction from `src/common/decode.py`
-  into owner-specific Chisel modules.
 - Add D1/D2 staging and backpressure around decoded uop queues.
 - Connect `DecodedUop` output to `GPRRenameCheckpoint`, ROB allocation, and
   block/BROB allocation.
 - Move LSID allocation and block-split sideband queues from pyCircuit/model
   contracts into Chisel owner modules.
+- Extend operand extraction beyond the scalar subset documented by
+  `FrontendOperandDecode`: T/U/SGPR aliases, tile/vector forms, PCR addressing,
+  uncommon HL forms, shifts/source-type sidebands, and macro-specific payload
+  interpretation.

@@ -11,6 +11,10 @@ class FrontendOpcodeMeta(val p: InterfaceParams = InterfaceParams()) extends Bun
   val majorCategory = UInt(4.W)
   val dispatchTarget = DispatchTarget()
   val boundaryKind = BoundaryKind()
+  val rdKind = UInt(2.W)
+  val rs1Kind = UInt(2.W)
+  val rs2Kind = UInt(2.W)
+  val immKind = UInt(6.W)
   val isLoad = Bool()
   val isStore = Bool()
   val isBlockBoundary = Bool()
@@ -53,6 +57,11 @@ class FrontendDecodeStage(val p: InterfaceParams = InterfaceParams()) extends Mo
   for (slot <- 0 until p.decodeWidth) {
     slotActive(slot) := active && io.slots(slot).valid && io.validMask(slot)
     val meta = FrontendOpcodeDecodeTable.decode(p, io.slots(slot).insnRaw, io.slots(slot).lenBytes)
+    val operandDecode = Module(new FrontendOperandDecode(p))
+    operandDecode.io.active := slotActive(slot) && meta.valid
+    operandDecode.io.meta := meta
+    operandDecode.io.insn := io.slots(slot).insnRaw
+
     val out = Wire(new DecodedUop(p))
     out := 0.U.asTypeOf(out)
 
@@ -61,9 +70,11 @@ class FrontendDecodeStage(val p: InterfaceParams = InterfaceParams()) extends Mo
     out.pc := io.slots(slot).pc
     out.opcode := meta.opcode
     out.uopType := meta.dispatchTarget.asUInt
-    out.imm := 0.U
+    out.src := operandDecode.io.src
+    out.dst := operandDecode.io.dst
+    out.imm := operandDecode.io.imm
     out.immType := 0.U
-    out.immValid := false.B
+    out.immValid := operandDecode.io.immValid
     out.sob := meta.isBlockBoundary
     out.eob := meta.isBlockStop
     out.boundaryKind := meta.boundaryKind
@@ -82,17 +93,6 @@ class FrontendDecodeStage(val p: InterfaceParams = InterfaceParams()) extends Mo
     out.uid.fetchSlot := slot.U
     out.uid.replayDepth := 0.U
     out.uid.templateKind := 0.U
-
-    for (src <- 0 until 3) {
-      out.src(src).valid := false.B
-      out.src(src).operandClass := OperandClass.Invalid
-      out.src(src).archTag := LinxCommonConstants.regInvalid(p.archRegWidth)
-      out.src(src).relTag := LinxCommonConstants.regInvalid(p.archRegWidth)
-    }
-    out.dst(0).valid := false.B
-    out.dst(0).kind := DestinationKind.None
-    out.dst(0).archTag := LinxCommonConstants.regInvalid(p.archRegWidth)
-    out.dst(0).relTag := LinxCommonConstants.regInvalid(p.archRegWidth)
 
     io.meta(slot) := meta
     io.out(slot) := out
