@@ -224,6 +224,10 @@ class DecodeRenameROBPathIO(
   val tuRetireAutoCleanBlockPending = Output(Bool())
   val tuRetireAutoCleanBlockValid = Output(Bool())
   val tuRetireAutoCleanBlockBid = Output(new ROBID(p.robEntries))
+  val tuRetireLocalBlockCommitPending = Output(Bool())
+  val tuRetireLocalBlockCommitValid = Output(Bool())
+  val tuRetireLocalBlockCommitBid = Output(new ROBID(p.robEntries))
+  val tuRetireLocalBlockCommitFire = Output(Bool())
   val tuRetireUnsupportedDst = Output(Bool())
   val tuRetireRelationPreReleaseT = Output(Bool())
   val tuRetireRelationPreReleaseU = Output(Bool())
@@ -519,6 +523,7 @@ class DecodeRenameROBPath(
   tuRetirePath.io.cleanGroupBid := zeroRobId
   tuRetirePath.io.cleanGroupGid := zeroRobId
   tuRetirePath.io.commandReady := rename.io.tuRetireAccepted
+  tuRetirePath.io.localBlockCommitReady := true.B
   rename.io.tuRetireValid := tuRetirePath.io.command.valid
   rename.io.tuRetireKind := tuRetirePath.io.command.kind
   rename.io.tuRetireSeq := tuRetirePath.io.command.seq
@@ -677,6 +682,10 @@ class DecodeRenameROBPath(
   io.tuRetireAutoCleanBlockPending := tuRetirePath.io.autoCleanBlockPending
   io.tuRetireAutoCleanBlockValid := tuRetirePath.io.autoCleanBlockValid
   io.tuRetireAutoCleanBlockBid := tuRetirePath.io.autoCleanBlockBid
+  io.tuRetireLocalBlockCommitPending := tuRetirePath.io.localBlockCommitPending
+  io.tuRetireLocalBlockCommitValid := tuRetirePath.io.localBlockCommitValid
+  io.tuRetireLocalBlockCommitBid := tuRetirePath.io.localBlockCommitBid
+  io.tuRetireLocalBlockCommitFire := tuRetirePath.io.localBlockCommitFire
   io.tuRetireUnsupportedDst := tuRetirePath.io.unsupportedDst
   io.tuRetireRelationPreReleaseT := tuRetirePath.io.preReleaseT
   io.tuRetireRelationPreReleaseU := tuRetirePath.io.preReleaseU

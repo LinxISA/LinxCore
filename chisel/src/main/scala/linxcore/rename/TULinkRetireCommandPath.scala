@@ -28,6 +28,7 @@ class TULinkRetireCommandPathIO(
   val cleanGroupBid = Input(new ROBID(p.robEntries))
   val cleanGroupGid = Input(new ROBID(p.robEntries))
   val commandReady = Input(Bool())
+  val localBlockCommitReady = Input(Bool())
 
   val sourceWindowReady = Output(Bool())
   val sourceValidMask = Output(UInt(sourceWidth.W))
@@ -56,6 +57,10 @@ class TULinkRetireCommandPathIO(
   val autoCleanBlockPending = Output(Bool())
   val autoCleanBlockValid = Output(Bool())
   val autoCleanBlockBid = Output(new ROBID(p.robEntries))
+  val localBlockCommitPending = Output(Bool())
+  val localBlockCommitValid = Output(Bool())
+  val localBlockCommitBid = Output(new ROBID(p.robEntries))
+  val localBlockCommitFire = Output(Bool())
 }
 
 class TULinkRetireCommandPath(
@@ -123,6 +128,8 @@ class TULinkRetireCommandPath(
   val count = RegInit(0.U(countWidth.W))
   val autoCleanBlockPending = RegInit(false.B)
   val autoCleanBlockBid = RegInit(zeroRobId)
+  val localBlockCommitPending = RegInit(false.B)
+  val localBlockCommitBid = RegInit(zeroRobId)
 
   val sourceValidMask = VecInit(io.sources.map(_.valid)).asUInt
   val sourceEnqueueCount = PopCount(sourceValidMask)
@@ -140,17 +147,21 @@ class TULinkRetireCommandPath(
 
   val relationInput = Wire(new TULinkRetireSource(p, mapQDepth, stidWidth))
   relationInput := Mux(queueNonEmpty, sourceQueue(head), zeroSource)
-  relationInput.valid := queueNonEmpty && !io.clear && !externalCleanupActive && !autoCleanBlockPending
+  relationInput.valid :=
+    queueNonEmpty && !io.clear && !externalCleanupActive && !autoCleanBlockPending && !localBlockCommitPending
 
   val autoCleanBlockValid =
     autoCleanBlockPending && !io.clear && !externalCleanupActive &&
       !relation.io.pendingMark && !relation.io.pendingPostReleaseT && !relation.io.pendingPostReleaseU
+  val localBlockCommitValid = localBlockCommitPending && !io.clear && !externalCleanupActive
+  val localBlockCommitFire = localBlockCommitValid && io.localBlockCommitReady
   val cleanBlockValid = io.cleanBlockValid || autoCleanBlockValid
   val cleanBlockBid = Mux(io.cleanBlockValid, io.cleanBlockBid, autoCleanBlockBid)
   val cleanupFire = io.flush.req.valid || cleanBlockValid || io.cleanGroupValid
   val blockLastAccepted = relation.io.inAccepted && relationInput.isLast
   val sourceWindowReady =
-    !io.clear && !externalCleanupActive && !autoCleanBlockPending && !blockLastAccepted && (freeCount >= sourceWidth.U)
+    !io.clear && !externalCleanupActive && !autoCleanBlockPending && !localBlockCommitPending &&
+      !blockLastAccepted && (freeCount >= sourceWidth.U)
   val enqueueCount = Mux(sourceWindowReady, sourceEnqueueCount, 0.U)
 
   relation.io.in := relationInput
@@ -200,6 +211,10 @@ class TULinkRetireCommandPath(
     autoCleanBlockPending &&
       ((io.flush.req.valid && flushMatchesBid(autoCleanBlockBid)) ||
         (io.cleanBlockValid && ROBID.equal(autoCleanBlockBid, io.cleanBlockBid)))
+  val pendingLocalCommitPruned =
+    localBlockCommitPending &&
+      ((io.flush.req.valid && flushMatchesBid(localBlockCommitBid)) ||
+        (io.cleanBlockValid && ROBID.equal(localBlockCommitBid, io.cleanBlockBid)))
 
   when(io.clear) {
     for (idx <- 0 until sourceQueueDepth) {
@@ -210,15 +225,29 @@ class TULinkRetireCommandPath(
     count := 0.U
     autoCleanBlockPending := false.B
     autoCleanBlockBid := zeroRobId
+    localBlockCommitPending := false.B
+    localBlockCommitBid := zeroRobId
   }.elsewhen(cleanupFire) {
     sourceQueue := sourceCompacted
     head := 0.U
     tail := tailFromCount(sourceCompactedCount)
     count := sourceCompactedCount
-    when(autoCleanBlockValid || pendingCleanPruned) {
+    when(autoCleanBlockValid) {
+      autoCleanBlockPending := false.B
+      autoCleanBlockBid := zeroRobId
+      localBlockCommitPending := true.B
+      localBlockCommitBid := autoCleanBlockBid
+    }.elsewhen(pendingCleanPruned) {
       autoCleanBlockPending := false.B
       autoCleanBlockBid := zeroRobId
     }
+    when(pendingLocalCommitPruned) {
+      localBlockCommitPending := false.B
+      localBlockCommitBid := zeroRobId
+    }
+  }.elsewhen(localBlockCommitFire) {
+    localBlockCommitPending := false.B
+    localBlockCommitBid := zeroRobId
   }.otherwise {
     for (slot <- 0 until sourceWidth) {
       val priorValidCount =
@@ -262,11 +291,16 @@ class TULinkRetireCommandPath(
   io.pendingPostReleaseU := relation.io.pendingPostReleaseU
   io.tCount := relation.io.tCount
   io.uCount := relation.io.uCount
-  io.cleanupActive := externalCleanupActive || autoCleanBlockPending || blockLastAccepted || relation.io.cleanupActive
+  io.cleanupActive :=
+    externalCleanupActive || autoCleanBlockPending || localBlockCommitPending || blockLastAccepted || relation.io.cleanupActive
   io.sourcePruneCount := sourcePruneCount
   io.relationPruneTCount := relation.io.cleanupPruneTCount
   io.relationPruneUCount := relation.io.cleanupPruneUCount
   io.autoCleanBlockPending := autoCleanBlockPending
   io.autoCleanBlockValid := autoCleanBlockValid
   io.autoCleanBlockBid := Mux(autoCleanBlockPending, autoCleanBlockBid, zeroRobId)
+  io.localBlockCommitPending := localBlockCommitPending
+  io.localBlockCommitValid := localBlockCommitValid
+  io.localBlockCommitBid := Mux(localBlockCommitPending, localBlockCommitBid, zeroRobId)
+  io.localBlockCommitFire := localBlockCommitFire
 }

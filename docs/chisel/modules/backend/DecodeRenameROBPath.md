@@ -56,6 +56,9 @@ future block-clean source.
 R67 lets `TULinkRetireCommandPath` consume that block-last source as a local
 scalar `CleanCMAP` scheduling point after relation-cmap mark/release commands
 for the block-last row have drained.
+R68 exposes the following `ReportLocalRegBlockCommit` event as
+`tuRetireLocalBlockCommit*`; the reduced path ties its ready input high
+because the SGPR local-register consumer is not implemented yet.
 
 ## Interface
 
@@ -122,7 +125,8 @@ Outputs:
   `robDeallocBlockLast*`, `size`, `outstandingCount`, and occupancy masks:
   `DispatchROBAllocator` and `ROBEntryBank` lifecycle observability.
 - `tuRetireSource*`, `tuRetireCommand*`, `tuRetireRelation*`,
-  `tuRetireAutoCleanBlock*`, `tuRetireAccepted/Miss/ReleaseMismatch/Unsupported`,
+  `tuRetireAutoCleanBlock*`, `tuRetireLocalBlockCommit*`,
+  `tuRetireAccepted/Miss/ReleaseMismatch/Unsupported`,
   `tuRetireCleanupActive`, `tuRetireSourcePruneCount`,
   `tuRetireRelationPruneTCount`, and `tuRetireRelationPruneUCount`: live
   ROB-deallocation to T/U rename retire-command path and cleanup
@@ -220,8 +224,11 @@ keeps the external `cleanBlock*` inputs inactive in this reduced owner, but the
 retire-command path now latches an accepted block-last source, blocks new ROB
 deallocation-source admission, waits until the generated mark/release command
 stream is accepted, and then pulses an internal scalar `cleanBlock` cleanup for
-that BID. `cleanGroup*` remains inactive until a vector/MTC group-clean owner
-exists.
+that BID. The next cycle publishes a local block-commit event for the same BID
+and keeps ROB deallocation-source admission blocked until it fires. The reduced
+composition ties the event ready high and forwards the event as observability
+only; it does not yet mutate SGPR local-register block-commit state.
+`cleanGroup*` remains inactive until a vector/MTC group-clean owner exists.
 
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
 IO and feeds the same source into `ScalarTURenameBridge.robSource`. The bridge
@@ -281,7 +288,9 @@ live T/U rename retirement through the width-aware source serializer. R65 adds
 the recovery-pruning side of `SPEROB::FlushRelativeReg` to that path.
 R66 adds the deallocation-window stop at block-last, and R67 schedules the
 scalar `CleanCMAP` cleanup after that block-last source's relation-cmap command
-stream has drained.
+stream has drained. R68 preserves the next model call boundary,
+`SPEROB::ReportLocalRegBlockCommit`, as a ready/valid event after the scalar
+`CleanCMAP` pulse and before any future SGPR local-register mutation.
 Full store timing still requires real STA/STD execution, load-conflict
 publication, SCB/MDB handoff, and memory trace side effects.
 
@@ -299,6 +308,8 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - External live block/group commit clean event wiring into
   `TULinkRetireCommandPath.cleanBlock*` and `cleanGroup*`; scalar block-last
   auto clean is now owned inside `TULinkRetireCommandPath`.
+- SGPR local-register block-commit owner that consumes
+  `tuRetireLocalBlockCommit*` instead of overloading T/U rename commit hooks.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - SGPR/tile/vector operand classification and rename.
@@ -348,4 +359,5 @@ decode, `DecodeLoadStoreIdAssign`,
 `StoreDispatchSTQPath` with `STQEntryBank`, backend allocation, and
 `TULinkRecoveryCleanupPath`. R65 also covers retire-source and relation-cmap
 cleanup observability through the composition boundary. R66 covers the
-block-last deallocation boundary and forwarded block-clean candidate.
+block-last deallocation boundary and forwarded block-clean candidate. R68
+covers local block-commit observability after auto scalar clean.

@@ -63,26 +63,41 @@ object TULinkRetireCommandPathReference {
     def seqs: Seq[Int] = rows.map(_.seq)
   }
 
+  final case class BlockCleanStep(autoCleanBid: Option[Int], localCommitBid: Option[Int])
+
   final class BlockCleanScheduler {
-    private var pendingBid: Option[Int] = None
+    private var pendingCleanBid: Option[Int] = None
+    private var pendingLocalCommitBid: Option[Int] = None
 
     def sourceWindowReady(rawReady: Boolean, acceptingBlockLast: Boolean): Boolean =
-      rawReady && pendingBid.isEmpty && !acceptingBlockLast
+      rawReady && pendingCleanBid.isEmpty && pendingLocalCommitBid.isEmpty && !acceptingBlockLast
 
-    def step(acceptingBlockLastBid: Option[Int], relationPending: Boolean): Option[Int] = {
-      val clean = pendingBid.filter(_ => !relationPending)
-      clean match {
-        case Some(_) =>
-          pendingBid = None
-        case None =>
-          acceptingBlockLastBid.foreach { bid =>
-            pendingBid = Some(bid)
-          }
+    def step(
+        acceptingBlockLastBid: Option[Int],
+        relationPending: Boolean,
+        localCommitReady: Boolean = true): BlockCleanStep = {
+      val localCommit = pendingLocalCommitBid.filter(_ => localCommitReady)
+      if (localCommit.nonEmpty) {
+        pendingLocalCommitBid = None
+        BlockCleanStep(autoCleanBid = None, localCommitBid = localCommit)
+      } else {
+        val clean = pendingCleanBid.filter(_ => !relationPending)
+        clean match {
+          case Some(_) =>
+            pendingCleanBid = None
+            pendingLocalCommitBid = clean
+          case None =>
+            acceptingBlockLastBid.foreach { bid =>
+              pendingCleanBid = Some(bid)
+            }
+        }
+        BlockCleanStep(autoCleanBid = clean, localCommitBid = None)
       }
-      clean
     }
 
-    def pending: Boolean = pendingBid.nonEmpty
+    def cleanPending: Boolean = pendingCleanBid.nonEmpty
+    def localCommitPending: Boolean = pendingLocalCommitBid.nonEmpty
+    def pending: Boolean = cleanPending || localCommitPending
   }
 
   def toRelationRow(source: Source): Row =
@@ -166,14 +181,47 @@ class TULinkRetireCommandPathSpec extends AnyFunSuite {
     val scheduler = new BlockCleanScheduler
 
     assert(!scheduler.sourceWindowReady(rawReady = true, acceptingBlockLast = true))
-    assert(scheduler.step(acceptingBlockLastBid = Some(7), relationPending = false).isEmpty)
-    assert(scheduler.pending)
+    assert(scheduler.step(acceptingBlockLastBid = Some(7), relationPending = false) == BlockCleanStep(None, None))
+    assert(scheduler.cleanPending)
 
     assert(!scheduler.sourceWindowReady(rawReady = true, acceptingBlockLast = false))
-    assert(scheduler.step(acceptingBlockLastBid = None, relationPending = true).isEmpty)
-    assert(scheduler.pending)
+    assert(scheduler.step(acceptingBlockLastBid = None, relationPending = true) == BlockCleanStep(None, None))
+    assert(scheduler.cleanPending)
 
-    assert(scheduler.step(acceptingBlockLastBid = None, relationPending = false) == Some(7))
+    assert(scheduler.step(acceptingBlockLastBid = None, relationPending = false) == BlockCleanStep(Some(7), None))
+    assert(scheduler.localCommitPending)
+    assert(!scheduler.sourceWindowReady(rawReady = true, acceptingBlockLast = false))
+
+    assert(scheduler.step(acceptingBlockLastBid = None, relationPending = false) == BlockCleanStep(None, Some(7)))
+    assert(!scheduler.pending)
+    assert(scheduler.sourceWindowReady(rawReady = true, acceptingBlockLast = false))
+  }
+
+  test("reference local block commit follows auto clean and backpressures source admission") {
+    val scheduler = new BlockCleanScheduler
+
+    assert(scheduler.step(acceptingBlockLastBid = Some(3), relationPending = false) == BlockCleanStep(None, None))
+    assert(scheduler.cleanPending)
+
+    assert(scheduler.step(
+      acceptingBlockLastBid = None,
+      relationPending = false,
+      localCommitReady = false) == BlockCleanStep(Some(3), None))
+    assert(!scheduler.cleanPending)
+    assert(scheduler.localCommitPending)
+    assert(!scheduler.sourceWindowReady(rawReady = true, acceptingBlockLast = false))
+
+    assert(scheduler.step(
+      acceptingBlockLastBid = None,
+      relationPending = false,
+      localCommitReady = false) == BlockCleanStep(None, None))
+    assert(scheduler.localCommitPending)
+    assert(!scheduler.sourceWindowReady(rawReady = true, acceptingBlockLast = false))
+
+    assert(scheduler.step(
+      acceptingBlockLastBid = None,
+      relationPending = false,
+      localCommitReady = true) == BlockCleanStep(None, Some(3)))
     assert(!scheduler.pending)
     assert(scheduler.sourceWindowReady(rawReady = true, acceptingBlockLast = false))
   }
@@ -198,11 +246,16 @@ class TULinkRetireCommandPathSpec extends AnyFunSuite {
     assert(sv.contains("io_sourceValidMask"))
     assert(sv.contains("io_sourceQueueCount"))
     assert(sv.contains("io_cleanupActive"))
+    assert(sv.contains("io_localBlockCommitReady"))
     assert(sv.contains("io_sourcePruneCount"))
     assert(sv.contains("io_relationPruneTCount"))
     assert(sv.contains("io_autoCleanBlockPending"))
     assert(sv.contains("io_autoCleanBlockValid"))
     assert(sv.contains("io_autoCleanBlockBid_value"))
+    assert(sv.contains("io_localBlockCommitPending"))
+    assert(sv.contains("io_localBlockCommitValid"))
+    assert(sv.contains("io_localBlockCommitBid_value"))
+    assert(sv.contains("io_localBlockCommitFire"))
     assert(sv.contains("io_command_valid"))
     assert(sv.contains("io_command_seq_value"))
     assert(sv.contains("io_commandFire"))

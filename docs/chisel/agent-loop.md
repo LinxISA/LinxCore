@@ -88,6 +88,13 @@ markdown files dirty in the LinxCore worktree. The model evidence for R63 was
 `SPEROB::ReleaseFunc`, `SPERename::RepLocalRetired`,
 `LocalRegMgr::ReportRetired`, and `RelateCmap` at LinxCoreModel commit
 `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+R68 started from `rtl/LinxCore` commit
+`aa07118c4ee31cf6bdce414f05fc5b3f12005d01`, with unrelated architecture
+markdown files dirty in the LinxCore worktree. The model evidence for R68 was
+`SPEROB::ReportLocalRegBlockCommit`,
+`SPERename::ReportSGPRBlockCommit`, and
+`LocalRegMgr::ReportBlockCommit` at LinxCoreModel commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
 
 ## Non-Negotiable Rules
 
@@ -241,6 +248,7 @@ These packets remain the required base before broad module promotion:
 | R65 | Relation-cmap and retire-source cleanup pruning | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R66 | ROB block-last deallocation boundary | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R67 | Scalar `CleanCMAP` scheduling after block-last retire commands drain | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R68 | Scalar local block-commit event after `CleanCMAP` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -302,6 +310,8 @@ Update skills only for:
 - a retire-source preservation rule where ROB deallocation metadata must remain
   a row vector until a relation-cmap serializer can consume every row without
   dropping width-wide events.
+- a post-clean event-ordering rule where `ReportLocalRegBlockCommit` must stay
+  after scalar `CleanCMAP` and must not be folded into the T/U relation owner.
 
 Run skill evolution as a trailing maintenance lane after the module docs and
 evidence are updated. The module packet owns local Markdown first; the
@@ -361,9 +371,11 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add the next scalar local-register block-commit side effect after
-   `CleanCMAP`, matching `SPEROB::ReportLocalRegBlockCommit`, without folding
-   SGPR/vector/MTC behavior into the scalar T/U owner.
+1. Implement the SGPR local-register block-commit owner that consumes
+   `tuRetireLocalBlockCommit*`, matching
+   `SPERename::ReportSGPRBlockCommit` and `LocalRegMgr::ReportBlockCommit`,
+   without folding vector pred-mask or MTC group-clean behavior into the
+   scalar owner.
 2. Enqueue-time ROB reservation: move BROB/ROB allocation before
    `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
    without duplicate identities.

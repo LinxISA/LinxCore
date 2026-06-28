@@ -3550,6 +3550,11 @@ Observed result:
   passed the trace schema adapter self-test.
 - `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
   `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `git diff --check` passed in `rtl/LinxCore`.
+- `quick_validate.py` passed for `skills/linx-skills/linx-core`.
+- `check_skill_change_scope.py --base origin/main` passed, and
+  `install_canonical_skills.sh` installed the canonical skill copy into
+  `/Users/zhoubot/.codex/skills`.
 - An initial parallel attempt to run SBT-backed wrapper gates hit the known
   SBT socket race; the affected gates were rerun sequentially and passed.
 
@@ -4563,3 +4568,83 @@ Skill evolve:
   block-last source's relation-cmap commands drain, it must block later ROB
   deallocation-source admission while pending, and it must not block the
   retire-command stream it is waiting for.
+
+## R68 Scalar Local Block Commit Event
+
+Scope:
+
+- Added a backpressurable scalar local block-commit event to
+  `TULinkRetireCommandPath`.
+- The path now schedules `localBlockCommit*` after the internal scalar
+  `CleanCMAP` pulse for the accepted block-last source.
+- Exposed `tuRetireLocalBlockCommit*` through reduced `DecodeRenameROBPath`
+  with ready tied high until the SGPR local-register owner exists.
+- Kept this event separate from T/U rename `commitValid/commitBid`; it is an
+  SGPR-local block-commit boundary, not a T/U relation-cmap mutation.
+
+Model evidence:
+
+- `SPEROB::CommitBlock()` calls `CleanCMAP(bid)` and then
+  `ReportLocalRegBlockCommit(bid, stid)`.
+- `SPEROB::ReportLocalRegBlockCommit()` calls
+  `SPERename::ReportSGPRBlockCommit()`.
+- `SPERename::ReportSGPRBlockCommit()` forwards the block commit to the
+  selected scalar local-register manager.
+- `LocalRegMgr::ReportBlockCommit()` releases consecutive retired local-reg
+  rows at the deallocation head for the committed BID.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRelationCmap
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git diff --check
+```
+
+Expected result:
+
+- Auto scalar `CleanCMAP` remains after the block-last relation-cmap
+  mark/release stream drains.
+- The local block-commit event becomes visible after auto `CleanCMAP` and
+  blocks later ROB deallocation-source windows until accepted.
+- The event is observable for a future SGPR local-register owner but does not
+  mutate SGPR state in the T/U relation owner.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `TULinkRetireCommandPathSpec` passed 7 tests, including local block-commit
+  backpressure after auto clean.
+- `DecodeRenameROBPathSpec` passed 7 tests with the local block-commit event
+  exposed through the reduced backend wrapper.
+- `TULinkRelationCmapSpec` passed 7 tests.
+- `TULinkRenameSpec` passed 10 tests.
+- `ScalarTURenameBridgeSpec` passed 4 tests.
+- `ROBEntryBankSpec` passed 12 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R68 adds a reusable event-ordering
+  invariant: `ReportLocalRegBlockCommit` must remain after scalar `CleanCMAP`,
+  must block later ROB deallocation-source admission until accepted, and must
+  not be folded into T/U rename commit hooks or SGPR mutation inside
+  `TULinkRetireCommandPath`.

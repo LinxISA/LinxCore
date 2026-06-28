@@ -33,6 +33,10 @@ R67 adds the scalar block-clean scheduler: once a block-last source has entered
 the relation-cmap owner, the path blocks further ROB deallocation windows until
 the block-last source's generated mark/release commands have been accepted,
 then pulses `CleanCMAP` through the embedded relation cmap.
+R68 adds the next model boundary after that clean: a backpressurable
+`localBlockCommit*` event that represents `SPEROB::ReportLocalRegBlockCommit`
+and can later be consumed by the SGPR local-register owner. The current module
+does not mutate SGPR state.
 
 ## Interface
 
@@ -53,6 +57,8 @@ Inputs:
 - `commandReady`: actual downstream command acceptance. The integrated path
   drives this from `ScalarTURenameBridge.tuRetireAccepted`, not from predicted
   readiness.
+- `localBlockCommitReady`: downstream acceptance for the scalar local-register
+  block-commit event that follows the auto `CleanCMAP` pulse.
 
 Outputs:
 
@@ -71,6 +77,11 @@ Outputs:
 - `autoCleanBlockPending`, `autoCleanBlockValid`, `autoCleanBlockBid`:
   one-shot scheduler state for the model `CleanCMAP(bid)` event caused by a
   scalar block-last deallocation source.
+- `localBlockCommitPending`, `localBlockCommitValid`,
+  `localBlockCommitBid`, `localBlockCommitFire`: one-shot event boundary for
+  the model `ReportLocalRegBlockCommit(bid, stid)` call. The reduced backend
+  ties ready high and observes the event; a later SGPR owner must consume it
+  before it mutates local-register block-commit state.
 
 ## State
 
@@ -80,6 +91,9 @@ Outputs:
   pending mark/release commands.
 - Auto block-clean latch containing the accepted block-last source BID while
   relation-cmap mark/release commands drain.
+- Local block-commit latch containing the BID whose scalar `CleanCMAP` pulse
+  has completed and whose SGPR-local block-commit report is waiting for
+  downstream acceptance.
 
 The source FIFO depth must be a power of two and at least `sourceWidth`. The
 reduced top uses a conservative queue-credit rule: it accepts a dealloc window
@@ -113,6 +127,15 @@ clear, the path emits one auto `cleanBlock` pulse for the latched BID. This
 matches `SPEROB::dealloc()` calling `ReleaseRelative()` for the block-last row
 before `CommitBlock()` calls `CleanCMAP(bid)`.
 
+When that auto `cleanBlock` pulse fires, the path schedules a separate local
+block-commit event for the same BID. The event becomes valid on the next cycle,
+so the visible order is relation-cmap drain, scalar `CleanCMAP`, then
+`ReportLocalRegBlockCommit`. While the event is pending, the source window
+remains closed to later ROB deallocation sources. The pending event does not
+block relation-cmap command acceptance; it only blocks new source admission
+until `localBlockCommitReady` accepts the event or recovery/external block
+cleanup prunes it.
+
 Cleanup uses the same predicates on the source FIFO and on the embedded
 relation cmap. Exact block and group clean operations can remove matching rows
 from anywhere in the queue while preserving order. Recovery flush removes only
@@ -139,17 +162,23 @@ The preserved C++ order is:
   mark or release command.
 - `CommitBlock()` runs `CleanCMAP(bid)` only after that block-last
   `ReleaseRelative()` work.
+- `CommitBlock()` then runs `ReportLocalRegBlockCommit(bid, stid)`, which
+  calls `SPERename::ReportSGPRBlockCommit()` and eventually
+  `LocalRegMgr::ReportBlockCommit()` on the scalar local-register manager.
 
 `TULinkRetireCommandPath` owns only the width-to-one serialization and the
 acceptance coupling to `TULinkRename`. The detailed relation policy remains in
 `TULinkRelationCmap`, queued source cleanup mirrors that policy before rows
 enter relation-cmap, the scalar block-clean scheduler drives the post-drain
-`CleanCMAP` pulse, and the local mapQ mutation remains in `TULinkRename`.
+`CleanCMAP` pulse, the local block-commit event preserves the next model
+ordering point, and the local mapQ mutation remains in `TULinkRename`.
 
 ## Deferred Owners
 
-- External live block/group commit event wiring for `cleanBlock*` and
-  `cleanGroup*`; scalar block-last auto clean is now local.
+- External live block/group commit event wiring for non-scalar
+  `cleanBlock*` and `cleanGroup*`; scalar block-last auto clean is now local.
+- SGPR local-register block-commit owner that consumes
+  `localBlockCommit*` and mutates scalar local-register state.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - Less conservative source FIFO credit that can accept partial windows with an
@@ -178,4 +207,5 @@ bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 The tests cover slot-order serialization, conservative full-window credit,
 no-destination block-last row preservation, source FIFO cleanup before
 relation-cmap consumption, auto block-clean timing after relation commands
-drain, and elaboration through the embedded `TULinkRelationCmap`.
+drain, local block-commit backpressure after auto clean, and elaboration
+through the embedded `TULinkRelationCmap`.
