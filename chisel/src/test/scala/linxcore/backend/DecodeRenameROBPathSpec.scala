@@ -120,6 +120,10 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.storeStdQueueFull.getWidth == 1)
     assert(io.robAllocAttemptValid.getWidth == 1)
     assert(io.robAllocFire.getWidth == 1)
+    assert(io.robTULinkSource.tSeq.value.getWidth == 5)
+    assert(io.robTULinkSource.uSeq.value.getWidth == 5)
+    assert(io.robTULinkSourceMatched.getWidth == 1)
+    assert(io.robTULinkSourceMultipleMatch.getWidth == 1)
     assert(io.commit.rows.length == 2)
     assert(io.occupiedMask.getWidth == 8)
     assert(io.blockAllocatedMask.getWidth == 8)
@@ -152,6 +156,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_decRenCount"))
     assert(sv.contains("io_robAllocAttemptValid"))
     assert(sv.contains("io_selectedRobValue"))
+    assert(sv.contains("io_robTULinkSource_tSeq_value"))
+    assert(sv.contains("io_robTULinkSourceMatched"))
     assert(sv.contains("io_commitContractError"))
   }
 }

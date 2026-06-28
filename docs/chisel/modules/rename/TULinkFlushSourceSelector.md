@@ -24,7 +24,8 @@
 
 `TULinkFlushSourceSelector` is the ROB/LSU source boundary for T/U cleanup
 sidebands. It chooses the selected row snapshot that will feed
-`TULinkRecoveryCleanupPath.flushSource`.
+`TULinkRecoveryCleanupPath` and, through it,
+`TULinkFlushSequencePublisher.source`.
 
 The selector does not own ROB or LSU row storage. Current Chisel ROB/STQ rows
 now expose the ROB-side T/U source candidate, while LSU/STQ rows do not yet
@@ -123,10 +124,9 @@ composition should monitor them alongside
 ## Deferred Owners
 
 - Finish live row-image coverage for both source owners.
-- Compose the existing `ROBEntryBank.robTULinkSource` output into
-  `TULinkFlushSourceSelector.robSource`.
+- Compose the reduced backend's exposed ROB source and the future LSU source
+  into a live top-level recovery cleanup path.
 - Add matching LSU/STQ `tSeq/uSeq` and destination-class sidecars.
-- Wire the selected source into a top-level or backend recovery composition.
 - Add multi-PE and multi-thread source banking beyond the current STID0
   boundary.
 - Extend the source path for predicate and vector local-register sidebands.

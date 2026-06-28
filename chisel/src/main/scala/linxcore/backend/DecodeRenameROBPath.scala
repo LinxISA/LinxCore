@@ -23,7 +23,8 @@ class DecodeRenameROBPathIO(
     val trapCauseWidth: Int = 32,
     val decRenQueueDepth: Int = 4,
     val storeDispatchQueueDepth: Int = 4,
-    val loadStoreSerialWidth: Int = 64)
+    val loadStoreSerialWidth: Int = 64,
+    val mapQDepth: Int = 32)
     extends Bundle {
   private val slotWidth = math.max(1, log2Ceil(p.decodeWidth))
   private val ptrWidth = log2Ceil(p.robEntries)
@@ -140,6 +141,9 @@ class DecodeRenameROBPathIO(
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
 
   val flushApplied = Output(Bool())
+  val robTULinkSource = Output(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
+  val robTULinkSourceMatched = Output(Bool())
+  val robTULinkSourceMultipleMatch = Output(Bool())
   val empty = Output(Bool())
   val full = Output(Bool())
   val size = Output(UInt(sizeWidth.W))
@@ -181,17 +185,18 @@ class DecodeRenameROBPath(
   private val zeroLocalSeq = 0.U.asTypeOf(new ROBID(mapQDepth))
 
   val io = IO(new DecodeRenameROBPathIO(
-    p,
-    traceParams,
-    bidWidth,
-    stidWidth,
-    peIdWidth,
-    tidWidth,
-    blockTypeWidth,
-    trapCauseWidth,
-    decRenQueueDepth,
-    storeDispatchQueueDepth,
-    loadStoreSerialWidth
+    p = p,
+    traceParams = traceParams,
+    bidWidth = bidWidth,
+    stidWidth = stidWidth,
+    peIdWidth = peIdWidth,
+    tidWidth = tidWidth,
+    blockTypeWidth = blockTypeWidth,
+    trapCauseWidth = trapCauseWidth,
+    decRenQueueDepth = decRenQueueDepth,
+    storeDispatchQueueDepth = storeDispatchQueueDepth,
+    loadStoreSerialWidth = loadStoreSerialWidth,
+    mapQDepth = mapQDepth
   ))
 
   val decode = Module(new FrontendDecodeStage(p))
@@ -425,6 +430,9 @@ class DecodeRenameROBPath(
   io.deallocValidMask := allocator.io.deallocValidMask
   io.deallocCount := allocator.io.deallocCount
   io.flushApplied := allocator.io.flushApplied
+  io.robTULinkSource := allocator.io.robTULinkSource
+  io.robTULinkSourceMatched := allocator.io.robTULinkSourceMatched
+  io.robTULinkSourceMultipleMatch := allocator.io.robTULinkSourceMultipleMatch
   io.empty := allocator.io.empty
   io.full := allocator.io.full
   io.size := allocator.io.size

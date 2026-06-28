@@ -59,6 +59,14 @@ matched `origin/main` at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; the
 Chisel QEMU adapter dry-run selected
 `emulator/qemu/build-linx/qemu-system-linx64` and passed the trace schema
 adapter self-test.
+R57 started from `rtl/LinxCore` commit
+`98753084bb683b224c889044c7f5b6037be1683b`, with only unrelated architecture
+markdown files dirty in the LinxCore worktree.
+During R57, `model/LinxCoreModel` was fetched again and local `HEAD` still
+matched `origin/main` at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; the
+Chisel QEMU adapter dry-run selected
+`emulator/qemu/build-linx/qemu-system-linx64` and passed the trace schema
+adapter self-test.
 
 ## Non-Negotiable Rules
 
@@ -201,6 +209,7 @@ These packets remain the required base before broad module promotion:
 | R54 | `TULinkRecoveryCleanupPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R55 | `TULinkFlushSourceSelector` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R56 | `ROBEntryBank` T/U source sidecars | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R57 | `TULinkRecoveryCleanupPath` source-selected composition | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -317,30 +326,25 @@ Closeout:
 ## Suggested Next Packets
 
 1. Add the matching LSU/STQ source sidecar owner, drive
-   `TULinkFlushSourceSelector.lsuSource`, and prove that LSU deadlock cleanup
+   `TULinkRecoveryCleanupPath.lsuSource`, and prove that LSU deadlock cleanup
    either agrees with ROB for the same `(bid,rid,stid)` or is suppressed as a
    source conflict.
-2. Compose `DispatchROBAllocator.robTULinkSource` with
-   `TULinkFlushSourceSelector.robSource`, then compose the selector with
-   `TULinkRecoveryCleanupPath` so R54 consumes a
-   selected source from explicit ROB/LSU candidates instead of a manually
-   supplied single source.
-3. Replace the reduced zero/invalid T/U allocation sidecars in
+2. Replace the reduced zero/invalid T/U allocation sidecars in
    `DecodeRenameROBPath` with `SPERename`-equivalent `tSeq/uSeq` snapshots
    captured before T/U destination rename.
-4. Compose `TULinkRename` with the scalar decode-rename bridge so accepted
+3. Compose `TULinkRename` with the scalar decode-rename bridge so accepted
    T/U operands can flow into `RenamedUop` without broadening scalar GPR
    ownership.
-5. Add the SPEROB relation-cmap owner around `TULinkRename.retireValid` /
+4. Add the SPEROB relation-cmap owner around `TULinkRename.retireValid` /
    `retireDealloc` so long-latency release and block-end release are explicit.
-6. Enqueue-time ROB reservation: move BROB/ROB allocation before
+5. Enqueue-time ROB reservation: move BROB/ROB allocation before
    `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
    without duplicate identities.
-7. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+6. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-8. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+7. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-9. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+8. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

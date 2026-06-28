@@ -13,6 +13,7 @@ object TULinkRecoveryCleanupPathReference {
   final case class Result(
       state: State,
       publisher: TULinkFlushSequencePublisherReference.Result,
+      selector: TULinkFlushSourceSelectorReference.Result,
       cleanupActive: Boolean,
       cleanupBlockedBySource: Boolean,
       tReleased: Set[Int],
@@ -26,8 +27,18 @@ object TULinkRecoveryCleanupPathReference {
       bid: ROBIDValue,
       rid: ROBIDValue,
       stid: Int,
-      source: Source,
+      robSource: Source,
+      lsuSource: Source,
       mapQDepth: Int): Result = {
+    val selector = TULinkFlushSourceSelectorReference.select(
+      cleanupValid = cleanupValid,
+      backendFlushValid = backendFlushValid,
+      baseOnBid = baseOnBid,
+      bid = bid,
+      rid = rid,
+      stid = stid,
+      robSource = robSource,
+      lsuSource = lsuSource)
     val publisher = TULinkFlushSequencePublisherReference.publish(
       cleanupValid = cleanupValid,
       backendFlushValid = backendFlushValid,
@@ -35,13 +46,13 @@ object TULinkRecoveryCleanupPathReference {
       bid = bid,
       rid = rid,
       stid = stid,
-      source = source,
+      source = selector.source,
       mapQDepth = mapQDepth)
     val active = cleanupValid && backendFlushValid
     val blocked = active && !publisher.flushValid
 
     if (!publisher.flushValid) {
-      Result(state, publisher, cleanupActive = active, cleanupBlockedBySource = blocked, Set.empty, Set.empty)
+      Result(state, publisher, selector, cleanupActive = active, cleanupBlockedBySource = blocked, Set.empty, Set.empty)
     } else {
       val (tNext, tReleased) = TULinkRenameReference.flush(
         state.t,
@@ -58,6 +69,7 @@ object TULinkRecoveryCleanupPathReference {
       Result(
         State(tNext, uNext),
         publisher,
+        selector,
         cleanupActive = active,
         cleanupBlockedBySource = blocked,
         tReleased = tReleased,
@@ -89,6 +101,7 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
   private val rid1 = ROBIDValue(value = 1)
   private val rid2 = ROBIDValue(value = 2)
   private val gid = ROBIDValue(value = 0)
+  private val emptySource = source(false, ROBIDValue(), ROBIDValue(), 0, ROBIDValue(), ROBIDValue(), NoDst)
 
   private def populatedState(): (State, ROBIDValue, ROBIDValue, ROBIDValue, ROBIDValue, ROBIDValue) = {
     val (t1, _, tSeq0) = allocate(initial(mapQDepth), bid1, rid0, gid, localRegs)
@@ -109,15 +122,38 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
       bid = bid1,
       rid = rid1,
       stid = 0,
-      source = source(true, bid1, rid1, 0, tSeq1, uSeq0, NoDst),
+      robSource = source(true, bid1, rid1, 0, tSeq1, uSeq0, NoDst),
+      lsuSource = emptySource,
       mapQDepth = mapQDepth)
 
+    assert(result.selector.selectedFromRob)
     assert(result.publisher.flushValid)
     assert(result.publisher.sourceMatched)
     assert(!result.cleanupBlockedBySource)
     assert(result.tReleased == Set(1, 2))
     assert(result.uReleased == Set(1))
     assert(result.state.t.usedEntries == 1)
+    assert(result.state.u.usedEntries == 1)
+  }
+
+  test("matching LSU source feeds cleanup when the ROB source is absent") {
+    val (state, _, tSeq1, _, uSeq0, _) = populatedState()
+    val result = cleanup(
+      state,
+      cleanupValid = true,
+      backendFlushValid = true,
+      baseOnBid = false,
+      bid = bid1,
+      rid = rid1,
+      stid = 0,
+      robSource = emptySource,
+      lsuSource = source(true, bid1, rid1, 0, tSeq1, uSeq0, UDst),
+      mapQDepth = mapQDepth)
+
+    assert(result.selector.selectedFromLsu)
+    assert(result.publisher.flushValid)
+    assert(result.publisher.uPrevApplied)
+    assert(result.uReleased == Set(1))
     assert(result.state.u.usedEntries == 1)
   }
 
@@ -131,7 +167,8 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
       bid = bid1,
       rid = rid1,
       stid = 0,
-      source = source(true, bid1, rid1, 0, tSeq1, uSeq0, TDst),
+      robSource = source(true, bid1, rid1, 0, tSeq1, uSeq0, TDst),
+      lsuSource = emptySource,
       mapQDepth = mapQDepth)
 
     assert(result.publisher.flushValid)
@@ -151,7 +188,8 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
       bid = bid2,
       rid = rid2,
       stid = 0,
-      source = source(false, bid1, rid0, 0, ROBIDValue(), ROBIDValue(), NoDst),
+      robSource = emptySource,
+      lsuSource = emptySource,
       mapQDepth = mapQDepth)
 
     assert(result.publisher.flushValid)
@@ -173,10 +211,12 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
       bid = bid1,
       rid = rid1,
       stid = 0,
-      source = source(false, bid1, rid1, 0, tSeq1, uSeq0, NoDst),
+      robSource = emptySource,
+      lsuSource = emptySource,
       mapQDepth = mapQDepth)
     assert(!missing.publisher.flushValid)
     assert(missing.publisher.missingSource)
+    assert(missing.selector.sourceMissing)
     assert(missing.cleanupBlockedBySource)
     assert(missing.state == state)
 
@@ -188,12 +228,35 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
       bid = bid1,
       rid = rid1,
       stid = 0,
-      source = source(true, bid1, rid2, 0, tSeq1, uSeq0, NoDst),
+      robSource = source(true, bid1, rid2, 0, tSeq1, uSeq0, NoDst),
+      lsuSource = emptySource,
       mapQDepth = mapQDepth)
     assert(!mismatch.publisher.flushValid)
-    assert(mismatch.publisher.sourceMismatch)
+    assert(mismatch.selector.robMismatched)
+    assert(mismatch.publisher.missingSource)
     assert(mismatch.cleanupBlockedBySource)
     assert(mismatch.state == state)
+  }
+
+  test("conflicting duplicate ROB and LSU sources block local T/U state changes") {
+    val (state, _, tSeq1, _, uSeq0, _) = populatedState()
+    val conflict = cleanup(
+      state,
+      cleanupValid = true,
+      backendFlushValid = true,
+      baseOnBid = false,
+      bid = bid1,
+      rid = rid1,
+      stid = 0,
+      robSource = source(true, bid1, rid1, 0, tSeq1, uSeq0, TDst),
+      lsuSource = source(true, bid1, rid1, 0, tSeq1, ROBIDValue(value = 7), TDst),
+      mapQDepth = mapQDepth)
+
+    assert(conflict.selector.multipleMatched)
+    assert(conflict.selector.sourceConflict)
+    assert(!conflict.publisher.flushValid)
+    assert(conflict.cleanupBlockedBySource)
+    assert(conflict.state == state)
   }
 
   test("inactive cleanup does not block rename-owner maintenance") {
@@ -206,7 +269,8 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
       bid = bid1,
       rid = rid1,
       stid = 0,
-      source = source(false, bid1, rid2, 0, tSeq1, uSeq0, NoDst),
+      robSource = source(false, bid1, rid2, 0, tSeq1, uSeq0, NoDst),
+      lsuSource = emptySource,
       mapQDepth = mapQDepth)
 
     assert(!result.publisher.flushValid)
@@ -219,8 +283,9 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
     val p = InterfaceParams(robEntries = 8)
     val io = new TULinkRecoveryCleanupPathIO(p, localRegsT = 8, localRegsU = 8, mapQDepth = 8, bidWidth = 16)
 
-    assert(io.flushSource.tSeq.value.getWidth == 3)
-    assert(io.flushSource.uSeq.value.getWidth == 3)
+    assert(io.robSource.tSeq.value.getWidth == 3)
+    assert(io.lsuSource.uSeq.value.getWidth == 3)
+    assert(io.selectedFlushSource.tSeq.value.getWidth == 3)
     assert(io.publisherFlushTSeq.value.getWidth == 3)
     assert(io.publisherFlushUSeq.value.getWidth == 3)
     assert(io.tSeq.value.getWidth == 3)
@@ -240,10 +305,12 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
     )
 
     assert(sv.contains("module TULinkRecoveryCleanupPath"))
+    assert(sv.contains("module TULinkFlushSourceSelector"))
     assert(sv.contains("module TULinkFlushSequencePublisher"))
     assert(sv.contains("module TULinkRename"))
     assert(sv.contains("io_cleanupBlockedBySource"))
-    assert(sv.contains("io_flushSourceMismatch"))
+    assert(sv.contains("io_sourceConflict"))
+    assert(sv.contains("io_selectedFromRob"))
     assert(sv.contains("io_publisherFlushTSeq_value"))
     assert(!sv.contains("ScalarDecodeRenameBridge"))
   }

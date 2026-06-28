@@ -149,6 +149,13 @@ destination ownership to zero/invalid. A later T/U composition owner must
 replace those defaults with the `SPERename::Rename` snapshots captured before
 T/U destination rename.
 
+The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
+IO. In this reduced path the exposed source is still zero/invalid except for
+the selected row identity and STID carried by the allocator sidecars, because
+live T/U destination rename has not been composed yet. The forwarding exists so
+the future top-level recovery cleanup path can connect the ROB candidate into
+`TULinkRecoveryCleanupPath.robSource` without reopening the allocator boundary.
+
 ## Model Alignment
 
 The C++ model order being preserved is:
@@ -177,10 +184,11 @@ reduces the model in one important way: the allocator cursor identity is
 stamped at the queue head. This avoids duplicate cursor reservations while the
 path lacks an enqueue-time ROB reservation owner. Full model timing requires
 moving ROB reservation before enqueue and carrying full `load_id`/`sid`
-payloads into LIQ/STQ owners. It also does not yet carry live T/U
-`tSeq/uSeq` snapshots into the ROB row. Full store timing still requires
-STA/STD execution, executed store request construction, and STQ residency
-behind the new dispatch queues.
+payloads into LIQ/STQ owners. It exposes the ROB T/U source candidate through
+the allocator boundary, but the reduced scalar path still stores zero/invalid
+T/U `tSeq/uSeq` and destination ownership sidecars. Full store timing still
+requires STA/STD execution, executed store request construction, and STQ
+residency behind the new dispatch queues.
 
 ## Deferred Owners
 
@@ -197,6 +205,8 @@ behind the new dispatch queues.
 - T/U/SGPR/tile/vector operand classification and rename.
 - Live T/U `allocTSeq/allocUSeq/allocTUDst*` drive into
   `DispatchROBAllocator` from the T/U rename owner.
+- Live top-level connection from `robTULinkSource*` and future LSU/STQ
+  candidates into `TULinkRecoveryCleanupPath`.
 - Ready-table initialization, issue enqueue, execution completion, and full
   commit side effects.
 - Full QEMU-vs-DUT compare with live architectural commit rows.

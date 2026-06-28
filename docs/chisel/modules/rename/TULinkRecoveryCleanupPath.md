@@ -21,16 +21,15 @@
 
 ## Purpose
 
-`TULinkRecoveryCleanupPath` is the composition owner that connects the T/U
-flush sequence publisher to the T/U local-register rename owner. It consumes a
-registered `RecoveryCleanupIntent` plus a selected ROB/LSU row snapshot, then
-drives the local `TULinkRename` flush command fields.
-
-`TULinkFlushSourceSelector` now defines the upstream ROB/LSU candidate
-selection boundary. This module still consumes one already-selected source:
+`TULinkRecoveryCleanupPath` is the composition owner that connects ROB/LSU
+T/U cleanup source selection, T/U flush sequence publishing, and the T/U
+local-register rename owner. It consumes a registered `RecoveryCleanupIntent`
+plus explicit ROB and LSU row candidates, selects the row snapshot, and drives
+the local `TULinkRename` flush command fields.
 
 ```text
-RecoveryCleanupIntent + selected row snapshot
+RecoveryCleanupIntent + ROB row candidate + LSU row candidate
+  -> TULinkFlushSourceSelector
   -> TULinkFlushSequencePublisher
   -> TULinkRename.flush*
 ```
@@ -44,8 +43,10 @@ Inputs:
   direct deallocation command.
 - `commitValid`, `commitBid`: block-commit release command.
 - `cleanup`: registered recovery intent from `RecoveryCleanupControl`.
-- `flushSource`: selected row snapshot with `(bid, rid, stid, tSeq, uSeq,
-  dstValid, dstKind)`.
+- `robSource`: ROB row candidate with `(bid, rid, stid, tSeq, uSeq, dstValid,
+  dstKind)`.
+- `lsuSource`: LSU row candidate with `(bid, rid, stid, tSeq, uSeq, dstValid,
+  dstKind)`.
 
 Outputs:
 
@@ -59,16 +60,22 @@ Outputs:
 - Recovery diagnostics: `cleanupActive`, `cleanupBlockedBySource`,
   `flushSourceRequired`, `flushSourceMatched`, `flushMissingSource`,
   `flushSourceMismatch`, `flushTPrevApplied`, and `flushUPrevApplied`.
+- Selector observability: `selectedFlushSource`, `robSourceMatched`,
+  `lsuSourceMatched`, `robSourceMismatched`, `lsuSourceMismatched`,
+  `multipleSourcesMatched`, `sourceConflict`, `selectorSourceMissing`,
+  `selectedFromRob`, and `selectedFromLsu`.
 
 ## Logic Design
 
-The wrapper instantiates exactly two owners:
+The wrapper instantiates exactly three owners:
 
+- `TULinkFlushSourceSelector`
 - `TULinkFlushSequencePublisher`
 - `TULinkRename`
 
-The publisher consumes `cleanup` and `flushSource`. Its emitted command drives
-the corresponding T/U rename flush inputs:
+The selector consumes `cleanup`, `robSource`, and `lsuSource`. The publisher
+then consumes `cleanup` plus the selector's emitted source. Its emitted command
+drives the corresponding T/U rename flush inputs:
 
 ```text
 rename.flushValid     := publisher.flushValid
@@ -95,6 +102,9 @@ cleanupBlockedBySource = cleanupActive && !publisher.flushValid
 When `cleanupBlockedBySource` is true, the wrapper blocks new T/U rename,
 retire, and commit inputs for that cycle. This avoids silently falling through
 to unrelated local-register maintenance after a malformed recovery command.
+Selector conflicts are intentionally reported at the selector boundary. The
+publisher sees the suppressed invalid source and reports `flushMissingSource`,
+so callers should inspect both the selector and publisher diagnostics.
 
 Base-on-BID cleanup does not require a selected-row source. The publisher emits
 a valid command with zero local sequences when no source is present, and
@@ -116,15 +126,16 @@ The selected-row sequence source comes from ROB/LSU recovery builders:
   row owns a T or U destination.
 
 `TULinkRecoveryCleanupPath` preserves that split. It owns composition and
-barrier behavior, while the live ROB/LSU source-selection policy remains a
-separate packet.
+barrier behavior, while the row owners remain responsible for producing the
+candidate source snapshots. The reduced backend now exposes the allocator's
+ROB-side source candidate; LSU/STQ source sidecars remain a later packet.
 
 ## Timing
 
-The wrapper is combinational around both child modules. It does not register
-the cleanup intent or the row snapshot. The upstream recovery owner must
-provide a stable selected-row snapshot in the same cycle as the registered
-cleanup intent.
+The wrapper is combinational around the selector, publisher, and rename child
+modules. It does not register the cleanup intent or row candidates. The
+upstream recovery owner must provide stable candidate snapshots in the same
+cycle as the registered cleanup intent.
 
 ## Flush/Recovery
 
@@ -132,14 +143,15 @@ Flush priority remains inside `TULinkRename`: flush wins over commit, retire,
 and rename. The wrapper only adds a guard for invalid non-base source evidence.
 
 Recovery diagnostics are intentionally surfaced as outputs. A later live path
-should monitor `flushMissingSource` and `flushSourceMismatch` as recovery
-contract failures rather than ignoring them.
+should monitor selector conflict/missing diagnostics together with
+`flushMissingSource` and `flushSourceMismatch` as recovery-contract failures
+rather than ignoring them.
 
 ## Deferred Owners
 
-- Compose the live ROB row sidecar from `ROBEntryBank` through
-  `TULinkFlushSourceSelector`.
 - Add matching LSU/STQ row sidecars feeding `TULinkFlushSourceSelector`.
+- Compose the reduced backend's exposed ROB source and the future LSU source
+  into the live top-level recovery cleanup path.
 - Scalar decode/rename composition that merges GPR and T/U accepted outputs.
 - Relation-cmap release policy around T/U retire/dealloc.
 - T/U ready-table initialization and wakeup state.
@@ -159,13 +171,15 @@ Affected gates:
 ```bash
 sbt --client --error 'Test / compile'
 bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSequencePublisher
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSourceSelector
 bash tools/chisel/run_chisel_tests.sh --only TULinkRename
 bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
 bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
 ```
 
-The current tests cover matching non-base cleanup, T-destination previous
-sequence adjustment through the composition reference, base-on-BID source-free
-cleanup, missing/mismatched source blocking, inactive cleanup behavior, IO
-widths, and elaboration with both child owners.
+The current tests cover ROB-source cleanup, LSU-source fallback, T- and
+U-destination previous-sequence adjustment through the composition reference,
+base-on-BID source-free cleanup, missing/mismatched source blocking, duplicate
+source conflict blocking, inactive cleanup behavior, IO widths, and elaboration
+with selector, publisher, and rename child owners.

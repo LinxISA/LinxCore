@@ -3556,3 +3556,93 @@ Skill evolve:
   invariant: non-base T/U cleanup must use the owning ROB row's stored
   `tSeq/uSeq` and T/U destination class, never trace identity, row index, or
   default local sequences.
+
+### R57 T/U Selected Recovery Cleanup Path
+
+Scope:
+
+- Composed `TULinkFlushSourceSelector` inside `TULinkRecoveryCleanupPath`.
+- Replaced the wrapper's single manually selected `flushSource` input with
+  explicit `robSource` and `lsuSource` candidates.
+- Routed the selector's selected source into `TULinkFlushSequencePublisher`.
+- Surfaced selector diagnostics from the cleanup wrapper so source conflict,
+  missing-source, and origin diagnostics are visible at the composition
+  boundary.
+- Exposed `DispatchROBAllocator.robTULinkSource*` through
+  `DecodeRenameROBPath` so the reduced backend has a visible ROB candidate
+  hook for the future live recovery cleanup path.
+- Kept live LSU/STQ source sidecars and real T/U `allocTSeq/allocUSeq`
+  snapshots deferred.
+
+Model evidence:
+
+- `SPEROB::getRetireID` and `SPEROB::CheckDstDataOut` expose ROB-owned
+  `tSeq/uSeq` sidecars for scalar inner flush construction.
+- LSU deadlock recovery paths use the old retire row and destination ownership
+  to build local-register cleanup sidebands.
+- `SPERename::Flush` and `LocalRegMgr::flush` require the composed cleanup path
+  to suppress malformed non-base source evidence instead of pruning from
+  default local sequences.
+
+Evidence:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSourceSelector
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSequencePublisher
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel fetch origin main
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel rev-parse HEAD origin/main
+```
+
+Expected result:
+
+- `TULinkRecoveryCleanupPathSpec` locks ROB-source cleanup, LSU-source fallback,
+  T/U previous-sequence adjustment, base-on-BID source-free cleanup, missing
+  and mismatched source barriers, duplicate-source conflict blocking, inactive
+  cleanup, IO shape, and elaboration with selector, publisher, and rename
+  children.
+- Existing selector, publisher, T/U rename, reduced backend, recovery control,
+  flush control, reduced ROB, trace adapter, and QEMU dry-run gates remain
+  green.
+- LinxCoreModel local `HEAD` still matches `origin/main`.
+
+Observed result:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `TULinkRecoveryCleanupPathSpec` passed 9 tests.
+- `TULinkFlushSourceSelectorSpec` passed 8 tests.
+- `TULinkFlushSequencePublisherSpec` passed 8 tests.
+- `TULinkRenameSpec` passed 10 tests.
+- `DecodeRenameROBPathSpec` passed 6 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `RecoveryCleanupControlSpec` passed 6 tests.
+- `FlushControlSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- An initial `TULinkRecoveryCleanupPathSpec` run caught two stale reference
+  expectations after selector composition: LSU-source U-prev cleanup releases
+  only the younger U row in that vector, and selector-suppressed mismatches
+  surface at the publisher as `missingSource` while the mismatch diagnostic
+  stays on the selector.
+
+Skill evolve:
+
+- `skill-evolve: no-update` because R57 composes the already documented R54
+  barrier, R55 ROB/LSU conflict policy, and R56 ROB source-sidecar invariant
+  without adding a new cross-module rule.

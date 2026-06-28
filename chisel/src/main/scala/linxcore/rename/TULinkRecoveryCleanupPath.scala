@@ -30,7 +30,8 @@ class TULinkRecoveryCleanupPathIO(
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(p.robEntries))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
-  val flushSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
+  val robSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
+  val lsuSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
 
   val ready = Output(Bool())
   val accepted = Output(Bool())
@@ -82,6 +83,16 @@ class TULinkRecoveryCleanupPathIO(
   val flushSourceMatched = Output(Bool())
   val flushMissingSource = Output(Bool())
   val flushSourceMismatch = Output(Bool())
+  val selectedFlushSource = Output(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
+  val robSourceMatched = Output(Bool())
+  val lsuSourceMatched = Output(Bool())
+  val robSourceMismatched = Output(Bool())
+  val lsuSourceMismatched = Output(Bool())
+  val multipleSourcesMatched = Output(Bool())
+  val sourceConflict = Output(Bool())
+  val selectorSourceMissing = Output(Bool())
+  val selectedFromRob = Output(Bool())
+  val selectedFromLsu = Output(Bool())
   val flushTPrevApplied = Output(Bool())
   val flushUPrevApplied = Output(Bool())
 }
@@ -109,6 +120,14 @@ class TULinkRecoveryCleanupPath(
     tidWidth
   ))
 
+  val selector = Module(new TULinkFlushSourceSelector(
+    p,
+    mapQDepth,
+    bidWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  ))
   val publisher = Module(new TULinkFlushSequencePublisher(
     p,
     mapQDepth,
@@ -119,8 +138,12 @@ class TULinkRecoveryCleanupPath(
   ))
   val rename = Module(new TULinkRename(p, localRegsT, localRegsU, mapQDepth, bidWidth))
 
+  selector.io.cleanup := io.cleanup
+  selector.io.robSource := io.robSource
+  selector.io.lsuSource := io.lsuSource
+
   publisher.io.cleanup := io.cleanup
-  publisher.io.source := io.flushSource
+  publisher.io.source := selector.io.source
 
   val cleanupActive = io.cleanup.valid && io.cleanup.backendFlushValid
   val cleanupBlockedBySource = cleanupActive && !publisher.io.flushValid
@@ -187,6 +210,16 @@ class TULinkRecoveryCleanupPath(
   io.flushSourceMatched := publisher.io.sourceMatched
   io.flushMissingSource := publisher.io.missingSource
   io.flushSourceMismatch := publisher.io.sourceMismatch
+  io.selectedFlushSource := selector.io.source
+  io.robSourceMatched := selector.io.robMatched
+  io.lsuSourceMatched := selector.io.lsuMatched
+  io.robSourceMismatched := selector.io.robMismatched
+  io.lsuSourceMismatched := selector.io.lsuMismatched
+  io.multipleSourcesMatched := selector.io.multipleMatched
+  io.sourceConflict := selector.io.sourceConflict
+  io.selectorSourceMissing := selector.io.sourceMissing
+  io.selectedFromRob := selector.io.selectedFromRob
+  io.selectedFromLsu := selector.io.selectedFromLsu
   io.flushTPrevApplied := publisher.io.tPrevApplied
   io.flushUPrevApplied := publisher.io.uPrevApplied
 }
