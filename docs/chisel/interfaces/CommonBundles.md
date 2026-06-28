@@ -3,6 +3,7 @@
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/common/InterfaceBundles.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/common/TULinkBundles.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/common/InterfaceBundlesSpec.scala`
 - Previous pyCircuit owners:
   - `src/common/types.py`
@@ -63,6 +64,7 @@ model `CommitInfo.bid` field.
 | `LsuResponse` | LSU-to-ROB result envelope | load/store flags, `rid/gid`, `lsid`, address/data/mask, trap |
 | `RobRow` | Integrated ROB row skeleton | valid/done, decoded identity, renamed operands, memory flags, boundary and trap fields |
 | `LinxTraceProbe` | Lightweight stage/row visibility | `pc`, `opcode`, `uid`, `rid/bid/gid`, `blockBid` |
+| `TULinkFlushSequenceSource` | Shared ROB/LSU source snapshot for T/U recovery cleanup | `valid`, `bid/rid/stid`, `tSeq/uSeq`, `dstValid/dstKind` |
 
 ## Logic Design
 
@@ -86,6 +88,10 @@ The bundle shape follows these rules:
 - carry the 64-bit BROB/BCTRL identity as `blockBid` with a separate valid bit;
 - keep LSU scalar `lsid` as 32 bits while also preserving the model `lsID`
   ROBID-like field as `modelLsId`.
+- keep T/U cleanup source snapshots as common bundles because both ROB and
+  LSU recovery owners feed `TULinkFlushSourceSelector`; the ROB identity
+  domain (`bid/rid`) and local mapQ sequence domain (`tSeq/uSeq`) may use
+  different depths and must not be collapsed into one field width.
 
 ## Timing
 
@@ -119,4 +125,5 @@ rows and `tools/chisel/trace_schema_adapter.py`.
 
 The focused test checks default widths, constant encodings, boundary enum
 ordering, 4-bit instruction length fields, decoded/renamed/LSU/ROB/trace packet
-field widths, and Chisel elaboration through a probe module.
+field widths, T/U flush source ROB-vs-local sequence widths, and Chisel
+elaboration through a probe module.

@@ -5,6 +5,8 @@
 - Chisel: `chisel/src/main/scala/linxcore/rename/TULinkFlushSourceSelector.scala`
 - Tests: `chisel/src/test/scala/linxcore/rename/TULinkFlushSourceSelectorSpec.scala`
 - Related Chisel:
+  - `chisel/src/main/scala/linxcore/common/TULinkBundles.scala`
+  - `chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkFlushSequencePublisher.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRecoveryCleanupPath.scala`
   - `chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
@@ -25,8 +27,9 @@ sidebands. It chooses the selected row snapshot that will feed
 `TULinkRecoveryCleanupPath.flushSource`.
 
 The selector does not own ROB or LSU row storage. Current Chisel ROB/STQ rows
-do not yet carry T/U local sequence sidecars, so this module defines the stable
-interface future row owners must drive:
+now expose the ROB-side T/U source candidate, while LSU/STQ rows do not yet
+carry the matching T/U local sequence sidecars. This module defines the stable
+interface both row owners must drive:
 
 ```text
 ROB row candidate + LSU row candidate + cleanup intent
@@ -119,7 +122,10 @@ composition should monitor them alongside
 
 ## Deferred Owners
 
-- Add `tSeq/uSeq` and destination-class sidecars to live ROB/LSU row images.
+- Finish live row-image coverage for both source owners.
+- Compose the existing `ROBEntryBank.robTULinkSource` output into
+  `TULinkFlushSourceSelector.robSource`.
+- Add matching LSU/STQ `tSeq/uSeq` and destination-class sidecars.
 - Wire the selected source into a top-level or backend recovery composition.
 - Add multi-PE and multi-thread source banking beyond the current STID0
   boundary.

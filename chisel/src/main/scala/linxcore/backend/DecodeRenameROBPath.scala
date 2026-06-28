@@ -178,6 +178,7 @@ class DecodeRenameROBPath(
     "decode-to-rename queue depth must be a power of two")
 
   private val zeroRobId = 0.U.asTypeOf(new ROBID(p.robEntries))
+  private val zeroLocalSeq = 0.U.asTypeOf(new ROBID(mapQDepth))
 
   val io = IO(new DecodeRenameROBPathIO(
     p,
@@ -226,7 +227,9 @@ class DecodeRenameROBPath(
     peIdWidth = peIdWidth,
     tidWidth = tidWidth,
     blockTypeWidth = blockTypeWidth,
-    trapCauseWidth = trapCauseWidth
+    trapCauseWidth = trapCauseWidth,
+    mapQDepth = mapQDepth,
+    stidWidth = stidWidth
   ))
 
   val decRenFlush = io.flushValid || (io.cleanup.valid && io.cleanup.backendFlushValid)
@@ -315,6 +318,11 @@ class DecodeRenameROBPath(
   allocator.io.allocValid := rename.io.robAllocAttemptValid
   allocator.io.allocRow := rename.io.robAllocRow
   allocator.io.allocTid := queuedForRename.threadId
+  allocator.io.allocStid := queuedForRename.threadId
+  allocator.io.allocTSeq := zeroLocalSeq
+  allocator.io.allocUSeq := zeroLocalSeq
+  allocator.io.allocTUDstValid := false.B
+  allocator.io.allocTUDstKind := DestinationKind.None
   allocator.io.allocPeId := 0.U
   allocator.io.allocBlockType := queuedForRename.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
   allocator.io.allocNeedsEngine := false.B

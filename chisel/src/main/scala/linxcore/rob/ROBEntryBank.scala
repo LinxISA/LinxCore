@@ -1,13 +1,20 @@
 package linxcore.rob
 
 import chisel3._
-import chisel3.util.{log2Ceil, PopCount}
+import chisel3.util.{log2Ceil, OHToUInt, PopCount, PriorityEncoderOH}
 import linxcore.commit.{CommitTraceMonitor, CommitTraceParams, CommitTracePort, CommitTraceRow}
+import linxcore.common.{DestinationKind, InterfaceParams, TULinkFlushSequenceSource}
 import linxcore.recovery.FlushBus
 
-class ROBEntryBankIO(val entries: Int, val traceParams: CommitTraceParams) extends Bundle {
+class ROBEntryBankIO(
+    val entries: Int,
+    val traceParams: CommitTraceParams,
+    val mapQDepth: Int = 32,
+    val stidWidth: Int = 8)
+    extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
+  private val sourceParams = InterfaceParams(robEntries = entries)
 
   val flush = Input(new FlushBus(entries))
 
@@ -16,6 +23,11 @@ class ROBEntryBankIO(val entries: Int, val traceParams: CommitTraceParams) exten
   val allocDuplicateIdentity = Output(Bool())
   val allocRow = Input(new CommitTraceRow(traceParams))
   val allocBid = Input(new ROBID(entries))
+  val allocStid = Input(UInt(stidWidth.W))
+  val allocTSeq = Input(new ROBID(mapQDepth))
+  val allocUSeq = Input(new ROBID(mapQDepth))
+  val allocTUDstValid = Input(Bool())
+  val allocTUDstKind = Input(DestinationKind())
   val allocRobValue = Output(UInt(ptrWidth.W))
 
   val completeValid = Input(Bool())
@@ -51,6 +63,9 @@ class ROBEntryBankIO(val entries: Int, val traceParams: CommitTraceParams) exten
   val flushCommitRebased = Output(Bool())
   val flushCommitRebaseValue = Output(UInt(ptrWidth.W))
   val flushClearedAll = Output(Bool())
+  val robTULinkSource = Output(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
+  val robTULinkSourceMatched = Output(Bool())
+  val robTULinkSourceMultipleMatch = Output(Bool())
 
   val empty = Output(Bool())
   val full = Output(Bool())
@@ -71,18 +86,22 @@ class ROBEntryBankIO(val entries: Int, val traceParams: CommitTraceParams) exten
 
 class ROBEntryBank(
     val entries: Int = 16,
-    val traceParams: CommitTraceParams = CommitTraceParams())
+    val traceParams: CommitTraceParams = CommitTraceParams(),
+    val mapQDepth: Int = 32,
+    val stidWidth: Int = 8)
     extends Module {
   require(entries > 1, "ROB entries must be greater than one")
   require((entries & (entries - 1)) == 0, "ROB entries must be a power of two")
+  require(mapQDepth > 1 && (mapQDepth & (mapQDepth - 1)) == 0, "T/U mapQ depth must be a power of two")
   require(traceParams.commitWidth > 0, "commitWidth must be positive")
   require(traceParams.commitWidth <= entries, "commitWidth cannot exceed entries")
   require(traceParams.robValueWidth >= log2Ceil(entries), "ROB trace value must hold entry index")
 
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
+  private val sourceParams = InterfaceParams(robEntries = entries)
 
-  val io = IO(new ROBEntryBankIO(entries, traceParams))
+  val io = IO(new ROBEntryBankIO(entries, traceParams, mapQDepth, stidWidth))
 
   private def zeroRow: CommitTraceRow = {
     val row = Wire(new CommitTraceRow(traceParams))
@@ -108,6 +127,15 @@ class ROBEntryBank(
 
   private def zeroRobId: ROBID =
     0.U.asTypeOf(new ROBID(entries))
+
+  private def zeroLocalSeq: ROBID =
+    0.U.asTypeOf(new ROBID(mapQDepth))
+
+  private def zeroTULinkSource: TULinkFlushSequenceSource = {
+    val source = Wire(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
+    source := 0.U.asTypeOf(source)
+    source
+  }
 
   private def allocatedRid: ROBID = {
     val id = Wire(new ROBID(entries))
@@ -138,6 +166,11 @@ class ROBEntryBank(
   val rows = Reg(Vec(entries, new CommitTraceRow(traceParams)))
   val rowBid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
   val rowRid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
+  val rowStid = RegInit(VecInit(Seq.fill(entries)(0.U(stidWidth.W))))
+  val rowTSeq = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(mapQDepth)))))
+  val rowUSeq = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(mapQDepth)))))
+  val rowTUDstValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
+  val rowTUDstKind = RegInit(VecInit(Seq.fill(entries)(DestinationKind.None)))
   val status = RegInit(VecInit(Seq.fill(entries)(ROBEntryStatus.Free)))
   val allocValue = RegInit(0.U(ptrWidth.W))
   val allocWrap = RegInit(false.B)
@@ -188,6 +221,36 @@ class ROBEntryBank(
   io.flushAllocRebaseValue := flushPrune.io.firstPruneValue
   io.flushCommitRebased := flushPrune.io.commitRebaseNeeded
   io.flushCommitRebaseValue := flushPrune.io.commitRebaseValue
+
+  val robTULinkSourceMatchVec = Wire(Vec(entries, Bool()))
+  for (idx <- 0 until entries) {
+    val rowValid = rows(idx).valid && ROBEntryStatus.occupiesRob(status(idx))
+    robTULinkSourceMatchVec(idx) :=
+      io.flush.req.valid &&
+        !io.flush.baseOnBid &&
+        rowValid &&
+        ROBID.equal(rowBid(idx), io.flush.req.bid) &&
+        ROBID.equal(rowRid(idx), io.flush.req.rid) &&
+        (rowStid(idx) === io.flush.req.stid)
+  }
+  val robTULinkSourceMatched = robTULinkSourceMatchVec.asUInt.orR
+  val robTULinkSourceMatchOH = PriorityEncoderOH(robTULinkSourceMatchVec)
+  val robTULinkSourceMatchIndex = OHToUInt(robTULinkSourceMatchOH)
+  val robTULinkSource = Wire(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
+  robTULinkSource := zeroTULinkSource
+  when(robTULinkSourceMatched) {
+    robTULinkSource.valid := true.B
+    robTULinkSource.bid := rowBid(robTULinkSourceMatchIndex)
+    robTULinkSource.rid := rowRid(robTULinkSourceMatchIndex)
+    robTULinkSource.stid := rowStid(robTULinkSourceMatchIndex)
+    robTULinkSource.tSeq := rowTSeq(robTULinkSourceMatchIndex)
+    robTULinkSource.uSeq := rowUSeq(robTULinkSourceMatchIndex)
+    robTULinkSource.dstValid := rowTUDstValid(robTULinkSourceMatchIndex)
+    robTULinkSource.dstKind := rowTUDstKind(robTULinkSourceMatchIndex)
+  }
+  io.robTULinkSource := robTULinkSource
+  io.robTULinkSourceMatched := robTULinkSourceMatched
+  io.robTULinkSourceMultipleMatch := PopCount(robTULinkSourceMatchVec) > 1.U
 
   val sizeAfterFlush = size - flushPrune.io.residentDecrement
   val outstandingAfterFlush = outstandingCount - flushPrune.io.outstandingDecrement
@@ -263,6 +326,11 @@ class ROBEntryBank(
       rows(idx) := zeroRow
       rowBid(idx) := zeroRobId
       rowRid(idx) := zeroRobId
+      rowStid(idx) := 0.U
+      rowTSeq(idx) := zeroLocalSeq
+      rowUSeq(idx) := zeroLocalSeq
+      rowTUDstValid(idx) := false.B
+      rowTUDstKind(idx) := DestinationKind.None
       status(idx) := ROBEntryStatus.Free
     }
   }
@@ -284,6 +352,11 @@ class ROBEntryBank(
       rows(idx) := zeroRow
       rowBid(idx) := zeroRobId
       rowRid(idx) := zeroRobId
+      rowStid(idx) := 0.U
+      rowTSeq(idx) := zeroLocalSeq
+      rowUSeq(idx) := zeroLocalSeq
+      rowTUDstValid(idx) := false.B
+      rowTUDstKind(idx) := DestinationKind.None
       status(idx) := ROBEntryStatus.Free
     }
   }
@@ -298,6 +371,11 @@ class ROBEntryBank(
     rows(allocValue) := row
     rowBid(allocValue) := storedAllocBid
     rowRid(allocValue) := allocatedRid
+    rowStid(allocValue) := io.allocStid
+    rowTSeq(allocValue) := io.allocTSeq
+    rowUSeq(allocValue) := io.allocUSeq
+    rowTUDstValid(allocValue) := io.allocTUDstValid
+    rowTUDstKind(allocValue) := io.allocTUDstKind
     status(allocValue) := ROBEntryStatus.Allocated
   }
 

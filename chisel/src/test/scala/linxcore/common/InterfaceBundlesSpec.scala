@@ -164,6 +164,21 @@ class InterfaceBundlesSpec extends AnyFunSuite {
     assert(trace.blockBid.getWidth == 64)
   }
 
+  test("T/U flush sequence source keeps ROB and local sequence domains separate") {
+    val p = InterfaceParams(robEntries = 8)
+    val source = new TULinkFlushSequenceSource(p, mapQDepth = 8, stidWidth = 4)
+
+    assert(source.valid.getWidth == 1)
+    assert(source.bid.value.getWidth == 3)
+    assert(source.rid.value.getWidth == 3)
+    assert(source.stid.getWidth == 4)
+    assert(source.tSeq.value.getWidth == 3)
+    assert(source.uSeq.value.getWidth == 3)
+    assert(source.dstValid.getWidth == 1)
+    assert(DestinationKind.T.asUInt.litValue == 2)
+    assert(DestinationKind.U.asUInt.litValue == 3)
+  }
+
   test("common interface packets elaborate through Chisel") {
     val sv = ChiselStage.emitSystemVerilog(new InterfaceBundleProbe(InterfaceParams()))
 

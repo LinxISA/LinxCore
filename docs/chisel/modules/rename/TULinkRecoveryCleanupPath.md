@@ -5,6 +5,8 @@
 - Chisel: `chisel/src/main/scala/linxcore/rename/TULinkRecoveryCleanupPath.scala`
 - Tests: `chisel/src/test/scala/linxcore/rename/TULinkRecoveryCleanupPathSpec.scala`
 - Related Chisel:
+  - `chisel/src/main/scala/linxcore/common/TULinkBundles.scala`
+  - `chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkFlushSourceSelector.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkFlushSequencePublisher.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRename.scala`
@@ -135,7 +137,9 @@ contract failures rather than ignoring them.
 
 ## Deferred Owners
 
-- Live ROB/LSU row sidecars feeding `TULinkFlushSourceSelector`.
+- Compose the live ROB row sidecar from `ROBEntryBank` through
+  `TULinkFlushSourceSelector`.
+- Add matching LSU/STQ row sidecars feeding `TULinkFlushSourceSelector`.
 - Scalar decode/rename composition that merges GPR and T/U accepted outputs.
 - Relation-cmap release policy around T/U retire/dealloc.
 - T/U ready-table initialization and wakeup state.

@@ -32,7 +32,8 @@ queue acceptance boundary, enqueues the decoded row into a registered
 `dec_ren_q` owner, stamps temporary ROB identity from allocator cursors when
 the queue head is presented to rename, and leaves enqueue-time ROB
 reservation, full SID/LID carry, STA/STD execution, STQ mutation, width-wide
-rename, and full top-level fetch/commit flow to later owners. It now owns a
+rename, live T/U cleanup source sidecars, and full top-level fetch/commit flow
+to later owners. It now owns a
 finite queue-backed store-dispatch boundary through `StoreDispatchQueues`, but
 STA/STD execution and STQ insertion remain later LSU owners.
 
@@ -83,8 +84,8 @@ Outputs:
   observability.
 - `blockedBy*`, `unsupported*`: scalar rename bridge diagnostics.
 - `allocBlockBid`, `allocRobValue`, `commit*`, `dealloc*`, `flushApplied`,
-  `size`, `outstandingCount`, and occupancy masks: `DispatchROBAllocator` and
-  `ROBEntryBank` lifecycle observability.
+  `robTULinkSource*`, `size`, `outstandingCount`, and occupancy masks:
+  `DispatchROBAllocator` and `ROBEntryBank` lifecycle observability.
 
 ## Logic Design
 
@@ -141,6 +142,13 @@ allocation, completion, deallocation, commit monitoring, and ROB flush pruning.
 The composition ties block scalar/engine completion and block retire inputs
 inactive because full block-control retirement is not part of this owner.
 
+The composition also drives the allocator's R56 T/U sidecar inputs. Because
+this is still a scalar-GPR reduced path, it sets `allocStid` from the queued
+decoded row's thread ID but drives `allocTSeq`, `allocUSeq`, and T/U
+destination ownership to zero/invalid. A later T/U composition owner must
+replace those defaults with the `SPERename::Rename` snapshots captured before
+T/U destination rename.
+
 ## Model Alignment
 
 The C++ model order being preserved is:
@@ -169,9 +177,10 @@ reduces the model in one important way: the allocator cursor identity is
 stamped at the queue head. This avoids duplicate cursor reservations while the
 path lacks an enqueue-time ROB reservation owner. Full model timing requires
 moving ROB reservation before enqueue and carrying full `load_id`/`sid`
-payloads into LIQ/STQ owners. Full store timing still requires STA/STD
-execution, executed store request construction, and STQ residency behind the
-new dispatch queues.
+payloads into LIQ/STQ owners. It also does not yet carry live T/U
+`tSeq/uSeq` snapshots into the ROB row. Full store timing still requires
+STA/STD execution, executed store request construction, and STQ residency
+behind the new dispatch queues.
 
 ## Deferred Owners
 
@@ -186,6 +195,8 @@ new dispatch queues.
   current `StoreDispatchQueues` heads.
 - Automatic checkpoint capture from validated `isLastInBlock`.
 - T/U/SGPR/tile/vector operand classification and rename.
+- Live T/U `allocTSeq/allocUSeq/allocTUDst*` drive into
+  `DispatchROBAllocator` from the T/U rename owner.
 - Ready-table initialization, issue enqueue, execution completion, and full
   commit side effects.
 - Full QEMU-vs-DUT compare with live architectural commit rows.

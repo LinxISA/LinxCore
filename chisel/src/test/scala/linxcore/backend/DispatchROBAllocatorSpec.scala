@@ -129,6 +129,9 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(sv.contains("BrobMetaTracker"))
     assert(sv.contains("ROBEntryBank"))
     assert(sv.contains("io_allocBlockBid"))
+    assert(sv.contains("io_allocTSeq_value"))
+    assert(sv.contains("io_robTULinkSource_tSeq_value"))
+    assert(sv.contains("io_robTULinkSourceMatched"))
     assert(sv.contains("io_blockAllocatedMask"))
     assert(sv.contains("io_commitContractError"))
   }

@@ -3,7 +3,7 @@ package linxcore.rename
 import chisel3._
 
 import linxcore.bctrl.BID
-import linxcore.common.InterfaceParams
+import linxcore.common.{InterfaceParams, TULinkFlushSequenceSource}
 import linxcore.recovery.RecoveryCleanupIntent
 import linxcore.rob.ROBID
 

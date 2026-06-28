@@ -3465,3 +3465,94 @@ Skill evolve:
   invariant: if ROB and LSU both claim the same selected non-base T/U cleanup
   row, their payloads must agree; otherwise suppress the source and let the
   recovery barrier handle the command.
+
+### R56 ROB T/U Flush Source Sidecars
+
+Scope:
+
+- Moved `TULinkFlushSequenceSource` into `linxcore.common` so both ROB and
+  LSU-side recovery owners can share the same candidate-source bundle.
+- Added `stid`, `tSeq`, `uSeq`, `dstValid`, and `dstKind` sidecars to
+  `ROBEntryBank` rows.
+- Exposed `ROBEntryBank.robTULinkSource*` as an exact non-base
+  `(bid,rid,stid)` source candidate for `TULinkFlushSourceSelector.robSource`.
+- Forwarded the new sidecars through `DispatchROBAllocator`.
+- Kept `DecodeRenameROBPath` on explicit zero/invalid T/U sidecar defaults
+  until a later T/U rename composition packet can drive real
+  `SPERename`-equivalent snapshots.
+
+Model evidence:
+
+- `SPERename::Rename` captures `inst->tSeq` and `inst->uSeq` before
+  destination rename mutates the local T/U map state.
+- `SPEROB::getRetireID` exposes row-owned `tSeq/uSeq` from the current retire
+  pointer.
+- `SPEROB::CheckDstDataOut` builds scalar inner-flush requests from the current
+  ROB row's T/U sequence sidecars.
+- LSU deadlock recovery paths start from the old retire row, inspect the
+  owning ROB instruction, and use `GetPrevRegSeq` only when the flushed row
+  owns a T or U destination.
+
+Evidence:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSourceSelector
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSequencePublisher
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel fetch origin main
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel rev-parse HEAD origin/main
+```
+
+Expected result:
+
+- `InterfaceBundlesSpec` locks the shared T/U source bundle's ROB-ID and
+  local-sequence widths.
+- `ROBEntryBankSpec` proves an exact non-base `(bid,rid,stid)` match exposes
+  the row's dynamic T/U source sidecars, while wrong STID, base-on-BID cleanup,
+  and flushed rows do not publish a source.
+- `DispatchROBAllocatorSpec` elaborates the forwarded T/U sidecar inputs and
+  ROB source outputs.
+- Existing selector, publisher, cleanup path, recovery control, flush control,
+  reduced ROB, trace adapter, and QEMU dry-run gates remain green.
+- LinxCoreModel local `HEAD` still matches `origin/main`.
+
+Observed result:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `InterfaceBundlesSpec` passed 7 tests.
+- `ROBEntryBankSpec` passed 10 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `DecodeRenameROBPathSpec` passed 6 tests.
+- `TULinkFlushSourceSelectorSpec` passed 8 tests.
+- `TULinkFlushSequencePublisherSpec` passed 8 tests.
+- `TULinkRecoveryCleanupPathSpec` passed 7 tests.
+- `RecoveryCleanupControlSpec` passed 6 tests.
+- `FlushControlSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- An initial parallel attempt to run SBT-backed wrapper gates hit the known
+  SBT socket race; the affected gates were rerun sequentially and passed.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R56 adds a reusable row-source
+  invariant: non-base T/U cleanup must use the owning ROB row's stored
+  `tSeq/uSeq` and T/U destination class, never trace identity, row index, or
+  default local sequences.

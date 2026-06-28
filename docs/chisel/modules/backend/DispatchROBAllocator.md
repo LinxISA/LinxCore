@@ -8,8 +8,10 @@
   - `model/LinxCoreModel/model/bctrl/BROB.cpp`
   - `model/LinxCoreModel/model/bctrl/BROB.h`
   - `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`
+  - `model/LinxCoreModel/model/bctrl/spe/SPERename.cpp`
   - `model/LinxCoreModel/model/ModelCommon/ROBID.*`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/common/TULinkBundles.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BID.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BROB.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/FlushControl.scala`
@@ -23,6 +25,11 @@ allocation to PE ROB row allocation. It composes the Chisel `BrobMetaTracker`
 and `ROBEntryBank`, generates the next full hardware BID, stores that BID in
 BROB metadata, and drives the ROB row's native `allocBid` sidecar from the same
 allocation event.
+
+It also forwards the allocation-time T/U cleanup source sidecars into
+`ROBEntryBank`: `stid`, row-owned `tSeq/uSeq`, and the T/U destination class.
+This keeps ROB source publication in the row owner while leaving real T/U
+rename composition for the next integration packet.
 
 This is still a bring-up bridge, not full dispatch, rename, or CMT. It exists
 to remove unit-test-only `ROBEntryBank.allocBid` fixtures and to make later
@@ -41,6 +48,9 @@ dispatch agents consume a real block owner.
 | output | `allocDuplicateIdentity` | `Bool` | diagnostic | ROB duplicate `(bid,gid,rid)` rejection |
 | input | `allocRow` | `CommitTraceRow` | with `allocValid` | ROB row payload; block BID sideband is overwritten by the generated BID |
 | input | `allocTid` | `UInt` | with `allocValid` | BROB thread/STID metadata |
+| input | `allocStid` | `UInt` | with `allocValid` | ROB T/U cleanup source STID sidecar |
+| input | `allocTSeq` / `allocUSeq` | `ROBID(mapQDepth)` | with `allocValid` | ROB row T/U cleanup source sequence sidecars |
+| input | `allocTUDstValid` / `allocTUDstKind` | mixed | with `allocValid` | ROB row T/U destination ownership sidecar |
 | input | `allocPeId` | `UInt` | with `allocValid` | BROB PE owner metadata |
 | input | `allocBlockType` | `UInt` | with `allocValid` | Reduced block type metadata |
 | input | `allocNeedsEngine` | `Bool` | with `allocValid` | BROB completion predicate metadata |
@@ -51,6 +61,7 @@ dispatch agents consume a real block owner.
 | input | `block*Done*`, `blockRetire*`, `blockFlush*`, `blockQueryBid` | mixed | valid/query | Pass-through control and query surface for `BrobMetaTracker` |
 | output | `blockQuery*`, `block*Mask` | mixed | diagnostic | BROB query and occupancy/completion masks |
 | output | `commit*`, `dealloc*`, `flush*`, `size`, `outstandingCount`, `*Mask` | mixed | diagnostic | `ROBEntryBank` commit, recovery, and lifecycle outputs |
+| output | `robTULinkSource*` | mixed | diagnostic/source | ROB row candidate for `TULinkFlushSourceSelector.robSource` |
 
 ## State
 
@@ -80,6 +91,12 @@ bit as `wrap` through `FullBidRecoveryBridge.fullBidToRobId`. That sidecar
 feeds `ROBEntryBank.allocBid`; RID remains allocated locally by `ROBEntryBank`
 from its allocation pointer.
 
+The T/U cleanup source sidecars are forwarded unmodified to `ROBEntryBank`.
+`DecodeRenameROBPath` currently drives zero/invalid values while it remains a
+reduced scalar-GPR path; a later T/U composition packet must replace those
+defaults with the `SPERename`-equivalent row snapshot captured before T/U
+destination rename.
+
 `CommitTraceRow.identity` is not synthesized here. It remains the model commit
 trace and duplicate-detection identity supplied by the eventual decode/dispatch
 row builder.
@@ -92,12 +109,14 @@ the same clock edge as the accepted BROB and ROB allocation.
 
 ## Flush/Recovery
 
-ROB row flushes are forwarded to `ROBEntryBank`. BROB flush remains an explicit
-full-BID input (`blockFlushValid/blockFlushBid`) because the current Chisel
-recovery bus still uses ring `ROBID` metadata while the hardware block contract
-uses full 64-bit BIDs. `FullBidRecoveryBridge` now owns the shared conversion
-used by both allocation and recovery. A later cleanup owner must still connect
-rename, LSU/STQ, frontend redirect, and BROB pointer restoration side effects.
+ROB row flushes are forwarded to `ROBEntryBank`; the resulting
+`robTULinkSource*` outputs are diagnostic/source outputs for the future
+selector composition. BROB flush remains an explicit full-BID input
+(`blockFlushValid/blockFlushBid`) because the current Chisel recovery bus
+still uses ring `ROBID` metadata while the hardware block contract uses full
+64-bit BIDs. `FullBidRecoveryBridge` now owns the shared conversion used by
+both allocation and recovery. A later cleanup owner must still connect rename,
+LSU/STQ, frontend redirect, and BROB pointer restoration side effects.
 
 ## Trace/Observability
 
@@ -122,4 +141,5 @@ adapter's responsibility.
 
 Focused tests cover atomic BROB/ROB allocation, BID cursor wrap through
 uniqueness bits, blocked-allocation hold behavior for BROB fullness and ROB
-duplicate identity, and Chisel elaboration of the composed module.
+duplicate identity, ROB T/U source IO elaboration through the composed module,
+and Chisel elaboration of the composed module.

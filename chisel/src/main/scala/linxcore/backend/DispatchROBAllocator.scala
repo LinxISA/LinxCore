@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.util.log2Ceil
 import linxcore.bctrl.{BID, BrobEntryMeta, BrobMetaTracker}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
+import linxcore.common.{DestinationKind, InterfaceParams, TULinkFlushSequenceSource}
 import linxcore.recovery.{FlushBus, FullBidRecoveryBridge}
 import linxcore.rob.{ROBEntryBank, ROBEntryStatus, ROBID}
 
@@ -14,10 +15,13 @@ class DispatchROBAllocatorIO(
     val peIdWidth: Int = 8,
     val tidWidth: Int = 8,
     val blockTypeWidth: Int = 4,
-    val trapCauseWidth: Int = 32)
+    val trapCauseWidth: Int = 32,
+    val mapQDepth: Int = 32,
+    val stidWidth: Int = 8)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
+  private val sourceParams = InterfaceParams(robEntries = entries)
 
   val flush = Input(new FlushBus(entries))
 
@@ -29,6 +33,11 @@ class DispatchROBAllocatorIO(
   val allocDuplicateIdentity = Output(Bool())
   val allocRow = Input(new CommitTraceRow(traceParams))
   val allocTid = Input(UInt(tidWidth.W))
+  val allocStid = Input(UInt(stidWidth.W))
+  val allocTSeq = Input(new ROBID(mapQDepth))
+  val allocUSeq = Input(new ROBID(mapQDepth))
+  val allocTUDstValid = Input(Bool())
+  val allocTUDstKind = Input(DestinationKind())
   val allocPeId = Input(UInt(peIdWidth.W))
   val allocBlockType = Input(UInt(blockTypeWidth.W))
   val allocNeedsEngine = Input(Bool())
@@ -84,6 +93,9 @@ class DispatchROBAllocatorIO(
   val flushCommitRebased = Output(Bool())
   val flushCommitRebaseValue = Output(UInt(ptrWidth.W))
   val flushClearedAll = Output(Bool())
+  val robTULinkSource = Output(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
+  val robTULinkSourceMatched = Output(Bool())
+  val robTULinkSourceMultipleMatch = Output(Bool())
 
   val empty = Output(Bool())
   val full = Output(Bool())
@@ -107,7 +119,9 @@ class DispatchROBAllocator(
     val peIdWidth: Int = 8,
     val tidWidth: Int = 8,
     val blockTypeWidth: Int = 4,
-    val trapCauseWidth: Int = 32)
+    val trapCauseWidth: Int = 32,
+    val mapQDepth: Int = 32,
+    val stidWidth: Int = 8)
     extends Module {
   require(entries > 1, "allocator entries must be greater than one")
   require((entries & (entries - 1)) == 0, "allocator entries must be a power of two")
@@ -125,7 +139,9 @@ class DispatchROBAllocator(
     peIdWidth,
     tidWidth,
     blockTypeWidth,
-    trapCauseWidth
+    trapCauseWidth,
+    mapQDepth,
+    stidWidth
   ))
 
   private def bidToRobId(bid: UInt): ROBID = {
@@ -146,7 +162,12 @@ class DispatchROBAllocator(
     trapCauseWidth = trapCauseWidth
   ))
 
-  val rob = Module(new ROBEntryBank(entries = entries, traceParams = traceParams))
+  val rob = Module(new ROBEntryBank(
+    entries = entries,
+    traceParams = traceParams,
+    mapQDepth = mapQDepth,
+    stidWidth = stidWidth
+  ))
 
   val robAllocRow = Wire(new CommitTraceRow(traceParams))
   robAllocRow := io.allocRow
@@ -157,6 +178,11 @@ class DispatchROBAllocator(
   rob.io.allocValid := io.allocValid && brob.io.allocReady
   rob.io.allocRow := robAllocRow
   rob.io.allocBid := bidToRobId(nextBlockBid)
+  rob.io.allocStid := io.allocStid
+  rob.io.allocTSeq := io.allocTSeq
+  rob.io.allocUSeq := io.allocUSeq
+  rob.io.allocTUDstValid := io.allocTUDstValid
+  rob.io.allocTUDstKind := io.allocTUDstKind
   rob.io.completeValid := io.completeValid
   rob.io.completeRobValue := io.completeRobValue
   rob.io.deallocReady := io.deallocReady
@@ -227,6 +253,9 @@ class DispatchROBAllocator(
   io.flushCommitRebased := rob.io.flushCommitRebased
   io.flushCommitRebaseValue := rob.io.flushCommitRebaseValue
   io.flushClearedAll := rob.io.flushClearedAll
+  io.robTULinkSource := rob.io.robTULinkSource
+  io.robTULinkSourceMatched := rob.io.robTULinkSourceMatched
+  io.robTULinkSourceMultipleMatch := rob.io.robTULinkSourceMultipleMatch
   io.empty := rob.io.empty
   io.full := rob.io.full
   io.size := rob.io.size

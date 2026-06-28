@@ -8,9 +8,13 @@
   - `model/LinxCoreModel/model/pe/PECommon/PROBStatus.h`
   - `model/LinxCoreModel/model/pe/PECommon/PROBCommon.h`
   - `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`
+  - `model/LinxCoreModel/model/bctrl/spe/SPERename.cpp`
+  - `model/LinxCoreModel/model/ModelCommon/LSUUtils.cpp`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/common/TULinkBundles.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/rename/TULinkFlushSourceSelector.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryStatus.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBFlushPrune.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/commit/CommitTrace.scala`
@@ -30,6 +34,12 @@ for the cycle, clears the selected rows, updates resident and outstanding
 counts, and rebases the allocation/commit pointers covered by the model prune
 walk.
 
+R56 adds the first live ROB source image for T/U local-register cleanup. Each
+allocated row can now store `stid`, row-owned `tSeq/uSeq`, and the row's T/U
+destination class. A non-base flush request can read back the exact matching
+row as a `TULinkFlushSequenceSource` for
+`TULinkFlushSourceSelector.robSource`.
+
 `ReducedCommitROB` remains the reduced trace harness. Do not retrofit full
 deallocation or recovery semantics into that module.
 
@@ -43,6 +53,9 @@ deallocation or recovery semantics into that module.
 | output | `allocDuplicateIdentity` | `Bool` | diagnostic | High when live non-free rows already contain the same `(bid,gid,rid)` |
 | input | `allocRow` | `CommitTraceRow` | with `allocValid` | Commit trace payload stored with the ROB row |
 | input | `allocBid` | `ROBID(entries)` | with `allocValid` | Native backend/BROB BID sidecar stored for recovery comparison |
+| input | `allocStid` | `UInt(stidWidth.W)` | with `allocValid` | Thread/STID sidecar stored for exact T/U cleanup source matching |
+| input | `allocTSeq` / `allocUSeq` | `ROBID(mapQDepth)` | with `allocValid` | Row-owned local T/U sequence snapshots from rename |
+| input | `allocTUDstValid` / `allocTUDstKind` | mixed | with `allocValid` | Whether the row owns a T or U destination that needs previous-sequence adjustment |
 | output | `allocRobValue` | `UInt(log2(entries).W)` | diagnostic | ROB slot that will be assigned on an accepted allocation |
 | input | `completeValid` | `Bool` | none | Requests completion marking for `completeRobValue` |
 | input | `completeRobValue` | `UInt(log2(entries).W)` | with `completeValid` | Slot to mark completed when its status allows completion |
@@ -69,6 +82,9 @@ deallocation or recovery semantics into that module.
 | output | `flushCommitRebased` | `Bool` | diagnostic | Commit pointer was rebased because a pruned row was before commit head |
 | output | `flushCommitRebaseValue` | `UInt(log2(entries).W)` | diagnostic | First pruned-before-commit slot |
 | output | `flushClearedAll` | `Bool` | diagnostic | Flush removed every resident row, so commit/dealloc also rebase |
+| output | `robTULinkSource` | `TULinkFlushSequenceSource` | diagnostic/source | Exact ROB row source for non-base T/U cleanup |
+| output | `robTULinkSourceMatched` | `Bool` | diagnostic | A live row exactly matched `(flush.bid, flush.rid, flush.stid)` |
+| output | `robTULinkSourceMultipleMatch` | `Bool` | diagnostic | More than one live row matched the exact T/U source predicate |
 | output | `commitHead*` | mixed | diagnostic | Commit-pointer row status and slot |
 | output | `deallocHead*` | mixed | diagnostic | Dealloc-pointer row status and slot |
 | output | `occupiedMask` | `UInt(entries.W)` | diagnostic | Non-free slot mask |
@@ -81,6 +97,10 @@ deallocation or recovery semantics into that module.
 - `rowBid`: native backend/BROB BID sidecar per slot, sourced from `allocBid`.
 - `rowRid`: native ROB RID sidecar per slot, allocated from `allocValue` and
   `allocWrap`.
+- `rowStid`: STID sidecar per slot, sourced from allocation.
+- `rowTSeq` / `rowUSeq`: row-owned local T/U mapQ sequence snapshots.
+- `rowTUDstValid` / `rowTUDstKind`: whether the row owns a T/U destination
+  that requires previous-sequence cleanup adjustment.
 - `status`: one `ROBEntryStatus.Type` per slot, reset to `Free`.
 - `allocValue` / `allocWrap`: circular allocation pointer.
 - `commitValue` / `commitWrap`: circular commit pointer.
@@ -101,12 +121,26 @@ pointer, stores native flush metadata in `rowBid`/`rowRid`, marks the slot
 `outstandingCount`. `rowBid` comes from the backend/BROB owner through
 `allocBid`; `rowRid` is allocated locally from the bank allocation pointer,
 matching `SPEROB::allocROB` assigning `inst->rid` from `allocPtr`.
+The allocation also stores the T/U source sidecars supplied by the dispatch
+allocator. In the C++ model, `SPERename::Rename` writes `inst->tSeq` and
+`inst->uSeq` before destination rename; `SPEROB::getRetireID` later exposes
+those row-owned values, and `SPEROB::CheckDstDataOut`/LSU recovery builders use
+them as the selected cleanup source.
 
 Flush has priority over allocation, completion, commit, and deallocation. The
 bank feeds `ROBFlushPrune` with occupied rows, each row's status, and a
 native `ROBID` view from `rowBid` and `rowRid`. `CommitTraceRow.identity`
 remains the trace and duplicate-detection sideband; it is not the source of the
 flush comparison metadata.
+
+The ROB T/U source output is a separate combinational exact-match lookup. It
+is valid only when the incoming flush request is non-base and a live row matches
+all of `(flush.req.bid, flush.req.rid, flush.req.stid)`. Base-on-BID cleanup
+emits an invalid source because `TULinkRename` prunes by BID without local
+sequence sidebands. The selected payload is the row's stored
+`tSeq/uSeq/dstKind`; it is not reconstructed from trace identity, row index,
+or default zeros. Multiple exact matches are reported as a diagnostic and
+remain a duplicate-identity violation for later live composition.
 
 When `ROBFlushPrune` finds a match, the bank clears every row in
 `flushPruneMask`, marks those slots `Free`, subtracts
@@ -134,9 +168,10 @@ head.
 
 Deallocation scans from `deallocValue` for at most `commitWidth` slots when
 `deallocReady` is high. It frees only contiguous valid `Retired` rows, clears
-their payloads, marks them `Free`, advances `deallocValue`, and decrements
-`size`. A row committed in the current cycle is not deallocated until a later
-cycle because the deallocation walk observes the pre-cycle status array.
+their payloads and native/TU sidecars, marks them `Free`, advances
+`deallocValue`, and decrements `size`. A row committed in the current cycle is
+not deallocated until a later cycle because the deallocation walk observes the
+pre-cycle status array.
 
 The commit output feeds `CommitTraceMonitor`; monitor errors mean the fixed
 commit window is not safe for QEMU comparison.
@@ -163,7 +198,7 @@ model behaviors remain future integrated ROB/CMT work:
   allocation bridge,
 - checkpoint/rename restore,
 - local ready-table and physical destination cleanup,
-- LSU/STQ/SCB cleanup and LSID rebasing,
+- LSU/STQ/SCB cleanup, LSID rebasing, and LSU-originated T/U source sidecars,
 - branchVld/inner-jump recovery state,
 - precise trap ownership,
 - frontend restart token publication.
@@ -200,5 +235,6 @@ duplicate identity rejection until deallocation, deallocation backpressure,
 ignored invalid completion targets, RID-based flush pruning through the entry
 bank reference model, allocation reuse of the first pruned slot, retired-row
 flush accounting, flush comparison through native row IDs rather than trace
-identity sidebands, and Chisel elaboration with monitor plus flush diagnostic
+identity sidebands, exact non-base ROB T/U source publication and source clear
+after flush, and Chisel elaboration with monitor plus flush/TU diagnostic
 outputs.

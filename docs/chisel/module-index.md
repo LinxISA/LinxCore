@@ -2,14 +2,14 @@
 
 | Module | Package | Documentation | Status |
 |---|---|---|---|
-| `InterfaceBundles` | `linxcore.common` | `docs/chisel/interfaces/CommonBundles.md` | Unit-green Phase 1 shared type packet |
+| `InterfaceBundles` / `TULinkBundles` | `linxcore.common` | `docs/chisel/interfaces/CommonBundles.md` | Unit-green shared type packets including R56 T/U cleanup source bundle |
 | `F4DecodeWindow` | `linxcore.frontend` | `docs/chisel/modules/frontend/F4DecodeWindow.md` | Unit-green Phase 2 F4/D1 decode-window slice |
 | `FrontendInstructionBuffer` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendInstructionBuffer.md` | Unit-green Phase 2 frontend packet FIFO |
 | `FrontendDecodeIngress` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeIngress.md` | Unit-green Phase 2 IB-to-F4 transport wrapper |
 | `FrontendDecodeStage` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeStage.md` | Unit-green R47 catalog-driven opcode classification, scalar operand/immediate extraction, and generated store split metadata |
 | `FrontendRegAliasClassify` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendRegAliasClassify.md` | Unit-green R43 scalar reg6 GPR/T/U alias classifier used by frontend operand decode |
 | `FrontendOperandDecode` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendOperandDecode.md` | Unit-green R43 scalar architectural operand/immediate field owner behind `FrontendDecodeStage` with model-derived GPR/T/U alias classification |
-| `DispatchROBAllocator` | `linxcore.backend` | `docs/chisel/modules/backend/DispatchROBAllocator.md` | Unit-green backend allocation bridge from BROB BID generation to ROB row allocation |
+| `DispatchROBAllocator` | `linxcore.backend` | `docs/chisel/modules/backend/DispatchROBAllocator.md` | Unit-green backend allocation bridge from BROB BID generation to ROB row allocation with R56 T/U sidecar forwarding |
 | `DecodeLoadStoreIdAssign` | `linxcore.backend` | `docs/chisel/modules/backend/DecodeLoadStoreIdAssign.md` | Unit-green R47 reduced STID0 LSID/load_id/sid assignment with generated pair/PCR/cache metadata |
 | `DecodeRenameQueue` | `linxcore.backend` | `docs/chisel/modules/backend/DecodeRenameQueue.md` | Unit-green R44 registered raw decoded-uop queue between frontend decode and scalar rename |
 | `DecodeRenameROBPath` | `linxcore.backend` | `docs/chisel/modules/backend/DecodeRenameROBPath.md` | Unit-green R48 reduced frontend decode to queued scalar rename, ROB/BROB allocation, and queue-backed store dispatch handoff |
@@ -51,7 +51,7 @@
 | `LoadRefillWakeup` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadRefillWakeup.md` | Unit-green R34 L1 read-refill wakeup owner; same-line row wake masks, local l1Hit sideband, and row-owned relaunch data |
 | `ROBID` | `linxcore.rob` | `docs/chisel/modules/rob/ROBID.md` | Unit-green Packet A |
 | `ROBEntryStatus` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryStatus.md` | Unit-green Phase 5 integrated ROB/CMT status contract |
-| `ROBEntryBank` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryBank.md` | Unit-green Phase 5 integrated ROB/CMT entry-bank skeleton with flush application and native row IDs |
+| `ROBEntryBank` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryBank.md` | Unit-green Phase 5 integrated ROB/CMT entry-bank skeleton with flush application, native row IDs, and R56 ROB T/U source sidecars |
 | `ROBFlushPrune` | `linxcore.rob` | `docs/chisel/modules/rob/ROBFlushPrune.md` | Unit-green Phase 5 integrated ROB/CMT flush-prune selector consumed by `ROBEntryBank` |
 | `ReducedCommitROB` | `linxcore.rob` | `docs/chisel/modules/rob/ReducedCommitROB.md` | Unit-green; monitor-backed Verilator xcheck-green reduced harness |
 | `CommitIdentity` / `CommitTraceRow` | `linxcore.commit` | `docs/chisel/modules/commit/CommitTrace.md` | Unit-green Packet 0B schema |

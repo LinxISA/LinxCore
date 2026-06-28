@@ -51,6 +51,14 @@ Chisel QEMU adapter dry-run selected
 adapter self-test. The AI workload smoke dry-run produced
 `workloads/generated/ai-20260628-190342/ai-bringup/` manifest, report, and
 summary paths without executing downstream QEMU/model payloads.
+R56 started from `rtl/LinxCore` commit
+`47b543835333ae7eb4557236b4336389ec7e93eb`, with only unrelated architecture
+markdown files dirty in the LinxCore worktree.
+During R56, `model/LinxCoreModel` was fetched again and local `HEAD` still
+matched `origin/main` at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; the
+Chisel QEMU adapter dry-run selected
+`emulator/qemu/build-linx/qemu-system-linx64` and passed the trace schema
+adapter self-test.
 
 ## Non-Negotiable Rules
 
@@ -192,6 +200,7 @@ These packets remain the required base before broad module promotion:
 | R53 | `TULinkFlushSequencePublisher` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R54 | `TULinkRecoveryCleanupPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R55 | `TULinkFlushSourceSelector` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R56 | `ROBEntryBank` T/U source sidecars | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -249,6 +258,14 @@ Update skills only for:
 - a ready/valid rule that prevents one owner from feeding another owner's
   accepted-output readiness back into its own input acceptance.
 
+Run skill evolution as a trailing maintenance lane after the module docs and
+evidence are updated. The module packet owns local Markdown first; the
+canonical `skills/linx-skills` submodule changes only when the new finding must
+guide future agents outside the touched module docs. If a skill update is
+needed, bundle all material findings from the packet into one skill commit,
+validate the touched skills, run the scope guard, install the canonical copy,
+and repin the superproject gitlink after the skill submodule commit.
+
 Do not update skills for:
 
 - formatting,
@@ -299,16 +316,18 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add `tSeq/uSeq` and T/U destination-class sidecars to `ROBEntryBank` rows,
-   drive `TULinkFlushSourceSelector.robSource`, and prove that ROB-sourced
-   non-base cleanup uses the owning row's dynamic T/U sequence.
-2. Add the matching LSU/STQ source sidecar owner, drive
+1. Add the matching LSU/STQ source sidecar owner, drive
    `TULinkFlushSourceSelector.lsuSource`, and prove that LSU deadlock cleanup
    either agrees with ROB for the same `(bid,rid,stid)` or is suppressed as a
    source conflict.
-3. Compose the selector with `TULinkRecoveryCleanupPath` so R54 consumes a
+2. Compose `DispatchROBAllocator.robTULinkSource` with
+   `TULinkFlushSourceSelector.robSource`, then compose the selector with
+   `TULinkRecoveryCleanupPath` so R54 consumes a
    selected source from explicit ROB/LSU candidates instead of a manually
    supplied single source.
+3. Replace the reduced zero/invalid T/U allocation sidecars in
+   `DecodeRenameROBPath` with `SPERename`-equivalent `tSeq/uSeq` snapshots
+   captured before T/U destination rename.
 4. Compose `TULinkRename` with the scalar decode-rename bridge so accepted
    T/U operands can flow into `RenamedUop` without broadening scalar GPR
    ownership.

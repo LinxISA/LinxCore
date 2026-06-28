@@ -1,6 +1,7 @@
 package linxcore.rob
 
 import circt.stage.ChiselStage
+import linxcore.common.DestinationKind
 import linxcore.commit.CommitTraceParams
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -14,6 +15,10 @@ object ROBEntryBankReference {
   case object Retired extends Status
   case object Fault extends Status
   case object NeedFlush extends Status
+  sealed trait TUDst
+  case object NoTUDst extends TUDst
+  case object TDst extends TUDst
+  case object UDst extends TUDst
 
   final case class Row(
       pc: BigInt,
@@ -27,8 +32,21 @@ object ROBEntryBankReference {
       commitSlot: Int = -1)
 
   final case class Id(valid: Boolean = true, wrap: Boolean = false, value: Int = 0)
+  final case class TUSidecar(
+      stid: Int = 0,
+      tSeq: Id = Id(),
+      uSeq: Id = Id(),
+      dst: TUDst = NoTUDst)
+  final case class TUSource(
+      valid: Boolean,
+      bid: Id,
+      rid: Id,
+      stid: Int,
+      tSeq: Id,
+      uSeq: Id,
+      dst: TUDst)
 
-  private final case class Entry(row: Row, status: Status, bid: Id, rid: Id)
+  private final case class Entry(row: Row, status: Status, bid: Id, rid: Id, tu: TUSidecar)
 
   final class Model(entries: Int, commitWidth: Int) {
     require(entries > 1 && (entries & (entries - 1)) == 0)
@@ -86,14 +104,14 @@ object ROBEntryBankReference {
     def statusAt(value: Int): Status =
       table(value).map(_.status).getOrElse(Free)
 
-    def alloc(row: Row, bid: Option[Id] = None): Option[Int] = {
+    def alloc(row: Row, bid: Option[Id] = None, tu: TUSidecar = TUSidecar()): Option[Int] = {
       if (count == entries || duplicateIdentity(row)) {
         return None
       }
       val rob = allocPtr
       val rid = Id(wrap = allocWrap, value = allocPtr)
       table(allocPtr) = Some(
-        Entry(row.copy(robValue = rob), Allocated, bid.getOrElse(normalizedBid(row)), rid)
+        Entry(row.copy(robValue = rob), Allocated, bid.getOrElse(normalizedBid(row)), rid, tu)
       )
       val (nextAllocPtr, nextAllocWrap) = advance(allocPtr, allocWrap)
       allocPtr = nextAllocPtr
@@ -101,6 +119,17 @@ object ROBEntryBankReference {
       count += 1
       outstanding += 1
       Some(rob)
+    }
+
+    def robTUSource(flushBid: Id, flushRid: Id, stid: Int, baseOnBid: Boolean): Option[TUSource] = {
+      if (baseOnBid) {
+        return None
+      }
+      table.flatten.collectFirst {
+        case Entry(_, status, bid, rid, tu)
+            if status != Free && equal(bid, flushBid) && equal(rid, flushRid) && tu.stid == stid =>
+          TUSource(valid = true, bid = bid, rid = rid, stid = stid, tSeq = tu.tSeq, uSeq = tu.uSeq, dst = tu.dst)
+      }
     }
 
     def complete(robValue: Int): Boolean =
@@ -359,22 +388,54 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(rob.allocPointer == r2)
   }
 
+  test("reference exposes ROB T/U sidecar only for exact non-base source matches") {
+    val rob = new Model(entries = 8, commitWidth = 2)
+    rob.alloc(
+      row(0),
+      bid = Some(id(1)),
+      tu = TUSidecar(stid = 0, tSeq = id(5), uSeq = id(6), dst = NoTUDst)
+    ).get
+    val r1 = rob.alloc(
+      row(1),
+      bid = Some(id(1)),
+      tu = TUSidecar(stid = 1, tSeq = id(2, wrap = true), uSeq = id(3), dst = TDst)
+    ).get
+
+    assert(
+      rob.robTUSource(flushBid = id(1), flushRid = id(r1), stid = 1, baseOnBid = false)
+        .contains(TUSource(true, id(1), id(r1), 1, id(2, wrap = true), id(3), TDst))
+    )
+    assert(rob.robTUSource(flushBid = id(1), flushRid = id(r1), stid = 0, baseOnBid = false).isEmpty)
+    assert(rob.robTUSource(flushBid = id(1), flushRid = id(r1), stid = 1, baseOnBid = true).isEmpty)
+
+    assert(rob.flush(flushBid = id(1), flushRid = id(r1), baseOnBid = false) == Seq(r1))
+    assert(rob.robTUSource(flushBid = id(1), flushRid = id(r1), stid = 1, baseOnBid = false).isEmpty)
+  }
+
   test("Chisel ROBEntryBank elaborates with status masks and commit monitor outputs") {
     val sv = ChiselStage.emitSystemVerilog(
       new ROBEntryBank(
         entries = 8,
-        traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3)
+        traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+        mapQDepth = 8,
+        stidWidth = 4
       )
     )
 
     assert(sv.contains("module ROBEntryBank"))
     assert(sv.contains("io_deallocReady"))
     assert(sv.contains("io_allocBid"))
+    assert(sv.contains("io_allocTSeq_value"))
+    assert(sv.contains("io_allocTUDstKind"))
+    assert(sv.contains("io_robTULinkSource_tSeq_value"))
+    assert(sv.contains("io_robTULinkSourceMatched"))
     assert(sv.contains("io_completedMask"))
     assert(sv.contains("io_retiredMask"))
     assert(sv.contains("io_flushPruneMask"))
     assert(sv.contains("io_flushCommitRebased"))
     assert(sv.contains("io_commitContractError"))
     assert(sv.contains("CommitTraceMonitor"))
+    assert(DestinationKind.T.asUInt.litValue == 2)
+    assert(DestinationKind.U.asUInt.litValue == 3)
   }
 }
