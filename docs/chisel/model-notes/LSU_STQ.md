@@ -184,8 +184,8 @@ non-base `(bid, rid, stid)` cleanup and keeps that source separate from
 sidecars, matching the model merge behavior that fills address/data fields
 without replacing the row's stored request identity. `StoreDispatchToSTQ`
 preserves those sidecars from `StoreSplitIssuePayload`; the reduced
-`DecodeRenameROBPath` still drives the payload sidecar inputs disabled until
-live T/U rename snapshots are wired into the store path.
+`DecodeRenameROBPath` now drives the payload sidecar inputs from
+`ScalarTURenameBridge` live T/U rename snapshots.
 
 `STQCommitQueue` is the first Chisel owner for `storeCommitQ` ordering. It
 accepts committed row indices, keeps them sorted by `(bid, lsId)`, selects up

@@ -345,25 +345,16 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Compose `TULinkRename` with the scalar decode-rename bridge so accepted
-   T/U operands can flow into `RenamedUop` without broadening scalar GPR
-   ownership.
-2. Replace the reduced zero/invalid T/U sidecar producer in
-   `DecodeRenameROBPath` with `SPERename`-equivalent `tSeq/uSeq` snapshots
-   captured before T/U destination rename, and drive
-   `StoreSplitPayload.tSeq/uSeq/tuDst*` from that live producer. R61 already
-   carries those fields through `StoreSplitIssuePayload`,
-   `StoreDispatchQueues`, and `StoreDispatchToSTQ`.
-3. Add the SPEROB relation-cmap owner around `TULinkRename.retireValid` /
+1. Add the SPEROB relation-cmap owner around `TULinkRename.retireValid` /
    `retireDealloc` so long-latency release and block-end release are explicit.
-4. Enqueue-time ROB reservation: move BROB/ROB allocation before
+2. Enqueue-time ROB reservation: move BROB/ROB allocation before
    `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
    without duplicate identities.
-5. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+3. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-6. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+4. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-7. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+5. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

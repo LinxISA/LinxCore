@@ -145,9 +145,6 @@ dropped.
 
 ## Deferred Owners
 
-- Compose the reduced backend's exposed ROB source and the STQ wrapper's LSU
-  source into a live top-level recovery cleanup path.
-- Replace disabled store-dispatch T/U sidecars with live rename snapshots.
 - Relation-cmap release owner around local retire/dealloc.
 - Ready-table mutation for T/U local physical tags.
 - Multi-PE and multi-thread bank replication beyond the current STID0 packet.

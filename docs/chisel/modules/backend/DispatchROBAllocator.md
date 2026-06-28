@@ -28,8 +28,9 @@ allocation event.
 
 It also forwards the allocation-time T/U cleanup source sidecars into
 `ROBEntryBank`: `stid`, row-owned `tSeq/uSeq`, and the T/U destination class.
-This keeps ROB source publication in the row owner while leaving real T/U
-rename composition for the next integration packet.
+This keeps ROB source publication in the row owner while
+`ScalarTURenameBridge` supplies the live T/U rename snapshots in the reduced
+decode/rename/ROB path.
 
 This is still a bring-up bridge, not full dispatch, rename, or CMT. It exists
 to remove unit-test-only `ROBEntryBank.allocBid` fixtures and to make later
@@ -92,10 +93,9 @@ feeds `ROBEntryBank.allocBid`; RID remains allocated locally by `ROBEntryBank`
 from its allocation pointer.
 
 The T/U cleanup source sidecars are forwarded unmodified to `ROBEntryBank`.
-`DecodeRenameROBPath` currently drives zero/invalid values while it remains a
-reduced scalar-GPR path; a later T/U composition packet must replace those
-defaults with the `SPERename`-equivalent row snapshot captured before T/U
-destination rename.
+`DecodeRenameROBPath` drives these fields from `ScalarTURenameBridge`, using
+the `SPERename`-equivalent `tSeq/uSeq` snapshot captured before T/U
+destination rename plus the accepted T/U destination ownership sidecar.
 
 `CommitTraceRow.identity` is not synthesized here. It remains the model commit
 trace and duplicate-detection identity supplied by the eventual decode/dispatch

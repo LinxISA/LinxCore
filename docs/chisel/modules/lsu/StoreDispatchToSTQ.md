@@ -108,9 +108,8 @@ match the model `MemReqBus` sidecars. R61 moves those fields into
 `StoreSplitIssuePayload` and this bridge now copies them into every
 per-candidate request. If `tuDstValid` is false, the emitted destination kind
 is forced to `DestinationKind.None`; otherwise the payload destination kind is
-preserved. In the reduced `DecodeRenameROBPath` integration the producer is
-still wired to disabled defaults until the scalar and T/U rename paths are
-composed, but the bridge no longer discards live sidecars when supplied.
+preserved. In the reduced `DecodeRenameROBPath` integration, the producer now
+comes from `ScalarTURenameBridge`.
 
 ## Model Alignment
 

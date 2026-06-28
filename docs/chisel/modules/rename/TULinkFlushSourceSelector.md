@@ -29,8 +29,9 @@ sidebands. It chooses the selected row snapshot that will feed
 
 The selector does not own ROB or LSU row storage. Current Chisel ROB rows and
 STQ rows expose T/U source candidates, while top-level recovery composition
-still has to choose and wire the live owners. This module defines the stable
-interface both row owners must drive:
+chooses the live owners through `ScalarTURenameBridge` and
+`TULinkRecoveryCleanupPath`. This module defines the stable interface both row
+owners must drive:
 
 ```text
 ROB row candidate + LSU row candidate + cleanup intent
@@ -123,9 +124,6 @@ composition should monitor them alongside
 
 ## Deferred Owners
 
-- Compose the reduced backend's exposed ROB source and the STQ wrapper's LSU
-  source into a live top-level recovery cleanup path.
-- Replace disabled store-dispatch T/U sidecars with live rename snapshots.
 - Add multi-PE and multi-thread source banking beyond the current STID0
   boundary.
 - Extend the source path for predicate and vector local-register sidebands.

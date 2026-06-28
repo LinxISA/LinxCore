@@ -14,6 +14,7 @@
   - `chisel/src/main/scala/linxcore/backend/DecodeLoadStoreIdAssign.scala`
   - `chisel/src/main/scala/linxcore/backend/DecodeRenameQueue.scala`
   - `chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala`
+  - `chisel/src/main/scala/linxcore/rename/ScalarTURenameBridge.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRecoveryCleanupPath.scala`
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchQueues.scala`
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala`
@@ -23,7 +24,7 @@
 
 `DecodeRenameROBPath` is the first reduced frontend/backend composition point.
 It connects `FrontendDecodeStage`, `DecodeRenameQueue`,
-`ScalarDecodeRenameBridge`, and `DispatchROBAllocator` so one decoded scalar
+`ScalarTURenameBridge`, and `DispatchROBAllocator` so one decoded scalar/T/U
 uop can pass through a registered D2/D3 queue, produce a renamed payload, and
 allocate a real BROB/ROB row in the accepted rename cycle.
 
@@ -34,15 +35,14 @@ queue acceptance boundary, enqueues the decoded row into a registered
 `dec_ren_q` owner, stamps temporary ROB identity from allocator cursors when
 the queue head is presented to rename, and leaves enqueue-time ROB
 reservation, full SID/LID carry, STA/STD execution, width-wide
-rename, live T/U rename sidecar production, and full top-level fetch/commit
+rename, T/U relation-cmap retire/release, and full top-level fetch/commit
 flow to later owners. It now owns the queue-backed store-dispatch to STQ
 row-owner boundary through `StoreDispatchSTQPath`; STA address generation and
 STD data selection remain explicit inputs until the real execution owners
-exist. It also
-instantiates the reduced T/U recovery cleanup composition point so the
-allocator's ROB-side source candidate and the live STQ-bank LSU source
-candidate can be selected, cross-checked, and published as diagnostics before
-the full live T/U rename path is integrated.
+exist. It also composes live T/U rename and recovery cleanup so the allocator's
+ROB-side source candidate and the live STQ-bank LSU source candidate are
+selected, cross-checked, and published by the same state owner that produces
+`tSeq/uSeq` and T/U destination sidecars.
 
 ## Interface
 
@@ -81,8 +81,8 @@ Outputs:
 - `storeDispatchReady`, `storeDispatchFire`, `storeDispatchSplit`,
   `storeDispatchBlockedBySta`, `storeDispatchBlockedByStd`, `storeSta`,
   `storeStd`, `storeUnsplit`: reduced store-dispatch observability from the
-  accepted renamed row. The payloads include `tSeq/uSeq` and T/U destination
-  sidecars, but this reduced composition still drives them disabled.
+  accepted renamed row. The payloads include live `tSeq/uSeq` and T/U
+  destination sidecars from `ScalarTURenameBridge`.
 - `storeStaQueueValid`, `storeStdQueueValid`, `storeStaQueue`,
   `storeStdQueue`, `storeStaEnqueueFire`, `storeStdEnqueueFire`,
   `storeStaDequeueFire`, `storeStdDequeueFire`,
@@ -99,16 +99,20 @@ Outputs:
 - `robAllocAttemptValid`, `robAllocReady`, `robAllocFire`,
   `robAllocBlockedBy*`, `robAllocDuplicateIdentity`: allocation handoff
   observability.
-- `blockedBy*`, `unsupported*`: scalar rename bridge diagnostics.
+- `blockedBy*`, `blockedByTURename`, `unsupported*`: scalar/T/U rename bridge
+  diagnostics.
+- `tuRename*`: T/U rename readiness, accepted event, pre-allocation
+  `tSeq/uSeq`, destination ownership, pressure, and source-underflow
+  observability.
 - `allocBlockBid`, `allocRobValue`, `commit*`, `dealloc*`, `flushApplied`,
   `robTULinkSource*`, `size`, `outstandingCount`, and occupancy masks:
   `DispatchROBAllocator` and `ROBEntryBank` lifecycle observability.
 - `tuCleanupPublisherFlush*`, `tuCleanupSelectedFlushSource`,
   `tuCleanup*Source*`, `tuCleanupSourceConflict`,
   `tuCleanupSelectedFrom*`, and `tuCleanupFlush*PrevApplied`:
-  `TULinkRecoveryCleanupPath` diagnostics for ROB/LSU source selection,
-  missing-source blocking, duplicate-source conflict, and selected flush
-  sequence publication.
+  live T/U cleanup diagnostics for ROB/LSU source selection, missing-source
+  blocking, duplicate-source conflict, and selected flush sequence
+  publication.
 
 ## Logic Design
 
@@ -136,13 +140,13 @@ identity that `DCTop::Work()` and `SPEROB::allocROB()` supply in the C++ model:
 - `gid` is held at zero in the reduced scalar path;
 - `blockBidValid/blockBid` mirrors the generated full hardware BID.
 
-`ScalarDecodeRenameBridge.robAllocAttemptValid` drives
+`ScalarTURenameBridge.robAllocAttemptValid` drives
 `DispatchROBAllocator.allocValid`. This signal is intentionally independent of
 allocator ready. The bridge only reports `accepted`, pops `DecodeRenameQueue`,
-and mutates GPR rename state when `allocReady` returns true, but the allocator
-duplicate-identity check sees a stable request row before it computes ready.
-This avoids a ready/valid combinational feedback path through ROB duplicate
-detection.
+and mutates GPR plus T/U rename state when `allocReady` returns true, but the
+allocator duplicate-identity check sees a stable request row before it
+computes ready. This avoids a ready/valid combinational feedback path through
+ROB duplicate detection.
 
 For store rows at the queue head, the path computes reduced store-dispatch
 readiness before rename accepts the row. Unsplit stores require only STA
@@ -151,11 +155,10 @@ pair cannot partially fire. This readiness is computed from the queued decoded
 row, not from `StoreSplitPayload.inReady`, avoiding a combinational loop
 through the accepted renamed output. `StoreSplitPayload` then consumes the
 accepted renamed row and emits the observed STA, STD, or ST_ALL payloads.
-R61 exposes explicit T/U local-register sidecar inputs on `StoreSplitPayload`
-and payload fields on the emitted store rows. This composition intentionally
-wires those inputs to disabled defaults until `TULinkRename` is merged with the
-scalar rename path; the downstream queue and STQ bridge now preserve live
-sidecars once a producer is connected.
+R62 drives the explicit T/U local-register sidecar inputs on
+`StoreSplitPayload` from `ScalarTURenameBridge`. `tSeq/uSeq` are the
+pre-allocation snapshots captured before T/U destination rename, and
+`tuDst*` identifies whether the accepted row owns a T or U destination.
 
 `StoreDispatchSTQPath` consumes those payloads and owns finite STA/STD FIFO
 admission plus the first live STQ row mutation boundary in the reduced backend.
@@ -174,31 +177,21 @@ allocation, completion, deallocation, commit monitoring, and ROB flush pruning.
 The composition ties block scalar/engine completion and block retire inputs
 inactive because full block-control retirement is not part of this owner.
 
-The composition also drives the allocator's R56 T/U sidecar inputs. Because
-this is still a scalar-GPR reduced path, it sets `allocStid` from the queued
-decoded row's thread ID but drives `allocTSeq`, `allocUSeq`, and T/U
-destination ownership to zero/invalid. A later T/U composition owner must
-replace those defaults with the `SPERename::Rename` snapshots captured before
-T/U destination rename.
+The composition also drives the allocator's R56 T/U sidecar inputs. `allocStid`
+still comes from the queued decoded row's thread ID in the reduced path, while
+`allocTSeq`, `allocUSeq`, and T/U destination ownership now come from
+`ScalarTURenameBridge`. This gives the ROB row the same sequence snapshot that
+the store-dispatch payload carries.
 
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
-IO. In this reduced path the exposed source is still zero/invalid except for
-the selected row identity and STID carried by the allocator sidecars, because
-live T/U destination rename has not been composed yet. The forwarding exists so
-the future top-level recovery cleanup path can connect the ROB candidate into
-`TULinkRecoveryCleanupPath.robSource` without reopening the allocator boundary.
-
-The path now instantiates `TULinkRecoveryCleanupPath` as a reduced diagnostic
-composition owner. Its rename, retire, and commit data inputs are tied inactive
-because scalar and T/U rename state are not yet merged in this module. Its
-`robSource` input is driven by `DispatchROBAllocator.robTULinkSource`, and its
-`lsuSource` input is driven by `StoreDispatchSTQPath.lsuTULinkSource` from the
-live STQ bank. For non-base cleanup intents, the emitted diagnostics prove
-whether the ROB and LSU candidates agree for the same `(bid,rid,stid)`,
-whether exactly one owner supplied a matching source, or whether cleanup was
-blocked by a missing or conflicting source. The publisher flush outputs are
-observability only in this reduced owner; live T/U state mutation remains
-inside the future merged rename/recovery owner.
+IO and feeds the same source into `ScalarTURenameBridge.robSource`. The bridge
+feeds `StoreDispatchSTQPath.lsuTULinkSource` into its LSU source input. For
+non-base cleanup intents, the emitted diagnostics prove whether the ROB and
+LSU candidates agree for the same `(bid,rid,stid)`, whether exactly one owner
+supplied a matching source, or whether cleanup was blocked by a missing or
+conflicting source. Unlike the earlier diagnostic-only path, the selected
+publisher output now drives the live T/U rename cleanup path inside the same
+composition owner.
 
 ## Model Alignment
 
@@ -214,10 +207,13 @@ The C++ model order being preserved is:
    that pre-increment rule for one accepted STID0 decoded memory row.
 4. `SPE::Xfer()` calls `dec_ren_q.Work()` to move ready written rows into the
    rename-visible queue image.
-5. `SPERename::Rename()` consumes `dec_ren_q`, maps scalar sources, allocates
-   scalar destinations, captures checkpoints for `isLastInBlock`, and forwards
-   the renamed uop toward dispatch.
-6. `GPRRename` owns scalar `smap`, `cmap`, checkpoints, free tags, and mapQ.
+5. `SPERename::Rename()` consumes `dec_ren_q`, maps scalar and T/U sources,
+   snapshots `inst->tSeq/uSeq` before T/U destination rename, allocates
+   scalar and T/U destinations, captures checkpoints for `isLastInBlock`, and
+   forwards the renamed uop toward dispatch.
+6. `GPRRename` owns scalar `smap`, `cmap`, checkpoints, free tags, and mapQ;
+   T/U `LocalRegMgr` instances own local link sequence, offset lookup,
+   allocation pressure, and cleanup pruning.
 7. Store-unit deadlock cleanup builders preserve row-owned T/U sequence and
    destination sidecars and must agree with ROB-owned source evidence for the
    same selected `(bid,rid,stid)`.
@@ -233,10 +229,9 @@ path lacks an enqueue-time ROB reservation owner. Full model timing requires
 moving ROB reservation before enqueue and carrying full `load_id`/`sid`
 payloads into LIQ/STQ owners. It exposes the ROB T/U source candidate through
 the allocator boundary and composes the live STQ-bank LSU candidate through
-`TULinkRecoveryCleanupPath`. R61 makes the store payload, dispatch queues, and
-STQ request bridge preserve T/U sidecars, but this reduced scalar path still
-supplies zero/invalid `tSeq/uSeq` and destination ownership until live T/U
-rename snapshots are wired into `StoreSplitPayload`.
+`ScalarTURenameBridge` and its `TULinkRecoveryCleanupPath`. R62 now wires live
+`SPERename::Rename()`-equivalent `tSeq/uSeq` snapshots and T/U destination
+ownership into both `StoreSplitPayload` and `DispatchROBAllocator`.
 Full store timing still requires real STA/STD execution, load-conflict
 publication, SCB/MDB handoff, and memory trace side effects.
 
@@ -250,14 +245,11 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - Width-wide slot-order LSID/SID allocation and same-cycle memory ordering.
 - Full `load_id`/`sid` payload carry into LIQ/STQ owners.
 - Real STA/STD execution owners that drive `storeStaExec` and `storeStdExec`.
-- Live T/U `tSeq/uSeq` and T/U destination sidecar producer wiring from
-  `TULinkRename` into `StoreSplitPayload`.
 - Automatic checkpoint capture from validated `isLastInBlock`.
-- T/U/SGPR/tile/vector operand classification and rename.
-- Live T/U `allocTSeq/allocUSeq/allocTUDst*` drive into
-  `DispatchROBAllocator` from the T/U rename owner.
-- Use of the emitted T/U cleanup publisher outputs to mutate the live merged
-  T/U rename state once scalar and T/U rename are composed.
+- T/U relation-cmap retire/deallocation producer for the live `tuRetire*`
+  bridge inputs.
+- SGPR/tile/vector operand classification and rename.
+- Old T/U physical tag release accounting for destination overwrite.
 - SCB/MDB integration, committed-store memory drain, and load-conflict
   publication behind accepted STQ inserts.
 - Ready-table initialization, issue enqueue, execution completion, and full
@@ -272,6 +264,7 @@ Focused gate:
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
+bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
 bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
 bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
 bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
@@ -296,5 +289,6 @@ backpressure, the reduced memory-order ID observability, the store dispatch
 STA/STD readiness rule, the allocation attempt contract, ROB/LSU T/U cleanup
 source agreement and conflict reference behavior, IO shape, and CIRCT
 elaboration through frontend decode, `DecodeLoadStoreIdAssign`,
-`DecodeRenameQueue`, scalar rename, `StoreSplitPayload`, `StoreDispatchSTQPath`
-with `STQEntryBank`, backend allocation, and `TULinkRecoveryCleanupPath`.
+`DecodeRenameQueue`, scalar/T/U rename, `StoreSplitPayload`,
+`StoreDispatchSTQPath` with `STQEntryBank`, backend allocation, and
+`TULinkRecoveryCleanupPath`.

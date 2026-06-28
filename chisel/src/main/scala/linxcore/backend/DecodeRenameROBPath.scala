@@ -9,7 +9,7 @@ import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
 import linxcore.lsu.{StoreDispatchExecResult, StoreDispatchSTQPath}
 import linxcore.recovery.{FullBidRecoveryBridge, RecoveryCleanupIntent}
-import linxcore.rename.{ScalarDecodeRenameBridge, StoreSplitIssuePayload, StoreSplitPayload, TULinkRecoveryCleanupPath}
+import linxcore.rename.{ScalarTURenameBridge, StoreSplitIssuePayload, StoreSplitPayload}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
 class DecodeRenameROBPathIO(
@@ -33,6 +33,7 @@ class DecodeRenameROBPathIO(
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
   private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
   private val stqCountWidth = log2Ceil(p.robEntries + 1)
+  private val tuCountWidth = log2Ceil(Seq(32, 32, mapQDepth).max + 1)
 
   val d1 = Input(new FrontendDecodePacket(p))
   val slots = Input(Vec(p.decodeWidth, new F4Slot(p)))
@@ -163,6 +164,20 @@ class DecodeRenameROBPathIO(
   val unsupportedSrcMask = Output(UInt(3.W))
   val unsupportedDst = Output(Bool())
   val unsupportedOperandClass = Output(Bool())
+  val blockedByTURename = Output(Bool())
+  val tuRenameReady = Output(Bool())
+  val tuRenameAccepted = Output(Bool())
+  val tuRenameTSeq = Output(new ROBID(mapQDepth))
+  val tuRenameUSeq = Output(new ROBID(mapQDepth))
+  val tuRenameDstValid = Output(Bool())
+  val tuRenameDstKind = Output(DestinationKind())
+  val tuRenameNeedsTAlloc = Output(Bool())
+  val tuRenameNeedsUAlloc = Output(Bool())
+  val tuRenameBlockedByTAlloc = Output(Bool())
+  val tuRenameBlockedByUAlloc = Output(Bool())
+  val tuRenameSourceUnderflowMask = Output(UInt(3.W))
+  val tuRenameTUsedEntries = Output(UInt(tuCountWidth.W))
+  val tuRenameUUsedEntries = Output(UInt(tuCountWidth.W))
 
   val allocBlockBid = Output(UInt(bidWidth.W))
   val allocRobValue = Output(UInt(ptrWidth.W))
@@ -341,7 +356,7 @@ class DecodeRenameROBPath(
   queuedForRename.blockBidValid := decRenQ.io.out.valid
   queuedForRename.blockBid := allocator.io.allocBlockBid
 
-  val rename = Module(new ScalarDecodeRenameBridge(
+  val rename = Module(new ScalarTURenameBridge(
     p = p,
     traceParams = traceParams,
     scalarArchRegs = scalarArchRegs,
@@ -393,10 +408,10 @@ class DecodeRenameROBPath(
 
   val storeSplit = Module(new StoreSplitPayload(p, mapQDepth))
   storeSplit.io.in := rename.io.out
-  storeSplit.io.tSeq := ROBID.disabled(mapQDepth)
-  storeSplit.io.uSeq := ROBID.disabled(mapQDepth)
-  storeSplit.io.tuDstValid := false.B
-  storeSplit.io.tuDstKind := DestinationKind.None
+  storeSplit.io.tSeq := rename.io.tuTSeq
+  storeSplit.io.uSeq := rename.io.tuUSeq
+  storeSplit.io.tuDstValid := rename.io.tuDstValid
+  storeSplit.io.tuDstKind := rename.io.tuDstKind
   storeSplit.io.staReady := storeDispatch.io.staReady
   storeSplit.io.stdReady := storeDispatch.io.stdReady
 
@@ -409,10 +424,10 @@ class DecodeRenameROBPath(
   allocator.io.allocRow := rename.io.robAllocRow
   allocator.io.allocTid := queuedForRename.threadId
   allocator.io.allocStid := queuedForRename.threadId
-  allocator.io.allocTSeq := zeroLocalSeq
-  allocator.io.allocUSeq := zeroLocalSeq
-  allocator.io.allocTUDstValid := false.B
-  allocator.io.allocTUDstKind := DestinationKind.None
+  allocator.io.allocTSeq := rename.io.tuTSeq
+  allocator.io.allocUSeq := rename.io.tuUSeq
+  allocator.io.allocTUDstValid := rename.io.tuDstValid
+  allocator.io.allocTUDstKind := rename.io.tuDstKind
   allocator.io.allocPeId := 0.U
   allocator.io.allocBlockType := queuedForRename.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
   allocator.io.allocNeedsEngine := false.B
@@ -433,25 +448,12 @@ class DecodeRenameROBPath(
   allocator.io.blockFlushBid := io.cleanup.blockFlushBid
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
 
-  val tuCleanup = Module(new TULinkRecoveryCleanupPath(
-    p = p,
-    mapQDepth = mapQDepth,
-    bidWidth = bidWidth,
-    peIdWidth = peIdWidth,
-    stidWidth = stidWidth,
-    tidWidth = tidWidth
-  ))
-  tuCleanup.io.in := 0.U.asTypeOf(new DecodedUop(p))
-  tuCleanup.io.renameValid := false.B
-  tuCleanup.io.retireValid := false.B
-  tuCleanup.io.retireKind := DestinationKind.None
-  tuCleanup.io.retireSeq := zeroLocalSeq
-  tuCleanup.io.retireDealloc := false.B
-  tuCleanup.io.commitValid := false.B
-  tuCleanup.io.commitBid := io.commitBid
-  tuCleanup.io.cleanup := io.cleanup
-  tuCleanup.io.robSource := allocator.io.robTULinkSource
-  tuCleanup.io.lsuSource := storeDispatch.io.lsuTULinkSource
+  rename.io.robSource := allocator.io.robTULinkSource
+  rename.io.lsuSource := storeDispatch.io.lsuTULinkSource
+  rename.io.tuRetireValid := false.B
+  rename.io.tuRetireKind := DestinationKind.None
+  rename.io.tuRetireSeq := zeroLocalSeq
+  rename.io.tuRetireDealloc := false.B
 
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
@@ -552,6 +554,20 @@ class DecodeRenameROBPath(
   io.unsupportedSrcMask := rename.io.unsupportedSrcMask
   io.unsupportedDst := rename.io.unsupportedDst
   io.unsupportedOperandClass := rename.io.unsupportedOperandClass
+  io.blockedByTURename := rename.io.blockedByTURename
+  io.tuRenameReady := rename.io.tuReady
+  io.tuRenameAccepted := rename.io.tuAccepted
+  io.tuRenameTSeq := rename.io.tuTSeq
+  io.tuRenameUSeq := rename.io.tuUSeq
+  io.tuRenameDstValid := rename.io.tuDstValid
+  io.tuRenameDstKind := rename.io.tuDstKind
+  io.tuRenameNeedsTAlloc := rename.io.needsTAlloc
+  io.tuRenameNeedsUAlloc := rename.io.needsUAlloc
+  io.tuRenameBlockedByTAlloc := rename.io.tuBlockedByTAlloc
+  io.tuRenameBlockedByUAlloc := rename.io.tuBlockedByUAlloc
+  io.tuRenameSourceUnderflowMask := rename.io.tuSourceUnderflowMask
+  io.tuRenameTUsedEntries := rename.io.tuTUsedEntries
+  io.tuRenameUUsedEntries := rename.io.tuUUsedEntries
 
   io.allocBlockBid := allocator.io.allocBlockBid
   io.allocRobValue := allocator.io.allocRobValue
@@ -573,30 +589,30 @@ class DecodeRenameROBPath(
   io.robTULinkSource := allocator.io.robTULinkSource
   io.robTULinkSourceMatched := allocator.io.robTULinkSourceMatched
   io.robTULinkSourceMultipleMatch := allocator.io.robTULinkSourceMultipleMatch
-  io.tuCleanupPublisherFlushValid := tuCleanup.io.publisherFlushValid
-  io.tuCleanupPublisherFlushBaseOnBid := tuCleanup.io.publisherFlushBaseOnBid
-  io.tuCleanupPublisherFlushBid := tuCleanup.io.publisherFlushBid
-  io.tuCleanupPublisherFlushRid := tuCleanup.io.publisherFlushRid
-  io.tuCleanupPublisherFlushTSeq := tuCleanup.io.publisherFlushTSeq
-  io.tuCleanupPublisherFlushUSeq := tuCleanup.io.publisherFlushUSeq
-  io.tuCleanupActive := tuCleanup.io.cleanupActive
-  io.tuCleanupBlockedBySource := tuCleanup.io.cleanupBlockedBySource
-  io.tuCleanupFlushSourceRequired := tuCleanup.io.flushSourceRequired
-  io.tuCleanupFlushSourceMatched := tuCleanup.io.flushSourceMatched
-  io.tuCleanupFlushMissingSource := tuCleanup.io.flushMissingSource
-  io.tuCleanupFlushSourceMismatch := tuCleanup.io.flushSourceMismatch
-  io.tuCleanupSelectedFlushSource := tuCleanup.io.selectedFlushSource
-  io.tuCleanupRobSourceMatched := tuCleanup.io.robSourceMatched
-  io.tuCleanupLsuSourceMatched := tuCleanup.io.lsuSourceMatched
-  io.tuCleanupRobSourceMismatched := tuCleanup.io.robSourceMismatched
-  io.tuCleanupLsuSourceMismatched := tuCleanup.io.lsuSourceMismatched
-  io.tuCleanupMultipleSourcesMatched := tuCleanup.io.multipleSourcesMatched
-  io.tuCleanupSourceConflict := tuCleanup.io.sourceConflict
-  io.tuCleanupSelectorSourceMissing := tuCleanup.io.selectorSourceMissing
-  io.tuCleanupSelectedFromRob := tuCleanup.io.selectedFromRob
-  io.tuCleanupSelectedFromLsu := tuCleanup.io.selectedFromLsu
-  io.tuCleanupFlushTPrevApplied := tuCleanup.io.flushTPrevApplied
-  io.tuCleanupFlushUPrevApplied := tuCleanup.io.flushUPrevApplied
+  io.tuCleanupPublisherFlushValid := rename.io.tuCleanupPublisherFlushValid
+  io.tuCleanupPublisherFlushBaseOnBid := rename.io.tuCleanupPublisherFlushBaseOnBid
+  io.tuCleanupPublisherFlushBid := rename.io.tuCleanupPublisherFlushBid
+  io.tuCleanupPublisherFlushRid := rename.io.tuCleanupPublisherFlushRid
+  io.tuCleanupPublisherFlushTSeq := rename.io.tuCleanupPublisherFlushTSeq
+  io.tuCleanupPublisherFlushUSeq := rename.io.tuCleanupPublisherFlushUSeq
+  io.tuCleanupActive := rename.io.tuCleanupActive
+  io.tuCleanupBlockedBySource := rename.io.tuCleanupBlockedBySource
+  io.tuCleanupFlushSourceRequired := rename.io.tuCleanupFlushSourceRequired
+  io.tuCleanupFlushSourceMatched := rename.io.tuCleanupFlushSourceMatched
+  io.tuCleanupFlushMissingSource := rename.io.tuCleanupFlushMissingSource
+  io.tuCleanupFlushSourceMismatch := rename.io.tuCleanupFlushSourceMismatch
+  io.tuCleanupSelectedFlushSource := rename.io.tuCleanupSelectedFlushSource
+  io.tuCleanupRobSourceMatched := rename.io.tuCleanupRobSourceMatched
+  io.tuCleanupLsuSourceMatched := rename.io.tuCleanupLsuSourceMatched
+  io.tuCleanupRobSourceMismatched := rename.io.tuCleanupRobSourceMismatched
+  io.tuCleanupLsuSourceMismatched := rename.io.tuCleanupLsuSourceMismatched
+  io.tuCleanupMultipleSourcesMatched := rename.io.tuCleanupMultipleSourcesMatched
+  io.tuCleanupSourceConflict := rename.io.tuCleanupSourceConflict
+  io.tuCleanupSelectorSourceMissing := rename.io.tuCleanupSelectorSourceMissing
+  io.tuCleanupSelectedFromRob := rename.io.tuCleanupSelectedFromRob
+  io.tuCleanupSelectedFromLsu := rename.io.tuCleanupSelectedFromLsu
+  io.tuCleanupFlushTPrevApplied := rename.io.tuCleanupFlushTPrevApplied
+  io.tuCleanupFlushUPrevApplied := rename.io.tuCleanupFlushUPrevApplied
   io.empty := allocator.io.empty
   io.full := allocator.io.full
   io.size := allocator.io.size

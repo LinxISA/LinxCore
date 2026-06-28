@@ -100,8 +100,8 @@ keeps queue-backed store dispatch and STQ row mutation as the source owner, but
 gives the future recovery-cleanup composition a stable LSU-side port for exact
 non-base `(bid,rid,stid)` cleanup. R61 makes the dispatch queue and request
 bridge sidecar-capable, so live `tSeq/uSeq` and T/U destination ownership can
-reach the STQ bank once the reduced backend wires a real T/U rename producer.
-Until then, `DecodeRenameROBPath` drives the sidecar inputs disabled.
+reach the STQ bank. R62 wires the reduced backend producer through
+`ScalarTURenameBridge`.
 
 ## Model Alignment
 
@@ -117,9 +117,6 @@ STD can bypass a blocked STA when the STD half is independently insertable.
 - Ready-table/source wakeup effects before store execution.
 - Load-conflict probe publication after accepted STQ insert.
 - Store-data wakeup, memory trace, exceptions, and SCB/MDB integration.
-- Live T/U rename sidecar producer wiring into `StoreSplitPayload`; the
-  current reduced backend integration still drives disabled T/U source
-  sidecars.
 - Top-level committed-store drain and SCB/MDB integration beyond the reduced
   insert path.
 

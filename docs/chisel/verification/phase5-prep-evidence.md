@@ -4039,3 +4039,113 @@ Skill evolve:
   preservation rule: row-owned T/U sequence and destination metadata must be
   copied through split, queue, bridge, and STQ owners before the live T/U
   rename producer is composed.
+
+## 2026-06-29 Scalar/TU Rename Composition
+
+Scope:
+
+- Added `ScalarTURenameBridge` as the live scalar-GPR plus T/U rename
+  composition owner.
+- Kept `ScalarDecodeRenameBridge` scalar-only by sanitizing T/U operands and
+  destinations before scalar GPR rename.
+- Composed `TULinkRecoveryCleanupPath` with scalar rename so scalar and T/U
+  state mutate on the same accepted uop.
+- Overlaid accepted T/U source and destination physical tags onto
+  `RenamedUop`.
+- Replaced `DecodeRenameROBPath` zero/invalid T/U sidecars with live
+  `tSeq/uSeq` and T/U destination sidecars into `StoreSplitPayload` and
+  `DispatchROBAllocator`.
+- Removed the separate diagnostic-only T/U cleanup instance from
+  `DecodeRenameROBPath`; cleanup diagnostics now come from the live T/U rename
+  owner.
+
+Model evidence:
+
+- `SPERename::Rename()` resolves source operands, snapshots `inst->tSeq` and
+  `inst->uSeq` from local T/U register managers, then renames destinations.
+- `SPERename::InsertToStoreIEX()` dispatches store payloads after rename, so
+  split STA/STD halves inherit the same row-owned sequence snapshots.
+- ROB and LSU cleanup source builders consume the row-owned sequence snapshots
+  and T/U destination sidecar for non-base local-register cleanup.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSourceSelector
+bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_top_xcheck.sh
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel fetch origin main
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel rev-parse HEAD origin/main
+git diff --check
+```
+
+Expected result:
+
+- `ScalarTURenameBridge` elaborates through `ScalarDecodeRenameBridge`,
+  `TULinkRecoveryCleanupPath`, and `TULinkRename`.
+- T/U operands are not presented to the scalar GPR bridge, but accepted T/U
+  physical tags are preserved in `RenamedUop`.
+- Scalar and T/U rename accept atomically; T/U pressure, source underflow, or
+  cleanup-source barriers prevent the scalar side from accepting.
+- `DecodeRenameROBPath` drives live `tSeq/uSeq/tuDst*` into store split and
+  ROB allocation sidecar inputs.
+- ROB/LSU cleanup diagnostics continue to expose missing, mismatched, and
+  conflicting source evidence from the live cleanup owner.
+- Reduced ROB, trace adapter, QEMU dry-run, top xcheck, and LinxCoreModel SHA
+  evidence remain green.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `ScalarTURenameBridgeSpec` passed 4 tests.
+- `DecodeRenameROBPathSpec` passed 7 tests.
+- `ScalarDecodeRenameBridgeSpec` passed 6 tests.
+- `TULinkRenameSpec` passed 10 tests.
+- `TULinkRecoveryCleanupPathSpec` passed 9 tests.
+- `TULinkFlushSourceSelectorSpec` passed 8 tests.
+- `StoreSplitPayloadSpec` passed 7 tests.
+- `StoreDispatchSTQPathSpec` passed 5 tests.
+- `StoreDispatchToSTQSpec` passed 6 tests.
+- `STQEntryBankSpec` passed 11 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` generated and Verilated
+  `LinxCoreTop`, normalized 3 QEMU rows and 3 DUT rows, and reported
+  `compared=3 mismatches=0`.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`, with a
+  clean model worktree.
+- `git diff --check` passed.
+- `quick_validate.py` passed for `linx-core`.
+- `check_skill_change_scope.py` passed with `changed=3, removed=0`; only
+  `linx-core/SKILL.md` is part of this packet while pre-existing dirty
+  `linx-model/SKILL.md` and `linx-superproject/SKILL.md` edits were left
+  untouched.
+- `install_canonical_skills.sh` synced canonical Linx skills into
+  `/Users/zhoubot/.codex/skills`.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R62 adds a reusable scalar/TU
+  rename composition invariant: hide T/U operands from the scalar GPR bridge,
+  gate scalar accept with T/U readiness, fire T/U rename only on the accepted
+  scalar row, and overlay accepted T/U tags and sidecars after scalar rename.

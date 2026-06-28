@@ -136,8 +136,6 @@ through scalar rename into this owner.
 
 - Stack rename payloads and explicit STA stack-type clearing / STD stack-type
   forwarding.
-- Live producer wiring from `TULinkRename` into these sidecar inputs in the
-  reduced `DecodeRenameROBPath`.
 - STA/STD execution and STQ mutation behind `StoreDispatchQueues`.
 - STQ allocation, complementary partial-store merge, and STQ residency
   counters.

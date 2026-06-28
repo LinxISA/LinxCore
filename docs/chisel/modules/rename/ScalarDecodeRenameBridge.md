@@ -28,6 +28,8 @@ owner so the next top-level packet can connect frontend decode to real ROB
 allocation without inventing more fixture rows. It does not claim the full C++
 model timing of `DCTop -> dec_ren_q -> SPERename`; a later queue packet should
 split this into registered D2/D3 stages once live frontend/backend flow exists.
+`ScalarTURenameBridge` composes this scalar-only owner with the T/U rename
+path; this module still rejects non-GPR operand classes by design.
 
 ## Interface
 
@@ -136,7 +138,8 @@ checkpoint and rename as separate commands.
 - Automatic checkpoint capture from validated `isLastInBlock` metadata.
 - LSID allocation and load/store same-cycle ordering.
 - Integrated handoff from `StoreSplitPayload` into STA/STD dispatch queues.
-- T/U/SGPR/tile/vector rename.
+- Direct T/U/SGPR/tile/vector rename. T/U is composed by
+  `ScalarTURenameBridge` without changing this scalar owner.
 - Ready-table initialization, speculative load-ready, and bypass ownership.
 - ROB/BROB allocation composition with live block headers.
 - Commit/writeback/memory/trap side-effect completion.

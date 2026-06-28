@@ -132,7 +132,9 @@ candidate source snapshots. The reduced backend now instantiates the path with
 `DispatchROBAllocator.robTULinkSource` on `robSource` and
 `StoreDispatchSTQPath.lsuTULinkSource` from the live STQ bank on `lsuSource`.
 This proves the ROB/LSU source-selection diagnostics against a real STQ row
-owner while the actual T/U rename-state mutation remains deferred.
+owner. `ScalarTURenameBridge` now composes this path with scalar rename, so
+the publisher output mutates the live T/U rename owner instead of existing
+only as diagnostics.
 
 ## Timing
 
@@ -153,10 +155,6 @@ rather than ignoring them.
 
 ## Deferred Owners
 
-- Use the reduced backend cleanup publisher outputs to mutate a live merged
-  scalar/T/U rename state instead of only publishing diagnostics.
-- Replace disabled store-dispatch T/U sidecars with live rename snapshots.
-- Scalar decode/rename composition that merges GPR and T/U accepted outputs.
 - Relation-cmap release policy around T/U retire/dealloc.
 - T/U ready-table initialization and wakeup state.
 - Multi-PE and multi-thread T/U bank replication beyond the current STID0
