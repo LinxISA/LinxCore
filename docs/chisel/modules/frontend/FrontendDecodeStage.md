@@ -31,8 +31,8 @@ Outputs:
 
 - `out[4]`: `DecodedUop` records with valid, PC, opcode, dispatch-kind
   sideband, scalar source/destination tags plus GPR/T/U alias classes,
-  immediate value/valid, raw instruction, length, UID, parent packet UID, and
-  checkpoint.
+  immediate value/valid, load/store class bits, raw instruction, length, UID,
+  parent packet UID, and checkpoint.
 - `meta[4]`: opcode decode metadata for integration/debug.
 - `outValidMask`: recognized decoded-uop mask.
 - `invalidOpcodeMask`: active slot whose raw instruction did not match the
@@ -69,7 +69,9 @@ The Chisel stage is combinational. For each F4 slot:
    - `checkpointId = d1.checkpointId`
 5. It delegates scalar source/destination and immediate extraction to
    `FrontendOperandDecode`.
-6. It classifies basic dispatch:
+6. It copies generated `isLoad`/`isStore` metadata into both the output uop
+   and the visible load/store masks.
+7. It classifies basic dispatch:
    - `ALU_INT`, `COMPRESSED`, and `HL_PCR` -> `DispatchTarget.Alu`
    - `BRU_SETC_CMP` -> `DispatchTarget.Bru`
    - `LOAD` / `STORE` -> `DispatchTarget.Lsu`

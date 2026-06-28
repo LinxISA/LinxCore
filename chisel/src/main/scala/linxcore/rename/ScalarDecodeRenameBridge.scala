@@ -194,6 +194,12 @@ class ScalarDecodeRenameBridge(
   renamed.bid := io.in.bid
   renamed.gid := io.in.gid
   renamed.lsid := io.in.lsid
+  renamed.isLoad := io.in.isLoad
+  renamed.isStore := io.in.isStore
+  renamed.storeSplitIntent := io.in.storeSplitIntent
+  renamed.isLoadStorePair := io.in.isLoadStorePair
+  renamed.isStorePcr := io.in.isStorePcr
+  renamed.cacheMaintainNoSplit := io.in.cacheMaintainNoSplit
   renamed.sob := io.in.sob
   renamed.eob := io.in.eob
   renamed.boundaryKind := io.in.boundaryKind

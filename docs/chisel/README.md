@@ -40,10 +40,10 @@ records plus block/load/store sideband masks. `FrontendOperandDecode` is the
 first scalar operand owner behind that stage: it consumes generated
 `rdKind`/`rs1Kind`/`rs2Kind`/`immKind` metadata, extracts architectural
 source/destination tags, classifies scalar reg6 aliases as GPR/T/U according
-to LinxCoreModel, and forms common scalar immediates. LSID allocation, store
-split rewrite, T/U rename or queue consumption, SGPR/tile/vector operands, D2
-width expansion, and full model-like ROB reservation before queue enqueue
-remain later owners.
+to LinxCoreModel, and forms common scalar immediates. LSID allocation,
+store-split payload construction, T/U rename or queue consumption,
+SGPR/tile/vector operands, D2 width expansion, and full model-like ROB
+reservation before queue enqueue remain later owners.
 `ScalarDecodeRenameBridge` now adds
 the first one-uop D2 decode-to-rename staging owner: it composes scalar
 `GPRRenameCheckpoint`, emits a `RenamedUop`, and produces a ROB allocation row
@@ -54,8 +54,11 @@ allocation. It selects one decoded slot, queues the raw decoded row, stamps
 reduced memory-order identity when the row is accepted into the queue, stamps
 temporary backend identity from allocator cursors at the queue head, drives
 allocator valid from a pre-ready bridge attempt signal, and keeps enqueue-time
-ROB reservation, full SID/LID payload carry, store split cloning, ready-table,
-and live top integration in later owners. The first integrated ROB/CMT
+ROB reservation, full SID/LID payload carry, store-dispatch integration,
+ready-table, and live top integration in later owners. `StoreSplitPayload`
+now defines the renamed store payload boundary: it emits atomic STA/STD halves
+or a single ST_ALL payload while preserving PCR source selection. The first
+integrated ROB/CMT
 preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
 status-backed entry bank with separate commit and deallocation walks, and expose
 the model-derived flush-prune selection rule. The entry bank now consumes that

@@ -14,6 +14,8 @@ class DecodeLoadStoreIdAssignIO(
   val isStore = Input(Bool())
   val isDczva = Input(Bool())
   val isLoadStorePair = Input(Bool())
+  val isStorePcr = Input(Bool())
+  val cacheMaintainNoSplit = Input(Bool())
   val storeSplitRequest = Input(Bool())
   val stackSetRequest = Input(Bool())
   val accept = Input(Bool())
@@ -52,9 +54,18 @@ class DecodeLoadStoreIdAssign(
   val storeLike = io.in.valid && (io.isStore || io.isDczva)
   val loadLike = io.in.valid && io.isLoad && !storeLike
   val memoryValid = loadLike || storeLike
+  val splitIntent =
+    io.in.valid && io.isStore && (io.storeSplitRequest || io.stackSetRequest) &&
+      !io.isLoadStorePair && !io.cacheMaintainNoSplit
 
   io.out := io.in
   io.out.lsid := Mux(memoryValid, nextLsId, io.in.lsid)
+  io.out.isLoad := io.isLoad
+  io.out.isStore := io.isStore
+  io.out.storeSplitIntent := splitIntent
+  io.out.isLoadStorePair := io.isLoadStorePair
+  io.out.isStorePcr := io.isStorePcr
+  io.out.cacheMaintainNoSplit := io.cacheMaintainNoSplit
 
   io.memoryValid := memoryValid
   io.loadIdValid := loadLike
@@ -66,8 +77,7 @@ class DecodeLoadStoreIdAssign(
   io.nextLsId := nextLsId
   io.nextLoadId := nextLoadId
   io.nextStoreId := nextStoreId
-  io.storeSplitIntent :=
-    io.in.valid && io.isStore && (io.storeSplitRequest || io.stackSetRequest) && !io.isLoadStorePair
+  io.storeSplitIntent := splitIntent
 
   when(io.flushValid) {
     when(io.restoreValid) {

@@ -24,6 +24,8 @@ object DecodeLoadStoreIdAssignReference {
       isStore: Boolean,
       isDczva: Boolean,
       isLoadStorePair: Boolean,
+      isStorePcr: Boolean = false,
+      cacheMaintainNoSplit: Boolean = false,
       storeSplitRequest: Boolean,
       stackSetRequest: Boolean,
       accept: Boolean,
@@ -33,7 +35,9 @@ object DecodeLoadStoreIdAssignReference {
     val loadLike = inValid && isLoad && !storeLike
     val memoryValid = loadLike || storeLike
     val assignFire = accept && memoryValid
-    val splitIntent = inValid && isStore && (storeSplitRequest || stackSetRequest) && !isLoadStorePair
+    val splitIntent =
+      inValid && isStore && (storeSplitRequest || stackSetRequest) &&
+        !isLoadStorePair && !cacheMaintainNoSplit
     val nextState =
       if (flush) {
         restore.getOrElse(State())
@@ -149,7 +153,7 @@ class DecodeLoadStoreIdAssignSpec extends AnyFunSuite {
     assert(scalar.state == state)
   }
 
-  test("reference suppresses split intent for load-store pairs and restores after flush") {
+  test("reference suppresses split intent for load-store pairs, cache maintenance, and restores after flush") {
     val pair = step(
       State(lsid = 2, loadId = 1, storeId = 1),
       inValid = true,
@@ -160,8 +164,19 @@ class DecodeLoadStoreIdAssignSpec extends AnyFunSuite {
       storeSplitRequest = true,
       stackSetRequest = false,
       accept = true)
-    val restored = step(
+    val cacheMaintain = step(
       pair.state,
+      inValid = true,
+      isLoad = false,
+      isStore = true,
+      isDczva = false,
+      isLoadStorePair = false,
+      cacheMaintainNoSplit = true,
+      storeSplitRequest = true,
+      stackSetRequest = false,
+      accept = true)
+    val restored = step(
+      cacheMaintain.state,
       inValid = true,
       isLoad = true,
       isStore = false,
@@ -175,6 +190,8 @@ class DecodeLoadStoreIdAssignSpec extends AnyFunSuite {
 
     assert(!pair.storeSplitIntent)
     assert(pair.state == State(lsid = 3, loadId = 1, storeId = 2))
+    assert(!cacheMaintain.storeSplitIntent)
+    assert(cacheMaintain.state == State(lsid = 4, loadId = 1, storeId = 3))
     assert(restored.state == State(lsid = 11, loadId = 5, storeId = 6))
   }
 
@@ -189,6 +206,8 @@ class DecodeLoadStoreIdAssignSpec extends AnyFunSuite {
     assert(io.nextLoadId.getWidth == 64)
     assert(io.nextStoreId.getWidth == 64)
     assert(io.storeSplitIntent.getWidth == 1)
+    assert(io.isStorePcr.getWidth == 1)
+    assert(io.cacheMaintainNoSplit.getWidth == 1)
   }
 
   test("DecodeLoadStoreIdAssign elaborates as a separate backend owner") {

@@ -33,6 +33,9 @@ Inputs:
   rows win if more than one class bit is asserted, matching the model's
   store/DCZVA branch.
 - `isLoadStorePair`: suppresses store splitting for load/store-pair opcodes.
+- `isStorePcr`: marks PCR stores whose address half preserves source 0 and
+  whose data source index is 1 in the later split owner.
+- `cacheMaintainNoSplit`: suppresses store splitting for cache-maintain rows.
 - `storeSplitRequest`, `stackSetRequest`: model split sources used by
   `SPERename::InsertToStoreIEX`.
 - `accept`: exact downstream acceptance point. Counters advance only when this
@@ -43,7 +46,8 @@ Inputs:
 
 Outputs:
 
-- `out`: decoded uop with `lsid` replaced by the current LSID for memory rows.
+- `out`: decoded uop with `lsid` replaced by the current LSID for memory rows
+  and memory/split metadata carried into the queued row.
 - `memoryValid`, `loadIdValid`, `storeIdValid`, `assignFire`: allocation event
   classification and advance observability.
 - `assignedLsId`, `assignedLoadId`, `assignedStoreId`: IDs associated with the
@@ -70,9 +74,10 @@ changing counters.
 
 `storeSplitIntent` is true only for store rows where either the decoded row
 requests splitting or stack-set handling forces it, and where
-`isLoadStorePair` is false. This mirrors the front of
-`SPERename::InsertToStoreIEX`; the later store-split owner must still clone
-STA/STD uops and apply `HandleSta` PCR-source rules.
+`isLoadStorePair` and `cacheMaintainNoSplit` are both false. This mirrors the
+front of `SPERename::InsertToStoreIEX` plus the decoder's cache-maintain split
+suppression. The later store-split owner still clones STA/STD uops and applies
+`HandleSta` PCR-source rules.
 
 Flush has priority over accept. A flush with `restoreValid` loads the provided
 counter image; a flush without restore resets all counters to zero. Full
@@ -104,9 +109,9 @@ later owners.
   context.
 - Carrying `load_id`/`sid` through common uop bundles into LIQ/STQ owners.
 - DCZVA opcode classification from generated decode metadata.
-- Opcode-derived load/store-pair and cache-maintain split suppression.
-- Store split rewrite into separate STA/STD uops plus PCR `HandleSta` source
-  selection.
+- Generated opcode-derived load/store-pair, PCR-store, and cache-maintain
+  metadata.
+- Integration with `StoreSplitPayload` and STA/STD dispatch queues.
 - Enqueue-time ROB reservation before `DecodeRenameQueue`.
 
 ## Verification

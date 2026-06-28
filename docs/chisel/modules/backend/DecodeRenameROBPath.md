@@ -144,7 +144,9 @@ payloads into LIQ/STQ owners.
 - Top-level frontend backpressure wiring that consumes `decodeReady`.
 - Width-wide slot-order LSID/SID allocation and same-cycle memory ordering.
 - Full `load_id`/`sid` payload carry into LIQ/STQ owners.
-- Store split rewrite into STA/STD; the current path exposes split intent only.
+- Store split dispatch integration; `StoreSplitPayload` now defines the
+  renamed-uop payload split, but this reduced path still returns the unsplit
+  `renamedOut` stream.
 - Automatic checkpoint capture from validated `isLastInBlock`.
 - T/U/SGPR/tile/vector operand classification and rename.
 - Ready-table initialization, issue enqueue, execution completion, and full

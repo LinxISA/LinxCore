@@ -155,6 +155,7 @@ These packets remain the required base before broad module promotion:
 | R43 | `FrontendRegAliasClassify` / `FrontendOperandDecode` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R44 | `DecodeRenameQueue` / `DecodeRenameROBPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R45 | `DecodeLoadStoreIdAssign` / `DecodeRenameROBPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R46 | `StoreSplitPayload` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -260,9 +261,10 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Store-split payload boundary: consume `storeSplitIntent` and opcode-derived
-   pair/cache-maintain metadata, then clone store rows into STA/STD payloads
-   with shared SID while preserving PCR store source selection.
+1. Store dispatch integration: connect `StoreSplitPayload` behind scalar
+   rename, carry opcode-derived PCR/pair/cache-maintain metadata from generated
+   decode, and feed STA/STD payloads into dispatch/STQ boundaries without
+   mutating STQ state in rename.
 2. T/U queue rename boundary: consume `OperandClass.T/U` and
    `DestinationKind.T/U` emitted by `FrontendRegAliasClassify` without
    broadening scalar GPR rename ownership.

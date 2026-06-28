@@ -56,8 +56,8 @@ model `CommitInfo.bid` field.
 |---|---|---|
 | `FrontendDecodePacket` | F4-to-D1 decode ingress | `valid`, `pc`, `window`, `pktUid`, `checkpointId` |
 | `UopUidPacket` | DFX/dynamic uop identity | `uid`, `parentUid`, `fetchPacketUid`, `fetchSlot`, `replayDepth` |
-| `DecodedUop` | Canonical D2 architectural uop | `src[3]`, `dst[1]`, `imm`, `rid/bid/gid`, `lsid`, boundary metadata, raw instruction |
-| `RenamedUop` | D3/S1 backend-visible uop | renamed source/destination tags, dispatch target, model identity, block identity |
+| `DecodedUop` | Canonical D2 architectural uop | `src[3]`, `dst[1]`, `imm`, `rid/bid/gid`, `lsid`, memory class/split metadata, boundary metadata, raw instruction |
+| `RenamedUop` | D3/S1 backend-visible uop | renamed source/destination tags, dispatch target, memory class/split metadata, model identity, block identity |
 | `IssueQueueEntry` | IQ residency record | `valid`, `inflight`, `issueSlot`, `target`, `uop` |
 | `LsuRequest` | Scalar LSU request envelope | `uid`, load/store flags, `rid/bid/gid/subrid`, `modelLsId`, `lsid`, address/data/mask |
 | `LsuResponse` | LSU-to-ROB result envelope | load/store flags, `rid/gid`, `lsid`, address/data/mask, trap |
@@ -80,6 +80,9 @@ The bundle shape follows these rules:
 - keep source operands as `{P,T,U,CArg}` and destination operands as
   `{Gpr,T,U}`;
 - carry model `ROBID` domains as `rid`, `bid`, and `gid`;
+- carry reduced memory-class and store-split sidebands through
+  `isLoad`, `isStore`, `storeSplitIntent`, `isLoadStorePair`, `isStorePcr`,
+  and `cacheMaintainNoSplit`;
 - carry the 64-bit BROB/BCTRL identity as `blockBid` with a separate valid bit;
 - keep LSU scalar `lsid` as 32 bits while also preserving the model `lsID`
   ROBID-like field as `modelLsId`.

@@ -17,6 +17,7 @@
 | `RecoveryCleanupControl` | `linxcore.recovery` | `docs/chisel/modules/recovery/RecoveryCleanupControl.md` | Unit-green registered cleanup-intent owner for BCTRL, rename, backend, frontend, LSU/STQ, tile, PE, and ROB consumers |
 | `GPRRenameCheckpoint` | `linxcore.rename` | `docs/chisel/modules/rename/GPRRenameCheckpoint.md` | Unit-green R38 scalar GPR rename checkpoint/cleanup owner; consumes `RecoveryCleanupControl` rename flush intent |
 | `ScalarDecodeRenameBridge` | `linxcore.rename` | `docs/chisel/modules/rename/ScalarDecodeRenameBridge.md` | Unit-green R41 one-uop scalar decode-to-rename bridge with ROB allocation-row request and explicit alias rejection |
+| `StoreSplitPayload` | `linxcore.rename` | `docs/chisel/modules/rename/StoreSplitPayload.md` | Unit-green R46 renamed store payload split owner; emits atomic STA/STD or ST_ALL payloads with PCR source selection |
 | `STQFlushPrune` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQFlushPrune.md` | Unit-green first LSU/STQ cleanup consumer; emits model-derived free masks for valid `STQ_WAIT` rows |
 | `STQEntryBank` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQEntryBank.md` | Unit-green first STQ state owner; consumes flush-prune masks, owns row sidecars, split-store merge, resident/WAIT counts, and committed-row free masks |
 | `STQCommitQueue` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQCommitQueue.md` | Unit-green R16 store-commit ordering owner; sorted enqueue and downstream-ready issue selection |

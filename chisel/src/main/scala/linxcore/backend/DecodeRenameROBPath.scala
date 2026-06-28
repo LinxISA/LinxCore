@@ -208,6 +208,8 @@ class DecodeRenameROBPath(
   memIds.io.isStore := selectedIsStore
   memIds.io.isDczva := false.B
   memIds.io.isLoadStorePair := false.B
+  memIds.io.isStorePcr := false.B
+  memIds.io.cacheMaintainNoSplit := false.B
   memIds.io.storeSplitRequest := selectedIsStore
   memIds.io.stackSetRequest := false.B
   memIds.io.flushValid := decRenFlush
