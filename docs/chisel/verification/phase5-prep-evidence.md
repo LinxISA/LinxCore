@@ -2371,3 +2371,65 @@ Skill evolve:
   previously deferred exact `resp_list` row-id ordering invariant and adds the
   accepted-response handshake: raw response consumption, retry enqueue, and
   `Miss -> Lookup` state update must succeed together.
+
+### R38 GPR Rename Checkpoint Cleanup
+
+Implementation:
+
+- Added `GPRRenameCheckpoint` as the first scalar GPR rename cleanup consumer
+  behind `RecoveryCleanupControl`.
+- Modeled `GPRRename` `smap`, `cmap`, per-BID checkpoints, `renamePtr`,
+  physical-tag free mask, and finite mapQ rows for one scalar STID0 owner.
+- Implemented model-derived `GPRRename::Flush` behavior: `restoreBid =
+  flush.bid - 1`, restore from checkpoint or `cmap`, prune matching mapQ rows,
+  and re-apply surviving same-BID mapQ rows for non-BID flushes.
+- Kept ClockHands/T/U, SGPR replay, multi-thread rename, and full dispatch/ROB
+  integration in later owner packets.
+
+Verification:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only GPRRenameCheckpoint
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge
+bash tools/chisel/run_chisel_tests.sh --only ROBID
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Evidence:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `GPRRenameCheckpointSpec` passed 6 tests covering identity reset state,
+  first-free rename allocation and mapQ insertion, ordered same-arch block
+  commit, base-on-BID checkpoint restore/prune, non-BID same-BID survivor
+  re-application, and Chisel elaboration.
+- `RecoveryCleanupControlSpec` passed 6 tests.
+- `FullBidRecoveryBridgeSpec` passed 4 tests.
+- `ROBIDSpec` passed 3 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` compared 3 commits with
+  zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` compared 3 commits with zero
+  mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the current top
+  shell and passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `GPRRenameCheckpoint` adds the first
+  reusable scalar rename cleanup invariant: recovery restore must use
+  `flush.bid - 1`, choose checkpoint-or-`cmap` source by checkpoint validity,
+  prune mapQ by model `FlushBus` ordering, and re-apply surviving same-BID
+  mapQ rows for non-BID flushes.

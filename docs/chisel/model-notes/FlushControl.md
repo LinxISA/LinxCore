@@ -73,6 +73,14 @@ the same `stid`, optional PE/thread, BID, group, and LSID matching policy as
 `FlushBus::match(MemReqBus)` and only frees rows whose model STQ FSM is
 `STQ_WAIT`.
 
+`GPRRenameCheckpoint` is the first scalar rename cleanup consumer of the
+registered intent. It applies `renameFlushValid` to model `GPRRename::Flush`:
+compute `restoreBid = flush.bid - 1`, restore `smap` from a valid checkpoint or
+`cmap`, prune matching mapQ rows, and re-apply surviving same-BID mapQ rows for
+non-BID flushes. `renameReplayValid` is observed but does not mutate scalar GPR
+maps in this first owner because ClockHands/T/U and SGPR replay remain separate
+rename packets.
+
 ## Open Questions
 
 - The model typo `selectPESigal` is preserved only in source citations; Chisel
@@ -80,7 +88,7 @@ the same `stid`, optional PE/thread, BID, group, and LSID matching policy as
 - Full `SIMT_INNER_FLUSH` group-order behavior now has a first STQ consumer,
   but vector and MTC consumers still need owner-specific tests before promotion
   beyond arbitration and STQ mask generation.
-- Recovery cleanup consumers are still open: rename checkpoint restore,
-  application of STQ free masks to full STQ state, frontend restart token
+- Recovery cleanup consumers are still open beyond first scalar GPR cleanup:
+  ClockHands/T/U and multi-thread rename replay, frontend restart token
   payloads, PE replay fanout, and BROB pointer restoration are signaled by
   `RecoveryCleanupControl` but not implemented by the current Chisel packets.

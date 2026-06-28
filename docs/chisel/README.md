@@ -48,12 +48,15 @@ state atomically, and forwards that BID into `ROBEntryBank.allocBid`.
 for BROB-style cleanup, ring `ROBID` for ROB row pruning.
 `RecoveryCleanupControl` registers the selected recovery request and exposes
 the first cleanup-intent hooks for BCTRL, rename, backend, frontend, LSU/STQ,
-tile, PE fanout, and ROB consumers. `STQFlushPrune` is the first concrete
-LSU/STQ consumer: it mirrors the model `FlushBus::match` predicate and emits
-free masks for valid `STQ_WAIT` rows. `STQEntryBank` is the first STQ state
-owner that consumes those masks, stores row sidecars, performs first-free
-allocation, merges split store address/data halves, and keeps resident plus
-WAIT/outstanding counts. `STQCommitQueue` is the first store-commit ordering
+tile, PE fanout, and ROB consumers. `GPRRenameCheckpoint` is the first scalar
+rename cleanup consumer: it owns model `GPRRename` `smap`/`cmap`, per-BID
+checkpoints, free physical GPR mask, and mapQ pruning for STID0, while leaving
+ClockHands/T/U and multi-thread rename to later owners. `STQFlushPrune` is the
+first concrete LSU/STQ consumer: it mirrors the model `FlushBus::match`
+predicate and emits free masks for valid `STQ_WAIT` rows. `STQEntryBank` is
+the first STQ state owner that consumes those masks, stores row sidecars,
+performs first-free allocation, merges split store address/data halves, and
+keeps resident plus WAIT/outstanding counts. `STQCommitQueue` is the first store-commit ordering
 owner: it keeps committed row indices sorted by `(bid, lsId)` and selects
 downstream-ready rows for future memory-side owners. `STQCommitDrain` composes
 that queue with committed row sidecars, models scalar cacheline split request
@@ -152,6 +155,7 @@ bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune
 bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge
 bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only GPRRenameCheckpoint
 bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune
 bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
