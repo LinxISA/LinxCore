@@ -19,6 +19,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBEgressSelect.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBLookupControl.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBStateUpdate.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
@@ -27,6 +28,7 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBCommitBridgeSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBEgressSelectSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBLookupControlSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBStateUpdateSpec.scala`
 
 ## Model Contract
 
@@ -147,6 +149,18 @@ descriptor carries the model transaction tag `(entryIndex << 2) | 2`. WriteResp
 matching, `Miss -> Lookup` response handling, and actual row mutation remain
 future owner work.
 
+`SCBStateUpdate` is the first Chisel owner for the row-state transitions around
+that lookup boundary. It consumes the `acceptedMask`, `freeMask`, and
+`missMask` from `SCBLookupControl`, plus one future decoded memory response row
+id. It computes the next SCB row image for selected `Valid -> Lookup`, writable
+hit free, non-writable lookup `Miss`, and response-driven `Miss -> Lookup`.
+The same-cycle `acceptedMask` plus `freeMask` or `missMask` case is legal when
+the selected row is currently `Valid`; the final state is the hit or miss
+result. Responses to non-`Miss` rows and miss/free requests to non-lookup rows
+are exposed as illegal masks for the future registered SCB composition owner.
+Actual row registers, raw CHI TxnID decode, L2/CHI queues, MDB, forwarding, and
+full STQ-to-SCB composition remain later owner work.
+
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
 forwarding, deadlock checks, data-array banking, MDB conflict learning, CHI
 completion, and BSB window-slide side effects remain future LSU owner work.
@@ -154,12 +168,13 @@ completion, and BSB window-slide side effects remain future LSU owner work.
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush,
-  registered SCB row mutation, L2/CHI response handling, MDB interaction, load
-  forwarding, and queue backpressure. `SCBCommitBridge` now owns the model
-  batch gate and free-mask conversion, `SCBEgressSelect` owns valid-line
-  selection, and `SCBLookupControl` owns the abstract DCache/L2 request split,
-  but a later integration packet must wire the bridge as the sole free source
-  for `STQEntryBank` and remove any direct use of
+  registered SCB row-bank composition, raw L2/CHI response decode, MDB
+  interaction, load forwarding, and queue backpressure. `SCBCommitBridge` now
+  owns the model batch gate and free-mask conversion, `SCBEgressSelect` owns
+  valid-line selection, `SCBLookupControl` owns the abstract DCache/L2 request
+  split, and `SCBStateUpdate` owns the row transition function, but a later
+  integration packet must wire the bridge as the sole free source for
+  `STQEntryBank` and remove any direct use of
   `STQCommitDrain.commitFreeMask` in the full LSU composition.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both

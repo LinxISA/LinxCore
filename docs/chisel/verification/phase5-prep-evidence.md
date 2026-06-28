@@ -1227,3 +1227,81 @@ Skill evolve:
   hits without write permission request upgrade ownership, tag misses request
   write ownership, and miss-path rows must remain resident until a later
   WriteResp/UpgradeResp owner returns them to lookup.
+
+## 2026-06-28 SCB State Update
+
+Scope:
+
+- Added `SCBStateUpdate` as the first row-state transition owner after
+  `SCBLookupControl`.
+- Preserved model `SCBuffer` row transitions around lookup and response:
+  selected `Valid -> Lookup`, writable-hit free, non-writable lookup to `Miss`,
+  and response-driven `Miss -> Lookup`.
+- Exposed illegal transition masks for future registered composition bugs such
+  as WriteResp/UpgradeResp to non-`Miss` rows.
+- Kept raw CHI TxnID decode, registered row-bank storage, ingress/egress
+  arbitration, DCache RAM mutation, L2/CHI queues, MDB, forwarding, and full
+  STQ-to-SCB composition in later LSU owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
+bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `SCBStateUpdateSpec` covers valid lookup start, same-cycle miss, writable-hit
+  free, registered lookup miss, memory response return, illegal response
+  target, free-priority behavior, illegal miss/free visibility, and Chisel
+  elaboration.
+- Existing SCB lookup, egress, bridge, ingress, ROB/cross-check, QEMU dry-run,
+  reduced RTL xcheck, top-shell xcheck, and Verilator lint gates stay green.
+
+Observed result:
+
+- `bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate` passed 9 tests
+  in `SCBStateUpdateSpec`.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl` passed 7
+  tests in `SCBLookupControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect` passed 6
+  tests in `SCBEgressSelectSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge` passed 5
+  tests in `SCBCommitBridgeSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress` passed 5
+  tests in `SCBCommitIngressSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `SCBStateUpdate` adds the reusable
+  LSU/SCB row-state invariant: same-cycle accepted hit/miss masks are legal
+  for a current `Valid` row, writable hits clear rows, misses hold rows in
+  `Miss`, and WriteResp/UpgradeResp targets must be valid `Miss` rows before
+  returning to lookup.

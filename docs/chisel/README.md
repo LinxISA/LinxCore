@@ -72,7 +72,10 @@ made deterministic for repeatable RTL and cross-check evidence.
 `SCBLookupControl` consumes that descriptor and owns the next abstract
 DCache/L2 split: writable DCache hits produce byte-update/free intent, while
 non-writable lookups emit L2 write or upgrade ownership requests using the
-model transaction tag encoding.
+model transaction tag encoding. `SCBStateUpdate` consumes the lookup outcome
+masks plus a future decoded memory-response row id and computes the next SCB
+row image for `Valid -> Lookup`, hit free, miss state, and response-driven
+`Miss -> Lookup` transitions.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -105,6 +108,7 @@ bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress
 bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge
 bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect
 bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
+bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

@@ -129,6 +129,7 @@ These packets remain the required base before broad module promotion:
 | R20 | `SCBCommitBridge` | `run_chisel_tests.sh --only SCBCommitBridge`, `run_chisel_tests.sh --only SCBCommitIngress`, `run_chisel_tests.sh --only STQCommitDrain`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R21 | `SCBEgressSelect` | `run_chisel_tests.sh --only SCBEgressSelect`, `run_chisel_tests.sh --only SCBCommitBridge`, `run_chisel_tests.sh --only SCBCommitIngress`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R22 | `SCBLookupControl` | `run_chisel_tests.sh --only SCBLookupControl`, `run_chisel_tests.sh --only SCBEgressSelect`, `run_chisel_tests.sh --only SCBCommitBridge`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R23 | `SCBStateUpdate` | `run_chisel_tests.sh --only SCBStateUpdate`, `run_chisel_tests.sh --only SCBLookupControl`, `run_chisel_tests.sh --only SCBEgressSelect`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -234,26 +235,29 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. SCB state/write-response owner: consume `SCBLookupControl.acceptedMask`,
-   `freeMask`, `missMask`, and future CHI WriteResp IDs; apply the registered
-   row transitions for `Valid -> Lookup`, hit free, `Lookup -> Miss`, and
-   response-driven `Miss -> Lookup` without reopening STQ admission.
+1. Registered SCB composition owner: wire `SCBCommitBridge`,
+   `SCBEgressSelect`, `SCBLookupControl`, and `SCBStateUpdate` around one
+   registered row bank, arbitrate ingress versus egress mutation, and keep
+   outstanding rows closed to new store coalescing.
 2. Full STQ-to-SCB composition owner: wire `SCBCommitBridge.commitFreeMask` as
    the only committed-row free source for `STQEntryBank` and retire direct
    full-LSU use of `STQCommitDrain.commitFreeMask`.
-3. MDB conflict owner: model `lookup_lu_mdb_q`, `lookup_mdb_su_q`, and
+3. Raw CHI response decode owner: decode `(entryIndex << 2) | 2` transaction
+   ids into `SCBStateUpdate.memRespEntryIndex` and report illegal or stale
+   WriteResp/UpgradeResp targets before response ordering is integrated.
+4. MDB conflict owner: model `lookup_lu_mdb_q`, `lookup_mdb_su_q`, and
    store-load nuke reporting as a separate predictor/cleanup packet.
-4. Load/store forwarding owner: implement the byte-mask STQ/SCB lookup path and
+5. Load/store forwarding owner: implement the byte-mask STQ/SCB lookup path and
    connect it to the future LIQ/LHQ request flow.
-5. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
+6. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
    first scalar rename restore/checkpoint owner.
-6. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+7. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-7. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+8. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-8. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
+9. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
    D1/D2 opcode table without changing the ingress transport contract.
-9. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+10. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

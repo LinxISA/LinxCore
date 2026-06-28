@@ -60,9 +60,10 @@ DCache/L2 outcome boundary.
 ## State
 
 `SCBEgressSelect` is combinational. It introduces no SCB storage and does not
-mutate entry state. A later state-transition owner must consume `lookupMask`
-and move selected rows from `Valid` to `Lookup`, then move misses to `Miss` and
-responses back to `Lookup` before row free.
+mutate entry state. `SCBLookupControl` classifies the selected lookup outcome,
+and `SCBStateUpdate` consumes those masks to move selected rows from `Valid` to
+`Lookup`, move misses to `Miss`, and move responses back to `Lookup` before
+row free. A later registered SCB row-bank owner must store those transitions.
 
 `SCBCommitIngress` initializes accepted entries to `SCBEntryState.Valid`.
 Future ingress integration must avoid merging new stores into `Lookup` or

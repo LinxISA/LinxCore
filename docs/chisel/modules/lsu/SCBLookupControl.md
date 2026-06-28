@@ -57,7 +57,7 @@ store-to-load forwarding, or final STQ free authorization.
 | Signal | Description |
 |---|---|
 | `lookupReady/lookupFire/lookupStall` | Handshake summary for the lookup-control boundary. |
-| `acceptedMask` | One-hot SCB entry accepted from the selector. Future state owner moves this row out of `Valid` selection. |
+| `acceptedMask` | One-hot SCB entry accepted from the selector. `SCBStateUpdate` moves this row out of `Valid` selection. |
 | `freeMask` | Writable-hit row can be erased/freed after byte update intent is consumed. |
 | `missMask` | Non-writable lookup row must remain resident in `Miss` until a WriteResp/UpgradeResp owner returns it to lookup. |
 | `dcacheUpdate` | Entry index, line address, byte mask, 512-bit data, and broadcast-upgrade intent for writable hits. |
@@ -66,7 +66,8 @@ store-to-load forwarding, or final STQ free authorization.
 ## State
 
 `SCBLookupControl` is combinational. It emits state-transition masks but does
-not mutate SCB entries. A later SCB state owner must apply:
+not mutate SCB entries. `SCBStateUpdate` applies the transition function that
+the later registered SCB row-bank owner must store:
 
 - hit path: selected row leaves `Lookup`, updates DCache bytes, erases the
   combining map equivalent, and frees the entry,
