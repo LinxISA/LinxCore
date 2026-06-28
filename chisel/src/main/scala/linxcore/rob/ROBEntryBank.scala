@@ -15,6 +15,7 @@ class ROBEntryBankIO(val entries: Int, val traceParams: CommitTraceParams) exten
   val allocReady = Output(Bool())
   val allocDuplicateIdentity = Output(Bool())
   val allocRow = Input(new CommitTraceRow(traceParams))
+  val allocBid = Input(new ROBID(entries))
   val allocRobValue = Output(UInt(ptrWidth.W))
 
   val completeValid = Input(Bool())
@@ -105,11 +106,21 @@ class ROBEntryBank(
   private def scanWrapFor(value: UInt, headValue: UInt, headWrap: Bool): Bool =
     headWrap ^ (value < headValue)
 
-  private def identityToRobId(raw: UInt, valid: Bool): ROBID = {
+  private def zeroRobId: ROBID =
+    0.U.asTypeOf(new ROBID(entries))
+
+  private def allocatedRid: ROBID = {
     val id = Wire(new ROBID(entries))
-    id.valid := valid
-    id.value := raw(ptrWidth - 1, 0)
-    id.wrap := (if (ptrWidth < raw.getWidth) raw(ptrWidth) else false.B)
+    id.valid := true.B
+    id.wrap := allocWrap
+    id.value := allocValue
+    id
+  }
+
+  private def storedAllocBid: ROBID = {
+    val id = Wire(new ROBID(entries))
+    id := io.allocBid
+    id.valid := true.B
     id
   }
 
@@ -125,6 +136,8 @@ class ROBEntryBank(
       status === ROBEntryStatus.Completed
 
   val rows = Reg(Vec(entries, new CommitTraceRow(traceParams)))
+  val rowBid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
+  val rowRid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
   val status = RegInit(VecInit(Seq.fill(entries)(ROBEntryStatus.Free)))
   val allocValue = RegInit(0.U(ptrWidth.W))
   val allocWrap = RegInit(false.B)
@@ -159,8 +172,8 @@ class ROBEntryBank(
     val rowValid = rows(idx).valid && ROBEntryStatus.occupiesRob(status(idx))
     flushPrune.io.rows(idx).valid := rowValid
     flushPrune.io.rows(idx).status := status(idx)
-    flushPrune.io.rows(idx).bid := identityToRobId(rows(idx).identity.bid, rowValid)
-    flushPrune.io.rows(idx).rid := identityToRobId(rows(idx).identity.rid, rowValid)
+    flushPrune.io.rows(idx).bid := rowBid(idx)
+    flushPrune.io.rows(idx).rid := rowRid(idx)
   }
 
   val flushApplied = flushPrune.io.firstPruneValid
@@ -248,6 +261,8 @@ class ROBEntryBank(
   for (idx <- 0 until entries) {
     when(flushPrune.io.pruneMask(idx)) {
       rows(idx) := zeroRow
+      rowBid(idx) := zeroRobId
+      rowRid(idx) := zeroRobId
       status(idx) := ROBEntryStatus.Free
     }
   }
@@ -267,6 +282,8 @@ class ROBEntryBank(
     val idx = wrapIndex(deallocValue, slot)
     when(deallocFireVec(slot)) {
       rows(idx) := zeroRow
+      rowBid(idx) := zeroRobId
+      rowRid(idx) := zeroRobId
       status(idx) := ROBEntryStatus.Free
     }
   }
@@ -279,6 +296,8 @@ class ROBEntryBank(
     row.rob.wrap := allocWrap
     row.rob.value := allocValue
     rows(allocValue) := row
+    rowBid(allocValue) := storedAllocBid
+    rowRid(allocValue) := allocatedRid
     status(allocValue) := ROBEntryStatus.Allocated
   }
 

@@ -209,3 +209,72 @@ Skill evolve:
   `ROBEntryBank`, suppress other bank phases during an applied flush, update
   resident/outstanding counts from selector accounting, and keep broader
   recovery cleanup out of the selector.
+
+## 2026-06-28 ROB Entry-Bank Native Row IDs
+
+Scope:
+
+- Added native row BID/RID sidecars to `ROBEntryBank`.
+- Stored backend/BROB BID from `allocBid` on allocation.
+- Allocated row RID from `allocValue`/`allocWrap`, matching
+  `SPEROB::allocROB` assigning RID from the allocation pointer.
+- Fed `ROBFlushPrune` from the native sidecars instead of
+  `CommitTraceRow.identity`.
+- Kept `CommitTraceRow.identity` as the trace and duplicate-detection sideband.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+```
+
+Expected result:
+
+- `ROBEntryBankSpec` proves flush pruning uses native row IDs rather than
+  commit trace identity sidebands.
+- Existing flush selector, status, recovery, reduced ROB, adapter, QEMU
+  dry-run, and reduced generated-RTL cross-check gates remain green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank` passed 9 tests in
+  `ROBEntryBankSpec`.
+- New `ROBEntryBankSpec` coverage includes a regression where trace identity
+  RIDs are deliberately misleading, but native row RID sidecars select the
+  correct prune point.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune` passed 6 tests
+  in `ROBFlushPruneSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus` passed 6 tests
+  in `ROBEntryStatusSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only FlushControl` passed 6 tests in
+  `FlushControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB` passed 5
+  tests in `ReducedCommitROBSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because native row BID/RID sidecars are now
+  a reusable integrated ROB/CMT invariant: `ROBEntryBank` flush comparison uses
+  `rowBid`/`rowRid`, `allocBid` comes from the backend/BROB owner, RID comes
+  from the bank allocation pointer, and `CommitTraceRow.identity` remains trace
+  plus duplicate-detection metadata only.

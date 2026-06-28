@@ -40,6 +40,7 @@ deallocation or recovery semantics into that module.
 | output | `allocReady` | `Bool` | yes | High when the bank is not full and the row identity is not already resident |
 | output | `allocDuplicateIdentity` | `Bool` | diagnostic | High when live non-free rows already contain the same `(bid,gid,rid)` |
 | input | `allocRow` | `CommitTraceRow` | with `allocValid` | Commit trace payload stored with the ROB row |
+| input | `allocBid` | `ROBID(entries)` | with `allocValid` | Native backend/BROB BID sidecar stored for recovery comparison |
 | output | `allocRobValue` | `UInt(log2(entries).W)` | diagnostic | ROB slot that will be assigned on an accepted allocation |
 | input | `completeValid` | `Bool` | none | Requests completion marking for `completeRobValue` |
 | input | `completeRobValue` | `UInt(log2(entries).W)` | with `completeValid` | Slot to mark completed when its status allows completion |
@@ -75,6 +76,9 @@ deallocation or recovery semantics into that module.
 ## State
 
 - `rows`: one `CommitTraceRow` per slot.
+- `rowBid`: native backend/BROB BID sidecar per slot, sourced from `allocBid`.
+- `rowRid`: native ROB RID sidecar per slot, allocated from `allocValue` and
+  `allocWrap`.
 - `status`: one `ROBEntryStatus.Type` per slot, reset to `Free`.
 - `allocValue` / `allocWrap`: circular allocation pointer.
 - `commitValue` / `commitWrap`: circular commit pointer.
@@ -90,16 +94,17 @@ deallocation or recovery semantics into that module.
 Allocation rejects a row if the bank is full or any non-free slot has the same
 `CommitTraceRow.identity` `(bid,gid,rid)`. An accepted allocation writes
 `allocRow`, forces `row.valid`, fills the ROB sideband from the allocation
-pointer, marks the slot `Allocated`, advances the allocation pointer, increments
-`size`, and increments `outstandingCount`.
+pointer, stores native flush metadata in `rowBid`/`rowRid`, marks the slot
+`Allocated`, advances the allocation pointer, increments `size`, and increments
+`outstandingCount`. `rowBid` comes from the backend/BROB owner through
+`allocBid`; `rowRid` is allocated locally from the bank allocation pointer,
+matching `SPEROB::allocROB` assigning `inst->rid` from `allocPtr`.
 
 Flush has priority over allocation, completion, commit, and deallocation. The
 bank feeds `ROBFlushPrune` with occupied rows, each row's status, and a
-temporary `ROBID` view of the stored `identity.bid` and `identity.rid` fields.
-For this skeleton, bit `log2(entries)` of each 32-bit identity sideband is used
-as the wrap bit and the low `log2(entries)` bits are used as the value. Later
-dispatch/ROB integration should replace that bridge with native backend ROBID
-metadata once it is carried in the row payload.
+native `ROBID` view from `rowBid` and `rowRid`. `CommitTraceRow.identity`
+remains the trace and duplicate-detection sideband; it is not the source of the
+flush comparison metadata.
 
 When `ROBFlushPrune` finds a match, the bank clears every row in
 `flushPruneMask`, marks those slots `Free`, subtracts
@@ -152,6 +157,8 @@ double-counted.
 commit pointer rebasing that follows the selected prune point. The following
 model behaviors remain future integrated ROB/CMT work:
 
+- full dispatch/BROB integration to drive `allocBid` from live block
+  allocation,
 - checkpoint/rename restore,
 - local ready-table and physical destination cleanup,
 - LSU/STQ/SCB cleanup and LSID rebasing,
@@ -184,5 +191,6 @@ Focused tests cover commit/dealloc phase separation, incomplete-head blocking,
 duplicate identity rejection until deallocation, deallocation backpressure,
 ignored invalid completion targets, RID-based flush pruning through the entry
 bank reference model, allocation reuse of the first pruned slot, retired-row
-flush accounting, and Chisel elaboration with monitor plus flush diagnostic
+flush accounting, flush comparison through native row IDs rather than trace
+identity sidebands, and Chisel elaboration with monitor plus flush diagnostic
 outputs.

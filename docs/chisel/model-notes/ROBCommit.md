@@ -69,7 +69,12 @@ now applies `ROBFlushPrune` as a priority recovery phase: an applied flush
 suppresses allocation/completion/commit/dealloc for the cycle, clears pruned
 rows, decrements resident and outstanding counts with the selector's accounting,
 rebases `allocPtr` to the first pruned row, and rebases `commitPtr` when the
-model walk prunes before the old commit head or leaves no outstanding work.
+model walk prunes before the old commit head or leaves no outstanding work. The
+bank now stores native row BID/RID sidecars for that flush comparison:
+`allocBid` is supplied by the backend/BROB owner, while RID is allocated locally
+from the bank allocation pointer. `CommitTraceRow.identity` remains the commit
+trace and duplicate-detection sideband and must not be reused as the recovery
+comparison key.
 
 The Chisel `ROBFlushPrune` helper captures the selection part of
 `SPEROB::flush`: scan from the deallocation pointer, match either
@@ -83,9 +88,8 @@ rows are removed.
 
 - Replace the reduced harness with integrated ROB banks and CMT control in
   Phase 5.
-- Carry native backend `ROBID` metadata in `ROBEntryBank` rows. The current
-  skeleton bridges from 32-bit commit identity sidebands for unit-level flush
-  tests.
+- Wire the live dispatch/BROB allocation source so `ROBEntryBank.allocBid`
+  comes from the real block owner instead of unit-test fixtures.
 - Add rename cleanup, LSU/STQ side effects, precise trap ownership, and restart
   ownership to the entry-bank/CMT path; do not retrofit those behaviors into
   `ReducedCommitROB`.

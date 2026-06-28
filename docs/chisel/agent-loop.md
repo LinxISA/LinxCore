@@ -22,7 +22,7 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `rtl/LinxCore` | `8f73ec69643a7c0d44430c8a9cc1a867dbc6113e` |
+| `rtl/LinxCore` | `184396cc65724cd11625cb2cef6671eb4f5b5049` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 
 LinxCoreModel was refreshed with `git pull --ff-only` on 2026-06-28 and was
@@ -116,6 +116,7 @@ These packets remain the required base before broad module promotion:
 | R7 | `ROBEntryBank` integrated skeleton | `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only ROBEntryStatus`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R8 | `ROBFlushPrune` selector | `run_chisel_tests.sh --only ROBFlushPrune`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only ROBEntryBank` |
 | R9 | `ROBEntryBank` flush application | `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only ROBFlushPrune`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R10 | `ROBEntryBank` native row IDs | `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only ROBFlushPrune`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -221,9 +222,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Native ROB row metadata: carry backend `ROBID` BID/RID fields in
-   `ROBEntryBank` rows instead of deriving temporary IDs from 32-bit commit
-   identity sidebands.
+1. Dispatch/BROB allocation wiring: connect the live block owner so
+   `ROBEntryBank.allocBid` is driven by the real BID source, while RID remains
+   allocated from the ROB entry bank pointer.
 2. Recovery cleanup owner: add the next registered ROB/CMT cleanup hooks for
    rename/checkpoint restore and LSU/STQ cleanup without moving side effects
    into `ROBFlushPrune`.
