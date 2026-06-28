@@ -145,6 +145,7 @@ These packets remain the required base before broad module promotion:
 | R36 | `SCBResponseRetrySelect` | `run_chisel_tests.sh --only SCBResponseRetrySelect`, `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_tests.sh --only SCBStateUpdate`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R37 | `SCBResponseRetryQueue` | `run_chisel_tests.sh --only SCBResponseRetryQueue`, `run_chisel_tests.sh --only SCBResponseRetrySelect`, `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R38 | `GPRRenameCheckpoint` | `run_chisel_tests.sh --only GPRRenameCheckpoint`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FullBidRecoveryBridge`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R39 | `FrontendDecodeStage` | `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `run_chisel_tests.sh --only InterfaceBundles` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -254,9 +255,10 @@ Closeout:
    bundle covering commit, trap, memory, recovery, and block sidebands.
 2. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-3. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
-   D1/D2 opcode table without changing the ingress transport contract.
-4. Rename dispatch/commit integration: connect `GPRRenameCheckpoint` to the
+3. Frontend operand/immediate extraction: extend `FrontendDecodeStage` with the
+   first scalar 16/32-bit operand and immediate owners from `src/common/decode.py`.
+4. Decode-to-rename integration: connect `FrontendDecodeStage` and
+   `GPRRenameCheckpoint` to the
    first scalar decoded-uop rename/dispatch owner and ROB block-commit source.
 5. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model

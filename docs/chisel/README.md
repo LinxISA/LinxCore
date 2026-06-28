@@ -34,8 +34,11 @@ also follows the LinxCoreModel `CheckMInstSize` instruction-length rule from
 `model/LinxCoreModel/isa/ISACommon/DecodeUtiles.h` and the F4/F5/instBuffer
 queueing flow in `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`. The
 current frontend transport slice composes the instruction buffer with F4
-visibility but still leaves opcode decode, macro-boundary decode, and D1/D2
-uop construction to future decode-owner modules. The first integrated ROB/CMT
+visibility. `FrontendDecodeStage` now consumes those F4 slots and uses the
+pyCircuit opcode catalog mask/match metadata to produce D1 `DecodedUop`
+skeletons plus block/load/store sideband masks; operand extraction, immediate
+formation, LSID allocation, and D2/rename admission remain later decode-owner
+work. The first integrated ROB/CMT
 preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
 status-backed entry bank with separate commit and deallocation walks, and expose
 the model-derived flush-prune selection rule. The entry bank now consumes that
@@ -149,6 +152,7 @@ bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
 bash tools/chisel/run_chisel_tests.sh --only F4DecodeWindow
 bash tools/chisel/run_chisel_tests.sh --only FrontendInstructionBuffer
 bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeIngress
+bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
 bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune

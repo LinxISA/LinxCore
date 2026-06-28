@@ -2433,3 +2433,55 @@ Skill evolve:
   `flush.bid - 1`, choose checkpoint-or-`cmap` source by checkpoint validity,
   prune mapQ by model `FlushBus` ordering, and re-apply surviving same-BID
   mapQ rows for non-BID flushes.
+
+### R39 Frontend Decode Stage
+
+Implementation:
+
+- Added `FrontendDecodeStage` as the first Chisel D1 decode-shape owner after
+  `FrontendDecodeIngress`.
+- Added generated `FrontendOpcodeDecodeTable` from pyCircuit
+  `src/common/opcode_meta_gen.py`.
+- Preserved the pyCircuit metadata helper rule used by `decode16_meta`,
+  `decode32_meta`, `decode48_meta`, and `decode64_meta`: choose the matching
+  opcode rule with the largest mask bit count, preserving source order for
+  equal specificity.
+- Emitted `DecodedUop` skeletons with slot PC, raw instruction, instruction
+  length, opcode catalog ID, UID, parent fetch UID, checkpoint ID, and basic
+  dispatch/block/load/store sidebands.
+- Left operand extraction, immediate construction, LSID allocation, D2
+  queueing, block header mutation, and rename/ROB admission to later owners.
+
+Verification:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
+bash tools/chisel/run_chisel_tests.sh --only F4DecodeWindow
+bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeIngress
+bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Evidence:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `FrontendDecodeStageSpec` passed 5 tests covering generated catalog rule
+  count and selected opcode IDs, most-specific mask selection, dispatch and
+  block sideband classification, IO shape, and Chisel elaboration.
+- `F4DecodeWindowSpec` passed 9 tests.
+- `FrontendDecodeIngressSpec` passed 7 tests.
+- `InterfaceBundlesSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` compared 3 rows with zero
+  mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the current top
+  shell and passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `FrontendDecodeStage` adds the
+  reusable frontend decode-table invariant: Chisel opcode classification must
+  be generated from pyCircuit opcode metadata and must preserve the
+  most-specific mask/match selection rule before operand extraction or
+  decode-to-rename integration is broadened.
