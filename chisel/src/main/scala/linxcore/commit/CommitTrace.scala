@@ -7,7 +7,7 @@ final case class CommitTraceParams(
     commitWidth: Int = 4,
     pcWidth: Int = 64,
     insnWidth: Int = 64,
-    lenWidth: Int = 3,
+    lenWidth: Int = 4,
     regWidth: Int = 8,
     dataWidth: Int = 64,
     causeWidth: Int = 32,
@@ -18,7 +18,7 @@ final case class CommitTraceParams(
   require(commitWidth > 0, "commitWidth must be positive")
   require(pcWidth > 0, "pcWidth must be positive")
   require(insnWidth >= 48, "insnWidth must hold Linx 48-bit encodings")
-  require(lenWidth >= 3, "lenWidth must encode 0, 2, 4, and 6 byte rows")
+  require(lenWidth >= 4, "lenWidth must encode 0, 2, 4, 6, and 8 byte rows")
   require(regWidth > 0, "regWidth must be positive")
   require(dataWidth > 0, "dataWidth must be positive")
   require(causeWidth > 0, "causeWidth must be positive")

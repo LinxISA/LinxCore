@@ -34,6 +34,7 @@ class CommitTraceSpec extends AnyFunSuite {
     assert(p.commitWidth == 4)
     assert(p.slotWidth == 2)
     assert(p.insnWidth >= 48)
+    assert(p.lenWidth == 4)
     assert(p.blockBidWidth == 64)
   }
 

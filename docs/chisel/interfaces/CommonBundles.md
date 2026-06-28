@@ -16,6 +16,7 @@
   - `model/LinxCoreModel/model/ModelCommon/bus/MemRequest.h`
   - `model/LinxCoreModel/model/ModelCommon/bus/FetchReqBus.h`
   - `model/LinxCoreModel/model/ModelCommon/bus/PEResolveBus.h`
+  - `model/LinxCoreModel/isa/ISACommon/DecodeUtiles.h`
 - Contract IDs: `LC-IF-CHISEL-COMMON-001`
 
 ## Purpose
@@ -41,7 +42,7 @@ model `CommitInfo.bid` field.
 | `issueWidth` / `commitWidth` | 4 | Current bring-up issue and retire widths |
 | `pcWidth` / `windowWidth` | 64 | F4 and D1 packet interfaces |
 | `opcodeWidth` | 12 | pyCircuit opcode catalog IDs |
-| `insnWidth` / `lenWidth` | 64 / 3 | 48-bit Linx encodings plus byte length |
+| `insnWidth` / `lenWidth` | 64 / 4 | 16/32/48/64-bit Linx encodings plus byte length |
 | `archRegWidth` / `physRegWidth` | 6 / 6 | `REG_INVALID=0x3f`, 64-entry ptag bring-up |
 | `robEntries` / `iqEntries` | 64 / 32 | pyCircuit `OooParams` defaults |
 | `blockBidWidth` / `blockUidWidth` | 64 / 64 | model and DFX identity fields |
@@ -71,6 +72,8 @@ compile-time parameter validation through `InterfaceParams`.
 The bundle shape follows these rules:
 
 - preserve F4/D1 width contracts from `src/common/interfaces.py`;
+- preserve LinxCoreModel instruction lengths 2, 4, 6, and 8 bytes from
+  `CheckMInstSize`;
 - preserve `REG_INVALID=0x3f` and `TRAP_BRU_RECOVERY_NOT_BSTART=0x0000b001`;
 - preserve block boundary kind ordering `fall, cond, call, ret, direct, ind,
   icall` from `src/common/isa.py`;
@@ -112,5 +115,5 @@ rows and `tools/chisel/trace_schema_adapter.py`.
 - `bash tools/chisel/build_chisel.sh`
 
 The focused test checks default widths, constant encodings, boundary enum
-ordering, decoded/renamed/LSU/ROB/trace packet field widths, and Chisel
-elaboration through a probe module.
+ordering, 4-bit instruction length fields, decoded/renamed/LSU/ROB/trace packet
+field widths, and Chisel elaboration through a probe module.

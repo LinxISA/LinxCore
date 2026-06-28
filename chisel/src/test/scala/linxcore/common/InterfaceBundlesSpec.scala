@@ -115,7 +115,7 @@ class InterfaceBundlesSpec extends AnyFunSuite {
     assert(decoded.pc.getWidth == 64)
     assert(decoded.opcode.getWidth == 12)
     assert(decoded.imm.getWidth == 64)
-    assert(decoded.insnLen.getWidth == 3)
+    assert(decoded.insnLen.getWidth == 4)
     assert(decoded.insnRaw.getWidth == 64)
     assert(decoded.rid.value.getWidth == 6)
     assert(decoded.bid.value.getWidth == 6)

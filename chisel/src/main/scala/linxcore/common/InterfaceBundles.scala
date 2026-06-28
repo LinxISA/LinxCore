@@ -13,7 +13,7 @@ final case class InterfaceParams(
     windowWidth: Int = 64,
     opcodeWidth: Int = 12,
     insnWidth: Int = 64,
-    lenWidth: Int = 3,
+    lenWidth: Int = 4,
     archRegWidth: Int = 6,
     physRegWidth: Int = 6,
     robEntries: Int = 64,
@@ -42,7 +42,7 @@ final case class InterfaceParams(
   require(windowWidth == 64, "F4 decode window is 64 bits")
   require(opcodeWidth == 12, "pyCircuit opcode IDs are 12 bits")
   require(insnWidth >= 48, "instruction payload must hold 48-bit Linx encodings")
-  require(lenWidth >= 3, "instruction length must encode 0, 2, 4, and 6 byte rows")
+  require(lenWidth >= 4, "instruction length must encode 0, 2, 4, 6, and 8 byte rows")
   require(archRegWidth == 6, "architectural register tags use the reg6 namespace")
   require(physRegWidth == 6, "bring-up physical register tags use 64 entries")
   require(robEntries > 1 && (robEntries & (robEntries - 1)) == 0, "robEntries must be a power of two")
