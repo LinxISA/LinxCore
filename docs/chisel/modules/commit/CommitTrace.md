@@ -4,6 +4,7 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/commit/CommitIdentity.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/commit/CommitTrace.scala`
+- Monitor: `rtl/LinxCore/chisel/src/main/scala/linxcore/commit/CommitTraceMonitor.scala`
 - Previous pyCircuit owner: `src/probes/*`, `src/bcc/backend/commit.py`
 - LinxCoreModel evidence: `model/LinxCoreModel/model/interface/CommitInfo.h`
 - Contract IDs: `LC-IF-CHISEL-XCHK-001`
@@ -44,11 +45,13 @@ block BID sideband.
 | payload | `nextPc` | `UInt(64.W)` | valid | Architectural next PC after the row retires. |
 | output | `CommitTraceWindow.validMask` | `UInt(commitWidth.W)` | combinational | One bit per valid retiring slot. |
 | output | `CommitTraceWindow.validCount` | `UInt` | combinational | Number of valid retiring slots in the cycle. |
+| output | `CommitTraceMonitor.contractError` | `Bool` | combinational | Structural trace-window contract violation. |
 
 ## State
 
-`CommitTraceRow`, envelopes, and `CommitTraceWindow` are state-free. ROB,
-commit control, BROB, LSU, and trap/recovery owners produce the fields.
+`CommitTraceRow`, envelopes, `CommitTraceWindow`, and `CommitTraceMonitor` are
+state-free. ROB, commit control, BROB, LSU, and trap/recovery owners produce the
+fields.
 
 ## Logic Design
 
@@ -67,6 +70,11 @@ dst_valid dst_reg dst_data
 mem_valid mem_is_store mem_addr mem_wdata mem_rdata mem_size
 trap_valid trap_cause traparg0 next_pc
 ```
+
+`CommitTraceMonitor` is the Phase 1 structural checker for producers of this
+payload. It flags valid-after-invalid holes, duplicate model `CommitInfo`
+identity in one commit window, row `slot` labels that disagree with the fixed
+vector position, and invalid rows that still carry active side-effect envelopes.
 
 ## Timing
 
@@ -93,5 +101,7 @@ QEMU comparator and preserves sideband fields for mismatch triage.
 
 - `bash tools/chisel/run_chisel_tests.sh --only CommitTrace`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
-- Future reduced ROB harness: duplicate `(bid,gid,rid)`, skipped slot, memory
-  side-effect ownership, and trap-envelope tests.
+- `bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor`
+- `CommitTraceMonitor` covers duplicate `(bid,gid,rid)`, skipped slot,
+  slot-label mismatch, invalid-slot side-effect envelopes, and Chisel
+  elaboration.

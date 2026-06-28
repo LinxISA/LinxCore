@@ -13,6 +13,7 @@ The LinxCore Chisel lane uses explicit targets:
 | `robid-xcheck` | `tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` | Run Packet A ROBID semantic gate. |
 | `flushcontrol-xcheck` | `tools/chisel/run_chisel_tests.sh --only FlushControl` | Run Packet B FlushControl classification and older-signal tests. |
 | `brob-xcheck` | `tools/chisel/run_chisel_tests.sh --only BROB` | Run Packet C BID encoding and BROB metadata lifecycle tests. |
+| `commit-monitor-xcheck` | `tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor` | Run Phase 1 fixed-width commit-window contract checks. |
 
 The target shape follows the useful part of the OpenXiangShan flow: make Chisel
 generation, simulation/emulator construction, and architectural cross-checking

@@ -9,6 +9,7 @@ Current phase:
 - Phase 0: build skeleton
 - Phase 0A: model notes
 - Phase 0B: ROB and cross-check infrastructure first
+- Phase 1: interface schema and type-system monitors in progress
 
 The first implementation packets are ROBID, commit identity, the initial
 FlushControl arbitration primitive, and BROB/BID metadata. They are derived from
@@ -24,6 +25,7 @@ Commands from `rtl/LinxCore`:
 ```bash
 bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only
 bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
 bash tools/chisel/run_chisel_tests.sh

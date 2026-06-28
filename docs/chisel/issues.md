@@ -40,6 +40,10 @@ Evidence:
   `run_chisel_rob_bookkeeping.sh --robid-only` produced an SBT client
   `Connection refused` error, while the same ROBID gate passed when rerun
   sequentially.
+- A 2026-06-28 parallel invocation of `build_chisel.sh` and
+  `run_chisel_tests.sh --only CommitTrace` reproduced the same SBT client
+  `Connection refused` failure; `run_chisel_tests.sh --only CommitTrace` passed
+  when rerun sequentially.
 
 Current mitigation:
 
