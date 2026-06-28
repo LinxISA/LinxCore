@@ -13,6 +13,7 @@
   - `model/LinxCoreModel/model/pe/PECommon/PROBCommon.cpp`
   - `model/LinxCoreModel/model/vectorcore/vpe/VecPEROB.h`
 - Related Chisel:
+  - `chisel/src/main/scala/linxcore/rename/TULinkRetireCommandPath.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRename.scala`
   - `chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala`
   - `chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
@@ -22,8 +23,8 @@
 
 `TULinkRelationCmap` is the first Chisel owner for the SPEROB relation-cmap
 retire and release policy for scalar T/U local registers. It consumes
-ROB-deallocation row sidecars, stores per-kind relation entries for T and U
-destinations, and emits serialized `TULinkRename.retire*` commands.
+serialized ROB-deallocation row sidecars, stores per-kind relation entries for
+T and U destinations, and emits serialized `TULinkRename.retire*` commands.
 
 This module does not replace `TULinkRename`. `TULinkRename` owns local mapQ
 allocation, mark-retired state, block-commit freeing, and flush pruning.
@@ -35,7 +36,7 @@ be deallocated.
 
 Inputs:
 
-- `in`: one `TULinkRetireSource` from a ROB deallocation row. It carries
+- `in`: one `TULinkRetireSource` from the source serializer. It carries
   `valid`, `isLast`, native `bid/gid/rid`, `stid`, row-owned `tSeq/uSeq`, and
   T/U destination ownership.
 - `clear`: synchronous reset of relation queues and pending command state.
@@ -114,9 +115,6 @@ module.
 
 ## Deferred Owners
 
-- Live connection from `ROBEntryBank.deallocTURetireSource` through this
-  module into `ScalarTURenameBridge.tuRetire*`.
-- Width-aware serializer for multiple deallocated ROB rows per cycle.
 - Relation flush pruning equivalent to `FlushRelativeReg`,
   `CleanCMAP`, and `CleanGroupCMAP`.
 - Predicate, vector, SIMT, and tile relation maps.
@@ -135,6 +133,7 @@ Affected gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
 bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath

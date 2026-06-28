@@ -55,6 +55,8 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(io.tuUSeq.value.getWidth == 3)
     assert(io.tuDstValid.getWidth == 1)
     assert(io.tuSourceUnderflowMask.getWidth == 3)
+    assert(io.tuRetireAccepted.getWidth == 1)
+    assert(io.tuRetireReleaseMismatch.getWidth == 1)
     assert(io.tuCleanupSelectedFlushSource.tSeq.value.getWidth == 3)
     assert(io.tuCleanupSourceConflict.getWidth == 1)
   }
@@ -73,6 +75,8 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(sv.contains("io_tuTSeq_value"))
     assert(sv.contains("io_tuUSeq_value"))
     assert(sv.contains("io_tuDstValid"))
+    assert(sv.contains("io_tuRetireAccepted"))
+    assert(sv.contains("io_tuRetireReleaseMismatch"))
     assert(sv.contains("io_tuCleanupSourceConflict"))
   }
 }

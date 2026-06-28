@@ -10,6 +10,7 @@
 - Related Chisel:
   - `chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRecoveryCleanupPath.scala`
+  - `chisel/src/main/scala/linxcore/rename/TULinkRetireCommandPath.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRename.scala`
   - `chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
 
@@ -37,9 +38,8 @@ Inputs:
   GPR and T/U maintenance controls.
 - `robSource`, `lsuSource`: ROB and LSU selected-row T/U cleanup source
   candidates.
-- `tuRetire*`: future T/U relation-cmap retire/deallocation hook. The current
-  top-level reduced path ties it inactive until `TULinkRelationCmap` is wired
-  to the ROB deallocation retire-source vector.
+- `tuRetireValid/Kind/Seq/Dealloc`: live T/U relation-cmap
+  mark/deallocation command from `TULinkRetireCommandPath`.
 
 Outputs:
 
@@ -54,6 +54,8 @@ Outputs:
 - `tuReady`, `tuAccepted`, `tuSrc`, `tuDst`, `tuTSeq`, `tuUSeq`,
   `tuDstValid`, `tuDstKind`: T/U rename results and pre-allocation sequence
   snapshots.
+- `tuRetireAccepted`, `tuRetireMiss`, `tuRetireReleaseMismatch`,
+  `tuRetireUnsupported`: actual retire-command outcome from `TULinkRename`.
 - `tuCleanup*`: forwarded source-selection and flush-publisher diagnostics
   from `TULinkRecoveryCleanupPath`.
 
@@ -95,6 +97,11 @@ Cleanup source selection stays inside the composed
 valid ROB/LSU source exists or when both sources conflict, preserving the
 recovery barrier before new T/U state mutation.
 
+Retire commands also stay inside `TULinkRecoveryCleanupPath` and
+`TULinkRename`. The bridge exposes `tuRetireAccepted` so the upstream
+serializer can advance on actual mark/release acceptance after flush and
+commit priority have been applied.
+
 ## Model Alignment
 
 `SPERename::Rename()` performs the relevant order:
@@ -112,7 +119,6 @@ destination physical tag comes from the accepted T/U destination allocation.
 ## Deferred Owners
 
 - Width-wide scalar plus T/U rename.
-- Live wiring from `TULinkRelationCmap` to `tuRetire*`.
 - Old T/U physical tag release accounting for destination overwrite.
 - Ready-table initialization and wakeup ownership for T/U sources.
 - Commit-trace representation of non-GPR destination ownership.
@@ -132,6 +138,7 @@ Affected gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
 bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
 bash tools/chisel/run_chisel_tests.sh --only TULinkRename
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 ```

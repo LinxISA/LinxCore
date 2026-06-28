@@ -9,7 +9,7 @@ import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
 import linxcore.lsu.{StoreDispatchExecResult, StoreDispatchSTQPath}
 import linxcore.recovery.{FullBidRecoveryBridge, RecoveryCleanupIntent}
-import linxcore.rename.{ScalarTURenameBridge, StoreSplitIssuePayload, StoreSplitPayload}
+import linxcore.rename.{ScalarTURenameBridge, StoreSplitIssuePayload, StoreSplitPayload, TULinkRetireCommandPath}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
 class DecodeRenameROBPathIO(
@@ -24,7 +24,9 @@ class DecodeRenameROBPathIO(
     val decRenQueueDepth: Int = 4,
     val storeDispatchQueueDepth: Int = 4,
     val loadStoreSerialWidth: Int = 64,
-    val mapQDepth: Int = 32)
+    val mapQDepth: Int = 32,
+    val tuRetireSourceQueueDepth: Int = 8,
+    val tuRetireRelationCmapDepth: Int = 8)
     extends Bundle {
   private val slotWidth = math.max(1, log2Ceil(p.decodeWidth))
   private val ptrWidth = log2Ceil(p.robEntries)
@@ -34,6 +36,9 @@ class DecodeRenameROBPathIO(
   private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
   private val stqCountWidth = log2Ceil(p.robEntries + 1)
   private val tuCountWidth = log2Ceil(Seq(32, 32, mapQDepth).max + 1)
+  private val tuRetireSourceCountWidth = log2Ceil(traceParams.commitWidth + 1)
+  private val tuRetireSourceQueueCountWidth = log2Ceil(tuRetireSourceQueueDepth + 1)
+  private val tuRetireRelationCountWidth = log2Ceil(tuRetireRelationCmapDepth + 1)
 
   val d1 = Input(new FrontendDecodePacket(p))
   val slots = Input(Vec(p.decodeWidth, new F4Slot(p)))
@@ -197,6 +202,32 @@ class DecodeRenameROBPathIO(
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
   val robDeallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(p, mapQDepth, stidWidth)))
+  val tuRetireSourceWindowReady = Output(Bool())
+  val tuRetireSourceValidMask = Output(UInt(traceParams.commitWidth.W))
+  val tuRetireSourceEnqueueCount = Output(UInt(tuRetireSourceCountWidth.W))
+  val tuRetireSourceQueueCount = Output(UInt(tuRetireSourceQueueCountWidth.W))
+  val tuRetireSourceQueueFull = Output(Bool())
+  val tuRetireSourceQueueEmpty = Output(Bool())
+  val tuRetireSourceDequeued = Output(Bool())
+  val tuRetireCommandValid = Output(Bool())
+  val tuRetireCommandKind = Output(DestinationKind())
+  val tuRetireCommandSeq = Output(new ROBID(mapQDepth))
+  val tuRetireCommandDealloc = Output(Bool())
+  val tuRetireCommandFire = Output(Bool())
+  val tuRetireUnsupportedDst = Output(Bool())
+  val tuRetireRelationPreReleaseT = Output(Bool())
+  val tuRetireRelationPreReleaseU = Output(Bool())
+  val tuRetireRelationPressureReleaseT = Output(Bool())
+  val tuRetireRelationPressureReleaseU = Output(Bool())
+  val tuRetireRelationPendingMark = Output(Bool())
+  val tuRetireRelationPendingPostReleaseT = Output(Bool())
+  val tuRetireRelationPendingPostReleaseU = Output(Bool())
+  val tuRetireRelationTCount = Output(UInt(tuRetireRelationCountWidth.W))
+  val tuRetireRelationUCount = Output(UInt(tuRetireRelationCountWidth.W))
+  val tuRetireAccepted = Output(Bool())
+  val tuRetireMiss = Output(Bool())
+  val tuRetireReleaseMismatch = Output(Bool())
+  val tuRetireUnsupported = Output(Bool())
 
   val flushApplied = Output(Bool())
   val robTULinkSource = Output(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
@@ -255,17 +286,22 @@ class DecodeRenameROBPath(
     val mapQDepth: Int = 32,
     val decRenQueueDepth: Int = 4,
     val storeDispatchQueueDepth: Int = 4,
-    val loadStoreSerialWidth: Int = 64)
+    val loadStoreSerialWidth: Int = 64,
+    val tuRetireSourceQueueDepth: Int = 8,
+    val tuRetireRelationCmapDepth: Int = 8,
+    val tuRetireReleaseThreshold: Int = 4)
     extends Module {
   require(traceParams.robValueWidth >= p.robIndexWidth, "trace ROB value must hold DecodeRenameROBPath ROB index")
   require(traceParams.commitWidth == p.commitWidth, "trace commit width must match InterfaceParams")
   require((p.robEntries & (p.robEntries - 1)) == 0, "ROB entries must be a power of two")
   require(decRenQueueDepth > 0 && (decRenQueueDepth & (decRenQueueDepth - 1)) == 0,
     "decode-to-rename queue depth must be a power of two")
+  require(tuRetireSourceQueueDepth >= traceParams.commitWidth,
+    "T/U retire source queue must hold one full ROB dealloc window")
+  require((tuRetireSourceQueueDepth & (tuRetireSourceQueueDepth - 1)) == 0,
+    "T/U retire source queue depth must be a power of two")
 
   private val zeroRobId = 0.U.asTypeOf(new ROBID(p.robEntries))
-  private val zeroLocalSeq = 0.U.asTypeOf(new ROBID(mapQDepth))
-
   val io = IO(new DecodeRenameROBPathIO(
     p = p,
     traceParams = traceParams,
@@ -278,7 +314,9 @@ class DecodeRenameROBPath(
     decRenQueueDepth = decRenQueueDepth,
     storeDispatchQueueDepth = storeDispatchQueueDepth,
     loadStoreSerialWidth = loadStoreSerialWidth,
-    mapQDepth = mapQDepth
+    mapQDepth = mapQDepth,
+    tuRetireSourceQueueDepth = tuRetireSourceQueueDepth,
+    tuRetireRelationCmapDepth = tuRetireRelationCmapDepth
   ))
 
   val decode = Module(new FrontendDecodeStage(p))
@@ -369,6 +407,15 @@ class DecodeRenameROBPath(
     tidWidth = tidWidth
   ))
   rename.io.in := queuedForRename
+  val tuRetirePath = Module(new TULinkRetireCommandPath(
+    p = p,
+    sourceWidth = traceParams.commitWidth,
+    mapQDepth = mapQDepth,
+    sourceQueueDepth = tuRetireSourceQueueDepth,
+    cmapDepth = tuRetireRelationCmapDepth,
+    releaseThreshold = tuRetireReleaseThreshold,
+    stidWidth = stidWidth
+  ))
   val storeDispatch = Module(new StoreDispatchSTQPath(
     p = p,
     queueDepth = storeDispatchQueueDepth,
@@ -436,7 +483,7 @@ class DecodeRenameROBPath(
   allocator.io.allocNeedsEngine := false.B
   allocator.io.completeValid := io.completeValid
   allocator.io.completeRobValue := io.completeRobValue
-  allocator.io.deallocReady := io.deallocReady
+  allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !rename.io.tuCleanupActive
   allocator.io.blockScalarDoneValid := false.B
   allocator.io.blockScalarDoneBid := 0.U
   allocator.io.blockScalarTrapValid := false.B
@@ -453,10 +500,13 @@ class DecodeRenameROBPath(
 
   rename.io.robSource := allocator.io.robTULinkSource
   rename.io.lsuSource := storeDispatch.io.lsuTULinkSource
-  rename.io.tuRetireValid := false.B
-  rename.io.tuRetireKind := DestinationKind.None
-  rename.io.tuRetireSeq := zeroLocalSeq
-  rename.io.tuRetireDealloc := false.B
+  tuRetirePath.io.sources := allocator.io.deallocTURetireSource
+  tuRetirePath.io.clear := rename.io.tuCleanupPublisherFlushValid
+  tuRetirePath.io.commandReady := rename.io.tuRetireAccepted
+  rename.io.tuRetireValid := tuRetirePath.io.command.valid
+  rename.io.tuRetireKind := tuRetirePath.io.command.kind
+  rename.io.tuRetireSeq := tuRetirePath.io.command.seq
+  rename.io.tuRetireDealloc := tuRetirePath.io.command.dealloc
 
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
@@ -589,6 +639,32 @@ class DecodeRenameROBPath(
   io.deallocValidMask := allocator.io.deallocValidMask
   io.deallocCount := allocator.io.deallocCount
   io.robDeallocTURetireSource := allocator.io.deallocTURetireSource
+  io.tuRetireSourceWindowReady := tuRetirePath.io.sourceWindowReady
+  io.tuRetireSourceValidMask := tuRetirePath.io.sourceValidMask
+  io.tuRetireSourceEnqueueCount := tuRetirePath.io.sourceEnqueueCount
+  io.tuRetireSourceQueueCount := tuRetirePath.io.sourceQueueCount
+  io.tuRetireSourceQueueFull := tuRetirePath.io.sourceQueueFull
+  io.tuRetireSourceQueueEmpty := tuRetirePath.io.sourceQueueEmpty
+  io.tuRetireSourceDequeued := tuRetirePath.io.sourceDequeued
+  io.tuRetireCommandValid := tuRetirePath.io.command.valid
+  io.tuRetireCommandKind := tuRetirePath.io.command.kind
+  io.tuRetireCommandSeq := tuRetirePath.io.command.seq
+  io.tuRetireCommandDealloc := tuRetirePath.io.command.dealloc
+  io.tuRetireCommandFire := tuRetirePath.io.commandFire
+  io.tuRetireUnsupportedDst := tuRetirePath.io.unsupportedDst
+  io.tuRetireRelationPreReleaseT := tuRetirePath.io.preReleaseT
+  io.tuRetireRelationPreReleaseU := tuRetirePath.io.preReleaseU
+  io.tuRetireRelationPressureReleaseT := tuRetirePath.io.pressureReleaseT
+  io.tuRetireRelationPressureReleaseU := tuRetirePath.io.pressureReleaseU
+  io.tuRetireRelationPendingMark := tuRetirePath.io.pendingMark
+  io.tuRetireRelationPendingPostReleaseT := tuRetirePath.io.pendingPostReleaseT
+  io.tuRetireRelationPendingPostReleaseU := tuRetirePath.io.pendingPostReleaseU
+  io.tuRetireRelationTCount := tuRetirePath.io.tCount
+  io.tuRetireRelationUCount := tuRetirePath.io.uCount
+  io.tuRetireAccepted := rename.io.tuRetireAccepted
+  io.tuRetireMiss := rename.io.tuRetireMiss
+  io.tuRetireReleaseMismatch := rename.io.tuRetireReleaseMismatch
+  io.tuRetireUnsupported := rename.io.tuRetireUnsupported
   io.flushApplied := allocator.io.flushApplied
   io.robTULinkSource := allocator.io.robTULinkSource
   io.robTULinkSourceMatched := allocator.io.robTULinkSourceMatched

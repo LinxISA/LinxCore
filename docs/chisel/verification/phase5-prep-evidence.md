@@ -4242,3 +4242,82 @@ Skill evolve:
   width-wide vector until a serializer can consume every row; preserve native
   `bid/gid/rid`, `isLast`, local sequence, and mark-vs-dealloc semantics
   before driving `TULinkRename.retire*`.
+
+## R64 TULinkRetireCommandPath Live Retire Wiring
+
+Scope:
+
+- Added `TULinkRetireCommandPath` as the width-aware serializer from
+  `ROBEntryBank.deallocTURetireSource` to `TULinkRelationCmap`.
+- Wired `DecodeRenameROBPath` to gate ROB deallocation with serializer credit
+  and drive `ScalarTURenameBridge.tuRetire*` from relation-cmap commands.
+- Exposed `ScalarTURenameBridge.tuRetireAccepted/Miss/ReleaseMismatch/
+  Unsupported` so the serializer advances on actual T/U rename acceptance.
+- Documented the live retire path in module pages, the module index, and the
+  agent loop.
+
+Model evidence:
+
+- `SPEROB::dealloc()` walks deallocated rows in order and calls
+  `ReleaseRelative()` before the row is freed.
+- `ReleaseRelative()` preserves no-destination block-last rows because they
+  can drain older T/U relation entries.
+- `LocalRegMgr::ReportRetired(seq, false/true)` is the semantic acceptance
+  point for mark-retired and deallocation commands, so the Chisel relation
+  stream must wait for actual `TULinkRename` acceptance.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRelationCmap
+bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git diff --check
+```
+
+Expected result:
+
+- The source serializer preserves valid ROB dealloc sources in slot order.
+- ROB deallocation is backpressured unless a full source window can be
+  accepted.
+- No-destination block-last rows are retained so relation-cmap can drain old
+  T/U relations.
+- `TULinkRelationCmap` command state advances only after
+  `ScalarTURenameBridge.tuRetireAccepted`.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- An initial parallel attempt to run multiple SBT-backed Chisel wrappers hit
+  the known SBT client socket race; affected suites were rerun sequentially.
+- `TULinkRetireCommandPathSpec` passed 4 tests.
+- `TULinkRelationCmapSpec` passed 4 tests.
+- `ScalarTURenameBridgeSpec` passed 4 tests.
+- `DecodeRenameROBPathSpec` passed 7 tests.
+- `ROBEntryBankSpec` passed 11 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `TULinkRenameSpec` passed 10 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git diff --check` passed.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R64 adds a reusable retire-command
+  invariant: relation-cmap command progress must be driven by actual
+  `TULinkRename.retireAccepted`, not predicted maintenance readiness, and the
+  ROB source serializer must keep full-window credit separate from
+  per-command acceptance.

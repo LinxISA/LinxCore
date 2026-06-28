@@ -42,6 +42,10 @@ class ScalarTURenameBridgeIO(
   val tuRetireKind = Input(DestinationKind())
   val tuRetireSeq = Input(new ROBID(mapQDepth))
   val tuRetireDealloc = Input(Bool())
+  val tuRetireAccepted = Output(Bool())
+  val tuRetireMiss = Output(Bool())
+  val tuRetireReleaseMismatch = Output(Bool())
+  val tuRetireUnsupported = Output(Bool())
 
   val inReady = Output(Bool())
   val accepted = Output(Bool())
@@ -268,6 +272,10 @@ class ScalarTURenameBridge(
 
   io.tuReady := tu.io.ready
   io.tuAccepted := tu.io.accepted
+  io.tuRetireAccepted := tu.io.retireAccepted
+  io.tuRetireMiss := tu.io.retireMiss
+  io.tuRetireReleaseMismatch := tu.io.retireReleaseMismatch
+  io.tuRetireUnsupported := tu.io.retireUnsupported
   io.tuSrc := tu.io.src
   io.tuDst := tu.io.dst
   io.tuTSeq := tu.io.tSeq

@@ -66,7 +66,7 @@ dispatch agents consume a real block owner.
 | output | `blockQuery*`, `block*Mask` | mixed | diagnostic | BROB query and occupancy/completion masks |
 | output | `commit*`, `dealloc*`, `flush*`, `size`, `outstandingCount`, `*Mask` | mixed | diagnostic | `ROBEntryBank` commit, recovery, and lifecycle outputs |
 | output | `robTULinkSource*` | mixed | diagnostic/source | ROB row candidate for `TULinkFlushSourceSelector.robSource` |
-| output | `deallocTURetireSource` | `Vec(commitWidth, TULinkRetireSource)` | diagnostic/source | ROB deallocation-row source vector for `TULinkRelationCmap` |
+| output | `deallocTURetireSource` | `Vec(commitWidth, TULinkRetireSource)` | diagnostic/source | ROB deallocation-row source vector for `TULinkRetireCommandPath` |
 
 ## State
 
@@ -118,9 +118,9 @@ the same clock edge as the accepted BROB and ROB allocation.
 
 ROB row flushes are forwarded to `ROBEntryBank`; the resulting
 `robTULinkSource*` outputs feed the live T/U cleanup selector composition.
-`deallocTURetireSource` is forwarded from `ROBEntryBank` but is not yet wired
-into the live rename retire port; `TULinkRelationCmap` owns that next
-serialization step. BROB flush remains an explicit full-BID input
+`deallocTURetireSource` is forwarded from `ROBEntryBank` into
+`DecodeRenameROBPath`, where `TULinkRetireCommandPath` serializes it into the
+live T/U rename retire port. BROB flush remains an explicit full-BID input
 (`blockFlushValid/blockFlushBid`) because the current Chisel recovery bus
 still uses ring `ROBID` metadata while the hardware block contract uses full
 64-bit BIDs. `FullBidRecoveryBridge` now owns the shared conversion used by
