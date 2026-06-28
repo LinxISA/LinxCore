@@ -60,6 +60,8 @@ R68 exposes the following `ReportLocalRegBlockCommit` event as
 `tuRetireLocalBlockCommit*`. R69 consumes that event through
 `ScalarTURenameBridge`/`TULinkRecoveryCleanupPath` so the reduced T/U
 local-register owner runs `ReportBlockCommit` only after the event is accepted.
+R70 carries the block-last source STID through that post-clean event and
+surfaces the reduced owner's STID-match diagnostics.
 
 ## Interface
 
@@ -231,7 +233,11 @@ the event ready input from `ScalarTURenameBridge.tuLocalBlockCommitReady`,
 feeds the event into the T/U cleanup composition, and exposes both the retire
 path fire and rename-side accepted diagnostics. The reduced path therefore
 mutates the single live T/U local-register bank after post-clean event
-acceptance, while full PE/STID fanout remains deferred.
+acceptance, while full PE/STID fanout remains deferred. R70 carries the
+block-last row's STID on that event and exposes
+`tuRetireLocalBlockCommitStidMatch` plus
+`tuRetireLocalBlockCommitBlockedByStid`; the current reduced bank accepts only
+local STID0.
 `cleanGroup*` remains inactive until a vector/MTC group-clean owner exists.
 
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
@@ -296,7 +302,9 @@ stream has drained. R68 preserves the next model call boundary,
 `SPEROB::ReportLocalRegBlockCommit`, as a ready/valid event after the scalar
 `CleanCMAP` pulse. R69 consumes that event through the reduced live
 T/U local-register owner, matching `SPERename::ReportSGPRBlockCommit` for the
-single implemented bank.
+single implemented bank. R70 carries the selected STID with that event,
+matching the model's `ReportSGPRBlockCommit(bid, stid)` selection while the
+current Chisel owner remains a reduced STID0 bank.
 Full store timing still requires real STA/STD execution, load-conflict
 publication, SCB/MDB handoff, and memory trace side effects.
 
@@ -315,7 +323,7 @@ publication, SCB/MDB handoff, and memory trace side effects.
   `TULinkRetireCommandPath.cleanBlock*` and `cleanGroup*`; scalar block-last
   auto clean is now owned inside `TULinkRetireCommandPath`.
 - Multi-PE/multi-STID SGPR local-register block-commit fanout beyond the
-  current reduced single-bank consumer.
+  current reduced STID-filtered single-bank consumer.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - SGPR/tile/vector operand classification and rename.
@@ -368,3 +376,5 @@ cleanup observability through the composition boundary. R66 covers the
 block-last deallocation boundary and forwarded block-clean candidate. R68
 covers local block-commit observability after auto scalar clean. R69 covers the
 consumer handshake from retire event to live T/U local-register block commit.
+R70 covers event STID carry and the reduced owner's non-local STID rejection
+diagnostic.

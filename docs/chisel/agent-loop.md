@@ -101,6 +101,13 @@ markdown files dirty in the LinxCore worktree. The model evidence for R69 was
 the same `SPEROB::CommitBlock` post-`CleanCMAP` call into
 `SPERename::ReportSGPRBlockCommit` and `LocalRegMgr::ReportBlockCommit` at
 LinxCoreModel commit `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+R70 started from `rtl/LinxCore` commit
+`1c950e968f19f1b51707bfcae1950bbf8fbc8167`, with unrelated architecture
+markdown files dirty in the LinxCore worktree. The model evidence for R70 was
+`SPEROB::CommitBlock`, `SPEROB::ReportLocalRegBlockCommit`,
+`SPERename::ReportSGPRBlockCommit`, `LocalRegMgr::ReportBlockCommit`, and
+`SGPR_HAND_COUNT`/`SGPRType2Idx` at LinxCoreModel commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
 
 ## Non-Negotiable Rules
 
@@ -256,6 +263,7 @@ These packets remain the required base before broad module promotion:
 | R67 | Scalar `CleanCMAP` scheduling after block-last retire commands drain | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R68 | Scalar local block-commit event after `CleanCMAP` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R69 | Consume scalar local block-commit event in live T/U rename owner | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R70 | Carry selected STID through local block-commit and reject non-local reduced-bank events | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -319,6 +327,9 @@ Update skills only for:
   dropping width-wide events.
 - a post-clean event-ordering rule where `ReportLocalRegBlockCommit` must stay
   after scalar `CleanCMAP` and must not be folded into the T/U relation owner.
+- a selected-STID local block-commit rule where a reduced local-register owner
+  must not consume an event for a different STID; fanout must select or
+  instantiate the matching local banks explicitly.
 
 Run skill evolution as a trailing maintenance lane after the module docs and
 evidence are updated. The module packet owns local Markdown first; the
@@ -378,9 +389,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Extend SGPR local-register block-commit from the reduced single live T/U
-   bank toward model fanout: selected STID, both SGPR hands, and future PE
-   banking, while preserving the R69 ready/accepted maintenance boundary.
+1. Extend SGPR local-register block-commit from the reduced STID0 T/U bank
+   toward model fanout: both SGPR hands across scalar PEs, and future PE
+   banking, while preserving the R69/R70 ready/accepted maintenance boundary.
 2. Enqueue-time ROB reservation: move BROB/ROB allocation before
    `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
    without duplicate identities.

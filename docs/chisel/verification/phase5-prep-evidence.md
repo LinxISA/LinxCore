@@ -4737,3 +4737,88 @@ Skill evolve:
   the live local-register owner, not by the relation-cmap scheduler or scalar
   GPR commit path, and its ready signal must reflect local-register
   maintenance priority.
+
+## R70 Selected-STID Local Block Commit Carry
+
+Scope:
+
+- Carried the block-last source STID through the post-`CleanCMAP`
+  local block-commit event from `TULinkRetireCommandPath`.
+- Added STID input and match diagnostics through `ScalarTURenameBridge`,
+  `TULinkRecoveryCleanupPath`, and `DecodeRenameROBPath`.
+- Kept the current reduced implementation as a single local STID0 owner:
+  non-local STID events are backpressured and reported, not consumed.
+- Preserved R69 maintenance ordering: external commit and recovery flush still
+  have priority over the local block-commit event.
+
+Model evidence:
+
+- `SPEROB::CommitBlock()` calls `ReportLocalRegBlockCommit(bid, stid)` after
+  `CleanCMAP(bid)`.
+- `SPEROB::ReportLocalRegBlockCommit()` forwards the committed BID and STID to
+  `SPERename::ReportSGPRBlockCommit()`.
+- `SPERename::ReportSGPRBlockCommit(bid, stid)` selects
+  `sgprRenameUnit[*][stid]` and then iterates both SGPR hands for every scalar
+  PE.
+- `OperandType.h` defines `SGPR_HAND_COUNT == 2` and maps T/U SGPR hands with
+  `SGPRType2Idx(OPD_TLINK)` and `SGPRType2Idx(OPD_ULINK)`.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only TULinkRelationCmap
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git fetch origin main
+git diff --check
+```
+
+Expected result:
+
+- The post-clean local block-commit event is a BID/STID pair.
+- The reduced local-register owner accepts only its configured local STID.
+- A non-local STID event keeps the upstream ready low and leaves the event
+  pending for a future fanout owner.
+- The R69 ready/accepted boundary and maintenance priority remain unchanged.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `TULinkRetireCommandPathSpec` passed 8 tests, including block-last STID
+  carry from auto clean into local block commit.
+- `TULinkRecoveryCleanupPathSpec` passed 12 tests, including non-local STID
+  local block-commit rejection without T/U state mutation.
+- `ScalarTURenameBridgeSpec` passed 5 tests with the STID-gated
+  local block-commit readiness rule.
+- `DecodeRenameROBPathSpec` passed 7 tests with STID and match diagnostics
+  exposed at the reduced backend boundary.
+- `TULinkRenameSpec` passed 10 tests.
+- `TULinkRelationCmapSpec` passed 7 tests.
+- `ROBEntryBankSpec` passed 12 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `git diff --check` passed.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R70 adds a reusable selected-STID
+  rule: reduced local-register owners must not consume
+  `ReportLocalRegBlockCommit` events for a different STID, and later fanout
+  must explicitly select or instantiate the matching STID banks.

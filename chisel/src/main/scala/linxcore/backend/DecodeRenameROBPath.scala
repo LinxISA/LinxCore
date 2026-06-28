@@ -228,8 +228,11 @@ class DecodeRenameROBPathIO(
   val tuRetireLocalBlockCommitValid = Output(Bool())
   val tuRetireLocalBlockCommitReady = Output(Bool())
   val tuRetireLocalBlockCommitBid = Output(new ROBID(p.robEntries))
+  val tuRetireLocalBlockCommitStid = Output(UInt(stidWidth.W))
   val tuRetireLocalBlockCommitFire = Output(Bool())
   val tuRetireLocalBlockCommitAccepted = Output(Bool())
+  val tuRetireLocalBlockCommitStidMatch = Output(Bool())
+  val tuRetireLocalBlockCommitBlockedByStid = Output(Bool())
   val tuRetireUnsupportedDst = Output(Bool())
   val tuRetireRelationPreReleaseT = Output(Bool())
   val tuRetireRelationPreReleaseU = Output(Bool())
@@ -295,6 +298,7 @@ class DecodeRenameROBPath(
     val stidWidth: Int = 8,
     val peIdWidth: Int = 8,
     val tidWidth: Int = 8,
+    val localStid: Int = 0,
     val blockTypeWidth: Int = 4,
     val trapCauseWidth: Int = 32,
     val scalarArchRegs: Int = 24,
@@ -420,7 +424,8 @@ class DecodeRenameROBPath(
     bidWidth = bidWidth,
     stidWidth = stidWidth,
     peIdWidth = peIdWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    localStid = localStid
   ))
   rename.io.in := queuedForRename
   val tuRetirePath = Module(new TULinkRetireCommandPath(
@@ -532,6 +537,7 @@ class DecodeRenameROBPath(
   rename.io.tuRetireDealloc := tuRetirePath.io.command.dealloc
   rename.io.tuLocalBlockCommitValid := tuRetirePath.io.localBlockCommitValid
   rename.io.tuLocalBlockCommitBid := tuRetirePath.io.localBlockCommitBid
+  rename.io.tuLocalBlockCommitStid := tuRetirePath.io.localBlockCommitStid
 
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
@@ -690,8 +696,11 @@ class DecodeRenameROBPath(
   io.tuRetireLocalBlockCommitValid := tuRetirePath.io.localBlockCommitValid
   io.tuRetireLocalBlockCommitReady := rename.io.tuLocalBlockCommitReady
   io.tuRetireLocalBlockCommitBid := tuRetirePath.io.localBlockCommitBid
+  io.tuRetireLocalBlockCommitStid := tuRetirePath.io.localBlockCommitStid
   io.tuRetireLocalBlockCommitFire := tuRetirePath.io.localBlockCommitFire
   io.tuRetireLocalBlockCommitAccepted := rename.io.tuLocalBlockCommitAccepted
+  io.tuRetireLocalBlockCommitStidMatch := rename.io.tuLocalBlockCommitStidMatch
+  io.tuRetireLocalBlockCommitBlockedByStid := rename.io.tuLocalBlockCommitBlockedByStid
   io.tuRetireUnsupportedDst := tuRetirePath.io.unsupportedDst
   io.tuRetireRelationPreReleaseT := tuRetirePath.io.preReleaseT
   io.tuRetireRelationPreReleaseU := tuRetirePath.io.preReleaseU

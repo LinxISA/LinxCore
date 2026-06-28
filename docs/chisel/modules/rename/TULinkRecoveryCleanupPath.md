@@ -31,6 +31,9 @@ R69 also makes this wrapper the consumer for the scalar
 `ReportLocalRegBlockCommit` boundary: it accepts a post-`CleanCMAP`
 `localBlockCommit*` event and turns the accepted event into the local-register
 block-commit release command.
+R70 adds the selected STID to that local event. The reduced wrapper accepts the
+event only when `localBlockCommitStid` matches its configured `localStid`
+parameter, which defaults to STID0 for the current single-bank path.
 
 ```text
 RecoveryCleanupIntent + ROB row candidate + LSU row candidate
@@ -47,8 +50,9 @@ Inputs:
 - `retireValid`, `retireKind`, `retireSeq`, `retireDealloc`: local retire or
   direct deallocation command.
 - `commitValid`, `commitBid`: block-commit release command.
-- `localBlockCommitValid`, `localBlockCommitBid`: post-scalar-`CleanCMAP`
-  local block-commit event from `TULinkRetireCommandPath`.
+- `localBlockCommitValid`, `localBlockCommitBid`, `localBlockCommitStid`:
+  post-scalar-`CleanCMAP` local block-commit event from
+  `TULinkRetireCommandPath`.
 - `cleanup`: registered recovery intent from `RecoveryCleanupControl`.
 - `robSource`: ROB row candidate with `(bid, rid, stid, tSeq, uSeq, dstValid,
   dstKind)`.
@@ -63,6 +67,8 @@ Outputs:
   diagnostics.
 - `localBlockCommitReady`, `localBlockCommitAccepted`: consumer handshake for
   the post-clean local block-commit event.
+- `localBlockCommitStidMatch`, `localBlockCommitBlockedByStid`: diagnostics
+  that expose whether the reduced local-register owner matches the event STID.
 - Publisher command observability: `publisherFlushValid`,
   `publisherFlushBaseOnBid`, `publisherFlushBid`, `publisherFlushRid`,
   `publisherFlushTSeq`, and `publisherFlushUSeq`.
@@ -120,12 +126,15 @@ a valid command with zero local sequences when no source is present, and
 `TULinkRename` prunes by BID instead of local sequence.
 
 Local block commit is a separate input from external `commitValid`. The wrapper
-reports ready only when no external commit is active, recovery is not blocked
-by missing source evidence, and the publisher is not applying a recovery flush.
-On an accepted local block commit, `TULinkRename.commitValid/commitBid` receive
-the local event BID for one cycle. External `commitValid` has priority when it
-is present, so the R68 event remains pending upstream instead of racing two
-block-commit commands through one local-register owner.
+first compares the event STID with the configured `localStid`. It reports
+ready only when the STID matches, no external commit is active, recovery is not
+blocked by missing source evidence, and the publisher is not applying a
+recovery flush. On an accepted local block commit,
+`TULinkRename.commitValid/commitBid` receive the local event BID for one
+cycle. External `commitValid` has priority when it is present, so the R68/R70
+event remains pending upstream instead of racing two block-commit commands
+through one local-register owner. A mismatched STID is reported as blocked and
+is not consumed by this reduced bank.
 
 ## Model Alignment
 
@@ -157,6 +166,11 @@ For R69, the reduced composition implements the same SGPR block-commit release
 semantics for the single live T/U bank by routing the accepted local
 block-commit event into `TULinkRename.commit*`. Full PE fanout and multi-STID
 bank replication remain deferred.
+For R70, the wrapper preserves the model's selected-STID boundary. The model
+calls `ReportSGPRBlockCommit(bid, stid)` and selects `sgprRenameUnit[*][stid]`
+before iterating the two SGPR hands. The current Chisel implementation maps
+that to one reduced STID0 bank and exposes the STID comparison so a later
+fanout wrapper can instantiate or select the right banks explicitly.
 
 ## Timing
 
@@ -182,7 +196,7 @@ rather than ignoring them.
 
 - Relation-cmap release policy around T/U retire/dealloc.
 - T/U ready-table initialization and wakeup state.
-- Multi-PE and multi-thread T/U bank replication/fanout beyond the current
+- Multi-PE and multi-STID T/U bank replication/fanout beyond the current
   reduced single-bank composition.
 
 ## Verification
@@ -209,5 +223,6 @@ The current tests cover ROB-source cleanup, LSU-source fallback, T- and
 U-destination previous-sequence adjustment through the composition reference,
 base-on-BID source-free cleanup, missing/mismatched source blocking, duplicate
 source conflict blocking, inactive cleanup behavior, local block-commit
-release/backpressure, IO widths, and elaboration with selector, publisher, and
-rename child owners.
+release/backpressure, STID-match rejection for non-local local block-commit
+events, IO widths, and elaboration with selector, publisher, and rename child
+owners.

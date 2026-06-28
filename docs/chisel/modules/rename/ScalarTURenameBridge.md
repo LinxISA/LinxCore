@@ -29,6 +29,8 @@ rather than a separate diagnostic-only cleanup path.
 R69 wires the scalar local block-commit event from the retire path into the
 T/U cleanup composition, so the reduced path now consumes
 `SPERename::ReportSGPRBlockCommit` through the same live local-register owner.
+R70 forwards the event STID and exposes whether the reduced local-register
+owner matched it. The current bridge instantiates one local STID0 T/U bank.
 
 ## Interface
 
@@ -43,8 +45,8 @@ Inputs:
   candidates.
 - `tuRetireValid/Kind/Seq/Dealloc`: live T/U relation-cmap
   mark/deallocation command from `TULinkRetireCommandPath`.
-- `tuLocalBlockCommitValid/tuLocalBlockCommitBid`: post-clean scalar local
-  block-commit event from `TULinkRetireCommandPath`.
+- `tuLocalBlockCommitValid/tuLocalBlockCommitBid/tuLocalBlockCommitStid`:
+  post-clean scalar local block-commit event from `TULinkRetireCommandPath`.
 
 Outputs:
 
@@ -64,6 +66,8 @@ Outputs:
 - `tuLocalBlockCommitReady`, `tuLocalBlockCommitAccepted`: downstream
   handshake for the local block-commit event consumed by the T/U cleanup
   composition.
+- `tuLocalBlockCommitStidMatch`, `tuLocalBlockCommitBlockedByStid`: reduced
+  local-owner STID match diagnostics.
 - `tuCleanup*`: forwarded source-selection and flush-publisher diagnostics
   from `TULinkRecoveryCleanupPath`.
 
@@ -114,7 +118,9 @@ Local block commit also stays inside the T/U cleanup path. The bridge forwards
 `tuLocalBlockCommit*` into `TULinkRecoveryCleanupPath` and exposes its
 ready/accepted handshake. This lets `TULinkRetireCommandPath` keep the R68
 event pending while recovery flush or an external commit occupies the local
-maintenance slot.
+maintenance slot. In R70, the forwarded event includes STID. The reduced
+`TULinkRecoveryCleanupPath` accepts only the configured local STID, so a
+non-local event is backpressured rather than consumed by the wrong bank.
 
 ## Model Alignment
 
@@ -132,7 +138,9 @@ destination physical tag comes from the accepted T/U destination allocation.
 For block commit, the model calls `SPERename::ReportSGPRBlockCommit` after
 scalar `CleanCMAP`; the R69 bridge forwards that event to the composed
 `TULinkRecoveryCleanupPath`, which applies `LocalRegMgr::ReportBlockCommit`
-through `TULinkRename.commit*`.
+through `TULinkRename.commit*`. R70 preserves the model-selected STID on that
+event, matching the model's `sgprRenameUnit[*][stid]` selection before later
+PE and thread-bank fanout exists in Chisel.
 
 ## Deferred Owners
 
@@ -164,5 +172,5 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 
 The current tests cover the atomic scalar/T/U accept reference rule, scalar
 input sanitization for T/U operands, local block-commit maintenance
-backpressure, IO shape, and elaboration through `ScalarDecodeRenameBridge`,
-`TULinkRecoveryCleanupPath`, and `TULinkRename`.
+backpressure including STID mismatch, IO shape, and elaboration through
+`ScalarDecodeRenameBridge`, `TULinkRecoveryCleanupPath`, and `TULinkRename`.

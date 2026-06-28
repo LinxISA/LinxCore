@@ -60,6 +60,7 @@ class TULinkRetireCommandPathIO(
   val localBlockCommitPending = Output(Bool())
   val localBlockCommitValid = Output(Bool())
   val localBlockCommitBid = Output(new ROBID(p.robEntries))
+  val localBlockCommitStid = Output(UInt(stidWidth.W))
   val localBlockCommitFire = Output(Bool())
 }
 
@@ -109,6 +110,9 @@ class TULinkRetireCommandPath(
   private def zeroRobId: ROBID =
     0.U.asTypeOf(new ROBID(p.robEntries))
 
+  private def zeroStid: UInt =
+    0.U(stidWidth.W)
+
   private def flushMatches(source: TULinkRetireSource): Bool =
     Mux(io.flush.baseOnBid, ROBID.lessEqual(io.flush.req.bid, source.bid), ROBID.less(io.flush.req.bid, source.bid))
 
@@ -128,8 +132,10 @@ class TULinkRetireCommandPath(
   val count = RegInit(0.U(countWidth.W))
   val autoCleanBlockPending = RegInit(false.B)
   val autoCleanBlockBid = RegInit(zeroRobId)
+  val autoCleanBlockStid = RegInit(zeroStid)
   val localBlockCommitPending = RegInit(false.B)
   val localBlockCommitBid = RegInit(zeroRobId)
+  val localBlockCommitStid = RegInit(zeroStid)
 
   val sourceValidMask = VecInit(io.sources.map(_.valid)).asUInt
   val sourceEnqueueCount = PopCount(sourceValidMask)
@@ -225,8 +231,10 @@ class TULinkRetireCommandPath(
     count := 0.U
     autoCleanBlockPending := false.B
     autoCleanBlockBid := zeroRobId
+    autoCleanBlockStid := zeroStid
     localBlockCommitPending := false.B
     localBlockCommitBid := zeroRobId
+    localBlockCommitStid := zeroStid
   }.elsewhen(cleanupFire) {
     sourceQueue := sourceCompacted
     head := 0.U
@@ -235,19 +243,24 @@ class TULinkRetireCommandPath(
     when(autoCleanBlockValid) {
       autoCleanBlockPending := false.B
       autoCleanBlockBid := zeroRobId
+      autoCleanBlockStid := zeroStid
       localBlockCommitPending := true.B
       localBlockCommitBid := autoCleanBlockBid
+      localBlockCommitStid := autoCleanBlockStid
     }.elsewhen(pendingCleanPruned) {
       autoCleanBlockPending := false.B
       autoCleanBlockBid := zeroRobId
+      autoCleanBlockStid := zeroStid
     }
     when(pendingLocalCommitPruned) {
       localBlockCommitPending := false.B
       localBlockCommitBid := zeroRobId
+      localBlockCommitStid := zeroStid
     }
   }.elsewhen(localBlockCommitFire) {
     localBlockCommitPending := false.B
     localBlockCommitBid := zeroRobId
+    localBlockCommitStid := zeroStid
   }.otherwise {
     for (slot <- 0 until sourceWidth) {
       val priorValidCount =
@@ -268,6 +281,7 @@ class TULinkRetireCommandPath(
     when(blockLastAccepted) {
       autoCleanBlockPending := true.B
       autoCleanBlockBid := relationInput.bid
+      autoCleanBlockStid := relationInput.stid
     }
   }
 
@@ -302,5 +316,6 @@ class TULinkRetireCommandPath(
   io.localBlockCommitPending := localBlockCommitPending
   io.localBlockCommitValid := localBlockCommitValid
   io.localBlockCommitBid := Mux(localBlockCommitPending, localBlockCommitBid, zeroRobId)
+  io.localBlockCommitStid := Mux(localBlockCommitPending, localBlockCommitStid, zeroStid)
   io.localBlockCommitFire := localBlockCommitFire
 }

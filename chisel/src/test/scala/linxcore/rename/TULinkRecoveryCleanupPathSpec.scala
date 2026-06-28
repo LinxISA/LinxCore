@@ -23,7 +23,9 @@ object TULinkRecoveryCleanupPathReference {
       ready: Boolean,
       accepted: Boolean,
       tReleased: Set[Int],
-      uReleased: Set[Int])
+      uReleased: Set[Int],
+      stidMatch: Boolean,
+      blockedByStid: Boolean)
 
   def cleanup(
       state: State,
@@ -97,16 +99,34 @@ object TULinkRecoveryCleanupPathReference {
       state: State,
       valid: Boolean,
       bid: ROBIDValue,
+      eventStid: Int = 0,
+      localStid: Int = 0,
       externalCommitValid: Boolean = false,
       cleanupBlockedBySource: Boolean = false,
       publisherFlushValid: Boolean = false): LocalBlockCommitResult = {
-    val ready = !externalCommitValid && !cleanupBlockedBySource && !publisherFlushValid
+    val stidMatch = eventStid == localStid
+    val blockedByStid = valid && !stidMatch
+    val ready = stidMatch && !externalCommitValid && !cleanupBlockedBySource && !publisherFlushValid
     if (!valid || !ready) {
-      LocalBlockCommitResult(state, ready = ready, accepted = false, Set.empty, Set.empty)
+      LocalBlockCommitResult(
+        state,
+        ready = ready,
+        accepted = false,
+        Set.empty,
+        Set.empty,
+        stidMatch = stidMatch,
+        blockedByStid = blockedByStid)
     } else {
       val (tNext, tReleased) = TULinkRenameReference.blockCommit(state.t, bid)
       val (uNext, uReleased) = TULinkRenameReference.blockCommit(state.u, bid)
-      LocalBlockCommitResult(State(tNext, uNext), ready = true, accepted = true, tReleased, uReleased)
+      LocalBlockCommitResult(
+        State(tNext, uNext),
+        ready = true,
+        accepted = true,
+        tReleased,
+        uReleased,
+        stidMatch = true,
+        blockedByStid = false)
     }
   }
 }
@@ -315,6 +335,8 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
 
     assert(result.ready)
     assert(result.accepted)
+    assert(result.stidMatch)
+    assert(!result.blockedByStid)
     assert(result.tReleased == Set(0, 1))
     assert(result.uReleased == Set(0))
     assert(result.state.t.usedEntries == 1)
@@ -335,6 +357,17 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
     assert(recoveryFlush.state == state)
   }
 
+  test("local block commit rejects an event for a different STID without mutating T/U state") {
+    val (state, _, _, _, _, _) = populatedState()
+    val mismatch = localBlockCommit(state, valid = true, bid = bid1, eventStid = 1, localStid = 0)
+
+    assert(!mismatch.ready)
+    assert(!mismatch.accepted)
+    assert(!mismatch.stidMatch)
+    assert(mismatch.blockedByStid)
+    assert(mismatch.state == state)
+  }
+
   test("IO exposes T/U rename state, publisher command, and source diagnostics") {
     val p = InterfaceParams(robEntries = 8)
     val io = new TULinkRecoveryCleanupPathIO(p, localRegsT = 8, localRegsU = 8, mapQDepth = 8, bidWidth = 16)
@@ -349,8 +382,11 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
     assert(io.tMapQValidMask.getWidth == 8)
     assert(io.uMapQValidMask.getWidth == 8)
     assert(io.localBlockCommitBid.value.getWidth == 3)
+    assert(io.localBlockCommitStid.getWidth == 8)
     assert(io.localBlockCommitReady.getWidth == 1)
     assert(io.localBlockCommitAccepted.getWidth == 1)
+    assert(io.localBlockCommitStidMatch.getWidth == 1)
+    assert(io.localBlockCommitBlockedByStid.getWidth == 1)
   }
 
   test("TULinkRecoveryCleanupPath elaborates as the flush publisher plus T/U rename composition owner") {
@@ -371,8 +407,11 @@ class TULinkRecoveryCleanupPathSpec extends AnyFunSuite {
     assert(sv.contains("io_sourceConflict"))
     assert(sv.contains("io_selectedFromRob"))
     assert(sv.contains("io_publisherFlushTSeq_value"))
+    assert(sv.contains("io_localBlockCommitStid"))
     assert(sv.contains("io_localBlockCommitReady"))
     assert(sv.contains("io_localBlockCommitAccepted"))
+    assert(sv.contains("io_localBlockCommitStidMatch"))
+    assert(sv.contains("io_localBlockCommitBlockedByStid"))
     assert(!sv.contains("ScalarDecodeRenameBridge"))
   }
 }

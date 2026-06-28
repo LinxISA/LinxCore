@@ -48,8 +48,11 @@ class ScalarTURenameBridgeIO(
   val tuRetireUnsupported = Output(Bool())
   val tuLocalBlockCommitValid = Input(Bool())
   val tuLocalBlockCommitBid = Input(new ROBID(p.robEntries))
+  val tuLocalBlockCommitStid = Input(UInt(stidWidth.W))
   val tuLocalBlockCommitReady = Output(Bool())
   val tuLocalBlockCommitAccepted = Output(Bool())
+  val tuLocalBlockCommitStidMatch = Output(Bool())
+  val tuLocalBlockCommitBlockedByStid = Output(Bool())
 
   val inReady = Output(Bool())
   val accepted = Output(Bool())
@@ -135,7 +138,8 @@ class ScalarTURenameBridge(
     val bidWidth: Int = BID.DefaultWidth,
     val stidWidth: Int = 8,
     val peIdWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val localStid: Int = 0)
     extends Module {
   require(scalarArchRegs == 24, "scalar/TU bridge follows LinxCoreModel GPR::GPR_COUNT")
   require(physRegs == (1 << p.physRegWidth), "physical GPR count must match InterfaceParams.physRegWidth")
@@ -213,7 +217,8 @@ class ScalarTURenameBridge(
     bidWidth = bidWidth,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    localStid = localStid
   ))
 
   scalar.io.in := scalarInput
@@ -235,6 +240,7 @@ class ScalarTURenameBridge(
   tu.io.commitBid := io.commitBid
   tu.io.localBlockCommitValid := io.tuLocalBlockCommitValid
   tu.io.localBlockCommitBid := io.tuLocalBlockCommitBid
+  tu.io.localBlockCommitStid := io.tuLocalBlockCommitStid
   tu.io.cleanup := io.cleanup
   tu.io.robSource := io.robSource
   tu.io.lsuSource := io.lsuSource
@@ -284,6 +290,8 @@ class ScalarTURenameBridge(
   io.tuRetireUnsupported := tu.io.retireUnsupported
   io.tuLocalBlockCommitReady := tu.io.localBlockCommitReady
   io.tuLocalBlockCommitAccepted := tu.io.localBlockCommitAccepted
+  io.tuLocalBlockCommitStidMatch := tu.io.localBlockCommitStidMatch
+  io.tuLocalBlockCommitBlockedByStid := tu.io.localBlockCommitBlockedByStid
   io.tuSrc := tu.io.src
   io.tuDst := tu.io.dst
   io.tuTSeq := tu.io.tSeq

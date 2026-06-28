@@ -21,8 +21,12 @@ object ScalarTURenameBridgeReference {
   def preservesTUSource(operandClass: String): Boolean =
     operandClass == "T" || operandClass == "U"
 
-  def localBlockCommitReady(externalCommitValid: Boolean, recoveryActive: Boolean): Boolean =
-    !externalCommitValid && !recoveryActive
+  def localBlockCommitReady(
+      externalCommitValid: Boolean,
+      recoveryActive: Boolean,
+      eventStid: Int = 0,
+      localStid: Int = 0): Boolean =
+    eventStid == localStid && !externalCommitValid && !recoveryActive
 }
 
 class ScalarTURenameBridgeSpec extends AnyFunSuite {
@@ -49,6 +53,7 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(localBlockCommitReady(externalCommitValid = false, recoveryActive = false))
     assert(!localBlockCommitReady(externalCommitValid = true, recoveryActive = false))
     assert(!localBlockCommitReady(externalCommitValid = false, recoveryActive = true))
+    assert(!localBlockCommitReady(externalCommitValid = false, recoveryActive = false, eventStid = 1, localStid = 0))
   }
 
   test("IO exposes scalar, T/U rename, ROB allocation, and cleanup surfaces") {
@@ -67,8 +72,11 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(io.tuRetireAccepted.getWidth == 1)
     assert(io.tuRetireReleaseMismatch.getWidth == 1)
     assert(io.tuLocalBlockCommitBid.value.getWidth == 3)
+    assert(io.tuLocalBlockCommitStid.getWidth == 8)
     assert(io.tuLocalBlockCommitReady.getWidth == 1)
     assert(io.tuLocalBlockCommitAccepted.getWidth == 1)
+    assert(io.tuLocalBlockCommitStidMatch.getWidth == 1)
+    assert(io.tuLocalBlockCommitBlockedByStid.getWidth == 1)
     assert(io.tuCleanupSelectedFlushSource.tSeq.value.getWidth == 3)
     assert(io.tuCleanupSourceConflict.getWidth == 1)
   }
@@ -89,8 +97,11 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(sv.contains("io_tuDstValid"))
     assert(sv.contains("io_tuRetireAccepted"))
     assert(sv.contains("io_tuRetireReleaseMismatch"))
+    assert(sv.contains("io_tuLocalBlockCommitStid"))
     assert(sv.contains("io_tuLocalBlockCommitReady"))
     assert(sv.contains("io_tuLocalBlockCommitAccepted"))
+    assert(sv.contains("io_tuLocalBlockCommitStidMatch"))
+    assert(sv.contains("io_tuLocalBlockCommitBlockedByStid"))
     assert(sv.contains("io_tuCleanupSourceConflict"))
   }
 }

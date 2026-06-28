@@ -31,6 +31,7 @@ class TULinkRecoveryCleanupPathIO(
   val commitBid = Input(new ROBID(p.robEntries))
   val localBlockCommitValid = Input(Bool())
   val localBlockCommitBid = Input(new ROBID(p.robEntries))
+  val localBlockCommitStid = Input(UInt(stidWidth.W))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
   val robSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
   val lsuSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
@@ -58,6 +59,8 @@ class TULinkRecoveryCleanupPathIO(
   val commitAccepted = Output(Bool())
   val localBlockCommitReady = Output(Bool())
   val localBlockCommitAccepted = Output(Bool())
+  val localBlockCommitStidMatch = Output(Bool())
+  val localBlockCommitBlockedByStid = Output(Bool())
   val flushApplied = Output(Bool())
 
   val tAllocPhysTag = Output(UInt(p.physRegWidth.W))
@@ -109,9 +112,12 @@ class TULinkRecoveryCleanupPath(
     val bidWidth: Int = BID.DefaultWidth,
     val peIdWidth: Int = 8,
     val stidWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val localStid: Int = 0)
     extends Module {
   require(mapQDepth > 1 && (mapQDepth & (mapQDepth - 1)) == 0, "T/U mapQ depth must be a power of two")
+  require(stidWidth > 0, "STID width must be positive")
+  require(localStid >= 0 && BigInt(localStid) < (BigInt(1) << stidWidth), "local STID must fit stidWidth")
 
   val io = IO(new TULinkRecoveryCleanupPathIO(
     p,
@@ -151,7 +157,9 @@ class TULinkRecoveryCleanupPath(
 
   val cleanupActive = io.cleanup.valid && io.cleanup.backendFlushValid
   val cleanupBlockedBySource = cleanupActive && !publisher.io.flushValid
-  val localBlockCommitReady = !io.commitValid && !cleanupBlockedBySource && !publisher.io.flushValid
+  val localBlockCommitStidMatch = io.localBlockCommitStid === localStid.U(stidWidth.W)
+  val localBlockCommitReady =
+    localBlockCommitStidMatch && !io.commitValid && !cleanupBlockedBySource && !publisher.io.flushValid
   val localBlockCommitFire = io.localBlockCommitValid && localBlockCommitReady
 
   rename.io.in := io.in
@@ -190,6 +198,8 @@ class TULinkRecoveryCleanupPath(
   io.commitAccepted := rename.io.commitAccepted
   io.localBlockCommitReady := localBlockCommitReady
   io.localBlockCommitAccepted := localBlockCommitFire
+  io.localBlockCommitStidMatch := localBlockCommitStidMatch
+  io.localBlockCommitBlockedByStid := io.localBlockCommitValid && !localBlockCommitStidMatch
   io.flushApplied := rename.io.flushApplied
   io.tAllocPhysTag := rename.io.tAllocPhysTag
   io.uAllocPhysTag := rename.io.uAllocPhysTag
