@@ -19,7 +19,9 @@ The LinxCore Chisel lane uses explicit targets:
 
 The target shape follows the useful part of the OpenXiangShan flow: make Chisel
 generation, simulation/emulator construction, and architectural cross-checking
-separate gates. LinxCore does not import XiangShan's RISC-V payloads.
+separate gates. LinxCore does not import XiangShan's RISC-V payloads. The
+agent-facing runbook for applying this target shape module by module is
+`docs/chisel/agent-loop.md`.
 
 ## Current Toolchain Status
 
@@ -43,3 +45,18 @@ The initial `build.sbt` pins Chisel `7.3.0`, matching the OpenXiangShan
 `2.13.17`, matching the dependency graph resolved by sbt 2.0.0. This can be
 revised only through a Chisel-flow update that records the build evidence and
 any CIRCT compatibility reason.
+
+## XiangShan Flow Notes
+
+The OpenXiangShan `kunminghu-v3` Makefile uses explicit targets for generated
+RTL, simulation RTL, and emulator construction, with `CHISEL_TARGET` selecting
+the emission backend and difftest enabled in the simulation build. Its
+`build.mill` keeps Chisel `7.3.0`, Scala `2.13.17`, and firtool resolution in a
+single build graph. The DiffTest README shows the reusable verification shape:
+typed Chisel event bundles are connected near the design top, finalized at the
+simulation top, and consumed by a simulator/emulator harness.
+
+For LinxCore, the borrowed pattern is target and event-shape discipline: typed
+Linx commit, trap, memory, block, and recovery rows feed the neutral
+QEMU/LinxCoreModel cross-check path. The RISC-V-specific payloads, CSR probes,
+and NEMU/Spike reference flow are intentionally not imported.

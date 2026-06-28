@@ -30,7 +30,9 @@ The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
 same commit-window contract used by the reduced QEMU cross-check harness.
 
-Open setup issues are tracked in `docs/chisel/issues.md`.
+Open setup issues are tracked in `docs/chisel/issues.md`. The multi-agent
+development loop and skill-evolve closeout rules are captured in
+`docs/chisel/agent-loop.md`.
 
 Commands from `rtl/LinxCore`:
 
