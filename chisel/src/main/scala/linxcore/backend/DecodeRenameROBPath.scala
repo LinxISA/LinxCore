@@ -19,11 +19,14 @@ class DecodeRenameROBPathIO(
     val peIdWidth: Int = 8,
     val tidWidth: Int = 8,
     val blockTypeWidth: Int = 4,
-    val trapCauseWidth: Int = 32)
+    val trapCauseWidth: Int = 32,
+    val decRenQueueDepth: Int = 4)
     extends Bundle {
   private val slotWidth = math.max(1, log2Ceil(p.decodeWidth))
   private val ptrWidth = log2Ceil(p.robEntries)
   private val sizeWidth = log2Ceil(p.robEntries + 1)
+  private val decRenPtrWidth = math.max(1, log2Ceil(decRenQueueDepth))
+  private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
 
   val d1 = Input(new FrontendDecodePacket(p))
   val slots = Input(Vec(p.decodeWidth, new F4Slot(p)))
@@ -51,6 +54,16 @@ class DecodeRenameROBPathIO(
   val selectedSlot = Output(UInt(slotWidth.W))
   val selectedRobValue = Output(UInt(ptrWidth.W))
   val selectedBlockBid = Output(UInt(bidWidth.W))
+  val decodeReady = Output(Bool())
+  val decRenPushReady = Output(Bool())
+  val decRenPushFire = Output(Bool())
+  val decRenPopFire = Output(Bool())
+  val decRenValid = Output(Bool())
+  val decRenHead = Output(UInt(decRenPtrWidth.W))
+  val decRenTail = Output(UInt(decRenPtrWidth.W))
+  val decRenCount = Output(UInt(decRenCountWidth.W))
+  val decRenEmpty = Output(Bool())
+  val decRenFull = Output(Bool())
 
   val renamedOutValid = Output(Bool())
   val renamedOut = Output(new RenamedUop(p))
@@ -115,11 +128,14 @@ class DecodeRenameROBPath(
     val trapCauseWidth: Int = 32,
     val scalarArchRegs: Int = 24,
     val physRegs: Int = 64,
-    val mapQDepth: Int = 32)
+    val mapQDepth: Int = 32,
+    val decRenQueueDepth: Int = 4)
     extends Module {
   require(traceParams.robValueWidth >= p.robIndexWidth, "trace ROB value must hold DecodeRenameROBPath ROB index")
   require(traceParams.commitWidth == p.commitWidth, "trace commit width must match InterfaceParams")
   require((p.robEntries & (p.robEntries - 1)) == 0, "ROB entries must be a power of two")
+  require(decRenQueueDepth > 0 && (decRenQueueDepth & (decRenQueueDepth - 1)) == 0,
+    "decode-to-rename queue depth must be a power of two")
 
   private val zeroRobId = 0.U.asTypeOf(new ROBID(p.robEntries))
 
@@ -131,7 +147,8 @@ class DecodeRenameROBPath(
     peIdWidth,
     tidWidth,
     blockTypeWidth,
-    trapCauseWidth
+    trapCauseWidth,
+    decRenQueueDepth
   ))
 
   val decode = Module(new FrontendDecodeStage(p))
@@ -167,18 +184,26 @@ class DecodeRenameROBPath(
     trapCauseWidth = trapCauseWidth
   ))
 
-  val selectedForRename = Wire(new DecodedUop(p))
-  selectedForRename := selected
-  selectedForRename.valid := selectedAny
-  selectedForRename.bid :=
-    FullBidRecoveryBridge.fullBidToRobId(allocator.io.allocBlockBid, selectedAny, p.robEntries, bidWidth)
-  selectedForRename.gid := zeroRobId
-  selectedForRename.gid.valid := selectedAny
-  selectedForRename.rid.valid := selectedAny
-  selectedForRename.rid.wrap := false.B
-  selectedForRename.rid.value := allocator.io.allocRobValue
-  selectedForRename.blockBidValid := selectedAny
-  selectedForRename.blockBid := allocator.io.allocBlockBid
+  val selectedForQueue = Wire(new DecodedUop(p))
+  selectedForQueue := selected
+  selectedForQueue.valid := selectedAny
+
+  val decRenQ = Module(new DecodeRenameQueue(p, depth = decRenQueueDepth))
+  val decRenFlush = io.flushValid || (io.cleanup.valid && io.cleanup.backendFlushValid)
+  decRenQ.io.push := selectedForQueue
+  decRenQ.io.flushValid := decRenFlush
+
+  val queuedForRename = Wire(new DecodedUop(p))
+  queuedForRename := decRenQ.io.out
+  queuedForRename.bid :=
+    FullBidRecoveryBridge.fullBidToRobId(allocator.io.allocBlockBid, decRenQ.io.out.valid, p.robEntries, bidWidth)
+  queuedForRename.gid := zeroRobId
+  queuedForRename.gid.valid := decRenQ.io.out.valid
+  queuedForRename.rid.valid := decRenQ.io.out.valid
+  queuedForRename.rid.wrap := false.B
+  queuedForRename.rid.value := allocator.io.allocRobValue
+  queuedForRename.blockBidValid := decRenQ.io.out.valid
+  queuedForRename.blockBid := allocator.io.allocBlockBid
 
   val rename = Module(new ScalarDecodeRenameBridge(
     p = p,
@@ -191,7 +216,7 @@ class DecodeRenameROBPath(
     peIdWidth = peIdWidth,
     tidWidth = tidWidth
   ))
-  rename.io.in := selectedForRename
+  rename.io.in := queuedForRename
   rename.io.outReady := io.renamedOutReady
   rename.io.robAllocReady := allocator.io.allocReady
   rename.io.checkpointValid := io.checkpointValid
@@ -200,12 +225,14 @@ class DecodeRenameROBPath(
   rename.io.commitBid := io.commitBid
   rename.io.cleanup := io.cleanup
 
+  decRenQ.io.popReady := rename.io.inReady
+
   allocator.io.flush := io.cleanup.flush
   allocator.io.allocValid := rename.io.robAllocAttemptValid
   allocator.io.allocRow := rename.io.robAllocRow
-  allocator.io.allocTid := selectedForRename.threadId
+  allocator.io.allocTid := queuedForRename.threadId
   allocator.io.allocPeId := 0.U
-  allocator.io.allocBlockType := selectedForRename.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
+  allocator.io.allocBlockType := queuedForRename.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
   allocator.io.allocNeedsEngine := false.B
   allocator.io.completeValid := io.completeValid
   allocator.io.completeRobValue := io.completeRobValue
@@ -228,6 +255,16 @@ class DecodeRenameROBPath(
   io.selectedSlot := selectedSlot
   io.selectedRobValue := allocator.io.allocRobValue
   io.selectedBlockBid := allocator.io.allocBlockBid
+  io.decodeReady := decRenQ.io.pushReady
+  io.decRenPushReady := decRenQ.io.pushReady
+  io.decRenPushFire := decRenQ.io.pushFire
+  io.decRenPopFire := decRenQ.io.popFire
+  io.decRenValid := decRenQ.io.out.valid
+  io.decRenHead := decRenQ.io.head
+  io.decRenTail := decRenQ.io.tail
+  io.decRenCount := decRenQ.io.count
+  io.decRenEmpty := decRenQ.io.empty
+  io.decRenFull := decRenQ.io.full
 
   io.renamedOutValid := rename.io.outValid
   io.renamedOut := rename.io.out

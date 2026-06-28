@@ -2603,3 +2603,71 @@ Skill evolve:
   reusable decode invariant that reg6 tags `24..31` are not scalar GPRs:
   sources split into T-link `24..27` and U-link `28..31`, while destinations
   use queue selectors `31` for T and `30` for U.
+
+### R44 Decode Rename Queueing
+
+Implementation:
+
+- Added `DecodeRenameQueue` as the registered raw decoded-uop queue between
+  frontend decode and scalar rename, matching the model `dec_ren_q` stage
+  boundary from `SPE::Build()` / `SPE::Xfer()`.
+- Wired `DecodeRenameROBPath` through the queue and exposed `decodeReady`,
+  queue push/pop fire, and queue occupancy observability.
+- Kept allocator `allocValid` driven from the scalar bridge pre-ready attempt
+  signal while rename mutation and queue pop remain tied to accepted ROB
+  allocation.
+- Stamped reduced ROB/BROB identity at the queue head instead of at enqueue.
+  This preserves a registered D2/D3 boundary without duplicating allocator
+  cursors before an enqueue-time ROB reservation owner exists.
+- Kept BID-scoped queue pruning, width-wide decode/rename, LSID/SID
+  assignment, store split, and top-level frontend backpressure integration as
+  later owners.
+
+Verification:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
+bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Evidence:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `DecodeRenameQueueSpec` passed 5 tests covering the registered boundary,
+  full-queue simultaneous pop/push, flush priority, IO widths, and Chisel
+  elaboration as a separate queue owner.
+- `DecodeRenameROBPathSpec` passed 5 tests covering first-valid slot
+  selection, allocator-ready-independent allocation attempt qualification,
+  queue admission backpressure, IO shape, and CIRCT elaboration through the
+  queue, scalar rename, and backend allocator.
+- `ScalarDecodeRenameBridgeSpec` passed 6 tests.
+- `FrontendDecodeStageSpec` passed 7 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` compared 3 rows with zero
+  mismatches.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the current top
+  shell and passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R44 adds the reusable queueing
+  invariant that the reduced Chisel path stores raw decoded rows in
+  `DecodeRenameQueue`, stamps allocator identity only when the queue head is
+  presented to rename, and requires later top-level integration to advance
+  frontend decode only on `decodeReady` / queue acceptance.

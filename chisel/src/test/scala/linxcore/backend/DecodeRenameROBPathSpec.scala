@@ -21,6 +21,11 @@ object DecodeRenameROBPathReference {
 
   def accepted(attemptValid: Boolean, robReady: Boolean): Boolean =
     attemptValid && robReady
+
+  def queuePushReady(count: Int, depth: Int, popFire: Boolean, flush: Boolean = false): Boolean = {
+    require(depth > 0 && (depth & (depth - 1)) == 0)
+    !flush && (count < depth || popFire)
+  }
 }
 
 class DecodeRenameROBPathSpec extends AnyFunSuite {
@@ -41,6 +46,13 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(!allocAttemptValid(inputValid = true, maintenanceBusy = true, unsupported = false, canRename = true, outReady = true))
   }
 
+  test("reference admits decode only when the dec-ren queue can accept") {
+    assert(queuePushReady(count = 0, depth = 4, popFire = false))
+    assert(!queuePushReady(count = 4, depth = 4, popFire = false))
+    assert(queuePushReady(count = 4, depth = 4, popFire = true))
+    assert(!queuePushReady(count = 1, depth = 4, popFire = true, flush = true))
+  }
+
   test("IO exposes decode selection, rename, ROB allocation, and commit observability") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
@@ -50,6 +62,12 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.selectedSlot.getWidth == 2)
     assert(io.selectedRobValue.getWidth == 3)
     assert(io.selectedBlockBid.getWidth == 64)
+    assert(io.decodeReady.getWidth == 1)
+    assert(io.decRenPushFire.getWidth == 1)
+    assert(io.decRenPopFire.getWidth == 1)
+    assert(io.decRenHead.getWidth == 2)
+    assert(io.decRenTail.getWidth == 2)
+    assert(io.decRenCount.getWidth == 3)
     assert(io.robAllocAttemptValid.getWidth == 1)
     assert(io.robAllocFire.getWidth == 1)
     assert(io.commit.rows.length == 2)
@@ -66,8 +84,12 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
 
     assert(sv.contains("module DecodeRenameROBPath"))
     assert(sv.contains("FrontendDecodeStage"))
+    assert(sv.contains("DecodeRenameQueue"))
     assert(sv.contains("ScalarDecodeRenameBridge"))
     assert(sv.contains("DispatchROBAllocator"))
+    assert(sv.contains("io_decodeReady"))
+    assert(sv.contains("io_decRenPushFire"))
+    assert(sv.contains("io_decRenCount"))
     assert(sv.contains("io_robAllocAttemptValid"))
     assert(sv.contains("io_selectedRobValue"))
     assert(sv.contains("io_commitContractError"))

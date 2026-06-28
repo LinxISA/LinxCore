@@ -22,8 +22,8 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `linx-isa` | `a2588336b8f7f7df5021a3f85ff359f6924f0b33` |
-| `rtl/LinxCore` | `14180626e4df8de81e83a77fed0833a5e1fb18c6` |
+| `linx-isa` | `eaa0f54de901d71dfb507e1d9e9a65a81c6af30d` |
+| `rtl/LinxCore` | `c455a28600b7f6430fc7dfc7dc1418667f8da512` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 | `emulator/qemu` | `3c26b2d6f9b4e4a3aeac3528db51657697e8923a` |
 
@@ -153,6 +153,7 @@ These packets remain the required base before broad module promotion:
 | R41 | `ScalarDecodeRenameBridge` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only GPRRenameCheckpoint`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R42 | `DecodeRenameROBPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only GPRRenameCheckpoint`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R43 | `FrontendRegAliasClassify` / `FrontendOperandDecode` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R44 | `DecodeRenameQueue` / `DecodeRenameROBPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -258,15 +259,15 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Registered D2/D3 queueing: split the reduced `DecodeRenameROBPath`
-   acceptance boundary into model-like `DCTop -> dec_ren_q -> SPERename`
-   staging while preserving the pre-ready ROB allocation attempt contract.
-2. LSID and store-split boundary: add the owner that consumes decoded scalar
+1. LSID and store-split boundary: add the owner that consumes decoded scalar
    load/store shapes, assigns LSIDs, and keeps store address/data split logic
    aligned with LinxCoreModel without moving it back into operand decode.
-3. T/U queue rename boundary: consume `OperandClass.T/U` and
+2. T/U queue rename boundary: consume `OperandClass.T/U` and
    `DestinationKind.T/U` emitted by `FrontendRegAliasClassify` without
    broadening scalar GPR rename ownership.
+3. Enqueue-time ROB reservation: move BROB/ROB allocation and LSID/SID
+   assignment before `DecodeRenameQueue` enqueue once allocator reservation
+   cursors can advance without duplicate identities.
 4. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
 5. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
