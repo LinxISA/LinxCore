@@ -9,6 +9,7 @@
   - `model/LinxCoreModel/model/pe/PECommon/PROBCommon.h`
   - `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryStatus.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBFlushPrune.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/commit/CommitTrace.scala`
@@ -157,8 +158,8 @@ double-counted.
 commit pointer rebasing that follows the selected prune point. The following
 model behaviors remain future integrated ROB/CMT work:
 
-- full dispatch/BROB integration to drive `allocBid` from live block
-  allocation,
+- deeper dispatch/BROB integration beyond the current `DispatchROBAllocator`
+  allocation bridge,
 - checkpoint/rename restore,
 - local ready-table and physical destination cleanup,
 - LSU/STQ/SCB cleanup and LSID rebasing,
@@ -177,6 +178,7 @@ turning status into an architectural trace format.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank`
+- `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus`
 - `bash tools/chisel/run_chisel_tests.sh --only FlushControl`

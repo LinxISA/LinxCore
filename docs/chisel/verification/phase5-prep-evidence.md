@@ -278,3 +278,75 @@ Skill evolve:
   `rowBid`/`rowRid`, `allocBid` comes from the backend/BROB owner, RID comes
   from the bank allocation pointer, and `CommitTraceRow.identity` remains trace
   plus duplicate-detection metadata only.
+
+## 2026-06-28 Dispatch/BROB-To-ROB Allocation Bridge
+
+Scope:
+
+- Added `DispatchROBAllocator` as the first backend integration owner that
+  composes `BrobMetaTracker` and `ROBEntryBank`.
+- Generated the next full hardware BID from a block allocation cursor.
+- Allocated BROB metadata and ROB row state atomically.
+- Wrote the generated full BID into the ROB row `blockBid` trace sideband.
+- Converted the generated BID into the native `ROBID` sidecar consumed by
+  `ROBEntryBank.allocBid`; RID remains allocated inside `ROBEntryBank`.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only BROB
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+```
+
+Expected result:
+
+- `DispatchROBAllocatorSpec` passes and elaborates the composed module.
+- Existing BROB, ROB bank, flush, recovery, reduced ROB, adapter, QEMU dry-run,
+  and reduced generated-RTL cross-check gates remain green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator` passed 5
+  tests in `DispatchROBAllocatorSpec`.
+- New reference coverage includes atomic BROB/ROB allocation, BID cursor wrap
+  through uniqueness bits, blocking without cursor advance when BROB is full,
+  blocking without cursor advance when the ROB bank rejects a duplicate
+  identity, and Chisel elaboration.
+- `bash tools/chisel/run_chisel_tests.sh --only BROB` passed 5 tests in
+  `BROBSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank` passed 9 tests in
+  `ROBEntryBankSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune` passed 6 tests
+  in `ROBFlushPruneSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only FlushControl` passed 6 tests in
+  `FlushControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB` passed 5
+  tests in `ReducedCommitROBSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `DispatchROBAllocator` adds a
+  reusable backend integration rule and gate: generated full BIDs must allocate
+  BROB and ROB row state atomically, populate `CommitTraceRow.blockBid`, and
+  drive `ROBEntryBank.allocBid` while leaving RID allocation inside the ROB
+  bank.

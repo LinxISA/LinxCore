@@ -4,6 +4,7 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BID.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BROB.scala`
+- Chisel integration: `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 - Previous pyCircuit owner: `rtl/LinxCore/src/bcc/bctrl/brob.py`
 - Reduced block-structure owner: `rtl/LinxCore/src/bcc/block_struct/brob.py`
 - Reduced block-structure RTL: `rtl/LinxCore/src/bcc/block_struct/brob_rtl.py`
@@ -78,12 +79,19 @@ The first Chisel packet implements the metadata substrate only:
 
 This packet does not yet implement C++ model pointers such as `allocPtr`,
 `dispatchPtr`, `renamePtr`, `commitPtr`, or `nonFlushBid`; those become real
-state when integrated BROB allocation and commit are promoted.
+state when integrated BROB allocation and commit are promoted. The
+`DispatchROBAllocator` bridge adds the first allocation cursor outside the
+metadata tracker so a generated full BID can allocate BROB and ROB state
+atomically.
 
 ## Logic Design
 
 - Allocation writes BID, owner metadata, `needsEngine`, and status
   `Allocated` when the selected slot is free.
+- `DispatchROBAllocator` generates a full BID with `BID.fromParts`, passes it
+  to `BrobMetaTracker.allocBid`, writes the same BID into the ROB row
+  `blockBid` sideband, and drives `ROBEntryBank.allocBid` from the equivalent
+  ring sidecar.
 - Scalar completion sets `scalarDone` and captures the first scalar exception.
   Scalar-only blocks become `Completed`.
 - Engine completion sets `engineDone` and captures the first engine exception.
@@ -119,4 +127,5 @@ neutral QEMU/LinxCore commit adapter.
 
 - `chisel/src/test/scala/linxcore/bctrl/BROBSpec.scala`
 - `bash tools/chisel/run_chisel_tests.sh --only BROB`
+- `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator`
 - `bash tools/chisel/build_chisel.sh`

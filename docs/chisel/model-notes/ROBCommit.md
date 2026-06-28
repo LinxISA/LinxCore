@@ -9,6 +9,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryStatus.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBFlushPrune.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 - LinxCoreModel: `model/LinxCoreModel/model/veclite/VectorLiteROB.cpp`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala`
 
@@ -84,12 +85,19 @@ in scan order. Its outstanding decrement follows `CheckNextEntryStatus`, so
 retired/fault/free rows do not decrement outstanding work even when resident
 rows are removed.
 
+The Chisel `DispatchROBAllocator` is the first integration owner that provides
+the bank's `allocBid` from a block owner rather than a unit-test fixture. It
+generates the next full hardware BID, allocates `BrobMetaTracker` and
+`ROBEntryBank` atomically, writes the full BID into the row `blockBid` sideband,
+and converts the full BID into the `ROBID` sidecar consumed by
+`ROBEntryBank`. RID remains allocated by the ROB bank.
+
 ## Open Items
 
 - Replace the reduced harness with integrated ROB banks and CMT control in
   Phase 5.
-- Wire the live dispatch/BROB allocation source so `ROBEntryBank.allocBid`
-  comes from the real block owner instead of unit-test fixtures.
+- Define the recovery handoff between full hardware BID and ring `ROBID`
+  sidecars so BROB flush and ROB row pruning share one explicit contract.
 - Add rename cleanup, LSU/STQ side effects, precise trap ownership, and restart
   ownership to the entry-bank/CMT path; do not retrofit those behaviors into
   `ReducedCommitROB`.
