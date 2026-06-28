@@ -22,7 +22,7 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `rtl/LinxCore` | `17e4eb922b2b99fe80d16d77a174d138eb807bfe` |
+| `rtl/LinxCore` | `3e3c4748934bcb8c563917d5cd4af21faefc6ae6` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 
 LinxCoreModel was refreshed with `git pull --ff-only` on 2026-06-28 and was
@@ -135,6 +135,7 @@ These packets remain the required base before broad module promotion:
 | R26 | `SCBResponseDecode` | `run_chisel_tests.sh --only SCBResponseDecode`, `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_tests.sh --only SCBStateUpdate`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R27 | `MDBConflictDetect` | `run_chisel_tests.sh --only MDBConflictDetect`, `run_chisel_tests.sh --only STQCommitQueue`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R28 | `MDBSSIT` | `run_chisel_tests.sh --only MDBSSIT`, `run_chisel_tests.sh --only MDBConflictDetect`, `run_chisel_tests.sh --only STQCommitQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R29 | `MDBQueueFanout` | `run_chisel_tests.sh --only MDBQueueFanout`, `run_chisel_tests.sh --only MDBSSIT`, `run_chisel_tests.sh --only MDBConflictDetect`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -240,23 +241,19 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. MDB queue fanout and store-wakeup owner: wrap `MDBSSIT` with
-   `lookup_lu_mdb_q`, `lookup_mdb_lu_q`, `lookup_mdb_su_q`,
-   `record_lu_mdb_q`, and `delete_lu_mdb_q` semantics, then connect the SU
-   side to the model `StoreUnit::mdbCheck` wakeup contract.
-2. Load/store forwarding owner: implement the byte-mask STQ/SCB lookup path and
+1. Load/store forwarding owner: implement the byte-mask STQ/SCB lookup path and
    connect it to the future LIQ/LHQ request flow.
-3. Response ordering/buffering owner: add the L2/CHI response queue boundary in
+2. Response ordering/buffering owner: add the L2/CHI response queue boundary in
    front of `SCBResponseDecode` without weakening stale-target reporting.
-4. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
+3. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
    first scalar rename restore/checkpoint owner.
-5. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+4. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-6. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+5. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-7. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
+6. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
    D1/D2 opcode table without changing the ingress transport contract.
-8. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+7. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

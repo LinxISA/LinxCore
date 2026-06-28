@@ -28,6 +28,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBSSIT.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBQueueFanout.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
@@ -41,6 +42,7 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQSCBCommitPathSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/MDBConflictDetectSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/MDBSSITSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/MDBQueueFanoutSpec.scala`
 
 ## Model Contract
 
@@ -162,6 +164,16 @@ zero, otherwise decrements weight and reports when the row no longer stalls.
 The default model weights are `mdb_release_weight=25`, `mdb_max_weight=3`, and
 `mdb_inc_step=1`.
 
+`MDB::handleMDBLookup` always pushes the lookup result to both
+`lookup_mdb_lu_q` and `lookup_mdb_su_q` after filling `hit`, `stInfo.tpc`, and
+`stInfo.bid`. `LDQInfo.updateMDBInfo` ignores misses; on a hit it finds the
+working load row by `(bid, lsID)`, marks it wait-store, copies the predicted
+store BID and PC into the load request, and sets `loadPending`. The store side
+consumes `lookup_mdb_su_q` through `StoreUnit::mdbCheck`. `STQ::mdbCheck`
+scans STQ rows in order, matches a non-tile row by predicted store `(bid,
+tpc)`, returns no wakeup if the first matching row lacks address or data, and
+otherwise returns the store request for `wakeup_su_lu_q`.
+
 `SCBCommitBridge` is the first Chisel owner for the capacity feedback boundary
 between `STQCommitDrain` and `SCBCommitIngress`. It gates every descriptor with
 the model `SCBuffer::full()` rule, mapping `n_store_in` to the bridge request
@@ -248,10 +260,21 @@ policy. The Chisel owner also initializes `lsIdOff` on first insertion for
 deterministic equal-`bidOff` replacement comparison; the C++ miss path leaves
 that field implicit until a later replacement path needs it.
 
+`MDBQueueFanout` is the first Chisel owner for the MDB queue boundary around
+`MDBSSIT`. It owns finite lookup/delete/record command queues, finite LU and
+SU lookup-result queues, and the store-side wakeup check. A lookup command can
+leave the input queue only when the result can be enqueued to both LU and SU
+outputs in the same cycle. If a pending lookup cannot fan out, delete and
+record do not fire, preserving `MDB::Work` phase visibility under finite
+hardware backpressure. Accepted record commands publish BMDB report intent but
+do not mutate the BCTRL table in this packet. The SU side scans an abstract STQ
+row view in row order and emits a wakeup only for the first matching non-tile
+row whose address and data are both ready.
+
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
-forwarding, deadlock checks, data-array banking, MDB queue fanout and SU
-wakeup, CHI completion, and BSB window-slide side effects remain future LSU
-owner work.
+forwarding, deadlock checks, data-array banking, LDQ MDB-update row mutation,
+BCTRL/IEX MDB table mutation, CHI completion, and BSB window-slide side
+effects remain future LSU owner work.
 
 ## Open Questions
 

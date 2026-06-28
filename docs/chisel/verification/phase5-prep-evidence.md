@@ -1708,3 +1708,87 @@ Skill evolve:
   on the recorded load BID; lookup stalls require confidence and weight gates;
   and learning must distinguish same-store reinforcement from different-store
   closer replacement and confidence decay.
+
+## 2026-06-28 MDB Queue Fanout
+
+Scope:
+
+- Added `MDBQueueFanout` as the first Chisel owner for MDB queue topology
+  around `MDBSSIT`.
+- Learned the model path from `MDB::lookupMDB`, `MDB::handleMDBLookup`,
+  `MDB::handleMDBRecord`, `MDB::handleMDBDelete`,
+  `LDQInfo.updateMDBInfo`, `StoreUnit::mdbCheck`, and `STQ::mdbCheck`.
+- Implemented finite lookup, delete, and record command queues plus LU and SU
+  lookup-result queues.
+- Preserved atomic lookup fanout: a lookup result is enqueued to both LU and
+  SU outputs together, and a blocked lookup freezes delete and record phases so
+  table mutation does not pass an un-fanned-out lookup.
+- Exposed BMDB report intent on accepted records without mutating the BCTRL
+  table in this packet.
+- Added a store-side `mdbCheck` wakeup boundary: the SU side scans an abstract
+  STQ row view in order, ignores tile rows, matches predicted `(bid, pc)`, and
+  emits a wakeup only when the matching row has both address and data ready.
+- Kept LDQ row mutation, STQ row PC sidecar integration, BCTRL/IEX MDB table
+  mutation, forwarding, ROB nuke retirement, and final recovery publication in
+  later owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout
+bash tools/chisel/run_chisel_tests.sh --only MDBSSIT
+bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
+bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `MDBQueueFanoutSpec` covers atomic LU/SU lookup fanout, phase freezing when a
+  pending lookup cannot fan out, SU wakeup from a ready matching store row,
+  pending/no-wakeup for not-ready stores, tile-row suppression, BMDB report
+  intent only on accepted records, and Chisel elaboration with queue/wakeup IO.
+- Existing MDB SSIT, conflict detection, STQ commit ordering, ROB/cross-check,
+  QEMU dry-run, reduced RTL xcheck, top-shell xcheck, and Verilator lint gates
+  stay green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout` passed 5 tests
+  in `MDBQueueFanoutSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBSSIT` passed 7 tests in
+  `MDBSSITSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect` passed 7
+  tests in `MDBConflictDetectSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue` passed 7 tests
+  in `STQCommitQueueSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `MDBQueueFanout` adds the reusable
+  LSU queue-boundary invariant: lookup results must fan out atomically to LU
+  and SU, finite-output backpressure freezes later MDB phases behind a pending
+  lookup, and store-side MDB wakeup uses the first matching non-tile predicted
+  store row only when address and data are both ready.

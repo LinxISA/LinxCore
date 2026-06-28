@@ -96,6 +96,10 @@ for later MDB learning plus inner/nuke recovery publication.
 it applies first-after-nuke suppression, confidence and weight-based stall
 qualification, same-store reinforcement, different-store replacement or
 confidence decrement, delete decay, and finite-table overflow reporting.
+`MDBQueueFanout` wraps that table with finite lookup/delete/record command
+queues, atomically fans lookup results to LU and SU output queues, freezes
+delete/record behind a blocked lookup fanout, and exposes the scalar
+`StoreUnit::mdbCheck` wakeup decision for matching ready STQ rows.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -133,6 +137,7 @@ bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
 bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode
 bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
 bash tools/chisel/run_chisel_tests.sh --only MDBSSIT
+bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
