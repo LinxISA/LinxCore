@@ -19,6 +19,8 @@ Scope:
 - Added `tools/chisel/run_chisel_verilator_lint.sh`.
 - Added `tools/chisel/trace_schema_adapter.py` and
   `tools/chisel/run_chisel_qemu_crosscheck.sh`.
+- Added `tools/chisel/run_chisel_reduced_rob_xcheck.sh` and
+  `tools/chisel/reduced_rob_trace_tb.cpp`.
 
 Evidence:
 
@@ -32,6 +34,7 @@ bash tools/chisel/run_chisel_tests.sh --only FlushControl
 bash tools/chisel/run_chisel_verilator_lint.sh
 python3 tools/chisel/trace_schema_adapter.py --self-test
 bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
 ```
 
 Expected result:
@@ -68,6 +71,10 @@ Observed result:
   passed the adapter self-test.
 - A synthetic one-row QEMU/DUT wrapper smoke normalized both traces and compared
   one commit with zero mismatches.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted
+  `ReducedCommitROB.sv`, built a Verilator harness, produced nested Chisel JSONL
+  with one invalid fixed-width slot, normalized three valid rows, and compared
+  three commits with zero mismatches in failfast mode.
 
 Skill evolve:
 
@@ -87,3 +94,6 @@ Skill evolve:
 - `skill-evolve: update linx-core` for the reduced ROB gate because Phase 0B
   now has a standard head-ordered commit harness gate instead of only the
   ROBID-only bookkeeping check.
+- `skill-evolve: update linx-core` for the reduced ROB Verilator xcheck because
+  Phase 0B now has a live generated-RTL trace proof through the neutral
+  QEMU/DUT comparator.

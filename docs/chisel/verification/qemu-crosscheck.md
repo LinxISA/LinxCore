@@ -11,6 +11,7 @@ details into the comparator itself.
 
 - `tools/chisel/trace_schema_adapter.py`
 - `tools/chisel/run_chisel_qemu_crosscheck.sh`
+- `tools/chisel/run_chisel_reduced_rob_xcheck.sh`
 - `tools/trace/crosscheck_qemu_linxcore.py`
 
 ## Normalized Fields
@@ -50,6 +51,7 @@ without creating false comparator rows.
 ```bash
 bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
 ```
 
 Full compare gate, once a Chisel commit trace exists:
@@ -64,6 +66,8 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh \
 
 ## Current Status
 
-The adapter, wrapper, and typed Chisel commit-row bundles are ready. The full
-compare gate is blocked until a reduced ROB harness or Chisel top emits live
-commit rows from real retiring slots.
+The adapter, wrapper, typed Chisel commit-row bundles, and reduced ROB
+Verilator smoke are ready. `run_chisel_reduced_rob_xcheck.sh` currently compares
+three Verilator-produced reduced ROB rows with zero mismatches. Full-core QEMU
+comparison remains blocked until the Chisel top emits live architectural commit
+rows from real frontend/decode/execute/LSU paths.

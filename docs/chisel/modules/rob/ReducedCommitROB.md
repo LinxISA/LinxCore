@@ -3,7 +3,9 @@
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala`
+- Emitter: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/EmitReducedCommitROB.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/rob/ReducedCommitROBSpec.scala`
+- Verilator smoke: `rtl/LinxCore/tools/chisel/reduced_rob_trace_tb.cpp`
 - Previous pyCircuit owner: `rtl/LinxCore/src/bcc/backend/rob.py`, `rtl/LinxCore/src/bcc/backend/commit.py`
 - LinxCoreModel evidence: `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`
 - Contract IDs: `LC-IF-CHISEL-ROB-001`, `LC-IF-CHISEL-XCHK-001`
@@ -81,11 +83,20 @@ Retiring rows use the same `CommitTraceRow` schema consumed by
 `tools/chisel/trace_schema_adapter.py`. The row keeps `identity.(bid,gid,rid)`
 for LinxCoreModel identity and `blockBid` for the 64-bit hardware block sideband.
 
+`tools/chisel/run_chisel_reduced_rob_xcheck.sh` emits this module to
+SystemVerilog, builds a Verilator harness, drives deterministic alloc/complete
+traffic, writes nested Chisel JSONL, and compares it against a matching
+QEMU-shaped reference trace through the neutral adapter. The smoke deliberately
+writes one invalid fixed-width output slot; the adapter must filter it before
+comparison.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB`
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob`
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 
 Current tests cover contiguous retirement, incomplete-head blocking, duplicate
-identity rejection, independent `blockBid` preservation, and Chisel elaboration.
+identity rejection, independent `blockBid` preservation, Chisel elaboration, and
+Verilator-driven trace comparison for a 3-row retire window.
