@@ -41,7 +41,12 @@ first scalar operand owner behind that stage: it consumes generated
 `rdKind`/`rs1Kind`/`rs2Kind`/`immKind` metadata, extracts architectural GPR
 source/destination tags, and forms common scalar immediates. LSID allocation,
 store split rewrite, T/U/SGPR/tile/vector operands, D2 queueing, and
-rename/ROB admission remain later owners. The first integrated ROB/CMT
+rename/ROB admission remain later owners. `ScalarDecodeRenameBridge` now adds
+the first one-uop D2 decode-to-rename staging owner: it composes scalar
+`GPRRenameCheckpoint`, emits a `RenamedUop`, and produces a ROB allocation row
+request while rejecting reg6 aliases outside the 24-entry scalar GPR owner.
+LSID, store split, ready-table, and live top integration still remain later
+owners. The first integrated ROB/CMT
 preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
 status-backed entry bank with separate commit and deallocation walks, and expose
 the model-derived flush-prune selection rule. The entry bank now consumes that
@@ -156,6 +161,7 @@ bash tools/chisel/run_chisel_tests.sh --only F4DecodeWindow
 bash tools/chisel/run_chisel_tests.sh --only FrontendInstructionBuffer
 bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeIngress
 bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
+bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
 bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune
