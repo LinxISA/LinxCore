@@ -14,6 +14,7 @@
 | `STQCommitQueue` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQCommitQueue.md` | Unit-green R16 store-commit ordering owner; sorted enqueue and downstream-ready issue selection |
 | `STQCommitDrain` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQCommitDrain.md` | Unit-green R18 memory-side commit drain boundary; split-aware request descriptors and bank free masks after issue acceptance |
 | `SCBCommitIngress` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBCommitIngress.md` | Unit-green R19 scalar SCB ingress owner; 64-byte line allocation, same-line merge, and byte-valid wakeup masks |
+| `SCBCommitBridge` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBCommitBridge.md` | Unit-green R20 SCB capacity-feedback bridge; model batch gate and STQ free masks after accepted SCB admission |
 | `ROBID` | `linxcore.rob` | `docs/chisel/modules/rob/ROBID.md` | Unit-green Packet A |
 | `ROBEntryStatus` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryStatus.md` | Unit-green Phase 5 integrated ROB/CMT status contract |
 | `ROBEntryBank` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryBank.md` | Unit-green Phase 5 integrated ROB/CMT entry-bank skeleton with flush application and native row IDs |

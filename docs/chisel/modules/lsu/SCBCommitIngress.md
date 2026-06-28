@@ -11,6 +11,7 @@
   - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitDrain.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala`
 - Contract IDs: `LC-CHISEL-LSU-SCB-INGRESS-001`
 
 ## Purpose
@@ -31,7 +32,9 @@ The module owns:
 
 It does not own DCache lookup/update, random/not-full eviction, L2/CHI request
 generation, write response matching, MDB conflict prediction, load forwarding
-selection, or store-drain fence completion. Those remain future LSU owner
+selection, final STQ free authorization, or store-drain fence completion. The
+model batch-capacity gate and final committed-row free mask are owned by
+`SCBCommitBridge`; DCache/CHI/MDB/forwarding behavior remains future LSU owner
 packets.
 
 ## Interface
@@ -89,8 +92,11 @@ combinationally before the next state is registered, so a later lane in the
 same cycle can merge into a line allocated by an earlier lane.
 
 The current module reports blocking after admission; a later integration
-packet must feed SCB capacity back into `STQCommitDrain` readiness so the STQ
-row is not freed unless every fragment is guaranteed to enter SCB.
+packet must use `SCBCommitBridge` as the free authorization boundary so the STQ
+row is not freed unless every required fragment is accepted into SCB. This
+module's structural hit handling can accept a same-line hit when no free entry
+exists; the bridge deliberately stalls that case when the model
+`SCBuffer::full()` batch gate is closed.
 
 ## Flush/Recovery
 
@@ -108,6 +114,7 @@ comparison.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress`
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`

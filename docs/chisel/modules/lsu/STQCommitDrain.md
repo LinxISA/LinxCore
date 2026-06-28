@@ -11,6 +11,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala`
 - Contract IDs: `LC-CHISEL-LSU-STQ-DRAIN-001`
 
 ## Purpose
@@ -94,6 +95,12 @@ model `GetCrossReq`: the second descriptor is `data >> (first_size * 8)`.
 generated only after the downstream-ready predicate allowed issue, matching the
 model `STQ::commit` order where `free(i)` happens after `sendSimL1`.
 
+When the downstream target is the Chisel SCB path, `SCBCommitBridge` owns final
+STQ frees. It gates descriptors with the model SCB batch-capacity rule and
+converts accepted `last` fragments to `STQEntryBank.commitFreeMask`. Full LSU
+composition should use that bridge free mask rather than treating this
+module's abstract free mask as final.
+
 ## Timing
 
 The module is combinational around the child queue's current registered state.
@@ -118,6 +125,7 @@ QEMU-vs-DUT trace compare.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain`
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
 - `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune`

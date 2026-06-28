@@ -15,11 +15,13 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitDrain.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitIngress.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitDrainSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBCommitIngressSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBCommitBridgeSpec.scala`
 
 ## Model Contract
 
@@ -59,11 +61,13 @@ skips rows whose downstream SCB/cacheline path is stalled, issues up to
 
 `L1Clusters::commitStore` consumes `commit_su_scb_q` entries while the SCB is
 not full, inserts store fragments into `SCBuffer`, and asserts the upstream
-queue stall when SCB is full or committed-store backlog remains. `SCBuffer`
-coalesces by 64-byte line address, updates byte data and valid bits, sends a
-line-valid wakeup after each insert, marks lines full when all 64 bytes are
-valid, and later evicts full or selected valid lines through DCache/L2 lookup
-paths.
+queue stall when SCB is full or committed-store backlog remains. In the model,
+`SCBuffer::full()` is conservative: it returns true when free SCB entries are
+fewer than `n_store_in` even if an incoming fragment would hit an existing SCB
+line. `SCBuffer` coalesces by 64-byte line address, updates byte data and valid
+bits, sends a line-valid wakeup after each insert, marks lines full when all 64
+bytes are valid, and later evicts full or selected valid lines through
+DCache/L2 lookup paths.
 
 ## Chisel Scope
 
@@ -111,6 +115,14 @@ stops before DCache lookup/update, random/not-full eviction, L2/CHI write
 requests, write responses, MDB conflict prediction, and load-side forwarding
 selection.
 
+`SCBCommitBridge` is the first Chisel owner for the capacity feedback boundary
+between `STQCommitDrain` and `SCBCommitIngress`. It gates every descriptor with
+the model `SCBuffer::full()` rule, mapping `n_store_in` to the bridge request
+width: `modelBatchReady = scbFreeCount >= requestCount`. When this gate is
+closed, even same-line hits stall and no committed STQ row is freed. When the
+gate is open, accepted descriptors flow into `SCBCommitIngress`, and only
+accepted descriptors with `last=1` produce `STQEntryBank.commitFreeMask` bits.
+
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
 forwarding, deadlock checks, data-array banking, MDB conflict learning, CHI
 completion, and BSB window-slide side effects remain future LSU owner work.
@@ -118,10 +130,11 @@ completion, and BSB window-slide side effects remain future LSU owner work.
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush,
-  SCB eviction, MDB interaction, load forwarding, and queue backpressure. The
-  first SCB ingress owner models line allocation and byte coalescing, but a
-  later integration packet must feed SCB capacity back into `STQCommitDrain`
-  readiness before accepted fragments can be used as final free evidence.
+  SCB eviction, MDB interaction, load forwarding, and queue backpressure.
+  `SCBCommitBridge` now owns the model batch gate and free-mask conversion, but
+  a later integration packet must wire it as the sole free source for
+  `STQEntryBank` and remove any direct use of `STQCommitDrain.commitFreeMask`
+  in the full LSU composition.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both
   `FlushControl` notes and the STQ tests in the same packet.

@@ -62,7 +62,10 @@ abstract memory-side segment acceptance. `SCBCommitIngress` is the first
 store-coalescing owner after that drain: it allocates 64-byte SCB line entries,
 merges same-line store fragments, and publishes post-merge byte-valid wakeup
 masks while leaving DCache eviction, CHI completion, MDB, and forwarding policy
-to later packets.
+to later packets. `SCBCommitBridge` composes that ingress owner with the model
+SCB batch gate, stalls commit descriptors when SCB free entries are below the
+commit width, and returns committed-row free masks only after accepted
+last-fragment admission.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -92,6 +95,7 @@ bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
 bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain
 bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

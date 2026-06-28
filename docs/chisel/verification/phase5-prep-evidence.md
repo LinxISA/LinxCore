@@ -989,3 +989,92 @@ Skill evolve:
   merge 64-byte SCB lines in lane order, publish post-merge byte wakeups, and
   report blocked fragments while capacity feedback, eviction, DCache/L2/CHI,
   MDB, and load-forwarding ownership remain future packets.
+
+## 2026-06-28 SCB Commit Bridge
+
+Scope:
+
+- Added `SCBCommitBridge` as the first Chisel capacity-feedback boundary
+  between `STQCommitDrain` descriptors and `SCBCommitIngress` storage.
+- Mirrored the conservative model `SCBuffer::full()` admission rule:
+  committed-store descriptors do not enter SCB unless current SCB free entries
+  are at least the bridge request width.
+- Converted accepted descriptors with `last=1` into the final committed-row
+  free mask for `STQEntryBank`.
+- Kept DCache lookup/update, SCB eviction, L2/CHI request/response handling,
+  MDB conflict prediction, load forwarding, and full STQ-to-SCB composition in
+  later LSU owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress
+bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain
+bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `SCBCommitBridgeSpec` covers model-batch admission, split-store
+  final-fragment freeing, conservative same-line-hit stall under model full,
+  exact free-count admission, and Chisel elaboration.
+- Existing SCB ingress, STQ drain, commit queue, STQ bank, STQ flush-prune,
+  recovery, ROB, trace-adapter, QEMU dry-run, reduced RTL xcheck, top-shell
+  xcheck, and Verilator lint gates stay green.
+
+Observed result:
+
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge` passed 5 tests
+  in `SCBCommitBridgeSpec`.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress` passed 5
+  tests in `SCBCommitIngressSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain` passed 5 tests
+  in `STQCommitDrainSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue` passed 7 tests
+  in `STQCommitQueueSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank` passed 7 tests
+  in `STQEntryBankSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune` passed 6 tests
+  in `STQFlushPruneSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl` passed
+  6 tests in `RecoveryCleanupControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only FlushControl` passed 6 tests
+  in `FlushControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank` passed 9 tests in
+  `ROBEntryBankSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `SCBCommitBridge` adds the reusable
+  LSU/SCB capacity-feedback invariant: final committed-row frees must come
+  after model-batch SCB admission and accepted `last` fragments, while
+  structural ingress hit handling alone is not enough to free STQ rows.
