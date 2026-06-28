@@ -30,6 +30,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBSSIT.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBQueueFanout.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadForwardPipeline.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
@@ -45,6 +46,7 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/MDBSSITSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/MDBQueueFanoutSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadStoreForwardingSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadForwardPipelineSpec.scala`
 
 ## Model Contract
 
@@ -286,15 +288,27 @@ forwarding remains a TODO. The module is combinational and deliberately stops
 before STQ row mutation, data-array banking, LDQ wait/store state updates,
 SCB/L1 hit qualification, MDB learning, and recovery publication.
 
+`LoadForwardPipeline` is the first registered Chisel E2/E3/E4 wrapper around
+that selector. E2 runs `LoadStoreForwarding` over the load query, STQ candidate
+view, baseline 64-byte line, and baseline byte-valid mask. E3 registers the
+selected load bytes, ready forward bytes, wait-store bytes, merged data, source
+return flags, and return-port readiness. E4 forms final byte validity as
+baseline-valid bytes OR ready forwarded bytes, checks all requested bytes,
+classifies `StoreDataNotReady`, `DataNotComplete`, `AwaitingSources`, or
+`ReturnPortBlocked`, and asserts wakeup only when data is complete, load-data
+and SCB sources have returned, no wait-store byte remains, and the return slot
+is available. This packet still does not mutate LIQ/LHQ/LDQ rows, STQ rows,
+SCB rows, MDB state, ready tables, issue wakeup fabric, or trace state.
+
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
-forwarding integration, deadlock checks, data-array banking, LDQ MDB-update row
-mutation, BCTRL/IEX MDB table mutation, CHI completion, and BSB window-slide
-side effects remain future LSU owner work.
+LIQ/LHQ row integration, deadlock checks, data-array banking, LDQ MDB-update
+row mutation, BCTRL/IEX MDB table mutation, CHI completion, and BSB
+window-slide side effects remain future LSU owner work.
 
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush, raw L2/CHI
-  response queue ordering, MDB interaction, forwarding integration, and queue
+  response queue ordering, MDB interaction, LIQ/LHQ row integration, and queue
   backpressure.
   `SCBResponseDecode` now owns raw transaction-id decode, so a later response
   queue packet should preserve its illegal/stale-target reporting while adding

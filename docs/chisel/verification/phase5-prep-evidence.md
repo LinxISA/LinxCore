@@ -1873,3 +1873,81 @@ Skill evolve:
   eligible store per byte, forward only selected data-ready bytes, and report
   not-ready selected bytes as replay/wait masks without mutating LDQ/STQ/SCB or
   MDB owner state.
+
+## 2026-06-28 Load Forward Pipeline
+
+Scope:
+
+- Added `LoadForwardPipeline` as the first registered E2/E3/E4 wrapper around
+  `LoadStoreForwarding`.
+- Learned the model path from `LDQInfo::handleL1Lookup`,
+  `LDQInfo::handleSCBReceive`, `LDQInfo::handleSTQReceive`,
+  `LDQInfo::handleBypass`, `LDQInfo::checkDataPosionValid`, the return loop,
+  and store-unit wakeup handling.
+- Implemented E3/E4 register slices, final valid-mask construction, source
+  return gating, return-port gating, wait-store replay classification, and
+  wakeup eligibility.
+- Kept LIQ/LHQ row mutation, LDQ state updates, ready-table updates, issue
+  wakeup fanout, L1/SCB response queues, MDB learning, recovery publication,
+  and memory-event trace in later owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline
+bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
+bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout
+bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `LoadForwardPipelineSpec` covers ready forwarded bytes registering through
+  E3 and waking at E4, not-ready selected stores, incomplete baseline data,
+  source-return gating, return-port gating, flush clearing resident work, and
+  Chisel elaboration with the child `LoadStoreForwarding` selector.
+- Existing forwarding selector, MDB fanout/conflict gates, ROB/cross-check,
+  QEMU dry-run, reduced RTL xcheck, top-shell xcheck, and Verilator lint gates
+  stay green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline` passed 6
+  tests in `LoadForwardPipelineSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding` passed 6
+  tests in `LoadStoreForwardingSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout` passed 5 tests
+  in `MDBQueueFanoutSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect` passed 7
+  tests in `MDBConflictDetectSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `LoadForwardPipeline` adds the
+  reusable LSU E2/E3/E4 forwarding boundary: Chisel should instantiate
+  `LoadStoreForwarding` in E2, register the merge and masks to E3, classify
+  final byte/source/return-port readiness in E4, and avoid mutating
+  LIQ/LHQ/LDQ/STQ/SCB/MDB or trace owner state in this packet.

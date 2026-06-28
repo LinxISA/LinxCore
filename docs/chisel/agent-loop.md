@@ -137,6 +137,7 @@ These packets remain the required base before broad module promotion:
 | R28 | `MDBSSIT` | `run_chisel_tests.sh --only MDBSSIT`, `run_chisel_tests.sh --only MDBConflictDetect`, `run_chisel_tests.sh --only STQCommitQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R29 | `MDBQueueFanout` | `run_chisel_tests.sh --only MDBQueueFanout`, `run_chisel_tests.sh --only MDBSSIT`, `run_chisel_tests.sh --only MDBConflictDetect`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R30 | `LoadStoreForwarding` | `run_chisel_tests.sh --only LoadStoreForwarding`, `run_chisel_tests.sh --only MDBQueueFanout`, `run_chisel_tests.sh --only MDBConflictDetect`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R31 | `LoadForwardPipeline` | `run_chisel_tests.sh --only LoadForwardPipeline`, `run_chisel_tests.sh --only LoadStoreForwarding`, `run_chisel_tests.sh --only MDBQueueFanout`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -242,9 +243,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Load/store forwarding integration: connect `LoadStoreForwarding` to the
-   future LIQ/LHQ/STQ request flow and preserve its per-byte nearest-store
-   result through the E2/E3/E4 pipeline split.
+1. LIQ/LHQ row integration: connect `LoadForwardPipeline` to the first
+   registered load-inflight row image and LHQ hit-record surface without moving
+   STQ/SCB ownership into the pipeline wrapper.
 2. Response ordering/buffering owner: add the L2/CHI response queue boundary in
    front of `SCBResponseDecode` without weakening stale-target reporting.
 3. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the

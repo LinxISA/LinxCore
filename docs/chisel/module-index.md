@@ -25,6 +25,7 @@
 | `MDBSSIT` | `linxcore.lsu` | `docs/chisel/modules/lsu/MDBSSIT.md` | Unit-green R28 MDB Store Set ID Table owner; first-after-nuke suppression, weight/confidence learning, and delete decay |
 | `MDBQueueFanout` | `linxcore.lsu` | `docs/chisel/modules/lsu/MDBQueueFanout.md` | Unit-green R29 MDB queue/fanout owner; atomic LU/SU fanout, phase freeze on output backpressure, and SU ready-store wakeup |
 | `LoadStoreForwarding` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadStoreForwarding.md` | Unit-green R30 scalar store-to-load byte forwarding owner; nearest older store selection, ready-byte merge, and wait-store replay masks |
+| `LoadForwardPipeline` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadForwardPipeline.md` | Unit-green R31 registered E2/E3/E4 load-forwarding boundary; final byte-valid mask, wait-store replay, and E4 wakeup gating |
 | `ROBID` | `linxcore.rob` | `docs/chisel/modules/rob/ROBID.md` | Unit-green Packet A |
 | `ROBEntryStatus` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryStatus.md` | Unit-green Phase 5 integrated ROB/CMT status contract |
 | `ROBEntryBank` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryBank.md` | Unit-green Phase 5 integrated ROB/CMT entry-bank skeleton with flush application and native row IDs |

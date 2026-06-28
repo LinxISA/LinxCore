@@ -104,6 +104,10 @@ delete/record behind a blocked lookup fanout, and exposes the scalar
 it selects the nearest older eligible store per requested load byte, forwards
 ready bytes over a cache-data baseline, reports not-ready wait masks, and keeps
 LDQ/STQ row mutation plus memory/recovery publication in later owner packets.
+`LoadForwardPipeline` wraps that selector in the first registered E2/E3/E4
+load-forwarding boundary, carrying merged line data, byte-valid masks,
+wait-store replay classification, source-return gating, and return-slot
+readiness into an E4 wakeup decision.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -143,6 +147,7 @@ bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
 bash tools/chisel/run_chisel_tests.sh --only MDBSSIT
 bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout
 bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
+bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
