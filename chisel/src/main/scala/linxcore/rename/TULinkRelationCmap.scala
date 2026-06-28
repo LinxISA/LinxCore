@@ -1,9 +1,10 @@
 package linxcore.rename
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util.{log2Ceil, PopCount}
 
 import linxcore.common._
+import linxcore.recovery.FlushBus
 import linxcore.rob.ROBID
 
 class TULinkRelationCmapEntry(
@@ -25,6 +26,12 @@ class TULinkRelationCmapIO(
 
   val in = Input(new TULinkRetireSource(p, mapQDepth, stidWidth))
   val clear = Input(Bool())
+  val flush = Input(new FlushBus(p.robEntries, stidWidth = stidWidth))
+  val cleanBlockValid = Input(Bool())
+  val cleanBlockBid = Input(new ROBID(p.robEntries))
+  val cleanGroupValid = Input(Bool())
+  val cleanGroupBid = Input(new ROBID(p.robEntries))
+  val cleanGroupGid = Input(new ROBID(p.robEntries))
   val commandReady = Input(Bool())
 
   val inReady = Output(Bool())
@@ -42,6 +49,9 @@ class TULinkRelationCmapIO(
   val pendingPostReleaseU = Output(Bool())
   val tCount = Output(UInt(countWidth.W))
   val uCount = Output(UInt(countWidth.W))
+  val cleanupActive = Output(Bool())
+  val cleanupPruneTCount = Output(UInt(countWidth.W))
+  val cleanupPruneUCount = Output(UInt(countWidth.W))
 }
 
 class TULinkRelationCmap(
@@ -72,8 +82,24 @@ class TULinkRelationCmap(
   private def decPtr(ptr: UInt): UInt =
     Mux(ptr === 0.U, (cmapDepth - 1).U(ptrWidth.W), ptr - 1.U)(ptrWidth - 1, 0)
 
+  private def addPtr(ptr: UInt, amount: UInt): UInt = {
+    val sum = ptr +& amount
+    val depth = cmapDepth.U(sum.getWidth.W)
+    Mux(sum >= depth, sum - depth, sum)(ptrWidth - 1, 0)
+  }
+
+  private def tailFromCount(nextCount: UInt): UInt =
+    Mux(nextCount === cmapDepth.U, 0.U(ptrWidth.W), nextCount(ptrWidth - 1, 0))
+
   private def sameBidGid(entry: TULinkRelationCmapEntry): Bool =
     ROBID.equal(entry.bid, io.in.bid) && ROBID.equal(entry.gid, io.in.gid)
+
+  private def flushMatches(entry: TULinkRelationCmapEntry): Bool =
+    Mux(io.flush.baseOnBid, ROBID.lessEqual(io.flush.req.bid, entry.bid), ROBID.less(io.flush.req.bid, entry.bid))
+
+  private def cleanMatches(entry: TULinkRelationCmapEntry): Bool =
+    (io.cleanBlockValid && ROBID.equal(entry.bid, io.cleanBlockBid)) ||
+      (io.cleanGroupValid && ROBID.equal(entry.bid, io.cleanGroupBid) && ROBID.equal(entry.gid, io.cleanGroupGid))
 
   val tEntries = RegInit(VecInit(Seq.fill(cmapDepth)(zeroEntry)))
   val uEntries = RegInit(VecInit(Seq.fill(cmapDepth)(zeroEntry)))
@@ -89,6 +115,84 @@ class TULinkRelationCmap(
   val pendingMarkSeq = RegInit(0.U.asTypeOf(new ROBID(mapQDepth)))
   val pendingPostReleaseT = RegInit(false.B)
   val pendingPostReleaseU = RegInit(false.B)
+  val cleanupActive = io.flush.req.valid || io.cleanBlockValid || io.cleanGroupValid
+
+  def cleanupPruneVec(
+      entries: Vec[TULinkRelationCmapEntry],
+      head: UInt,
+      count: UInt): Vec[Bool] = {
+    val validVec = Wire(Vec(cmapDepth, Bool()))
+    val cleanVec = Wire(Vec(cmapDepth, Bool()))
+    val flushVec = Wire(Vec(cmapDepth, Bool()))
+    val pruneVec = Wire(Vec(cmapDepth, Bool()))
+
+    for (offset <- 0 until cmapDepth) {
+      val entry = entries(addPtr(head, offset.U))
+      validVec(offset) := offset.U < count
+      cleanVec(offset) := validVec(offset) && cleanMatches(entry)
+      flushVec(offset) := validVec(offset) && io.flush.req.valid && flushMatches(entry)
+    }
+    for (offset <- 0 until cmapDepth) {
+      val newerFlush =
+        if (offset == cmapDepth - 1) true.B
+        else (offset + 1 until cmapDepth).map(idx => !validVec(idx) || flushVec(idx)).reduce(_ && _)
+      pruneVec(offset) := cleanVec(offset) || (flushVec(offset) && newerFlush)
+    }
+    pruneVec
+  }
+
+  def compactEntries(
+      entries: Vec[TULinkRelationCmapEntry],
+      head: UInt,
+      count: UInt,
+      pruneVec: Vec[Bool]): (Vec[TULinkRelationCmapEntry], UInt) = {
+    val nextEntries = Wire(Vec(cmapDepth, new TULinkRelationCmapEntry(p, mapQDepth)))
+    nextEntries := VecInit(Seq.fill(cmapDepth)(zeroEntry))
+    val keepVec = Wire(Vec(cmapDepth, Bool()))
+
+    for (offset <- 0 until cmapDepth) {
+      val valid = offset.U < count
+      val keep = valid && !pruneVec(offset)
+      keepVec(offset) := keep
+      val keptBefore = Wire(UInt(countWidth.W))
+      keptBefore := (if (offset == 0) 0.U else PopCount(VecInit(keepVec.take(offset)).asUInt))
+      when(keep) {
+        nextEntries(keptBefore(ptrWidth - 1, 0)) := entries(addPtr(head, offset.U))
+      }
+    }
+
+    (nextEntries, PopCount(keepVec.asUInt))
+  }
+
+  private def pendingSeqPruned(
+      entries: Vec[TULinkRelationCmapEntry],
+      head: UInt,
+      count: UInt,
+      pruneVec: Vec[Bool],
+      seq: ROBID): Bool = {
+    VecInit((0 until cmapDepth).map { offset =>
+      val entry = entries(addPtr(head, offset.U))
+      (offset.U < count) && pruneVec(offset) && ROBID.equal(entry.seq, seq)
+    }).asUInt.orR
+  }
+
+  val tPruneVec = cleanupPruneVec(tEntries, tHead, tCount)
+  val uPruneVec = cleanupPruneVec(uEntries, uHead, uCount)
+  val tPruneCount = PopCount(tPruneVec.asUInt)
+  val uPruneCount = PopCount(uPruneVec.asUInt)
+  val (tCompactedEntries, tCompactedCount) = compactEntries(tEntries, tHead, tCount, tPruneVec)
+  val (uCompactedEntries, uCompactedCount) = compactEntries(uEntries, uHead, uCount, uPruneVec)
+  val pendingMarkPruned =
+    pendingMarkValid &&
+      Mux(
+        pendingMarkKind === DestinationKind.T,
+        pendingSeqPruned(tEntries, tHead, tCount, tPruneVec, pendingMarkSeq),
+        Mux(
+          pendingMarkKind === DestinationKind.U,
+          pendingSeqPruned(uEntries, uHead, uCount, uPruneVec, pendingMarkSeq),
+          false.B
+        )
+      )
 
   val inDstT = io.in.valid && io.in.dstValid && (io.in.dstKind === DestinationKind.T)
   val inDstU = io.in.valid && io.in.dstValid && (io.in.dstKind === DestinationKind.U)
@@ -126,7 +230,7 @@ class TULinkRelationCmap(
     command.dealloc := true.B
   }
 
-  val commandFire = command.valid && io.commandReady
+  val commandFire = command.valid && io.commandReady && !cleanupActive
   val commandReleasesT =
     commandFire && !pendingMarkValid && (command.kind === DestinationKind.T) && command.dealloc
   val commandReleasesU =
@@ -134,7 +238,7 @@ class TULinkRelationCmap(
 
   val dstQueueFull = (inDstT && (tCount === cmapDepth.U) && !commandReleasesT) ||
     (inDstU && (uCount === cmapDepth.U) && !commandReleasesU)
-  val inReady = !io.clear && !pendingAny && !preReleaseT && !preReleaseU &&
+  val inReady = !io.clear && !cleanupActive && !pendingAny && !preReleaseT && !preReleaseU &&
     !capacityReleaseT && !capacityReleaseU && !unsupportedDst && !dstQueueFull
   val inAccepted = io.in.valid && inReady
 
@@ -150,6 +254,22 @@ class TULinkRelationCmap(
     pendingMarkSeq := 0.U.asTypeOf(new ROBID(mapQDepth))
     pendingPostReleaseT := false.B
     pendingPostReleaseU := false.B
+  }.elsewhen(cleanupActive) {
+    tEntries := tCompactedEntries
+    uEntries := uCompactedEntries
+    tHead := 0.U
+    uHead := 0.U
+    tTail := tailFromCount(tCompactedCount)
+    uTail := tailFromCount(uCompactedCount)
+    tCount := tCompactedCount
+    uCount := uCompactedCount
+    when(pendingMarkPruned) {
+      pendingMarkValid := false.B
+      pendingMarkKind := DestinationKind.None
+      pendingMarkSeq := 0.U.asTypeOf(new ROBID(mapQDepth))
+    }
+    pendingPostReleaseT := pendingPostReleaseT && (tCompactedCount =/= 0.U)
+    pendingPostReleaseU := pendingPostReleaseU && (uCompactedCount =/= 0.U)
   }.otherwise {
     when(commandFire && pendingMarkValid) {
       pendingMarkValid := false.B
@@ -196,7 +316,7 @@ class TULinkRelationCmap(
 
   io.inReady := inReady
   io.inAccepted := inAccepted
-  io.command := command
+  io.command := Mux(io.clear || cleanupActive, zeroCommand, command)
   io.commandFire := commandFire
   io.unsupportedDst := unsupportedDst
   io.preReleaseT := preReleaseT
@@ -208,4 +328,7 @@ class TULinkRelationCmap(
   io.pendingPostReleaseU := pendingPostReleaseU
   io.tCount := tCount
   io.uCount := uCount
+  io.cleanupActive := cleanupActive
+  io.cleanupPruneTCount := tPruneCount
+  io.cleanupPruneUCount := uPruneCount
 }

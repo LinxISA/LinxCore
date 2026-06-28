@@ -40,6 +40,12 @@ Inputs:
   `valid`, `isLast`, native `bid/gid/rid`, `stid`, row-owned `tSeq/uSeq`, and
   T/U destination ownership.
 - `clear`: synchronous reset of relation queues and pending command state.
+- `flush`: backend recovery flush intent for model-equivalent
+  `FlushRelativeReg` pruning.
+- `cleanBlockValid/cleanBlockBid`: block-commit cleanup equivalent to
+  `CleanCMAP(bid)`.
+- `cleanGroupValid/cleanGroupBid/cleanGroupGid`: group cleanup equivalent to
+  `CleanGroupCMAP(bid, gid)`.
 - `commandReady`: downstream readiness for accepting one retire command.
 
 Outputs:
@@ -60,6 +66,9 @@ Outputs:
 - `pendingMark`, `pendingPostReleaseT`, `pendingPostReleaseU`: serialized
   command backlog diagnostics.
 - `tCount/uCount`: resident relation entries per kind.
+- `cleanupActive`, `cleanupPruneTCount`, `cleanupPruneUCount`: cleanup
+  observability while block, group, or recovery-flush pruning is compacting
+  the relation queues.
 
 ## State
 
@@ -97,6 +106,23 @@ post-accept release for the same row. This preserves the `ReportRetired(seq,
 false)` then optional `ReportRetired(seq, true)` ordering in
 `SPEROB::ReleaseFunc()`.
 
+Cleanup is a queue-local compaction pass:
+
+- `cleanBlockValid` removes every resident relation whose `bid` matches
+  `cleanBlockBid`, preserving the order of all remaining entries.
+- `cleanGroupValid` removes every resident relation whose `(bid,gid)` matches
+  `cleanGroupBid/cleanGroupGid`, preserving the order of all remaining
+  entries.
+- `flush.req.valid` prunes only the newest suffix matching
+  `FlushRelativeReg`. For `baseOnBid`, the comparison is inclusive
+  `flush.bid <= entry.bid`; otherwise it is strict `flush.bid < entry.bid`.
+  The relation-cmap flush predicate is BID-only and stops at the first older
+  nonmatching entry.
+- During cleanup, `inReady` is false and the command port is suppressed.
+  Pending mark state is cleared only when the marked sequence was pruned.
+  Pending post-release state is retained while that kind still has resident
+  relations after compaction.
+
 ## Model Alignment
 
 The C++ model separates three effects:
@@ -109,16 +135,16 @@ The C++ model separates three effects:
   calls `ReportRetired(seq, true)` on the matching local register manager.
 
 `TULinkRelationCmap` implements those ordering decisions for scalar T/U
-destinations. Ready-table updates, predicate links, vector local links,
-multi-PE bank selection, and full block-commit freeing remain outside this
-module.
+destinations. It also implements the relation-entry removal part of
+`FlushRelativeReg`, `CleanCMAP`, and `CleanGroupCMAP`. Ready-table updates for
+pruned entries, predicate links, vector local links, multi-PE bank selection,
+and full block-commit event ownership remain outside this module.
 
 ## Deferred Owners
 
-- Relation flush pruning equivalent to `FlushRelativeReg`,
-  `CleanCMAP`, and `CleanGroupCMAP`.
+- Ready-table mutation and physical tag wakeup/release side effects for
+  relation cleanup entries.
 - Predicate, vector, SIMT, and tile relation maps.
-- Ready-table mutation and physical tag wakeup/release side effects.
 - Per-PE, per-STID bank replication.
 
 ## Verification
@@ -141,4 +167,6 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 
 The tests cover pressure release after the fifth same-kind relation,
 group-change pre-release order, block-last drain plus current-row mark/release,
-and Chisel elaboration of the serialized command interface.
+block clean, group clean, newest-suffix recovery flush pruning, pending-state
+cleanup, and Chisel elaboration of the serialized command and cleanup
+interface.

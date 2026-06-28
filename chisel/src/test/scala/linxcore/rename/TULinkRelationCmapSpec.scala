@@ -2,7 +2,7 @@ package linxcore.rename
 
 import circt.stage.ChiselStage
 import linxcore.common.{DestinationKind, InterfaceParams}
-import linxcore.rob.ROBIDValue
+import linxcore.rob.{ROBIDReference, ROBIDValue}
 import org.scalatest.funsuite.AnyFunSuite
 
 object TULinkRelationCmapReference {
@@ -65,8 +65,45 @@ object TULinkRelationCmapReference {
       out
     }
 
+    def cleanBlock(bid: ROBIDValue): Unit = {
+      t = t.filterNot(_.bid == bid)
+      u = u.filterNot(_.bid == bid)
+    }
+
+    def cleanGroup(bid: ROBIDValue, gid: ROBIDValue): Unit = {
+      t = t.filterNot(e => e.bid == bid && e.gid == gid)
+      u = u.filterNot(e => e.bid == bid && e.gid == gid)
+    }
+
+    def flushRelative(flushBid: ROBIDValue, baseOnBid: Boolean): Unit = {
+      def needsFlush(entry: Entry): Boolean =
+        if (baseOnBid) ROBIDReference.lessEqual(flushBid, entry.bid)
+        else ROBIDReference.less(flushBid, entry.bid)
+
+      def pruneSuffix(values: Vector[Entry]): Vector[Entry] = {
+        var out = values
+        while (out.nonEmpty && needsFlush(out.last)) {
+          out = out.dropRight(1)
+        }
+        out
+      }
+
+      t = pruneSuffix(t)
+      u = pruneSuffix(u)
+    }
+
+    def preloadT(entries: Seq[(ROBIDValue, ROBIDValue, ROBIDValue)]): Unit = {
+      t = entries.map { case (bid, gid, seq) => Entry(bid, gid, seq) }.toVector
+    }
+
+    def preloadU(entries: Seq[(ROBIDValue, ROBIDValue, ROBIDValue)]): Unit = {
+      u = entries.map { case (bid, gid, seq) => Entry(bid, gid, seq) }.toVector
+    }
+
     def tCount: Int = t.size
     def uCount: Int = u.size
+    def tSeqs: Seq[ROBIDValue] = t.map(_.seq)
+    def uSeqs: Seq[ROBIDValue] = u.map(_.seq)
   }
 }
 
@@ -135,6 +172,39 @@ class TULinkRelationCmapSpec extends AnyFunSuite {
     assert(model.uCount == 0)
   }
 
+  test("reference block clean removes matching BID entries while preserving other relation order") {
+    val model = new Model(releaseThreshold = 4)
+    model.preloadT(Seq((id(1), id(0), id(0)), (id(2), id(0), id(1))))
+    model.preloadU(Seq((id(1), id(1), id(2)), (id(3), id(0), id(3))))
+
+    model.cleanBlock(id(1))
+
+    assert(model.tSeqs == Seq(id(1)))
+    assert(model.uSeqs == Seq(id(3)))
+  }
+
+  test("reference group clean removes only matching BID/GID relation entries") {
+    val model = new Model(releaseThreshold = 4)
+    model.preloadT(Seq((id(1), id(0), id(0)), (id(1), id(1), id(1))))
+    model.preloadU(Seq((id(1), id(0), id(2)), (id(2), id(0), id(3))))
+
+    model.cleanGroup(id(1), id(0))
+
+    assert(model.tSeqs == Seq(id(1)))
+    assert(model.uSeqs == Seq(id(3)))
+  }
+
+  test("reference flush relative prunes only the newest suffix") {
+    val model = new Model(releaseThreshold = 4)
+    model.preloadT(Seq((id(1), id(0), id(0)), (id(2), id(0), id(1)), (id(3), id(0), id(2))))
+
+    model.flushRelative(flushBid = id(2), baseOnBid = false)
+    assert(model.tSeqs == Seq(id(0), id(1)))
+
+    model.flushRelative(flushBid = id(2), baseOnBid = true)
+    assert(model.tSeqs == Seq(id(0)))
+  }
+
   test("TULinkRelationCmap elaborates as a serialized retire command owner") {
     val p = InterfaceParams(robEntries = 8)
     val sv = ChiselStage.emitSystemVerilog(
@@ -148,6 +218,8 @@ class TULinkRelationCmapSpec extends AnyFunSuite {
     assert(sv.contains("io_command_dealloc"))
     assert(sv.contains("io_preReleaseT"))
     assert(sv.contains("io_pressureReleaseT"))
+    assert(sv.contains("io_flush_req_valid"))
+    assert(sv.contains("io_cleanupPruneTCount"))
     assert(DestinationKind.T.asUInt.litValue == 2)
     assert(DestinationKind.U.asUInt.litValue == 3)
   }

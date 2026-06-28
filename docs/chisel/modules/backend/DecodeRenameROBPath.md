@@ -36,18 +36,20 @@ queue acceptance boundary, enqueues the decoded row into a registered
 `dec_ren_q` owner, stamps temporary ROB identity from allocator cursors when
 the queue head is presented to rename, and leaves enqueue-time ROB
 reservation, full SID/LID carry, STA/STD execution, width-wide
-rename, full relation flush pruning, and full top-level fetch/commit flow to
-later owners. It now owns the queue-backed store-dispatch to STQ
-row-owner boundary through `StoreDispatchSTQPath`; STA address generation and
-STD data selection remain explicit inputs until the real execution owners
-exist. It also composes live T/U rename and recovery cleanup so the allocator's
-ROB-side source candidate and the live STQ-bank LSU source candidate are
-selected, cross-checked, and published by the same state owner that produces
-`tSeq/uSeq` and T/U destination sidecars.
+rename, block/group commit cleanup event ownership, and full top-level
+fetch/commit flow to later owners. It now owns the queue-backed
+store-dispatch to STQ row-owner boundary through `StoreDispatchSTQPath`; STA
+address generation and STD data selection remain explicit inputs until the
+real execution owners exist. It also composes live T/U rename and recovery
+cleanup so the allocator's ROB-side source candidate and the live STQ-bank LSU
+source candidate are selected, cross-checked, and published by the same state
+owner that produces `tSeq/uSeq` and T/U destination sidecars.
 R64 additionally wires the ROB deallocation-row T/U retire-source vector
 through `TULinkRetireCommandPath`, feeding live relation-cmap mark/release
 commands into `ScalarTURenameBridge.tuRetire*` with actual rename-acceptance
-backpressure.
+backpressure. R65 drives backend recovery flush into that retire path so
+queued source rows and resident relation-cmap entries are pruned with
+model-equivalent `FlushRelativeReg` suffix semantics.
 
 ## Interface
 
@@ -113,9 +115,12 @@ Outputs:
   `robTULinkSource*`, `robDeallocTURetireSource`, `size`,
   `outstandingCount`, and occupancy masks: `DispatchROBAllocator` and
   `ROBEntryBank` lifecycle observability.
-- `tuRetireSource*`, `tuRetireCommand*`, `tuRetireRelation*`, and
-  `tuRetireAccepted/Miss/ReleaseMismatch/Unsupported`: live ROB-deallocation
-  to T/U rename retire-command path observability.
+- `tuRetireSource*`, `tuRetireCommand*`, `tuRetireRelation*`,
+  `tuRetireAccepted/Miss/ReleaseMismatch/Unsupported`,
+  `tuRetireCleanupActive`, `tuRetireSourcePruneCount`,
+  `tuRetireRelationPruneTCount`, and `tuRetireRelationPruneUCount`: live
+  ROB-deallocation to T/U rename retire-command path and cleanup
+  observability.
 - `tuCleanupPublisherFlush*`, `tuCleanupSelectedFlushSource`,
   `tuCleanup*Source*`, `tuCleanupSourceConflict`,
   `tuCleanupSelectedFrom*`, and `tuCleanupFlush*PrevApplied`:
@@ -196,12 +201,16 @@ R63 also drives `allocGid` from the queued row's native `gid` and
 `deallocTURetireSource` vector to module IO. R64 feeds that vector into
 `TULinkRetireCommandPath`. The path gates ROB deallocation with serializer
 credit for a full commit-width source window and blocks new ROB deallocation
-while T/U cleanup is active. The serializer preserves valid ROB rows in slot
-order, including no-destination block-last rows, feeds `TULinkRelationCmap`,
-and drives `ScalarTURenameBridge.tuRetire*` from the resulting command. It
-advances relation commands only when `ScalarTURenameBridge.tuRetireAccepted`
-proves the live T/U rename owner accepted the mark or deallocation after flush
-and commit priority.
+while T/U retire cleanup is active. The serializer preserves valid ROB rows in
+slot order, including no-destination block-last rows, feeds
+`TULinkRelationCmap`, and drives `ScalarTURenameBridge.tuRetire*` from the
+resulting command. It advances relation commands only when
+`ScalarTURenameBridge.tuRetireAccepted` proves the live T/U rename owner
+accepted the mark or deallocation after flush and commit priority. R65 wires
+`cleanup.flush` into the serializer and embedded relation-cmap owner. Recovery
+flush prunes only a newest suffix of matching queued sources and relation
+entries, while `cleanBlock*` and `cleanGroup*` are held inactive until the
+live block/group commit cleanup owner exists.
 
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
 IO and feeds the same source into `ScalarTURenameBridge.robSource`. The bridge
@@ -257,7 +266,8 @@ the allocator boundary and composes the live STQ-bank LSU candidate through
 `SPERename::Rename()`-equivalent `tSeq/uSeq` snapshots and T/U destination
 ownership into both `StoreSplitPayload` and `DispatchROBAllocator`.
 R64 wires the deallocation side of that same T/U ownership contract back into
-live T/U rename retirement through the width-aware source serializer.
+live T/U rename retirement through the width-aware source serializer. R65 adds
+the recovery-pruning side of `SPEROB::FlushRelativeReg` to that path.
 Full store timing still requires real STA/STD execution, load-conflict
 publication, SCB/MDB handoff, and memory trace side effects.
 
@@ -272,8 +282,10 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - Full `load_id`/`sid` payload carry into LIQ/STQ owners.
 - Real STA/STD execution owners that drive `storeStaExec` and `storeStdExec`.
 - Automatic checkpoint capture from validated `isLastInBlock`.
-- Relation-cmap flush pruning equivalent to model `FlushRelativeReg`,
-  `CleanCMAP`, and `CleanGroupCMAP`.
+- Live block/group commit clean event wiring into
+  `TULinkRetireCommandPath.cleanBlock*` and `cleanGroup*`.
+- Ready-table mutation and physical tag wakeup/release side effects for
+  relation cleanup entries.
 - SGPR/tile/vector operand classification and rename.
 - Old T/U physical tag release accounting for destination overwrite.
 - SCB/MDB integration, committed-store memory drain, and load-conflict
@@ -319,4 +331,5 @@ serializer diagnostics, IO shape, and CIRCT elaboration through frontend
 decode, `DecodeLoadStoreIdAssign`,
 `DecodeRenameQueue`, scalar/T/U rename, `StoreSplitPayload`,
 `StoreDispatchSTQPath` with `STQEntryBank`, backend allocation, and
-`TULinkRecoveryCleanupPath`.
+`TULinkRecoveryCleanupPath`. R65 also covers retire-source and relation-cmap
+cleanup observability through the composition boundary.

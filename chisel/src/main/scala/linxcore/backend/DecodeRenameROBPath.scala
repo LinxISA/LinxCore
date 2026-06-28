@@ -209,6 +209,10 @@ class DecodeRenameROBPathIO(
   val tuRetireSourceQueueFull = Output(Bool())
   val tuRetireSourceQueueEmpty = Output(Bool())
   val tuRetireSourceDequeued = Output(Bool())
+  val tuRetireCleanupActive = Output(Bool())
+  val tuRetireSourcePruneCount = Output(UInt(tuRetireSourceQueueCountWidth.W))
+  val tuRetireRelationPruneTCount = Output(UInt(tuRetireRelationCountWidth.W))
+  val tuRetireRelationPruneUCount = Output(UInt(tuRetireRelationCountWidth.W))
   val tuRetireCommandValid = Output(Bool())
   val tuRetireCommandKind = Output(DestinationKind())
   val tuRetireCommandSeq = Output(new ROBID(mapQDepth))
@@ -483,7 +487,7 @@ class DecodeRenameROBPath(
   allocator.io.allocNeedsEngine := false.B
   allocator.io.completeValid := io.completeValid
   allocator.io.completeRobValue := io.completeRobValue
-  allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !rename.io.tuCleanupActive
+  allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !tuRetirePath.io.cleanupActive
   allocator.io.blockScalarDoneValid := false.B
   allocator.io.blockScalarDoneBid := 0.U
   allocator.io.blockScalarTrapValid := false.B
@@ -501,7 +505,13 @@ class DecodeRenameROBPath(
   rename.io.robSource := allocator.io.robTULinkSource
   rename.io.lsuSource := storeDispatch.io.lsuTULinkSource
   tuRetirePath.io.sources := allocator.io.deallocTURetireSource
-  tuRetirePath.io.clear := rename.io.tuCleanupPublisherFlushValid
+  tuRetirePath.io.clear := false.B
+  tuRetirePath.io.flush := io.cleanup.flush
+  tuRetirePath.io.cleanBlockValid := false.B
+  tuRetirePath.io.cleanBlockBid := zeroRobId
+  tuRetirePath.io.cleanGroupValid := false.B
+  tuRetirePath.io.cleanGroupBid := zeroRobId
+  tuRetirePath.io.cleanGroupGid := zeroRobId
   tuRetirePath.io.commandReady := rename.io.tuRetireAccepted
   rename.io.tuRetireValid := tuRetirePath.io.command.valid
   rename.io.tuRetireKind := tuRetirePath.io.command.kind
@@ -646,6 +656,10 @@ class DecodeRenameROBPath(
   io.tuRetireSourceQueueFull := tuRetirePath.io.sourceQueueFull
   io.tuRetireSourceQueueEmpty := tuRetirePath.io.sourceQueueEmpty
   io.tuRetireSourceDequeued := tuRetirePath.io.sourceDequeued
+  io.tuRetireCleanupActive := tuRetirePath.io.cleanupActive
+  io.tuRetireSourcePruneCount := tuRetirePath.io.sourcePruneCount
+  io.tuRetireRelationPruneTCount := tuRetirePath.io.relationPruneTCount
+  io.tuRetireRelationPruneUCount := tuRetirePath.io.relationPruneUCount
   io.tuRetireCommandValid := tuRetirePath.io.command.valid
   io.tuRetireCommandKind := tuRetirePath.io.command.kind
   io.tuRetireCommandSeq := tuRetirePath.io.command.seq

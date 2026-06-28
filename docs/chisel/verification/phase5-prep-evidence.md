@@ -4321,3 +4321,94 @@ Skill evolve:
   `TULinkRename.retireAccepted`, not predicted maintenance readiness, and the
   ROB source serializer must keep full-window credit separate from
   per-command acceptance.
+
+## R65 Relation-Cmap Cleanup Pruning
+
+Scope:
+
+- Added block clean, group clean, and recovery flush cleanup inputs to
+  `TULinkRelationCmap`.
+- Added source FIFO cleanup and relation-cmap cleanup forwarding to
+  `TULinkRetireCommandPath`.
+- Wired `DecodeRenameROBPath.cleanup.flush` into the live retire-command path
+  and exposed cleanup/prune diagnostics at the reduced composition boundary.
+- Kept live `cleanBlock*` and `cleanGroup*` event wiring deferred until the
+  block/group commit owner exists.
+
+Model evidence:
+
+- `SPEROB::CleanCMAP(bid)` removes every matching relation entry and preserves
+  the order of remaining entries.
+- `SPEROB::CleanGroupCMAP(bid, gid)` removes exact `(bid,gid)` matches and
+  preserves the order of remaining entries.
+- `SPEROB::FlushRelativeReg()` removes only the newest suffix. With
+  `baseOnBid`, the comparison is inclusive on BID; otherwise it is strict
+  BID-only.
+- `RelateCmap::write()` appends, `read()` pops the oldest/front entry, and
+  `pop_back()` removes the newest entry.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkRelationCmap
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git diff --check
+```
+
+Expected result:
+
+- Relation-cmap block and group cleanup remove arbitrary matching entries
+  while preserving FIFO order.
+- Relation-cmap recovery flush prunes only the newest matching suffix.
+- Non-base relation-cmap flush uses strict BID-only comparison and does not use
+  RID.
+- Queued ROB dealloc retire sources are pruned before they can enter
+  relation-cmap, so recovery cannot reintroduce stale relation work.
+- ROB deallocation is held while retire cleanup is active.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `TULinkRelationCmapSpec` passed 7 tests.
+- `TULinkRetireCommandPathSpec` passed 5 tests.
+- `DecodeRenameROBPathSpec` passed 7 tests.
+- `ScalarTURenameBridgeSpec` passed 4 tests.
+- `TULinkRenameSpec` passed 10 tests.
+- `TULinkRecoveryCleanupPathSpec` passed 9 tests.
+- `ROBEntryBankSpec` passed 11 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `git diff --check` passed.
+- `quick_validate.py` passed for `linx-core`.
+- `check_skill_change_scope.py` passed with `changed=3, removed=0`; only
+  `linx-core/SKILL.md` is part of this packet while pre-existing dirty
+  `linx-model/SKILL.md` and `linx-superproject/SKILL.md` edits were left
+  untouched.
+- `install_canonical_skills.sh` synced canonical Linx skills into
+  `/Users/zhoubot/.codex/skills`.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R65 adds a reusable cleanup
+  invariant: exact block/group clean removes all matching relation entries,
+  recovery flush removes only the newest matching suffix with model BID
+  comparison, and queued dealloc sources must be cleaned before they can
+  re-enter relation-cmap.

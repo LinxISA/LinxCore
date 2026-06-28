@@ -8,7 +8,13 @@ import org.scalatest.funsuite.AnyFunSuite
 object TULinkRetireCommandPathReference {
   import TULinkRelationCmapReference._
 
-  final case class Source(seq: Int, dst: Kind, valid: Boolean = true, last: Boolean = false)
+  final case class Source(
+      seq: Int,
+      dst: Kind,
+      valid: Boolean = true,
+      last: Boolean = false,
+      bid: Int = 1,
+      gid: Int = 0)
 
   final class SourceQueue(sourceWidth: Int, queueDepth: Int) {
     private var rows = Vector.empty[Source]
@@ -36,7 +42,25 @@ object TULinkRetireCommandPathReference {
       out
     }
 
+    def cleanBlock(bid: Int): Unit = {
+      rows = rows.filterNot(_.bid == bid)
+    }
+
+    def cleanGroup(bid: Int, gid: Int): Unit = {
+      rows = rows.filterNot(source => source.bid == bid && source.gid == gid)
+    }
+
+    def flushRelative(flushBid: Int, baseOnBid: Boolean): Unit = {
+      def needsFlush(source: Source): Boolean =
+        if (baseOnBid) source.bid >= flushBid else source.bid > flushBid
+
+      while (rows.nonEmpty && needsFlush(rows.last)) {
+        rows = rows.dropRight(1)
+      }
+    }
+
     def count: Int = rows.length
+    def seqs: Seq[Int] = rows.map(_.seq)
   }
 
   def toRelationRow(source: Source): Row =
@@ -94,6 +118,28 @@ class TULinkRetireCommandPathSpec extends AnyFunSuite {
     ))
   }
 
+  test("reference cleanup prunes queued sources before relation cmap consumption") {
+    val queue = new SourceQueue(sourceWidth = 2, queueDepth = 8)
+    queue.preload(Seq(
+      Source(seq = 0, dst = T, bid = 1, gid = 0),
+      Source(seq = 1, dst = U, bid = 2, gid = 0),
+      Source(seq = 2, dst = T, bid = 3, gid = 0)
+    ))
+
+    queue.flushRelative(flushBid = 2, baseOnBid = false)
+    assert(queue.seqs == Seq(0, 1))
+
+    queue.cleanBlock(bid = 1)
+    assert(queue.seqs == Seq(1))
+
+    queue.preload(Seq(
+      Source(seq = 3, dst = T, bid = 4, gid = 0),
+      Source(seq = 4, dst = U, bid = 4, gid = 1)
+    ))
+    queue.cleanGroup(bid = 4, gid = 1)
+    assert(queue.seqs == Seq(3))
+  }
+
   test("TULinkRetireCommandPath elaborates as ROB-source serializer plus relation cmap") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val sv = ChiselStage.emitSystemVerilog(
@@ -113,6 +159,9 @@ class TULinkRetireCommandPathSpec extends AnyFunSuite {
     assert(sv.contains("io_sourceWindowReady"))
     assert(sv.contains("io_sourceValidMask"))
     assert(sv.contains("io_sourceQueueCount"))
+    assert(sv.contains("io_cleanupActive"))
+    assert(sv.contains("io_sourcePruneCount"))
+    assert(sv.contains("io_relationPruneTCount"))
     assert(sv.contains("io_command_valid"))
     assert(sv.contains("io_command_seq_value"))
     assert(sv.contains("io_commandFire"))

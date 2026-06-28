@@ -37,8 +37,15 @@ Inputs:
 - `sources`: `Vec(sourceWidth, TULinkRetireSource)` from the ROB deallocation
   window. Valid elements carry native `bid/gid/rid`, `stid`, row-owned
   `tSeq/uSeq`, `isLast`, and T/U destination ownership.
-- `clear`: clears the source queue and relation-cmap state. In the reduced
-  path this is driven by the live T/U cleanup flush publisher.
+- `clear`: local hard reset for the source queue and relation-cmap state. The
+  reduced backend currently ties this low and uses `flush` for recovery
+  pruning.
+- `flush`: backend recovery flush intent. It prunes queued sources and the
+  embedded relation cmap with the same model `FlushRelativeReg` suffix rule.
+- `cleanBlockValid/cleanBlockBid`: block-commit cleanup equivalent to
+  `CleanCMAP(bid)`.
+- `cleanGroupValid/cleanGroupBid/cleanGroupGid`: group cleanup equivalent to
+  `CleanGroupCMAP(bid, gid)`.
 - `commandReady`: actual downstream command acceptance. The integrated path
   drives this from `ScalarTURenameBridge.tuRetireAccepted`, not from predicted
   readiness.
@@ -54,6 +61,9 @@ Outputs:
   for `TULinkRename`.
 - `unsupportedDst`, `preRelease*`, `pressureRelease*`, `pending*`,
   `tCount/uCount`: forwarded relation-cmap diagnostics.
+- `cleanupActive`, `sourcePruneCount`, `relationPruneTCount`,
+  `relationPruneUCount`: cleanup observability for queued sources and
+  embedded relation entries.
 
 ## State
 
@@ -85,10 +95,18 @@ a retire command because flush or commit maintenance wins, relation-cmap keeps
 the command pending and the source stream does not advance past that policy
 point.
 
-`clear` synchronously drops queued sources and relation-cmap state. The
-current reduced path also blocks ROB deallocation while T/U cleanup is active,
-so a recovery cleanup cannot enqueue new retire-source rows behind a pending
-flush.
+Cleanup uses the same predicates on the source FIFO and on the embedded
+relation cmap. Exact block and group clean operations can remove matching rows
+from anywhere in the queue while preserving order. Recovery flush removes only
+the newest suffix whose BID matches the model `FlushRelativeReg` predicate:
+inclusive when `baseOnBid` is set, strict otherwise. While cleanup is active,
+the module blocks source-window admission, suppresses relation-cmap input, and
+holds command progress so no flushed queued source can re-enter the relation
+stream.
+
+`clear` remains a synchronous hard reset, separate from model recovery flush
+pruning. The current reduced composition drives backend recovery through
+`flush`, not through `clear`.
 
 ## Model Alignment
 
@@ -104,12 +122,14 @@ The preserved C++ order is:
 
 `TULinkRetireCommandPath` owns only the width-to-one serialization and the
 acceptance coupling to `TULinkRename`. The detailed relation policy remains in
-`TULinkRelationCmap`, and the local mapQ mutation remains in `TULinkRename`.
+`TULinkRelationCmap`, queued source cleanup mirrors that policy before rows
+enter relation-cmap, and the local mapQ mutation remains in `TULinkRename`.
 
 ## Deferred Owners
 
-- Relation flush pruning equivalent to model `FlushRelativeReg`,
-  `CleanCMAP`, and `CleanGroupCMAP`.
+- Live block/group commit event wiring for `cleanBlock*` and `cleanGroup*`.
+- Ready-table mutation and physical tag wakeup/release side effects for
+  relation cleanup entries.
 - Less conservative source FIFO credit that can accept partial windows with an
   explicit ROB credit contract.
 - Predicate, vector, SIMT, tile, per-PE, and per-STID relation maps.
@@ -134,5 +154,6 @@ bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 ```
 
 The tests cover slot-order serialization, conservative full-window credit,
-no-destination block-last row preservation, and elaboration through the
-embedded `TULinkRelationCmap`.
+no-destination block-last row preservation, source FIFO cleanup before
+relation-cmap consumption, and elaboration through the embedded
+`TULinkRelationCmap`.
