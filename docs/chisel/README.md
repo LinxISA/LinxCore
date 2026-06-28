@@ -14,11 +14,13 @@ Current phase:
   emit/lint uses real commit structure before the full frontend/backend exists
 
 The first implementation packets are ROBID, commit identity, the initial
-FlushControl arbitration primitive, and BROB/BID metadata. They are derived from
+FlushControl arbitration primitive, BROB/BID metadata, and the shared Phase 1
+common interface bundles. They are derived from
 `model/LinxCoreModel/model/ModelCommon/ROBID.*`,
 `model/LinxCoreModel/model/interface/CommitInfo.h`, and
-`model/LinxCoreModel/model/core/FlushControl.*`, and
-`model/LinxCoreModel/model/bctrl/BROB.*`.
+`model/LinxCoreModel/model/core/FlushControl.*`,
+`model/LinxCoreModel/model/bctrl/BROB.*`, and the C++ model bus headers under
+`model/LinxCoreModel/model/ModelCommon/bus/`.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -31,6 +33,7 @@ Commands from `rtl/LinxCore`:
 ```bash
 bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only
 bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

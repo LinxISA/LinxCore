@@ -16,6 +16,9 @@ Scope:
   through the current `LinxCoreTop` IO.
 - Added `docs/chisel/modules/commit/CommitTraceMonitor.md`.
 - Added `docs/chisel/modules/top/LinxCoreTop.md`.
+- Added `InterfaceBundles.scala` and `docs/chisel/interfaces/CommonBundles.md`
+  as the Phase 1 shared type packet for frontend/decode/rename/issue/LSU/ROB
+  agents.
 - Updated `CommitTrace.md`, `ReducedCommitROB.md`, `LinxCoreTop.md`, and
   `module-index.md` so later top/trace agents use the monitor rather than
   duplicating commit-window checks.
@@ -24,6 +27,7 @@ Evidence:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
+bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
 bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreTop
 bash tools/chisel/build_chisel.sh
@@ -38,6 +42,9 @@ bash tools/chisel/run_chisel_verilator_lint.sh
 Observed result:
 
 - `CommitTraceMonitorSpec` ran 5 tests; all passed.
+- `InterfaceBundlesSpec` ran 6 tests; all passed. The tests lock
+  pyCircuit/model-derived widths, `BK_*` enum ordering, decoded/renamed/LSU/ROB
+  packet shape, and Chisel elaboration.
 - `ReducedCommitROBSpec` ran 5 tests; all passed with generated SystemVerilog
   containing `commitContractError`.
 - `LinxCoreTopSpec` ran 2 tests; all passed with generated SystemVerilog
@@ -45,7 +52,8 @@ Observed result:
   `commitContractError`.
 - `CommitTrace` targeted gate ran 10 tests across `CommitTraceSpec` and
   `CommitTraceMonitorSpec`; all passed.
-- `build_chisel.sh` passed after the monitor source was added.
+- `build_chisel.sh` passed after the monitor and common bundle sources were
+  added.
 - `run_chisel_rob_bookkeeping.sh --reduced-rob` passed ROBID, CommitTrace, and
   ReducedCommitROB gates.
 - `run_chisel_reduced_rob_xcheck.sh` built the generated-RTL Verilator harness,
@@ -72,3 +80,6 @@ Skill evolve:
 - `skill-evolve: update linx-core` because top-level Verilator lint and the
   top xcheck must compile every emitted SystemVerilog file once the Chisel top
   instantiates child modules and exports monitored commit rows.
+- `skill-evolve: update linx-core` because `InterfaceBundles` is now a reusable
+  Phase 1 gate that downstream frontend/decode/rename/LSU agents must run
+  before consuming the shared packet.

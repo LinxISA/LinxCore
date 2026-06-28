@@ -2,6 +2,7 @@
 
 | Module | Package | Documentation | Status |
 |---|---|---|---|
+| `InterfaceBundles` | `linxcore.common` | `docs/chisel/interfaces/CommonBundles.md` | Unit-green Phase 1 shared type packet |
 | `ROBID` | `linxcore.rob` | `docs/chisel/modules/rob/ROBID.md` | Unit-green Packet A |
 | `ReducedCommitROB` | `linxcore.rob` | `docs/chisel/modules/rob/ReducedCommitROB.md` | Unit-green; monitor-backed Verilator xcheck-green reduced harness |
 | `CommitIdentity` / `CommitTraceRow` | `linxcore.commit` | `docs/chisel/modules/commit/CommitTrace.md` | Unit-green Packet 0B schema |
