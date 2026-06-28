@@ -12,8 +12,8 @@ Current phase:
 - Phase 1: interface schema and type-system monitors in progress
 - Phase 2: frontend F4 decode-window, instruction-buffer, and decode-ingress
   slicing started
-- Phase 5 preparation: integrated ROB/CMT status vocabulary and entry-bank
-  skeleton started
+- Phase 5 preparation: integrated ROB/CMT status vocabulary, entry-bank
+  skeleton, and flush-prune selector started
 - Phase 1 top shell: `LinxCoreTop` wraps the monitored reduced ROB so top
   emit/lint uses real commit structure before the full frontend/backend exists
 
@@ -31,9 +31,10 @@ queueing flow in `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`. The
 current frontend transport slice composes the instruction buffer with F4
 visibility but still leaves opcode decode, macro-boundary decode, and D1/D2
 uop construction to future decode-owner modules. The first integrated ROB/CMT
-preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle and add a
-status-backed entry bank with separate commit and deallocation walks before the
-reduced ROB harness grows into a full ROB.
+preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
+status-backed entry bank with separate commit and deallocation walks, and expose
+the model-derived flush-prune selection rule before the reduced ROB harness
+grows into a full ROB.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -54,6 +55,7 @@ bash tools/chisel/run_chisel_tests.sh --only FrontendInstructionBuffer
 bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeIngress
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

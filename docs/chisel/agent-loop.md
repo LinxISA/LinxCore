@@ -114,6 +114,7 @@ These packets remain the required base before broad module promotion:
 | R5 | `LinxCoreTop` reduced shell | `run_chisel_tests.sh --only LinxCoreTop`, `run_chisel_top_xcheck.sh` |
 | R6 | QEMU adapter | `run_chisel_qemu_crosscheck.sh --dry-run`; full compare when live Chisel commit rows exist |
 | R7 | `ROBEntryBank` integrated skeleton | `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only ROBEntryStatus`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R8 | `ROBFlushPrune` selector | `run_chisel_tests.sh --only ROBFlushPrune`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only ROBEntryBank` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -219,8 +220,8 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Integrated ROB flush-prune helper: implement BID/RID-based prune selection
-   without side-effect cleanup, then compare against `SPEROB::flush` notes.
+1. Wire `ROBFlushPrune` into `ROBEntryBank`: apply prune masks to row state,
+   update resident/outstanding counts, and keep pointer rebasing explicit.
 2. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
 3. QEMU full-compare harness: replace reduced synthetic rows with live Chisel

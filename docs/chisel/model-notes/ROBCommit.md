@@ -8,6 +8,7 @@
 - LinxCoreModel: `model/LinxCoreModel/model/pe/PECommon/PROBCommon.h`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryStatus.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBFlushPrune.scala`
 - LinxCoreModel: `model/LinxCoreModel/model/veclite/VectorLiteROB.cpp`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala`
 
@@ -65,13 +66,22 @@ completed heads, marks those rows `Retired`, and frees only retired rows on the
 later deallocation walk. Retired rows stay resident and continue to reject
 duplicate `(bid,gid,rid)` allocations until deallocation clears them.
 
+The Chisel `ROBFlushPrune` helper captures the selection part of
+`SPEROB::flush`: scan from the deallocation pointer, match either
+`flush.bid <= row.bid` or `(flush.bid, flush.rid) <= (row.bid, row.rid)`,
+and once the first valid row matches, prune that row plus all later valid rows
+in scan order. Its outstanding decrement follows `CheckNextEntryStatus`, so
+retired/fault/free rows do not decrement outstanding work even when resident
+rows are removed.
+
 ## Open Items
 
 - Replace the reduced harness with integrated ROB banks and CMT control in
   Phase 5.
-- Add integrated flush-prune, pointer rebasing, rename cleanup, LSU/STQ side
-  effects, precise trap ownership, and restart ownership to the entry-bank/CMT
-  path; do not retrofit those behaviors into `ReducedCommitROB`.
+- Wire `ROBFlushPrune` into `ROBEntryBank` and add pointer rebasing, rename
+  cleanup, LSU/STQ side effects, precise trap ownership, and restart ownership
+  to the entry-bank/CMT path; do not retrofit those behaviors into
+  `ReducedCommitROB`.
 - Add live Verilator trace dumping once the reduced harness has a small driver.
 - Connect memory side-effect ownership to LSU/STQ instead of test-provided row
   payloads.
