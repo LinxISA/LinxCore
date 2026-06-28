@@ -1626,3 +1626,85 @@ Skill evolve:
   only for `ST_ADDR`, suppresses tile conflicts until the tile owner exists,
   and classifies the selected pair as same-BID inner flush or cross-BID
   load-attributed nuke flush.
+
+## 2026-06-28 MDB SSIT
+
+Scope:
+
+- Added `MDBSSIT` as the first Chisel owner for the model Memory Dependence
+  Buffer Store Set ID Table.
+- Learned the model path from `MDB::Work`, `MDB::ld_lookup`, `MDB::insert`,
+  `MDB::dec`, and the LSU producers/consumers that enqueue lookup, record, and
+  delete work.
+- Implemented a finite fully associative table keyed by load PC, preserving the
+  model command order of lookup, delete, then record in one cycle.
+- Preserved first-after-nuke lookup suppression, confidence and weight stall
+  gating, same-store reinforcement, different-store closer replacement versus
+  confidence decrement, delete decay, and release only when weight is already
+  zero.
+- Deterministically initialized the first-insert LSID offset that the C++ model
+  leaves implicit on a miss, and reported finite-table overflow instead of
+  silently inventing a replacement policy.
+- Kept queue wrappers, `StoreUnit::mdbCheck` wakeup, LDQ `updateMDBInfo`,
+  BCTRL `bmdb`, IEX-local MDB, byte forwarding, and ROB nuke publication in
+  later owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only MDBSSIT
+bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
+bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `MDBSSITSpec` covers first-after-nuke suppression, confidence and weight
+  lookup gates, reinforcement to the stall threshold, closer-store replacement,
+  farther-store confidence decrement, delete decay and release, nuke-marker
+  clearing on nonmatching BID lookup, illegal younger-store rejection, finite
+  table overflow reporting, and Chisel elaboration.
+- Existing MDB conflict detection, STQ commit ordering, ROB/cross-check, QEMU
+  dry-run, reduced RTL xcheck, top-shell xcheck, and Verilator lint gates stay
+  green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBSSIT` passed 7 tests in
+  `MDBSSITSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect` passed 7
+  tests in `MDBConflictDetectSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue` passed 7 tests
+  in `STQCommitQueueSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `MDBSSIT` adds the reusable LSU
+  dependence-prediction invariant: SSIT lookup, delete, and record commands
+  must apply in model order; first-after-nuke suppresses only the first lookup
+  on the recorded load BID; lookup stalls require confidence and weight gates;
+  and learning must distinguish same-store reinforcement from different-store
+  closer replacement and confidence decay.

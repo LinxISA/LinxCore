@@ -22,6 +22,7 @@
 | `STQSCBCommitPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQSCBCommitPath.md` | Unit-green R25 STQ-to-SCB composition owner; SCB accepted `last` fragments are the only committed-row free source |
 | `SCBResponseDecode` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBResponseDecode.md` | Unit-green R26 raw SCB response decode owner; model `(entryIndex << 2) | 2` tags become legal `Miss -> Lookup` row responses |
 | `MDBConflictDetect` | `linxcore.lsu` | `docs/chisel/modules/lsu/MDBConflictDetect.md` | Unit-green R27 store-arrival conflict classifier; oldest resolved load selection, ST_ADDR wait masks, and inner/nuke split |
+| `MDBSSIT` | `linxcore.lsu` | `docs/chisel/modules/lsu/MDBSSIT.md` | Unit-green R28 MDB Store Set ID Table owner; first-after-nuke suppression, weight/confidence learning, and delete decay |
 | `ROBID` | `linxcore.rob` | `docs/chisel/modules/rob/ROBID.md` | Unit-green Packet A |
 | `ROBEntryStatus` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryStatus.md` | Unit-green Phase 5 integrated ROB/CMT status contract |
 | `ROBEntryBank` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryBank.md` | Unit-green Phase 5 integrated ROB/CMT entry-bank skeleton with flush application and native row IDs |

@@ -27,6 +27,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBRowBank.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBSSIT.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
@@ -39,6 +40,7 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBRowBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQSCBCommitPathSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/MDBConflictDetectSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/MDBSSITSpec.scala`
 
 ## Model Contract
 
@@ -146,6 +148,20 @@ flushes; cross-BID conflicts become load-attributed nuke flushes. The same
 selected load/store pair is also recorded to `record_lu_mdb_q`, BCTRL `bmdb`,
 and IEX-local MDB.
 
+`MDB::Work` processes MDB queues in lookup, delete, then record order. Lookup
+uses load PC as the SSIT key. A table hit fills `stInfo.tpc` from the learned
+store PC, computes `stInfo.bid = load.bid - bid_off`, clears `nukeVld`, and
+returns `hit` only when the lookup is not the first lookup after a matching
+nuke, confidence is positive, and weight is above the stall threshold. Record
+sets `nukeVld/nukeBID`, allocates missing load PCs, replaces a different store
+PC when confidence is low or the new store is closer by `bid_off` then
+`lsID_off`, decrements confidence for farther different-store records, and
+reinforces same-store records by saturating confidence and weight. Delete
+matches load PC plus wait-store PC, releases a row only when weight is already
+zero, otherwise decrements weight and reports when the row no longer stalls.
+The default model weights are `mdb_release_weight=25`, `mdb_max_weight=3`, and
+`mdb_inc_step=1`.
+
 `SCBCommitBridge` is the first Chisel owner for the capacity feedback boundary
 between `STQCommitDrain` and `SCBCommitIngress`. It gates every descriptor with
 the model `SCBuffer::full()` rule, mapping `n_store_in` to the bridge request
@@ -222,9 +238,20 @@ module stops before the MDB SSIT table, `lookup_lu_mdb_q`,
 `lookup_mdb_lu_q`, `lookup_mdb_su_q`, store wakeup, BCTRL `bmdb`, IEX-local
 MDB, ROB nuke retirement, and final `FlushReq` publication.
 
+`MDBSSIT` is the first Chisel state owner for that MDB table. It preserves the
+model lookup/delete/record order, lookup first-after-nuke suppression, positive
+confidence and weight-threshold stall rule, same-store reinforcement,
+different-store replacement/decrement, and delete decay/release behavior. The
+model uses an unbounded `unordered_map`; the Chisel owner is a finite
+fully-associative table and reports overflow instead of inventing a replacement
+policy. The Chisel owner also initializes `lsIdOff` on first insertion for
+deterministic equal-`bidOff` replacement comparison; the C++ miss path leaves
+that field implicit until a later replacement path needs it.
+
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
-forwarding, deadlock checks, data-array banking, MDB SSIT learning/lookup, CHI
-completion, and BSB window-slide side effects remain future LSU owner work.
+forwarding, deadlock checks, data-array banking, MDB queue fanout and SU
+wakeup, CHI completion, and BSB window-slide side effects remain future LSU
+owner work.
 
 ## Open Questions
 

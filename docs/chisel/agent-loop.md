@@ -22,7 +22,7 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `rtl/LinxCore` | `5c19a3fd7d12f6c8c7947a5323c2f8a64c2afaef` |
+| `rtl/LinxCore` | `17e4eb922b2b99fe80d16d77a174d138eb807bfe` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 
 LinxCoreModel was refreshed with `git pull --ff-only` on 2026-06-28 and was
@@ -134,6 +134,7 @@ These packets remain the required base before broad module promotion:
 | R25 | `STQSCBCommitPath` | `run_chisel_tests.sh --only STQSCBCommitPath`, `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_tests.sh --only STQCommitDrain`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R26 | `SCBResponseDecode` | `run_chisel_tests.sh --only SCBResponseDecode`, `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_tests.sh --only SCBStateUpdate`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R27 | `MDBConflictDetect` | `run_chisel_tests.sh --only MDBConflictDetect`, `run_chisel_tests.sh --only STQCommitQueue`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R28 | `MDBSSIT` | `run_chisel_tests.sh --only MDBSSIT`, `run_chisel_tests.sh --only MDBConflictDetect`, `run_chisel_tests.sh --only STQCommitQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -239,9 +240,10 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. MDB SSIT lookup/learning owner: model `lookup_lu_mdb_q`,
-   `lookup_mdb_lu_q`, `lookup_mdb_su_q`, `record_lu_mdb_q`, and
-   `delete_lu_mdb_q` around the already-promoted conflict record boundary.
+1. MDB queue fanout and store-wakeup owner: wrap `MDBSSIT` with
+   `lookup_lu_mdb_q`, `lookup_mdb_lu_q`, `lookup_mdb_su_q`,
+   `record_lu_mdb_q`, and `delete_lu_mdb_q` semantics, then connect the SU
+   side to the model `StoreUnit::mdbCheck` wakeup contract.
 2. Load/store forwarding owner: implement the byte-mask STQ/SCB lookup path and
    connect it to the future LIQ/LHQ request flow.
 3. Response ordering/buffering owner: add the L2/CHI response queue boundary in

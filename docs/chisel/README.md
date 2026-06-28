@@ -92,6 +92,10 @@ it classifies scalar store-arrival probes against active LDQ rows and
 `ResolveQ`, suppresses current tile conflicts, emits `ST_ADDR` wait-store
 masks for unresolved loads, and selects the oldest resolved conflicting load
 for later MDB learning plus inner/nuke recovery publication.
+`MDBSSIT` owns the MDB Store Set ID Table state behind that conflict record:
+it applies first-after-nuke suppression, confidence and weight-based stall
+qualification, same-store reinforcement, different-store replacement or
+confidence decrement, delete decay, and finite-table overflow reporting.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -128,6 +132,7 @@ bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate
 bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
 bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode
 bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
+bash tools/chisel/run_chisel_tests.sh --only MDBSSIT
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
