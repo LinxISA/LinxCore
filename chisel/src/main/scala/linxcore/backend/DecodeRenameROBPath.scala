@@ -97,13 +97,13 @@ class DecodeRenameROBPathIO(
   val storeDispatchSplit = Output(Bool())
   val storeDispatchBlockedBySta = Output(Bool())
   val storeDispatchBlockedByStd = Output(Bool())
-  val storeSta = Output(new StoreSplitIssuePayload(p))
-  val storeStd = Output(new StoreSplitIssuePayload(p))
-  val storeUnsplit = Output(new StoreSplitIssuePayload(p))
+  val storeSta = Output(new StoreSplitIssuePayload(p, mapQDepth))
+  val storeStd = Output(new StoreSplitIssuePayload(p, mapQDepth))
+  val storeUnsplit = Output(new StoreSplitIssuePayload(p, mapQDepth))
   val storeStaQueueValid = Output(Bool())
   val storeStdQueueValid = Output(Bool())
-  val storeStaQueue = Output(new StoreSplitIssuePayload(p))
-  val storeStdQueue = Output(new StoreSplitIssuePayload(p))
+  val storeStaQueue = Output(new StoreSplitIssuePayload(p, mapQDepth))
+  val storeStdQueue = Output(new StoreSplitIssuePayload(p, mapQDepth))
   val storeStaEnqueueFire = Output(Bool())
   val storeStdEnqueueFire = Output(Bool())
   val storeStaDequeueFire = Output(Bool())
@@ -391,8 +391,12 @@ class DecodeRenameROBPath(
 
   decRenQ.io.popReady := rename.io.inReady
 
-  val storeSplit = Module(new StoreSplitPayload(p))
+  val storeSplit = Module(new StoreSplitPayload(p, mapQDepth))
   storeSplit.io.in := rename.io.out
+  storeSplit.io.tSeq := ROBID.disabled(mapQDepth)
+  storeSplit.io.uSeq := ROBID.disabled(mapQDepth)
+  storeSplit.io.tuDstValid := false.B
+  storeSplit.io.tuDstKind := DestinationKind.None
   storeSplit.io.staReady := storeDispatch.io.staReady
   storeSplit.io.stdReady := storeDispatch.io.stdReady
 

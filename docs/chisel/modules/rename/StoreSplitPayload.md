@@ -40,6 +40,10 @@ Inputs:
 - `in`: renamed uop. Relevant metadata is `valid`, `isStore`,
   `storeSplitIntent`, `isLoadStorePair`, `isStorePcr`,
   `cacheMaintainNoSplit`, source operands, ROB/BID identity, and `lsid`.
+- `tSeq`, `uSeq`, `tuDstValid`, `tuDstKind`: row-owned T/U local-register
+  sequence and destination-ownership sidecars. They model the `SPERename`
+  snapshots that are taken before T/U destination rename and later preserved
+  in `MemReqBus`. Invalid split outputs carry disabled sidecars.
 - `staReady`: address-side store dispatch queue can accept a payload.
 - `stdReady`: data-side store dispatch queue can accept a payload.
 
@@ -85,7 +89,10 @@ When `split` is true, `inReady` requires both `staReady` and `stdReady`, and
 `fire` asserts only when both halves can be emitted in the same cycle. No
 partial STA or STD payload is produced under backpressure. Both split payloads
 copy the renamed uop identity, including `bid`, `gid`, `rid`, `blockBid`, and
-`lsid`, so the halves share one store identity.
+`lsid`, so the halves share one store identity. Both split halves also copy
+the same `tSeq/uSeq` and T/U destination sidecars. This mirrors the model
+clone shape: the instruction's local-register sequence snapshots are row
+metadata, not independently generated STA/STD metadata.
 
 For ordinary split stores, the STA payload replaces `src(0)` with a zero
 literal/invalid operand and raises `staSrc0Zeroed`. This mirrors model
@@ -108,6 +115,12 @@ the original store to the STA dispatch queue.
   mark the STA type as `ST_ADDR`, and mark the STD type as `ST_DATA`;
 - on unsplit, write the original instruction to the STA queue.
 
+`SPERename::Rename` captures `inst->tSeq` and `inst->uSeq` from the local
+register managers before destination rename. `MemReqBus` later carries those
+snapshots as `tSeq/uSeq`, and store-unit cleanup uses them to publish exact
+T/U recovery sequences. `StoreSplitPayload` therefore treats the sidecars as
+payload metadata and copies them through the split.
+
 `HandleSta` zeroes ordinary store source 0, keeps PCR store source 0, and
 deep-copies source operands so later wakeup mutation cannot alias the original
 store. This Chisel owner mirrors the externally visible source-selection
@@ -123,6 +136,8 @@ through scalar rename into this owner.
 
 - Stack rename payloads and explicit STA stack-type clearing / STD stack-type
   forwarding.
+- Live producer wiring from `TULinkRename` into these sidecar inputs in the
+  reduced `DecodeRenameROBPath`.
 - STA/STD execution and STQ mutation behind `StoreDispatchQueues`.
 - STQ allocation, complementary partial-store merge, and STQ residency
   counters.
@@ -154,4 +169,5 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 The focused tests cover ordinary split payload construction, PCR data source
 selection, load/store-pair and cache-maintain suppression, no-partial-fire
 backpressure, non-store no-op behavior, enum values, IO widths, and CIRCT
-elaboration.
+elaboration. R61 extends that coverage to T/U sidecar preservation on split
+STA/STD payloads and disabled sidecars on invalid payloads.

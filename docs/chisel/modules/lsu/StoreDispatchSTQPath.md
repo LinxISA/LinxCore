@@ -45,7 +45,7 @@ Inputs:
 - `queueFlushValid`: queue-only maintenance flush for frontend/decode cleanup
   cases that must clear dispatch queues without pruning resident STQ rows.
 - `staIn`, `stdIn`, `unsplitIn`: store split payloads from the rename/store
-  split owner.
+  split owner, including row-owned T/U local-register sidecars.
 - `staExec`, `stdExec`: explicit execution results for the visible queue
   heads.
 - `markCommit*`, `commitFree*`, `commitFreeMask*`: current bank-side commit
@@ -98,7 +98,10 @@ path and standalone bank cannot drift on insert readiness.
 The path forwards the STQ bank's LSU T/U source candidate unchanged. This
 keeps queue-backed store dispatch and STQ row mutation as the source owner, but
 gives the future recovery-cleanup composition a stable LSU-side port for exact
-non-base `(bid,rid,stid)` cleanup.
+non-base `(bid,rid,stid)` cleanup. R61 makes the dispatch queue and request
+bridge sidecar-capable, so live `tSeq/uSeq` and T/U destination ownership can
+reach the STQ bank once the reduced backend wires a real T/U rename producer.
+Until then, `DecodeRenameROBPath` drives the sidecar inputs disabled.
 
 ## Model Alignment
 
@@ -114,8 +117,9 @@ STD can bypass a blocked STA when the STD half is independently insertable.
 - Ready-table/source wakeup effects before store execution.
 - Load-conflict probe publication after accepted STQ insert.
 - Store-data wakeup, memory trace, exceptions, and SCB/MDB integration.
-- Live T/U rename sidecars into `StoreDispatchToSTQ`; the current reduced
-  backend integration still drives disabled T/U source sidecars.
+- Live T/U rename sidecar producer wiring into `StoreSplitPayload`; the
+  current reduced backend integration still drives disabled T/U source
+  sidecars.
 - Top-level committed-store drain and SCB/MDB integration beyond the reduced
   insert path.
 
@@ -147,4 +151,5 @@ bash tools/chisel/run_chisel_verilator_lint.sh
 
 Focused tests cover STD merge-bypass against a full STQ, STA priority when both
 candidates can insert, flush suppression, queue-only flush IO shape, IO widths,
-and CIRCT elaboration through all composed child modules.
+and CIRCT elaboration through all composed child modules. R61 extends the
+checks to sidecar-carry fields on the path input and queue-head surfaces.

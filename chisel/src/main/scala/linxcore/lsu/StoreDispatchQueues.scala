@@ -6,12 +6,16 @@ import chisel3.util.log2Ceil
 import linxcore.common.InterfaceParams
 import linxcore.rename.StoreSplitIssuePayload
 
-class StoreDispatchQueuesIO(val p: InterfaceParams = InterfaceParams(), val depth: Int = 4) extends Bundle {
+class StoreDispatchQueuesIO(
+    val p: InterfaceParams = InterfaceParams(),
+    val depth: Int = 4,
+    val mapQDepth: Int = 32)
+    extends Bundle {
   private val countWidth = log2Ceil(depth + 1)
 
-  val staIn = Input(new StoreSplitIssuePayload(p))
-  val stdIn = Input(new StoreSplitIssuePayload(p))
-  val unsplitIn = Input(new StoreSplitIssuePayload(p))
+  val staIn = Input(new StoreSplitIssuePayload(p, mapQDepth))
+  val stdIn = Input(new StoreSplitIssuePayload(p, mapQDepth))
+  val unsplitIn = Input(new StoreSplitIssuePayload(p, mapQDepth))
   val flushValid = Input(Bool())
   val staDequeueReady = Input(Bool())
   val stdDequeueReady = Input(Bool())
@@ -27,8 +31,8 @@ class StoreDispatchQueuesIO(val p: InterfaceParams = InterfaceParams(), val dept
   val stdDequeueFire = Output(Bool())
   val staOutValid = Output(Bool())
   val stdOutValid = Output(Bool())
-  val staOut = Output(new StoreSplitIssuePayload(p))
-  val stdOut = Output(new StoreSplitIssuePayload(p))
+  val staOut = Output(new StoreSplitIssuePayload(p, mapQDepth))
+  val stdOut = Output(new StoreSplitIssuePayload(p, mapQDepth))
   val staCount = Output(UInt(countWidth.W))
   val stdCount = Output(UInt(countWidth.W))
   val staEmpty = Output(Bool())
@@ -37,16 +41,20 @@ class StoreDispatchQueuesIO(val p: InterfaceParams = InterfaceParams(), val dept
   val stdFull = Output(Bool())
 }
 
-class StoreDispatchQueues(val p: InterfaceParams = InterfaceParams(), val depth: Int = 4) extends Module {
+class StoreDispatchQueues(
+    val p: InterfaceParams = InterfaceParams(),
+    val depth: Int = 4,
+    val mapQDepth: Int = 32)
+    extends Module {
   require(depth > 0 && (depth & (depth - 1)) == 0, "store dispatch queue depth must be a power of two")
 
   private val ptrWidth = math.max(1, log2Ceil(depth))
   private val countWidth = log2Ceil(depth + 1)
 
-  val io = IO(new StoreDispatchQueuesIO(p, depth))
+  val io = IO(new StoreDispatchQueuesIO(p, depth, mapQDepth))
 
   private def zeroPayload: StoreSplitIssuePayload = {
-    val payload = Wire(new StoreSplitIssuePayload(p))
+    val payload = Wire(new StoreSplitIssuePayload(p, mapQDepth))
     payload := 0.U.asTypeOf(payload)
     payload
   }
@@ -54,8 +62,8 @@ class StoreDispatchQueues(val p: InterfaceParams = InterfaceParams(), val depth:
   private def nextPtr(ptr: UInt): UInt =
     Mux(ptr === (depth - 1).U, 0.U, ptr + 1.U)
 
-  val staMem = RegInit(VecInit(Seq.fill(depth)(0.U.asTypeOf(new StoreSplitIssuePayload(p)))))
-  val stdMem = RegInit(VecInit(Seq.fill(depth)(0.U.asTypeOf(new StoreSplitIssuePayload(p)))))
+  val staMem = RegInit(VecInit(Seq.fill(depth)(0.U.asTypeOf(new StoreSplitIssuePayload(p, mapQDepth)))))
+  val stdMem = RegInit(VecInit(Seq.fill(depth)(0.U.asTypeOf(new StoreSplitIssuePayload(p, mapQDepth)))))
   val staHead = RegInit(0.U(ptrWidth.W))
   val staTail = RegInit(0.U(ptrWidth.W))
   val stdHead = RegInit(0.U(ptrWidth.W))

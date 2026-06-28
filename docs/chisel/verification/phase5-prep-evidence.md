@@ -3941,3 +3941,101 @@ Skill evolve:
   `lsuSource` from the live `StoreDispatchSTQPath.lsuTULinkSource` while
   leaving live T/U source sidecars and publisher-driven state mutation to later
   owners.
+
+## 2026-06-29 Store Dispatch T/U Sidecar Carry
+
+Scope:
+
+- Added explicit `tSeq/uSeq` and T/U destination sidecars to
+  `StoreSplitIssuePayload`.
+- Carried those sidecars through `StoreSplitPayload`, `StoreDispatchQueues`,
+  `StoreDispatchSTQPath`, and `StoreDispatchToSTQ`.
+- Changed `StoreDispatchToSTQ` request formation to copy payload sidecars into
+  `STQStoreRequest` instead of forcing them disabled.
+- Kept `DecodeRenameROBPath` as a reduced integration owner that drives the
+  new `StoreSplitPayload` sidecar inputs disabled until live `TULinkRename`
+  producer wiring is composed.
+
+Model evidence:
+
+- `SPERename::Rename()` snapshots `inst->tSeq` and `inst->uSeq` from local
+  register managers before destination rename.
+- `SPERename::InsertToStoreIEX()` clones split stores after rename, so STA and
+  STD halves carry the same row-owned sequence snapshots.
+- `MemReqBus` carries `tSeq/uSeq/predSeq` through LSU/STQ structures.
+- Store-unit cleanup builders use the old row's `tSeq/uSeq` and apply
+  `GetPrevRegSeq` when the selected instruction owns the T/U destination.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchQueues
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSourceSelector
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_top_xcheck.sh
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel fetch origin main
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel rev-parse HEAD origin/main
+```
+
+Expected result:
+
+- Store split payloads expose map-queue-depth T/U sidecars and copy them to
+  valid STA/STD/ST_ALL payloads.
+- Store dispatch queues preserve the complete payload image.
+- `StoreDispatchToSTQ` copies sidecars into per-candidate and selected
+  `STQStoreRequest` images.
+- `DecodeRenameROBPath` elaborates the sidecar-capable store path while still
+  driving disabled defaults in the reduced scalar integration.
+- STQ row storage, T/U cleanup source selection, allocator sidecars, reduced
+  ROB bookkeeping, trace adapter, QEMU dry-run, top xcheck, and LinxCoreModel
+  SHA evidence remain green.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `StoreSplitPayloadSpec` passed 7 tests.
+- `StoreDispatchQueuesSpec` passed 8 tests.
+- `StoreDispatchToSTQSpec` passed 6 tests.
+- `StoreDispatchSTQPathSpec` passed 5 tests.
+- `DecodeRenameROBPathSpec` passed 7 tests.
+- `STQEntryBankSpec` passed 11 tests.
+- `TULinkRecoveryCleanupPathSpec` passed 9 tests.
+- `TULinkFlushSourceSelectorSpec` passed 8 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` generated and Verilated
+  `LinxCoreTop`, normalized 3 QEMU rows and 3 DUT rows, and reported
+  `compared=3 mismatches=0`.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`, with a
+  clean model worktree.
+- `quick_validate.py` passed for `linx-core`.
+- `check_skill_change_scope.py` passed with `changed=3, removed=0`; only
+  `linx-core/SKILL.md` is part of this packet while pre-existing dirty
+  `linx-model/SKILL.md` and `linx-superproject/SKILL.md` edits were left
+  untouched.
+- `install_canonical_skills.sh` synced canonical Linx skills into
+  `/Users/zhoubot/.codex/skills`.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R61 adds a reusable sidecar
+  preservation rule: row-owned T/U sequence and destination metadata must be
+  copied through split, queue, bridge, and STQ owners before the live T/U
+  rename producer is composed.

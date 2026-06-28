@@ -1,7 +1,7 @@
 package linxcore.rename
 
 import circt.stage.ChiselStage
-import linxcore.common.InterfaceParams
+import linxcore.common.{DestinationKind, InterfaceParams}
 import org.scalatest.funsuite.AnyFunSuite
 
 object StoreSplitPayloadReference {
@@ -19,7 +19,11 @@ object StoreSplitPayloadReference {
       cacheMaintainNoSplit: Boolean = false,
       bid: Int = 0,
       rid: Int = 0,
-      lsid: Int = 0)
+      lsid: Int = 0,
+      tSeq: Int = 0,
+      uSeq: Int = 0,
+      tuDstValid: Boolean = false,
+      tuDst: String = "None")
 
   final case class Payload(
       valid: Boolean,
@@ -28,7 +32,11 @@ object StoreSplitPayloadReference {
       staSrc0Zeroed: Boolean,
       bid: Int,
       rid: Int,
-      lsid: Int)
+      lsid: Int,
+      tSeq: Int,
+      uSeq: Int,
+      tuDstValid: Boolean,
+      tuDst: String)
 
   final case class Decision(
       inReady: Boolean,
@@ -42,7 +50,18 @@ object StoreSplitPayloadReference {
       unsplit: Payload)
 
   private def empty(storeType: StoreType): Payload =
-    Payload(valid = false, storeType = storeType, dataSrcIndex = 0, staSrc0Zeroed = false, bid = 0, rid = 0, lsid = 0)
+    Payload(
+      valid = false,
+      storeType = storeType,
+      dataSrcIndex = 0,
+      staSrc0Zeroed = false,
+      bid = 0,
+      rid = 0,
+      lsid = 0,
+      tSeq = 0,
+      uSeq = 0,
+      tuDstValid = false,
+      tuDst = "None")
 
   private def payload(uop: Uop, valid: Boolean, storeType: StoreType, dataSrcIndex: Int, staSrc0Zeroed: Boolean): Payload =
     Payload(
@@ -52,7 +71,11 @@ object StoreSplitPayloadReference {
       staSrc0Zeroed = staSrc0Zeroed,
       bid = uop.bid,
       rid = uop.rid,
-      lsid = uop.lsid)
+      lsid = uop.lsid,
+      tSeq = if (valid) uop.tSeq else 0,
+      uSeq = if (valid) uop.uSeq else 0,
+      tuDstValid = valid && uop.tuDstValid,
+      tuDst = if (valid && uop.tuDstValid) uop.tuDst else "None")
 
   def decide(uop: Uop, staReady: Boolean, stdReady: Boolean): Decision = {
     val storeActive = uop.valid && uop.isStore
@@ -94,7 +117,17 @@ class StoreSplitPayloadSpec extends AnyFunSuite {
   import StoreSplitPayloadReference._
 
   test("reference splits ordinary stores into atomic STA and STD payloads") {
-    val uop = Uop(valid = true, isStore = true, storeSplitIntent = true, bid = 7, rid = 3, lsid = 11)
+    val uop = Uop(
+      valid = true,
+      isStore = true,
+      storeSplitIntent = true,
+      bid = 7,
+      rid = 3,
+      lsid = 11,
+      tSeq = 5,
+      uSeq = 6,
+      tuDstValid = true,
+      tuDst = "T")
     val decision = decide(uop, staReady = true, stdReady = true)
 
     assert(decision.inReady)
@@ -115,6 +148,14 @@ class StoreSplitPayloadSpec extends AnyFunSuite {
     assert(decision.std.rid == uop.rid)
     assert(decision.sta.lsid == uop.lsid)
     assert(decision.std.lsid == uop.lsid)
+    assert(decision.sta.tSeq == uop.tSeq)
+    assert(decision.std.tSeq == uop.tSeq)
+    assert(decision.sta.uSeq == uop.uSeq)
+    assert(decision.std.uSeq == uop.uSeq)
+    assert(decision.sta.tuDstValid)
+    assert(decision.std.tuDstValid)
+    assert(decision.sta.tuDst == "T")
+    assert(decision.std.tuDst == "T")
   }
 
   test("reference preserves PCR store source 0 and selects data source 1") {
@@ -182,7 +223,7 @@ class StoreSplitPayloadSpec extends AnyFunSuite {
 
   test("StoreSplitPayload IO and enum values match model ST_* ordering") {
     val p = InterfaceParams()
-    val io = new StoreSplitPayloadIO(p)
+    val io = new StoreSplitPayloadIO(p, mapQDepth = 32)
 
     assert(StoreSplitStoreType.All.asUInt.litValue == 0)
     assert(StoreSplitStoreType.Addr.asUInt.litValue == 1)
@@ -193,6 +234,12 @@ class StoreSplitPayloadSpec extends AnyFunSuite {
     assert(io.unsplit.uop.lsid.getWidth == 32)
     assert(io.sta.dataSrcIndex.getWidth == 2)
     assert(io.std.dataSrcIndex.getWidth == 2)
+    assert(io.tSeq.value.getWidth == 5)
+    assert(io.uSeq.value.getWidth == 5)
+    assert(io.tuDstKind.getWidth == DestinationKind.getWidth)
+    assert(io.sta.tSeq.value.getWidth == 5)
+    assert(io.std.uSeq.value.getWidth == 5)
+    assert(io.unsplit.tuDstKind.getWidth == DestinationKind.getWidth)
   }
 
   test("StoreSplitPayload elaborates as a separate rename owner") {
@@ -202,6 +249,9 @@ class StoreSplitPayloadSpec extends AnyFunSuite {
     assert(sv.contains("io_sta_valid"))
     assert(sv.contains("io_std_valid"))
     assert(sv.contains("io_unsplit_valid"))
+    assert(sv.contains("io_tSeq_value"))
+    assert(sv.contains("io_sta_tSeq_value"))
+    assert(sv.contains("io_std_uSeq_value"))
     assert(sv.contains("io_blockedByStd"))
   }
 }

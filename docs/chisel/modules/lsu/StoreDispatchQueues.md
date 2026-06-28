@@ -38,9 +38,9 @@ state, or emit memory trace events.
 Inputs:
 
 - `staIn`, `stdIn`: split-store address and data payload candidates from
-  `StoreSplitPayload`.
+  `StoreSplitPayload`, including `tSeq/uSeq` and T/U destination sidecars.
 - `unsplitIn`: single `ST_ALL` store payload candidate from
-  `StoreSplitPayload`.
+  `StoreSplitPayload`, including the same row-owned T/U sidecars.
 - `flushValid`: clears both queues and suppresses same-cycle enqueue/dequeue.
 - `staDequeueReady`, `stdDequeueReady`: future execution-side consumers can
   accept the current STA or STD queue head.
@@ -85,6 +85,11 @@ STA queue. A dequeue in the same cycle as an enqueue can free a full queue row
 and keep occupancy stable. Flush clears both head/tail pointers and counts,
 and suppresses enqueue and dequeue events for that cycle.
 
+The queue entries preserve the complete `StoreSplitIssuePayload`, including
+the row-owned `tSeq/uSeq` and T/U destination sidecars. The queue does not
+interpret those fields; it only prevents the store-dispatch boundary from
+discarding model `MemReqBus` recovery metadata before STQ request formation.
+
 ## Model Alignment
 
 `SPERename::InsertToStoreIEX` first checks the model STA and STD dispatch
@@ -101,6 +106,9 @@ admission, backpressure, flush clearing, and visible queue-head handoff.
 explicit execution results are available. `StoreDispatchSTQPath` is the first
 composition owner that wires these queues through `StoreDispatchToSTQ`,
 per-candidate `STQInsertProbe` readiness, and `STQEntryBank` mutation.
+R61 adds the T/U sidecar carry-through so cloned store halves keep the same
+local-register recovery snapshots that the model stores on the cloned
+`SimInst` and later `MemReqBus`.
 
 ## Deferred Owners
 
@@ -142,4 +150,5 @@ bash tools/chisel/run_chisel_verilator_lint.sh
 The focused tests cover atomic split enqueue, unsplit STA-only enqueue,
 partial blocking when either queue is full, same-cycle dequeue/reenqueue,
 protocol-error reporting, flush clearing, IO widths, enum ordering, and CIRCT
-elaboration.
+elaboration. R61 extends the IO and elaboration checks to the preserved T/U
+sidecar fields.

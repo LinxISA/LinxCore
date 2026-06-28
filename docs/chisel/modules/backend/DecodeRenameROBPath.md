@@ -34,10 +34,11 @@ queue acceptance boundary, enqueues the decoded row into a registered
 `dec_ren_q` owner, stamps temporary ROB identity from allocator cursors when
 the queue head is presented to rename, and leaves enqueue-time ROB
 reservation, full SID/LID carry, STA/STD execution, width-wide
-rename, live T/U cleanup source sidecars, and full top-level fetch/commit flow
-to later owners. It now owns the queue-backed store-dispatch to STQ row-owner
-boundary through `StoreDispatchSTQPath`; STA address generation and STD data
-selection remain explicit inputs until the real execution owners exist. It also
+rename, live T/U rename sidecar production, and full top-level fetch/commit
+flow to later owners. It now owns the queue-backed store-dispatch to STQ
+row-owner boundary through `StoreDispatchSTQPath`; STA address generation and
+STD data selection remain explicit inputs until the real execution owners
+exist. It also
 instantiates the reduced T/U recovery cleanup composition point so the
 allocator's ROB-side source candidate and the live STQ-bank LSU source
 candidate can be selected, cross-checked, and published as diagnostics before
@@ -80,7 +81,8 @@ Outputs:
 - `storeDispatchReady`, `storeDispatchFire`, `storeDispatchSplit`,
   `storeDispatchBlockedBySta`, `storeDispatchBlockedByStd`, `storeSta`,
   `storeStd`, `storeUnsplit`: reduced store-dispatch observability from the
-  accepted renamed row.
+  accepted renamed row. The payloads include `tSeq/uSeq` and T/U destination
+  sidecars, but this reduced composition still drives them disabled.
 - `storeStaQueueValid`, `storeStdQueueValid`, `storeStaQueue`,
   `storeStdQueue`, `storeStaEnqueueFire`, `storeStdEnqueueFire`,
   `storeStaDequeueFire`, `storeStdDequeueFire`,
@@ -149,6 +151,11 @@ pair cannot partially fire. This readiness is computed from the queued decoded
 row, not from `StoreSplitPayload.inReady`, avoiding a combinational loop
 through the accepted renamed output. `StoreSplitPayload` then consumes the
 accepted renamed row and emits the observed STA, STD, or ST_ALL payloads.
+R61 exposes explicit T/U local-register sidecar inputs on `StoreSplitPayload`
+and payload fields on the emitted store rows. This composition intentionally
+wires those inputs to disabled defaults until `TULinkRename` is merged with the
+scalar rename path; the downstream queue and STQ bridge now preserve live
+sidecars once a producer is connected.
 
 `StoreDispatchSTQPath` consumes those payloads and owns finite STA/STD FIFO
 admission plus the first live STQ row mutation boundary in the reduced backend.
@@ -226,9 +233,10 @@ path lacks an enqueue-time ROB reservation owner. Full model timing requires
 moving ROB reservation before enqueue and carrying full `load_id`/`sid`
 payloads into LIQ/STQ owners. It exposes the ROB T/U source candidate through
 the allocator boundary and composes the live STQ-bank LSU candidate through
-`TULinkRecoveryCleanupPath`, but the reduced scalar path and
-`StoreDispatchToSTQ` still store zero/invalid T/U `tSeq/uSeq` and destination
-ownership sidecars until live T/U rename snapshots reach the store payload.
+`TULinkRecoveryCleanupPath`. R61 makes the store payload, dispatch queues, and
+STQ request bridge preserve T/U sidecars, but this reduced scalar path still
+supplies zero/invalid `tSeq/uSeq` and destination ownership until live T/U
+rename snapshots are wired into `StoreSplitPayload`.
 Full store timing still requires real STA/STD execution, load-conflict
 publication, SCB/MDB handoff, and memory trace side effects.
 
@@ -242,8 +250,8 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - Width-wide slot-order LSID/SID allocation and same-cycle memory ordering.
 - Full `load_id`/`sid` payload carry into LIQ/STQ owners.
 - Real STA/STD execution owners that drive `storeStaExec` and `storeStdExec`.
-- Live T/U `tSeq/uSeq` and T/U destination sidecars through
-  `StoreSplitIssuePayload` and `StoreDispatchToSTQ`.
+- Live T/U `tSeq/uSeq` and T/U destination sidecar producer wiring from
+  `TULinkRename` into `StoreSplitPayload`.
 - Automatic checkpoint capture from validated `isLastInBlock`.
 - T/U/SGPR/tile/vector operand classification and rename.
 - Live T/U `allocTSeq/allocUSeq/allocTUDst*` drive into

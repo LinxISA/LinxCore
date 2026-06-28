@@ -206,7 +206,7 @@ class StoreDispatchQueuesSpec extends AnyFunSuite {
 
   test("StoreDispatchQueues IO preserves store split payload and model store type width") {
     val p = InterfaceParams()
-    val io = new StoreDispatchQueuesIO(p, depth = 4)
+    val io = new StoreDispatchQueuesIO(p, depth = 4, mapQDepth = 32)
 
     assert(StoreSplitStoreType.All.asUInt.litValue == 0)
     assert(StoreSplitStoreType.Addr.asUInt.litValue == 1)
@@ -220,16 +220,22 @@ class StoreDispatchQueuesSpec extends AnyFunSuite {
     assert(io.stdOut.uop.lsid.getWidth == 32)
     assert(io.staOut.dataSrcIndex.getWidth == 2)
     assert(io.stdOut.dataSrcIndex.getWidth == 2)
+    assert(io.staIn.tSeq.value.getWidth == 5)
+    assert(io.stdIn.uSeq.value.getWidth == 5)
+    assert(io.staOut.tuDstValid.getWidth == 1)
+    assert(io.stdOut.tSeq.value.getWidth == 5)
   }
 
   test("StoreDispatchQueues elaborates as a separate queue-backed dispatch boundary") {
-    val sv = ChiselStage.emitSystemVerilog(new StoreDispatchQueues(InterfaceParams(), depth = 4))
+    val sv = ChiselStage.emitSystemVerilog(new StoreDispatchQueues(InterfaceParams(), depth = 4, mapQDepth = 32))
 
     assert(sv.contains("module StoreDispatchQueues"))
     assert(sv.contains("io_staEnqueueFire"))
     assert(sv.contains("io_stdEnqueueFire"))
     assert(sv.contains("io_staOutValid"))
     assert(sv.contains("io_stdOutValid"))
+    assert(sv.contains("io_staIn_tSeq_value"))
+    assert(sv.contains("io_stdOut_uSeq_value"))
     assert(sv.contains("io_inputProtocolError"))
   }
 }

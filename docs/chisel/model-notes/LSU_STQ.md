@@ -136,7 +136,9 @@ bypass a present but non-insertable STA. That bypass preserves the model
 progress case where a full STQ rejects a new address allocation but can still
 merge a complementary data half into an existing partial row. The bridge still
 does not compute addresses or data, publish load-conflict probes, or mutate
-STQ rows directly.
+STQ rows directly. R61 adds `tSeq/uSeq` and T/U destination sidecars to
+`StoreSplitIssuePayload`; the queues preserve them and this bridge copies them
+into `STQStoreRequest`.
 
 `STQInsertProbe` is the shared read-only Chisel owner for the STQ insert
 readiness predicate. It scans live `STQEntryBank` rows, reports free rows,
@@ -181,8 +183,9 @@ non-base `(bid, rid, stid)` cleanup and keeps that source separate from
 `STQFlushPrune`. Partial-store merge preserves the first row's source
 sidecars, matching the model merge behavior that fills address/data fields
 without replacing the row's stored request identity. `StoreDispatchToSTQ`
-currently drives those sidecars disabled until live T/U rename snapshots are
-added to the store payload.
+preserves those sidecars from `StoreSplitIssuePayload`; the reduced
+`DecodeRenameROBPath` still drives the payload sidecar inputs disabled until
+live T/U rename snapshots are wired into the store path.
 
 `STQCommitQueue` is the first Chisel owner for `storeCommitQ` ordering. It
 accepts committed row indices, keeps them sorted by `(bid, lsId)`, selects up

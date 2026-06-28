@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import circt.stage.ChiselStage
-import linxcore.common.InterfaceParams
+import linxcore.common.{DestinationKind, InterfaceParams}
 import linxcore.rename.StoreSplitStoreType
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -135,6 +135,10 @@ class StoreDispatchToSTQSpec extends AnyFunSuite {
     assert(io.insert.tSeq.value.getWidth == 5)
     assert(io.insert.uSeq.value.getWidth == 5)
     assert(io.insert.tuDstValid.getWidth == 1)
+    assert(io.insert.tuDstKind.getWidth == DestinationKind.getWidth)
+    assert(io.sta.tSeq.value.getWidth == 5)
+    assert(io.std.uSeq.value.getWidth == 5)
+    assert(io.sta.tuDstKind.getWidth == DestinationKind.getWidth)
     assert(io.insert.addr.getWidth == 64)
     assert(io.insert.data.getWidth == 64)
     assert(io.insert.size.getWidth == 4)
@@ -149,6 +153,8 @@ class StoreDispatchToSTQSpec extends AnyFunSuite {
     assert(sv.contains("io_selectedSta"))
     assert(sv.contains("io_selectedStd"))
     assert(sv.contains("io_insertValid"))
+    assert(sv.contains("io_sta_tSeq_value"))
+    assert(sv.contains("io_std_uSeq_value"))
     assert(sv.contains("io_insert_tSeq_value"))
     assert(sv.contains("io_insert_tuDstValid"))
     assert(sv.contains("io_stdBypassStaBlocked"))

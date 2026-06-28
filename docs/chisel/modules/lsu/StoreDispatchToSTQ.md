@@ -59,8 +59,7 @@ Outputs:
 - `insertValid`, `insert`: selected `STQStoreRequest`.
 - `staRequest`, `stdRequest`: per-candidate request images for readiness
   probing and observability. Their `tSeq/uSeq` and T/U destination sidecars
-  are explicit fields in the request image and are currently driven disabled
-  until live T/U rename snapshots are connected to the store path.
+  are copied from the queue-head `StoreSplitIssuePayload`.
 - `staCandidate`, `stdCandidate`: payload plus execution-result readiness.
 - `selectedSta`, `selectedStd`: one-cycle insertion choice.
 - `blockedByStaExec`, `blockedByStdExec`: queue head waits for execution
@@ -105,11 +104,13 @@ reduced `lsid` into the STQ ring-ID sidecar, and fills address/data/size plus
 scope fields from the execution result.
 
 The request also carries `tSeq/uSeq` and T/U destination ownership fields that
-match the model `MemReqBus` sidecars. This bridge preserves the bundle surface
-but currently drives those fields to disabled or `DestinationKind.None`,
-because `StoreSplitIssuePayload` does not yet carry live T/U rename snapshots.
-`STQEntryBank` and the STQ wrappers already preserve and expose the sidecars
-once a later packet fills them.
+match the model `MemReqBus` sidecars. R61 moves those fields into
+`StoreSplitIssuePayload` and this bridge now copies them into every
+per-candidate request. If `tuDstValid` is false, the emitted destination kind
+is forced to `DestinationKind.None`; otherwise the payload destination kind is
+preserved. In the reduced `DecodeRenameROBPath` integration the producer is
+still wired to disabled defaults until the scalar and T/U rename paths are
+composed, but the bridge no longer discards live sidecars when supplied.
 
 ## Model Alignment
 
@@ -128,11 +129,16 @@ dispatch admission, but the STQ boundary is partial-merge based.
 fake memory path: a first half is held by `(bid, lsID)` and a complementary
 second half completes the store.
 
+`SPERename::Rename` snapshots `inst->tSeq` and `inst->uSeq` before T/U
+destination rename, and `MemReqBus` carries those sequence snapshots through
+LSU/STQ paths. `StoreDispatchToSTQ` is therefore a preservation owner for
+those sidecars, not their producer.
+
 ## Deferred Owners
 
 - Real STA address generation and STD data selection.
 - Live `tSeq/uSeq` and T/U destination sidecars from the T/U rename owner into
-  `StoreSplitIssuePayload` and then `STQStoreRequest`.
+  `StoreSplitPayload` in the reduced backend composition.
 - Load-conflict probe publication after accepted STQ insert.
 - Store-data wakeup, ready-table, memory trace, and exception side effects.
 
@@ -164,4 +170,5 @@ bash tools/chisel/run_chisel_verilator_lint.sh
 
 Focused tests cover STA priority, STD bypass when STA cannot insert,
 execution-result versus insert backpressure diagnostics, flush suppression, IO
-widths, enum ordering, and CIRCT elaboration.
+widths, enum ordering, and CIRCT elaboration. R61 extends the checks to the
+sidecar-carry ports on `sta`, `std`, and `insert`.

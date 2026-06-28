@@ -75,6 +75,12 @@ matched `origin/main` at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; the
 Chisel QEMU adapter dry-run selected
 `emulator/qemu/build-linx/qemu-system-linx64` and passed the trace schema
 adapter self-test.
+R61 started from `rtl/LinxCore` commit
+`779690712e8fa47dfb15cc0afa56fdf8fcc53af9`, with only unrelated architecture
+markdown files dirty in the LinxCore worktree. The model evidence for R61 was
+`SPERename::Rename`, `SPERename::InsertToStoreIEX`, `MemReqBus`, and the
+store-unit cleanup builders at LinxCoreModel commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
 
 ## Non-Negotiable Rules
 
@@ -221,6 +227,7 @@ These packets remain the required base before broad module promotion:
 | R58 | `STQEntryBank` LSU T/U source sidecars | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only STQFlushPrune`, `run_chisel_tests.sh --only StoreDispatchToSTQ`, `run_chisel_tests.sh --only StoreDispatchSTQPath`, `run_chisel_tests.sh --only STQInsertProbe`, `run_chisel_tests.sh --only STQCommitDrain`, `run_chisel_tests.sh --only STQSCBCommitPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R59 | `DecodeRenameROBPath` reduced T/U cleanup source composition | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only StoreDispatchSTQPath`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R60 | `DecodeRenameROBPath` integrated STQ-bank LSU source | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only StoreDispatchSTQPath`, `run_chisel_tests.sh --only StoreDispatchToSTQ`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R61 | Store dispatch T/U sidecar carry into STQ requests | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only StoreDispatchQueues`, `run_chisel_tests.sh --only StoreDispatchToSTQ`, `run_chisel_tests.sh --only StoreDispatchSTQPath`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -277,6 +284,8 @@ Update skills only for:
 - a superproject gitlink or lane-ordering rule needed by later agents.
 - a ready/valid rule that prevents one owner from feeding another owner's
   accepted-output readiness back into its own input acceptance.
+- a sidecar preservation rule where row-owned model metadata must be copied
+  through split/queue/bridge owners before the live producer is composed.
 
 Run skill evolution as a trailing maintenance lane after the module docs and
 evidence are updated. The module packet owns local Markdown first; the
@@ -336,14 +345,15 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Replace the reduced zero/invalid T/U allocation sidecars in
-   `DecodeRenameROBPath` with `SPERename`-equivalent `tSeq/uSeq` snapshots
-   captured before T/U destination rename, and propagate those snapshots
-   through `StoreSplitIssuePayload` / `StoreDispatchToSTQ` into the live STQ
-   source output.
-2. Compose `TULinkRename` with the scalar decode-rename bridge so accepted
+1. Compose `TULinkRename` with the scalar decode-rename bridge so accepted
    T/U operands can flow into `RenamedUop` without broadening scalar GPR
    ownership.
+2. Replace the reduced zero/invalid T/U sidecar producer in
+   `DecodeRenameROBPath` with `SPERename`-equivalent `tSeq/uSeq` snapshots
+   captured before T/U destination rename, and drive
+   `StoreSplitPayload.tSeq/uSeq/tuDst*` from that live producer. R61 already
+   carries those fields through `StoreSplitIssuePayload`,
+   `StoreDispatchQueues`, and `StoreDispatchToSTQ`.
 3. Add the SPEROB relation-cmap owner around `TULinkRename.retireValid` /
    `retireDealloc` so long-latency release and block-end release are explicit.
 4. Enqueue-time ROB reservation: move BROB/ROB allocation before

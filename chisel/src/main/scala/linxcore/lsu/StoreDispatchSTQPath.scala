@@ -28,9 +28,9 @@ class StoreDispatchSTQPathIO(
   val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
   val queueFlushValid = Input(Bool())
 
-  val staIn = Input(new StoreSplitIssuePayload(p))
-  val stdIn = Input(new StoreSplitIssuePayload(p))
-  val unsplitIn = Input(new StoreSplitIssuePayload(p))
+  val staIn = Input(new StoreSplitIssuePayload(p, mapQDepth))
+  val stdIn = Input(new StoreSplitIssuePayload(p, mapQDepth))
+  val unsplitIn = Input(new StoreSplitIssuePayload(p, mapQDepth))
   val staExec = Input(new StoreDispatchExecResult(addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
   val stdExec = Input(new StoreDispatchExecResult(addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
 
@@ -52,8 +52,8 @@ class StoreDispatchSTQPathIO(
   val stdDequeueFire = Output(Bool())
   val staQueueValid = Output(Bool())
   val stdQueueValid = Output(Bool())
-  val staQueue = Output(new StoreSplitIssuePayload(p))
-  val stdQueue = Output(new StoreSplitIssuePayload(p))
+  val staQueue = Output(new StoreSplitIssuePayload(p, mapQDepth))
+  val stdQueue = Output(new StoreSplitIssuePayload(p, mapQDepth))
   val staQueueCount = Output(UInt(queueCountWidth.W))
   val stdQueueCount = Output(UInt(queueCountWidth.W))
   val staQueueFull = Output(Bool())
@@ -137,7 +137,7 @@ class StoreDispatchSTQPath(
 
   val io = IO(new StoreDispatchSTQPathIO(p, queueDepth, entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
 
-  val queues = Module(new StoreDispatchQueues(p, queueDepth))
+  val queues = Module(new StoreDispatchQueues(p, queueDepth, mapQDepth))
   val bridge = Module(new StoreDispatchToSTQ(p, entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
   val staProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
   val stdProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))

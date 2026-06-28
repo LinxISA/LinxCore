@@ -43,8 +43,8 @@ class StoreDispatchToSTQIO(
   val flushValid = Input(Bool())
   val staValid = Input(Bool())
   val stdValid = Input(Bool())
-  val sta = Input(new StoreSplitIssuePayload(p))
-  val std = Input(new StoreSplitIssuePayload(p))
+  val sta = Input(new StoreSplitIssuePayload(p, mapQDepth))
+  val std = Input(new StoreSplitIssuePayload(p, mapQDepth))
   val staExec = Input(new StoreDispatchExecResult(addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
   val stdExec = Input(new StoreDispatchExecResult(addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
   val staInsertReady = Input(Bool())
@@ -143,10 +143,10 @@ class StoreDispatchToSTQ(
     req.gid := resizeId(payload.uop.gid)
     req.rid := resizeId(payload.uop.rid)
     req.lsId := lsidToId(payload.uop.lsid)
-    req.tSeq := ROBID.disabled(mapQDepth)
-    req.uSeq := ROBID.disabled(mapQDepth)
-    req.tuDstValid := false.B
-    req.tuDstKind := DestinationKind.None
+    req.tSeq := payload.tSeq
+    req.uSeq := payload.uSeq
+    req.tuDstValid := payload.tuDstValid
+    req.tuDstKind := Mux(payload.tuDstValid, payload.tuDstKind, DestinationKind.None)
     req.addr := exec.addr
     req.data := exec.data
     req.size := exec.size
