@@ -24,9 +24,19 @@ if [[ ! -f "${SV_FILE}" ]]; then
   exit 2
 fi
 
+SV_FILES=()
+while IFS= read -r sv_path; do
+  SV_FILES+=("${sv_path}")
+done < <(find "${SV_DIR}" -maxdepth 1 -type f -name '*.sv' | sort)
+
+if [[ "${#SV_FILES[@]}" -eq 0 ]]; then
+  echo "error: no reduced ROB SystemVerilog files were emitted under ${SV_DIR}" >&2
+  exit 2
+fi
+
 rm -rf "${OBJ_DIR}"
 verilator \
-  --cc "${SV_FILE}" \
+  --cc "${SV_FILES[@]}" \
   --top-module ReducedCommitROB \
   --exe "${ROOT_DIR}/tools/chisel/reduced_rob_trace_tb.cpp" \
   --build \

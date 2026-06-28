@@ -2,7 +2,7 @@ package linxcore.rob
 
 import chisel3._
 import chisel3.util.{log2Ceil, PopCount}
-import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
+import linxcore.commit.{CommitTraceMonitor, CommitTraceParams, CommitTracePort, CommitTraceRow}
 
 class ReducedCommitROBIO(val entries: Int, val traceParams: CommitTraceParams) extends Bundle {
   private val ptrWidth = log2Ceil(entries)
@@ -19,6 +19,13 @@ class ReducedCommitROBIO(val entries: Int, val traceParams: CommitTraceParams) e
   val commit = Output(new CommitTracePort(traceParams))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
   val commitCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
+  val commitMonitorValidMask = Output(UInt(traceParams.commitWidth.W))
+  val commitMonitorValidCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
+  val commitSkippedSlot = Output(Bool())
+  val commitDuplicateIdentity = Output(Bool())
+  val commitSlotMismatch = Output(Bool())
+  val commitInvalidSideEffect = Output(Bool())
+  val commitContractError = Output(Bool())
 
   val empty = Output(Bool())
   val full = Output(Bool())
@@ -75,6 +82,7 @@ class ReducedCommitROB(
   val tailValue = RegInit(0.U(ptrWidth.W))
   val tailWrap = RegInit(false.B)
   val size = RegInit(0.U(sizeWidth.W))
+  val commitPort = Wire(new CommitTracePort(traceParams))
 
   val duplicateVec = Wire(Vec(entries, Bool()))
   for (idx <- 0 until entries) {
@@ -96,12 +104,23 @@ class ReducedCommitROB(
     out := table(idx)
     out.valid := fires
     out.slot := slot.U
-    io.commit.rows(slot) := Mux(fires, out, zeroRow)
+    commitPort.rows(slot) := Mux(fires, out, zeroRow)
   }
+  io.commit := commitPort
 
   val commitCount = PopCount(commitFireVec)
   io.commitValidMask := commitFireVec.asUInt
   io.commitCount := commitCount
+
+  val commitMonitor = Module(new CommitTraceMonitor(traceParams))
+  commitMonitor.io.in := commitPort
+  io.commitMonitorValidMask := commitMonitor.io.validMask
+  io.commitMonitorValidCount := commitMonitor.io.validCount
+  io.commitSkippedSlot := commitMonitor.io.skippedSlot
+  io.commitDuplicateIdentity := commitMonitor.io.duplicateIdentity
+  io.commitSlotMismatch := commitMonitor.io.slotMismatch
+  io.commitInvalidSideEffect := commitMonitor.io.invalidSideEffect
+  io.commitContractError := commitMonitor.io.contractError
 
   io.empty := size === 0.U
   io.full := size === entries.U

@@ -205,6 +205,37 @@ void complete_slot(VReducedCommitROB &dut, std::uint8_t slot) {
   eval(dut);
 }
 
+void expect_monitor_clean(
+    const VReducedCommitROB &dut,
+    const char *context,
+    std::uint8_t expected_mask,
+    std::uint8_t expected_count) {
+  if (dut.io_commitContractError || dut.io_commitSkippedSlot ||
+      dut.io_commitDuplicateIdentity || dut.io_commitSlotMismatch ||
+      dut.io_commitInvalidSideEffect) {
+    std::cerr << "commit monitor reported a contract error during " << context
+              << " mask=" << static_cast<unsigned>(dut.io_commitMonitorValidMask)
+              << " count=" << static_cast<unsigned>(dut.io_commitMonitorValidCount)
+              << " skipped=" << static_cast<unsigned>(dut.io_commitSkippedSlot)
+              << " duplicate=" << static_cast<unsigned>(dut.io_commitDuplicateIdentity)
+              << " slot_mismatch=" << static_cast<unsigned>(dut.io_commitSlotMismatch)
+              << " invalid_side_effect=" << static_cast<unsigned>(dut.io_commitInvalidSideEffect)
+              << "\n";
+    std::exit(1);
+  }
+
+  if (dut.io_commitMonitorValidMask != expected_mask ||
+      dut.io_commitMonitorValidCount != expected_count) {
+    std::cerr << "commit monitor shape mismatch during " << context
+              << " expected_mask=" << static_cast<unsigned>(expected_mask)
+              << " observed_mask=" << static_cast<unsigned>(dut.io_commitMonitorValidMask)
+              << " expected_count=" << static_cast<unsigned>(expected_count)
+              << " observed_count=" << static_cast<unsigned>(dut.io_commitMonitorValidCount)
+              << "\n";
+    std::exit(1);
+  }
+}
+
 Row row0() {
   Row r;
   r.seq = 0;
@@ -453,6 +484,7 @@ int main(int argc, char **argv) {
   eval(dut);
   expect_slot0(dut, rows[0], 0);
   expect_slot1(dut, rows[1], 1);
+  expect_monitor_clean(dut, "first retire window", 0x3, 2);
   write_dut_slot0(dut_out, dut);
   write_dut_slot1(dut_out, dut);
   write_qemu_row(qemu_out, rows[0]);
@@ -466,6 +498,7 @@ int main(int argc, char **argv) {
     std::cerr << "slot1 should be invalid after final single-row retire\n";
     return 1;
   }
+  expect_monitor_clean(dut, "final single-row retire", 0x1, 1);
   write_dut_slot0(dut_out, dut);
   write_dut_slot1(dut_out, dut);
   write_qemu_row(qemu_out, rows[2]);
@@ -476,6 +509,7 @@ int main(int argc, char **argv) {
     std::cerr << "ROB did not drain after trace smoke\n";
     return 1;
   }
+  expect_monitor_clean(dut, "post-drain idle window", 0x0, 0);
 
   dut.final();
   return 0;

@@ -30,6 +30,13 @@ QEMU cross-check path.
 | output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Retired rows in head order. Invalid rows are zeroed. |
 | output | `commitValidMask` | `UInt(commitWidth.W)` | combinational | One bit per retiring row. |
 | output | `commitCount` | `UInt` | combinational | Number of rows retiring this cycle. |
+| output | `commitMonitorValidMask` | `UInt(commitWidth.W)` | combinational | Monitor-derived valid mask over the exported `commit.rows`. |
+| output | `commitMonitorValidCount` | `UInt` | combinational | Monitor-derived number of valid exported rows. |
+| output | `commitSkippedSlot` | `Bool` | combinational | True when the exported fixed-width window has a valid row after an invalid older slot. |
+| output | `commitDuplicateIdentity` | `Bool` | combinational | True when two exported valid rows share `identity.(bid,gid,rid)`. |
+| output | `commitSlotMismatch` | `Bool` | combinational | True when an exported valid row's `slot` field does not match its vector position. |
+| output | `commitInvalidSideEffect` | `Bool` | combinational | True when an exported invalid slot carries active side-effect envelopes. |
+| output | `commitContractError` | `Bool` | combinational | OR of all monitor error flags; Verilator harnesses assert this is false. |
 | output | `empty` | `Bool` | combinational | No live entries. |
 | output | `full` | `Bool` | combinational | All entries live. |
 | output | `size` | `UInt` | combinational | Number of live entries. |
@@ -64,6 +71,10 @@ The module emits rows through `CommitTracePort` without compaction beyond the
 natural head-ordered commit slots. Invalid output slots are zeroed and have
 `valid=false`.
 
+The exported commit port is also checked by an embedded `CommitTraceMonitor`.
+The monitor does not affect retirement; it exposes structural contract flags for
+the same window visible on `commit.rows`.
+
 ## Timing
 
 Completion is registered and is not visible to commit selection until the next
@@ -86,7 +97,9 @@ for LinxCoreModel identity and `blockBid` for the 64-bit hardware block sideband
 `tools/chisel/run_chisel_reduced_rob_xcheck.sh` emits this module to
 SystemVerilog, builds a Verilator harness, drives deterministic alloc/complete
 traffic, writes nested Chisel JSONL, and compares it against a matching
-QEMU-shaped reference trace through the neutral adapter. The smoke deliberately
+QEMU-shaped reference trace through the neutral adapter. The harness asserts
+`commitContractError == false` for the two-row retire window, the final
+single-row retire window, and the post-drain idle window. The smoke deliberately
 writes one invalid fixed-width output slot; the adapter must filter it before
 comparison.
 
@@ -99,4 +112,5 @@ comparison.
 
 Current tests cover contiguous retirement, incomplete-head blocking, duplicate
 identity rejection, independent `blockBid` preservation, Chisel elaboration, and
-Verilator-driven trace comparison for a 3-row retire window.
+Verilator-driven trace comparison for a 3-row retire window with monitor-backed
+contract assertions.

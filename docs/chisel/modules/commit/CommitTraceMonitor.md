@@ -15,6 +15,9 @@ commit windows. It does not own retirement. It validates that a producer such as
 `ReducedCommitROB`, future integrated CMT, or a top-level trace bridge presents
 rows in the shape required by the neutral QEMU/DUT adapter.
 
+Phase 1 wires the monitor into `ReducedCommitROB` so the generated-RTL reduced
+ROB xcheck asserts the same contract that standalone monitor tests exercise.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -67,12 +70,15 @@ leaks side-effect envelopes.
 
 `contractError` is intended to become a simulation-time assertion input for the
 Chisel top and Verilator harnesses. During Phase 1 it provides a reusable
-structural check before full frontend/decode/execute rows exist.
+structural check before full frontend/decode/execute rows exist. The reduced
+ROB harness currently asserts it for live generated RTL.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor`
 - `bash tools/chisel/run_chisel_tests.sh --only CommitTrace`
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh`
 
 Current tests cover valid contiguous windows, skipped slots, duplicate
-`CommitInfo` identities, invalid-slot side effects, and Chisel elaboration.
+`CommitInfo` identities, invalid-slot side effects, Chisel elaboration, and
+monitor-clean generated-RTL reduced ROB retire windows.

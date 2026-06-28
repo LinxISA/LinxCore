@@ -146,5 +146,6 @@ class ReducedCommitROBSpec extends AnyFunSuite {
     )
     assert(sv.contains("module ReducedCommitROB"))
     assert(sv.contains("commit"))
+    assert(sv.contains("commitContractError"))
   }
 }
