@@ -27,6 +27,7 @@ class STQSCBCommitPathIO(
   private val requestCount = issueWidth * 2
   private val requestCountWidth = log2Ceil(requestCount + 1)
   private val scbIndexWidth = math.max(1, log2Ceil(scbEntries))
+  private val scbResponseTxnIdWidth = scbIndexWidth + 2
 
   val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
 
@@ -50,8 +51,10 @@ class STQSCBCommitPathIO(
   val dcacheWriteHit = Input(Bool())
   val dcacheTagHit = Input(Bool())
   val l2RequestReady = Input(Bool())
-  val memRespValid = Input(Bool())
-  val memRespEntryIndex = Input(UInt(scbIndexWidth.W))
+  val rawRespValid = Input(Bool())
+  val rawRespTxnId = Input(UInt(scbResponseTxnIdWidth.W))
+  val rawRespWrite = Input(Bool())
+  val rawRespUpgrade = Input(Bool())
 
   val scbReadyForDrain = Output(Bool())
   val drainIssueEnable = Output(Bool())
@@ -115,6 +118,14 @@ class STQSCBCommitPathIO(
   val scbL2Request = Output(new SCBL2OwnershipRequest(scbEntries, addrWidth, lineBytes))
   val scbStateIllegalMask = Output(UInt(scbEntries.W))
   val scbStateError = Output(Bool())
+  val scbRespDecodedValid = Output(Bool())
+  val scbRespDecodedEntryIndex = Output(UInt(scbIndexWidth.W))
+  val scbRespDecodedMask = Output(UInt(scbEntries.W))
+  val scbRespTypeIllegal = Output(Bool())
+  val scbRespTagIllegal = Output(Bool())
+  val scbRespIndexIllegal = Output(Bool())
+  val scbRespStateIllegalMask = Output(UInt(scbEntries.W))
+  val scbRespDecodeError = Output(Bool())
 
   val stqCommitFreeAcceptedMask = Output(UInt(entries.W))
   val stqCommitFreeIgnoredMask = Output(UInt(entries.W))
@@ -192,8 +203,10 @@ class STQSCBCommitPath(
   scb.io.dcacheWriteHit := io.dcacheWriteHit
   scb.io.dcacheTagHit := io.dcacheTagHit
   scb.io.l2RequestReady := io.l2RequestReady
-  scb.io.memRespValid := io.memRespValid
-  scb.io.memRespEntryIndex := io.memRespEntryIndex
+  scb.io.rawRespValid := io.rawRespValid
+  scb.io.rawRespTxnId := io.rawRespTxnId
+  scb.io.rawRespWrite := io.rawRespWrite
+  scb.io.rawRespUpgrade := io.rawRespUpgrade
 
   io.insertReady := stq.io.insertReady
   io.insertAccepted := stq.io.insertAccepted
@@ -266,6 +279,14 @@ class STQSCBCommitPath(
   io.scbL2Request := scb.io.l2Request
   io.scbStateIllegalMask := scb.io.stateIllegalMask
   io.scbStateError := scb.io.stateError
+  io.scbRespDecodedValid := scb.io.respDecodedValid
+  io.scbRespDecodedEntryIndex := scb.io.respDecodedEntryIndex
+  io.scbRespDecodedMask := scb.io.respDecodedMask
+  io.scbRespTypeIllegal := scb.io.respTypeIllegal
+  io.scbRespTagIllegal := scb.io.respTagIllegal
+  io.scbRespIndexIllegal := scb.io.respIndexIllegal
+  io.scbRespStateIllegalMask := scb.io.respStateIllegalMask
+  io.scbRespDecodeError := scb.io.respDecodeError
 
   io.stqCommitFreeAcceptedMask := stq.io.commitFreeAcceptedMask
   io.stqCommitFreeIgnoredMask := stq.io.commitFreeIgnoredMask

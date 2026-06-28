@@ -73,13 +73,16 @@ made deterministic for repeatable RTL and cross-check evidence.
 DCache/L2 split: writable DCache hits produce byte-update/free intent, while
 non-writable lookups emit L2 write or upgrade ownership requests using the
 model transaction tag encoding. `SCBStateUpdate` consumes the lookup outcome
-masks plus a future decoded memory-response row id and computes the next SCB
-row image for `Valid -> Lookup`, hit free, miss state, and response-driven
+masks plus a decoded memory-response row id and computes the next SCB row
+image for `Valid -> Lookup`, hit free, miss state, and response-driven
 `Miss -> Lookup` transitions. `SCBRowBank` is the first registered composition
 owner around those contracts: it owns one row image, applies model-batch
 ingress admission, prevents same-line merge into `Lookup` or `Miss` rows, and
 registers the egress/lookup/state-update result consumed by the STQ-to-SCB
-commit path and later LSU wiring.
+commit path and later LSU wiring. `SCBResponseDecode` now owns the raw
+WriteResp/UpgradeResp tag boundary: model transaction ids encoded as
+`(entryIndex << 2) | 2` are range-checked and accepted only for valid `Miss`
+rows before they drive `SCBStateUpdate`.
 `STQSCBCommitPath` is the first full STQ-to-SCB composition owner: it wires
 `STQEntryBank`, `STQCommitDrain`, and `SCBRowBank` so SCB accepted `last`
 fragments are the only committed-row free source back into the STQ bank, while
@@ -118,6 +121,7 @@ bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect
 bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
 bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate
 bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

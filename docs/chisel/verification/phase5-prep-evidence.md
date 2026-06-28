@@ -1469,3 +1469,82 @@ Skill evolve:
   full STQ-to-SCB free-path invariant: final committed-row frees come from
   accepted `SCBRowBank` `last` fragments, while the standalone
   `STQCommitDrain` free mask is debug-only in the full composition.
+
+## 2026-06-28 SCB Response Decode
+
+Scope:
+
+- Added `SCBResponseDecode` as the raw SCB WriteResp/UpgradeResp tag owner.
+- Decoded model transaction ids from `(entryIndex << 2) | 2` into
+  `SCBStateUpdate.memRespEntryIndex`.
+- Reported absent/ambiguous response types, wrong low-bit tag namespace,
+  out-of-range entry indices, and stale responses to non-`Miss` rows before
+  state update.
+- Integrated the decoder into `SCBRowBank` and propagated raw response inputs
+  plus decode observability through `STQSCBCommitPath`.
+- Kept response queue ordering, CHI/L2 storage, MDB, forwarding, DCache RAM
+  mutation, BSB window-slide side effects, and memory-event trace in later
+  owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode
+bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
+bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate
+bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
+bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `SCBResponseDecodeSpec` covers legal WriteResp, legal UpgradeResp, wrong
+  tag, invalid response type, out-of-range index, stale target, and elaboration
+  with raw plus decoded response signals.
+- Existing SCB row-bank, state-update, lookup-control, STQ-to-SCB commit path,
+  ROB/cross-check, QEMU dry-run, reduced RTL xcheck, top-shell xcheck, and
+  Verilator lint gates stay green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode` passed 7
+  tests in `SCBResponseDecodeSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBRowBank` passed 8 tests in
+  `SCBRowBankSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate` passed 9 tests
+  in `SCBStateUpdateSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl` passed 7
+  tests in `SCBLookupControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath` passed 5
+  tests in `STQSCBCommitPathSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `SCBResponseDecode` adds the
+  reusable SCB completion invariant: raw WriteResp/UpgradeResp transaction ids
+  must match `(entryIndex << 2) | 2`, name an implemented row, and target a
+  valid `Miss` entry before `SCBStateUpdate` may move the row back to
+  `Lookup`.

@@ -132,6 +132,7 @@ These packets remain the required base before broad module promotion:
 | R23 | `SCBStateUpdate` | `run_chisel_tests.sh --only SCBStateUpdate`, `run_chisel_tests.sh --only SCBLookupControl`, `run_chisel_tests.sh --only SCBEgressSelect`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R24 | `SCBRowBank` | `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_tests.sh --only SCBStateUpdate`, `run_chisel_tests.sh --only SCBLookupControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R25 | `STQSCBCommitPath` | `run_chisel_tests.sh --only STQSCBCommitPath`, `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_tests.sh --only STQCommitDrain`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R26 | `SCBResponseDecode` | `run_chisel_tests.sh --only SCBResponseDecode`, `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_tests.sh --only SCBStateUpdate`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -237,13 +238,12 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Raw CHI response decode owner: decode `(entryIndex << 2) | 2` transaction
-   ids into `SCBStateUpdate.memRespEntryIndex` and report illegal or stale
-   WriteResp/UpgradeResp targets before response ordering is integrated.
-2. MDB conflict owner: model `lookup_lu_mdb_q`, `lookup_mdb_su_q`, and
+1. MDB conflict owner: model `lookup_lu_mdb_q`, `lookup_mdb_su_q`, and
    store-load nuke reporting as a separate predictor/cleanup packet.
-3. Load/store forwarding owner: implement the byte-mask STQ/SCB lookup path and
+2. Load/store forwarding owner: implement the byte-mask STQ/SCB lookup path and
    connect it to the future LIQ/LHQ request flow.
+3. Response ordering/buffering owner: add the L2/CHI response queue boundary in
+   front of `SCBResponseDecode` without weakening stale-target reporting.
 4. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
    first scalar rename restore/checkpoint owner.
 5. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`

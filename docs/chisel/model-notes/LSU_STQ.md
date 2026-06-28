@@ -151,20 +151,27 @@ DCache hit emits byte-update and SCB-free intent, while a non-writable lookup
 emits an L2 ownership request. A DCache tag hit without write permission
 becomes an upgrade request; a tag miss becomes a write request. The request
 descriptor carries the model transaction tag `(entryIndex << 2) | 2`. WriteResp
-matching, `Miss -> Lookup` response handling, and actual row mutation remain
-future owner work.
+matching and response queue ordering remain future owner work.
 
 `SCBStateUpdate` is the first Chisel owner for the row-state transitions around
 that lookup boundary. It consumes the `acceptedMask`, `freeMask`, and
-`missMask` from `SCBLookupControl`, plus one future decoded memory response row
+`missMask` from `SCBLookupControl`, plus one decoded memory response row
 id. It computes the next SCB row image for selected `Valid -> Lookup`, writable
 hit free, non-writable lookup `Miss`, and response-driven `Miss -> Lookup`.
 The same-cycle `acceptedMask` plus `freeMask` or `missMask` case is legal when
 the selected row is currently `Valid`; the final state is the hit or miss
 result. Responses to non-`Miss` rows and miss/free requests to non-lookup rows
-are exposed as illegal masks for the future registered SCB composition owner.
-Raw CHI TxnID decode, L2/CHI queues, MDB, forwarding, and DCache RAM mutation
-remain later owner work.
+are exposed as illegal masks for the registered SCB composition owner.
+L2/CHI response queues, MDB, forwarding, and DCache RAM mutation remain later
+owner work.
+
+`SCBResponseDecode` is the first Chisel owner for the raw response tag
+boundary. It accepts WriteResp or UpgradeResp only when the raw transaction id
+matches the model `(entryIndex << 2) | 2` namespace, the decoded entry index is
+implemented, and the target row is valid `Miss`. Legal responses feed
+`SCBStateUpdate.memRespEntryIndex`; wrong type, wrong tag, out-of-range index,
+and stale non-`Miss` targets are reported locally and suppressed from the state
+update.
 
 `SCBRowBank` is the first registered SCB composition owner. It owns one row
 image, keeps the model batch gate based on pre-cycle free count, applies
@@ -193,10 +200,11 @@ completion, and BSB window-slide side effects remain future LSU owner work.
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush, raw L2/CHI
-  response decode, MDB interaction, load forwarding, and queue backpressure.
-  `STQSCBCommitPath` now owns the first full STQ-to-SCB commit/free wiring, so
-  the next SCB packet should decode raw L2/CHI transaction ids into
-  `SCBStateUpdate.memRespEntryIndex` without changing the STQ free path.
+  response queue ordering, MDB interaction, load forwarding, and queue
+  backpressure.
+  `SCBResponseDecode` now owns raw transaction-id decode, so a later response
+  queue packet should preserve its illegal/stale-target reporting while adding
+  ordering and backpressure.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both
   `FlushControl` notes and the STQ tests in the same packet.

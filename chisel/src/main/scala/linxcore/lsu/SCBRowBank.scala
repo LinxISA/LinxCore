@@ -15,6 +15,7 @@ class SCBRowBankIO(
   private val scbCountWidth = log2Ceil(scbEntries + 1)
   private val freeCountWidth = log2Ceil(requestCount + 1)
   private val entryIndexWidth = math.max(1, log2Ceil(scbEntries))
+  private val responseTxnIdWidth = entryIndexWidth + 2
 
   val reqs = Input(Vec(requestCount, new STQCommitDrainRequest(stqEntries, addrWidth, dataWidth, sizeWidth)))
   val evictEnable = Input(Bool())
@@ -22,8 +23,10 @@ class SCBRowBankIO(
   val dcacheWriteHit = Input(Bool())
   val dcacheTagHit = Input(Bool())
   val l2RequestReady = Input(Bool())
-  val memRespValid = Input(Bool())
-  val memRespEntryIndex = Input(UInt(entryIndexWidth.W))
+  val rawRespValid = Input(Bool())
+  val rawRespTxnId = Input(UInt(responseTxnIdWidth.W))
+  val rawRespWrite = Input(Bool())
+  val rawRespUpgrade = Input(Bool())
 
   val modelBatchReady = Output(Bool())
   val modelFull = Output(Bool())
@@ -65,6 +68,15 @@ class SCBRowBankIO(
   val stateClearedMask = Output(UInt(scbEntries.W))
   val stateIllegalMask = Output(UInt(scbEntries.W))
   val stateError = Output(Bool())
+
+  val respDecodedValid = Output(Bool())
+  val respDecodedEntryIndex = Output(UInt(entryIndexWidth.W))
+  val respDecodedMask = Output(UInt(scbEntries.W))
+  val respTypeIllegal = Output(Bool())
+  val respTagIllegal = Output(Bool())
+  val respIndexIllegal = Output(Bool())
+  val respStateIllegalMask = Output(UInt(scbEntries.W))
+  val respDecodeError = Output(Bool())
 }
 
 class SCBRowBank(
@@ -201,13 +213,20 @@ class SCBRowBank(
   lookup.io.dcacheTagHit := io.dcacheTagHit
   lookup.io.l2RequestReady := io.l2RequestReady
 
+  val responseDecode = Module(new SCBResponseDecode(scbEntries, addrWidth, lineBytes))
+  responseDecode.io.entries := ingressEntries
+  responseDecode.io.rawValid := io.rawRespValid
+  responseDecode.io.rawTxnId := io.rawRespTxnId
+  responseDecode.io.rawWriteResp := io.rawRespWrite
+  responseDecode.io.rawUpgradeResp := io.rawRespUpgrade
+
   val state = Module(new SCBStateUpdate(scbEntries, addrWidth, lineBytes))
   state.io.entries := ingressEntries
   state.io.acceptedMask := lookup.io.acceptedMask
   state.io.missMask := lookup.io.missMask
   state.io.freeMask := lookup.io.freeMask
-  state.io.memRespValid := io.memRespValid
-  state.io.memRespEntryIndex := io.memRespEntryIndex
+  state.io.memRespValid := responseDecode.io.memRespValid
+  state.io.memRespEntryIndex := responseDecode.io.memRespEntryIndex
 
   entries := state.io.nextEntries
 
@@ -256,6 +275,15 @@ class SCBRowBank(
   io.stateMissMask := state.io.missStateMask
   io.stateRespToLookupMask := state.io.respToLookupMask
   io.stateClearedMask := state.io.clearedMask
-  io.stateIllegalMask := state.io.illegalMask
-  io.stateError := state.io.stateError
+  io.stateIllegalMask := state.io.illegalMask | responseDecode.io.stateIllegalMask
+  io.stateError := state.io.stateError || responseDecode.io.illegal
+
+  io.respDecodedValid := responseDecode.io.memRespValid
+  io.respDecodedEntryIndex := responseDecode.io.memRespEntryIndex
+  io.respDecodedMask := responseDecode.io.decodedMask
+  io.respTypeIllegal := responseDecode.io.typeIllegal
+  io.respTagIllegal := responseDecode.io.tagIllegal
+  io.respIndexIllegal := responseDecode.io.indexIllegal
+  io.respStateIllegalMask := responseDecode.io.stateIllegalMask
+  io.respDecodeError := responseDecode.io.illegal
 }

@@ -6,6 +6,7 @@
 - Child Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBEgressSelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBLookupControl.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBResponseDecode.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBStateUpdate.scala`
 - Related ingress/bridge contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitIngress.scala`
@@ -33,9 +34,10 @@ The module owns:
 - final committed STQ free masks for accepted `last` fragments,
 - lookup candidate selection after accepted ingress updates,
 - DCache/L2 lookup outcome classification,
+- raw WriteResp/UpgradeResp tag decode for `(entryIndex << 2) | 2`,
 - row-state registration after hit, miss, or decoded memory response.
 
-It does not own raw CHI TxnID decode, L2/CHI queue storage, DCache RAM
+It does not own L2/CHI queue storage or response arbitration, DCache RAM
 mutation, MDB conflict prediction, or store-to-load forwarding.
 `STQSCBCommitPath` consumes this module's `commitFreeMask` as the first full
 `STQEntryBank` free path.
@@ -52,8 +54,9 @@ mutation, MDB conflict prediction, or store-to-load forwarding.
 | `dcacheWriteHit` | `Bool` | Writable-hit result from the abstract DCache lookup. |
 | `dcacheTagHit` | `Bool` | Tag-present result used to choose upgrade versus write ownership. |
 | `l2RequestReady` | `Bool` | Ownership request queue readiness. |
-| `memRespValid` | `Bool` | A future response decoder found a row response. |
-| `memRespEntryIndex` | `UInt` | Decoded SCB row id for WriteResp/UpgradeResp. |
+| `rawRespValid` | `Bool` | One raw WriteResp/UpgradeResp candidate is present. |
+| `rawRespTxnId` | `UInt` | Raw model response transaction id encoded as `(entryIndex << 2) | 2`. |
+| `rawRespWrite/rawRespUpgrade` | `Bool` | Response type flags; exactly one must be asserted for a legal decode. |
 
 ### Outputs
 
@@ -68,6 +71,7 @@ mutation, MDB conflict prediction, or store-to-load forwarding.
 | `lookupRequest`, candidate masks, and lookup classification | Pass-through observability from `SCBEgressSelect` and `SCBLookupControl`. |
 | `dcacheUpdate/l2Request` | Abstract DCache update and L2 ownership request descriptors. |
 | `state*Mask/stateError` | Transition and illegal-state observability from `SCBStateUpdate`. |
+| `respDecoded*/resp*Illegal/respDecodeError` | Raw response decode observability from `SCBResponseDecode`. |
 
 ## State
 
@@ -89,8 +93,10 @@ that order while retaining deterministic single-request egress:
 3. Emit wakeups and final STQ free masks only for accepted ingress lanes.
 4. Select one valid egress candidate from the post-ingress staged row image.
 5. Classify the abstract DCache/L2 outcome with `SCBLookupControl`.
-6. Apply hit clear, miss state, and response return with `SCBStateUpdate`.
-7. Register the resulting row image.
+6. Decode a raw WriteResp/UpgradeResp with `SCBResponseDecode`.
+7. Apply hit clear, miss state, and legal response return with
+   `SCBStateUpdate`.
+8. Register the resulting row image.
 
 This owner intentionally keeps the pre-cycle model batch gate. A row freed by
 a same-cycle writable DCache hit does not allow a committed-store fragment to
@@ -119,6 +125,7 @@ QEMU-vs-DUT commit comparator.
 
 - `bash tools/chisel/run_chisel_tests.sh --only SCBRowBank`
 - `bash tools/chisel/build_chisel.sh`
+- `bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect`
@@ -134,4 +141,5 @@ QEMU-vs-DUT commit comparator.
 Focused reference tests cover model-batch admission, pre-cycle free-count
 gating, same-cycle ingress merge plus writable hit, miss ownership request,
 response return, outstanding-row non-merge, illegal response reporting, and
-Chisel elaboration with the egress/lookup/state-update children.
+Chisel elaboration with the egress/lookup/response-decode/state-update
+children.

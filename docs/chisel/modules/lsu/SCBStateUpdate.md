@@ -18,11 +18,12 @@
 
 ## Purpose
 
-`SCBStateUpdate` is the first Chisel owner for model-derived SCB row state
+`SCBStateUpdate` is the Chisel owner for model-derived SCB row state
 transitions after egress lookup outcome classification. It consumes current
 SCB line entries, the masks emitted by `SCBLookupControl`, and one decoded
-future memory response entry id. It produces the next row image plus transition
-and illegal-state masks for the later registered SCB composition owner.
+memory response entry id from `SCBResponseDecode`. It produces the next row
+image plus transition and illegal-state masks for the registered SCB
+composition owner.
 
 The module owns:
 
@@ -32,9 +33,9 @@ The module owns:
 - memory response `Miss -> Lookup`,
 - illegal transition reporting for response/mask plumbing mistakes.
 
-It does not own SCB row registers, DCache RAM mutation, L2/CHI queues,
-WriteResp/UpgradeResp decode from raw CHI transaction ids, MDB conflict
-prediction, store-to-load forwarding, or final STQ free authorization.
+It does not own SCB row registers, DCache RAM mutation, L2/CHI queues, raw
+WriteResp/UpgradeResp transaction-id decode, MDB conflict prediction,
+store-to-load forwarding, or final STQ free authorization.
 
 ## Interface
 
@@ -46,7 +47,7 @@ prediction, store-to-load forwarding, or final STQ free authorization.
 | `acceptedMask` | `UInt(scbEntries.W)` | Selected row accepted from `SCBLookupControl`. |
 | `missMask` | `UInt(scbEntries.W)` | Selected row observed as non-writable and sent to L2 ownership. |
 | `freeMask` | `UInt(scbEntries.W)` | Selected row hit writable DCache and can be cleared after update intent. |
-| `memRespValid` | `Bool` | Future WriteResp/UpgradeResp owner decoded a response for an SCB row. |
+| `memRespValid` | `Bool` | `SCBResponseDecode` decoded a legal response for an SCB row. |
 | `memRespEntryIndex` | `UInt` | Decoded SCB row id from the memory response transaction id. |
 
 ### Outputs

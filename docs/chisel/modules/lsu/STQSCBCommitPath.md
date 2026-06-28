@@ -31,11 +31,12 @@ The module owns:
 - `STQCommitDrain` queue ordering and split request descriptor generation;
 - `SCBRowBank` model-batch admission, row-bank insertion, egress lookup, and
   final free-mask authorization for accepted `last` fragments;
+- raw WriteResp/UpgradeResp tag handoff into `SCBRowBank`;
 - the composition rule that drains are held while the registered SCB model
   batch gate is closed or while an STQ flush-prune cycle owns the bank.
 
-It does not own raw CHI TxnID decode, DCache RAM mutation, L2/CHI queue
-storage, MDB conflict prediction, store-to-load forwarding, BSB window-slide
+It does not own L2/CHI queue storage or response arbitration, DCache RAM
+mutation, MDB conflict prediction, store-to-load forwarding, BSB window-slide
 side effects, or live memory-event trace rows.
 
 ## Interface
@@ -51,7 +52,8 @@ side effects, or live memory-event trace rows.
 | `evictEnable` | `Bool` | Enables one SCB egress lookup candidate after accepted ingress. |
 | `dcacheReady/dcacheWriteHit/dcacheTagHit` | abstract DCache result | Lookup outcome inputs forwarded to `SCBRowBank`. |
 | `l2RequestReady` | `Bool` | Abstract ownership request queue readiness. |
-| `memRespValid/memRespEntryIndex` | decoded response | Future response-decoder handoff into `SCBRowBank`. |
+| `rawRespValid/rawRespTxnId` | raw response | Raw response tag candidate forwarded into `SCBRowBank`. |
+| `rawRespWrite/rawRespUpgrade` | response type | WriteResp/UpgradeResp type flags forwarded into `SCBRowBank`. |
 
 ### Outputs
 
@@ -62,7 +64,7 @@ side effects, or live memory-event trace rows.
 | `drainIssueEnable/downstreamReadyMask` | The derived drain issue gate and all-row downstream-ready mask used for SCB issue. |
 | `stq*` | STQ row image, occupancy, wait/commit masks, flush masks, and final free acknowledgements. |
 | `drain*` | Ordered commit queue observability, issued rows, generated request descriptors, and debug-only early drain free mask. |
-| `scb*` | SCB model-batch status, accepted/stalled masks, final free mask, wakeups, row-bank state, and lookup/state-update descriptors. |
+| `scb*` | SCB model-batch status, accepted/stalled masks, final free mask, wakeups, row-bank state, response decode flags, and lookup/state-update descriptors. |
 
 ## State
 
