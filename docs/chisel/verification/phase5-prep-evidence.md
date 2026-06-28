@@ -1152,3 +1152,78 @@ Skill evolve:
   LSU/SCB egress invariant: only model-valid SCB rows can issue lookup
   descriptors, full rows have priority, and the model's random not-full
   eviction path must be made deterministic before it becomes RTL-visible.
+
+## 2026-06-28 SCB Lookup Control
+
+Scope:
+
+- Added `SCBLookupControl` as the first abstract DCache/L2 outcome owner after
+  `SCBEgressSelect`.
+- Mirrored model `SCBuffer::handleLookup` and `L1DCache::lookup` behavior:
+  writable DCache hits emit byte-update/free intent, tag hits without write
+  permission emit upgrade ownership requests, and tag misses emit write
+  ownership requests.
+- Preserved model request metadata: 64-byte request size and transaction tag
+  encoding `(entryIndex << 2) | 2`.
+- Kept actual DCache RAM mutation, L2/CHI queue ownership, WriteResp matching,
+  registered SCB row mutation, MDB conflict prediction, load forwarding, and
+  final STQ free composition in later LSU owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `SCBLookupControlSpec` covers writable-hit update/free, tag-hit upgrade
+  request, tag-miss write request, L2 backpressure, DCache unavailability,
+  empty-byte hit free without broadcast, and Chisel elaboration.
+- Existing SCB egress, bridge, ingress, ROB/cross-check, QEMU dry-run, reduced
+  RTL xcheck, top-shell xcheck, and Verilator lint gates stay green.
+
+Observed result:
+
+- `bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl` passed 7
+  tests in `SCBLookupControlSpec`.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect` passed 6 tests
+  in `SCBEgressSelectSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge` passed 5 tests
+  in `SCBCommitBridgeSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress` passed 5
+  tests in `SCBCommitIngressSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `SCBLookupControl` adds the reusable
+  LSU/SCB DCache/L2 invariant: writable DCache hits free/update locally, tag
+  hits without write permission request upgrade ownership, tag misses request
+  write ownership, and miss-path rows must remain resident until a later
+  WriteResp/UpgradeResp owner returns them to lookup.

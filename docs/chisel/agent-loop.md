@@ -128,6 +128,7 @@ These packets remain the required base before broad module promotion:
 | R19 | `SCBCommitIngress` | `run_chisel_tests.sh --only SCBCommitIngress`, `run_chisel_tests.sh --only STQCommitDrain`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R20 | `SCBCommitBridge` | `run_chisel_tests.sh --only SCBCommitBridge`, `run_chisel_tests.sh --only SCBCommitIngress`, `run_chisel_tests.sh --only STQCommitDrain`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R21 | `SCBEgressSelect` | `run_chisel_tests.sh --only SCBEgressSelect`, `run_chisel_tests.sh --only SCBCommitBridge`, `run_chisel_tests.sh --only SCBCommitIngress`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R22 | `SCBLookupControl` | `run_chisel_tests.sh --only SCBLookupControl`, `run_chisel_tests.sh --only SCBEgressSelect`, `run_chisel_tests.sh --only SCBCommitBridge`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -233,10 +234,10 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. SCB DCache/L2 request owner: consume `SCBEgressSelect.lookupRequest`, issue
-   DCache lookup/update or L2 write/upgrade request state, move selected rows
-   through `Valid -> Lookup -> Miss/Valid`, and keep CHI WriteResp completion
-   separate from STQ admission.
+1. SCB state/write-response owner: consume `SCBLookupControl.acceptedMask`,
+   `freeMask`, `missMask`, and future CHI WriteResp IDs; apply the registered
+   row transitions for `Valid -> Lookup`, hit free, `Lookup -> Miss`, and
+   response-driven `Miss -> Lookup` without reopening STQ admission.
 2. Full STQ-to-SCB composition owner: wire `SCBCommitBridge.commitFreeMask` as
    the only committed-row free source for `STQEntryBank` and retire direct
    full-LSU use of `STQCommitDrain.commitFreeMask`.

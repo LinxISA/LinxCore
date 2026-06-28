@@ -33,6 +33,8 @@ The module owns:
 It does not own DCache tag lookup, DCache data update, L2/CHI write or upgrade
 request formatting, write-response matching, freeing SCB rows, MDB conflict
 prediction, load forwarding, or final STQ free authorization.
+`SCBLookupControl` consumes its `lookupRequest` and owns the next abstract
+DCache/L2 outcome boundary.
 
 ## Interface
 
@@ -109,6 +111,7 @@ participate in QEMU-vs-DUT trace comparison.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect`
+- `bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl`
 - `bash tools/chisel/build_chisel.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress`

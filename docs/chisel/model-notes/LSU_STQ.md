@@ -18,6 +18,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitIngress.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBEgressSelect.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBLookupControl.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
@@ -25,6 +26,7 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBCommitIngressSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBCommitBridgeSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBEgressSelectSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBLookupControlSpec.scala`
 
 ## Model Contract
 
@@ -136,6 +138,15 @@ descriptor and candidate masks but deliberately stops before DCache lookup,
 L2/CHI write or upgrade request generation, response matching, and SCB row
 freeing.
 
+`SCBLookupControl` is the first Chisel owner for the abstract DCache/L2 outcome
+after egress selection. It mirrors model `SCBuffer::handleLookup`: a writable
+DCache hit emits byte-update and SCB-free intent, while a non-writable lookup
+emits an L2 ownership request. A DCache tag hit without write permission
+becomes an upgrade request; a tag miss becomes a write request. The request
+descriptor carries the model transaction tag `(entryIndex << 2) | 2`. WriteResp
+matching, `Miss -> Lookup` response handling, and actual row mutation remain
+future owner work.
+
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
 forwarding, deadlock checks, data-array banking, MDB conflict learning, CHI
 completion, and BSB window-slide side effects remain future LSU owner work.
@@ -143,11 +154,12 @@ completion, and BSB window-slide side effects remain future LSU owner work.
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush,
-  DCache lookup/update, L2/CHI request/response handling, MDB interaction, load
+  registered SCB row mutation, L2/CHI response handling, MDB interaction, load
   forwarding, and queue backpressure. `SCBCommitBridge` now owns the model
-  batch gate and free-mask conversion, and `SCBEgressSelect` owns valid-line
-  selection, but a later integration packet must wire the bridge as the sole
-  free source for `STQEntryBank` and remove any direct use of
+  batch gate and free-mask conversion, `SCBEgressSelect` owns valid-line
+  selection, and `SCBLookupControl` owns the abstract DCache/L2 request split,
+  but a later integration packet must wire the bridge as the sole free source
+  for `STQEntryBank` and remove any direct use of
   `STQCommitDrain.commitFreeMask` in the full LSU composition.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both

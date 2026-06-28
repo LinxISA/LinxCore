@@ -69,6 +69,10 @@ last-fragment admission. `SCBEntryState` and `SCBEgressSelect` add the first
 SCB egress-selection owner: only valid rows can issue lookup descriptors, full
 valid rows win over partial rows, and the model's random not-full fallback is
 made deterministic for repeatable RTL and cross-check evidence.
+`SCBLookupControl` consumes that descriptor and owns the next abstract
+DCache/L2 split: writable DCache hits produce byte-update/free intent, while
+non-writable lookups emit L2 write or upgrade ownership requests using the
+model transaction tag encoding.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -100,6 +104,7 @@ bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain
 bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress
 bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge
 bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect
+bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
