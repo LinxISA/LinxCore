@@ -40,7 +40,10 @@ remain explicit inputs until the real AGU and store-data owners exist.
 
 Inputs:
 
-- `flush`: recovery bus consumed by the queues and `STQEntryBank`.
+- `flush`: backend recovery bus consumed by `STQEntryBank` and also treated as
+  a queue flush.
+- `queueFlushValid`: queue-only maintenance flush for frontend/decode cleanup
+  cases that must clear dispatch queues without pruning resident STQ rows.
 - `staIn`, `stdIn`, `unsplitIn`: store split payloads from the rename/store
   split owner.
 - `staExec`, `stdExec`: explicit execution results for the visible queue
@@ -68,7 +71,10 @@ Outputs:
 The queue stage preserves the R48 contract: split stores enqueue STA and STD
 atomically, unsplit stores enqueue only STA, readiness is capacity-only and
 flush-qualified, and protocol-shape errors are observable but not readiness
-inputs.
+inputs. `flush.req.valid` clears both queues and the STQ bank through the
+backend recovery path; `queueFlushValid` clears only the queues. The split is
+required when `DecodeRenameROBPath` handles frontend/decode maintenance flushes
+that should not become STQ row-prune events.
 
 The bridge stage preserves the R49 contract: a queue head is dequeued only when
 its execution result is valid and its own STQ insert probe reports readiness.
@@ -108,10 +114,10 @@ STD can bypass a blocked STA when the STD half is independently insertable.
 - Ready-table/source wakeup effects before store execution.
 - Load-conflict probe publication after accepted STQ insert.
 - Store-data wakeup, memory trace, exceptions, and SCB/MDB integration.
-- Integration that replaces the reduced `DecodeRenameROBPath` queue instance
-  with this LSU-side composition.
-- Top-level wiring from `lsuTULinkSource` into
-  `TULinkRecoveryCleanupPath.lsuSource`.
+- Live T/U rename sidecars into `StoreDispatchToSTQ`; the current reduced
+  backend integration still drives disabled T/U source sidecars.
+- Top-level committed-store drain and SCB/MDB integration beyond the reduced
+  insert path.
 
 ## Verification
 
@@ -140,5 +146,5 @@ bash tools/chisel/run_chisel_verilator_lint.sh
 ```
 
 Focused tests cover STD merge-bypass against a full STQ, STA priority when both
-candidates can insert, flush suppression, IO widths, and CIRCT elaboration
-through all composed child modules.
+candidates can insert, flush suppression, queue-only flush IO shape, IO widths,
+and CIRCT elaboration through all composed child modules.

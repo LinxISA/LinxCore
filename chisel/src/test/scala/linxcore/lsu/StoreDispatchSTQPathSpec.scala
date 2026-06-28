@@ -130,6 +130,7 @@ class StoreDispatchSTQPathSpec extends AnyFunSuite {
     val p = InterfaceParams(robEntries = 8)
     val io = new StoreDispatchSTQPathIO(p, queueDepth = 4, entries = 8)
 
+    assert(io.queueFlushValid.getWidth == 1)
     assert(io.staReady.getWidth == 1)
     assert(io.stdReady.getWidth == 1)
     assert(io.staQueueCount.getWidth == 3)
@@ -151,6 +152,7 @@ class StoreDispatchSTQPathSpec extends AnyFunSuite {
 
     assert(sv.contains("module StoreDispatchSTQPath"))
     assert(sv.contains("StoreDispatchQueues"))
+    assert(sv.contains("io_queueFlushValid"))
     assert(sv.contains("StoreDispatchToSTQ"))
     assert(sv.contains("STQInsertProbe"))
     assert(sv.contains("STQEntryBank"))

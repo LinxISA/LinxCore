@@ -26,6 +26,7 @@ class StoreDispatchSTQPathIO(
   private val sourceParams = InterfaceParams(robEntries = entries)
 
   val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
+  val queueFlushValid = Input(Bool())
 
   val staIn = Input(new StoreSplitIssuePayload(p))
   val stdIn = Input(new StoreSplitIssuePayload(p))
@@ -142,7 +143,7 @@ class StoreDispatchSTQPath(
   val stdProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
   val stq = Module(new STQEntryBank(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
 
-  queues.io.flushValid := io.flush.req.valid
+  queues.io.flushValid := io.flush.req.valid || io.queueFlushValid
   queues.io.staIn := io.staIn
   queues.io.stdIn := io.stdIn
   queues.io.unsplitIn := io.unsplitIn

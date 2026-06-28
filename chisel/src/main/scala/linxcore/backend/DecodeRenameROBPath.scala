@@ -7,7 +7,7 @@ import linxcore.bctrl.BID
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
-import linxcore.lsu.StoreDispatchQueues
+import linxcore.lsu.{StoreDispatchExecResult, StoreDispatchSTQPath}
 import linxcore.recovery.{FullBidRecoveryBridge, RecoveryCleanupIntent}
 import linxcore.rename.{ScalarDecodeRenameBridge, StoreSplitIssuePayload, StoreSplitPayload, TULinkRecoveryCleanupPath}
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -32,6 +32,7 @@ class DecodeRenameROBPathIO(
   private val decRenPtrWidth = math.max(1, log2Ceil(decRenQueueDepth))
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
   private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
+  private val stqCountWidth = log2Ceil(p.robEntries + 1)
 
   val d1 = Input(new FrontendDecodePacket(p))
   val slots = Input(Vec(p.decodeWidth, new F4Slot(p)))
@@ -39,14 +40,19 @@ class DecodeRenameROBPathIO(
   val flushValid = Input(Bool())
 
   val renamedOutReady = Input(Bool())
-  val storeStaDequeueReady = Input(Bool())
-  val storeStdDequeueReady = Input(Bool())
+  val storeStaExec = Input(new StoreDispatchExecResult(64, 64, peIdWidth, stidWidth, tidWidth))
+  val storeStdExec = Input(new StoreDispatchExecResult(64, 64, peIdWidth, stidWidth, tidWidth))
+  val storeMarkCommitValid = Input(Bool())
+  val storeMarkCommitIndex = Input(UInt(ptrWidth.W))
+  val storeCommitFreeValid = Input(Bool())
+  val storeCommitFreeIndex = Input(UInt(ptrWidth.W))
+  val storeCommitFreeMaskValid = Input(Bool())
+  val storeCommitFreeMask = Input(UInt(p.robEntries.W))
   val checkpointValid = Input(Bool())
   val checkpointBid = Input(new ROBID(p.robEntries))
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(p.robEntries))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
-  val lsuTULinkSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
 
   val completeValid = Input(Bool())
   val completeRobValue = Input(UInt(ptrWidth.W))
@@ -107,6 +113,41 @@ class DecodeRenameROBPathIO(
   val storeStdQueueCount = Output(UInt(storeDispatchCountWidth.W))
   val storeStaQueueFull = Output(Bool())
   val storeStdQueueFull = Output(Bool())
+  val storeStaInsertReady = Output(Bool())
+  val storeStdInsertReady = Output(Bool())
+  val storeStaInsertCanMerge = Output(Bool())
+  val storeStdInsertCanMerge = Output(Bool())
+  val storeStaInsertCanAllocate = Output(Bool())
+  val storeStdInsertCanAllocate = Output(Bool())
+  val storeSelectedSta = Output(Bool())
+  val storeSelectedStd = Output(Bool())
+  val storeBlockedByStaExec = Output(Bool())
+  val storeBlockedByStdExec = Output(Bool())
+  val storeBlockedByStaInsert = Output(Bool())
+  val storeBlockedByStdInsert = Output(Bool())
+  val storeStdBypassStaBlocked = Output(Bool())
+  val storeStqInsertValid = Output(Bool())
+  val storeStqInsertAccepted = Output(Bool())
+  val storeStqInsertAllocated = Output(Bool())
+  val storeStqInsertMerged = Output(Bool())
+  val storeStqInsertConflict = Output(Bool())
+  val storeStqInsertIndex = Output(UInt(ptrWidth.W))
+  val storeStqFlushApplied = Output(Bool())
+  val storeStqFlushMatchMask = Output(UInt(p.robEntries.W))
+  val storeStqFlushFreeMask = Output(UInt(p.robEntries.W))
+  val storeStqFlushStatusBlockedMask = Output(UInt(p.robEntries.W))
+  val storeStqFlushFreeCount = Output(UInt(stqCountWidth.W))
+  val storeLsuTULinkSource = Output(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
+  val storeLsuTULinkSourceMatched = Output(Bool())
+  val storeLsuTULinkSourceMultipleMatch = Output(Bool())
+  val storeStqOccupiedMask = Output(UInt(p.robEntries.W))
+  val storeStqWaitMask = Output(UInt(p.robEntries.W))
+  val storeStqCommitMask = Output(UInt(p.robEntries.W))
+  val storeStqResidentCount = Output(UInt(stqCountWidth.W))
+  val storeStqOutstandingWaitCount = Output(UInt(stqCountWidth.W))
+  val storeStqEmpty = Output(Bool())
+  val storeStqFull = Output(Bool())
+  val storeStqStall = Output(Bool())
   val accepted = Output(Bool())
   val robAllocAttemptValid = Output(Bool())
   val robAllocReady = Output(Bool())
@@ -312,10 +353,25 @@ class DecodeRenameROBPath(
     tidWidth = tidWidth
   ))
   rename.io.in := queuedForRename
-  val storeDispatch = Module(new StoreDispatchQueues(p, depth = storeDispatchQueueDepth))
-  storeDispatch.io.flushValid := decRenFlush
-  storeDispatch.io.staDequeueReady := io.storeStaDequeueReady
-  storeDispatch.io.stdDequeueReady := io.storeStdDequeueReady
+  val storeDispatch = Module(new StoreDispatchSTQPath(
+    p = p,
+    queueDepth = storeDispatchQueueDepth,
+    entries = p.robEntries,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth,
+    mapQDepth = mapQDepth
+  ))
+  storeDispatch.io.flush := io.cleanup.flush
+  storeDispatch.io.queueFlushValid := decRenFlush && !io.cleanup.flush.req.valid
+  storeDispatch.io.staExec := io.storeStaExec
+  storeDispatch.io.stdExec := io.storeStdExec
+  storeDispatch.io.markCommitValid := io.storeMarkCommitValid
+  storeDispatch.io.markCommitIndex := io.storeMarkCommitIndex
+  storeDispatch.io.commitFreeValid := io.storeCommitFreeValid
+  storeDispatch.io.commitFreeIndex := io.storeCommitFreeIndex
+  storeDispatch.io.commitFreeMaskValid := io.storeCommitFreeMaskValid
+  storeDispatch.io.commitFreeMask := io.storeCommitFreeMask
 
   val queuedStoreActive = queuedForRename.valid && queuedForRename.isStore
   val queuedStoreSplit =
@@ -391,7 +447,7 @@ class DecodeRenameROBPath(
   tuCleanup.io.commitBid := io.commitBid
   tuCleanup.io.cleanup := io.cleanup
   tuCleanup.io.robSource := allocator.io.robTULinkSource
-  tuCleanup.io.lsuSource := io.lsuTULinkSource
+  tuCleanup.io.lsuSource := storeDispatch.io.lsuTULinkSource
 
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
@@ -429,19 +485,54 @@ class DecodeRenameROBPath(
   io.storeSta := storeSplit.io.sta
   io.storeStd := storeSplit.io.std
   io.storeUnsplit := storeSplit.io.unsplit
-  io.storeStaQueueValid := storeDispatch.io.staOutValid
-  io.storeStdQueueValid := storeDispatch.io.stdOutValid
-  io.storeStaQueue := storeDispatch.io.staOut
-  io.storeStdQueue := storeDispatch.io.stdOut
+  io.storeStaQueueValid := storeDispatch.io.staQueueValid
+  io.storeStdQueueValid := storeDispatch.io.stdQueueValid
+  io.storeStaQueue := storeDispatch.io.staQueue
+  io.storeStdQueue := storeDispatch.io.stdQueue
   io.storeStaEnqueueFire := storeDispatch.io.staEnqueueFire
   io.storeStdEnqueueFire := storeDispatch.io.stdEnqueueFire
   io.storeStaDequeueFire := storeDispatch.io.staDequeueFire
   io.storeStdDequeueFire := storeDispatch.io.stdDequeueFire
   io.storeDispatchInputProtocolError := storeDispatch.io.inputProtocolError
-  io.storeStaQueueCount := storeDispatch.io.staCount
-  io.storeStdQueueCount := storeDispatch.io.stdCount
-  io.storeStaQueueFull := storeDispatch.io.staFull
-  io.storeStdQueueFull := storeDispatch.io.stdFull
+  io.storeStaQueueCount := storeDispatch.io.staQueueCount
+  io.storeStdQueueCount := storeDispatch.io.stdQueueCount
+  io.storeStaQueueFull := storeDispatch.io.staQueueFull
+  io.storeStdQueueFull := storeDispatch.io.stdQueueFull
+  io.storeStaInsertReady := storeDispatch.io.staInsertReady
+  io.storeStdInsertReady := storeDispatch.io.stdInsertReady
+  io.storeStaInsertCanMerge := storeDispatch.io.staInsertCanMerge
+  io.storeStdInsertCanMerge := storeDispatch.io.stdInsertCanMerge
+  io.storeStaInsertCanAllocate := storeDispatch.io.staInsertCanAllocate
+  io.storeStdInsertCanAllocate := storeDispatch.io.stdInsertCanAllocate
+  io.storeSelectedSta := storeDispatch.io.selectedSta
+  io.storeSelectedStd := storeDispatch.io.selectedStd
+  io.storeBlockedByStaExec := storeDispatch.io.blockedByStaExec
+  io.storeBlockedByStdExec := storeDispatch.io.blockedByStdExec
+  io.storeBlockedByStaInsert := storeDispatch.io.blockedByStaInsert
+  io.storeBlockedByStdInsert := storeDispatch.io.blockedByStdInsert
+  io.storeStdBypassStaBlocked := storeDispatch.io.stdBypassStaBlocked
+  io.storeStqInsertValid := storeDispatch.io.insertValid
+  io.storeStqInsertAccepted := storeDispatch.io.insertAccepted
+  io.storeStqInsertAllocated := storeDispatch.io.insertAllocated
+  io.storeStqInsertMerged := storeDispatch.io.insertMerged
+  io.storeStqInsertConflict := storeDispatch.io.insertConflict
+  io.storeStqInsertIndex := storeDispatch.io.insertIndex
+  io.storeStqFlushApplied := storeDispatch.io.stqFlushApplied
+  io.storeStqFlushMatchMask := storeDispatch.io.stqFlushMatchMask
+  io.storeStqFlushFreeMask := storeDispatch.io.stqFlushFreeMask
+  io.storeStqFlushStatusBlockedMask := storeDispatch.io.stqFlushStatusBlockedMask
+  io.storeStqFlushFreeCount := storeDispatch.io.stqFlushFreeCount
+  io.storeLsuTULinkSource := storeDispatch.io.lsuTULinkSource
+  io.storeLsuTULinkSourceMatched := storeDispatch.io.lsuTULinkSourceMatched
+  io.storeLsuTULinkSourceMultipleMatch := storeDispatch.io.lsuTULinkSourceMultipleMatch
+  io.storeStqOccupiedMask := storeDispatch.io.stqOccupiedMask
+  io.storeStqWaitMask := storeDispatch.io.stqWaitMask
+  io.storeStqCommitMask := storeDispatch.io.stqCommitMask
+  io.storeStqResidentCount := storeDispatch.io.stqResidentCount
+  io.storeStqOutstandingWaitCount := storeDispatch.io.stqOutstandingWaitCount
+  io.storeStqEmpty := storeDispatch.io.stqEmpty
+  io.storeStqFull := storeDispatch.io.stqFull
+  io.storeStqStall := storeDispatch.io.stqStall
   io.accepted := rename.io.accepted
   io.robAllocAttemptValid := rename.io.robAllocAttemptValid
   io.robAllocReady := allocator.io.allocReady

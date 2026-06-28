@@ -3511,6 +3511,9 @@ python3 tools/chisel/trace_schema_adapter.py --self-test
 bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 git -C /Users/zhoubot/linx-isa/model/LinxCoreModel fetch origin main
 git -C /Users/zhoubot/linx-isa/model/LinxCoreModel rev-parse HEAD origin/main
+python3 /Users/zhoubot/.codex/skills/.system/skill-creator/scripts/quick_validate.py /Users/zhoubot/linx-isa/skills/linx-skills/linx-core
+python3 /Users/zhoubot/linx-isa/skills/linx-skills/scripts/check_skill_change_scope.py --repo-root /Users/zhoubot/linx-isa/skills/linx-skills --base origin/main
+bash /Users/zhoubot/linx-isa/skills/linx-skills/scripts/install_canonical_skills.sh
 ```
 
 Expected result:
@@ -3838,3 +3841,103 @@ Skill evolve:
   from `DispatchROBAllocator`, accept an external LSU source input, and expose
   agreement/conflict diagnostics until the live STQ producer and merged T/U
   state owner are composed.
+
+### R60 Integrated STQ-Bank LSU Source in Decode/Rename/ROB Path
+
+Scope:
+
+- Replaced the reduced `DecodeRenameROBPath` internal `StoreDispatchQueues`
+  shell with `StoreDispatchSTQPath` using `p.robEntries` as the STQ identity
+  domain.
+- Added explicit `storeStaExec` and `storeStdExec` execution-result inputs plus
+  reduced STQ commit/free hooks to the backend path.
+- Added `StoreDispatchSTQPath.queueFlushValid` so frontend/decode maintenance
+  can clear dispatch queues without turning into an STQ row-prune event.
+- Drove `TULinkRecoveryCleanupPath.lsuSource` from the live
+  `StoreDispatchSTQPath.lsuTULinkSource` output.
+- Surfaced STQ insert, flush, occupancy, and LSU T/U source diagnostics at the
+  backend boundary.
+- Kept live T/U rename snapshots through `StoreSplitIssuePayload` and
+  `StoreDispatchToSTQ` deferred; the current store requests still carry
+  disabled T/U sidecars until that owner exists.
+
+Model evidence:
+
+- `SPERename::InsertToStoreIEX()` produces STA/STD store-dispatch payloads
+  behind rename.
+- `StoreUnit::insertStq`, `STQ::insert`, and `STQ::mergeStore` own typed STQ
+  insertion and partial-store merge, with STD allowed to merge when STA cannot
+  allocate.
+- Store-unit deadlock cleanup must use the row image that actually resides in
+  STQ for LSU-side `(bid,rid,stid)` source evidence; a separate external source
+  stub is insufficient once the STQ bank is composed.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSourceSelector
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_top_xcheck.sh
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel fetch origin main
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel rev-parse HEAD origin/main
+```
+
+Expected result:
+
+- `DecodeRenameROBPathSpec` elaborates through `StoreDispatchSTQPath`,
+  `STQEntryBank`, and `TULinkRecoveryCleanupPath`, and exposes the live
+  `storeLsuTULinkSource*` observability surface.
+- `StoreDispatchSTQPathSpec` locks queue-only flush IO shape while preserving
+  merge-bypass, STA priority, flush suppression, IO widths, and child
+  elaboration.
+- Store-dispatch bridge, STQ bank, recovery cleanup, selector, allocator,
+  reduced ROB, trace adapter, QEMU dry-run, top xcheck, and LinxCoreModel SHA
+  checks remain green.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `DecodeRenameROBPathSpec` passed 7 tests.
+- `StoreDispatchSTQPathSpec` passed 5 tests.
+- `StoreDispatchToSTQSpec` passed 6 tests.
+- `STQEntryBankSpec` passed 11 tests.
+- `TULinkRecoveryCleanupPathSpec` passed 9 tests.
+- `TULinkFlushSourceSelectorSpec` passed 8 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` generated and Verilated
+  `LinxCoreTop`, normalized 3 QEMU rows and 3 DUT rows, and reported
+  `compared=3 mismatches=0`.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `quick_validate.py` passed for `linx-core`.
+- `check_skill_change_scope.py` passed with `changed=3, removed=0`; only
+  `linx-core/SKILL.md` will be staged for the skill-evolve commit, while
+  pre-existing dirty `linx-model/SKILL.md` and `linx-superproject/SKILL.md`
+  edits were left untouched.
+- `install_canonical_skills.sh` synced canonical Linx skills into
+  `/Users/zhoubot/.codex/skills`.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R60 adds a reusable backend/STQ
+  composition rule: queue-only maintenance flush must remain separate from STQ
+  recovery row pruning, and `DecodeRenameROBPath` now drives cleanup
+  `lsuSource` from the live `StoreDispatchSTQPath.lsuTULinkSource` while
+  leaving live T/U source sidecars and publisher-driven state mutation to later
+  owners.

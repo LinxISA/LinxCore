@@ -129,10 +129,10 @@ The selected-row sequence source comes from ROB/LSU recovery builders:
 `TULinkRecoveryCleanupPath` preserves that split. It owns composition and
 barrier behavior, while the row owners remain responsible for producing the
 candidate source snapshots. The reduced backend now instantiates the path with
-`DispatchROBAllocator.robTULinkSource` on `robSource` and an external
-`lsuTULinkSource` input on `lsuSource`. STQ wrappers expose the LSU-side source
-candidate from `STQEntryBank`, but a later integration packet must connect the
-live STQ wrapper producer into the reduced backend input.
+`DispatchROBAllocator.robTULinkSource` on `robSource` and
+`StoreDispatchSTQPath.lsuTULinkSource` from the live STQ bank on `lsuSource`.
+This proves the ROB/LSU source-selection diagnostics against a real STQ row
+owner while the actual T/U rename-state mutation remains deferred.
 
 ## Timing
 
@@ -153,9 +153,6 @@ rather than ignoring them.
 
 ## Deferred Owners
 
-- Wire `StoreDispatchSTQPath` or `STQSCBCommitPath` `lsuTULinkSource*` outputs
-  into `DecodeRenameROBPath.lsuTULinkSource` once that owner replaces the
-  current reduced store-dispatch queue shell with the live STQ bank path.
 - Use the reduced backend cleanup publisher outputs to mutate a live merged
   scalar/T/U rename state instead of only publishing diagnostics.
 - Replace disabled store-dispatch T/U sidecars with live rename snapshots.
