@@ -36,9 +36,12 @@ queueing flow in `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`. The
 current frontend transport slice composes the instruction buffer with F4
 visibility. `FrontendDecodeStage` now consumes those F4 slots and uses the
 pyCircuit opcode catalog mask/match metadata to produce D1 `DecodedUop`
-skeletons plus block/load/store sideband masks; operand extraction, immediate
-formation, LSID allocation, and D2/rename admission remain later decode-owner
-work. The first integrated ROB/CMT
+records plus block/load/store sideband masks. `FrontendOperandDecode` is the
+first scalar operand owner behind that stage: it consumes generated
+`rdKind`/`rs1Kind`/`rs2Kind`/`immKind` metadata, extracts architectural GPR
+source/destination tags, and forms common scalar immediates. LSID allocation,
+store split rewrite, T/U/SGPR/tile/vector operands, D2 queueing, and
+rename/ROB admission remain later owners. The first integrated ROB/CMT
 preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
 status-backed entry bank with separate commit and deallocation walks, and expose
 the model-derived flush-prune selection rule. The entry bank now consumes that

@@ -22,12 +22,13 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `rtl/LinxCore` | `3e3c4748934bcb8c563917d5cd4af21faefc6ae6` |
+| `rtl/LinxCore` | `bdb8977e2ca686b08ee1396a6d57e931f9bb2f09` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 
-LinxCoreModel was refreshed with `git pull --ff-only` on 2026-06-28 and was
-already up to date. The superproject root was fetched but not pulled because it
-has unrelated local edits.
+LinxCoreModel was fetched on 2026-06-28 and `main...origin/main` was already
+up to date. The superproject root and `rtl/LinxCore` were fetched; both active
+working branches contain `origin/main`, so no merge/pull was required while
+unrelated local edits remain in the workspace.
 
 ## Non-Negotiable Rules
 
@@ -146,6 +147,7 @@ These packets remain the required base before broad module promotion:
 | R37 | `SCBResponseRetryQueue` | `run_chisel_tests.sh --only SCBResponseRetryQueue`, `run_chisel_tests.sh --only SCBResponseRetrySelect`, `run_chisel_tests.sh --only SCBRowBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R38 | `GPRRenameCheckpoint` | `run_chisel_tests.sh --only GPRRenameCheckpoint`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FullBidRecoveryBridge`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R39 | `FrontendDecodeStage` | `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `run_chisel_tests.sh --only InterfaceBundles` |
+| R40 | `FrontendOperandDecode` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `run_chisel_tests.sh --only InterfaceBundles`, `build_chisel.sh`, `run_chisel_top_xcheck.sh`, `run_chisel_verilator_lint.sh`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -251,15 +253,16 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
-   bundle covering commit, trap, memory, recovery, and block sidebands.
-2. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
-   commit rows once the top can retire a direct-boot smoke.
-3. Frontend operand/immediate extraction: extend `FrontendDecodeStage` with the
-   first scalar 16/32-bit operand and immediate owners from `src/common/decode.py`.
-4. Decode-to-rename integration: connect `FrontendDecodeStage` and
+1. Decode-to-rename integration: connect `FrontendDecodeStage` and
    `GPRRenameCheckpoint` to the
    first scalar decoded-uop rename/dispatch owner and ROB block-commit source.
+2. LSID and store-split boundary: add the owner that consumes decoded scalar
+   load/store shapes, assigns LSIDs, and keeps store address/data split logic
+   aligned with LinxCoreModel without moving it back into operand decode.
+3. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+   bundle covering commit, trap, memory, recovery, and block sidebands.
+4. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+   commit rows once the top can retire a direct-boot smoke.
 5. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
