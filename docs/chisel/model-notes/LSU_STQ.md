@@ -232,8 +232,15 @@ raw WriteResp/UpgradeResp candidates enter a registered FIFO, the FIFO head is
 the only packet presented to `SCBResponseDecode`, and the head is removed only
 after the decoder validates a legal `Miss` target. Illegal or stale heads
 therefore remain visible instead of being silently dropped. The model's later
-`resp_list` retry priority, where response-returned `S_LOOKUP` rows issue
-before ordinary valid-row eviction, remains a separate SCB egress owner.
+`resp_list` row-id queue ordering remains future precision work.
+
+`SCBResponseRetrySelect` is the first Chisel owner for the model `resp_list`
+priority point. It treats valid `Lookup` rows as response-returned retry
+candidates, selects the first retry candidate before any ordinary valid-row
+eviction descriptor, and forwards the final descriptor to `SCBLookupControl`.
+This preserves the model rule that response-returned `S_LOOKUP` rows retry
+before ordinary valid-row eviction while keeping the exact ordered `resp_list`
+queue as a later refinement.
 
 `SCBRowBank` is the first registered SCB composition owner. It owns one row
 image, keeps the model batch gate based on pre-cycle free count, applies
@@ -241,7 +248,8 @@ committed-store fragments in lane order, and only merges into rows still in
 `Valid` state. `Lookup` and `Miss` rows are not same-line merge targets; a
 new same-line store allocates a separate row when free space exists. The bank
 then runs the egress selector, lookup control, and state update over the staged
-row image and registers the result. This creates the full-LSU handoff surface
+row image, gives response-returned `Lookup` rows priority over ordinary
+eviction, and registers the result. This creates the full-LSU handoff surface
 for final `STQEntryBank` free authorization.
 
 `STQSCBCommitPath` is the first Chisel full STQ-to-SCB composition owner. It
@@ -351,10 +359,10 @@ window-slide side effects remain future LSU owner work.
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush, the
-  `resp_list` response-retry priority path, MDB integration, and queue
+  precise ordered `resp_list` row-id FIFO, MDB integration, and queue
   backpressure. `SCBResponseBuffer` now owns raw response FIFO ordering before
-  decode; a later egress packet should preserve the model rule that
-  response-returned `S_LOOKUP` rows retry before ordinary valid-row eviction.
+  decode, and `SCBResponseRetrySelect` preserves the response-retry priority
+  rule with durable `Lookup` rows before ordinary valid-row eviction.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both
   `FlushControl` notes and the STQ tests in the same packet.

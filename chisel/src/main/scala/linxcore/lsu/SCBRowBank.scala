@@ -54,6 +54,11 @@ class SCBRowBankIO(
   val fullCandidateMask = Output(UInt(scbEntries.W))
   val notFullCandidateMask = Output(UInt(scbEntries.W))
   val lookupMask = Output(UInt(scbEntries.W))
+  val normalLookupMask = Output(UInt(scbEntries.W))
+  val responseRetryCandidateMask = Output(UInt(scbEntries.W))
+  val responseRetryMask = Output(UInt(scbEntries.W))
+  val lookupRetry = Output(Bool())
+  val lookupNormal = Output(Bool())
   val lookupFull = Output(Bool())
   val lookupNotFull = Output(Bool())
   val noLookupCandidate = Output(Bool())
@@ -226,8 +231,13 @@ class SCBRowBank(
   egress.io.evictEnable := io.evictEnable
   egress.io.entries := ingressEntries
 
+  val retrySelect = Module(new SCBResponseRetrySelect(scbEntries, addrWidth, lineBytes))
+  retrySelect.io.entries := ingressEntries
+  retrySelect.io.normalLookupRequest := egress.io.lookupRequest
+  retrySelect.io.normalLookupMask := egress.io.lookupMask
+
   val lookup = Module(new SCBLookupControl(scbEntries, addrWidth, lineBytes))
-  lookup.io.lookupRequest := egress.io.lookupRequest
+  lookup.io.lookupRequest := retrySelect.io.lookupRequest
   lookup.io.dcacheReady := io.dcacheReady
   lookup.io.dcacheWriteHit := io.dcacheWriteHit
   lookup.io.dcacheTagHit := io.dcacheTagHit
@@ -287,11 +297,16 @@ class SCBRowBank(
   io.validStateMask := egress.io.validStateMask
   io.fullCandidateMask := egress.io.fullCandidateMask
   io.notFullCandidateMask := egress.io.notFullCandidateMask
-  io.lookupMask := egress.io.lookupMask
-  io.lookupFull := egress.io.lookupFull
-  io.lookupNotFull := egress.io.lookupNotFull
-  io.noLookupCandidate := egress.io.noCandidate
-  io.lookupRequest := egress.io.lookupRequest
+  io.lookupMask := retrySelect.io.lookupMask
+  io.normalLookupMask := egress.io.lookupMask
+  io.responseRetryCandidateMask := retrySelect.io.retryCandidateMask
+  io.responseRetryMask := retrySelect.io.retryLookupMask
+  io.lookupRetry := retrySelect.io.lookupRetry
+  io.lookupNormal := retrySelect.io.lookupNormal
+  io.lookupFull := retrySelect.io.lookupFull
+  io.lookupNotFull := retrySelect.io.lookupNotFull
+  io.noLookupCandidate := retrySelect.io.noCandidate
+  io.lookupRequest := retrySelect.io.lookupRequest
 
   io.lookupReady := lookup.io.lookupReady
   io.lookupFire := lookup.io.lookupFire

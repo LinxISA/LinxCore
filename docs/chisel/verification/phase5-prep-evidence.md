@@ -2285,3 +2285,45 @@ Skill evolve:
   order and backpressure in front of decode, and must retain illegal or stale
   heads so `SCBResponseDecode` continues to report the failing target instead
   of silently dropping it.
+
+### R36 SCB Response Retry Selector
+
+Implementation:
+
+- Added `SCBResponseRetrySelect` as the model `resp_list` priority owner at the
+  SCB egress boundary.
+- Wired `SCBRowBank` so valid `Lookup` rows retry before ordinary `Valid`
+  egress descriptors from `SCBEgressSelect`.
+- Narrowed `SCBStateUpdate.acceptedIllegalMask` so retrying `Lookup` rows may
+  legally finish through `freeMask` or `missMask`, while accepted-only `Lookup`
+  rows remain illegal.
+
+Verification:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseRetrySelect
+bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate
+bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
+bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect
+bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode
+bash tools/chisel/run_chisel_tests.sh --only SCBResponseBuffer
+bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath
+```
+
+Evidence:
+
+- `SCBResponseRetrySelectSpec` passed 5 tests covering retry priority, first
+  retry selection, normal fallback, no-candidate reporting, and elaboration.
+- `SCBStateUpdateSpec` passed 11 tests including retry hit completion and
+  accepted-only `Lookup` rejection.
+- `SCBRowBankSpec` passed 9 tests including response-returned retry priority
+  before ordinary valid-row eviction.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `SCBResponseRetrySelect` adds the
+  reusable SCB completion invariant that response-returned `Lookup` rows must
+  retry before ordinary valid-row eviction, and retry `Lookup` rows are legal
+  `SCBStateUpdate` finish targets only when paired with hit/free or miss masks.

@@ -5,6 +5,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBStateUpdate.scala`
 - Upstream selector/control:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBEgressSelect.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBResponseRetrySelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBLookupControl.scala`
 - Shared state:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBEntryState.scala`
@@ -44,7 +45,7 @@ store-to-load forwarding, or final STQ free authorization.
 | Signal | Type | Description |
 |---|---|---|
 | `entries` | `Vec[SCBLineEntry]` | Current SCB row image. |
-| `acceptedMask` | `UInt(scbEntries.W)` | Selected row accepted from `SCBLookupControl`. |
+| `acceptedMask` | `UInt(scbEntries.W)` | Selected row accepted from `SCBLookupControl`; may target `Valid` starts or retrying `Lookup` rows that also finish with hit/miss masks. |
 | `missMask` | `UInt(scbEntries.W)` | Selected row observed as non-writable and sent to L2 ownership. |
 | `freeMask` | `UInt(scbEntries.W)` | Selected row hit writable DCache and can be cleared after update intent. |
 | `memRespValid` | `Bool` | `SCBResponseDecode` decoded a legal response for an SCB row. |
@@ -60,7 +61,7 @@ store-to-load forwarding, or final STQ free authorization.
 | `missStateMask` | Rows moved to `Miss`. |
 | `respToLookupMask` | Rows returned from `Miss` to `Lookup` by memory response. |
 | `clearedMask` | Rows cleared/freed by writable-hit completion. |
-| `acceptedIllegalMask` | `acceptedMask` targeted a row that was not valid `Valid`. |
+| `acceptedIllegalMask` | An accepted-only lookup start targeted a row that was not valid `Valid`. Retry rows are legal only when paired with `freeMask` or `missMask`. |
 | `missIllegalMask` | `missMask` targeted a row outside valid `Valid` or `Lookup`. |
 | `freeIllegalMask` | `freeMask` targeted a row outside valid `Valid` or `Lookup`. |
 | `memRespIllegalMask` | Memory response targeted a row outside valid `Miss`. |
@@ -94,8 +95,10 @@ The model sequence is:
 
 `acceptedMask` may appear with `freeMask` or `missMask` in the same abstract
 cycle because `SCBLookupControl` can classify the accepted lookup immediately.
-That case is legal when the current row is `Valid`; the final state is the hit
-or miss result, not an intermediate `Lookup` row.
+That case is legal when the current row is `Valid` or a response-returned
+`Lookup` retry; the final state is the hit or miss result, not an intermediate
+`Lookup` row. An accepted-only row still must be `Valid`, so a bare accepted
+mask on `Lookup` remains illegal.
 
 ## Timing
 
@@ -130,5 +133,7 @@ comparison until the full LSU exposes memory event trace payloads.
 - `bash tools/chisel/run_chisel_verilator_lint.sh`
 
 Focused reference tests cover valid lookup start, same-cycle miss, writable-hit
-free, registered lookup miss, memory response return, illegal response target,
-free-priority behavior, illegal miss/free visibility, and Chisel elaboration.
+free, registered lookup miss, retrying `Lookup` hit completion,
+accepted-only `Lookup` rejection, memory response return, illegal response
+target, free-priority behavior, illegal miss/free visibility, and Chisel
+elaboration.

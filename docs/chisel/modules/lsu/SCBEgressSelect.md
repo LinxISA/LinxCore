@@ -12,6 +12,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitIngress.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBResponseRetrySelect.scala`
 - Contract IDs: `LC-CHISEL-LSU-SCB-EGRESS-001`
 
 ## Purpose
@@ -33,8 +34,9 @@ The module owns:
 It does not own DCache tag lookup, DCache data update, L2/CHI write or upgrade
 request formatting, write-response matching, freeing SCB rows, MDB conflict
 prediction, load forwarding, or final STQ free authorization.
-`SCBLookupControl` consumes its `lookupRequest` and owns the next abstract
-DCache/L2 outcome boundary.
+`SCBResponseRetrySelect` consumes its `lookupRequest`, gives response-returned
+`Lookup` rows priority when present, and forwards the final descriptor to
+`SCBLookupControl`.
 
 ## Interface
 
@@ -60,10 +62,12 @@ DCache/L2 outcome boundary.
 ## State
 
 `SCBEgressSelect` is combinational. It introduces no SCB storage and does not
-mutate entry state. `SCBLookupControl` classifies the selected lookup outcome,
-and `SCBStateUpdate` consumes those masks to move selected rows from `Valid` to
-`Lookup`, move misses to `Miss`, and move responses back to `Lookup` before
-row free. A later registered SCB row-bank owner must store those transitions.
+mutate entry state. It deliberately ignores `Lookup` rows; the response retry
+owner arbitrates those rows before `SCBLookupControl` classifies the selected
+lookup outcome. `SCBStateUpdate` consumes those masks to move selected rows
+from `Valid` to `Lookup`, move misses to `Miss`, and move responses back to
+`Lookup` before row free. A later registered SCB row-bank owner must store
+those transitions.
 
 `SCBCommitIngress` initializes accepted entries to `SCBEntryState.Valid`.
 Future ingress integration must avoid merging new stores into `Lookup` or
@@ -112,6 +116,7 @@ participate in QEMU-vs-DUT trace comparison.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect`
+- `bash tools/chisel/run_chisel_tests.sh --only SCBResponseRetrySelect`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl`
 - `bash tools/chisel/build_chisel.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge`
@@ -122,5 +127,5 @@ participate in QEMU-vs-DUT trace comparison.
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 
 Focused reference tests cover full-line priority, deterministic not-full
-fallback, disabled-eviction masking, ignoring `Lookup`/`Miss` rows, no-candidate
-reporting, and Chisel elaboration.
+fallback, disabled-eviction masking, ignoring `Lookup`/`Miss` rows for the
+separate retry owner, no-candidate reporting, and Chisel elaboration.

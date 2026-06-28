@@ -62,7 +62,8 @@ object SCBStateUpdateReference {
       val canFinishLookup = entry.valid && (entry.state == Valid || entry.state == Lookup)
       val canAcceptResp = entry.valid && entry.state == Miss
 
-      val acceptedIllegal = accepted && !canStartLookup
+      val acceptedOnly = accepted && !free && !miss && !resp
+      val acceptedIllegal = acceptedOnly && !canStartLookup
       val missIllegal = miss && !canFinishLookup
       val freeIllegal = free && !canFinishLookup
       val memRespIllegal = resp && !canAcceptResp
@@ -155,6 +156,28 @@ class SCBStateUpdateSpec extends AnyFunSuite {
     assert(result.nextEntries.head.state == Miss)
     assert(result.missStateMask == BigInt(1))
     assert(!result.stateError)
+  }
+
+  test("retrying lookup rows may finish on a writable hit") {
+    val result = step(
+      Seq(Entry(valid = true, state = Lookup, lineAddr = 0x3000, byteMask = 0xff, data = 0xaabb)),
+      acceptedMask = BigInt(1),
+      freeMask = BigInt(1))
+
+    assert(!result.nextEntries.head.valid)
+    assert(result.clearedMask == BigInt(1))
+    assert(result.acceptedIllegalMask == BigInt(0))
+    assert(!result.stateError)
+  }
+
+  test("accepted-only lookup rows remain illegal") {
+    val result = step(
+      Seq(Entry(valid = true, state = Lookup, lineAddr = 0x3800)),
+      acceptedMask = BigInt(1))
+
+    assert(result.nextEntries.head.state == Lookup)
+    assert(result.acceptedIllegalMask == BigInt(1))
+    assert(result.stateError)
   }
 
   test("memory response returns miss rows to lookup state") {

@@ -70,8 +70,9 @@ class SCBStateUpdate(
     val canFinishLookup = entry.valid &&
       ((entry.state === SCBEntryState.Valid) || (entry.state === SCBEntryState.Lookup))
     val canAcceptResp = entry.valid && (entry.state === SCBEntryState.Miss)
+    val acceptedOnly = accepted && !free && !miss && !resp
 
-    acceptedIllegalVec(idx) := accepted && !canStartLookup
+    acceptedIllegalVec(idx) := acceptedOnly && !canStartLookup
     missIllegalVec(idx) := miss && !canFinishLookup
     freeIllegalVec(idx) := free && !canFinishLookup
     memRespIllegalVec(idx) := resp && !canAcceptResp

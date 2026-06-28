@@ -22,6 +22,7 @@
 | `STQSCBCommitPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQSCBCommitPath.md` | Unit-green R25 STQ-to-SCB composition owner; SCB accepted `last` fragments are the only committed-row free source |
 | `SCBResponseDecode` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBResponseDecode.md` | Unit-green R26 raw SCB response decode owner; model `(entryIndex << 2) | 2` tags become legal `Miss -> Lookup` row responses |
 | `SCBResponseBuffer` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBResponseBuffer.md` | Unit-green R35 raw SCB response FIFO; preserves FIFO order, backpressure, and stale-head decode reporting |
+| `SCBResponseRetrySelect` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBResponseRetrySelect.md` | Unit-green R36 response-returned `Lookup` row retry-priority owner before ordinary valid-row eviction |
 | `MDBConflictDetect` | `linxcore.lsu` | `docs/chisel/modules/lsu/MDBConflictDetect.md` | Unit-green R27 store-arrival conflict classifier; oldest resolved load selection, ST_ADDR wait masks, and inner/nuke split |
 | `MDBSSIT` | `linxcore.lsu` | `docs/chisel/modules/lsu/MDBSSIT.md` | Unit-green R28 MDB Store Set ID Table owner; first-after-nuke suppression, weight/confidence learning, and delete decay |
 | `MDBQueueFanout` | `linxcore.lsu` | `docs/chisel/modules/lsu/MDBQueueFanout.md` | Unit-green R29 MDB queue/fanout owner; atomic LU/SU fanout, phase freeze on output backpressure, and SU ready-store wakeup |
