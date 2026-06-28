@@ -12,6 +12,7 @@ class SCBLineEntry(
   val byteMask = UInt(lineBytes.W)
   val data = UInt((lineBytes * 8).W)
   val full = Bool()
+  val state = SCBEntryState()
 }
 
 class SCBCommitWakeup(
@@ -125,7 +126,11 @@ class SCBCommitIngress(
   for (lane <- 0 until requestCount) {
     val req = io.reqs(lane)
     val line = SCBCommitIngress.lineAddr(req.addr, addrWidth)
-    val hitVec = VecInit((0 until scbEntries).map(idx => stages(lane)(idx).valid && (stages(lane)(idx).lineAddr === line)))
+    val hitVec = VecInit((0 until scbEntries).map { idx =>
+      stages(lane)(idx).valid &&
+      (stages(lane)(idx).state === SCBEntryState.Valid) &&
+      (stages(lane)(idx).lineAddr === line)
+    })
     val freeVec = VecInit((0 until scbEntries).map(idx => !stages(lane)(idx).valid))
     val hit = hitVec.asUInt.orR
     val free = freeVec.asUInt.orR
@@ -146,6 +151,7 @@ class SCBCommitIngress(
     nextEntry.byteMask := mergedMask
     nextEntry.data := mergedData
     nextEntry.full := mergedMask.andR
+    nextEntry.state := SCBEntryState.Valid
 
     acceptedVec(lane) := accept
     blockedVec(lane) := req.valid && !accept

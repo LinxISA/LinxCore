@@ -129,5 +129,6 @@ class SCBCommitIngressSpec extends AnyFunSuite {
     assert(sv.contains("io_blockedMask"))
     assert(sv.contains("io_wakeups_0_byteMask"))
     assert(sv.contains("io_entries_0_byteMask"))
+    assert(sv.contains("io_entries_0_state"))
   }
 }

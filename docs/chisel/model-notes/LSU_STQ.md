@@ -14,14 +14,17 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitDrain.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBEntryState.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitIngress.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitBridge.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBEgressSelect.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitDrainSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBCommitIngressSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBCommitBridgeSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBEgressSelectSpec.scala`
 
 ## Model Contract
 
@@ -123,6 +126,16 @@ closed, even same-line hits stall and no committed STQ row is freed. When the
 gate is open, accepted descriptors flow into `SCBCommitIngress`, and only
 accepted descriptors with `last=1` produce `STQEntryBank.commitFreeMask` bits.
 
+`SCBEntryState` and `SCBEgressSelect` are the first Chisel owners for the model
+SCB entry lifecycle at the egress boundary. Ingress initializes rows to
+`Valid`, and egress selection only considers valid rows. Under explicit
+eviction pressure, full valid rows have priority. If no full row exists, the
+selector chooses the first valid not-full row as the deterministic replacement
+for the model's random not-full eviction path. The selector emits a lookup
+descriptor and candidate masks but deliberately stops before DCache lookup,
+L2/CHI write or upgrade request generation, response matching, and SCB row
+freeing.
+
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
 forwarding, deadlock checks, data-array banking, MDB conflict learning, CHI
 completion, and BSB window-slide side effects remain future LSU owner work.
@@ -130,11 +143,12 @@ completion, and BSB window-slide side effects remain future LSU owner work.
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush,
-  SCB eviction, MDB interaction, load forwarding, and queue backpressure.
-  `SCBCommitBridge` now owns the model batch gate and free-mask conversion, but
-  a later integration packet must wire it as the sole free source for
-  `STQEntryBank` and remove any direct use of `STQCommitDrain.commitFreeMask`
-  in the full LSU composition.
+  DCache lookup/update, L2/CHI request/response handling, MDB interaction, load
+  forwarding, and queue backpressure. `SCBCommitBridge` now owns the model
+  batch gate and free-mask conversion, and `SCBEgressSelect` owns valid-line
+  selection, but a later integration packet must wire the bridge as the sole
+  free source for `STQEntryBank` and remove any direct use of
+  `STQCommitDrain.commitFreeMask` in the full LSU composition.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both
   `FlushControl` notes and the STQ tests in the same packet.

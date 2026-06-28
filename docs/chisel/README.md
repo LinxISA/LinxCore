@@ -65,7 +65,10 @@ masks while leaving DCache eviction, CHI completion, MDB, and forwarding policy
 to later packets. `SCBCommitBridge` composes that ingress owner with the model
 SCB batch gate, stalls commit descriptors when SCB free entries are below the
 commit width, and returns committed-row free masks only after accepted
-last-fragment admission.
+last-fragment admission. `SCBEntryState` and `SCBEgressSelect` add the first
+SCB egress-selection owner: only valid rows can issue lookup descriptors, full
+valid rows win over partial rows, and the model's random not-full fallback is
+made deterministic for repeatable RTL and cross-check evidence.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -96,6 +99,7 @@ bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
 bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain
 bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress
 bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge
+bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

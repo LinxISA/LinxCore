@@ -33,7 +33,8 @@ The module owns:
 
 It does not own DCache lookup/update, full/not-full eviction, L2/CHI request
 generation, write-response matching, MDB conflict prediction, load forwarding,
-or fence/store-drain completion. Those remain future LSU owner packets.
+or fence/store-drain completion. `SCBEgressSelect` is the next owner for
+choosing a valid SCB line to present to those future paths.
 
 ## Interface
 
@@ -54,7 +55,7 @@ or fence/store-drain completion. Those remain future LSU owner packets.
 | `structuralBlockedMask` | Raw `SCBCommitIngress.blockedMask` after model gating. |
 | `commitFreeMaskValid/commitFreeMask/commitFreeCount` | STQ bank free command for rows whose accepted descriptor has `last=1`. |
 | `wakeups` | SCB line-valid wakeups from accepted fragments. |
-| `entries/validMask/fullLineMask/entryCount/freeCount/ingressFull` | SCB entry diagnostics forwarded from `SCBCommitIngress`. |
+| `entries/validMask/fullLineMask/entryCount/freeCount/ingressFull` | SCB entry diagnostics forwarded from `SCBCommitIngress`, including the model entry state used by egress selection. |
 
 ## State
 
@@ -106,6 +107,7 @@ participate in QEMU-vs-DUT trace comparison.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge`
+- `bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`

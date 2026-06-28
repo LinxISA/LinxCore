@@ -52,14 +52,20 @@ packets.
 | `acceptedMask` | Request lanes accepted into an existing or newly allocated SCB line. |
 | `blockedMask` | Valid request lanes rejected because no matching line or free entry was available. |
 | `wakeups` | Per-accepted-lane line address plus post-merge byte-valid mask. |
-| `entries` | Current SCB line entries: valid bit, line address, byte mask, 512-bit data, full flag. |
+| `entries` | Current SCB line entries: valid bit, model entry state, line address, byte mask, 512-bit data, full flag. |
 | `validMask/fullLineMask` | Entry diagnostics for occupancy and full-line writeback selection. |
 | `entryCount/freeCount/full` | Occupancy diagnostics. |
 
 ## State
 
 - `entries`: fixed-depth line buffer. Each entry contains one 64-byte line
-  address, 64 byte-valid bits, 512 data bits, and a full-line flag.
+  address, a model `SCBEntryState`, 64 byte-valid bits, 512 data bits, and a
+  full-line flag.
+
+Accepted or merged stores leave the target row in `SCBEntryState.Valid`,
+matching model `SCBuffer::handleInsert`. Same-line hits are restricted to
+`Valid` rows so future `Lookup` or `Miss` rows are not mutated while an egress
+request is in flight.
 
 Rows are non-flushable by construction in this packet: upstream
 `STQCommitDrain` only handles committed stores. Recovery-domain pruning stays
@@ -115,6 +121,7 @@ comparison.
 
 - `bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress`
 - `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge`
+- `bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`

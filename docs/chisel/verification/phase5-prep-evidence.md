@@ -1078,3 +1078,77 @@ Skill evolve:
   LSU/SCB capacity-feedback invariant: final committed-row frees must come
   after model-batch SCB admission and accepted `last` fragments, while
   structural ingress hit handling alone is not enough to free STQ rows.
+
+## 2026-06-28 SCB Egress Select
+
+Scope:
+
+- Added `SCBEntryState` to mirror model `S_EMPTY`, `S_VALID`, `S_LOOKUP`, and
+  `S_MISS` at the Chisel SCB line-entry boundary.
+- Updated `SCBCommitIngress` to initialize accepted rows as `Valid` and merge
+  same-line stores only into rows still in `Valid` state.
+- Added `SCBEgressSelect` as the first SCB egress selection owner. It consumes
+  SCB entries, exposes valid/full/not-full candidate masks, prefers full valid
+  lines, and uses a deterministic first-valid not-full fallback for the model's
+  random not-full eviction path.
+- Kept DCache lookup/update, L2/CHI request/response handling, SCB row free,
+  MDB conflict prediction, load forwarding, and final STQ free composition in
+  later LSU owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress
+bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `SCBEgressSelectSpec` covers full-line priority, deterministic not-full
+  fallback, disabled-eviction masking, ignoring `Lookup`/`Miss` rows,
+  no-candidate reporting, and Chisel elaboration.
+- Existing SCB bridge, SCB ingress, STQ drain, ROB/cross-check, QEMU dry-run,
+  reduced RTL xcheck, top-shell xcheck, and Verilator lint gates stay green.
+
+Observed result:
+
+- `bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect` passed 6 tests
+  in `SCBEgressSelectSpec`.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge` passed 5 tests
+  in `SCBCommitBridgeSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress` passed 5
+  tests in `SCBCommitIngressSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain` passed 5 tests
+  in `STQCommitDrainSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `SCBEgressSelect` adds the reusable
+  LSU/SCB egress invariant: only model-valid SCB rows can issue lookup
+  descriptors, full rows have priority, and the model's random not-full
+  eviction path must be made deterministic before it becomes RTL-visible.
