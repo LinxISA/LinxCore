@@ -11,6 +11,11 @@ Scope:
   later decoded uops and commit trace rows can represent 8-byte instructions.
 - Documented the F4 interface, purpose, logic, flush behavior, and verification
   obligations in `docs/chisel/modules/frontend/F4DecodeWindow.md`.
+- Added `FrontendInstructionBuffer`, an 8-entry packet FIFO for frontend-owned
+  F3/F4 buffering.
+- Stored checkpoint identity inside the buffered packet so future F4/D1/D2 work
+  treats checkpoint as frontend packet state instead of reconstructing it from
+  adjacent control wiring.
 
 Evidence:
 
@@ -19,6 +24,7 @@ bash tools/chisel/build_chisel.sh
 bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
 bash tools/chisel/run_chisel_tests.sh --only CommitTrace
 bash tools/chisel/run_chisel_tests.sh --only F4DecodeWindow
+bash tools/chisel/run_chisel_tests.sh --only FrontendInstructionBuffer
 python3 tools/chisel/trace_schema_adapter.py --self-test
 bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
@@ -38,6 +44,10 @@ Observed result:
   mixed 32/16-bit slots, 48/16-bit slots, single 64-bit instruction windows,
   truncated candidate rejection, flush masking, slot field widths, and Chisel
   elaboration.
+- `FrontendInstructionBufferSpec` ran 6 tests; all passed.
+- The focused test covers FIFO ordering, packet identity retention,
+  simultaneous push/pop count behavior, full backpressure, flush clearing and
+  output masking, packet field widths, and Chisel elaboration.
 - `trace_schema_adapter.py --self-test` passed.
 - `run_chisel_qemu_crosscheck.sh --dry-run` selected
   `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
@@ -51,9 +61,10 @@ Observed result:
 
 Known limitations:
 
-- `F4DecodeWindow` is combinational only. F0/F1/F2/F3 fetch ownership, IB queue
-  residency, registered F4/D1 transport, and D1/D2 opcode decode are still
-  future modules.
+- `F4DecodeWindow` is combinational only. F0/F1/F2/F3 fetch ownership,
+  registered F4/D1 transport, and D1/D2 opcode decode are still future modules.
+- `FrontendInstructionBuffer` is not yet wired into `LinxCoreTop` or a live
+  frontend pipeline.
 - Full opcode decode and macro-boundary standalone behavior are deferred until
   the Chisel opcode table exists.
 
@@ -62,3 +73,6 @@ Skill evolve:
 - `skill-evolve: update linx-core` because `F4DecodeWindow` is a reusable Phase
   2 frontend gate and it locks a model-derived 8-byte instruction length rule
   that downstream decode and trace agents must preserve.
+- `skill-evolve: update linx-core` because `FrontendInstructionBuffer` is a
+  reusable Phase 2 frontend FIFO gate and records that Chisel buffers carry
+  checkpoint identity as packet-owned state.
