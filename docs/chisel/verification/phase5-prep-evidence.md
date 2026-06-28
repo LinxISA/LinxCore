@@ -1548,3 +1548,81 @@ Skill evolve:
   must match `(entryIndex << 2) | 2`, name an implemented row, and target a
   valid `Miss` entry before `SCBStateUpdate` may move the row back to
   `Lookup`.
+
+## 2026-06-28 MDB Conflict Detect
+
+Scope:
+
+- Added `MDBConflictDetect` as the first Chisel owner for the model
+  store-arrival load/store conflict classifier behind `detect_su_lu_q`.
+- Learned the model path from `StoreUnit::insertStq`,
+  `LDQInfo::handleDetect`, `ResolveQ::detect`, and `LDQInfo::handleFlush`.
+- Implemented scalar address-overlap plus `(bid, lsID)` age classification,
+  current tile-conflict suppression, `ST_ADDR` wait-store masks for unresolved
+  active loads, oldest resolved-load selection across active LDQ rows and
+  `ResolveQ`, and same-BID inner versus cross-BID nuke classification.
+- Kept the MDB SSIT table, lookup/result queues, store wakeup, byte
+  forwarding, BCTRL `bmdb`, IEX-local MDB, ROB nuke retirement, and final
+  `FlushReq` publication in later owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
+bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `MDBConflictDetectSpec` covers same-BID inner conflict, oldest selection
+  across active LDQ rows and `ResolveQ`, younger-store rejection, `ST_ADDR`
+  wait-store marking, tile suppression, zero-size non-overlap, and Chisel
+  elaboration with ROB-facing conflict outputs.
+- Existing STQ commit-ordering, STQ state-bank, STQ-to-SCB composition,
+  ROB/cross-check, QEMU dry-run, reduced RTL xcheck, top-shell xcheck, and
+  Verilator lint gates stay green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect` passed 7
+  tests in `MDBConflictDetectSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue` passed 7 tests
+  in `STQCommitQueueSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank` passed 7 tests
+  in `STQEntryBankSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath` passed 5
+  tests in `STQSCBCommitPathSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `MDBConflictDetect` adds the
+  reusable LSU recovery invariant: store-arrival conflict detection selects the
+  oldest resolved scalar load by `(bid, lsID)`, marks unresolved loads waiting
+  only for `ST_ADDR`, suppresses tile conflicts until the tile owner exists,
+  and classifies the selected pair as same-BID inner flush or cross-BID
+  load-attributed nuke flush.

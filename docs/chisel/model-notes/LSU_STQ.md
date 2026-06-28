@@ -7,6 +7,10 @@
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/store_unit.cpp`
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/stq.h`
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
+- LinxCoreModel: `model/LinxCoreModel/model/lsu/load_unit/ldq.h`
+- LinxCoreModel: `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`
+- LinxCoreModel: `model/LinxCoreModel/model/lsu/mdb/MDB.h`
+- LinxCoreModel: `model/LinxCoreModel/model/lsu/mdb/MDB.cpp`
 - LinxCoreModel: `model/LinxCoreModel/model/l1/SCB.h`
 - LinxCoreModel: `model/LinxCoreModel/model/l1/SCB.cpp`
 - LinxCoreModel: `model/LinxCoreModel/model/l1/cluster.cpp`
@@ -22,6 +26,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBStateUpdate.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBRowBank.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
@@ -33,6 +38,7 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBStateUpdateSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBRowBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQSCBCommitPathSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/MDBConflictDetectSpec.scala`
 
 ## Model Contract
 
@@ -127,6 +133,19 @@ stops before DCache lookup/update, random/not-full eviction, L2/CHI write
 requests, write responses, MDB conflict prediction, and load-side forwarding
 selection.
 
+`StoreUnit::insertStq` pushes inserted store requests into `detect_su_lu_q`.
+`LDQInfo::conflictDetect` consumes those probes and `handleDetect` compares the
+store against active LDQ cluster rows plus `ResolveQ`. A scalar load/store
+conflict requires address overlap and
+`LessEqual(store.bid, store.lsID, load.bid, load.lsID)`. Tile load/store
+conflicts are currently skipped by model TODOs. Resolved active loads and
+resolved-queue loads are flush candidates; unresolved active loads are only
+marked `wait_store` for `ST_ADDR` probes. The selected flush candidate is the
+oldest conflicting load by `(bid, lsID)`. Same-BID conflicts become inner
+flushes; cross-BID conflicts become load-attributed nuke flushes. The same
+selected load/store pair is also recorded to `record_lu_mdb_q`, BCTRL `bmdb`,
+and IEX-local MDB.
+
 `SCBCommitBridge` is the first Chisel owner for the capacity feedback boundary
 between `STQCommitDrain` and `SCBCommitIngress`. It gates every descriptor with
 the model `SCBuffer::full()` rule, mapping `n_store_in` to the bridge request
@@ -190,11 +209,21 @@ model-batch condition and suppresses drain issue when `STQEntryBank` reports an
 active flush-prune cycle, preserving the bank-owned rule that flush cycles
 ignore commit free commands. Older committed rows may drain while a younger row
 is marked commit and enqueued for a later visible row image. This owner still
-stops before raw CHI response decode, DCache RAM mutation, MDB, forwarding, or
+stops before response queue ordering, DCache RAM mutation, MDB, forwarding, or
 full memory-event trace.
 
+`MDBConflictDetect` is the first Chisel owner for the store-arrival conflict
+classifier behind `detect_su_lu_q`. It consumes a store probe, active LDQ row
+snapshots, and resolved-queue row snapshots; emits resolved conflict candidate
+masks; marks unresolved active rows with `waitStoreMask` for `ST_ADDR`; exposes
+tile-suppressed masks; selects the oldest resolved scalar conflict; and
+classifies that conflict as same-BID inner flush or cross-BID nuke flush. The
+module stops before the MDB SSIT table, `lookup_lu_mdb_q`,
+`lookup_mdb_lu_q`, `lookup_mdb_su_q`, store wakeup, BCTRL `bmdb`, IEX-local
+MDB, ROB nuke retirement, and final `FlushReq` publication.
+
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
-forwarding, deadlock checks, data-array banking, MDB conflict learning, CHI
+forwarding, deadlock checks, data-array banking, MDB SSIT learning/lookup, CHI
 completion, and BSB window-slide side effects remain future LSU owner work.
 
 ## Open Questions

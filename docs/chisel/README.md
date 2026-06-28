@@ -87,6 +87,11 @@ rows before they drive `SCBStateUpdate`.
 `STQEntryBank`, `STQCommitDrain`, and `SCBRowBank` so SCB accepted `last`
 fragments are the only committed-row free source back into the STQ bank, while
 the earlier drain free mask remains debug-only observability.
+`MDBConflictDetect` starts the load/store conflict path after STQ insertion:
+it classifies scalar store-arrival probes against active LDQ rows and
+`ResolveQ`, suppresses current tile conflicts, emits `ST_ADDR` wait-store
+masks for unresolved loads, and selects the oldest resolved conflicting load
+for later MDB learning plus inner/nuke recovery publication.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -122,6 +127,7 @@ bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
 bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate
 bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
 bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode
+bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
