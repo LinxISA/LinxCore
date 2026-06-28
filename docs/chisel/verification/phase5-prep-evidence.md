@@ -1951,3 +1951,83 @@ Skill evolve:
   `LoadStoreForwarding` in E2, register the merge and masks to E3, classify
   final byte/source/return-port readiness in E4, and avoid mutating
   LIQ/LHQ/LDQ/STQ/SCB/MDB or trace owner state in this packet.
+
+## 2026-06-28 Load Inflight Queue
+
+Scope:
+
+- Added `LoadInflightQueue` as the first registered LIQ/LHQ row-state owner
+  around `LoadForwardPipeline`.
+- Learned the model path from `LUEntryInfo::insert`, `LDQInfo::handleInsert`,
+  `LDQInfo::pickL1`, `LDQInfo::loadRepick`,
+  `LDQInfo::receiveData`, `LDQInfo::waitStore`,
+  `LDQInfo::returnData`, and `LDQInfo::CheckMovRslvQ`.
+- Implemented slot-plus-wrap `LID` allocation, row `Wait -> Repick` launch,
+  E4 hit-to-`Resolved` updates, LHQ hit-record publication, wait-store replay,
+  incomplete-data `L1DcMiss` state, resolved-row clearing, and `missPending`.
+- Kept precise `FlushBus` pruning, store/SCB wakeup replay, L2 miss/refill
+  queues, ready-table updates, consumer bypass routing, a separate LHQ/ResolveQ
+  queue, recovery publication, and memory-event trace in later owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
+bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline
+bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
+bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `LoadInflightQueueSpec` covers slot-plus-wrap allocation, E4
+  hit-to-resolved row updates, LHQ hit-record publication, wait-store replay,
+  incomplete-data miss-pending behavior, source/return-port replay,
+  resolved-row clearing before wraparound allocation, and Chisel elaboration
+  with the child `LoadForwardPipeline`.
+- Existing load-forward pipeline, forwarding selector, conflict detection,
+  ROB/cross-check, QEMU dry-run, reduced RTL xcheck, top-shell xcheck, and
+  Verilator lint gates stay green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue` passed 7
+  tests in `LoadInflightQueueSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline` passed 6
+  tests in `LoadForwardPipelineSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding` passed 6
+  tests in `LoadStoreForwardingSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect` passed 7
+  tests in `MDBConflictDetectSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `LoadInflightQueue` adds the
+  reusable LIQ/LHQ row-owner invariant: Chisel should allocate slot-plus-wrap
+  LIDs, launch only non-wait-store WAIT rows through `LoadForwardPipeline`,
+  apply E4 outcomes back to row state, publish LHQ records only on E4 hits,
+  and keep precise flush, refill/replay queues, ready-table updates, consumer
+  bypass routing, and trace emission in later owners.

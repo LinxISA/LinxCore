@@ -108,6 +108,10 @@ LDQ/STQ row mutation plus memory/recovery publication in later owner packets.
 load-forwarding boundary, carrying merged line data, byte-valid masks,
 wait-store replay classification, source-return gating, and return-slot
 readiness into an E4 wakeup decision.
+`LoadInflightQueue` is the first registered LIQ/LHQ row-state owner around
+that pipeline: it allocates slot-plus-wrap load IDs, launches WAIT rows through
+the forwarding pipe, applies E4 hit/miss/replay outcomes to resident rows, and
+publishes an LHQ-style resolved-load record for later conflict checks.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -148,6 +152,7 @@ bash tools/chisel/run_chisel_tests.sh --only MDBSSIT
 bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout
 bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
 bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline
+bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

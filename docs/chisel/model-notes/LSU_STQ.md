@@ -31,6 +31,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBQueueFanout.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadForwardPipeline.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
@@ -47,6 +48,7 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/MDBQueueFanoutSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadStoreForwardingSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadForwardPipelineSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala`
 
 ## Model Contract
 
@@ -300,16 +302,30 @@ and SCB sources have returned, no wait-store byte remains, and the return slot
 is available. This packet still does not mutate LIQ/LHQ/LDQ rows, STQ rows,
 SCB rows, MDB state, ready tables, issue wakeup fabric, or trace state.
 
+`LoadInflightQueue` is the first Chisel owner for the active LIQ row image and
+the resolved-load LHQ publication surface. It maps model `LUEntryInfo::insert`
+to ring allocation of a `Wait` row with a slot-plus-wrap `LID` and stored
+`youngestStoreId` snapshot; maps `loadRepick` to a launch that changes a row
+from `Wait` to `Repick`; applies `LoadForwardPipeline` E4 results back into
+the row; and maps successful E4 wakeup to `Resolved` plus an LHQ-style
+line-address and byte-mask record. `StoreDataNotReady` returns the row to
+`Wait` with wait-store diagnostics, `DataNotComplete` moves it to `L1DcMiss`
+and asserts `missPending`, and source/return-port stalls return the row to
+`Wait` without publishing an LHQ record. This owner still does not implement a
+separate `ResolveQ`/LHQ queue, precise `FlushBus` pruning, store/SCB wakeup
+replay, L2 miss/refill queues, ready-table updates, consumer bypass routing,
+or memory trace emission.
+
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
-LIQ/LHQ row integration, deadlock checks, data-array banking, LDQ MDB-update
+replay/refill integration, deadlock checks, data-array banking, LDQ MDB-update
 row mutation, BCTRL/IEX MDB table mutation, CHI completion, and BSB
 window-slide side effects remain future LSU owner work.
 
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush, raw L2/CHI
-  response queue ordering, MDB interaction, LIQ/LHQ row integration, and queue
-  backpressure.
+  response queue ordering, MDB interaction, LIQ replay/refill integration, and
+  queue backpressure.
   `SCBResponseDecode` now owns raw transaction-id decode, so a later response
   queue packet should preserve its illegal/stale-target reporting while adding
   ordering and backpressure.
