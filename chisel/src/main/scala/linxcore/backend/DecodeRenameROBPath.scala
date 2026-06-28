@@ -9,7 +9,13 @@ import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
 import linxcore.lsu.{StoreDispatchExecResult, StoreDispatchSTQPath}
 import linxcore.recovery.{FullBidRecoveryBridge, RecoveryCleanupIntent}
-import linxcore.rename.{ScalarTURenameBridge, StoreSplitIssuePayload, StoreSplitPayload, TULinkRetireCommandPath}
+import linxcore.rename.{
+  ScalarTURenameBridge,
+  StoreSplitIssuePayload,
+  StoreSplitPayload,
+  TULinkLocalBlockCommitFanout,
+  TULinkRetireCommandPath
+}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
 class DecodeRenameROBPathIO(
@@ -233,6 +239,11 @@ class DecodeRenameROBPathIO(
   val tuRetireLocalBlockCommitAccepted = Output(Bool())
   val tuRetireLocalBlockCommitStidMatch = Output(Bool())
   val tuRetireLocalBlockCommitBlockedByStid = Output(Bool())
+  val tuRetireLocalBlockCommitFanoutStidInRange = Output(Bool())
+  val tuRetireLocalBlockCommitFanoutBlockedByStidRange = Output(Bool())
+  val tuRetireLocalBlockCommitFanoutBlockedByBankReady = Output(Bool())
+  val tuRetireLocalBlockCommitFanoutTargetPeMask = Output(UInt(1.W))
+  val tuRetireLocalBlockCommitFanoutReadyPeMask = Output(UInt(1.W))
   val tuRetireUnsupportedDst = Output(Bool())
   val tuRetireRelationPreReleaseT = Output(Bool())
   val tuRetireRelationPreReleaseU = Output(Bool())
@@ -437,6 +448,12 @@ class DecodeRenameROBPath(
     releaseThreshold = tuRetireReleaseThreshold,
     stidWidth = stidWidth
   ))
+  val tuLocalBlockCommitFanout = Module(new TULinkLocalBlockCommitFanout(
+    p = p,
+    peCount = 1,
+    stidCount = 1,
+    stidWidth = stidWidth
+  ))
   val storeDispatch = Module(new StoreDispatchSTQPath(
     p = p,
     queueDepth = storeDispatchQueueDepth,
@@ -530,14 +547,18 @@ class DecodeRenameROBPath(
   tuRetirePath.io.cleanGroupBid := zeroRobId
   tuRetirePath.io.cleanGroupGid := zeroRobId
   tuRetirePath.io.commandReady := rename.io.tuRetireAccepted
-  tuRetirePath.io.localBlockCommitReady := rename.io.tuLocalBlockCommitReady
+  tuRetirePath.io.localBlockCommitReady := tuLocalBlockCommitFanout.io.ready
+  tuLocalBlockCommitFanout.io.inValid := tuRetirePath.io.localBlockCommitValid
+  tuLocalBlockCommitFanout.io.inBid := tuRetirePath.io.localBlockCommitBid
+  tuLocalBlockCommitFanout.io.inStid := tuRetirePath.io.localBlockCommitStid
+  tuLocalBlockCommitFanout.io.bankReady(0)(0) := rename.io.tuLocalBlockCommitReady
   rename.io.tuRetireValid := tuRetirePath.io.command.valid
   rename.io.tuRetireKind := tuRetirePath.io.command.kind
   rename.io.tuRetireSeq := tuRetirePath.io.command.seq
   rename.io.tuRetireDealloc := tuRetirePath.io.command.dealloc
-  rename.io.tuLocalBlockCommitValid := tuRetirePath.io.localBlockCommitValid
-  rename.io.tuLocalBlockCommitBid := tuRetirePath.io.localBlockCommitBid
-  rename.io.tuLocalBlockCommitStid := tuRetirePath.io.localBlockCommitStid
+  rename.io.tuLocalBlockCommitValid := tuLocalBlockCommitFanout.io.bankValid(0)(0)
+  rename.io.tuLocalBlockCommitBid := tuLocalBlockCommitFanout.io.bankBid(0)(0)
+  rename.io.tuLocalBlockCommitStid := tuLocalBlockCommitFanout.io.bankStid(0)(0)
 
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
@@ -694,13 +715,20 @@ class DecodeRenameROBPath(
   io.tuRetireAutoCleanBlockBid := tuRetirePath.io.autoCleanBlockBid
   io.tuRetireLocalBlockCommitPending := tuRetirePath.io.localBlockCommitPending
   io.tuRetireLocalBlockCommitValid := tuRetirePath.io.localBlockCommitValid
-  io.tuRetireLocalBlockCommitReady := rename.io.tuLocalBlockCommitReady
+  io.tuRetireLocalBlockCommitReady := tuLocalBlockCommitFanout.io.ready
   io.tuRetireLocalBlockCommitBid := tuRetirePath.io.localBlockCommitBid
   io.tuRetireLocalBlockCommitStid := tuRetirePath.io.localBlockCommitStid
   io.tuRetireLocalBlockCommitFire := tuRetirePath.io.localBlockCommitFire
-  io.tuRetireLocalBlockCommitAccepted := rename.io.tuLocalBlockCommitAccepted
-  io.tuRetireLocalBlockCommitStidMatch := rename.io.tuLocalBlockCommitStidMatch
-  io.tuRetireLocalBlockCommitBlockedByStid := rename.io.tuLocalBlockCommitBlockedByStid
+  io.tuRetireLocalBlockCommitAccepted := tuLocalBlockCommitFanout.io.accepted
+  io.tuRetireLocalBlockCommitStidMatch :=
+    tuLocalBlockCommitFanout.io.stidInRange && rename.io.tuLocalBlockCommitStidMatch
+  io.tuRetireLocalBlockCommitBlockedByStid :=
+    tuLocalBlockCommitFanout.io.blockedByStidRange || rename.io.tuLocalBlockCommitBlockedByStid
+  io.tuRetireLocalBlockCommitFanoutStidInRange := tuLocalBlockCommitFanout.io.stidInRange
+  io.tuRetireLocalBlockCommitFanoutBlockedByStidRange := tuLocalBlockCommitFanout.io.blockedByStidRange
+  io.tuRetireLocalBlockCommitFanoutBlockedByBankReady := tuLocalBlockCommitFanout.io.blockedByBankReady
+  io.tuRetireLocalBlockCommitFanoutTargetPeMask := tuLocalBlockCommitFanout.io.targetPeMask
+  io.tuRetireLocalBlockCommitFanoutReadyPeMask := tuLocalBlockCommitFanout.io.selectedPeReadyMask
   io.tuRetireUnsupportedDst := tuRetirePath.io.unsupportedDst
   io.tuRetireRelationPreReleaseT := tuRetirePath.io.preReleaseT
   io.tuRetireRelationPreReleaseU := tuRetirePath.io.preReleaseU

@@ -4822,3 +4822,89 @@ Skill evolve:
   rule: reduced local-register owners must not consume
   `ReportLocalRegBlockCommit` events for a different STID, and later fanout
   must explicitly select or instantiate the matching STID banks.
+
+## R71 Selected-STID Local Block Commit Fanout
+
+Scope:
+
+- Added `TULinkLocalBlockCommitFanout` as the explicit selected-STID fanout
+  owner for post-clean `ReportLocalRegBlockCommit(bid, stid)` events.
+- Integrated the reduced backend through a 1-PE, 1-STID fanout instance before
+  `ScalarTURenameBridge`.
+- Kept downstream `bankValid` atomic: it pulses only when every selected PE
+  bank for the event STID is ready, preventing partial local-register commit.
+- Preserved the reduced STID0 behavior while making future multi-PE/STID SGPR
+  bank replication a typed boundary instead of top-level glue.
+
+Model evidence:
+
+- `SPERename::Build()` constructs `sgprRenameUnit[stdPeCount][scalar_smt_thread][SGPR_HAND_COUNT]`.
+- `SPERename::ReportSGPRBlockCommit(bid, stid)` iterates every scalar PE,
+  selects `peSGPRRename[stid]`, then calls `ReportBlockCommit(bid)` on both
+  SGPR hands.
+- `SPEROB::ReportLocalRegBlockCommit(bid, stid)` forwards committed block
+  events to `SPERename::ReportSGPRBlockCommit`.
+- `LocalRegMgr::ReportBlockCommit()` releases retired mapQ head rows while
+  their BID matches the committed block.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBlockCommitFanout
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only TULinkRelationCmap
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git fetch origin main
+git diff --check
+```
+
+Expected result:
+
+- A selected STID event targets every scalar PE bank for that STID.
+- The fanout accepts only when all selected PE banks are ready.
+- Downstream bank valid is suppressed while any selected bank is not ready, so
+  no subset of banks can consume the block-commit event early.
+- Out-of-range STIDs keep upstream ready low and target no banks.
+- The reduced backend continues to behave as the single STID0 bank case.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `TULinkLocalBlockCommitFanoutSpec` passed 5 tests, covering selected-STID
+  broadcast, all-PE readiness, out-of-range STID rejection, IO shape, and
+  elaboration.
+- `DecodeRenameROBPathSpec` passed 7 tests with the reduced backend elaborating
+  through `TULinkLocalBlockCommitFanout`.
+- `TULinkRecoveryCleanupPathSpec` passed 12 tests.
+- `ScalarTURenameBridgeSpec` passed 5 tests.
+- `TULinkRetireCommandPathSpec` passed 8 tests.
+- `TULinkRenameSpec` passed 10 tests.
+- `TULinkRelationCmapSpec` passed 7 tests.
+- `ROBEntryBankSpec` passed 12 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `git diff --check` passed.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R71 adds a reusable fanout
+  invariant: downstream local block-commit bank valid must pulse only when all
+  selected PE banks for the event STID are ready, otherwise the SGPR banks can
+  observe a partial block-commit update that the model never performs.

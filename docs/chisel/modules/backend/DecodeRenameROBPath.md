@@ -62,6 +62,10 @@ R68 exposes the following `ReportLocalRegBlockCommit` event as
 local-register owner runs `ReportBlockCommit` only after the event is accepted.
 R70 carries the block-last source STID through that post-clean event and
 surfaces the reduced owner's STID-match diagnostics.
+R71 inserts `TULinkLocalBlockCommitFanout` between the retire path and the
+reduced T/U local-register owner. The live instance is still a 1-PE, 1-STID
+fanout, but it establishes the all-selected-PE ready/accepted boundary needed
+for later SGPR bank replication.
 
 ## Interface
 
@@ -134,6 +138,9 @@ Outputs:
   `tuRetireRelationPruneTCount`, and `tuRetireRelationPruneUCount`: live
   ROB-deallocation to T/U rename retire-command path and cleanup
   observability.
+- `tuRetireLocalBlockCommitFanout*`: selected-STID fanout diagnostics for the
+  post-clean event, including implemented-STID range, selected-bank readiness,
+  and reduced fanout target masks.
 - `tuCleanupPublisherFlush*`, `tuCleanupSelectedFlushSource`,
   `tuCleanup*Source*`, `tuCleanupSourceConflict`,
   `tuCleanupSelectedFrom*`, and `tuCleanupFlush*PrevApplied`:
@@ -237,7 +244,12 @@ acceptance, while full PE/STID fanout remains deferred. R70 carries the
 block-last row's STID on that event and exposes
 `tuRetireLocalBlockCommitStidMatch` plus
 `tuRetireLocalBlockCommitBlockedByStid`; the current reduced bank accepts only
-local STID0.
+local STID0. R71 routes the event through `TULinkLocalBlockCommitFanout` before
+it reaches `ScalarTURenameBridge`: the fanout receives the pending BID/STID
+event, checks that the selected reduced STID exists, waits for the selected
+bank readiness, and pulses the reduced bank valid only on fanout acceptance.
+With `peCount=1` and `stidCount=1`, this preserves current behavior while
+making the future all-PE selected-STID handshake explicit.
 `cleanGroup*` remains inactive until a vector/MTC group-clean owner exists.
 
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
@@ -305,6 +317,9 @@ T/U local-register owner, matching `SPERename::ReportSGPRBlockCommit` for the
 single implemented bank. R70 carries the selected STID with that event,
 matching the model's `ReportSGPRBlockCommit(bid, stid)` selection while the
 current Chisel owner remains a reduced STID0 bank.
+R71 adds the fanout boundary that corresponds to the model loop over scalar PE
+SGPR banks for the selected STID. Full bank replication is still deferred, but
+the reduced path now has the same atomic-fanout ready/accepted contract.
 Full store timing still requires real STA/STD execution, load-conflict
 publication, SCB/MDB handoff, and memory trace side effects.
 
@@ -323,7 +338,7 @@ publication, SCB/MDB handoff, and memory trace side effects.
   `TULinkRetireCommandPath.cleanBlock*` and `cleanGroup*`; scalar block-last
   auto clean is now owned inside `TULinkRetireCommandPath`.
 - Multi-PE/multi-STID SGPR local-register block-commit fanout beyond the
-  current reduced STID-filtered single-bank consumer.
+  current reduced 1-PE, 1-STID fanout instance.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - SGPR/tile/vector operand classification and rename.
@@ -378,3 +393,5 @@ covers local block-commit observability after auto scalar clean. R69 covers the
 consumer handshake from retire event to live T/U local-register block commit.
 R70 covers event STID carry and the reduced owner's non-local STID rejection
 diagnostic.
+R71 covers the selected-STID fanout boundary and its reduced backend
+observability.
