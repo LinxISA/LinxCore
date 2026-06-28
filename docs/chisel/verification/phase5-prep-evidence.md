@@ -652,3 +652,83 @@ Skill evolve:
   LSU/STQ row-state gate and owner boundary: future memory-side packets should
   build around this state owner instead of moving store queue mutation into
   recovery, ROB, or top-level glue.
+
+## 2026-06-28 STQ Commit Queue Ordering Owner
+
+Scope:
+
+- Added `STQCommitQueue` as the first Chisel owner for model `storeCommitQ`
+  ordering after `STQEntryBank` marks rows committed.
+- Implemented sorted enqueue by model `(bid, lsId)` age using the shared
+  wrap-aware `ROBID` convention.
+- Implemented downstream-ready issue selection up to `issueWidth`, including
+  model-like skipping of stalled rows and compaction of issued entries.
+- Preserved the owner boundary: `STQEntryBank` owns row state, this module owns
+  commit ordering and drain selection, and SCB/MDB, cacheline split handling,
+  TTrans/tile side effects, BSB window-slide, and data-array banking remain
+  future LSU owner work.
+
+Evidence:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+```
+
+Expected result:
+
+- `STQCommitQueueSpec` passes and elaborates the queue interface.
+- Existing STQ row-state, flush-prune, recovery, ROB, trace-adapter, QEMU
+  dry-run, reduced RTL xcheck, and top-shell xcheck gates stay green.
+
+Observed result:
+
+- Initial `STQCommitQueue` gate caught missing `Mux1H` and `PriorityEncoder`
+  imports; adding explicit `chisel3.util` imports fixed the compile before
+  promotion.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue` passed 7 tests
+  in `STQCommitQueueSpec`.
+- New reference coverage includes sorted enqueue, `ROBID` wrap ordering,
+  downstream-stall skipping, same-cycle issue plus enqueue, duplicate/full
+  rejection, issue gating, and Chisel elaboration.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank` passed 6 tests
+  in `STQEntryBankSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune` passed 6 tests
+  in `STQFlushPruneSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl` passed
+  6 tests in `RecoveryCleanupControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only FlushControl` passed 6 tests
+  in `FlushControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank` passed 9 tests
+  in `ROBEntryBankSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `STQCommitQueue` adds a reusable
+  LSU/STQ commit-ordering gate and owner boundary: future memory-side LSU
+  packets must consume this queue for store drain ordering instead of embedding
+  `storeCommitQ` scans into SCB, MDB, recovery, or top-level glue.

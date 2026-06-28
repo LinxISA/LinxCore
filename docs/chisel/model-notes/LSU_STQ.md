@@ -9,8 +9,10 @@
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
 
 ## Model Contract
 
@@ -43,6 +45,11 @@ locally committable, ready `STQ_WAIT` rows to `STQ_COMMIT` and decrements
 `osdSize`; `STQ::commit` later sends committed stores to memory-side queues and
 then frees the row.
 
+`STQ::retire` appends non-tile committed store row indices to `storeCommitQ`
+in `(bid, lsID)` age order. `STQ::commit` scans that queue from old to young,
+skips rows whose downstream SCB/cacheline path is stalled, issues up to
+`store_commit_count`, erases issued indices, and leaves stalled rows resident.
+
 ## Chisel Scope
 
 `STQFlushPrune` is the first Chisel LSU cleanup consumer. It mirrors the model
@@ -65,14 +72,19 @@ marks locally ready `ST_ALL` WAIT rows as `Commit`, frees committed rows on a
 separate command, and applies `STQFlushPrune.freeMask` to clear matched WAIT
 rows.
 
-This is still not the complete model STQ. `storeCommitQ` ordering, SCB/MDB
-traffic, cacheline splitting, tile/TTrans behavior, load forwarding, deadlock
-checks, and BSB window-slide side effects remain future LSU owner work.
+`STQCommitQueue` is the first Chisel owner for `storeCommitQ` ordering. It
+accepts committed row indices, keeps them sorted by `(bid, lsId)`, selects up
+to a parameterized issue width, skips downstream-stalled rows, and compacts the
+queue after issue.
+
+This is still not the complete model STQ. SCB/MDB traffic, cacheline splitting,
+tile/TTrans behavior, load forwarding, deadlock checks, data-array banking, and
+BSB window-slide side effects remain future LSU owner work.
 
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush,
-  `storeCommitQ` ordering, SCB/MDB interaction, load forwarding, and queue
+  SCB/MDB interaction, cacheline splitting, load forwarding, and queue
   backpressure.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both

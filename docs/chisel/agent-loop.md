@@ -22,7 +22,7 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `rtl/LinxCore` | `1fe34e73b384c2d76a7235083df2ad302bae2973` |
+| `rtl/LinxCore` | `54b164bd98e692359ef60607e2820ab396514c5a` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 
 LinxCoreModel was refreshed with `git pull --ff-only` on 2026-06-28 and was
@@ -122,6 +122,7 @@ These packets remain the required base before broad module promotion:
 | R13 | `RecoveryCleanupControl` | `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FullBidRecoveryBridge`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only ROBEntryBank` |
 | R14 | `STQFlushPrune` | `run_chisel_tests.sh --only STQFlushPrune`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only ROBEntryBank` |
 | R15 | `STQEntryBank` | `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only STQFlushPrune`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl` |
+| R16 | `STQCommitQueue` | `run_chisel_tests.sh --only STQCommitQueue`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only STQFlushPrune`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -227,9 +228,10 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. STQ commit/data owners: add `storeCommitQ` ordering, SCB/MDB handoff,
-   cacheline split handling, and data-array banking around `STQEntryBank`
-   without moving those memory side effects into the bank's flush helper.
+1. STQ memory-side commit owners: connect `STQCommitQueue` to
+   `STQEntryBank.commitFree`, then add SCB/MDB handoff, cacheline split
+   handling, and data-array banking without moving those memory side effects
+   into the bank's flush helper.
 2. Load/store forwarding owner: implement the byte-mask STQ lookup path and
    connect it to the future LIQ/LHQ request flow.
 3. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
