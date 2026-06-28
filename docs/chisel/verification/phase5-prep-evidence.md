@@ -2031,3 +2031,84 @@ Skill evolve:
   apply E4 outcomes back to row state, publish LHQ records only on E4 hits,
   and keep precise flush, refill/replay queues, ready-table updates, consumer
   bypass routing, and trace emission in later owners.
+
+## 2026-06-28 Load Replay Wakeup
+
+Scope:
+
+- Added `LoadReplayWakeup` as the first store-unit/SCB replay wakeup sidecar
+  for `LoadInflightQueue`.
+- Learned the model path from `LDQInfo::handleSUWakeup`,
+  `LDQInfo::handleSCBWakeup`, and `LDQInfo::checkDataPosionValid`.
+- Implemented store-unit wait-store clear, store-unit miss-row byte merge with
+  wrap-aware store ordering, SCB working-row byte merge excluding `Repick`,
+  requested-byte completion masks, and LIQ row updates that return completed
+  replay rows to `Wait`.
+- Kept L1 refill, L2/CHI response queues, ready-table updates, consumer bypass
+  routing, precise flush pruning, separate ResolveQ/LHQ movement, and memory
+  trace emission in later owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup
+bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
+bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline
+bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
+bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `LoadReplayWakeupSpec` covers wait-store clear, store-unit miss-byte merge,
+  younger-store suppression, SCB partial and complete merges, SCB suppression
+  for `Repick` and `Resolved`, and Chisel elaboration.
+- `LoadInflightQueueSpec` covers integrated store wakeup clear and completed
+  miss-row return to `Wait`.
+- Existing forwarding, conflict, ROB/cross-check, QEMU dry-run, reduced RTL
+  xcheck, top-shell xcheck, and Verilator lint gates stay green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup` passed 6
+  tests in `LoadReplayWakeupSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue` passed 8
+  tests in `LoadInflightQueueSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline` passed 6
+  tests in `LoadForwardPipelineSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding` passed 6
+  tests in `LoadStoreForwardingSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect` passed 7
+  tests in `MDBConflictDetectSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `LoadReplayWakeup` adds the
+  reusable LIQ replay-wakeup invariant: Chisel should model store-unit
+  wakeups as both wait-store clear and ordered miss-byte merge, model SCB
+  wakeups as working-row same-line byte merge excluding `Repick`, and keep L1
+  refill, ready-table, bypass, ResolveQ/LHQ queueing, precise flush, and trace
+  ownership in later packets.

@@ -11,6 +11,7 @@
   - `model/LinxCoreModel/model/lsu/load_unit/ldq_cluster.cpp`
   - `model/LinxCoreModel/model/core/Packet.h`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayWakeup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadForwardPipeline.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala`
@@ -22,11 +23,13 @@
 Chisel LSU lane. It allocates load-inflight rows with slot-plus-wrap load IDs,
 launches selected WAIT rows through `LoadForwardPipeline`, applies E4
 hit/miss/replay outcomes back to the row image, and publishes an LHQ-style
-resolved-load record when E4 can wake and return the load.
+resolved-load record when E4 can wake and return the load. It also consumes
+`LoadReplayWakeup` masks to clear store-unit wait-store blockers and to merge
+store-unit/SCB replay bytes into resident rows.
 
 This packet turns the standalone forwarding pipeline into reusable row state
-without taking ownership of full LDQ/LIQ recovery, refill, ready-table update,
-issue wakeup fanout, L2/CHI response queues, or memory-event trace.
+without taking ownership of full LDQ/LIQ recovery, L1 refill, ready-table
+update, issue wakeup fanout, L2/CHI response queues, or memory-event trace.
 
 ## Interface
 
@@ -62,6 +65,22 @@ resident row, even when a later slot is free.
 
 The queue derives the forwarding query from the resident row address, size,
 tile bit, and `youngestStoreId` snapshot.
+
+### Replay Wakeup
+
+| Signal | Description |
+|---|---|
+| `replayWakeValid` | Qualifies one store-unit or SCB replay wakeup. |
+| `replayWake` | Source, store ID, PC, line address, byte-valid mask, and line data. |
+| `replayWakeWaitStoreClearMask` | Rows whose wait-store diagnostics were matched. |
+| `replayWakeMergeMask` | Rows selected for wakeup byte merge. |
+| `replayWakeCompletedMask` | Rows whose requested load bytes became complete. |
+
+Store-unit wakeups can clear wait-store diagnostics and can merge data into
+`L1DcMiss` or `L2Wait` rows when the store is no newer than the row's
+`youngestStoreId` snapshot. SCB wakeups can merge data into working
+non-`Repick` rows on the same line. Completed rows return to `Wait` and relaunch
+through `LoadForwardPipeline`; they do not publish an LHQ record directly.
 
 ### E4 Update And LHQ Record
 
@@ -101,6 +120,7 @@ The module owns:
 - LIQ row records with `Wait`, `Repick`, `L1DcMiss`, `L2Wait`, and `Resolved`
   states,
 - E3/E4 row-index sideband registers aligned to `LoadForwardPipeline`,
+- a combinational `LoadReplayWakeup` sidecar for store-unit/SCB replay masks,
 - a combinational LHQ hit-record output for E4 hits.
 
 It does not own a separate LHQ queue, load-store conflict recovery, precise
@@ -120,7 +140,11 @@ The C++ model provides the owner split:
    Complete data returns through `returnData` and changes the row to
    `LDQ_RESOLVED`; incomplete bytes become `LDQ_L1_DC_MISS`; not-ready store
    data calls `waitStore` and returns the row to `LDQ_WAIT`.
-5. `CheckMovRslvQ` later moves `LDQ_RESOLVED` rows into `ResolveQ` and resets
+5. `handleSUWakeup` clears matching wait-store rows and can merge older
+   store-unit data into `LDQ_L1_DC_MISS` or `LDQ_L2_WAIT` rows.
+6. `handleSCBWakeup` merges SCB data into working same-line rows that are not
+   currently `LDQ_REPICK`.
+7. `CheckMovRslvQ` later moves `LDQ_RESOLVED` rows into `ResolveQ` and resets
    the active row.
 
 `LoadInflightQueue` maps those rules into the current Chisel boundary:
@@ -139,6 +163,10 @@ The C++ model provides the owner split:
    asserts `missPending`.
 6. E4 source-return or return-port blocking changes the row back to `Wait`
    without publishing an LHQ record.
+7. Replay wakeups run through `LoadReplayWakeup`. Matching store-unit wakeups
+   clear `waitStore`; store-unit/SCB byte merges update row data and valid
+   masks; completed rows become `Wait` with `storeBypass` set so the normal
+   launch path can recheck source and return-slot readiness.
 
 ## Timing
 
@@ -146,6 +174,9 @@ The C++ model provides the owner split:
 - Cycle N+1: `LoadForwardPipeline` carries the row's masks and merged line in
   E3.
 - Cycle N+2: `e4UpdateValid` updates the row and may publish `lhqRecord`.
+- Replay wakeups are consumed after E4 row update/clear handling and before
+  new launch/allocation state updates. Completed replay rows are not launched
+  until the next cycle.
 
 The module accepts at most one launch per cycle. Later owners may add internal
 pick arbitration, multiple load pipes, and true response queues.
@@ -167,6 +198,7 @@ memory comparison against QEMU/model behavior.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`
@@ -176,6 +208,7 @@ memory comparison against QEMU/model behavior.
 
 Focused reference tests cover slot-plus-wrap allocation, E4 hit-to-resolved
 transition and LHQ record publication, not-ready store replay, incomplete-data
-miss-pending behavior, source/return-port replay, resolved-row clearing before
-wraparound allocation, and Chisel elaboration with the child
-`LoadForwardPipeline`.
+miss-pending behavior, source/return-port replay, store-wakeup wait-store
+clear, store-wakeup miss completion, resolved-row clearing before wraparound
+allocation, and Chisel elaboration with the child `LoadForwardPipeline` and
+`LoadReplayWakeup`.

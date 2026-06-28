@@ -311,10 +311,20 @@ the row; and maps successful E4 wakeup to `Resolved` plus an LHQ-style
 line-address and byte-mask record. `StoreDataNotReady` returns the row to
 `Wait` with wait-store diagnostics, `DataNotComplete` moves it to `L1DcMiss`
 and asserts `missPending`, and source/return-port stalls return the row to
-`Wait` without publishing an LHQ record. This owner still does not implement a
-separate `ResolveQ`/LHQ queue, precise `FlushBus` pruning, store/SCB wakeup
-replay, L2 miss/refill queues, ready-table updates, consumer bypass routing,
-or memory trace emission.
+`Wait` without publishing an LHQ record.
+
+`LoadReplayWakeup` is the first store-unit/SCB replay wakeup sidecar for those
+rows. It follows `LDQInfo::handleSUWakeup` by clearing matching wait-store
+diagnostics and merging older store-unit bytes into `L1DcMiss`/`L2Wait` rows.
+It follows `LDQInfo::handleSCBWakeup` by merging SCB bytes into working
+same-line rows that are not `Repick`. Completion is based on the model's
+`checkDataPosionValid` rule, represented as a recomputed requested-byte mask
+covered by the merged valid-byte mask. Completed rows return to `Wait` for the
+normal `LoadForwardPipeline` relaunch path.
+
+These owners still do not implement a separate `ResolveQ`/LHQ queue, precise
+`FlushBus` pruning, L1 refill queues, ready-table updates, consumer bypass
+routing, or memory trace emission.
 
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
 replay/refill integration, deadlock checks, data-array banking, LDQ MDB-update
@@ -324,8 +334,8 @@ window-slide side effects remain future LSU owner work.
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush, raw L2/CHI
-  response queue ordering, MDB interaction, LIQ replay/refill integration, and
-  queue backpressure.
+  response queue ordering, MDB interaction, L1 refill integration, and queue
+  backpressure.
   `SCBResponseDecode` now owns raw transaction-id decode, so a later response
   queue packet should preserve its illegal/stale-target reporting while adding
   ordering and backpressure.

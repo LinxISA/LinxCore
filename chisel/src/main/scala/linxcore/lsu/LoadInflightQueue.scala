@@ -118,6 +118,12 @@ class LoadInflightQueueIO(
   val e2ScbReturned = Input(Bool())
   val e2ReturnReady = Input(Bool())
 
+  val replayWakeValid = Input(Bool())
+  val replayWake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes))
+  val replayWakeWaitStoreClearMask = Output(UInt(liqEntries.W))
+  val replayWakeMergeMask = Output(UInt(liqEntries.W))
+  val replayWakeCompletedMask = Output(UInt(liqEntries.W))
+
   val clearResolvedValid = Input(Bool())
   val clearResolvedIndex = Input(UInt(liqPtrWidth.W))
   val clearResolvedAccepted = Output(Bool())
@@ -225,6 +231,11 @@ class LoadInflightQueue(
   pipeline.io.e2Valid := launchAccepted
   pipeline.io.e2Query := query
 
+  val replayWakeup = Module(new LoadReplayWakeup(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  replayWakeup.io.wakeValid := io.replayWakeValid && !io.flush
+  replayWakeup.io.wake := io.replayWake
+  replayWakeup.io.rows := rows
+
   val e3IndexValid = RegInit(false.B)
   val e3Index = RegInit(0.U(liqPtrWidth.W))
   val e4IndexValid = RegInit(false.B)
@@ -329,6 +340,28 @@ class LoadInflightQueue(
       rows(io.clearResolvedIndex) := zeroRow
     }
 
+    when(io.replayWakeValid) {
+      for (idx <- 0 until liqEntries) {
+        when(replayWakeup.io.waitStoreClearMask(idx)) {
+          rows(idx).waitStore := false.B
+          rows(idx).waitStoreInfo := zeroWait
+        }
+
+        when(replayWakeup.io.mergeMask(idx)) {
+          rows(idx).lineData := replayWakeup.io.mergedLineData(idx)
+          rows(idx).validMask := replayWakeup.io.mergedValidMasks(idx)
+          rows(idx).loadByteMask := replayWakeup.io.requestByteMasks(idx)
+          when(replayWakeup.io.completedMask(idx)) {
+            rows(idx).status := LoadInflightStatus.Wait
+            rows(idx).storeBypass := true.B
+            rows(idx).dataComplete := true.B
+            rows(idx).sourcesReturned := true.B
+            rows(idx).missKind := LoadForwardMissKind.NoMiss
+          }
+        }
+      }
+    }
+
     when(launchAccepted) {
       rows(io.launchIndex).status := LoadInflightStatus.Repick
       rows(io.launchIndex).waitStore := false.B
@@ -386,6 +419,9 @@ class LoadInflightQueue(
   io.launchReady := launchReady
   io.launchAccepted := launchAccepted
   io.clearResolvedAccepted := clearResolvedAccepted
+  io.replayWakeWaitStoreClearMask := replayWakeup.io.waitStoreClearMask
+  io.replayWakeMergeMask := replayWakeup.io.mergeMask
+  io.replayWakeCompletedMask := replayWakeup.io.completedMask
   io.e4UpdateValid := e4UpdateValid
   io.e4UpdateIndex := e4Index
   io.e4MissKind := pipeline.io.e4MissKind

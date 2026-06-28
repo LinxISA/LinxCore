@@ -54,6 +54,10 @@ object LoadInflightQueueReference {
       returnReady: Boolean = true)
   final case class HitRecord(row: Row, byteMask: BigInt, data: BigInt, forwardedMask: BigInt)
   final case class CycleResult(e4Index: Option[Int] = None, hitRecord: Option[HitRecord] = None)
+  final case class ReplayWakeResult(
+      waitStoreClearMask: Int,
+      mergeMask: Int,
+      completedMask: Int)
 
   final class Model(entries: Int) {
     require(entries > 1 && (entries & (entries - 1)) == 0)
@@ -203,6 +207,44 @@ object LoadInflightQueueReference {
           false
       }
 
+    def replayWakeup(wakeup: LoadReplayWakeupReference.Wakeup): ReplayWakeResult = {
+      var waitStoreClearMask = 0
+      var mergeMask = 0
+      var completedMask = 0
+
+      for (index <- rows.indices) {
+        rows(index) match {
+          case Some(row) =>
+            val result = LoadReplayWakeupReference(row, wakeup)
+            var next = row
+            if (result.waitStoreClear) {
+              waitStoreClearMask |= (1 << index)
+              next = next.copy(waitStore = None)
+            }
+            if (result.merge) {
+              mergeMask |= (1 << index)
+              next = next.copy(
+                lineData = result.mergedLineData,
+                validMask = result.mergedValidMask,
+                loadByteMask = result.requestByteMask)
+              if (result.completed) {
+                completedMask |= (1 << index)
+                next = next.copy(
+                  status = Wait,
+                  storeBypass = true,
+                  dataComplete = true,
+                  sourcesReturned = true,
+                  missKind = NoMiss)
+              }
+            }
+            rows(index) = Some(next)
+          case None =>
+        }
+      }
+
+      ReplayWakeResult(waitStoreClearMask, mergeMask, completedMask)
+    }
+
     def flush(): Unit = {
       for (index <- rows.indices) {
         rows(index) = None
@@ -218,6 +260,7 @@ object LoadInflightQueueReference {
 class LoadInflightQueueSpec extends AnyFunSuite {
   import LoadForwardPipelineReference.{AwaitingSources, DataNotComplete, ReturnPortBlocked}
   import LoadInflightQueueReference._
+  import LoadReplayWakeupReference.{StoreUnit, Wakeup}
   import LoadStoreForwardingReference.{Store, byteMask, lineData}
   import STQFlushPruneReference.Id
 
@@ -320,6 +363,46 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(retResult.hitRecord.isEmpty)
   }
 
+  test("store wakeup clears wait-store row and completed miss row returns to WAIT") {
+    val waitLiq = new Model(entries = 4)
+    val waitIndex = waitLiq.allocate(alloc(0, addr = 0x1008, size = 2, youngestStore = 6)).index
+    val waitStore = Store(
+      index = 1,
+      dataReady = false,
+      pc = 0x3450,
+      storeId = Id(value = 4),
+      byteMask = byteMask(8, 2),
+      data = lineData(Map(8 -> 0x11, 9 -> 0x22))
+    )
+    assert(waitLiq.launch(waitIndex, LaunchInput(stores = Seq(waitStore))))
+    waitLiq.cycle()
+
+    val clear = waitLiq.replayWakeup(Wakeup(source = StoreUnit, storeId = Id(value = 4), pc = 0x3450, lineAddr = 0x1000))
+    assert(clear.waitStoreClearMask == (1 << waitIndex))
+    assert(waitLiq.row(waitIndex).exists(row => row.status == Wait && row.waitStore.isEmpty))
+
+    val missLiq = new Model(entries = 4)
+    val missIndex = missLiq.allocate(alloc(0, addr = 0x1008, size = 2, youngestStore = 6)).index
+    assert(missLiq.launch(missIndex, LaunchInput(baseValidMask = byteMask(8, 1))))
+    missLiq.cycle()
+    assert(missLiq.row(missIndex).exists(_.status == L1DcMiss))
+
+    val complete = missLiq.replayWakeup(Wakeup(
+      source = StoreUnit,
+      storeId = Id(value = 4),
+      lineAddr = 0x1000,
+      validMask = byteMask(8, 2),
+      data = lineData(Map(8 -> 0xaa, 9 -> 0xbb))))
+    val row = missLiq.row(missIndex).get
+
+    assert(complete.mergeMask == (1 << missIndex))
+    assert(complete.completedMask == (1 << missIndex))
+    assert(row.status == Wait)
+    assert(row.storeBypass)
+    assert(row.dataComplete)
+    assert(!missLiq.missPending)
+  }
+
   test("resolved rows clear before allocation pointer wraps back into their slot") {
     val liq = new Model(entries = 2)
     val a0 = liq.allocate(alloc(0, addr = 0x1000)).index
@@ -344,6 +427,8 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_lhqRecordValid"))
     assert(sv.contains("io_e4UpdateValid"))
     assert(sv.contains("io_missPending"))
+    assert(sv.contains("LoadReplayWakeup"))
+    assert(sv.contains("io_replayWakeCompletedMask"))
     assert(sv.contains("io_rows_0_status"))
   }
 }

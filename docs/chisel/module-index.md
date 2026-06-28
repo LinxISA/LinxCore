@@ -27,6 +27,7 @@
 | `LoadStoreForwarding` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadStoreForwarding.md` | Unit-green R30 scalar store-to-load byte forwarding owner; nearest older store selection, ready-byte merge, and wait-store replay masks |
 | `LoadForwardPipeline` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadForwardPipeline.md` | Unit-green R31 registered E2/E3/E4 load-forwarding boundary; final byte-valid mask, wait-store replay, and E4 wakeup gating |
 | `LoadInflightQueue` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadInflightQueue.md` | Unit-green R32 LIQ/LHQ row owner; slot-plus-wrap load IDs, E4 row updates, miss pending, and LHQ hit records |
+| `LoadReplayWakeup` | `linxcore.lsu` | `docs/chisel/modules/lsu/LoadReplayWakeup.md` | Unit-green R33 store-unit/SCB replay wakeup owner; wait-store clear, byte merge, and LIQ miss-row completion masks |
 | `ROBID` | `linxcore.rob` | `docs/chisel/modules/rob/ROBID.md` | Unit-green Packet A |
 | `ROBEntryStatus` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryStatus.md` | Unit-green Phase 5 integrated ROB/CMT status contract |
 | `ROBEntryBank` | `linxcore.rob` | `docs/chisel/modules/rob/ROBEntryBank.md` | Unit-green Phase 5 integrated ROB/CMT entry-bank skeleton with flush application and native row IDs |

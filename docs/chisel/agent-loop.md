@@ -139,6 +139,7 @@ These packets remain the required base before broad module promotion:
 | R30 | `LoadStoreForwarding` | `run_chisel_tests.sh --only LoadStoreForwarding`, `run_chisel_tests.sh --only MDBQueueFanout`, `run_chisel_tests.sh --only MDBConflictDetect`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R31 | `LoadForwardPipeline` | `run_chisel_tests.sh --only LoadForwardPipeline`, `run_chisel_tests.sh --only LoadStoreForwarding`, `run_chisel_tests.sh --only MDBQueueFanout`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R32 | `LoadInflightQueue` | `run_chisel_tests.sh --only LoadInflightQueue`, `run_chisel_tests.sh --only LoadForwardPipeline`, `run_chisel_tests.sh --only LoadStoreForwarding`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R33 | `LoadReplayWakeup` | `run_chisel_tests.sh --only LoadReplayWakeup`, `run_chisel_tests.sh --only LoadInflightQueue`, `run_chisel_tests.sh --only LoadForwardPipeline`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -244,19 +245,16 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. LIQ replay/refill owner: connect `LoadInflightQueue` miss-pending rows to
-   the first refill/relaunch boundary without adding ready-table or trace
-   side effects.
-2. Store-wakeup-to-LIQ replay owner: consume STQ/SCB wakeups to clear
-   wait-store and data-incomplete rows while preserving `LoadInflightQueue`
-   row ownership.
-3. Response ordering/buffering owner: add the L2/CHI response queue boundary in
+1. L1 refill-to-LIQ owner: consume read refill packets to clear miss-pending
+   rows, update the local line-hit sideband, and relaunch through
+   `LoadInflightQueue` without adding ready-table or trace side effects.
+2. Response ordering/buffering owner: add the L2/CHI response queue boundary in
    front of `SCBResponseDecode` without weakening stale-target reporting.
-4. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
+3. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
    first scalar rename restore/checkpoint owner.
-5. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+4. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-6. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+5. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
 6. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
    D1/D2 opcode table without changing the ingress transport contract.

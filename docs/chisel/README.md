@@ -112,6 +112,11 @@ readiness into an E4 wakeup decision.
 that pipeline: it allocates slot-plus-wrap load IDs, launches WAIT rows through
 the forwarding pipe, applies E4 hit/miss/replay outcomes to resident rows, and
 publishes an LHQ-style resolved-load record for later conflict checks.
+`LoadReplayWakeup` adds the first store-unit/SCB replay wakeup sidecar for
+that row owner: it clears matching wait-store diagnostics, merges wakeup bytes
+into eligible miss/working rows, and returns completed replay rows to `Wait`
+for the normal relaunch path while leaving L1 refill, ready-table, bypass, and
+trace ownership to later packets.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -153,6 +158,7 @@ bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout
 bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
 bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
