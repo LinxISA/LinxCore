@@ -2,7 +2,17 @@ package linxcore.frontend
 
 import chisel3._
 import circt.stage.ChiselStage
-import linxcore.common.{BoundaryKind, DecodedUop, DispatchTarget, FrontendDecodePacket, InterfaceParams}
+import linxcore.common.{
+  BoundaryKind,
+  DecodedDestination,
+  DecodedOperand,
+  DecodedUop,
+  DestinationKind,
+  DispatchTarget,
+  FrontendDecodePacket,
+  InterfaceParams,
+  OperandClass
+}
 import org.scalatest.funsuite.AnyFunSuite
 
 object FrontendDecodeStageReference {
@@ -140,6 +150,41 @@ object FrontendDecodeStageReference {
   }
 }
 
+object FrontendRegAliasClassifyReference {
+  final case class Source(valid: Boolean, cls: String, arch: Int, rel: Int)
+  final case class Destination(valid: Boolean, kind: String, arch: Int, rel: Int)
+
+  private val InvalidTag = 63
+
+  def source(valid: Boolean, tag: Int): Source = {
+    if (!valid) {
+      Source(valid = false, "Invalid", tag, InvalidTag)
+    } else if (tag >= 0 && tag < 24) {
+      Source(valid = true, "P", tag, tag)
+    } else if (tag >= 24 && tag <= 27) {
+      Source(valid = true, "T", tag, tag - 24)
+    } else if (tag >= 28 && tag <= 31) {
+      Source(valid = true, "U", tag, tag - 28)
+    } else {
+      Source(valid = true, "Invalid", tag, InvalidTag)
+    }
+  }
+
+  def destination(valid: Boolean, tag: Int): Destination = {
+    if (!valid) {
+      Destination(valid = false, "None", tag, InvalidTag)
+    } else if (tag >= 0 && tag < 24) {
+      Destination(valid = true, "Gpr", tag, tag)
+    } else if (tag == 31) {
+      Destination(valid = true, "T", tag, 0)
+    } else if (tag == 30) {
+      Destination(valid = true, "U", tag, 0)
+    } else {
+      Destination(valid = true, "None", tag, InvalidTag)
+    }
+  }
+}
+
 class FrontendDecodeStageProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val d1 = Input(new FrontendDecodePacket(p))
   val slots = Input(Vec(p.decodeWidth, new F4Slot(p)))
@@ -172,6 +217,22 @@ class FrontendDecodeStageProbe(val p: InterfaceParams = InterfaceParams()) exten
   io.storeMask := stage.io.storeMask
 }
 
+class FrontendRegAliasClassifyProbeIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
+  val srcValid = Input(Bool())
+  val srcTag = Input(UInt(p.archRegWidth.W))
+  val dstValid = Input(Bool())
+  val dstTag = Input(UInt(p.archRegWidth.W))
+  val src = Output(new DecodedOperand(p))
+  val dst = Output(new DecodedDestination(p))
+}
+
+class FrontendRegAliasClassifyProbe(val p: InterfaceParams = InterfaceParams()) extends Module {
+  val io = IO(new FrontendRegAliasClassifyProbeIO(p))
+
+  io.src := FrontendRegAliasClassify.source(p, io.srcValid, io.srcTag)
+  io.dst := FrontendRegAliasClassify.destination(p, io.dstValid, io.dstTag)
+}
+
 class FrontendDecodeStageSpec extends AnyFunSuite {
   import FrontendDecodeStageReference._
 
@@ -185,6 +246,42 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(FrontendOpcodeDecodeTable.OP_BSTOP == 578)
     assert(FrontendOpcodeDecodeTable.OperandREG == 1)
     assert(FrontendOpcodeDecodeTable.ImmUIMM12 != FrontendOpcodeDecodeTable.ImmSIMM12_20_S12)
+  }
+
+  test("frontend reg6 alias classifier follows LinxCoreModel scalar operand bounds") {
+    import FrontendRegAliasClassifyReference._
+
+    assert(FrontendRegAliasClassify.ScalarGprCount == 24)
+    assert(FrontendRegAliasClassify.SourceTLeft == 24)
+    assert(FrontendRegAliasClassify.SourceTRight == 27)
+    assert(FrontendRegAliasClassify.SourceULeft == 28)
+    assert(FrontendRegAliasClassify.SourceURight == 31)
+    assert(FrontendRegAliasClassify.DestinationUQueueTag == 30)
+    assert(FrontendRegAliasClassify.DestinationTQueueTag == 31)
+
+    assert(source(valid = true, tag = 0) == Source(valid = true, cls = "P", arch = 0, rel = 0))
+    assert(source(valid = true, tag = 23) == Source(valid = true, cls = "P", arch = 23, rel = 23))
+    assert(source(valid = true, tag = 24) == Source(valid = true, cls = "T", arch = 24, rel = 0))
+    assert(source(valid = true, tag = 27) == Source(valid = true, cls = "T", arch = 27, rel = 3))
+    assert(source(valid = true, tag = 28) == Source(valid = true, cls = "U", arch = 28, rel = 0))
+    assert(source(valid = true, tag = 31) == Source(valid = true, cls = "U", arch = 31, rel = 3))
+
+    assert(destination(valid = true, tag = 23) == Destination(valid = true, kind = "Gpr", arch = 23, rel = 23))
+    assert(destination(valid = true, tag = 30) == Destination(valid = true, kind = "U", arch = 30, rel = 0))
+    assert(destination(valid = true, tag = 31) == Destination(valid = true, kind = "T", arch = 31, rel = 0))
+    assert(destination(valid = true, tag = 24) == Destination(valid = true, kind = "None", arch = 24, rel = 63))
+
+    assert(OperandClass.P.asUInt.litValue == 1)
+    assert(OperandClass.T.asUInt.litValue == 2)
+    assert(OperandClass.U.asUInt.litValue == 3)
+    assert(DestinationKind.Gpr.asUInt.litValue == 1)
+    assert(DestinationKind.T.asUInt.litValue == 2)
+    assert(DestinationKind.U.asUInt.litValue == 3)
+
+    val sv = ChiselStage.emitSystemVerilog(new FrontendRegAliasClassifyProbe(InterfaceParams()))
+    assert(sv.contains("module FrontendRegAliasClassifyProbe"))
+    assert(sv.contains("io_src_operandClass"))
+    assert(sv.contains("io_dst_kind"))
   }
 
   test("reference decode uses the pyCircuit most-specific mask rule") {

@@ -30,7 +30,7 @@ Inputs:
 Outputs:
 
 - `out[4]`: `DecodedUop` records with valid, PC, opcode, dispatch-kind
-  sideband, scalar source/destination tags where currently supported,
+  sideband, scalar source/destination tags plus GPR/T/U alias classes,
   immediate value/valid, raw instruction, length, UID, parent packet UID, and
   checkpoint.
 - `meta[4]`: opcode decode metadata for integration/debug.
@@ -122,7 +122,9 @@ bash tools/chisel/run_chisel_verilator_lint.sh
   block/BROB allocation.
 - Move LSID allocation and block-split sideband queues from pyCircuit/model
   contracts into Chisel owner modules.
+- Add the T/U rename or queue-consumption owner for the aliases already
+  classified by `FrontendRegAliasClassify`.
 - Extend operand extraction beyond the scalar subset documented by
-  `FrontendOperandDecode`: T/U/SGPR aliases, tile/vector forms, PCR addressing,
+  `FrontendOperandDecode`: SGPR aliases, tile/vector forms, PCR addressing,
   uncommon HL forms, shifts/source-type sidebands, and macro-specific payload
   interpretation.

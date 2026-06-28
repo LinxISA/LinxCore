@@ -38,10 +38,12 @@ visibility. `FrontendDecodeStage` now consumes those F4 slots and uses the
 pyCircuit opcode catalog mask/match metadata to produce D1 `DecodedUop`
 records plus block/load/store sideband masks. `FrontendOperandDecode` is the
 first scalar operand owner behind that stage: it consumes generated
-`rdKind`/`rs1Kind`/`rs2Kind`/`immKind` metadata, extracts architectural GPR
-source/destination tags, and forms common scalar immediates. LSID allocation,
-store split rewrite, T/U/SGPR/tile/vector operands, D2 queueing, and
-rename/ROB admission remain later owners. `ScalarDecodeRenameBridge` now adds
+`rdKind`/`rs1Kind`/`rs2Kind`/`immKind` metadata, extracts architectural
+source/destination tags, classifies scalar reg6 aliases as GPR/T/U according
+to LinxCoreModel, and forms common scalar immediates. LSID allocation, store
+split rewrite, T/U rename or queue consumption, SGPR/tile/vector operands, D2
+queueing, and rename/ROB admission remain later owners.
+`ScalarDecodeRenameBridge` now adds
 the first one-uop D2 decode-to-rename staging owner: it composes scalar
 `GPRRenameCheckpoint`, emits a `RenamedUop`, and produces a ROB allocation row
 request while rejecting reg6 aliases outside the 24-entry scalar GPR owner.

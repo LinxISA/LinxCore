@@ -4,8 +4,8 @@
 
 `FrontendOperandDecode` is the scalar field extractor behind
 `FrontendDecodeStage`. It converts generated opcode metadata plus the raw
-instruction into the architectural source tags, destination tag, and immediate
-payload carried by `DecodedUop`.
+instruction into architectural source operands, destination operands, and
+immediate payloads carried by `DecodedUop`.
 
 This module is a D1 decode owner. It does not allocate LSIDs, split stores into
 STA/STD uops, mutate block headers, rename architectural tags, allocate ROB
@@ -18,6 +18,10 @@ The implementation is grounded in:
 - `model/LinxCoreModel/model/bctrl/spe/Decoder.cpp`
 - `model/LinxCoreModel/model/bctrl/spe/SPERename.cpp`
 - `model/LinxCoreModel/model/bctrl/spe/GPRRename.cpp`
+- `model/LinxCoreModel/isa/ISACommon/GPR.h`
+- `model/LinxCoreModel/isa/ISACommon/DecodeUtiles.h`
+- `model/LinxCoreModel/isa/MInst.cpp`
+- `model/LinxCoreModel/isa/codec/decodefiles/block16.decode`
 
 ## Interface
 
@@ -30,14 +34,24 @@ Inputs:
 Outputs:
 
 - `src[3]`: architectural source operands in pyCircuit decode order:
-  `srcl`, `srcr`, and `srcp`.
+  `srcl`, `srcr`, and `srcp`, classified by
+  `FrontendRegAliasClassify.source()`.
 - `dst[1]`: architectural destination operand from `regdst`.
 - `imm`: 64-bit immediate payload.
 - `immValid`: immediate payload validity.
 
-All emitted register operands currently use `OperandClass.P` /
-`DestinationKind.Gpr` in the reg6 namespace. Unsupported or inactive operands
-emit `REG_INVALID`.
+Register operands use the model-derived scalar reg6 classification:
+
+- source tags `0..23`: `OperandClass.P`;
+- source tags `24..27`: `OperandClass.T`;
+- source tags `28..31`: `OperandClass.U`;
+- destination tags `0..23`: `DestinationKind.Gpr`;
+- destination tag `31`: `DestinationKind.T`;
+- destination tag `30`: `DestinationKind.U`.
+
+Unsupported active aliases keep `valid=1` but emit `Invalid` / `None` with
+`REG_INVALID` as `relTag`, so downstream owners can reject or route them
+explicitly.
 
 ## Logic Design
 
@@ -76,10 +90,12 @@ Implemented immediate forms:
 - `IMM32` for `HL.LUI`
 - compressed `SIMM12` branch offsets
 
-Explicit pyCircuit overrides currently cover:
+Explicit pyCircuit/model overrides currently cover:
 
-- fixed-destination compressed ALU/load forms that write architectural tag 31;
-- compressed stores that use architectural tag 24 as the data source;
+- fixed-destination compressed ALU/load forms that write architectural tag 31,
+  classified as a T-queue destination;
+- compressed stores and compare forms that use architectural tag 24 as a T-link
+  source;
 - macro forms `FENTRY`, `FEXIT`, `FRET.RA`, and `FRET.STK` that carry
   `rs1_32`, `rs2_32`, and macro immediate fields despite catalog
   `rs*_kind=NONE`;
@@ -94,10 +110,10 @@ to rename. That establishes the boundary this module serves: architectural
 operand structure must exist before rename, but physical tag allocation belongs
 to `SPERename` and `GPRRename`.
 
-`FrontendOperandDecode` therefore emits architectural tags and immediates only.
-It leaves `physTag`, `ready`, free-list state, map-queue state, `tSeq/uSeq`,
-store split rewrite, and checkpoint restore to rename, dispatch, ROB, and
-recovery owners.
+`FrontendOperandDecode` therefore emits architectural tags, class-relative
+tags, operand classes, destination kinds, and immediates only. It leaves
+`physTag`, `ready`, free-list state, map-queue state, `tSeq/uSeq`, store split
+rewrite, and checkpoint restore to rename, dispatch, ROB, and recovery owners.
 
 ## Verification
 
@@ -116,12 +132,15 @@ The `FrontendDecodeStageSpec` reference cases cover:
 - direct block-start byte offset (`BSTART.DIRECT`)
 - fixed-destination compressed ALU (`C.ADD`)
 - compressed signed immediate (`C.MOVI`)
+- model-derived reg6 alias classification for scalar GPR, T-link, U-link, and
+  T/U queue destination boundaries
 
 ## Open Work
 
 - Add cycle-level simulation checks once the Chisel test lane has a probe
   driver for `DecodedUop` payload values.
-- Add T/U/SGPR and tile/vector operand classes.
+- Add T/U rename/queue consumption, SGPR aliases, and tile/vector operand
+  classes.
 - Add shift/source-type sidebands (`srcr_type`, `shamt`) instead of only
   reg/immediate fields.
 - Add LSID allocation, D2 queueing, store split rewrite, block split queues,

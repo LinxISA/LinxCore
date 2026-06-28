@@ -2550,3 +2550,56 @@ Skill evolve:
   from a pre-ready bridge attempt signal, while rename mutation and
   `robAllocValid` remain tied to accepted allocation, avoiding ready feedback
   through ROB duplicate detection.
+
+### R43 Frontend Reg Alias Classification
+
+Implementation:
+
+- Added `FrontendRegAliasClassify` as the scalar reg6 alias classifier used by
+  `FrontendOperandDecode`.
+- Mapped source tags `0..23` to scalar GPRs, `24..27` to T-link operands, and
+  `28..31` to U-link operands, matching LinxCoreModel `SetSrcOperand()`.
+- Mapped destination tags `0..23` to scalar GPRs, tag `31` to the T queue, and
+  tag `30` to the U queue, matching LinxCoreModel `SetDstOperand()`.
+- Kept `ScalarDecodeRenameBridge` as a scalar-GPR-only owner; T/U operands now
+  reach that reduced bridge as explicit unsupported operand classes instead of
+  being mislabeled as scalar GPR aliases.
+
+Verification:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
+bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Evidence:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `FrontendDecodeStageSpec` passed 7 tests covering the model-derived scalar
+  alias boundaries, opcode table invariants, reference operand decode, IO
+  shape, and Chisel elaboration.
+- `ScalarDecodeRenameBridgeSpec` passed 6 tests, preserving the
+  scalar-GPR-only rename boundary and explicit alias rejection.
+- `DecodeRenameROBPathSpec` passed 4 tests, preserving the reduced
+  decode/rename/ROB allocation composition.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` compared 3 rows with zero
+  mismatches.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the current top
+  shell and passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `FrontendRegAliasClassify` adds the
+  reusable decode invariant that reg6 tags `24..31` are not scalar GPRs:
+  sources split into T-link `24..27` and U-link `28..31`, while destinations
+  use queue selectors `31` for T and `30` for U.

@@ -22,8 +22,10 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `rtl/LinxCore` | `a8aa478dd89986a88df57a75e91226437707a846` |
+| `linx-isa` | `a2588336b8f7f7df5021a3f85ff359f6924f0b33` |
+| `rtl/LinxCore` | `14180626e4df8de81e83a77fed0833a5e1fb18c6` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
+| `emulator/qemu` | `3c26b2d6f9b4e4a3aeac3528db51657697e8923a` |
 
 LinxCoreModel was fetched on 2026-06-28 and `main...origin/main` was already
 up to date. The superproject root and `rtl/LinxCore` were fetched; both active
@@ -150,6 +152,7 @@ These packets remain the required base before broad module promotion:
 | R40 | `FrontendOperandDecode` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `run_chisel_tests.sh --only InterfaceBundles`, `build_chisel.sh`, `run_chisel_top_xcheck.sh`, `run_chisel_verilator_lint.sh`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R41 | `ScalarDecodeRenameBridge` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only GPRRenameCheckpoint`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R42 | `DecodeRenameROBPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only GPRRenameCheckpoint`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R43 | `FrontendRegAliasClassify` / `FrontendOperandDecode` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -255,14 +258,15 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Reg6 alias classification: split fixed compressed tags 24/31 and future
-   T/U/SGPR aliases away from the scalar GPR owner before they reach rename.
-2. Registered D2/D3 queueing: split the reduced `DecodeRenameROBPath`
+1. Registered D2/D3 queueing: split the reduced `DecodeRenameROBPath`
    acceptance boundary into model-like `DCTop -> dec_ren_q -> SPERename`
    staging while preserving the pre-ready ROB allocation attempt contract.
-3. LSID and store-split boundary: add the owner that consumes decoded scalar
+2. LSID and store-split boundary: add the owner that consumes decoded scalar
    load/store shapes, assigns LSIDs, and keeps store address/data split logic
    aligned with LinxCoreModel without moving it back into operand decode.
+3. T/U queue rename boundary: consume `OperandClass.T/U` and
+   `DestinationKind.T/U` emitted by `FrontendRegAliasClassify` without
+   broadening scalar GPR rename ownership.
 4. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
 5. QEMU full-compare harness: replace reduced synthetic rows with live Chisel

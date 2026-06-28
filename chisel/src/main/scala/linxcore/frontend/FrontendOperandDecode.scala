@@ -47,17 +47,11 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
     values.map(value => io.meta.opcode === value.U(p.opcodeWidth.W)).reduce(_ || _)
 
   private def setSrc(idx: Int, tag: UInt): Unit = {
-    io.src(idx).valid := true.B
-    io.src(idx).operandClass := OperandClass.P
-    io.src(idx).archTag := archTag(tag)
-    io.src(idx).relTag := archTag(tag)
+    io.src(idx) := FrontendRegAliasClassify.source(p, true.B, archTag(tag))
   }
 
   private def setDst(tag: UInt): Unit = {
-    io.dst(0).valid := true.B
-    io.dst(0).kind := DestinationKind.Gpr
-    io.dst(0).archTag := archTag(tag)
-    io.dst(0).relTag := archTag(tag)
+    io.dst(0) := FrontendRegAliasClassify.destination(p, true.B, archTag(tag))
   }
 
   private def setImm(value: UInt): Unit = {

@@ -7,7 +7,8 @@
 | `FrontendInstructionBuffer` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendInstructionBuffer.md` | Unit-green Phase 2 frontend packet FIFO |
 | `FrontendDecodeIngress` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeIngress.md` | Unit-green Phase 2 IB-to-F4 transport wrapper |
 | `FrontendDecodeStage` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendDecodeStage.md` | Unit-green R39/R40 catalog-driven opcode classification plus scalar operand/immediate extraction plumbing |
-| `FrontendOperandDecode` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendOperandDecode.md` | Unit-green R40 scalar architectural GPR operand and immediate field owner behind `FrontendDecodeStage` |
+| `FrontendRegAliasClassify` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendRegAliasClassify.md` | Unit-green R43 scalar reg6 GPR/T/U alias classifier used by frontend operand decode |
+| `FrontendOperandDecode` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendOperandDecode.md` | Unit-green R43 scalar architectural operand/immediate field owner behind `FrontendDecodeStage` with model-derived GPR/T/U alias classification |
 | `DispatchROBAllocator` | `linxcore.backend` | `docs/chisel/modules/backend/DispatchROBAllocator.md` | Unit-green backend allocation bridge from BROB BID generation to ROB row allocation |
 | `DecodeRenameROBPath` | `linxcore.backend` | `docs/chisel/modules/backend/DecodeRenameROBPath.md` | Unit-green R42 reduced frontend decode to scalar rename and ROB/BROB allocation composition |
 | `FullBidRecoveryBridge` | `linxcore.recovery` | `docs/chisel/modules/recovery/FullBidRecoveryBridge.md` | Unit-green recovery handoff from full block BID to ring ROBID pruning sidecar |
