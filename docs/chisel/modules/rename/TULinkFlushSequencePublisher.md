@@ -14,6 +14,7 @@
   - `model/LinxCoreModel/model/bctrl/LocalRegMgr.cpp`
 - Related Chisel:
   - `chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
+  - `chisel/src/main/scala/linxcore/rename/TULinkFlushSourceSelector.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRename.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRecoveryCleanupPath.scala`
 
@@ -143,7 +144,7 @@ dropped.
 
 ## Deferred Owners
 
-- Live ROB/LSU row snapshot publisher feeding `source`.
+- Live ROB/LSU row sidecars feeding `TULinkFlushSourceSelector`.
 - Relation-cmap release owner around local retire/dealloc.
 - Ready-table mutation for T/U local physical tags.
 - Multi-PE and multi-thread bank replication beyond the current STID0 packet.

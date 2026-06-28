@@ -5,6 +5,7 @@
 - Chisel: `chisel/src/main/scala/linxcore/rename/TULinkRecoveryCleanupPath.scala`
 - Tests: `chisel/src/test/scala/linxcore/rename/TULinkRecoveryCleanupPathSpec.scala`
 - Related Chisel:
+  - `chisel/src/main/scala/linxcore/rename/TULinkFlushSourceSelector.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkFlushSequencePublisher.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRename.scala`
   - `chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
@@ -23,8 +24,8 @@ flush sequence publisher to the T/U local-register rename owner. It consumes a
 registered `RecoveryCleanupIntent` plus a selected ROB/LSU row snapshot, then
 drives the local `TULinkRename` flush command fields.
 
-This module does not yet select the row snapshot from a live ROB or LSU owner.
-Its boundary is the first stable integration point:
+`TULinkFlushSourceSelector` now defines the upstream ROB/LSU candidate
+selection boundary. This module still consumes one already-selected source:
 
 ```text
 RecoveryCleanupIntent + selected row snapshot
@@ -134,7 +135,7 @@ contract failures rather than ignoring them.
 
 ## Deferred Owners
 
-- Live ROB/LSU selected-row snapshot publisher feeding `flushSource`.
+- Live ROB/LSU row sidecars feeding `TULinkFlushSourceSelector`.
 - Scalar decode/rename composition that merges GPR and T/U accepted outputs.
 - Relation-cmap release policy around T/U retire/dealloc.
 - T/U ready-table initialization and wakeup state.

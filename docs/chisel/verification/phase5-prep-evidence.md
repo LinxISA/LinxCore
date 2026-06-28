@@ -3387,3 +3387,81 @@ Skill evolve:
   row source is missing or mismatched, the T/U owner must freeze rename,
   retire, and commit instead of falling through to unrelated local-register
   maintenance.
+
+### R55 T/U Flush Source Selector
+
+Scope:
+
+- Added `TULinkFlushSourceSelector` as the ROB/LSU candidate-source boundary
+  for T/U cleanup sidebands.
+- Kept current ROB/STQ row storage unchanged because those rows do not yet
+  carry T/U `tSeq/uSeq` sidecars.
+- Selected a matching ROB or LSU candidate for non-base cleanup by
+  `(flush.bid, flush.rid, flush.stid)`.
+- Allowed duplicate ROB+LSU matches only when the source payloads agree; a
+  duplicate payload conflict suppresses the selected source so R54's recovery
+  barrier handles the cleanup instead of applying an arbitrary sequence.
+
+Model evidence:
+
+- `SPEROB::getRetireID` exposes row-owned `tSeq/uSeq`.
+- `SPEROB::CheckDstDataOut` builds scalar inner-flush requests from the current
+  ROB row's T/U sequence sidebands.
+- Scalar store-unit and LDQ deadlock paths build LSU flush requests from
+  `GetRetireID()`, then inspect the owning ROB instruction for T/U
+  destination ownership.
+- `LocalRegMgr::flush` consumes the selected `FlushReq.tSeq/uSeq` sidebands.
+
+Evidence:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSourceSelector
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSequencePublisher
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+python3 /Users/zhoubot/linx-isa/tools/bringup/run_ai_workload_flow.py --profile smoke --dry-run
+```
+
+Expected result:
+
+- `TULinkFlushSourceSelectorSpec` locks ROB source selection, LSU fallback
+  after ROB mismatch, source-free base cleanup, missing-source diagnostics,
+  identical duplicate-source acceptance, duplicate-source conflict
+  suppression, inactive cleanup, IO widths, and standalone elaboration.
+- Existing T/U recovery cleanup composition and publisher gates remain green.
+- Recovery cleanup, flush control, reduced ROB, and QEMU dry-run gates remain
+  green because R55 only defines the upstream source-selection boundary.
+- LinxCoreModel local `HEAD` still matches `origin/main`.
+
+Observed result:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `TULinkFlushSourceSelectorSpec` passed 8 tests.
+- `TULinkRecoveryCleanupPathSpec` passed 7 tests.
+- `TULinkFlushSequencePublisherSpec` passed 8 tests.
+- `RecoveryCleanupControlSpec` passed 6 tests.
+- `FlushControlSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `python3 /Users/zhoubot/linx-isa/tools/bringup/run_ai_workload_flow.py --profile smoke --dry-run`
+  completed and wrote `workloads/generated/ai-20260628-190342/ai-bringup/`
+  manifest, report, and summary paths.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R55 adds a reusable source-boundary
+  invariant: if ROB and LSU both claim the same selected non-base T/U cleanup
+  row, their payloads must agree; otherwise suppress the source and let the
+  recovery barrier handle the command.
