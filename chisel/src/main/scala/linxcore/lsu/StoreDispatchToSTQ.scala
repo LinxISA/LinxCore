@@ -3,7 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.log2Ceil
 
-import linxcore.common.InterfaceParams
+import linxcore.common.{DestinationKind, InterfaceParams}
 import linxcore.rename.{StoreSplitIssuePayload, StoreSplitStoreType}
 import linxcore.rob.ROBID
 
@@ -37,7 +37,8 @@ class StoreDispatchToSTQIO(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
-    val simtLaneWidth: Int = 8)
+    val simtLaneWidth: Int = 8,
+    val mapQDepth: Int = 32)
     extends Bundle {
   val flushValid = Input(Bool())
   val staValid = Input(Bool())
@@ -52,9 +53,9 @@ class StoreDispatchToSTQIO(
   val staDequeueReady = Output(Bool())
   val stdDequeueReady = Output(Bool())
   val insertValid = Output(Bool())
-  val insert = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
-  val staRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
-  val stdRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val insert = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val staRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val stdRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
   val staCandidate = Output(Bool())
   val stdCandidate = Output(Bool())
   val selectedSta = Output(Bool())
@@ -75,14 +76,15 @@ class StoreDispatchToSTQ(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
-    val simtLaneWidth: Int = 8)
+    val simtLaneWidth: Int = 8,
+    val mapQDepth: Int = 32)
     extends Module {
   require(entries > 1, "STQ identity entries must be greater than one")
   require((entries & (entries - 1)) == 0, "STQ identity entries must be a power of two")
 
   private val idWidth = log2Ceil(entries)
 
-  val io = IO(new StoreDispatchToSTQIO(p, entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val io = IO(new StoreDispatchToSTQIO(p, entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
 
   private def resizeUInt(value: UInt, width: Int): UInt =
     if (width <= value.getWidth) value(width - 1, 0) else value.pad(width)
@@ -116,18 +118,22 @@ class StoreDispatchToSTQ(
   }
 
   private def zeroRequest: STQStoreRequest = {
-    val req = Wire(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+    val req = Wire(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
     req := 0.U.asTypeOf(req)
     req.storeType := STQStoreType.All
     req.bid := ROBID.disabled(entries)
     req.gid := ROBID.disabled(entries)
     req.rid := ROBID.disabled(entries)
     req.lsId := ROBID.disabled(entries)
+    req.tSeq := ROBID.disabled(mapQDepth)
+    req.uSeq := ROBID.disabled(mapQDepth)
+    req.tuDstValid := false.B
+    req.tuDstKind := DestinationKind.None
     req
   }
 
   private def buildRequest(payload: StoreSplitIssuePayload, exec: StoreDispatchExecResult): STQStoreRequest = {
-    val req = Wire(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+    val req = Wire(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
     req := 0.U.asTypeOf(req)
     req.storeType := mapStoreType(payload.storeType)
     req.peId := exec.peId
@@ -137,6 +143,10 @@ class StoreDispatchToSTQ(
     req.gid := resizeId(payload.uop.gid)
     req.rid := resizeId(payload.uop.rid)
     req.lsId := lsidToId(payload.uop.lsid)
+    req.tSeq := ROBID.disabled(mapQDepth)
+    req.uSeq := ROBID.disabled(mapQDepth)
+    req.tuDstValid := false.B
+    req.tuDstKind := DestinationKind.None
     req.addr := exec.addr
     req.data := exec.data
     req.size := exec.size

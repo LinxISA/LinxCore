@@ -12,6 +12,10 @@
     - `STQ::insert`
     - `STQ::mergeStore`
     - `STQueueEntryInfo::init`
+  - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
+    - `MemReqBus::tSeq/uSeq`
+  - `model/LinxCoreModel/model/ModelCommon/SimInstInfo.cpp`
+    - `SimInstInfo::GenMemReq`
   - `model/LinxCoreModel/model/lsu/FakeLSU.cpp`
     - `FakeLSU::mergeStore`
 - Related Chisel:
@@ -54,7 +58,9 @@ Outputs:
   head.
 - `insertValid`, `insert`: selected `STQStoreRequest`.
 - `staRequest`, `stdRequest`: per-candidate request images for readiness
-  probing and observability.
+  probing and observability. Their `tSeq/uSeq` and T/U destination sidecars
+  are explicit fields in the request image and are currently driven disabled
+  until live T/U rename snapshots are connected to the store path.
 - `staCandidate`, `stdCandidate`: payload plus execution-result readiness.
 - `selectedSta`, `selectedStd`: one-cycle insertion choice.
 - `blockedByStaExec`, `blockedByStdExec`: queue head waits for execution
@@ -98,6 +104,13 @@ The request copies `bid/gid/rid` from the renamed uop, converts the 32-bit
 reduced `lsid` into the STQ ring-ID sidecar, and fills address/data/size plus
 scope fields from the execution result.
 
+The request also carries `tSeq/uSeq` and T/U destination ownership fields that
+match the model `MemReqBus` sidecars. This bridge preserves the bundle surface
+but currently drives those fields to disabled or `DestinationKind.None`,
+because `StoreSplitIssuePayload` does not yet carry live T/U rename snapshots.
+`STQEntryBank` and the STQ wrappers already preserve and expose the sidecars
+once a later packet fills them.
+
 ## Model Alignment
 
 `StoreUnit::store` drains STA-side queues first, ordered by `(bid, lsID)`,
@@ -118,6 +131,8 @@ second half completes the store.
 ## Deferred Owners
 
 - Real STA address generation and STD data selection.
+- Live `tSeq/uSeq` and T/U destination sidecars from the T/U rename owner into
+  `StoreSplitIssuePayload` and then `STQStoreRequest`.
 - Load-conflict probe publication after accepted STQ insert.
 - Store-data wakeup, ready-table, memory trace, and exception side effects.
 

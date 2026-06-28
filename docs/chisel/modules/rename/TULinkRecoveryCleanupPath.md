@@ -127,8 +127,10 @@ The selected-row sequence source comes from ROB/LSU recovery builders:
 
 `TULinkRecoveryCleanupPath` preserves that split. It owns composition and
 barrier behavior, while the row owners remain responsible for producing the
-candidate source snapshots. The reduced backend now exposes the allocator's
-ROB-side source candidate; LSU/STQ source sidecars remain a later packet.
+candidate source snapshots. The reduced backend exposes the allocator's
+ROB-side source candidate, and STQ wrappers now expose the LSU-side source
+candidate from `STQEntryBank`; a later top-level integration packet must wire
+the active LSU source into this path.
 
 ## Timing
 
@@ -149,9 +151,9 @@ rather than ignoring them.
 
 ## Deferred Owners
 
-- Add matching LSU/STQ row sidecars feeding `TULinkFlushSourceSelector`.
-- Compose the reduced backend's exposed ROB source and the future LSU source
-  into the live top-level recovery cleanup path.
+- Compose the reduced backend's exposed ROB source and the STQ wrapper's LSU
+  source into the live top-level recovery cleanup path.
+- Replace disabled store-dispatch T/U sidecars with live rename snapshots.
 - Scalar decode/rename composition that merges GPR and T/U accepted outputs.
 - Relation-cmap release policy around T/U retire/dealloc.
 - T/U ready-table initialization and wakeup state.

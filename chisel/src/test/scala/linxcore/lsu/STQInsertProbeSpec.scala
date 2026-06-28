@@ -136,6 +136,8 @@ class STQInsertProbeSpec extends AnyFunSuite {
     val io = new STQInsertProbeIO(entries = 8)
 
     assert(io.request.bid.value.getWidth == 3)
+    assert(io.request.tSeq.value.getWidth == 5)
+    assert(io.rows.head.uSeq.value.getWidth == 5)
     assert(io.rows.length == 8)
     assert(io.ready.getWidth == 1)
     assert(io.requestReady.getWidth == 1)
@@ -150,6 +152,7 @@ class STQInsertProbeSpec extends AnyFunSuite {
 
     assert(sv.contains("module STQInsertProbe"))
     assert(sv.contains("io_ready"))
+    assert(sv.contains("io_request_tSeq_value"))
     assert(sv.contains("io_requestReady"))
     assert(sv.contains("io_conflict"))
     assert(sv.contains("io_freeMask"))

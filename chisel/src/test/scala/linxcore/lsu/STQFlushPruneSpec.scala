@@ -20,6 +20,7 @@ object STQFlushPruneReference {
       peId: Int = 0,
       tid: Int = 0,
       bid: Id = Id(),
+      rid: Id = Id(),
       gid: Id = Id(),
       lsId: Id = Id(),
       baseOnBid: Boolean = false,

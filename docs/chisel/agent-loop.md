@@ -67,6 +67,14 @@ matched `origin/main` at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; the
 Chisel QEMU adapter dry-run selected
 `emulator/qemu/build-linx/qemu-system-linx64` and passed the trace schema
 adapter self-test.
+R58 started from `rtl/LinxCore` commit
+`ac3540247bb25107c51332f5ed971ab0b5bdc8b6`, with only unrelated architecture
+markdown files dirty in the LinxCore worktree.
+During R58, `model/LinxCoreModel` was fetched again and local `HEAD` still
+matched `origin/main` at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; the
+Chisel QEMU adapter dry-run selected
+`emulator/qemu/build-linx/qemu-system-linx64` and passed the trace schema
+adapter self-test.
 
 ## Non-Negotiable Rules
 
@@ -210,6 +218,7 @@ These packets remain the required base before broad module promotion:
 | R55 | `TULinkFlushSourceSelector` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R56 | `ROBEntryBank` T/U source sidecars | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R57 | `TULinkRecoveryCleanupPath` source-selected composition | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R58 | `STQEntryBank` LSU T/U source sidecars | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only STQFlushPrune`, `run_chisel_tests.sh --only StoreDispatchToSTQ`, `run_chisel_tests.sh --only StoreDispatchSTQPath`, `run_chisel_tests.sh --only STQInsertProbe`, `run_chisel_tests.sh --only STQCommitDrain`, `run_chisel_tests.sh --only STQSCBCommitPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -325,10 +334,10 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add the matching LSU/STQ source sidecar owner, drive
-   `TULinkRecoveryCleanupPath.lsuSource`, and prove that LSU deadlock cleanup
-   either agrees with ROB for the same `(bid,rid,stid)` or is suppressed as a
-   source conflict.
+1. Compose the forwarded STQ `lsuTULinkSource` into the live recovery cleanup
+   path, drive `TULinkRecoveryCleanupPath.lsuSource`, and prove that LSU
+   deadlock cleanup either agrees with ROB for the same `(bid,rid,stid)` or is
+   suppressed as a source conflict.
 2. Replace the reduced zero/invalid T/U allocation sidecars in
    `DecodeRenameROBPath` with `SPERename`-equivalent `tSeq/uSeq` snapshots
    captured before T/U destination rename.

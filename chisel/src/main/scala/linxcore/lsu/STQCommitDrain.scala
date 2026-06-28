@@ -33,7 +33,8 @@ class STQCommitDrainIO(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
-    val simtLaneWidth: Int = 8)
+    val simtLaneWidth: Int = 8,
+    val mapQDepth: Int = 32)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val queueCountWidth = log2Ceil(queueEntries + 1)
@@ -51,7 +52,7 @@ class STQCommitDrainIO(
   val issueEnable = Input(Bool())
   val primaryReadyMask = Input(UInt(entries.W))
   val secondaryReadyMask = Input(UInt(entries.W))
-  val rows = Input(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth)))
+  val rows = Input(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
 
   val commitEligibleMask = Output(UInt(entries.W))
   val splitMask = Output(UInt(entries.W))
@@ -94,7 +95,8 @@ class STQCommitDrain(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
-    val simtLaneWidth: Int = 8)
+    val simtLaneWidth: Int = 8,
+    val mapQDepth: Int = 32)
     extends Module {
   require(entries > 1, "STQ entries must be greater than one")
   require(queueEntries > 1, "STQ commit queue entries must be greater than one")
@@ -107,7 +109,7 @@ class STQCommitDrain(
 
   private val freeCountWidth = log2Ceil(issueWidth + 1)
 
-  val io = IO(new STQCommitDrainIO(entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val io = IO(new STQCommitDrainIO(entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
 
   private def zeroReq: STQCommitDrainRequest = {
     val req = Wire(new STQCommitDrainRequest(entries, addrWidth, dataWidth, sizeWidth))

@@ -4,6 +4,8 @@
 
 - LinxCoreModel: `model/LinxCoreModel/model/ModelCommon/bus/FlushBus.h`
 - LinxCoreModel: `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
+- LinxCoreModel: `model/LinxCoreModel/model/ModelCommon/SimInstInfo.cpp`
+- LinxCoreModel: `model/LinxCoreModel/model/ModelCommon/LSUUtils.cpp`
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/store_unit.cpp`
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/stq.h`
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
@@ -76,6 +78,15 @@ After scope filtering:
 `STQ::flush` only frees entries whose STQ slot is valid, whose memory request
 matches the `FlushBus`, and whose FSM is `STQ_WAIT`. Valid entries in commit,
 miss, L2-wait, idle, or resolved states are not freed by this flush path.
+
+`MemReqBus` carries `tSeq`, `uSeq`, and `predSeq` sidecars. `SimInstInfo`
+copies the instruction's local-register sequence snapshots into memory
+requests before they enter LSU/STQ structures. Store-unit deadlock cleanup uses
+the old retiring store identity from `PE.GetRetireID()`, reads the owning ROB
+instruction to identify T/U destinations, and applies `GetPrevRegSeq` to the
+old row's sequence when the flushed instruction owns that destination. The T/U
+source key for this local cleanup is therefore the exact old row
+`(bid, rid, stid)`, not the broader STQ flush-prune `(bid, lsId)` predicate.
 
 `STQueueEntryInfo::init` either allocates a new valid `STQ_WAIT` row or merges
 the address and data halves of a split store. A new `ST_ALL` row is immediately
@@ -162,6 +173,16 @@ single-index or multi-row mask commands, and applies `STQFlushPrune.freeMask`
 to clear matched WAIT rows. The multi-row free path is the first bank-side
 target for `STQCommitQueue` issue lanes; it decrements resident count once per
 accepted committed row and leaves `osdSize` unchanged.
+
+`STQEntryBank` also preserves the model `MemReqBus` T/U source sidecars in
+`STQStoreRequest` and `STQEntryBankRow`, including `tSeq`, `uSeq`, and the
+T/U destination ownership sidecar. It publishes `lsuTULinkSource` for exact
+non-base `(bid, rid, stid)` cleanup and keeps that source separate from
+`STQFlushPrune`. Partial-store merge preserves the first row's source
+sidecars, matching the model merge behavior that fills address/data fields
+without replacing the row's stored request identity. `StoreDispatchToSTQ`
+currently drives those sidecars disabled until live T/U rename snapshots are
+added to the store payload.
 
 `STQCommitQueue` is the first Chisel owner for `storeCommitQ` ordering. It
 accepts committed row indices, keeps them sorted by `(bid, lsId)`, selects up

@@ -23,11 +23,11 @@
 | `TULinkFlushSourceSelector` | `linxcore.rename` | `docs/chisel/modules/rename/TULinkFlushSourceSelector.md` | Unit-green R55 ROB/LSU selected-row source boundary for T/U cleanup sidebands with duplicate-source conflict reporting |
 | `StoreSplitPayload` | `linxcore.rename` | `docs/chisel/modules/rename/StoreSplitPayload.md` | Unit-green R48 renamed store payload split owner feeding `StoreDispatchQueues`; emits atomic STA/STD or ST_ALL payloads with PCR source selection |
 | `StoreDispatchQueues` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchQueues.md` | Unit-green R48 queue-backed STA/STD dispatch boundary behind scalar rename; capacity-only readiness and atomic split enqueue |
-| `StoreDispatchToSTQ` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchToSTQ.md` | Unit-green R49 bridge from executed store-dispatch queue heads to typed STQ insert requests; STA priority with STD merge-bypass progress |
-| `STQInsertProbe` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQInsertProbe.md` | Unit-green R50 read-only STQ insert readiness probe shared by the bank and queue-to-STQ composition |
-| `StoreDispatchSTQPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchSTQPath.md` | Unit-green R50 queue-backed store dispatch to STQ composition with independent STA/STD readiness probes |
+| `StoreDispatchToSTQ` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchToSTQ.md` | Unit-green R58 bridge from executed store-dispatch queue heads to typed STQ insert requests with disabled T/U source sidecars pending live rename snapshots |
+| `STQInsertProbe` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQInsertProbe.md` | Unit-green R58 read-only STQ insert readiness probe over expanded STQ request/row bundles |
+| `StoreDispatchSTQPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchSTQPath.md` | Unit-green R58 queue-backed store dispatch to STQ composition with independent STA/STD readiness probes and forwarded LSU T/U source diagnostics |
 | `STQFlushPrune` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQFlushPrune.md` | Unit-green first LSU/STQ cleanup consumer; emits model-derived free masks for valid `STQ_WAIT` rows |
-| `STQEntryBank` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQEntryBank.md` | Unit-green first STQ state owner; consumes flush-prune masks, owns row sidecars, split-store merge, resident/WAIT counts, and committed-row free masks |
+| `STQEntryBank` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQEntryBank.md` | Unit-green R58 STQ state owner with model MemReqBus T/U sidecars and exact non-base LSU source publication |
 | `STQCommitQueue` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQCommitQueue.md` | Unit-green R16 store-commit ordering owner; sorted enqueue and downstream-ready issue selection |
 | `STQCommitDrain` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQCommitDrain.md` | Unit-green R18 memory-side commit drain boundary; split-aware request descriptors and bank free masks after issue acceptance |
 | `SCBCommitIngress` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBCommitIngress.md` | Unit-green R19 scalar SCB ingress owner; 64-byte line allocation, same-line merge, and byte-valid wakeup masks |
@@ -36,7 +36,7 @@
 | `SCBLookupControl` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBLookupControl.md` | Unit-green R22 SCB lookup outcome owner; writable-hit update/free and L2 write/upgrade request descriptors |
 | `SCBStateUpdate` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBStateUpdate.md` | Unit-green R23 SCB row-state transition owner; hit free, miss state, and response-driven `Miss -> Lookup` masks |
 | `SCBRowBank` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBRowBank.md` | Unit-green R24 registered SCB row-bank composition owner; ingress, egress, lookup, and state-update around one row image |
-| `STQSCBCommitPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQSCBCommitPath.md` | Unit-green R25 STQ-to-SCB composition owner; SCB accepted `last` fragments are the only committed-row free source |
+| `STQSCBCommitPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQSCBCommitPath.md` | Unit-green R58 STQ-to-SCB composition owner; forwards STQ LSU T/U source diagnostics while SCB accepted `last` fragments remain the only committed-row free source |
 | `SCBResponseDecode` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBResponseDecode.md` | Unit-green R26 raw SCB response decode owner; model `(entryIndex << 2) | 2` tags become legal `Miss -> Lookup` row responses |
 | `SCBResponseBuffer` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBResponseBuffer.md` | Unit-green R35 raw SCB response FIFO; preserves FIFO order, backpressure, and stale-head decode reporting |
 | `SCBResponseRetrySelect` | `linxcore.lsu` | `docs/chisel/modules/lsu/SCBResponseRetrySelect.md` | Unit-green R36 response-returned `Lookup` row retry-priority selector before ordinary valid-row eviction |

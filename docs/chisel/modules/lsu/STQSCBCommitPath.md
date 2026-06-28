@@ -12,6 +12,8 @@
   - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
     - `STQ::retire`
     - `STQ::commit`
+  - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
+    - `MemReqBus::tSeq/uSeq`
   - `model/LinxCoreModel/model/lsu/store_unit/store_unit.cpp`
     - `StoreUnit::GetCommitID`
 - Contract IDs: `LC-CHISEL-LSU-STQ-SCB-COMMITPATH-001`
@@ -65,6 +67,7 @@ side effects, or live memory-event trace rows.
 | `scbReadyForDrain` | Registered SCB row bank has enough pre-cycle free rows for the worst-case request batch and no STQ flush-prune is active. |
 | `drainIssueEnable/downstreamReadyMask` | The derived drain issue gate and all-row downstream-ready mask used for SCB issue. |
 | `stq*` | STQ row image, occupancy, wait/commit masks, flush masks, and final free acknowledgements. |
+| `lsuTULinkSource*` | STQ bank's exact non-base T/U cleanup source candidate and match diagnostics. |
 | `drain*` | Ordered commit queue observability, issued rows, generated request descriptors, and debug-only early drain free mask. |
 | `scb*` | SCB model-batch status, accepted/stalled masks, final free mask, wakeups, row-bank state, response decode flags, and lookup/state-update descriptors. |
 | `rawRespReady` / `scbRespBuffer*` | Raw response FIFO backpressure, occupancy, and head-consumption observability. |
@@ -107,6 +110,11 @@ The Chisel composition maps that behavior into registered owner boundaries:
 This preserves the model requirement that committed stores remain resident when
 the SCB path cannot accept them.
 
+The composition forwards `STQEntryBank.lsuTULinkSource*` unchanged. This keeps
+T/U source ownership with the row bank while exposing the same LSU-side source
+candidate through the full STQ-to-SCB wrapper used by later top-level
+integration.
+
 ## Timing
 
 `STQCommitDrain` observes the registered STQ row image, so a row marked
@@ -132,6 +140,10 @@ This module exposes enough STQ/drain/SCB masks to become the future memory-event
 trace source, but it does not emit architectural trace rows yet. QEMU
 cross-check evidence remains through the existing ROB/top synthetic trace path
 until the top can retire live memory operations.
+
+`lsuTULinkSource*` is recovery-observability, not a memory-event trace row. It
+is intended to feed `TULinkRecoveryCleanupPath.lsuSource` once the full LSU
+path is composed with recovery cleanup.
 
 ## Verification
 

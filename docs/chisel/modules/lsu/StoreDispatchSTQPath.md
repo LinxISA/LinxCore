@@ -12,6 +12,8 @@
     - `STQ::insert`
     - `STQ::mergeStore`
     - `STQueueEntryInfo::init`
+  - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
+    - `MemReqBus::tSeq/uSeq`
 - Related Chisel:
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchQueues.scala`
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchToSTQ.scala`
@@ -57,6 +59,9 @@ Outputs:
 - STQ bank diagnostics: insert result, commit/free result, flush masks, row
   image, occupancy masks, resident count, outstanding-WAIT count, and
   empty/full/stall.
+- LSU T/U source diagnostics: `lsuTULinkSource`,
+  `lsuTULinkSourceMatched`, and `lsuTULinkSourceMultipleMatch`, forwarded from
+  `STQEntryBank`.
 
 ## Logic Design
 
@@ -84,6 +89,11 @@ The selected request is the only request sent to `STQEntryBank` in a cycle.
 The bank uses the same `STQInsertProbe` predicate internally, so the composed
 path and standalone bank cannot drift on insert readiness.
 
+The path forwards the STQ bank's LSU T/U source candidate unchanged. This
+keeps queue-backed store dispatch and STQ row mutation as the source owner, but
+gives the future recovery-cleanup composition a stable LSU-side port for exact
+non-base `(bid,rid,stid)` cleanup.
+
 ## Model Alignment
 
 `StoreUnit::store` drains STA-side queues before STD-side queues, but
@@ -100,6 +110,8 @@ STD can bypass a blocked STA when the STD half is independently insertable.
 - Store-data wakeup, memory trace, exceptions, and SCB/MDB integration.
 - Integration that replaces the reduced `DecodeRenameROBPath` queue instance
   with this LSU-side composition.
+- Top-level wiring from `lsuTULinkSource` into
+  `TULinkRecoveryCleanupPath.lsuSource`.
 
 ## Verification
 

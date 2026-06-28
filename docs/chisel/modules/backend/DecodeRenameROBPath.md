@@ -205,8 +205,8 @@ residency behind the new dispatch queues.
 - T/U/SGPR/tile/vector operand classification and rename.
 - Live T/U `allocTSeq/allocUSeq/allocTUDst*` drive into
   `DispatchROBAllocator` from the T/U rename owner.
-- Live top-level connection from `robTULinkSource*` and future LSU/STQ
-  candidates into `TULinkRecoveryCleanupPath`.
+- Live top-level connection from `robTULinkSource*` and forwarded STQ
+  `lsuTULinkSource*` candidates into `TULinkRecoveryCleanupPath`.
 - Ready-table initialization, issue enqueue, execution completion, and full
   commit side effects.
 - Full QEMU-vs-DUT compare with live architectural commit rows.

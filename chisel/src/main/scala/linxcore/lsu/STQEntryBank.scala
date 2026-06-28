@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util._
 
+import linxcore.common.{DestinationKind, InterfaceParams, TULinkFlushSequenceSource}
 import linxcore.recovery.FlushBus
 import linxcore.rob.ROBID
 
@@ -18,7 +19,8 @@ class STQStoreRequest(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
-    val simtLaneWidth: Int = 8)
+    val simtLaneWidth: Int = 8,
+    val mapQDepth: Int = 32)
     extends Bundle {
   val storeType = STQStoreType()
   val peId = UInt(peIdWidth.W)
@@ -28,6 +30,10 @@ class STQStoreRequest(
   val gid = new ROBID(entries)
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val tSeq = new ROBID(mapQDepth)
+  val uSeq = new ROBID(mapQDepth)
+  val tuDstValid = Bool()
+  val tuDstKind = DestinationKind()
   val addr = UInt(addrWidth.W)
   val data = UInt(dataWidth.W)
   val size = UInt(sizeWidth.W)
@@ -44,7 +50,8 @@ class STQEntryBankRow(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
-    val simtLaneWidth: Int = 8)
+    val simtLaneWidth: Int = 8,
+    val mapQDepth: Int = 32)
     extends Bundle {
   val valid = Bool()
   val status = STQEntryStatus()
@@ -56,6 +63,10 @@ class STQEntryBankRow(
   val gid = new ROBID(entries)
   val rid = new ROBID(entries)
   val lsId = new ROBID(entries)
+  val tSeq = new ROBID(mapQDepth)
+  val uSeq = new ROBID(mapQDepth)
+  val tuDstValid = Bool()
+  val tuDstKind = DestinationKind()
   val addr = UInt(addrWidth.W)
   val data = UInt(dataWidth.W)
   val size = UInt(sizeWidth.W)
@@ -74,15 +85,17 @@ class STQEntryBankIO(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
-    val simtLaneWidth: Int = 8)
+    val simtLaneWidth: Int = 8,
+    val mapQDepth: Int = 32)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val countWidth = log2Ceil(entries + 1)
+  private val sourceParams = InterfaceParams(robEntries = entries)
 
   val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
 
   val insertValid = Input(Bool())
-  val insert = Input(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val insert = Input(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
   val insertReady = Output(Bool())
   val insertAccepted = Output(Bool())
   val insertAllocated = Output(Bool())
@@ -110,8 +123,11 @@ class STQEntryBankIO(
   val flushFreeMask = Output(UInt(entries.W))
   val flushStatusBlockedMask = Output(UInt(entries.W))
   val flushFreeCount = Output(UInt(countWidth.W))
+  val lsuTULinkSource = Output(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
+  val lsuTULinkSourceMatched = Output(Bool())
+  val lsuTULinkSourceMultipleMatch = Output(Bool())
 
-  val rows = Output(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth)))
+  val rows = Output(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
   val occupiedMask = Output(UInt(entries.W))
   val waitMask = Output(UInt(entries.W))
   val commitMask = Output(UInt(entries.W))
@@ -133,24 +149,33 @@ class STQEntryBank(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
-    val simtLaneWidth: Int = 8)
+    val simtLaneWidth: Int = 8,
+    val mapQDepth: Int = 32)
     extends Module {
   require(entries > 1, "STQ entries must be greater than one")
   require((entries & (entries - 1)) == 0, "STQ entries must be a power of two")
 
   private val countWidth = log2Ceil(entries + 1)
 
-  val io = IO(new STQEntryBankIO(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  private val sourceParams = InterfaceParams(robEntries = entries)
+
+  val io = IO(new STQEntryBankIO(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
 
   private def zeroRow: STQEntryBankRow = {
-    val row = Wire(new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+    val row = Wire(new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
     row := 0.U.asTypeOf(row)
     row.status := STQEntryStatus.Idle
     row
   }
 
+  private def zeroSource: TULinkFlushSequenceSource = {
+    val source = Wire(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
+    source := 0.U.asTypeOf(source)
+    source
+  }
+
   private def requestToRow(req: STQStoreRequest): STQEntryBankRow = {
-    val row = Wire(new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+    val row = Wire(new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
     row := 0.U.asTypeOf(row)
     row.valid := true.B
     row.status := STQEntryStatus.Wait
@@ -162,6 +187,10 @@ class STQEntryBank(
     row.gid := req.gid
     row.rid := req.rid
     row.lsId := req.lsId
+    row.tSeq := req.tSeq
+    row.uSeq := req.uSeq
+    row.tuDstValid := req.tuDstValid
+    row.tuDstKind := req.tuDstKind
     row.addr := req.addr
     row.data := req.data
     row.size := req.size
@@ -174,7 +203,7 @@ class STQEntryBank(
   }
 
   private def mergeRow(row: STQEntryBankRow, req: STQStoreRequest): STQEntryBankRow = {
-    val out = Wire(new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+    val out = Wire(new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
     out := row
     out.storeType := STQStoreType.All
     out.stackValid := row.stackValid || req.stackValid
@@ -239,7 +268,41 @@ class STQEntryBank(
   io.flushStatusBlockedMask := flushPrune.io.statusBlockedMask
   io.flushFreeCount := flushPrune.io.freeCount
 
-  val insertProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val lsuSourceMatchVec = Wire(Vec(entries, Bool()))
+  val sourceRequired = io.flush.req.valid && !io.flush.baseOnBid
+  for (idx <- 0 until entries) {
+    lsuSourceMatchVec(idx) :=
+      sourceRequired &&
+        rows(idx).valid &&
+        ROBID.equal(rows(idx).bid, io.flush.req.bid) &&
+        ROBID.equal(rows(idx).rid, io.flush.req.rid) &&
+        (rows(idx).stid === io.flush.req.stid)
+  }
+
+  val lsuSourceSelected = Wire(new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  lsuSourceSelected := zeroRow
+  for (idx <- 0 until entries) {
+    when(lsuSourceMatchVec(idx)) {
+      lsuSourceSelected := rows(idx)
+    }
+  }
+
+  val lsuSource = Wire(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
+  lsuSource := zeroSource
+  lsuSource.valid := lsuSourceMatchVec.asUInt.orR
+  lsuSource.bid := lsuSourceSelected.bid
+  lsuSource.rid := lsuSourceSelected.rid
+  lsuSource.stid := lsuSourceSelected.stid
+  lsuSource.tSeq := lsuSourceSelected.tSeq
+  lsuSource.uSeq := lsuSourceSelected.uSeq
+  lsuSource.dstValid := lsuSourceSelected.tuDstValid
+  lsuSource.dstKind := lsuSourceSelected.tuDstKind
+
+  io.lsuTULinkSource := lsuSource
+  io.lsuTULinkSourceMatched := lsuSource.valid
+  io.lsuTULinkSourceMultipleMatch := PopCount(lsuSourceMatchVec) > 1.U
+
+  val insertProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
   insertProbe.io.requestValid := io.insertValid
   insertProbe.io.request := io.insert
   insertProbe.io.rows := rows

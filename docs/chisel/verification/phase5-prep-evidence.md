@@ -3646,3 +3646,101 @@ Skill evolve:
 - `skill-evolve: no-update` because R57 composes the already documented R54
   barrier, R55 ROB/LSU conflict policy, and R56 ROB source-sidecar invariant
   without adding a new cross-module rule.
+
+### R58 STQ LSU T/U Source Sidecars
+
+Scope:
+
+- Added model `MemReqBus` T/U source sidecars to `STQStoreRequest` and
+  `STQEntryBankRow`.
+- Preserved `tSeq/uSeq` and T/U destination ownership through STQ allocation
+  and partial-store merge.
+- Published `STQEntryBank.lsuTULinkSource*` for exact non-base
+  `(bid,rid,stid)` source selection.
+- Forwarded the LSU source diagnostics through `StoreDispatchSTQPath` and
+  `STQSCBCommitPath`.
+- Kept store-dispatch T/U source fields disabled until live rename snapshots
+  are connected to `StoreSplitIssuePayload`.
+
+Model evidence:
+
+- `MemReqBus` carries `tSeq`, `uSeq`, and `predSeq`.
+- `SimInstInfo::GenMemReq` copies instruction sequence snapshots into memory
+  requests.
+- Store-unit deadlock cleanup builds T/U flush sidebands from the old retiring
+  row and applies `GetPrevRegSeq` only when that row owns the T or U
+  destination.
+- `STQ::flush` still frees rows through the LSU `(bid,lsId)` predicate, so STQ
+  pruning and T/U source selection remain separate contracts.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
+bash tools/chisel/run_chisel_tests.sh --only STQInsertProbe
+bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain
+bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSourceSelector
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel fetch origin main
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel rev-parse HEAD origin/main
+python3 /Users/zhoubot/.codex/skills/.system/skill-creator/scripts/quick_validate.py /Users/zhoubot/linx-isa/skills/linx-skills/linx-core
+python3 /Users/zhoubot/linx-isa/skills/linx-skills/scripts/check_skill_change_scope.py --repo-root /Users/zhoubot/linx-isa/skills/linx-skills --base origin/main
+bash /Users/zhoubot/linx-isa/skills/linx-skills/scripts/install_canonical_skills.sh
+```
+
+Expected result:
+
+- `STQEntryBankSpec` locks exact non-base source selection, base-on-BID source
+  suppression, merge sidecar preservation, and cleared-row source suppression.
+- Store-dispatch and STQ wrapper gates elaborate with the expanded
+  `STQStoreRequest` and forwarded `lsuTULinkSource*` outputs.
+- Recovery selector/path gates remain green with the LSU source bundle shape.
+- Reduced ROB, trace adapter, QEMU dry-run, and LinxCoreModel SHA checks remain
+  unchanged.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `STQEntryBankSpec` passed 11 tests.
+- `STQFlushPruneSpec` passed 6 tests.
+- `StoreDispatchToSTQSpec` passed 6 tests.
+- `StoreDispatchSTQPathSpec` passed 5 tests.
+- `STQInsertProbeSpec` passed 5 tests.
+- `STQCommitDrainSpec` passed 5 tests.
+- `STQSCBCommitPathSpec` passed 5 tests.
+- `TULinkFlushSourceSelectorSpec` passed 8 tests.
+- `TULinkRecoveryCleanupPathSpec` passed 9 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `quick_validate.py` passed for `linx-core`.
+- `check_skill_change_scope.py` passed with `changed=3, removed=0`; only
+  `linx-core/SKILL.md` was staged for the skill-evolve commit, while
+  pre-existing dirty `linx-model/SKILL.md` and `linx-superproject/SKILL.md`
+  edits were left untouched.
+- `install_canonical_skills.sh` synced canonical Linx skills into
+  `/Users/zhoubot/.codex/skills`.
+- `skills/linx-skills` commit
+  `2587722c6db80322b807e4fc6f407e8bca753af4` records the R58 skill update.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R58 adds a reusable STQ source
+  invariant: STQ request/row owners preserve model `MemReqBus` `tSeq/uSeq`
+  and T/U destination sidecars, exact non-base source selection matches
+  `(bid,rid,stid)`, and partial-store merge must not overwrite the first
+  source owner.

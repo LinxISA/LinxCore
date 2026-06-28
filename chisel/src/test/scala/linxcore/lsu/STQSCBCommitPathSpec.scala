@@ -187,6 +187,8 @@ class STQSCBCommitPathSpec extends AnyFunSuite {
     assert(sv.contains("io_scbCommitFreeMask"))
     assert(sv.contains("io_rawRespTxnId"))
     assert(sv.contains("io_rawRespReady"))
+    assert(sv.contains("io_lsuTULinkSource_valid"))
+    assert(sv.contains("io_lsuTULinkSourceMatched"))
     assert(sv.contains("io_scbRespBufferHeadTxnId"))
     assert(sv.contains("io_scbRespDecodeError"))
     assert(sv.contains("io_stqCommitFreeAcceptedMask"))

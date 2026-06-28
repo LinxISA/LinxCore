@@ -11,6 +11,11 @@ object STQEntryBankReference {
   case object Addr extends StoreType
   case object Data extends StoreType
 
+  sealed trait TUDst
+  case object NoTUDst extends TUDst
+  case object TDst extends TUDst
+  case object UDst extends TUDst
+
   sealed trait Status
   case object Wait extends Status
   case object Commit extends Status
@@ -22,6 +27,10 @@ object STQEntryBankReference {
       gid: Id = Id(),
       rid: Id = Id(),
       lsId: Id = Id(),
+      tSeq: Id = Id(),
+      uSeq: Id = Id(),
+      tuDstValid: Boolean = false,
+      tuDst: TUDst = NoTUDst,
       stid: Int = 0,
       peId: Int = 0,
       tid: Int = 0,
@@ -40,6 +49,16 @@ object STQEntryBankReference {
 
   final case class InsertResult(accepted: Boolean, allocated: Boolean, merged: Boolean, conflict: Boolean, index: Option[Int])
   final case class CommitFreeMaskResult(acceptedMask: Int, ignoredMask: Int, count: Int)
+  final case class TULinkSource(
+      valid: Boolean = false,
+      bid: Id = Id(valid = false),
+      rid: Id = Id(valid = false),
+      stid: Int = 0,
+      tSeq: Id = Id(valid = false),
+      uSeq: Id = Id(valid = false),
+      dstValid: Boolean = false,
+      dst: TUDst = NoTUDst,
+      multipleMatch: Boolean = false)
 
   final class Model(entries: Int) {
     require(entries > 1 && (entries & (entries - 1)) == 0)
@@ -73,6 +92,12 @@ object STQEntryBankReference {
     private def sameStoreId(entry: Entry, req: Request): Boolean =
       entry.req.bid == req.bid && entry.req.lsId == req.lsId &&
         (req.scalarIex || entry.req.simtLane == req.simtLane)
+
+    private def sourceMatches(flush: STQFlushPruneReference.Flush, entry: Entry): Boolean =
+      flush.valid && !flush.baseOnBid &&
+        entry.req.bid == flush.bid &&
+        entry.req.rid == flush.rid &&
+        entry.req.stid == flush.stid
 
     private def compatible(entry: Entry, req: Request): Boolean =
       (req.storeType == Addr && entry.req.storeType == Data) ||
@@ -192,6 +217,26 @@ object STQEntryBankReference {
         outstandingWait -= 1
       }
       result
+    }
+
+    def tuSource(flush: STQFlushPruneReference.Flush): TULinkSource = {
+      val matches = table.toSeq.flatten.filter(sourceMatches(flush, _))
+      matches.lastOption match {
+        case Some(entry) =>
+          TULinkSource(
+            valid = true,
+            bid = entry.req.bid,
+            rid = entry.req.rid,
+            stid = entry.req.stid,
+            tSeq = entry.req.tSeq,
+            uSeq = entry.req.uSeq,
+            dstValid = entry.req.tuDstValid,
+            dst = entry.req.tuDst,
+            multipleMatch = matches.size > 1
+          )
+        case None =>
+          TULinkSource()
+      }
     }
   }
 }
@@ -319,6 +364,94 @@ class STQEntryBankSpec extends AnyFunSuite {
     assert(stq.commitMask == 0x4)
   }
 
+  test("T/U source exposes exact non-BID store row sidecars") {
+    val stq = new Model(entries = 4)
+    val request = req(0, bid = 2, lsId = 7).copy(
+      rid = Id(value = 5),
+      stid = 3,
+      tSeq = Id(value = 9),
+      uSeq = Id(value = 10),
+      tuDstValid = true,
+      tuDst = TDst)
+
+    assert(stq.insert(request).allocated)
+
+    val source = stq.tuSource(STQFlushPruneReference.Flush(stid = 3, bid = Id(value = 2), rid = Id(value = 5)))
+
+    assert(source == TULinkSource(
+      valid = true,
+      bid = Id(value = 2),
+      rid = Id(value = 5),
+      stid = 3,
+      tSeq = Id(value = 9),
+      uSeq = Id(value = 10),
+      dstValid = true,
+      dst = TDst))
+  }
+
+  test("T/U source ignores base-on-BID and non-identical store identities") {
+    val stq = new Model(entries = 4)
+    val request = req(0, bid = 2, lsId = 0).copy(
+      rid = Id(value = 1),
+      stid = 3,
+      tSeq = Id(value = 4),
+      uSeq = Id(value = 5),
+      tuDstValid = true,
+      tuDst = UDst)
+
+    assert(stq.insert(request).allocated)
+
+    assert(!stq.tuSource(STQFlushPruneReference.Flush(stid = 3, bid = Id(value = 2), rid = Id(value = 1), baseOnBid = true)).valid)
+    assert(!stq.tuSource(STQFlushPruneReference.Flush(stid = 4, bid = Id(value = 2), rid = Id(value = 1))).valid)
+    assert(!stq.tuSource(STQFlushPruneReference.Flush(stid = 3, bid = Id(value = 2), rid = Id(value = 2))).valid)
+  }
+
+  test("merged partial stores preserve the first sidecar owner") {
+    val stq = new Model(entries = 4)
+    val addr = req(0, storeType = Addr, bid = 2, lsId = 5).copy(
+      tSeq = Id(value = 6),
+      uSeq = Id(value = 7),
+      tuDstValid = true,
+      tuDst = TDst)
+    val data = req(1, storeType = Data, bid = 2, lsId = 5).copy(
+      tSeq = Id(value = 11),
+      uSeq = Id(value = 12),
+      tuDstValid = true,
+      tuDst = UDst)
+
+    assert(stq.insert(addr).allocated)
+    assert(stq.insert(data).merged)
+
+    val merged = stq.entry(0).get
+    assert(merged.req.tSeq == Id(value = 6))
+    assert(merged.req.uSeq == Id(value = 7))
+    assert(merged.req.tuDst == TDst)
+
+    val source = stq.tuSource(STQFlushPruneReference.Flush(stid = 1, bid = Id(value = 2), rid = Id(value = 0)))
+    assert(source.valid)
+    assert(source.tSeq == Id(value = 6))
+    assert(source.uSeq == Id(value = 7))
+    assert(source.dst == TDst)
+  }
+
+  test("flush-cleared rows no longer publish an LSU T/U source") {
+    val stq = new Model(entries = 4)
+    val request = req(0, bid = 2, lsId = 0).copy(
+      tSeq = Id(value = 8),
+      uSeq = Id(value = 9),
+      tuDstValid = true,
+      tuDst = TDst)
+
+    assert(stq.insert(request).allocated)
+    val flush = STQFlushPruneReference.Flush(stid = 1, bid = Id(value = 2), rid = Id(value = 0), lsId = Id(value = 0))
+    assert(stq.tuSource(flush).valid)
+
+    val result = stq.flush(flush)
+
+    assert(result.freeMask == 0x1)
+    assert(!stq.tuSource(flush).valid)
+  }
+
   test("Chisel STQEntryBank elaborates with state ownership and flush-prune child") {
     val sv = ChiselStage.emitSystemVerilog(new STQEntryBank(entries = 8))
 
@@ -330,5 +463,8 @@ class STQEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_commitFreeAccepted"))
     assert(sv.contains("io_commitFreeAcceptedMask"))
     assert(sv.contains("io_commitFreeCount"))
+    assert(sv.contains("io_lsuTULinkSource_valid"))
+    assert(sv.contains("io_lsuTULinkSource_tSeq_value"))
+    assert(sv.contains("io_lsuTULinkSourceMatched"))
   }
 }

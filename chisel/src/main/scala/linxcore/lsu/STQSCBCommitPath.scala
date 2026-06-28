@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.{Fill, log2Ceil}
 
+import linxcore.common.{InterfaceParams, TULinkFlushSequenceSource}
 import linxcore.recovery.FlushBus
 
 class STQSCBCommitPathIO(
@@ -18,7 +19,8 @@ class STQSCBCommitPathIO(
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val mapQDepth: Int = 32)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val stqCountWidth = log2Ceil(entries + 1)
@@ -30,11 +32,12 @@ class STQSCBCommitPathIO(
   private val scbIndexWidth = math.max(1, log2Ceil(scbEntries))
   private val scbResponseTxnIdWidth = scbIndexWidth + 2
   private val scbResponseBufferCountWidth = log2Ceil(scbResponseBufferDepth + 1)
+  private val sourceParams = InterfaceParams(robEntries = entries)
 
   val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
 
   val insertValid = Input(Bool())
-  val insert = Input(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val insert = Input(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
   val insertReady = Output(Bool())
   val insertAccepted = Output(Bool())
   val insertAllocated = Output(Bool())
@@ -68,7 +71,10 @@ class STQSCBCommitPathIO(
   val stqFlushFreeMask = Output(UInt(entries.W))
   val stqFlushStatusBlockedMask = Output(UInt(entries.W))
   val stqFlushFreeCount = Output(UInt(stqCountWidth.W))
-  val stqRows = Output(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth)))
+  val lsuTULinkSource = Output(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
+  val lsuTULinkSourceMatched = Output(Bool())
+  val lsuTULinkSourceMultipleMatch = Output(Bool())
+  val stqRows = Output(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
   val stqOccupiedMask = Output(UInt(entries.W))
   val stqWaitMask = Output(UInt(entries.W))
   val stqCommitMask = Output(UInt(entries.W))
@@ -155,7 +161,8 @@ class STQSCBCommitPath(
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val mapQDepth: Int = 32)
     extends Module {
   require(entries > 1, "STQ entries must be greater than one")
   require(queueEntries > 1, "STQ commit queue entries must be greater than one")
@@ -182,11 +189,12 @@ class STQSCBCommitPath(
     tidWidth,
     sizeWidth,
     simtLaneWidth,
-    lineBytes
+    lineBytes,
+    mapQDepth
   ))
 
-  val stq = Module(new STQEntryBank(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
-  val drain = Module(new STQCommitDrain(entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val stq = Module(new STQEntryBank(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val drain = Module(new STQCommitDrain(entries, queueEntries, issueWidth, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
   val scb = Module(new SCBRowBank(
     entries,
     scbEntries,
@@ -247,6 +255,9 @@ class STQSCBCommitPath(
   io.stqFlushFreeMask := stq.io.flushFreeMask
   io.stqFlushStatusBlockedMask := stq.io.flushStatusBlockedMask
   io.stqFlushFreeCount := stq.io.flushFreeCount
+  io.lsuTULinkSource := stq.io.lsuTULinkSource
+  io.lsuTULinkSourceMatched := stq.io.lsuTULinkSourceMatched
+  io.lsuTULinkSourceMultipleMatch := stq.io.lsuTULinkSourceMultipleMatch
   io.stqRows := stq.io.rows
   io.stqOccupiedMask := stq.io.occupiedMask
   io.stqWaitMask := stq.io.waitMask

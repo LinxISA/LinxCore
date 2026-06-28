@@ -9,8 +9,10 @@
     - `STQ::insert`
     - `STQ::mergeStore`
     - `STQueueEntryInfo::init`
-  - `model/LinxCoreModel/model/lsu/store_unit/store_unit.cpp`
-    - `StoreUnit::insertStq`
+- `model/LinxCoreModel/model/lsu/store_unit/store_unit.cpp`
+  - `StoreUnit::insertStq`
+- `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
+  - `MemReqBus::tSeq/uSeq`
 - Related Chisel:
   - `chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala`
@@ -35,6 +37,10 @@ Inputs:
 - `request`: typed `STQStoreRequest` candidate.
 - `rows`: live `STQEntryBankRow` image.
 - `flushApplied`: bank recovery mutation owns this cycle and suppresses insert.
+
+`request` and `rows` include T/U cleanup source sidecars, but this probe does
+not interpret them. It only decides insert readiness from store type, row
+state, `(bid, lsId)`, scalar/SIMT lane scope, and free-row availability.
 
 Outputs:
 

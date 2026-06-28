@@ -14,6 +14,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQInsertProbe.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchToSTQ.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-STQ-BANK-001`
@@ -47,6 +48,8 @@ request type from executed store-dispatch queue heads.
 | `storeType` | `All`, `Addr`, or `Data`, matching model `ST_ALL=0`, `ST_ADDR=1`, `ST_DATA=2`. |
 | `peId/stid/tid` | Scope fields consumed by recovery and later LSU routing. |
 | `bid/gid/rid/lsId` | Ring identity sidecars from the model memory request. |
+| `tSeq/uSeq` | T/U local-register sequence snapshots carried by model `MemReqBus`. |
+| `tuDstValid/tuDstKind` | Destination ownership sidecar used to apply `GetPrevRegSeq` when the flushed store owns T or U. |
 | `addr/data/size` | Store address, data, and byte size sidecars. |
 | `stackValid` | Stack marker preserved across merge. |
 | `scalarIex/simtLane` | Merge scoping: scalar stores ignore SIMT lane, vector/SIMT stores require matching lane. |
@@ -74,6 +77,9 @@ request type from executed store-dispatch queue heads.
 | `commitFreeAcceptedMask/commitFreeIgnoredMask/commitFreeCount` | Multi-row committed-free result. Accepted bits clear committed rows; ignored bits name requested rows that were not committed or were blocked by recovery. |
 | `flushApplied` | At least one `STQ_WAIT` row was freed by recovery. |
 | `flushMatchMask/flushFreeMask/flushStatusBlockedMask/flushFreeCount` | Internal `STQFlushPrune` diagnostics. |
+| `lsuTULinkSource` | Exact non-base T/U cleanup source candidate selected from STQ rows by `(bid,rid,stid)`. |
+| `lsuTULinkSourceMatched` | At least one STQ row matched the non-base cleanup source key. |
+| `lsuTULinkSourceMultipleMatch` | More than one row matched the same source key; this is diagnostic evidence. |
 | `rows` | Current row state, exposed for later owner integration and tests. |
 | `occupiedMask/waitMask/commitMask/addrReadyMask/dataReadyMask` | Compact row-state diagnostics. |
 | `residentCount/outstandingWaitCount` | Model `size` and `osdSize` equivalents. |
@@ -129,6 +135,20 @@ and decrements both resident and outstanding-WAIT counts by `flushFreeCount`.
 Matched non-WAIT rows are reported through `flushStatusBlockedMask` and remain
 resident.
 
+The bank also publishes the LSU/STQ T/U cleanup source candidate required by
+`TULinkFlushSourceSelector`. This source is intentionally separate from
+`STQFlushPrune`: pruning follows the model's `(bid, lsId)` recovery predicate,
+while T/U local-register cleanup requires the old retiring row's exact
+`(bid, rid, stid)` source. For active non-`baseOnBid` cleanup, the bank scans
+valid rows and copies the matching row's `bid`, `rid`, `stid`, `tSeq`, `uSeq`,
+and T/U destination ownership into `lsuTULinkSource`. Base-on-BID cleanup does
+not publish a source because `TULinkRename` prunes by BID.
+
+Partial-store merge preserves the first row's source sidecars. This matches
+model `STQueueEntryInfo::init` and `STQ::mergeStore`: merge fills missing
+address/data fields and changes the request type to `ST_ALL`, but it does not
+replace the stored request identity.
+
 ## Timing
 
 The bank is a single-cycle state owner. Recovery mask generation is
@@ -148,14 +168,21 @@ pruning remain in their own owners.
 The masks and counters are intended to feed future recovery and memory trace
 events. No architectural commit trace row is emitted by this module.
 
+`lsuTULinkSource*` is a recovery-observability surface. `StoreDispatchSTQPath`
+and `STQSCBCommitPath` forward it so a later top-level recovery composition can
+drive `TULinkRecoveryCleanupPath.lsuSource` without reaching into STQ internals.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
 - `bash tools/chisel/run_chisel_tests.sh --only STQInsertProbe`
 - `bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath`
 - `bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ`
+- `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune`
+- `bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSourceSelector`
+- `bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath`
 - `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl`
 - `bash tools/chisel/run_chisel_tests.sh --only FlushControl`
 - `bash tools/chisel/build_chisel.sh`
@@ -166,4 +193,6 @@ events. No architectural commit trace row is emitted by this module.
 Focused tests cover first-free allocation, split store merge, full-queue merge
 acceptance, full-queue allocation rejection, WAIT-to-COMMIT accounting, single
 and masked committed-row free, WAIT-only recovery free, committed-row
-preservation on flush, and Chisel elaboration with the `STQFlushPrune` child.
+preservation on flush, exact non-base T/U source selection, base-on-BID source
+suppression, sidecar preservation through partial-store merge, cleared-row
+source suppression, and Chisel elaboration with the `STQFlushPrune` child.

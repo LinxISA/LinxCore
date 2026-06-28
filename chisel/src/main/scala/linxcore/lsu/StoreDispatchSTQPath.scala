@@ -3,7 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util._
 
-import linxcore.common.InterfaceParams
+import linxcore.common.{InterfaceParams, TULinkFlushSequenceSource}
 import linxcore.recovery.FlushBus
 import linxcore.rename.StoreSplitIssuePayload
 
@@ -17,11 +17,13 @@ class StoreDispatchSTQPathIO(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
-    val simtLaneWidth: Int = 8)
+    val simtLaneWidth: Int = 8,
+    val mapQDepth: Int = 32)
     extends Bundle {
   private val queueCountWidth = log2Ceil(queueDepth + 1)
   private val stqCountWidth = log2Ceil(entries + 1)
   private val ptrWidth = log2Ceil(entries)
+  private val sourceParams = InterfaceParams(robEntries = entries)
 
   val flush = Input(new FlushBus(entries, peIdWidth, stidWidth, tidWidth))
 
@@ -67,8 +69,8 @@ class StoreDispatchSTQPathIO(
   val staInsertIndex = Output(UInt(ptrWidth.W))
   val stdInsertIndex = Output(UInt(ptrWidth.W))
 
-  val staRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
-  val stdRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val staRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val stdRequest = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
   val staCandidate = Output(Bool())
   val stdCandidate = Output(Bool())
   val selectedSta = Output(Bool())
@@ -80,7 +82,7 @@ class StoreDispatchSTQPathIO(
   val stdBypassStaBlocked = Output(Bool())
 
   val insertValid = Output(Bool())
-  val insert = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val insert = Output(new STQStoreRequest(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
   val insertAccepted = Output(Bool())
   val insertAllocated = Output(Bool())
   val insertMerged = Output(Bool())
@@ -100,7 +102,10 @@ class StoreDispatchSTQPathIO(
   val stqFlushFreeMask = Output(UInt(entries.W))
   val stqFlushStatusBlockedMask = Output(UInt(entries.W))
   val stqFlushFreeCount = Output(UInt(stqCountWidth.W))
-  val stqRows = Output(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth)))
+  val lsuTULinkSource = Output(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
+  val lsuTULinkSourceMatched = Output(Bool())
+  val lsuTULinkSourceMultipleMatch = Output(Bool())
+  val stqRows = Output(Vec(entries, new STQEntryBankRow(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth)))
   val stqOccupiedMask = Output(UInt(entries.W))
   val stqWaitMask = Output(UInt(entries.W))
   val stqCommitMask = Output(UInt(entries.W))
@@ -121,20 +126,21 @@ class StoreDispatchSTQPath(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
-    val simtLaneWidth: Int = 8)
+    val simtLaneWidth: Int = 8,
+    val mapQDepth: Int = 32)
     extends Module {
   require(queueDepth > 0, "store dispatch queue depth must be nonzero")
   require((queueDepth & (queueDepth - 1)) == 0, "store dispatch queue depth must be a power of two")
   require(entries > 1, "STQ entries must be greater than one")
   require((entries & (entries - 1)) == 0, "STQ entries must be a power of two")
 
-  val io = IO(new StoreDispatchSTQPathIO(p, queueDepth, entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val io = IO(new StoreDispatchSTQPathIO(p, queueDepth, entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
 
   val queues = Module(new StoreDispatchQueues(p, queueDepth))
-  val bridge = Module(new StoreDispatchToSTQ(p, entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
-  val staProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
-  val stdProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
-  val stq = Module(new STQEntryBank(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  val bridge = Module(new StoreDispatchToSTQ(p, entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val staProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val stdProbe = Module(new STQInsertProbe(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
+  val stq = Module(new STQEntryBank(entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth, mapQDepth))
 
   queues.io.flushValid := io.flush.req.valid
   queues.io.staIn := io.staIn
@@ -235,6 +241,9 @@ class StoreDispatchSTQPath(
   io.stqFlushFreeMask := stq.io.flushFreeMask
   io.stqFlushStatusBlockedMask := stq.io.flushStatusBlockedMask
   io.stqFlushFreeCount := stq.io.flushFreeCount
+  io.lsuTULinkSource := stq.io.lsuTULinkSource
+  io.lsuTULinkSourceMatched := stq.io.lsuTULinkSourceMatched
+  io.lsuTULinkSourceMultipleMatch := stq.io.lsuTULinkSourceMultipleMatch
   io.stqRows := stq.io.rows
   io.stqOccupiedMask := stq.io.occupiedMask
   io.stqWaitMask := stq.io.waitMask
