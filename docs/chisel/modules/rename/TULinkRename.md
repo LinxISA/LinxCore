@@ -15,6 +15,7 @@
   - `chisel/src/main/scala/linxcore/frontend/FrontendRegAliasClassify.scala`
   - `chisel/src/main/scala/linxcore/frontend/FrontendOperandDecode.scala`
   - `chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala`
+  - `chisel/src/main/scala/linxcore/rename/TULinkFlushSequencePublisher.scala`
 
 ## Purpose
 
@@ -162,8 +163,8 @@ reinterpret the reg6 namespace.
 - Ready-table initialization and wakeup state for T/U physical tags.
 - Full SPEROB relation-cmap owner and long-latency release policy around the
   `retireValid`/`retireDealloc` hooks.
-- Shared recovery interface wiring that publishes `flushTSeq` and `flushUSeq`
-  from ROB/LSU-owned row state.
+- Live composition with `TULinkFlushSequencePublisher` so ROB/LSU-owned row
+  snapshots drive `flushTSeq` and `flushUSeq`.
 - Multi-PE and multi-thread bank replication.
 - Vector, SIMT, predicate, tile, and reuse-link variants.
 

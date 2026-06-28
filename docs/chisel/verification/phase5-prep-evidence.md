@@ -3242,3 +3242,73 @@ Skill evolve:
   row.seq)` and `(flush.bid, flush.rid) <= (row.bid, row.rid)`, and when the
   flushed instruction owns a T/U destination the recovery publisher must supply
   the previous local sequence, matching `GetPrevRegSeq`.
+
+### R53 T/U Flush Sequence Publisher
+
+Scope:
+
+- Added `TULinkFlushSequencePublisher` as the standalone recovery sideband
+  owner that turns a registered `RecoveryCleanupIntent` plus a selected
+  ROB/LSU row snapshot into `TULinkRename` flush command fields.
+- Preserved the model split between scalar stack rename cleanup and backend
+  local-register cleanup: T/U local cleanup follows `backendFlushValid`
+  because `FlushControl::flushBackend` calls `SPE::Flush`, which calls
+  `SPERename::Flush`.
+- Implemented the LSU/MTC `GetPrevRegSeq` rule for T/U destinations:
+  subtract one local sequence only when the flushed row owns the matching
+  T or U destination.
+- Added non-base source diagnostics. A non-base cleanup requires the selected
+  source row to match `(bid, rid, stid)`; missing or mismatched row snapshots
+  suppress `flushValid` instead of driving a default local sequence into
+  `TULinkRename`.
+- Kept live ROB/LSU row snapshot wiring, direct `TULinkRename` composition,
+  relation-cmap release ownership, ready-table mutation, and multi-PE/thread
+  replication deferred.
+
+Model evidence:
+
+- `ModelCommon/bus/FlushBus.h` defines `FlushReq.tSeq` and `FlushReq.uSeq`.
+- `ModelCommon/LSUUtils.cpp::GetPrevRegSeq` calls scalar `LocalRegMgr`
+  `GetPrevROBID` for `OPD_TLINK` / `OPD_ULINK`.
+- `lsu/store_unit/store_unit.cpp` and `mtccore/lsu/load_unit/ldq.cpp` build
+  LSU flush requests from old retire row sequences and call `GetPrevRegSeq`
+  when the flushed instruction owns the matching local destination.
+- `bctrl/spe/SPEROB.cpp::getRetireID` exposes row-owned `tSeq/uSeq`, and
+  `SPEROB::CheckDstDataOut` copies row sequences for scalar inner flush.
+- `bctrl/spe/SPERename.cpp::Flush` forwards backend flush to every
+  `LocalRegMgr`, while `LocalRegMgr::flush` consumes `FlushReq.tSeq/uSeq`.
+
+Evidence:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSequencePublisher
+```
+
+Expected result:
+
+- `TULinkFlushSequencePublisherSpec` locks non-base row matching, T-only and
+  U-only previous sequence adjustment, base-on-BID source-free behavior,
+  missing/mismatched source suppression, IO widths, and standalone elaboration.
+- Existing `TULinkRename`, recovery cleanup, flush control, and reduced ROB
+  bookkeeping remain green after the new sideband owner is added.
+
+Observed result:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `TULinkFlushSequencePublisherSpec` passed 8 tests.
+- `TULinkRenameSpec` passed 10 tests.
+- `RecoveryCleanupControlSpec` passed 6 tests.
+- `FlushControlSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R53 adds the reusable cleanup
+  invariant that T/U local-register flush sidebands are backend/PE cleanup
+  sidebands, not scalar stack-rename sidebands: drive them from
+  `RecoveryCleanupIntent.backendFlushValid` plus a selected row snapshot, and
+  apply `GetPrevRegSeq` only for the destination class owned by the flushed
+  row.

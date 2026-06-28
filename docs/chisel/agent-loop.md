@@ -22,15 +22,17 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `linx-isa` | `eaa0f54de901d71dfb507e1d9e9a65a81c6af30d` |
-| `rtl/LinxCore` | `c455a28600b7f6430fc7dfc7dc1418667f8da512` |
+| `linx-isa` | `026428e27154242f37f730e07e9829633168cba7` |
+| `rtl/LinxCore` | `8f4361a09a19c7f53f8caa0f3b1133afed7f038a` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
-| `emulator/qemu` | `3c26b2d6f9b4e4a3aeac3528db51657697e8923a` |
+| `emulator/qemu` | `26bbd574fc5e1cbd4b8c859bcb0d007e8e281bf3` |
 
 LinxCoreModel was fetched on 2026-06-28 and `main...origin/main` was already
 up to date. The superproject root and `rtl/LinxCore` were fetched; both active
 working branches contain `origin/main`, so no merge/pull was required while
 unrelated local edits remain in the workspace.
+LinxCoreModel was fetched again on 2026-06-29 before R53; local `HEAD` still
+matched `origin/main` at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
 
 ## Non-Negotiable Rules
 
@@ -169,6 +171,7 @@ These packets remain the required base before broad module promotion:
 | R50 | `STQInsertProbe` / `StoreDispatchSTQPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only STQInsertProbe`, `run_chisel_tests.sh --only StoreDispatchSTQPath`, `run_chisel_tests.sh --only StoreDispatchToSTQ`, `run_chisel_tests.sh --only StoreDispatchQueues`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R51 | `TULinkRename` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R52 | `TULinkRename` cleanup hooks | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R53 | `TULinkFlushSequencePublisher` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -276,9 +279,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Publish T/U local sequence sidebands from ROB/LSU recovery sources into
-   `TULinkRename.flushTSeq/flushUSeq`, including the model `GetPrevRegSeq`
-   adjustment when the flushed instruction owns a T/U destination.
+1. Compose `TULinkFlushSequencePublisher` with `TULinkRename` behind the
+   registered recovery intent, using a real ROB/LSU selected-row snapshot and
+   monitoring `missingSource` / `sourceMismatch`.
 2. Compose `TULinkRename` with the scalar decode-rename bridge so accepted
    T/U operands can flow into `RenamedUop` without broadening scalar GPR
    ownership.
