@@ -58,7 +58,11 @@ owner: it keeps committed row indices sorted by `(bid, lsId)` and selects
 downstream-ready rows for future memory-side owners. `STQCommitDrain` composes
 that queue with committed row sidecars, models scalar cacheline split request
 shaping, and drives `STQEntryBank` committed-row free masks only after
-abstract memory-side segment acceptance.
+abstract memory-side segment acceptance. `SCBCommitIngress` is the first
+store-coalescing owner after that drain: it allocates 64-byte SCB line entries,
+merges same-line store fragments, and publishes post-merge byte-valid wakeup
+masks while leaving DCache eviction, CHI completion, MDB, and forwarding policy
+to later packets.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -87,6 +91,7 @@ bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune
 bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
 bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

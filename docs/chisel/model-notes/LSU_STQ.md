@@ -7,14 +7,19 @@
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/store_unit.cpp`
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/stq.h`
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
+- LinxCoreModel: `model/LinxCoreModel/model/l1/SCB.h`
+- LinxCoreModel: `model/LinxCoreModel/model/l1/SCB.cpp`
+- LinxCoreModel: `model/LinxCoreModel/model/l1/cluster.cpp`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitDrain.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/SCBCommitIngress.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitDrainSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/SCBCommitIngressSpec.scala`
 
 ## Model Contract
 
@@ -51,6 +56,14 @@ then frees the row.
 in `(bid, lsID)` age order. `STQ::commit` scans that queue from old to young,
 skips rows whose downstream SCB/cacheline path is stalled, issues up to
 `store_commit_count`, erases issued indices, and leaves stalled rows resident.
+
+`L1Clusters::commitStore` consumes `commit_su_scb_q` entries while the SCB is
+not full, inserts store fragments into `SCBuffer`, and asserts the upstream
+queue stall when SCB is full or committed-store backlog remains. `SCBuffer`
+coalesces by 64-byte line address, updates byte data and valid bits, sends a
+line-valid wakeup after each insert, marks lines full when all 64 bytes are
+valid, and later evicts full or selected valid lines through DCache/L2 lookup
+paths.
 
 ## Chisel Scope
 
@@ -90,17 +103,25 @@ split stores require both segment queues to be non-stalled before the row is
 freed, while a stalled older row can remain queued as a younger ready row
 drains.
 
-This is still not the complete model STQ. SCB/MDB traffic, TTrans/tile
-behavior, load forwarding, deadlock checks, data-array banking, and BSB
-window-slide side effects remain future LSU owner work.
+`SCBCommitIngress` is the first Chisel owner for scalar SCB insert/coalescing.
+It consumes `STQCommitDrain` descriptors, allocates 64-byte line entries,
+merges same-line store bytes, reports blocked fragments when no matching line
+or free entry exists, and emits post-merge byte-valid wakeups. It deliberately
+stops before DCache lookup/update, random/not-full eviction, L2/CHI write
+requests, write responses, MDB conflict prediction, and load-side forwarding
+selection.
+
+This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
+forwarding, deadlock checks, data-array banking, MDB conflict learning, CHI
+completion, and BSB window-slide side effects remain future LSU owner work.
 
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush,
-  SCB/MDB interaction, load forwarding, and queue backpressure. The first
-  memory-side drain now drives a committed-row free mask after abstract segment
-  acceptance, but real SCB/MDB allocation and cachebank arbitration still need
-  dedicated owners.
+  SCB eviction, MDB interaction, load forwarding, and queue backpressure. The
+  first SCB ingress owner models line allocation and byte coalescing, but a
+  later integration packet must feed SCB capacity back into `STQCommitDrain`
+  readiness before accepted fragments can be used as final free evidence.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both
   `FlushControl` notes and the STQ tests in the same packet.
