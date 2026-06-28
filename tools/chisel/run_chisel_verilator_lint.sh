@@ -17,4 +17,14 @@ if [[ ! -f "${TOP_SV}" ]]; then
   exit 2
 fi
 
-verilator --lint-only "${TOP_SV}"
+SV_FILES=()
+while IFS= read -r sv_path; do
+  SV_FILES+=("${sv_path}")
+done < <(find "${SV_DIR}" -maxdepth 1 -type f -name '*.sv' | sort)
+
+if [[ "${#SV_FILES[@]}" -eq 0 ]]; then
+  echo "error: no Chisel top SystemVerilog files were emitted under ${SV_DIR}" >&2
+  exit 2
+fi
+
+verilator --lint-only --top-module LinxCoreTop "${SV_FILES[@]}"

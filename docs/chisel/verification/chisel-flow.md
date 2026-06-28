@@ -9,7 +9,7 @@ The LinxCore Chisel lane uses explicit targets:
 | `build` | `tools/chisel/build_chisel.sh` | Compile Chisel sources and tests. |
 | `test` | `tools/chisel/run_chisel_tests.sh` | Run Scala/Chisel tests. |
 | `emit-verilog` | `tools/chisel/emit_verilog.sh` | Emit `generated/chisel-verilog/LinxCoreTop.sv`. |
-| `verilator-lint` | `tools/chisel/run_chisel_verilator_lint.sh` | Emit the Chisel top and run Verilator lint. |
+| `verilator-lint` | `tools/chisel/run_chisel_verilator_lint.sh` | Emit the Chisel top and run Verilator lint over every top-level emitted SystemVerilog file. |
 | `robid-xcheck` | `tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` | Run Packet A ROBID semantic gate. |
 | `flushcontrol-xcheck` | `tools/chisel/run_chisel_tests.sh --only FlushControl` | Run Packet B FlushControl classification and older-signal tests. |
 | `brob-xcheck` | `tools/chisel/run_chisel_tests.sh --only BROB` | Run Packet C BID encoding and BROB metadata lifecycle tests. |
@@ -27,6 +27,9 @@ not already set. The Packet A ROBID gate runs both a hermetic Python semantic
 check derived from LinxCoreModel and the Scala ROBID test.
 
 SBT-backed wrappers must be run sequentially until `CHISEL-ISSUE-002` is closed.
+Verilator wrappers must pass the full emitted SystemVerilog set, because CIRCT
+emits instantiated Chisel modules as sibling `.sv` files rather than inlining
+them into the top module.
 
 ## Version Decision
 

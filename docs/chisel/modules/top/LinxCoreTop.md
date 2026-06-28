@@ -1,0 +1,92 @@
+# LinxCoreTop
+
+## Source Mapping
+
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreTop.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/top/LinxCoreTopSpec.scala`
+- Current child owner: `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala`
+- LinxCoreModel evidence: `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`,
+  `model/LinxCoreModel/model/interface/CommitInfo.h`
+- Contract IDs: `LC-IF-CHISEL-TOP-001`, `LC-IF-CHISEL-XCHK-003`
+
+## Purpose
+
+`LinxCoreTop` is the current Chisel top-level bring-up shell. It is not yet the
+full LinxCore frontend, decode, issue, execute, LSU, recovery, and commit
+system. It instantiates the monitored `ReducedCommitROB` so the standard top
+emit/lint path carries real ROB/commit structure instead of a constant idle
+stub.
+
+## Interface
+
+| Direction | Signal | Type | Valid/ready | Description |
+|---|---|---|---|---|
+| input | `allocValid` | `Bool` | valid | Sends `allocRow` into the reduced ROB tail. |
+| output | `allocReady` | `Bool` | ready | True when the reduced ROB can accept `allocRow`. |
+| output | `allocDuplicateIdentity` | `Bool` | combinational | True when `allocRow.identity.(bid,gid,rid)` duplicates a live reduced ROB row. |
+| input | `allocRow` | `CommitTraceRow` | `allocValid && allocReady` | Commit-trace-shaped row used as the temporary reduced top input payload. |
+| input | `completeValid` | `Bool` | valid | Marks one reduced ROB slot complete. |
+| input | `completeRobValue` | `UInt(log2Ceil(robEntries).W)` | `completeValid` | Reduced ROB slot index to complete. |
+| output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Head-ordered retired rows from the reduced ROB. |
+| output | `commitValidMask` | `UInt(commitWidth.W)` | combinational | Reduced ROB commit valid mask. |
+| output | `commitCount` | `UInt` | combinational | Number of rows retiring this cycle. |
+| output | `commitMonitorValidMask` | `UInt(commitWidth.W)` | combinational | Monitor-derived valid mask for the exported commit window. |
+| output | `commitMonitorValidCount` | `UInt` | combinational | Monitor-derived valid row count. |
+| output | `commitSkippedSlot` | `Bool` | combinational | Monitor error flag for non-prefix valid rows. |
+| output | `commitDuplicateIdentity` | `Bool` | combinational | Monitor error flag for duplicate `CommitInfo` identity in one retire window. |
+| output | `commitSlotMismatch` | `Bool` | combinational | Monitor error flag for a row whose slot label does not match its vector position. |
+| output | `commitInvalidSideEffect` | `Bool` | combinational | Monitor error flag for side-effect envelopes on invalid fixed-width slots. |
+| output | `commitContractError` | `Bool` | combinational | OR of all monitor error flags. |
+| output | `empty` | `Bool` | combinational | Reduced ROB has no live entries. |
+| output | `full` | `Bool` | combinational | Reduced ROB has no free entries. |
+| output | `size` | `UInt(log2Ceil(robEntries + 1).W)` | combinational | Reduced ROB live-entry count. |
+| output | `headValid` | `Bool` | combinational | Reduced ROB head slot contains a live row. |
+| output | `headComplete` | `Bool` | combinational | Reduced ROB head slot is live and complete. |
+| output | `headRobValue` | `UInt(log2Ceil(robEntries).W)` | combinational | Current reduced ROB head slot. |
+| output | `idle` | `Bool` | combinational | Alias for reduced ROB `empty`. |
+
+## State
+
+All state is currently owned by the child `ReducedCommitROB`. `LinxCoreTop`
+owns no registers of its own.
+
+## Logic Design
+
+The top computes `CommitTraceParams` from `CoreParams` so top-level commit width
+and ROB slot width stay tied to the core configuration. It wires the external
+allocation and completion ports directly into `ReducedCommitROB`, forwards the
+commit window and monitor flags, and reports `idle` when the reduced ROB is
+empty.
+
+This keeps the first top-level Chisel structure aligned with the
+LinxCoreModel-derived `SPEROB::commit` walk: rows retire in contiguous completed
+head order, and invalid fixed-width slots are zeroed before adapter filtering.
+
+## Timing
+
+Timing is inherited from `ReducedCommitROB`: completion is registered and is not
+visible to commit selection until the next cycle. The top adds no pipeline
+stage.
+
+## Flush/Recovery
+
+Full flush, checkpoint restore, rename cleanup, LSU cleanup, and precise trap
+ownership are not implemented in this shell. Future integrated top work must
+replace the reduced ROB interface with real frontend/backend ownership while
+keeping commit rows monitored before cross-check use.
+
+## Trace/Observability
+
+`commit.rows` is the top-level Chisel commit observation surface for the current
+bring-up shell. `commitContractError` must remain false before emitted JSONL is
+treated as QEMU/DUT evidence.
+
+## Verification
+
+- `bash tools/chisel/run_chisel_tests.sh --only LinxCoreTop`
+- `bash tools/chisel/run_chisel_verilator_lint.sh`
+- `bash tools/chisel/build_chisel.sh`
+
+Current tests cover parameter derivation from `CoreParams`, top-level
+elaboration with `ReducedCommitROB` and `CommitTraceMonitor`, and top Verilator
+lint over all emitted SystemVerilog files.

@@ -10,6 +10,8 @@ Current phase:
 - Phase 0A: model notes
 - Phase 0B: ROB and cross-check infrastructure first
 - Phase 1: interface schema and type-system monitors in progress
+- Phase 1 top shell: `LinxCoreTop` wraps the monitored reduced ROB so top
+  emit/lint uses real commit structure before the full frontend/backend exists
 
 The first implementation packets are ROBID, commit identity, the initial
 FlushControl arbitration primitive, and BROB/BID metadata. They are derived from
@@ -17,6 +19,10 @@ FlushControl arbitration primitive, and BROB/BID metadata. They are derived from
 `model/LinxCoreModel/model/interface/CommitInfo.h`, and
 `model/LinxCoreModel/model/core/FlushControl.*`, and
 `model/LinxCoreModel/model/bctrl/BROB.*`.
+
+The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
+forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
+same commit-window contract used by the reduced QEMU cross-check harness.
 
 Open setup issues are tracked in `docs/chisel/issues.md`.
 
