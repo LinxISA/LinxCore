@@ -22,7 +22,7 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `rtl/LinxCore` | `0dab21f5d522cda363b18fd929a00e9ccce750bb` |
+| `rtl/LinxCore` | `1fe34e73b384c2d76a7235083df2ad302bae2973` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 
 LinxCoreModel was refreshed with `git pull --ff-only` on 2026-06-28 and was
@@ -121,6 +121,7 @@ These packets remain the required base before broad module promotion:
 | R12 | `FullBidRecoveryBridge` | `run_chisel_tests.sh --only FullBidRecoveryBridge`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only ROBEntryBank` |
 | R13 | `RecoveryCleanupControl` | `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FullBidRecoveryBridge`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only ROBEntryBank` |
 | R14 | `STQFlushPrune` | `run_chisel_tests.sh --only STQFlushPrune`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only ROBEntryBank` |
+| R15 | `STQEntryBank` | `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only STQFlushPrune`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -226,18 +227,20 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Full STQ owner: consume `STQFlushPrune.freeMask` in a real STQ state owner
-   without hiding store-commit queue, SCB/MDB, or memory side effects in the
-   mask generator.
-2. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
+1. STQ commit/data owners: add `storeCommitQ` ordering, SCB/MDB handoff,
+   cacheline split handling, and data-array banking around `STQEntryBank`
+   without moving those memory side effects into the bank's flush helper.
+2. Load/store forwarding owner: implement the byte-mask STQ lookup path and
+   connect it to the future LIQ/LHQ request flow.
+3. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the
    first scalar rename restore/checkpoint owner.
-3. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+4. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-4. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+5. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-5. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
+6. `FrontendDecodeStage`: consume `FrontendDecodeIngress` slots and start the
    D1/D2 opcode table without changing the ingress transport contract.
-6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+7. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

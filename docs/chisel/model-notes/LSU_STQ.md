@@ -8,7 +8,9 @@
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/stq.h`
 - LinxCoreModel: `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 
 ## Model Contract
 
@@ -29,6 +31,18 @@ After scope filtering:
 matches the `FlushBus`, and whose FSM is `STQ_WAIT`. Valid entries in commit,
 miss, L2-wait, idle, or resolved states are not freed by this flush path.
 
+`STQueueEntryInfo::init` either allocates a new valid `STQ_WAIT` row or merges
+the address and data halves of a split store. A new `ST_ALL` row is immediately
+address-ready and data-ready. A new `ST_ADDR` row is address-ready only, and a
+new `ST_DATA` row is data-ready only. Merging the complementary half changes
+the row to `ST_ALL`.
+
+`STQ::free` decrements resident `size` for any freed row and decrements
+`osdSize` only when the freed row is still `STQ_WAIT`. `STQ::retire` changes
+locally committable, ready `STQ_WAIT` rows to `STQ_COMMIT` and decrements
+`osdSize`; `STQ::commit` later sends committed stores to memory-side queues and
+then frees the row.
+
 ## Chisel Scope
 
 `STQFlushPrune` is the first Chisel LSU cleanup consumer. It mirrors the model
@@ -44,10 +58,22 @@ The module deliberately does not mutate STQ RAMs, `storeCommitQ`, SCB state, or
 memory request queues. The future full STQ owner must consume `freeMask` and
 own those side effects.
 
+`STQEntryBank` is the first Chisel STQ state owner. It stores row sidecars,
+tracks resident `size` and WAIT/outstanding `osdSize`, performs first-free
+allocation, supports complementary `ST_ADDR`/`ST_DATA` merge into `ST_ALL`,
+marks locally ready `ST_ALL` WAIT rows as `Commit`, frees committed rows on a
+separate command, and applies `STQFlushPrune.freeMask` to clear matched WAIT
+rows.
+
+This is still not the complete model STQ. `storeCommitQ` ordering, SCB/MDB
+traffic, cacheline splitting, tile/TTrans behavior, load forwarding, deadlock
+checks, and BSB window-slide side effects remain future LSU owner work.
+
 ## Open Questions
 
-- The full scalar LSU needs separate owners for load-queue flush, store-commit
-  queue cleanup, SCB/MDB interaction, and queue backpressure.
+- The full scalar LSU needs separate owners for load-queue flush,
+  `storeCommitQ` ordering, SCB/MDB interaction, load forwarding, and queue
+  backpressure.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both
   `FlushControl` notes and the STQ tests in the same packet.

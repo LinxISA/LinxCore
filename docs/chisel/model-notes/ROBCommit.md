@@ -95,8 +95,10 @@ helper. RID remains allocated by the ROB bank.
 
 The Chisel `STQFlushPrune` helper is the first recovery cleanup consumer
 outside the ROB path. It consumes the same selected `FlushBus` but only emits
-STQ free masks for valid `STQ_WAIT` rows. `ROBFlushPrune` must not absorb this
-LSU/STQ behavior; full STQ mutation belongs to the later LSU owner.
+STQ free masks for valid `STQ_WAIT` rows. `STQEntryBank` is the first LSU state
+owner that applies those masks and owns STQ row sidecars. `ROBFlushPrune` must
+not absorb LSU/STQ behavior; store-commit queue, SCB/MDB, forwarding, and
+data-array mutation belong to later LSU owners.
 
 ## Open Items
 
@@ -106,7 +108,7 @@ LSU/STQ behavior; full STQ mutation belongs to the later LSU owner.
   defines the full hardware BID to ring `ROBID` handoff for BROB flush and ROB
   row pruning.
 - Connect the downstream consumers for `RecoveryCleanupControl`: rename
-  cleanup, full STQ side effects from `STQFlushPrune.freeMask`, precise trap
+  cleanup, LSU memory-side effects beyond `STQEntryBank`, precise trap
   ownership, and frontend restart ownership. Do not retrofit those behaviors
   into `ReducedCommitROB` or `ROBFlushPrune`.
 - Add live Verilator trace dumping once the reduced harness has a small driver.

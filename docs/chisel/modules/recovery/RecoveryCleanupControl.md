@@ -17,6 +17,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/FlushControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBFlushPrune.scala`
 - Contract IDs: `LC-CHISEL-RECOVERY-CLEANUP-001`
@@ -102,8 +103,9 @@ Backend fanout follows `FlushControl::flushBackend`: SIMT replay, MTC replay,
 and base-on-PE requests target one PE; scalar/global cleanup targets all PEs.
 LSU, STQ, tile-register, and tile-bridge cleanup consume the same selected
 `FlushBus`. `STQFlushPrune` is the first concrete STQ consumer of this intent:
-it emits free masks for valid `STQ_WAIT` entries, while full STQ state mutation
-remains owned by a future LSU module.
+it emits free masks for valid `STQ_WAIT` entries. `STQEntryBank` now consumes
+those masks for row-state cleanup, while store-commit queue, SCB/MDB,
+forwarding, and data-array side effects remain owned by future LSU modules.
 
 ## Timing
 
@@ -121,7 +123,7 @@ owner work:
 - BROB pointer restoration and replay-state mutation,
 - scalar rename checkpoint restore,
 - PE ROB row mutation beyond existing `ROBEntryBank`/`ROBFlushPrune`,
-- LSU/STQ/SCB entry mutation, `STQFlushPrune.freeMask` application, and LSID
+- LSU/STQ store-commit queue, SCB/MDB, data-array, forwarding, and LSID
   rebasing,
 - frontend restart token payloads,
 - precise trap and redirect ownership.
@@ -138,6 +140,7 @@ row mutation. No architectural commit trace row is emitted by this module.
 - `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge`
 - `bash tools/chisel/run_chisel_tests.sh --only FlushControl`
 - `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune`
+- `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank`
 - `bash tools/chisel/build_chisel.sh`

@@ -577,3 +577,78 @@ Skill evolve:
   LSU recovery invariant and gate: STQ cleanup must consume the selected
   `FlushBus`, match the model `MemReqBus` predicate, free only valid
   `STQ_WAIT` entries, and leave full STQ side effects to the LSU owner.
+
+## 2026-06-28 STQ Entry Bank State Owner
+
+Scope:
+
+- Added `STQEntryBank` as the first STQ row-state owner around
+  `STQFlushPrune`.
+- Implemented first-free allocation for model `ST_ALL`, `ST_ADDR`, and
+  `ST_DATA` store requests.
+- Implemented complementary split-store merge into `ST_ALL` without changing
+  resident or WAIT/outstanding counts.
+- Implemented local ready `STQ_WAIT -> STQ_COMMIT` marking and committed-row
+  free with separate `size` and `osdSize` accounting.
+- Applied `STQFlushPrune.freeMask` to clear matched WAIT rows while preserving
+  matched committed/non-WAIT rows.
+- Kept `storeCommitQ` ordering, SCB/MDB traffic, cacheline split handling,
+  load forwarding, tile/TTrans side effects, and data-array banking deferred to
+  later LSU owners.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+```
+
+Expected result:
+
+- `STQEntryBankSpec` passes and elaborates the bank with its internal
+  `STQFlushPrune` child.
+- Existing STQ flush-prune, recovery control, flush, ROB, reduced ROB, adapter,
+  QEMU dry-run, and reduced generated-RTL cross-check gates remain green.
+
+Observed result:
+
+- `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank` passed 6 tests
+  in `STQEntryBankSpec`.
+- New reference coverage includes first-free allocation, split store merge,
+  full-queue merge acceptance, full-queue allocation rejection, WAIT-to-COMMIT
+  accounting, committed-row free, WAIT-only recovery free, committed-row
+  preservation on flush, and Chisel elaboration with the `STQFlushPrune` child.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune` passed 6 tests
+  in `STQFlushPruneSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl` passed
+  6 tests in `RecoveryCleanupControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only FlushControl` passed 6 tests
+  in `FlushControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank` passed 9 tests
+  in `ROBEntryBankSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `STQEntryBank` adds a reusable
+  LSU/STQ row-state gate and owner boundary: future memory-side packets should
+  build around this state owner instead of moving store queue mutation into
+  recovery, ROB, or top-level glue.

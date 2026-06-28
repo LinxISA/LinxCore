@@ -17,7 +17,8 @@ Current phase:
   BID/RID sidecars started
 - Backend/recovery integration: dispatch/BROB-to-ROB allocation bridge,
   full-BID recovery handoff, and registered cleanup intent started
-- LSU recovery integration: first STQ flush-prune consumer started
+- LSU recovery integration: first STQ flush-prune consumer and state bank
+  started
 - Phase 1 top shell: `LinxCoreTop` wraps the monitored reduced ROB so top
   emit/lint uses real commit structure before the full frontend/backend exists
 
@@ -49,7 +50,10 @@ for BROB-style cleanup, ring `ROBID` for ROB row pruning.
 the first cleanup-intent hooks for BCTRL, rename, backend, frontend, LSU/STQ,
 tile, PE fanout, and ROB consumers. `STQFlushPrune` is the first concrete
 LSU/STQ consumer: it mirrors the model `FlushBus::match` predicate and emits
-free masks for valid `STQ_WAIT` rows without mutating the full store queue.
+free masks for valid `STQ_WAIT` rows. `STQEntryBank` is the first STQ state
+owner that consumes those masks, stores row sidecars, performs first-free
+allocation, merges split store address/data halves, and keeps resident plus
+WAIT/outstanding counts.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -75,6 +79,7 @@ bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge
 bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
 bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

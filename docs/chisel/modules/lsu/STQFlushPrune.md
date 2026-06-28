@@ -13,6 +13,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/FlushControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
 - Contract IDs: `LC-CHISEL-LSU-STQ-FLUSH-001`
 
 ## Purpose
@@ -23,7 +24,8 @@ and reports which store-queue rows should be freed.
 
 It is not a full STQ. It does not own store insertion, data/address readiness,
 commit, memory issue, `storeCommitQ`, load-store forwarding, SCB/MDB state, or
-queue RAM mutation.
+queue RAM mutation. `STQEntryBank` is the first state owner that consumes this
+module's `freeMask`.
 
 ## Interface
 
@@ -58,8 +60,9 @@ queue RAM mutation.
 
 ## State
 
-The module is combinational. The later full STQ owner will hold row RAM state
-and apply `freeMask`.
+The module is combinational. `STQEntryBank` holds the first row state and
+applies `freeMask`; later LSU owners will add store-commit queue, SCB/MDB,
+forwarding, and data-array side effects.
 
 ## Logic Design
 
