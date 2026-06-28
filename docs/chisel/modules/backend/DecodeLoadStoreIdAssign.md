@@ -22,7 +22,7 @@ DCZVA-like memory row is actually accepted, it stamps the row with the current
 The module also exposes 64-bit `load_id` and `sid` observability matching
 `DCTop` counters, plus store-split intent matching the `SPERename` split
 predicate. It does not yet carry `load_id`/`sid` through `DecodedUop`, allocate
-LIQ/STQ rows, or create separate STA/STD uops.
+LIQ/STQ rows, or mutate STA/STD dispatch queues.
 
 ## Interface
 
@@ -74,10 +74,11 @@ changing counters.
 
 `storeSplitIntent` is true only for store rows where either the decoded row
 requests splitting or stack-set handling forces it, and where
-`isLoadStorePair` and `cacheMaintainNoSplit` are both false. This mirrors the
-front of `SPERename::InsertToStoreIEX` plus the decoder's cache-maintain split
-suppression. The later store-split owner still clones STA/STD uops and applies
-`HandleSta` PCR-source rules.
+`isLoadStorePair` and `cacheMaintainNoSplit` are both false. In the reduced
+integrated path, those pair/PCR/cache-maintain sidebands now come from the
+generated opcode metadata. The later store-split owner applies the same guard
+again, then constructs STA/STD or ST_ALL payloads and applies `HandleSta`
+PCR-source rules.
 
 Flush has priority over accept. A flush with `restoreValid` loads the provided
 counter image; a flush without restore resets all counters to zero. Full
@@ -98,8 +99,8 @@ The C++ model has two related memory-order paths:
 
 This Chisel owner preserves the pre-increment assignment rule and the accept
 boundary. It deliberately keeps block command start IDs, tile block split
-counts, PCR store source rewriting, and the actual STA/STD clone write in
-later owners.
+counts, PCR store source rewriting, and real STA/STD queue writes in later
+owners.
 
 ## Deferred Owners
 
@@ -109,9 +110,7 @@ later owners.
   context.
 - Carrying `load_id`/`sid` through common uop bundles into LIQ/STQ owners.
 - DCZVA opcode classification from generated decode metadata.
-- Generated opcode-derived load/store-pair, PCR-store, and cache-maintain
-  metadata.
-- Integration with `StoreSplitPayload` and STA/STD dispatch queues.
+- Real STA/STD dispatch queues behind `StoreSplitPayload`.
 - Enqueue-time ROB reservation before `DecodeRenameQueue`.
 
 ## Verification

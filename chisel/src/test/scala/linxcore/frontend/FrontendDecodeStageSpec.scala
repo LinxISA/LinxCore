@@ -314,6 +314,25 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(bstop.isBlockStop)
   }
 
+  test("generated opcode table carries store PCR, pair, and cache-maintain split metadata") {
+    val sdPcr = FrontendOpcodeDecodeTable.Rules.find(_.symbol == "OP_SD_PCR").get
+    val pair = FrontendOpcodeDecodeTable.Rules.find(_.symbol == "OP_HL_SDP").get
+    val dczva = FrontendOpcodeDecodeTable.Rules.find(_.symbol == "OP_DC_ZVA").get
+
+    assert(sdPcr.isStore)
+    assert(sdPcr.isStorePcr)
+    assert(!sdPcr.isLoadStorePair)
+    assert(!sdPcr.cacheMaintainNoSplit)
+
+    assert(pair.isLoadStorePair)
+    assert(!pair.isStore)
+    assert(!pair.cacheMaintainNoSplit)
+
+    assert(dczva.cacheMaintainNoSplit)
+    assert(!dczva.isStore)
+    assert(!dczva.isLoadStorePair)
+  }
+
   test("reference operand decode mirrors the pyCircuit scalar field layout") {
     val add = operands(0x00000005L | (3L << 7) | (4L << 15) | (5L << 20), lenBytes = 4).get
     assert(add.dst.contains(3))
@@ -372,6 +391,9 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(meta.rs1Kind.getWidth == 2)
     assert(meta.rs2Kind.getWidth == 2)
     assert(meta.immKind.getWidth == 6)
+    assert(meta.isLoadStorePair.getWidth == 1)
+    assert(meta.isStorePcr.getWidth == 1)
+    assert(meta.cacheMaintainNoSplit.getWidth == 1)
   }
 
   test("FrontendDecodeStage elaborates through Chisel") {

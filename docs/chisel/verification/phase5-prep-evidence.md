@@ -2820,3 +2820,75 @@ Skill evolve:
   that renamed split stores must fire STA and STD atomically, ordinary STA
   payloads zero source 0, PCR STA payloads preserve source 0 and use data
   source index 1, and pair/cache-maintain stores remain ST_ALL payloads.
+
+### R47 Generated Store Metadata And Reduced Store Dispatch Handoff
+
+Scope:
+
+- Extended the generated frontend opcode table with load/store-pair,
+  PCR-store, and cache-maintain split metadata derived from LinxCoreModel
+  opcode-manager behavior.
+- Wired `DecodeRenameROBPath` to feed that metadata into
+  `DecodeLoadStoreIdAssign` and to instantiate `StoreSplitPayload` behind
+  scalar rename.
+- Added reduced STA/STD readiness inputs plus store payload observability while
+  keeping real store queues and STQ mutation in later owners.
+
+Evidence:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
+bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
+bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
+bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
+bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `FrontendDecodeStageSpec` locks generated pair/PCR/cache-maintain metadata.
+- `DecodeRenameROBPathSpec` locks the model rule that split stores require
+  both STA and STD readiness, while unsplit stores require only STA readiness.
+- Existing LSID, store payload, scalar rename, queue, allocator, ROB, top
+  cross-check, QEMU dry-run, build, and Verilator lint gates remain green.
+
+Observed result:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `FrontendDecodeStageSpec` passed 8 tests, including the generated store PCR,
+  pair, and cache-maintain split metadata check.
+- `DecodeLoadStoreIdAssignSpec` passed 6 tests.
+- `StoreSplitPayloadSpec` passed 7 tests.
+- `ScalarDecodeRenameBridgeSpec` passed 6 tests.
+- `DecodeRenameROBPathSpec` passed 6 tests, including the store dispatch
+  readiness reference rule and elaboration through `StoreSplitPayload`.
+- `DecodeRenameQueueSpec` passed 5 tests.
+- `InterfaceBundlesSpec` passed 6 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the top xcheck RTL,
+  built the Verilator harness, compared 3 normalized rows, and reported zero
+  mismatches.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` passed the trace
+  schema adapter self-test.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the current top
+  shell and passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R47 adds the reusable invariant
+  that reduced store dispatch readiness must be computed from the queued
+  decoded row, not from `StoreSplitPayload.inReady`, so rename cannot create a
+  ready/valid loop through its accepted output.

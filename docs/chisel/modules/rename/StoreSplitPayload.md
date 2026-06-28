@@ -29,7 +29,9 @@ The module deliberately stops at payload construction. It does not mutate STQ
 state, allocate STQ rows, touch SCB/MDB state, or choose memory-side data
 values. `STQEntryBank` already owns the complementary `ST_ADDR`/`ST_DATA`
 merge rule, so this owner only prepares the dispatch payload shape and
-backpressure decision.
+backpressure decision. The reduced `DecodeRenameROBPath` now instantiates this
+owner for accepted renamed rows and exposes the resulting payloads as
+observability before real STA/STD dispatch queues exist.
 
 ## Interface
 
@@ -76,9 +78,8 @@ in.storeSplitIntent &&
 
 `storeSplitIntent` is expected to come from `DecodeLoadStoreIdAssign`, which
 already folds the model `storeSplit || STACK_SET` sources for the reduced
-path. `StoreSplitPayload` repeats the pair/cache-maintain guards so a future
-opcode-metadata owner can make the split boundary robust even if upstream
-metadata is conservatively broad.
+path. `StoreSplitPayload` repeats the pair/cache-maintain guards so the split
+boundary stays local even if an upstream owner is conservatively broad.
 
 When `split` is true, `inReady` requires both `staReady` and `stdReady`, and
 `fire` asserts only when both halves can be emitted in the same cycle. No
@@ -114,18 +115,16 @@ contract and keeps the deeper wakeup aliasing implications for the future
 issue/ready-table owner.
 
 `Decoder::DecodeInst` sets `storeSplit = false` for `CACHE_MAINTAIN`. The
-current Chisel opcode metadata does not yet expose a generated cache-maintain
-bit, so `cacheMaintainNoSplit` is carried as an explicit common-bundle field
-for the later opcode-metadata packet to drive.
+generated Chisel opcode metadata now drives `cacheMaintainNoSplit`, while
+load/store-pair and PCR-store metadata are carried beside it from decode
+through scalar rename into this owner.
 
 ## Deferred Owners
 
-- Generated opcode metadata for `isLoadStorePair`, `isStorePcr`, and
-  `cacheMaintainNoSplit`.
 - Stack rename payloads and explicit STA stack-type clearing / STD stack-type
   forwarding.
-- Integration from `ScalarDecodeRenameBridge` output into STA/STD dispatch
-  queues.
+- Real STA/STD dispatch queues behind the current `DecodeRenameROBPath`
+  observability.
 - STQ allocation, complementary partial-store merge, and STQ residency
   counters.
 - Issue wakeup aliasing, ready-table initialization, and real source readiness.

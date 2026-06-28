@@ -36,12 +36,13 @@ queueing flow in `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`. The
 current frontend transport slice composes the instruction buffer with F4
 visibility. `FrontendDecodeStage` now consumes those F4 slots and uses the
 pyCircuit opcode catalog mask/match metadata to produce D1 `DecodedUop`
-records plus block/load/store sideband masks. `FrontendOperandDecode` is the
-first scalar operand owner behind that stage: it consumes generated
-`rdKind`/`rs1Kind`/`rs2Kind`/`immKind` metadata, extracts architectural
-source/destination tags, classifies scalar reg6 aliases as GPR/T/U according
-to LinxCoreModel, and forms common scalar immediates. LSID allocation,
-store-split payload construction, T/U rename or queue consumption,
+records plus block/load/store sideband masks and generated store split
+metadata for load/store pairs, PCR stores, and cache-maintain rows.
+`FrontendOperandDecode` is the first scalar operand owner behind that stage: it
+consumes generated `rdKind`/`rs1Kind`/`rs2Kind`/`immKind` metadata, extracts
+architectural source/destination tags, classifies scalar reg6 aliases as
+GPR/T/U according to LinxCoreModel, and forms common scalar immediates. LSID
+allocation, real STA/STD queue mutation, T/U rename or queue consumption,
 SGPR/tile/vector operands, D2 width expansion, and full model-like ROB
 reservation before queue enqueue remain later owners.
 `ScalarDecodeRenameBridge` now adds
@@ -53,12 +54,12 @@ decode, a registered `DecodeRenameQueue`, scalar rename, and real ROB/BROB
 allocation. It selects one decoded slot, queues the raw decoded row, stamps
 reduced memory-order identity when the row is accepted into the queue, stamps
 temporary backend identity from allocator cursors at the queue head, drives
-allocator valid from a pre-ready bridge attempt signal, and keeps enqueue-time
-ROB reservation, full SID/LID payload carry, store-dispatch integration,
-ready-table, and live top integration in later owners. `StoreSplitPayload`
-now defines the renamed store payload boundary: it emits atomic STA/STD halves
-or a single ST_ALL payload while preserving PCR source selection. The first
-integrated ROB/CMT
+allocator valid from a pre-ready bridge attempt signal, gates accepted store
+rows on reduced STA/STD readiness, and exposes `StoreSplitPayload` STA/STD or
+ST_ALL payloads before real store queues exist. It keeps enqueue-time ROB
+reservation, full SID/LID payload carry, real store-dispatch queues,
+ready-table, and live top integration in later owners. The first integrated
+ROB/CMT
 preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
 status-backed entry bank with separate commit and deallocation walks, and expose
 the model-derived flush-prune selection rule. The entry bank now consumes that

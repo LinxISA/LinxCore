@@ -41,6 +41,51 @@ OPERAND_KIND = {
     "REG": 1,
 }
 
+LOAD_STORE_PAIR_SYMBOLS = {
+    "OP_HL_LBP",
+    "OP_HL_LHP",
+    "OP_HL_LWP",
+    "OP_HL_LDP",
+    "OP_HL_LBUP",
+    "OP_HL_LHUP",
+    "OP_HL_LWUP",
+    "OP_HL_LBIP",
+    "OP_HL_LHIP",
+    "OP_HL_LWIP",
+    "OP_HL_LDIP",
+    "OP_HL_LBUIP",
+    "OP_HL_LHUIP",
+    "OP_HL_LWUIP",
+    "OP_HL_LHIP_U",
+    "OP_HL_LWIP_U",
+    "OP_HL_LDIP_U",
+    "OP_HL_LHUIP_U",
+    "OP_HL_LWUIP_U",
+    "OP_HL_SBP",
+    "OP_HL_SHP",
+    "OP_HL_SWP",
+    "OP_HL_SDP",
+    "OP_HL_SHP_U",
+    "OP_HL_SWP_U",
+    "OP_HL_SDP_U",
+    "OP_HL_SBIP",
+    "OP_HL_SHIP",
+    "OP_HL_SWIP",
+    "OP_HL_SDIP",
+    "OP_HL_SHIP_U",
+    "OP_HL_SWIP_U",
+    "OP_HL_SDIP_U",
+}
+
+STORE_PCR_SYMBOLS = {
+    "OP_SB_PCR",
+    "OP_SH_PCR",
+    "OP_SW_PCR",
+    "OP_SD_PCR",
+}
+
+CACHE_MAINTAIN_PREFIXES = ("OP_BC_", "OP_IC_", "OP_DC_", "OP_TLB_")
+
 
 def dispatch_code(meta) -> int:
     if meta.major_cat in {"LOAD", "STORE"}:
@@ -60,6 +105,18 @@ def boundary_code(meta) -> int:
 
 def is_block_boundary(meta) -> bool:
     return meta.block_kind != "NONE" and meta.block_kind != "STOP"
+
+
+def is_load_store_pair(meta) -> bool:
+    return meta.symbol in LOAD_STORE_PAIR_SYMBOLS
+
+
+def is_store_pcr(meta) -> bool:
+    return meta.symbol in STORE_PCR_SYMBOLS
+
+
+def cache_maintain_no_split(meta) -> bool:
+    return meta.symbol.startswith(CACHE_MAINTAIN_PREFIXES)
 
 
 def source_len_bytes(meta) -> int:
@@ -122,6 +179,9 @@ def main() -> None:
             "      immKind: Int,",
             "      isLoad: Boolean,",
             "      isStore: Boolean,",
+            "      isLoadStorePair: Boolean,",
+            "      isStorePcr: Boolean,",
+            "      cacheMaintainNoSplit: Boolean,",
             "      isBlockBoundary: Boolean,",
             "      isBlockStop: Boolean)",
             "",
@@ -166,6 +226,9 @@ def main() -> None:
             f"immKind = Imm{meta.imm_kind}, "
             f"isLoad = {bool_lit(meta.major_cat == 'LOAD')}, "
             f"isStore = {bool_lit(meta.major_cat == 'STORE')}, "
+            f"isLoadStorePair = {bool_lit(is_load_store_pair(meta))}, "
+            f"isStorePcr = {bool_lit(is_store_pcr(meta))}, "
+            f"cacheMaintainNoSplit = {bool_lit(cache_maintain_no_split(meta))}, "
             f"isBlockBoundary = {bool_lit(is_block_boundary(meta))}, "
             f"isBlockStop = {bool_lit(meta.block_kind == 'STOP')}){comma}"
         )
@@ -218,6 +281,9 @@ def main() -> None:
             "        meta.immKind := rule.immKind.U(meta.immKind.getWidth.W)",
             "        meta.isLoad := rule.isLoad.B",
             "        meta.isStore := rule.isStore.B",
+            "        meta.isLoadStorePair := rule.isLoadStorePair.B",
+            "        meta.isStorePcr := rule.isStorePcr.B",
+            "        meta.cacheMaintainNoSplit := rule.cacheMaintainNoSplit.B",
             "        meta.isBlockBoundary := rule.isBlockBoundary.B",
             "        meta.isBlockStop := rule.isBlockStop.B",
             "      }",

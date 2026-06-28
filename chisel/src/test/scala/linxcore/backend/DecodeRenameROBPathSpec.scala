@@ -26,6 +26,16 @@ object DecodeRenameROBPathReference {
     require(depth > 0 && (depth & (depth - 1)) == 0)
     !flush && (count < depth || popFire)
   }
+
+  def storeDispatchReady(
+      valid: Boolean,
+      isStore: Boolean,
+      split: Boolean,
+      staReady: Boolean,
+      stdReady: Boolean): Boolean = {
+    val active = valid && isStore
+    !active || (if (split) staReady && stdReady else staReady)
+  }
 }
 
 class DecodeRenameROBPathSpec extends AnyFunSuite {
@@ -53,6 +63,16 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(!queuePushReady(count = 1, depth = 4, popFire = true, flush = true))
   }
 
+  test("reference gates store dispatch like the model STA/STD split point") {
+    assert(storeDispatchReady(valid = false, isStore = false, split = false, staReady = false, stdReady = false))
+    assert(storeDispatchReady(valid = true, isStore = false, split = false, staReady = false, stdReady = false))
+    assert(storeDispatchReady(valid = true, isStore = true, split = false, staReady = true, stdReady = false))
+    assert(!storeDispatchReady(valid = true, isStore = true, split = false, staReady = false, stdReady = true))
+    assert(storeDispatchReady(valid = true, isStore = true, split = true, staReady = true, stdReady = true))
+    assert(!storeDispatchReady(valid = true, isStore = true, split = true, staReady = true, stdReady = false))
+    assert(!storeDispatchReady(valid = true, isStore = true, split = true, staReady = false, stdReady = true))
+  }
+
   test("IO exposes decode selection, rename, ROB allocation, and commit observability") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
@@ -75,6 +95,16 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.nextLoadId.getWidth == 64)
     assert(io.nextStoreId.getWidth == 64)
     assert(io.storeSplitIntent.getWidth == 1)
+    assert(io.storeStaReady.getWidth == 1)
+    assert(io.storeStdReady.getWidth == 1)
+    assert(io.storeDispatchReady.getWidth == 1)
+    assert(io.storeDispatchFire.getWidth == 1)
+    assert(io.storeDispatchSplit.getWidth == 1)
+    assert(io.storeDispatchBlockedBySta.getWidth == 1)
+    assert(io.storeDispatchBlockedByStd.getWidth == 1)
+    assert(io.storeSta.uop.lsid.getWidth == 32)
+    assert(io.storeStd.dataSrcIndex.getWidth == 2)
+    assert(io.storeUnsplit.dataSrcIndex.getWidth == 2)
     assert(io.robAllocAttemptValid.getWidth == 1)
     assert(io.robAllocFire.getWidth == 1)
     assert(io.commit.rows.length == 2)
@@ -94,10 +124,13 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("DecodeLoadStoreIdAssign"))
     assert(sv.contains("DecodeRenameQueue"))
     assert(sv.contains("ScalarDecodeRenameBridge"))
+    assert(sv.contains("StoreSplitPayload"))
     assert(sv.contains("DispatchROBAllocator"))
     assert(sv.contains("io_decodeReady"))
     assert(sv.contains("io_decRenPushFire"))
     assert(sv.contains("io_lsidAssignFire"))
+    assert(sv.contains("io_storeDispatchReady"))
+    assert(sv.contains("io_storeSta_valid"))
     assert(sv.contains("io_selectedLsId"))
     assert(sv.contains("io_decRenCount"))
     assert(sv.contains("io_robAllocAttemptValid"))

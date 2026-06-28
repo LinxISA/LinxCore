@@ -30,8 +30,8 @@ cycle, stamps reduced memory-order identity for scalar load/store rows at the
 queue acceptance boundary, enqueues the decoded row into a registered
 `dec_ren_q` owner, stamps temporary ROB identity from allocator cursors when
 the queue head is presented to rename, and leaves enqueue-time ROB
-reservation, full SID/LID carry, store split cloning, width-wide rename, and
-full top-level fetch/commit flow to later owners.
+reservation, full SID/LID carry, real STA/STD queue mutation, width-wide
+rename, and full top-level fetch/commit flow to later owners.
 
 ## Interface
 
@@ -40,6 +40,8 @@ Inputs:
 - `d1`, `slots`, `validMask`, `flushValid`: D1/F4 decode inputs consumed by
   `FrontendDecodeStage`.
 - `renamedOutReady`: downstream renamed-uop consumer readiness.
+- `storeStaReady`, `storeStdReady`: reduced store-dispatch readiness for the
+  address and data sides.
 - `checkpointValid/checkpointBid`, `commitValid/commitBid`, `cleanup`:
   pass-through control for the scalar GPR rename owner and ROB flush path.
 - `completeValid/completeRobValue`: reduced ROB completion hook.
@@ -63,6 +65,10 @@ Outputs:
   `DecodeLoadStoreIdAssign`.
 - `renamedOutValid/renamedOut`, `accepted`: renamed-uop output and atomic
   path accept event.
+- `storeDispatchReady`, `storeDispatchFire`, `storeDispatchSplit`,
+  `storeDispatchBlockedBySta`, `storeDispatchBlockedByStd`, `storeSta`,
+  `storeStd`, `storeUnsplit`: reduced store-dispatch observability from the
+  accepted renamed row.
 - `robAllocAttemptValid`, `robAllocReady`, `robAllocFire`,
   `robAllocBlockedBy*`, `robAllocDuplicateIdentity`: allocation handoff
   observability.
@@ -84,7 +90,9 @@ row is written into `DecodeRenameQueue` when `decRenPushFire` is true. The
 queue and the memory-order counters are flushed by direct frontend flush input
 or by backend cleanup intent. `decodeReady` mirrors the queue push-ready signal
 so a future frontend integration can advance D1/F4 only when the selected row
-is accepted.
+is accepted. The generated opcode metadata drives the reduced path's
+load/store-pair, PCR-store, and cache-maintain split sidebands. DCZVA remains a
+deferred explicit classification input.
 
 When a row is visible at the queue head, the module stamps the missing backend
 identity that `DCTop::Work()` and `SPEROB::allocROB()` supply in the C++ model:
@@ -102,6 +110,14 @@ and mutates GPR rename state when `allocReady` returns true, but the allocator
 duplicate-identity check sees a stable request row before it computes ready.
 This avoids a ready/valid combinational feedback path through ROB duplicate
 detection.
+
+For store rows at the queue head, the path computes reduced store-dispatch
+readiness before rename accepts the row. Unsplit stores require only STA
+readiness; split stores require both STA and STD readiness so the model STA/STD
+pair cannot partially fire. This readiness is computed from the queued decoded
+row, not from `StoreSplitPayload.inReady`, avoiding a combinational loop
+through the accepted renamed output. `StoreSplitPayload` then consumes the
+accepted renamed row and emits the observed STA, STD, or ST_ALL payloads.
 
 The allocator still owns BID generation, BROB metadata allocation, ROB row
 allocation, completion, deallocation, commit monitoring, and ROB flush pruning.
@@ -126,6 +142,9 @@ The C++ model order being preserved is:
    scalar destinations, captures checkpoints for `isLastInBlock`, and forwards
    the renamed uop toward dispatch.
 6. `GPRRename` owns scalar `smap`, `cmap`, checkpoints, free tags, and mapQ.
+7. `SPERename::InsertToStoreIEX()` emits either an atomic STA/STD pair or a
+   single ST_ALL store payload behind rename, with PCR-source and pair/cache
+   suppression semantics.
 
 `DecodeRenameROBPath` now preserves the registered `dec_ren_q` timing point,
 and it assigns reduced memory-order identity before queue enqueue. It still
@@ -133,7 +152,8 @@ reduces the model in one important way: the allocator cursor identity is
 stamped at the queue head. This avoids duplicate cursor reservations while the
 path lacks an enqueue-time ROB reservation owner. Full model timing requires
 moving ROB reservation before enqueue and carrying full `load_id`/`sid`
-payloads into LIQ/STQ owners.
+payloads into LIQ/STQ owners. Full store timing requires replacing the current
+payload observability with real STA/STD dispatch queues and STQ residency.
 
 ## Deferred Owners
 
@@ -144,9 +164,8 @@ payloads into LIQ/STQ owners.
 - Top-level frontend backpressure wiring that consumes `decodeReady`.
 - Width-wide slot-order LSID/SID allocation and same-cycle memory ordering.
 - Full `load_id`/`sid` payload carry into LIQ/STQ owners.
-- Store split dispatch integration; `StoreSplitPayload` now defines the
-  renamed-uop payload split, but this reduced path still returns the unsplit
-  `renamedOut` stream.
+- Real STA/STD dispatch queues and STQ mutation behind the current
+  `StoreSplitPayload` observability.
 - Automatic checkpoint capture from validated `isLastInBlock`.
 - T/U/SGPR/tile/vector operand classification and rename.
 - Ready-table initialization, issue enqueue, execution completion, and full
@@ -161,6 +180,7 @@ Focused gate:
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
+bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
 ```
 
 Affected gates:
@@ -176,7 +196,8 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 ```
 
 The current tests cover first-valid slot selection, queue admission
-backpressure, the reduced memory-order ID observability, the allocation
-attempt contract, IO shape, and CIRCT elaboration through frontend decode,
-`DecodeLoadStoreIdAssign`, `DecodeRenameQueue`, scalar rename, and backend
+backpressure, the reduced memory-order ID observability, the store dispatch
+STA/STD readiness rule, the allocation attempt contract, IO shape, and CIRCT
+elaboration through frontend decode, `DecodeLoadStoreIdAssign`,
+`DecodeRenameQueue`, scalar rename, `StoreSplitPayload`, and backend
 allocation.
