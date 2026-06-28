@@ -36,6 +36,11 @@ generation, write-response matching, MDB conflict prediction, load forwarding,
 or fence/store-drain completion. `SCBEgressSelect` is the next owner for
 choosing a valid SCB line to present to those future paths.
 
+`SCBRowBank` is the later registered composition owner that reuses this
+capacity/free-mask contract while also owning one mutable SCB row image around
+egress lookup and state update. Full LSU composition should consume the
+row-bank surface once it replaces the standalone bridge/ingress path.
+
 ## Interface
 
 ### Inputs

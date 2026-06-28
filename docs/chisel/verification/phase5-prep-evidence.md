@@ -1305,3 +1305,85 @@ Skill evolve:
   for a current `Valid` row, writable hits clear rows, misses hold rows in
   `Miss`, and WriteResp/UpgradeResp targets must be valid `Miss` rows before
   returning to lookup.
+
+## 2026-06-28 SCB Row Bank
+
+Scope:
+
+- Added `SCBRowBank` as the first registered SCB composition owner around one
+  row image.
+- Preserved pre-cycle model-batch admission, lane-ordered committed-store
+  ingress, final STQ free masks for accepted `last` fragments, egress
+  selection, abstract DCache/L2 lookup classification, and row-state
+  registration after hit, miss, or memory response.
+- Kept outstanding rows closed to new store coalescing: same-line writes do not
+  merge into `Lookup` or `Miss` rows.
+- Kept raw CHI TxnID decode, L2/CHI queues, DCache RAM mutation, MDB,
+  forwarding, full STQ-to-SCB wiring, and memory-event trace in later owner
+  packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only SCBRowBank
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate
+bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl
+bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge
+bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `SCBRowBankSpec` covers model-batch admission, pre-cycle free-count gating,
+  same-cycle ingress merge plus writable hit, miss ownership request, response
+  return, outstanding-row non-merge, illegal response reporting, and Chisel
+  elaboration with the egress/lookup/state-update children.
+- Existing SCB state update, lookup, egress, bridge, ingress, ROB/cross-check,
+  QEMU dry-run, reduced RTL xcheck, top-shell xcheck, and Verilator lint gates
+  stay green.
+
+Observed result:
+
+- `bash tools/chisel/run_chisel_tests.sh --only SCBRowBank` passed 8 tests in
+  `SCBRowBankSpec`.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBStateUpdate` passed 9 tests
+  in `SCBStateUpdateSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBLookupControl` passed 7
+  tests in `SCBLookupControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBEgressSelect` passed 6
+  tests in `SCBEgressSelectSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitBridge` passed 5
+  tests in `SCBCommitBridgeSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only SCBCommitIngress` passed 5
+  tests in `SCBCommitIngressSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `SCBRowBank` adds the reusable
+  registered SCB composition invariant: pre-cycle free count controls model
+  batch admission, accepted ingress may feed the same-cycle lookup payload, and
+  `Lookup`/`Miss` rows remain closed to same-line coalescing.

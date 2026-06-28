@@ -67,10 +67,9 @@ prediction, store-to-load forwarding, or final STQ free authorization.
 
 ## State
 
-The module is combinational. It computes a next row image but does not store it.
-A later SCB composition owner must register `nextEntries`, combine it with
-`SCBCommitIngress` admission, and arbitrate simultaneous ingress/egress row
-ownership.
+The module is combinational. It computes a next row image but does not store
+it. `SCBRowBank` is the first registered owner that stores `nextEntries` after
+staging committed-store ingress and lookup outcome classification.
 
 ## Logic Design
 
