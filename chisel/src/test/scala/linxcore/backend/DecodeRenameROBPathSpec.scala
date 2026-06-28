@@ -3,6 +3,8 @@ package linxcore.backend
 import circt.stage.ChiselStage
 import linxcore.commit.CommitTraceParams
 import linxcore.common.InterfaceParams
+import linxcore.rename.{TULinkFlushSequencePublisherReference, TULinkFlushSourceSelectorReference}
+import linxcore.rob.ROBIDValue
 import org.scalatest.funsuite.AnyFunSuite
 
 object DecodeRenameROBPathReference {
@@ -73,6 +75,49 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(!storeDispatchReady(valid = true, isStore = true, split = true, staReady = false, stdReady = true))
   }
 
+  test("reference accepts agreeing ROB and LSU cleanup sources but blocks conflicting ones") {
+    import TULinkFlushSequencePublisherReference._
+
+    val bid = ROBIDValue(value = 2)
+    val rid = ROBIDValue(value = 3)
+    val source = Source(
+      valid = true,
+      bid = bid,
+      rid = rid,
+      stid = 1,
+      tSeq = ROBIDValue(value = 5),
+      uSeq = ROBIDValue(value = 6),
+      dst = TDst)
+
+    val agreed = TULinkFlushSourceSelectorReference.select(
+      cleanupValid = true,
+      backendFlushValid = true,
+      baseOnBid = false,
+      bid = bid,
+      rid = rid,
+      stid = 1,
+      robSource = source,
+      lsuSource = source)
+    assert(agreed.multipleMatched)
+    assert(!agreed.sourceConflict)
+    assert(agreed.selectedFromRob)
+
+    val conflict = TULinkFlushSourceSelectorReference.select(
+      cleanupValid = true,
+      backendFlushValid = true,
+      baseOnBid = false,
+      bid = bid,
+      rid = rid,
+      stid = 1,
+      robSource = source,
+      lsuSource = source.copy(uSeq = ROBIDValue(value = 7)))
+    assert(conflict.multipleMatched)
+    assert(conflict.sourceConflict)
+    assert(!conflict.source.valid)
+    assert(!conflict.selectedFromRob)
+    assert(!conflict.selectedFromLsu)
+  }
+
   test("IO exposes decode selection, rename, ROB allocation, and commit observability") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
@@ -124,6 +169,17 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.robTULinkSource.uSeq.value.getWidth == 5)
     assert(io.robTULinkSourceMatched.getWidth == 1)
     assert(io.robTULinkSourceMultipleMatch.getWidth == 1)
+    assert(io.lsuTULinkSource.tSeq.value.getWidth == 5)
+    assert(io.tuCleanupPublisherFlushValid.getWidth == 1)
+    assert(io.tuCleanupPublisherFlushTSeq.value.getWidth == 5)
+    assert(io.tuCleanupPublisherFlushUSeq.value.getWidth == 5)
+    assert(io.tuCleanupSelectedFlushSource.uSeq.value.getWidth == 5)
+    assert(io.tuCleanupRobSourceMatched.getWidth == 1)
+    assert(io.tuCleanupLsuSourceMatched.getWidth == 1)
+    assert(io.tuCleanupMultipleSourcesMatched.getWidth == 1)
+    assert(io.tuCleanupSourceConflict.getWidth == 1)
+    assert(io.tuCleanupSelectedFromRob.getWidth == 1)
+    assert(io.tuCleanupSelectedFromLsu.getWidth == 1)
     assert(io.commit.rows.length == 2)
     assert(io.occupiedMask.getWidth == 8)
     assert(io.blockAllocatedMask.getWidth == 8)
@@ -144,6 +200,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("StoreSplitPayload"))
     assert(sv.contains("StoreDispatchQueues"))
     assert(sv.contains("DispatchROBAllocator"))
+    assert(sv.contains("TULinkRecoveryCleanupPath"))
     assert(sv.contains("io_decodeReady"))
     assert(sv.contains("io_decRenPushFire"))
     assert(sv.contains("io_lsidAssignFire"))
@@ -158,6 +215,10 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_selectedRobValue"))
     assert(sv.contains("io_robTULinkSource_tSeq_value"))
     assert(sv.contains("io_robTULinkSourceMatched"))
+    assert(sv.contains("io_lsuTULinkSource_tSeq_value"))
+    assert(sv.contains("io_tuCleanupPublisherFlushTSeq_value"))
+    assert(sv.contains("io_tuCleanupSourceConflict"))
+    assert(sv.contains("io_tuCleanupSelectedFromLsu"))
     assert(sv.contains("io_commitContractError"))
   }
 }

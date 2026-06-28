@@ -11,6 +11,7 @@
   - `chisel/src/main/scala/linxcore/rename/TULinkFlushSequencePublisher.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRename.scala`
   - `chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
+  - `chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
 - LinxCoreModel:
   - `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`
   - `model/LinxCoreModel/model/bctrl/spe/SPERename.cpp`
@@ -127,10 +128,11 @@ The selected-row sequence source comes from ROB/LSU recovery builders:
 
 `TULinkRecoveryCleanupPath` preserves that split. It owns composition and
 barrier behavior, while the row owners remain responsible for producing the
-candidate source snapshots. The reduced backend exposes the allocator's
-ROB-side source candidate, and STQ wrappers now expose the LSU-side source
-candidate from `STQEntryBank`; a later top-level integration packet must wire
-the active LSU source into this path.
+candidate source snapshots. The reduced backend now instantiates the path with
+`DispatchROBAllocator.robTULinkSource` on `robSource` and an external
+`lsuTULinkSource` input on `lsuSource`. STQ wrappers expose the LSU-side source
+candidate from `STQEntryBank`, but a later integration packet must connect the
+live STQ wrapper producer into the reduced backend input.
 
 ## Timing
 
@@ -151,8 +153,11 @@ rather than ignoring them.
 
 ## Deferred Owners
 
-- Compose the reduced backend's exposed ROB source and the STQ wrapper's LSU
-  source into the live top-level recovery cleanup path.
+- Wire `StoreDispatchSTQPath` or `STQSCBCommitPath` `lsuTULinkSource*` outputs
+  into `DecodeRenameROBPath.lsuTULinkSource` once that owner replaces the
+  current reduced store-dispatch queue shell with the live STQ bank path.
+- Use the reduced backend cleanup publisher outputs to mutate a live merged
+  scalar/T/U rename state instead of only publishing diagnostics.
 - Replace disabled store-dispatch T/U sidecars with live rename snapshots.
 - Scalar decode/rename composition that merges GPR and T/U accepted outputs.
 - Relation-cmap release policy around T/U retire/dealloc.

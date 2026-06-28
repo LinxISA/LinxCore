@@ -9,7 +9,7 @@ import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
 import linxcore.lsu.StoreDispatchQueues
 import linxcore.recovery.{FullBidRecoveryBridge, RecoveryCleanupIntent}
-import linxcore.rename.{ScalarDecodeRenameBridge, StoreSplitIssuePayload, StoreSplitPayload}
+import linxcore.rename.{ScalarDecodeRenameBridge, StoreSplitIssuePayload, StoreSplitPayload, TULinkRecoveryCleanupPath}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
 class DecodeRenameROBPathIO(
@@ -46,6 +46,7 @@ class DecodeRenameROBPathIO(
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(p.robEntries))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val lsuTULinkSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
 
   val completeValid = Input(Bool())
   val completeRobValue = Input(UInt(ptrWidth.W))
@@ -144,6 +145,30 @@ class DecodeRenameROBPathIO(
   val robTULinkSource = Output(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
   val robTULinkSourceMatched = Output(Bool())
   val robTULinkSourceMultipleMatch = Output(Bool())
+  val tuCleanupPublisherFlushValid = Output(Bool())
+  val tuCleanupPublisherFlushBaseOnBid = Output(Bool())
+  val tuCleanupPublisherFlushBid = Output(new ROBID(p.robEntries))
+  val tuCleanupPublisherFlushRid = Output(new ROBID(p.robEntries))
+  val tuCleanupPublisherFlushTSeq = Output(new ROBID(mapQDepth))
+  val tuCleanupPublisherFlushUSeq = Output(new ROBID(mapQDepth))
+  val tuCleanupActive = Output(Bool())
+  val tuCleanupBlockedBySource = Output(Bool())
+  val tuCleanupFlushSourceRequired = Output(Bool())
+  val tuCleanupFlushSourceMatched = Output(Bool())
+  val tuCleanupFlushMissingSource = Output(Bool())
+  val tuCleanupFlushSourceMismatch = Output(Bool())
+  val tuCleanupSelectedFlushSource = Output(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
+  val tuCleanupRobSourceMatched = Output(Bool())
+  val tuCleanupLsuSourceMatched = Output(Bool())
+  val tuCleanupRobSourceMismatched = Output(Bool())
+  val tuCleanupLsuSourceMismatched = Output(Bool())
+  val tuCleanupMultipleSourcesMatched = Output(Bool())
+  val tuCleanupSourceConflict = Output(Bool())
+  val tuCleanupSelectorSourceMissing = Output(Bool())
+  val tuCleanupSelectedFromRob = Output(Bool())
+  val tuCleanupSelectedFromLsu = Output(Bool())
+  val tuCleanupFlushTPrevApplied = Output(Bool())
+  val tuCleanupFlushUPrevApplied = Output(Bool())
   val empty = Output(Bool())
   val full = Output(Bool())
   val size = Output(UInt(sizeWidth.W))
@@ -348,6 +373,26 @@ class DecodeRenameROBPath(
   allocator.io.blockFlushBid := io.cleanup.blockFlushBid
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
 
+  val tuCleanup = Module(new TULinkRecoveryCleanupPath(
+    p = p,
+    mapQDepth = mapQDepth,
+    bidWidth = bidWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth
+  ))
+  tuCleanup.io.in := 0.U.asTypeOf(new DecodedUop(p))
+  tuCleanup.io.renameValid := false.B
+  tuCleanup.io.retireValid := false.B
+  tuCleanup.io.retireKind := DestinationKind.None
+  tuCleanup.io.retireSeq := zeroLocalSeq
+  tuCleanup.io.retireDealloc := false.B
+  tuCleanup.io.commitValid := false.B
+  tuCleanup.io.commitBid := io.commitBid
+  tuCleanup.io.cleanup := io.cleanup
+  tuCleanup.io.robSource := allocator.io.robTULinkSource
+  tuCleanup.io.lsuSource := io.lsuTULinkSource
+
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
   io.selectedRobValue := allocator.io.allocRobValue
@@ -433,6 +478,30 @@ class DecodeRenameROBPath(
   io.robTULinkSource := allocator.io.robTULinkSource
   io.robTULinkSourceMatched := allocator.io.robTULinkSourceMatched
   io.robTULinkSourceMultipleMatch := allocator.io.robTULinkSourceMultipleMatch
+  io.tuCleanupPublisherFlushValid := tuCleanup.io.publisherFlushValid
+  io.tuCleanupPublisherFlushBaseOnBid := tuCleanup.io.publisherFlushBaseOnBid
+  io.tuCleanupPublisherFlushBid := tuCleanup.io.publisherFlushBid
+  io.tuCleanupPublisherFlushRid := tuCleanup.io.publisherFlushRid
+  io.tuCleanupPublisherFlushTSeq := tuCleanup.io.publisherFlushTSeq
+  io.tuCleanupPublisherFlushUSeq := tuCleanup.io.publisherFlushUSeq
+  io.tuCleanupActive := tuCleanup.io.cleanupActive
+  io.tuCleanupBlockedBySource := tuCleanup.io.cleanupBlockedBySource
+  io.tuCleanupFlushSourceRequired := tuCleanup.io.flushSourceRequired
+  io.tuCleanupFlushSourceMatched := tuCleanup.io.flushSourceMatched
+  io.tuCleanupFlushMissingSource := tuCleanup.io.flushMissingSource
+  io.tuCleanupFlushSourceMismatch := tuCleanup.io.flushSourceMismatch
+  io.tuCleanupSelectedFlushSource := tuCleanup.io.selectedFlushSource
+  io.tuCleanupRobSourceMatched := tuCleanup.io.robSourceMatched
+  io.tuCleanupLsuSourceMatched := tuCleanup.io.lsuSourceMatched
+  io.tuCleanupRobSourceMismatched := tuCleanup.io.robSourceMismatched
+  io.tuCleanupLsuSourceMismatched := tuCleanup.io.lsuSourceMismatched
+  io.tuCleanupMultipleSourcesMatched := tuCleanup.io.multipleSourcesMatched
+  io.tuCleanupSourceConflict := tuCleanup.io.sourceConflict
+  io.tuCleanupSelectorSourceMissing := tuCleanup.io.selectorSourceMissing
+  io.tuCleanupSelectedFromRob := tuCleanup.io.selectedFromRob
+  io.tuCleanupSelectedFromLsu := tuCleanup.io.selectedFromLsu
+  io.tuCleanupFlushTPrevApplied := tuCleanup.io.flushTPrevApplied
+  io.tuCleanupFlushUPrevApplied := tuCleanup.io.flushUPrevApplied
   io.empty := allocator.io.empty
   io.full := allocator.io.full
   io.size := allocator.io.size

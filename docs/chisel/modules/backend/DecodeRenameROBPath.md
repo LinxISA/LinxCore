@@ -14,6 +14,7 @@
   - `chisel/src/main/scala/linxcore/backend/DecodeLoadStoreIdAssign.scala`
   - `chisel/src/main/scala/linxcore/backend/DecodeRenameQueue.scala`
   - `chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala`
+  - `chisel/src/main/scala/linxcore/rename/TULinkRecoveryCleanupPath.scala`
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchQueues.scala`
   - `chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 
@@ -36,6 +37,10 @@ rename, live T/U cleanup source sidecars, and full top-level fetch/commit flow
 to later owners. It now owns a
 finite queue-backed store-dispatch boundary through `StoreDispatchQueues`, but
 STA/STD execution and STQ insertion remain later LSU owners.
+It also instantiates the reduced T/U recovery cleanup composition point so the
+allocator's ROB-side source candidate and an external LSU/STQ source candidate
+can be selected, cross-checked, and published as diagnostics before the full
+live T/U rename path is integrated.
 
 ## Interface
 
@@ -48,6 +53,10 @@ Inputs:
   the current STA and STD queue heads.
 - `checkpointValid/checkpointBid`, `commitValid/commitBid`, `cleanup`:
   pass-through control for the scalar GPR rename owner and ROB flush path.
+- `lsuTULinkSource`: external LSU/STQ T/U cleanup source candidate. The
+  intended producers are `StoreDispatchSTQPath.lsuTULinkSource` or
+  `STQSCBCommitPath.lsuTULinkSource` once a higher-level owner replaces the
+  reduced store-dispatch queue shell with the live STQ bank path.
 - `completeValid/completeRobValue`: reduced ROB completion hook.
 - `deallocReady`: reduced ROB deallocation hook.
 
@@ -86,6 +95,12 @@ Outputs:
 - `allocBlockBid`, `allocRobValue`, `commit*`, `dealloc*`, `flushApplied`,
   `robTULinkSource*`, `size`, `outstandingCount`, and occupancy masks:
   `DispatchROBAllocator` and `ROBEntryBank` lifecycle observability.
+- `tuCleanupPublisherFlush*`, `tuCleanupSelectedFlushSource`,
+  `tuCleanup*Source*`, `tuCleanupSourceConflict`,
+  `tuCleanupSelectedFrom*`, and `tuCleanupFlush*PrevApplied`:
+  `TULinkRecoveryCleanupPath` diagnostics for ROB/LSU source selection,
+  missing-source blocking, duplicate-source conflict, and selected flush
+  sequence publication.
 
 ## Logic Design
 
@@ -156,6 +171,17 @@ live T/U destination rename has not been composed yet. The forwarding exists so
 the future top-level recovery cleanup path can connect the ROB candidate into
 `TULinkRecoveryCleanupPath.robSource` without reopening the allocator boundary.
 
+The path now instantiates `TULinkRecoveryCleanupPath` as a reduced diagnostic
+composition owner. Its rename, retire, and commit data inputs are tied inactive
+because scalar and T/U rename state are not yet merged in this module. Its
+`robSource` input is driven by `DispatchROBAllocator.robTULinkSource`, and its
+`lsuSource` input is driven by the module IO. For non-base cleanup intents, the
+emitted diagnostics prove whether the ROB and LSU candidates agree for the same
+`(bid,rid,stid)`, whether exactly one owner supplied a matching source, or
+whether cleanup was blocked by a missing or conflicting source. The publisher
+flush outputs are observability only in this reduced owner; live T/U state
+mutation remains inside the future merged rename/recovery owner.
+
 ## Model Alignment
 
 The C++ model order being preserved is:
@@ -174,7 +200,10 @@ The C++ model order being preserved is:
    scalar destinations, captures checkpoints for `isLastInBlock`, and forwards
    the renamed uop toward dispatch.
 6. `GPRRename` owns scalar `smap`, `cmap`, checkpoints, free tags, and mapQ.
-7. `SPERename::InsertToStoreIEX()` emits either an atomic STA/STD pair or a
+7. Store-unit deadlock cleanup builders preserve row-owned T/U sequence and
+   destination sidecars and must agree with ROB-owned source evidence for the
+   same selected `(bid,rid,stid)`.
+8. `SPERename::InsertToStoreIEX()` emits either an atomic STA/STD pair or a
    single ST_ALL store payload behind rename, with PCR-source and pair/cache
    suppression semantics.
 
@@ -185,10 +214,11 @@ stamped at the queue head. This avoids duplicate cursor reservations while the
 path lacks an enqueue-time ROB reservation owner. Full model timing requires
 moving ROB reservation before enqueue and carrying full `load_id`/`sid`
 payloads into LIQ/STQ owners. It exposes the ROB T/U source candidate through
-the allocator boundary, but the reduced scalar path still stores zero/invalid
-T/U `tSeq/uSeq` and destination ownership sidecars. Full store timing still
-requires STA/STD execution, executed store request construction, and STQ
-residency behind the new dispatch queues.
+the allocator boundary and composes an external LSU candidate through
+`TULinkRecoveryCleanupPath`, but the reduced scalar path still stores
+zero/invalid T/U `tSeq/uSeq` and destination ownership sidecars. Full store
+timing still requires STA/STD execution, executed store request construction,
+and STQ residency behind the new dispatch queues.
 
 ## Deferred Owners
 
@@ -205,8 +235,10 @@ residency behind the new dispatch queues.
 - T/U/SGPR/tile/vector operand classification and rename.
 - Live T/U `allocTSeq/allocUSeq/allocTUDst*` drive into
   `DispatchROBAllocator` from the T/U rename owner.
-- Live top-level connection from `robTULinkSource*` and forwarded STQ
-  `lsuTULinkSource*` candidates into `TULinkRecoveryCleanupPath`.
+- Higher-level wiring from `StoreDispatchSTQPath` or `STQSCBCommitPath`
+  `lsuTULinkSource*` into this module's `lsuTULinkSource` input.
+- Use of the emitted T/U cleanup publisher outputs to mutate the live merged
+  T/U rename state once scalar and T/U rename are composed.
 - Ready-table initialization, issue enqueue, execution completion, and full
   commit side effects.
 - Full QEMU-vs-DUT compare with live architectural commit rows.
@@ -221,6 +253,7 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
 bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
 bash tools/chisel/run_chisel_tests.sh --only StoreDispatchQueues
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
 ```
 
 Affected gates:
@@ -237,7 +270,8 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 
 The current tests cover first-valid slot selection, queue admission
 backpressure, the reduced memory-order ID observability, the store dispatch
-STA/STD readiness rule, the allocation attempt contract, IO shape, and CIRCT
+STA/STD readiness rule, the allocation attempt contract, ROB/LSU T/U cleanup
+source agreement and conflict reference behavior, IO shape, and CIRCT
 elaboration through frontend decode, `DecodeLoadStoreIdAssign`,
-`DecodeRenameQueue`, scalar rename, `StoreSplitPayload`, and backend
-allocation.
+`DecodeRenameQueue`, scalar rename, `StoreSplitPayload`, backend allocation,
+and `TULinkRecoveryCleanupPath`.

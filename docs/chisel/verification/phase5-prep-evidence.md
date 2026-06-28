@@ -3744,3 +3744,97 @@ Skill evolve:
   and T/U destination sidecars, exact non-base source selection matches
   `(bid,rid,stid)`, and partial-store merge must not overwrite the first
   source owner.
+
+### R59 Reduced Backend T/U Cleanup Source Composition
+
+Scope:
+
+- Added `DecodeRenameROBPath.lsuTULinkSource` as the external LSU/STQ source
+  candidate input for the reduced backend.
+- Instantiated `TULinkRecoveryCleanupPath` inside `DecodeRenameROBPath` as a
+  diagnostic composition owner with rename, retire, and commit data inputs tied
+  inactive until scalar and T/U rename are merged.
+- Drove the cleanup path's `robSource` from
+  `DispatchROBAllocator.robTULinkSource` and `lsuSource` from the new backend
+  input.
+- Surfaced publisher, selected-source, source-match, source-conflict, and
+  previous-sequence diagnostics from the backend boundary.
+- Kept actual `StoreDispatchSTQPath` / `STQSCBCommitPath` producer wiring and
+  live T/U state mutation deferred to the next integration owner.
+
+Model evidence:
+
+- `SPEROB::getRetireID` and `SPEROB::CheckDstDataOut` publish ROB-owned
+  row-local `tSeq/uSeq` cleanup source evidence.
+- Store-unit deadlock cleanup builds T/U cleanup sidebands from the selected
+  LSU row and applies previous-sequence adjustment according to the row's T/U
+  destination ownership.
+- The model requires ROB and LSU evidence for the same selected
+  `(bid,rid,stid)` to describe the same row snapshot; a disagreement is a
+  recovery-contract fault, not a default-zero cleanup command.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSourceSelector
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel fetch origin main
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel rev-parse HEAD origin/main
+python3 /Users/zhoubot/.codex/skills/.system/skill-creator/scripts/quick_validate.py /Users/zhoubot/linx-isa/skills/linx-skills/linx-core
+python3 /Users/zhoubot/linx-isa/skills/linx-skills/scripts/check_skill_change_scope.py --repo-root /Users/zhoubot/linx-isa/skills/linx-skills --base origin/main
+bash /Users/zhoubot/linx-isa/skills/linx-skills/scripts/install_canonical_skills.sh
+```
+
+Expected result:
+
+- `DecodeRenameROBPathSpec` locks the reduced backend source-composition
+  boundary by reference-testing ROB/LSU source agreement and conflict, checking
+  the new IO shape, and elaborating through `TULinkRecoveryCleanupPath`.
+- Cleanup selector/path gates remain green with the backend now consuming an
+  external LSU source candidate.
+- `DispatchROBAllocatorSpec` and `StoreDispatchSTQPathSpec` remain green on
+  the ROB and LSU producer sides.
+- Reduced ROB bookkeeping, trace adapter, QEMU dry-run, and LinxCoreModel SHA
+  checks remain unchanged.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `DecodeRenameROBPathSpec` passed 7 tests, including the new agreeing-source
+  and conflicting-source reference case.
+- `TULinkRecoveryCleanupPathSpec` passed 9 tests.
+- `TULinkFlushSourceSelectorSpec` passed 8 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `StoreDispatchSTQPathSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `quick_validate.py` passed for `linx-core`.
+- `check_skill_change_scope.py` passed with `changed=3, removed=0`; only
+  `linx-core/SKILL.md` will be staged for the skill-evolve commit, while
+  pre-existing dirty `linx-model/SKILL.md` and `linx-superproject/SKILL.md`
+  edits were left untouched.
+- `install_canonical_skills.sh` synced canonical Linx skills into
+  `/Users/zhoubot/.codex/skills`.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R59 adds a reusable reduced-backend
+  cleanup composition rule: `DecodeRenameROBPath` may instantiate
+  `TULinkRecoveryCleanupPath` with inactive local T/U state, drive ROB source
+  from `DispatchROBAllocator`, accept an external LSU source input, and expose
+  agreement/conflict diagnostics until the live STQ producer and merged T/U
+  state owner are composed.
