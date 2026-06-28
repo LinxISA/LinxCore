@@ -22,7 +22,7 @@ submodule moves:
 
 | Repository | Baseline checked for this loop |
 |---|---|
-| `rtl/LinxCore` | `135054ee1464a2a25c55af5d0da7d657808acf6e` |
+| `rtl/LinxCore` | `1faa4f01f120da5d9f48dd5f22c2abac68ec8e40` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 
 LinxCoreModel was refreshed with `git pull --ff-only` on 2026-06-28 and was
@@ -119,6 +119,7 @@ These packets remain the required base before broad module promotion:
 | R10 | `ROBEntryBank` native row IDs | `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only ROBFlushPrune`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R11 | `DispatchROBAllocator` | `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only BROB`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R12 | `FullBidRecoveryBridge` | `run_chisel_tests.sh --only FullBidRecoveryBridge`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only ROBEntryBank` |
+| R13 | `RecoveryCleanupControl` | `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FullBidRecoveryBridge`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only ROBEntryBank` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -224,8 +225,8 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Recovery cleanup owner: add the next registered ROB/CMT cleanup hooks for
-   rename/checkpoint restore and LSU/STQ cleanup without moving side effects
+1. Recovery cleanup consumers: connect `RecoveryCleanupControl` to the first
+   real rename/checkpoint or LSU/STQ cleanup owner without moving side effects
    into `ROBFlushPrune`.
 2. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.

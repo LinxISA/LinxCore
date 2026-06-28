@@ -424,3 +424,82 @@ Skill evolve:
   reusable recovery invariant and gate: recovery must carry full hardware BID
   for BROB/block cleanup and ring `ROBID` for ROB row pruning through one
   shared conversion contract.
+
+## 2026-06-28 Recovery Cleanup Intent Boundary
+
+Scope:
+
+- Added `RecoveryCleanupControl` as the first registered recovery cleanup
+  intent owner after request selection.
+- Reused `FullBidRecoveryBridge` so registered cleanup intent preserves the
+  full block BID and ring ROB `FlushBus`.
+- Exposed model-derived intent bits for BCTRL flush/replay, scalar rename
+  flush/replay, backend cleanup, ROB pruning, report-queue filtering,
+  frontend restart, PE fanout, vector/MTC replay, LSU/STQ cleanup, and tile
+  cleanup.
+- Kept actual rename, LSU/STQ, frontend, PE fanout, BROB pointer restoration,
+  and trap side effects out of `ROBFlushPrune` and generic top-level glue.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only BROB
+bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+```
+
+Expected result:
+
+- `RecoveryCleanupControlSpec` passes and elaborates the registered cleanup
+  intent interface.
+- Existing bridge, flush, ROB, allocator, BROB, reduced ROB, adapter, QEMU
+  dry-run, and reduced generated-RTL cross-check gates remain green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl` passed
+  6 tests in `RecoveryCleanupControlSpec`.
+- New reference coverage includes global miss-predict flush, scalar fast
+  replay, PE replay, SIMT inner flush, MTC replay, and Chisel elaboration.
+- `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge` passed
+  4 tests in `FullBidRecoveryBridgeSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only FlushControl` passed 6 tests
+  in `FlushControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune` passed 6 tests
+  in `ROBFlushPruneSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank` passed 9 tests
+  in `ROBEntryBankSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator` passed 5
+  tests in `DispatchROBAllocatorSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only BROB` passed 5 tests in
+  `BROBSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB` passed 5
+  tests in `ReducedCommitROBSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `RecoveryCleanupControl` adds a
+  reusable recovery owner and gate: selected recovery requests must pass through
+  a registered cleanup-intent boundary, and downstream rename/LSU/STQ/frontend
+  side effects must not be implemented inside `ROBFlushPrune`.

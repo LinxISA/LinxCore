@@ -15,8 +15,8 @@ Current phase:
 - Phase 5 preparation: integrated ROB/CMT status vocabulary, entry-bank
   skeleton, flush-prune selector, entry-bank flush application, and native row
   BID/RID sidecars started
-- Backend/recovery integration: dispatch/BROB-to-ROB allocation bridge and
-  full-BID recovery handoff started
+- Backend/recovery integration: dispatch/BROB-to-ROB allocation bridge,
+  full-BID recovery handoff, and registered cleanup intent started
 - Phase 1 top shell: `LinxCoreTop` wraps the monitored reduced ROB so top
   emit/lint uses real commit structure before the full frontend/backend exists
 
@@ -44,6 +44,9 @@ bridge now generates a full hardware BID, allocates BROB metadata and ROB row
 state atomically, and forwards that BID into `ROBEntryBank.allocBid`.
 `FullBidRecoveryBridge` defines the matching recovery handoff: full block BID
 for BROB-style cleanup, ring `ROBID` for ROB row pruning.
+`RecoveryCleanupControl` registers the selected recovery request and exposes
+the first cleanup-intent hooks for BCTRL, rename, backend, frontend, LSU/STQ,
+tile, PE fanout, and ROB consumers.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -67,6 +70,7 @@ bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
 bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune
 bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

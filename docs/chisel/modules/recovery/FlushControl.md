@@ -6,6 +6,7 @@
 - Tests:
   - `rtl/LinxCore/chisel/src/test/scala/linxcore/recovery/FlushControlSpec.scala`
   - `rtl/LinxCore/chisel/src/test/scala/linxcore/recovery/FullBidRecoveryBridgeSpec.scala`
+  - `rtl/LinxCore/chisel/src/test/scala/linxcore/recovery/RecoveryCleanupControlSpec.scala`
 - Previous pyCircuit owner: deferred; recovery ownership is currently derived
   from model and architecture documents.
 - LinxCoreModel evidence:
@@ -25,6 +26,10 @@ logic share the same C++ model-derived age and priority rules.
 `FullBidRecoveryBridge` shares this file and defines the first explicit
 handoff from full hardware block BID to the ring `ROBID` sidecar consumed by
 ROB row pruning.
+
+`RecoveryCleanupControl` is the first registered cleanup-intent owner after
+selection. It classifies selected flush/replay requests into BCTRL, rename,
+backend, ROB, LSU/STQ, tile, PE fanout, and frontend restart intent bits.
 
 ## Interface
 
@@ -77,6 +82,15 @@ ROB row pruning.
 | Output | `robBid` | `ROBID` | diagnostic | `blockBid` converted to ring ROBID. |
 | Output | `baseOnBid` | `Bool` | diagnostic | BID-classification result from `FlushControl.annotate`. |
 
+### `RecoveryCleanupControl`
+
+| Direction | Signal | Type | Valid/ready | Description |
+|---|---|---|---|---|
+| Input | `req` | `FullBidFlushReq` | `req.valid && reqReady` | Selected full-BID recovery request. |
+| Output | `reqReady` | `Bool` | ready | One-entry cleanup-intent register can accept a request. |
+| Input | `intentReady` | `Bool` | ready | Downstream cleanup consumer accepted the registered intent. |
+| Output | `intent` | `RecoveryCleanupIntent` | `intent.valid` | Registered cleanup fanout intent. |
+
 ## State
 
 This packet has no internal registers. Future stateful recovery work will add
@@ -101,6 +115,11 @@ priority tree:
 uniqueness bit as `wrap`. This helper is also used by
 `DispatchROBAllocator`, so allocation and recovery share the same BID split.
 
+`RecoveryCleanupControl` follows the model `select` fanout after a request has
+won arbitration: global flush drives BCTRL/rename flush plus frontend restart;
+global replay and PE-scoped replay drive BCTRL/rename replay; every accepted
+intent drives backend, PE/ROB, report-queue, LSU/STQ, and tile cleanup hooks.
+
 ## Timing
 
 `FlushOlderSelector` is purely combinational. Stateful recovery selection must
@@ -109,10 +128,11 @@ loops from backend flush fanout back into report queues.
 
 ## Flush/Recovery
 
-This module does not perform a flush. It only tells selection logic whether one
-request should cancel or dominate another request, and now exposes the first
-full-BID handoff for later block and ROB cleanup owners. Actual queue cleanup,
-rename/BROB recovery, PE fanout, vector replay, and MTC replay are deferred.
+This module family does not mutate queue or rename state. It tells selection
+logic whether one request should cancel or dominate another request, exposes
+the full-BID handoff for block and ROB cleanup owners, and now provides a
+registered cleanup-intent boundary. Actual queue cleanup, rename/BROB recovery,
+PE fanout, vector replay, and MTC replay consumers are deferred.
 
 ## Trace/Observability
 
@@ -126,6 +146,9 @@ LinxCoreModel cross-check adapters.
   LinxCoreModel `getSignal` and `CheckOlder` decision table.
 - `chisel/src/test/scala/linxcore/recovery/FullBidRecoveryBridgeSpec.scala`
   covers full-BID-to-ring-ROBID mapping and bridge elaboration.
+- `chisel/src/test/scala/linxcore/recovery/RecoveryCleanupControlSpec.scala`
+  covers model lane classification and cleanup-intent elaboration.
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl`
 - `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge`
 - `bash tools/chisel/run_chisel_tests.sh --only FlushControl`
 - `bash tools/chisel/build_chisel.sh`

@@ -10,6 +10,7 @@
   - `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryStatus.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBFlushPrune.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/commit/CommitTrace.scala`
@@ -167,6 +168,10 @@ model behaviors remain future integrated ROB/CMT work:
 - precise trap ownership,
 - frontend restart token publication.
 
+`RecoveryCleanupControl` is now the registered intent boundary for those
+future consumers. `ROBEntryBank` should continue to consume only the ROB prune
+portion until the downstream cleanup owners exist.
+
 ## Trace/Observability
 
 The emitted commit window uses the existing `CommitTraceRow` schema and
@@ -178,6 +183,7 @@ turning status into an architectural trace format.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank`
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl`
 - `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus`

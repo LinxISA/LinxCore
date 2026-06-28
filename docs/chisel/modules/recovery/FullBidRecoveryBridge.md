@@ -73,8 +73,9 @@ The module copies the remaining request sidecars into a `FlushReq`, annotates
 it with `FlushControl.annotate`, and passes the full `blockBid` through
 unchanged on the block flush surface.
 
-`DispatchROBAllocator` also uses the helper so allocation and recovery agree on
-the same full-BID-to-ring-ROBID split.
+`DispatchROBAllocator` and `RecoveryCleanupControl` also use this bridge path
+so allocation and registered cleanup intent agree on the same
+full-BID-to-ring-ROBID split.
 
 ## Timing
 
@@ -91,8 +92,9 @@ This packet defines only the identity handoff:
 - `gid`, `rid`, and `lsId` remain separate ring sidecars for non-BID and
   group-scoped requests.
 
-Rename checkpoint restore, LSU/STQ cleanup, frontend redirect, and PE replay
-fanout remain future recovery owner work.
+`RecoveryCleanupControl` is the next owner after this bridge. It registers the
+selected request and exposes cleanup-intent bits for rename, LSU/STQ, frontend,
+backend, PE, and tile consumers. Those consumers remain future work.
 
 ## Trace/Observability
 
@@ -103,6 +105,7 @@ trace row is emitted by this module.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge`
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl`
 - `bash tools/chisel/run_chisel_tests.sh --only FlushControl`
 - `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator`
 - `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune`

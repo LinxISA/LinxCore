@@ -60,6 +60,14 @@ The conversion uses the full BID low slot bits as `ROBID.value` and the low
 uniqueness bit as `ROBID.wrap`, matching the sidecar produced by
 `DispatchROBAllocator` during allocation.
 
+`RecoveryCleanupControl` adds the first registered cleanup-intent boundary.
+After a request is selected, global flushes map to BCTRL/rename flush plus
+frontend restart; global replay and PE-scoped replay map to BCTRL/rename
+replay; all accepted cleanup intents carry backend PE/ROB, report-queue,
+LSU/STQ, and tile cleanup hooks. This mirrors `flush`, `replay`,
+`FlushBaseOnPE`, and `flushBackend` fanout without mutating those consumers in
+the recovery control packet.
+
 ## Open Questions
 
 - The model typo `selectPESigal` is preserved only in source citations; Chisel
@@ -67,6 +75,7 @@ uniqueness bit as `ROBID.wrap`, matching the sidecar produced by
 - Full `SIMT_INNER_FLUSH` group-order comparison needs the `gid` and `lsId`
   policy from the vector and MTC paths before promotion beyond arbitration unit
   tests.
-- Recovery cleanup ownership is still open: rename checkpoint restore,
-  LSU/STQ cleanup, frontend redirect, PE replay fanout, and BROB pointer
-  restoration are not implemented by the bridge.
+- Recovery cleanup consumers are still open: rename checkpoint restore,
+  LSU/STQ entry mutation, frontend restart token payloads, PE replay fanout,
+  and BROB pointer restoration are signaled by `RecoveryCleanupControl` but not
+  implemented by the current Chisel packet.

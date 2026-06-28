@@ -100,9 +100,9 @@ helper. RID remains allocated by the ROB bank.
 - Promote the next recovery cleanup owner now that `FullBidRecoveryBridge`
   defines the full hardware BID to ring `ROBID` handoff for BROB flush and ROB
   row pruning.
-- Add rename cleanup, LSU/STQ side effects, precise trap ownership, and restart
-  ownership to the entry-bank/CMT path; do not retrofit those behaviors into
-  `ReducedCommitROB`.
+- Connect the downstream consumers for `RecoveryCleanupControl`: rename cleanup,
+  LSU/STQ side effects, precise trap ownership, and frontend restart ownership.
+  Do not retrofit those behaviors into `ReducedCommitROB` or `ROBFlushPrune`.
 - Add live Verilator trace dumping once the reduced harness has a small driver.
 - Connect memory side-effect ownership to LSU/STQ instead of test-provided row
   payloads.
