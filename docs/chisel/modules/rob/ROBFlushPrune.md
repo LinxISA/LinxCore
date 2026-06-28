@@ -12,6 +12,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBID.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryStatus.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/FlushControl.scala`
 - Contract IDs: `LC-IF-CHISEL-ROB-FLUSH-PRUNE-001`
 
@@ -22,9 +23,11 @@ the testable pruning part of `SPEROB::flush`: scan the ROB in deallocation
 order, find the first row covered by a BID- or BID/RID-based flush request, and
 mark that row plus all younger valid rows for removal.
 
-The helper intentionally does not mutate `ROBEntryBank` state yet. Pointer
-rebasing, rename cleanup, LSU/STQ side effects, branch restart ownership, and
-precise traps remain future integrated ROB/CMT work.
+The helper intentionally remains combinational and does not own state mutation.
+`ROBEntryBank` now consumes its masks to clear rows, update resident and
+outstanding counts, and rebase local ROB pointers. Rename cleanup, LSU/STQ side
+effects, branch restart ownership, and precise traps remain future integrated
+ROB/CMT work.
 
 ## Interface
 
@@ -87,29 +90,31 @@ fault, and free rows do not.
 
 ## Timing
 
-`ROBFlushPrune` is combinational and observes pre-cycle row metadata. A later
-registered ROB/CMT owner should consume its masks and perform state mutation on
-the following edge or in a clearly owned recovery phase.
+`ROBFlushPrune` is combinational and observes pre-cycle row metadata. The
+registered ROB/CMT owner consumes its masks in a clearly owned recovery phase;
+the selector itself must not acquire registers or cleanup side effects.
 
 ## Flush/Recovery
 
-This packet covers selection only. It does not:
+This module covers selection only. `ROBEntryBank` applies the row-clearing,
+count-accounting, and local pointer-rebase portion. `ROBFlushPrune` still does
+not:
 
-- clear ROB rows,
-- update `allocPtr`, `commitPtr`, or `deallocPtr`,
 - restore rename/checkpoint state,
 - release local ready-table state,
 - clean LSU/STQ/SCB state,
 - raise or retire precise traps,
 - publish frontend restart tokens.
 
-Those behaviors remain in the integrated ROB/CMT and recovery-owner packets.
+Those broader behaviors remain in later integrated ROB/CMT and recovery-owner
+packets.
 
 ## Trace/Observability
 
 The helper emits masks and counts for verification. These are not architectural
-commit trace rows. Later trace work should surface only recovery events that
-come from the registered ROB/CMT owner after masks have been applied.
+commit trace rows. `ROBEntryBank` exposes the applied masks as diagnostics, but
+later trace work should surface architectural recovery events only from the
+registered ROB/CMT owner after masks have been applied.
 
 ## Verification
 

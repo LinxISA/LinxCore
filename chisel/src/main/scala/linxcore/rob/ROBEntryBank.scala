@@ -3,10 +3,13 @@ package linxcore.rob
 import chisel3._
 import chisel3.util.{log2Ceil, PopCount}
 import linxcore.commit.{CommitTraceMonitor, CommitTraceParams, CommitTracePort, CommitTraceRow}
+import linxcore.recovery.FlushBus
 
 class ROBEntryBankIO(val entries: Int, val traceParams: CommitTraceParams) extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
+
+  val flush = Input(new FlushBus(entries))
 
   val allocValid = Input(Bool())
   val allocReady = Output(Bool())
@@ -34,6 +37,19 @@ class ROBEntryBankIO(val entries: Int, val traceParams: CommitTraceParams) exten
 
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
+
+  val flushApplied = Output(Bool())
+  val flushDirectMatchMask = Output(UInt(entries.W))
+  val flushPruneMask = Output(UInt(entries.W))
+  val flushPruneBeforeCommitMask = Output(UInt(entries.W))
+  val flushOutstandingPruneMask = Output(UInt(entries.W))
+  val flushResidentDecrement = Output(UInt(sizeWidth.W))
+  val flushOutstandingDecrement = Output(UInt(sizeWidth.W))
+  val flushAllocRebased = Output(Bool())
+  val flushAllocRebaseValue = Output(UInt(ptrWidth.W))
+  val flushCommitRebased = Output(Bool())
+  val flushCommitRebaseValue = Output(UInt(ptrWidth.W))
+  val flushClearedAll = Output(Bool())
 
   val empty = Output(Bool())
   val full = Output(Bool())
@@ -86,6 +102,17 @@ class ROBEntryBank(
     (nextValue, wrap ^ wraps)
   }
 
+  private def scanWrapFor(value: UInt, headValue: UInt, headWrap: Bool): Bool =
+    headWrap ^ (value < headValue)
+
+  private def identityToRobId(raw: UInt, valid: Bool): ROBID = {
+    val id = Wire(new ROBID(entries))
+    id.valid := valid
+    id.value := raw(ptrWidth - 1, 0)
+    id.wrap := (if (ptrWidth < raw.getWidth) raw(ptrWidth) else false.B)
+    id
+  }
+
   private def sameIdentity(lhs: CommitTraceRow, rhs: CommitTraceRow): Bool =
     (lhs.identity.bid === rhs.identity.bid) &&
       (lhs.identity.gid === rhs.identity.gid) &&
@@ -124,23 +151,53 @@ class ROBEntryBank(
   io.completedMask := completedVec.asUInt
   io.retiredMask := retiredVec.asUInt
 
+  val flushPrune = Module(new ROBFlushPrune(entries))
+  flushPrune.io.flush := io.flush
+  flushPrune.io.deallocHead := deallocValue
+  flushPrune.io.commitHead := commitValue
+  for (idx <- 0 until entries) {
+    val rowValid = rows(idx).valid && ROBEntryStatus.occupiesRob(status(idx))
+    flushPrune.io.rows(idx).valid := rowValid
+    flushPrune.io.rows(idx).status := status(idx)
+    flushPrune.io.rows(idx).bid := identityToRobId(rows(idx).identity.bid, rowValid)
+    flushPrune.io.rows(idx).rid := identityToRobId(rows(idx).identity.rid, rowValid)
+  }
+
+  val flushApplied = flushPrune.io.firstPruneValid
+  io.flushApplied := flushApplied
+  io.flushDirectMatchMask := flushPrune.io.directMatchMask
+  io.flushPruneMask := flushPrune.io.pruneMask
+  io.flushPruneBeforeCommitMask := flushPrune.io.pruneBeforeCommitMask
+  io.flushOutstandingPruneMask := flushPrune.io.outstandingPruneMask
+  io.flushResidentDecrement := flushPrune.io.residentDecrement
+  io.flushOutstandingDecrement := flushPrune.io.outstandingDecrement
+  io.flushAllocRebased := flushApplied
+  io.flushAllocRebaseValue := flushPrune.io.firstPruneValue
+  io.flushCommitRebased := flushPrune.io.commitRebaseNeeded
+  io.flushCommitRebaseValue := flushPrune.io.commitRebaseValue
+
+  val sizeAfterFlush = size - flushPrune.io.residentDecrement
+  val outstandingAfterFlush = outstandingCount - flushPrune.io.outstandingDecrement
+  val flushClearedAll = flushApplied && (sizeAfterFlush === 0.U)
+  io.flushClearedAll := flushClearedAll
+
   io.allocDuplicateIdentity := io.allocValid && duplicateVec.asUInt.orR
-  io.allocReady := (size =/= entries.U) && !io.allocDuplicateIdentity
+  io.allocReady := !flushApplied && (size =/= entries.U) && !io.allocDuplicateIdentity
   io.allocRobValue := allocValue
   val allocFire = io.allocValid && io.allocReady
 
   val completeStatus = status(io.completeRobValue)
   val completeMayUpdate = mayComplete(completeStatus)
-  val completeAccepted = io.completeValid && completeMayUpdate
+  val completeAccepted = !flushApplied && io.completeValid && completeMayUpdate
   io.completeAccepted := completeAccepted
-  io.completeIgnored := io.completeValid && !completeMayUpdate
+  io.completeIgnored := io.completeValid && (!completeMayUpdate || flushApplied)
 
   val commitFireVec = Wire(Vec(traceParams.commitWidth, Bool()))
   for (slot <- 0 until traceParams.commitWidth) {
     val idx = wrapIndex(commitValue, slot)
     val priorSlotsFire =
       if (slot == 0) true.B else commitFireVec.take(slot).reduce(_ && _)
-    val fires = priorSlotsFire && rows(idx).valid && ROBEntryStatus.canCommit(status(idx))
+    val fires = !flushApplied && priorSlotsFire && rows(idx).valid && ROBEntryStatus.canCommit(status(idx))
     commitFireVec(slot) := fires
 
     val out = Wire(new CommitTraceRow(traceParams))
@@ -171,7 +228,7 @@ class ROBEntryBank(
     val priorSlotsFire =
       if (slot == 0) true.B else deallocFireVec.take(slot).reduce(_ && _)
     deallocFireVec(slot) :=
-      io.deallocReady && priorSlotsFire && rows(idx).valid && ROBEntryStatus.canDealloc(status(idx))
+      !flushApplied && io.deallocReady && priorSlotsFire && rows(idx).valid && ROBEntryStatus.canDealloc(status(idx))
   }
   val deallocCount = PopCount(deallocFireVec)
   io.deallocValidMask := deallocFireVec.asUInt
@@ -187,6 +244,13 @@ class ROBEntryBank(
   io.deallocHeadValid := rows(deallocValue).valid && ROBEntryStatus.occupiesRob(status(deallocValue))
   io.deallocHeadStatus := status(deallocValue)
   io.deallocHeadRobValue := deallocValue
+
+  for (idx <- 0 until entries) {
+    when(flushPrune.io.pruneMask(idx)) {
+      rows(idx) := zeroRow
+      status(idx) := ROBEntryStatus.Free
+    }
+  }
 
   when(completeAccepted) {
     status(io.completeRobValue) := ROBEntryStatus.Completed
@@ -236,13 +300,37 @@ class ROBEntryBank(
     allocWrap := nextAllocWrap
   }
 
+  when(flushApplied) {
+    val nextAllocValue = flushPrune.io.firstPruneValue
+    val nextAllocWrap = scanWrapFor(nextAllocValue, deallocValue, deallocWrap)
+    allocValue := nextAllocValue
+    allocWrap := nextAllocWrap
+
+    when(flushClearedAll) {
+      commitValue := nextAllocValue
+      commitWrap := nextAllocWrap
+      deallocValue := nextAllocValue
+      deallocWrap := nextAllocWrap
+    }.elsewhen(flushPrune.io.commitRebaseNeeded) {
+      commitValue := flushPrune.io.commitRebaseValue
+      commitWrap := scanWrapFor(flushPrune.io.commitRebaseValue, deallocValue, deallocWrap)
+    }.elsewhen(outstandingAfterFlush === 0.U) {
+      commitValue := nextAllocValue
+      commitWrap := nextAllocWrap
+    }
+  }
+
   val allocDelta = Wire(UInt(sizeWidth.W))
   val commitDelta = Wire(UInt(sizeWidth.W))
   val deallocDelta = Wire(UInt(sizeWidth.W))
+  val flushResidentDelta = Wire(UInt(sizeWidth.W))
+  val flushOutstandingDelta = Wire(UInt(sizeWidth.W))
   allocDelta := allocFire.asUInt
   commitDelta := commitCount
   deallocDelta := deallocCount
+  flushResidentDelta := Mux(flushApplied, flushPrune.io.residentDecrement, 0.U)
+  flushOutstandingDelta := Mux(flushApplied, flushPrune.io.outstandingDecrement, 0.U)
 
-  size := size + allocDelta - deallocDelta
-  outstandingCount := outstandingCount + allocDelta - commitDelta
+  size := size + allocDelta - deallocDelta - flushResidentDelta
+  outstandingCount := outstandingCount + allocDelta - commitDelta - flushOutstandingDelta
 }

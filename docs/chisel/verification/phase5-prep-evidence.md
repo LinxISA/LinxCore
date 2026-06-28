@@ -135,3 +135,77 @@ Skill evolve:
 - `skill-evolve: update linx-core` because `ROBFlushPrune` adds a reusable
   Phase 5 integrated ROB/CMT gate and records the model-derived flush-prune
   selection invariant for later agents.
+
+## 2026-06-28 ROB Entry-Bank Flush Application
+
+Scope:
+
+- Wired `ROBFlushPrune` into `ROBEntryBank`.
+- Added a priority flush phase that suppresses allocation, completion, commit,
+  and deallocation during an applied flush.
+- Cleared pruned rows, decremented resident and outstanding counts with the
+  selector's masks, rebased allocation to the first pruned row, and rebased
+  commit when the model walk prunes before the old commit head or leaves no
+  outstanding work.
+- Kept rename/checkpoint restore, local ready-table cleanup, LSU/STQ cleanup,
+  precise traps, and frontend restart publication deferred to future integrated
+  ROB/CMT work.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+```
+
+Expected result:
+
+- `ROBEntryBankSpec` includes the new flush-apply reference vectors and passes.
+- `ROBFlushPrune`, `ROBEntryStatus`, and `FlushControl` remain green.
+- Full reduced ROB and QEMU-shaped gates remain the final promotion checks.
+
+Observed result:
+
+- First `ROBEntryBank` gate caught a Scala parser error in the temporary
+  identity-to-`ROBID` bridge; adding parentheses around the compile-time
+  `if` expression fixed the compile.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank` passed 8 tests in
+  `ROBEntryBankSpec`.
+- New `ROBEntryBankSpec` reference tests cover RID-based flush pruning through
+  the bank, allocation reuse of the first pruned slot, and retired-row flush
+  clearing without decrementing outstanding work.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune` passed 6 tests
+  in `ROBFlushPruneSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus` passed 6 tests
+  in `ROBEntryStatusSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only FlushControl` passed 6 tests in
+  `FlushControlSpec`.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB` passed 5
+  tests in `ReducedCommitROBSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because the bank now owns a reusable
+  integrated ROB/CMT flush-apply priority rule: apply `ROBFlushPrune` masks in
+  `ROBEntryBank`, suppress other bank phases during an applied flush, update
+  resident/outstanding counts from selector accounting, and keep broader
+  recovery cleanup out of the selector.

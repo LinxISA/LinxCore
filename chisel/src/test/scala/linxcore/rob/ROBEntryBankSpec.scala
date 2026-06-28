@@ -8,8 +8,12 @@ object ROBEntryBankReference {
   sealed trait Status
   case object Free extends Status
   case object Allocated extends Status
+  case object Renamed extends Status
+  case object Issued extends Status
   case object Completed extends Status
   case object Retired extends Status
+  case object Fault extends Status
+  case object NeedFlush extends Status
 
   final case class Row(
       pc: BigInt,
@@ -41,9 +45,27 @@ object ROBEntryBankReference {
     private def duplicateIdentity(row: Row): Boolean =
       table.flatten.exists(e => (e.row.bid, e.row.gid, e.row.rid) == ((row.bid, row.gid, row.rid)))
 
+    private def less(lhs: BigInt, rhs: BigInt): Boolean =
+      lhs < rhs
+
+    private def lessEqual(lhs: BigInt, rhs: BigInt): Boolean =
+      lhs <= rhs
+
+    private def lessEqualBidRid(srcBid: BigInt, srcRid: BigInt, dstBid: BigInt, dstRid: BigInt): Boolean =
+      less(srcBid, dstBid) || (srcBid == dstBid && lessEqual(srcRid, dstRid))
+
+    private def osdActive(status: Status): Boolean =
+      status == Allocated || status == Renamed || status == Issued || status == Completed || status == NeedFlush
+
     def size: Int = count
 
     def outstandingCount: Int = outstanding
+
+    def allocPointer: Int = allocPtr
+
+    def commitPointer: Int = commitPtr
+
+    def deallocPointer: Int = deallocPtr
 
     def statusAt(value: Int): Status =
       table(value).map(_.status).getOrElse(Free)
@@ -62,7 +84,9 @@ object ROBEntryBankReference {
 
     def complete(robValue: Int): Boolean =
       table(robValue) match {
-        case Some(entry) if entry.status == Allocated || entry.status == Completed =>
+        case Some(entry)
+            if entry.status == Allocated || entry.status == Renamed ||
+              entry.status == Issued || entry.status == Completed =>
           table(robValue) = Some(entry.copy(status = Completed))
           true
         case _ =>
@@ -102,6 +126,56 @@ object ROBEntryBankReference {
         }
       }
       out.toSeq
+    }
+
+    def flush(flushBid: BigInt, flushRid: BigInt, baseOnBid: Boolean): Seq[Int] = {
+      var found = false
+      var overCommitPtr = false
+      val pruned = collection.mutable.ArrayBuffer.empty[Int]
+
+      for (offset <- table.indices) {
+        val idx = (deallocPtr + offset) & (entries - 1)
+        if (idx == commitPtr) {
+          overCommitPtr = true
+        }
+
+        val direct = table(idx).exists { entry =>
+          if (baseOnBid) {
+            lessEqual(flushBid, entry.row.bid)
+          } else {
+            lessEqualBidRid(flushBid, flushRid, entry.row.bid, entry.row.rid)
+          }
+        }
+
+        if (direct && !found) {
+          allocPtr = idx
+          found = true
+          if (!overCommitPtr) {
+            commitPtr = idx
+          }
+        }
+
+        if (found) {
+          table(idx).foreach { entry =>
+            pruned += idx
+            if (osdActive(entry.status)) {
+              outstanding -= 1
+            }
+            table(idx) = None
+            count -= 1
+          }
+        }
+      }
+
+      if (count == 0) {
+        commitPtr = allocPtr
+        deallocPtr = allocPtr
+      }
+      if (outstanding == 0) {
+        commitPtr = allocPtr
+      }
+
+      pruned.toSeq
     }
   }
 }
@@ -197,6 +271,43 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(!rob.complete(r0))
   }
 
+  test("reference flush prunes target RID and reuses the first pruned slot for allocation") {
+    val rob = new Model(entries = 8, commitWidth = 2)
+    val r0 = rob.alloc(row(0)).get
+    rob.alloc(row(1)).get
+    val r2 = rob.alloc(row(2)).get
+    val r3 = rob.alloc(row(3)).get
+
+    assert(rob.complete(r0))
+    assert(rob.flush(flushBid = 1, flushRid = 2, baseOnBid = false) == Seq(r2, r3))
+    assert(rob.size == 2)
+    assert(rob.outstandingCount == 2)
+    assert(rob.allocPointer == r2)
+    assert(rob.commitPointer == r0)
+    assert(rob.statusAt(r2) == Free)
+
+    assert(rob.commit().map(_.rid) == Seq(0))
+    assert(rob.alloc(row(4)).contains(r2))
+  }
+
+  test("reference flush clears retired rows without decrementing outstanding work") {
+    val rob = new Model(entries = 8, commitWidth = 2)
+    val r0 = rob.alloc(row(0)).get
+    val r1 = rob.alloc(row(1)).get
+    assert(rob.complete(r0))
+    assert(rob.complete(r1))
+    assert(rob.commit().map(_.rid) == Seq(0, 1))
+    assert(rob.outstandingCount == 0)
+    assert(rob.size == 2)
+
+    assert(rob.flush(flushBid = 1, flushRid = 0, baseOnBid = false) == Seq(r0, r1))
+    assert(rob.outstandingCount == 0)
+    assert(rob.size == 0)
+    assert(rob.allocPointer == r0)
+    assert(rob.commitPointer == r0)
+    assert(rob.deallocPointer == r0)
+  }
+
   test("Chisel ROBEntryBank elaborates with status masks and commit monitor outputs") {
     val sv = ChiselStage.emitSystemVerilog(
       new ROBEntryBank(
@@ -209,6 +320,8 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_deallocReady"))
     assert(sv.contains("io_completedMask"))
     assert(sv.contains("io_retiredMask"))
+    assert(sv.contains("io_flushPruneMask"))
+    assert(sv.contains("io_flushCommitRebased"))
     assert(sv.contains("io_commitContractError"))
     assert(sv.contains("CommitTraceMonitor"))
   }

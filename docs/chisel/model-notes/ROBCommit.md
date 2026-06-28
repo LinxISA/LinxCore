@@ -64,7 +64,12 @@ the model's separate `allocPtr`, `commitPtr`, and `deallocPtr` shape, accepts
 completion by ROB slot, emits monitored commit rows only for contiguous
 completed heads, marks those rows `Retired`, and frees only retired rows on the
 later deallocation walk. Retired rows stay resident and continue to reject
-duplicate `(bid,gid,rid)` allocations until deallocation clears them.
+duplicate `(bid,gid,rid)` allocations until deallocation clears them. The bank
+now applies `ROBFlushPrune` as a priority recovery phase: an applied flush
+suppresses allocation/completion/commit/dealloc for the cycle, clears pruned
+rows, decrements resident and outstanding counts with the selector's accounting,
+rebases `allocPtr` to the first pruned row, and rebases `commitPtr` when the
+model walk prunes before the old commit head or leaves no outstanding work.
 
 The Chisel `ROBFlushPrune` helper captures the selection part of
 `SPEROB::flush`: scan from the deallocation pointer, match either
@@ -78,9 +83,11 @@ rows are removed.
 
 - Replace the reduced harness with integrated ROB banks and CMT control in
   Phase 5.
-- Wire `ROBFlushPrune` into `ROBEntryBank` and add pointer rebasing, rename
-  cleanup, LSU/STQ side effects, precise trap ownership, and restart ownership
-  to the entry-bank/CMT path; do not retrofit those behaviors into
+- Carry native backend `ROBID` metadata in `ROBEntryBank` rows. The current
+  skeleton bridges from 32-bit commit identity sidebands for unit-level flush
+  tests.
+- Add rename cleanup, LSU/STQ side effects, precise trap ownership, and restart
+  ownership to the entry-bank/CMT path; do not retrofit those behaviors into
   `ReducedCommitROB`.
 - Add live Verilator trace dumping once the reduced harness has a small driver.
 - Connect memory side-effect ownership to LSU/STQ instead of test-provided row

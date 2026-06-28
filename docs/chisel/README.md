@@ -13,7 +13,7 @@ Current phase:
 - Phase 2: frontend F4 decode-window, instruction-buffer, and decode-ingress
   slicing started
 - Phase 5 preparation: integrated ROB/CMT status vocabulary, entry-bank
-  skeleton, and flush-prune selector started
+  skeleton, flush-prune selector, and entry-bank flush application started
 - Phase 1 top shell: `LinxCoreTop` wraps the monitored reduced ROB so top
   emit/lint uses real commit structure before the full frontend/backend exists
 
@@ -33,8 +33,9 @@ visibility but still leaves opcode decode, macro-boundary decode, and D1/D2
 uop construction to future decode-owner modules. The first integrated ROB/CMT
 preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
 status-backed entry bank with separate commit and deallocation walks, and expose
-the model-derived flush-prune selection rule before the reduced ROB harness
-grows into a full ROB.
+the model-derived flush-prune selection rule. The entry bank now consumes that
+selector to clear pruned rows, update resident/outstanding counts, and rebase
+local ROB pointers before the reduced ROB harness grows into a full ROB.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
