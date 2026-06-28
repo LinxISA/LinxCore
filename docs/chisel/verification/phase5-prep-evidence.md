@@ -4412,3 +4412,77 @@ Skill evolve:
   recovery flush removes only the newest matching suffix with model BID
   comparison, and queued dealloc sources must be cleaned before they can
   re-enter relation-cmap.
+
+## R66 ROB Block-Last Deallocation Boundary
+
+Scope:
+
+- Updated `ROBEntryBank` so its deallocation walk stops after the first
+  deallocated row whose `isLast` sidecar is set.
+- Exposed `deallocBlockLastValid`, `deallocBlockLastBid`, and
+  `deallocBlockLastGid` from `ROBEntryBank`.
+- Forwarded that block-last deallocation candidate through
+  `DispatchROBAllocator` and `DecodeRenameROBPath`.
+- Kept `TULinkRetireCommandPath.cleanBlock*` inactive because model
+  `CleanCMAP` must run after the block-last row's serialized
+  `ReleaseRelative` mark/release commands have been accepted.
+
+Model evidence:
+
+- `SPEROB::dealloc()` calls `ReleaseRelative(uop)` before checking
+  `uop.last`.
+- When `uop.last` is true and the block does not need flush,
+  `SPEROB::dealloc()` calls `CommitLast(uop)` and breaks out of the
+  deallocation loop.
+- `CommitLast()` calls `CommitBlock()`, and `CommitBlock()` runs
+  `CleanCMAP(bid)` only after the block-last row's `ReleaseRelative` work.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git diff --check
+```
+
+Expected result:
+
+- ROB deallocation exposes sources only up to and including the first
+  block-last row in the deallocation window.
+- A retired row after that block-last row remains resident for a later
+  deallocation cycle.
+- The block-last row's native `(bid,gid)` is visible as a clean-candidate
+  sideband for a later post-retire-command cleanup scheduler.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `ROBEntryBankSpec` passed 12 tests, including the block-last deallocation
+  stop reference case.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `DecodeRenameROBPathSpec` passed 7 tests.
+- `TULinkRetireCommandPathSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `git diff --check` passed.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R66 adds the reusable ordering
+  invariant: block-last deallocation is a prerequisite for scalar `CleanCMAP`,
+  but the clean command must wait for serialized relation-cmap mark/release
+  command acceptance instead of firing at ROB commit or raw deallocation
+  acceptance.

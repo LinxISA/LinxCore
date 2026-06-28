@@ -195,6 +195,9 @@ object ROBEntryBankReference {
               uSeq = tu.uSeq,
               dst = tu.dst
             )
+            if (tu.isLast) {
+              return out.toSeq
+            }
           case _ =>
             return out.toSeq
         }
@@ -216,6 +219,9 @@ object ROBEntryBankReference {
             deallocPtr = nextDeallocPtr
             deallocWrap = nextDeallocWrap
             count -= 1
+            if (entry.tu.isLast) {
+              return out.toSeq
+            }
           case _ =>
             return out.toSeq
         }
@@ -476,6 +482,22 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(rob.dealloc() == Seq(r0, r1))
   }
 
+  test("reference dealloc stops at a block-last row before the next block") {
+    val rob = new Model(entries = 8, commitWidth = 4)
+    val r0 = rob.alloc(row(0).copy(bid = 2), bid = Some(id(2)), tu = TUSidecar(isLast = false)).get
+    val r1 = rob.alloc(row(1).copy(bid = 2), bid = Some(id(2)), tu = TUSidecar(isLast = true)).get
+    val r2 = rob.alloc(row(2).copy(bid = 3), bid = Some(id(3)), tu = TUSidecar(isLast = false)).get
+
+    assert(rob.complete(r0))
+    assert(rob.complete(r1))
+    assert(rob.complete(r2))
+    assert(rob.commit().map(_.rid) == Seq(0, 1, 2))
+    assert(rob.deallocTURetireSources().map(_.rid) == Seq(id(r0), id(r1)))
+    assert(rob.dealloc() == Seq(r0, r1))
+    assert(rob.statusAt(r2) == Retired)
+    assert(rob.deallocTURetireSources().map(_.rid) == Seq(id(r2)))
+  }
+
   test("Chisel ROBEntryBank elaborates with status masks and commit monitor outputs") {
     val sv = ChiselStage.emitSystemVerilog(
       new ROBEntryBank(
@@ -496,6 +518,8 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_robTULinkSource_tSeq_value"))
     assert(sv.contains("io_deallocTURetireSource_0_tSeq_value"))
     assert(sv.contains("io_deallocTURetireSource_0_isLast"))
+    assert(sv.contains("io_deallocBlockLastValid"))
+    assert(sv.contains("io_deallocBlockLastBid_value"))
     assert(sv.contains("io_robTULinkSourceMatched"))
     assert(sv.contains("io_completedMask"))
     assert(sv.contains("io_retiredMask"))

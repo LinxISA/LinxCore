@@ -48,6 +48,11 @@ deallocated slot in the fixed retire window. This is observation and handoff
 infrastructure only; relation-cmap serialization is owned by
 `TULinkRelationCmap`.
 
+R66 aligns the deallocation walk with `SPEROB::dealloc()` by stopping the
+current deallocation window after the first block-last row. The bank exposes
+that block-last row's native `(bid,gid)` as the future block-clean scheduling
+point, but it does not yet fire `CleanCMAP`.
+
 `ReducedCommitROB` remains the reduced trace harness. Do not retrofit full
 deallocation or recovery semantics into that module.
 
@@ -79,6 +84,7 @@ deallocation or recovery semantics into that module.
 | output | `deallocCount` | `UInt` | diagnostic | Number of rows freed this cycle |
 | output | `commit*Error` | `Bool` | monitor | `CommitTraceMonitor` contract flags for the emitted commit window |
 | output | `deallocTURetireSource` | `Vec(commitWidth, TULinkRetireSource)` | diagnostic/source | Row-owned T/U retire sources for each deallocated ROB slot |
+| output | `deallocBlockLastValid`, `deallocBlockLastBid`, `deallocBlockLastGid` | mixed | diagnostic/source | First block-last row freed by the deallocation walk; future `CleanCMAP` scheduling point |
 | output | `size` | `UInt` | diagnostic | Resident non-free row count; retired rows remain resident |
 | output | `outstandingCount` | `UInt` | diagnostic | Model `osdSize`-like count; decremented at commit, not dealloc |
 | output | `flushApplied` | `Bool` | diagnostic | A matching valid row was found and the bank applied the prune mask |
@@ -183,9 +189,11 @@ subtracted from `outstandingCount`. Commit stops at the first non-completed
 head.
 
 Deallocation scans from `deallocValue` for at most `commitWidth` slots when
-`deallocReady` is high. It frees only contiguous valid `Retired` rows, clears
-their payloads and native/TU sidecars, marks them `Free`, advances
-`deallocValue`, and decrements `size`. A row committed in the current cycle is
+`deallocReady` is high. It frees only contiguous valid `Retired` rows and
+stops after the first row whose stored `rowIsLast` sidecar is true, matching
+`SPEROB::dealloc()` breaking after `CommitLast(uop)`. Freed rows have their
+payloads and native/TU sidecars cleared, are marked `Free`, advance
+`deallocValue`, and decrement `size`. A row committed in the current cycle is
 not deallocated until a later cycle because the deallocation walk observes the
 pre-cycle status array.
 
@@ -196,6 +204,13 @@ destination ownership. The output is a vector rather than a collapsed command
 so no row is lost when `commitWidth` deallocates more than one retired row.
 `TULinkRelationCmap` is the downstream policy owner that serializes this
 vector into mark/dealloc commands for `TULinkRename`.
+
+When a deallocated row is block-last, `deallocBlockLastValid` and its
+`bid/gid` outputs identify the first such row in the deallocation window. This
+is intentionally diagnostic/source plumbing for the later relation-clean
+scheduler; firing `CleanCMAP` directly from ROB commit would be too early
+because the serialized relation-cmap `ReleaseRelative` work for the block-last
+row must complete first.
 
 The commit output feeds `CommitTraceMonitor`; monitor errors mean the fixed
 commit window is not safe for QEMU comparison.
@@ -254,10 +269,11 @@ turning status into an architectural trace format.
 - `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh`
 - `bash tools/chisel/build_chisel.sh`
 
-Focused tests cover commit/dealloc phase separation, incomplete-head blocking,
-duplicate identity rejection until deallocation, deallocation backpressure,
-ignored invalid completion targets, RID-based flush pruning through the entry
-bank reference model, allocation reuse of the first pruned slot, retired-row
+Focused tests cover commit/dealloc phase separation, block-last deallocation
+window stopping, incomplete-head blocking, duplicate identity rejection until
+deallocation, deallocation backpressure, ignored invalid completion targets,
+RID-based flush pruning through the entry bank reference model, allocation
+reuse of the first pruned slot, retired-row
 flush accounting, flush comparison through native row IDs rather than trace
 identity sidebands, exact non-base ROB T/U source publication and source clear
 after flush, deallocation-row T/U retire source publication with native

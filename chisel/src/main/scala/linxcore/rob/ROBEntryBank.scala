@@ -53,6 +53,9 @@ class ROBEntryBankIO(
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
   val deallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(sourceParams, mapQDepth, stidWidth)))
+  val deallocBlockLastValid = Output(Bool())
+  val deallocBlockLastBid = Output(new ROBID(entries))
+  val deallocBlockLastGid = Output(new ROBID(entries))
 
   val flushApplied = Output(Bool())
   val flushDirectMatchMask = Output(UInt(entries.W))
@@ -310,16 +313,19 @@ class ROBEntryBank(
   io.commitContractError := commitMonitor.io.contractError
 
   val deallocFireVec = Wire(Vec(traceParams.commitWidth, Bool()))
+  val deallocContinueVec = Wire(Vec(traceParams.commitWidth, Bool()))
   for (slot <- 0 until traceParams.commitWidth) {
     val idx = wrapIndex(deallocValue, slot)
-    val priorSlotsFire =
-      if (slot == 0) true.B else deallocFireVec.take(slot).reduce(_ && _)
+    val priorSlotsContinue =
+      if (slot == 0) true.B else deallocContinueVec(slot - 1)
     deallocFireVec(slot) :=
-      !flushApplied && io.deallocReady && priorSlotsFire && rows(idx).valid && ROBEntryStatus.canDealloc(status(idx))
+      !flushApplied && io.deallocReady && priorSlotsContinue && rows(idx).valid && ROBEntryStatus.canDealloc(status(idx))
+    deallocContinueVec(slot) := deallocFireVec(slot) && !rowIsLast(idx)
   }
   val deallocCount = PopCount(deallocFireVec)
   io.deallocValidMask := deallocFireVec.asUInt
   io.deallocCount := deallocCount
+  val deallocBlockLastVec = Wire(Vec(traceParams.commitWidth, Bool()))
   for (slot <- 0 until traceParams.commitWidth) {
     val idx = wrapIndex(deallocValue, slot)
     val source = Wire(new TULinkRetireSource(sourceParams, mapQDepth, stidWidth))
@@ -335,7 +341,21 @@ class ROBEntryBank(
     source.dstValid := rowTUDstValid(idx)
     source.dstKind := rowTUDstKind(idx)
     io.deallocTURetireSource(slot) := source
+    deallocBlockLastVec(slot) := deallocFireVec(slot) && rowIsLast(idx)
   }
+  val deallocBlockLastValid = deallocBlockLastVec.asUInt.orR
+  val deallocBlockLastOH = PriorityEncoderOH(deallocBlockLastVec)
+  val deallocBlockLastSlot = Wire(UInt(ptrWidth.W))
+  deallocBlockLastSlot := 0.U
+  if (traceParams.commitWidth > 1) {
+    deallocBlockLastSlot := OHToUInt(deallocBlockLastOH)
+  }
+  val deallocBlockLastSum = deallocValue +& deallocBlockLastSlot
+  val deallocBlockLastIndex =
+    Mux(deallocBlockLastSum >= entries.U, deallocBlockLastSum - entries.U, deallocBlockLastSum)(ptrWidth - 1, 0)
+  io.deallocBlockLastValid := deallocBlockLastValid
+  io.deallocBlockLastBid := Mux(deallocBlockLastValid, rowBid(deallocBlockLastIndex), zeroRobId)
+  io.deallocBlockLastGid := Mux(deallocBlockLastValid, rowGid(deallocBlockLastIndex), zeroRobId)
 
   io.empty := size === 0.U
   io.full := size === entries.U

@@ -32,6 +32,9 @@ destination class, and `isLast`. This keeps ROB source and retire-source
 publication in the row owner while
 `ScalarTURenameBridge` supplies the live T/U rename snapshots in the reduced
 decode/rename/ROB path.
+R66 also forwards the ROB bank's deallocated block-last `(bid,gid)` candidate
+so later relation-clean scheduling can wait for serialized retire commands
+instead of firing block cleanup at commit time.
 
 This is still a bring-up bridge, not full dispatch, rename, or CMT. It exists
 to remove unit-test-only `ROBEntryBank.allocBid` fixtures and to make later
@@ -67,6 +70,7 @@ dispatch agents consume a real block owner.
 | output | `commit*`, `dealloc*`, `flush*`, `size`, `outstandingCount`, `*Mask` | mixed | diagnostic | `ROBEntryBank` commit, recovery, and lifecycle outputs |
 | output | `robTULinkSource*` | mixed | diagnostic/source | ROB row candidate for `TULinkFlushSourceSelector.robSource` |
 | output | `deallocTURetireSource` | `Vec(commitWidth, TULinkRetireSource)` | diagnostic/source | ROB deallocation-row source vector for `TULinkRetireCommandPath` |
+| output | `deallocBlockLast*` | mixed | diagnostic/source | First block-last row freed by the ROB deallocation walk |
 
 ## State
 
@@ -120,7 +124,10 @@ ROB row flushes are forwarded to `ROBEntryBank`; the resulting
 `robTULinkSource*` outputs feed the live T/U cleanup selector composition.
 `deallocTURetireSource` is forwarded from `ROBEntryBank` into
 `DecodeRenameROBPath`, where `TULinkRetireCommandPath` serializes it into the
-live T/U rename retire port. BROB flush remains an explicit full-BID input
+live T/U rename retire port. `deallocBlockLast*` is also forwarded as the
+future `CleanCMAP` scheduling source, but this allocator does not issue the
+cleanup command because relation-cmap retire serialization must finish first.
+BROB flush remains an explicit full-BID input
 (`blockFlushValid/blockFlushBid`) because the current Chisel recovery bus
 still uses ring `ROBID` metadata while the hardware block contract uses full
 64-bit BIDs. `FullBidRecoveryBridge` now owns the shared conversion used by
@@ -151,5 +158,5 @@ adapter's responsibility.
 Focused tests cover atomic BROB/ROB allocation, BID cursor wrap through
 uniqueness bits, blocked-allocation hold behavior for BROB fullness and ROB
 duplicate identity, ROB T/U source IO elaboration through the composed module,
-ROB deallocation retire-source IO elaboration through the composed module, and
-Chisel elaboration of the composed module.
+ROB deallocation retire-source and block-last-candidate IO elaboration through
+the composed module, and Chisel elaboration of the composed module.

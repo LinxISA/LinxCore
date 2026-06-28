@@ -86,6 +86,9 @@ class DispatchROBAllocatorIO(
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
   val deallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(sourceParams, mapQDepth, stidWidth)))
+  val deallocBlockLastValid = Output(Bool())
+  val deallocBlockLastBid = Output(new ROBID(entries))
+  val deallocBlockLastGid = Output(new ROBID(entries))
 
   val flushApplied = Output(Bool())
   val flushPruneMask = Output(UInt(entries.W))
@@ -250,6 +253,9 @@ class DispatchROBAllocator(
   io.deallocValidMask := rob.io.deallocValidMask
   io.deallocCount := rob.io.deallocCount
   io.deallocTURetireSource := rob.io.deallocTURetireSource
+  io.deallocBlockLastValid := rob.io.deallocBlockLastValid
+  io.deallocBlockLastBid := rob.io.deallocBlockLastBid
+  io.deallocBlockLastGid := rob.io.deallocBlockLastGid
   io.flushApplied := rob.io.flushApplied
   io.flushPruneMask := rob.io.flushPruneMask
   io.flushResidentDecrement := rob.io.flushResidentDecrement

@@ -239,6 +239,7 @@ These packets remain the required base before broad module promotion:
 | R63 | `TULinkRelationCmap` and ROB deallocation T/U retire-source vector | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R64 | `TULinkRetireCommandPath` live ROB deallocation T/U retire-command wiring | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R65 | Relation-cmap and retire-source cleanup pruning | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R66 | ROB block-last deallocation boundary | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -359,9 +360,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Wire live block/group commit clean events into
-   `TULinkRetireCommandPath.cleanBlock*` and `cleanGroup*` once the block
-   commit owner publishes model `CleanCMAP` and `CleanGroupCMAP` events.
+1. Schedule scalar `CleanCMAP` from the forwarded block-last deallocation
+   candidate only after `TULinkRetireCommandPath` proves the block-last
+   source's mark/release command stream has been accepted.
 2. Enqueue-time ROB reservation: move BROB/ROB allocation before
    `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
    without duplicate identities.

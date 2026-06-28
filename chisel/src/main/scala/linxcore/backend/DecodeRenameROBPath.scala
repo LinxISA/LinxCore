@@ -202,6 +202,9 @@ class DecodeRenameROBPathIO(
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
   val robDeallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(p, mapQDepth, stidWidth)))
+  val robDeallocBlockLastValid = Output(Bool())
+  val robDeallocBlockLastBid = Output(new ROBID(p.robEntries))
+  val robDeallocBlockLastGid = Output(new ROBID(p.robEntries))
   val tuRetireSourceWindowReady = Output(Bool())
   val tuRetireSourceValidMask = Output(UInt(traceParams.commitWidth.W))
   val tuRetireSourceEnqueueCount = Output(UInt(tuRetireSourceCountWidth.W))
@@ -649,6 +652,9 @@ class DecodeRenameROBPath(
   io.deallocValidMask := allocator.io.deallocValidMask
   io.deallocCount := allocator.io.deallocCount
   io.robDeallocTURetireSource := allocator.io.deallocTURetireSource
+  io.robDeallocBlockLastValid := allocator.io.deallocBlockLastValid
+  io.robDeallocBlockLastBid := allocator.io.deallocBlockLastBid
+  io.robDeallocBlockLastGid := allocator.io.deallocBlockLastGid
   io.tuRetireSourceWindowReady := tuRetirePath.io.sourceWindowReady
   io.tuRetireSourceValidMask := tuRetirePath.io.sourceValidMask
   io.tuRetireSourceEnqueueCount := tuRetirePath.io.sourceEnqueueCount

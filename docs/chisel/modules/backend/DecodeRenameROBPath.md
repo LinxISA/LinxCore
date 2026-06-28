@@ -50,6 +50,9 @@ commands into `ScalarTURenameBridge.tuRetire*` with actual rename-acceptance
 backpressure. R65 drives backend recovery flush into that retire path so
 queued source rows and resident relation-cmap entries are pruned with
 model-equivalent `FlushRelativeReg` suffix semantics.
+R66 preserves the model deallocation boundary by stopping ROB deallocation at
+the first block-last row in a window and forwarding that `(bid,gid)` as the
+future block-clean source.
 
 ## Interface
 
@@ -112,9 +115,9 @@ Outputs:
   `tSeq/uSeq`, destination ownership, pressure, and source-underflow
   observability.
 - `allocBlockBid`, `allocRobValue`, `commit*`, `dealloc*`, `flushApplied`,
-  `robTULinkSource*`, `robDeallocTURetireSource`, `size`,
-  `outstandingCount`, and occupancy masks: `DispatchROBAllocator` and
-  `ROBEntryBank` lifecycle observability.
+  `robTULinkSource*`, `robDeallocTURetireSource`,
+  `robDeallocBlockLast*`, `size`, `outstandingCount`, and occupancy masks:
+  `DispatchROBAllocator` and `ROBEntryBank` lifecycle observability.
 - `tuRetireSource*`, `tuRetireCommand*`, `tuRetireRelation*`,
   `tuRetireAccepted/Miss/ReleaseMismatch/Unsupported`,
   `tuRetireCleanupActive`, `tuRetireSourcePruneCount`,
@@ -210,7 +213,10 @@ accepted the mark or deallocation after flush and commit priority. R65 wires
 `cleanup.flush` into the serializer and embedded relation-cmap owner. Recovery
 flush prunes only a newest suffix of matching queued sources and relation
 entries, while `cleanBlock*` and `cleanGroup*` are held inactive until the
-live block/group commit cleanup owner exists.
+live block/group cleanup scheduler exists. R66 forwards the ROB bank's
+block-last deallocation candidate for that future scheduler, but intentionally
+does not drive `cleanBlock*` yet because the relation-cmap mark/release command
+stream for the block-last row must be accepted first.
 
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
 IO and feeds the same source into `ScalarTURenameBridge.robSource`. The bridge
@@ -268,6 +274,8 @@ ownership into both `StoreSplitPayload` and `DispatchROBAllocator`.
 R64 wires the deallocation side of that same T/U ownership contract back into
 live T/U rename retirement through the width-aware source serializer. R65 adds
 the recovery-pruning side of `SPEROB::FlushRelativeReg` to that path.
+R66 adds the deallocation-window stop at block-last required before a later
+`CleanCMAP` scheduler can safely clean the just-retired block.
 Full store timing still requires real STA/STD execution, load-conflict
 publication, SCB/MDB handoff, and memory trace side effects.
 
@@ -284,6 +292,8 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - Automatic checkpoint capture from validated `isLastInBlock`.
 - Live block/group commit clean event wiring into
   `TULinkRetireCommandPath.cleanBlock*` and `cleanGroup*`.
+- Post-retire-command `CleanCMAP` scheduling from the forwarded block-last
+  deallocation candidate.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - SGPR/tile/vector operand classification and rename.
@@ -332,4 +342,5 @@ decode, `DecodeLoadStoreIdAssign`,
 `DecodeRenameQueue`, scalar/T/U rename, `StoreSplitPayload`,
 `StoreDispatchSTQPath` with `STQEntryBank`, backend allocation, and
 `TULinkRecoveryCleanupPath`. R65 also covers retire-source and relation-cmap
-cleanup observability through the composition boundary.
+cleanup observability through the composition boundary. R66 covers the
+block-last deallocation boundary and forwarded block-clean candidate.
