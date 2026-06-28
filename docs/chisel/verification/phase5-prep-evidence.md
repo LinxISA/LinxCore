@@ -50,6 +50,11 @@ Observed result:
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
   ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
   ReducedCommitROB tests.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed `trace_schema_adapter.py --self-test`.
 - `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
   `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
@@ -3312,3 +3317,73 @@ Skill evolve:
   `RecoveryCleanupIntent.backendFlushValid` plus a selected row snapshot, and
   apply `GetPrevRegSeq` only for the destination class owned by the flushed
   row.
+
+### R54 T/U Recovery Cleanup Composition
+
+Scope:
+
+- Added `TULinkRecoveryCleanupPath` as the direct composition owner between
+  `TULinkFlushSequencePublisher` and `TULinkRename`.
+- Wired publisher outputs to the T/U rename flush command fields while keeping
+  live ROB/LSU selected-row publication deferred behind the `flushSource`
+  input.
+- Added a recovery barrier for bad non-base selected-row evidence:
+  `cleanup.valid && cleanup.backendFlushValid && !publisher.flushValid`
+  blocks rename, retire, and commit for the local T/U owner that cycle.
+- Surfaced publisher command fields and source diagnostics for later live
+  monitoring.
+
+Model evidence:
+
+- `bctrl/spe/SPERename.cpp::Flush` calls local-register cleanup from backend
+  recovery fanout.
+- `bctrl/LocalRegMgr.cpp::flush` consumes `FlushReq.tSeq/uSeq` for non-base
+  local pruning.
+- `bctrl/spe/SPEROB.cpp::getRetireID` and `SPEROB::CheckDstDataOut` expose
+  row-owned `tSeq/uSeq`.
+- `ModelCommon/LSUUtils.cpp::GetPrevRegSeq` and the LSU flush builders define
+  the destination-owned previous-sequence adjustment that R53 publishes and
+  R54 composes.
+
+Evidence:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSequencePublisher
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel fetch origin main
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+```
+
+Expected result:
+
+- `TULinkRecoveryCleanupPathSpec` locks matching non-base source cleanup,
+  T-destination previous-sequence composition, base-on-BID source-free cleanup,
+  missing/mismatched source barrier behavior, inactive cleanup behavior, IO
+  widths, and elaboration with both child owners.
+- Existing T/U publisher, T/U rename, recovery cleanup, flush control, and
+  reduced ROB bookkeeping remain green after composition.
+
+Observed result:
+
+- `sbt --client --error 'Test / compile'` passed.
+- `TULinkRecoveryCleanupPathSpec` passed 7 tests.
+- `TULinkFlushSequencePublisherSpec` passed 8 tests.
+- `TULinkRenameSpec` passed 10 tests.
+- `RecoveryCleanupControlSpec` passed 6 tests.
+- `FlushControlSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R54 adds a reusable recovery
+  composition invariant: if a non-base T/U cleanup is active but the selected
+  row source is missing or mismatched, the T/U owner must freeze rename,
+  retire, and commit instead of falling through to unrelated local-register
+  maintenance.

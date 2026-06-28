@@ -33,6 +33,14 @@ working branches contain `origin/main`, so no merge/pull was required while
 unrelated local edits remain in the workspace.
 LinxCoreModel was fetched again on 2026-06-29 before R53; local `HEAD` still
 matched `origin/main` at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+R54 started from `rtl/LinxCore` commit
+`f52ff6e3557eafb5c39ce1f7578ff510ecfa89e1`, with only unrelated
+architecture markdown files dirty in the LinxCore worktree.
+During R54, `model/LinxCoreModel` was fetched again and local `HEAD` still
+matched `origin/main` at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; the
+QEMU adapter dry-run selected
+`emulator/qemu/build-linx/qemu-system-linx64` and passed the trace schema
+adapter self-test.
 
 ## Non-Negotiable Rules
 
@@ -172,6 +180,7 @@ These packets remain the required base before broad module promotion:
 | R51 | `TULinkRename` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R52 | `TULinkRename` cleanup hooks | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R53 | `TULinkFlushSequencePublisher` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R54 | `TULinkRecoveryCleanupPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSequencePublisher`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -279,9 +288,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Compose `TULinkFlushSequencePublisher` with `TULinkRename` behind the
-   registered recovery intent, using a real ROB/LSU selected-row snapshot and
-   monitoring `missingSource` / `sourceMismatch`.
+1. Add the live ROB/LSU selected-row snapshot publisher feeding
+   `TULinkRecoveryCleanupPath.flushSource`, and monitor `flushMissingSource`
+   / `flushSourceMismatch` as recovery contract failures.
 2. Compose `TULinkRename` with the scalar decode-rename bridge so accepted
    T/U operands can flow into `RenamedUop` without broadening scalar GPR
    ownership.

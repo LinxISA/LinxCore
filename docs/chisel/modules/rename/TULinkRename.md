@@ -16,6 +16,7 @@
   - `chisel/src/main/scala/linxcore/frontend/FrontendOperandDecode.scala`
   - `chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkFlushSequencePublisher.scala`
+  - `chisel/src/main/scala/linxcore/rename/TULinkRecoveryCleanupPath.scala`
 
 ## Purpose
 
@@ -163,8 +164,8 @@ reinterpret the reg6 namespace.
 - Ready-table initialization and wakeup state for T/U physical tags.
 - Full SPEROB relation-cmap owner and long-latency release policy around the
   `retireValid`/`retireDealloc` hooks.
-- Live composition with `TULinkFlushSequencePublisher` so ROB/LSU-owned row
-  snapshots drive `flushTSeq` and `flushUSeq`.
+- Live ROB/LSU-selected row snapshot publisher feeding
+  `TULinkRecoveryCleanupPath`.
 - Multi-PE and multi-thread bank replication.
 - Vector, SIMT, predicate, tile, and reuse-link variants.
 

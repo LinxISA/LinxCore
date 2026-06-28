@@ -15,6 +15,7 @@
 - Related Chisel:
   - `chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRename.scala`
+  - `chisel/src/main/scala/linxcore/rename/TULinkRecoveryCleanupPath.scala`
 
 ## Purpose
 
@@ -125,8 +126,8 @@ ROB/LSU recovery boundary; this module does not require or create that state.
 
 ## Flush/Recovery
 
-`flushValid` should drive `TULinkRename.flushValid` in the later composition.
-The remaining command fields map directly:
+`TULinkRecoveryCleanupPath` drives `TULinkRename.flushValid` from
+`flushValid`. The remaining command fields map directly:
 
 ```text
 TULinkRename.flushBaseOnBid := flushBaseOnBid
@@ -143,7 +144,6 @@ dropped.
 ## Deferred Owners
 
 - Live ROB/LSU row snapshot publisher feeding `source`.
-- Direct composition with `TULinkRename`.
 - Relation-cmap release owner around local retire/dealloc.
 - Ready-table mutation for T/U local physical tags.
 - Multi-PE and multi-thread bank replication beyond the current STID0 packet.
