@@ -17,8 +17,8 @@ Current phase:
   BID/RID sidecars started
 - Backend/recovery integration: dispatch/BROB-to-ROB allocation bridge,
   full-BID recovery handoff, and registered cleanup intent started
-- LSU recovery integration: first STQ flush-prune consumer and state bank
-  started, with store-commit queue ordering now split into its own owner
+- LSU recovery and drain integration: first STQ flush-prune consumer, state
+  bank, store-commit queue, and memory-side commit drain boundary started
 - Phase 1 top shell: `LinxCoreTop` wraps the monitored reduced ROB so top
   emit/lint uses real commit structure before the full frontend/backend exists
 
@@ -55,9 +55,10 @@ owner that consumes those masks, stores row sidecars, performs first-free
 allocation, merges split store address/data halves, and keeps resident plus
 WAIT/outstanding counts. `STQCommitQueue` is the first store-commit ordering
 owner: it keeps committed row indices sorted by `(bid, lsId)` and selects
-downstream-ready rows for future SCB/cacheline-split owners. `STQEntryBank`
-also exposes a committed-row free mask so those issue lanes can clear multiple
-committed rows after memory-side acceptance.
+downstream-ready rows for future memory-side owners. `STQCommitDrain` composes
+that queue with committed row sidecars, models scalar cacheline split request
+shaping, and drives `STQEntryBank` committed-row free masks only after
+abstract memory-side segment acceptance.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -85,6 +86,7 @@ bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
 bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune
 bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
+bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

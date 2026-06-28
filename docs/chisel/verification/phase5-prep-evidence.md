@@ -810,3 +810,92 @@ Skill evolve:
   bank-side multi-free gate needed by future `STQCommitQueue` to memory-side
   drain integration: accepted committed rows clear by mask and decrement
   resident count once, while WAIT/outstanding count is preserved.
+
+## 2026-06-28 STQ Commit Drain Boundary
+
+Scope:
+
+- Added `STQCommitDrain` as the first Chisel memory-side owner for committed
+  scalar STQ rows.
+- Composed `STQCommitQueue` with `STQEntryBank` row sidecars so committed rows
+  are still selected in model `storeCommitQ` order, while memory-side readiness
+  decides which rows can issue.
+- Matched the scalar model split contract from `AddrCrossCacheline` and
+  `GetCrossReq`: a split store needs both segment paths ready before issue and
+  emits two descriptors with second data shifted by `first_size * 8`.
+- Drove `STQEntryBank.commitFreeMask` only for rows selected by the queue after
+  downstream segment readiness, matching model `STQ::commit` where `free(i)`
+  follows successful `sendSimL1`.
+- Kept SCB/MDB storage, TTrans/tile side effects, BSB window slide, CHI
+  completion, load forwarding, and data-array banking in later LSU owner
+  packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `STQCommitDrainSpec` covers single-line issue/free, split stores requiring
+  both segment targets, younger-row progress around an older split-stalled row,
+  issue gating, and Chisel elaboration.
+- Existing STQ commit queue, STQ bank, STQ flush-prune, recovery, ROB,
+  trace-adapter, QEMU dry-run, reduced RTL xcheck, top-shell xcheck, and
+  Verilator lint gates stay green.
+
+Observed result:
+
+- Initial `STQCommitDrain` gate caught missing `Cat` and `Fill` imports; adding
+  explicit `chisel3.util` imports fixed the compile before promotion.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain` passed 5 tests
+  in `STQCommitDrainSpec`.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue` passed 7 tests
+  in `STQCommitQueueSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank` passed 7 tests
+  in `STQEntryBankSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune` passed 6 tests
+  in `STQFlushPruneSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl` passed
+  6 tests in `RecoveryCleanupControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only FlushControl` passed 6 tests
+  in `FlushControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank` passed 9 tests
+  in `ROBEntryBankSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `STQCommitDrain` adds the reusable
+  memory-side committed-store drain invariant: free committed STQ rows only
+  after single- or split-segment downstream acceptance, preserve queue
+  skip-around-stall behavior, and keep SCB/MDB/CHI completion in later owners.

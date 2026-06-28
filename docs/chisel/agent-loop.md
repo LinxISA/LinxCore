@@ -124,6 +124,7 @@ These packets remain the required base before broad module promotion:
 | R15 | `STQEntryBank` | `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only STQFlushPrune`, `run_chisel_tests.sh --only RecoveryCleanupControl`, `run_chisel_tests.sh --only FlushControl` |
 | R16 | `STQCommitQueue` | `run_chisel_tests.sh --only STQCommitQueue`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only STQFlushPrune`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | R17 | `STQEntryBank` multi-free target | `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only STQCommitQueue`, `run_chisel_tests.sh --only STQFlushPrune`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| R18 | `STQCommitDrain` | `run_chisel_tests.sh --only STQCommitDrain`, `run_chisel_tests.sh --only STQCommitQueue`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -229,10 +230,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. STQ memory-side commit owner: drive `STQEntryBank.commitFreeMask` from real
-   `STQCommitQueue` issue success, then add SCB/MDB handoff, cacheline split
-   handling, and data-array banking without moving those memory side effects
-   into the bank's flush helper.
+1. SCB/MDB store-drain owner: consume `STQCommitDrain.memReqs`, allocate the
+   non-flushable store path in program order, and keep CHI/request completion
+   accounting out of `STQEntryBank` and `STQCommitQueue`.
 2. Load/store forwarding owner: implement the byte-mask STQ lookup path and
    connect it to the future LIQ/LHQ request flow.
 3. Rename/checkpoint cleanup consumer: connect `RecoveryCleanupControl` to the

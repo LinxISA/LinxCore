@@ -10,9 +10,11 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitDrain.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQFlushPruneSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQEntryBankSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitQueueSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/STQCommitDrainSpec.scala`
 
 ## Model Contract
 
@@ -79,16 +81,26 @@ accepts committed row indices, keeps them sorted by `(bid, lsId)`, selects up
 to a parameterized issue width, skips downstream-stalled rows, and compacts the
 queue after issue.
 
-This is still not the complete model STQ. SCB/MDB traffic, cacheline splitting,
-tile/TTrans behavior, load forwarding, deadlock checks, data-array banking, and
-BSB window-slide side effects remain future LSU owner work.
+`STQCommitDrain` is the first Chisel owner for the model `STQ::commit`
+memory-side boundary. It composes `STQCommitQueue`, checks committed rows
+against downstream single- or split-segment availability, emits one or two
+scalar memory request descriptors, and drives `STQEntryBank.commitFreeMask`
+only for rows that issue to the memory side. It preserves the model rule that
+split stores require both segment queues to be non-stalled before the row is
+freed, while a stalled older row can remain queued as a younger ready row
+drains.
+
+This is still not the complete model STQ. SCB/MDB traffic, TTrans/tile
+behavior, load forwarding, deadlock checks, data-array banking, and BSB
+window-slide side effects remain future LSU owner work.
 
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush,
-  SCB/MDB interaction, cacheline splitting, load forwarding, and queue
-  backpressure. The bank now has a committed-row free mask, but the future LSU
-  owner still needs to drive it from real memory-side issue success.
+  SCB/MDB interaction, load forwarding, and queue backpressure. The first
+  memory-side drain now drives a committed-row free mask after abstract segment
+  acceptance, but real SCB/MDB allocation and cachebank arbitration still need
+  dedicated owners.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both
   `FlushControl` notes and the STQ tests in the same packet.
