@@ -9,6 +9,8 @@ Scope:
 - Added `CommitTraceRow`, memory/trap envelopes, commit-window valid mask, and
   commit schema tests.
 - Added `ReducedCommitROB` as the first reduced head-ordered commit harness.
+- Added `ROBEntryStatus` as the first integrated ROB/CMT status contract slice,
+  preserving LinxCoreModel `PROBStatus` order and commit/dealloc separation.
 - Added initial `FlushControl` request, bus, classification, need-flush, and
   older-signal arbitration sources.
 - Added initial `BID` helpers and `BROB` metadata tracker sources.
@@ -29,6 +31,7 @@ bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only
 bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
 bash tools/chisel/run_chisel_tests.sh --only CommitTrace
 bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
 bash tools/chisel/run_chisel_verilator_lint.sh
@@ -58,6 +61,11 @@ Observed result:
   `CommitTraceSpec`.
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB` passed 5
   tests in `ReducedCommitROBSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus` passed 6 tests
+  in `ROBEntryStatusSpec`.
+- `ROBEntryStatusSpec` covers LinxCoreModel `PROBStatus` numeric order,
+  residency versus outstanding work, commit/dealloc separation, flush-clears
+  status selection, IO widths, and Chisel elaboration.
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` passed the
   Python semantic check and the Scala ROBID test.
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed
@@ -97,3 +105,6 @@ Skill evolve:
 - `skill-evolve: update linx-core` for the reduced ROB Verilator xcheck because
   Phase 0B now has a live generated-RTL trace proof through the neutral
   QEMU/DUT comparator.
+- `skill-evolve: update linx-core` for `ROBEntryStatus` because future
+  integrated ROB/CMT agents must preserve the model status order and the
+  `Completed -> Retired -> Free` phase split.
