@@ -93,6 +93,11 @@ and converts the full BID into the `ROBID` sidecar consumed by
 `ROBEntryBank` through the shared `FullBidRecoveryBridge.fullBidToRobId`
 helper. RID remains allocated by the ROB bank.
 
+The Chisel `STQFlushPrune` helper is the first recovery cleanup consumer
+outside the ROB path. It consumes the same selected `FlushBus` but only emits
+STQ free masks for valid `STQ_WAIT` rows. `ROBFlushPrune` must not absorb this
+LSU/STQ behavior; full STQ mutation belongs to the later LSU owner.
+
 ## Open Items
 
 - Replace the reduced harness with integrated ROB banks and CMT control in
@@ -100,9 +105,10 @@ helper. RID remains allocated by the ROB bank.
 - Promote the next recovery cleanup owner now that `FullBidRecoveryBridge`
   defines the full hardware BID to ring `ROBID` handoff for BROB flush and ROB
   row pruning.
-- Connect the downstream consumers for `RecoveryCleanupControl`: rename cleanup,
-  LSU/STQ side effects, precise trap ownership, and frontend restart ownership.
-  Do not retrofit those behaviors into `ReducedCommitROB` or `ROBFlushPrune`.
+- Connect the downstream consumers for `RecoveryCleanupControl`: rename
+  cleanup, full STQ side effects from `STQFlushPrune.freeMask`, precise trap
+  ownership, and frontend restart ownership. Do not retrofit those behaviors
+  into `ReducedCommitROB` or `ROBFlushPrune`.
 - Add live Verilator trace dumping once the reduced harness has a small driver.
 - Connect memory side-effect ownership to LSU/STQ instead of test-provided row
   payloads.

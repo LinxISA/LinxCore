@@ -503,3 +503,77 @@ Skill evolve:
   reusable recovery owner and gate: selected recovery requests must pass through
   a registered cleanup-intent boundary, and downstream rename/LSU/STQ/frontend
   side effects must not be implemented inside `ROBFlushPrune`.
+
+## 2026-06-28 STQ Flush-Prune Consumer
+
+Scope:
+
+- Added `STQFlushPrune` as the first concrete LSU/STQ cleanup consumer for
+  `RecoveryCleanupControl.intent.flush`.
+- Mirrored `FlushBus::match(MemReqBus)` scope and age rules: `stid`, optional
+  PE/thread filters, BID-only matching, group matching with the model BID fast
+  path, and default BID+LSID matching.
+- Preserved the model `STQ::flush` restriction that only valid `STQ_WAIT`
+  entries are freed.
+- Kept STQ RAM mutation, `storeCommitQ`, SCB/MDB state, memory queues,
+  frontend restart, rename restore, and ROB pruning out of the mask generator.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
+bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge
+bash tools/chisel/run_chisel_tests.sh --only FlushControl
+bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+```
+
+Expected result:
+
+- `STQFlushPruneSpec` passes and elaborates the LSU/STQ mask interface.
+- Existing recovery bridge/control, flush, ROB prune, entry-bank, reduced ROB,
+  adapter, QEMU dry-run, and reduced generated-RTL cross-check gates remain
+  green.
+
+Observed result:
+
+- `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune` passed 6 tests
+  in `STQFlushPruneSpec`.
+- New reference coverage includes base-on-BID freeing, default BID+LSID
+  comparison, group comparison with the model BID fast path, STID/PE/thread
+  scoping, invalid flush suppression, non-`Wait` status preservation, and
+  Chisel elaboration.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl` passed
+  6 tests in `RecoveryCleanupControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge` passed
+  4 tests in `FullBidRecoveryBridgeSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only FlushControl` passed 6 tests
+  in `FlushControlSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune` passed 6 tests
+  in `ROBFlushPruneSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank` passed 9 tests
+  in `ROBEntryBankSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `STQFlushPrune` adds a reusable
+  LSU recovery invariant and gate: STQ cleanup must consume the selected
+  `FlushBus`, match the model `MemReqBus` predicate, free only valid
+  `STQ_WAIT` entries, and leave full STQ side effects to the LSU owner.

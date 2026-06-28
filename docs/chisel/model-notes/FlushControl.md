@@ -68,14 +68,19 @@ LSU/STQ, and tile cleanup hooks. This mirrors `flush`, `replay`,
 `FlushBaseOnPE`, and `flushBackend` fanout without mutating those consumers in
 the recovery control packet.
 
+`STQFlushPrune` is the first LSU consumer of that selected `FlushBus`. It uses
+the same `stid`, optional PE/thread, BID, group, and LSID matching policy as
+`FlushBus::match(MemReqBus)` and only frees rows whose model STQ FSM is
+`STQ_WAIT`.
+
 ## Open Questions
 
 - The model typo `selectPESigal` is preserved only in source citations; Chisel
   uses normal spelling.
-- Full `SIMT_INNER_FLUSH` group-order comparison needs the `gid` and `lsId`
-  policy from the vector and MTC paths before promotion beyond arbitration unit
-  tests.
+- Full `SIMT_INNER_FLUSH` group-order behavior now has a first STQ consumer,
+  but vector and MTC consumers still need owner-specific tests before promotion
+  beyond arbitration and STQ mask generation.
 - Recovery cleanup consumers are still open: rename checkpoint restore,
-  LSU/STQ entry mutation, frontend restart token payloads, PE replay fanout,
-  and BROB pointer restoration are signaled by `RecoveryCleanupControl` but not
-  implemented by the current Chisel packet.
+  application of STQ free masks to full STQ state, frontend restart token
+  payloads, PE replay fanout, and BROB pointer restoration are signaled by
+  `RecoveryCleanupControl` but not implemented by the current Chisel packets.
