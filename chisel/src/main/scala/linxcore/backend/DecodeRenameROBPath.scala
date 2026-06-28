@@ -196,6 +196,7 @@ class DecodeRenameROBPathIO(
 
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
+  val robDeallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(p, mapQDepth, stidWidth)))
 
   val flushApplied = Output(Bool())
   val robTULinkSource = Output(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
@@ -422,12 +423,14 @@ class DecodeRenameROBPath(
   allocator.io.flush := io.cleanup.flush
   allocator.io.allocValid := rename.io.robAllocAttemptValid
   allocator.io.allocRow := rename.io.robAllocRow
+  allocator.io.allocGid := queuedForRename.gid
   allocator.io.allocTid := queuedForRename.threadId
   allocator.io.allocStid := queuedForRename.threadId
   allocator.io.allocTSeq := rename.io.tuTSeq
   allocator.io.allocUSeq := rename.io.tuUSeq
   allocator.io.allocTUDstValid := rename.io.tuDstValid
   allocator.io.allocTUDstKind := rename.io.tuDstKind
+  allocator.io.allocIsLast := queuedForRename.eob
   allocator.io.allocPeId := 0.U
   allocator.io.allocBlockType := queuedForRename.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
   allocator.io.allocNeedsEngine := false.B
@@ -585,6 +588,7 @@ class DecodeRenameROBPath(
   io.commitContractError := allocator.io.commitContractError
   io.deallocValidMask := allocator.io.deallocValidMask
   io.deallocCount := allocator.io.deallocCount
+  io.robDeallocTURetireSource := allocator.io.deallocTURetireSource
   io.flushApplied := allocator.io.flushApplied
   io.robTULinkSource := allocator.io.robTULinkSource
   io.robTULinkSourceMatched := allocator.io.robTULinkSourceMatched

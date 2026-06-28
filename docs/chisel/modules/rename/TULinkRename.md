@@ -162,8 +162,10 @@ reinterpret the reg6 namespace.
 - Composition with `ScalarDecodeRenameBridge` into a unified accepted renamed
   payload.
 - Ready-table initialization and wakeup state for T/U physical tags.
-- Full SPEROB relation-cmap owner and long-latency release policy around the
-  `retireValid`/`retireDealloc` hooks.
+- Live integration of `TULinkRelationCmap` around the
+  `retireValid`/`retireDealloc` hooks. The relation-cmap policy owner now
+  exists as a standalone module, but the top-level serializer path is not yet
+  wired into this module's retire port.
 - Live ROB/LSU-selected row snapshot publisher feeding
   `TULinkRecoveryCleanupPath`.
 - Multi-PE and multi-thread bank replication.

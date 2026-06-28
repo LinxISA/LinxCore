@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.log2Ceil
 import linxcore.bctrl.{BID, BrobEntryMeta, BrobMetaTracker}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
-import linxcore.common.{DestinationKind, InterfaceParams, TULinkFlushSequenceSource}
+import linxcore.common.{DestinationKind, InterfaceParams, TULinkFlushSequenceSource, TULinkRetireSource}
 import linxcore.recovery.{FlushBus, FullBidRecoveryBridge}
 import linxcore.rob.{ROBEntryBank, ROBEntryStatus, ROBID}
 
@@ -32,12 +32,14 @@ class DispatchROBAllocatorIO(
   val allocBlockedByRob = Output(Bool())
   val allocDuplicateIdentity = Output(Bool())
   val allocRow = Input(new CommitTraceRow(traceParams))
+  val allocGid = Input(new ROBID(entries))
   val allocTid = Input(UInt(tidWidth.W))
   val allocStid = Input(UInt(stidWidth.W))
   val allocTSeq = Input(new ROBID(mapQDepth))
   val allocUSeq = Input(new ROBID(mapQDepth))
   val allocTUDstValid = Input(Bool())
   val allocTUDstKind = Input(DestinationKind())
+  val allocIsLast = Input(Bool())
   val allocPeId = Input(UInt(peIdWidth.W))
   val allocBlockType = Input(UInt(blockTypeWidth.W))
   val allocNeedsEngine = Input(Bool())
@@ -83,6 +85,7 @@ class DispatchROBAllocatorIO(
 
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
+  val deallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(sourceParams, mapQDepth, stidWidth)))
 
   val flushApplied = Output(Bool())
   val flushPruneMask = Output(UInt(entries.W))
@@ -178,11 +181,13 @@ class DispatchROBAllocator(
   rob.io.allocValid := io.allocValid && brob.io.allocReady
   rob.io.allocRow := robAllocRow
   rob.io.allocBid := bidToRobId(nextBlockBid)
+  rob.io.allocGid := io.allocGid
   rob.io.allocStid := io.allocStid
   rob.io.allocTSeq := io.allocTSeq
   rob.io.allocUSeq := io.allocUSeq
   rob.io.allocTUDstValid := io.allocTUDstValid
   rob.io.allocTUDstKind := io.allocTUDstKind
+  rob.io.allocIsLast := io.allocIsLast
   rob.io.completeValid := io.completeValid
   rob.io.completeRobValue := io.completeRobValue
   rob.io.deallocReady := io.deallocReady
@@ -244,6 +249,7 @@ class DispatchROBAllocator(
   io.commitContractError := rob.io.commitContractError
   io.deallocValidMask := rob.io.deallocValidMask
   io.deallocCount := rob.io.deallocCount
+  io.deallocTURetireSource := rob.io.deallocTURetireSource
   io.flushApplied := rob.io.flushApplied
   io.flushPruneMask := rob.io.flushPruneMask
   io.flushResidentDecrement := rob.io.flushResidentDecrement

@@ -3,7 +3,7 @@ package linxcore.rob
 import chisel3._
 import chisel3.util.{log2Ceil, OHToUInt, PopCount, PriorityEncoderOH}
 import linxcore.commit.{CommitTraceMonitor, CommitTraceParams, CommitTracePort, CommitTraceRow}
-import linxcore.common.{DestinationKind, InterfaceParams, TULinkFlushSequenceSource}
+import linxcore.common.{DestinationKind, InterfaceParams, TULinkFlushSequenceSource, TULinkRetireSource}
 import linxcore.recovery.FlushBus
 
 class ROBEntryBankIO(
@@ -23,11 +23,13 @@ class ROBEntryBankIO(
   val allocDuplicateIdentity = Output(Bool())
   val allocRow = Input(new CommitTraceRow(traceParams))
   val allocBid = Input(new ROBID(entries))
+  val allocGid = Input(new ROBID(entries))
   val allocStid = Input(UInt(stidWidth.W))
   val allocTSeq = Input(new ROBID(mapQDepth))
   val allocUSeq = Input(new ROBID(mapQDepth))
   val allocTUDstValid = Input(Bool())
   val allocTUDstKind = Input(DestinationKind())
+  val allocIsLast = Input(Bool())
   val allocRobValue = Output(UInt(ptrWidth.W))
 
   val completeValid = Input(Bool())
@@ -50,6 +52,7 @@ class ROBEntryBankIO(
 
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
+  val deallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(sourceParams, mapQDepth, stidWidth)))
 
   val flushApplied = Output(Bool())
   val flushDirectMatchMask = Output(UInt(entries.W))
@@ -137,6 +140,12 @@ class ROBEntryBank(
     source
   }
 
+  private def zeroTURetireSource: TULinkRetireSource = {
+    val source = Wire(new TULinkRetireSource(sourceParams, mapQDepth, stidWidth))
+    source := 0.U.asTypeOf(source)
+    source
+  }
+
   private def allocatedRid: ROBID = {
     val id = Wire(new ROBID(entries))
     id.valid := true.B
@@ -165,12 +174,14 @@ class ROBEntryBank(
 
   val rows = Reg(Vec(entries, new CommitTraceRow(traceParams)))
   val rowBid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
+  val rowGid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
   val rowRid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
   val rowStid = RegInit(VecInit(Seq.fill(entries)(0.U(stidWidth.W))))
   val rowTSeq = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(mapQDepth)))))
   val rowUSeq = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(mapQDepth)))))
   val rowTUDstValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
   val rowTUDstKind = RegInit(VecInit(Seq.fill(entries)(DestinationKind.None)))
+  val rowIsLast = RegInit(VecInit(Seq.fill(entries)(false.B)))
   val status = RegInit(VecInit(Seq.fill(entries)(ROBEntryStatus.Free)))
   val allocValue = RegInit(0.U(ptrWidth.W))
   val allocWrap = RegInit(false.B)
@@ -309,6 +320,22 @@ class ROBEntryBank(
   val deallocCount = PopCount(deallocFireVec)
   io.deallocValidMask := deallocFireVec.asUInt
   io.deallocCount := deallocCount
+  for (slot <- 0 until traceParams.commitWidth) {
+    val idx = wrapIndex(deallocValue, slot)
+    val source = Wire(new TULinkRetireSource(sourceParams, mapQDepth, stidWidth))
+    source := zeroTURetireSource
+    source.valid := deallocFireVec(slot)
+    source.isLast := rowIsLast(idx)
+    source.bid := rowBid(idx)
+    source.gid := rowGid(idx)
+    source.rid := rowRid(idx)
+    source.stid := rowStid(idx)
+    source.tSeq := rowTSeq(idx)
+    source.uSeq := rowUSeq(idx)
+    source.dstValid := rowTUDstValid(idx)
+    source.dstKind := rowTUDstKind(idx)
+    io.deallocTURetireSource(slot) := source
+  }
 
   io.empty := size === 0.U
   io.full := size === entries.U
@@ -325,12 +352,14 @@ class ROBEntryBank(
     when(flushPrune.io.pruneMask(idx)) {
       rows(idx) := zeroRow
       rowBid(idx) := zeroRobId
+      rowGid(idx) := zeroRobId
       rowRid(idx) := zeroRobId
       rowStid(idx) := 0.U
       rowTSeq(idx) := zeroLocalSeq
       rowUSeq(idx) := zeroLocalSeq
       rowTUDstValid(idx) := false.B
       rowTUDstKind(idx) := DestinationKind.None
+      rowIsLast(idx) := false.B
       status(idx) := ROBEntryStatus.Free
     }
   }
@@ -351,12 +380,14 @@ class ROBEntryBank(
     when(deallocFireVec(slot)) {
       rows(idx) := zeroRow
       rowBid(idx) := zeroRobId
+      rowGid(idx) := zeroRobId
       rowRid(idx) := zeroRobId
       rowStid(idx) := 0.U
       rowTSeq(idx) := zeroLocalSeq
       rowUSeq(idx) := zeroLocalSeq
       rowTUDstValid(idx) := false.B
       rowTUDstKind(idx) := DestinationKind.None
+      rowIsLast(idx) := false.B
       status(idx) := ROBEntryStatus.Free
     }
   }
@@ -370,12 +401,14 @@ class ROBEntryBank(
     row.rob.value := allocValue
     rows(allocValue) := row
     rowBid(allocValue) := storedAllocBid
+    rowGid(allocValue) := io.allocGid
     rowRid(allocValue) := allocatedRid
     rowStid(allocValue) := io.allocStid
     rowTSeq(allocValue) := io.allocTSeq
     rowUSeq(allocValue) := io.allocUSeq
     rowTUDstValid(allocValue) := io.allocTUDstValid
     rowTUDstKind(allocValue) := io.allocTUDstKind
+    rowIsLast(allocValue) := io.allocIsLast
     status(allocValue) := ROBEntryStatus.Allocated
   }
 

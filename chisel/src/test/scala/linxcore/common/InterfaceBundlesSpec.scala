@@ -179,6 +179,25 @@ class InterfaceBundlesSpec extends AnyFunSuite {
     assert(DestinationKind.U.asUInt.litValue == 3)
   }
 
+  test("T/U retire source and command preserve ROB, group, and local sequence domains") {
+    val p = InterfaceParams(robEntries = 8)
+    val source = new TULinkRetireSource(p, mapQDepth = 8, stidWidth = 4)
+    val command = new TULinkRetireCommand(mapQDepth = 8)
+
+    assert(source.valid.getWidth == 1)
+    assert(source.isLast.getWidth == 1)
+    assert(source.bid.value.getWidth == 3)
+    assert(source.gid.value.getWidth == 3)
+    assert(source.rid.value.getWidth == 3)
+    assert(source.stid.getWidth == 4)
+    assert(source.tSeq.value.getWidth == 3)
+    assert(source.uSeq.value.getWidth == 3)
+    assert(source.dstValid.getWidth == 1)
+    assert(command.valid.getWidth == 1)
+    assert(command.seq.value.getWidth == 3)
+    assert(command.dealloc.getWidth == 1)
+  }
+
   test("common interface packets elaborate through Chisel") {
     val sv = ChiselStage.emitSystemVerilog(new InterfaceBundleProbe(InterfaceParams()))
 

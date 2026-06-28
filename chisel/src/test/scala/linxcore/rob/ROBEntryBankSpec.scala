@@ -36,7 +36,8 @@ object ROBEntryBankReference {
       stid: Int = 0,
       tSeq: Id = Id(),
       uSeq: Id = Id(),
-      dst: TUDst = NoTUDst)
+      dst: TUDst = NoTUDst,
+      isLast: Boolean = false)
   final case class TUSource(
       valid: Boolean,
       bid: Id,
@@ -45,8 +46,18 @@ object ROBEntryBankReference {
       tSeq: Id,
       uSeq: Id,
       dst: TUDst)
+  final case class TURetireSource(
+      valid: Boolean,
+      bid: Id,
+      gid: Id,
+      rid: Id,
+      stid: Int,
+      isLast: Boolean,
+      tSeq: Id,
+      uSeq: Id,
+      dst: TUDst)
 
-  private final case class Entry(row: Row, status: Status, bid: Id, rid: Id, tu: TUSidecar)
+  private final case class Entry(row: Row, status: Status, bid: Id, gid: Id, rid: Id, tu: TUSidecar)
 
   final class Model(entries: Int, commitWidth: Int) {
     require(entries > 1 && (entries & (entries - 1)) == 0)
@@ -75,6 +86,9 @@ object ROBEntryBankReference {
 
     private def normalizedBid(row: Row): Id =
       Id(value = (row.bid.toInt & (entries - 1)))
+
+    private def normalizedGid(row: Row): Id =
+      Id(value = (row.gid.toInt & (entries - 1)))
 
     private def less(lhs: Id, rhs: Id): Boolean =
       if (lhs.wrap == rhs.wrap) lhs.value < rhs.value else lhs.value > rhs.value
@@ -111,7 +125,7 @@ object ROBEntryBankReference {
       val rob = allocPtr
       val rid = Id(wrap = allocWrap, value = allocPtr)
       table(allocPtr) = Some(
-        Entry(row.copy(robValue = rob), Allocated, bid.getOrElse(normalizedBid(row)), rid, tu)
+        Entry(row.copy(robValue = rob), Allocated, bid.getOrElse(normalizedBid(row)), normalizedGid(row), rid, tu)
       )
       val (nextAllocPtr, nextAllocWrap) = advance(allocPtr, allocWrap)
       allocPtr = nextAllocPtr
@@ -126,7 +140,7 @@ object ROBEntryBankReference {
         return None
       }
       table.flatten.collectFirst {
-        case Entry(_, status, bid, rid, tu)
+        case Entry(_, status, bid, _, rid, tu)
             if status != Free && equal(bid, flushBid) && equal(rid, flushRid) && tu.stid == stid =>
           TUSource(valid = true, bid = bid, rid = rid, stid = stid, tSeq = tu.tSeq, uSeq = tu.uSeq, dst = tu.dst)
       }
@@ -154,6 +168,33 @@ object ROBEntryBankReference {
             commitPtr = nextCommitPtr
             commitWrap = nextCommitWrap
             outstanding -= 1
+          case _ =>
+            return out.toSeq
+        }
+      }
+      out.toSeq
+    }
+
+    def deallocTURetireSources(ready: Boolean = true): Seq[TURetireSource] = {
+      if (!ready) {
+        return Seq.empty
+      }
+      val out = collection.mutable.ArrayBuffer.empty[TURetireSource]
+      while (out.size < commitWidth) {
+        val idx = (deallocPtr + out.size) & (entries - 1)
+        table(idx) match {
+          case Some(Entry(_, Retired, bid, gid, rid, tu)) =>
+            out += TURetireSource(
+              valid = true,
+              bid = bid,
+              gid = gid,
+              rid = rid,
+              stid = tu.stid,
+              isLast = tu.isLast,
+              tSeq = tu.tSeq,
+              uSeq = tu.uSeq,
+              dst = tu.dst
+            )
           case _ =>
             return out.toSeq
         }
@@ -412,6 +453,29 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(rob.robTUSource(flushBid = id(1), flushRid = id(r1), stid = 1, baseOnBid = false).isEmpty)
   }
 
+  test("reference exposes dealloc-row T/U retire sources with native BID/GID/RID") {
+    val rob = new Model(entries = 8, commitWidth = 2)
+    val r0 = rob.alloc(
+      row(0).copy(gid = 3),
+      bid = Some(id(2)),
+      tu = TUSidecar(stid = 1, tSeq = id(4), uSeq = id(5), dst = TDst, isLast = false)
+    ).get
+    val r1 = rob.alloc(
+      row(1).copy(gid = 3),
+      bid = Some(id(2)),
+      tu = TUSidecar(stid = 1, tSeq = id(6), uSeq = id(7), dst = UDst, isLast = true)
+    ).get
+
+    assert(rob.complete(r0))
+    assert(rob.complete(r1))
+    assert(rob.commit().map(_.rid) == Seq(0, 1))
+    assert(rob.deallocTURetireSources() == Seq(
+      TURetireSource(true, id(2), id(3), id(r0), 1, false, id(4), id(5), TDst),
+      TURetireSource(true, id(2), id(3), id(r1), 1, true, id(6), id(7), UDst)
+    ))
+    assert(rob.dealloc() == Seq(r0, r1))
+  }
+
   test("Chisel ROBEntryBank elaborates with status masks and commit monitor outputs") {
     val sv = ChiselStage.emitSystemVerilog(
       new ROBEntryBank(
@@ -425,9 +489,13 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("module ROBEntryBank"))
     assert(sv.contains("io_deallocReady"))
     assert(sv.contains("io_allocBid"))
+    assert(sv.contains("io_allocGid"))
+    assert(sv.contains("io_allocIsLast"))
     assert(sv.contains("io_allocTSeq_value"))
     assert(sv.contains("io_allocTUDstKind"))
     assert(sv.contains("io_robTULinkSource_tSeq_value"))
+    assert(sv.contains("io_deallocTURetireSource_0_tSeq_value"))
+    assert(sv.contains("io_deallocTURetireSource_0_isLast"))
     assert(sv.contains("io_robTULinkSourceMatched"))
     assert(sv.contains("io_completedMask"))
     assert(sv.contains("io_retiredMask"))

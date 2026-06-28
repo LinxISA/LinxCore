@@ -81,6 +81,13 @@ markdown files dirty in the LinxCore worktree. The model evidence for R61 was
 `SPERename::Rename`, `SPERename::InsertToStoreIEX`, `MemReqBus`, and the
 store-unit cleanup builders at LinxCoreModel commit
 `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+R63 started from `rtl/LinxCore` commit
+`1cf17776706800a8aa049471193da17af8dca8fa`, with only unrelated architecture
+markdown files dirty in the LinxCore worktree. The model evidence for R63 was
+`SPEROB::ReleaseRelative`, `SPEROB::CheckRelativeReg`,
+`SPEROB::ReleaseFunc`, `SPERename::RepLocalRetired`,
+`LocalRegMgr::ReportRetired`, and `RelateCmap` at LinxCoreModel commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
 
 ## Non-Negotiable Rules
 
@@ -228,6 +235,8 @@ These packets remain the required base before broad module promotion:
 | R59 | `DecodeRenameROBPath` reduced T/U cleanup source composition | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only StoreDispatchSTQPath`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R60 | `DecodeRenameROBPath` integrated STQ-bank LSU source | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only StoreDispatchSTQPath`, `run_chisel_tests.sh --only StoreDispatchToSTQ`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R61 | Store dispatch T/U sidecar carry into STQ requests | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only StoreDispatchQueues`, `run_chisel_tests.sh --only StoreDispatchToSTQ`, `run_chisel_tests.sh --only StoreDispatchSTQPath`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkFlushSourceSelector`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R62 | `ScalarTURenameBridge` live scalar plus T/U rename composition | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R63 | `TULinkRelationCmap` and ROB deallocation T/U retire-source vector | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -286,6 +295,9 @@ Update skills only for:
   accepted-output readiness back into its own input acceptance.
 - a sidecar preservation rule where row-owned model metadata must be copied
   through split/queue/bridge owners before the live producer is composed.
+- a retire-source preservation rule where ROB deallocation metadata must remain
+  a row vector until a relation-cmap serializer can consume every row without
+  dropping width-wide events.
 
 Run skill evolution as a trailing maintenance lane after the module docs and
 evidence are updated. The module packet owns local Markdown first; the
@@ -345,8 +357,10 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add the SPEROB relation-cmap owner around `TULinkRename.retireValid` /
-   `retireDealloc` so long-latency release and block-end release are explicit.
+1. Wire the ROB deallocation T/U retire-source vector through a width-aware
+   serializer into `TULinkRelationCmap`, then drive
+   `ScalarTURenameBridge.tuRetire*` only when the rename maintenance port can
+   accept the command without losing commit/flush priority.
 2. Enqueue-time ROB reservation: move BROB/ROB allocation before
    `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
    without duplicate identities.

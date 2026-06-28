@@ -38,7 +38,8 @@ Inputs:
 - `robSource`, `lsuSource`: ROB and LSU selected-row T/U cleanup source
   candidates.
 - `tuRetire*`: future T/U relation-cmap retire/deallocation hook. The current
-  top-level reduced path ties it inactive.
+  top-level reduced path ties it inactive until `TULinkRelationCmap` is wired
+  to the ROB deallocation retire-source vector.
 
 Outputs:
 
@@ -111,7 +112,7 @@ destination physical tag comes from the accepted T/U destination allocation.
 ## Deferred Owners
 
 - Width-wide scalar plus T/U rename.
-- T/U relation-cmap retire/deallocation producer for `tuRetire*`.
+- Live wiring from `TULinkRelationCmap` to `tuRetire*`.
 - Old T/U physical tag release accounting for destination overwrite.
 - Ready-table initialization and wakeup ownership for T/U sources.
 - Commit-trace representation of non-GPR destination ownership.

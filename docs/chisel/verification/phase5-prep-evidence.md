@@ -4149,3 +4149,96 @@ Skill evolve:
   rename composition invariant: hide T/U operands from the scalar GPR bridge,
   gate scalar accept with T/U readiness, fire T/U rename only on the accepted
   scalar row, and overlay accepted T/U tags and sidecars after scalar rename.
+
+## 2026-06-29 Relation-Cmap Retire Source Infrastructure
+
+Scope:
+
+- Added shared `TULinkRetireSource` and `TULinkRetireCommand` bundles.
+- Added `TULinkRelationCmap` as the first SPEROB relation-cmap retire/release
+  command producer for scalar T/U local registers.
+- Extended `ROBEntryBank` with native `gid`, `isLast`, and a
+  `deallocTURetireSource` vector for every deallocated slot.
+- Forwarded the retire-source vector through `DispatchROBAllocator` and
+  `DecodeRenameROBPath` as observation/source infrastructure.
+- Kept `ScalarTURenameBridge.tuRetire*` inactive in the reduced path; live
+  serialization from width-wide dealloc sources to the single retire port is
+  the next packet.
+
+Model evidence:
+
+- `SPEROB::dealloc()` calls `ReleaseRelative()` before freeing retired ROB
+  rows.
+- `ReleaseRelative()` calls `CheckRelativeReg()` before writing the current
+  destination relation entry.
+- `CheckRelativeReg()` drains T before U when the row is block-last or the
+  resident relation group differs by `(bid,gid)`.
+- `ReleaseFunc()` writes the current relation, calls
+  `RepLocalRetired(..., false)`, then optionally releases the oldest relation
+  on block-last or `LOGIC_UT_COUNT_4` pressure.
+- `LocalRegMgr::ReportRetired(seq, false)` marks mapQ rows retired, while
+  `ReportRetired(seq, true)` requires the dealloc head and frees that row.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
+bash tools/chisel/run_chisel_tests.sh --only TULinkRelationCmap
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git diff --check
+```
+
+Expected result:
+
+- `TULinkRelationCmap` serializes mark-before-release, T-before-U pre-release,
+  pressure release after the fifth same-kind relation, and block-last current
+  destination mark then release.
+- ROB deallocation exposes a vector of retire sources instead of a single
+  collapsed command, preserving all width-wide dealloc rows for the later
+  serializer.
+- Native `bid/gid/rid`, `isLast`, `stid`, `tSeq/uSeq`, and T/U destination
+  ownership remain row-owned sidecars, not reconstructed from commit-trace
+  fields.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `InterfaceBundlesSpec` passed 8 tests.
+- `TULinkRelationCmapSpec` passed 4 tests.
+- `ROBEntryBankSpec` passed 11 tests.
+- A parallel attempt to run `ROBEntryBank` and `DispatchROBAllocator` tests hit
+  the known SBT client socket race; the allocator suite passed when rerun
+  sequentially.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `DecodeRenameROBPathSpec` passed 7 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `git diff --check` passed.
+- `quick_validate.py` passed for `linx-core`.
+- `check_skill_change_scope.py` passed with `changed=3, removed=0`; only
+  `linx-core/SKILL.md` is part of this packet while pre-existing dirty
+  `linx-model/SKILL.md` and `linx-superproject/SKILL.md` edits were left
+  untouched.
+- `install_canonical_skills.sh` synced canonical Linx skills into
+  `/Users/zhoubot/.codex/skills`.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R63 adds a reusable
+  relation-cmap retire-source invariant: keep ROB deallocation metadata as a
+  width-wide vector until a serializer can consume every row; preserve native
+  `bid/gid/rid`, `isLast`, local sequence, and mark-vs-dealloc semantics
+  before driving `TULinkRename.retire*`.

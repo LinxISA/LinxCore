@@ -27,8 +27,9 @@ BROB metadata, and drives the ROB row's native `allocBid` sidecar from the same
 allocation event.
 
 It also forwards the allocation-time T/U cleanup source sidecars into
-`ROBEntryBank`: `stid`, row-owned `tSeq/uSeq`, and the T/U destination class.
-This keeps ROB source publication in the row owner while
+`ROBEntryBank`: native `gid`, `stid`, row-owned `tSeq/uSeq`, the T/U
+destination class, and `isLast`. This keeps ROB source and retire-source
+publication in the row owner while
 `ScalarTURenameBridge` supplies the live T/U rename snapshots in the reduced
 decode/rename/ROB path.
 
@@ -48,10 +49,12 @@ dispatch agents consume a real block owner.
 | output | `allocBlockedByRob` | `Bool` | diagnostic | BROB is ready but the ROB bank rejects the row |
 | output | `allocDuplicateIdentity` | `Bool` | diagnostic | ROB duplicate `(bid,gid,rid)` rejection |
 | input | `allocRow` | `CommitTraceRow` | with `allocValid` | ROB row payload; block BID sideband is overwritten by the generated BID |
+| input | `allocGid` | `ROBID(entries)` | with `allocValid` | Native group ID sidecar forwarded to `ROBEntryBank` for relation-cmap grouping |
 | input | `allocTid` | `UInt` | with `allocValid` | BROB thread/STID metadata |
 | input | `allocStid` | `UInt` | with `allocValid` | ROB T/U cleanup source STID sidecar |
 | input | `allocTSeq` / `allocUSeq` | `ROBID(mapQDepth)` | with `allocValid` | ROB row T/U cleanup source sequence sidecars |
 | input | `allocTUDstValid` / `allocTUDstKind` | mixed | with `allocValid` | ROB row T/U destination ownership sidecar |
+| input | `allocIsLast` | `Bool` | with `allocValid` | Native block-last sidecar forwarded to relation-cmap retire-source publication |
 | input | `allocPeId` | `UInt` | with `allocValid` | BROB PE owner metadata |
 | input | `allocBlockType` | `UInt` | with `allocValid` | Reduced block type metadata |
 | input | `allocNeedsEngine` | `Bool` | with `allocValid` | BROB completion predicate metadata |
@@ -63,6 +66,7 @@ dispatch agents consume a real block owner.
 | output | `blockQuery*`, `block*Mask` | mixed | diagnostic | BROB query and occupancy/completion masks |
 | output | `commit*`, `dealloc*`, `flush*`, `size`, `outstandingCount`, `*Mask` | mixed | diagnostic | `ROBEntryBank` commit, recovery, and lifecycle outputs |
 | output | `robTULinkSource*` | mixed | diagnostic/source | ROB row candidate for `TULinkFlushSourceSelector.robSource` |
+| output | `deallocTURetireSource` | `Vec(commitWidth, TULinkRetireSource)` | diagnostic/source | ROB deallocation-row source vector for `TULinkRelationCmap` |
 
 ## State
 
@@ -95,7 +99,10 @@ from its allocation pointer.
 The T/U cleanup source sidecars are forwarded unmodified to `ROBEntryBank`.
 `DecodeRenameROBPath` drives these fields from `ScalarTURenameBridge`, using
 the `SPERename`-equivalent `tSeq/uSeq` snapshot captured before T/U
-destination rename plus the accepted T/U destination ownership sidecar.
+destination rename plus the accepted T/U destination ownership sidecar. It also
+drives `allocGid` and `allocIsLast` from the queued decoded row's native
+group/block-end metadata so ROB deallocation can publish relation-cmap retire
+sources without depending on commit-trace identity fields.
 
 `CommitTraceRow.identity` is not synthesized here. It remains the model commit
 trace and duplicate-detection identity supplied by the eventual decode/dispatch
@@ -110,8 +117,10 @@ the same clock edge as the accepted BROB and ROB allocation.
 ## Flush/Recovery
 
 ROB row flushes are forwarded to `ROBEntryBank`; the resulting
-`robTULinkSource*` outputs are diagnostic/source outputs for the future
-selector composition. BROB flush remains an explicit full-BID input
+`robTULinkSource*` outputs feed the live T/U cleanup selector composition.
+`deallocTURetireSource` is forwarded from `ROBEntryBank` but is not yet wired
+into the live rename retire port; `TULinkRelationCmap` owns that next
+serialization step. BROB flush remains an explicit full-BID input
 (`blockFlushValid/blockFlushBid`) because the current Chisel recovery bus
 still uses ring `ROBID` metadata while the hardware block contract uses full
 64-bit BIDs. `FullBidRecoveryBridge` now owns the shared conversion used by
@@ -142,4 +151,5 @@ adapter's responsibility.
 Focused tests cover atomic BROB/ROB allocation, BID cursor wrap through
 uniqueness bits, blocked-allocation hold behavior for BROB fullness and ROB
 duplicate identity, ROB T/U source IO elaboration through the composed module,
-and Chisel elaboration of the composed module.
+ROB deallocation retire-source IO elaboration through the composed module, and
+Chisel elaboration of the composed module.

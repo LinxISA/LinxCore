@@ -36,13 +36,17 @@ queue acceptance boundary, enqueues the decoded row into a registered
 the queue head is presented to rename, and leaves enqueue-time ROB
 reservation, full SID/LID carry, STA/STD execution, width-wide
 rename, T/U relation-cmap retire/release, and full top-level fetch/commit
-flow to later owners. It now owns the queue-backed store-dispatch to STQ
+  flow to later owners. It now owns the queue-backed store-dispatch to STQ
 row-owner boundary through `StoreDispatchSTQPath`; STA address generation and
 STD data selection remain explicit inputs until the real execution owners
 exist. It also composes live T/U rename and recovery cleanup so the allocator's
 ROB-side source candidate and the live STQ-bank LSU source candidate are
 selected, cross-checked, and published by the same state owner that produces
 `tSeq/uSeq` and T/U destination sidecars.
+R63 additionally forwards the ROB deallocation-row T/U retire-source vector
+from `DispatchROBAllocator`, making the input side of the SPEROB
+relation-cmap release owner visible before the live retire-command serializer
+is connected to `ScalarTURenameBridge.tuRetire*`.
 
 ## Interface
 
@@ -105,8 +109,9 @@ Outputs:
   `tSeq/uSeq`, destination ownership, pressure, and source-underflow
   observability.
 - `allocBlockBid`, `allocRobValue`, `commit*`, `dealloc*`, `flushApplied`,
-  `robTULinkSource*`, `size`, `outstandingCount`, and occupancy masks:
-  `DispatchROBAllocator` and `ROBEntryBank` lifecycle observability.
+  `robTULinkSource*`, `robDeallocTURetireSource`, `size`,
+  `outstandingCount`, and occupancy masks: `DispatchROBAllocator` and
+  `ROBEntryBank` lifecycle observability.
 - `tuCleanupPublisherFlush*`, `tuCleanupSelectedFlushSource`,
   `tuCleanup*Source*`, `tuCleanupSourceConflict`,
   `tuCleanupSelectedFrom*`, and `tuCleanupFlush*PrevApplied`:
@@ -182,6 +187,11 @@ still comes from the queued decoded row's thread ID in the reduced path, while
 `allocTSeq`, `allocUSeq`, and T/U destination ownership now come from
 `ScalarTURenameBridge`. This gives the ROB row the same sequence snapshot that
 the store-dispatch payload carries.
+R63 also drives `allocGid` from the queued row's native `gid` and
+`allocIsLast` from `eob`, then forwards the allocator's
+`deallocTURetireSource` vector to module IO. The reduced path still ties
+`ScalarTURenameBridge.tuRetire*` inactive; the vector is the source side for
+the next serializer/integration packet, not yet a live rename mutation.
 
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
 IO and feeds the same source into `ScalarTURenameBridge.robSource`. The bridge
@@ -246,8 +256,8 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - Full `load_id`/`sid` payload carry into LIQ/STQ owners.
 - Real STA/STD execution owners that drive `storeStaExec` and `storeStdExec`.
 - Automatic checkpoint capture from validated `isLastInBlock`.
-- T/U relation-cmap retire/deallocation producer for the live `tuRetire*`
-  bridge inputs.
+- Live connection from ROB deallocation retire-source vector through
+  `TULinkRelationCmap` into `ScalarTURenameBridge.tuRetire*`.
 - SGPR/tile/vector operand classification and rename.
 - Old T/U physical tag release accounting for destination overwrite.
 - SCB/MDB integration, committed-store memory drain, and load-conflict

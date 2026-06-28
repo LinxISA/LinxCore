@@ -65,6 +65,8 @@ model `CommitInfo.bid` field.
 | `RobRow` | Integrated ROB row skeleton | valid/done, decoded identity, renamed operands, memory flags, boundary and trap fields |
 | `LinxTraceProbe` | Lightweight stage/row visibility | `pc`, `opcode`, `uid`, `rid/bid/gid`, `blockBid` |
 | `TULinkFlushSequenceSource` | Shared ROB/LSU source snapshot for T/U recovery cleanup | `valid`, `bid/rid/stid`, `tSeq/uSeq`, `dstValid/dstKind` |
+| `TULinkRetireSource` | ROB deallocation-row source for SPEROB relation-cmap retire/release | `valid`, `isLast`, `bid/gid/rid/stid`, `tSeq/uSeq`, `dstValid/dstKind` |
+| `TULinkRetireCommand` | Serialized command for `TULinkRename.retire*` | `valid`, `kind`, `seq`, `dealloc` |
 
 ## Logic Design
 
@@ -92,6 +94,10 @@ The bundle shape follows these rules:
   LSU recovery owners feed `TULinkFlushSourceSelector`; the ROB identity
   domain (`bid/rid`) and local mapQ sequence domain (`tSeq/uSeq`) may use
   different depths and must not be collapsed into one field width.
+- keep T/U retire sources and commands as common bundles because ROB row
+  deallocation, relation-cmap policy, and T/U local-register rename must agree
+  on native `bid/gid/rid`, `isLast`, local sequence, and mark-vs-dealloc
+  semantics without routing through commit-trace identity fields.
 
 ## Timing
 
@@ -125,5 +131,5 @@ rows and `tools/chisel/trace_schema_adapter.py`.
 
 The focused test checks default widths, constant encodings, boundary enum
 ordering, 4-bit instruction length fields, decoded/renamed/LSU/ROB/trace packet
-field widths, T/U flush source ROB-vs-local sequence widths, and Chisel
-elaboration through a probe module.
+field widths, T/U flush source and retire source ROB-vs-local sequence widths,
+serialized retire-command width, and Chisel elaboration through a probe module.
