@@ -8,6 +8,7 @@ Scope:
 - Added `ROBID` and `CommitIdentity` sources.
 - Added `CommitTraceRow`, memory/trap envelopes, commit-window valid mask, and
   commit schema tests.
+- Added `ReducedCommitROB` as the first reduced head-ordered commit harness.
 - Added initial `FlushControl` request, bus, classification, need-flush, and
   older-signal arbitration sources.
 - Added initial `BID` helpers and `BROB` metadata tracker sources.
@@ -23,7 +24,9 @@ Evidence:
 
 ```bash
 bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
 bash tools/chisel/run_chisel_tests.sh --only CommitTrace
+bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
 bash tools/chisel/run_chisel_verilator_lint.sh
@@ -50,8 +53,12 @@ Observed result:
   `ROBIDSpec`.
 - `bash tools/chisel/run_chisel_tests.sh --only CommitTrace` passed 5 tests in
   `CommitTraceSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB` passed 5
+  tests in `ReducedCommitROBSpec`.
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` passed the
   Python semantic check and the Scala ROBID test.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed
+  ROBID, CommitTrace, and ReducedCommitROB targeted tests.
 - `bash tools/chisel/emit_verilog.sh` emitted
   `generated/chisel-verilog/LinxCoreTop.sv`.
 - `verilator --lint-only generated/chisel-verilog/LinxCoreTop.sv` passed.
@@ -77,3 +84,6 @@ Skill evolve:
   agents must preserve `CommitInfo` 32-bit identity separately from the 64-bit
   hardware `block_bid` sideband and must filter invalid fixed-width slots before
   QEMU comparison.
+- `skill-evolve: update linx-core` for the reduced ROB gate because Phase 0B
+  now has a standard head-ordered commit harness gate instead of only the
+  ROBID-only bookkeeping check.
