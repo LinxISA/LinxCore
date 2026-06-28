@@ -37,6 +37,8 @@ R68 adds the next model boundary after that clean: a backpressurable
 `localBlockCommit*` event that represents `SPEROB::ReportLocalRegBlockCommit`
 and can later be consumed by the SGPR local-register owner. The current module
 does not mutate SGPR state.
+R69 connects that ready input to the reduced scalar/T/U rename composition, so
+this module keeps the event pending until the local-register owner accepts it.
 
 ## Interface
 
@@ -58,7 +60,8 @@ Inputs:
   drives this from `ScalarTURenameBridge.tuRetireAccepted`, not from predicted
   readiness.
 - `localBlockCommitReady`: downstream acceptance for the scalar local-register
-  block-commit event that follows the auto `CleanCMAP` pulse.
+  block-commit event that follows the auto `CleanCMAP` pulse. In the reduced
+  backend this now comes from `ScalarTURenameBridge.tuLocalBlockCommitReady`.
 
 Outputs:
 
@@ -80,8 +83,8 @@ Outputs:
 - `localBlockCommitPending`, `localBlockCommitValid`,
   `localBlockCommitBid`, `localBlockCommitFire`: one-shot event boundary for
   the model `ReportLocalRegBlockCommit(bid, stid)` call. The reduced backend
-  ties ready high and observes the event; a later SGPR owner must consume it
-  before it mutates local-register block-commit state.
+  feeds this event to the live T/U local-register owner through
+  `ScalarTURenameBridge`.
 
 ## State
 
@@ -178,7 +181,8 @@ ordering point, and the local mapQ mutation remains in `TULinkRename`.
 - External live block/group commit event wiring for non-scalar
   `cleanBlock*` and `cleanGroup*`; scalar block-last auto clean is now local.
 - SGPR local-register block-commit owner that consumes
-  `localBlockCommit*` and mutates scalar local-register state.
+- Multi-PE/multi-STID SGPR local-register fanout beyond the reduced single
+  live T/U bank that now consumes `localBlockCommit*`.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - Less conservative source FIFO credit that can accept partial windows with an

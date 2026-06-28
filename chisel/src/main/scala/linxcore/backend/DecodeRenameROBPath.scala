@@ -226,8 +226,10 @@ class DecodeRenameROBPathIO(
   val tuRetireAutoCleanBlockBid = Output(new ROBID(p.robEntries))
   val tuRetireLocalBlockCommitPending = Output(Bool())
   val tuRetireLocalBlockCommitValid = Output(Bool())
+  val tuRetireLocalBlockCommitReady = Output(Bool())
   val tuRetireLocalBlockCommitBid = Output(new ROBID(p.robEntries))
   val tuRetireLocalBlockCommitFire = Output(Bool())
+  val tuRetireLocalBlockCommitAccepted = Output(Bool())
   val tuRetireUnsupportedDst = Output(Bool())
   val tuRetireRelationPreReleaseT = Output(Bool())
   val tuRetireRelationPreReleaseU = Output(Bool())
@@ -523,11 +525,13 @@ class DecodeRenameROBPath(
   tuRetirePath.io.cleanGroupBid := zeroRobId
   tuRetirePath.io.cleanGroupGid := zeroRobId
   tuRetirePath.io.commandReady := rename.io.tuRetireAccepted
-  tuRetirePath.io.localBlockCommitReady := true.B
+  tuRetirePath.io.localBlockCommitReady := rename.io.tuLocalBlockCommitReady
   rename.io.tuRetireValid := tuRetirePath.io.command.valid
   rename.io.tuRetireKind := tuRetirePath.io.command.kind
   rename.io.tuRetireSeq := tuRetirePath.io.command.seq
   rename.io.tuRetireDealloc := tuRetirePath.io.command.dealloc
+  rename.io.tuLocalBlockCommitValid := tuRetirePath.io.localBlockCommitValid
+  rename.io.tuLocalBlockCommitBid := tuRetirePath.io.localBlockCommitBid
 
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
@@ -684,8 +688,10 @@ class DecodeRenameROBPath(
   io.tuRetireAutoCleanBlockBid := tuRetirePath.io.autoCleanBlockBid
   io.tuRetireLocalBlockCommitPending := tuRetirePath.io.localBlockCommitPending
   io.tuRetireLocalBlockCommitValid := tuRetirePath.io.localBlockCommitValid
+  io.tuRetireLocalBlockCommitReady := rename.io.tuLocalBlockCommitReady
   io.tuRetireLocalBlockCommitBid := tuRetirePath.io.localBlockCommitBid
   io.tuRetireLocalBlockCommitFire := tuRetirePath.io.localBlockCommitFire
+  io.tuRetireLocalBlockCommitAccepted := rename.io.tuLocalBlockCommitAccepted
   io.tuRetireUnsupportedDst := tuRetirePath.io.unsupportedDst
   io.tuRetireRelationPreReleaseT := tuRetirePath.io.preReleaseT
   io.tuRetireRelationPreReleaseU := tuRetirePath.io.preReleaseU

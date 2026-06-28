@@ -26,6 +26,9 @@ The module exists so later backend owners can consume model-equivalent
 `SPERename::Rename()` sidecars without broadening the scalar GPR bridge. It
 also makes cleanup diagnostics and live T/U rename state come from one owner,
 rather than a separate diagnostic-only cleanup path.
+R69 wires the scalar local block-commit event from the retire path into the
+T/U cleanup composition, so the reduced path now consumes
+`SPERename::ReportSGPRBlockCommit` through the same live local-register owner.
 
 ## Interface
 
@@ -40,6 +43,8 @@ Inputs:
   candidates.
 - `tuRetireValid/Kind/Seq/Dealloc`: live T/U relation-cmap
   mark/deallocation command from `TULinkRetireCommandPath`.
+- `tuLocalBlockCommitValid/tuLocalBlockCommitBid`: post-clean scalar local
+  block-commit event from `TULinkRetireCommandPath`.
 
 Outputs:
 
@@ -56,6 +61,9 @@ Outputs:
   snapshots.
 - `tuRetireAccepted`, `tuRetireMiss`, `tuRetireReleaseMismatch`,
   `tuRetireUnsupported`: actual retire-command outcome from `TULinkRename`.
+- `tuLocalBlockCommitReady`, `tuLocalBlockCommitAccepted`: downstream
+  handshake for the local block-commit event consumed by the T/U cleanup
+  composition.
 - `tuCleanup*`: forwarded source-selection and flush-publisher diagnostics
   from `TULinkRecoveryCleanupPath`.
 
@@ -102,6 +110,12 @@ Retire commands also stay inside `TULinkRecoveryCleanupPath` and
 serializer can advance on actual mark/release acceptance after flush and
 commit priority have been applied.
 
+Local block commit also stays inside the T/U cleanup path. The bridge forwards
+`tuLocalBlockCommit*` into `TULinkRecoveryCleanupPath` and exposes its
+ready/accepted handshake. This lets `TULinkRetireCommandPath` keep the R68
+event pending while recovery flush or an external commit occupies the local
+maintenance slot.
+
 ## Model Alignment
 
 `SPERename::Rename()` performs the relevant order:
@@ -115,6 +129,10 @@ commit priority have been applied.
 `ScalarTURenameBridge` matches that order for the reduced one-uop Chisel path.
 The T/U sequence outputs are captured before allocation, while the overlaid
 destination physical tag comes from the accepted T/U destination allocation.
+For block commit, the model calls `SPERename::ReportSGPRBlockCommit` after
+scalar `CleanCMAP`; the R69 bridge forwards that event to the composed
+`TULinkRecoveryCleanupPath`, which applies `LocalRegMgr::ReportBlockCommit`
+through `TULinkRename.commit*`.
 
 ## Deferred Owners
 
@@ -122,8 +140,9 @@ destination physical tag comes from the accepted T/U destination allocation.
 - Old T/U physical tag release accounting for destination overwrite.
 - Ready-table initialization and wakeup ownership for T/U sources.
 - Commit-trace representation of non-GPR destination ownership.
-- SGPR, tile, vector, and `CArg` operand classification beyond the current
-  P/T/U subset.
+- Multi-PE/multi-STID SGPR fanout beyond the reduced single live bank.
+- Tile, vector, and `CArg` operand classification beyond the current P/T/U
+  subset.
 
 ## Verification
 
@@ -144,5 +163,6 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 ```
 
 The current tests cover the atomic scalar/T/U accept reference rule, scalar
-input sanitization for T/U operands, IO shape, and elaboration through
-`ScalarDecodeRenameBridge`, `TULinkRecoveryCleanupPath`, and `TULinkRename`.
+input sanitization for T/U operands, local block-commit maintenance
+backpressure, IO shape, and elaboration through `ScalarDecodeRenameBridge`,
+`TULinkRecoveryCleanupPath`, and `TULinkRename`.

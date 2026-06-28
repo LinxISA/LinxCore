@@ -4648,3 +4648,92 @@ Skill evolve:
   must block later ROB deallocation-source admission until accepted, and must
   not be folded into T/U rename commit hooks or SGPR mutation inside
   `TULinkRetireCommandPath`.
+
+## R69 Scalar Local Block Commit Consumer
+
+Scope:
+
+- Wired the R68 scalar local block-commit event into the live reduced T/U
+  local-register owner.
+- Added a `tuLocalBlockCommit*` handshake through `ScalarTURenameBridge` and
+  `TULinkRecoveryCleanupPath`.
+- Kept the event behind external commit and recovery-flush maintenance
+  priority so `TULinkRetireCommandPath` holds the post-clean event pending
+  until the local-register owner accepts it.
+- Preserved the reduced scope: one live T/U bank consumes the event now;
+  multi-PE, multi-STID, and full SGPR hand fanout remain deferred.
+
+Model evidence:
+
+- `SPEROB::CommitBlock()` calls `CleanCMAP(bid)` before
+  `ReportLocalRegBlockCommit(bid, stid)`.
+- `SPEROB::ReportLocalRegBlockCommit()` calls
+  `SPERename::ReportSGPRBlockCommit()`.
+- `SPERename::ReportSGPRBlockCommit()` fans the event to SGPR local-register
+  managers selected by `stid`.
+- `LocalRegMgr::ReportBlockCommit()` releases consecutive retired local-reg
+  rows at the deallocation head while their BID matches the committed block.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only TULinkRelationCmap
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git diff --check
+```
+
+Expected result:
+
+- The post-clean local block-commit event remains ordered after scalar
+  `CleanCMAP`.
+- The event is backpressured while an external commit or recovery flush uses
+  the T/U local-register maintenance slot.
+- On acceptance, the reduced T/U owner applies model-equivalent
+  `ReportBlockCommit` release semantics for retired head rows with the
+  committed BID.
+- Relation-cmap clean scheduling and ROB block-last deallocation behavior
+  remain unchanged.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `TULinkRecoveryCleanupPathSpec` passed 11 tests, including local
+  block-commit release and backpressure cases.
+- `ScalarTURenameBridgeSpec` passed 5 tests, including the local
+  block-commit maintenance backpressure reference rule.
+- `DecodeRenameROBPathSpec` passed 7 tests with ready and accepted diagnostics
+  exposed at the reduced backend boundary.
+- `TULinkRetireCommandPathSpec` passed 7 tests.
+- `TULinkRenameSpec` passed 10 tests, including the retired-head block-commit
+  release rule.
+- `TULinkRelationCmapSpec` passed 7 tests.
+- `ROBEntryBankSpec` passed 12 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `git diff --check` passed.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R69 adds a reusable ownership
+  invariant: the post-clean `ReportLocalRegBlockCommit` event is consumed by
+  the live local-register owner, not by the relation-cmap scheduler or scalar
+  GPR commit path, and its ready signal must reflect local-register
+  maintenance priority.

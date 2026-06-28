@@ -27,6 +27,10 @@ T/U cleanup source selection, T/U flush sequence publishing, and the T/U
 local-register rename owner. It consumes a registered `RecoveryCleanupIntent`
 plus explicit ROB and LSU row candidates, selects the row snapshot, and drives
 the local `TULinkRename` flush command fields.
+R69 also makes this wrapper the consumer for the scalar
+`ReportLocalRegBlockCommit` boundary: it accepts a post-`CleanCMAP`
+`localBlockCommit*` event and turns the accepted event into the local-register
+block-commit release command.
 
 ```text
 RecoveryCleanupIntent + ROB row candidate + LSU row candidate
@@ -43,6 +47,8 @@ Inputs:
 - `retireValid`, `retireKind`, `retireSeq`, `retireDealloc`: local retire or
   direct deallocation command.
 - `commitValid`, `commitBid`: block-commit release command.
+- `localBlockCommitValid`, `localBlockCommitBid`: post-scalar-`CleanCMAP`
+  local block-commit event from `TULinkRetireCommandPath`.
 - `cleanup`: registered recovery intent from `RecoveryCleanupControl`.
 - `robSource`: ROB row candidate with `(bid, rid, stid, tSeq, uSeq, dstValid,
   dstKind)`.
@@ -55,6 +61,8 @@ Outputs:
   destination resolution, T/U allocation and deallocation sequences, mapQ
   masks, retired/released/flushed masks, pressure counts, and retire/commit
   diagnostics.
+- `localBlockCommitReady`, `localBlockCommitAccepted`: consumer handshake for
+  the post-clean local block-commit event.
 - Publisher command observability: `publisherFlushValid`,
   `publisherFlushBaseOnBid`, `publisherFlushBid`, `publisherFlushRid`,
   `publisherFlushTSeq`, and `publisherFlushUSeq`.
@@ -111,6 +119,14 @@ Base-on-BID cleanup does not require a selected-row source. The publisher emits
 a valid command with zero local sequences when no source is present, and
 `TULinkRename` prunes by BID instead of local sequence.
 
+Local block commit is a separate input from external `commitValid`. The wrapper
+reports ready only when no external commit is active, recovery is not blocked
+by missing source evidence, and the publisher is not applying a recovery flush.
+On an accepted local block commit, `TULinkRename.commitValid/commitBid` receive
+the local event BID for one cycle. External `commitValid` has priority when it
+is present, so the R68 event remains pending upstream instead of racing two
+block-commit commands through one local-register owner.
+
 ## Model Alignment
 
 The model has two pieces that must stay composed:
@@ -118,6 +134,8 @@ The model has two pieces that must stay composed:
 - `SPERename::Flush` forwards backend cleanup to scalar local-register owners.
 - `LocalRegMgr::flush` consumes `FlushReq.tSeq/uSeq` for non-base local
   pruning.
+- `SPERename::ReportSGPRBlockCommit` calls `LocalRegMgr::ReportBlockCommit`
+  for each SGPR hand selected by the committed STID.
 
 The selected-row sequence source comes from ROB/LSU recovery builders:
 
@@ -135,6 +153,10 @@ This proves the ROB/LSU source-selection diagnostics against a real STQ row
 owner. `ScalarTURenameBridge` now composes this path with scalar rename, so
 the publisher output mutates the live T/U rename owner instead of existing
 only as diagnostics.
+For R69, the reduced composition implements the same SGPR block-commit release
+semantics for the single live T/U bank by routing the accepted local
+block-commit event into `TULinkRename.commit*`. Full PE fanout and multi-STID
+bank replication remain deferred.
 
 ## Timing
 
@@ -146,7 +168,10 @@ cycle as the registered cleanup intent.
 ## Flush/Recovery
 
 Flush priority remains inside `TULinkRename`: flush wins over commit, retire,
-and rename. The wrapper only adds a guard for invalid non-base source evidence.
+and rename. The wrapper adds two guards: invalid non-base source evidence
+blocks local T/U mutation, and an active publisher flush backpressures the
+local block-commit event until the flush command has used the maintenance
+slot.
 
 Recovery diagnostics are intentionally surfaced as outputs. A later live path
 should monitor selector conflict/missing diagnostics together with
@@ -157,8 +182,8 @@ rather than ignoring them.
 
 - Relation-cmap release policy around T/U retire/dealloc.
 - T/U ready-table initialization and wakeup state.
-- Multi-PE and multi-thread T/U bank replication beyond the current STID0
-  composition.
+- Multi-PE and multi-thread T/U bank replication/fanout beyond the current
+  reduced single-bank composition.
 
 ## Verification
 
@@ -183,5 +208,6 @@ bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
 The current tests cover ROB-source cleanup, LSU-source fallback, T- and
 U-destination previous-sequence adjustment through the composition reference,
 base-on-BID source-free cleanup, missing/mismatched source blocking, duplicate
-source conflict blocking, inactive cleanup behavior, IO widths, and elaboration
-with selector, publisher, and rename child owners.
+source conflict blocking, inactive cleanup behavior, local block-commit
+release/backpressure, IO widths, and elaboration with selector, publisher, and
+rename child owners.

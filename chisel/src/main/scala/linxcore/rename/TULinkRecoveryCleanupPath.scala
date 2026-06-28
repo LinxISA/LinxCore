@@ -29,6 +29,8 @@ class TULinkRecoveryCleanupPathIO(
   val retireDealloc = Input(Bool())
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(p.robEntries))
+  val localBlockCommitValid = Input(Bool())
+  val localBlockCommitBid = Input(new ROBID(p.robEntries))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
   val robSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
   val lsuSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
@@ -54,6 +56,8 @@ class TULinkRecoveryCleanupPathIO(
   val retireReleaseMismatch = Output(Bool())
   val retireUnsupported = Output(Bool())
   val commitAccepted = Output(Bool())
+  val localBlockCommitReady = Output(Bool())
+  val localBlockCommitAccepted = Output(Bool())
   val flushApplied = Output(Bool())
 
   val tAllocPhysTag = Output(UInt(p.physRegWidth.W))
@@ -147,6 +151,8 @@ class TULinkRecoveryCleanupPath(
 
   val cleanupActive = io.cleanup.valid && io.cleanup.backendFlushValid
   val cleanupBlockedBySource = cleanupActive && !publisher.io.flushValid
+  val localBlockCommitReady = !io.commitValid && !cleanupBlockedBySource && !publisher.io.flushValid
+  val localBlockCommitFire = io.localBlockCommitValid && localBlockCommitReady
 
   rename.io.in := io.in
   rename.io.renameValid := io.renameValid && !cleanupBlockedBySource
@@ -154,8 +160,8 @@ class TULinkRecoveryCleanupPath(
   rename.io.retireKind := io.retireKind
   rename.io.retireSeq := io.retireSeq
   rename.io.retireDealloc := io.retireDealloc
-  rename.io.commitValid := io.commitValid && !cleanupBlockedBySource
-  rename.io.commitBid := io.commitBid
+  rename.io.commitValid := (io.commitValid || localBlockCommitFire) && !cleanupBlockedBySource
+  rename.io.commitBid := Mux(io.commitValid, io.commitBid, io.localBlockCommitBid)
   rename.io.flushValid := publisher.io.flushValid
   rename.io.flushBaseOnBid := publisher.io.flushBaseOnBid
   rename.io.flushBid := publisher.io.flushBid
@@ -182,6 +188,8 @@ class TULinkRecoveryCleanupPath(
   io.retireReleaseMismatch := rename.io.retireReleaseMismatch
   io.retireUnsupported := rename.io.retireUnsupported
   io.commitAccepted := rename.io.commitAccepted
+  io.localBlockCommitReady := localBlockCommitReady
+  io.localBlockCommitAccepted := localBlockCommitFire
   io.flushApplied := rename.io.flushApplied
   io.tAllocPhysTag := rename.io.tAllocPhysTag
   io.uAllocPhysTag := rename.io.uAllocPhysTag

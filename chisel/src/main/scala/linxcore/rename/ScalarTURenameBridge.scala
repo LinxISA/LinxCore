@@ -46,6 +46,10 @@ class ScalarTURenameBridgeIO(
   val tuRetireMiss = Output(Bool())
   val tuRetireReleaseMismatch = Output(Bool())
   val tuRetireUnsupported = Output(Bool())
+  val tuLocalBlockCommitValid = Input(Bool())
+  val tuLocalBlockCommitBid = Input(new ROBID(p.robEntries))
+  val tuLocalBlockCommitReady = Output(Bool())
+  val tuLocalBlockCommitAccepted = Output(Bool())
 
   val inReady = Output(Bool())
   val accepted = Output(Bool())
@@ -229,6 +233,8 @@ class ScalarTURenameBridge(
   tu.io.retireDealloc := io.tuRetireDealloc
   tu.io.commitValid := io.commitValid
   tu.io.commitBid := io.commitBid
+  tu.io.localBlockCommitValid := io.tuLocalBlockCommitValid
+  tu.io.localBlockCommitBid := io.tuLocalBlockCommitBid
   tu.io.cleanup := io.cleanup
   tu.io.robSource := io.robSource
   tu.io.lsuSource := io.lsuSource
@@ -276,6 +282,8 @@ class ScalarTURenameBridge(
   io.tuRetireMiss := tu.io.retireMiss
   io.tuRetireReleaseMismatch := tu.io.retireReleaseMismatch
   io.tuRetireUnsupported := tu.io.retireUnsupported
+  io.tuLocalBlockCommitReady := tu.io.localBlockCommitReady
+  io.tuLocalBlockCommitAccepted := tu.io.localBlockCommitAccepted
   io.tuSrc := tu.io.src
   io.tuDst := tu.io.dst
   io.tuTSeq := tu.io.tSeq

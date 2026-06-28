@@ -20,6 +20,9 @@ object ScalarTURenameBridgeReference {
 
   def preservesTUSource(operandClass: String): Boolean =
     operandClass == "T" || operandClass == "U"
+
+  def localBlockCommitReady(externalCommitValid: Boolean, recoveryActive: Boolean): Boolean =
+    !externalCommitValid && !recoveryActive
 }
 
 class ScalarTURenameBridgeSpec extends AnyFunSuite {
@@ -42,6 +45,12 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(!preservesTUSource("CArg"))
   }
 
+  test("reference keeps local block commit behind external maintenance") {
+    assert(localBlockCommitReady(externalCommitValid = false, recoveryActive = false))
+    assert(!localBlockCommitReady(externalCommitValid = true, recoveryActive = false))
+    assert(!localBlockCommitReady(externalCommitValid = false, recoveryActive = true))
+  }
+
   test("IO exposes scalar, T/U rename, ROB allocation, and cleanup surfaces") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
@@ -57,6 +66,9 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(io.tuSourceUnderflowMask.getWidth == 3)
     assert(io.tuRetireAccepted.getWidth == 1)
     assert(io.tuRetireReleaseMismatch.getWidth == 1)
+    assert(io.tuLocalBlockCommitBid.value.getWidth == 3)
+    assert(io.tuLocalBlockCommitReady.getWidth == 1)
+    assert(io.tuLocalBlockCommitAccepted.getWidth == 1)
     assert(io.tuCleanupSelectedFlushSource.tSeq.value.getWidth == 3)
     assert(io.tuCleanupSourceConflict.getWidth == 1)
   }
@@ -77,6 +89,8 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(sv.contains("io_tuDstValid"))
     assert(sv.contains("io_tuRetireAccepted"))
     assert(sv.contains("io_tuRetireReleaseMismatch"))
+    assert(sv.contains("io_tuLocalBlockCommitReady"))
+    assert(sv.contains("io_tuLocalBlockCommitAccepted"))
     assert(sv.contains("io_tuCleanupSourceConflict"))
   }
 }

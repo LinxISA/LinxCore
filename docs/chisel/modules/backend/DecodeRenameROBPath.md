@@ -57,8 +57,9 @@ R67 lets `TULinkRetireCommandPath` consume that block-last source as a local
 scalar `CleanCMAP` scheduling point after relation-cmap mark/release commands
 for the block-last row have drained.
 R68 exposes the following `ReportLocalRegBlockCommit` event as
-`tuRetireLocalBlockCommit*`; the reduced path ties its ready input high
-because the SGPR local-register consumer is not implemented yet.
+`tuRetireLocalBlockCommit*`. R69 consumes that event through
+`ScalarTURenameBridge`/`TULinkRecoveryCleanupPath` so the reduced T/U
+local-register owner runs `ReportBlockCommit` only after the event is accepted.
 
 ## Interface
 
@@ -225,9 +226,12 @@ retire-command path now latches an accepted block-last source, blocks new ROB
 deallocation-source admission, waits until the generated mark/release command
 stream is accepted, and then pulses an internal scalar `cleanBlock` cleanup for
 that BID. The next cycle publishes a local block-commit event for the same BID
-and keeps ROB deallocation-source admission blocked until it fires. The reduced
-composition ties the event ready high and forwards the event as observability
-only; it does not yet mutate SGPR local-register block-commit state.
+and keeps ROB deallocation-source admission blocked until it fires. R69 drives
+the event ready input from `ScalarTURenameBridge.tuLocalBlockCommitReady`,
+feeds the event into the T/U cleanup composition, and exposes both the retire
+path fire and rename-side accepted diagnostics. The reduced path therefore
+mutates the single live T/U local-register bank after post-clean event
+acceptance, while full PE/STID fanout remains deferred.
 `cleanGroup*` remains inactive until a vector/MTC group-clean owner exists.
 
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
@@ -290,7 +294,9 @@ R66 adds the deallocation-window stop at block-last, and R67 schedules the
 scalar `CleanCMAP` cleanup after that block-last source's relation-cmap command
 stream has drained. R68 preserves the next model call boundary,
 `SPEROB::ReportLocalRegBlockCommit`, as a ready/valid event after the scalar
-`CleanCMAP` pulse and before any future SGPR local-register mutation.
+`CleanCMAP` pulse. R69 consumes that event through the reduced live
+T/U local-register owner, matching `SPERename::ReportSGPRBlockCommit` for the
+single implemented bank.
 Full store timing still requires real STA/STD execution, load-conflict
 publication, SCB/MDB handoff, and memory trace side effects.
 
@@ -308,8 +314,8 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - External live block/group commit clean event wiring into
   `TULinkRetireCommandPath.cleanBlock*` and `cleanGroup*`; scalar block-last
   auto clean is now owned inside `TULinkRetireCommandPath`.
-- SGPR local-register block-commit owner that consumes
-  `tuRetireLocalBlockCommit*` instead of overloading T/U rename commit hooks.
+- Multi-PE/multi-STID SGPR local-register block-commit fanout beyond the
+  current reduced single-bank consumer.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - SGPR/tile/vector operand classification and rename.
@@ -360,4 +366,5 @@ decode, `DecodeLoadStoreIdAssign`,
 `TULinkRecoveryCleanupPath`. R65 also covers retire-source and relation-cmap
 cleanup observability through the composition boundary. R66 covers the
 block-last deallocation boundary and forwarded block-clean candidate. R68
-covers local block-commit observability after auto scalar clean.
+covers local block-commit observability after auto scalar clean. R69 covers the
+consumer handshake from retire event to live T/U local-register block commit.
