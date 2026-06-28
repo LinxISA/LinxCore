@@ -117,6 +117,10 @@ that row owner: it clears matching wait-store diagnostics, merges wakeup bytes
 into eligible miss/working rows, and returns completed replay rows to `Wait`
 for the normal relaunch path while leaving L1 refill, ready-table, bypass, and
 trace ownership to later packets.
+`LoadRefillWakeup` adds the first read-refill wakeup sidecar: it matches
+refill lines against unresolved scalar LIQ rows, records local `l1Hit` plus
+full-line data, and lets later relaunch use row-owned bytes through the normal
+`LoadForwardPipeline` path.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -159,6 +163,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
 bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup
+bash tools/chisel/run_chisel_tests.sh --only LoadRefillWakeup
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

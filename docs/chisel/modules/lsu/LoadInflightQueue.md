@@ -11,6 +11,7 @@
   - `model/LinxCoreModel/model/lsu/load_unit/ldq_cluster.cpp`
   - `model/LinxCoreModel/model/core/Packet.h`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadRefillWakeup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayWakeup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadForwardPipeline.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`
@@ -25,11 +26,14 @@ launches selected WAIT rows through `LoadForwardPipeline`, applies E4
 hit/miss/replay outcomes back to the row image, and publishes an LHQ-style
 resolved-load record when E4 can wake and return the load. It also consumes
 `LoadReplayWakeup` masks to clear store-unit wait-store blockers and to merge
-store-unit/SCB replay bytes into resident rows.
+store-unit/SCB replay bytes into resident rows. It consumes
+`LoadRefillWakeup` masks to return refilled miss rows to `Wait` with a local
+`l1Hit` sideband and row-owned cacheline data.
 
 This packet turns the standalone forwarding pipeline into reusable row state
-without taking ownership of full LDQ/LIQ recovery, L1 refill, ready-table
-update, issue wakeup fanout, L2/CHI response queues, or memory-event trace.
+without taking ownership of full LDQ/LIQ recovery, miss-queue ownership,
+ready-table update, issue wakeup fanout, L2/CHI response queues, or
+memory-event trace.
 
 ## Interface
 
@@ -82,6 +86,20 @@ Store-unit wakeups can clear wait-store diagnostics and can merge data into
 non-`Repick` rows on the same line. Completed rows return to `Wait` and relaunch
 through `LoadForwardPipeline`; they do not publish an LHQ record directly.
 
+### Refill Wakeup
+
+| Signal | Description |
+|---|---|
+| `refillValid` | Qualifies one L1 read-refill packet. |
+| `refill` | Read flag, line address, line data, and L2-miss metadata. |
+| `refillAccepted` | The refill is valid and read-typed. |
+| `refillWakeMask` | Rows returned to `Wait` by the refill line. |
+
+Refill wakeups match working, non-tile rows on line address, suppress rows
+that already have `l1Hit`, and store the full refill line plus full valid mask
+in the LIQ row. The next launch uses row-owned data when `validMask` is
+nonzero; otherwise it uses the external `e2BaseData`/`e2BaseValidMask` inputs.
+
 ### E4 Update And LHQ Record
 
 | Signal | Description |
@@ -121,11 +139,12 @@ The module owns:
   states,
 - E3/E4 row-index sideband registers aligned to `LoadForwardPipeline`,
 - a combinational `LoadReplayWakeup` sidecar for store-unit/SCB replay masks,
+- a combinational `LoadRefillWakeup` sidecar for read-refill row wake masks,
 - a combinational LHQ hit-record output for E4 hits.
 
 It does not own a separate LHQ queue, load-store conflict recovery, precise
-flush pruning, L2 miss queue state, SCB/STQ storage, ready-table state,
-consumer bypass data routing, or trace emission.
+flush pruning, miss queue state, SCB/STQ storage, ready-table state, consumer
+bypass data routing, or trace emission.
 
 ## Logic Design
 
@@ -144,7 +163,10 @@ The C++ model provides the owner split:
    store-unit data into `LDQ_L1_DC_MISS` or `LDQ_L2_WAIT` rows.
 6. `handleSCBWakeup` merges SCB data into working same-line rows that are not
    currently `LDQ_REPICK`.
-7. `CheckMovRslvQ` later moves `LDQ_RESOLVED` rows into `ResolveQ` and resets
+7. `handleL1Wakeup` erases the refill line from miss/prefetch tracking,
+   merges the cacheline into cluster data, and returns matching unresolved
+   scalar rows to `LDQ_WAIT` with `l1Hit=true`.
+8. `CheckMovRslvQ` later moves `LDQ_RESOLVED` rows into `ResolveQ` and resets
    the active row.
 
 `LoadInflightQueue` maps those rules into the current Chisel boundary:
@@ -167,6 +189,9 @@ The C++ model provides the owner split:
    clear `waitStore`; store-unit/SCB byte merges update row data and valid
    masks; completed rows become `Wait` with `storeBypass` set so the normal
    launch path can recheck source and return-slot readiness.
+8. Refill wakeups run through `LoadRefillWakeup`. Matching read-refill lines
+   return rows to `Wait`, set `l1Hit`, store full-line data, and clear
+   `missPending` by leaving the miss states.
 
 ## Timing
 
@@ -177,6 +202,9 @@ The C++ model provides the owner split:
 - Replay wakeups are consumed after E4 row update/clear handling and before
   new launch/allocation state updates. Completed replay rows are not launched
   until the next cycle.
+- Refill wakeups are consumed after replay wakeups and before new
+  launch/allocation state updates. A refilled row is not launched until the
+  next cycle.
 
 The module accepts at most one launch per cycle. Later owners may add internal
 pick arbitration, multiple load pipes, and true response queues.
@@ -198,6 +226,7 @@ memory comparison against QEMU/model behavior.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadRefillWakeup`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding`
@@ -210,5 +239,6 @@ Focused reference tests cover slot-plus-wrap allocation, E4 hit-to-resolved
 transition and LHQ record publication, not-ready store replay, incomplete-data
 miss-pending behavior, source/return-port replay, store-wakeup wait-store
 clear, store-wakeup miss completion, resolved-row clearing before wraparound
-allocation, and Chisel elaboration with the child `LoadForwardPipeline` and
-`LoadReplayWakeup`.
+allocation, L1 refill wakeup, row-owned refill-data relaunch, and Chisel
+elaboration with the child `LoadForwardPipeline`, `LoadReplayWakeup`, and
+`LoadRefillWakeup`.

@@ -41,6 +41,7 @@ object LoadInflightQueueReference {
       storeBypass: Boolean = false,
       dataComplete: Boolean = false,
       sourcesReturned: Boolean = false,
+      l1Hit: Boolean = false,
       l1Miss: Boolean = false,
       missKind: MissKind = NoMiss)
 
@@ -58,6 +59,9 @@ object LoadInflightQueueReference {
       waitStoreClearMask: Int,
       mergeMask: Int,
       completedMask: Int)
+  final case class RefillWakeResult(
+      refillAccepted: Boolean,
+      wakeMask: Int)
 
   final class Model(entries: Int) {
     require(entries > 1 && (entries & (entries - 1)) == 0)
@@ -109,12 +113,14 @@ object LoadInflightQueueReference {
     def launch(index: Int, input: LaunchInput): Boolean =
       rows(index) match {
         case Some(row) if row.status == Wait && row.waitStore.isEmpty =>
+          val baseData = if (row.validMask != 0) row.lineData else input.baseData
+          val baseValidMask = if (row.validMask != 0) row.validMask else input.baseValidMask
           rows(index) = Some(row.copy(status = Repick, missKind = NoMiss))
           val e4 = pipe.step(Some(Input(
             query = query(row),
             stores = input.stores,
-            baseData = input.baseData,
-            baseValidMask = input.baseValidMask,
+            baseData = baseData,
+            baseValidMask = baseValidMask,
             loadDataReturned = input.loadDataReturned,
             scbReturned = input.scbReturned,
             returnReady = input.returnReady
@@ -148,7 +154,7 @@ object LoadInflightQueueReference {
 
           e4.missKind match {
             case NoMiss if e4.wakeupValid =>
-              val row = updated.copy(status = Resolved, waitStore = None, l1Miss = false)
+              val row = updated.copy(status = Resolved, waitStore = None, l1Hit = false, l1Miss = false)
               rows(index) = Some(row)
               CycleResult(Some(index), Some(HitRecord(row, e4.loadByteMask, e4.lineData, e4.forwardMask)))
             case StoreDataNotReady =>
@@ -161,7 +167,8 @@ object LoadInflightQueueReference {
                 waitMask = 0,
                 waitStore = e4.waitStore,
                 dataComplete = false,
-                sourcesReturned = false
+                sourcesReturned = false,
+                l1Hit = false
               ))
               CycleResult(Some(index))
             case DataNotComplete =>
@@ -174,6 +181,7 @@ object LoadInflightQueueReference {
                 waitStore = None,
                 dataComplete = false,
                 sourcesReturned = false,
+                l1Hit = false,
                 l1Miss = true
               ))
               CycleResult(Some(index))
@@ -186,7 +194,8 @@ object LoadInflightQueueReference {
                 waitMask = 0,
                 waitStore = None,
                 dataComplete = false,
-                sourcesReturned = false
+                sourcesReturned = false,
+                l1Hit = false
               ))
               CycleResult(Some(index))
             case _ =>
@@ -245,6 +254,34 @@ object LoadInflightQueueReference {
       ReplayWakeResult(waitStoreClearMask, mergeMask, completedMask)
     }
 
+    def refillWakeup(refill: LoadRefillWakeupReference.Refill): RefillWakeResult = {
+      var wakeMask = 0
+
+      for (index <- rows.indices) {
+        rows(index) match {
+          case Some(row) =>
+            val result = LoadRefillWakeupReference(row, refill)
+            if (result.wake) {
+              wakeMask |= (1 << index)
+              rows(index) = Some(row.copy(
+                status = Wait,
+                lineData = refill.data,
+                validMask = result.lineValidMask,
+                loadByteMask = result.requestByteMask,
+                forwardMask = 0,
+                waitMask = 0,
+                l1Hit = true,
+                dataComplete = false,
+                sourcesReturned = false,
+                missKind = NoMiss))
+            }
+          case None =>
+        }
+      }
+
+      RefillWakeResult(refillAccepted = refill.isRead, wakeMask = wakeMask)
+    }
+
     def flush(): Unit = {
       for (index <- rows.indices) {
         rows(index) = None
@@ -260,6 +297,7 @@ object LoadInflightQueueReference {
 class LoadInflightQueueSpec extends AnyFunSuite {
   import LoadForwardPipelineReference.{AwaitingSources, DataNotComplete, ReturnPortBlocked}
   import LoadInflightQueueReference._
+  import LoadRefillWakeupReference.Refill
   import LoadReplayWakeupReference.{StoreUnit, Wakeup}
   import LoadStoreForwardingReference.{Store, byteMask, lineData}
   import STQFlushPruneReference.Id
@@ -403,6 +441,38 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(!missLiq.missPending)
   }
 
+  test("L1 refill wakes miss row and relaunch uses row-owned line data") {
+    val liq = new Model(entries = 4)
+    val rowIndex = liq.allocate(alloc(0, addr = 0x1008, size = 2)).index
+
+    assert(liq.launch(rowIndex, LaunchInput(baseValidMask = byteMask(8, 1))))
+    liq.cycle()
+    assert(liq.row(rowIndex).exists(row => row.status == L1DcMiss && row.l1Miss))
+    assert(liq.missPending)
+
+    val refill = liq.refillWakeup(Refill(
+      isRead = true,
+      lineAddr = 0x1000,
+      data = lineData(Map(8 -> 0xaa, 9 -> 0xbb))))
+    val woken = liq.row(rowIndex).get
+
+    assert(refill.refillAccepted)
+    assert(refill.wakeMask == (1 << rowIndex))
+    assert(woken.status == Wait)
+    assert(woken.l1Hit)
+    assert(woken.validMask == ((BigInt(1) << 64) - 1))
+    assert(!liq.missPending)
+
+    assert(liq.launch(rowIndex, LaunchInput()))
+    val result = liq.cycle()
+    val resolved = liq.row(rowIndex).get
+
+    assert(result.hitRecord.exists(_.byteMask == byteMask(8, 2)))
+    assert(resolved.status == Resolved)
+    assert(resolved.dataComplete)
+    assert((resolved.lineData & lineData(Map(8 -> 0xff, 9 -> 0xff))) == lineData(Map(8 -> 0xaa, 9 -> 0xbb)))
+  }
+
   test("resolved rows clear before allocation pointer wraps back into their slot") {
     val liq = new Model(entries = 2)
     val a0 = liq.allocate(alloc(0, addr = 0x1000)).index
@@ -429,6 +499,8 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_missPending"))
     assert(sv.contains("LoadReplayWakeup"))
     assert(sv.contains("io_replayWakeCompletedMask"))
+    assert(sv.contains("LoadRefillWakeup"))
+    assert(sv.contains("io_refillWakeMask"))
     assert(sv.contains("io_rows_0_status"))
   }
 }

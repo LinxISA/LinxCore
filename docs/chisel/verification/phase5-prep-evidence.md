@@ -2112,3 +2112,89 @@ Skill evolve:
   wakeups as working-row same-line byte merge excluding `Repick`, and keep L1
   refill, ready-table, bypass, ResolveQ/LHQ queueing, precise flush, and trace
   ownership in later packets.
+
+## 2026-06-28 Load Refill Wakeup
+
+Scope:
+
+- Added `LoadRefillWakeup` as the first read-refill wakeup sidecar for
+  `LoadInflightQueue`.
+- Learned the model path from `LDQInfo::handleL1Wakeup`,
+  `LDQInfo::pickL1`, `LDQInfo::handleL1Lookup`, and
+  `clusterData::merge`.
+- Implemented read-only refill acceptance, same-line working-row wake masks,
+  tile/already-hit/resolved/idle suppression, local `l1Hit` row sideband,
+  full-line valid-mask storage, and row-owned base-data selection for later
+  relaunch through `LoadForwardPipeline`.
+- Kept miss queue/prefetch-set ownership, full L1D/LDQ data-buffer ownership,
+  L2/CHI response queues, ready-table updates, consumer bypass routing,
+  precise flush pruning, ResolveQ/LHQ queue movement, and memory trace
+  emission in later owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only LoadRefillWakeup
+bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup
+bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline
+bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
+bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `LoadRefillWakeupSpec` covers read refill wakeup, suppression for non-read,
+  tile, already-hit, resolved, idle, and different-line rows, model working-row
+  coverage for `Wait`/`Repick`/`L2Wait`, and Chisel elaboration.
+- `LoadInflightQueueSpec` covers integrated L1 refill wakeup and relaunch from
+  row-owned line data.
+- Existing replay, forwarding, conflict, ROB/cross-check, QEMU dry-run,
+  reduced RTL xcheck, top-shell xcheck, and Verilator lint gates stay green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadRefillWakeup` passed 4
+  tests in `LoadRefillWakeupSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue` passed 9
+  tests in `LoadInflightQueueSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup` passed 6
+  tests in `LoadReplayWakeupSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline` passed 6
+  tests in `LoadForwardPipelineSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding` passed 6
+  tests in `LoadStoreForwardingSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect` passed 7
+  tests in `MDBConflictDetectSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `LoadRefillWakeup` adds the
+  reusable LIQ refill/relaunch invariant: Chisel should model read refills as
+  same-line working-row wake masks with local `l1Hit` and row-owned line data,
+  and should keep miss queue, prefetch set, full L1D/LDQ data buffer,
+  ready-table, bypass, precise flush, ResolveQ/LHQ queueing, and trace
+  ownership in later packets.

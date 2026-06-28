@@ -322,9 +322,17 @@ same-line rows that are not `Repick`. Completion is based on the model's
 covered by the merged valid-byte mask. Completed rows return to `Wait` for the
 normal `LoadForwardPipeline` relaunch path.
 
+`LoadRefillWakeup` is the first read-refill sidecar for LIQ rows. It follows
+`LDQInfo::handleL1Wakeup` by accepting read refill packets, matching working
+same-line scalar rows that have not already recorded `l1Hit`, returning them
+to `Wait`, and setting a local `l1Hit` sideband. The Chisel LIQ also stores the
+full cacheline in the row and uses row-owned valid bytes as the next
+`LoadForwardPipeline` base, which mirrors the model's cluster-data merge plus
+later relaunch while avoiding a full L1D/LDQ buffer owner in this packet.
+
 These owners still do not implement a separate `ResolveQ`/LHQ queue, precise
-`FlushBus` pruning, L1 refill queues, ready-table updates, consumer bypass
-routing, or memory trace emission.
+`FlushBus` pruning, L2/CHI response queue ordering, ready-table updates,
+consumer bypass routing, or memory trace emission.
 
 This is still not the complete model STQ/SCB path. TTrans/tile behavior, load
 replay/refill integration, deadlock checks, data-array banking, LDQ MDB-update
@@ -334,8 +342,7 @@ window-slide side effects remain future LSU owner work.
 ## Open Questions
 
 - The full scalar LSU needs separate owners for load-queue flush, raw L2/CHI
-  response queue ordering, MDB interaction, L1 refill integration, and queue
-  backpressure.
+  response queue ordering, MDB integration, and queue backpressure.
   `SCBResponseDecode` now owns raw transaction-id decode, so a later response
   queue packet should preserve its illegal/stale-target reporting while adding
   ordering and backpressure.

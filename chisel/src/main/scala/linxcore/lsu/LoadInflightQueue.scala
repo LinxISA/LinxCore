@@ -62,6 +62,7 @@ class LoadInflightRow(
   val storeBypass = Bool()
   val dataComplete = Bool()
   val sourcesReturned = Bool()
+  val l1Hit = Bool()
   val l1Miss = Bool()
   val missKind = LoadForwardMissKind()
 }
@@ -123,6 +124,11 @@ class LoadInflightQueueIO(
   val replayWakeWaitStoreClearMask = Output(UInt(liqEntries.W))
   val replayWakeMergeMask = Output(UInt(liqEntries.W))
   val replayWakeCompletedMask = Output(UInt(liqEntries.W))
+
+  val refillValid = Input(Bool())
+  val refill = Input(new LoadRefillWakeupRequest(addrWidth, lineBytes))
+  val refillAccepted = Output(Bool())
+  val refillWakeMask = Output(UInt(liqEntries.W))
 
   val clearResolvedValid = Input(Bool())
   val clearResolvedIndex = Input(UInt(liqPtrWidth.W))
@@ -208,8 +214,6 @@ class LoadInflightQueue(
   val pipeline = Module(new LoadForwardPipeline(idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
   pipeline.io.flush := io.flush
   pipeline.io.e2Stores := io.e2Stores
-  pipeline.io.e2BaseData := io.e2BaseData
-  pipeline.io.e2BaseValidMask := io.e2BaseValidMask
   pipeline.io.e2LoadDataReturned := io.e2LoadDataReturned
   pipeline.io.e2ScbReturned := io.e2ScbReturned
   pipeline.io.e2ReturnReady := io.e2ReturnReady
@@ -218,6 +222,10 @@ class LoadInflightQueue(
   val launchReady =
     !io.flush && launchRow.valid && (launchRow.status === LoadInflightStatus.Wait) && !launchRow.waitStore
   val launchAccepted = io.launchValid && launchReady
+  val launchUsesRowData = launchRow.validMask.orR
+
+  pipeline.io.e2BaseData := Mux(launchUsesRowData, launchRow.lineData, io.e2BaseData)
+  pipeline.io.e2BaseValidMask := Mux(launchUsesRowData, launchRow.validMask, io.e2BaseValidMask)
 
   val query = Wire(new LoadStoreForwardQuery(idEntries, addrWidth, lineBytes, sizeWidth))
   query := 0.U.asTypeOf(query)
@@ -235,6 +243,11 @@ class LoadInflightQueue(
   replayWakeup.io.wakeValid := io.replayWakeValid && !io.flush
   replayWakeup.io.wake := io.replayWake
   replayWakeup.io.rows := rows
+
+  val refillWakeup = Module(new LoadRefillWakeup(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  refillWakeup.io.refillValid := io.refillValid && !io.flush
+  refillWakeup.io.refill := io.refill
+  refillWakeup.io.rows := rows
 
   val e3IndexValid = RegInit(false.B)
   val e3Index = RegInit(0.U(liqPtrWidth.W))
@@ -301,6 +314,7 @@ class LoadInflightQueue(
         rows(e4Index).status := LoadInflightStatus.Resolved
         rows(e4Index).waitStore := false.B
         rows(e4Index).waitStoreInfo := zeroWait
+        rows(e4Index).l1Hit := false.B
         rows(e4Index).l1Miss := false.B
       }.elsewhen(e4StoreWait) {
         rows(e4Index).status := LoadInflightStatus.Wait
@@ -312,6 +326,7 @@ class LoadInflightQueue(
         rows(e4Index).waitMask := 0.U
         rows(e4Index).dataComplete := false.B
         rows(e4Index).sourcesReturned := false.B
+        rows(e4Index).l1Hit := false.B
       }.elsewhen(e4DataMiss) {
         rows(e4Index).status := LoadInflightStatus.L1DcMiss
         rows(e4Index).waitStore := false.B
@@ -322,6 +337,7 @@ class LoadInflightQueue(
         rows(e4Index).waitMask := 0.U
         rows(e4Index).dataComplete := false.B
         rows(e4Index).sourcesReturned := false.B
+        rows(e4Index).l1Hit := false.B
         rows(e4Index).l1Miss := true.B
       }.elsewhen(e4ReplayWait) {
         rows(e4Index).status := LoadInflightStatus.Wait
@@ -333,6 +349,7 @@ class LoadInflightQueue(
         rows(e4Index).waitMask := 0.U
         rows(e4Index).dataComplete := false.B
         rows(e4Index).sourcesReturned := false.B
+        rows(e4Index).l1Hit := false.B
       }
     }
 
@@ -358,6 +375,24 @@ class LoadInflightQueue(
             rows(idx).sourcesReturned := true.B
             rows(idx).missKind := LoadForwardMissKind.NoMiss
           }
+        }
+      }
+    }
+
+    when(io.refillValid) {
+      for (idx <- 0 until liqEntries) {
+        val sameRowResolvedAtE4 = e4UpdateValid && e4Resolved && (e4Index === idx.U)
+        when(refillWakeup.io.wakeMask(idx) && !sameRowResolvedAtE4) {
+          rows(idx).status := LoadInflightStatus.Wait
+          rows(idx).lineData := io.refill.data
+          rows(idx).validMask := refillWakeup.io.lineValidMask
+          rows(idx).loadByteMask := refillWakeup.io.requestByteMasks(idx)
+          rows(idx).forwardMask := 0.U
+          rows(idx).waitMask := 0.U
+          rows(idx).l1Hit := true.B
+          rows(idx).dataComplete := false.B
+          rows(idx).sourcesReturned := false.B
+          rows(idx).missKind := LoadForwardMissKind.NoMiss
         }
       }
     }
@@ -422,6 +457,8 @@ class LoadInflightQueue(
   io.replayWakeWaitStoreClearMask := replayWakeup.io.waitStoreClearMask
   io.replayWakeMergeMask := replayWakeup.io.mergeMask
   io.replayWakeCompletedMask := replayWakeup.io.completedMask
+  io.refillAccepted := refillWakeup.io.refillAccepted
+  io.refillWakeMask := refillWakeup.io.wakeMask
   io.e4UpdateValid := e4UpdateValid
   io.e4UpdateIndex := e4Index
   io.e4MissKind := pipeline.io.e4MissKind
