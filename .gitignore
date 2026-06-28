@@ -3,6 +3,13 @@ generated/
 out/
 .ninja_log
 .ninja_deps
+chisel/target/
+chisel/project/target/
+chisel/project/project/
+chisel/.bsp/
+chisel/.metals/
+chisel/.bloop/
+chisel/generated/
 
 # local binaries
 cosim/linxcore_lockstep_runner
