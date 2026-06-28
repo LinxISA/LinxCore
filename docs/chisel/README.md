@@ -55,7 +55,9 @@ owner that consumes those masks, stores row sidecars, performs first-free
 allocation, merges split store address/data halves, and keeps resident plus
 WAIT/outstanding counts. `STQCommitQueue` is the first store-commit ordering
 owner: it keeps committed row indices sorted by `(bid, lsId)` and selects
-downstream-ready rows for future SCB/cacheline-split owners.
+downstream-ready rows for future SCB/cacheline-split owners. `STQEntryBank`
+also exposes a committed-row free mask so those issue lanes can clear multiple
+committed rows after memory-side acceptance.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the

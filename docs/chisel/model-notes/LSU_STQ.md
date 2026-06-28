@@ -68,9 +68,11 @@ own those side effects.
 `STQEntryBank` is the first Chisel STQ state owner. It stores row sidecars,
 tracks resident `size` and WAIT/outstanding `osdSize`, performs first-free
 allocation, supports complementary `ST_ADDR`/`ST_DATA` merge into `ST_ALL`,
-marks locally ready `ST_ALL` WAIT rows as `Commit`, frees committed rows on a
-separate command, and applies `STQFlushPrune.freeMask` to clear matched WAIT
-rows.
+marks locally ready `ST_ALL` WAIT rows as `Commit`, frees committed rows on
+single-index or multi-row mask commands, and applies `STQFlushPrune.freeMask`
+to clear matched WAIT rows. The multi-row free path is the first bank-side
+target for `STQCommitQueue` issue lanes; it decrements resident count once per
+accepted committed row and leaves `osdSize` unchanged.
 
 `STQCommitQueue` is the first Chisel owner for `storeCommitQ` ordering. It
 accepts committed row indices, keeps them sorted by `(bid, lsId)`, selects up
@@ -85,7 +87,8 @@ BSB window-slide side effects remain future LSU owner work.
 
 - The full scalar LSU needs separate owners for load-queue flush,
   SCB/MDB interaction, cacheline splitting, load forwarding, and queue
-  backpressure.
+  backpressure. The bank now has a committed-row free mask, but the future LSU
+  owner still needs to drive it from real memory-side issue success.
 - `STQFlushPrune` uses the model's current `baseOnGroup` ordering, including
   its BID fast path. If the model changes this behavior, update both
   `FlushControl` notes and the STQ tests in the same packet.

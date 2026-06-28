@@ -99,6 +99,11 @@ class STQEntryBankIO(
   val commitFreeIndex = Input(UInt(ptrWidth.W))
   val commitFreeAccepted = Output(Bool())
   val commitFreeIgnored = Output(Bool())
+  val commitFreeMaskValid = Input(Bool())
+  val commitFreeMask = Input(UInt(entries.W))
+  val commitFreeAcceptedMask = Output(UInt(entries.W))
+  val commitFreeIgnoredMask = Output(UInt(entries.W))
+  val commitFreeCount = Output(UInt(countWidth.W))
 
   val flushApplied = Output(Bool())
   val flushMatchMask = Output(UInt(entries.W))
@@ -283,6 +288,21 @@ class STQEntryBank(
   io.commitFreeAccepted := !flushApplied && io.commitFreeValid && commitFreeLocalReady
   io.commitFreeIgnored := io.commitFreeValid && (!commitFreeLocalReady || flushApplied)
 
+  val commitFreeReqVec = Wire(Vec(entries, Bool()))
+  val commitFreeAcceptedVec = Wire(Vec(entries, Bool()))
+  val commitFreeIgnoredVec = Wire(Vec(entries, Bool()))
+  for (idx <- 0 until entries) {
+    val singleHit = io.commitFreeValid && (io.commitFreeIndex === idx.U)
+    val maskHit = io.commitFreeMaskValid && io.commitFreeMask(idx)
+    val rowReady = rows(idx).valid && (rows(idx).status === STQEntryStatus.Commit)
+    commitFreeReqVec(idx) := singleHit || maskHit
+    commitFreeAcceptedVec(idx) := !flushApplied && commitFreeReqVec(idx) && rowReady
+    commitFreeIgnoredVec(idx) := commitFreeReqVec(idx) && (!rowReady || flushApplied)
+  }
+  io.commitFreeAcceptedMask := commitFreeAcceptedVec.asUInt
+  io.commitFreeIgnoredMask := commitFreeIgnoredVec.asUInt
+  io.commitFreeCount := PopCount(commitFreeAcceptedVec)
+
   for (idx <- 0 until entries) {
     when(flushPrune.io.freeMask(idx)) {
       rows(idx) := zeroRow
@@ -293,8 +313,10 @@ class STQEntryBank(
     rows(io.markCommitIndex).status := STQEntryStatus.Commit
   }
 
-  when(io.commitFreeAccepted) {
-    rows(io.commitFreeIndex) := zeroRow
+  for (idx <- 0 until entries) {
+    when(commitFreeAcceptedVec(idx)) {
+      rows(idx) := zeroRow
+    }
   }
 
   when(io.insertMerged) {
@@ -307,7 +329,7 @@ class STQEntryBank(
 
   val allocDelta = io.insertAllocated.asUInt
   val markCommitDelta = io.markCommitAccepted.asUInt
-  val commitFreeDelta = io.commitFreeAccepted.asUInt
+  val commitFreeDelta = io.commitFreeCount
   val flushFreeDelta = Mux(flushApplied, flushPrune.io.freeCount, 0.U)
 
   residentCount := residentCount + allocDelta - commitFreeDelta - flushFreeDelta

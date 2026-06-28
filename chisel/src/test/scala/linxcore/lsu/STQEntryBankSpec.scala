@@ -39,6 +39,7 @@ object STQEntryBankReference {
       dataReady: Boolean = false)
 
   final case class InsertResult(accepted: Boolean, allocated: Boolean, merged: Boolean, conflict: Boolean, index: Option[Int])
+  final case class CommitFreeMaskResult(acceptedMask: Int, ignoredMask: Int, count: Int)
 
   final class Model(entries: Int) {
     require(entries > 1 && (entries & (entries - 1)) == 0)
@@ -145,6 +146,24 @@ object STQEntryBankReference {
         case _ =>
           false
       }
+
+    def commitFreeMask(reqMask: Int): CommitFreeMaskResult = {
+      var accepted = 0
+      var ignored = 0
+      var freed = 0
+      for (index <- table.indices if ((reqMask >> index) & 1) == 1) {
+        table(index) match {
+          case Some(entry) if entry.status == Commit =>
+            table(index) = None
+            resident -= 1
+            accepted |= (1 << index)
+            freed += 1
+          case _ =>
+            ignored |= (1 << index)
+        }
+      }
+      CommitFreeMaskResult(acceptedMask = accepted, ignoredMask = ignored, count = freed)
+    }
 
     def flush(flush: STQFlushPruneReference.Flush): STQFlushPruneReference.Result = {
       val rows = table.toSeq.map {
@@ -262,6 +281,25 @@ class STQEntryBankSpec extends AnyFunSuite {
     assert(stq.occupiedMask == 0x1)
   }
 
+  test("commitFreeMask frees multiple committed rows and reports WAIT or invalid rows as ignored") {
+    val stq = new Model(entries = 4)
+    val committed0 = stq.insert(req(0, bid = 1, lsId = 0)).index.get
+    val wait = stq.insert(req(1, bid = 1, lsId = 1)).index.get
+    val committed2 = stq.insert(req(2, bid = 1, lsId = 2)).index.get
+    assert(committed0 == 0 && wait == 1 && committed2 == 2)
+    assert(stq.markCommit(committed0))
+    assert(stq.markCommit(committed2))
+
+    val result = stq.commitFreeMask(0xf)
+
+    assert(result == CommitFreeMaskResult(acceptedMask = 0x5, ignoredMask = 0xa, count = 2))
+    assert(stq.residentCount == 1)
+    assert(stq.outstandingWaitCount == 1)
+    assert(stq.occupiedMask == 0x2)
+    assert(stq.waitMask == 0x2)
+    assert(stq.commitMask == 0)
+  }
+
   test("flush frees only matched WAIT rows and preserves committed rows") {
     val stq = new Model(entries = 4)
     val old = stq.insert(req(0, bid = 1, lsId = 0)).index.get
@@ -290,5 +328,7 @@ class STQEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_insertMerged"))
     assert(sv.contains("io_markCommitAccepted"))
     assert(sv.contains("io_commitFreeAccepted"))
+    assert(sv.contains("io_commitFreeAcceptedMask"))
+    assert(sv.contains("io_commitFreeCount"))
   }
 }

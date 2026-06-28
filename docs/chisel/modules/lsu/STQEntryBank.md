@@ -25,7 +25,7 @@ the full LSU exists:
 - complementary `ST_ADDR`/`ST_DATA` merge into `ST_ALL`,
 - resident `size` and WAIT/outstanding `osdSize` accounting,
 - local WAIT-to-COMMIT marking for ready stores,
-- committed-row free,
+- single-row and multi-row committed free,
 - recovery cleanup through `STQFlushPrune.freeMask`.
 
 It does not own store-commit queue ordering, SCB/MDB traffic, cacheline split
@@ -55,6 +55,7 @@ state owner.
 | `insertValid/insert` | valid plus `STQStoreRequest` | Store allocate or merge request. |
 | `markCommitValid/markCommitIndex` | command | Mark a locally ready `Wait` row as `Commit`. |
 | `commitFreeValid/commitFreeIndex` | command | Free a row that is already in `Commit` state. |
+| `commitFreeMaskValid/commitFreeMask` | command mask | Free one or more rows already in `Commit` state. This is the bank-side target for future `STQCommitQueue` issue lanes. |
 
 ### Outputs
 
@@ -66,6 +67,7 @@ state owner.
 | `insertIndex` | Row allocated or merged by the accepted insert. |
 | `markCommitAccepted/markCommitIgnored` | WAIT-to-COMMIT command result. |
 | `commitFreeAccepted/commitFreeIgnored` | committed-row free command result. |
+| `commitFreeAcceptedMask/commitFreeIgnoredMask/commitFreeCount` | Multi-row committed-free result. Accepted bits clear committed rows; ignored bits name requested rows that were not committed or were blocked by recovery. |
 | `flushApplied` | At least one `STQ_WAIT` row was freed by recovery. |
 | `flushMatchMask/flushFreeMask/flushStatusBlockedMask/flushFreeCount` | Internal `STQFlushPrune` diagnostics. |
 | `rows` | Current row state, exposed for later owner integration and tests. |
@@ -105,8 +107,13 @@ The global `isStqCmtable` age and oldest-block policy is intentionally outside
 this packet.
 
 `commitFree` is the row-clear part of `STQ::commit` after a future owner has
-sent the store to memory-side queues. It accepts only `Commit` rows and
-decrements `residentCount`.
+sent the store to memory-side queues. The legacy single-index command and the
+multi-row mask command both accept only `Commit` rows. Requests targeting
+WAIT, invalid, or non-COMMIT rows are reported as ignored. Accepted rows are
+de-duplicated through `commitFreeAcceptedMask`, cleared once, and decrement
+`residentCount` by `commitFreeCount`. `outstandingWaitCount` is unchanged
+because committed rows already left the model `osdSize` domain at
+WAIT-to-COMMIT time.
 
 Recovery has priority over insert/mark/free commands. When the internal
 `STQFlushPrune` reports a nonzero `freeMask`, the bank clears those WAIT rows
@@ -136,6 +143,7 @@ events. No architectural commit trace row is emitted by this module.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only STQFlushPrune`
 - `bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl`
 - `bash tools/chisel/run_chisel_tests.sh --only FlushControl`
@@ -145,6 +153,6 @@ events. No architectural commit trace row is emitted by this module.
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 
 Focused tests cover first-free allocation, split store merge, full-queue merge
-acceptance, full-queue allocation rejection, WAIT-to-COMMIT accounting,
-committed-row free, WAIT-only recovery free, committed-row preservation on
-flush, and Chisel elaboration with the `STQFlushPrune` child.
+acceptance, full-queue allocation rejection, WAIT-to-COMMIT accounting, single
+and masked committed-row free, WAIT-only recovery free, committed-row
+preservation on flush, and Chisel elaboration with the `STQFlushPrune` child.
