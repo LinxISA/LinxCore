@@ -1792,3 +1792,84 @@ Skill evolve:
   and SU, finite-output backpressure freezes later MDB phases behind a pending
   lookup, and store-side MDB wakeup uses the first matching non-tile predicted
   store row only when address and data are both ready.
+
+## 2026-06-28 Load/Store Forwarding Selector
+
+Scope:
+
+- Added `LoadStoreForwarding` as the first Chisel owner for scalar
+  store-to-load byte selection behind `STQ::lookupForLoad`.
+- Learned the model path from `STQ::lookupForLoad`, `UpdateSTValid`,
+  `UpdateData`, `ReqData::merge`, `LDQInfo::updateWaitInfo`,
+  `LDQInfo::handleSTQReceive`, and `LDQInfo::checkDataPosionValid`.
+- Implemented clipped 64-byte load masks, same-line scalar candidate filtering,
+  load-snapshot age filtering, per-byte nearest older store selection,
+  ready-byte forwarding, not-ready wait/replay masks, cache-data merge, and
+  wait-store diagnostics.
+- Kept STQ row mutation, store data-array banking, LDQ wait/store state
+  updates, SCB/L1 hit qualification, MDB learning, recovery publication, and
+  memory-event trace in later owner packets.
+
+Evidence:
+
+```bash
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
+bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout
+bash tools/chisel/run_chisel_tests.sh --only MDBSSIT
+bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
+bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `LoadStoreForwardingSpec` covers ready-byte forwarding, younger-than-snapshot
+  suppression, per-byte newest older selection, not-ready replay masks, tile
+  and different-line suppression, wrap-aware age ordering, and Chisel
+  elaboration with byte masks, merge data, and wait diagnostics.
+- Existing MDB fanout, SSIT, conflict detection, STQ commit ordering,
+  ROB/cross-check, QEMU dry-run, reduced RTL xcheck, top-shell xcheck, and
+  Verilator lint gates stay green.
+
+Observed result:
+
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding` passed 6
+  tests in `LoadStoreForwardingSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout` passed 5 tests
+  in `MDBQueueFanoutSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBSSIT` passed 7 tests in
+  `MDBSSITSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect` passed 7
+  tests in `MDBConflictDetectSpec`.
+- `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue` passed 7 tests
+  in `STQCommitQueueSpec`.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the adapter self-test.
+- `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh` emitted the reduced ROB,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the reduced top shell,
+  built a Verilator harness, normalized three QEMU-shaped and DUT rows, and
+  compared three commits with zero mismatches.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the top shell and
+  passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because `LoadStoreForwarding` adds the
+  reusable LSU forwarding invariant: Chisel must select the nearest older
+  eligible store per byte, forward only selected data-ready bytes, and report
+  not-ready selected bytes as replay/wait masks without mutating LDQ/STQ/SCB or
+  MDB owner state.

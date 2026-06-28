@@ -100,6 +100,10 @@ confidence decrement, delete decay, and finite-table overflow reporting.
 queues, atomically fans lookup results to LU and SU output queues, freezes
 delete/record behind a blocked lookup fanout, and exposes the scalar
 `StoreUnit::mdbCheck` wakeup decision for matching ready STQ rows.
+`LoadStoreForwarding` is the first scalar store-to-load byte forwarding owner:
+it selects the nearest older eligible store per requested load byte, forwards
+ready bytes over a cache-data baseline, reports not-ready wait masks, and keeps
+LDQ/STQ row mutation plus memory/recovery publication in later owner packets.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
@@ -138,6 +142,7 @@ bash tools/chisel/run_chisel_tests.sh --only SCBResponseDecode
 bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
 bash tools/chisel/run_chisel_tests.sh --only MDBSSIT
 bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout
+bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
 bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
