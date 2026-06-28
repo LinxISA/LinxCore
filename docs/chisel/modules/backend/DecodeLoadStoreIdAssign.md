@@ -99,8 +99,8 @@ The C++ model has two related memory-order paths:
 
 This Chisel owner preserves the pre-increment assignment rule and the accept
 boundary. It deliberately keeps block command start IDs, tile block split
-counts, PCR store source rewriting, and real STA/STD queue writes in later
-owners.
+counts, PCR store source rewriting, and downstream store execution/STQ
+mutation in later owners.
 
 ## Deferred Owners
 
@@ -110,7 +110,7 @@ owners.
   context.
 - Carrying `load_id`/`sid` through common uop bundles into LIQ/STQ owners.
 - DCZVA opcode classification from generated decode metadata.
-- Real STA/STD dispatch queues behind `StoreSplitPayload`.
+- Store execution and STQ insert behind `StoreDispatchQueues`.
 - Enqueue-time ROB reservation before `DecodeRenameQueue`.
 
 ## Verification

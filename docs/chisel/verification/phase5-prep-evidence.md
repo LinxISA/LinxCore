@@ -2892,3 +2892,89 @@ Skill evolve:
   that reduced store dispatch readiness must be computed from the queued
   decoded row, not from `StoreSplitPayload.inReady`, so rename cannot create a
   ready/valid loop through its accepted output.
+
+### R48 Store Dispatch Queues
+
+Scope:
+
+- Added `StoreDispatchQueues` as the first finite STA/STD dispatch queue owner
+  behind scalar rename.
+- Wired `DecodeRenameROBPath` so `StoreSplitPayload` outputs enqueue into
+  queue-backed STA/STD heads instead of stopping at payload observability.
+- Preserved model split-store atomicity: split stores enqueue STA and STD
+  together or enqueue neither; unsplit stores enqueue a single `ST_ALL`
+  payload to the STA queue.
+- Kept STA/STD execution, address/data computation, STQ insertion, SCB/MDB
+  mutation, and live memory trace side effects deferred to later LSU owners.
+
+Evidence:
+
+```bash
+sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchQueues
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
+bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
+bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
+bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+bash tools/chisel/build_chisel.sh
+bash tools/chisel/run_chisel_verilator_lint.sh
+```
+
+Expected result:
+
+- `StoreDispatchQueuesSpec` locks queue admission, protocol-error reporting,
+  flush clearing, same-cycle dequeue/reenqueue, IO widths, enum ordering, and
+  Chisel elaboration.
+- `DecodeRenameROBPathSpec` elaborates through `StoreDispatchQueues` without a
+  ready/valid loop and exposes queue heads, enqueue/dequeue events, counts, and
+  protocol-error observability.
+- Existing store split, memory-order ID, decode/rename queue, scalar rename,
+  allocator, STQ, interface, ROB, top xcheck, QEMU dry-run, build, and
+  Verilator lint gates remain green.
+
+Observed result:
+
+- Initial `DecodeRenameROBPathSpec` elaboration caught a combinational cycle:
+  queue readiness depended on `StoreSplitPayload` valid bits, while
+  `StoreSplitPayload` valid bits depended on readiness. The fix made
+  `StoreDispatchQueues.staReady/stdReady` capacity-only and kept
+  protocol-shape errors as enqueue blockers and diagnostics.
+- `sbt --client --error 'Test / compile'` passed after the readiness fix.
+- `StoreDispatchQueuesSpec` passed 8 tests covering atomic split enqueue,
+  unsplit STA-only enqueue, full-side split blocking, same-cycle
+  dequeue/reenqueue, protocol-error reporting, flush clearing, IO widths, enum
+  ordering, and Chisel elaboration.
+- `DecodeRenameROBPathSpec` passed 6 tests and elaborated through
+  `StoreDispatchQueues`.
+- `StoreSplitPayloadSpec` passed 7 tests.
+- `DecodeLoadStoreIdAssignSpec` passed 6 tests.
+- `DecodeRenameQueueSpec` passed 5 tests.
+- `ScalarDecodeRenameBridgeSpec` passed 6 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `STQEntryBankSpec` passed 7 tests.
+- `InterfaceBundlesSpec` passed 6 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `bash tools/chisel/run_chisel_top_xcheck.sh` emitted the top xcheck RTL,
+  built the Verilator harness, compared 3 normalized rows, and reported zero
+  mismatches.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `bash tools/chisel/build_chisel.sh` passed.
+- `bash tools/chisel/run_chisel_verilator_lint.sh` emitted the current top
+  shell and passed Verilator lint.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R48 adds the reusable invariant
+  that store-dispatch queue readiness must be capacity-only and must not depend
+  on splitter-produced payload valid bits or protocol-error diagnostics.

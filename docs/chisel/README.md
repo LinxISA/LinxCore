@@ -42,7 +42,7 @@ metadata for load/store pairs, PCR stores, and cache-maintain rows.
 consumes generated `rdKind`/`rs1Kind`/`rs2Kind`/`immKind` metadata, extracts
 architectural source/destination tags, classifies scalar reg6 aliases as
 GPR/T/U according to LinxCoreModel, and forms common scalar immediates. LSID
-allocation, real STA/STD queue mutation, T/U rename or queue consumption,
+allocation, STA/STD execution and STQ mutation, T/U rename or queue consumption,
 SGPR/tile/vector operands, D2 width expansion, and full model-like ROB
 reservation before queue enqueue remain later owners.
 `ScalarDecodeRenameBridge` now adds
@@ -55,9 +55,10 @@ allocation. It selects one decoded slot, queues the raw decoded row, stamps
 reduced memory-order identity when the row is accepted into the queue, stamps
 temporary backend identity from allocator cursors at the queue head, drives
 allocator valid from a pre-ready bridge attempt signal, gates accepted store
-rows on reduced STA/STD readiness, and exposes `StoreSplitPayload` STA/STD or
-ST_ALL payloads before real store queues exist. It keeps enqueue-time ROB
-reservation, full SID/LID payload carry, real store-dispatch queues,
+rows on capacity-only store-dispatch readiness, feeds `StoreSplitPayload`
+STA/STD or ST_ALL payloads into `StoreDispatchQueues`, and exposes finite
+STA/STD queue heads for future execution owners. It keeps enqueue-time ROB
+reservation, full SID/LID payload carry, STA/STD execution, STQ mutation,
 ready-table, and live top integration in later owners. The first integrated
 ROB/CMT
 preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
@@ -177,6 +178,7 @@ bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
 bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchQueues
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryStatus
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
 bash tools/chisel/run_chisel_tests.sh --only ROBFlushPrune

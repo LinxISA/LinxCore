@@ -59,6 +59,13 @@ Checked references:
 - `https://raw.githubusercontent.com/OpenXiangShan/XiangShan/kunminghu-v3/Makefile`
 - `https://raw.githubusercontent.com/OpenXiangShan/XiangShan/kunminghu-v3/build.mill`
 - `https://raw.githubusercontent.com/OpenXiangShan/difftest/master/README.md`
+- 2026-06-29 refresh: `https://github.com/OpenXiangShan/XiangShan` still
+  exposes `Makefile` and `build.mill` on the current `kunminghu-v3` view, and
+  its README simulator flow builds a Verilator C++ simulator with `make emu`.
+  `https://github.com/OpenXiangShan/difftest` and
+  `https://docs.xiangshan.cc/zh-cn/latest/tools/difftest/` remain the upstream
+  reference for typed DUT/reference co-simulation, commit-event comparison, and
+  hardware-emulation acceleration.
 
 Transferable patterns:
 
@@ -157,6 +164,7 @@ These packets remain the required base before broad module promotion:
 | R45 | `DecodeLoadStoreIdAssign` / `DecodeRenameROBPath` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R46 | `StoreSplitPayload` | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R47 | Generated store metadata / reduced store dispatch handoff | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R48 | `StoreDispatchQueues` / queue-backed store dispatch handoff | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only StoreDispatchQueues`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only STQEntryBank`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -264,10 +272,10 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Store dispatch integration: connect `StoreSplitPayload` behind scalar
-   rename, carry opcode-derived PCR/pair/cache-maintain metadata from generated
-   decode, and feed STA/STD payloads into dispatch/STQ boundaries without
-   mutating STQ state in rename.
+1. Store execution and STQ insert: consume `StoreDispatchQueues` heads, add
+   STA/STD execution-side request formation, and hand executed `ST_ADDR`,
+   `ST_DATA`, or `ST_ALL` rows to `STQEntryBank` without moving STQ state back
+   into rename.
 2. T/U queue rename boundary: consume `OperandClass.T/U` and
    `DestinationKind.T/U` emitted by `FrontendRegAliasClassify` without
    broadening scalar GPR rename ownership.

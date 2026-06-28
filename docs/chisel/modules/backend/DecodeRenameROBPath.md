@@ -14,6 +14,7 @@
   - `chisel/src/main/scala/linxcore/backend/DecodeLoadStoreIdAssign.scala`
   - `chisel/src/main/scala/linxcore/backend/DecodeRenameQueue.scala`
   - `chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala`
+  - `chisel/src/main/scala/linxcore/lsu/StoreDispatchQueues.scala`
   - `chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 
 ## Purpose
@@ -30,8 +31,10 @@ cycle, stamps reduced memory-order identity for scalar load/store rows at the
 queue acceptance boundary, enqueues the decoded row into a registered
 `dec_ren_q` owner, stamps temporary ROB identity from allocator cursors when
 the queue head is presented to rename, and leaves enqueue-time ROB
-reservation, full SID/LID carry, real STA/STD queue mutation, width-wide
-rename, and full top-level fetch/commit flow to later owners.
+reservation, full SID/LID carry, STA/STD execution, STQ mutation, width-wide
+rename, and full top-level fetch/commit flow to later owners. It now owns a
+finite queue-backed store-dispatch boundary through `StoreDispatchQueues`, but
+STA/STD execution and STQ insertion remain later LSU owners.
 
 ## Interface
 
@@ -40,8 +43,8 @@ Inputs:
 - `d1`, `slots`, `validMask`, `flushValid`: D1/F4 decode inputs consumed by
   `FrontendDecodeStage`.
 - `renamedOutReady`: downstream renamed-uop consumer readiness.
-- `storeStaReady`, `storeStdReady`: reduced store-dispatch readiness for the
-  address and data sides.
+- `storeStaDequeueReady`, `storeStdDequeueReady`: execution-side readiness for
+  the current STA and STD queue heads.
 - `checkpointValid/checkpointBid`, `commitValid/commitBid`, `cleanup`:
   pass-through control for the scalar GPR rename owner and ROB flush path.
 - `completeValid/completeRobValue`: reduced ROB completion hook.
@@ -69,6 +72,12 @@ Outputs:
   `storeDispatchBlockedBySta`, `storeDispatchBlockedByStd`, `storeSta`,
   `storeStd`, `storeUnsplit`: reduced store-dispatch observability from the
   accepted renamed row.
+- `storeStaQueueValid`, `storeStdQueueValid`, `storeStaQueue`,
+  `storeStdQueue`, `storeStaEnqueueFire`, `storeStdEnqueueFire`,
+  `storeStaDequeueFire`, `storeStdDequeueFire`,
+  `storeDispatchInputProtocolError`, `storeStaQueueCount`,
+  `storeStdQueueCount`, `storeStaQueueFull`, `storeStdQueueFull`: finite
+  STA/STD dispatch queue observability from `StoreDispatchQueues`.
 - `robAllocAttemptValid`, `robAllocReady`, `robAllocFire`,
   `robAllocBlockedBy*`, `robAllocDuplicateIdentity`: allocation handoff
   observability.
@@ -119,6 +128,14 @@ row, not from `StoreSplitPayload.inReady`, avoiding a combinational loop
 through the accepted renamed output. `StoreSplitPayload` then consumes the
 accepted renamed row and emits the observed STA, STD, or ST_ALL payloads.
 
+`StoreDispatchQueues` consumes those payloads and owns finite STA/STD FIFO
+admission. Its readiness is capacity-only and flush-qualified; it does not
+depend on the payload valid bits coming back from `StoreSplitPayload`. Split
+stores enqueue both STA and STD payloads atomically, unsplit stores enqueue
+only a STA-side `ST_ALL` payload, and protocol-shape errors are exposed as
+diagnostics that block enqueue. Queue heads are surfaced for the future
+STA/STD execution owners.
+
 The allocator still owns BID generation, BROB metadata allocation, ROB row
 allocation, completion, deallocation, commit monitoring, and ROB flush pruning.
 The composition ties block scalar/engine completion and block retire inputs
@@ -152,8 +169,9 @@ reduces the model in one important way: the allocator cursor identity is
 stamped at the queue head. This avoids duplicate cursor reservations while the
 path lacks an enqueue-time ROB reservation owner. Full model timing requires
 moving ROB reservation before enqueue and carrying full `load_id`/`sid`
-payloads into LIQ/STQ owners. Full store timing requires replacing the current
-payload observability with real STA/STD dispatch queues and STQ residency.
+payloads into LIQ/STQ owners. Full store timing still requires STA/STD
+execution, executed store request construction, and STQ residency behind the
+new dispatch queues.
 
 ## Deferred Owners
 
@@ -164,8 +182,8 @@ payload observability with real STA/STD dispatch queues and STQ residency.
 - Top-level frontend backpressure wiring that consumes `decodeReady`.
 - Width-wide slot-order LSID/SID allocation and same-cycle memory ordering.
 - Full `load_id`/`sid` payload carry into LIQ/STQ owners.
-- Real STA/STD dispatch queues and STQ mutation behind the current
-  `StoreSplitPayload` observability.
+- STA/STD execution, address/data readiness, and STQ mutation behind the
+  current `StoreDispatchQueues` heads.
 - Automatic checkpoint capture from validated `isLastInBlock`.
 - T/U/SGPR/tile/vector operand classification and rename.
 - Ready-table initialization, issue enqueue, execution completion, and full
@@ -181,6 +199,7 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
 bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchQueues
 ```
 
 Affected gates:

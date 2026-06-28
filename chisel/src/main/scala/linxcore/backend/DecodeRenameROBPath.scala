@@ -7,6 +7,7 @@ import linxcore.bctrl.BID
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
+import linxcore.lsu.StoreDispatchQueues
 import linxcore.recovery.{FullBidRecoveryBridge, RecoveryCleanupIntent}
 import linxcore.rename.{ScalarDecodeRenameBridge, StoreSplitIssuePayload, StoreSplitPayload}
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -21,6 +22,7 @@ class DecodeRenameROBPathIO(
     val blockTypeWidth: Int = 4,
     val trapCauseWidth: Int = 32,
     val decRenQueueDepth: Int = 4,
+    val storeDispatchQueueDepth: Int = 4,
     val loadStoreSerialWidth: Int = 64)
     extends Bundle {
   private val slotWidth = math.max(1, log2Ceil(p.decodeWidth))
@@ -28,6 +30,7 @@ class DecodeRenameROBPathIO(
   private val sizeWidth = log2Ceil(p.robEntries + 1)
   private val decRenPtrWidth = math.max(1, log2Ceil(decRenQueueDepth))
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
+  private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
 
   val d1 = Input(new FrontendDecodePacket(p))
   val slots = Input(Vec(p.decodeWidth, new F4Slot(p)))
@@ -35,8 +38,8 @@ class DecodeRenameROBPathIO(
   val flushValid = Input(Bool())
 
   val renamedOutReady = Input(Bool())
-  val storeStaReady = Input(Bool())
-  val storeStdReady = Input(Bool())
+  val storeStaDequeueReady = Input(Bool())
+  val storeStdDequeueReady = Input(Bool())
   val checkpointValid = Input(Bool())
   val checkpointBid = Input(new ROBID(p.robEntries))
   val commitValid = Input(Bool())
@@ -89,6 +92,19 @@ class DecodeRenameROBPathIO(
   val storeSta = Output(new StoreSplitIssuePayload(p))
   val storeStd = Output(new StoreSplitIssuePayload(p))
   val storeUnsplit = Output(new StoreSplitIssuePayload(p))
+  val storeStaQueueValid = Output(Bool())
+  val storeStdQueueValid = Output(Bool())
+  val storeStaQueue = Output(new StoreSplitIssuePayload(p))
+  val storeStdQueue = Output(new StoreSplitIssuePayload(p))
+  val storeStaEnqueueFire = Output(Bool())
+  val storeStdEnqueueFire = Output(Bool())
+  val storeStaDequeueFire = Output(Bool())
+  val storeStdDequeueFire = Output(Bool())
+  val storeDispatchInputProtocolError = Output(Bool())
+  val storeStaQueueCount = Output(UInt(storeDispatchCountWidth.W))
+  val storeStdQueueCount = Output(UInt(storeDispatchCountWidth.W))
+  val storeStaQueueFull = Output(Bool())
+  val storeStdQueueFull = Output(Bool())
   val accepted = Output(Bool())
   val robAllocAttemptValid = Output(Bool())
   val robAllocReady = Output(Bool())
@@ -152,6 +168,7 @@ class DecodeRenameROBPath(
     val physRegs: Int = 64,
     val mapQDepth: Int = 32,
     val decRenQueueDepth: Int = 4,
+    val storeDispatchQueueDepth: Int = 4,
     val loadStoreSerialWidth: Int = 64)
     extends Module {
   require(traceParams.robValueWidth >= p.robIndexWidth, "trace ROB value must hold DecodeRenameROBPath ROB index")
@@ -172,6 +189,7 @@ class DecodeRenameROBPath(
     blockTypeWidth,
     trapCauseWidth,
     decRenQueueDepth,
+    storeDispatchQueueDepth,
     loadStoreSerialWidth
   ))
 
@@ -261,12 +279,18 @@ class DecodeRenameROBPath(
     tidWidth = tidWidth
   ))
   rename.io.in := queuedForRename
+  val storeDispatch = Module(new StoreDispatchQueues(p, depth = storeDispatchQueueDepth))
+  storeDispatch.io.flushValid := decRenFlush
+  storeDispatch.io.staDequeueReady := io.storeStaDequeueReady
+  storeDispatch.io.stdDequeueReady := io.storeStdDequeueReady
+
   val queuedStoreActive = queuedForRename.valid && queuedForRename.isStore
   val queuedStoreSplit =
     queuedStoreActive && queuedForRename.storeSplitIntent &&
       !queuedForRename.isLoadStorePair && !queuedForRename.cacheMaintainNoSplit
   val storeDispatchReadyForHead =
-    !queuedStoreActive || Mux(queuedStoreSplit, io.storeStaReady && io.storeStdReady, io.storeStaReady)
+    !queuedStoreActive ||
+      Mux(queuedStoreSplit, storeDispatch.io.staReady && storeDispatch.io.stdReady, storeDispatch.io.staReady)
 
   rename.io.outReady := io.renamedOutReady && storeDispatchReadyForHead
   rename.io.robAllocReady := allocator.io.allocReady
@@ -280,8 +304,12 @@ class DecodeRenameROBPath(
 
   val storeSplit = Module(new StoreSplitPayload(p))
   storeSplit.io.in := rename.io.out
-  storeSplit.io.staReady := io.storeStaReady
-  storeSplit.io.stdReady := io.storeStdReady
+  storeSplit.io.staReady := storeDispatch.io.staReady
+  storeSplit.io.stdReady := storeDispatch.io.stdReady
+
+  storeDispatch.io.staIn := storeSplit.io.sta
+  storeDispatch.io.stdIn := storeSplit.io.std
+  storeDispatch.io.unsplitIn := storeSplit.io.unsplit
 
   allocator.io.flush := io.cleanup.flush
   allocator.io.allocValid := rename.io.robAllocAttemptValid
@@ -338,11 +366,24 @@ class DecodeRenameROBPath(
   io.storeDispatchReady := storeDispatchReadyForHead
   io.storeDispatchFire := storeSplit.io.fire
   io.storeDispatchSplit := storeSplit.io.split
-  io.storeDispatchBlockedBySta := queuedStoreActive && !io.storeStaReady
-  io.storeDispatchBlockedByStd := queuedStoreSplit && !io.storeStdReady
+  io.storeDispatchBlockedBySta := queuedStoreActive && !storeDispatch.io.staReady
+  io.storeDispatchBlockedByStd := queuedStoreSplit && !storeDispatch.io.stdReady
   io.storeSta := storeSplit.io.sta
   io.storeStd := storeSplit.io.std
   io.storeUnsplit := storeSplit.io.unsplit
+  io.storeStaQueueValid := storeDispatch.io.staOutValid
+  io.storeStdQueueValid := storeDispatch.io.stdOutValid
+  io.storeStaQueue := storeDispatch.io.staOut
+  io.storeStdQueue := storeDispatch.io.stdOut
+  io.storeStaEnqueueFire := storeDispatch.io.staEnqueueFire
+  io.storeStdEnqueueFire := storeDispatch.io.stdEnqueueFire
+  io.storeStaDequeueFire := storeDispatch.io.staDequeueFire
+  io.storeStdDequeueFire := storeDispatch.io.stdDequeueFire
+  io.storeDispatchInputProtocolError := storeDispatch.io.inputProtocolError
+  io.storeStaQueueCount := storeDispatch.io.staCount
+  io.storeStdQueueCount := storeDispatch.io.stdCount
+  io.storeStaQueueFull := storeDispatch.io.staFull
+  io.storeStdQueueFull := storeDispatch.io.stdFull
   io.accepted := rename.io.accepted
   io.robAllocAttemptValid := rename.io.robAllocAttemptValid
   io.robAllocReady := allocator.io.allocReady

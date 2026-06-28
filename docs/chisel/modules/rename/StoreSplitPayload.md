@@ -29,9 +29,9 @@ The module deliberately stops at payload construction. It does not mutate STQ
 state, allocate STQ rows, touch SCB/MDB state, or choose memory-side data
 values. `STQEntryBank` already owns the complementary `ST_ADDR`/`ST_DATA`
 merge rule, so this owner only prepares the dispatch payload shape and
-backpressure decision. The reduced `DecodeRenameROBPath` now instantiates this
-owner for accepted renamed rows and exposes the resulting payloads as
-observability before real STA/STD dispatch queues exist.
+backpressure decision. The reduced `DecodeRenameROBPath` instantiates this
+owner for accepted renamed rows and feeds the resulting payloads into
+`StoreDispatchQueues`.
 
 ## Interface
 
@@ -123,8 +123,7 @@ through scalar rename into this owner.
 
 - Stack rename payloads and explicit STA stack-type clearing / STD stack-type
   forwarding.
-- Real STA/STD dispatch queues behind the current `DecodeRenameROBPath`
-  observability.
+- STA/STD execution and STQ mutation behind `StoreDispatchQueues`.
 - STQ allocation, complementary partial-store merge, and STQ residency
   counters.
 - Issue wakeup aliasing, ready-table initialization, and real source readiness.
@@ -143,6 +142,7 @@ Affected gates:
 ```bash
 sbt --client --error 'Test / compile'
 bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
+bash tools/chisel/run_chisel_tests.sh --only StoreDispatchQueues
 bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
 bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath

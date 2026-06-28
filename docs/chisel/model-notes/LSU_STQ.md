@@ -14,6 +14,7 @@
 - LinxCoreModel: `model/LinxCoreModel/model/l1/SCB.h`
 - LinxCoreModel: `model/LinxCoreModel/model/l1/SCB.cpp`
 - LinxCoreModel: `model/LinxCoreModel/model/l1/cluster.cpp`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/StoreDispatchQueues.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQFlushPrune.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala`
@@ -49,6 +50,7 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadStoreForwardingSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadForwardPipelineSpec.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadInflightQueueSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/StoreDispatchQueuesSpec.scala`
 
 ## Model Contract
 
@@ -97,6 +99,17 @@ bytes are valid, and later evicts full or selected valid lines through
 DCache/L2 lookup paths.
 
 ## Chisel Scope
+
+`StoreDispatchQueues` is the first Chisel owner for the model
+`pe_iex_sta_array`/`pe_iex_std_array` dispatch boundary after scalar rename.
+It consumes `StoreSplitPayload` rows, atomically admits split `ST_ADDR` and
+`ST_DATA` payloads when both queues have space, admits unsplit `ST_ALL`
+payloads into the STA queue only, and exposes queue heads for later STA/STD
+execution. Its readiness is capacity-only and flush-qualified, so it does not
+feed payload-valid diagnostics back into rename acceptance. Protocol-shape
+errors are observable and suppress enqueue, but they are not readiness inputs.
+This owner does not compute store addresses or data and does not allocate,
+merge, or free STQ rows.
 
 `STQFlushPrune` is the first Chisel LSU cleanup consumer. It mirrors the model
 match predicate and emits:
