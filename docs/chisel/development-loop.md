@@ -19,14 +19,17 @@ by merging over dirty worktrees:
 
 | Repository | SHA observed at the start of this plan packet |
 |---|---|
-| `linx-isa` | `23c216bef8b9e8cd40d09865108732e6deb9a8f9` |
-| `rtl/LinxCore` | `ecc6e32da7f37f7b043aaab60129a1155c789f47` |
+| `linx-isa` | `ca6faab14a05975b4b52c00c4c5556e301d50930` |
+| `rtl/LinxCore` | `11529bf345c407fe1c7614973e61b68be8d99fb4` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
-| `emulator/qemu` | `b5e90c7db5fb46fc49736db0aa79b58a5ac3d202` |
-| `skills/linx-skills` | `8216ac446e8584c46e3ca5cdc0f27ae75d46f4da` |
+| `emulator/qemu` | `9f96be0c952fb9a047b324b06a480b1c689ba51d` |
+| `skills/linx-skills` | `feccb209b64ed461291b37ab043bfaa1a078aaf9` |
 
 `model/LinxCoreModel` was fetched on 2026-06-29 and still matched
 `origin/main` at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+The superproject, LinxCore, LinxCoreModel, and skills remotes were fetched
+again on 2026-06-29. Do not merge over the current dirty worktrees; record
+remote deltas at packet start and keep unrelated dirt out of module commits.
 
 ## Reference Evidence
 
@@ -106,16 +109,19 @@ The ROB/cross-check substrate remains the required base:
 
 | Order | Packet | Primary files | Required gates |
 |---|---|---|---|
-| 1 | Enqueue-time ROB reservation plus post-rename sidecar update (R76) | `DecodeRenameROBPath.scala`, `DispatchROBAllocator.scala`, `ROBEntryBank.scala`, module docs | `DecodeRenameROBPath`, `DispatchROBAllocator`, `ROBEntryBank`, `DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
-| 2 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top xcheck |
-| 3 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
-| 4 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 5 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 1 | R76 implemented baseline: enqueue-time ROB reservation plus post-rename sidecar update | `DecodeRenameROBPath.scala`, `DispatchROBAllocator.scala`, `ROBEntryBank.scala`, module docs | `DecodeRenameROBPath`, `DispatchROBAllocator`, `ROBEntryBank`, `DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| 2 | R77 gate broadening and top trace prep | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py`, wrapper docs | top xcheck, Verilator lint, `build_chisel.sh`, trace self-test, QEMU dry-run |
+| 3 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top xcheck |
+| 4 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
+| 5 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 6 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
-R76 implemented the reservation/update split. Future agents must not reintroduce
-queue-head ROB allocation or reserve a row with permanent zero T/U sidecars.
-The next promotion work should broaden gates and cross-check payloads around
-the new split rather than redesigning the split itself.
+R76 implemented the reservation/update split at `rtl/LinxCore` commit
+`11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
+reintroduce queue-head ROB allocation or reserve a row with permanent zero T/U
+sidecars. R77 owns gate broadening and cross-check payload prep around the new
+split; it must not redesign the split unless a failing gate produces concrete
+first-divergence evidence.
 
 ## Cross-Check Ladder
 

@@ -168,6 +168,15 @@ was rechecked at LinxCoreModel commit
 `BCtrlUnit::Work`, and `BlockROB::allocBlock`. The implementation reserves
 BROB/ROB before `DecodeRenameQueue` enqueue and patches `ROBEntryBank` through
 `renameUpdate*` when rename accepts the queue head.
+R76 landed at `rtl/LinxCore` commit
+`11529bf345c407fe1c7614973e61b68be8d99fb4` and was repinned by superproject
+commit `ca6faab14a05975b4b52c00c4c5556e301d50930`. R77 planning starts from
+that baseline. The superproject, LinxCore, LinxCoreModel, and skills remotes
+were fetched on 2026-06-29; `model/LinxCoreModel` still matched `origin/main`
+at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`. Do not merge or checkout over
+the current dirty worktrees; record remote deltas and keep unrelated
+architecture docs, bring-up docs, and non-`linx-core` skill edits out of R77
+commits.
 
 ## Non-Negotiable Rules
 
@@ -333,6 +342,7 @@ These packets remain the required base before broad module promotion:
 | R74 | Retired-row PE/STID sidecars for T/U retire commands | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R75 | Decoded/renamed scalar PE owner sidecar carry | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendInstructionBuffer`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R76 | Enqueue-time ROB/BROB reservation with post-rename sidecar update | `sbt "testOnly linxcore.rob.ROBEntryBankSpec linxcore.backend.DispatchROBAllocatorSpec linxcore.backend.DecodeRenameROBPathSpec"`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R77 | R76 gate broadening and top trace/xcheck prep | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_reduced_rob_xcheck.sh`, `run_chisel_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -467,7 +477,7 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. R76 gate broadening and trace/xcheck prep: run the full wrapper ladder for
+1. R77 gate broadening and trace/xcheck prep: run the full wrapper ladder for
    the reservation/update split, then capture any top/QEMU dry-run gaps before
    wider frontend work depends on the new boundary.
 2. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
