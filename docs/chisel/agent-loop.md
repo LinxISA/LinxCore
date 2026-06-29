@@ -213,6 +213,21 @@ R83 inserts a reduced scalar issue queue between rename and execute, gates
 queue-head issue on RF source readiness, and preserves ROB identity into
 execute; it does not claim full age-select, P1/I1/I2 in-flight release,
 cancel, replay, or bypass behavior.
+R84 started from `rtl/LinxCore` commit
+`e97b92dc6e3bb94949c4b7803ca13e5f52532692` after R83 landed the RF-gated
+issue queue. The superproject root was
+`a7ffc894868cdb39d8bd6a5a80df32665c203952`; LinxCoreModel remained at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; QEMU was at
+`9f96be0c952fb9a047b324b06a480b1c689ba51d`; `skills/linx-skills` was at
+`82e1a5fe42b20e56a22c9d203c623c37752ea00f`. The R84 model evidence is
+`IssueState::Select`, `IssueState::ReleaseEntry`, `IssueState::flush`,
+`IssueState::setCancel`, `ALUPipe::Work`, and `IEX::releaseIQEntry`. R84 keeps
+the reduced FIFO head-only selection policy, but selected rows now remain
+resident as issued entries until an ALU W2 `(bid, rid, stid)` release removes
+them; full age-select, cancel, replay, bypass, and P1/I1/I2 timing remain
+future packets.
+R84 closeout: `skill-evolve: update linx-core (issue acceptance marks issued;
+issue-queue removal waits for later model-derived release identity)`.
 
 ## Non-Negotiable Rules
 
@@ -385,6 +400,7 @@ These packets remain the required base before broad module promotion:
 | R81 | Reduced scalar ALU completion row xcheck | `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ROBEntryBank`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R82 | Reduced scalar RF-backed ALU source path | `run_chisel_tests.sh --only ReducedScalarRegisterFile`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R83 | Reduced scalar issue-queue handoff | `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_tests.sh --only ReducedScalarRegisterFile`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R84 | Model-style issued-entry release | `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -408,8 +424,8 @@ Use this order for each promoted slice:
    execute completion, completion-row payload wiring, or the frontend ALU
    trace-top driver.
 9. `run_chisel_frontend_rf_alu_trace_top_xcheck.sh` after changes to scalar RF
-   operand sourcing, issue-queue source readiness, execute
-   physical-destination writeback metadata, or the shared frontend ALU
+   operand sourcing, issue-queue source readiness, issue-queue release,
+   execute physical-destination writeback metadata, or the shared frontend ALU
    trace-top driver.
 10. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
@@ -535,9 +551,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Full issue scheduler timing: replace the reduced FIFO/dequeue-on-accept
-   surrogate with model-aligned wakeup, select, issued/in-flight, cancel,
-   replay, and release behavior.
+1. Full issue scheduler timing: replace the reduced FIFO head-only selector
+   with model-aligned wakeup, age-select, P1/I1/I2 in-flight timing, cancel,
+   replay, and bypass behavior.
 2. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
    event stream from commit-only rows toward trap, memory, recovery, and block
    sidebands.

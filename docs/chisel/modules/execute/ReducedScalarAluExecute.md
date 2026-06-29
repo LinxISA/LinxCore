@@ -19,7 +19,8 @@
 `ReducedScalarAluExecute` is the first Chisel scalar execute owner behind the
 frontend trace path. It consumes one `RenamedUop`, computes a reduced
 model-derived ALU subset, and emits both a ROB completion index and a
-writeback-shaped `CommitTraceRow`.
+writeback-shaped `CommitTraceRow`. It also emits the reduced issue-queue
+release identity when the row reaches W2.
 
 This is not the final scalar integer execution unit. Source values are supplied
 by the owning wrapper: the R81 top uses explicit testbench operands, while the
@@ -41,6 +42,10 @@ owners.
 | output | `completeDstPhysValid` | `Bool` | with `completeValid` | Destination physical tag and data are valid for a scalar GPR writeback. |
 | output | `completeDstPhysTag` | `UInt(physRegWidth.W)` | with `completeDstPhysValid` | Renamed physical destination tag copied from `in.dst(0).physTag`. |
 | output | `completeDstData` | `UInt(64.W)` by default | with `completeDstPhysValid` | ALU result for the RF/ready-table writeback owner. |
+| output | `releaseValid` | `Bool` | valid | W2-stage uop reached the reduced issue-queue release point, including unsupported reduced opcodes. |
+| output | `releaseBid` | `ROBID` | with `releaseValid` | Block identity copied from the W2 uop. |
+| output | `releaseRid` | `ROBID` | with `releaseValid` | ROB identity copied from the W2 uop. |
+| output | `releaseStid` | `UInt(threadIdWidth.W)` | with `releaseValid` | STID copied from the W2 uop. |
 | output | `accepted` | `Bool` | pulse | `inValid && inReady`. |
 | output | `busy` | `Bool` | state | Any E/W1/W2 pipe stage is occupied. |
 | output | `unsupported` | `Bool` | pulse | W2 uop reached execute but is outside the reduced opcode subset. |
@@ -82,13 +87,18 @@ The completion row copies identity and control fields from the accepted
 exports the same result and destination physical tag on `completeDst*`, and
 leaves memory/trap fields zero.
 
+`releaseValid` is intentionally tied to any valid W2 row, not only supported
+rows. The reduced issue queue has already marked the row issued when execute
+accepted it; an unsupported reduced opcode must still release that resident
+queue entry so the top does not deadlock while surfacing `unsupported`.
+
 ## Timing
 
 The reduced pipe captures a uop into E when `inValid && inReady`, computes the
-result when E advances to W1, and emits completion from W2. There is no
-downstream completion backpressure yet, so the owning top must only connect
-this module to a completion consumer that can accept one completion when
-`completeValid` pulses.
+result when E advances to W1, and emits completion and release from W2. There
+is no downstream completion backpressure yet, so the owning top must only
+connect this module to a completion consumer that can accept one completion
+when `completeValid` pulses.
 
 ## Flush/Recovery
 
@@ -104,6 +114,8 @@ frontend trace lane. It is designed to feed `ROBEntryBank.completeRow` through
 QEMU-shaped comparator. `completeDstPhysValid/Tag/Data` feed
 `ReducedScalarRegisterFile` in `LinxCoreFrontendRfAluTraceTop`, allowing later
 frontend rows to read earlier Chisel writebacks through renamed physical tags.
+`releaseValid/Bid/Rid/Stid` feed `ReducedScalarIssueQueue` so the queue
+removes the issued row only after this pipe reaches the reduced release point.
 
 ## Verification
 

@@ -47,6 +47,18 @@ R83 started from `linx-isa` commit
 `IssueState::ReleaseEntry`, `IDispatch::Work`, and `ALUPipe` W1/W2
 writeback. R83 inserts a reduced FIFO issue queue between rename and execute,
 so source readiness gates queue-head issue rather than rename acceptance.
+R84 started from `linx-isa` commit
+`a7ffc894868cdb39d8bd6a5a80df32665c203952`, `rtl/LinxCore` commit
+`e97b92dc6e3bb94949c4b7803ca13e5f52532692`, `model/LinxCoreModel` commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`, QEMU commit
+`9f96be0c952fb9a047b324b06a480b1c689ba51d`, and `skills/linx-skills` commit
+`82e1a5fe42b20e56a22c9d203c623c37752ea00f`. The R84 model evidence is
+`IssueState::Select` marking an entry `issued`, `IssueState::ReleaseEntry`
+removing only a later issued match, `IssueState::flush` preserving
+issued/not-issued accounting, and `ALUPipe`/`IEX::releaseIQEntry` returning a
+release event after issue.
+R84 closeout: `skill-evolve: update linx-core (issue acceptance marks issued;
+issue-queue removal waits for later model-derived release identity)`.
 
 ## Reference Evidence
 
@@ -62,7 +74,7 @@ The next ROB packet is anchored to these C++ model facts:
 | `model/iex/pipe/alu_pipe.cpp` | `ALUPipe::Work` executes in the ALU pipe and publishes resolve/writeback at W2. |
 | `isa/calculate/arithmetic/Arithmetic.cpp` / `isa/calculate/others/Others.cpp` | Reduced scalar ALU semantics for R81 are `ADD = src0 + src1`, `ADDI = src0 + imm`, and `MOVR/MOVI` move the selected source/immediate into the destination. |
 | `model/bctrl/spe/GPRRename.cpp` / `model/iex/rtable.cpp` / `model/iex/iex_rf.cpp` | R82 scalar RF operand sourcing uses renamed physical tags: architectural GPRs start as identity physical tags, scalar destinations allocate new physical tags, ready/data state is tracked per physical tag, and RF reads return OPD_GREG data by physical tag. |
-| `model/iex/iex_iq.cpp` / `model/iex/iex_dispatch.cpp` / `model/iex/pipe/alu_pipe.cpp` | R83 scalar issue handoff stores renamed rows before execute, wakes sources by physical tag, selects only ready rows, and releases issued rows later. The reduced Chisel queue preserves enqueue, RF-readiness gating, and ROB identity but intentionally deallocates on execute acceptance until full P1/I1/I2 release is implemented. |
+| `model/iex/iex_iq.cpp` / `model/iex/iex_dispatch.cpp` / `model/iex/pipe/alu_pipe.cpp` / `model/iex/iex.cpp` | R84 scalar issue handoff stores renamed rows before execute, wakes sources by physical tag, selects only ready rows, marks selected entries issued without removing them, and releases issued rows later by `(bid, rid, stid)`. The reduced Chisel queue preserves enqueue, RF-readiness gating, ROB identity, issued-entry residency, and ALU W2 release while still deferring full age-select, P1/I1/I2 timing, cancel, replay, and bypass. |
 
 The key hardware implication is that the C++ model gets post-allocation rename
 visibility through a shared `SimInst` pointer. Chisel `ROBEntryBank` stores
@@ -138,10 +150,11 @@ The ROB/cross-check substrate remains the required base:
 | 6 | R81 scalar ALU completion row xcheck | `execute/ReducedScalarAluExecute.scala`, `top/LinxCoreFrontendAluTraceTop.scala`, frontend ALU xcheck driver/script, module docs | `ReducedScalarAluExecute`, `LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, old frontend trace-top regression |
 | 7 | R82 RF-backed scalar ALU source path | `execute/ReducedScalarRegisterFile.scala`, `top/LinxCoreFrontendRfAluTraceTop.scala`, shared frontend ALU xcheck driver, RF module docs | `ReducedScalarRegisterFile`, `ReducedScalarAluExecute`, `LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, R81 ALU regression |
 | 8 | R83 reduced scalar issue-queue handoff | `execute/ReducedScalarIssueQueue.scala`, `top/LinxCoreFrontendRfAluTraceTop.scala`, shared frontend ALU xcheck driver, module docs | `ReducedScalarIssueQueue`, `LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, R81/R82 trace regressions |
-| 9 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay/frontend-top gates |
-| 10 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
-| 11 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 12 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 9 | R84 model-style issued-entry release | `execute/ReducedScalarIssueQueue.scala`, `execute/ReducedScalarAluExecute.scala`, `top/LinxCoreFrontendRfAluTraceTop.scala`, module docs | `ReducedScalarIssueQueue`, `ReducedScalarAluExecute`, `LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, R81/R82 trace regressions |
+| 10 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay/frontend-top gates |
+| 11 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
+| 12 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 13 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
@@ -219,6 +232,8 @@ Update skills for:
 - a superproject or skills-submodule maintenance rule future agents must obey.
 - a ready/valid rule where physical source readiness must gate issue from a
   queued row, while reduced rename acceptance remains queue-capacity driven.
+- an issue-queue lifetime rule where execute acceptance marks a row issued but
+  removal waits for a later model-derived release identity.
 
 Do not update skills for wording cleanup, one-off test vectors, or module-local
 implementation detail already captured in that module page.

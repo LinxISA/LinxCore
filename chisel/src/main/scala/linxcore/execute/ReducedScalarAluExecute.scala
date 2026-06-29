@@ -6,6 +6,7 @@ import chisel3.util.log2Ceil
 import linxcore.commit.{CommitTraceParams, CommitTraceRow}
 import linxcore.common.{InterfaceParams, RenamedUop}
 import linxcore.frontend.FrontendOpcodeDecodeTable
+import linxcore.rob.ROBID
 
 class ReducedScalarAluExecuteIO(
     val p: InterfaceParams = InterfaceParams(),
@@ -24,6 +25,11 @@ class ReducedScalarAluExecuteIO(
   val completeDstPhysValid = Output(Bool())
   val completeDstPhysTag = Output(UInt(p.physRegWidth.W))
   val completeDstData = Output(UInt(p.immWidth.W))
+
+  val releaseValid = Output(Bool())
+  val releaseBid = Output(new ROBID(p.robEntries))
+  val releaseRid = Output(new ROBID(p.robEntries))
+  val releaseStid = Output(UInt(p.threadIdWidth.W))
 
   val accepted = Output(Bool())
   val busy = Output(Bool())
@@ -68,7 +74,7 @@ class ReducedScalarAluExecute(
   private def fitReg(tag: UInt): UInt =
     tag.pad(traceParams.regWidth)(traceParams.regWidth - 1, 0)
 
-  private def robIdValue(id: linxcore.rob.ROBID): UInt =
+  private def robIdValue(id: ROBID): UInt =
     id.value.pad(32)(31, 0)
 
   private def completionRow(uop: RenamedUop, srcData: Vec[UInt], result: UInt, valid: Bool): CommitTraceRow = {
@@ -149,6 +155,10 @@ class ReducedScalarAluExecute(
   io.completeDstPhysValid := io.completeValid && w2Uop.dst(0).valid
   io.completeDstPhysTag := w2Uop.dst(0).physTag
   io.completeDstData := w2Result
+  io.releaseValid := w2Valid
+  io.releaseBid := w2Uop.bid
+  io.releaseRid := w2Uop.rid
+  io.releaseStid := w2Uop.threadId
   io.unsupported := w2Valid && !w2Supported
   io.unsupportedOpcode := w2Uop.opcode
 }

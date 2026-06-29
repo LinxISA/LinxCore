@@ -62,11 +62,16 @@ class LinxCoreFrontendRfAluTraceTopIO(
   val rfStateError = Output(Bool())
   val issueQueueEnqueueFire = Output(Bool())
   val issueQueueIssueFire = Output(Bool())
+  val issueQueueReleaseFire = Output(Bool())
   val issueQueueCount = Output(UInt(issueCountWidth.W))
+  val issueQueueIssuedCount = Output(UInt(issueCountWidth.W))
+  val issueQueueNotIssuedCount = Output(UInt(issueCountWidth.W))
   val issueQueueHeadValid = Output(Bool())
+  val issueQueueHeadIssued = Output(Bool())
   val issueQueueAllSourcesReady = Output(Bool())
   val issueQueueBlockedBySource = Output(Bool())
   val issueQueueBlockedByOutput = Output(Bool())
+  val issueQueueBlockedByIssued = Output(Bool())
 
   val commit = Output(new CommitTracePort(traceParams))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -150,6 +155,10 @@ class LinxCoreFrontendRfAluTraceTop(
   issue.io.inValid := path.io.renamedOutValid
   issue.io.in := path.io.renamedOut
   issue.io.flushValid := io.frontendFlushValid
+  issue.io.releaseValid := execute.io.releaseValid
+  issue.io.releaseBid := execute.io.releaseBid
+  issue.io.releaseRid := execute.io.releaseRid
+  issue.io.releaseStid := execute.io.releaseStid
 
   rf.io.initValid := io.rfInitValid
   rf.io.initArchTag := io.rfInitArchTag
@@ -202,11 +211,16 @@ class LinxCoreFrontendRfAluTraceTop(
   io.rfStateError := rf.io.stateError
   io.issueQueueEnqueueFire := issue.io.enqueueFire
   io.issueQueueIssueFire := issue.io.issueFire
+  io.issueQueueReleaseFire := issue.io.releaseFire
   io.issueQueueCount := issue.io.count
+  io.issueQueueIssuedCount := issue.io.issuedCount
+  io.issueQueueNotIssuedCount := issue.io.notIssuedCount
   io.issueQueueHeadValid := issue.io.headValid
+  io.issueQueueHeadIssued := issue.io.headIssued
   io.issueQueueAllSourcesReady := issue.io.allSourcesReady
   io.issueQueueBlockedBySource := issue.io.blockedBySource
   io.issueQueueBlockedByOutput := issue.io.blockedByOutput
+  io.issueQueueBlockedByIssued := issue.io.blockedByIssued
 
   io.commit := path.io.commit
   io.commitValidMask := path.io.commitValidMask
