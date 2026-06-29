@@ -12,12 +12,12 @@ The current priority is ROB and cross-check infrastructure. Wider frontend,
 issue, LSU, and engine work should build on a real retirement, recovery, and
 trace oracle instead of creating isolated module demos.
 
-## Current Baseline
+## Packet Start Baseline
 
 Record these at the start of each packet and refresh only by explicit fetch, not
 by merging over dirty worktrees:
 
-| Repository | SHA observed for this plan |
+| Repository | SHA observed at the start of this plan packet |
 |---|---|
 | `linx-isa` | `23c216bef8b9e8cd40d09865108732e6deb9a8f9` |
 | `rtl/LinxCore` | `ecc6e32da7f37f7b043aaab60129a1155c789f47` |
@@ -206,4 +206,3 @@ Closeout:
 - report `skill-evolve: update|no-update`
 - commit only owned files
 ```
-
