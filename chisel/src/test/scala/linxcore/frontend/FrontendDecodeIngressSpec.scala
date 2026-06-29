@@ -187,8 +187,12 @@ class FrontendDecodeIngressSpec extends AnyFunSuite {
     val p = InterfaceParams()
     val io = new FrontendDecodeIngressIO(p, ibufDepth = 8)
 
+    assert(io.push.peId.getWidth == 8)
+    assert(io.push.threadId.getWidth == 8)
     assert(io.push.pc.getWidth == 64)
     assert(io.push.checkpointId.getWidth == 6)
+    assert(io.d1.peId.getWidth == 8)
+    assert(io.d1.threadId.getWidth == 8)
     assert(io.d1.pktUid.getWidth == 64)
     assert(io.validMask.getWidth == 4)
     assert(io.slotCount.getWidth == 3)

@@ -36,6 +36,8 @@ reconstruct checkpoint state from external timing.
 | output | `count` | `UInt(log2(depth + 1).W)` | debug | Occupancy count |
 
 The default depth is 8 entries and must remain a positive power of two.
+`FrontendDecodePacket` identity includes `peId`, `threadId`, PC/window,
+packet UID, and checkpoint ID; the FIFO stores and returns the whole record.
 
 ## State
 
@@ -61,10 +63,10 @@ The module implements a single-push/single-pop FIFO:
   the current conservative pyCircuit ready rule, where ready is based on the
   pre-cycle count.
 
-The Chisel buffer deliberately stores `checkpointId` with the packet. The
-current pyCircuit F3 queue stores PC/window/packet UID and forwards checkpoint
-from nearby control wiring, but the Chisel contract treats checkpoint identity
-as packet-owned at frontend ingress.
+The Chisel buffer deliberately stores `peId`, `threadId`, and `checkpointId`
+with the packet. The current pyCircuit F3 queue stores PC/window/packet UID
+and forwards some nearby control wiring, but the Chisel contract treats owner
+and checkpoint identity as packet-owned at frontend ingress.
 
 ## Timing
 

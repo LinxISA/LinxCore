@@ -20,7 +20,8 @@ resident at the queue head.
 The queue is intentionally payload-agnostic. It does not allocate ROB rows,
 assign LSIDs, split stores, or rename operands. `DecodeLoadStoreIdAssign`
 annotates the selected row before enqueue in the current reduced composition;
-the queue only stores the payload it is given.
+the queue only stores the payload it is given, including row-owned
+`peId/threadId` sidecars.
 
 ## Interface
 
@@ -63,7 +64,9 @@ queue pruning is owned.
 
 The current `DecodeRenameROBPath` stores LSID-annotated decoded rows in this
 queue and stamps reduced ROB identity when the head is presented to rename.
-Full model-like `DCTop::Work()` ROB reservation before queue enqueue is
+R75 also relies on this boundary to preserve the model row owner
+`inst->peID/stid` sidecars until rename and ROB allocation consume the queue
+head. Full model-like `DCTop::Work()` ROB reservation before queue enqueue is
 deferred until the allocator exposes a true enqueue-time reservation owner.
 
 ## Deferred Owners

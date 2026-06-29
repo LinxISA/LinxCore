@@ -69,7 +69,8 @@ class FrontendDecodeStage(val p: InterfaceParams = InterfaceParams()) extends Mo
     out := 0.U.asTypeOf(out)
 
     out.valid := slotActive(slot) && meta.valid
-    out.threadId := 0.U
+    out.peId := io.d1.peId
+    out.threadId := io.d1.threadId
     out.pc := io.slots(slot).pc
     out.opcode := meta.opcode
     out.uopType := meta.dispatchTarget.asUInt

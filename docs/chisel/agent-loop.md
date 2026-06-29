@@ -140,6 +140,15 @@ fetched again on 2026-06-29 and local `HEAD` still matched `origin/main` at
 `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`. The model evidence for R74 was
 `SPERename::ReportSGPRBlockCommit`, `SPERename::RepLocalRetired`,
 `SPEROB::ReleaseFunc`, `SPEROB::CheckReg`, and `RelateInfo::peid`.
+R75 started from `rtl/LinxCore` commit
+`3b98c1ee70d39de7bec85ff1c66c9ed488f278c7`, with unrelated architecture
+markdown files dirty in the LinxCore worktree. The superproject root was at
+`597e8ed1ed356357f59effdb84c4f51a03f02f27` before edits. LinxCoreModel was
+checked on 2026-06-29 and local `HEAD` still matched `origin/main` at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`. The model evidence for R75 was
+`DCTop::Work`, `SPERename::Build`, `SPERename::Rename`,
+`SPEROB::getRetireID`, and the existing retire-side `inst->peID/stid`
+sidecar path.
 
 ## Non-Negotiable Rules
 
@@ -300,6 +309,7 @@ These packets remain the required base before broad module promotion:
 | R72 | Explicit SGPR local bank-array hierarchy | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkLocalBlockCommitFanout`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R73 | Active SGPR bank selector plumbing | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R74 | Retired-row PE/STID sidecars for T/U retire commands | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R75 | Decoded/renamed scalar PE owner sidecar carry | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendInstructionBuffer`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -434,14 +444,14 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add dynamic scalar PE ownership: carry the decoded/model `peID` owner
-   through frontend/decode, queue, rename, ROB allocation, and STQ request
-   sidecars instead of keeping the reduced lane fixed at PE0.
-2. Enqueue-time ROB reservation: move BROB/ROB allocation before
+1. Enqueue-time ROB reservation: move BROB/ROB allocation before
    `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
    without duplicate identities.
-3. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+2. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
+3. Multi-PE packet production and bank instantiation: teach the upstream
+   frontend/top owner to set nonzero `FrontendDecodePacket.peId` and instantiate
+   matching `ScalarTURenameBridge`/`TULinkLocalBankArray` PE banks.
 4. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
 5. QEMU full-compare harness: replace reduced synthetic rows with live Chisel

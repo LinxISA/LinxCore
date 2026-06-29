@@ -44,6 +44,8 @@ backend-owner responsibilities.
 | output | `ibCount` | `UInt(log2(depth + 1).W)` | debug | Instruction-buffer occupancy |
 
 Default `ibufDepth` is 8 and must remain a positive power of two.
+The pushed and visible `FrontendDecodePacket` carries `peId`, `threadId`,
+PC/window, packet UID, and checkpoint ID as one packet-owned identity record.
 
 ## State
 
@@ -94,9 +96,10 @@ opcode decode or uop construction back into this wrapper.
 - `F4DecodeWindow` clears `d1.valid`, slot valids, `validMask`, `slotCount`,
   and `totalLenBytes`.
 
-The module does not choose a restart PC or checkpoint. Frontend restart remains
-owned by the later FLS/F0 recovery handoff, while packet checkpoint identity is
-carried as `FrontendDecodePacket.checkpointId`.
+The module does not choose a restart PC, owner, or checkpoint. Frontend restart
+remains owned by the later FLS/F0 recovery handoff, while packet owner and
+checkpoint identity are carried as `FrontendDecodePacket.peId`, `threadId`,
+and `checkpointId`.
 
 ## Trace/Observability
 

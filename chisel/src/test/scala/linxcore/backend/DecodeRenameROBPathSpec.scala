@@ -41,6 +41,9 @@ object DecodeRenameROBPathReference {
 
   def activeTuBankStid(threadId: Int): Int =
     threadId
+
+  def activeTuBankPe(peId: Int): Int =
+    peId
 }
 
 class DecodeRenameROBPathSpec extends AnyFunSuite {
@@ -81,6 +84,11 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
   test("reference forwards queued row thread ID as reduced T/U active STID") {
     assert(activeTuBankStid(threadId = 0) == 0)
     assert(activeTuBankStid(threadId = 3) == 3)
+  }
+
+  test("reference forwards queued row PE ID as reduced T/U active PE") {
+    assert(activeTuBankPe(peId = 0) == 0)
+    assert(activeTuBankPe(peId = 2) == 2)
   }
 
   test("reference accepts agreeing ROB and LSU cleanup sources but blocks conflicting ones") {
@@ -148,6 +156,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.nextLoadId.getWidth == 64)
     assert(io.nextStoreId.getWidth == 64)
     assert(io.storeSplitIntent.getWidth == 1)
+    assert(io.renamedOut.peId.getWidth == 8)
+    assert(io.renamedOut.threadId.getWidth == 8)
     assert(io.storeStaExec.valid.getWidth == 1)
     assert(io.storeStdExec.addr.getWidth == 64)
     assert(io.storeMarkCommitIndex.getWidth == 3)
@@ -158,6 +168,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.storeDispatchBlockedBySta.getWidth == 1)
     assert(io.storeDispatchBlockedByStd.getWidth == 1)
     assert(io.storeSta.uop.lsid.getWidth == 32)
+    assert(io.storeSta.uop.peId.getWidth == 8)
     assert(io.storeStd.dataSrcIndex.getWidth == 2)
     assert(io.storeUnsplit.dataSrcIndex.getWidth == 2)
     assert(io.storeStaQueueValid.getWidth == 1)
@@ -302,7 +313,9 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_selectedLsId"))
     assert(sv.contains("io_decRenCount"))
     assert(sv.contains("io_robAllocAttemptValid"))
+    assert(sv.contains("io_renamedOut_peId"))
     assert(sv.contains("io_tuRenameTSeq_value"))
+    assert(sv.contains("io_tuRenameActivePeId"))
     assert(sv.contains("io_tuRenameActiveStid"))
     assert(sv.contains("io_tuRenameActiveBankValid"))
     assert(sv.contains("io_tuRenameDstValid"))

@@ -29,7 +29,7 @@ slot PC, raw instruction payload, and packet-derived uop UID metadata.
 
 | Direction | Signal | Type | Valid/ready | Description |
 |---|---|---|---|---|
-| input | `in` | `FrontendDecodePacket` | `in.valid` | F4 packet containing `pc`, 64-bit `window`, packet UID, and checkpoint ID |
+| input | `in` | `FrontendDecodePacket` | `in.valid` | F4 packet containing `peId`, `threadId`, `pc`, 64-bit `window`, packet UID, and checkpoint ID |
 | input | `flushValid` | `Bool` | always sampled | Suppresses D1 visibility and all slot-valid bits for the current packet |
 | output | `d1` | `FrontendDecodePacket` | `d1.valid` | Pass-through D1 packet with `valid = in.valid && !flushValid` |
 | output | `slots[4]` | `F4Slot` | `slots(i).valid` | Per-slot decoded length/offset/PC/raw/UID metadata |

@@ -88,10 +88,11 @@ read `GPRRenameCheckpoint.smap`. Accepted GPR destinations in the same
 architectural range allocate the first free physical tag and record a mapQ row
 with `(bid, rid, gid, archTag, physTag)`.
 
-The output `RenamedUop` preserves the decoded uop identity, immediate, reduced
-memory class/split metadata, block sidebands, boundary sidebands, raw
-instruction, and UID fields. The first packet only fills physical tags. It
-keeps `ready=false` for valid renamed sources because ready-table
+The output `RenamedUop` preserves the decoded uop identity, `peId/threadId`,
+immediate, reduced memory class/split metadata, block sidebands, boundary
+sidebands, raw instruction, and UID fields. The first packet only fills
+physical tags. It keeps `ready=false` for valid renamed sources because
+ready-table
 initialization, bypass state, and speculative load-ready policy belong to
 issue/ready-table owner packets.
 

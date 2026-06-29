@@ -47,7 +47,8 @@ Inputs:
 Outputs:
 
 - `out`: decoded uop with `lsid` replaced by the current LSID for memory rows
-  and memory/split metadata carried into the queued row.
+  and memory/split metadata carried into the queued row. Non-memory sidecars,
+  including `peId/threadId`, pass through unchanged.
 - `memoryValid`, `loadIdValid`, `storeIdValid`, `assignFire`: allocation event
   classification and advance observability.
 - `assignedLsId`, `assignedLoadId`, `assignedStoreId`: IDs associated with the
@@ -101,6 +102,9 @@ This Chisel owner preserves the pre-increment assignment rule and the accept
 boundary. It deliberately keeps block command start IDs, tile block split
 counts, PCR store source rewriting, and downstream store execution/STQ
 mutation in later owners.
+R75 does not change memory-counter policy; it records that model row owner
+sidecars (`inst->peID/stid`) pass through this memory-ID owner unmodified
+before queue residency.
 
 ## Deferred Owners
 

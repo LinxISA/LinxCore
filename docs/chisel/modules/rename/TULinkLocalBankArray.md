@@ -23,11 +23,12 @@ the Chisel T/U lane. It turns the previous reduced single
 `[scalar PE][STID]` bank-group array. Each bank group still contains the two
 SGPR hands, T and U, through `TULinkRename`.
 
-R72 keeps the live reduced backend selected at PE0/STID0, because decode does
-not yet publish a dynamic scalar PE/STID routing surface. R73 begins replacing
+R72 keeps the live reduced backend selected at PE0/STID0. R73 begins replacing
 that constant selection by routing the bridge's active STID from the queued
-decoded row's thread/STID sidecar, while PE remains the reduced PE0 lane. The
-important progress is that the hardware hierarchy now matches the model shape:
+decoded row's thread/STID sidecar. R75 routes the active PE side from the
+queued row's `peId` sidecar as well, while default frontend/top packets still
+produce PE0 unless an upstream owner sets a nonzero PE. The important progress
+is that the hardware hierarchy now matches the model shape:
 rename/external commit are routed to one active bank group, recovery cleanup is
 broadcast to every bank group, and post-clean local block commit is accepted
 only through the selected-STID/all-PE fanout.
@@ -133,7 +134,8 @@ The model scopes operations as follows:
   block commit to both SGPR hands for every scalar PE.
 
 R72 preserves those scopes structurally. R73 wires the first dynamic selector
-source by using the reduced backend row's STID for active-bank selection.
+source by using the reduced backend row's STID for active-bank selection, and
+R75 wires the matching row-owned PE sidecar into active-bank selection.
 R74 wires the retire selector separately, matching the model split between
 `Rename()`'s active row lookup and `RepLocalRetired()`'s retired-row bank
 arguments. Dynamic PE production remains deferred, but the bank-array boundary
@@ -141,8 +143,9 @@ now has independent active and retire target surfaces.
 
 ## Deferred Owners
 
-- Decode/rename dynamic PE routing into `activePeId`; the current reduced
-  backend still selects PE0.
+- Top-level nonzero PE production and matching multi-PE instantiation. The
+  reduced backend now routes decoded `peId` into `activePeId`, but default
+  packets still select PE0 unless an upstream owner drives a different PE.
 - Per-bank ROB/LSU cleanup source vectors once ROB/STQ expose multiple PE/STID
   candidates in one cycle.
 - Ready-table initialization and wakeup ownership per T/U bank group.

@@ -183,6 +183,7 @@ class ScalarDecodeRenameBridge(
   val renamed = Wire(new RenamedUop(p))
   renamed := 0.U.asTypeOf(renamed)
   renamed.valid := accepted
+  renamed.peId := io.in.peId
   renamed.threadId := io.in.threadId
   renamed.pc := io.in.pc
   renamed.opcode := io.in.opcode

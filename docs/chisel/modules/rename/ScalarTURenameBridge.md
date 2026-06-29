@@ -42,6 +42,9 @@ row's thread/STID sidecar instead of a bridge-local `localStid` constant.
 R74 adds the matching retire-bank selector path. `tuRetirePeId/Stid` come
 from the serialized retired-row command and are forwarded to
 `TULinkLocalBankArray` separately from the active rename selector.
+R75 starts driving that active PE input from the queued decoded row's `peId`
+sidecar in the reduced backend. The bridge has no PE0 assumption internally;
+it reports range and one-hot diagnostics from `TULinkLocalBankArray`.
 
 ## Interface
 
@@ -114,8 +117,9 @@ is ready, ROB allocation is ready, scalar GPR rename can proceed, and
 scalar and T/U state mutate for the same decoded uop in the same cycle.
 The selected bank group is no longer hardwired inside the bridge: callers drive
 `activePeId/activeStid`, and the bridge forwards the bank-array in-range and
-one-hot diagnostics. In the current reduced backend, PE remains `0` and STID
-comes from `DecodedUop.threadId`.
+one-hot diagnostics. In the current reduced backend, those inputs come from
+`DecodedUop.peId` and `DecodedUop.threadId`; default frontend packets still
+produce PE0/STID0 until an upstream owner drives nonzero sidecars.
 
 The output starts from the scalar bridge's `RenamedUop`. Accepted T/U sources
 are overlaid with the original decoded operand class, architectural tag,
@@ -179,6 +183,9 @@ existing Chisel row-owned STID sidecar for that selector, matching the model's
 R74 matches `SPERename::RepLocalRetired(type, peid, ..., tid)` by forwarding
 the retired-row command PE/STID to the bank array, so local mark/release is no
 longer tied to the current rename-head bank.
+R75 completes the active selector side of that same ownership contract by
+driving active PE from the row's `peId` sidecar, matching
+`sgprRenameUnit[inst->peID][inst->stid]`.
 
 ## Deferred Owners
 
@@ -186,8 +193,10 @@ longer tied to the current rename-head bank.
 - Old T/U physical tag release accounting for destination overwrite.
 - Ready-table initialization and wakeup ownership for T/U sources.
 - Commit-trace representation of non-GPR destination ownership.
-- Dynamic PE owner routing into the bank array; the current backend still
-  drives PE0 because decoded uops do not yet carry a PE owner.
+- Multi-PE backend/top integration. The bridge already consumes active
+  `peId/stid` sidecars, but the default reduced frontend/top still drives PE0
+  unless a later owner produces nonzero PE packets and instantiates matching
+  banks.
 - Tile, vector, and `CArg` operand classification beyond the current P/T/U
   subset.
 

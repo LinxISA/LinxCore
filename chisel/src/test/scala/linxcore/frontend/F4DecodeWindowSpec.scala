@@ -172,8 +172,13 @@ class F4DecodeWindowSpec extends AnyFunSuite {
 
   test("F4 slot fields preserve model-derived length and packet identity widths") {
     val p = InterfaceParams()
+    val io = new F4DecodeWindowIO(p)
     val slot = new F4Slot(p)
 
+    assert(io.in.peId.getWidth == 8)
+    assert(io.in.threadId.getWidth == 8)
+    assert(io.d1.peId.getWidth == 8)
+    assert(io.d1.threadId.getWidth == 8)
     assert(slot.pc.getWidth == 64)
     assert(slot.offsetBytes.getWidth == 4)
     assert(slot.lenBytes.getWidth == 4)

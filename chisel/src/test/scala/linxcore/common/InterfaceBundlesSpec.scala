@@ -20,6 +20,8 @@ class InterfaceBundleProbe(val p: InterfaceParams = InterfaceParams()) extends M
 
   io.renamed := 0.U.asTypeOf(io.renamed)
   io.renamed.valid := io.f4.valid && io.decoded(0).valid
+  io.renamed.peId := io.decoded(0).peId
+  io.renamed.threadId := io.decoded(0).threadId
   io.renamed.pc := io.decoded(0).pc
   io.renamed.opcode := io.decoded(0).opcode
   io.renamed.rid := io.decoded(0).rid
@@ -88,6 +90,8 @@ class InterfaceBundlesSpec extends AnyFunSuite {
     assert(p.iqIndexWidth == 5)
     assert(p.lsidWidth == 32)
     assert(p.checkpointWidth == 6)
+    assert(p.peIdWidth == 8)
+    assert(p.threadIdWidth == 8)
     assert(p.blockBidWidth == 64)
   }
 
@@ -112,6 +116,8 @@ class InterfaceBundlesSpec extends AnyFunSuite {
 
     assert(decoded.src.length == 3)
     assert(decoded.dst.length == 1)
+    assert(decoded.peId.getWidth == 8)
+    assert(decoded.threadId.getWidth == 8)
     assert(decoded.pc.getWidth == 64)
     assert(decoded.opcode.getWidth == 12)
     assert(decoded.imm.getWidth == 64)
@@ -144,6 +150,8 @@ class InterfaceBundlesSpec extends AnyFunSuite {
 
     assert(renamed.src.length == 3)
     assert(renamed.dst.length == 1)
+    assert(renamed.peId.getWidth == 8)
+    assert(renamed.threadId.getWidth == 8)
     assert(renamed.rid.value.getWidth == p.robIndexWidth)
     assert(renamed.bid.value.getWidth == p.robIndexWidth)
     assert(renamed.gid.value.getWidth == p.robIndexWidth)
@@ -205,6 +213,8 @@ class InterfaceBundlesSpec extends AnyFunSuite {
     val sv = ChiselStage.emitSystemVerilog(new InterfaceBundleProbe(InterfaceParams()))
 
     assert(sv.contains("module InterfaceBundleProbe"))
+    assert(sv.contains("io_renamed_peId"))
+    assert(sv.contains("io_renamed_threadId"))
     assert(sv.contains("io_renamed_blockBid"))
     assert(sv.contains("io_trace_blockBid"))
   }

@@ -50,15 +50,16 @@ model `CommitInfo.bid` field.
 | `uopUidWidth` | 64 | `UOP_UID_FIELDS` |
 | `lsidWidth` | 32 | backend and model memory request ID fields |
 | `checkpointWidth` | 6 | F4/D1 start-marker checkpoint contract |
+| `peIdWidth` / `threadIdWidth` | 8 / 8 | scalar PE owner and STID/thread sidecars |
 
 ### Bundle Summary
 
 | Bundle | Purpose | Key fields |
 |---|---|---|
-| `FrontendDecodePacket` | F4-to-D1 decode ingress | `valid`, `pc`, `window`, `pktUid`, `checkpointId` |
+| `FrontendDecodePacket` | F4-to-D1 decode ingress | `valid`, `peId`, `threadId`, `pc`, `window`, `pktUid`, `checkpointId` |
 | `UopUidPacket` | DFX/dynamic uop identity | `uid`, `parentUid`, `fetchPacketUid`, `fetchSlot`, `replayDepth` |
-| `DecodedUop` | Canonical D2 architectural uop | `src[3]`, `dst[1]`, `imm`, `rid/bid/gid`, `lsid`, memory class/split metadata, boundary metadata, raw instruction |
-| `RenamedUop` | D3/S1 backend-visible uop | renamed source/destination tags, dispatch target, memory class/split metadata, model identity, block identity |
+| `DecodedUop` | Canonical D2 architectural uop | `peId/threadId`, `src[3]`, `dst[1]`, `imm`, `rid/bid/gid`, `lsid`, memory class/split metadata, boundary metadata, raw instruction |
+| `RenamedUop` | D3/S1 backend-visible uop | `peId/threadId`, renamed source/destination tags, dispatch target, memory class/split metadata, model identity, block identity |
 | `IssueQueueEntry` | IQ residency record | `valid`, `inflight`, `issueSlot`, `target`, `uop` |
 | `LsuRequest` | Scalar LSU request envelope | `uid`, load/store flags, `rid/bid/gid/subrid`, `modelLsId`, `lsid`, address/data/mask |
 | `LsuResponse` | LSU-to-ROB result envelope | load/store flags, `rid/gid`, `lsid`, address/data/mask, trap |
@@ -90,6 +91,11 @@ The bundle shape follows these rules:
 - carry the 64-bit BROB/BCTRL identity as `blockBid` with a separate valid bit;
 - keep LSU scalar `lsid` as 32 bits while also preserving the model `lsID`
   ROBID-like field as `modelLsId`.
+- carry row-owned `peId/threadId` through frontend packets, decoded uops, and
+  renamed uops. `DCTop::Work()` selects by scalar PE and STID, while
+  `SPERename::Rename()` indexes `sgprRenameUnit[inst->peID][inst->stid]`;
+  the shared bundles must keep that ownership visible instead of letting
+  decode, rename, or backend glue recreate PE0/STID0 constants.
 - keep T/U cleanup source snapshots as common bundles because both ROB and
   LSU recovery owners feed `TULinkFlushSourceSelector`; the ROB identity
   domain (`bid/rid`) and local mapQ sequence domain (`tSeq/uSeq`) may use
@@ -133,7 +139,8 @@ rows and `tools/chisel/trace_schema_adapter.py`.
 - `bash tools/chisel/build_chisel.sh`
 
 The focused test checks default widths, constant encodings, boundary enum
-ordering, 4-bit instruction length fields, decoded/renamed/LSU/ROB/trace packet
-field widths, T/U flush source and retire source ROB-vs-local sequence widths,
-retire source/command PE/STID sidecar widths, serialized retire-command width,
-and Chisel elaboration through a probe module.
+ordering, 4-bit instruction length fields, frontend packet PE/STID widths,
+decoded/renamed/LSU/ROB/trace packet field widths, T/U flush source and retire
+source ROB-vs-local sequence widths, retire source/command PE/STID sidecar
+widths, serialized retire-command width, and Chisel elaboration through a
+probe module.

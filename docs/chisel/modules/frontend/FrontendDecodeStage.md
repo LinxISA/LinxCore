@@ -22,7 +22,8 @@ The implementation is grounded in:
 
 Inputs:
 
-- `d1`: packet identity from `FrontendDecodeIngress`.
+- `d1`: packet identity and owner sidecars from `FrontendDecodeIngress`,
+  including `peId`, `threadId`, packet UID, and checkpoint.
 - `slots[4]`: F4 slot records with per-slot PC, length, raw instruction, and
   UID.
 - `validMask`: F4 slot-valid mask.
@@ -30,10 +31,10 @@ Inputs:
 
 Outputs:
 
-- `out[4]`: `DecodedUop` records with valid, PC, opcode, dispatch-kind
-  sideband, scalar source/destination tags plus GPR/T/U alias classes,
-  immediate value/valid, load/store class bits, raw instruction, length, UID,
-  parent packet UID, and checkpoint.
+- `out[4]`: `DecodedUop` records with valid, `peId/threadId`, PC, opcode,
+  dispatch-kind sideband, scalar source/destination tags plus GPR/T/U alias
+  classes, immediate value/valid, load/store class bits, raw instruction,
+  length, UID, parent packet UID, and checkpoint.
 - `meta[4]`: opcode decode metadata for integration/debug.
 - `outValidMask`: recognized decoded-uop mask.
 - `invalidOpcodeMask`: active slot whose raw instruction did not match the
@@ -70,6 +71,8 @@ The Chisel stage is combinational. For each F4 slot:
    - `uid.parentUid = d1.pktUid`
    - `uid.fetchPacketUid = d1.pktUid`
    - `uid.fetchSlot = i`
+   - `peId = d1.peId`
+   - `threadId = d1.threadId`
    - `checkpointId = d1.checkpointId`
 5. It delegates scalar source/destination and immediate extraction to
    `FrontendOperandDecode`.
@@ -99,6 +102,10 @@ exceptions.
 integration remains separate from this packet; `FrontendDecodeStage` prepares
 recognized `DecodedUop` rows with architectural tags but does not allocate or
 look up physical tags.
+R75 also preserves the packet's scalar PE and STID sidecars on each decoded
+row. This matches the model handoff where `DCTop::Work()` selects by PE/STID
+and `SPERename::Rename()` later indexes
+`sgprRenameUnit[inst->peID][inst->stid]`.
 
 ## Verification
 

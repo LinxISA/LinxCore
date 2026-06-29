@@ -39,7 +39,8 @@ Inputs:
 
 - `in`: renamed uop. Relevant metadata is `valid`, `isStore`,
   `storeSplitIntent`, `isLoadStorePair`, `isStorePcr`,
-  `cacheMaintainNoSplit`, source operands, ROB/BID identity, and `lsid`.
+  `cacheMaintainNoSplit`, source operands, `peId/threadId`, ROB/BID identity,
+  and `lsid`.
 - `tSeq`, `uSeq`, `tuDstValid`, `tuDstKind`: row-owned T/U local-register
   sequence and destination-ownership sidecars. They model the `SPERename`
   snapshots that are taken before T/U destination rename and later preserved
@@ -89,10 +90,11 @@ When `split` is true, `inReady` requires both `staReady` and `stdReady`, and
 `fire` asserts only when both halves can be emitted in the same cycle. No
 partial STA or STD payload is produced under backpressure. Both split payloads
 copy the renamed uop identity, including `bid`, `gid`, `rid`, `blockBid`, and
-`lsid`, so the halves share one store identity. Both split halves also copy
-the same `tSeq/uSeq` and T/U destination sidecars. This mirrors the model
-clone shape: the instruction's local-register sequence snapshots are row
-metadata, not independently generated STA/STD metadata.
+`lsid`, plus `peId/threadId`, so the halves share one store identity. Both
+split halves also copy the same `tSeq/uSeq` and T/U destination sidecars. This
+mirrors the model clone shape: the instruction's PE/STID owner and
+local-register sequence snapshots are row metadata, not independently
+generated STA/STD metadata.
 
 For ordinary split stores, the STA payload replaces `src(0)` with a zero
 literal/invalid operand and raises `staSrc0Zeroed`. This mirrors model

@@ -30,6 +30,9 @@ object ScalarTURenameBridgeReference {
 
   def activeBankValid(activePe: Int, activeStid: Int, peCount: Int, stidCount: Int): Boolean =
     activePe >= 0 && activePe < peCount && activeStid >= 0 && activeStid < stidCount
+
+  def activeTuBankPe(peId: Int): Int =
+    peId
 }
 
 class ScalarTURenameBridgeSpec extends AnyFunSuite {
@@ -60,6 +63,8 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
   }
 
   test("reference routes active T/U bank selection from explicit PE/STID sidebands") {
+    assert(activeTuBankPe(peId = 0) == 0)
+    assert(activeTuBankPe(peId = 2) == 2)
     assert(activeBankValid(activePe = 0, activeStid = 1, peCount = 1, stidCount = 2))
     assert(!activeBankValid(activePe = 1, activeStid = 1, peCount = 1, stidCount = 2))
     assert(!activeBankValid(activePe = 0, activeStid = 2, peCount = 1, stidCount = 2))
@@ -71,8 +76,11 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     val io = new ScalarTURenameBridgeIO(p, trace, mapQDepth = 8, scalarStidCount = 2)
 
     assert(io.in.src.length == 3)
+    assert(io.in.peId.getWidth == 8)
     assert(io.activePeId.getWidth == 8)
     assert(io.activeStid.getWidth == 8)
+    assert(io.out.peId.getWidth == 8)
+    assert(io.out.threadId.getWidth == 8)
     assert(io.out.dst.length == 1)
     assert(io.robAllocRow.identity.rid.getWidth == 32)
     assert(io.tuSrc.length == 3)
@@ -120,6 +128,7 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(sv.contains("module ScalarTURenameBridge"))
     assert(sv.contains("io_activePeId"))
     assert(sv.contains("io_activeStid"))
+    assert(sv.contains("io_out_peId"))
     assert(sv.contains("module ScalarDecodeRenameBridge"))
     assert(sv.contains("module TULinkLocalBankArray"))
     assert(sv.contains("module TULinkRecoveryCleanupPath"))

@@ -447,7 +447,7 @@ class DecodeRenameROBPath(
     tidWidth = tidWidth,
     localStid = localStid
   ))
-  val activeTURenamePeId = 0.U(peIdWidth.W)
+  val activeTURenamePeId = queuedForRename.peId.pad(peIdWidth)(peIdWidth - 1, 0)
   val activeTURenameStid = queuedForRename.threadId.pad(stidWidth)(stidWidth - 1, 0)
   rename.io.in := queuedForRename
   rename.io.activePeId := activeTURenamePeId
@@ -524,7 +524,7 @@ class DecodeRenameROBPath(
   allocator.io.allocTUDstValid := rename.io.tuDstValid
   allocator.io.allocTUDstKind := rename.io.tuDstKind
   allocator.io.allocIsLast := queuedForRename.eob
-  allocator.io.allocPeId := 0.U
+  allocator.io.allocPeId := queuedForRename.peId.pad(peIdWidth)(peIdWidth - 1, 0)
   allocator.io.allocBlockType := queuedForRename.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
   allocator.io.allocNeedsEngine := false.B
   allocator.io.completeValid := io.completeValid

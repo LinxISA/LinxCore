@@ -28,6 +28,7 @@ final case class InterfaceParams(
     immTypeWidth: Int = 3,
     lsidWidth: Int = 32,
     checkpointWidth: Int = 6,
+    peIdWidth: Int = 8,
     threadIdWidth: Int = 8,
     producerWidth: Int = 4,
     memSizeWidth: Int = 4,
@@ -52,6 +53,8 @@ final case class InterfaceParams(
   require(uopUidWidth >= 64, "uop UID must preserve the 64-bit DFX namespace")
   require(lsidWidth >= 32, "load/store ID must preserve the 32-bit backend contract")
   require(checkpointWidth == 6, "checkpoint ID follows the current decode contract")
+  require(peIdWidth > 0, "scalar PE id width must be positive")
+  require(threadIdWidth > 0, "thread/STID width must be positive")
 
   def fetchSlotWidth: Int = math.max(1, log2Ceil(fetchWidth))
   def robIndexWidth: Int = log2Ceil(robEntries)
@@ -84,6 +87,8 @@ object DispatchTarget extends ChiselEnum {
 
 class FrontendDecodePacket(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
+  val threadId = UInt(p.threadIdWidth.W)
   val pc = UInt(p.pcWidth.W)
   val window = UInt(p.windowWidth.W)
   val pktUid = UInt(p.uopUidWidth.W)
@@ -137,6 +142,7 @@ class RenamedDestination(val p: InterfaceParams = InterfaceParams()) extends Bun
 
 class DecodedUop(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
   val threadId = UInt(p.threadIdWidth.W)
   val pc = UInt(p.pcWidth.W)
   val opcode = UInt(p.opcodeWidth.W)
@@ -172,6 +178,7 @@ class DecodedUop(val p: InterfaceParams = InterfaceParams()) extends Bundle {
 
 class RenamedUop(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val valid = Bool()
+  val peId = UInt(p.peIdWidth.W)
   val threadId = UInt(p.threadIdWidth.W)
   val pc = UInt(p.pcWidth.W)
   val opcode = UInt(p.opcodeWidth.W)
