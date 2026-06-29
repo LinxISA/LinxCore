@@ -159,6 +159,8 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(sv.contains("io_renameUpdateRid_value"))
     assert(sv.contains("io_renameUpdateTSeq_value"))
     assert(sv.contains("io_renameUpdateTUDstKind"))
+    assert(sv.contains("io_completeRowValid"))
+    assert(sv.contains("io_completeRow_wb_data"))
     assert(sv.contains("io_robTULinkSource_tSeq_value"))
     assert(sv.contains("io_deallocTURetireSource_0_tSeq_value"))
     assert(sv.contains("io_deallocTURetireSource_0_peId"))

@@ -76,6 +76,7 @@ dispatch agents consume a real block owner.
 | input | `renameUpdateTSeq` / `renameUpdateUSeq` | `ROBID(mapQDepth)` | with `renameUpdateValid` | Post-rename T/U sequence sidecars |
 | input | `renameUpdateTUDstValid` / `renameUpdateTUDstKind` | mixed | with `renameUpdateValid` | Post-rename T/U destination ownership |
 | input | `completeValid` / `completeRobValue` | mixed | valid | ROB completion path forwarded to `ROBEntryBank` |
+| input | `completeRowValid` / `completeRow` | mixed | with accepted completion | Optional execute/LSU completion payload forwarded to `ROBEntryBank`; when invalid, completion preserves the row stored by allocation/rename update |
 | input | `deallocReady` | `Bool` | ready | ROB deallocation-ready path forwarded to `ROBEntryBank` |
 | input | `block*Done*`, `blockRetire*`, `blockFlush*`, `blockQueryBid` | mixed | valid/query | Pass-through control and query surface for `BrobMetaTracker` |
 | output | `blockQuery*`, `block*Mask` | mixed | diagnostic | BROB query and occupancy/completion masks |

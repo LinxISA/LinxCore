@@ -334,6 +334,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_robAllocAttemptValid"))
     assert(sv.contains("io_robRenameUpdateAttemptValid"))
     assert(sv.contains("io_robRenameUpdateFire"))
+    assert(sv.contains("io_completeRowValid"))
+    assert(sv.contains("io_completeRow_wb_data"))
     assert(sv.contains("io_renamedOut_peId"))
     assert(sv.contains("io_tuRenameTSeq_value"))
     assert(sv.contains("io_tuRenameActivePeId"))

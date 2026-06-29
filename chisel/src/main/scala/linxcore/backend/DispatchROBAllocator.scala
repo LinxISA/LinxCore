@@ -59,6 +59,8 @@ class DispatchROBAllocatorIO(
 
   val completeValid = Input(Bool())
   val completeRobValue = Input(UInt(ptrWidth.W))
+  val completeRowValid = Input(Bool())
+  val completeRow = Input(new CommitTraceRow(traceParams))
   val completeAccepted = Output(Bool())
   val completeIgnored = Output(Bool())
   val deallocReady = Input(Bool())
@@ -214,6 +216,8 @@ class DispatchROBAllocator(
   rob.io.renameUpdateTUDstKind := io.renameUpdateTUDstKind
   rob.io.completeValid := io.completeValid
   rob.io.completeRobValue := io.completeRobValue
+  rob.io.completeRowValid := io.completeRowValid
+  rob.io.completeRow := io.completeRow
   rob.io.deallocReady := io.deallocReady
 
   brob.io.allocValid := io.allocValid && rob.io.allocReady

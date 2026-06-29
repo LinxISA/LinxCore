@@ -93,6 +93,8 @@ deallocation or recovery semantics into that module.
 | input | `renameUpdateTUDstValid` / `renameUpdateTUDstKind` | mixed | with `renameUpdateValid` | Post-rename T/U destination ownership sidecar |
 | input | `completeValid` | `Bool` | none | Requests completion marking for `completeRobValue` |
 | input | `completeRobValue` | `UInt(log2(entries).W)` | with `completeValid` | Slot to mark completed when its status allows completion |
+| input | `completeRowValid` | `Bool` | with accepted completion | Requests the completion path to replace the stored `CommitTraceRow` payload before marking the row completed |
+| input | `completeRow` | `CommitTraceRow` | with `completeRowValid` | Execute/LSU-produced commit payload; the bank overwrites `valid` and native ROB ID fields from the completed slot |
 | output | `completeAccepted` | `Bool` | diagnostic | High when completion updates an allocated/renamed/issued/completed row |
 | output | `completeIgnored` | `Bool` | diagnostic | High when completion targets a free, retired, fault, or need-flush row |
 | input | `deallocReady` | `Bool` | yes | Allows the deallocation walk to release retired rows this cycle |

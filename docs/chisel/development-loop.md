@@ -19,11 +19,11 @@ by merging over dirty worktrees:
 
 | Repository | SHA observed at the start of this plan packet |
 |---|---|
-| `linx-isa` | `ca6faab14a05975b4b52c00c4c5556e301d50930` |
-| `rtl/LinxCore` | `11529bf345c407fe1c7614973e61b68be8d99fb4` |
+| `linx-isa` | `6514dc90b448eacef3c5e8b907764b36fbd063cc` |
+| `rtl/LinxCore` | `4f6489bf61b477adc4a685f8dc3d2b6773981f30` |
 | `model/LinxCoreModel` | `68b06b2a8dd07db98bd562aeae7e5a8867c6d450` |
 | `emulator/qemu` | `9f96be0c952fb9a047b324b06a480b1c689ba51d` |
-| `skills/linx-skills` | `feccb209b64ed461291b37ab043bfaa1a078aaf9` |
+| `skills/linx-skills` | `13e314c69fdd6841f94a814df3961e566df98dc8` |
 
 `model/LinxCoreModel` was fetched on 2026-06-29 and still matched
 `origin/main` at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
@@ -42,6 +42,8 @@ The next ROB packet is anchored to these C++ model facts:
 | `model/bctrl/spe/DCTop.cpp` | `DCTop::Work` sets `inst->rid = prob[stid]->getAllocPtr()`, calls `prob[stid]->allocROB(inst)`, assigns load/store IDs, and only then writes `dec_ren_q`. |
 | `model/bctrl/spe/SPEROB.cpp` | `SPEROB::allocROB` writes a valid allocated ROB row with `tpc`, `bid`, `gid`, `last`, `rid`, and the `SimInst` pointer, then increments `allocPtr`, `size`, and `osdSize`. |
 | `model/bctrl/spe/SPERename.cpp` | Rename later consumes `dec_ren_q` and mutates the same instruction object with renamed sidecars such as local T/U sequences. |
+| `model/iex/pipe/alu_pipe.cpp` | `ALUPipe::Work` executes in the ALU pipe and publishes resolve/writeback at W2. |
+| `isa/calculate/arithmetic/Arithmetic.cpp` / `isa/calculate/others/Others.cpp` | Reduced scalar ALU semantics for R81 are `ADD = src0 + src1`, `ADDI = src0 + imm`, and `MOVR/MOVI` move the selected source/immediate into the destination. |
 
 The key hardware implication is that the C++ model gets post-allocation rename
 visibility through a shared `SimInst` pointer. Chisel `ROBEntryBank` stores
@@ -114,10 +116,11 @@ The ROB/cross-check substrate remains the required base:
 | 3 | R78 trace replay xcheck harness | `tools/chisel/reduced_rob_trace_tb.cpp`, `tools/chisel/run_chisel_trace_replay_xcheck.sh`, wrapper docs | `run_chisel_trace_replay_xcheck.sh`, top xcheck, trace self-test, QEMU dry-run |
 | 4 | R79 frontend-window trace top | `top/LinxCoreFrontendTraceTop.scala`, `F4DecodeWindow.scala`, `DecodeRenameROBPath.scala`, top docs | `LinxCoreFrontendTraceTop`, frontend trace top Verilator lint, `DecodeRenameROBPath`, trace self-test, QEMU dry-run |
 | 5 | R80 frontend-window Verilator xcheck | `tools/chisel/frontend_trace_top_tb.cpp`, `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`, top/cross-check docs | `run_chisel_frontend_trace_top_xcheck.sh`, frontend trace top lint, trace self-test, QEMU dry-run |
-| 6 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay/frontend-top gates |
-| 7 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
-| 8 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 9 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 6 | R81 scalar ALU completion row xcheck | `execute/ReducedScalarAluExecute.scala`, `top/LinxCoreFrontendAluTraceTop.scala`, frontend ALU xcheck driver/script, module docs | `ReducedScalarAluExecute`, `LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, old frontend trace-top regression |
+| 7 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay/frontend-top gates |
+| 8 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
+| 9 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 10 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
@@ -144,11 +147,14 @@ Use this ladder for every promoted packet:
    frontend-window-to-commit top boundary changes.
 8. `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh` after changes
    to the frontend trace-top driver, completion surrogate, or commit export.
-9. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
+9. `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh` after
+   changes to scalar ALU execute completion, completion-row payload wiring, or
+   the frontend ALU trace-top driver.
+10. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
-10. Full QEMU-vs-DUT comparison only after the Chisel top emits real
+11. Full QEMU-vs-DUT comparison only after the Chisel top emits real
    architectural commit rows.
-11. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
+12. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
 
 ## Project Maintenance
 

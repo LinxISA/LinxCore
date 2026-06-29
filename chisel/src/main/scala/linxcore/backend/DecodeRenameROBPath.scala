@@ -67,6 +67,8 @@ class DecodeRenameROBPathIO(
 
   val completeValid = Input(Bool())
   val completeRobValue = Input(UInt(ptrWidth.W))
+  val completeRowValid = Input(Bool())
+  val completeRow = Input(new CommitTraceRow(traceParams))
   val deallocReady = Input(Bool())
 
   val decodedValidMask = Output(UInt(p.decodeWidth.W))
@@ -572,6 +574,8 @@ class DecodeRenameROBPath(
   allocator.io.renameUpdateTUDstKind := rename.io.tuDstKind
   allocator.io.completeValid := io.completeValid
   allocator.io.completeRobValue := io.completeRobValue
+  allocator.io.completeRowValid := io.completeRowValid
+  allocator.io.completeRow := io.completeRow
   allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !tuRetirePath.io.cleanupActive
   allocator.io.blockScalarDoneValid := false.B
   allocator.io.blockScalarDoneBid := 0.U

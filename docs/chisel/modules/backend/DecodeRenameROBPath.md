@@ -101,6 +101,9 @@ Inputs:
 - `checkpointValid/checkpointBid`, `commitValid/commitBid`, `cleanup`:
   pass-through control for the scalar GPR rename owner and ROB flush path.
 - `completeValid/completeRobValue`: reduced ROB completion hook.
+- `completeRowValid/completeRow`: optional execute/LSU completion payload
+  used when a live owner replaces the allocation/rename placeholder row before
+  commit.
 - `deallocReady`: reduced ROB deallocation hook.
 
 Outputs:

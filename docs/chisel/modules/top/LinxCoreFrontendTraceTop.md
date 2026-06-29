@@ -78,6 +78,11 @@ mark rows complete before they can retire. This preserves the model-derived
 ROB rule that only completed head rows retire while keeping completion
 ownership outside generic top glue.
 
+`LinxCoreFrontendAluTraceTop` is the first sibling wrapper that replaces this
+surrogate for the reduced scalar ALU smoke. Keep this wrapper as the R80
+frontend-to-ROB regression gate; add live execute behavior to the ALU wrapper
+or a later bootable top.
+
 ## Model Alignment
 
 `DCTop::Work` selects decoded scalar instructions, assigns `inst->rid` from

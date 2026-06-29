@@ -4,14 +4,15 @@ import chisel3._
 import chisel3.util.log2Ceil
 
 import linxcore.backend.DecodeRenameROBPath
-import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
+import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, FrontendDecodePacket, InterfaceParams}
+import linxcore.execute.ReducedScalarAluExecute
 import linxcore.frontend.F4DecodeWindow
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.RecoveryCleanupIntent
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
-class LinxCoreFrontendTraceTopIO(
+class LinxCoreFrontendAluTraceTopIO(
     val p: InterfaceParams,
     val traceParams: CommitTraceParams,
     val decRenQueueDepth: Int = 4)
@@ -21,9 +22,8 @@ class LinxCoreFrontendTraceTopIO(
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
 
   val in = Input(new FrontendDecodePacket(p))
+  val operandData = Input(Vec(3, UInt(p.immWidth.W)))
   val frontendFlushValid = Input(Bool())
-  val completeValid = Input(Bool())
-  val completeRobValue = Input(UInt(ptrWidth.W))
   val deallocReady = Input(Bool())
 
   val f4ValidMask = Output(UInt(p.decodeWidth.W))
@@ -37,6 +37,12 @@ class LinxCoreFrontendTraceTopIO(
   val decRenCount = Output(UInt(decRenCountWidth.W))
   val renamedOutValid = Output(Bool())
   val renamedAccepted = Output(Bool())
+  val executeAccepted = Output(Bool())
+  val executeBusy = Output(Bool())
+  val executeCompleteValid = Output(Bool())
+  val executeCompleteRobValue = Output(UInt(ptrWidth.W))
+  val executeUnsupported = Output(Bool())
+  val executeUnsupportedOpcode = Output(UInt(p.opcodeWidth.W))
   val robAllocFire = Output(Bool())
   val robRenameUpdateFire = Output(Bool())
   val completeAccepted = Output(Bool())
@@ -68,15 +74,15 @@ class LinxCoreFrontendTraceTopIO(
   val idle = Output(Bool())
 }
 
-class LinxCoreFrontendTraceTop(
+class LinxCoreFrontendAluTraceTop(
     val coreParams: CoreParams = CoreParams(),
     val decRenQueueDepth: Int = 4,
     val storeDispatchQueueDepth: Int = 4,
     val mapQDepth: Int = 32)
     extends Module {
-  private val p = LinxCoreFrontendTraceTop.interfaceParamsFor(coreParams)
-  private val traceParams = LinxCoreFrontendTraceTop.traceParamsFor(p)
-  val io = IO(new LinxCoreFrontendTraceTopIO(p, traceParams, decRenQueueDepth))
+  private val p = LinxCoreFrontendAluTraceTop.interfaceParamsFor(coreParams)
+  private val traceParams = LinxCoreFrontendAluTraceTop.traceParamsFor(p)
+  val io = IO(new LinxCoreFrontendAluTraceTopIO(p, traceParams, decRenQueueDepth))
 
   val f4 = Module(new F4DecodeWindow(p))
   f4.io.in := io.in
@@ -90,11 +96,13 @@ class LinxCoreFrontendTraceTop(
     mapQDepth = mapQDepth
   ))
 
+  val execute = Module(new ReducedScalarAluExecute(p, traceParams))
+
   path.io.d1 := f4.io.d1
   path.io.slots := f4.io.slots
   path.io.validMask := f4.io.validMask
   path.io.flushValid := io.frontendFlushValid
-  path.io.renamedOutReady := true.B
+  path.io.renamedOutReady := execute.io.inReady
   path.io.storeStaExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
   path.io.storeStdExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
   path.io.storeMarkCommitValid := false.B
@@ -108,11 +116,15 @@ class LinxCoreFrontendTraceTop(
   path.io.commitValid := false.B
   path.io.commitBid := ROBID.disabled(p.robEntries)
   path.io.cleanup := 0.U.asTypeOf(new RecoveryCleanupIntent(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
-  path.io.completeValid := io.completeValid
-  path.io.completeRobValue := io.completeRobValue
-  path.io.completeRowValid := false.B
-  path.io.completeRow := 0.U.asTypeOf(new CommitTraceRow(traceParams))
+  path.io.completeValid := execute.io.completeValid
+  path.io.completeRobValue := execute.io.completeRobValue
+  path.io.completeRowValid := execute.io.completeValid
+  path.io.completeRow := execute.io.completeRow
   path.io.deallocReady := io.deallocReady
+
+  execute.io.inValid := path.io.renamedOutValid
+  execute.io.in := path.io.renamedOut
+  execute.io.srcData := io.operandData
 
   io.f4ValidMask := f4.io.validMask
   io.f4SlotCount := f4.io.slotCount
@@ -125,6 +137,12 @@ class LinxCoreFrontendTraceTop(
   io.decRenCount := path.io.decRenCount
   io.renamedOutValid := path.io.renamedOutValid
   io.renamedAccepted := path.io.accepted
+  io.executeAccepted := execute.io.accepted
+  io.executeBusy := execute.io.busy
+  io.executeCompleteValid := execute.io.completeValid
+  io.executeCompleteRobValue := execute.io.completeRobValue
+  io.executeUnsupported := execute.io.unsupported
+  io.executeUnsupportedOpcode := execute.io.unsupportedOpcode
   io.robAllocFire := path.io.robAllocFire
   io.robRenameUpdateFire := path.io.robRenameUpdateFire
   io.completeAccepted := path.io.completeAccepted
@@ -153,10 +171,10 @@ class LinxCoreFrontendTraceTop(
   io.occupiedMask := path.io.occupiedMask
   io.completedMask := path.io.completedMask
   io.retiredMask := path.io.retiredMask
-  io.idle := path.io.empty
+  io.idle := path.io.empty && !execute.io.busy
 }
 
-object LinxCoreFrontendTraceTop {
+object LinxCoreFrontendAluTraceTop {
   def interfaceParamsFor(coreParams: CoreParams): InterfaceParams =
     InterfaceParams(
       robEntries = coreParams.robEntries,
@@ -170,10 +188,10 @@ object LinxCoreFrontendTraceTop {
     )
 }
 
-object EmitLinxCoreFrontendTraceTop extends App {
+object EmitLinxCoreFrontendAluTraceTop extends App {
   circt.stage.ChiselStage.emitSystemVerilogFile(
-    new LinxCoreFrontendTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 8),
-    args = Array("--target-dir", "../generated/chisel-verilog/frontend-trace-top"),
+    new LinxCoreFrontendAluTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 8),
+    args = Array("--target-dir", "../generated/chisel-verilog/frontend-alu-trace-top"),
     firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
   )
 }

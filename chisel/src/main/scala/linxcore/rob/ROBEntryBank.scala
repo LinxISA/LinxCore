@@ -47,6 +47,8 @@ class ROBEntryBankIO(
 
   val completeValid = Input(Bool())
   val completeRobValue = Input(UInt(ptrWidth.W))
+  val completeRowValid = Input(Bool())
+  val completeRow = Input(new CommitTraceRow(traceParams))
   val completeAccepted = Output(Bool())
   val completeIgnored = Output(Bool())
 
@@ -431,6 +433,15 @@ class ROBEntryBank(
   }
 
   when(completeAccepted) {
+    when(io.completeRowValid) {
+      val row = Wire(new CommitTraceRow(traceParams))
+      row := io.completeRow
+      row.valid := true.B
+      row.rob.valid := true.B
+      row.rob.wrap := rowRid(io.completeRobValue).wrap
+      row.rob.value := rowRid(io.completeRobValue).value
+      rows(io.completeRobValue) := row
+    }
     status(io.completeRobValue) := ROBEntryStatus.Completed
   }
 

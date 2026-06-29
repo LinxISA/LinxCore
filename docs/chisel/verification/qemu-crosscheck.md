@@ -16,6 +16,7 @@ details into the comparator itself.
 - `tools/chisel/run_chisel_trace_replay_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_trace_top_lint.sh`
 - `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
+- `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
 - `tools/trace/crosscheck_qemu_linxcore.py`
 
 ## Normalized Fields
@@ -60,6 +61,7 @@ bash tools/chisel/run_chisel_top_xcheck.sh
 bash tools/chisel/run_chisel_trace_replay_xcheck.sh
 bash tools/chisel/run_chisel_frontend_trace_top_lint.sh
 bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh
 ```
 
 `run_chisel_trace_replay_xcheck.sh` is the bridge between synthetic reduced
@@ -84,8 +86,8 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh \
 
 The adapter, wrapper, typed Chisel commit-row bundles, reduced ROB Verilator
 smoke, reduced top Verilator smoke, top trace replay smoke,
-frontend-window trace-top Verilator lint, and frontend-window trace-top
-Verilator xcheck are ready.
+frontend-window trace-top Verilator lint, frontend-window trace-top Verilator
+xcheck, and frontend-window ALU trace-top Verilator xcheck are ready.
 `run_chisel_reduced_rob_xcheck.sh` and `run_chisel_top_xcheck.sh` currently
 compare three Verilator-produced rows with zero mismatches.
 `run_chisel_trace_replay_xcheck.sh` proves that a normalized external commit
@@ -94,6 +96,11 @@ comparator. `run_chisel_frontend_trace_top_xcheck.sh` drives raw frontend
 packets containing scalar `ADD`, `ADDI`, and compressed move rows through
 `LinxCoreFrontendTraceTop`, uses the explicit completion surrogate to retire
 the allocated ROB rows, dumps DUT JSONL, and compares three rows against a
-QEMU-shaped reference with zero mismatches. Full-core QEMU comparison remains
-blocked until the Chisel top emits live architectural commit rows from real
-fetch, issue, execute, LSU, and recovery paths.
+QEMU-shaped reference with zero mismatches.
+`run_chisel_frontend_alu_trace_top_xcheck.sh` drives the same reduced frontend
+smoke through `LinxCoreFrontendAluTraceTop`, replaces the completion surrogate
+with `ReducedScalarAluExecute`, and compares three rows with nonzero source,
+destination, and writeback data against QEMU-shaped reference rows with zero
+mismatches. Full-core QEMU comparison remains blocked until the Chisel top
+emits live architectural commit rows from real fetch, issue, register-file,
+LSU, and recovery paths.
