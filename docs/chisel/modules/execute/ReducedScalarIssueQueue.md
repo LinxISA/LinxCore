@@ -3,6 +3,7 @@
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala`
+- Child picker: `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssuePick.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/execute/ReducedScalarIssueQueueSpec.scala`
 - Parent top: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendRfAluTraceTop.scala`
 - LinxCoreModel evidence:
@@ -36,6 +37,12 @@ selection.
 R86 changes reduced selection from head-only to oldest-ready among resident
 non-issued entries. Issued in-flight entries remain resident and ineligible,
 and their age position is preserved until release compacts the queue.
+
+R87 splits the selected-row pick/read/confirm logic into
+`ReducedScalarIssuePick`. The queue remains the residency, source-readiness,
+release, and compaction owner, while the child picker owns oldest-ready
+selected-row RF read requests, read-confirm gating, issue fire, and block
+diagnostics.
 
 ## Interface
 
@@ -72,7 +79,9 @@ and their age position is preserved until release compacts the queue.
 | output | `allSourcesReady` | `Bool` | diagnostic | Every valid source lane for the head is ready; invalid lanes are ready by definition. |
 | output | `selectedValid` | `Bool` | diagnostic | An oldest-ready non-issued row was found for issue. |
 | output | `selectedIndex` | `UInt(log2Ceil(depth).W)` | with `selectedValid` | Queue slot selected for RF read and execute issue. |
+| output | `selectedReadReady` | `Bool` | diagnostic | Selected row's valid RF read lanes are all ready. |
 | output | `blockedBySource` | `Bool` | diagnostic | Queue contains non-issued work, but no resident row is currently source-ready. |
+| output | `blockedByRead` | `Bool` | diagnostic | A resident row was selected, but RF read readiness was not confirmed. |
 | output | `blockedByOutput` | `Bool` | diagnostic | Selected row is ready but execute is backpressuring. |
 | output | `blockedByIssued` | `Bool` | diagnostic | Head row has issued and no younger non-issued row is currently selectable. |
 
@@ -95,10 +104,12 @@ queue can sustain one release plus one enqueue.
 
 The queue builds a selectable mask over resident rows. A row is selectable when
 it is valid, not already issued, and every valid source lane's registered
-`srcReady` bit is set. Invalid source lanes are initialized ready. The oldest
-selectable row by queue slot drives the RF read request and execute payload.
-`issueFire` marks that selected row issued when execute accepts it; it does not
-remove the row.
+`srcReady` bit is set. Invalid source lanes are initialized ready. The
+selectable mask and resident payload image feed `ReducedScalarIssuePick`, which
+chooses the oldest selectable row by queue slot, drives the RF read request,
+checks selected-row RF read readiness, and returns `issueFire`. `issueFire`
+marks that selected row issued when execute accepts it; it does not remove the
+row.
 
 `readyMask` snapshots the reduced scalar RF ready table. On enqueue, each
 source lane captures `!src.valid || readyMask(src.physTag)`. While resident,
@@ -141,11 +152,12 @@ RF-backed scalar ALU lane:
 4. a ready younger row can issue when older resident rows are not selectable;
 5. issue preserves the row's ROB identity and renamed sidecars into execute.
 
-The deliberate reduction is selection policy and pipeline timing. The full
-model can select among ready rows by age, tracks pipe stages, and can cancel or
-replay issued entries. This reduced owner selects the oldest ready resident row
-by FIFO slot, but still lacks the full model's alternate global-register
-preference, P1/I1/I2 RF-read arbitration, cancel checks, replay, and bypass.
+The deliberate reduction is pipeline depth and cancellation behavior. The full
+model tracks pipe stages and can cancel or replay issued entries. This reduced
+owner selects the oldest ready resident row by FIFO slot and now checks
+selected-row RF read readiness before issue, but still lacks the full model's
+alternate global-register preference, read-port arbitration, cancel checks,
+replay, and bypass.
 
 R85 removes the earlier same-cycle RF-readiness-to-issue shortcut. This matches
 the model rule that wakeup at cycle N is visible to pick no earlier than cycle
@@ -156,12 +168,17 @@ R86 implements the first age-selection slice: `IssueState::Select` scans
 resident entries, ignores issued entries, and commits the oldest ready
 candidate. Chisel preserves that ordering over the compacted queue image.
 
+R87 introduces an explicit issue-owner child for the reduced P1/I1/I2 split:
+queue state computes source-ready candidates, `ReducedScalarIssuePick` owns
+pick/read/confirm, and execute/release remains in the ALU owner.
+
 ## Timing
 
-The queue is combinational on selected-row RF read and release match and
-registered on enqueue, source-ready update, issue, release, and flush. RF
-ready-table updates are sampled into `srcReady`; they do not directly affect
-the current cycle's `issueValid`.
+The queue is combinational on selectable-mask generation, selected-row RF read,
+and release match, and registered on enqueue, source-ready update, issue,
+release, and flush. RF ready-table updates are sampled into `srcReady`; they do
+not directly affect the current cycle's selection. Selected-row RF `readReady`
+can suppress issue fire for that cycle without changing queue residency.
 
 Future full issue work must split explicit wakeup payloads, select,
 issued/in-flight tracking, and release into model-aligned stages. In
@@ -178,7 +195,8 @@ remain owned by existing recovery and future issue/ready-table packets.
 
 The parent `LinxCoreFrontendRfAluTraceTop` exposes enqueue, issue, release,
 count, issued/not-issued count, head-valid, head-issued, source-ready mask,
-selected-valid/index, source-block, issued-block, and output-block diagnostics.
+selected-valid/index, selected-read-ready, source-block, read-block,
+issued-block, and output-block diagnostics.
 The Verilator fixture drives three dependent scalar rows, enqueues all rows
 before draining commits, and compares the resulting commit rows against
 QEMU-shaped reference data.
@@ -186,6 +204,7 @@ QEMU-shaped reference data.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarIssueQueue`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarIssuePick`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`

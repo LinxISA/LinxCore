@@ -11,6 +11,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarRegisterFile.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssuePick.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/bctrl/spe/GPRRename.cpp`
@@ -45,6 +46,11 @@ pick a row.
 R86 lets the reduced issue queue pick the oldest resident ready non-issued row,
 so an issued or not-ready head no longer forces all younger ready rows to wait.
 
+R87 keeps the top-level dataflow stable while exposing the new issue-pick
+read-confirm boundary: the issue queue's child picker selects the ready row,
+drives RF read tags, and blocks issue when selected-row RF readiness is not
+confirmed.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -71,8 +77,8 @@ so an issued or not-ready head no longer forces all younger ready rows to wait.
 | output | `issueQueueHeadValid`, `issueQueueHeadIssued` | mixed | diagnostic | Reduced issue queue head-valid and head-issued state. |
 | output | `issueQueueSourceReadyMask` | `UInt(3.W)` | diagnostic | Registered source-ready bits for the current issue-queue head. |
 | output | `issueQueueAllSourcesReady` | `Bool` | diagnostic | Queue-head source readiness after invalid-lane masking. |
-| output | `issueQueueSelectedValid`, `issueQueueSelectedIndex` | mixed | diagnostic | Oldest ready non-issued issue candidate selected by the queue. |
-| output | `issueQueueBlockedBySource`, `issueQueueBlockedByOutput`, `issueQueueBlockedByIssued` | `Bool` | diagnostic | Queue blocked by source readiness, execute backpressure, or issued-head residency with no selectable younger row. |
+| output | `issueQueueSelectedValid`, `issueQueueSelectedIndex`, `issueQueueSelectedReadReady` | mixed | diagnostic | Oldest ready non-issued issue candidate selected by the issue-pick owner and whether its RF reads are confirmed ready. |
+| output | `issueQueueBlockedBySource`, `issueQueueBlockedByRead`, `issueQueueBlockedByOutput`, `issueQueueBlockedByIssued` | `Bool` | diagnostic | Queue blocked by source readiness, selected-row RF read readiness, execute backpressure, or issued-head residency with no selectable younger row. |
 | output | `robAllocFire`, `robRenameUpdateFire` | `Bool` | pulse | BROB/ROB reservation and post-rename row update pulses. |
 | output | `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB completion result from ALU-produced completion. |
 | output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Monitored commit rows including RF-sourced source values and ALU writeback data. |
@@ -86,20 +92,23 @@ The wrapper owns no state directly. State lives in child owners:
 - `DecodeRenameROBPath`: decode-to-rename queue, scalar/T-U rename, BROB/ROB,
   commit, and deallocation.
 - `ReducedScalarRegisterFile`: reduced physical scalar GPR data and ready bits.
-- `ReducedScalarIssueQueue`: reduced FIFO issue boundary, RF-read query, and
-  source readiness gating.
+- `ReducedScalarIssueQueue`: reduced FIFO residency, source-ready state, issue
+  release, and compaction owner.
+- `ReducedScalarIssuePick`: selected-row pick, RF-read query, read-confirm
+  gate, and issue-fire owner.
 - `ReducedScalarAluExecute`: reduced E/W1/W2 scalar ALU pipe.
 
 ## Logic Design
 
 `DecodeRenameROBPath` emits a single accepted `RenamedUop` into
-`ReducedScalarIssueQueue`. The issue queue owns the readiness boundary:
+`ReducedScalarIssueQueue`. The issue queue owns the resident source-readiness
+boundary:
 `path.io.renamedOutReady` is driven by queue capacity, while the selected
-oldest-ready issue row drives `ReducedScalarRegisterFile.readValid/readTags`
-and consumes `readData` for operand capture. The RF `readyMask` feeds the queue's
-registered resident source-ready bits; `readReady` remains diagnostic
-continuity for the selected read tags. Invalid source lanes are treated as ready
-inside the queue.
+oldest-ready issue row is chosen by `ReducedScalarIssuePick`. The picker drives
+`ReducedScalarRegisterFile.readValid/readTags`, consumes `readData` for operand
+capture, and confirms the selected row's RF read readiness before issue fire.
+The RF `readyMask` feeds the queue's registered resident source-ready bits.
+Invalid source lanes are treated as ready inside the picker.
 
 When a row enqueues with a scalar destination, the top clears the destination
 physical tag readiness in the RF through `issue.enqueueDst*`. When any resident
@@ -130,9 +139,10 @@ The RF-backed top mirrors this reduced ordering:
 2. decode/rename maps sources and allocates a physical destination;
 3. the renamed row enters a reduced issue queue;
 4. the issue queue samples the RF ready mask into resident source-ready bits;
-5. the issue queue reads RF data for the selected physical source tags;
+5. the issue-pick owner reads RF data for the selected physical source tags;
 6. execute captures source data only after the selected row's valid sources
-   are ready in the registered source-ready state;
+   are ready in registered source-ready state and the selected RF read lanes
+   confirm ready;
 7. execute W2 releases the issued queue entry by `(bid, rid, stid)`;
 8. execute completion updates ROB commit payload and writes the destination RF
    tag;
