@@ -56,6 +56,18 @@ object DispatchROBAllocatorReference {
       AllocResult(ready, bid, robValue)
     }
 
+    def renameUpdate(robValue: Int, row: Row): Boolean =
+      robRows(robValue) match {
+        case Some(_) =>
+          robRows(robValue) = Some(row)
+          true
+        case None =>
+          false
+      }
+
+    def rowAt(robValue: Int): Option[Row] =
+      robRows(robValue)
+
     def blockAllocatedMask: BigInt =
       blockLive.zipWithIndex.foldLeft(BigInt(0)) { case (mask, (live, idx)) =>
         if (live) mask | (BigInt(1) << idx) else mask
@@ -117,6 +129,16 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(model.robOccupiedMask == 0x1)
   }
 
+  test("reference separates decode-time allocation from rename-time row update") {
+    val model = new Model(entries = 4)
+    val reserved = model.alloc(Row(bid = 0, gid = 0, rid = 0))
+
+    assert(reserved == AllocResult(accepted = true, blockBid = 0, robValue = 0))
+    assert(model.renameUpdate(reserved.robValue, Row(bid = 0, gid = 0, rid = 0)))
+    assert(model.rowAt(reserved.robValue).contains(Row(bid = 0, gid = 0, rid = 0)))
+    assert(!model.renameUpdate(1, Row(bid = 0, gid = 0, rid = 1)))
+  }
+
   test("Chisel DispatchROBAllocator elaborates BROB-to-ROB allocation wiring") {
     val sv = ChiselStage.emitSystemVerilog(
       new DispatchROBAllocator(
@@ -133,6 +155,10 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(sv.contains("io_allocPeId"))
     assert(sv.contains("io_allocIsLast"))
     assert(sv.contains("io_allocTSeq_value"))
+    assert(sv.contains("io_renameUpdateReady"))
+    assert(sv.contains("io_renameUpdateRid_value"))
+    assert(sv.contains("io_renameUpdateTSeq_value"))
+    assert(sv.contains("io_renameUpdateTUDstKind"))
     assert(sv.contains("io_robTULinkSource_tSeq_value"))
     assert(sv.contains("io_deallocTURetireSource_0_tSeq_value"))
     assert(sv.contains("io_deallocTURetireSource_0_peId"))

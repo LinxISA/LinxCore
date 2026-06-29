@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{log2Ceil, PriorityEncoder}
 
 import linxcore.bctrl.BID
-import linxcore.commit.{CommitTraceParams, CommitTracePort}
+import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
 import linxcore.lsu.{StoreDispatchExecResult, StoreDispatchSTQPath}
@@ -166,6 +166,10 @@ class DecodeRenameROBPathIO(
   val robAllocBlockedByBrob = Output(Bool())
   val robAllocBlockedByRob = Output(Bool())
   val robAllocDuplicateIdentity = Output(Bool())
+  val robRenameUpdateAttemptValid = Output(Bool())
+  val robRenameUpdateReady = Output(Bool())
+  val robRenameUpdateFire = Output(Bool())
+  val robRenameUpdateIgnored = Output(Bool())
   val blockedByMaintenance = Output(Bool())
   val blockedByRename = Output(Bool())
   val blockedByRob = Output(Bool())
@@ -342,6 +346,34 @@ class DecodeRenameROBPath(
     "T/U retire source queue depth must be a power of two")
 
   private val zeroRobId = 0.U.asTypeOf(new ROBID(p.robEntries))
+  private val zeroLocalSeq = 0.U.asTypeOf(new ROBID(mapQDepth))
+  private def fitReg(tag: UInt): UInt =
+    tag.pad(traceParams.regWidth)(traceParams.regWidth - 1, 0)
+
+  private def robIdValue(id: ROBID): UInt =
+    id.value.pad(32)(31, 0)
+
+  private def commitReservationRow(uop: DecodedUop): CommitTraceRow = {
+    val row = Wire(new CommitTraceRow(traceParams))
+    row := 0.U.asTypeOf(row)
+    row.valid := uop.valid
+    row.identity.bid := robIdValue(uop.bid)
+    row.identity.gid := robIdValue(uop.gid)
+    row.identity.rid := robIdValue(uop.rid)
+    row.blockBidValid := uop.blockBidValid
+    row.blockBid := uop.blockBid
+    row.pc := uop.pc
+    row.insn := uop.insnRaw
+    row.len := uop.insnLen
+    row.nextPc := uop.pc + uop.insnLen
+    row.src0.valid := uop.valid && uop.src(0).valid
+    row.src0.reg := fitReg(uop.src(0).archTag)
+    row.src1.valid := uop.valid && uop.src(1).valid
+    row.src1.reg := fitReg(uop.src(1).archTag)
+    row.dst.valid := uop.valid && uop.dst(0).valid
+    row.dst.reg := fitReg(uop.dst(0).archTag)
+    row
+  }
   val io = IO(new DecodeRenameROBPathIO(
     p = p,
     traceParams = traceParams,
@@ -417,23 +449,27 @@ class DecodeRenameROBPath(
   val selectedForQueue = Wire(new DecodedUop(p))
   selectedForQueue := memIds.io.out
   selectedForQueue.valid := selectedAny
+  selectedForQueue.bid :=
+    FullBidRecoveryBridge.fullBidToRobId(allocator.io.allocBlockBid, selectedAny, p.robEntries, bidWidth)
+  selectedForQueue.gid := zeroRobId
+  selectedForQueue.gid.valid := selectedAny
+  selectedForQueue.rid.valid := selectedAny
+  selectedForQueue.rid.wrap := false.B
+  selectedForQueue.rid.value := allocator.io.allocRobValue
+  selectedForQueue.blockBidValid := selectedAny
+  selectedForQueue.blockBid := allocator.io.allocBlockBid
+
+  val decRenPush = Wire(new DecodedUop(p))
+  decRenPush := selectedForQueue
+  decRenPush.valid := selectedAny && allocator.io.allocReady
 
   val decRenQ = Module(new DecodeRenameQueue(p, depth = decRenQueueDepth))
-  decRenQ.io.push := selectedForQueue
+  decRenQ.io.push := decRenPush
   decRenQ.io.flushValid := decRenFlush
   memIds.io.accept := decRenQ.io.pushFire
 
   val queuedForRename = Wire(new DecodedUop(p))
   queuedForRename := decRenQ.io.out
-  queuedForRename.bid :=
-    FullBidRecoveryBridge.fullBidToRobId(allocator.io.allocBlockBid, decRenQ.io.out.valid, p.robEntries, bidWidth)
-  queuedForRename.gid := zeroRobId
-  queuedForRename.gid.valid := decRenQ.io.out.valid
-  queuedForRename.rid.valid := decRenQ.io.out.valid
-  queuedForRename.rid.wrap := false.B
-  queuedForRename.rid.value := allocator.io.allocRobValue
-  queuedForRename.blockBidValid := decRenQ.io.out.valid
-  queuedForRename.blockBid := allocator.io.allocBlockBid
 
   val rename = Module(new ScalarTURenameBridge(
     p = p,
@@ -491,7 +527,7 @@ class DecodeRenameROBPath(
       Mux(queuedStoreSplit, storeDispatch.io.staReady && storeDispatch.io.stdReady, storeDispatch.io.staReady)
 
   rename.io.outReady := io.renamedOutReady && storeDispatchReadyForHead
-  rename.io.robAllocReady := allocator.io.allocReady
+  rename.io.robAllocReady := allocator.io.renameUpdateReady
   rename.io.checkpointValid := io.checkpointValid
   rename.io.checkpointBid := io.checkpointBid
   rename.io.commitValid := io.commitValid
@@ -514,19 +550,26 @@ class DecodeRenameROBPath(
   storeDispatch.io.unsplitIn := storeSplit.io.unsplit
 
   allocator.io.flush := io.cleanup.flush
-  allocator.io.allocValid := rename.io.robAllocAttemptValid
-  allocator.io.allocRow := rename.io.robAllocRow
-  allocator.io.allocGid := queuedForRename.gid
-  allocator.io.allocTid := queuedForRename.threadId
-  allocator.io.allocStid := queuedForRename.threadId
-  allocator.io.allocTSeq := rename.io.tuTSeq
-  allocator.io.allocUSeq := rename.io.tuUSeq
-  allocator.io.allocTUDstValid := rename.io.tuDstValid
-  allocator.io.allocTUDstKind := rename.io.tuDstKind
-  allocator.io.allocIsLast := queuedForRename.eob
-  allocator.io.allocPeId := queuedForRename.peId.pad(peIdWidth)(peIdWidth - 1, 0)
-  allocator.io.allocBlockType := queuedForRename.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
+  allocator.io.allocValid := selectedAny && decRenQ.io.pushReady
+  allocator.io.allocRow := commitReservationRow(selectedForQueue)
+  allocator.io.allocGid := selectedForQueue.gid
+  allocator.io.allocTid := selectedForQueue.threadId
+  allocator.io.allocStid := selectedForQueue.threadId
+  allocator.io.allocTSeq := zeroLocalSeq
+  allocator.io.allocUSeq := zeroLocalSeq
+  allocator.io.allocTUDstValid := false.B
+  allocator.io.allocTUDstKind := DestinationKind.None
+  allocator.io.allocIsLast := selectedForQueue.eob
+  allocator.io.allocPeId := selectedForQueue.peId.pad(peIdWidth)(peIdWidth - 1, 0)
+  allocator.io.allocBlockType := selectedForQueue.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
   allocator.io.allocNeedsEngine := false.B
+  allocator.io.renameUpdateValid := rename.io.robAllocAttemptValid
+  allocator.io.renameUpdateRid := queuedForRename.rid
+  allocator.io.renameUpdateRow := rename.io.robAllocRow
+  allocator.io.renameUpdateTSeq := rename.io.tuTSeq
+  allocator.io.renameUpdateUSeq := rename.io.tuUSeq
+  allocator.io.renameUpdateTUDstValid := rename.io.tuDstValid
+  allocator.io.renameUpdateTUDstKind := rename.io.tuDstKind
   allocator.io.completeValid := io.completeValid
   allocator.io.completeRobValue := io.completeRobValue
   allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !tuRetirePath.io.cleanupActive
@@ -570,8 +613,8 @@ class DecodeRenameROBPath(
   io.selectedSlot := selectedSlot
   io.selectedRobValue := allocator.io.allocRobValue
   io.selectedBlockBid := allocator.io.allocBlockBid
-  io.decodeReady := decRenQ.io.pushReady
-  io.decRenPushReady := decRenQ.io.pushReady
+  io.decodeReady := decRenQ.io.pushReady && allocator.io.allocReady
+  io.decRenPushReady := decRenQ.io.pushReady && allocator.io.allocReady
   io.decRenPushFire := decRenQ.io.pushFire
   io.decRenPopFire := decRenQ.io.popFire
   io.decRenValid := decRenQ.io.out.valid
@@ -651,12 +694,16 @@ class DecodeRenameROBPath(
   io.storeStqFull := storeDispatch.io.stqFull
   io.storeStqStall := storeDispatch.io.stqStall
   io.accepted := rename.io.accepted
-  io.robAllocAttemptValid := rename.io.robAllocAttemptValid
+  io.robAllocAttemptValid := allocator.io.allocValid
   io.robAllocReady := allocator.io.allocReady
   io.robAllocFire := allocator.io.allocFire
   io.robAllocBlockedByBrob := allocator.io.allocBlockedByBrob
   io.robAllocBlockedByRob := allocator.io.allocBlockedByRob
   io.robAllocDuplicateIdentity := allocator.io.allocDuplicateIdentity
+  io.robRenameUpdateAttemptValid := allocator.io.renameUpdateValid
+  io.robRenameUpdateReady := allocator.io.renameUpdateReady
+  io.robRenameUpdateFire := allocator.io.renameUpdateAccepted
+  io.robRenameUpdateIgnored := allocator.io.renameUpdateIgnored
   io.blockedByMaintenance := rename.io.blockedByMaintenance
   io.blockedByRename := rename.io.blockedByRename
   io.blockedByRob := rename.io.blockedByRob

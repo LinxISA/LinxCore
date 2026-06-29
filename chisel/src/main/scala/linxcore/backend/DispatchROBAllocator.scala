@@ -46,6 +46,17 @@ class DispatchROBAllocatorIO(
   val allocBlockBid = Output(UInt(bidWidth.W))
   val allocRobValue = Output(UInt(ptrWidth.W))
 
+  val renameUpdateValid = Input(Bool())
+  val renameUpdateReady = Output(Bool())
+  val renameUpdateAccepted = Output(Bool())
+  val renameUpdateIgnored = Output(Bool())
+  val renameUpdateRid = Input(new ROBID(entries))
+  val renameUpdateRow = Input(new CommitTraceRow(traceParams))
+  val renameUpdateTSeq = Input(new ROBID(mapQDepth))
+  val renameUpdateUSeq = Input(new ROBID(mapQDepth))
+  val renameUpdateTUDstValid = Input(Bool())
+  val renameUpdateTUDstKind = Input(DestinationKind())
+
   val completeValid = Input(Bool())
   val completeRobValue = Input(UInt(ptrWidth.W))
   val completeAccepted = Output(Bool())
@@ -194,6 +205,13 @@ class DispatchROBAllocator(
   rob.io.allocTUDstValid := io.allocTUDstValid
   rob.io.allocTUDstKind := io.allocTUDstKind
   rob.io.allocIsLast := io.allocIsLast
+  rob.io.renameUpdateValid := io.renameUpdateValid
+  rob.io.renameUpdateRid := io.renameUpdateRid
+  rob.io.renameUpdateRow := io.renameUpdateRow
+  rob.io.renameUpdateTSeq := io.renameUpdateTSeq
+  rob.io.renameUpdateUSeq := io.renameUpdateUSeq
+  rob.io.renameUpdateTUDstValid := io.renameUpdateTUDstValid
+  rob.io.renameUpdateTUDstKind := io.renameUpdateTUDstKind
   rob.io.completeValid := io.completeValid
   rob.io.completeRobValue := io.completeRobValue
   rob.io.deallocReady := io.deallocReady
@@ -224,6 +242,9 @@ class DispatchROBAllocator(
   io.allocBlockedByRob := io.allocValid && brob.io.allocReady && !rob.io.allocReady
   io.allocDuplicateIdentity := rob.io.allocDuplicateIdentity
   io.allocRobValue := rob.io.allocRobValue
+  io.renameUpdateReady := rob.io.renameUpdateReady
+  io.renameUpdateAccepted := rob.io.renameUpdateAccepted
+  io.renameUpdateIgnored := rob.io.renameUpdateIgnored
 
   when(io.allocFire) {
     when(blockSlot === (entries - 1).U) {

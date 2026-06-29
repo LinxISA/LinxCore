@@ -56,6 +56,12 @@ R74 adds the row's scalar PE owner to the deallocation T/U retire source. The
 bank stores `allocPeId` next to `allocStid`, then publishes both in
 `deallocTURetireSource` so downstream retire commands can route by retired-row
 bank identity.
+R76 adds the post-rename row update needed by enqueue-time ROB reservation.
+Allocation may now reserve the row before `DecodeRenameQueue` enqueue with
+only decode-time identity and zero T/U sidecars. When rename later accepts the
+queued instruction, `renameUpdate*` patches the stored `CommitTraceRow`,
+`tSeq/uSeq`, and T/U destination ownership and moves the row from `Allocated`
+to `Renamed`.
 
 `ReducedCommitROB` remains the reduced trace harness. Do not retrofit full
 deallocation or recovery semantics into that module.
@@ -77,6 +83,14 @@ deallocation or recovery semantics into that module.
 | input | `allocTUDstValid` / `allocTUDstKind` | mixed | with `allocValid` | Whether the row owns a T or U destination that needs previous-sequence adjustment |
 | input | `allocIsLast` | `Bool` | with `allocValid` | Whether the row is the model block-last instruction for relation-cmap release |
 | output | `allocRobValue` | `UInt(log2(entries).W)` | diagnostic | ROB slot that will be assigned on an accepted allocation |
+| input | `renameUpdateValid` | `Bool` | `renameUpdateReady` | Requests a post-rename update for an already reserved row |
+| output | `renameUpdateReady` | `Bool` | yes | High when `renameUpdateRid` names a resident allocated/renamed row and no flush owns the cycle |
+| output | `renameUpdateAccepted` | `Bool` | diagnostic | `renameUpdateValid && renameUpdateReady` |
+| output | `renameUpdateIgnored` | `Bool` | diagnostic | Update request could not apply because flush or row/status/RID mismatch blocked it |
+| input | `renameUpdateRid` | `ROBID(entries)` | with `renameUpdateValid` | Native RID of the reserved row to patch after rename |
+| input | `renameUpdateRow` | `CommitTraceRow` | with `renameUpdateValid` | Post-rename commit trace row payload for the reserved row |
+| input | `renameUpdateTSeq` / `renameUpdateUSeq` | `ROBID(mapQDepth)` | with `renameUpdateValid` | Post-rename row-owned local T/U sequence snapshots |
+| input | `renameUpdateTUDstValid` / `renameUpdateTUDstKind` | mixed | with `renameUpdateValid` | Post-rename T/U destination ownership sidecar |
 | input | `completeValid` | `Bool` | none | Requests completion marking for `completeRobValue` |
 | input | `completeRobValue` | `UInt(log2(entries).W)` | with `completeValid` | Slot to mark completed when its status allows completion |
 | output | `completeAccepted` | `Bool` | diagnostic | High when completion updates an allocated/renamed/issued/completed row |
@@ -158,6 +172,17 @@ R74 additionally stores `rowPeId` because `SPEROB::ReleaseRelative` and
 `RelateInfo` preserve the PE owner used later by
 `SPERename::RepLocalRetired`; the reduced path currently supplies PE0, but the
 row image must already carry the sidecar.
+
+Post-rename update is the value-row equivalent of the C++ model's shared
+`SimInst` pointer. `DCTop::Work` allocates the PE ROB row before writing
+`dec_ren_q`, while `SPERename::Rename` later mutates the same instruction with
+`tSeq/uSeq` and renamed operand state. In Chisel, `renameUpdateValid` patches a
+reserved row only when `renameUpdateRid` matches the stored native `rowRid` and
+the pre-cycle status is `Allocated` or `Renamed`. The update rewrites the
+stored commit row, forces its ROB sideband to the reserved native RID, updates
+T/U sidecars, and changes `Allocated -> Renamed`. It does not rewrite native
+`rowBid/rowGid/rowRid/rowPeId/rowStid/rowIsLast`, because those belong to the
+allocation-time row owner.
 
 Flush has priority over allocation, completion, commit, and deallocation. The
 bank feeds `ROBFlushPrune` with occupied rows, each row's status, and a
@@ -281,7 +306,8 @@ turning status into an architectural trace format.
 
 Focused tests cover commit/dealloc phase separation, block-last deallocation
 window stopping, incomplete-head blocking, duplicate identity rejection until
-deallocation, deallocation backpressure, ignored invalid completion targets,
+deallocation, post-rename sidecar patching of a reserved row, deallocation
+backpressure, ignored invalid completion targets,
 RID-based flush pruning through the entry bank reference model, allocation
 reuse of the first pruned slot, retired-row
 flush accounting, flush comparison through native row IDs rather than trace

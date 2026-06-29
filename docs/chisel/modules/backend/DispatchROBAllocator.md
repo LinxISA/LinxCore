@@ -35,6 +35,10 @@ decode/rename/ROB path.
 R66 also forwards the ROB bank's deallocated block-last `(bid,gid)` candidate
 so later relation-clean scheduling can wait for serialized retire commands
 instead of firing block cleanup at commit time.
+R76 splits allocation from rename-produced sidecar visibility. Decode enqueue
+can reserve BROB and ROB rows atomically, while a later `renameUpdate*`
+handshake patches the reserved ROB row after `ScalarTURenameBridge` accepts the
+queued instruction.
 
 This is still a bring-up bridge, not full dispatch, rename, or CMT. It exists
 to remove unit-test-only `ROBEntryBank.allocBid` fixtures and to make later
@@ -63,6 +67,14 @@ dispatch agents consume a real block owner.
 | input | `allocNeedsEngine` | `Bool` | with `allocValid` | BROB completion predicate metadata |
 | output | `allocBlockBid` | `UInt(64.W)` by default | diagnostic | Full generated hardware BID for the next accepted allocation |
 | output | `allocRobValue` | `UInt(log2(entries).W)` | diagnostic | ROB slot assigned by `ROBEntryBank` on an accepted allocation |
+| input | `renameUpdateValid` | `Bool` | `renameUpdateReady` | Post-rename update request for a previously allocated ROB row |
+| output | `renameUpdateReady` | `Bool` | ready | Forwarded `ROBEntryBank` update readiness; independent of BROB state |
+| output | `renameUpdateAccepted` | `Bool` | diagnostic | ROB row update accepted this cycle |
+| output | `renameUpdateIgnored` | `Bool` | diagnostic | ROB row update request could not apply |
+| input | `renameUpdateRid` | `ROBID(entries)` | with `renameUpdateValid` | Native RID of the reserved row to update |
+| input | `renameUpdateRow` | `CommitTraceRow` | with `renameUpdateValid` | Post-rename commit row payload |
+| input | `renameUpdateTSeq` / `renameUpdateUSeq` | `ROBID(mapQDepth)` | with `renameUpdateValid` | Post-rename T/U sequence sidecars |
+| input | `renameUpdateTUDstValid` / `renameUpdateTUDstKind` | mixed | with `renameUpdateValid` | Post-rename T/U destination ownership |
 | input | `completeValid` / `completeRobValue` | mixed | valid | ROB completion path forwarded to `ROBEntryBank` |
 | input | `deallocReady` | `Bool` | ready | ROB deallocation-ready path forwarded to `ROBEntryBank` |
 | input | `block*Done*`, `blockRetire*`, `blockFlush*`, `blockQueryBid` | mixed | valid/query | Pass-through control and query surface for `BrobMetaTracker` |
@@ -101,15 +113,21 @@ feeds `ROBEntryBank.allocBid`; RID remains allocated locally by `ROBEntryBank`
 from its allocation pointer.
 
 The T/U cleanup and retire-source sidecars are forwarded unmodified to
-`ROBEntryBank`.
-`DecodeRenameROBPath` drives these fields from `ScalarTURenameBridge`, using
-the `SPERename`-equivalent `tSeq/uSeq` snapshot captured before T/U
-destination rename plus the accepted T/U destination ownership sidecar. It also
-drives `allocGid`, `allocPeId`, and `allocIsLast` from the queued decoded
-row/reduced owner metadata so ROB deallocation can publish relation-cmap retire
-sources without depending on commit-trace identity fields. In the current
-reduced path, `allocPeId` remains PE0, but it is still stored as row-owned
-metadata for later non-zero PE routing.
+`ROBEntryBank` at allocation time, but the reduced R76 path intentionally
+drives the rename-produced sidecars as zero/no-destination during reservation.
+`renameUpdate*` then forwards the accepted `ScalarTURenameBridge` row and
+`SPERename`-equivalent `tSeq/uSeq` snapshot to the same ROB slot. This matches
+the C++ model's two-phase effect: `SPEROB::allocROB` stores the instruction
+before `dec_ren_q`, and later `SPERename::Rename` mutates the shared
+instruction object. The Chisel row stores values, so the later mutation is an
+explicit update handshake.
+
+`DecodeRenameROBPath` drives `allocGid`, `allocPeId`, and `allocIsLast` from
+the decoded row/reduced owner metadata at reservation time so ROB deallocation
+can publish relation-cmap retire sources without depending on commit-trace
+identity fields. In the current reduced path, `allocPeId` remains PE0 for most
+packets, but it is still stored as row-owned metadata for later non-zero PE
+routing.
 
 `CommitTraceRow.identity` is not synthesized here. It remains the model commit
 trace and duplicate-detection identity supplied by the eventual decode/dispatch
@@ -161,6 +179,7 @@ adapter's responsibility.
 
 Focused tests cover atomic BROB/ROB allocation, BID cursor wrap through
 uniqueness bits, blocked-allocation hold behavior for BROB fullness and ROB
-duplicate identity, ROB T/U source IO elaboration through the composed module,
+duplicate identity, separation of decode-time allocation from rename-time row
+update, ROB T/U source IO elaboration through the composed module,
 ROB deallocation retire-source and block-last-candidate IO elaboration through
 the composed module, and Chisel elaboration of the composed module.

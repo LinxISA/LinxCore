@@ -106,16 +106,16 @@ The ROB/cross-check substrate remains the required base:
 
 | Order | Packet | Primary files | Required gates |
 |---|---|---|---|
-| 1 | Enqueue-time ROB reservation design | `DecodeRenameROBPath.scala`, `DispatchROBAllocator.scala`, `ROBEntryBank.scala`, `DecodeRenameQueue.scala` | `DecodeRenameROBPath`, `DispatchROBAllocator`, `ROBEntryBank`, `DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
-| 2 | Post-rename ROB sidecar update | `ROBEntryBank.scala`, `ScalarTURenameBridge.scala`, `DecodeRenameROBPath.scala` | prior gates plus `ScalarTURenameBridge`, `TULinkLocalBankArray` |
-| 3 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top xcheck |
-| 4 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
-| 5 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 6 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 1 | Enqueue-time ROB reservation plus post-rename sidecar update (R76) | `DecodeRenameROBPath.scala`, `DispatchROBAllocator.scala`, `ROBEntryBank.scala`, module docs | `DecodeRenameROBPath`, `DispatchROBAllocator`, `ROBEntryBank`, `DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
+| 2 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top xcheck |
+| 3 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
+| 4 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 5 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
-The first packet should be a design-and-interface packet unless the agent can
-also implement the sidecar-update path in the same narrow diff. A partial
-reservation that loses rename-produced sidecars is not acceptable.
+R76 implemented the reservation/update split. Future agents must not reintroduce
+queue-head ROB allocation or reserve a row with permanent zero T/U sidecars.
+The next promotion work should broaden gates and cross-check payloads around
+the new split rather than redesigning the split itself.
 
 ## Cross-Check Ladder
 

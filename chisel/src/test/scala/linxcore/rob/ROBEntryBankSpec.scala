@@ -137,6 +137,16 @@ object ROBEntryBankReference {
       Some(rob)
     }
 
+    def renameUpdate(rid: Id, row: Row, tu: TUSidecar = TUSidecar()): Boolean = {
+      table(rid.value) match {
+        case Some(entry) if equal(entry.rid, rid) && (entry.status == Allocated || entry.status == Renamed) =>
+          table(rid.value) = Some(entry.copy(row = row.copy(robValue = rid.value), status = Renamed, tu = tu))
+          true
+        case _ =>
+          false
+      }
+    }
+
     def robTUSource(flushBid: Id, flushRid: Id, stid: Int, baseOnBid: Boolean): Option[TUSource] = {
       if (baseOnBid) {
         return None
@@ -355,6 +365,29 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(rob.alloc(row(4)).nonEmpty)
   }
 
+  test("reference patches reserved row sidecars after rename") {
+    val rob = new Model(entries = 8, commitWidth = 2)
+    val r0 = rob.alloc(row(0), bid = Some(id(1))).get
+
+    assert(rob.statusAt(r0) == Allocated)
+    assert(rob.renameUpdate(
+      id(r0),
+      row(0).copy(gid = 2),
+      TUSidecar(peId = 3, stid = 1, tSeq = id(5), uSeq = id(6), dst = TDst, isLast = true)
+    ))
+    assert(rob.statusAt(r0) == Renamed)
+    assert(
+      rob.robTUSource(flushBid = id(1), flushRid = id(r0), stid = 1, baseOnBid = false)
+        .contains(TUSource(true, id(1), id(r0), 1, id(5), id(6), TDst))
+    )
+
+    assert(rob.complete(r0))
+    assert(rob.commit().map(_.rid) == Seq(0))
+    assert(rob.deallocTURetireSources() == Seq(
+      TURetireSource(true, id(1), id(0), id(r0), 3, 1, true, id(5), id(6), TDst)
+    ))
+  }
+
   test("reference deallocReady can hold retired rows and keep the bank full") {
     val rob = new Model(entries = 2, commitWidth = 2)
     val r0 = rob.alloc(row(0)).get
@@ -519,6 +552,10 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_allocIsLast"))
     assert(sv.contains("io_allocTSeq_value"))
     assert(sv.contains("io_allocTUDstKind"))
+    assert(sv.contains("io_renameUpdateReady"))
+    assert(sv.contains("io_renameUpdateRid_value"))
+    assert(sv.contains("io_renameUpdateTSeq_value"))
+    assert(sv.contains("io_renameUpdateTUDstKind"))
     assert(sv.contains("io_robTULinkSource_tSeq_value"))
     assert(sv.contains("io_deallocTURetireSource_0_tSeq_value"))
     assert(sv.contains("io_deallocTURetireSource_0_peId"))

@@ -24,6 +24,12 @@ object DecodeRenameROBPathReference {
   def accepted(attemptValid: Boolean, robReady: Boolean): Boolean =
     attemptValid && robReady
 
+  def robReservationAttemptValid(inputValid: Boolean, queueReady: Boolean): Boolean =
+    inputValid && queueReady
+
+  def decodeReady(queueReady: Boolean, robReady: Boolean): Boolean =
+    queueReady && robReady
+
   def queuePushReady(count: Int, depth: Int, popFire: Boolean, flush: Boolean = false): Boolean = {
     require(depth > 0 && (depth & (depth - 1)) == 0)
     !flush && (count < depth || popFire)
@@ -62,6 +68,15 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(accepted(attemptValid = true, robReady = true))
     assert(!allocAttemptValid(inputValid = true, maintenanceBusy = false, unsupported = false, canRename = true, outReady = false))
     assert(!allocAttemptValid(inputValid = true, maintenanceBusy = true, unsupported = false, canRename = true, outReady = true))
+  }
+
+  test("reference reserves ROB/BROB before decode enters the dec-ren queue") {
+    assert(robReservationAttemptValid(inputValid = true, queueReady = true))
+    assert(!robReservationAttemptValid(inputValid = true, queueReady = false))
+    assert(!robReservationAttemptValid(inputValid = false, queueReady = true))
+    assert(decodeReady(queueReady = true, robReady = true))
+    assert(!decodeReady(queueReady = true, robReady = false))
+    assert(!decodeReady(queueReady = false, robReady = true))
   }
 
   test("reference admits decode only when the dec-ren queue can accept") {
@@ -216,6 +231,10 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.tuRenameSourceUnderflowMask.getWidth == 3)
     assert(io.robAllocAttemptValid.getWidth == 1)
     assert(io.robAllocFire.getWidth == 1)
+    assert(io.robRenameUpdateAttemptValid.getWidth == 1)
+    assert(io.robRenameUpdateReady.getWidth == 1)
+    assert(io.robRenameUpdateFire.getWidth == 1)
+    assert(io.robRenameUpdateIgnored.getWidth == 1)
     assert(io.robTULinkSource.tSeq.value.getWidth == 5)
     assert(io.robTULinkSource.uSeq.value.getWidth == 5)
     assert(io.robTULinkSourceMatched.getWidth == 1)
@@ -313,6 +332,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_selectedLsId"))
     assert(sv.contains("io_decRenCount"))
     assert(sv.contains("io_robAllocAttemptValid"))
+    assert(sv.contains("io_robRenameUpdateAttemptValid"))
+    assert(sv.contains("io_robRenameUpdateFire"))
     assert(sv.contains("io_renamedOut_peId"))
     assert(sv.contains("io_tuRenameTSeq_value"))
     assert(sv.contains("io_tuRenameActivePeId"))

@@ -34,6 +34,17 @@ class ROBEntryBankIO(
   val allocIsLast = Input(Bool())
   val allocRobValue = Output(UInt(ptrWidth.W))
 
+  val renameUpdateValid = Input(Bool())
+  val renameUpdateReady = Output(Bool())
+  val renameUpdateAccepted = Output(Bool())
+  val renameUpdateIgnored = Output(Bool())
+  val renameUpdateRid = Input(new ROBID(entries))
+  val renameUpdateRow = Input(new CommitTraceRow(traceParams))
+  val renameUpdateTSeq = Input(new ROBID(mapQDepth))
+  val renameUpdateUSeq = Input(new ROBID(mapQDepth))
+  val renameUpdateTUDstValid = Input(Bool())
+  val renameUpdateTUDstKind = Input(DestinationKind())
+
   val completeValid = Input(Bool())
   val completeRobValue = Input(UInt(ptrWidth.W))
   val completeAccepted = Output(Bool())
@@ -281,6 +292,17 @@ class ROBEntryBank(
   io.allocRobValue := allocValue
   val allocFire = io.allocValid && io.allocReady
 
+  val renameUpdateStatus = status(io.renameUpdateRid.value)
+  val renameUpdateMayApply =
+    io.renameUpdateRid.valid &&
+      rows(io.renameUpdateRid.value).valid &&
+      ROBID.equal(rowRid(io.renameUpdateRid.value), io.renameUpdateRid) &&
+      (renameUpdateStatus === ROBEntryStatus.Allocated || renameUpdateStatus === ROBEntryStatus.Renamed)
+  io.renameUpdateReady := !flushApplied && renameUpdateMayApply
+  val renameUpdateFire = io.renameUpdateValid && io.renameUpdateReady
+  io.renameUpdateAccepted := renameUpdateFire
+  io.renameUpdateIgnored := io.renameUpdateValid && !io.renameUpdateReady
+
   val completeStatus = status(io.completeRobValue)
   val completeMayUpdate = mayComplete(completeStatus)
   val completeAccepted = !flushApplied && io.completeValid && completeMayUpdate
@@ -388,6 +410,23 @@ class ROBEntryBank(
       rowTUDstKind(idx) := DestinationKind.None
       rowIsLast(idx) := false.B
       status(idx) := ROBEntryStatus.Free
+    }
+  }
+
+  when(renameUpdateFire) {
+    val row = Wire(new CommitTraceRow(traceParams))
+    row := io.renameUpdateRow
+    row.valid := true.B
+    row.rob.valid := true.B
+    row.rob.wrap := rowRid(io.renameUpdateRid.value).wrap
+    row.rob.value := rowRid(io.renameUpdateRid.value).value
+    rows(io.renameUpdateRid.value) := row
+    rowTSeq(io.renameUpdateRid.value) := io.renameUpdateTSeq
+    rowUSeq(io.renameUpdateRid.value) := io.renameUpdateUSeq
+    rowTUDstValid(io.renameUpdateRid.value) := io.renameUpdateTUDstValid
+    rowTUDstKind(io.renameUpdateRid.value) := io.renameUpdateTUDstKind
+    when(status(io.renameUpdateRid.value) === ROBEntryStatus.Allocated) {
+      status(io.renameUpdateRid.value) := ROBEntryStatus.Renamed
     }
   }
 

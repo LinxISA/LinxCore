@@ -159,6 +159,15 @@ fetched again on 2026-06-29 and local `HEAD` still matched `origin/main` at
 `SPEROB::allocROB`, and `SPERename::Work`: BROB and PE ROB allocation happen
 before `dec_ren_q` enqueue, while later rename mutations remain visible in the
 model through the shared `SimInst` pointer stored in the ROB row.
+R76 implementation started from `rtl/LinxCore` commit
+`0cb614cb46833b1f4e5a40c9f59416a5b07946b8`, with the same unrelated
+architecture markdown files dirty in the LinxCore worktree. The model evidence
+was rechecked at LinxCoreModel commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450` in
+`DCTop::Work`, `SPEROB::allocROB`, `SPERename::Rename`,
+`BCtrlUnit::Work`, and `BlockROB::allocBlock`. The implementation reserves
+BROB/ROB before `DecodeRenameQueue` enqueue and patches `ROBEntryBank` through
+`renameUpdate*` when rename accepts the queue head.
 
 ## Non-Negotiable Rules
 
@@ -323,6 +332,7 @@ These packets remain the required base before broad module promotion:
 | R73 | Active SGPR bank selector plumbing | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R74 | Retired-row PE/STID sidecars for T/U retire commands | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R75 | Decoded/renamed scalar PE owner sidecar carry | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendInstructionBuffer`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R76 | Enqueue-time ROB/BROB reservation with post-rename sidecar update | `sbt "testOnly linxcore.rob.ROBEntryBankSpec linxcore.backend.DispatchROBAllocatorSpec linxcore.backend.DecodeRenameROBPathSpec"`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -457,12 +467,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Enqueue-time ROB reservation design: move BROB/ROB reservation before
-   `DecodeRenameQueue` enqueue, but preserve the model's later rename sidecar
-   visibility explicitly. The C++ ROB stores a `SimInst` pointer before
-   `dec_ren_q`; Chisel stores value rows, so this packet must define either a
-   post-rename ROB sidecar update or a split reservation/update row contract
-   before advancing allocator cursors at enqueue.
+1. R76 gate broadening and trace/xcheck prep: run the full wrapper ladder for
+   the reservation/update split, then capture any top/QEMU dry-run gaps before
+   wider frontend work depends on the new boundary.
 2. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
 3. Multi-PE packet production and bank instantiation: teach the upstream

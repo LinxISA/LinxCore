@@ -27,18 +27,18 @@
 `DecodeRenameROBPath` is the first reduced frontend/backend composition point.
 It connects `FrontendDecodeStage`, `DecodeRenameQueue`,
 `ScalarTURenameBridge`, and `DispatchROBAllocator` so one decoded scalar/T/U
-uop can pass through a registered D2/D3 queue, produce a renamed payload, and
-allocate a real BROB/ROB row in the accepted rename cycle.
+uop can reserve a real BROB/ROB row before entering the registered D2/D3
+queue, produce a renamed payload, and patch rename-produced ROB sidecars when
+the queue head is accepted by rename.
 
 The module exists to remove the next layer of fixture wiring. It is still a
 bring-up path, not the final dispatch pipe. It selects one decoded slot per
 cycle, stamps reduced memory-order identity for scalar load/store rows at the
-queue acceptance boundary, enqueues the decoded row into a registered
-`dec_ren_q` owner, stamps temporary ROB identity from allocator cursors when
-the queue head is presented to rename, and leaves enqueue-time ROB
-reservation, full SID/LID carry, STA/STD execution, width-wide
-rename, block/group commit cleanup event ownership, and full top-level
-fetch/commit flow to later owners. It now owns the queue-backed
+queue acceptance boundary, reserves BROB and ROB identity before enqueue,
+enqueues that row into a registered `dec_ren_q` owner, and leaves full SID/LID
+carry, STA/STD execution, width-wide rename, block/group commit cleanup event
+ownership, and full top-level fetch/commit flow to later owners. It now owns
+the queue-backed
 store-dispatch to STQ row-owner boundary through `StoreDispatchSTQPath`; STA
 address generation and STD data selection remain explicit inputs until the
 real execution owners exist. It also composes live T/U rename and recovery
@@ -81,6 +81,11 @@ path now drives `ScalarTURenameBridge.activePeId` and
 `DispatchROBAllocator.allocPeId` from the queued row's `peId`, matching the
 model's `inst->peID` ownership while preserving PE0 behavior for packets that
 do not yet set a nonzero owner.
+R76 moves `DispatchROBAllocator.allocValid` to the decode enqueue boundary and
+adds `robRenameUpdate*` observability for the post-rename ROB update. This
+matches the model order where `DCTop::Work` calls `SPEROB::allocROB` before
+`dec_ren_q->Write`, while `SPERename::Rename` later mutates the same
+instruction object's T/U sidecars.
 
 ## Interface
 
@@ -136,7 +141,10 @@ Outputs:
   match diagnostics forwarded from `STQEntryBank`.
 - `robAllocAttemptValid`, `robAllocReady`, `robAllocFire`,
   `robAllocBlockedBy*`, `robAllocDuplicateIdentity`: allocation handoff
-  observability.
+  observability for the decode-time BROB/ROB reservation.
+- `robRenameUpdateAttemptValid`, `robRenameUpdateReady`,
+  `robRenameUpdateFire`, `robRenameUpdateIgnored`: post-rename ROB row update
+  observability for sidecars produced after the queue head accepts.
 - `blockedBy*`, `blockedByTURename`, `unsupported*`: scalar/T/U rename bridge
   diagnostics.
 - `tuRename*`: T/U rename readiness, accepted event, pre-allocation
@@ -180,16 +188,9 @@ module; a later width owner must provide full decode enqueue.
 The selected decoded row first passes through `DecodeLoadStoreIdAssign`.
 Memory-order counters advance only on `decRenPushFire`, so a stalled
 decode/rename queue does not consume LSIDs or SID/LID serials. The annotated
-row is written into `DecodeRenameQueue` when `decRenPushFire` is true. The
-queue and the memory-order counters are flushed by direct frontend flush input
-or by backend cleanup intent. `decodeReady` mirrors the queue push-ready signal
-so a future frontend integration can advance D1/F4 only when the selected row
-is accepted. The generated opcode metadata drives the reduced path's
-load/store-pair, PCR-store, and cache-maintain split sidebands. DCZVA remains a
-deferred explicit classification input.
-
-When a row is visible at the queue head, the module stamps the missing backend
-identity that `DCTop::Work()` and `SPEROB::allocROB()` supply in the C++ model:
+row is stamped with the missing backend identity that `DCTop::Work()` and
+`SPEROB::allocROB()` supply in the C++ model before it is written into
+`DecodeRenameQueue`:
 
 - `bid` comes from the current generated block BID converted to ring `ROBID`;
 - `rid.value` comes from the ROB allocation pointer exposed as
@@ -197,13 +198,27 @@ identity that `DCTop::Work()` and `SPEROB::allocROB()` supply in the C++ model:
 - `gid` is held at zero in the reduced scalar path;
 - `blockBidValid/blockBid` mirrors the generated full hardware BID.
 
-`ScalarTURenameBridge.robAllocAttemptValid` drives
-`DispatchROBAllocator.allocValid`. This signal is intentionally independent of
-allocator ready. The bridge only reports `accepted`, pops `DecodeRenameQueue`,
-and mutates GPR plus T/U rename state when `allocReady` returns true, but the
-allocator duplicate-identity check sees a stable request row before it
-computes ready. This avoids a ready/valid combinational feedback path through
-ROB duplicate detection.
+`DispatchROBAllocator.allocValid` is high when a decoded row exists and the
+`dec_ren_q` has push capacity. The row enters the queue only when both
+`dec_ren_q.pushReady` and `allocReady` are high, so BROB and ROB reservation
+fire atomically before queue visibility. `decodeReady` is the conjunction of
+queue capacity and allocator readiness. This matches the C++ model's
+`allocROB`-before-`dec_ren_q` order and prevents LSID/SID counters from
+advancing when reservation is blocked. The queue and the memory-order counters
+are flushed by direct frontend flush input or by backend cleanup intent. The
+generated opcode metadata drives the reduced path's load/store-pair,
+PCR-store, and cache-maintain split sidebands. DCZVA remains a deferred
+explicit classification input.
+
+The reservation row deliberately carries zero T/U sequence and no T/U
+destination sidecar. `ScalarTURenameBridge.robAllocAttemptValid` now drives
+`DispatchROBAllocator.renameUpdateValid` for the queue head. The rename bridge
+only reports `accepted`, pops `DecodeRenameQueue`, and mutates GPR plus T/U
+rename state when the ROB bank reports `renameUpdateReady`. On acceptance, the
+allocator forwards the bridge's post-rename `CommitTraceRow`, `tSeq/uSeq`, and
+T/U destination ownership into `ROBEntryBank.renameUpdate*`. This is the
+explicit Chisel value-row replacement for the C++ model's shared `SimInst`
+pointer mutation after `SPEROB::allocROB`.
 
 For store rows at the queue head, the path computes reduced store-dispatch
 readiness before rename accepts the row. Unsplit stores require only STA
@@ -230,15 +245,17 @@ or decode maintenance flush uses `StoreDispatchSTQPath.queueFlushValid` so it
 clears only the dispatch queues and does not over-prune STQ rows.
 
 The allocator still owns BID generation, BROB metadata allocation, ROB row
-allocation, completion, deallocation, commit monitoring, and ROB flush pruning.
+reservation/update forwarding, completion, deallocation, commit monitoring,
+and ROB flush pruning.
 The composition ties block scalar/engine completion and block retire inputs
 inactive because full block-control retirement is not part of this owner.
 
-The composition also drives the allocator's R56 T/U sidecar inputs. `allocStid`
-still comes from the queued decoded row's thread ID in the reduced path, while
-`allocTSeq`, `allocUSeq`, and T/U destination ownership now come from
-`ScalarTURenameBridge`. This gives the ROB row the same sequence snapshot that
-the store-dispatch payload carries.
+The composition also drives the allocator's row-owned sidecars. `allocStid`
+comes from the decoded row's thread ID in the reduced path; `allocTSeq`,
+`allocUSeq`, and T/U destination ownership are patched later by the rename
+update. This gives the ROB row the same sequence snapshot that the
+store-dispatch payload carries without requiring the reservation stage to know
+rename-produced values.
 R73 uses that same queued-row thread ID as `ScalarTURenameBridge.activeStid`.
 R75 uses the queued-row `peId` as `ScalarTURenameBridge.activePeId`, so the
 active T/U bank selector is now fully row-owned at the reduced backend
@@ -332,16 +349,18 @@ The C++ model order being preserved is:
    group change, or pressure.
 
 `DecodeRenameROBPath` now preserves the registered `dec_ren_q` timing point,
-and it assigns reduced memory-order identity before queue enqueue. It still
-reduces the model in one important way: the allocator cursor identity is
-stamped at the queue head. This avoids duplicate cursor reservations while the
-path lacks an enqueue-time ROB reservation owner. Full model timing requires
-moving ROB reservation before enqueue and carrying full `load_id`/`sid`
-payloads into LIQ/STQ owners. It exposes the ROB T/U source candidate through
-the allocator boundary and composes the live STQ-bank LSU candidate through
-`ScalarTURenameBridge` and its `TULinkRecoveryCleanupPath`. R62 now wires live
+assigns reduced memory-order identity before queue enqueue, and reserves
+BROB/ROB identity before the row enters the queue. Because Chisel stores value
+rows rather than the C++ model's shared `SimInst` pointer, rename-produced
+`tSeq/uSeq` and T/U destination ownership are patched through
+`ROBEntryBank.renameUpdate*` when the queue head accepts. Full model timing
+still requires carrying full `load_id`/`sid` payloads into LIQ/STQ owners. It
+exposes the ROB T/U source candidate through the allocator boundary and
+composes the live STQ-bank LSU candidate through `ScalarTURenameBridge` and
+its `TULinkRecoveryCleanupPath`. R62 wires live
 `SPERename::Rename()`-equivalent `tSeq/uSeq` snapshots and T/U destination
-ownership into both `StoreSplitPayload` and `DispatchROBAllocator`.
+ownership into `StoreSplitPayload`; R76 wires the same values into
+`DispatchROBAllocator` through the post-rename row update path.
 R64 wires the deallocation side of that same T/U ownership contract back into
 live T/U rename retirement through the width-aware source serializer. R65 adds
 the recovery-pruning side of `SPEROB::FlushRelativeReg` to that path.
@@ -376,8 +395,6 @@ publication, SCB/MDB handoff, and memory trace side effects.
 ## Deferred Owners
 
 - Width-wide selection and rename for multiple decoded uops per cycle.
-- Enqueue-time ROB reservation from full block/decode context rather than
-  reduced queue-head allocator cursor stamping.
 - BID-scoped `dec_ren_q` flush pruning rather than coarse queue clear.
 - Top-level frontend backpressure wiring that consumes `decodeReady`.
 - Width-wide slot-order LSID/SID allocation and same-cycle memory ordering.
@@ -433,8 +450,9 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 
 The current tests cover first-valid slot selection, queue admission
 backpressure, the reduced memory-order ID observability, the store dispatch
-STA/STD readiness rule, the allocation attempt contract, ROB/LSU T/U cleanup
-source agreement and conflict reference behavior, ROB dealloc T/U retire
+STA/STD readiness rule, decode-time BROB/ROB reservation gating, post-rename
+ROB update observability, ROB/LSU T/U cleanup source agreement and conflict
+reference behavior, ROB dealloc T/U retire
 serializer diagnostics, IO shape, and CIRCT elaboration through frontend
 decode, `DecodeLoadStoreIdAssign`,
 `DecodeRenameQueue`, scalar/T/U rename, `StoreSplitPayload`,
@@ -454,3 +472,6 @@ queued-row STID selector plumbing and active-bank diagnostics. R74 covers
 retired-row PE/STID command sidecars and retire-bank diagnostics through the
 backend composition. R75 covers queued-row PE sidecar carry into active rename,
 ROB allocation, renamed output, and store-dispatch payload observability.
+R76 covers enqueue-time ROB/BROB reservation and post-rename sidecar update
+observability through `DecodeRenameROBPath`, `DispatchROBAllocator`, and
+`ROBEntryBank`.
