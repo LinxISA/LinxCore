@@ -119,10 +119,20 @@ Future Verilator drivers should use `decodeReady`, `selectedRobValue`,
 `commitHead*`, and the ROB masks to drive a bounded frontend-window smoke before
 promoting this path into full QEMU/CoreMark comparison.
 
+`tools/chisel/run_chisel_frontend_trace_top_xcheck.sh` is the first such
+driver. It emits the trace top, builds a Verilator harness, drives three scalar
+frontend packets (`ADD`, `ADDI`, and compressed move), uses `selectedRobValue`
+as the temporary completion surrogate, dumps fixed-width DUT commit JSONL, and
+compares the normalized DUT stream against a QEMU-shaped reference stream.
+This proves the generated-RTL frontend packet to commit-row path, but still
+does not prove real execution because writeback, memory, trap, and recovery
+payloads remain tied to current reduced owners.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendTraceTop`
 - `bash tools/chisel/run_chisel_frontend_trace_top_lint.sh`
+- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 - `bash tools/chisel/run_chisel_trace_replay_xcheck.sh`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

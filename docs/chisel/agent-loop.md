@@ -345,6 +345,7 @@ These packets remain the required base before broad module promotion:
 | R77 | R76 gate broadening and top trace/xcheck prep | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_reduced_rob_xcheck.sh`, `run_chisel_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R78 | Top trace replay xcheck harness | `run_chisel_trace_replay_xcheck.sh`, `run_chisel_top_xcheck.sh`, `run_chisel_reduced_rob_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R79 | Frontend-window trace top boundary | `run_chisel_tests.sh --only LinxCoreFrontendTraceTop`, `run_chisel_frontend_trace_top_lint.sh`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R80 | Frontend-window trace top Verilator xcheck | `run_chisel_frontend_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_lint.sh`, `run_chisel_tests.sh --only LinxCoreFrontendTraceTop`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -362,11 +363,13 @@ Use this order for each promoted slice:
    or cross-check harness changes.
 6. `run_chisel_frontend_trace_top_lint.sh` after changes to the
    frontend-window-to-commit top boundary.
-7. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
+7. `run_chisel_frontend_trace_top_xcheck.sh` after changes to the frontend
+   trace-top driver, temporary completion surrogate, or top commit export.
+8. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
-8. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
+9. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
    commit rows for the slice.
-9. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
+10. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
    QEMU in the same run packet.
 
 ## LinxCoreModel Maintenance Loop

@@ -125,8 +125,13 @@ data-array mutation belong to later LSU owners.
   through the Chisel top before replacing replayed rows with live
   frontend/decode/execute/LSU-generated rows.
 - Use `LinxCoreFrontendTraceTop` as the R79 bridge from raw frontend windows
-  through F4 decode and `DecodeRenameROBPath` before adding the Verilator
-  driver that dumps DUT commit JSONL.
+  through F4 decode and `DecodeRenameROBPath`.
+- Use the R80 frontend trace-top Verilator xcheck as the generated-RTL proof
+  that raw scalar frontend packets can produce monitored DUT commit JSONL and
+  compare with zero mismatches against a QEMU-shaped reference stream. The
+  next proof step must replace the harness-owned completion surrogate with
+  real execute/LSU completion before treating it as architectural QEMU/CoreMark
+  evidence.
 - Connect the downstream consumers for `RecoveryCleanupControl`: rename
   cleanup, LSU memory-side effects beyond `STQEntryBank`, precise trap
   ownership, and frontend restart ownership. Do not retrofit those behaviors
