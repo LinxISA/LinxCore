@@ -76,15 +76,16 @@ priority because it is applied after init and clear in the sequential block.
 ## Timing
 
 Reads are combinational from registered RF state. Init, clear, and write are
-registered on the rising edge. In the R85 top, the issue queue samples
+registered on the rising edge. In the R86 top, the issue queue samples
 `readyMask` into registered per-entry source-ready state and captures
-`readData` into execute only when every valid source lane is ready.
+`readData` from the selected oldest-ready row into execute only when every
+valid source lane for that row is ready.
 
 R82 did not feed `allReadReady` back into `DecodeRenameROBPath` readiness,
 because `ScalarDecodeRenameBridge.outValid` and source-valid bits are
-acceptance-gated. R85 keeps that rule and uses `ReducedScalarIssueQueue` as the
+acceptance-gated. R86 keeps that rule and uses `ReducedScalarIssueQueue` as the
 registered readiness owner between rename and execute: rename readiness is
-capacity, while source readiness gates only queue-head issue.
+capacity, while source readiness gates only selected-row issue.
 
 ## Flush/Recovery
 

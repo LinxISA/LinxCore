@@ -23,10 +23,11 @@ class ReducedScalarIssueQueueSpec extends AnyFunSuite {
     assert(io.issuedCount.getWidth == 3)
     assert(io.notIssuedCount.getWidth == 3)
     assert(io.sourceReadyMask.getWidth == 3)
+    assert(io.selectedIndex.getWidth == 2)
     assert(io.enqueueDstTag.getWidth == 6)
   }
 
-  test("ReducedScalarIssueQueue elaborates capacity and source-block diagnostics") {
+  test("ReducedScalarIssueQueue elaborates capacity, oldest-ready selection, and source-block diagnostics") {
     val sv = ChiselStage.emitSystemVerilog(new ReducedScalarIssueQueue(InterfaceParams(), depth = 4))
 
     assert(sv.contains("module ReducedScalarIssueQueue"))
@@ -38,6 +39,8 @@ class ReducedScalarIssueQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_releaseFire"))
     assert(sv.contains("io_headIssued"))
     assert(sv.contains("io_sourceReadyMask"))
+    assert(sv.contains("io_selectedValid"))
+    assert(sv.contains("io_selectedIndex"))
     assert(sv.contains("io_blockedByIssued"))
     assert(sv.contains("io_blockedBySource"))
     assert(sv.contains("io_blockedByOutput"))

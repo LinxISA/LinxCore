@@ -242,6 +242,20 @@ registered inside the issue queue and updated from the RF ready mask instead
 of feeding same-cycle RF `readReady` directly into issue selection.
 R85 closeout: `skill-evolve: no-update (installed linx-core skill already
 documents wakeup at cycle N must not affect pick until N+1)`.
+R86 started from `rtl/LinxCore` commit
+`f31fd42484c55ac9a1ed957e4c1d64ae1a456bc9` after R85 landed registered
+source readiness. The superproject root was
+`2df227e808b30c039b03be3eef9db077630243c6`; LinxCoreModel remained at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; QEMU was at
+`f17c551aaef51a784a99d5cccc69cf65ff2a7b32`; `skills/linx-skills` was at
+`14550071b38617fbdb2302489bc180b2b8f9cbf8`. The R86 model evidence is
+`IssueState::Select` scanning resident entries, ignoring issued entries,
+tracking `oldeIdx`, marking only the selected entry issued, and leaving release
+to the later `ReleaseEntry` path. R86 keeps the reduced one-issue-port scalar
+top, but RF reads and execute issue now use the oldest resident ready
+non-issued row rather than always using slot 0.
+R86 closeout: `skill-evolve: no-update (installed linx-core skill already
+documents oldest-ready ordering across in-flight issued entries)`.
 
 ## Non-Negotiable Rules
 
@@ -416,6 +430,7 @@ These packets remain the required base before broad module promotion:
 | R83 | Reduced scalar issue-queue handoff | `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_tests.sh --only ReducedScalarRegisterFile`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R84 | Model-style issued-entry release | `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R85 | Registered issue source readiness | `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R86 | Oldest-ready reduced issue selection | `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -440,8 +455,9 @@ Use this order for each promoted slice:
    trace-top driver.
 9. `run_chisel_frontend_rf_alu_trace_top_xcheck.sh` after changes to scalar RF
    operand sourcing, registered issue-queue source readiness,
-   issue-queue release, execute physical-destination writeback metadata, or
-   the shared frontend ALU trace-top driver.
+   oldest-ready issue selection, issue-queue release, execute
+   physical-destination writeback metadata, or the shared frontend ALU
+   trace-top driver.
 10. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
 11. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
@@ -566,9 +582,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Full issue scheduler timing: replace the reduced FIFO head-only selector
-   with model-aligned age-select, explicit wakeup ports, P1/I1/I2 in-flight
-   timing, cancel, replay, and bypass behavior.
+1. Full issue scheduler timing: add explicit wakeup ports, alternate model
+   select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
+   behavior behind the reduced oldest-ready selector.
 2. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
    event stream from commit-only rows toward trap, memory, recovery, and block
    sidebands.

@@ -11,6 +11,7 @@ class ReducedScalarIssueQueueIO(
     val depth: Int = 4)
     extends Bundle {
   private val countWidth = log2Ceil(depth + 1)
+  private val indexWidth = log2Ceil(depth)
 
   val inValid = Input(Bool())
   val inReady = Output(Bool())
@@ -48,6 +49,8 @@ class ReducedScalarIssueQueueIO(
   val headIssued = Output(Bool())
   val sourceReadyMask = Output(UInt(3.W))
   val allSourcesReady = Output(Bool())
+  val selectedValid = Output(Bool())
+  val selectedIndex = Output(UInt(indexWidth.W))
   val blockedBySource = Output(Bool())
   val blockedByOutput = Output(Bool())
   val blockedByIssued = Output(Bool())
@@ -93,12 +96,30 @@ class ReducedScalarIssueQueue(
   }
   val releaseFire = io.releaseValid && rawReleaseMatches.asUInt.orR
 
-  val sourceReady = Wire(Vec(3, Bool()))
-  for (idx <- 0 until 3) {
-    sourceReady(idx) := !headValid || headIssued || srcReady(0)(idx)
+  val entrySourceReady = Wire(Vec(depth, Vec(3, Bool())))
+  val entryAllSourcesReady = Wire(Vec(depth, Bool()))
+  val entrySelectable = Wire(Vec(depth, Bool()))
+  for (entryIdx <- 0 until depth) {
+    for (lane <- 0 until 3) {
+      entrySourceReady(entryIdx)(lane) :=
+        !valid(entryIdx) || issued(entryIdx) || srcReady(entryIdx)(lane)
+    }
+    entryAllSourcesReady(entryIdx) := entrySourceReady(entryIdx).reduce(_ && _)
+    entrySelectable(entryIdx) := valid(entryIdx) && !issued(entryIdx) && entryAllSourcesReady(entryIdx)
   }
-  val allSourcesReady = sourceReady.reduce(_ && _)
-  val issueValid = headValid && !headIssued && allSourcesReady
+
+  val selectedValid = entrySelectable.asUInt.orR
+  val selectedIndex = Wire(UInt(log2Ceil(depth).W))
+  selectedIndex := 0.U
+  for (idx <- (0 until depth).reverse) {
+    when(entrySelectable(idx)) {
+      selectedIndex := idx.U
+    }
+  }
+  val selectedUop = Mux(selectedValid, entries(selectedIndex), 0.U.asTypeOf(new RenamedUop(p)))
+  val headSourceReady = entrySourceReady(0)
+  val headAllSourcesReady = headSourceReady.reduce(_ && _)
+  val issueValid = selectedValid
   val issueFire = issueValid && io.issueReady
   val enqueueFire = io.inValid && io.inReady
   val issuedVec = VecInit((0 until depth).map(idx => valid(idx) && issued(idx)))
@@ -107,10 +128,10 @@ class ReducedScalarIssueQueue(
 
   io.inReady := (count =/= depth.U) || releaseFire
   io.issueValid := issueValid
-  io.issueUop := Mux(headValid, headUop, 0.U.asTypeOf(new RenamedUop(p)))
+  io.issueUop := selectedUop
   for (idx <- 0 until 3) {
-    io.readValid(idx) := headValid && !headIssued && headUop.src(idx).valid
-    io.readTags(idx) := headUop.src(idx).physTag
+    io.readValid(idx) := selectedValid && selectedUop.src(idx).valid
+    io.readTags(idx) := selectedUop.src(idx).physTag
     io.issueSrcData(idx) := io.readData(idx)
   }
 
@@ -126,15 +147,17 @@ class ReducedScalarIssueQueue(
   io.notIssuedCount := notIssuedCount
   io.headValid := headValid
   io.headIssued := headIssued
-  io.sourceReadyMask := sourceReady.asUInt
-  io.allSourcesReady := allSourcesReady
-  io.blockedBySource := headValid && !headIssued && !allSourcesReady
+  io.sourceReadyMask := headSourceReady.asUInt
+  io.allSourcesReady := headAllSourcesReady
+  io.selectedValid := selectedValid
+  io.selectedIndex := selectedIndex
+  io.blockedBySource := headValid && (notIssuedCount =/= 0.U) && !selectedValid
   io.blockedByOutput := issueValid && !io.issueReady
-  io.blockedByIssued := headIssued
+  io.blockedByIssued := headIssued && !selectedValid
 
   val preIssued = Wire(Vec(depth, Bool()))
   for (idx <- 0 until depth) {
-    preIssued(idx) := issued(idx) || (if (idx == 0) issueFire else false.B)
+    preIssued(idx) := issued(idx) || (issueFire && selectedIndex === idx.U)
   }
 
   val preSrcReady = Wire(Vec(depth, Vec(3, Bool())))

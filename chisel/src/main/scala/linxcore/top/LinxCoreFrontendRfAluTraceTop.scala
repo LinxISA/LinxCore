@@ -70,6 +70,8 @@ class LinxCoreFrontendRfAluTraceTopIO(
   val issueQueueHeadIssued = Output(Bool())
   val issueQueueSourceReadyMask = Output(UInt(3.W))
   val issueQueueAllSourcesReady = Output(Bool())
+  val issueQueueSelectedValid = Output(Bool())
+  val issueQueueSelectedIndex = Output(UInt(log2Ceil(issueQueueDepth).W))
   val issueQueueBlockedBySource = Output(Bool())
   val issueQueueBlockedByOutput = Output(Bool())
   val issueQueueBlockedByIssued = Output(Bool())
@@ -221,6 +223,8 @@ class LinxCoreFrontendRfAluTraceTop(
   io.issueQueueHeadIssued := issue.io.headIssued
   io.issueQueueSourceReadyMask := issue.io.sourceReadyMask
   io.issueQueueAllSourcesReady := issue.io.allSourcesReady
+  io.issueQueueSelectedValid := issue.io.selectedValid
+  io.issueQueueSelectedIndex := issue.io.selectedIndex
   io.issueQueueBlockedBySource := issue.io.blockedBySource
   io.issueQueueBlockedByOutput := issue.io.blockedByOutput
   io.issueQueueBlockedByIssued := issue.io.blockedByIssued

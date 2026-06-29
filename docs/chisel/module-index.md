@@ -11,7 +11,7 @@
 | `FrontendOperandDecode` | `linxcore.frontend` | `docs/chisel/modules/frontend/FrontendOperandDecode.md` | Unit-green R43 scalar architectural operand/immediate field owner behind `FrontendDecodeStage` with model-derived GPR/T/U alias classification |
 | `ReducedScalarAluExecute` | `linxcore.execute` | `docs/chisel/modules/execute/ReducedScalarAluExecute.md` | Unit-green R84 reduced scalar ADD/ADDI/MOVI/MOVR execute owner with writeback-shaped completion row and W2 issue-queue release identity |
 | `ReducedScalarRegisterFile` | `linxcore.execute` | `docs/chisel/modules/execute/ReducedScalarRegisterFile.md` | Unit-green R82 reduced physical scalar RF/ready owner for renamed-tag ALU source data and writeback |
-| `ReducedScalarIssueQueue` | `linxcore.execute` | `docs/chisel/modules/execute/ReducedScalarIssueQueue.md` | Unit-green R85 reduced FIFO scalar issue boundary with registered RF source readiness, issued-entry residency, and ALU W2 release |
+| `ReducedScalarIssueQueue` | `linxcore.execute` | `docs/chisel/modules/execute/ReducedScalarIssueQueue.md` | Unit-green R86 reduced scalar issue boundary with registered RF source readiness, oldest-ready resident selection, issued-entry residency, and ALU W2 release |
 | `DispatchROBAllocator` | `linxcore.backend` | `docs/chisel/modules/backend/DispatchROBAllocator.md` | Unit-green R74 backend allocation bridge from BROB BID generation to ROB row allocation with T/U cleanup, retired-row PE/STID sidecars, retire-source, and block-last dealloc candidate forwarding |
 | `DecodeLoadStoreIdAssign` | `linxcore.backend` | `docs/chisel/modules/backend/DecodeLoadStoreIdAssign.md` | Unit-green R47 reduced STID0 LSID/load_id/sid assignment with generated pair/PCR/cache metadata |
 | `DecodeRenameQueue` | `linxcore.backend` | `docs/chisel/modules/backend/DecodeRenameQueue.md` | Unit-green R44 registered raw decoded-uop queue between frontend decode and scalar rename |
@@ -69,7 +69,7 @@
 | `LinxCoreTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreTop.md` | Unit-green reduced commit shell; top Verilator xcheck-green |
 | `LinxCoreFrontendTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendTraceTop.md` | Unit-green R80 frontend packet to commit-row generated-RTL xcheck with temporary completion surrogate |
 | `LinxCoreFrontendAluTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendAluTraceTop.md` | Unit-green R81 frontend packet to ALU-produced completion-row generated-RTL xcheck |
-| `LinxCoreFrontendRfAluTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendRfAluTraceTop.md` | Unit-green R85 frontend packet to RF-backed queued ALU completion-row generated-RTL xcheck with registered issue source readiness, dependent scalar rows, and issue release |
+| `LinxCoreFrontendRfAluTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendRfAluTraceTop.md` | Unit-green R86 frontend packet to RF-backed queued ALU completion-row generated-RTL xcheck with oldest-ready issue selection, dependent scalar rows, and issue release |
 | QEMU cross-check adapter | tooling | `docs/chisel/verification/qemu-crosscheck.md` | Adapter self-test green; reduced top compare green; full compare awaits real frontend/backend rows |
 | Agent development loop | coordination | `docs/chisel/agent-loop.md` | ROB/cross-check-first module loop and skill-evolve closeout runbook |
 

@@ -18,20 +18,24 @@
 `ReducedScalarIssueQueue` is the first Chisel issue boundary for the reduced
 scalar ALU lane. It decouples `DecodeRenameROBPath` from
 `ReducedScalarAluExecute`, stores renamed scalar rows, queries physical RF
-source readiness for the queue head, and issues only when every valid source
-lane is ready and execute can accept a row.
+source data for the selected ready row, and issues only when every valid source
+lane for the selected row is ready and execute can accept a row.
 
 This is a reduced FIFO issue queue for the RF-backed ALU trace top. It is not
-the full model issue scheduler: it does not age-select among many ready rows,
-track P1/I1/I2 in-flight rows, arbitrate issue ports, apply cancellation, or
-replay cancelled rows. It now preserves the model split between issue select
-and issue-queue release: issue marks the head as in flight, and a later ALU
-release removes the issued row.
+the full model issue scheduler: it does not track P1/I1/I2 in-flight rows,
+arbitrate RF read ports, apply cancellation, bypass, or replay cancelled rows.
+It now preserves the model split between issue select and issue-queue release:
+issue marks the selected row as in flight, and a later ALU release removes the
+issued row.
 
 R85 moves source readiness into registered per-entry state. The queue still
 selects only the FIFO head, but RF ready-table changes update resident entries
 on the next clock edge rather than feeding directly into same-cycle issue
 selection.
+
+R86 changes reduced selection from head-only to oldest-ready among resident
+non-issued entries. Issued in-flight entries remain resident and ineligible,
+and their age position is preserved until release compacts the queue.
 
 ## Interface
 
@@ -46,16 +50,16 @@ selection.
 | input | `releaseRid` | `ROBID` | with `releaseValid` | ROB identity of the issued row to remove. |
 | input | `releaseStid` | `UInt(threadIdWidth.W)` | with `releaseValid` | STID of the issued row to remove. |
 | input | `readyMask` | `UInt(physRegCount.W)` | combinational | Reduced scalar RF ready-table snapshot used to initialize and update resident source-ready bits. |
-| output | `readValid` | `Vec(3, Bool)` | combinational | Valid source lanes for the queue head. |
-| output | `readTags` | `Vec(3, UInt(physRegWidth.W))` | combinational | Physical source tags for the queue head. |
-| input | `readReady` | `Vec(3, Bool)` | combinational | Physical RF readiness for the requested head source tags, retained as RF-read observability while issue eligibility comes from registered source-ready state. |
-| input | `readData` | `Vec(3, UInt(immWidth.W))` | combinational | Physical RF data for the requested head source tags. |
-| output | `issueValid` | `Bool` | valid | Queue head is present, not already issued, and all valid source lanes are ready. |
-| input | `issueReady` | `Bool` | ready | Downstream execute can accept the queue head. |
-| output | `issueUop` | `RenamedUop` | with `issueValid` | Queue-head renamed row for execute. |
+| output | `readValid` | `Vec(3, Bool)` | combinational | Valid source lanes for the selected ready row. |
+| output | `readTags` | `Vec(3, UInt(physRegWidth.W))` | combinational | Physical source tags for the selected ready row. |
+| input | `readReady` | `Vec(3, Bool)` | combinational | Physical RF readiness for the requested source tags, retained as RF-read observability while issue eligibility comes from registered source-ready state. |
+| input | `readData` | `Vec(3, UInt(immWidth.W))` | combinational | Physical RF data for the selected ready row. |
+| output | `issueValid` | `Bool` | valid | At least one resident non-issued row has all valid sources ready. |
+| input | `issueReady` | `Bool` | ready | Downstream execute can accept the selected row. |
+| output | `issueUop` | `RenamedUop` | with `issueValid` | Oldest ready non-issued row for execute. |
 | output | `issueSrcData` | `Vec(3, UInt(immWidth.W))` | with `issueValid` | RF-sourced operand data for execute capture. |
 | output | `enqueueFire` | `Bool` | pulse | Row accepted into the queue. |
-| output | `issueFire` | `Bool` | pulse | Queue head accepted by execute and marked issued. |
+| output | `issueFire` | `Bool` | pulse | Selected row accepted by execute and marked issued. |
 | output | `releaseFire` | `Bool` | pulse | One issued row matched the release identity and was removed. |
 | output | `enqueueDstValid` | `Bool` | pulse | Enqueued row allocated a scalar destination physical tag. |
 | output | `enqueueDstTag` | `UInt(physRegWidth.W)` | with `enqueueDstValid` | Destination physical tag to mark not-ready in the RF. |
@@ -66,9 +70,11 @@ selection.
 | output | `headIssued` | `Bool` | diagnostic | Queue head has already issued and is waiting for release. |
 | output | `sourceReadyMask` | `UInt(3.W)` | diagnostic | Registered readiness bits for the current head, with invalid lanes treated as ready. |
 | output | `allSourcesReady` | `Bool` | diagnostic | Every valid source lane for the head is ready; invalid lanes are ready by definition. |
-| output | `blockedBySource` | `Bool` | diagnostic | Head row is waiting on at least one valid source lane. |
-| output | `blockedByOutput` | `Bool` | diagnostic | Head row is ready but execute is backpressuring. |
-| output | `blockedByIssued` | `Bool` | diagnostic | Head row has issued and is blocking younger FIFO rows until release. |
+| output | `selectedValid` | `Bool` | diagnostic | An oldest-ready non-issued row was found for issue. |
+| output | `selectedIndex` | `UInt(log2Ceil(depth).W)` | with `selectedValid` | Queue slot selected for RF read and execute issue. |
+| output | `blockedBySource` | `Bool` | diagnostic | Queue contains non-issued work, but no resident row is currently source-ready. |
+| output | `blockedByOutput` | `Bool` | diagnostic | Selected row is ready but execute is backpressuring. |
+| output | `blockedByIssued` | `Bool` | diagnostic | Head row has issued and no younger non-issued row is currently selectable. |
 
 ## State
 
@@ -87,13 +93,12 @@ The queue accepts one row when `inValid && inReady`. `inReady` is high when the
 queue is not full or when an issued row releases in the same cycle, so a full
 queue can sustain one release plus one enqueue.
 
-Only the head row queries the RF. For each lane, the queue emits the physical
-tag and valid bit from `RenamedUop.src(idx)` for data readout. A source lane is
-considered ready for issue when the queue is empty, the head has already
-issued, or the lane's registered `srcReady` bit is set. Invalid source lanes
-are initialized ready. `issueValid` asserts when the queue has a non-issued
-head and all valid head sources are ready. `issueFire` marks that head issued
-when execute accepts it.
+The queue builds a selectable mask over resident rows. A row is selectable when
+it is valid, not already issued, and every valid source lane's registered
+`srcReady` bit is set. Invalid source lanes are initialized ready. The oldest
+selectable row by queue slot drives the RF read request and execute payload.
+`issueFire` marks that selected row issued when execute accepts it; it does not
+remove the row.
 
 `readyMask` snapshots the reduced scalar RF ready table. On enqueue, each
 source lane captures `!src.valid || readyMask(src.physTag)`. While resident,
@@ -108,10 +113,10 @@ as the direct issue predicate.
 
 `releaseValid` removes the first issued row whose `(bid, rid, stid)` matches
 the release payload. Remaining rows are compacted toward slot 0, preserving
-FIFO order. This keeps the reduced owner intentionally conservative: younger
-ready rows still do not bypass an issued head, but the row lifetime now follows
-the C++ model's select/release split instead of deallocating on execute
-acceptance.
+FIFO order. Issued rows are ineligible for another pick, but they do not force
+the queue back to head-only issue: a younger ready non-issued row can issue
+while an older issued row waits for W2 release. This follows the C++ model's
+select/release split without deallocating on execute acceptance.
 
 On enqueue, `enqueueDstValid/enqueueDstTag` publish the allocated destination
 physical tag so the RF can mark that tag not-ready at queue admission. That
@@ -133,25 +138,30 @@ RF-backed scalar ALU lane:
 2. source readiness is checked against physical RF state, not per-uop top
    fixtures;
 3. dependent rows can enqueue before their producer commits;
-4. a blocked head cannot issue until valid source tags become ready;
+4. a ready younger row can issue when older resident rows are not selectable;
 5. issue preserves the row's ROB identity and renamed sidecars into execute.
 
 The deliberate reduction is selection policy and pipeline timing. The full
 model can select among ready rows by age, tracks pipe stages, and can cancel or
-replay issued entries. This reduced owner only selects the FIFO head and blocks
-behind an issued head until the ALU W2 release identity arrives.
+replay issued entries. This reduced owner selects the oldest ready resident row
+by FIFO slot, but still lacks the full model's alternate global-register
+preference, P1/I1/I2 RF-read arbitration, cancel checks, replay, and bypass.
 
 R85 removes the earlier same-cycle RF-readiness-to-issue shortcut. This matches
 the model rule that wakeup at cycle N is visible to pick no earlier than cycle
 N+1, while still deferring full wakeup ports, P1/I1/I2 read-port arbitration,
-age selection, cancel, replay, and bypass.
+age selection, cancel, replay, and bypass until later packets.
+
+R86 implements the first age-selection slice: `IssueState::Select` scans
+resident entries, ignores issued entries, and commits the oldest ready
+candidate. Chisel preserves that ordering over the compacted queue image.
 
 ## Timing
 
-The queue is combinational on head read and release match and registered on
-enqueue, source-ready update, issue, release, and flush. RF ready-table updates
-are sampled into `srcReady`; they do not directly affect the current cycle's
-`issueValid`.
+The queue is combinational on selected-row RF read and release match and
+registered on enqueue, source-ready update, issue, release, and flush. RF
+ready-table updates are sampled into `srcReady`; they do not directly affect
+the current cycle's `issueValid`.
 
 Future full issue work must split explicit wakeup payloads, select,
 issued/in-flight tracking, and release into model-aligned stages. In
@@ -168,10 +178,10 @@ remain owned by existing recovery and future issue/ready-table packets.
 
 The parent `LinxCoreFrontendRfAluTraceTop` exposes enqueue, issue, release,
 count, issued/not-issued count, head-valid, head-issued, source-ready mask,
-source-block, issued-block, and output-block diagnostics. The Verilator
-fixture drives three dependent scalar rows, enqueues all rows before draining
-commits, and compares the resulting commit rows against QEMU-shaped reference
-data.
+selected-valid/index, source-block, issued-block, and output-block diagnostics.
+The Verilator fixture drives three dependent scalar rows, enqueues all rows
+before draining commits, and compares the resulting commit rows against
+QEMU-shaped reference data.
 
 ## Verification
 
