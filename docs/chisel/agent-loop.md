@@ -149,6 +149,16 @@ checked on 2026-06-29 and local `HEAD` still matched `origin/main` at
 `DCTop::Work`, `SPERename::Build`, `SPERename::Rename`,
 `SPEROB::getRetireID`, and the existing retire-side `inst->peID/stid`
 sidecar path.
+R76 planning started from `rtl/LinxCore` commit
+`ecc6e32da7f37f7b043aaab60129a1155c789f47`, with unrelated architecture
+markdown files dirty in the LinxCore worktree. The superproject root was at
+`23c216bef8b9e8cd40d09865108732e6deb9a8f9` before edits. LinxCoreModel was
+fetched again on 2026-06-29 and local `HEAD` still matched `origin/main` at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`. The model evidence for R76 is
+`BCtrlUnit::Work`, `BlockROB::allocBlock`, `DCTop::Work`,
+`SPEROB::allocROB`, and `SPERename::Work`: BROB and PE ROB allocation happen
+before `dec_ren_q` enqueue, while later rename mutations remain visible in the
+model through the shared `SimInst` pointer stored in the ROB row.
 
 ## Non-Negotiable Rules
 
@@ -205,6 +215,9 @@ LinxCore adaptation:
   payload is `LC-IF-CHISEL-XCHK-*`.
 
 ## Agent Iteration
+
+Use `docs/chisel/development-loop.md` as the concise multi-agent handoff. This
+file remains the detailed packet ledger and evidence runbook.
 
 1. **Select packet.** The leader assigns one module family and writes the owned
    file set before any edits.
@@ -444,9 +457,12 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Enqueue-time ROB reservation: move BROB/ROB allocation before
-   `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
-   without duplicate identities.
+1. Enqueue-time ROB reservation design: move BROB/ROB reservation before
+   `DecodeRenameQueue` enqueue, but preserve the model's later rename sidecar
+   visibility explicitly. The C++ ROB stores a `SimInst` pointer before
+   `dec_ren_q`; Chisel stores value rows, so this packet must define either a
+   post-rename ROB sidecar update or a split reservation/update row contract
+   before advancing allocator cursors at enqueue.
 2. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
 3. Multi-PE packet production and bank instantiation: teach the upstream

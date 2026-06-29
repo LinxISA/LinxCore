@@ -93,6 +93,16 @@ and converts the full BID into the `ROBID` sidecar consumed by
 `ROBEntryBank` through the shared `FullBidRecoveryBridge.fullBidToRobId`
 helper. RID remains allocated by the ROB bank.
 
+The next allocation boundary must move closer to the model's D1 behavior:
+`DCTop::Work` obtains `prob[stid]->getAllocPtr()`, calls `SPEROB::allocROB`,
+assigns load/store IDs, and only then writes `dec_ren_q`. In C++,
+`SPEROB::allocROB` stores the shared `SimInst` pointer, so later
+`SPERename` mutations such as `tSeq/uSeq` remain visible through the ROB row.
+Chisel rows store values instead. A model-equivalent enqueue-time reservation
+therefore needs an explicit post-rename sidecar update or a split
+reservation/update contract for rename-produced sidecars; reserving the ROB row
+early with permanent zero T/U sidecars is not equivalent.
+
 The Chisel `STQFlushPrune` helper is the first recovery cleanup consumer
 outside the ROB path. It consumes the same selected `FlushBus` but only emits
 STQ free masks for valid `STQ_WAIT` rows. `STQEntryBank` is the first LSU state
@@ -107,6 +117,8 @@ data-array mutation belong to later LSU owners.
 - Promote the next recovery cleanup owner now that `FullBidRecoveryBridge`
   defines the full hardware BID to ring `ROBID` handoff for BROB flush and ROB
   row pruning.
+- Define enqueue-time ROB reservation plus post-rename sidecar update before
+  changing `DecodeRenameROBPath` to allocate rows ahead of `DecodeRenameQueue`.
 - Connect the downstream consumers for `RecoveryCleanupControl`: rename
   cleanup, LSU memory-side effects beyond `STQEntryBank`, precise trap
   ownership, and frontend restart ownership. Do not retrofit those behaviors

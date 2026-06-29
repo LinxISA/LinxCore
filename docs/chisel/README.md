@@ -168,6 +168,7 @@ same commit-window contract used by the reduced QEMU cross-check harness.
 
 Open setup issues are tracked in `docs/chisel/issues.md`. The multi-agent
 development loop and skill-evolve closeout rules are captured in
+`docs/chisel/development-loop.md`, with the detailed packet ledger in
 `docs/chisel/agent-loop.md`.
 
 Commands from `rtl/LinxCore`:
