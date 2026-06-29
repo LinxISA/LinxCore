@@ -35,7 +35,9 @@ class ReducedScalarIssueQueueIO(
   val issueSrcData = Output(Vec(3, UInt(p.immWidth.W)))
 
   val enqueueFire = Output(Bool())
+  val pickFire = Output(Bool())
   val issueFire = Output(Bool())
+  val cancelFire = Output(Bool())
   val releaseFire = Output(Bool())
   val enqueueDstValid = Output(Bool())
   val enqueueDstTag = Output(UInt(p.physRegWidth.W))
@@ -52,6 +54,9 @@ class ReducedScalarIssueQueueIO(
   val selectedValid = Output(Bool())
   val selectedIndex = Output(UInt(indexWidth.W))
   val selectedReadReady = Output(Bool())
+  val i1Valid = Output(Bool())
+  val i2Valid = Output(Bool())
+  val stageBusy = Output(Bool())
   val blockedBySource = Output(Bool())
   val blockedByRead = Output(Bool())
   val blockedByOutput = Output(Bool())
@@ -123,10 +128,13 @@ class ReducedScalarIssueQueue(
   pick.io.headValid := headValid
   pick.io.headIssued := headIssued
   pick.io.notIssuedCount := notIssuedCount
+  pick.io.flushValid := io.flushValid
   pick.io.readReady := io.readReady
   pick.io.readData := io.readData
   pick.io.issueReady := io.issueReady
+  val pickFire = pick.io.pickFire
   val issueFire = pick.io.issueFire
+  val cancelFire = pick.io.cancelFire
 
   io.inReady := (count =/= depth.U) || releaseFire
   io.issueValid := pick.io.issueValid
@@ -138,7 +146,9 @@ class ReducedScalarIssueQueue(
   }
 
   io.enqueueFire := enqueueFire
+  io.pickFire := pickFire
   io.issueFire := issueFire
+  io.cancelFire := cancelFire
   io.releaseFire := releaseFire
   io.enqueueDstValid := enqueueFire && io.in.dst(0).valid
   io.enqueueDstTag := io.in.dst(0).physTag
@@ -154,6 +164,9 @@ class ReducedScalarIssueQueue(
   io.selectedValid := pick.io.selectedValid
   io.selectedIndex := pick.io.selectedIndex
   io.selectedReadReady := pick.io.selectedReadReady
+  io.i1Valid := pick.io.i1Valid
+  io.i2Valid := pick.io.i2Valid
+  io.stageBusy := pick.io.stageBusy
   io.blockedBySource := pick.io.blockedBySource
   io.blockedByRead := pick.io.blockedByRead
   io.blockedByOutput := pick.io.blockedByOutput
@@ -161,7 +174,9 @@ class ReducedScalarIssueQueue(
 
   val preIssued = Wire(Vec(depth, Bool()))
   for (idx <- 0 until depth) {
-    preIssued(idx) := issued(idx) || (issueFire && pick.io.selectedIndex === idx.U)
+    preIssued(idx) :=
+      (issued(idx) || (pickFire && pick.io.selectedIndex === idx.U)) &&
+        !(cancelFire && pick.io.cancelIndex === idx.U)
   }
 
   val preSrcReady = Wire(Vec(depth, Vec(3, Bool())))

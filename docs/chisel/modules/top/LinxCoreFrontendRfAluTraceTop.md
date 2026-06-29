@@ -51,6 +51,10 @@ read-confirm boundary: the issue queue's child picker selects the ready row,
 drives RF read tags, and blocks issue when selected-row RF readiness is not
 confirmed.
 
+R88 exposes the reduced P1/I1/I2 timing split: P1 pick locks a queue row, I1
+drives RF read tags and may cancel the lock if RF readiness is not confirmed,
+and I2 presents the captured row/data to execute.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -72,12 +76,13 @@ confirmed.
 | output | `rfReadReadyMask`, `rfAllReadReady`, `rfReadyMask` | mixed | diagnostic | Reduced physical RF readiness observability. |
 | output | `rfWriteValid`, `rfWriteTag`, `rfWriteData` | mixed | diagnostic | Execute-to-RF physical writeback event. |
 | output | `rfStateError` | `Bool` | diagnostic | Out-of-range RF init/clear/write attempt. |
-| output | `issueQueueEnqueueFire`, `issueQueueIssueFire`, `issueQueueReleaseFire` | `Bool` | pulse | Reduced issue queue admission, execute-issue, and release events. |
+| output | `issueQueueEnqueueFire`, `issueQueuePickFire`, `issueQueueIssueFire`, `issueQueueCancelFire`, `issueQueueReleaseFire` | `Bool` | pulse | Reduced issue queue admission, P1 lock, I2 execute issue, I1 cancel, and release events. |
 | output | `issueQueueCount`, `issueQueueIssuedCount`, `issueQueueNotIssuedCount` | mixed | diagnostic | Reduced issue queue resident, in-flight, and selectable occupancy. |
 | output | `issueQueueHeadValid`, `issueQueueHeadIssued` | mixed | diagnostic | Reduced issue queue head-valid and head-issued state. |
 | output | `issueQueueSourceReadyMask` | `UInt(3.W)` | diagnostic | Registered source-ready bits for the current issue-queue head. |
 | output | `issueQueueAllSourcesReady` | `Bool` | diagnostic | Queue-head source readiness after invalid-lane masking. |
-| output | `issueQueueSelectedValid`, `issueQueueSelectedIndex`, `issueQueueSelectedReadReady` | mixed | diagnostic | Oldest ready non-issued issue candidate selected by the issue-pick owner and whether its RF reads are confirmed ready. |
+| output | `issueQueueSelectedValid`, `issueQueueSelectedIndex`, `issueQueueSelectedReadReady` | mixed | diagnostic | Oldest ready non-issued P1 candidate and current I1/P1 RF read readiness. |
+| output | `issueQueueI1Valid`, `issueQueueI2Valid`, `issueQueueStageBusy` | `Bool` | diagnostic | Reduced issue-owner stage occupancy. |
 | output | `issueQueueBlockedBySource`, `issueQueueBlockedByRead`, `issueQueueBlockedByOutput`, `issueQueueBlockedByIssued` | `Bool` | diagnostic | Queue blocked by source readiness, selected-row RF read readiness, execute backpressure, or issued-head residency with no selectable younger row. |
 | output | `robAllocFire`, `robRenameUpdateFire` | `Bool` | pulse | BROB/ROB reservation and post-rename row update pulses. |
 | output | `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB completion result from ALU-produced completion. |
@@ -94,8 +99,8 @@ The wrapper owns no state directly. State lives in child owners:
 - `ReducedScalarRegisterFile`: reduced physical scalar GPR data and ready bits.
 - `ReducedScalarIssueQueue`: reduced FIFO residency, source-ready state, issue
   release, and compaction owner.
-- `ReducedScalarIssuePick`: selected-row pick, RF-read query, read-confirm
-  gate, and issue-fire owner.
+- `ReducedScalarIssuePick`: P1 selected-row lock, I1 RF-read/cancel, I2
+  execute handoff, and issue-block owner.
 - `ReducedScalarAluExecute`: reduced E/W1/W2 scalar ALU pipe.
 
 ## Logic Design
@@ -104,9 +109,10 @@ The wrapper owns no state directly. State lives in child owners:
 `ReducedScalarIssueQueue`. The issue queue owns the resident source-readiness
 boundary:
 `path.io.renamedOutReady` is driven by queue capacity, while the selected
-oldest-ready issue row is chosen by `ReducedScalarIssuePick`. The picker drives
-`ReducedScalarRegisterFile.readValid/readTags`, consumes `readData` for operand
-capture, and confirms the selected row's RF read readiness before issue fire.
+oldest-ready issue row is chosen by `ReducedScalarIssuePick`. The picker locks
+that row in P1, drives `ReducedScalarRegisterFile.readValid/readTags` from I1,
+captures `readData` into I2, cancels the queue lock if I1 RF readiness is not
+confirmed, and emits execute valid from I2.
 The RF `readyMask` feeds the queue's registered resident source-ready bits.
 Invalid source lanes are treated as ready inside the picker.
 
@@ -139,14 +145,14 @@ The RF-backed top mirrors this reduced ordering:
 2. decode/rename maps sources and allocates a physical destination;
 3. the renamed row enters a reduced issue queue;
 4. the issue queue samples the RF ready mask into resident source-ready bits;
-5. the issue-pick owner reads RF data for the selected physical source tags;
-6. execute captures source data only after the selected row's valid sources
-   are ready in registered source-ready state and the selected RF read lanes
-   confirm ready;
-7. execute W2 releases the issued queue entry by `(bid, rid, stid)`;
-8. execute completion updates ROB commit payload and writes the destination RF
+5. the issue-pick owner locks the selected row in P1;
+6. I1 reads RF data for the selected physical source tags and cancels only the
+   in-flight lock if readiness is not confirmed;
+7. I2 presents the read-confirmed row/data to execute;
+8. execute W2 releases the issued queue entry by `(bid, rid, stid)`;
+9. execute completion updates ROB commit payload and writes the destination RF
    tag;
-9. later rows can source the just-written physical tag through the speculative
+10. later rows can source the just-written physical tag through the speculative
    rename map.
 
 The current RF-backed Verilator fixture proves this with dependent rows:
@@ -161,12 +167,13 @@ The current RF-backed Verilator fixture proves this with dependent rows:
 
 The top remains serialized and single-issue. Frontend packets can enqueue
 renamed rows ahead of execute. The reduced issue queue selects the oldest ready
-non-issued resident row for RF read and issue. Issued rows stay resident and
-ineligible until the ALU W2 release compacts the queue; younger ready rows may
-still issue around an issued or not-ready head. RF ready-table updates become
-issue-visible after the issue queue samples them on a clock edge. The ALU
-completes from W2, and the ROB commit head emits the monitored row after
-completion.
+non-issued resident row for P1 lock, requests RF data from I1 on the following
+cycle, and presents data to execute from I2. Issued/in-flight rows stay
+resident and ineligible until I1 cancel clears the lock or the ALU W2 release
+compacts the queue; younger ready rows may still issue around an issued or
+not-ready head. RF ready-table updates become issue-visible after the issue
+queue samples them on a clock edge. The ALU completes from W2, and the ROB
+commit head emits the monitored row after completion.
 
 ## Flush/Recovery
 

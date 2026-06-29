@@ -17,13 +17,13 @@
 `ReducedScalarIssuePick` is the reduced scalar issue-owner boundary between
 queue residency and execute capture. `ReducedScalarIssueQueue` owns row
 storage, registered source readiness, release, and compaction. This module owns
-the selected-row pick, RF read request shape, conservative read-confirm gate,
-issue fire, and issue-block diagnostics.
+the selected-row P1 pick lock, I1 RF read request, I1 read-cancel, I2 execute
+handoff, and issue-block diagnostics.
 
-This is not the full P1/I1/I2 issue pipeline. It is a single-cycle reduced
-owner inserted so later packets can grow real P1 pick, I1 RF read arbitration,
-I2 RF/bypass return, cancel, and replay without leaving that behavior buried in
-queue storage code.
+This is a reduced P1/I1/I2 timing slice, not the full model issue pipe. It
+does not yet arbitrate shared RF read ports across multiple pickers, select
+bypass data, suppress load-miss consumers, or replay after downstream memory
+events. It does keep cancellable issue state out of queue compaction logic.
 
 ## Interface
 
@@ -33,45 +33,57 @@ queue storage code.
 | input | `entries` | `Vec(depth, RenamedUop)` | with `selectableMask` | Resident queue payloads. The picker reads only the selected row. |
 | input | `headValid`, `headIssued` | `Bool` | diagnostic | Queue head state used for block-cause reporting. |
 | input | `notIssuedCount` | `UInt(log2Ceil(depth + 1).W)` | diagnostic | Count of resident rows that have not yet issued. |
-| output | `readValid` | `Vec(3, Bool)` | combinational | Selected row's valid source lanes. |
-| output | `readTags` | `Vec(3, UInt(physRegWidth.W))` | with `readValid` | Selected row's physical source tags. |
-| input | `readReady` | `Vec(3, Bool)` | combinational | RF read readiness for the selected source tags. |
-| input | `readData` | `Vec(3, UInt(immWidth.W))` | combinational | RF read data for the selected source tags. |
-| output | `issueValid` | `Bool` | valid | Selected row exists and every requested RF read lane is ready. |
-| input | `issueReady` | `Bool` | ready | Downstream execute can accept the selected row. |
-| output | `issueFire` | `Bool` | pulse | Selected row is accepted by execute and should be marked issued. |
-| output | `issueUop` | `RenamedUop` | with `issueValid` | Selected row payload for execute. |
-| output | `issueSrcData` | `Vec(3, UInt(immWidth.W))` | with `issueValid` | RF data to capture into execute. |
+| input | `flushValid` | `Bool` | pulse | Clears P1/I1/I2 owner state. Parent queue separately clears residency. |
+| output | `readValid` | `Vec(3, Bool)` | I1 valid | I1 row's valid source lanes. No RF read is requested in P1. |
+| output | `readTags` | `Vec(3, UInt(physRegWidth.W))` | with `readValid` | I1 row's physical source tags. |
+| input | `readReady` | `Vec(3, Bool)` | combinational | RF read readiness for the I1 source tags. |
+| input | `readData` | `Vec(3, UInt(immWidth.W))` | combinational | RF read data captured when I1 advances to I2. |
+| output | `issueValid` | `Bool` | valid | I2 row is present and can be offered to execute. |
+| input | `issueReady` | `Bool` | ready | Downstream execute can accept the I2 row. |
+| output | `issueFire` | `Bool` | pulse | I2 row is accepted by execute. Queue residency is still released later by ALU release. |
+| output | `issueUop` | `RenamedUop` | with `issueValid` | I2 row payload for execute. |
+| output | `issueSrcData` | `Vec(3, UInt(immWidth.W))` | with `issueValid` | I2-captured RF data to pass into execute. |
+| output | `pickFire` | `Bool` | pulse | P1 selected a resident row and parent queue must lock it as in-flight. |
+| output | `cancelFire` | `Bool` | pulse | I1 read readiness failed; parent queue must clear the in-flight lock for `cancelIndex`. |
+| output | `cancelIndex` | `UInt(log2Ceil(depth).W)` | with `cancelFire` | Queue slot whose in-flight lock is cancelled. |
+| output | `i1Valid`, `i2Valid`, `stageBusy` | `Bool` | diagnostic | Reduced issue-owner stage occupancy. |
 | output | `selectedValid`, `selectedIndex` | mixed | diagnostic | Oldest selectable row by queue slot. |
-| output | `selectedReadReady` | `Bool` | diagnostic | Every valid source lane for the selected row has an RF-ready read response. |
+| output | `selectedReadReady` | `Bool` | diagnostic | I1 read readiness when I1 is occupied; otherwise the current P1 candidate's read readiness. |
 | output | `blockedBySource` | `Bool` | diagnostic | Queue contains non-issued work but no selectable source-ready row. |
-| output | `blockedByRead` | `Bool` | diagnostic | A selectable row exists, but RF read readiness is not confirmed. |
-| output | `blockedByOutput` | `Bool` | diagnostic | Selected row is read-ready, but execute is backpressuring. |
+| output | `blockedByRead` | `Bool` | diagnostic | I1 row requested RF reads, but readiness was not confirmed and the pick will cancel. |
+| output | `blockedByOutput` | `Bool` | diagnostic | I2 row is valid, but execute is backpressuring. |
 | output | `blockedByIssued` | `Bool` | diagnostic | Head is issued and no younger row is selectable. |
 
 ## State
 
-The module is combinational and owns no registers. Queue residency and
-source-ready state remain in `ReducedScalarIssueQueue`; execute pipeline state
-remains in `ReducedScalarAluExecute`.
+The module owns the reduced issue pipe registers:
+
+- `i1Valid`, `i1Index`, `i1Uop`: selected P1 row after the queue lock is set.
+- `i2Valid`, `i2Uop`, `i2SrcData`: RF-read-confirmed row waiting for execute
+  acceptance.
+
+Queue residency and source-ready state remain in `ReducedScalarIssueQueue`;
+execute pipeline state remains in `ReducedScalarAluExecute`.
 
 ## Logic Design
 
 The picker scans `selectableMask` from high to low while later lower-index
-matches overwrite the candidate, producing the lowest queue slot with a set bit.
-That is the reduced queue-age order. `selectedValid` reports whether any row is
-selectable, and `selectedIndex` points at the row used for RF read and execute
-payload selection.
+matches overwrite the candidate, producing the lowest queue slot with a set
+bit. That is the reduced queue-age order. `selectedValid` reports the current
+P1 candidate, and `selectedIndex` points at the candidate row.
 
-For the selected row, each valid source lane requests an RF read by physical
-tag. Invalid lanes are treated as read-ready. `issueValid` is asserted only
-when the selected row exists and all requested RF read lanes are ready. This is
-a conservative reduced read-confirm gate: the row stays resident and unissued
-when RF read readiness is not confirmed.
+P1 fires when a candidate exists and I1 can accept a new row. `pickFire`
+locks the parent queue slot as in-flight, then the selected payload is captured
+into I1 on the clock edge. I1 drives the RF read tags for the captured row. If
+all requested lanes are ready and I2 can accept the row, I1 captures
+`readData` into I2. If any requested lane is not ready, I1 emits
+`cancelFire/cancelIndex` and clears; the parent queue keeps the row resident
+and clears its in-flight lock.
 
-`issueFire` is `issueValid && issueReady`. The parent queue uses that pulse and
-`selectedIndex` to mark the selected resident row issued without removing it.
-Later release still comes from the execute owner by `(bid, rid, stid)`.
+I2 owns the valid/ready boundary into `ReducedScalarAluExecute`. `issueValid`
+is I2 occupancy, and `issueFire` means execute accepted the I2 row. Issue fire
+does not remove the queue entry; later release still comes from the execute
+owner by `(bid, rid, stid)`.
 
 ## Model Alignment
 
@@ -81,35 +93,40 @@ interface, `I1` generates RF read requests, and `I2` receives RF return and
 bypass data before execution proceeds. `IEX::releaseIQEntry` later releases
 issued rows from the queue according to the configured release point.
 
-R87 mirrors only the first reduced slice of that split:
+R88 mirrors the reduced P1/I1/I2 slice of that split:
 
 1. queue storage exports a selectable mask;
-2. this module chooses the oldest selectable row;
-3. the selected row drives RF read tags;
-4. issue is confirmed only after the selected RF read lanes are ready;
-5. issue fire marks the row issued, not deallocated.
+2. this module chooses the oldest selectable row in P1 and asks the parent
+   queue to lock it in-flight;
+3. I1 drives RF read tags for the captured row;
+4. failed I1 RF readiness cancels the in-flight lock without deallocating the
+   queue row;
+5. I2 presents the captured row/data to execute;
+6. execute acceptance and later ALU release stay separate.
 
-Full read-port arbitration, cancellation, load-miss suppression, bypass
-selection, I2 release timing, and replay remain future issue-owner packets.
+Full read-port arbitration, load-miss suppression, bypass selection, multiple
+picker fairness, and replay remain future issue-owner packets.
 
 ## Timing
 
-This reduced owner is combinational. It does not make wakeup visible
-same-cycle: `selectableMask` is already based on the parent queue's registered
-source-ready state. A row selected in the current cycle can issue only when the
-current RF read response is ready and execute is ready.
+This reduced owner has one P1 pick cycle, one I1 RF-read cycle, and one I2
+execute-accept cycle. It still does not make wakeup visible same-cycle:
+`selectableMask` is already based on the parent queue's registered source-ready
+state. A row picked in P1 can issue to execute only after the I1 RF read
+confirms and the row reaches I2.
 
 ## Flush/Recovery
 
-The picker has no flush state. Flush clears the parent issue queue. Future
-cancel/replay packets should add explicit issue-owner state rather than putting
-cancelled P1/I1/I2 state back into queue compaction logic.
+`flushValid` clears I1 and I2 state. The parent queue separately clears
+resident rows and in-flight locks. I1 read-cancel is intentionally not a flush:
+it clears only the locked queue row and leaves residency/source-ready state
+intact for a later pick attempt.
 
 ## Trace/Observability
 
-The parent top exposes selected-valid/index, selected-read-ready, and block
-causes. `blockedByRead` is the new R87 diagnostic for a selected row whose RF
-read readiness was not confirmed.
+The parent top exposes P1 pick, I1/I2 stage-valid state, I1 cancel, selected
+valid/index, selected-read-ready, and block causes. `blockedByRead` identifies
+the I1 cancel condition.
 
 ## Verification
 

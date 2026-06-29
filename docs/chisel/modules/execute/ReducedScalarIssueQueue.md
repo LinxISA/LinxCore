@@ -44,6 +44,10 @@ release, and compaction owner, while the child picker owns oldest-ready
 selected-row RF read requests, read-confirm gating, issue fire, and block
 diagnostics.
 
+R88 turns that child into a reduced P1/I1/I2 issue owner. The queue now locks
+the selected row at P1 `pickFire`, clears the lock on I1 `cancelFire`, and
+keeps the row resident until the existing ALU release path removes it.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -66,7 +70,9 @@ diagnostics.
 | output | `issueUop` | `RenamedUop` | with `issueValid` | Oldest ready non-issued row for execute. |
 | output | `issueSrcData` | `Vec(3, UInt(immWidth.W))` | with `issueValid` | RF-sourced operand data for execute capture. |
 | output | `enqueueFire` | `Bool` | pulse | Row accepted into the queue. |
-| output | `issueFire` | `Bool` | pulse | Selected row accepted by execute and marked issued. |
+| output | `pickFire` | `Bool` | pulse | P1 selected a resident row and the queue locked it in-flight. |
+| output | `issueFire` | `Bool` | pulse | I2 row accepted by execute. This does not deallocate queue residency. |
+| output | `cancelFire` | `Bool` | pulse | I1 read readiness failed and the selected row's in-flight lock was cleared. |
 | output | `releaseFire` | `Bool` | pulse | One issued row matched the release identity and was removed. |
 | output | `enqueueDstValid` | `Bool` | pulse | Enqueued row allocated a scalar destination physical tag. |
 | output | `enqueueDstTag` | `UInt(physRegWidth.W)` | with `enqueueDstValid` | Destination physical tag to mark not-ready in the RF. |
@@ -80,6 +86,7 @@ diagnostics.
 | output | `selectedValid` | `Bool` | diagnostic | An oldest-ready non-issued row was found for issue. |
 | output | `selectedIndex` | `UInt(log2Ceil(depth).W)` | with `selectedValid` | Queue slot selected for RF read and execute issue. |
 | output | `selectedReadReady` | `Bool` | diagnostic | Selected row's valid RF read lanes are all ready. |
+| output | `i1Valid`, `i2Valid`, `stageBusy` | `Bool` | diagnostic | Reduced issue-owner P1/I1/I2 stage occupancy from `ReducedScalarIssuePick`. |
 | output | `blockedBySource` | `Bool` | diagnostic | Queue contains non-issued work, but no resident row is currently source-ready. |
 | output | `blockedByRead` | `Bool` | diagnostic | A resident row was selected, but RF read readiness was not confirmed. |
 | output | `blockedByOutput` | `Bool` | diagnostic | Selected row is ready but execute is backpressuring. |
@@ -89,7 +96,10 @@ diagnostics.
 
 - `entries[depth]`: packed FIFO storage for renamed rows.
 - `valid[depth]`: per-entry validity.
-- `issued[depth]`: per-entry in-flight state after execute accepts the row.
+- `issued[depth]`: reduced in-flight lock. P1 pick sets it, I1 cancel clears
+  it, and ALU release removes the row. The name stays `issued` to preserve the
+  existing issue/release accounting surface until a fuller issue-state type is
+  introduced.
 - `srcReady[depth][3]`: registered source-ready state initialized at enqueue
   from `readyMask` and updated once per cycle while the row is resident.
 - `count`: queue occupancy.
@@ -103,13 +113,13 @@ queue is not full or when an issued row releases in the same cycle, so a full
 queue can sustain one release plus one enqueue.
 
 The queue builds a selectable mask over resident rows. A row is selectable when
-it is valid, not already issued, and every valid source lane's registered
+it is valid, not already in flight, and every valid source lane's registered
 `srcReady` bit is set. Invalid source lanes are initialized ready. The
 selectable mask and resident payload image feed `ReducedScalarIssuePick`, which
-chooses the oldest selectable row by queue slot, drives the RF read request,
-checks selected-row RF read readiness, and returns `issueFire`. `issueFire`
-marks that selected row issued when execute accepts it; it does not remove the
-row.
+chooses the oldest selectable row by queue slot, locks that row at P1
+`pickFire`, drives RF read request tags from I1, cancels the lock if I1 RF
+readiness is not confirmed, and presents a read-confirmed row to execute from
+I2.
 
 `readyMask` snapshots the reduced scalar RF ready table. On enqueue, each
 source lane captures `!src.valid || readyMask(src.physTag)`. While resident,
@@ -122,12 +132,13 @@ the RF register boundary before the issue queue observes it. The RF `readReady`
 response remains wired for observability and read-port contract continuity, not
 as the direct issue predicate.
 
-`releaseValid` removes the first issued row whose `(bid, rid, stid)` matches
+`releaseValid` removes the first in-flight row whose `(bid, rid, stid)` matches
 the release payload. Remaining rows are compacted toward slot 0, preserving
-FIFO order. Issued rows are ineligible for another pick, but they do not force
-the queue back to head-only issue: a younger ready non-issued row can issue
-while an older issued row waits for W2 release. This follows the C++ model's
-select/release split without deallocating on execute acceptance.
+FIFO order. In-flight rows are ineligible for another pick, but they do not
+force the queue back to head-only issue: a younger ready non-issued row can be
+picked while an older in-flight row waits for W2 release. This follows the C++
+model's select/release split without deallocating on P1 pick or execute
+acceptance.
 
 On enqueue, `enqueueDstValid/enqueueDstTag` publish the allocated destination
 physical tag so the RF can mark that tag not-ready at queue admission. That
@@ -172,13 +183,22 @@ R87 introduces an explicit issue-owner child for the reduced P1/I1/I2 split:
 queue state computes source-ready candidates, `ReducedScalarIssuePick` owns
 pick/read/confirm, and execute/release remains in the ALU owner.
 
+R88 makes that split stateful. `IssueState::Select` marks the selected entry
+issued before the pipe moves it through `p1_inst`, `i1_inst`, and `i2_inst`.
+`ALUPipe::runI1` generates RF read requests, `runI2` consumes RF return, and
+`ALUPipe::move` queues scalar ALU IQ release only when the I2 row enters
+execution. The reduced Chisel queue therefore locks on P1, may cancel the lock
+from I1 read readiness failure, emits execute valid from I2, and removes the
+row only on the existing ALU release identity.
+
 ## Timing
 
-The queue is combinational on selectable-mask generation, selected-row RF read,
-and release match, and registered on enqueue, source-ready update, issue,
-release, and flush. RF ready-table updates are sampled into `srcReady`; they do
-not directly affect the current cycle's selection. Selected-row RF `readReady`
-can suppress issue fire for that cycle without changing queue residency.
+The queue is combinational on selectable-mask generation and release match,
+and registered on enqueue, source-ready update, P1 lock, I1 cancel, release,
+and flush. RF ready-table updates are sampled into `srcReady`; they do not
+directly affect the current cycle's selection. Selected-row RF `readReady` is
+now consumed in I1: a failed read readiness pulse clears only the in-flight
+lock and leaves the row resident.
 
 Future full issue work must split explicit wakeup payloads, select,
 issued/in-flight tracking, and release into model-aligned stages. In
@@ -193,10 +213,10 @@ remain owned by existing recovery and future issue/ready-table packets.
 
 ## Trace/Observability
 
-The parent `LinxCoreFrontendRfAluTraceTop` exposes enqueue, issue, release,
-count, issued/not-issued count, head-valid, head-issued, source-ready mask,
-selected-valid/index, selected-read-ready, source-block, read-block,
-issued-block, and output-block diagnostics.
+The parent `LinxCoreFrontendRfAluTraceTop` exposes enqueue, P1 pick, I1 cancel,
+I2 issue, release, count, issued/not-issued count, head-valid, head-issued,
+source-ready mask, selected-valid/index, selected-read-ready, I1/I2 stage
+valids, source-block, read-block, issued-block, and output-block diagnostics.
 The Verilator fixture drives three dependent scalar rows, enqueues all rows
 before draining commits, and compares the resulting commit rows against
 QEMU-shaped reference data.

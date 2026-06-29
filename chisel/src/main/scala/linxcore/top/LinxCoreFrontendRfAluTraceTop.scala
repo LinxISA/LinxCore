@@ -61,7 +61,9 @@ class LinxCoreFrontendRfAluTraceTopIO(
   val rfWriteData = Output(UInt(p.immWidth.W))
   val rfStateError = Output(Bool())
   val issueQueueEnqueueFire = Output(Bool())
+  val issueQueuePickFire = Output(Bool())
   val issueQueueIssueFire = Output(Bool())
+  val issueQueueCancelFire = Output(Bool())
   val issueQueueReleaseFire = Output(Bool())
   val issueQueueCount = Output(UInt(issueCountWidth.W))
   val issueQueueIssuedCount = Output(UInt(issueCountWidth.W))
@@ -73,6 +75,9 @@ class LinxCoreFrontendRfAluTraceTopIO(
   val issueQueueSelectedValid = Output(Bool())
   val issueQueueSelectedIndex = Output(UInt(log2Ceil(issueQueueDepth).W))
   val issueQueueSelectedReadReady = Output(Bool())
+  val issueQueueI1Valid = Output(Bool())
+  val issueQueueI2Valid = Output(Bool())
+  val issueQueueStageBusy = Output(Bool())
   val issueQueueBlockedBySource = Output(Bool())
   val issueQueueBlockedByRead = Output(Bool())
   val issueQueueBlockedByOutput = Output(Bool())
@@ -216,7 +221,9 @@ class LinxCoreFrontendRfAluTraceTop(
   io.rfWriteData := rf.io.writeData
   io.rfStateError := rf.io.stateError
   io.issueQueueEnqueueFire := issue.io.enqueueFire
+  io.issueQueuePickFire := issue.io.pickFire
   io.issueQueueIssueFire := issue.io.issueFire
+  io.issueQueueCancelFire := issue.io.cancelFire
   io.issueQueueReleaseFire := issue.io.releaseFire
   io.issueQueueCount := issue.io.count
   io.issueQueueIssuedCount := issue.io.issuedCount
@@ -228,6 +235,9 @@ class LinxCoreFrontendRfAluTraceTop(
   io.issueQueueSelectedValid := issue.io.selectedValid
   io.issueQueueSelectedIndex := issue.io.selectedIndex
   io.issueQueueSelectedReadReady := issue.io.selectedReadReady
+  io.issueQueueI1Valid := issue.io.i1Valid
+  io.issueQueueI2Valid := issue.io.i2Valid
+  io.issueQueueStageBusy := issue.io.stageBusy
   io.issueQueueBlockedBySource := issue.io.blockedBySource
   io.issueQueueBlockedByRead := issue.io.blockedByRead
   io.issueQueueBlockedByOutput := issue.io.blockedByOutput

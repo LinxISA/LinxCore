@@ -70,7 +70,7 @@
 | `LinxCoreTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreTop.md` | Unit-green reduced commit shell; top Verilator xcheck-green |
 | `LinxCoreFrontendTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendTraceTop.md` | Unit-green R80 frontend packet to commit-row generated-RTL xcheck with temporary completion surrogate |
 | `LinxCoreFrontendAluTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendAluTraceTop.md` | Unit-green R81 frontend packet to ALU-produced completion-row generated-RTL xcheck |
-| `LinxCoreFrontendRfAluTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendRfAluTraceTop.md` | Unit-green R87 frontend packet to RF-backed queued ALU completion-row generated-RTL xcheck with issue-pick read-confirm diagnostics, dependent scalar rows, and issue release |
+| `LinxCoreFrontendRfAluTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendRfAluTraceTop.md` | Unit-green R88 frontend packet to RF-backed queued ALU completion-row generated-RTL xcheck with reduced P1/I1/I2 issue diagnostics, dependent scalar rows, and ALU release |
 | QEMU cross-check adapter | tooling | `docs/chisel/verification/qemu-crosscheck.md` | Adapter self-test green; reduced top compare green; full compare awaits real frontend/backend rows |
 | Agent development loop | coordination | `docs/chisel/agent-loop.md` | ROB/cross-check-first module loop and skill-evolve closeout runbook |
 

@@ -275,6 +275,23 @@ RF read request, RF read-confirm gating, issue fire, and block diagnostics,
 leaving residency/source-ready/release/compaction in `ReducedScalarIssueQueue`.
 R87 closeout: `skill-evolve: no-update (installed linx-core skill already
 documents the issue-owner P1/I1/I2 pick/read/confirm boundary)`.
+R88 started from `rtl/LinxCore` commit
+`37b039f2e96bfdea34203f419fdfa0755fc9f1b9` after R87 landed the reduced
+issue-pick owner. The superproject root was
+`876701b68eeb9ca16ebf45bba4fe28023c024df7`; LinxCoreModel remained at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; QEMU was at
+`f17c551aaef51a784a99d5cccc69cf65ff2a7b32`; `skills/linx-skills` was at
+`14550071b38617fbdb2302489bc180b2b8f9cbf8`. Remote metadata was fetched
+without merging on 2026-06-29: root `origin/main`
+`e6708166cd6bde8d1d1cbb8b13a64814859ac41b`, LinxCore `origin/main`
+`d9157fd1e79db2a9eb9294cdce6bb361d52a77d2`, and LinxCoreModel `origin/main`
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`. The R88 model evidence is
+`IssueState::Select` setting selected entries issued, `ALUPipe::move`
+advancing `p1_inst -> i1_inst -> i2_inst`, `ALUPipe::runI1/runI2`, and the
+later scalar ALU IQ release path. R88 makes `ReducedScalarIssuePick` stateful:
+P1 `pickFire` locks a queue row, I1 drives RF reads and can `cancelFire` the
+lock, and I2 drives execute valid while queue deallocation remains tied to the
+ALU release identity.
 
 ## Non-Negotiable Rules
 
@@ -451,6 +468,7 @@ These packets remain the required base before broad module promotion:
 | R85 | Registered issue source readiness | `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R86 | Oldest-ready reduced issue selection | `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R87 | Reduced issue-pick read-confirm owner | `run_chisel_tests.sh --only ReducedScalarIssuePick`, `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R88 | Reduced P1/I1/I2 issue timing | `run_chisel_tests.sh --only ReducedScalarIssuePick`, `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
