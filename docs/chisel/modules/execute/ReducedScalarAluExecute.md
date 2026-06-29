@@ -7,6 +7,7 @@
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/bctrl/spe/SPERename.cpp`
   - `model/LinxCoreModel/model/iex/pipe/alu_pipe.cpp`
+  - `model/LinxCoreModel/model/iex/rtable.cpp`
   - `model/LinxCoreModel/model/ModelCommon/SimInstInfo.cpp`
   - `model/LinxCoreModel/isa/calculate/arithmetic/Arithmetic.cpp`
   - `model/LinxCoreModel/isa/calculate/others/Others.cpp`
@@ -21,8 +22,10 @@ model-derived ALU subset, and emits both a ROB completion index and a
 writeback-shaped `CommitTraceRow`.
 
 This is not the final scalar integer execution unit. Source values are supplied
-by the wrapper/testbench until the register file, ready table, issue queue, and
-wakeup path are implemented.
+by the owning wrapper: the R81 top uses explicit testbench operands, while the
+R82 RF-backed top reads `srcData` from a reduced scalar physical register file.
+The full issue queue, bypass, wakeup, replay, and recovery paths remain later
+owners.
 
 ## Interface
 
@@ -35,6 +38,9 @@ wakeup path are implemented.
 | output | `completeValid` | `Bool` | valid | W2-stage supported uop completed. |
 | output | `completeRobValue` | `UInt(log2Ceil(robEntries).W)` | with `completeValid` | ROB row to complete. |
 | output | `completeRow` | `CommitTraceRow` | with `completeValid` | Commit-trace payload carrying PC, source data, destination data, writeback, ROB ID, and block BID sideband. |
+| output | `completeDstPhysValid` | `Bool` | with `completeValid` | Destination physical tag and data are valid for a scalar GPR writeback. |
+| output | `completeDstPhysTag` | `UInt(physRegWidth.W)` | with `completeDstPhysValid` | Renamed physical destination tag copied from `in.dst(0).physTag`. |
+| output | `completeDstData` | `UInt(64.W)` by default | with `completeDstPhysValid` | ALU result for the RF/ready-table writeback owner. |
 | output | `accepted` | `Bool` | pulse | `inValid && inReady`. |
 | output | `busy` | `Bool` | state | Any E/W1/W2 pipe stage is occupied. |
 | output | `unsupported` | `Bool` | pulse | W2 uop reached execute but is outside the reduced opcode subset. |
@@ -57,7 +63,9 @@ through P1/I1/I2/E0/EX/W1/W2, calls `SimInstInfo::Execute` in EX, and publishes
 the resolve bus at W2. `SimInstInfo::Execute` runs `PrePareSrc`, `Calculate`,
 and `ProcessDst`; arithmetic `ADD` returns `src0 + src1`, `ADDI` uses the
 decoded immediate, and `MOVR/MOVI` move the source/immediate into the
-destination.
+destination. `ReadyState::GetSrcData` and `InitGGPRRtable` show that scalar
+source data is attached to physical GPR tags, so the Chisel execute owner also
+exports the destination physical tag for the reduced RF writeback path.
 
 The Chisel module implements the first reduced subset:
 
@@ -71,7 +79,8 @@ The Chisel module implements the first reduced subset:
 The completion row copies identity and control fields from the accepted
 `RenamedUop`, fills source register/data fields from `uop.src` plus
 `srcData`, fills `dst` and `wb` from `uop.dst(0)` plus the computed result,
-and leaves memory/trap fields zero.
+exports the same result and destination physical tag on `completeDst*`, and
+leaves memory/trap fields zero.
 
 ## Timing
 
@@ -92,11 +101,16 @@ multi-entry issue queue or speculative replay path.
 `completeRow` is the first Chisel-owned nonzero writeback payload in the
 frontend trace lane. It is designed to feed `ROBEntryBank.completeRow` through
 `LinxCoreFrontendAluTraceTop` and then the existing commit monitor and
-QEMU-shaped comparator.
+QEMU-shaped comparator. `completeDstPhysValid/Tag/Data` feed
+`ReducedScalarRegisterFile` in `LinxCoreFrontendRfAluTraceTop`, allowing later
+frontend rows to read earlier Chisel writebacks through renamed physical tags.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarRegisterFile`
+- `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`
+- `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

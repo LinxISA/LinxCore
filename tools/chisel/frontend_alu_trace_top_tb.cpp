@@ -1,4 +1,10 @@
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+#include "VLinxCoreFrontendRfAluTraceTop.h"
+using Dut = VLinxCoreFrontendRfAluTraceTop;
+#else
 #include "VLinxCoreFrontendAluTraceTop.h"
+using Dut = VLinxCoreFrontendAluTraceTop;
+#endif
 #include "verilated.h"
 
 #include <cstdint>
@@ -107,7 +113,7 @@ std::uint64_t mask_insn(std::uint64_t insn, std::uint8_t len) {
   return insn;
 }
 
-void clear_inputs(VLinxCoreFrontendAluTraceTop &dut) {
+void clear_inputs(Dut &dut) {
   dut.io_in_valid = 0;
   dut.io_in_peId = 0;
   dut.io_in_threadId = 0;
@@ -115,20 +121,31 @@ void clear_inputs(VLinxCoreFrontendAluTraceTop &dut) {
   dut.io_in_window = 0;
   dut.io_in_pktUid = 0;
   dut.io_in_checkpointId = 0;
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+  dut.io_rfInitValid = 0;
+  dut.io_rfInitArchTag = 0;
+  dut.io_rfInitData = 0;
+#else
   dut.io_operandData_0 = 0;
   dut.io_operandData_1 = 0;
   dut.io_operandData_2 = 0;
+#endif
   dut.io_frontendFlushValid = 0;
   dut.io_deallocReady = 1;
 }
 
-void drive_operands(VLinxCoreFrontendAluTraceTop &dut, const ExpectedRow &row) {
+void drive_operands(Dut &dut, const ExpectedRow &row) {
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+  (void)dut;
+  (void)row;
+#else
   dut.io_operandData_0 = row.src0_data;
   dut.io_operandData_1 = row.src1_data;
   dut.io_operandData_2 = 0;
+#endif
 }
 
-void tick(VLinxCoreFrontendAluTraceTop &dut) {
+void tick(Dut &dut) {
   dut.clock = 0;
   dut.eval();
   dut.clock = 1;
@@ -137,7 +154,7 @@ void tick(VLinxCoreFrontendAluTraceTop &dut) {
   dut.eval();
 }
 
-void reset(VLinxCoreFrontendAluTraceTop &dut) {
+void reset(Dut &dut) {
   clear_inputs(dut);
   dut.reset = 1;
   tick(dut);
@@ -146,8 +163,20 @@ void reset(VLinxCoreFrontendAluTraceTop &dut) {
   dut.eval();
 }
 
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+void init_rf(Dut &dut, std::uint8_t arch_tag, std::uint64_t data) {
+  clear_inputs(dut);
+  dut.io_rfInitValid = 1;
+  dut.io_rfInitArchTag = arch_tag;
+  dut.io_rfInitData = data;
+  tick(dut);
+  clear_inputs(dut);
+  dut.eval();
+}
+#endif
+
 void expect_monitor_clean(
-    const VLinxCoreFrontendAluTraceTop &dut,
+    const Dut &dut,
     const char *context,
     std::uint8_t expected_mask,
     std::uint8_t expected_count) {
@@ -176,7 +205,7 @@ void expect_monitor_clean(
   }
 }
 
-ObservedRow read_slot0(const VLinxCoreFrontendAluTraceTop &dut) {
+ObservedRow read_slot0(const Dut &dut) {
   ObservedRow row;
   row.valid = dut.io_commit_rows_0_valid;
   row.seq = dut.io_commit_rows_0_seq;
@@ -218,7 +247,7 @@ ObservedRow read_slot0(const VLinxCoreFrontendAluTraceTop &dut) {
   return row;
 }
 
-bool slot1_valid(const VLinxCoreFrontendAluTraceTop &dut) {
+bool slot1_valid(const Dut &dut) {
   return dut.io_commit_rows_1_valid;
 }
 
@@ -352,7 +381,7 @@ void write_qemu_row(std::ofstream &out, const ExpectedRow &row) {
 }
 
 std::uint8_t enqueue_and_accept_execute(
-    VLinxCoreFrontendAluTraceTop &dut,
+    Dut &dut,
     const ExpectedRow &row,
     std::uint64_t pkt_uid) {
   clear_inputs(dut);
@@ -364,6 +393,12 @@ std::uint8_t enqueue_and_accept_execute(
   dut.io_in_checkpointId = pkt_uid & 0x3fU;
   dut.eval();
 
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+  if (dut.io_rfStateError) {
+    std::cerr << "frontend RF ALU trace top reported RF state error before enqueue\n";
+    std::exit(1);
+  }
+#endif
   if (!dut.io_decodeReady || !dut.io_selectedValid || ((dut.io_f4ValidMask & 0x1U) == 0)) {
     std::cerr << "frontend row was not accepted by F4/decode path"
               << " pc=0x" << std::hex << row.pc
@@ -381,6 +416,12 @@ std::uint8_t enqueue_and_accept_execute(
     clear_inputs(dut);
     drive_operands(dut, row);
     dut.eval();
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+    if (dut.io_rfStateError) {
+      std::cerr << "frontend RF ALU trace top reported RF state error while waiting for execute\n";
+      std::exit(1);
+    }
+#endif
     if (dut.io_executeAccepted && dut.io_robRenameUpdateFire) {
       tick(dut);
       return rob_value;
@@ -393,10 +434,16 @@ std::uint8_t enqueue_and_accept_execute(
   std::exit(1);
 }
 
-void wait_for_execute_completion(VLinxCoreFrontendAluTraceTop &dut, std::uint8_t rob_value) {
+void wait_for_execute_completion(Dut &dut, std::uint8_t rob_value) {
   for (int cycle = 0; cycle < 16; ++cycle) {
     clear_inputs(dut);
     dut.eval();
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+    if (dut.io_rfStateError) {
+      std::cerr << "frontend RF ALU trace top reported RF state error during execute completion\n";
+      std::exit(1);
+    }
+#endif
     if (dut.io_executeUnsupported) {
       std::cerr << "execute reported unsupported opcode="
                 << static_cast<unsigned>(dut.io_executeUnsupportedOpcode) << "\n";
@@ -422,7 +469,7 @@ void wait_for_execute_completion(VLinxCoreFrontendAluTraceTop &dut, std::uint8_t
   std::exit(1);
 }
 
-void drain_empty(VLinxCoreFrontendAluTraceTop &dut) {
+void drain_empty(Dut &dut) {
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
     dut.eval();
@@ -440,7 +487,7 @@ void drain_empty(VLinxCoreFrontendAluTraceTop &dut) {
 }
 
 void commit_expected_row(
-    VLinxCoreFrontendAluTraceTop &dut,
+    Dut &dut,
     const ExpectedRow &expected,
     std::ofstream &dut_out,
     std::ofstream &qemu_out) {
@@ -473,10 +520,17 @@ void commit_expected_row(
 std::vector<ExpectedRow> fixture_rows() {
   const std::uint64_t add =
       0x00000005ULL | (3ULL << 7) | (4ULL << 15) | (5ULL << 20);
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+  const std::uint64_t addi =
+      0x00000015ULL | (6ULL << 7) | (3ULL << 15) | (0x7ffULL << 20);
+  const std::uint64_t c_movr =
+      0x0006ULL | (6ULL << 6) | (5ULL << 11);
+#else
   const std::uint64_t addi =
       0x00000015ULL | (6ULL << 7) | (7ULL << 15) | (0x7ffULL << 20);
   const std::uint64_t c_movr =
       0x0006ULL | (4ULL << 6) | (5ULL << 11);
+#endif
 
   ExpectedRow r0;
   r0.pc = 0x1000;
@@ -497,22 +551,38 @@ std::vector<ExpectedRow> fixture_rows() {
   r1.insn = addi;
   r1.len = 4;
   r1.src0_valid = true;
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+  r1.src0_reg = 3;
+  r1.src0_data = 42;
+  r1.dst_valid = true;
+  r1.dst_reg = 6;
+  r1.dst_data = 2089;
+#else
   r1.src0_reg = 7;
   r1.src0_data = 7;
   r1.dst_valid = true;
   r1.dst_reg = 6;
   r1.dst_data = 2054;
+#endif
 
   ExpectedRow r2;
   r2.pc = 0x1008;
   r2.insn = c_movr;
   r2.len = 2;
   r2.src0_valid = true;
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+  r2.src0_reg = 6;
+  r2.src0_data = 2089;
+  r2.dst_valid = true;
+  r2.dst_reg = 5;
+  r2.dst_data = 2089;
+#else
   r2.src0_reg = 4;
   r2.src0_data = 0x1234'5678ULL;
   r2.dst_valid = true;
   r2.dst_reg = 5;
   r2.dst_data = 0x1234'5678ULL;
+#endif
 
   return {r0, r1, r2};
 }
@@ -523,8 +593,12 @@ int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
   const Args args = parse_args(argc, argv);
 
-  VLinxCoreFrontendAluTraceTop dut;
+  Dut dut;
   reset(dut);
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+  init_rf(dut, 4, 10);
+  init_rf(dut, 5, 32);
+#endif
 
   std::ofstream dut_out(args.dut_trace);
   std::ofstream qemu_out(args.qemu_trace);

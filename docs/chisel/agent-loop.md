@@ -188,6 +188,18 @@ trace-top xcheck. The superproject root was
 `CalcInstAdd`, `CalcInstAddw`, and the MOVR/MOVI calculators. R81 replaces
 the R80 external completion surrogate only for the reduced scalar ALU smoke;
 it does not claim a real register-file or issue path.
+R82 started from `rtl/LinxCore` commit
+`fc03e13a7260228c34a49817f66786fea9839ac5` after R81 landed the ALU-produced
+completion-row xcheck. The superproject root was
+`68e669d9d016286aa40e6685ea0f1c06ce1d49f1`; LinxCoreModel remained at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; QEMU was at
+`9f96be0c952fb9a047b324b06a480b1c689ba51d`; `skills/linx-skills` was at
+`fc6559011846725755d56d089908489553ab1518`. The R82 model evidence is
+`GPRRename::Build`, `GPRRename::RenameSrc`, `GPRRename::RenameDst`,
+`ReadyState::InitGGPRRtable`, `ReadyState::GetSrcData`, `iex_rf.cpp` OPD_GREG
+readback, and `ALUPipe` W2 writeback. R82 replaces per-uop operand fixture
+values with reduced physical RF state for dependent scalar ALU rows; it does
+not claim a full issue queue, bypass network, or speculative RF recovery path.
 
 ## Non-Negotiable Rules
 
@@ -358,6 +370,7 @@ These packets remain the required base before broad module promotion:
 | R79 | Frontend-window trace top boundary | `run_chisel_tests.sh --only LinxCoreFrontendTraceTop`, `run_chisel_frontend_trace_top_lint.sh`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R80 | Frontend-window trace top Verilator xcheck | `run_chisel_frontend_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_lint.sh`, `run_chisel_tests.sh --only LinxCoreFrontendTraceTop`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R81 | Reduced scalar ALU completion row xcheck | `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ROBEntryBank`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R82 | Reduced scalar RF-backed ALU source path | `run_chisel_tests.sh --only ReducedScalarRegisterFile`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -380,11 +393,14 @@ Use this order for each promoted slice:
 8. `run_chisel_frontend_alu_trace_top_xcheck.sh` after changes to scalar ALU
    execute completion, completion-row payload wiring, or the frontend ALU
    trace-top driver.
-9. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
+9. `run_chisel_frontend_rf_alu_trace_top_xcheck.sh` after changes to scalar RF
+   operand sourcing, execute physical-destination writeback metadata, or the
+   shared frontend ALU trace-top driver.
+10. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
-10. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
+11. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
    commit rows for the slice.
-11. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
+12. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
    QEMU in the same run packet.
 
 ## LinxCoreModel Maintenance Loop
@@ -501,24 +517,21 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Register-file/ready-table operand source for the ALU trace top: replace the
-   `operandData` fixture with row-owned scalar register read state, then keep
-   `run_chisel_frontend_alu_trace_top_xcheck.sh` as the regression gate.
-2. Issue-queue handoff for the reduced scalar ALU: stop feeding rename output
+1. Issue-queue handoff for the reduced scalar ALU: stop feeding rename output
    directly into execute, preserve ROB row identity through issue, and keep
    writeback completion owned by `ReducedScalarAluExecute` or its successor.
-3. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
+2. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
    event stream from commit-only rows toward trap, memory, recovery, and block
    sidebands.
-4. QEMU full-compare harness: feed a bounded direct-boot or CoreMark window
+3. QEMU full-compare harness: feed a bounded direct-boot or CoreMark window
    from QEMU into the same comparator path, then make the Chisel DUT stream
    live once frontend/decode/execute/LSU can retire it.
-5. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+4. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
-6. Multi-PE packet production and bank instantiation: teach the upstream
+5. Multi-PE packet production and bank instantiation: teach the upstream
    frontend/top owner to set nonzero `FrontendDecodePacket.peId` and instantiate
    matching `ScalarTURenameBridge`/`TULinkLocalBankArray` PE banks.
-7. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

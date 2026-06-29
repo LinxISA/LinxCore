@@ -17,6 +17,7 @@ details into the comparator itself.
 - `tools/chisel/run_chisel_frontend_trace_top_lint.sh`
 - `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
+- `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `tools/trace/crosscheck_qemu_linxcore.py`
 
 ## Normalized Fields
@@ -62,6 +63,7 @@ bash tools/chisel/run_chisel_trace_replay_xcheck.sh
 bash tools/chisel/run_chisel_frontend_trace_top_lint.sh
 bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh
 ```
 
 `run_chisel_trace_replay_xcheck.sh` is the bridge between synthetic reduced
@@ -101,6 +103,9 @@ QEMU-shaped reference with zero mismatches.
 smoke through `LinxCoreFrontendAluTraceTop`, replaces the completion surrogate
 with `ReducedScalarAluExecute`, and compares three rows with nonzero source,
 destination, and writeback data against QEMU-shaped reference rows with zero
-mismatches. Full-core QEMU comparison remains blocked until the Chisel top
-emits live architectural commit rows from real fetch, issue, register-file,
-LSU, and recovery paths.
+mismatches. `run_chisel_frontend_rf_alu_trace_top_xcheck.sh` drives dependent
+scalar rows through `LinxCoreFrontendRfAluTraceTop`, preloads only identity RF
+registers, reads later sources from Chisel physical RF writeback state, and
+compares three rows with zero mismatches. Full-core QEMU comparison remains
+blocked until the Chisel top emits live architectural commit rows from real
+fetch, issue, LSU, and recovery paths.

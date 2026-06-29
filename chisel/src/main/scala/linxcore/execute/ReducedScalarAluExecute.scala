@@ -21,6 +21,9 @@ class ReducedScalarAluExecuteIO(
   val completeValid = Output(Bool())
   val completeRobValue = Output(UInt(ptrWidth.W))
   val completeRow = Output(new CommitTraceRow(traceParams))
+  val completeDstPhysValid = Output(Bool())
+  val completeDstPhysTag = Output(UInt(p.physRegWidth.W))
+  val completeDstData = Output(UInt(p.immWidth.W))
 
   val accepted = Output(Bool())
   val busy = Output(Bool())
@@ -143,6 +146,9 @@ class ReducedScalarAluExecute(
   io.completeValid := w2Valid && w2Supported
   io.completeRobValue := w2Uop.rid.value
   io.completeRow := completionRow(w2Uop, w2SrcData, w2Result, io.completeValid)
+  io.completeDstPhysValid := io.completeValid && w2Uop.dst(0).valid
+  io.completeDstPhysTag := w2Uop.dst(0).physTag
+  io.completeDstData := w2Result
   io.unsupported := w2Valid && !w2Supported
   io.unsupportedOpcode := w2Uop.opcode
 }

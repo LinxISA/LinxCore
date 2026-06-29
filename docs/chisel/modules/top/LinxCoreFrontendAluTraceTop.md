@@ -30,6 +30,10 @@ This wrapper removes the external completion surrogate for the scalar
 fetch, issue, register-file reads, LSU, traps, recovery, and memory are not
 live behind this top.
 
+R82 adds `LinxCoreFrontendRfAluTraceTop` as the RF-backed successor. Keep this
+R81 top and gate as the regression for the temporary `operandData` path, but do
+not extend it with more per-uop operand fixture inputs.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -71,8 +75,9 @@ input readiness. The ALU completion outputs drive
 
 `operandData` is an explicit bring-up input. Verilator drivers must hold it
 stable until `executeAccepted` because the ALU captures source values at the
-rename-to-execute handoff. Later packets should replace this with a real RF
-read/ready-table path instead of adding more top-level operand fixtures.
+rename-to-execute handoff. `LinxCoreFrontendRfAluTraceTop` is the replacement
+boundary for persistent RF-sourced operands; future packets should extend that
+RF/issue lane rather than adding more top-level operand fixtures here.
 
 ## Model Alignment
 
@@ -99,10 +104,10 @@ this wrapper.
 ## Trace/Observability
 
 `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh` emits the top,
-builds a Verilator harness, drives three frontend packets (`ADD`, `ADDI`, and
-compressed `MOVR`), supplies operand data, waits for ALU completion, dumps DUT
-commit JSONL, and compares it against QEMU-shaped rows with nonzero source,
-destination, and writeback data.
+builds the shared Verilator harness in the default operand-fixture mode, drives
+three frontend packets (`ADD`, `ADDI`, and compressed `MOVR`), supplies operand
+data, waits for ALU completion, dumps DUT commit JSONL, and compares it against
+QEMU-shaped rows with nonzero source, destination, and writeback data.
 
 The current gate is a reduced generated-RTL proof, not a full QEMU boot
 comparison.
@@ -112,6 +117,7 @@ comparison.
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute`
 - `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
