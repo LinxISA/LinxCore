@@ -4999,3 +4999,97 @@ Skill evolve:
   the all-selected-PE block-commit fanout belongs inside the explicit
   `[scalar PE][STID]` SGPR bank-array owner, not in backend glue, and later
   dynamic PE/STID routing must target that same bank-array boundary.
+
+## R73 Active SGPR Bank Selector Plumbing
+
+Scope:
+
+- Routed the active T/U SGPR bank selector through `ScalarTURenameBridge`
+  instead of hardwiring it inside the bridge.
+- Drove the reduced backend active selector as PE0 plus the queued decoded row
+  `threadId` as STID.
+- Exposed active PE/STID IDs, range diagnostics, bank-valid status, and one-hot
+  selector diagnostics at the bridge/backend boundary.
+- Kept retire-command PE/STID routing explicitly deferred because
+  `TULinkRetireCommand` does not yet carry retired-row bank sidecars.
+
+Model evidence:
+
+- `SPERename::Build()` constructs
+  `sgprRenameUnit[stdPeCount][scalar_smt_thread][SGPR_HAND_COUNT]`.
+- `SPERename::Rename()` selects the SGPR rename bank by `inst->peID` and
+  `inst->stid`.
+- `SPERename::RepLocalRetired(type, peid, seq, isDealloc, tid)` targets one
+  `(peid, tid, hand)` bank.
+- `SPERename::ReportSGPRBlockCommit(bid, stid)` selects one STID and updates
+  both SGPR hands for every scalar PE.
+- `SPEROB::CheckReg()` and `SPEROB::ReleaseFunc()` route local retire effects
+  using the retired uop's PE/STID source identity.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBankArray
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only TULinkRelationCmap
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel fetch origin main
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel rev-parse HEAD origin/main
+git diff --check
+```
+
+Expected result:
+
+- `ScalarTURenameBridge` consumes explicit `activePeId`/`activeStid` inputs and
+  forwards them to `TULinkLocalBankArray`.
+- `DecodeRenameROBPath` forwards the queued decoded row `threadId` as the
+  reduced active STID while PE remains PE0.
+- Active selector diagnostics prove whether the selected PE/STID bank exists
+  before later packets depend on non-zero PE or multi-STID routing.
+- Existing cleanup, block-commit, retire-command serialization, ROB, trace, and
+  QEMU dry-run gates remain stable.
+- Full retire-source PE/STID routing remains incomplete until retire commands
+  carry retired-row bank sidecars.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `ScalarTURenameBridgeSpec` passed 6 tests, covering explicit active-bank
+  PE/STID sidebands, IO shape, and elaboration.
+- `DecodeRenameROBPathSpec` passed 8 tests, covering queued-row thread ID as
+  reduced active STID plus backend active-bank diagnostics.
+- `TULinkLocalBankArraySpec` passed 4 tests.
+- `TULinkRecoveryCleanupPathSpec` passed 12 tests.
+- `TULinkRetireCommandPathSpec` passed 8 tests.
+- `TULinkRenameSpec` passed 10 tests.
+- `TULinkRelationCmapSpec` passed 7 tests.
+- `ROBEntryBankSpec` passed 12 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `git diff --check` passed.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R73 adds a reusable selector rule:
+  active SGPR bank selection belongs at the
+  `ScalarTURenameBridge`/`TULinkLocalBankArray` boundary, the reduced backend
+  may drive active STID from the queued decoded row `threadId`, and future
+  agents must not claim dynamic retire PE/STID routing until retire commands
+  carry their own retired-row bank sidecars.

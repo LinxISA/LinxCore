@@ -27,6 +27,9 @@ object ScalarTURenameBridgeReference {
       eventStid: Int = 0,
       localStid: Int = 0): Boolean =
     eventStid == localStid && !externalCommitValid && !recoveryActive
+
+  def activeBankValid(activePe: Int, activeStid: Int, peCount: Int, stidCount: Int): Boolean =
+    activePe >= 0 && activePe < peCount && activeStid >= 0 && activeStid < stidCount
 }
 
 class ScalarTURenameBridgeSpec extends AnyFunSuite {
@@ -56,15 +59,28 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(!localBlockCommitReady(externalCommitValid = false, recoveryActive = false, eventStid = 1, localStid = 0))
   }
 
+  test("reference routes active T/U bank selection from explicit PE/STID sidebands") {
+    assert(activeBankValid(activePe = 0, activeStid = 1, peCount = 1, stidCount = 2))
+    assert(!activeBankValid(activePe = 1, activeStid = 1, peCount = 1, stidCount = 2))
+    assert(!activeBankValid(activePe = 0, activeStid = 2, peCount = 1, stidCount = 2))
+  }
+
   test("IO exposes scalar, T/U rename, ROB allocation, and cleanup surfaces") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
-    val io = new ScalarTURenameBridgeIO(p, trace, mapQDepth = 8)
+    val io = new ScalarTURenameBridgeIO(p, trace, mapQDepth = 8, scalarStidCount = 2)
 
     assert(io.in.src.length == 3)
+    assert(io.activePeId.getWidth == 8)
+    assert(io.activeStid.getWidth == 8)
     assert(io.out.dst.length == 1)
     assert(io.robAllocRow.identity.rid.getWidth == 32)
     assert(io.tuSrc.length == 3)
+    assert(io.tuActivePeInRange.getWidth == 1)
+    assert(io.tuActiveStidInRange.getWidth == 1)
+    assert(io.tuActiveBankValid.getWidth == 1)
+    assert(io.tuActivePeOH.getWidth == 1)
+    assert(io.tuActiveStidOH.getWidth == 2)
     assert(io.tuTSeq.value.getWidth == 3)
     assert(io.tuUSeq.value.getWidth == 3)
     assert(io.tuDstValid.getWidth == 1)
@@ -91,10 +107,12 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
     val sv = ChiselStage.emitSystemVerilog(
-      new ScalarTURenameBridge(p = p, traceParams = trace, mapQDepth = 8)
+      new ScalarTURenameBridge(p = p, traceParams = trace, mapQDepth = 8, scalarStidCount = 2)
     )
 
     assert(sv.contains("module ScalarTURenameBridge"))
+    assert(sv.contains("io_activePeId"))
+    assert(sv.contains("io_activeStid"))
     assert(sv.contains("module ScalarDecodeRenameBridge"))
     assert(sv.contains("module TULinkLocalBankArray"))
     assert(sv.contains("module TULinkRecoveryCleanupPath"))
@@ -102,6 +120,8 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(sv.contains("module TULinkRename"))
     assert(sv.contains("io_tuTSeq_value"))
     assert(sv.contains("io_tuUSeq_value"))
+    assert(sv.contains("io_tuActiveBankValid"))
+    assert(sv.contains("io_tuActiveStidOH"))
     assert(sv.contains("io_tuDstValid"))
     assert(sv.contains("io_tuRetireAccepted"))
     assert(sv.contains("io_tuRetireReleaseMismatch"))

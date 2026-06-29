@@ -24,8 +24,10 @@ the Chisel T/U lane. It turns the previous reduced single
 SGPR hands, T and U, through `TULinkRename`.
 
 R72 keeps the live reduced backend selected at PE0/STID0, because decode does
-not yet publish a dynamic scalar PE/STID routing surface. The important
-progress is that the hardware hierarchy now matches the model shape:
+not yet publish a dynamic scalar PE/STID routing surface. R73 begins replacing
+that constant selection by routing the bridge's active STID from the queued
+decoded row's thread/STID sidecar, while PE remains the reduced PE0 lane. The
+important progress is that the hardware hierarchy now matches the model shape:
 rename/retire/external commit are routed to one active bank group, recovery
 cleanup is broadcast to every bank group, and post-clean local block commit is
 accepted only through the selected-STID/all-PE fanout.
@@ -122,13 +124,15 @@ The model scopes operations as follows:
 - `SPERename::ReportSGPRBlockCommit(bid, stid)` selects one STID and applies
   block commit to both SGPR hands for every scalar PE.
 
-R72 preserves those scopes structurally. Dynamic PE/STID decode routing and
-retire-command PE/STID payloads remain deferred, but the bank-array boundary
-now exists for those later owners to target.
+R72 preserves those scopes structurally. R73 wires the first dynamic selector
+source by using the reduced backend row's STID for active-bank selection.
+Dynamic PE routing and retire-command PE/STID payloads remain deferred, but the
+bank-array boundary now exists for those later owners to target.
 
 ## Deferred Owners
 
-- Decode/rename dynamic PE and STID routing into `activePeId/activeStid`.
+- Decode/rename dynamic PE routing into `activePeId`; the current reduced
+  backend still selects PE0.
 - Retire-command payloads that carry PE/STID and route release commands to the
   exact retired row's bank group instead of the reduced active bank.
 - Per-bank ROB/LSU cleanup source vectors once ROB/STQ expose multiple PE/STID
@@ -162,6 +166,7 @@ python3 tools/chisel/trace_schema_adapter.py --self-test
 bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 ```
 
-The R72 tests cover active PE/STID selection shape, selected-STID all-PE
-block-commit readiness, IO widths, and elaboration through the bank array,
-recovery cleanup path, fanout, and T/U rename child hierarchy.
+The R72/R73 tests cover active PE/STID selection shape, selected-STID all-PE
+block-commit readiness, bridge/backend active-STID selector plumbing, IO
+widths, and elaboration through the bank array, recovery cleanup path, fanout,
+and T/U rename child hierarchy.

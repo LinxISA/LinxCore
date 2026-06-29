@@ -20,13 +20,17 @@ class ScalarTURenameBridgeIO(
     val bidWidth: Int = BID.DefaultWidth,
     val stidWidth: Int = 8,
     val peIdWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val scalarPeCount: Int = 1,
+    val scalarStidCount: Int = 1)
     extends Bundle {
   private val gprFreeWidth = log2Ceil(physRegs + 1)
   private val gprMapQFreeWidth = log2Ceil(mapQDepth + 1)
   private val tuCountWidth = log2Ceil(Seq(localRegsT, localRegsU, mapQDepth).max + 1)
 
   val in = Input(new DecodedUop(p))
+  val activePeId = Input(UInt(peIdWidth.W))
+  val activeStid = Input(UInt(stidWidth.W))
   val outReady = Input(Bool())
   val robAllocReady = Input(Bool())
 
@@ -95,6 +99,11 @@ class ScalarTURenameBridgeIO(
 
   val tuReady = Output(Bool())
   val tuAccepted = Output(Bool())
+  val tuActivePeInRange = Output(Bool())
+  val tuActiveStidInRange = Output(Bool())
+  val tuActiveBankValid = Output(Bool())
+  val tuActivePeOH = Output(UInt(scalarPeCount.W))
+  val tuActiveStidOH = Output(UInt(scalarStidCount.W))
   val tuSrc = Output(Vec(3, new TULinkResolvedOperand(p, mapQDepth)))
   val tuDst = Output(new TULinkResolvedDestination(p, mapQDepth))
   val tuTSeq = Output(new ROBID(mapQDepth))
@@ -167,7 +176,9 @@ class ScalarTURenameBridge(
     bidWidth,
     stidWidth,
     peIdWidth,
-    tidWidth
+    tidWidth,
+    scalarPeCount,
+    scalarStidCount
   ))
 
   private def isTUClass(cls: OperandClass.Type): Bool =
@@ -233,8 +244,8 @@ class ScalarTURenameBridge(
     tidWidth = tidWidth
   ))
 
-  tu.io.activePeId := 0.U(peIdWidth.W)
-  tu.io.activeStid := localStid.U(stidWidth.W)
+  tu.io.activePeId := io.activePeId
+  tu.io.activeStid := io.activeStid
   scalar.io.in := scalarInput
   scalar.io.outReady := io.outReady && tu.io.ready && !localUnsupported
   scalar.io.robAllocReady := io.robAllocReady
@@ -298,6 +309,11 @@ class ScalarTURenameBridge(
 
   io.tuReady := tu.io.ready
   io.tuAccepted := tu.io.accepted
+  io.tuActivePeInRange := tu.io.activePeInRange
+  io.tuActiveStidInRange := tu.io.activeStidInRange
+  io.tuActiveBankValid := tu.io.activeBankValid
+  io.tuActivePeOH := tu.io.activePeOH
+  io.tuActiveStidOH := tu.io.activeStidOH
   io.tuRetireAccepted := tu.io.retireAccepted
   io.tuRetireMiss := tu.io.retireMiss
   io.tuRetireReleaseMismatch := tu.io.retireReleaseMismatch

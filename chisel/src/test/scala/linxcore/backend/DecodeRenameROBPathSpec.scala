@@ -38,6 +38,9 @@ object DecodeRenameROBPathReference {
     val active = valid && isStore
     !active || (if (split) staReady && stdReady else staReady)
   }
+
+  def activeTuBankStid(threadId: Int): Int =
+    threadId
 }
 
 class DecodeRenameROBPathSpec extends AnyFunSuite {
@@ -73,6 +76,11 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(storeDispatchReady(valid = true, isStore = true, split = true, staReady = true, stdReady = true))
     assert(!storeDispatchReady(valid = true, isStore = true, split = true, staReady = true, stdReady = false))
     assert(!storeDispatchReady(valid = true, isStore = true, split = true, staReady = false, stdReady = true))
+  }
+
+  test("reference forwards queued row thread ID as reduced T/U active STID") {
+    assert(activeTuBankStid(threadId = 0) == 0)
+    assert(activeTuBankStid(threadId = 3) == 3)
   }
 
   test("reference accepts agreeing ROB and LSU cleanup sources but blocks conflicting ones") {
@@ -184,6 +192,11 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.blockedByTURename.getWidth == 1)
     assert(io.tuRenameReady.getWidth == 1)
     assert(io.tuRenameAccepted.getWidth == 1)
+    assert(io.tuRenameActivePeId.getWidth == 8)
+    assert(io.tuRenameActiveStid.getWidth == 8)
+    assert(io.tuRenameActivePeInRange.getWidth == 1)
+    assert(io.tuRenameActiveStidInRange.getWidth == 1)
+    assert(io.tuRenameActiveBankValid.getWidth == 1)
     assert(io.tuRenameTSeq.value.getWidth == 5)
     assert(io.tuRenameUSeq.value.getWidth == 5)
     assert(io.tuRenameDstValid.getWidth == 1)
@@ -284,6 +297,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_decRenCount"))
     assert(sv.contains("io_robAllocAttemptValid"))
     assert(sv.contains("io_tuRenameTSeq_value"))
+    assert(sv.contains("io_tuRenameActiveStid"))
+    assert(sv.contains("io_tuRenameActiveBankValid"))
     assert(sv.contains("io_tuRenameDstValid"))
     assert(sv.contains("io_blockedByTURename"))
     assert(sv.contains("io_selectedRobValue"))

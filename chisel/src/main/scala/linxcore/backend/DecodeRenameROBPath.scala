@@ -177,6 +177,11 @@ class DecodeRenameROBPathIO(
   val blockedByTURename = Output(Bool())
   val tuRenameReady = Output(Bool())
   val tuRenameAccepted = Output(Bool())
+  val tuRenameActivePeId = Output(UInt(peIdWidth.W))
+  val tuRenameActiveStid = Output(UInt(stidWidth.W))
+  val tuRenameActivePeInRange = Output(Bool())
+  val tuRenameActiveStidInRange = Output(Bool())
+  val tuRenameActiveBankValid = Output(Bool())
   val tuRenameTSeq = Output(new ROBID(mapQDepth))
   val tuRenameUSeq = Output(new ROBID(mapQDepth))
   val tuRenameDstValid = Output(Bool())
@@ -437,7 +442,11 @@ class DecodeRenameROBPath(
     tidWidth = tidWidth,
     localStid = localStid
   ))
+  val activeTURenamePeId = 0.U(peIdWidth.W)
+  val activeTURenameStid = queuedForRename.threadId.pad(stidWidth)(stidWidth - 1, 0)
   rename.io.in := queuedForRename
+  rename.io.activePeId := activeTURenamePeId
+  rename.io.activeStid := activeTURenameStid
   val tuRetirePath = Module(new TULinkRetireCommandPath(
     p = p,
     sourceWidth = traceParams.commitWidth,
@@ -651,6 +660,11 @@ class DecodeRenameROBPath(
   io.blockedByTURename := rename.io.blockedByTURename
   io.tuRenameReady := rename.io.tuReady
   io.tuRenameAccepted := rename.io.tuAccepted
+  io.tuRenameActivePeId := activeTURenamePeId
+  io.tuRenameActiveStid := activeTURenameStid
+  io.tuRenameActivePeInRange := rename.io.tuActivePeInRange
+  io.tuRenameActiveStidInRange := rename.io.tuActiveStidInRange
+  io.tuRenameActiveBankValid := rename.io.tuActiveBankValid
   io.tuRenameTSeq := rename.io.tuTSeq
   io.tuRenameUSeq := rename.io.tuUSeq
   io.tuRenameDstValid := rename.io.tuDstValid

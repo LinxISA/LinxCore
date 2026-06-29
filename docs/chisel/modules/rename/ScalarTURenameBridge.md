@@ -36,12 +36,17 @@ owner matched it. R72 replaces the direct single-bank child with
 `TULinkLocalBankArray`. The live reduced lane still selects PE0/STID0, but the
 bridge now contains the explicit `[scalar PE][STID]` SGPR bank-array boundary
 and exposes bridge-owned local block-commit fanout diagnostics.
+R73 makes the active-bank selector an explicit bridge input. The reduced
+backend still drives PE0, but the active STID now comes from the queued decoded
+row's thread/STID sidecar instead of a bridge-local `localStid` constant.
 
 ## Interface
 
 Inputs:
 
 - `in`: decoded uop presented for one-uop rename.
+- `activePeId`, `activeStid`: selected SGPR bank group for current reduced
+  rename, retire, and external local commit traffic.
 - `outReady`: downstream renamed-uop consumer readiness.
 - `robAllocReady`: ROB allocation readiness.
 - `checkpointValid/checkpointBid`, `commitValid/commitBid`, `cleanup`: scalar
@@ -66,6 +71,9 @@ Outputs:
 - `tuReady`, `tuAccepted`, `tuSrc`, `tuDst`, `tuTSeq`, `tuUSeq`,
   `tuDstValid`, `tuDstKind`: T/U rename results and pre-allocation sequence
   snapshots.
+- `tuActivePeInRange`, `tuActiveStidInRange`, `tuActiveBankValid`,
+  `tuActivePeOH`, `tuActiveStidOH`: active bank selector diagnostics forwarded
+  from `TULinkLocalBankArray`.
 - `tuRetireAccepted`, `tuRetireMiss`, `tuRetireReleaseMismatch`,
   `tuRetireUnsupported`: actual retire-command outcome from `TULinkRename`.
 - `tuLocalBlockCommitReady`, `tuLocalBlockCommitAccepted`: downstream
@@ -96,6 +104,10 @@ is ready, ROB allocation is ready, scalar GPR rename can proceed, and
 `TULinkLocalBankArray.ready` is true for the selected bank group.
 `TULinkLocalBankArray.renameValid` is driven by the accepted scalar event, so
 scalar and T/U state mutate for the same decoded uop in the same cycle.
+The selected bank group is no longer hardwired inside the bridge: callers drive
+`activePeId/activeStid`, and the bridge forwards the bank-array in-range and
+one-hot diagnostics. In the current reduced backend, PE remains `0` and STID
+comes from `DecodedUop.threadId`.
 
 The output starts from the scalar bridge's `RenamedUop`. Accepted T/U sources
 are overlaid with the original decoded operand class, architectural tag,
@@ -151,7 +163,9 @@ scalar `CleanCMAP`; the R69 bridge forwards that event to the composed
 each selected bank group's `TULinkRecoveryCleanupPath` and
 `TULinkRename.commit*`. R70 preserves the model-selected STID on that event,
 and R72 adds the explicit bank-array boundary that matches
-`sgprRenameUnit[pe][stid][hand]` structurally.
+`sgprRenameUnit[pe][stid][hand]` structurally. R73 starts consuming the
+existing Chisel row-owned STID sidecar for that selector, matching the model's
+`SPERename::Rename()` lookup by `inst->stid` for the reduced single-PE lane.
 
 ## Deferred Owners
 
@@ -159,9 +173,10 @@ and R72 adds the explicit bank-array boundary that matches
 - Old T/U physical tag release accounting for destination overwrite.
 - Ready-table initialization and wakeup ownership for T/U sources.
 - Commit-trace representation of non-GPR destination ownership.
-- Dynamic PE/STID routing into the bank array instead of the current reduced
-  PE0/STID0 selection.
-- Retire-source PE/STID routing beyond the current reduced active bank.
+- Dynamic PE owner routing into the bank array; the current backend still
+  drives PE0 because decoded uops do not yet carry a PE owner.
+- Retire-source PE/STID routing beyond the current reduced active bank. The
+  current retire command still lacks its own bank-selector sidecar.
 - Tile, vector, and `CArg` operand classification beyond the current P/T/U
   subset.
 
@@ -186,7 +201,8 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 
 The current tests cover the atomic scalar/T/U accept reference rule, scalar
 input sanitization for T/U operands, local block-commit maintenance
-backpressure including STID mismatch, IO shape, and elaboration through
+backpressure including STID mismatch, explicit active-bank selector validity,
+IO shape, and elaboration through
 `ScalarDecodeRenameBridge`, `TULinkLocalBankArray`,
 `TULinkRecoveryCleanupPath`, `TULinkLocalBlockCommitFanout`, and
 `TULinkRename`.
