@@ -9,10 +9,13 @@
 #include LINXCORE_COMMIT_TRACE_DUT_HEADER
 #include "verilated.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -21,8 +24,10 @@ namespace {
 using CommitTraceDut = LINXCORE_COMMIT_TRACE_DUT_CLASS;
 
 struct Args {
+  std::string input_trace;
   std::string dut_trace;
   std::string qemu_trace;
+  std::size_t max_rows = 0;
 };
 
 struct Row {
@@ -60,7 +65,9 @@ struct Row {
 };
 
 [[noreturn]] void usage(const char *argv0) {
-  std::cerr << "usage: " << argv0 << " --dut-trace <dut.jsonl> --qemu-trace <qemu.jsonl>\n";
+  std::cerr << "usage: " << argv0
+            << " [--input-trace <flat.jsonl>] --dut-trace <dut.jsonl>"
+            << " --qemu-trace <qemu.jsonl> [--max-rows <n>]\n";
   std::exit(2);
 }
 
@@ -72,6 +79,10 @@ Args parse_args(int argc, char **argv) {
       args.dut_trace = argv[++i];
     } else if (arg == "--qemu-trace" && i + 1 < argc) {
       args.qemu_trace = argv[++i];
+    } else if (arg == "--input-trace" && i + 1 < argc) {
+      args.input_trace = argv[++i];
+    } else if (arg == "--max-rows" && i + 1 < argc) {
+      args.max_rows = static_cast<std::size_t>(std::stoull(argv[++i]));
     } else {
       usage(argv[0]);
     }
@@ -80,6 +91,151 @@ Args parse_args(int argc, char **argv) {
     usage(argv[0]);
   }
   return args;
+}
+
+std::string lower(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return value;
+}
+
+std::optional<std::string> json_token(const std::string &line, const std::string &key) {
+  const std::string needle = "\"" + key + "\"";
+  const std::size_t key_pos = line.find(needle);
+  if (key_pos == std::string::npos) {
+    return std::nullopt;
+  }
+
+  const std::size_t colon = line.find(':', key_pos + needle.size());
+  if (colon == std::string::npos) {
+    return std::nullopt;
+  }
+
+  std::size_t pos = colon + 1;
+  while (pos < line.size() && std::isspace(static_cast<unsigned char>(line[pos]))) {
+    ++pos;
+  }
+  if (pos >= line.size()) {
+    return std::nullopt;
+  }
+
+  if (line[pos] == '"') {
+    const std::size_t end = line.find('"', pos + 1);
+    if (end == std::string::npos) {
+      return std::nullopt;
+    }
+    return line.substr(pos + 1, end - pos - 1);
+  }
+
+  std::size_t end = pos;
+  while (end < line.size() && line[end] != ',' && line[end] != '}' &&
+         line[end] != ']' && !std::isspace(static_cast<unsigned char>(line[end]))) {
+    ++end;
+  }
+  return line.substr(pos, end - pos);
+}
+
+std::uint64_t token_to_u64(const std::string &token, std::uint64_t fallback = 0) {
+  const std::string lowered = lower(token);
+  if (lowered == "true") {
+    return 1;
+  }
+  if (lowered == "false" || lowered == "null") {
+    return 0;
+  }
+
+  try {
+    return std::stoull(token, nullptr, 0);
+  } catch (const std::exception &) {
+    return fallback;
+  }
+}
+
+std::uint64_t get_u64(
+    const std::string &line,
+    std::initializer_list<const char *> keys,
+    std::uint64_t fallback = 0) {
+  for (const char *key : keys) {
+    if (const auto token = json_token(line, key)) {
+      return token_to_u64(*token, fallback);
+    }
+  }
+  return fallback;
+}
+
+bool has_meta_type(const std::string &line) {
+  const auto token = json_token(line, "type");
+  return token && lower(*token) == "meta";
+}
+
+std::optional<Row> parse_trace_row(const std::string &line, std::uint64_t default_seq) {
+  if (line.empty() || has_meta_type(line)) {
+    return std::nullopt;
+  }
+  if (json_token(line, "valid") && get_u64(line, {"valid"}, 1) == 0) {
+    return std::nullopt;
+  }
+
+  Row r;
+  r.seq = get_u64(line, {"seq"}, default_seq);
+  r.cycle = get_u64(line, {"cycle"}, 0);
+  r.bid = static_cast<std::uint32_t>(get_u64(line, {"bid"}, 0));
+  r.gid = static_cast<std::uint32_t>(get_u64(line, {"gid"}, 0));
+  r.rid = static_cast<std::uint32_t>(get_u64(line, {"rid"}, default_seq));
+  r.block_bid = get_u64(line, {"block_bid", "blockBid"}, r.bid);
+  r.pc = get_u64(line, {"pc"}, 0);
+  r.insn = get_u64(line, {"insn"}, 0);
+  r.len = static_cast<std::uint8_t>(get_u64(line, {"len", "length", "insn_len"}, 4));
+  r.wb_valid = get_u64(line, {"wb_valid"}, 0) != 0;
+  r.wb_rd = static_cast<std::uint8_t>(get_u64(line, {"wb_rd", "wb_reg", "rd"}, 0));
+  r.wb_data = get_u64(line, {"wb_data", "wb_value"}, 0);
+  r.src0_valid = get_u64(line, {"src0_valid"}, 0) != 0;
+  r.src0_reg = static_cast<std::uint8_t>(get_u64(line, {"src0_reg"}, 0));
+  r.src0_data = get_u64(line, {"src0_data"}, 0);
+  r.src1_valid = get_u64(line, {"src1_valid"}, 0) != 0;
+  r.src1_reg = static_cast<std::uint8_t>(get_u64(line, {"src1_reg"}, 0));
+  r.src1_data = get_u64(line, {"src1_data"}, 0);
+  r.dst_valid = get_u64(line, {"dst_valid"}, r.wb_valid ? 1 : 0) != 0;
+  r.dst_reg = static_cast<std::uint8_t>(get_u64(line, {"dst_reg"}, r.wb_rd));
+  r.dst_data = get_u64(line, {"dst_data"}, r.wb_data);
+  r.mem_valid = get_u64(line, {"mem_valid"}, 0) != 0;
+  r.mem_is_store = get_u64(line, {"mem_is_store", "mem_isStore"}, 0) != 0;
+  r.mem_addr = get_u64(line, {"mem_addr"}, 0);
+  r.mem_wdata = get_u64(line, {"mem_wdata"}, 0);
+  r.mem_rdata = get_u64(line, {"mem_rdata"}, 0);
+  r.mem_size = static_cast<std::uint8_t>(get_u64(line, {"mem_size"}, 0));
+  r.trap_valid = get_u64(line, {"trap_valid"}, 0) != 0;
+  r.trap_cause = static_cast<std::uint32_t>(get_u64(line, {"trap_cause", "cause"}, 0));
+  r.trap_arg0 = get_u64(line, {"traparg0", "trap_arg0", "trap_arg"}, 0);
+  r.next_pc = get_u64(line, {"next_pc", "nextPc", "npc"}, 0);
+  return r;
+}
+
+std::vector<Row> load_trace_rows(const std::string &path, std::size_t max_rows) {
+  std::ifstream in(path);
+  if (!in) {
+    std::cerr << "failed to open input trace: " << path << "\n";
+    std::exit(2);
+  }
+
+  std::vector<Row> rows;
+  std::string line;
+  std::uint64_t default_seq = 0;
+  while (std::getline(in, line)) {
+    if (auto row = parse_trace_row(line, default_seq)) {
+      rows.push_back(*row);
+      ++default_seq;
+      if (max_rows != 0 && rows.size() >= max_rows) {
+        break;
+      }
+    }
+  }
+  if (rows.empty()) {
+    std::cerr << "input trace had no replayable commit rows: " << path << "\n";
+    std::exit(2);
+  }
+  return rows;
 }
 
 void clear_inputs(CommitTraceDut &dut) {
@@ -465,15 +621,7 @@ void write_dut_slot1(std::ofstream &out, const CommitTraceDut &dut) {
       << "},\"nextPc\":" << dut.io_commit_rows_1_nextPc << "}\n";
 }
 
-} // namespace
-
-int main(int argc, char **argv) {
-  Verilated::commandArgs(argc, argv);
-  const Args args = parse_args(argc, argv);
-
-  CommitTraceDut dut;
-  reset(dut);
-
+void run_builtin_smoke(CommitTraceDut &dut, std::ofstream &dut_out, std::ofstream &qemu_out) {
   const std::vector<Row> rows{row0(), row1(), row2()};
   alloc_row(dut, rows[0]);
   alloc_row(dut, rows[1]);
@@ -483,13 +631,6 @@ int main(int argc, char **argv) {
   complete_slot(dut, 2);
   complete_slot(dut, 1);
   complete_slot(dut, 0);
-
-  std::ofstream dut_out(args.dut_trace);
-  std::ofstream qemu_out(args.qemu_trace);
-  if (!dut_out || !qemu_out) {
-    std::cerr << "failed to open output traces\n";
-    return 2;
-  }
 
   eval(dut);
   expect_slot0(dut, rows[0], 0);
@@ -506,7 +647,7 @@ int main(int argc, char **argv) {
   expect_slot0(dut, rows[2], 0);
   if (dut.io_commit_rows_1_valid) {
     std::cerr << "slot1 should be invalid after final single-row retire\n";
-    return 1;
+    std::exit(1);
   }
   expect_monitor_clean(dut, "final single-row retire", 0x1, 1);
   write_dut_slot0(dut_out, dut);
@@ -514,6 +655,56 @@ int main(int argc, char **argv) {
   write_qemu_row(qemu_out, rows[2]);
 
   tick(dut);
+}
+
+void run_trace_replay(
+    CommitTraceDut &dut,
+    const std::vector<Row> &rows,
+    std::ofstream &dut_out,
+    std::ofstream &qemu_out) {
+  for (const Row &row : rows) {
+    alloc_row(dut, row);
+    const auto slot = static_cast<std::uint8_t>(dut.io_headRobValue);
+    complete_slot(dut, slot);
+
+    eval(dut);
+    expect_slot0(dut, row, 0);
+    if (dut.io_commit_rows_1_valid) {
+      std::cerr << "trace replay expected one committed row per cycle\n";
+      std::exit(1);
+    }
+    expect_monitor_clean(dut, "trace replay retire", 0x1, 1);
+    write_dut_slot0(dut_out, dut);
+    write_dut_slot1(dut_out, dut);
+    write_qemu_row(qemu_out, row);
+
+    tick(dut);
+    eval(dut);
+  }
+}
+
+} // namespace
+
+int main(int argc, char **argv) {
+  Verilated::commandArgs(argc, argv);
+  const Args args = parse_args(argc, argv);
+
+  CommitTraceDut dut;
+  reset(dut);
+
+  std::ofstream dut_out(args.dut_trace);
+  std::ofstream qemu_out(args.qemu_trace);
+  if (!dut_out || !qemu_out) {
+    std::cerr << "failed to open output traces\n";
+    return 2;
+  }
+
+  if (args.input_trace.empty()) {
+    run_builtin_smoke(dut, dut_out, qemu_out);
+  } else {
+    run_trace_replay(dut, load_trace_rows(args.input_trace, args.max_rows), dut_out, qemu_out);
+  }
+
   eval(dut);
   if (!dut.io_empty || dut.io_size != 0) {
     std::cerr << "ROB did not drain after trace smoke\n";

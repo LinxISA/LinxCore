@@ -121,11 +121,15 @@ data-array mutation belong to later LSU owners.
 - Broaden gates around the R76 reservation/update split, including ROB
   bookkeeping, top xcheck, and QEMU dry-run before using the split as evidence
   for wider frontend/rename promotion.
+- Use the R78 trace replay gate to feed bounded normalized commit windows
+  through the Chisel top before replacing replayed rows with live
+  frontend/decode/execute/LSU-generated rows.
 - Connect the downstream consumers for `RecoveryCleanupControl`: rename
   cleanup, LSU memory-side effects beyond `STQEntryBank`, precise trap
   ownership, and frontend restart ownership. Do not retrofit those behaviors
   into `ReducedCommitROB` or `ROBFlushPrune`.
-- Add live Verilator trace dumping once the reduced harness has a small driver.
+- Add live Verilator trace dumping once the top executes real rows instead of
+  replaying an external normalized stream.
 - Connect memory side-effect ownership to LSU/STQ instead of test-provided row
   payloads.
 - Add precise trap and recovery restart ownership once FLS/recovery state is

@@ -81,11 +81,18 @@ keeping commit rows monitored before cross-check use.
 bring-up shell. `commitContractError` must remain false before emitted JSONL is
 treated as QEMU/DUT evidence.
 
+`tools/chisel/run_chisel_trace_replay_xcheck.sh` now exercises this surface
+with adapter-normalized input rows instead of only the built-in three-row smoke.
+That gate is still a replay harness: it proves the top can export and compare a
+bounded external commit stream, not that frontend/decode/execute/LSU generated
+those rows from an ELF.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreTop`
 - `bash tools/chisel/run_chisel_verilator_lint.sh`
 - `bash tools/chisel/run_chisel_top_xcheck.sh`
+- `bash tools/chisel/run_chisel_trace_replay_xcheck.sh`
 - `bash tools/chisel/build_chisel.sh`
 
 Current tests cover parameter derivation from `CoreParams`, top-level
@@ -93,4 +100,6 @@ elaboration with `ReducedCommitROB` and `CommitTraceMonitor`, and top Verilator
 lint over all emitted SystemVerilog files. The top xcheck emits a dedicated
 8-entry, two-wide `LinxCoreTop` configuration and reuses the reduced ROB
 Verilator trace harness to prove the top-level commit observation surface
-against QEMU-shaped reference rows.
+against QEMU-shaped reference rows. The trace replay xcheck uses the same top
+configuration and comparator path but drives rows loaded from an external
+normalized JSONL stream.

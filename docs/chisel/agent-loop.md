@@ -343,6 +343,7 @@ These packets remain the required base before broad module promotion:
 | R75 | Decoded/renamed scalar PE owner sidecar carry | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendInstructionBuffer`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DecodeLoadStoreIdAssign`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_tests.sh --only ScalarDecodeRenameBridge`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only StoreSplitPayload`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R76 | Enqueue-time ROB/BROB reservation with post-rename sidecar update | `sbt "testOnly linxcore.rob.ROBEntryBankSpec linxcore.backend.DispatchROBAllocatorSpec linxcore.backend.DecodeRenameROBPathSpec"`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R77 | R76 gate broadening and top trace/xcheck prep | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_reduced_rob_xcheck.sh`, `run_chisel_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R78 | Top trace replay xcheck harness | `run_chisel_trace_replay_xcheck.sh`, `run_chisel_top_xcheck.sh`, `run_chisel_reduced_rob_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -356,11 +357,13 @@ Use this order for each promoted slice:
 2. Chisel elaboration or emitted SystemVerilog lint for the touched top.
 3. Reduced or top xcheck if commit rows or top IO are affected.
 4. `trace_schema_adapter.py --self-test` if commit or trace schema changed.
-5. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
+5. `run_chisel_trace_replay_xcheck.sh` after top-level commit export, adapter,
+   or cross-check harness changes.
+6. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
-6. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
+7. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
    commit rows for the slice.
-7. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
+8. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
    QEMU in the same run packet.
 
 ## LinxCoreModel Maintenance Loop
@@ -477,19 +480,18 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. R77 gate broadening and trace/xcheck prep: run the full wrapper ladder for
-   the reservation/update split, then capture any top/QEMU dry-run gaps before
-   wider frontend work depends on the new boundary.
-2. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+1. Live commit trace schema: replace replayed rows with a top-owned
+   `LC-IF-CHISEL-XCHK-*` event stream covering commit, trap, memory, recovery,
+   and block sidebands.
+2. QEMU full-compare harness: feed a bounded direct-boot or CoreMark window
+   from QEMU into the same comparator path, then make the Chisel DUT stream
+   live once frontend/decode/execute/LSU can retire it.
+3. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
-3. Multi-PE packet production and bank instantiation: teach the upstream
+4. Multi-PE packet production and bank instantiation: teach the upstream
    frontend/top owner to set nonzero `FrontendDecodePacket.peId` and instantiate
    matching `ScalarTURenameBridge`/`TULinkLocalBankArray` PE banks.
-4. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
-   bundle covering commit, trap, memory, recovery, and block sidebands.
-5. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
-   commit rows once the top can retire a direct-boot smoke.
-6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+5. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

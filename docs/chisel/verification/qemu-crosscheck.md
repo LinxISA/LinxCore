@@ -13,6 +13,7 @@ details into the comparator itself.
 - `tools/chisel/run_chisel_qemu_crosscheck.sh`
 - `tools/chisel/run_chisel_reduced_rob_xcheck.sh`
 - `tools/chisel/run_chisel_top_xcheck.sh`
+- `tools/chisel/run_chisel_trace_replay_xcheck.sh`
 - `tools/trace/crosscheck_qemu_linxcore.py`
 
 ## Normalized Fields
@@ -54,7 +55,16 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 python3 tools/chisel/trace_schema_adapter.py --self-test
 bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
 bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_trace_replay_xcheck.sh
 ```
+
+`run_chisel_trace_replay_xcheck.sh` is the bridge between synthetic reduced
+smokes and a live QEMU/CoreMark window. It accepts a flat or nested commit
+JSONL with `--input-trace`, normalizes it through `trace_schema_adapter.py`,
+replays the bounded row stream through the `LinxCoreTop` commit export in a
+Verilator harness, and compares the resulting DUT JSONL against the same rows
+as QEMU-shaped reference data. When `--input-trace` is omitted it generates a
+four-row fixture covering writeback, store, load, and trap envelopes.
 
 Full compare gate, once a Chisel commit trace exists:
 
@@ -69,8 +79,11 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh \
 ## Current Status
 
 The adapter, wrapper, typed Chisel commit-row bundles, reduced ROB Verilator
-smoke, and reduced top Verilator smoke are ready.
+smoke, reduced top Verilator smoke, and top trace replay smoke are ready.
 `run_chisel_reduced_rob_xcheck.sh` and `run_chisel_top_xcheck.sh` currently
-compare three Verilator-produced rows with zero mismatches. Full-core QEMU
-comparison remains blocked until the Chisel top emits live architectural commit
-rows from real frontend/decode/execute/LSU paths.
+compare three Verilator-produced rows with zero mismatches.
+`run_chisel_trace_replay_xcheck.sh` proves that a normalized external commit
+row stream can drive the top-level commit observation surface and pass the same
+comparator. Full-core QEMU comparison remains blocked until the Chisel top
+emits live architectural commit rows from real frontend/decode/execute/LSU
+paths.

@@ -103,11 +103,19 @@ single-row retire window, and the post-drain idle window. The smoke deliberately
 writes one invalid fixed-width output slot; the adapter must filter it before
 comparison.
 
+The same C++ harness also has an `--input-trace` mode used by
+`run_chisel_trace_replay_xcheck.sh`. In that mode it loads bounded normalized
+commit rows, allocates and completes one row at a time through the top shell,
+writes DUT JSONL from the Chisel commit port, and writes a matching
+QEMU-shaped reference stream for the comparator. This is cross-check
+infrastructure; it does not replace the future live ROB/CMT execution path.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB`
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob`
 - `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh`
+- `bash tools/chisel/run_chisel_trace_replay_xcheck.sh`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 
 Current tests cover contiguous retirement, incomplete-head blocking, duplicate
