@@ -77,6 +77,12 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(io.tuLocalBlockCommitAccepted.getWidth == 1)
     assert(io.tuLocalBlockCommitStidMatch.getWidth == 1)
     assert(io.tuLocalBlockCommitBlockedByStid.getWidth == 1)
+    assert(io.tuLocalBlockCommitBlockedByBankReady.getWidth == 1)
+    assert(io.tuLocalBlockCommitFanoutStidInRange.getWidth == 1)
+    assert(io.tuLocalBlockCommitFanoutBlockedByStidRange.getWidth == 1)
+    assert(io.tuLocalBlockCommitFanoutBlockedByBankReady.getWidth == 1)
+    assert(io.tuLocalBlockCommitFanoutTargetPeMask.getWidth == 1)
+    assert(io.tuLocalBlockCommitFanoutReadyPeMask.getWidth == 1)
     assert(io.tuCleanupSelectedFlushSource.tSeq.value.getWidth == 3)
     assert(io.tuCleanupSourceConflict.getWidth == 1)
   }
@@ -90,7 +96,9 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
 
     assert(sv.contains("module ScalarTURenameBridge"))
     assert(sv.contains("module ScalarDecodeRenameBridge"))
+    assert(sv.contains("module TULinkLocalBankArray"))
     assert(sv.contains("module TULinkRecoveryCleanupPath"))
+    assert(sv.contains("module TULinkLocalBlockCommitFanout"))
     assert(sv.contains("module TULinkRename"))
     assert(sv.contains("io_tuTSeq_value"))
     assert(sv.contains("io_tuUSeq_value"))
@@ -102,6 +110,7 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(sv.contains("io_tuLocalBlockCommitAccepted"))
     assert(sv.contains("io_tuLocalBlockCommitStidMatch"))
     assert(sv.contains("io_tuLocalBlockCommitBlockedByStid"))
+    assert(sv.contains("io_tuLocalBlockCommitFanoutBlockedByBankReady"))
     assert(sv.contains("io_tuCleanupSourceConflict"))
   }
 }

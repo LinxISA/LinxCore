@@ -53,6 +53,12 @@ class ScalarTURenameBridgeIO(
   val tuLocalBlockCommitAccepted = Output(Bool())
   val tuLocalBlockCommitStidMatch = Output(Bool())
   val tuLocalBlockCommitBlockedByStid = Output(Bool())
+  val tuLocalBlockCommitBlockedByBankReady = Output(Bool())
+  val tuLocalBlockCommitFanoutStidInRange = Output(Bool())
+  val tuLocalBlockCommitFanoutBlockedByStidRange = Output(Bool())
+  val tuLocalBlockCommitFanoutBlockedByBankReady = Output(Bool())
+  val tuLocalBlockCommitFanoutTargetPeMask = Output(UInt(1.W))
+  val tuLocalBlockCommitFanoutReadyPeMask = Output(UInt(1.W))
 
   val inReady = Output(Bool())
   val accepted = Output(Bool())
@@ -139,11 +145,16 @@ class ScalarTURenameBridge(
     val stidWidth: Int = 8,
     val peIdWidth: Int = 8,
     val tidWidth: Int = 8,
-    val localStid: Int = 0)
+    val localStid: Int = 0,
+    val scalarPeCount: Int = 1,
+    val scalarStidCount: Int = 1)
     extends Module {
   require(scalarArchRegs == 24, "scalar/TU bridge follows LinxCoreModel GPR::GPR_COUNT")
   require(physRegs == (1 << p.physRegWidth), "physical GPR count must match InterfaceParams.physRegWidth")
   require(mapQDepth > 1 && (mapQDepth & (mapQDepth - 1)) == 0, "T/U mapQ depth must be a power of two")
+  require(scalarPeCount == 1, "current scalar/TU bridge exposes one reduced scalar PE mask bit")
+  require(scalarStidCount > 0, "scalar/TU bridge must expose at least one local STID bank")
+  require(localStid >= 0 && localStid < scalarStidCount, "local STID must name an instantiated local bank")
 
   val io = IO(new ScalarTURenameBridgeIO(
     p,
@@ -209,18 +220,21 @@ class ScalarTURenameBridge(
     peIdWidth = peIdWidth,
     tidWidth = tidWidth
   ))
-  val tu = Module(new TULinkRecoveryCleanupPath(
+  val tu = Module(new TULinkLocalBankArray(
     p = p,
     localRegsT = localRegsT,
     localRegsU = localRegsU,
     mapQDepth = mapQDepth,
     bidWidth = bidWidth,
+    peCount = scalarPeCount,
+    stidCount = scalarStidCount,
     peIdWidth = peIdWidth,
     stidWidth = stidWidth,
-    tidWidth = tidWidth,
-    localStid = localStid
+    tidWidth = tidWidth
   ))
 
+  tu.io.activePeId := 0.U(peIdWidth.W)
+  tu.io.activeStid := localStid.U(stidWidth.W)
   scalar.io.in := scalarInput
   scalar.io.outReady := io.outReady && tu.io.ready && !localUnsupported
   scalar.io.robAllocReady := io.robAllocReady
@@ -292,6 +306,12 @@ class ScalarTURenameBridge(
   io.tuLocalBlockCommitAccepted := tu.io.localBlockCommitAccepted
   io.tuLocalBlockCommitStidMatch := tu.io.localBlockCommitStidMatch
   io.tuLocalBlockCommitBlockedByStid := tu.io.localBlockCommitBlockedByStid
+  io.tuLocalBlockCommitBlockedByBankReady := tu.io.localBlockCommitBlockedByBankReady
+  io.tuLocalBlockCommitFanoutStidInRange := tu.io.localBlockCommitFanoutStidInRange
+  io.tuLocalBlockCommitFanoutBlockedByStidRange := tu.io.localBlockCommitFanoutBlockedByStidRange
+  io.tuLocalBlockCommitFanoutBlockedByBankReady := tu.io.localBlockCommitFanoutBlockedByBankReady
+  io.tuLocalBlockCommitFanoutTargetPeMask := tu.io.localBlockCommitFanoutTargetPeMask
+  io.tuLocalBlockCommitFanoutReadyPeMask := tu.io.localBlockCommitFanoutReadyPeMask
   io.tuSrc := tu.io.src
   io.tuDst := tu.io.dst
   io.tuTSeq := tu.io.tSeq

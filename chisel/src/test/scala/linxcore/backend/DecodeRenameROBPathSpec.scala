@@ -310,6 +310,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_tuRetireLocalBlockCommitAccepted"))
     assert(sv.contains("io_tuRetireLocalBlockCommitStidMatch"))
     assert(sv.contains("io_tuRetireLocalBlockCommitBlockedByStid"))
+    assert(sv.contains("TULinkLocalBankArray"))
     assert(sv.contains("TULinkLocalBlockCommitFanout"))
     assert(sv.contains("io_tuRetireLocalBlockCommitFanoutBlockedByBankReady"))
     assert(sv.contains("io_tuRetireRelationPreReleaseT"))

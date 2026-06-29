@@ -9,6 +9,7 @@
   - `chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkFlushSourceSelector.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkFlushSequencePublisher.scala`
+  - `chisel/src/main/scala/linxcore/rename/TULinkLocalBankArray.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRename.scala`
   - `chisel/src/main/scala/linxcore/recovery/RecoveryCleanupControl.scala`
   - `chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
@@ -22,7 +23,7 @@
 
 ## Purpose
 
-`TULinkRecoveryCleanupPath` is the composition owner that connects ROB/LSU
+`TULinkRecoveryCleanupPath` is the per-bank-group composition owner that connects ROB/LSU
 T/U cleanup source selection, T/U flush sequence publishing, and the T/U
 local-register rename owner. It consumes a registered `RecoveryCleanupIntent`
 plus explicit ROB and LSU row candidates, selects the row snapshot, and drives
@@ -33,7 +34,9 @@ R69 also makes this wrapper the consumer for the scalar
 block-commit release command.
 R70 adds the selected STID to that local event. The reduced wrapper accepts the
 event only when `localBlockCommitStid` matches its configured `localStid`
-parameter, which defaults to STID0 for the current single-bank path.
+parameter. R72 keeps this module as one `[PE][STID]` bank group and moves
+multi-bank replication plus all-selected-PE block-commit fanout into
+`TULinkLocalBankArray`.
 
 ```text
 RecoveryCleanupIntent + ROB row candidate + LSU row candidate
@@ -169,8 +172,10 @@ bank replication remain deferred.
 For R70, the wrapper preserves the model's selected-STID boundary. The model
 calls `ReportSGPRBlockCommit(bid, stid)` and selects `sgprRenameUnit[*][stid]`
 before iterating the two SGPR hands. The current Chisel implementation maps
-that to one reduced STID0 bank and exposes the STID comparison so a later
-fanout wrapper can instantiate or select the right banks explicitly.
+that selection into `TULinkLocalBankArray`, which instantiates this path once
+per PE/STID bank group. This module still owns the local STID comparison for
+its bank group so an individual child never consumes an event for the wrong
+STID.
 
 ## Timing
 
@@ -196,8 +201,9 @@ rather than ignoring them.
 
 - Relation-cmap release policy around T/U retire/dealloc.
 - T/U ready-table initialization and wakeup state.
-- Multi-PE and multi-STID T/U bank replication/fanout beyond the current
-  reduced single-bank composition.
+- Dynamic per-bank ROB/LSU source routing once multiple PE/STID row candidates
+  can be live in one cycle.
+- Ready-table and wakeup state for this bank group's T/U physical tags.
 
 ## Verification
 
@@ -213,6 +219,7 @@ Affected gates:
 sbt --client --error 'Test / compile'
 bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSequencePublisher
 bash tools/chisel/run_chisel_tests.sh --only TULinkFlushSourceSelector
+bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBankArray
 bash tools/chisel/run_chisel_tests.sh --only TULinkRename
 bash tools/chisel/run_chisel_tests.sh --only RecoveryCleanupControl
 bash tools/chisel/run_chisel_tests.sh --only FlushControl

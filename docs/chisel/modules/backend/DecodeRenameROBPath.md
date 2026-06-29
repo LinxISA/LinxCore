@@ -15,6 +15,7 @@
   - `chisel/src/main/scala/linxcore/backend/DecodeRenameQueue.scala`
   - `chisel/src/main/scala/linxcore/rename/ScalarDecodeRenameBridge.scala`
   - `chisel/src/main/scala/linxcore/rename/ScalarTURenameBridge.scala`
+  - `chisel/src/main/scala/linxcore/rename/TULinkLocalBankArray.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRecoveryCleanupPath.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRetireCommandPath.scala`
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchQueues.scala`
@@ -62,10 +63,12 @@ R68 exposes the following `ReportLocalRegBlockCommit` event as
 local-register owner runs `ReportBlockCommit` only after the event is accepted.
 R70 carries the block-last source STID through that post-clean event and
 surfaces the reduced owner's STID-match diagnostics.
-R71 inserts `TULinkLocalBlockCommitFanout` between the retire path and the
-reduced T/U local-register owner. The live instance is still a 1-PE, 1-STID
-fanout, but it establishes the all-selected-PE ready/accepted boundary needed
-for later SGPR bank replication.
+R71 defined `TULinkLocalBlockCommitFanout`. R72 moves that fanout under
+`ScalarTURenameBridge` through `TULinkLocalBankArray`, so this backend forwards
+the pending BID/STID event directly to the bridge and observes the
+bridge-owned fanout diagnostics. The live array is still reduced to PE0/STID0,
+but the selected-STID/all-selected-PE boundary is now part of the SGPR bank
+hierarchy rather than top-level backend glue.
 
 ## Interface
 
@@ -240,16 +243,16 @@ the event ready input from `ScalarTURenameBridge.tuLocalBlockCommitReady`,
 feeds the event into the T/U cleanup composition, and exposes both the retire
 path fire and rename-side accepted diagnostics. The reduced path therefore
 mutates the single live T/U local-register bank after post-clean event
-acceptance, while full PE/STID fanout remains deferred. R70 carries the
+acceptance, while full dynamic PE/STID routing remains deferred. R70 carries the
 block-last row's STID on that event and exposes
 `tuRetireLocalBlockCommitStidMatch` plus
 `tuRetireLocalBlockCommitBlockedByStid`; the current reduced bank accepts only
-local STID0. R71 routes the event through `TULinkLocalBlockCommitFanout` before
-it reaches `ScalarTURenameBridge`: the fanout receives the pending BID/STID
-event, checks that the selected reduced STID exists, waits for the selected
-bank readiness, and pulses the reduced bank valid only on fanout acceptance.
-With `peCount=1` and `stidCount=1`, this preserves current behavior while
-making the future all-PE selected-STID handshake explicit.
+local STID0. R72 forwards the pending BID/STID event directly to
+`ScalarTURenameBridge`; inside the bridge, `TULinkLocalBankArray` receives the
+event, checks that the selected STID exists, waits for every selected PE bank
+group to be ready, and pulses child bank valid only on fanout acceptance. With
+`peCount=1` and `stidCount=1`, this preserves current behavior while placing
+the future all-PE selected-STID handshake in the SGPR bank hierarchy.
 `cleanGroup*` remains inactive until a vector/MTC group-clean owner exists.
 
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
@@ -318,8 +321,11 @@ single implemented bank. R70 carries the selected STID with that event,
 matching the model's `ReportSGPRBlockCommit(bid, stid)` selection while the
 current Chisel owner remains a reduced STID0 bank.
 R71 adds the fanout boundary that corresponds to the model loop over scalar PE
-SGPR banks for the selected STID. Full bank replication is still deferred, but
-the reduced path now has the same atomic-fanout ready/accepted contract.
+SGPR banks for the selected STID. R72 wraps the T/U local-register owner in an
+explicit `TULinkLocalBankArray`, matching the model
+`sgprRenameUnit[pe][stid][hand]` shape structurally while keeping the live
+reduced lane selected at PE0/STID0. Dynamic PE/STID routing remains deferred,
+but the local block-commit event is no longer a backend-local fanout.
 Full store timing still requires real STA/STD execution, load-conflict
 publication, SCB/MDB handoff, and memory trace side effects.
 
@@ -337,8 +343,8 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - External live block/group commit clean event wiring into
   `TULinkRetireCommandPath.cleanBlock*` and `cleanGroup*`; scalar block-last
   auto clean is now owned inside `TULinkRetireCommandPath`.
-- Multi-PE/multi-STID SGPR local-register block-commit fanout beyond the
-  current reduced 1-PE, 1-STID fanout instance.
+- Dynamic PE/STID routing into `TULinkLocalBankArray`; the current live lane
+  remains reduced to PE0/STID0 even though the bank-array hierarchy exists.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - SGPR/tile/vector operand classification and rename.
@@ -360,6 +366,7 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
 bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
 bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
 bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBankArray
 bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
 bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
 ```
@@ -386,12 +393,14 @@ serializer diagnostics, IO shape, and CIRCT elaboration through frontend
 decode, `DecodeLoadStoreIdAssign`,
 `DecodeRenameQueue`, scalar/T/U rename, `StoreSplitPayload`,
 `StoreDispatchSTQPath` with `STQEntryBank`, backend allocation, and
-`TULinkRecoveryCleanupPath`. R65 also covers retire-source and relation-cmap
-cleanup observability through the composition boundary. R66 covers the
+`TULinkLocalBankArray` with per-bank `TULinkRecoveryCleanupPath` children.
+R65 also covers retire-source and relation-cmap cleanup observability through
+the composition boundary. R66 covers the
 block-last deallocation boundary and forwarded block-clean candidate. R68
 covers local block-commit observability after auto scalar clean. R69 covers the
 consumer handshake from retire event to live T/U local-register block commit.
 R70 covers event STID carry and the reduced owner's non-local STID rejection
 diagnostic.
 R71 covers the selected-STID fanout boundary and its reduced backend
-observability.
+observability. R72 covers the explicit local bank-array hierarchy and the
+bridge-owned fanout observability through this backend path.

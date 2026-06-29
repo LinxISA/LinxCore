@@ -10,6 +10,7 @@
   - `model/LinxCoreModel/model/bctrl/LocalRegMgr.cpp`
   - `model/LinxCoreModel/isa/ISACommon/OperandType.h`
 - Related Chisel:
+  - `chisel/src/main/scala/linxcore/rename/TULinkLocalBankArray.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRetireCommandPath.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRecoveryCleanupPath.scala`
   - `chisel/src/main/scala/linxcore/rename/TULinkRename.scala`
@@ -22,9 +23,11 @@ post-`CleanCMAP` scalar local-register block-commit event. It consumes one
 `ReportLocalRegBlockCommit(bid, stid)` event and presents an atomic valid pulse
 to every scalar PE bank for the selected STID only.
 
-R71 introduces this owner before full multi-PE local-register banks exist. The
-reduced backend instantiates it as a 1-PE, 1-STID fanout, so current behavior is
-unchanged while the future fanout contract is explicit and tested.
+R71 introduced this owner before full multi-PE local-register banks existed.
+R72 moves it under `TULinkLocalBankArray`, where it drives explicit
+`[scalar PE][STID]` bank groups. The current reduced backend still elaborates a
+1-PE, 1-STID array, so current behavior is unchanged while the future fanout
+contract is explicit and tested.
 
 ## Interface
 
@@ -98,9 +101,7 @@ Downstream banks see a one-cycle valid pulse only on the accepted fanout cycle.
 
 ## Deferred Owners
 
-- Instantiating one live T/U local-register bank group per scalar PE and STID.
-- A higher-level SGPR rename-bank array that routes rename, retire, flush, and
-  commit maintenance to the same bank groups.
+- Dynamic PE/STID routing into the bank array for rename and retire traffic.
 - Per-bank trace and cross-check events for full SGPR local-register release.
 
 ## Verification
@@ -109,6 +110,7 @@ Focused gate:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBlockCommitFanout
+bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBankArray
 ```
 
 Affected gates:

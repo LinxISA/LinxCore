@@ -4908,3 +4908,94 @@ Skill evolve:
   invariant: downstream local block-commit bank valid must pulse only when all
   selected PE banks for the event STID are ready, otherwise the SGPR banks can
   observe a partial block-commit update that the model never performs.
+
+## R72 Explicit SGPR Local Bank Array
+
+Scope:
+
+- Added `TULinkLocalBankArray` as the structural owner for the model
+  `sgprRenameUnit[scalar PE][STID][SGPR hand]` shape.
+- Moved selected-STID local block-commit fanout under the bank-array owner
+  instead of keeping it as backend glue.
+- Kept the live reduced lane selected at PE0/STID0 while exposing active-bank
+  and per-bank occupancy diagnostics for later dynamic routing packets.
+- Updated `ScalarTURenameBridge` and `DecodeRenameROBPath` so the retire path
+  forwards the post-clean BID/STID event directly to the bridge-owned array.
+
+Model evidence:
+
+- `SPERename::Build()` constructs
+  `sgprRenameUnit[stdPeCount][scalar_smt_thread][SGPR_HAND_COUNT]`, with T and
+  U initialized as separate `LocalRegMgr` hands per PE/STID group.
+- `SPERename::Rename()` selects one bank group by `inst->peID` and
+  `inst->stid`.
+- `SPERename::Flush()` broadcasts cleanup through every scalar PE, STID, and
+  SGPR hand.
+- `SPERename::ReportSGPRBlockCommit(bid, stid)` selects one STID and calls
+  `ReportBlockCommit(bid)` for both SGPR hands on every scalar PE.
+- `SPERename::RepLocalRetired()` targets one `(peid, tid, hand)` bank.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBankArray
+bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBlockCommitFanout
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_tests.sh --only TULinkRelationCmap
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git fetch origin main
+git diff --check
+```
+
+Expected result:
+
+- The bank array elaborates one `TULinkRecoveryCleanupPath` per PE/STID bank
+  group.
+- Reduced rename, retire, and external commit traffic still target PE0/STID0.
+- Recovery cleanup is broadcast to each bank group.
+- Post-clean local block commit goes through the selected-STID fanout inside
+  the bank array and accepts only when every selected PE bank group is ready.
+- Existing reduced backend behavior and diagnostics remain stable.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `TULinkLocalBankArraySpec` passed 4 tests, covering active PE/STID
+  selection, selected-STID all-PE commit atomicity, IO shape, and elaboration.
+- `ScalarTURenameBridgeSpec` passed 5 tests with `TULinkLocalBankArray` and
+  `TULinkLocalBlockCommitFanout` in the emitted hierarchy.
+- `DecodeRenameROBPathSpec` passed 7 tests with bridge-owned fanout
+  diagnostics still exposed at the backend boundary.
+- `TULinkLocalBlockCommitFanoutSpec` passed 5 tests.
+- `TULinkRecoveryCleanupPathSpec` passed 12 tests.
+- `TULinkRetireCommandPathSpec` passed 8 tests.
+- `TULinkRenameSpec` passed 10 tests.
+- `TULinkRelationCmapSpec` passed 7 tests.
+- `ROBEntryBankSpec` passed 12 tests.
+- `DispatchROBAllocatorSpec` passed 5 tests.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed the
+  ROBID semantic check, 3 ROBID tests, 10 CommitTrace/Monitor tests, and 5
+  ReducedCommitROB tests.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `git diff --check` passed.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R72 adds a reusable hierarchy rule:
+  the all-selected-PE block-commit fanout belongs inside the explicit
+  `[scalar PE][STID]` SGPR bank-array owner, not in backend glue, and later
+  dynamic PE/STID routing must target that same bank-array boundary.
