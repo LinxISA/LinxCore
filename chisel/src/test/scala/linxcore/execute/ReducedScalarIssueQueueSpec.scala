@@ -13,6 +13,7 @@ class ReducedScalarIssueQueueSpec extends AnyFunSuite {
     assert(io.releaseBid.value.getWidth == p.robIndexWidth)
     assert(io.releaseRid.value.getWidth == p.robIndexWidth)
     assert(io.releaseStid.getWidth == p.threadIdWidth)
+    assert(io.readyMask.getWidth == 64)
     assert(io.readValid.length == 3)
     assert(io.readTags.head.getWidth == 6)
     assert(io.readData.head.getWidth == 64)
@@ -21,6 +22,7 @@ class ReducedScalarIssueQueueSpec extends AnyFunSuite {
     assert(io.count.getWidth == 3)
     assert(io.issuedCount.getWidth == 3)
     assert(io.notIssuedCount.getWidth == 3)
+    assert(io.sourceReadyMask.getWidth == 3)
     assert(io.enqueueDstTag.getWidth == 6)
   }
 
@@ -35,6 +37,7 @@ class ReducedScalarIssueQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_issueFire"))
     assert(sv.contains("io_releaseFire"))
     assert(sv.contains("io_headIssued"))
+    assert(sv.contains("io_sourceReadyMask"))
     assert(sv.contains("io_blockedByIssued"))
     assert(sv.contains("io_blockedBySource"))
     assert(sv.contains("io_blockedByOutput"))

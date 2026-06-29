@@ -59,6 +59,21 @@ issued/not-issued accounting, and `ALUPipe`/`IEX::releaseIQEntry` returning a
 release event after issue.
 R84 closeout: `skill-evolve: update linx-core (issue acceptance marks issued;
 issue-queue removal waits for later model-derived release identity)`.
+R85 started from `linx-isa` commit
+`ecebd8a4fe26761eb6d6cf79ae43cf48cf52be1d`, `rtl/LinxCore` commit
+`b99c0f6a5949fb605d511cc2dc768fd59e2b5903`, `model/LinxCoreModel` commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`, QEMU commit
+`9f96be0c952fb9a047b324b06a480b1c689ba51d`, and `skills/linx-skills` commit
+`14550071b38617fbdb2302489bc180b2b8f9cbf8`. The R85 model evidence is
+`IssueState::Wakeup` mutating resident operand-ready bits,
+`IssueState::Select` selecting only already-ready non-issued entries,
+`ReadyState::checkReady` initializing sources from the ready table, and
+`ALUPipe::WakeupDstTags` publishing physical destination wakeups. R85 keeps
+the reduced FIFO policy but stores per-entry source readiness in the issue
+queue, initialized and updated from the RF ready mask instead of feeding
+same-cycle RF `readReady` directly into issue selection.
+R85 closeout: `skill-evolve: no-update (installed linx-core skill already
+documents wakeup at cycle N must not affect pick until N+1)`.
 
 ## Reference Evidence
 
@@ -74,7 +89,7 @@ The next ROB packet is anchored to these C++ model facts:
 | `model/iex/pipe/alu_pipe.cpp` | `ALUPipe::Work` executes in the ALU pipe and publishes resolve/writeback at W2. |
 | `isa/calculate/arithmetic/Arithmetic.cpp` / `isa/calculate/others/Others.cpp` | Reduced scalar ALU semantics for R81 are `ADD = src0 + src1`, `ADDI = src0 + imm`, and `MOVR/MOVI` move the selected source/immediate into the destination. |
 | `model/bctrl/spe/GPRRename.cpp` / `model/iex/rtable.cpp` / `model/iex/iex_rf.cpp` | R82 scalar RF operand sourcing uses renamed physical tags: architectural GPRs start as identity physical tags, scalar destinations allocate new physical tags, ready/data state is tracked per physical tag, and RF reads return OPD_GREG data by physical tag. |
-| `model/iex/iex_iq.cpp` / `model/iex/iex_dispatch.cpp` / `model/iex/pipe/alu_pipe.cpp` / `model/iex/iex.cpp` | R84 scalar issue handoff stores renamed rows before execute, wakes sources by physical tag, selects only ready rows, marks selected entries issued without removing them, and releases issued rows later by `(bid, rid, stid)`. The reduced Chisel queue preserves enqueue, RF-readiness gating, ROB identity, issued-entry residency, and ALU W2 release while still deferring full age-select, P1/I1/I2 timing, cancel, replay, and bypass. |
+| `model/iex/iex_iq.cpp` / `model/iex/iex_dispatch.cpp` / `model/iex/pipe/alu_pipe.cpp` / `model/iex/iex.cpp` | R85 scalar issue handoff stores renamed rows before execute, initializes and wakes sources by physical tag, selects only entries whose resident source-ready bits are already true, marks selected entries issued without removing them, and releases issued rows later by `(bid, rid, stid)`. The reduced Chisel queue preserves enqueue, registered RF-readiness gating, ROB identity, issued-entry residency, and ALU W2 release while still deferring full age-select, P1/I1/I2 timing, cancel, replay, and bypass. |
 
 The key hardware implication is that the C++ model gets post-allocation rename
 visibility through a shared `SimInst` pointer. Chisel `ROBEntryBank` stores
@@ -151,10 +166,11 @@ The ROB/cross-check substrate remains the required base:
 | 7 | R82 RF-backed scalar ALU source path | `execute/ReducedScalarRegisterFile.scala`, `top/LinxCoreFrontendRfAluTraceTop.scala`, shared frontend ALU xcheck driver, RF module docs | `ReducedScalarRegisterFile`, `ReducedScalarAluExecute`, `LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, R81 ALU regression |
 | 8 | R83 reduced scalar issue-queue handoff | `execute/ReducedScalarIssueQueue.scala`, `top/LinxCoreFrontendRfAluTraceTop.scala`, shared frontend ALU xcheck driver, module docs | `ReducedScalarIssueQueue`, `LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, R81/R82 trace regressions |
 | 9 | R84 model-style issued-entry release | `execute/ReducedScalarIssueQueue.scala`, `execute/ReducedScalarAluExecute.scala`, `top/LinxCoreFrontendRfAluTraceTop.scala`, module docs | `ReducedScalarIssueQueue`, `ReducedScalarAluExecute`, `LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, R81/R82 trace regressions |
-| 10 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay/frontend-top gates |
-| 11 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
-| 12 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 13 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 10 | R85 registered issue source readiness | `execute/ReducedScalarIssueQueue.scala`, `top/LinxCoreFrontendRfAluTraceTop.scala`, RF/issue/top module docs | `ReducedScalarIssueQueue`, `ReducedScalarAluExecute`, `LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, R81/R82 trace regressions |
+| 11 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay/frontend-top gates |
+| 12 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
+| 13 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 14 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
@@ -185,8 +201,9 @@ Use this ladder for every promoted packet:
    changes to scalar ALU execute completion, completion-row payload wiring, or
    the frontend ALU trace-top driver.
 10. `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh` after
-   changes to scalar RF operand sourcing, issue-queue source readiness,
-   physical writeback metadata, or the shared frontend ALU trace-top driver.
+   changes to scalar RF operand sourcing, registered issue-queue source
+   readiness, physical writeback metadata, or the shared frontend ALU trace-top
+   driver.
 11. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
 12. Full QEMU-vs-DUT comparison only after the Chisel top emits real

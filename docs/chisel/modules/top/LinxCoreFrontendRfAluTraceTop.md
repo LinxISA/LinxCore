@@ -38,6 +38,10 @@ output no longer feeds execute directly: rows enqueue into
 ready. Issued rows remain resident in the queue until `ReducedScalarAluExecute`
 reaches W2 and returns the row's release identity.
 
+R85 routes the RF ready mask into the issue queue so source readiness is
+registered per resident entry instead of using same-cycle RF `readReady` to
+pick a row.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -62,6 +66,7 @@ reaches W2 and returns the row's release identity.
 | output | `issueQueueEnqueueFire`, `issueQueueIssueFire`, `issueQueueReleaseFire` | `Bool` | pulse | Reduced issue queue admission, execute-issue, and release events. |
 | output | `issueQueueCount`, `issueQueueIssuedCount`, `issueQueueNotIssuedCount` | mixed | diagnostic | Reduced issue queue resident, in-flight, and selectable occupancy. |
 | output | `issueQueueHeadValid`, `issueQueueHeadIssued` | mixed | diagnostic | Reduced issue queue head-valid and head-issued state. |
+| output | `issueQueueSourceReadyMask` | `UInt(3.W)` | diagnostic | Registered source-ready bits for the current issue-queue head. |
 | output | `issueQueueAllSourcesReady` | `Bool` | diagnostic | Queue-head source readiness after invalid-lane masking. |
 | output | `issueQueueBlockedBySource`, `issueQueueBlockedByOutput`, `issueQueueBlockedByIssued` | `Bool` | diagnostic | Queue-head blocked by RF readiness, execute backpressure, or waiting for W2 release. |
 | output | `robAllocFire`, `robRenameUpdateFire` | `Bool` | pulse | BROB/ROB reservation and post-rename row update pulses. |
@@ -87,8 +92,10 @@ The wrapper owns no state directly. State lives in child owners:
 `ReducedScalarIssueQueue`. The issue queue owns the readiness boundary:
 `path.io.renamedOutReady` is driven by queue capacity, while the queue head
 drives `ReducedScalarRegisterFile.readValid/readTags` and consumes
-`readReady/readData`. Invalid source lanes are treated as ready inside the
-queue.
+`readData` for operand capture. The RF `readyMask` feeds the queue's
+registered resident source-ready bits; `readReady` remains diagnostic
+continuity for the current head. Invalid source lanes are treated as ready
+inside the queue.
 
 When a row enqueues with a scalar destination, the top clears the destination
 physical tag readiness in the RF through `issue.enqueueDst*`. When the queue
@@ -101,7 +108,8 @@ entry can be removed and younger FIFO rows can become the head.
 
 This removes the R82 accepted-output readiness loop. `rfAllReadReady` remains a
 top diagnostic, but readiness that affects execution now flows from the RF into
-the issue queue head rather than back into rename acceptance.
+the issue queue's registered resident source-ready state rather than back into
+rename acceptance.
 
 ## Model Alignment
 
@@ -117,15 +125,17 @@ The RF-backed top mirrors this reduced ordering:
 1. preload identity physical tags for architectural fixture inputs;
 2. decode/rename maps sources and allocates a physical destination;
 3. the renamed row enters a reduced issue queue;
-4. the issue queue reads RF readiness/data for the head physical source tags;
-5. execute captures source data only after valid head sources are ready;
-6. execute W2 releases the issued queue entry by `(bid, rid, stid)`;
-7. execute completion updates ROB commit payload and writes the destination RF
+4. the issue queue samples the RF ready mask into resident source-ready bits;
+5. the issue queue reads RF data for the head physical source tags;
+6. execute captures source data only after valid head sources are ready in the
+   registered source-ready state;
+7. execute W2 releases the issued queue entry by `(bid, rid, stid)`;
+8. execute completion updates ROB commit payload and writes the destination RF
    tag;
-8. later rows can source the just-written physical tag through the speculative
+9. later rows can source the just-written physical tag through the speculative
    rename map.
 
-The R83 Verilator fixture proves this with dependent rows:
+The current RF-backed Verilator fixture proves this with dependent rows:
 
 | Row | Expected data source |
 |---|---|
@@ -138,8 +148,9 @@ The R83 Verilator fixture proves this with dependent rows:
 The top remains serialized and single-issue. Frontend packets can enqueue
 renamed rows ahead of execute. The reduced issue queue only considers its head
 for RF readiness and issue. After the head issues, younger rows wait until the
-ALU W2 release compacts the queue. The ALU completes from W2, and the ROB
-commit head emits the monitored row after completion.
+ALU W2 release compacts the queue. RF ready-table updates become issue-visible
+after the issue queue samples them on a clock edge. The ALU completes from W2,
+and the ROB commit head emits the monitored row after completion.
 
 ## Flush/Recovery
 

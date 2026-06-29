@@ -22,6 +22,7 @@ class ReducedScalarIssueQueueIO(
   val releaseRid = Input(new ROBID(p.robEntries))
   val releaseStid = Input(UInt(p.threadIdWidth.W))
 
+  val readyMask = Input(UInt((1 << p.physRegWidth).W))
   val readValid = Output(Vec(3, Bool()))
   val readTags = Output(Vec(3, UInt(p.physRegWidth.W)))
   val readReady = Input(Vec(3, Bool()))
@@ -45,6 +46,7 @@ class ReducedScalarIssueQueueIO(
   val notIssuedCount = Output(UInt(countWidth.W))
   val headValid = Output(Bool())
   val headIssued = Output(Bool())
+  val sourceReadyMask = Output(UInt(3.W))
   val allSourcesReady = Output(Bool())
   val blockedBySource = Output(Bool())
   val blockedByOutput = Output(Bool())
@@ -68,11 +70,15 @@ class ReducedScalarIssueQueue(
   val entries = RegInit(VecInit(Seq.fill(depth)(0.U.asTypeOf(new RenamedUop(p)))))
   val valid = RegInit(VecInit(Seq.fill(depth)(false.B)))
   val issued = RegInit(VecInit(Seq.fill(depth)(false.B)))
+  val srcReady = RegInit(VecInit(Seq.fill(depth)(VecInit(Seq.fill(3)(false.B)))))
   val count = RegInit(0.U(countWidth.W))
 
   val headValid = count =/= 0.U
   val headIssued = headValid && issued(0)
   val headUop = entries(0)
+
+  private def laneReadyFromMask(uop: RenamedUop, lane: Int): Bool =
+    !uop.src(lane).valid || io.readyMask(uop.src(lane).physTag)
 
   val rawReleaseMatches = Wire(Vec(depth, Bool()))
   val releaseMatches = Wire(Vec(depth, Bool()))
@@ -89,7 +95,7 @@ class ReducedScalarIssueQueue(
 
   val sourceReady = Wire(Vec(3, Bool()))
   for (idx <- 0 until 3) {
-    sourceReady(idx) := !headValid || headIssued || !headUop.src(idx).valid || io.readReady(idx)
+    sourceReady(idx) := !headValid || headIssued || srcReady(0)(idx)
   }
   val allSourcesReady = sourceReady.reduce(_ && _)
   val issueValid = headValid && !headIssued && allSourcesReady
@@ -120,6 +126,7 @@ class ReducedScalarIssueQueue(
   io.notIssuedCount := notIssuedCount
   io.headValid := headValid
   io.headIssued := headIssued
+  io.sourceReadyMask := sourceReady.asUInt
   io.allSourcesReady := allSourcesReady
   io.blockedBySource := headValid && !headIssued && !allSourcesReady
   io.blockedByOutput := issueValid && !io.issueReady
@@ -128,6 +135,14 @@ class ReducedScalarIssueQueue(
   val preIssued = Wire(Vec(depth, Bool()))
   for (idx <- 0 until depth) {
     preIssued(idx) := issued(idx) || (if (idx == 0) issueFire else false.B)
+  }
+
+  val preSrcReady = Wire(Vec(depth, Vec(3, Bool())))
+  for (entryIdx <- 0 until depth) {
+    for (lane <- 0 until 3) {
+      preSrcReady(entryIdx)(lane) :=
+        srcReady(entryIdx)(lane) || (valid(entryIdx) && laneReadyFromMask(entries(entryIdx), lane))
+    }
   }
 
   val keep = Wire(Vec(depth, Bool()))
@@ -139,10 +154,12 @@ class ReducedScalarIssueQueue(
   val nextEntries = Wire(Vec(depth, new RenamedUop(p)))
   val nextValid = Wire(Vec(depth, Bool()))
   val nextIssued = Wire(Vec(depth, Bool()))
+  val nextSrcReady = Wire(Vec(depth, Vec(3, Bool())))
   for (dst <- 0 until depth) {
     nextEntries(dst) := 0.U.asTypeOf(new RenamedUop(p))
     nextValid(dst) := false.B
     nextIssued(dst) := false.B
+    nextSrcReady(dst) := VecInit(Seq.fill(3)(false.B))
 
     for (src <- 0 until depth) {
       val keptBefore =
@@ -151,6 +168,7 @@ class ReducedScalarIssueQueue(
         nextEntries(dst) := entries(src)
         nextValid(dst) := true.B
         nextIssued(dst) := preIssued(src)
+        nextSrcReady(dst) := preSrcReady(src)
       }
     }
 
@@ -158,6 +176,7 @@ class ReducedScalarIssueQueue(
       nextEntries(dst) := io.in
       nextValid(dst) := true.B
       nextIssued(dst) := false.B
+      nextSrcReady(dst) := VecInit((0 until 3).map(lane => laneReadyFromMask(io.in, lane)))
     }
   }
 
@@ -165,12 +184,14 @@ class ReducedScalarIssueQueue(
     for (idx <- 0 until depth) {
       valid(idx) := false.B
       issued(idx) := false.B
+      srcReady(idx) := VecInit(Seq.fill(3)(false.B))
     }
     count := 0.U
   }.otherwise {
     entries := nextEntries
     valid := nextValid
     issued := nextIssued
+    srcReady := nextSrcReady
     count := baseCount + enqueueFire.asUInt
   }
 }

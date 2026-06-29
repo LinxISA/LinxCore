@@ -23,6 +23,7 @@ class LinxCoreFrontendRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.issueQueueCount.getWidth == 3)
     assert(io.issueQueueIssuedCount.getWidth == 3)
     assert(io.issueQueueNotIssuedCount.getWidth == 3)
+    assert(io.issueQueueSourceReadyMask.getWidth == 3)
     assert(io.executeCompleteRobValue.getWidth == 3)
     assert(io.commit.rows.length == 2)
   }
@@ -45,6 +46,7 @@ class LinxCoreFrontendRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_issueQueueEnqueueFire"))
     assert(sv.contains("io_issueQueueReleaseFire"))
     assert(sv.contains("io_issueQueueHeadIssued"))
+    assert(sv.contains("io_issueQueueSourceReadyMask"))
     assert(sv.contains("io_issueQueueBlockedBySource"))
     assert(sv.contains("io_issueQueueBlockedByIssued"))
     assert(sv.contains("io_executeCompleteValid"))
