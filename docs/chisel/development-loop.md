@@ -129,6 +129,17 @@ through the existing release identity path. R88 makes `ReducedScalarIssuePick`
 stateful: P1 locks a queue row, I1 drives RF read and cancels the lock on read
 readiness failure, and I2 presents the captured row/data to execute while
 queue deallocation remains ALU-release driven.
+R89 started from `linx-isa` commit
+`3bf69fae1a0cde8902bd06bef8dc693f56155dd2`, `rtl/LinxCore` commit
+`03a6944dd8bc3a7f43dda37e69a8c3dfbfb9b374`, `model/LinxCoreModel` commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`, QEMU commit
+`f17c551aaef51a784a99d5cccc69cf65ff2a7b32`, and `skills/linx-skills` commit
+`14550071b38617fbdb2302489bc180b2b8f9cbf8`. The R89 packet is an
+infrastructure packet: `run_chisel_qemu_crosscheck.sh` now emits
+`crosscheck_manifest.json` after every non-dry-run comparison, preserving the
+comparator exit status while tying raw traces, normalized traces, reports,
+QEMU binary selection, row counts, first mismatch, CBSTOP summary, and
+LinxCore/superproject git context into one evidence bundle.
 
 ## Reference Evidence
 
@@ -231,9 +242,10 @@ The ROB/cross-check substrate remains the required base:
 | 12 | R87 reduced issue-pick read-confirm owner | `execute/ReducedScalarIssuePick.scala`, `execute/ReducedScalarIssueQueue.scala`, `top/LinxCoreFrontendRfAluTraceTop.scala`, issue/top module docs | `ReducedScalarIssuePick`, `ReducedScalarIssueQueue`, `ReducedScalarAluExecute`, `LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, R81/R82 trace regressions |
 | 13 | R88 reduced P1/I1/I2 issue timing | `execute/ReducedScalarIssuePick.scala`, `execute/ReducedScalarIssueQueue.scala`, `top/LinxCoreFrontendRfAluTraceTop.scala`, issue/top module docs | `ReducedScalarIssuePick`, `ReducedScalarIssueQueue`, `LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, R81/R82 trace regressions |
 | 14 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay/frontend-top gates |
-| 15 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
-| 16 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 17 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 15 | R89 QEMU cross-check manifest evidence | `tools/chisel/run_chisel_qemu_crosscheck.sh`, cross-check docs | dry-run, RF/ALU xcheck, ALU xcheck, trace self-test, diff check |
+| 16 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 17 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 18 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
@@ -269,9 +281,11 @@ Use this ladder for every promoted packet:
    physical writeback metadata, or the shared frontend ALU trace-top driver.
 11. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
-12. Full QEMU-vs-DUT comparison only after the Chisel top emits real
+12. Inspect `<report-dir>/crosscheck_manifest.json` after any non-dry-run
+   generated-RTL or QEMU comparison that routes through the common wrapper.
+13. Full QEMU-vs-DUT comparison only after the Chisel top emits real
    architectural commit rows.
-13. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
+14. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
 
 ## Project Maintenance
 
@@ -308,6 +322,7 @@ Update skills for:
 
 - a new cross-module ROB/BROB/flush/trace invariant,
 - a new required gate or command,
+- a new required cross-check evidence artifact such as the QEMU/DUT manifest,
 - a recurring QEMU/model/Chisel first-divergence workflow,
 - a superproject or skills-submodule maintenance rule future agents must obey.
 - a ready/valid rule where physical source readiness must gate issue from a

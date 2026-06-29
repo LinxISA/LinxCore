@@ -18,6 +18,7 @@ The LinxCore Chisel lane uses explicit targets:
 | `top-xcheck` | `tools/chisel/run_chisel_top_xcheck.sh` | Emit the reduced `LinxCoreTop` xcheck configuration, build the same Verilator harness against top-level IO, assert monitor outputs, and compare normalized DUT rows against QEMU-shaped reference rows. |
 | `frontend-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendAluTraceTop`, build the Verilator harness, drive frontend packets through reduced scalar ALU execute, and compare nonzero writeback rows against QEMU-shaped reference rows. |
 | `frontend-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendRfAluTraceTop`, build the shared Verilator harness in RF mode, preload identity scalar registers, enqueue dependent scalar ALU rows through the reduced issue queue, and compare RF-sourced writeback rows against QEMU-shaped reference rows. |
+| `qemu-crosscheck` | `tools/chisel/run_chisel_qemu_crosscheck.sh` | Normalize QEMU and DUT commit JSONL, run the neutral comparator, and emit `crosscheck_manifest.json` tying raw traces, normalized traces, reports, QEMU binary, row counts, and git context into one evidence bundle. |
 
 The target shape follows the useful part of the OpenXiangShan flow: make Chisel
 generation, simulation/emulator construction, and architectural cross-checking
@@ -39,6 +40,11 @@ The top xcheck intentionally emits an 8-entry, two-wide `LinxCoreTop`
 configuration into `generated/chisel-verilog/top-xcheck` so it can reuse the
 same bounded three-row smoke as the reduced ROB harness while the default top
 configuration remains `CoreParams()`.
+Generated-RTL comparison wrappers that call `run_chisel_qemu_crosscheck.sh`
+write `crosscheck_manifest.json` in their report directory. Treat that manifest
+as the handoff artifact for later QEMU/CoreMark promotion: it should name the
+raw traces, normalized traces, comparator reports, selected QEMU binary, row
+counts, and the LinxCore/superproject revisions used by the run.
 
 ## Version Decision
 

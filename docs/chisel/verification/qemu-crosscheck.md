@@ -20,6 +20,24 @@ details into the comparator itself.
 - `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `tools/trace/crosscheck_qemu_linxcore.py`
 
+## Evidence Manifest
+
+For non-dry-run comparisons, `run_chisel_qemu_crosscheck.sh` now writes
+`crosscheck_manifest.json` next to the comparator reports. The manifest schema
+is `linxcore.chisel.crosscheck_manifest.v1` and records:
+
+- selected QEMU binary,
+- raw QEMU and DUT trace paths,
+- normalized QEMU and DUT trace paths,
+- comparator report paths,
+- row counts, mismatch count, first mismatch, and CBSTOP inflation summary,
+- `rtl/LinxCore` and superproject `HEAD` plus dirty flags.
+
+The wrapper preserves the comparator exit status after writing the manifest.
+On a mismatch, the manifest is still emitted with `status: "fail"` so agents
+can archive the complete evidence bundle before debugging the first
+divergence.
+
 ## Normalized Fields
 
 The adapter emits the mandatory commit fields currently required by the
@@ -84,12 +102,26 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh \
   --max-commits 1000
 ```
 
+Expected report outputs:
+
+```text
+<report-dir>/qemu.normalized.jsonl
+<report-dir>/dut.normalized.jsonl
+<report-dir>/crosscheck_report.json
+<report-dir>/crosscheck_report.md
+<report-dir>/crosscheck_mismatches.json
+<report-dir>/crosscheck_manifest.json
+```
+
 ## Current Status
 
 The adapter, wrapper, typed Chisel commit-row bundles, reduced ROB Verilator
 smoke, reduced top Verilator smoke, top trace replay smoke,
 frontend-window trace-top Verilator lint, frontend-window trace-top Verilator
-xcheck, and frontend-window ALU trace-top Verilator xcheck are ready.
+xcheck, frontend-window ALU trace-top Verilator xcheck, and RF-backed ALU
+trace-top Verilator xcheck are ready. The common wrapper emits a
+machine-readable `crosscheck_manifest.json` for generated-RTL comparisons and
+future full QEMU-vs-DUT windows.
 `run_chisel_reduced_rob_xcheck.sh` and `run_chisel_top_xcheck.sh` currently
 compare three Verilator-produced rows with zero mismatches.
 `run_chisel_trace_replay_xcheck.sh` proves that a normalized external commit
@@ -107,6 +139,7 @@ mismatches. `run_chisel_frontend_rf_alu_trace_top_xcheck.sh` drives dependent
 scalar rows through `LinxCoreFrontendRfAluTraceTop`, preloads only identity RF
 registers, enqueues rows through the reduced issue queue before draining
 commits, reads later sources from Chisel physical RF writeback state, and
-compares three rows with zero mismatches. Full-core QEMU comparison remains
-blocked until the Chisel top emits live architectural commit rows from real
-fetch, full issue, LSU, and recovery paths.
+compares three rows with zero mismatches. Its report directory now includes a
+manifest with `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
+Full-core QEMU comparison remains blocked until the Chisel top emits live
+architectural commit rows from real fetch, full issue, LSU, and recovery paths.

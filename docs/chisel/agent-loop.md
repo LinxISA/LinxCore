@@ -292,6 +292,18 @@ later scalar ALU IQ release path. R88 makes `ReducedScalarIssuePick` stateful:
 P1 `pickFire` locks a queue row, I1 drives RF reads and can `cancelFire` the
 lock, and I2 drives execute valid while queue deallocation remains tied to the
 ALU release identity.
+R89 started from `rtl/LinxCore` commit
+`03a6944dd8bc3a7f43dda37e69a8c3dfbfb9b374` after R88 landed reduced P1/I1/I2
+issue timing. The superproject root was
+`3bf69fae1a0cde8902bd06bef8dc693f56155dd2`; LinxCoreModel remained at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; QEMU was at
+`f17c551aaef51a784a99d5cccc69cf65ff2a7b32`; `skills/linx-skills` was at
+`14550071b38617fbdb2302489bc180b2b8f9cbf8`. R89 is cross-check
+infrastructure: `run_chisel_qemu_crosscheck.sh` now emits
+`crosscheck_manifest.json` after non-dry-run comparisons so future agents can
+archive one evidence bundle naming the selected QEMU binary, raw traces,
+normalized traces, reports, row counts, first mismatch, CBSTOP summary, and
+git context.
 
 ## Non-Negotiable Rules
 
@@ -306,6 +318,9 @@ ALU release identity.
   closed.
 - QEMU path selection is explicit: `QEMU=...`, then
   `emulator/qemu/build-linx/qemu-system-linx64`, then the legacy build path.
+- Non-dry-run QEMU/DUT comparisons that route through
+  `run_chisel_qemu_crosscheck.sh` must leave a `crosscheck_manifest.json`
+  evidence bundle in the report directory.
 - Direct `gfsim -f <elf>` model comparison runs only after the same ELF passed
   QEMU in the same run packet.
 - Every closeout records `skill-evolve: update ...` or
@@ -469,6 +484,7 @@ These packets remain the required base before broad module promotion:
 | R86 | Oldest-ready reduced issue selection | `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R87 | Reduced issue-pick read-confirm owner | `run_chisel_tests.sh --only ReducedScalarIssuePick`, `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R88 | Reduced P1/I1/I2 issue timing | `run_chisel_tests.sh --only ReducedScalarIssuePick`, `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R89 | QEMU cross-check manifest evidence | `run_chisel_qemu_crosscheck.sh --dry-run`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, inspect each `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -498,9 +514,11 @@ Use this order for each promoted slice:
    trace-top driver.
 10. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
-11. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
+11. Inspect `crosscheck_manifest.json` after any non-dry-run generated-RTL or
+   full QEMU comparison routed through the common wrapper.
+12. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
    commit rows for the slice.
-12. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
+13. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
    QEMU in the same run packet.
 
 ## LinxCoreModel Maintenance Loop
@@ -535,6 +553,7 @@ Update skills only for:
 
 - a new cross-module LinxCore invariant,
 - a new required gate or reproducibility command,
+- a new required cross-check evidence artifact such as the QEMU/DUT manifest,
 - a recurring QEMU/model/chisel first-divergence workflow,
 - a superproject gitlink or lane-ordering rule needed by later agents.
 - a ready/valid rule that prevents one owner from feeding another owner's

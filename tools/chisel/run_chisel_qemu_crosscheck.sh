@@ -84,15 +84,139 @@ fi
 
 NORM_QEMU="${REPORT_DIR}/qemu.normalized.jsonl"
 NORM_DUT="${REPORT_DIR}/dut.normalized.jsonl"
+REPORT_JSON="${REPORT_DIR}/crosscheck_report.json"
+REPORT_MD="${REPORT_DIR}/crosscheck_report.md"
+MISMATCH_JSON="${REPORT_DIR}/crosscheck_mismatches.json"
+MANIFEST_JSON="${REPORT_DIR}/crosscheck_manifest.json"
 
 python3 "${ROOT_DIR}/tools/chisel/trace_schema_adapter.py" \
   --input "${QEMU_TRACE}" --output "${NORM_QEMU}" --max-rows "${MAX_COMMITS}"
 python3 "${ROOT_DIR}/tools/chisel/trace_schema_adapter.py" \
   --input "${DUT_TRACE}" --output "${NORM_DUT}" --max-rows "${MAX_COMMITS}"
 
+COMPARATOR_STATUS=0
 python3 "${ROOT_DIR}/tools/trace/crosscheck_qemu_linxcore.py" \
   --qemu-trace "${NORM_QEMU}" \
   --dut-trace "${NORM_DUT}" \
   --max-commits "${MAX_COMMITS}" \
   --mode "${MODE}" \
-  --report-dir "${REPORT_DIR}"
+  --report-dir "${REPORT_DIR}" || COMPARATOR_STATUS=$?
+
+python3 - \
+  "${MANIFEST_JSON}" \
+  "${REPORT_JSON}" \
+  "${MISMATCH_JSON}" \
+  "${REPORT_MD}" \
+  "${QEMU_TRACE}" \
+  "${DUT_TRACE}" \
+  "${NORM_QEMU}" \
+  "${NORM_DUT}" \
+  "${QEMU_BIN}" \
+  "${MAX_COMMITS}" \
+  "${MODE}" \
+  "${COMPARATOR_STATUS}" \
+  "${ROOT_DIR}" \
+  "${LINX_ROOT}" <<'PY'
+import json
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+(
+    manifest_path,
+    report_json,
+    mismatch_json,
+    report_md,
+    qemu_trace,
+    dut_trace,
+    norm_qemu,
+    norm_dut,
+    qemu_bin,
+    max_commits,
+    mode,
+    comparator_status,
+    root_dir,
+    linx_root,
+) = sys.argv[1:]
+
+
+def git_rev(path: str) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "-C", path, "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def git_dirty(path: str) -> bool:
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", path, "status", "--short"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        return bool(out.strip())
+    except subprocess.CalledProcessError:
+        return False
+
+
+def read_json(path: str, default):
+    p = Path(path)
+    if not p.is_file():
+        return default
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+report = read_json(report_json, {})
+manifest = {
+    "schema": "linxcore.chisel.crosscheck_manifest.v1",
+    "generated_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    "mode": mode,
+    "max_commits": int(max_commits),
+    "status": "pass" if int(comparator_status) == 0 and report.get("mismatch_count", 0) == 0 else "fail",
+    "comparator_status": int(comparator_status),
+    "qemu_bin": qemu_bin,
+    "inputs": {
+        "qemu_trace": qemu_trace,
+        "dut_trace": dut_trace,
+    },
+    "normalized": {
+        "qemu_trace": norm_qemu,
+        "dut_trace": norm_dut,
+    },
+    "reports": {
+        "json": report_json,
+        "markdown": report_md,
+        "mismatches": mismatch_json,
+        "manifest": manifest_path,
+    },
+    "summary": {
+        "qemu_rows": report.get("qemu_rows", 0),
+        "dut_rows": report.get("dut_rows", 0),
+        "compared_rows": report.get("compared_rows", 0),
+        "mismatch_count": report.get("mismatch_count", 0),
+        "first_mismatch": report.get("first_mismatch"),
+        "cbstop_counts": report.get("cbstop_counts", {}),
+    },
+    "git": {
+        "linxcore": {
+            "path": root_dir,
+            "head": git_rev(root_dir),
+            "dirty": git_dirty(root_dir),
+        },
+        "superproject": {
+            "path": linx_root,
+            "head": git_rev(linx_root),
+            "dirty": git_dirty(linx_root),
+        },
+    },
+}
+Path(manifest_path).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+print(f"manifest_json={manifest_path}")
+PY
+
+exit "${COMPARATOR_STATUS}"
