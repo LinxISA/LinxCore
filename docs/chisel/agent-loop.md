@@ -344,6 +344,7 @@ These packets remain the required base before broad module promotion:
 | R76 | Enqueue-time ROB/BROB reservation with post-rename sidecar update | `sbt "testOnly linxcore.rob.ROBEntryBankSpec linxcore.backend.DispatchROBAllocatorSpec linxcore.backend.DecodeRenameROBPathSpec"`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R77 | R76 gate broadening and top trace/xcheck prep | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_reduced_rob_xcheck.sh`, `run_chisel_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R78 | Top trace replay xcheck harness | `run_chisel_trace_replay_xcheck.sh`, `run_chisel_top_xcheck.sh`, `run_chisel_reduced_rob_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
+| R79 | Frontend-window trace top boundary | `run_chisel_tests.sh --only LinxCoreFrontendTraceTop`, `run_chisel_frontend_trace_top_lint.sh`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -359,11 +360,13 @@ Use this order for each promoted slice:
 4. `trace_schema_adapter.py --self-test` if commit or trace schema changed.
 5. `run_chisel_trace_replay_xcheck.sh` after top-level commit export, adapter,
    or cross-check harness changes.
-6. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
+6. `run_chisel_frontend_trace_top_lint.sh` after changes to the
+   frontend-window-to-commit top boundary.
+7. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
-7. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
+8. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
    commit rows for the slice.
-8. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
+9. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
    QEMU in the same run packet.
 
 ## LinxCoreModel Maintenance Loop
@@ -480,18 +483,22 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Live commit trace schema: replace replayed rows with a top-owned
-   `LC-IF-CHISEL-XCHK-*` event stream covering commit, trap, memory, recovery,
-   and block sidebands.
-2. QEMU full-compare harness: feed a bounded direct-boot or CoreMark window
+1. Frontend-window Verilator smoke harness: drive `LinxCoreFrontendTraceTop`
+   with bounded raw instruction windows, use `selectedRobValue` as the
+   temporary completion surrogate, dump its commit rows, and compare the
+   resulting JSONL against a matching reference window.
+2. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
+   event stream from commit-only rows toward trap, memory, recovery, and block
+   sidebands.
+3. QEMU full-compare harness: feed a bounded direct-boot or CoreMark window
    from QEMU into the same comparator path, then make the Chisel DUT stream
    live once frontend/decode/execute/LSU can retire it.
-3. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+4. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
-4. Multi-PE packet production and bank instantiation: teach the upstream
+5. Multi-PE packet production and bank instantiation: teach the upstream
    frontend/top owner to set nonzero `FrontendDecodePacket.peId` and instantiate
    matching `ScalarTURenameBridge`/`TULinkLocalBankArray` PE banks.
-5. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

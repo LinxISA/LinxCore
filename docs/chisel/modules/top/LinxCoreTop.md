@@ -17,6 +17,10 @@ system. It instantiates the monitored `ReducedCommitROB` so the standard top
 emit/lint path carries real ROB/commit structure instead of a constant idle
 stub.
 
+`LinxCoreFrontendTraceTop` is the separate next bring-up top for raw frontend
+window to commit-row flow. Keep this reduced replay top stable for existing
+xchecks while that newer wrapper grows toward live Verilator execution.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -93,6 +97,7 @@ those rows from an ELF.
 - `bash tools/chisel/run_chisel_verilator_lint.sh`
 - `bash tools/chisel/run_chisel_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_trace_replay_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_trace_top_lint.sh`
 - `bash tools/chisel/build_chisel.sh`
 
 Current tests cover parameter derivation from `CoreParams`, top-level

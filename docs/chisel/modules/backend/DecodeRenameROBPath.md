@@ -417,6 +417,9 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - Ready-table initialization, issue enqueue, execution completion, and full
   commit side effects.
 - Full QEMU-vs-DUT compare with live architectural commit rows.
+- A Verilator driver for `LinxCoreFrontendTraceTop`; the wrapper now emits a
+  raw frontend-window to commit-row top boundary, but the next harness must
+  still drive windows, completion surrogates, and JSONL dumping.
 
 ## Verification
 
@@ -443,6 +446,8 @@ bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ
 bash tools/chisel/run_chisel_tests.sh --only GPRRenameCheckpoint
+bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendTraceTop
+bash tools/chisel/run_chisel_frontend_trace_top_lint.sh
 bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
 bash tools/chisel/run_chisel_top_xcheck.sh
 bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run

@@ -14,6 +14,7 @@ details into the comparator itself.
 - `tools/chisel/run_chisel_reduced_rob_xcheck.sh`
 - `tools/chisel/run_chisel_top_xcheck.sh`
 - `tools/chisel/run_chisel_trace_replay_xcheck.sh`
+- `tools/chisel/run_chisel_frontend_trace_top_lint.sh`
 - `tools/trace/crosscheck_qemu_linxcore.py`
 
 ## Normalized Fields
@@ -56,6 +57,7 @@ python3 tools/chisel/trace_schema_adapter.py --self-test
 bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
 bash tools/chisel/run_chisel_top_xcheck.sh
 bash tools/chisel/run_chisel_trace_replay_xcheck.sh
+bash tools/chisel/run_chisel_frontend_trace_top_lint.sh
 ```
 
 `run_chisel_trace_replay_xcheck.sh` is the bridge between synthetic reduced
@@ -79,7 +81,8 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh \
 ## Current Status
 
 The adapter, wrapper, typed Chisel commit-row bundles, reduced ROB Verilator
-smoke, reduced top Verilator smoke, and top trace replay smoke are ready.
+smoke, reduced top Verilator smoke, top trace replay smoke, and
+frontend-window trace-top Verilator lint are ready.
 `run_chisel_reduced_rob_xcheck.sh` and `run_chisel_top_xcheck.sh` currently
 compare three Verilator-produced rows with zero mismatches.
 `run_chisel_trace_replay_xcheck.sh` proves that a normalized external commit
@@ -87,3 +90,7 @@ row stream can drive the top-level commit observation surface and pass the same
 comparator. Full-core QEMU comparison remains blocked until the Chisel top
 emits live architectural commit rows from real frontend/decode/execute/LSU
 paths.
+`LinxCoreFrontendTraceTop` is the next emitted top boundary: it drives raw
+frontend windows through F4 decode and `DecodeRenameROBPath`, but still needs a
+Verilator driver and temporary completion surrogate before it can produce DUT
+JSONL for full comparison.

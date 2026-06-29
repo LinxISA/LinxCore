@@ -112,10 +112,11 @@ The ROB/cross-check substrate remains the required base:
 | 1 | R76 implemented baseline: enqueue-time ROB reservation plus post-rename sidecar update | `DecodeRenameROBPath.scala`, `DispatchROBAllocator.scala`, `ROBEntryBank.scala`, module docs | `DecodeRenameROBPath`, `DispatchROBAllocator`, `ROBEntryBank`, `DecodeRenameQueue`, `run_chisel_rob_bookkeeping.sh --reduced-rob` |
 | 2 | R77 gate broadening and top trace prep | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py`, wrapper docs | top xcheck, Verilator lint, `build_chisel.sh`, trace self-test, QEMU dry-run |
 | 3 | R78 trace replay xcheck harness | `tools/chisel/reduced_rob_trace_tb.cpp`, `tools/chisel/run_chisel_trace_replay_xcheck.sh`, wrapper docs | `run_chisel_trace_replay_xcheck.sh`, top xcheck, trace self-test, QEMU dry-run |
-| 4 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay xcheck |
-| 5 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
-| 6 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 7 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 4 | R79 frontend-window trace top | `top/LinxCoreFrontendTraceTop.scala`, `F4DecodeWindow.scala`, `DecodeRenameROBPath.scala`, top docs | `LinxCoreFrontendTraceTop`, frontend trace top Verilator lint, `DecodeRenameROBPath`, trace self-test, QEMU dry-run |
+| 5 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay/frontend-top gates |
+| 6 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, then full compare on a bounded direct-boot smoke |
+| 7 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 8 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
@@ -138,11 +139,13 @@ Use this ladder for every promoted packet:
    monitor changes.
 6. `bash tools/chisel/run_chisel_trace_replay_xcheck.sh` for any top-level
    commit export, adapter, or cross-check harness changes.
-7. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
+7. `bash tools/chisel/run_chisel_frontend_trace_top_lint.sh` for any
+   frontend-window-to-commit top boundary changes.
+8. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
-8. Full QEMU-vs-DUT comparison only after the Chisel top emits real
+9. Full QEMU-vs-DUT comparison only after the Chisel top emits real
    architectural commit rows.
-9. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
+10. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
 
 ## Project Maintenance
 
