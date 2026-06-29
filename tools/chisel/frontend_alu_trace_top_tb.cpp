@@ -421,16 +421,26 @@ std::uint8_t enqueue_and_accept_execute(
       std::cerr << "frontend RF ALU trace top reported RF state error while waiting for execute\n";
       std::exit(1);
     }
-#endif
+    if (dut.io_issueQueueEnqueueFire && dut.io_robRenameUpdateFire) {
+      tick(dut);
+      return rob_value;
+    }
+#else
     if (dut.io_executeAccepted && dut.io_robRenameUpdateFire) {
       tick(dut);
       return rob_value;
     }
+#endif
     tick(dut);
   }
 
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+  std::cerr << "frontend row did not enqueue into the reduced issue queue"
+            << " pc=0x" << std::hex << row.pc << std::dec << "\n";
+#else
   std::cerr << "frontend row did not reach ALU execute"
             << " pc=0x" << std::hex << row.pc << std::dec << "\n";
+#endif
   std::exit(1);
 }
 
@@ -490,10 +500,28 @@ void commit_expected_row(
     Dut &dut,
     const ExpectedRow &expected,
     std::ofstream &dut_out,
-    std::ofstream &qemu_out) {
-  for (int cycle = 0; cycle < 8; ++cycle) {
+    std::ofstream &qemu_out,
+    bool drain_after_commit = true) {
+  for (int cycle = 0; cycle < 32; ++cycle) {
     clear_inputs(dut);
     dut.eval();
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+    if (dut.io_rfStateError) {
+      std::cerr << "frontend RF ALU trace top reported RF state error while waiting for commit\n";
+      std::exit(1);
+    }
+#endif
+    if (dut.io_executeUnsupported) {
+      std::cerr << "execute reported unsupported opcode="
+                << static_cast<unsigned>(dut.io_executeUnsupportedOpcode) << "\n";
+      std::exit(1);
+    }
+    if (dut.io_executeCompleteValid && dut.io_completeIgnored) {
+      std::cerr << "execute completion was ignored while waiting for commit"
+                << " rob=" << static_cast<unsigned>(dut.io_executeCompleteRobValue)
+                << "\n";
+      std::exit(1);
+    }
     if (dut.io_commit_rows_0_valid) {
       const ObservedRow slot0 = read_slot0(dut);
       expect_monitor_clean(dut, "frontend ALU trace top commit", 0x1, 1);
@@ -505,7 +533,9 @@ void commit_expected_row(
       write_dut_row(dut_out, slot0);
       write_qemu_row(qemu_out, expected);
       tick(dut);
-      drain_empty(dut);
+      if (drain_after_commit) {
+        drain_empty(dut);
+      }
       return;
     }
     expect_monitor_clean(dut, "frontend ALU trace top wait", 0x0, 0);
@@ -608,11 +638,21 @@ int main(int argc, char **argv) {
   }
 
   const auto rows = fixture_rows();
+#ifdef LINXCORE_RF_ALU_TRACE_TOP
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    (void)enqueue_and_accept_execute(dut, rows[i], i);
+  }
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    commit_expected_row(dut, rows[i], dut_out, qemu_out, false);
+  }
+  drain_empty(dut);
+#else
   for (std::size_t i = 0; i < rows.size(); ++i) {
     const std::uint8_t rob_value = enqueue_and_accept_execute(dut, rows[i], i);
     wait_for_execute_completion(dut, rob_value);
     commit_expected_row(dut, rows[i], dut_out, qemu_out);
   }
+#endif
 
   dut.eval();
   if (!dut.io_idle || !dut.io_empty || dut.io_size != 0) {

@@ -30,7 +30,7 @@ dependent scalar ALU rows observable through the monitored commit trace.
 | input | `readTags` | `Vec(3, UInt(physRegWidth.W))` | with `readValid` | Physical source tags from `RenamedUop.src(*).physTag`. |
 | output | `readData` | `Vec(3, UInt(64.W))` by default | combinational | Current data for each physical source tag. |
 | output | `readReady` | `Vec(3, Bool)` | combinational | Per-source ready state; invalid lanes are reported ready. |
-| output | `allReadReady` | `Bool` | combinational | Reduction of `readReady`. This is diagnostic in R82 and not a full issue stall input. |
+| output | `allReadReady` | `Bool` | combinational | Reduction of `readReady`; the RF-backed top keeps this as diagnostic while `ReducedScalarIssueQueue` consumes per-lane `readReady`. |
 | input | `initValid` | `Bool` | pulse | Preload one architectural identity register for reduced top fixtures. |
 | input | `initArchTag` | `UInt(archRegWidth.W)` | with `initValid` | Architectural GPR tag. In reset identity state this is the same physical tag. |
 | input | `initData` | `UInt(64.W)` by default | with `initValid` | Initial data for the identity physical tag. |
@@ -76,15 +76,14 @@ priority because it is applied after init and clear in the sequential block.
 ## Timing
 
 Reads are combinational from registered RF state. Init, clear, and write are
-registered on the rising edge. A row accepted into execute captures whatever
-`readData` was visible in that cycle.
+registered on the rising edge. In the R83 top, the issue queue head captures
+`readData` into execute only when every valid source lane is ready.
 
-R82 does not feed `allReadReady` back into `DecodeRenameROBPath` readiness,
+R82 did not feed `allReadReady` back into `DecodeRenameROBPath` readiness,
 because `ScalarDecodeRenameBridge.outValid` and source-valid bits are
-acceptance-gated. Feeding accepted-output readiness back into the same owner's
-input readiness would create the wrong loop. A later issue/ready-table owner
-must expose a pre-accept source-readiness request before it can stall rename on
-RF readiness.
+acceptance-gated. R83 keeps that rule and inserts `ReducedScalarIssueQueue` as
+the readiness owner between rename and execute: rename readiness is capacity,
+while source readiness gates only queue-head issue.
 
 ## Flush/Recovery
 
@@ -103,6 +102,7 @@ writeback data must match the QEMU-shaped reference rows.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarRegisterFile`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarIssueQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`

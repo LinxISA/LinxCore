@@ -105,7 +105,8 @@ with `ReducedScalarAluExecute`, and compares three rows with nonzero source,
 destination, and writeback data against QEMU-shaped reference rows with zero
 mismatches. `run_chisel_frontend_rf_alu_trace_top_xcheck.sh` drives dependent
 scalar rows through `LinxCoreFrontendRfAluTraceTop`, preloads only identity RF
-registers, reads later sources from Chisel physical RF writeback state, and
+registers, enqueues rows through the reduced issue queue before draining
+commits, reads later sources from Chisel physical RF writeback state, and
 compares three rows with zero mismatches. Full-core QEMU comparison remains
 blocked until the Chisel top emits live architectural commit rows from real
-fetch, issue, LSU, and recovery paths.
+fetch, full issue, LSU, and recovery paths.

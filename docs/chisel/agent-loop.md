@@ -200,6 +200,19 @@ completion-row xcheck. The superproject root was
 readback, and `ALUPipe` W2 writeback. R82 replaces per-uop operand fixture
 values with reduced physical RF state for dependent scalar ALU rows; it does
 not claim a full issue queue, bypass network, or speculative RF recovery path.
+R83 started from `rtl/LinxCore` commit
+`8747920e9d4b59c07ded648c77f61e73ad2e9fcb` after R82 landed the RF-backed
+scalar ALU source gate. The superproject root was
+`834952d639179b2a5430bbb55cc8a8855c58b302`; LinxCoreModel remained at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; QEMU was at
+`9f96be0c952fb9a047b324b06a480b1c689ba51d`; `skills/linx-skills` was at
+`3b1cc70b9ee90c7f23cb978b9cb740db4e9ca377`. The R83 model evidence is
+`IssueState::insert`, `IssueState::Select`, `IssueState::Wakeup`,
+`IssueState::ReleaseEntry`, `IDispatch::Work`, and `ALUPipe` W1/W2 writeback.
+R83 inserts a reduced scalar issue queue between rename and execute, gates
+queue-head issue on RF source readiness, and preserves ROB identity into
+execute; it does not claim full age-select, P1/I1/I2 in-flight release,
+cancel, replay, or bypass behavior.
 
 ## Non-Negotiable Rules
 
@@ -371,6 +384,7 @@ These packets remain the required base before broad module promotion:
 | R80 | Frontend-window trace top Verilator xcheck | `run_chisel_frontend_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_lint.sh`, `run_chisel_tests.sh --only LinxCoreFrontendTraceTop`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R81 | Reduced scalar ALU completion row xcheck | `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ROBEntryBank`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R82 | Reduced scalar RF-backed ALU source path | `run_chisel_tests.sh --only ReducedScalarRegisterFile`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R83 | Reduced scalar issue-queue handoff | `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_tests.sh --only ReducedScalarRegisterFile`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -394,8 +408,9 @@ Use this order for each promoted slice:
    execute completion, completion-row payload wiring, or the frontend ALU
    trace-top driver.
 9. `run_chisel_frontend_rf_alu_trace_top_xcheck.sh` after changes to scalar RF
-   operand sourcing, execute physical-destination writeback metadata, or the
-   shared frontend ALU trace-top driver.
+   operand sourcing, issue-queue source readiness, execute
+   physical-destination writeback metadata, or the shared frontend ALU
+   trace-top driver.
 10. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
 11. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
@@ -458,6 +473,9 @@ Update skills only for:
   `TULinkRelationCmap`, and `TULinkRetireCommand` must carry PE/STID from the
   deallocated ROB row or relation entry so T/U mark/release commands route
   independently of the active rename-head selector.
+- an issue-boundary readiness rule where RF physical source readiness must gate
+  issue from a queued row, while reduced rename acceptance remains driven by
+  issue-queue capacity.
 
 Run skill evolution as a trailing maintenance lane after the module docs and
 evidence are updated. The module packet owns local Markdown first; the
@@ -517,9 +535,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Issue-queue handoff for the reduced scalar ALU: stop feeding rename output
-   directly into execute, preserve ROB row identity through issue, and keep
-   writeback completion owned by `ReducedScalarAluExecute` or its successor.
+1. Full issue scheduler timing: replace the reduced FIFO/dequeue-on-accept
+   surrogate with model-aligned wakeup, select, issued/in-flight, cancel,
+   replay, and release behavior.
 2. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
    event stream from commit-only rows toward trap, memory, recovery, and block
    sidebands.

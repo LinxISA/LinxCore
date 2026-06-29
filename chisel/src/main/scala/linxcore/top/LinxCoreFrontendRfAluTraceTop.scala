@@ -6,7 +6,7 @@ import chisel3.util.log2Ceil
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, FrontendDecodePacket, InterfaceParams}
-import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarRegisterFile}
+import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.F4DecodeWindow
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.RecoveryCleanupIntent
@@ -16,11 +16,13 @@ class LinxCoreFrontendRfAluTraceTopIO(
     val p: InterfaceParams,
     val traceParams: CommitTraceParams,
     val decRenQueueDepth: Int = 4,
+    val issueQueueDepth: Int = 4,
     val physRegs: Int = 64)
     extends Bundle {
   private val ptrWidth = log2Ceil(p.robEntries)
   private val sizeWidth = log2Ceil(p.robEntries + 1)
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
+  private val issueCountWidth = log2Ceil(issueQueueDepth + 1)
 
   val in = Input(new FrontendDecodePacket(p))
   val rfInitValid = Input(Bool())
@@ -58,6 +60,13 @@ class LinxCoreFrontendRfAluTraceTopIO(
   val rfWriteTag = Output(UInt(p.physRegWidth.W))
   val rfWriteData = Output(UInt(p.immWidth.W))
   val rfStateError = Output(Bool())
+  val issueQueueEnqueueFire = Output(Bool())
+  val issueQueueIssueFire = Output(Bool())
+  val issueQueueCount = Output(UInt(issueCountWidth.W))
+  val issueQueueHeadValid = Output(Bool())
+  val issueQueueAllSourcesReady = Output(Bool())
+  val issueQueueBlockedBySource = Output(Bool())
+  val issueQueueBlockedByOutput = Output(Bool())
 
   val commit = Output(new CommitTracePort(traceParams))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -88,6 +97,7 @@ class LinxCoreFrontendRfAluTraceTopIO(
 class LinxCoreFrontendRfAluTraceTop(
     val coreParams: CoreParams = CoreParams(),
     val decRenQueueDepth: Int = 4,
+    val issueQueueDepth: Int = 4,
     val storeDispatchQueueDepth: Int = 4,
     val mapQDepth: Int = 32,
     val archRegs: Int = 24,
@@ -95,7 +105,7 @@ class LinxCoreFrontendRfAluTraceTop(
     extends Module {
   private val p = LinxCoreFrontendRfAluTraceTop.interfaceParamsFor(coreParams)
   private val traceParams = LinxCoreFrontendRfAluTraceTop.traceParamsFor(p)
-  val io = IO(new LinxCoreFrontendRfAluTraceTopIO(p, traceParams, decRenQueueDepth, physRegs))
+  val io = IO(new LinxCoreFrontendRfAluTraceTopIO(p, traceParams, decRenQueueDepth, issueQueueDepth, physRegs))
 
   val f4 = Module(new F4DecodeWindow(p))
   f4.io.in := io.in
@@ -110,13 +120,14 @@ class LinxCoreFrontendRfAluTraceTop(
   ))
 
   val rf = Module(new ReducedScalarRegisterFile(p, archRegs = archRegs, physRegs = physRegs))
+  val issue = Module(new ReducedScalarIssueQueue(p, depth = issueQueueDepth))
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
 
   path.io.d1 := f4.io.d1
   path.io.slots := f4.io.slots
   path.io.validMask := f4.io.validMask
   path.io.flushValid := io.frontendFlushValid
-  path.io.renamedOutReady := execute.io.inReady
+  path.io.renamedOutReady := issue.io.inReady
   path.io.storeStaExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
   path.io.storeStdExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
   path.io.storeMarkCommitValid := false.B
@@ -136,22 +147,29 @@ class LinxCoreFrontendRfAluTraceTop(
   path.io.completeRow := execute.io.completeRow
   path.io.deallocReady := io.deallocReady
 
+  issue.io.inValid := path.io.renamedOutValid
+  issue.io.in := path.io.renamedOut
+  issue.io.flushValid := io.frontendFlushValid
+
   rf.io.initValid := io.rfInitValid
   rf.io.initArchTag := io.rfInitArchTag
   rf.io.initData := io.rfInitData
   for (idx <- 0 until 3) {
-    rf.io.readValid(idx) := path.io.renamedOut.src(idx).valid
-    rf.io.readTags(idx) := path.io.renamedOut.src(idx).physTag
+    rf.io.readValid(idx) := issue.io.readValid(idx)
+    rf.io.readTags(idx) := issue.io.readTags(idx)
+    issue.io.readReady(idx) := rf.io.readReady(idx)
+    issue.io.readData(idx) := rf.io.readData(idx)
   }
-  rf.io.clearValid := execute.io.accepted && path.io.renamedOut.dst(0).valid
-  rf.io.clearTag := path.io.renamedOut.dst(0).physTag
+  rf.io.clearValid := issue.io.enqueueDstValid
+  rf.io.clearTag := issue.io.enqueueDstTag
   rf.io.writeValid := execute.io.completeDstPhysValid
   rf.io.writeTag := execute.io.completeDstPhysTag
   rf.io.writeData := execute.io.completeDstData
 
-  execute.io.inValid := path.io.renamedOutValid
-  execute.io.in := path.io.renamedOut
-  execute.io.srcData := rf.io.readData
+  issue.io.issueReady := execute.io.inReady
+  execute.io.inValid := issue.io.issueValid
+  execute.io.in := issue.io.issueUop
+  execute.io.srcData := issue.io.issueSrcData
 
   io.f4ValidMask := f4.io.validMask
   io.f4SlotCount := f4.io.slotCount
@@ -182,6 +200,13 @@ class LinxCoreFrontendRfAluTraceTop(
   io.rfWriteTag := rf.io.writeTag
   io.rfWriteData := rf.io.writeData
   io.rfStateError := rf.io.stateError
+  io.issueQueueEnqueueFire := issue.io.enqueueFire
+  io.issueQueueIssueFire := issue.io.issueFire
+  io.issueQueueCount := issue.io.count
+  io.issueQueueHeadValid := issue.io.headValid
+  io.issueQueueAllSourcesReady := issue.io.allSourcesReady
+  io.issueQueueBlockedBySource := issue.io.blockedBySource
+  io.issueQueueBlockedByOutput := issue.io.blockedByOutput
 
   io.commit := path.io.commit
   io.commitValidMask := path.io.commitValidMask
@@ -206,7 +231,7 @@ class LinxCoreFrontendRfAluTraceTop(
   io.occupiedMask := path.io.occupiedMask
   io.completedMask := path.io.completedMask
   io.retiredMask := path.io.retiredMask
-  io.idle := path.io.empty && !execute.io.busy
+  io.idle := path.io.empty && issue.io.empty && !execute.io.busy
 }
 
 object LinxCoreFrontendRfAluTraceTop {
