@@ -33,6 +33,7 @@ object ROBEntryBankReference {
 
   final case class Id(valid: Boolean = true, wrap: Boolean = false, value: Int = 0)
   final case class TUSidecar(
+      peId: Int = 0,
       stid: Int = 0,
       tSeq: Id = Id(),
       uSeq: Id = Id(),
@@ -51,6 +52,7 @@ object ROBEntryBankReference {
       bid: Id,
       gid: Id,
       rid: Id,
+      peId: Int,
       stid: Int,
       isLast: Boolean,
       tSeq: Id,
@@ -189,6 +191,7 @@ object ROBEntryBankReference {
               bid = bid,
               gid = gid,
               rid = rid,
+              peId = tu.peId,
               stid = tu.stid,
               isLast = tu.isLast,
               tSeq = tu.tSeq,
@@ -464,20 +467,20 @@ class ROBEntryBankSpec extends AnyFunSuite {
     val r0 = rob.alloc(
       row(0).copy(gid = 3),
       bid = Some(id(2)),
-      tu = TUSidecar(stid = 1, tSeq = id(4), uSeq = id(5), dst = TDst, isLast = false)
+      tu = TUSidecar(peId = 2, stid = 1, tSeq = id(4), uSeq = id(5), dst = TDst, isLast = false)
     ).get
     val r1 = rob.alloc(
       row(1).copy(gid = 3),
       bid = Some(id(2)),
-      tu = TUSidecar(stid = 1, tSeq = id(6), uSeq = id(7), dst = UDst, isLast = true)
+      tu = TUSidecar(peId = 3, stid = 1, tSeq = id(6), uSeq = id(7), dst = UDst, isLast = true)
     ).get
 
     assert(rob.complete(r0))
     assert(rob.complete(r1))
     assert(rob.commit().map(_.rid) == Seq(0, 1))
     assert(rob.deallocTURetireSources() == Seq(
-      TURetireSource(true, id(2), id(3), id(r0), 1, false, id(4), id(5), TDst),
-      TURetireSource(true, id(2), id(3), id(r1), 1, true, id(6), id(7), UDst)
+      TURetireSource(true, id(2), id(3), id(r0), 2, 1, false, id(4), id(5), TDst),
+      TURetireSource(true, id(2), id(3), id(r1), 3, 1, true, id(6), id(7), UDst)
     ))
     assert(rob.dealloc() == Seq(r0, r1))
   }
@@ -512,11 +515,13 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_deallocReady"))
     assert(sv.contains("io_allocBid"))
     assert(sv.contains("io_allocGid"))
+    assert(sv.contains("io_allocPeId"))
     assert(sv.contains("io_allocIsLast"))
     assert(sv.contains("io_allocTSeq_value"))
     assert(sv.contains("io_allocTUDstKind"))
     assert(sv.contains("io_robTULinkSource_tSeq_value"))
     assert(sv.contains("io_deallocTURetireSource_0_tSeq_value"))
+    assert(sv.contains("io_deallocTURetireSource_0_peId"))
     assert(sv.contains("io_deallocTURetireSource_0_isLast"))
     assert(sv.contains("io_deallocBlockLastValid"))
     assert(sv.contains("io_deallocBlockLastBid_value"))

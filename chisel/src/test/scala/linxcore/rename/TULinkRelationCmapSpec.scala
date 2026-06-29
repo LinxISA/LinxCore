@@ -17,9 +17,11 @@ object TULinkRelationCmapReference {
       isLast: Boolean,
       dst: Kind,
       tSeq: ROBIDValue,
-      uSeq: ROBIDValue)
-  final case class Command(kind: Kind, seq: ROBIDValue, dealloc: Boolean)
-  private final case class Entry(bid: ROBIDValue, gid: ROBIDValue, seq: ROBIDValue)
+      uSeq: ROBIDValue,
+      peId: Int = 0,
+      stid: Int = 0)
+  final case class Command(kind: Kind, seq: ROBIDValue, dealloc: Boolean, peId: Int = 0, stid: Int = 0)
+  private final case class Entry(bid: ROBIDValue, gid: ROBIDValue, seq: ROBIDValue, peId: Int = 0, stid: Int = 0)
 
   final class Model(releaseThreshold: Int = 4) {
     private var t = Vector.empty[Entry]
@@ -46,18 +48,18 @@ object TULinkRelationCmapReference {
       row.dst match {
         case T =>
           val releaseAfterMark = row.isLast || t.size >= releaseThreshold
-          t :+= Entry(row.bid, row.gid, row.tSeq)
-          out :+= Command(T, row.tSeq, dealloc = false)
+          t :+= Entry(row.bid, row.gid, row.tSeq, row.peId, row.stid)
+          out :+= Command(T, row.tSeq, dealloc = false, peId = row.peId, stid = row.stid)
           if (releaseAfterMark) {
-            out :+= Command(T, t.head.seq, dealloc = true)
+            out :+= Command(T, t.head.seq, dealloc = true, peId = t.head.peId, stid = t.head.stid)
             t = t.tail
           }
         case U =>
           val releaseAfterMark = row.isLast || u.size >= releaseThreshold
-          u :+= Entry(row.bid, row.gid, row.uSeq)
-          out :+= Command(U, row.uSeq, dealloc = false)
+          u :+= Entry(row.bid, row.gid, row.uSeq, row.peId, row.stid)
+          out :+= Command(U, row.uSeq, dealloc = false, peId = row.peId, stid = row.stid)
           if (releaseAfterMark) {
-            out :+= Command(U, u.head.seq, dealloc = true)
+            out :+= Command(U, u.head.seq, dealloc = true, peId = u.head.peId, stid = u.head.stid)
             u = u.tail
           }
         case NoneKind =>
@@ -172,6 +174,18 @@ class TULinkRelationCmapSpec extends AnyFunSuite {
     assert(model.uCount == 0)
   }
 
+  test("reference carries row PE/STID into mark and release commands") {
+    val model = new Model(releaseThreshold = 1)
+
+    assert(model.accept(row(0, T).copy(peId = 2, stid = 3)) == Seq(
+      Command(T, id(0), dealloc = false, peId = 2, stid = 3)
+    ))
+    assert(model.accept(row(1, T).copy(peId = 4, stid = 5)) == Seq(
+      Command(T, id(1), dealloc = false, peId = 4, stid = 5),
+      Command(T, id(0), dealloc = true, peId = 2, stid = 3)
+    ))
+  }
+
   test("reference block clean removes matching BID entries while preserving other relation order") {
     val model = new Model(releaseThreshold = 4)
     model.preloadT(Seq((id(1), id(0), id(0)), (id(2), id(0), id(1))))
@@ -216,6 +230,8 @@ class TULinkRelationCmapSpec extends AnyFunSuite {
     assert(sv.contains("io_command_valid"))
     assert(sv.contains("io_command_seq_value"))
     assert(sv.contains("io_command_dealloc"))
+    assert(sv.contains("io_command_peId"))
+    assert(sv.contains("io_command_stid"))
     assert(sv.contains("io_preReleaseT"))
     assert(sv.contains("io_pressureReleaseT"))
     assert(sv.contains("io_flush_req_valid"))

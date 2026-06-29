@@ -72,6 +72,10 @@ hierarchy rather than top-level backend glue.
 R73 drives the bridge's active-bank selector explicitly: PE remains the reduced
 PE0 lane, while active STID is taken from the queued decoded row's
 `threadId`, the same sidecar already stored into ROB/STQ rows as STID.
+R74 carries the ROB deallocated row's PE/STID through
+`TULinkRetireSource`, `TULinkRetireCommandPath`, `TULinkRelationCmap`, and
+`ScalarTURenameBridge` so retire mark/release commands target the retired
+row's SGPR bank independently of the active rename-head selector.
 
 ## Interface
 
@@ -137,6 +141,10 @@ Outputs:
   `tuRenameActivePeInRange`, `tuRenameActiveStidInRange`,
   `tuRenameActiveBankValid`: active SGPR bank selector and range diagnostics
   driven into `ScalarTURenameBridge`.
+- `tuRetireCommandPeId`, `tuRetireCommandStid`, `tuRetirePeInRange`,
+  `tuRetireStidInRange`, `tuRetireBankValid`: retired-row SGPR bank selector
+  carried by serialized T/U retire commands and observed after
+  `ScalarTURenameBridge` forwards it to the bank array.
 - `allocBlockBid`, `allocRobValue`, `commit*`, `dealloc*`, `flushApplied`,
   `robTULinkSource*`, `robDeallocTURetireSource`,
   `robDeallocBlockLast*`, `size`, `outstandingCount`, and occupancy masks:
@@ -230,6 +238,10 @@ R73 uses that same queued-row thread ID as `ScalarTURenameBridge.activeStid`.
 The active PE selector remains `0.U` because `DecodedUop` does not yet carry a
 PE owner. The emitted `tuRenameActive*` diagnostics prove whether the selected
 bank exists before T/U rename state can mutate.
+R74 also forwards `allocPeId` into the ROB row image. In the reduced path that
+value is still PE0, but it is stored and later re-emitted as
+`robDeallocTURetireSource(*).peId` so the retire-command path uses row-owned
+bank identity instead of the current active selector.
 R63 also drives `allocGid` from the queued row's native `gid` and
 `allocIsLast` from `eob`, then forwards the allocator's
 `deallocTURetireSource` vector to module IO. R64 feeds that vector into
@@ -254,7 +266,8 @@ the event ready input from `ScalarTURenameBridge.tuLocalBlockCommitReady`,
 feeds the event into the T/U cleanup composition, and exposes both the retire
 path fire and rename-side accepted diagnostics. The reduced path therefore
 mutates the single live T/U local-register bank after post-clean event
-acceptance, while full dynamic PE/STID routing remains deferred. R70 carries the
+acceptance, while full dynamic PE ownership and multi-STID top integration
+remain deferred. R70 carries the
 block-last row's STID on that event and exposes
 `tuRetireLocalBlockCommitStidMatch` plus
 `tuRetireLocalBlockCommitBlockedByStid`; the current reduced bank accepts only
@@ -264,6 +277,10 @@ event, checks that the selected STID exists, waits for every selected PE bank
 group to be ready, and pulses child bank valid only on fanout acceptance. With
 `peCount=1` and `stidCount=1`, this preserves current behavior while placing
 the future all-PE selected-STID handshake in the SGPR bank hierarchy.
+R74 routes relation-cmap retire commands through command PE/STID sidecars:
+`TULinkRetireCommandPath.command.peId/stid` drive
+`ScalarTURenameBridge.tuRetirePeId/Stid`, and `TULinkLocalBankArray` selects
+the retire target from those sidecars rather than from `tuRenameActive*`.
 `cleanGroup*` remains inactive until a vector/MTC group-clean owner exists.
 
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
@@ -335,11 +352,16 @@ R71 adds the fanout boundary that corresponds to the model loop over scalar PE
 SGPR banks for the selected STID. R72 wraps the T/U local-register owner in an
 explicit `TULinkLocalBankArray`, matching the model
 `sgprRenameUnit[pe][stid][hand]` shape structurally while keeping the live
-reduced lane selected at PE0/STID0. Dynamic PE/STID routing remains deferred,
-but the local block-commit event is no longer a backend-local fanout. R73 moves
+reduced lane selected at PE0/STID0. Dynamic PE ownership and broader multi-STID
+top integration remain deferred, but the local block-commit event is no longer
+a backend-local fanout. R73 moves
 the reduced active-STID selector from a bridge-local constant to the queued row
 sidecar, matching the model's `SPERename::Rename()` use of `inst->stid` for
 the implemented single-PE lane.
+R74 matches the retire side of the same model by carrying `inst->peID/stid`
+from the deallocated ROB row and `RelateInfo.peid` plus STID from relation
+entries into local retire commands, matching `SPERename::RepLocalRetired` and
+`SPEROB::ReleaseFunc` bank arguments.
 Full store timing still requires real STA/STD execution, load-conflict
 publication, SCB/MDB handoff, and memory trace side effects.
 
@@ -359,8 +381,6 @@ publication, SCB/MDB handoff, and memory trace side effects.
   auto clean is now owned inside `TULinkRetireCommandPath`.
 - Dynamic PE routing into `TULinkLocalBankArray`; the current live lane remains
   reduced to PE0 even though active STID now comes from the queued row.
-- Retire-command PE/STID sidecars so local retire marks/releases can target the
-  retired row's bank group independently of the rename-head bank selector.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - SGPR/tile/vector operand classification and rename.
@@ -420,4 +440,6 @@ diagnostic.
 R71 covers the selected-STID fanout boundary and its reduced backend
 observability. R72 covers the explicit local bank-array hierarchy and the
 bridge-owned fanout observability through this backend path. R73 covers the
-queued-row STID selector plumbing and active-bank diagnostics.
+queued-row STID selector plumbing and active-bank diagnostics. R74 covers
+retired-row PE/STID command sidecars and retire-bank diagnostics through the
+backend composition.

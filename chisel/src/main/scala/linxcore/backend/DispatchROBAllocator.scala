@@ -85,7 +85,8 @@ class DispatchROBAllocatorIO(
 
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
-  val deallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(sourceParams, mapQDepth, stidWidth)))
+  val deallocTURetireSource =
+    Output(Vec(traceParams.commitWidth, new TULinkRetireSource(sourceParams, mapQDepth, stidWidth, peIdWidth)))
   val deallocBlockLastValid = Output(Bool())
   val deallocBlockLastBid = Output(new ROBID(entries))
   val deallocBlockLastGid = Output(new ROBID(entries))
@@ -172,6 +173,7 @@ class DispatchROBAllocator(
     entries = entries,
     traceParams = traceParams,
     mapQDepth = mapQDepth,
+    peIdWidth = peIdWidth,
     stidWidth = stidWidth
   ))
 
@@ -185,6 +187,7 @@ class DispatchROBAllocator(
   rob.io.allocRow := robAllocRow
   rob.io.allocBid := bidToRobId(nextBlockBid)
   rob.io.allocGid := io.allocGid
+  rob.io.allocPeId := io.allocPeId
   rob.io.allocStid := io.allocStid
   rob.io.allocTSeq := io.allocTSeq
   rob.io.allocUSeq := io.allocUSeq

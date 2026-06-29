@@ -39,6 +39,9 @@ and exposes bridge-owned local block-commit fanout diagnostics.
 R73 makes the active-bank selector an explicit bridge input. The reduced
 backend still drives PE0, but the active STID now comes from the queued decoded
 row's thread/STID sidecar instead of a bridge-local `localStid` constant.
+R74 adds the matching retire-bank selector path. `tuRetirePeId/Stid` come
+from the serialized retired-row command and are forwarded to
+`TULinkLocalBankArray` separately from the active rename selector.
 
 ## Interface
 
@@ -46,7 +49,7 @@ Inputs:
 
 - `in`: decoded uop presented for one-uop rename.
 - `activePeId`, `activeStid`: selected SGPR bank group for current reduced
-  rename, retire, and external local commit traffic.
+  rename and external local commit traffic.
 - `outReady`: downstream renamed-uop consumer readiness.
 - `robAllocReady`: ROB allocation readiness.
 - `checkpointValid/checkpointBid`, `commitValid/commitBid`, `cleanup`: scalar
@@ -55,6 +58,8 @@ Inputs:
   candidates.
 - `tuRetireValid/Kind/Seq/Dealloc`: live T/U relation-cmap
   mark/deallocation command from `TULinkRetireCommandPath`.
+- `tuRetirePeId`, `tuRetireStid`: retired-row bank selector carried by that
+  command.
 - `tuLocalBlockCommitValid/tuLocalBlockCommitBid/tuLocalBlockCommitStid`:
   post-clean scalar local block-commit event from `TULinkRetireCommandPath`.
 
@@ -76,6 +81,9 @@ Outputs:
   from `TULinkLocalBankArray`.
 - `tuRetireAccepted`, `tuRetireMiss`, `tuRetireReleaseMismatch`,
   `tuRetireUnsupported`: actual retire-command outcome from `TULinkRename`.
+- `tuRetirePeInRange`, `tuRetireStidInRange`, `tuRetireBankValid`,
+  `tuRetirePeOH`, `tuRetireStidOH`: retire-command bank selector diagnostics
+  forwarded from `TULinkLocalBankArray`.
 - `tuLocalBlockCommitReady`, `tuLocalBlockCommitAccepted`: downstream
   handshake for the local block-commit event consumed by the T/U cleanup
   composition.
@@ -129,11 +137,12 @@ group. Non-base backend cleanup can block rename when no valid ROB/LSU source
 exists or when both sources conflict, preserving the recovery barrier before
 new T/U state mutation.
 
-Retire commands are routed through the bank array to the current reduced
-active bank group, then into that group's `TULinkRecoveryCleanupPath` and
-`TULinkRename`. The bridge exposes `tuRetireAccepted` so the upstream
-serializer can advance on actual mark/release acceptance after flush and
-commit priority have been applied.
+Retire commands are routed through the bank array by the command's
+`tuRetirePeId/tuRetireStid`, then into that bank group's
+`TULinkRecoveryCleanupPath` and `TULinkRename`. This selector is intentionally
+independent from the active rename selector. The bridge exposes
+`tuRetireAccepted` so the upstream serializer can advance on actual
+mark/release acceptance after flush and commit priority have been applied.
 
 Local block commit is owned by the bank array. The bridge forwards
 `tuLocalBlockCommit*` into `TULinkLocalBankArray`, which uses
@@ -141,8 +150,9 @@ Local block commit is owned by the bank array. The bridge forwards
 selected scalar PE bank group to be ready before pulsing child banks. This lets
 `TULinkRetireCommandPath` keep the R68 event pending while recovery flush or
 an external commit occupies a local maintenance slot. The current reduced
-bridge selects PE0/STID0 for rename and retire traffic, but the local
-block-commit path is already expressed as the selected-STID fanout shape.
+bridge selects PE0 plus the queued row STID for rename traffic, while retire
+traffic uses the command PE/STID sidecar. The local block-commit path is
+already expressed as the selected-STID fanout shape.
 
 ## Model Alignment
 
@@ -166,6 +176,9 @@ and R72 adds the explicit bank-array boundary that matches
 `sgprRenameUnit[pe][stid][hand]` structurally. R73 starts consuming the
 existing Chisel row-owned STID sidecar for that selector, matching the model's
 `SPERename::Rename()` lookup by `inst->stid` for the reduced single-PE lane.
+R74 matches `SPERename::RepLocalRetired(type, peid, ..., tid)` by forwarding
+the retired-row command PE/STID to the bank array, so local mark/release is no
+longer tied to the current rename-head bank.
 
 ## Deferred Owners
 
@@ -175,8 +188,6 @@ existing Chisel row-owned STID sidecar for that selector, matching the model's
 - Commit-trace representation of non-GPR destination ownership.
 - Dynamic PE owner routing into the bank array; the current backend still
   drives PE0 because decoded uops do not yet carry a PE owner.
-- Retire-source PE/STID routing beyond the current reduced active bank. The
-  current retire command still lacks its own bank-selector sidecar.
 - Tile, vector, and `CArg` operand classification beyond the current P/T/U
   subset.
 
@@ -202,7 +213,7 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 The current tests cover the atomic scalar/T/U accept reference rule, scalar
 input sanitization for T/U operands, local block-commit maintenance
 backpressure including STID mismatch, explicit active-bank selector validity,
-IO shape, and elaboration through
+retire-command PE/STID selector validity, IO shape, and elaboration through
 `ScalarDecodeRenameBridge`, `TULinkLocalBankArray`,
 `TULinkRecoveryCleanupPath`, `TULinkLocalBlockCommitFanout`, and
 `TULinkRename`.

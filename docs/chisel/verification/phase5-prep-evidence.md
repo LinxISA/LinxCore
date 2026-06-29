@@ -5093,3 +5093,90 @@ Skill evolve:
   may drive active STID from the queued decoded row `threadId`, and future
   agents must not claim dynamic retire PE/STID routing until retire commands
   carry their own retired-row bank sidecars.
+
+## R74 Retired-Row SGPR Retire-Bank Sidecars
+
+Scope:
+
+- Added `peId` to `TULinkRetireSource` and `peId/stid` to
+  `TULinkRetireCommand`.
+- Stored relation-cmap entry PE/STID sidecars and emitted them on both
+  mark-retired and release commands.
+- Stored ROB allocation PE owner sidecars and published them in the
+  deallocation T/U retire-source vector.
+- Routed `TULinkRetireCommandPath.command.peId/stid` through
+  `ScalarTURenameBridge` to `TULinkLocalBankArray`.
+- Kept active rename-bank selection separate from retired-row retire-bank
+  selection.
+
+Model evidence:
+
+- `SPERename::RepLocalRetired(type, peid, seq, isDealloc, tid)` targets one
+  `(peid, tid, hand)` SGPR bank.
+- `SPEROB::ReleaseRelative()` derives the relation PE owner from the retired
+  instruction row.
+- `SPEROB::ReleaseFunc()` records relation information and marks the local
+  register retired using the retired row's STID.
+- `SPEROB::CheckReg()` and relation pressure/block-last release use the
+  retired row or relation entry identity rather than the current rename head.
+- `RelateInfo` carries `peid`, `seq`, `bid`, `gid`, `rid`, `tag`, and `tid`.
+
+Evidence:
+
+```bash
+cd /Users/zhoubot/linx-isa/rtl/LinxCore/chisel && sbt --client --error 'Test / compile'
+bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
+bash tools/chisel/run_chisel_tests.sh --only TULinkRelationCmap
+bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBankArray
+bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
+bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
+bash tools/chisel/run_chisel_tests.sh --only TULinkRename
+bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel fetch origin main
+git -C /Users/zhoubot/linx-isa/model/LinxCoreModel rev-parse HEAD origin/main
+git diff --check
+```
+
+Expected result:
+
+- ROB deallocation sources preserve retired-row PE/STID next to BID/GID/RID,
+  STID, T/U sequences, destination ownership, and block-last sidecars.
+- Relation-cmap entries retain the PE/STID bank identity needed for later
+  release commands.
+- `TULinkRetireCommand` carries the command target bank, and
+  `TULinkLocalBankArray` routes retire commands from that target rather than
+  from the active rename selector.
+- The reduced active selector remains PE0 plus queued-row STID for rename
+  traffic, while retired-row retire routing is structurally independent.
+- Existing cleanup, block-commit, ROB, trace, and QEMU dry-run gates remain
+  stable.
+
+Observed result:
+
+- `cd chisel && sbt --client --error 'Test / compile'` passed.
+- `InterfaceBundles`, `TULinkRelationCmap`, `TULinkRetireCommandPath`,
+  `TULinkLocalBankArray`, `ScalarTURenameBridge`, `ROBEntryBank`,
+  `DispatchROBAllocator`, `DecodeRenameROBPath`,
+  `TULinkRecoveryCleanupPath`, and `TULinkRename` focused gates passed.
+- `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob` passed,
+  including the ROBID semantic check.
+- `python3 tools/chisel/trace_schema_adapter.py --self-test` passed.
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` selected
+  `/Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64` and
+  passed the trace schema adapter self-test.
+- `git fetch origin main` in `model/LinxCoreModel` showed local `HEAD` and
+  `origin/main` both at `68b06b2a8dd07db98bd562aeae7e5a8867c6d450`.
+- `git diff --check` passed.
+
+Skill evolve:
+
+- `skill-evolve: update linx-core` because R74 adds a reusable retired-row bank
+  sidecar rule: local T/U retire mark/release commands must route by the PE/STID
+  carried from the deallocated ROB row or relation entry, independently of the
+  active rename-head selector.

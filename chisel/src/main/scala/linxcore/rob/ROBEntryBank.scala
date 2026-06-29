@@ -10,6 +10,7 @@ class ROBEntryBankIO(
     val entries: Int,
     val traceParams: CommitTraceParams,
     val mapQDepth: Int = 32,
+    val peIdWidth: Int = 8,
     val stidWidth: Int = 8)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
@@ -24,6 +25,7 @@ class ROBEntryBankIO(
   val allocRow = Input(new CommitTraceRow(traceParams))
   val allocBid = Input(new ROBID(entries))
   val allocGid = Input(new ROBID(entries))
+  val allocPeId = Input(UInt(peIdWidth.W))
   val allocStid = Input(UInt(stidWidth.W))
   val allocTSeq = Input(new ROBID(mapQDepth))
   val allocUSeq = Input(new ROBID(mapQDepth))
@@ -52,7 +54,8 @@ class ROBEntryBankIO(
 
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
-  val deallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(sourceParams, mapQDepth, stidWidth)))
+  val deallocTURetireSource =
+    Output(Vec(traceParams.commitWidth, new TULinkRetireSource(sourceParams, mapQDepth, stidWidth, peIdWidth)))
   val deallocBlockLastValid = Output(Bool())
   val deallocBlockLastBid = Output(new ROBID(entries))
   val deallocBlockLastGid = Output(new ROBID(entries))
@@ -94,6 +97,7 @@ class ROBEntryBank(
     val entries: Int = 16,
     val traceParams: CommitTraceParams = CommitTraceParams(),
     val mapQDepth: Int = 32,
+    val peIdWidth: Int = 8,
     val stidWidth: Int = 8)
     extends Module {
   require(entries > 1, "ROB entries must be greater than one")
@@ -107,7 +111,7 @@ class ROBEntryBank(
   private val sizeWidth = log2Ceil(entries + 1)
   private val sourceParams = InterfaceParams(robEntries = entries)
 
-  val io = IO(new ROBEntryBankIO(entries, traceParams, mapQDepth, stidWidth))
+  val io = IO(new ROBEntryBankIO(entries, traceParams, mapQDepth, peIdWidth, stidWidth))
 
   private def zeroRow: CommitTraceRow = {
     val row = Wire(new CommitTraceRow(traceParams))
@@ -144,7 +148,7 @@ class ROBEntryBank(
   }
 
   private def zeroTURetireSource: TULinkRetireSource = {
-    val source = Wire(new TULinkRetireSource(sourceParams, mapQDepth, stidWidth))
+    val source = Wire(new TULinkRetireSource(sourceParams, mapQDepth, stidWidth, peIdWidth))
     source := 0.U.asTypeOf(source)
     source
   }
@@ -179,6 +183,7 @@ class ROBEntryBank(
   val rowBid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
   val rowGid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
   val rowRid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
+  val rowPeId = RegInit(VecInit(Seq.fill(entries)(0.U(peIdWidth.W))))
   val rowStid = RegInit(VecInit(Seq.fill(entries)(0.U(stidWidth.W))))
   val rowTSeq = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(mapQDepth)))))
   val rowUSeq = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(mapQDepth)))))
@@ -328,13 +333,14 @@ class ROBEntryBank(
   val deallocBlockLastVec = Wire(Vec(traceParams.commitWidth, Bool()))
   for (slot <- 0 until traceParams.commitWidth) {
     val idx = wrapIndex(deallocValue, slot)
-    val source = Wire(new TULinkRetireSource(sourceParams, mapQDepth, stidWidth))
+    val source = Wire(new TULinkRetireSource(sourceParams, mapQDepth, stidWidth, peIdWidth))
     source := zeroTURetireSource
     source.valid := deallocFireVec(slot)
     source.isLast := rowIsLast(idx)
     source.bid := rowBid(idx)
     source.gid := rowGid(idx)
     source.rid := rowRid(idx)
+    source.peId := rowPeId(idx)
     source.stid := rowStid(idx)
     source.tSeq := rowTSeq(idx)
     source.uSeq := rowUSeq(idx)
@@ -374,6 +380,7 @@ class ROBEntryBank(
       rowBid(idx) := zeroRobId
       rowGid(idx) := zeroRobId
       rowRid(idx) := zeroRobId
+      rowPeId(idx) := 0.U
       rowStid(idx) := 0.U
       rowTSeq(idx) := zeroLocalSeq
       rowUSeq(idx) := zeroLocalSeq
@@ -402,6 +409,7 @@ class ROBEntryBank(
       rowBid(idx) := zeroRobId
       rowGid(idx) := zeroRobId
       rowRid(idx) := zeroRobId
+      rowPeId(idx) := 0.U
       rowStid(idx) := 0.U
       rowTSeq(idx) := zeroLocalSeq
       rowUSeq(idx) := zeroLocalSeq
@@ -423,6 +431,7 @@ class ROBEntryBank(
     rowBid(allocValue) := storedAllocBid
     rowGid(allocValue) := io.allocGid
     rowRid(allocValue) := allocatedRid
+    rowPeId(allocValue) := io.allocPeId
     rowStid(allocValue) := io.allocStid
     rowTSeq(allocValue) := io.allocTSeq
     rowUSeq(allocValue) := io.allocUSeq

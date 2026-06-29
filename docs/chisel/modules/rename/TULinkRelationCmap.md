@@ -31,14 +31,17 @@ allocation, mark-retired state, block-commit freeing, and flush pruning.
 `TULinkRelationCmap` owns the SPEROB decision about when a row's T/U
 destination should be marked retired and when the oldest relation entry should
 be deallocated.
+R74 extends that contract with the bank identity used by the model's
+`RepLocalRetired(type, peid, ..., tid)` path: every stored relation entry and
+every emitted retire command carries the deallocated row's `peId/stid`.
 
 ## Interface
 
 Inputs:
 
 - `in`: one `TULinkRetireSource` from the source serializer. It carries
-  `valid`, `isLast`, native `bid/gid/rid`, `stid`, row-owned `tSeq/uSeq`, and
-  T/U destination ownership.
+  `valid`, `isLast`, native `bid/gid/rid`, `peId/stid`, row-owned
+  `tSeq/uSeq`, and T/U destination ownership.
 - `clear`: synchronous reset of relation queues and pending command state.
 - `flush`: backend recovery flush intent for model-equivalent
   `FlushRelativeReg` pruning.
@@ -55,6 +58,8 @@ Outputs:
   command is still outstanding.
 - `command`: one `TULinkRetireCommand` per cycle. `dealloc=false` marks a T/U
   mapQ row retired; `dealloc=true` releases the current dealloc-head sequence.
+  The command carries the PE/STID of the row or relation entry whose local
+  sequence is being marked/released.
 - `commandFire`: `command.valid && commandReady`.
 - `unsupportedDst`: input row names a destination class other than T or U.
 - `preReleaseT/preReleaseU`: older relations must be released before the
@@ -72,8 +77,8 @@ Outputs:
 
 ## State
 
-- T relation FIFO: stores `(bid,gid,seq)` for T destinations.
-- U relation FIFO: stores `(bid,gid,seq)` for U destinations.
+- T relation FIFO: stores `(bid,gid,seq,peId,stid)` for T destinations.
+- U relation FIFO: stores `(bid,gid,seq,peId,stid)` for U destinations.
 - Pending mark register: stores the accepted row's T/U mark-retired command.
 - Pending post-release bits: remember that the just-marked row also triggered
   an oldest-entry release due to block-last or pressure.
@@ -94,6 +99,10 @@ single retire-command port:
   `CheckRelativeReg()` calling `CheckReg(tcmap)` before `CheckReg(ucmap)`.
 - After pre-release drains, an accepted T or U destination is enqueued and a
   mark-retired command is emitted for that row's `tSeq` or `uSeq`.
+- The accepted source's `peId/stid` are copied into both the pending mark
+  command and the resident relation entry. Later pre-release, block-last, or
+  pressure release commands use the stored entry sidecars, not the current
+  input row and not the active rename-bank selector.
 - If the accepted row is block-last, or if the queue had at least four entries
   before enqueue, the module emits a deallocation command for the oldest entry
   after the mark command fires.
@@ -137,15 +146,18 @@ The C++ model separates three effects:
 `TULinkRelationCmap` implements those ordering decisions for scalar T/U
 destinations. It also implements the relation-entry removal part of
 `FlushRelativeReg`, `CleanCMAP`, and `CleanGroupCMAP`. Ready-table updates for
-pruned entries, predicate links, vector local links, multi-PE bank selection,
-and full block-commit event ownership remain outside this module.
+pruned entries, predicate links, vector local links, dynamic PE ownership, and
+full block-commit event ownership remain outside this module. R74 preserves
+the scalar relation `RelateInfo.peid` plus STID sidecar so downstream
+`TULinkLocalBankArray` can select the same bank that the C++ model passes to
+`SPERename::RepLocalRetired`.
 
 ## Deferred Owners
 
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - Predicate, vector, SIMT, and tile relation maps.
-- Per-PE, per-STID bank replication.
+- Dynamic PE owner production beyond the current reduced PE0 allocation path.
 
 ## Verification
 
@@ -168,5 +180,5 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 The tests cover pressure release after the fifth same-kind relation,
 group-change pre-release order, block-last drain plus current-row mark/release,
 block clean, group clean, newest-suffix recovery flush pruning, pending-state
-cleanup, and Chisel elaboration of the serialized command and cleanup
-interface.
+cleanup, row PE/STID preservation into mark and release commands, and Chisel
+elaboration of the serialized command and cleanup interface.

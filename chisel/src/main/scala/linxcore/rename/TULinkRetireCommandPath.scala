@@ -13,13 +13,14 @@ class TULinkRetireCommandPathIO(
     val mapQDepth: Int = 32,
     val sourceQueueDepth: Int = 8,
     val cmapDepth: Int = 8,
+    val peIdWidth: Int = 8,
     val stidWidth: Int = 8)
     extends Bundle {
   private val sourceCountWidth = log2Ceil(sourceWidth + 1)
   private val sourceQueueCountWidth = log2Ceil(sourceQueueDepth + 1)
   private val cmapCountWidth = log2Ceil(cmapDepth + 1)
 
-  val sources = Input(Vec(sourceWidth, new TULinkRetireSource(p, mapQDepth, stidWidth)))
+  val sources = Input(Vec(sourceWidth, new TULinkRetireSource(p, mapQDepth, stidWidth, peIdWidth)))
   val clear = Input(Bool())
   val flush = Input(new FlushBus(p.robEntries, stidWidth = stidWidth))
   val cleanBlockValid = Input(Bool())
@@ -38,7 +39,7 @@ class TULinkRetireCommandPathIO(
   val sourceQueueEmpty = Output(Bool())
   val sourceDequeued = Output(Bool())
 
-  val command = Output(new TULinkRetireCommand(mapQDepth))
+  val command = Output(new TULinkRetireCommand(mapQDepth, peIdWidth, stidWidth))
   val commandFire = Output(Bool())
   val unsupportedDst = Output(Bool())
   val preReleaseT = Output(Bool())
@@ -71,6 +72,7 @@ class TULinkRetireCommandPath(
     val sourceQueueDepth: Int = 8,
     val cmapDepth: Int = 8,
     val releaseThreshold: Int = 4,
+    val peIdWidth: Int = 8,
     val stidWidth: Int = 8)
     extends Module {
   require(sourceWidth > 0, "retire source width must be positive")
@@ -89,11 +91,12 @@ class TULinkRetireCommandPath(
     mapQDepth = mapQDepth,
     sourceQueueDepth = sourceQueueDepth,
     cmapDepth = cmapDepth,
+    peIdWidth = peIdWidth,
     stidWidth = stidWidth
   ))
 
   private def zeroSource: TULinkRetireSource =
-    0.U.asTypeOf(new TULinkRetireSource(p, mapQDepth, stidWidth))
+    0.U.asTypeOf(new TULinkRetireSource(p, mapQDepth, stidWidth, peIdWidth))
 
   private def addPtr(ptr: UInt, amount: UInt): UInt = {
     val sum = ptr +& amount
@@ -105,7 +108,7 @@ class TULinkRetireCommandPath(
     Mux(nextCount === sourceQueueDepth.U, 0.U(ptrWidth.W), nextCount(ptrWidth - 1, 0))
 
   private def zeroCommand: TULinkRetireCommand =
-    0.U.asTypeOf(new TULinkRetireCommand(mapQDepth))
+    0.U.asTypeOf(new TULinkRetireCommand(mapQDepth, peIdWidth, stidWidth))
 
   private def zeroRobId: ROBID =
     0.U.asTypeOf(new ROBID(p.robEntries))
@@ -148,10 +151,11 @@ class TULinkRetireCommandPath(
     mapQDepth = mapQDepth,
     cmapDepth = cmapDepth,
     releaseThreshold = releaseThreshold,
+    peIdWidth = peIdWidth,
     stidWidth = stidWidth
   ))
 
-  val relationInput = Wire(new TULinkRetireSource(p, mapQDepth, stidWidth))
+  val relationInput = Wire(new TULinkRetireSource(p, mapQDepth, stidWidth, peIdWidth))
   relationInput := Mux(queueNonEmpty, sourceQueue(head), zeroSource)
   relationInput.valid :=
     queueNonEmpty && !io.clear && !externalCleanupActive && !autoCleanBlockPending && !localBlockCommitPending
@@ -197,7 +201,7 @@ class TULinkRetireCommandPath(
     sourcePruneVec(offset) := sourceCleanVec(offset) || (sourceFlushVec(offset) && newerFlush)
   }
 
-  val sourceCompacted = Wire(Vec(sourceQueueDepth, new TULinkRetireSource(p, mapQDepth, stidWidth)))
+  val sourceCompacted = Wire(Vec(sourceQueueDepth, new TULinkRetireSource(p, mapQDepth, stidWidth, peIdWidth)))
   sourceCompacted := VecInit(Seq.fill(sourceQueueDepth)(zeroSource))
   val sourceKeepVec = Wire(Vec(sourceQueueDepth, Bool()))
   for (offset <- 0 until sourceQueueDepth) {

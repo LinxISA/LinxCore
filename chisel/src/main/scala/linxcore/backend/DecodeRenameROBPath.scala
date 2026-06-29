@@ -211,7 +211,7 @@ class DecodeRenameROBPathIO(
 
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
-  val robDeallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(p, mapQDepth, stidWidth)))
+  val robDeallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(p, mapQDepth, stidWidth, peIdWidth)))
   val robDeallocBlockLastValid = Output(Bool())
   val robDeallocBlockLastBid = Output(new ROBID(p.robEntries))
   val robDeallocBlockLastGid = Output(new ROBID(p.robEntries))
@@ -230,6 +230,8 @@ class DecodeRenameROBPathIO(
   val tuRetireCommandKind = Output(DestinationKind())
   val tuRetireCommandSeq = Output(new ROBID(mapQDepth))
   val tuRetireCommandDealloc = Output(Bool())
+  val tuRetireCommandPeId = Output(UInt(peIdWidth.W))
+  val tuRetireCommandStid = Output(UInt(stidWidth.W))
   val tuRetireCommandFire = Output(Bool())
   val tuRetireAutoCleanBlockPending = Output(Bool())
   val tuRetireAutoCleanBlockValid = Output(Bool())
@@ -262,6 +264,9 @@ class DecodeRenameROBPathIO(
   val tuRetireMiss = Output(Bool())
   val tuRetireReleaseMismatch = Output(Bool())
   val tuRetireUnsupported = Output(Bool())
+  val tuRetirePeInRange = Output(Bool())
+  val tuRetireStidInRange = Output(Bool())
+  val tuRetireBankValid = Output(Bool())
 
   val flushApplied = Output(Bool())
   val robTULinkSource = Output(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
@@ -454,6 +459,7 @@ class DecodeRenameROBPath(
     sourceQueueDepth = tuRetireSourceQueueDepth,
     cmapDepth = tuRetireRelationCmapDepth,
     releaseThreshold = tuRetireReleaseThreshold,
+    peIdWidth = peIdWidth,
     stidWidth = stidWidth
   ))
   val storeDispatch = Module(new StoreDispatchSTQPath(
@@ -554,6 +560,8 @@ class DecodeRenameROBPath(
   rename.io.tuRetireKind := tuRetirePath.io.command.kind
   rename.io.tuRetireSeq := tuRetirePath.io.command.seq
   rename.io.tuRetireDealloc := tuRetirePath.io.command.dealloc
+  rename.io.tuRetirePeId := tuRetirePath.io.command.peId
+  rename.io.tuRetireStid := tuRetirePath.io.command.stid
   rename.io.tuLocalBlockCommitValid := tuRetirePath.io.localBlockCommitValid
   rename.io.tuLocalBlockCommitBid := tuRetirePath.io.localBlockCommitBid
   rename.io.tuLocalBlockCommitStid := tuRetirePath.io.localBlockCommitStid
@@ -712,6 +720,8 @@ class DecodeRenameROBPath(
   io.tuRetireCommandKind := tuRetirePath.io.command.kind
   io.tuRetireCommandSeq := tuRetirePath.io.command.seq
   io.tuRetireCommandDealloc := tuRetirePath.io.command.dealloc
+  io.tuRetireCommandPeId := tuRetirePath.io.command.peId
+  io.tuRetireCommandStid := tuRetirePath.io.command.stid
   io.tuRetireCommandFire := tuRetirePath.io.commandFire
   io.tuRetireAutoCleanBlockPending := tuRetirePath.io.autoCleanBlockPending
   io.tuRetireAutoCleanBlockValid := tuRetirePath.io.autoCleanBlockValid
@@ -744,6 +754,9 @@ class DecodeRenameROBPath(
   io.tuRetireMiss := rename.io.tuRetireMiss
   io.tuRetireReleaseMismatch := rename.io.tuRetireReleaseMismatch
   io.tuRetireUnsupported := rename.io.tuRetireUnsupported
+  io.tuRetirePeInRange := rename.io.tuRetirePeInRange
+  io.tuRetireStidInRange := rename.io.tuRetireStidInRange
+  io.tuRetireBankValid := rename.io.tuRetireBankValid
   io.flushApplied := allocator.io.flushApplied
   io.robTULinkSource := allocator.io.robTULinkSource
   io.robTULinkSourceMatched := allocator.io.robTULinkSourceMatched

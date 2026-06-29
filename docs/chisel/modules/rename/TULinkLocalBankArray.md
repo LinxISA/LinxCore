@@ -28,19 +28,24 @@ not yet publish a dynamic scalar PE/STID routing surface. R73 begins replacing
 that constant selection by routing the bridge's active STID from the queued
 decoded row's thread/STID sidecar, while PE remains the reduced PE0 lane. The
 important progress is that the hardware hierarchy now matches the model shape:
-rename/retire/external commit are routed to one active bank group, recovery
-cleanup is broadcast to every bank group, and post-clean local block commit is
-accepted only through the selected-STID/all-PE fanout.
+rename/external commit are routed to one active bank group, recovery cleanup is
+broadcast to every bank group, and post-clean local block commit is accepted
+only through the selected-STID/all-PE fanout.
+R74 separates local retire routing from active rename routing. Relation-cmap
+mark/release commands now carry their own retired-row PE/STID and target that
+bank group even when the current rename head selects a different bank.
 
 ## Interface
 
 Inputs:
 
 - `activePeId`, `activeStid`: selected bank group for the current reduced
-  rename, retire, and external commit traffic.
+  rename and external commit traffic.
 - `in`, `renameValid`: decoded-uop payload for the active bank group.
 - `retireValid`, `retireKind`, `retireSeq`, `retireDealloc`: relation-cmap
-  retire command routed to the active bank group.
+  retire command.
+- `retirePeId`, `retireStid`: retired-row bank selector carried by the retire
+  command.
 - `commitValid`, `commitBid`: external local block-commit command routed to
   the active bank group for backward-compatible reduced tests.
 - `localBlockCommitValid`, `localBlockCommitBid`, `localBlockCommitStid`:
@@ -57,6 +62,8 @@ Outputs:
   mapQ masks.
 - `activePeInRange`, `activeStidInRange`, `activeBankValid`, `activePeOH`,
   `activeStidOH`: active-bank decode diagnostics.
+- `retirePeInRange`, `retireStidInRange`, `retireBankValid`, `retirePeOH`,
+  `retireStidOH`: retire-command bank decode diagnostics.
 - `localBlockCommitReady`, `localBlockCommitAccepted`: upstream handshake for
   the post-clean local block-commit event.
 - `localBlockCommitFanout*`: selected-STID fanout diagnostics from
@@ -80,10 +87,11 @@ The active-bank predicate is:
 peMatches(pe) && stidMatches(stid)
 ```
 
-Only that active bank receives current reduced rename, retire, and external
-commit valid pulses. All bank groups receive the same recovery cleanup intent
-and ROB/LSU source candidates, matching `SPERename::Flush`, which iterates
-every PE, STID, and SGPR hand.
+Only that active bank receives current reduced rename and external commit valid
+pulses. R74 changes retire: only the bank selected by
+`retirePeId/retireStid` receives relation-cmap mark/release commands. All bank
+groups receive the same recovery cleanup intent and ROB/LSU source candidates,
+matching `SPERename::Flush`, which iterates every PE, STID, and SGPR hand.
 
 Post-clean local block commit is not routed through the active-bank predicate.
 It goes through `TULinkLocalBlockCommitFanout`. The fanout selects the event
@@ -126,15 +134,15 @@ The model scopes operations as follows:
 
 R72 preserves those scopes structurally. R73 wires the first dynamic selector
 source by using the reduced backend row's STID for active-bank selection.
-Dynamic PE routing and retire-command PE/STID payloads remain deferred, but the
-bank-array boundary now exists for those later owners to target.
+R74 wires the retire selector separately, matching the model split between
+`Rename()`'s active row lookup and `RepLocalRetired()`'s retired-row bank
+arguments. Dynamic PE production remains deferred, but the bank-array boundary
+now has independent active and retire target surfaces.
 
 ## Deferred Owners
 
 - Decode/rename dynamic PE routing into `activePeId`; the current reduced
   backend still selects PE0.
-- Retire-command payloads that carry PE/STID and route release commands to the
-  exact retired row's bank group instead of the reduced active bank.
 - Per-bank ROB/LSU cleanup source vectors once ROB/STQ expose multiple PE/STID
   candidates in one cycle.
 - Ready-table initialization and wakeup ownership per T/U bank group.
@@ -166,7 +174,8 @@ python3 tools/chisel/trace_schema_adapter.py --self-test
 bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
 ```
 
-The R72/R73 tests cover active PE/STID selection shape, selected-STID all-PE
+The R72/R73/R74 tests cover active PE/STID selection shape, retire PE/STID
+selection independent from active rename selection, selected-STID all-PE
 block-commit readiness, bridge/backend active-STID selector plumbing, IO
 widths, and elaboration through the bank array, recovery cleanup path, fanout,
 and T/U rename child hierarchy.

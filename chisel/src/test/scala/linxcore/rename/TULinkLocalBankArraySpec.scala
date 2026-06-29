@@ -44,6 +44,18 @@ class TULinkLocalBankArraySpec extends AnyFunSuite {
     assert(outOfRange.stidOH == 0x1)
   }
 
+  test("reference keeps retire PE/STID selection independent from active rename selection") {
+    val active = select(activePe = 0, activeStid = 0, peCount = 2, stidCount = 2)
+    val retire = select(activePe = 1, activeStid = 1, peCount = 2, stidCount = 2)
+
+    assert(active.activeBankValid)
+    assert(retire.activeBankValid)
+    assert(active.peOH == 0x1)
+    assert(active.stidOH == 0x1)
+    assert(retire.peOH == 0x2)
+    assert(retire.stidOH == 0x2)
+  }
+
   test("reference keeps selected-STID local block commit atomic across every PE bank") {
     val result = TULinkLocalBlockCommitFanoutReference.fanout(
       valid = true,
@@ -91,6 +103,13 @@ class TULinkLocalBankArraySpec extends AnyFunSuite {
     assert(io.activeStid.getWidth == 2)
     assert(io.activePeOH.getWidth == 2)
     assert(io.activeStidOH.getWidth == 3)
+    assert(io.retirePeId.getWidth == 2)
+    assert(io.retireStid.getWidth == 2)
+    assert(io.retirePeInRange.getWidth == 1)
+    assert(io.retireStidInRange.getWidth == 1)
+    assert(io.retireBankValid.getWidth == 1)
+    assert(io.retirePeOH.getWidth == 2)
+    assert(io.retireStidOH.getWidth == 3)
     assert(io.localBlockCommitFanoutTargetPeMask.getWidth == 2)
     assert(io.localBlockCommitFanoutReadyPeMask.getWidth == 2)
     assert(io.localBlockCommitBlockedByBankReady.getWidth == 1)
@@ -119,6 +138,9 @@ class TULinkLocalBankArraySpec extends AnyFunSuite {
     assert(sv.contains("module TULinkLocalBlockCommitFanout"))
     assert(sv.contains("io_activePeOH"))
     assert(sv.contains("io_activeStidOH"))
+    assert(sv.contains("io_retirePeId"))
+    assert(sv.contains("io_retireStid"))
+    assert(sv.contains("io_retireBankValid"))
     assert(sv.contains("io_bankTUsedEntries_1_1"))
     assert(sv.contains("io_localBlockCommitFanoutBlockedByBankReady"))
   }

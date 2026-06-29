@@ -42,13 +42,16 @@ this module keeps the event pending until the local-register owner accepts it.
 R70 carries the selected STID from the accepted block-last source through that
 post-clean event. The reduced consumer still owns only one local STID, but the
 event is now explicit enough for later multi-STID and PE fanout.
+R74 carries the retired row's PE/STID through the source FIFO, relation-cmap
+entry, and serialized retire command so local mark/release commands can route
+to the deallocated row's bank independently of the rename-head active bank.
 
 ## Interface
 
 Inputs:
 
 - `sources`: `Vec(sourceWidth, TULinkRetireSource)` from the ROB deallocation
-  window. Valid elements carry native `bid/gid/rid`, `stid`, row-owned
+  window. Valid elements carry native `bid/gid/rid`, `peId/stid`, row-owned
   `tSeq/uSeq`, `isLast`, and T/U destination ownership.
 - `clear`: local hard reset for the source queue and relation-cmap state. The
   reduced backend currently ties this low and uses `flush` for recovery
@@ -74,7 +77,8 @@ Outputs:
   `sourceQueueFull`, `sourceQueueEmpty`, `sourceDequeued`: serializer
   observability.
 - `command`, `commandFire`: serialized mark-retired or deallocation command
-  for `TULinkRename`.
+  for `TULinkRename`. The command includes `peId/stid` sidecars copied from
+  the retired row or resident relation entry selected by `TULinkRelationCmap`.
 - `unsupportedDst`, `preRelease*`, `pressureRelease*`, `pending*`,
   `tCount/uCount`: forwarded relation-cmap diagnostics.
 - `cleanupActive`, `sourcePruneCount`, `relationPruneTCount`,
@@ -92,7 +96,8 @@ Outputs:
 
 ## State
 
-- Source FIFO: stores accepted `TULinkRetireSource` rows in ROB slot order.
+- Source FIFO: stores accepted `TULinkRetireSource` rows in ROB slot order,
+  including row-owned PE/STID bank identity.
 - Head, tail, and count registers for the source FIFO.
 - Embedded `TULinkRelationCmap` state for T and U relation entries and
   pending mark/release commands.
@@ -118,6 +123,9 @@ can still force relation-cmap drain.
 The FIFO presents one head row to `TULinkRelationCmap`. The head row is
 removed only when relation-cmap reports `inAccepted`, so rows cannot be lost
 while older relation releases or pending mark commands block acceptance.
+The FIFO and embedded relation-cmap preserve `peId/stid` through this
+width-to-one conversion. No command may reconstruct bank identity from the
+currently selected rename row.
 
 `commandReady` is tied to actual rename acceptance in the integrated path.
 This keeps flush and commit priority inside `TULinkRename`: if rename rejects
@@ -183,19 +191,23 @@ acceptance coupling to `TULinkRename`. The detailed relation policy remains in
 enter relation-cmap, the scalar block-clean scheduler drives the post-drain
 `CleanCMAP` pulse, the local block-commit event preserves the next model
 ordering point, and the local mapQ mutation remains in `TULinkRename`.
+R74 also preserves the model's retire-bank arguments:
+`ReleaseRelative()` derives the retired row's PE/STID, `ReleaseFunc()` records
+`RelateInfo.peid`, and later `ReportRetired(..., isDealloc=true)` must use
+that stored relation entry identity.
 
 ## Deferred Owners
 
 - External live block/group commit event wiring for non-scalar
   `cleanBlock*` and `cleanGroup*`; scalar block-last auto clean is now local.
-- Multi-PE/multi-STID SGPR local-register fanout beyond the reduced single
-  live T/U bank that now consumes `localBlockCommit*`.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - Less conservative source FIFO credit that can accept partial windows with an
   explicit ROB credit contract.
 - Predicate, vector, SIMT, tile, per-PE, and per-STID relation maps.
 - Full-width T/U rename maintenance ports.
+- Dynamic scalar PE owner carry into ROB allocation; the reduced path still
+  allocates PE0 even though the retire sidecar is now structurally present.
 
 ## Verification
 
@@ -219,4 +231,5 @@ The tests cover slot-order serialization, conservative full-window credit,
 no-destination block-last row preservation, source FIFO cleanup before
 relation-cmap consumption, auto block-clean timing after relation commands
 drain, local block-commit STID carry and backpressure after auto clean, and
-elaboration through the embedded `TULinkRelationCmap`.
+retired-row PE/STID preservation from source rows through relation commands,
+and elaboration through the embedded `TULinkRelationCmap`.

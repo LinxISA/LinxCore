@@ -27,7 +27,7 @@ BROB metadata, and drives the ROB row's native `allocBid` sidecar from the same
 allocation event.
 
 It also forwards the allocation-time T/U cleanup source sidecars into
-`ROBEntryBank`: native `gid`, `stid`, row-owned `tSeq/uSeq`, the T/U
+`ROBEntryBank`: native `gid`, `peId/stid`, row-owned `tSeq/uSeq`, the T/U
 destination class, and `isLast`. This keeps ROB source and retire-source
 publication in the row owner while
 `ScalarTURenameBridge` supplies the live T/U rename snapshots in the reduced
@@ -58,7 +58,7 @@ dispatch agents consume a real block owner.
 | input | `allocTSeq` / `allocUSeq` | `ROBID(mapQDepth)` | with `allocValid` | ROB row T/U cleanup source sequence sidecars |
 | input | `allocTUDstValid` / `allocTUDstKind` | mixed | with `allocValid` | ROB row T/U destination ownership sidecar |
 | input | `allocIsLast` | `Bool` | with `allocValid` | Native block-last sidecar forwarded to relation-cmap retire-source publication |
-| input | `allocPeId` | `UInt` | with `allocValid` | BROB PE owner metadata |
+| input | `allocPeId` | `UInt` | with `allocValid` | BROB PE owner metadata and ROB retired-row bank sidecar |
 | input | `allocBlockType` | `UInt` | with `allocValid` | Reduced block type metadata |
 | input | `allocNeedsEngine` | `Bool` | with `allocValid` | BROB completion predicate metadata |
 | output | `allocBlockBid` | `UInt(64.W)` by default | diagnostic | Full generated hardware BID for the next accepted allocation |
@@ -100,13 +100,16 @@ bit as `wrap` through `FullBidRecoveryBridge.fullBidToRobId`. That sidecar
 feeds `ROBEntryBank.allocBid`; RID remains allocated locally by `ROBEntryBank`
 from its allocation pointer.
 
-The T/U cleanup source sidecars are forwarded unmodified to `ROBEntryBank`.
+The T/U cleanup and retire-source sidecars are forwarded unmodified to
+`ROBEntryBank`.
 `DecodeRenameROBPath` drives these fields from `ScalarTURenameBridge`, using
 the `SPERename`-equivalent `tSeq/uSeq` snapshot captured before T/U
 destination rename plus the accepted T/U destination ownership sidecar. It also
-drives `allocGid` and `allocIsLast` from the queued decoded row's native
-group/block-end metadata so ROB deallocation can publish relation-cmap retire
-sources without depending on commit-trace identity fields.
+drives `allocGid`, `allocPeId`, and `allocIsLast` from the queued decoded
+row/reduced owner metadata so ROB deallocation can publish relation-cmap retire
+sources without depending on commit-trace identity fields. In the current
+reduced path, `allocPeId` remains PE0, but it is still stored as row-owned
+metadata for later non-zero PE routing.
 
 `CommitTraceRow.identity` is not synthesized here. It remains the model commit
 trace and duplicate-detection identity supplied by the eventual decode/dispatch
@@ -124,7 +127,8 @@ ROB row flushes are forwarded to `ROBEntryBank`; the resulting
 `robTULinkSource*` outputs feed the live T/U cleanup selector composition.
 `deallocTURetireSource` is forwarded from `ROBEntryBank` into
 `DecodeRenameROBPath`, where `TULinkRetireCommandPath` serializes it into the
-live T/U rename retire port. `deallocBlockLast*` is also forwarded as the
+live T/U rename retire port while preserving the row's PE/STID bank identity.
+`deallocBlockLast*` is also forwarded as the
 future `CleanCMAP` scheduling source, but this allocator does not issue the
 cleanup command because relation-cmap retire serialization must finish first.
 BROB flush remains an explicit full-BID input

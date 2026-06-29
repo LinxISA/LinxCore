@@ -132,6 +132,14 @@ fetched again on 2026-06-29 and local `HEAD` still matched `origin/main` at
 `SPERename::Rename`, `SPERename::RepLocalRetired`,
 `SPERename::ReportSGPRBlockCommit`, `SPEROB::ReleaseFunc`, and
 `SPEROB::CheckReg`.
+R74 started from `rtl/LinxCore` commit
+`d3c4c9385461206990792723c523512037a3b0e7`, with unrelated architecture
+markdown files dirty in the LinxCore worktree. The superproject root was at
+`88b67ea1e08b34c522b6b49372d10605e9d4c9ff` before edits. LinxCoreModel was
+fetched again on 2026-06-29 and local `HEAD` still matched `origin/main` at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`. The model evidence for R74 was
+`SPERename::ReportSGPRBlockCommit`, `SPERename::RepLocalRetired`,
+`SPEROB::ReleaseFunc`, `SPEROB::CheckReg`, and `RelateInfo::peid`.
 
 ## Non-Negotiable Rules
 
@@ -291,6 +299,7 @@ These packets remain the required base before broad module promotion:
 | R71 | Selected-STID local block-commit fanout boundary | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkLocalBlockCommitFanout`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R72 | Explicit SGPR local bank-array hierarchy | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkLocalBlockCommitFanout`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 | R73 | Active SGPR bank selector plumbing | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
+| R74 | Retired-row PE/STID sidecars for T/U retire commands | `sbt --client --error 'Test / compile'`, `run_chisel_tests.sh --only InterfaceBundles`, `run_chisel_tests.sh --only TULinkRelationCmap`, `run_chisel_tests.sh --only TULinkRetireCommandPath`, `run_chisel_tests.sh --only TULinkLocalBankArray`, `run_chisel_tests.sh --only ScalarTURenameBridge`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only TULinkRecoveryCleanupPath`, `run_chisel_tests.sh --only TULinkRename`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -360,8 +369,12 @@ Update skills only for:
 - an all-selected-PE local block-commit fanout rule where downstream bank valid
   must pulse only when every selected PE bank for the event STID is ready.
 - an active-bank selector rule where decoded-row STID can drive the SGPR
-  bank-array selector, but retire-command PE/STID routing must not be claimed
-  complete until retire commands carry their own source sidecars.
+  bank-array selector for rename/external reduced maintenance without becoming
+  the implicit selector for retired-row release commands.
+- a retired-row bank sidecar rule where `TULinkRetireSource`,
+  `TULinkRelationCmap`, and `TULinkRetireCommand` must carry PE/STID from the
+  deallocated ROB row or relation entry so T/U mark/release commands route
+  independently of the active rename-head selector.
 
 Run skill evolution as a trailing maintenance lane after the module docs and
 evidence are updated. The module packet owns local Markdown first; the
@@ -421,17 +434,19 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add retire-command PE/STID sidecars: carry the retired row's PE/STID through
-   `TULinkRetireCommandPath` and route local mark/release commands to the exact
-   `TULinkLocalBankArray` bank independently of the rename-head selector.
+1. Add dynamic scalar PE ownership: carry the decoded/model `peID` owner
+   through frontend/decode, queue, rename, ROB allocation, and STQ request
+   sidecars instead of keeping the reduced lane fixed at PE0.
 2. Enqueue-time ROB reservation: move BROB/ROB allocation before
    `DecodeRenameQueue` enqueue once allocator reservation cursors can advance
    without duplicate identities.
-3. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
+3. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+   enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
+4. Live commit trace schema: define the first full-core `LC-IF-CHISEL-XCHK-*`
    bundle covering commit, trap, memory, recovery, and block sidebands.
-4. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
+5. QEMU full-compare harness: replace reduced synthetic rows with live Chisel
    commit rows once the top can retire a direct-boot smoke.
-5. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

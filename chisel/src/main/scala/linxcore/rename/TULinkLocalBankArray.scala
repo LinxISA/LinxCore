@@ -31,6 +31,8 @@ class TULinkLocalBankArrayIO(
   val retireKind = Input(DestinationKind())
   val retireSeq = Input(new ROBID(mapQDepth))
   val retireDealloc = Input(Bool())
+  val retirePeId = Input(UInt(peIdWidth.W))
+  val retireStid = Input(UInt(stidWidth.W))
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(p.robEntries))
   val localBlockCommitValid = Input(Bool())
@@ -60,6 +62,11 @@ class TULinkLocalBankArrayIO(
   val retireMiss = Output(Bool())
   val retireReleaseMismatch = Output(Bool())
   val retireUnsupported = Output(Bool())
+  val retirePeInRange = Output(Bool())
+  val retireStidInRange = Output(Bool())
+  val retireBankValid = Output(Bool())
+  val retirePeOH = Output(UInt(peCount.W))
+  val retireStidOH = Output(UInt(stidCount.W))
   val commitAccepted = Output(Bool())
   val localBlockCommitReady = Output(Bool())
   val localBlockCommitAccepted = Output(Bool())
@@ -172,6 +179,11 @@ class TULinkLocalBankArray(
   val activePeInRange = peMatches.asUInt.orR
   val activeStidInRange = stidMatches.asUInt.orR
   val activeBankValid = activePeInRange && activeStidInRange
+  val retirePeMatches = VecInit((0 until peCount).map(pe => io.retirePeId === pe.U(peIdWidth.W)))
+  val retireStidMatches = VecInit((0 until stidCount).map(stid => io.retireStid === stid.U(stidWidth.W)))
+  val retirePeInRange = retirePeMatches.asUInt.orR
+  val retireStidInRange = retireStidMatches.asUInt.orR
+  val retireBankValid = retirePeInRange && retireStidInRange
 
   val banks = Seq.tabulate(peCount, stidCount) { (pe, stid) =>
     Module(new TULinkRecoveryCleanupPath(
@@ -201,11 +213,12 @@ class TULinkLocalBankArray(
   for (pe <- 0 until peCount) {
     for (stid <- 0 until stidCount) {
       val selected = peMatches(pe) && stidMatches(stid)
+      val retireSelected = retirePeMatches(pe) && retireStidMatches(stid)
       val bank = banks(pe)(stid)
 
       bank.io.in := io.in
       bank.io.renameValid := io.renameValid && selected
-      bank.io.retireValid := io.retireValid && selected
+      bank.io.retireValid := io.retireValid && retireSelected
       bank.io.retireKind := io.retireKind
       bank.io.retireSeq := io.retireSeq
       bank.io.retireDealloc := io.retireDealloc
@@ -313,10 +326,6 @@ class TULinkLocalBankArray(
         selectedBlockedByUAlloc := bank.io.blockedByUAlloc
         selectedSourceUnderflowMask := bank.io.sourceUnderflowMask
         selectedBlockedByMaintenance := bank.io.blockedByMaintenance
-        selectedRetireAccepted := bank.io.retireAccepted
-        selectedRetireMiss := bank.io.retireMiss
-        selectedRetireReleaseMismatch := bank.io.retireReleaseMismatch
-        selectedRetireUnsupported := bank.io.retireUnsupported
         selectedCommitAccepted := bank.io.commitAccepted
         selectedFlushApplied := bank.io.flushApplied
         selectedTAllocPhysTag := bank.io.tAllocPhysTag
@@ -358,6 +367,13 @@ class TULinkLocalBankArray(
         selectedFlushTPrevApplied := bank.io.flushTPrevApplied
         selectedFlushUPrevApplied := bank.io.flushUPrevApplied
       }
+      when(retirePeMatches(pe) && retireStidMatches(stid)) {
+        val bank = banks(pe)(stid)
+        selectedRetireAccepted := bank.io.retireAccepted
+        selectedRetireMiss := bank.io.retireMiss
+        selectedRetireReleaseMismatch := bank.io.retireReleaseMismatch
+        selectedRetireUnsupported := bank.io.retireUnsupported
+      }
     }
   }
 
@@ -380,6 +396,11 @@ class TULinkLocalBankArray(
   io.retireMiss := selectedRetireMiss
   io.retireReleaseMismatch := selectedRetireReleaseMismatch
   io.retireUnsupported := selectedRetireUnsupported
+  io.retirePeInRange := retirePeInRange
+  io.retireStidInRange := retireStidInRange
+  io.retireBankValid := retireBankValid
+  io.retirePeOH := retirePeMatches.asUInt
+  io.retireStidOH := retireStidMatches.asUInt
   io.commitAccepted := selectedCommitAccepted
   io.localBlockCommitReady := fanout.io.ready
   io.localBlockCommitAccepted := fanout.io.accepted

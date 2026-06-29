@@ -9,22 +9,27 @@ import linxcore.rob.ROBID
 
 class TULinkRelationCmapEntry(
     val p: InterfaceParams = InterfaceParams(),
-    val mapQDepth: Int = 32)
+    val mapQDepth: Int = 32,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8)
     extends Bundle {
   val bid = new ROBID(p.robEntries)
   val gid = new ROBID(p.robEntries)
   val seq = new ROBID(mapQDepth)
+  val peId = UInt(peIdWidth.W)
+  val stid = UInt(stidWidth.W)
 }
 
 class TULinkRelationCmapIO(
     val p: InterfaceParams = InterfaceParams(),
     val mapQDepth: Int = 32,
     val cmapDepth: Int = 8,
+    val peIdWidth: Int = 8,
     val stidWidth: Int = 8)
     extends Bundle {
   private val countWidth = log2Ceil(cmapDepth + 1)
 
-  val in = Input(new TULinkRetireSource(p, mapQDepth, stidWidth))
+  val in = Input(new TULinkRetireSource(p, mapQDepth, stidWidth, peIdWidth))
   val clear = Input(Bool())
   val flush = Input(new FlushBus(p.robEntries, stidWidth = stidWidth))
   val cleanBlockValid = Input(Bool())
@@ -36,7 +41,7 @@ class TULinkRelationCmapIO(
 
   val inReady = Output(Bool())
   val inAccepted = Output(Bool())
-  val command = Output(new TULinkRetireCommand(mapQDepth))
+  val command = Output(new TULinkRetireCommand(mapQDepth, peIdWidth, stidWidth))
   val commandFire = Output(Bool())
 
   val unsupportedDst = Output(Bool())
@@ -59,6 +64,7 @@ class TULinkRelationCmap(
     val mapQDepth: Int = 32,
     val cmapDepth: Int = 8,
     val releaseThreshold: Int = 4,
+    val peIdWidth: Int = 8,
     val stidWidth: Int = 8)
     extends Module {
   require(mapQDepth > 1 && (mapQDepth & (mapQDepth - 1)) == 0, "T/U mapQ depth must be a power of two")
@@ -68,13 +74,13 @@ class TULinkRelationCmap(
   private val ptrWidth = log2Ceil(cmapDepth)
   private val countWidth = log2Ceil(cmapDepth + 1)
 
-  val io = IO(new TULinkRelationCmapIO(p, mapQDepth, cmapDepth, stidWidth))
+  val io = IO(new TULinkRelationCmapIO(p, mapQDepth, cmapDepth, peIdWidth, stidWidth))
 
   private def zeroEntry: TULinkRelationCmapEntry =
-    0.U.asTypeOf(new TULinkRelationCmapEntry(p, mapQDepth))
+    0.U.asTypeOf(new TULinkRelationCmapEntry(p, mapQDepth, peIdWidth, stidWidth))
 
   private def zeroCommand: TULinkRetireCommand =
-    0.U.asTypeOf(new TULinkRetireCommand(mapQDepth))
+    0.U.asTypeOf(new TULinkRetireCommand(mapQDepth, peIdWidth, stidWidth))
 
   private def incPtr(ptr: UInt): UInt =
     Mux(ptr === (cmapDepth - 1).U, 0.U(ptrWidth.W), ptr + 1.U)(ptrWidth - 1, 0)
@@ -113,6 +119,8 @@ class TULinkRelationCmap(
   val pendingMarkValid = RegInit(false.B)
   val pendingMarkKind = RegInit(DestinationKind.None)
   val pendingMarkSeq = RegInit(0.U.asTypeOf(new ROBID(mapQDepth)))
+  val pendingMarkPeId = RegInit(0.U(peIdWidth.W))
+  val pendingMarkStid = RegInit(0.U(stidWidth.W))
   val pendingPostReleaseT = RegInit(false.B)
   val pendingPostReleaseU = RegInit(false.B)
   val cleanupActive = io.flush.req.valid || io.cleanBlockValid || io.cleanGroupValid
@@ -146,7 +154,7 @@ class TULinkRelationCmap(
       head: UInt,
       count: UInt,
       pruneVec: Vec[Bool]): (Vec[TULinkRelationCmapEntry], UInt) = {
-    val nextEntries = Wire(Vec(cmapDepth, new TULinkRelationCmapEntry(p, mapQDepth)))
+    val nextEntries = Wire(Vec(cmapDepth, new TULinkRelationCmapEntry(p, mapQDepth, peIdWidth, stidWidth)))
     nextEntries := VecInit(Seq.fill(cmapDepth)(zeroEntry))
     val keepVec = Wire(Vec(cmapDepth, Bool()))
 
@@ -210,7 +218,7 @@ class TULinkRelationCmap(
   val pressureReleaseU = inDstU && (uCount >= releaseThreshold.U)
   val pendingAny = pendingMarkValid || pendingPostReleaseT || pendingPostReleaseU
 
-  val command = Wire(new TULinkRetireCommand(mapQDepth))
+  val command = Wire(new TULinkRetireCommand(mapQDepth, peIdWidth, stidWidth))
   command := zeroCommand
 
   when(pendingMarkValid) {
@@ -218,16 +226,22 @@ class TULinkRelationCmap(
     command.kind := pendingMarkKind
     command.seq := pendingMarkSeq
     command.dealloc := false.B
+    command.peId := pendingMarkPeId
+    command.stid := pendingMarkStid
   }.elsewhen(pendingPostReleaseT || preReleaseT || capacityReleaseT) {
     command.valid := tNonEmpty
     command.kind := DestinationKind.T
     command.seq := tEntries(tHead).seq
     command.dealloc := true.B
+    command.peId := tEntries(tHead).peId
+    command.stid := tEntries(tHead).stid
   }.elsewhen(pendingPostReleaseU || preReleaseU || capacityReleaseU) {
     command.valid := uNonEmpty
     command.kind := DestinationKind.U
     command.seq := uEntries(uHead).seq
     command.dealloc := true.B
+    command.peId := uEntries(uHead).peId
+    command.stid := uEntries(uHead).stid
   }
 
   val commandFire = command.valid && io.commandReady && !cleanupActive
@@ -252,6 +266,8 @@ class TULinkRelationCmap(
     pendingMarkValid := false.B
     pendingMarkKind := DestinationKind.None
     pendingMarkSeq := 0.U.asTypeOf(new ROBID(mapQDepth))
+    pendingMarkPeId := 0.U
+    pendingMarkStid := 0.U
     pendingPostReleaseT := false.B
     pendingPostReleaseU := false.B
   }.elsewhen(cleanupActive) {
@@ -267,6 +283,8 @@ class TULinkRelationCmap(
       pendingMarkValid := false.B
       pendingMarkKind := DestinationKind.None
       pendingMarkSeq := 0.U.asTypeOf(new ROBID(mapQDepth))
+      pendingMarkPeId := 0.U
+      pendingMarkStid := 0.U
     }
     pendingPostReleaseT := pendingPostReleaseT && (tCompactedCount =/= 0.U)
     pendingPostReleaseU := pendingPostReleaseU && (uCompactedCount =/= 0.U)
@@ -288,28 +306,36 @@ class TULinkRelationCmap(
     }
 
     when(inAccepted && inDstT) {
-      val entry = Wire(new TULinkRelationCmapEntry(p, mapQDepth))
+      val entry = Wire(new TULinkRelationCmapEntry(p, mapQDepth, peIdWidth, stidWidth))
       entry.bid := io.in.bid
       entry.gid := io.in.gid
       entry.seq := io.in.tSeq
+      entry.peId := io.in.peId
+      entry.stid := io.in.stid
       tEntries(tTail) := entry
       tTail := incPtr(tTail)
       tCount := tCount + 1.U
       pendingMarkValid := true.B
       pendingMarkKind := DestinationKind.T
       pendingMarkSeq := io.in.tSeq
+      pendingMarkPeId := io.in.peId
+      pendingMarkStid := io.in.stid
       pendingPostReleaseT := io.in.isLast || pressureReleaseT
     }.elsewhen(inAccepted && inDstU) {
-      val entry = Wire(new TULinkRelationCmapEntry(p, mapQDepth))
+      val entry = Wire(new TULinkRelationCmapEntry(p, mapQDepth, peIdWidth, stidWidth))
       entry.bid := io.in.bid
       entry.gid := io.in.gid
       entry.seq := io.in.uSeq
+      entry.peId := io.in.peId
+      entry.stid := io.in.stid
       uEntries(uTail) := entry
       uTail := incPtr(uTail)
       uCount := uCount + 1.U
       pendingMarkValid := true.B
       pendingMarkKind := DestinationKind.U
       pendingMarkSeq := io.in.uSeq
+      pendingMarkPeId := io.in.peId
+      pendingMarkStid := io.in.stid
       pendingPostReleaseU := io.in.isLast || pressureReleaseU
     }
   }

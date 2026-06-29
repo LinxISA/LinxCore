@@ -15,6 +15,7 @@ object TULinkRetireCommandPathReference {
       last: Boolean = false,
       bid: Int = 1,
       gid: Int = 0,
+      peId: Int = 0,
       stid: Int = 0)
 
   final class SourceQueue(sourceWidth: Int, queueDepth: Int) {
@@ -110,7 +111,9 @@ object TULinkRetireCommandPathReference {
       isLast = source.last,
       dst = source.dst,
       tSeq = ROBIDValue(valid = true, wrap = false, value = source.seq),
-      uSeq = ROBIDValue(valid = true, wrap = false, value = source.seq)
+      uSeq = ROBIDValue(valid = true, wrap = false, value = source.seq),
+      peId = source.peId,
+      stid = source.stid
     )
 }
 
@@ -244,6 +247,18 @@ class TULinkRetireCommandPathSpec extends AnyFunSuite {
       BlockCleanStep(None, Some(BlockCleanEvent(5, 3))))
   }
 
+  test("reference preserves source PE/STID through relation commands") {
+    val relation = new TULinkRelationCmapReference.Model(releaseThreshold = 1)
+
+    assert(relation.accept(toRelationRow(Source(seq = 0, dst = T, peId = 2, stid = 3))) == Seq(
+      Command(T, id(0), dealloc = false, peId = 2, stid = 3)
+    ))
+    assert(relation.accept(toRelationRow(Source(seq = 1, dst = T, peId = 4, stid = 5))) == Seq(
+      Command(T, id(1), dealloc = false, peId = 4, stid = 5),
+      Command(T, id(0), dealloc = true, peId = 2, stid = 3)
+    ))
+  }
+
   test("TULinkRetireCommandPath elaborates as ROB-source serializer plus relation cmap") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val sv = ChiselStage.emitSystemVerilog(
@@ -254,6 +269,7 @@ class TULinkRetireCommandPathSpec extends AnyFunSuite {
         sourceQueueDepth = 8,
         cmapDepth = 8,
         releaseThreshold = 4,
+        peIdWidth = 5,
         stidWidth = 4
       )
     )
@@ -277,6 +293,8 @@ class TULinkRetireCommandPathSpec extends AnyFunSuite {
     assert(sv.contains("io_localBlockCommitFire"))
     assert(sv.contains("io_command_valid"))
     assert(sv.contains("io_command_seq_value"))
+    assert(sv.contains("io_command_peId"))
+    assert(sv.contains("io_command_stid"))
     assert(sv.contains("io_commandFire"))
     assert(DestinationKind.T.asUInt.litValue == 2)
     assert(DestinationKind.U.asUInt.litValue == 3)

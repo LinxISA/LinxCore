@@ -101,7 +101,8 @@ Downstream banks see a one-cycle valid pulse only on the accepted fanout cycle.
 
 ## Deferred Owners
 
-- Dynamic PE/STID routing into the bank array for rename and retire traffic.
+- Dynamic scalar PE ownership and broader multi-STID top integration into the
+  bank array.
 - Per-bank trace and cross-check events for full SGPR local-register release.
 
 ## Verification

@@ -52,6 +52,10 @@ R66 aligns the deallocation walk with `SPEROB::dealloc()` by stopping the
 current deallocation window after the first block-last row. The bank exposes
 that block-last row's native `(bid,gid)` as the future block-clean scheduling
 point, but it does not yet fire `CleanCMAP`.
+R74 adds the row's scalar PE owner to the deallocation T/U retire source. The
+bank stores `allocPeId` next to `allocStid`, then publishes both in
+`deallocTURetireSource` so downstream retire commands can route by retired-row
+bank identity.
 
 `ReducedCommitROB` remains the reduced trace harness. Do not retrofit full
 deallocation or recovery semantics into that module.
@@ -67,6 +71,7 @@ deallocation or recovery semantics into that module.
 | input | `allocRow` | `CommitTraceRow` | with `allocValid` | Commit trace payload stored with the ROB row |
 | input | `allocBid` | `ROBID(entries)` | with `allocValid` | Native backend/BROB BID sidecar stored for recovery comparison |
 | input | `allocGid` | `ROBID(entries)` | with `allocValid` | Native group ID sidecar used by relation-cmap release grouping |
+| input | `allocPeId` | `UInt(peIdWidth.W)` | with `allocValid` | Scalar PE owner sidecar stored for T/U retire-command bank routing |
 | input | `allocStid` | `UInt(stidWidth.W)` | with `allocValid` | Thread/STID sidecar stored for exact T/U cleanup source matching |
 | input | `allocTSeq` / `allocUSeq` | `ROBID(mapQDepth)` | with `allocValid` | Row-owned local T/U sequence snapshots from rename |
 | input | `allocTUDstValid` / `allocTUDstKind` | mixed | with `allocValid` | Whether the row owns a T or U destination that needs previous-sequence adjustment |
@@ -115,6 +120,7 @@ deallocation or recovery semantics into that module.
 - `rowGid`: native group sidecar per slot, sourced from `allocGid`.
 - `rowRid`: native ROB RID sidecar per slot, allocated from `allocValue` and
   `allocWrap`.
+- `rowPeId`: scalar PE owner sidecar per slot, sourced from allocation.
 - `rowStid`: STID sidecar per slot, sourced from allocation.
 - `rowTSeq` / `rowUSeq`: row-owned local T/U mapQ sequence snapshots.
 - `rowTUDstValid` / `rowTUDstKind`: whether the row owns a T/U destination
@@ -148,6 +154,10 @@ them as the selected cleanup source.
 R63 stores native `gid` and `isLast` beside those sidecars because
 `SPEROB::ReleaseRelative` decides relation-cmap drain/release from
 `(bid,gid)` group changes and block-last rows, not from commit-trace identity.
+R74 additionally stores `rowPeId` because `SPEROB::ReleaseRelative` and
+`RelateInfo` preserve the PE owner used later by
+`SPERename::RepLocalRetired`; the reduced path currently supplies PE0, but the
+row image must already carry the sidecar.
 
 Flush has priority over allocation, completion, commit, and deallocation. The
 bank feeds `ROBFlushPrune` with occupied rows, each row's status, and a
@@ -199,7 +209,7 @@ pre-cycle status array.
 
 For every slot that the deallocation walk will free in the current cycle,
 `deallocTURetireSource(slot)` exposes the pre-clear row image:
-`valid`, native `bid/gid/rid`, `stid`, `isLast`, `tSeq/uSeq`, and T/U
+`valid`, native `bid/gid/rid`, `peId/stid`, `isLast`, `tSeq/uSeq`, and T/U
 destination ownership. The output is a vector rather than a collapsed command
 so no row is lost when `commitWidth` deallocates more than one retired row.
 `TULinkRelationCmap` is the downstream policy owner that serializes this
@@ -277,5 +287,5 @@ reuse of the first pruned slot, retired-row
 flush accounting, flush comparison through native row IDs rather than trace
 identity sidebands, exact non-base ROB T/U source publication and source clear
 after flush, deallocation-row T/U retire source publication with native
-`bid/gid/rid`, and Chisel elaboration with monitor plus flush/TU diagnostic
-outputs.
+`bid/gid/rid` plus `peId/stid`, and Chisel elaboration with monitor plus
+flush/TU diagnostic outputs.
