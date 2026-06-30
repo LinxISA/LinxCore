@@ -147,7 +147,18 @@ object FrontendDecodeStageReference {
         imm = Some(sext((bitRange(pfx16, 15, 4) << 20) | bitRange(main, 31, 12), 32))
       case FrontendOpcodeDecodeTable.ImmSIMM_4_S12_31_17 =>
         val pfx16 = bitRange(word, 15, 0)
-        imm = Some(sext((bitRange(pfx16, 15, 4) << 18) | (bitRange(word, 47, 31) << 1), 30))
+        if (opcodeIs(rule,
+          FrontendOpcodeDecodeTable.OP_HL_LB_PCR,
+          FrontendOpcodeDecodeTable.OP_HL_LBU_PCR,
+          FrontendOpcodeDecodeTable.OP_HL_LD_PCR,
+          FrontendOpcodeDecodeTable.OP_HL_LH_PCR,
+          FrontendOpcodeDecodeTable.OP_HL_LHU_PCR,
+          FrontendOpcodeDecodeTable.OP_HL_LW_PCR,
+          FrontendOpcodeDecodeTable.OP_HL_LWU_PCR)) {
+          imm = Some(sext((bitRange(pfx16, 15, 4) << 17) | bitRange(word, 47, 31), 29))
+        } else {
+          imm = Some(sext((bitRange(pfx16, 15, 4) << 18) | (bitRange(word, 47, 31) << 1), 30))
+        }
       case FrontendOpcodeDecodeTable.ImmIMM20 =>
         if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_SETRET)) {
           imm = Some((bitRange(word, 31, 12) << 1) & Mask64)
@@ -170,6 +181,16 @@ object FrontendDecodeStageReference {
     }
     if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_C_LDI)) {
       imm = Some((sext(bitRange(word, 15, 11), 5) << 3) & Mask64)
+    }
+    if (opcodeIs(rule,
+      FrontendOpcodeDecodeTable.OP_LB_PCR,
+      FrontendOpcodeDecodeTable.OP_LBU_PCR,
+      FrontendOpcodeDecodeTable.OP_LD_PCR,
+      FrontendOpcodeDecodeTable.OP_LH_PCR,
+      FrontendOpcodeDecodeTable.OP_LHU_PCR,
+      FrontendOpcodeDecodeTable.OP_LW_PCR,
+      FrontendOpcodeDecodeTable.OP_LWU_PCR)) {
+      imm = Some(sext(bitRange(word, 31, 15), 17))
     }
 
     OperandShape(src.toVector, dst, imm)
@@ -403,6 +424,16 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(hlBstartCall.dst.isEmpty)
     assert(hlBstartCall.src.forall(_.isEmpty))
     assert(hlBstartCall.imm.contains(14))
+
+    val hlLdPcr = operands(BigInt("539432b9000e", 16), lenBytes = 6).get
+    assert(hlLdPcr.dst.contains(5))
+    assert(hlLdPcr.src.forall(_.isEmpty))
+    assert(hlLdPcr.imm.contains(BigInt("a728", 16)))
+
+    val ldPcr = operands(BigInt("012332b9", 16), lenBytes = 4).get
+    assert(ldPcr.dst.contains(5))
+    assert(ldPcr.src.forall(_.isEmpty))
+    assert(ldPcr.imm.contains(0x246))
 
     val hlLui = operands(BigInt("1f97000e", 16), lenBytes = 6).get
     assert(hlLui.dst.contains(31))

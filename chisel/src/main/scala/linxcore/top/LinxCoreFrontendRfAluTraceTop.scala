@@ -162,6 +162,7 @@ class LinxCoreFrontendRfAluTraceTop(
   path.io.completeRow := execute.io.completeRow
   path.io.blockBranchTakenValid := false.B
   path.io.blockBranchTaken := false.B
+  path.io.scalarRedirectValid := false.B
   path.io.deallocReady := io.deallocReady
 
   issue.io.inValid := path.io.renamedOutValid

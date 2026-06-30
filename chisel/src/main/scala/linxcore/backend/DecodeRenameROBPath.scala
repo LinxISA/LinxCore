@@ -71,6 +71,7 @@ class DecodeRenameROBPathIO(
   val completeRow = Input(new CommitTraceRow(traceParams))
   val blockBranchTakenValid = Input(Bool())
   val blockBranchTaken = Input(Bool())
+  val scalarRedirectValid = Input(Bool())
   val deallocReady = Input(Bool())
 
   val decodedValidMask = Output(UInt(p.decodeWidth.W))
@@ -636,6 +637,7 @@ class DecodeRenameROBPath(
   allocator.io.allocNeedsEngine := false.B
   val robBlockLastScalarDoneFire = allocator.io.deallocBlockLastValid
   val markerLifecycleConflict = robBlockLastScalarDoneFire
+  val scalarRedirectClearsActive = io.scalarRedirectValid && activeBlockValid
   val scalarBlockStartFire = allocator.io.allocFire && selectedAny && !activeBlockValid
   val robBlockLastClearsActive =
     robBlockLastScalarDoneFire && activeBlockValid && allocator.io.deallocBlockLastBlockBid === activeBlockBid
@@ -706,6 +708,12 @@ class DecodeRenameROBPath(
   }
 
   when(blockLifecycleFlush) {
+    activeBlockValid := false.B
+    activeBlockBid := 0.U
+    activeBlockTarget := 0.U
+    activeBlockCond := false.B
+    activeBlockUnconditionalRedirect := false.B
+  }.elsewhen(scalarRedirectClearsActive) {
     activeBlockValid := false.B
     activeBlockBid := 0.U
     activeBlockTarget := 0.U

@@ -153,6 +153,7 @@ class LinxCoreFrontendFetchTraceTop(
   path.io.completeRow := 0.U.asTypeOf(new CommitTraceRow(traceParams))
   path.io.blockBranchTakenValid := false.B
   path.io.blockBranchTaken := false.B
+  path.io.scalarRedirectValid := false.B
   path.io.deallocReady := io.deallocReady
 
   io.fetchReqValid := source.io.reqValid

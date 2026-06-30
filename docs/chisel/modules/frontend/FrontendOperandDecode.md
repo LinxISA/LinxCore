@@ -120,6 +120,11 @@ Explicit pyCircuit/model overrides currently cover:
   doubleword offset and must be shifted left by 3 before execute. This
   intentionally overrides the generic `ImmSIMM5_11_S5` path used by ordinary
   compressed signed immediates.
+- R126 PCR load immediate extraction. `LD.PCR` and the 32-bit PCR load family
+  use the unshifted signed 17-bit field `insn[31:15]`, while `HL.*.PCR` load
+  forms use the unshifted signed 29-bit `Cat(pfx16[15:4], main32[31:15])`.
+  `BSTART` forms keep their shifted byte-target immediates, so PCR loads must
+  not reuse the generic shifted `SIMM17` or HL `BSTART` paths.
 
 ## Model Alignment
 
@@ -160,6 +165,9 @@ The `FrontendDecodeStageSpec` reference cases cover:
   (`DestinationKind.T`) and immediate `1`
 - CoreMark `C.LDI` at `0x40005556`, which decodes destination tag `31`,
   source tag `24` (`T0`), and immediate `0xfffffffffffffff0`
+- CoreMark `HL.LD.PCR` at `0x40005700`, which decodes destination `x5` and
+  immediate `0xa728`, while the paired `HL.BSTART` regression still decodes a
+  shifted branch target
 
 ## Open Work
 

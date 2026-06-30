@@ -40,7 +40,7 @@ owners.
 | output | `inReady` | `Bool` | ready | The E stage can capture a new uop. |
 | input | `in` | `RenamedUop` | with `inValid && inReady` | Renamed scalar uop from `DecodeRenameROBPath`. |
 | input | `srcData` | `Vec(3, UInt(64.W))` by default | with accepted uop | Operand values supplied by the reduced top harness. |
-| input | `loadLookupData` | `UInt(64.W)` by default | combinational with E-stage load lookup | Read-only reduced load data returned by the owning top for `OP_C_LDI`/`OP_LDI`. |
+| input | `loadLookupData` | `UInt(64.W)` by default | combinational with E-stage load lookup | Read-only reduced load data returned by the owning top for reduced load rows including `OP_C_LDI`, `OP_LDI`, `OP_LD_PCR`, and `OP_HL_LD_PCR`. |
 | output | `completeValid` | `Bool` | valid | W2-stage supported uop completed. |
 | output | `completeRobValue` | `UInt(log2Ceil(robEntries).W)` | with `completeValid` | ROB row to complete. |
 | output | `completeRow` | `CommitTraceRow` | with `completeValid` | Commit-trace payload carrying PC, source data, destination data, writeback, ROB ID, and block BID sideband. |
@@ -52,9 +52,11 @@ owners.
 | output | `releaseRid` | `ROBID` | with `releaseValid` | ROB identity copied from the W2 uop. |
 | output | `releaseStid` | `UInt(threadIdWidth.W)` | with `releaseValid` | STID copied from the W2 uop. |
 | output | `branchConditionValid` | `Bool` | with `completeValid` | Reduced conditional-block decision is valid for a completed compare row. |
-| output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ`, `OP_C_SETC_NE`, or `OP_SETC_LTU` decision used by the reduced conditional BSTART owner. |
+| output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ`, `OP_C_SETC_NE`, `OP_SETC_LTU`, and reduced SETC target rows used by the reduced block-control owner. |
 | output | `loadLookupValid` | `Bool` | E-stage valid | The current E-stage uop requests reduced read-only load data. |
 | output | `loadLookupAddr` | `UInt(64.W)` by default | with `loadLookupValid` | Byte address for the reduced read-only load lookup. |
+| output | `redirectValid` | `Bool` | with `completeValid` | Reduced scalar redirect request for `FRET.STK` when a live SETC target is available. |
+| output | `redirectPc` | `UInt(pcWidth.W)` | with `redirectValid` | Return target latched from `C.SETC.TGT` or `SETC.TGT`. |
 | output | `accepted` | `Bool` | pulse | `inValid && inReady`. |
 | output | `busy` | `Bool` | state | Any E/W1/W2 pipe stage is occupied. |
 | output | `unsupported` | `Bool` | pulse | W2 uop reached execute but is outside the reduced opcode subset. |
@@ -131,13 +133,20 @@ The Chisel module implements the first reduced subset:
 | `OP_C_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(0) + (in.imm << 3)` and store data `srcData(1)` |
 | `OP_C_SETC_EQ` | `0`, with branch sideband taken when validity-masked `srcData(0) == srcData(1)` |
 | `OP_C_SETC_NE` | `0`, with branch sideband taken when validity-masked `srcData(0) != srcData(1)` |
+| `OP_C_SETC_TGT` | `0`, latches `srcData(0)` as the reduced dynamic target |
 | `OP_C_SETRET` | `in.pc + in.imm` |
-| `OP_FENTRY` | `srcData(1) - in.imm` for the reduced single-save SP update |
+| `OP_FENTRY` | `srcData(1) - in.imm`; the store address uses the ranged save count to place the first saved register |
+| `OP_FRET_STK` | `0`, no writeback, redirect to the latched SETC target |
 | `OP_HL_LUI` | `in.imm` |
+| `OP_HL_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
+| `OP_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
 | `OP_LDI` | `loadLookupData`, with a reduced 8-byte load sideband at `srcData(0) + (in.imm << 3)` |
+| `OP_SETC_TGT` | `0`, latches `srcData(0)` as the reduced dynamic target |
 | `OP_SETC_LTU` | `0`, with branch sideband taken when unsigned `srcData(0) < srcData(1)` |
+| `OP_ADDW` | sign-extended low-32-bit `srcData(0) + srcData(1)` |
 | `OP_SD` | `0`, with a reduced 8-byte indexed store sideband at `srcData(0) + (srcData(1) << 3)` and store data `srcData(2)` |
 | `OP_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(1) + (in.imm << 3)` and store data `srcData(0)` |
+| `OP_SBI` | `0`, with a reduced 1-byte store sideband at `srcData(1) + in.imm` and store data `srcData(0)` |
 | `OP_SLL` | `srcData(0) << srcData(1)(5, 0)` |
 | `OP_SLLI` | `srcData(0) << in.imm(5, 0)` |
 | `OP_SRL` | `srcData(0) >> srcData(1)(5, 0)` |
@@ -238,6 +247,17 @@ address `SrcR + simm12 * 8`. The reduced execute owner therefore emits a
 no-writeback 8-byte store sideband with `addr = srcData(1) + (uop.imm << 3)`
 and `wdata = srcData(0)`. The current CoreMark row uses a suppressed local T0
 base and visible scalar x5 store data.
+R126 extends the reduced envelope through the first PCR return sequence and
+byte store. `LD.PCR` and `HL.LD.PCR` request load data at `pc + imm`, where
+the frontend has already decoded the unshifted PCR immediate. `C.SETC.TGT` and
+`SETC.TGT` latch a dynamic target from source 0. `FRET.STK` suppresses all
+source/destination/writeback fields in the QEMU-shaped row, emits
+`next_pc = latchedTarget`, requests a scalar frontend redirect, and clears the
+latched target. Ranged `FENTRY` computes the first save address from the saved
+register count instead of assuming one saved register. `ADDW` sign-extends the
+low 32-bit sum, and `SBI` emits a no-writeback 1-byte store using the unscaled
+split immediate and base on source 1. These are still reduced CoreMark-prefix
+contracts, not a general LSU or dynamic-control implementation.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural

@@ -746,7 +746,7 @@ void expect_row(const ObservedRow &observed, const ExpectedRow &expected) {
       observed.src1_valid != expected.src1_valid ||
       observed.dst_valid != expected.dst_valid ||
       observed.wb_valid != expected.dst_valid ||
-      observed.next_pc != expected.pc + expected.len) {
+      observed.next_pc != expected.next_pc) {
     std::cerr << "frontend fetch RF ALU trace top commit row mismatch"
               << " pc=0x" << std::hex << observed.pc
               << " insn=0x" << observed.insn
@@ -1165,7 +1165,10 @@ std::uint8_t drain_dense_row(
       const auto rob_value = static_cast<std::uint8_t>(dut.io_selectedRobValue);
       const auto selected_block_bid = static_cast<std::uint64_t>(dut.io_selectedBlockBid);
       tick(dut);
-      if (!active_block_valid) {
+      if (row_redirects(row)) {
+        active_block_valid = false;
+        active_block_bid = 0;
+      } else if (!active_block_valid) {
         active_block_valid = true;
         active_block_bid = selected_block_bid;
       }
@@ -1183,8 +1186,16 @@ std::uint8_t drain_dense_row(
             << " selectedValid=" << static_cast<unsigned>(dut.io_selectedValid)
             << " markerSkipValid=" << static_cast<unsigned>(dut.io_blockMarkerSkipValid)
             << " markerMixed=" << static_cast<unsigned>(dut.io_blockMarkerMixedPacket)
+            << " markerBoundary=" << static_cast<unsigned>(dut.io_blockMarkerBoundary)
+            << " markerStop=" << static_cast<unsigned>(dut.io_blockMarkerStop)
             << " markerAllocReady=" << static_cast<unsigned>(dut.io_blockMarkerAllocReady)
             << " markerLifecycleConflict=" << static_cast<unsigned>(dut.io_blockMarkerLifecycleConflict)
+            << " markerActiveValid=" << static_cast<unsigned>(dut.io_blockMarkerActiveValid)
+            << " markerActiveBid=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_blockMarkerActiveBid)
+            << " markerActiveTarget=0x"
+            << static_cast<unsigned long long>(dut.io_blockMarkerActiveTarget)
+            << std::dec
             << " blockRetireFire=" << static_cast<unsigned>(dut.io_blockRetireFire)
             << " issueCount=" << static_cast<unsigned>(dut.io_issueQueueCount)
             << " executeBusy=" << static_cast<unsigned>(dut.io_executeBusy)

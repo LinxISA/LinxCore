@@ -98,7 +98,8 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
   val imm20Shifted = fitImm(imm20S << 12)
   val setretImm = fitImm(imm20U << 1)
   val simm12Split = sext(Cat(insn32(11, 7), insn32(31, 25)), 12)
-  val simm17Off = fitImm(sext(insn32(31, 15), 17) << 1)
+  val simm17Raw = sext(insn32(31, 15), 17)
+  val simm17Off = fitImm(simm17Raw << 1)
   val simm25 = sext(insn32(31, 7), 25)
   val simm5_11 = sext(insn16(15, 11), 5)
   val simm5_6 = sext(insn16(10, 6), 5)
@@ -109,6 +110,27 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
     fitImm(insn32(31, 25).pad(p.immWidth) << 3)
   val hlLuiImm = sext(Cat(pfx16(15, 4), main32(31, 12)), 32)
   val hlBstartOff = sext(Cat(pfx16(15, 4), io.insn(47, 31), 0.U(1.W)), 30)
+  val hlPcrOff = sext(Cat(pfx16(15, 4), io.insn(47, 31)), 29)
+
+  private def isLoadPcrOpcode: Bool =
+    opcodeIs(
+      FrontendOpcodeDecodeTable.OP_LB_PCR,
+      FrontendOpcodeDecodeTable.OP_LBU_PCR,
+      FrontendOpcodeDecodeTable.OP_LD_PCR,
+      FrontendOpcodeDecodeTable.OP_LH_PCR,
+      FrontendOpcodeDecodeTable.OP_LHU_PCR,
+      FrontendOpcodeDecodeTable.OP_LW_PCR,
+      FrontendOpcodeDecodeTable.OP_LWU_PCR)
+
+  private def isHlLoadPcrOpcode: Bool =
+    opcodeIs(
+      FrontendOpcodeDecodeTable.OP_HL_LB_PCR,
+      FrontendOpcodeDecodeTable.OP_HL_LBU_PCR,
+      FrontendOpcodeDecodeTable.OP_HL_LD_PCR,
+      FrontendOpcodeDecodeTable.OP_HL_LH_PCR,
+      FrontendOpcodeDecodeTable.OP_HL_LHU_PCR,
+      FrontendOpcodeDecodeTable.OP_HL_LW_PCR,
+      FrontendOpcodeDecodeTable.OP_HL_LWU_PCR)
 
   when(io.active) {
     when(io.meta.rdKind === FrontendOpcodeDecodeTable.OperandREG.U) {
@@ -197,7 +219,11 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       setImm(simm12Split)
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM17.U) {
-      setImm(simm17Off)
+      when(isLoadPcrOpcode) {
+        setImm(simm17Raw)
+      }.otherwise {
+        setImm(simm17Off)
+      }
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM25.U) {
       setImm(simm25)
@@ -221,7 +247,11 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       setImm(hlLuiImm)
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM_4_S12_31_17.U) {
-      setImm(hlBstartOff)
+      when(isHlLoadPcrOpcode) {
+        setImm(hlPcrOff)
+      }.otherwise {
+        setImm(hlBstartOff)
+      }
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmIMM20.U) {
       when(opcodeIs(FrontendOpcodeDecodeTable.OP_SETRET)) {

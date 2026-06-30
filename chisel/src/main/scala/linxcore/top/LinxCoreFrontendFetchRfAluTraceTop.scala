@@ -271,7 +271,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val markerRedirectPcReg = RegInit(0.U(p.pcWidth.W))
   val blockBranchTakenValid = RegInit(false.B)
   val blockBranchTaken = RegInit(false.B)
-  val markerRedirectFire = path.io.blockMarkerStopRedirectValid
+  val markerRedirectFire = path.io.blockMarkerStopRedirectValid || execute.io.redirectValid
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
 
   when(io.frontendFlushValid || io.restartValid || io.startValid) {
@@ -279,7 +279,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     markerRedirectPcReg := 0.U
   }.elsewhen(markerRedirectFire) {
     markerRedirectPending := true.B
-    markerRedirectPcReg := path.io.blockMarkerStopRedirectPc
+    markerRedirectPcReg := Mux(path.io.blockMarkerStopRedirectValid, path.io.blockMarkerStopRedirectPc, execute.io.redirectPc)
   }.elsewhen(markerRedirectPending) {
     markerRedirectPending := false.B
   }
@@ -332,6 +332,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.completeRow := execute.io.completeRow
   path.io.blockBranchTakenValid := blockBranchTakenValid
   path.io.blockBranchTaken := blockBranchTaken
+  path.io.scalarRedirectValid := execute.io.redirectValid
   path.io.deallocReady := io.deallocReady
 
   issue.io.inValid := path.io.renamedOutValid && !localIncomingBlocked

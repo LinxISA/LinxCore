@@ -67,13 +67,15 @@ object DecodeRenameROBPathReference {
   def scalarStartLifecycleStep(
       activeValid: Boolean,
       activeBid: BigInt,
+      scalarRedirectValid: Boolean,
       scalarAllocFire: Boolean,
       scalarAllocBid: BigInt,
       robBlockLastFire: Boolean,
       robBlockLastBid: BigInt): MarkerStep = {
     val clearsActive = robBlockLastFire && activeValid && robBlockLastBid == activeBid
     val nextActive =
-      if (scalarAllocFire && !activeValid) Some(scalarAllocBid)
+      if (scalarRedirectValid && activeValid) None
+      else if (scalarAllocFire && !activeValid) Some(scalarAllocBid)
       else if (clearsActive) None
       else if (activeValid) Some(activeBid)
       else None
@@ -229,6 +231,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     val scalarTarget = scalarStartLifecycleStep(
       activeValid = false,
       activeBid = 0,
+      scalarRedirectValid = false,
       scalarAllocFire = true,
       scalarAllocBid = 12,
       robBlockLastFire = false,
@@ -247,12 +250,36 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     val scalarLast = scalarStartLifecycleStep(
       activeValid = true,
       activeBid = 13,
+      scalarRedirectValid = false,
       scalarAllocFire = false,
       scalarAllocBid = 14,
       robBlockLastFire = true,
       robBlockLastBid = 13)
     assert(scalarLast.doneBid.contains(13))
     assert(!scalarLast.nextActiveValid)
+  }
+
+  test("reference scalar redirect clears marker target state before the return target block") {
+    val redirected = scalarStartLifecycleStep(
+      activeValid = true,
+      activeBid = 15,
+      scalarRedirectValid = true,
+      scalarAllocFire = false,
+      scalarAllocBid = 16,
+      robBlockLastFire = false,
+      robBlockLastBid = 0)
+    assert(!redirected.nextActiveValid)
+    assert(!redirected.doneValid)
+
+    val targetBlock = scalarStartLifecycleStep(
+      activeValid = redirected.nextActiveValid,
+      activeBid = redirected.nextActiveBid.getOrElse(0),
+      scalarRedirectValid = false,
+      scalarAllocFire = true,
+      scalarAllocBid = 16,
+      robBlockLastFire = false,
+      robBlockLastBid = 0)
+    assert(targetBlock.nextActiveBid.contains(16))
   }
 
   test("reference redirects direct active blocks at the next marker boundary without allocation") {
@@ -370,6 +397,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.blockMarkerStopRedirectPc.getWidth == 64)
     assert(io.blockBranchTakenValid.getWidth == 1)
     assert(io.blockBranchTaken.getWidth == 1)
+    assert(io.scalarRedirectValid.getWidth == 1)
     assert(io.decodeReady.getWidth == 1)
     assert(io.decRenPushFire.getWidth == 1)
     assert(io.decRenPopFire.getWidth == 1)

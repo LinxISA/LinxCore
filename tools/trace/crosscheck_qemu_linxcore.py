@@ -127,6 +127,8 @@ def _is_template_parent_marker(r: Commit) -> bool:
         return False
     if r.wb_valid != 0 or r.mem_valid != 0 or r.dst_valid != 0:
         return False
+    if r.next_pc != (r.pc + r.length):
+        return False
     return True
 
 
@@ -160,6 +162,7 @@ def _is_metadata_commit(r: Commit) -> bool:
     is_cbstop = (r.length == 2) and (insn == 0)
     is_macro_marker = (r.length == 4) and _is_macro_marker32(insn)
     is_template_uop = int(getattr(r, "template_kind", 0)) != 0
+    sequential_next_pc = r.next_pc == (r.pc + r.length)
 
     bstart_metadata = (
         is_bstart
@@ -168,8 +171,12 @@ def _is_metadata_commit(r: Commit) -> bool:
         and r.trap_valid == 0
         and r.next_pc == (r.pc + r.length)
     )
-    macro_metadata = is_macro_marker and eff_wb_valid == 0 and r.mem_valid == 0 and r.trap_valid == 0
-    template_metadata = is_template_uop and eff_wb_valid == 0 and r.mem_valid == 0 and r.trap_valid == 0
+    macro_metadata = (
+        is_macro_marker and eff_wb_valid == 0 and r.mem_valid == 0 and r.trap_valid == 0 and sequential_next_pc
+    )
+    template_metadata = (
+        is_template_uop and eff_wb_valid == 0 and r.mem_valid == 0 and r.trap_valid == 0 and sequential_next_pc
+    )
     cbstop_metadata = is_cbstop and eff_wb_valid == 0 and r.mem_valid == 0 and r.trap_valid == 0
 
     return bstart_metadata or macro_metadata or template_metadata or cbstop_metadata or _is_sideeffect_free_sysreg_marker(r)

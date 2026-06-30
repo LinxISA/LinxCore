@@ -143,6 +143,10 @@ the smallest prefix that contains the requested number of non-metadata
 architectural rows. This keeps QEMU BSTART/template/control metadata from
 starving the compare window while avoiding extra DUT tail rows after the
 bounded compare point.
+Metadata filtering must not drop non-sequential control rows. Side-effect-free
+macro/template rows are treated as metadata only when `next_pc == pc + len`;
+rows such as `FRET.STK` carry architectural redirect evidence through
+`next_pc` and must remain in the compare stream.
 
 In `--elf` mode, `--replay-rows` also bounds the raw QEMU prefix collected from
 the FIFO before the wrapper stops QEMU. If QEMU exits before opening or

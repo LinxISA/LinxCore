@@ -9,6 +9,12 @@ import org.scalatest.funsuite.AnyFunSuite
 class ReducedScalarAluExecuteSpec extends AnyFunSuite {
   test("reference results match the model-derived reduced scalar ALU subset") {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ADD, 10, 32, 0).contains(42))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ADDW, 10, 32, 0).contains(42))
+    assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_ADDW,
+      BigInt("7fffffff", 16),
+      1,
+      0).contains(BigInt("ffffffff80000000", 16)))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ADDI, 7, 0, 0x7ff).contains(2054))
     assert(ReducedScalarAluExecute.referenceResult(
       FrontendOpcodeDecodeTable.OP_SUBI,
@@ -56,6 +62,18 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
       src1 = 0,
       imm = 0,
       loadData = 0x6ffffffbL).contains(0x6ffffffbL))
+    assert(ReducedScalarAluExecute.referenceResultWithLoad(
+      FrontendOpcodeDecodeTable.OP_HL_LD_PCR,
+      src0 = 0,
+      src1 = 0,
+      imm = 0xa728,
+      loadData = 0x4000574cL).contains(0x4000574cL))
+    assert(ReducedScalarAluExecute.referenceResultWithLoad(
+      FrontendOpcodeDecodeTable.OP_LD_PCR,
+      src0 = 0,
+      src1 = 0,
+      imm = 0x100,
+      loadData = 0x1234L).contains(0x1234L))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_SETC_EQ, 0, 0, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_C_SETC_EQ, 0, 0).contains(true))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_C_SETC_EQ, 8, 256).contains(false))
@@ -74,9 +92,15 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
       src1 = 0,
       src0Valid = false,
       src1Valid = true).contains(false))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_SETC_TGT, 0x4000574cL, 0, 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_C_SETC_TGT, 0x4000574cL, 0).contains(true))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_FRET_STK, 0, 0, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SETC_LTU, 36, 0x6ffffffbL, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_SETC_LTU, 36, 0x6ffffffbL).contains(true))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_SETC_LTU, 0x6ffffffbL, 36).contains(false))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SETC_TGT, 0x4000574cL, 0, 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_SETC_TGT, 0x4000574cL, 0).contains(true))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SBI, 0, 0x4fff0038L, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SD, 0x4ffefdc0L, 21, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SDI, 0, 0x4fff0128L, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_LD, 1, 2, 3).isEmpty)
