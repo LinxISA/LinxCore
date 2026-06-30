@@ -59,6 +59,8 @@ owners.
 | output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ`, `OP_C_SETC_NE`, `OP_SETC_LTU`, and reduced SETC target rows used by the reduced block-control owner. |
 | output | `loadLookupValid` | `Bool` | E-stage valid | The current E-stage uop requests reduced read-only load data. |
 | output | `loadLookupAddr` | `UInt(64.W)` by default | with `loadLookupValid` | Byte address for the reduced read-only load lookup. |
+| output | `fretStkSpRestoreValid` | `Bool` | with `completeValid` | The condition-false `FRET.STK` RA-load path also restores architectural `x1/sp`. |
+| output | `fretStkSpRestoreData` | `UInt(64.W)` by default | with `fretStkSpRestoreValid` | Restored SP value, `stackPointerData + in.imm`, for the owning top's scalar-SP shadow. |
 | output | `redirectValid` | `Bool` | with `completeValid` | Reduced scalar redirect request for `FRET.STK` target-taken rows or condition-false RA-load return rows. |
 | output | `redirectPc` | `UInt(pcWidth.W)` | with `redirectValid` | Return target selected from the loaded RA for R132 load-return rows, otherwise from `C.SETC.TGT`/`SETC.TGT` first and active-marker fallback second. |
 | output | `accepted` | `Bool` | pulse | `inValid && inReady`. |
@@ -145,7 +147,7 @@ The Chisel module implements the first reduced subset:
 | `OP_C_SETRET` | `in.pc + in.imm` |
 | `OP_CMP_EQI` | `1` when `srcData(0) == in.imm`, otherwise `0` |
 | `OP_FENTRY` | `stackPointerData - in.imm`; the store address uses the ranged save count to place the first saved register |
-| `OP_FRET_STK` | redirect-only while the live SETC condition is true; on the condition-false RA-restore path, load `x10/ra` from `stackPointerData + in.imm - 8`, emit an 8-byte load sideband, write reduced RF tag `x10`, and redirect to the loaded value |
+| `OP_FRET_STK` | redirect-only while the live SETC condition is true; on the condition-false RA-restore path, load `x10/ra` from `stackPointerData + in.imm - 8`, emit an 8-byte load sideband, write reduced RF tag `x10`, emit `fretStkSpRestoreData = stackPointerData + in.imm`, and redirect to the loaded value |
 | `OP_HL_LUI` | `in.imm` |
 | `OP_HL_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
 | `OP_HL_SD_PCR` | `0`, with a reduced 8-byte store sideband at `in.pc + in.imm` and store data `srcData(0)` |
@@ -202,6 +204,16 @@ SETC branch sideband. LinxCoreModel maps `OP_CMP_EQI` to `CalcCmpEQ` with the
 signed immediate decoded as source 1, and QEMU lowers it with `setcond EQ`;
 the reduced execute result is therefore `1` when `srcData(0) == imm`, else
 `0`. The promoted CoreMark row writes architectural `x30/U0`.
+R136 carries the following 32-bit `OP_LDI` row when it writes architectural
+`x31/T0`. This does not add a new load datapath: the R122 read-only sparse-ELF
+lookup already serves `OP_LDI`; the R136 packet only admits the local T
+destination shape in the QEMU row reducer while keeping scalar RF side effects
+gated to real GPR destinations. The promoted live gate also proved the
+preceding condition-false `FRET.STK` RA-load path restores architectural
+`x1/sp` to `stackPointerData + imm` even though the visible commit row writes
+only `x10/ra`; execute now exposes that restore as a sideband for the reduced
+top's SP shadow. The promoted gate captures 1620 raw QEMU rows, extracts 1496
+expected rows, and compares 1094 normalized QEMU/DUT rows with zero mismatches.
 R111 proves the same local-source row shape for CoreMark `SLL`: the row reads
 T0/U0, writes architectural U tag `30`, emits `0x100000000`, and leaves scalar
 source fields invalid to match QEMU.

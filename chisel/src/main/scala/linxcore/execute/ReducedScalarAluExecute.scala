@@ -36,6 +36,8 @@ class ReducedScalarAluExecuteIO(
   val branchConditionTaken = Output(Bool())
   val loadLookupValid = Output(Bool())
   val loadLookupAddr = Output(UInt(p.immWidth.W))
+  val fretStkSpRestoreValid = Output(Bool())
+  val fretStkSpRestoreData = Output(UInt(p.immWidth.W))
   val redirectValid = Output(Bool())
   val redirectPc = Output(UInt(p.pcWidth.W))
 
@@ -505,6 +507,8 @@ class ReducedScalarAluExecute(
       Mux(w2FretStkLoadReturn, true.B, w2Uop.dst(0).valid && (w2Uop.dst(0).kind === DestinationKind.Gpr))
   io.completeDstPhysTag := Mux(w2FretStkLoadReturn, 10.U(p.physRegWidth.W), w2Uop.dst(0).physTag)
   io.completeDstData := w2Result
+  io.fretStkSpRestoreValid := io.completeValid && w2FretStkLoadReturn
+  io.fretStkSpRestoreData := w2StackPointerData + w2Uop.imm
   val branchSrc0 = Mux(w2Uop.src(0).valid, w2SrcData(0), 0.U)
   val branchSrc1 = Mux(w2Uop.src(1).valid, w2SrcData(1), 0.U)
   val branchIsSetcEq = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_EQ)

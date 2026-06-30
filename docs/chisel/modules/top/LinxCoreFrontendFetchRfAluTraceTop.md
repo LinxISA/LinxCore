@@ -156,6 +156,12 @@ two-row commit window in order before comparing against QEMU. The promoted
 mismatches; the next frontier remains the following indexed `OP_SD` at
 `pc=0x400055f2`, which must not be promoted without explicit store memory
 mutation or real LSU/STQ ownership.
+R136 tightens the bounded-prefix harness rule for the final captured dense
+window. If the final QEMU row ends before the last decodable F4 slot, the
+harness may accept the packet superset, compare only the expected prefix rows,
+and stop before draining post-capture slots into the reduced backend. This
+does not relax any compared row fields; it only prevents the tail-prefix gate
+from demanding idle state for instructions outside the requested capture.
 R124 adds that explicit reduced store mutation for the `OP_SD` indexed-store
 frontier. `ReducedScalarAluExecute` emits the model-derived sideband
 `addr = base + (index << 3)`, `wdata = SrcD`, `size = 8`, while the Verilator
@@ -265,6 +271,18 @@ promoted gate captures 1619 raw QEMU rows, extracts 1495 expected rows, and
 compares 1093 normalized QEMU/DUT rows with zero mismatches. A QEMU-only
 1660-row probe identifies the next frontier as `OP_LDI` writing `x31/T0` at
 `pc=0x40005d2e` (`insn=0x0260bf99`, `len=4`).
+R136 is scoped to that frontier: the live top continues using the R122
+read-only sparse-ELF load lookup for `OP_LDI`, while the QEMU-row reducer now
+admits the destination as local T instead of rejecting architectural alias
+`31`. This preserves the reduced top boundary: load data still comes from the
+harness lookup, and scalar RF writeback still occurs only for scalar GPR
+destinations. The same live gate exposed a preceding `FRET.STK` side effect:
+the visible commit row restores `x10/ra`, but architectural `x1/sp` also
+advances to `stackPointerData + imm`. The top consumes the execute sideband to
+update its scalar-SP shadow and sources later architectural `x1` reads from
+that shadow, avoiding a second RF write port in the reduced bring-up top. The
+promoted gate captures 1620 raw QEMU rows, extracts 1496 expected rows, and
+compares 1094 normalized QEMU/DUT rows with zero mismatches.
 
 ## Interface
 
@@ -321,8 +339,9 @@ overlay. Most state remains in child modules:
 - `localTData/localUData` and `localTReady/localUReady`: four-entry reduced
   local T/U value overlays used only by the current CoreMark T/U-source prefix.
 - `scalarSpValue`: reduced SP shadow initialized from RF preload of
-  architectural x1 and updated by scalar x1 writeback, used by `FENTRY` macro
-  rows whose visible QEMU source fields are suppressed.
+  architectural x1, updated by visible scalar x1 writeback, restored by the
+  `FRET.STK` RA-load sideband, used by `FENTRY`, and muxed into later scalar
+  x1 source reads when the hidden restore is not represented as an RF write.
 - `ReducedScalarIssueQueue` and `ReducedScalarIssuePick`: resident issue rows,
   source-ready snapshots, P1/I1/I2 timing, issued-entry lock, cancel, and W2
   release.
@@ -516,6 +535,8 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
   `sourceAdvanceBytes` equal to the window's decoded byte span;
 - drains every expected slot from `F4DenseSlotQueue` before fetching the next
   window;
+- stops after the compared prefix, without requiring full top idle, when the
+  final captured dense window deliberately contained post-prefix slots;
 - for skip rows, requires `blockMarkerSkipFire`, matching marker
   PC/instruction/length, boundary/stop diagnostics, marker target, and no
   marker-owned scalar ROB allocation or dec/ren push;

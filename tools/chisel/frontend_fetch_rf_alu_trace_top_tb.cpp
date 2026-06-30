@@ -955,7 +955,7 @@ bool row_redirects(const ExpectedRow &row) {
   return row.next_pc != row.pc + row.len;
 }
 
-void fetch_dense_window(
+bool fetch_dense_window(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const std::vector<ExpectedRow> &rows,
     std::size_t start,
@@ -1041,8 +1041,10 @@ request_done:
                   << "\n";
         std::exit(1);
       }
+      const bool captured_tail_superset =
+          capture_tail && dut.io_denseSlotQueueInSlotCount > slot_count;
       tick(dut);
-      return;
+      return captured_tail_superset;
     }
     tick(dut);
   }
@@ -1472,10 +1474,12 @@ int main(int argc, char **argv) {
   start_source(dut, rows.front().pc);
   bool active_block_valid = false;
   std::uint64_t active_block_bid = 0;
+  bool captured_tail_superset = false;
   std::vector<ObservedRow> pending_commits;
   for (std::size_t row_index = 0; row_index < rows.size();) {
     const std::size_t window_end = dense_window_end(rows, row_index);
-    fetch_dense_window(dut, rows, row_index, window_end, fetch_memory, pending_commits);
+    captured_tail_superset |=
+        fetch_dense_window(dut, rows, row_index, window_end, fetch_memory, pending_commits);
 
     std::vector<std::size_t> scalar_slots;
     for (std::size_t slot_index = row_index; slot_index < window_end; ++slot_index) {
@@ -1499,6 +1503,10 @@ int main(int argc, char **argv) {
     std::cerr << "frontend fetch RF ALU trace top has unconsumed commit rows="
               << pending_commits.size() << "\n";
     return 1;
+  }
+  if (captured_tail_superset) {
+    dut.final();
+    return 0;
   }
   drain_empty(dut, fetch_memory);
   eval_with_load_lookup(dut, fetch_memory);

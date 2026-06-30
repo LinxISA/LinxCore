@@ -408,28 +408,36 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   rf.io.initValid := io.rfInitValid
   rf.io.initArchTag := io.rfInitArchTag
   rf.io.initData := io.rfInitData
-  when(io.rfInitValid && io.rfInitArchTag === 1.U) {
-    scalarSpValue := io.rfInitData
-  }
   for (idx <- 0 until 3) {
     val readIsT = issue.io.readValid(idx) && (issue.io.readOperandClass(idx) === OperandClass.T)
     val readIsU = issue.io.readValid(idx) && (issue.io.readOperandClass(idx) === OperandClass.U)
     val readIsLocal = readIsT || readIsU
+    val readIsScalarSp =
+      issue.io.readValid(idx) &&
+        (issue.io.readOperandClass(idx) === OperandClass.P) &&
+        (issue.io.readRelTag(idx) === 1.U)
     val rel = issue.io.readRelTag(idx)(1, 0)
     val localReadReady = Mux(readIsT, localTReady(rel), Mux(readIsU, localUReady(rel), false.B))
     val localReadData = Mux(readIsT, localTData(rel), localUData(rel))
+    val scalarReadData = Mux(readIsScalarSp, scalarSpValue, rf.io.readData(idx))
 
     rf.io.readValid(idx) := issue.io.readValid(idx) && !readIsLocal
     rf.io.readTags(idx) := issue.io.readTags(idx)
     issue.io.readReady(idx) := Mux(readIsLocal, localReadReady, rf.io.readReady(idx))
-    issue.io.readData(idx) := Mux(readIsLocal, localReadData, rf.io.readData(idx))
+    issue.io.readData(idx) := Mux(readIsLocal, localReadData, scalarReadData)
   }
   rf.io.clearValid := issue.io.enqueueDstValid
   rf.io.clearTag := issue.io.enqueueDstTag
   rf.io.writeValid := execute.io.completeDstPhysValid
   rf.io.writeTag := execute.io.completeDstPhysTag
   rf.io.writeData := execute.io.completeDstData
-  when(execute.io.completeValid && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U) {
+  val scalarSpWriteback =
+    execute.io.completeValid && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U
+  when(io.rfInitValid && io.rfInitArchTag === 1.U) {
+    scalarSpValue := io.rfInitData
+  }.elsewhen(execute.io.fretStkSpRestoreValid) {
+    scalarSpValue := execute.io.fretStkSpRestoreData
+  }.elsewhen(scalarSpWriteback) {
     scalarSpValue := execute.io.completeRow.wb.data
   }
 

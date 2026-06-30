@@ -138,6 +138,10 @@ Explicit pyCircuit/model overrides currently cover:
   `ImmSIMM12_20_S12` path. The promoted row at `pc=0x40005d2a`
   (`insn=0x00060f55`) decodes destination `x30/U0`, source `x12`, and signed
   immediate `0`; execute, not decode, owns the compare result value.
+- R136 `LDI` uses the existing generic 32-bit `rd`, `rs1`, and
+  `ImmSIMM12_20_S12` path. The observed row at `pc=0x40005d2e`
+  (`insn=0x0260bf99`) decodes destination `x31/T0`, source `x1`, and immediate
+  `0x26`; execute scales that immediate by 3 for the 8-byte load address.
 - R128 `SETC.*I` immediate compare rows. The generated metadata exposes the
   encoded immediate compare register field through `rdKind=REG`, but the
   reduced scalar trace treats these rows as no-writeback condition producers.

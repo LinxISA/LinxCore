@@ -428,6 +428,12 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(cmpEqi.src(1).isEmpty)
     assert(cmpEqi.imm.contains(0))
 
+    val ldiT = operands(BigInt("0260bf99", 16), lenBytes = 4).get
+    assert(ldiT.dst.contains(31))
+    assert(ldiT.src(0).contains(1))
+    assert(ldiT.src(1).isEmpty)
+    assert(ldiT.imm.contains(0x26))
+
     val slli = operands(BigInt("003c7f95", 16), lenBytes = 4).get
     assert(slli.dst.contains(31))
     assert(slli.src(0).contains(24))

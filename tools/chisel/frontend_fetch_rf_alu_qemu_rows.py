@@ -457,6 +457,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "HL.LUI",
         "LD.PCR",
         "HL.LD.PCR",
+        "LDI",
         "SLL",
         "SLLI",
         "SRL",
@@ -1146,6 +1147,44 @@ def self_test() -> None:
         ]
         assert extracted_cmp_eqi[0]["dst_reg"] == 30
         assert extracted_cmp_eqi[0]["dst_data"] == 1
+
+        ldi_t_source = tmp / "ldi-t-dst.jsonl"
+        ldi_t_output = tmp / "ldi-t-dst.rows.jsonl"
+        ldi_t = {
+            **rows[0],
+            "pc": 0x40005D2E,
+            "insn": 0x0260BF99,
+            "len": 4,
+            "next_pc": 0x40005D32,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 0,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 1,
+            "src0_data": 0x4FFE_FBC0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 1,
+            "mem_is_store": 0,
+            "mem_addr": 0x4FFE_FCF0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 8,
+        }
+        _write_jsonl(ldi_t_source, [ldi_t])
+        count = extract_rows(ldi_t_source, ldi_t_output)
+        assert count == 1
+        extracted_ldi_t = [
+            json.loads(line) for line in ldi_t_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_ldi_t[0]["dst_reg"] == 31
+        assert extracted_ldi_t[0]["wb_rd"] == 31
+        assert extracted_ldi_t[0]["mem_addr"] == 0x4FFE_FCF0
+        assert extracted_ldi_t[0]["dst_data"] == 0
 
         c_setret_source = tmp / "c-setret.jsonl"
         c_setret_output = tmp / "c-setret.rows.jsonl"
