@@ -13,6 +13,7 @@
   - `model/LinxCoreModel/isa/calculate/others/Others.cpp`
   - `model/LinxCoreModel/isa/calculate/pc/PC.cpp`
   - `model/LinxCoreModel/isa/calculate/store/Store.cpp`
+  - `model/LinxCoreModel/isa/calculate/compound/Compound.cpp`
   - `model/LinxCoreModel/isa/ISACommon/OpcodeManager.h`
   - `model/LinxCoreModel/isa/ISACommon/OpcodeManager.cpp`
   - `emulator/qemu/target/linx/translate.c`
@@ -169,6 +170,12 @@ The Chisel module implements the first reduced subset:
 | `OP_SRA` | `srcData(0).asSInt >> srcData(1)(5, 0)` |
 | `OP_OR` | `srcData(0) \| srcData(1)` |
 | `OP_ORI` | `srcData(0) \| in.imm` |
+
+`OP_CSEL` is intentionally not in this reduced execute table as of R137.
+LinxCoreModel and Sail select `SrcL` when `SrcP != 0`, while the current QEMU
+translator and live CoreMark QEMU trace select `SrcR` when `SrcP != 0`. See
+`docs/chisel/model-notes/SelectSemantics.md` and `CHISEL-ISSUE-003` before
+adding CSEL support to this module.
 
 `OP_ADDTPC` uses the `FrontendOperandDecode` `ImmIMM20` path, where the
 20-bit immediate is sign-extended and shifted left by 12 before reaching
