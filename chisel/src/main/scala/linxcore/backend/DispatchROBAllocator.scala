@@ -26,6 +26,8 @@ class DispatchROBAllocatorIO(
   val flush = Input(new FlushBus(entries))
 
   val allocValid = Input(Bool())
+  val allocUsesExistingBlock = Input(Bool())
+  val allocExistingBlockBid = Input(UInt(bidWidth.W))
   val allocReady = Output(Bool())
   val allocFire = Output(Bool())
   val allocBlockedByBrob = Output(Bool())
@@ -45,6 +47,10 @@ class DispatchROBAllocatorIO(
   val allocNeedsEngine = Input(Bool())
   val allocBlockBid = Output(UInt(bidWidth.W))
   val allocRobValue = Output(UInt(ptrWidth.W))
+  val blockAllocOnlyValid = Input(Bool())
+  val blockAllocOnlyReady = Output(Bool())
+  val blockAllocOnlyFire = Output(Bool())
+  val blockAllocOnlyBid = Output(UInt(bidWidth.W))
 
   val renameUpdateValid = Input(Bool())
   val renameUpdateReady = Output(Bool())
@@ -173,6 +179,7 @@ class DispatchROBAllocator(
   val blockUniq = RegInit(0.U(uniqWidth.W))
   val nextBlockBid = BID.fromParts(blockUniq, blockSlot, entries, bidWidth)
   io.allocBlockBid := nextBlockBid
+  io.blockAllocOnlyBid := nextBlockBid
 
   val brob = Module(new BrobMetaTracker(
     entries = entries,
@@ -191,15 +198,24 @@ class DispatchROBAllocator(
     stidWidth = stidWidth
   ))
 
+  val scalarNeedsBrob = io.allocValid && !io.allocUsesExistingBlock
+  val scalarCanUseBrob = !scalarNeedsBrob || brob.io.allocReady
+  val scalarCanUseRob = rob.io.allocReady
+  val scalarAllocReady = scalarCanUseRob && scalarCanUseBrob
+  val blockAllocOnlyReady = !io.allocValid && brob.io.allocReady
+  val blockAllocOnlyFire = io.blockAllocOnlyValid && blockAllocOnlyReady
+  val scalarBrobAllocFire = scalarNeedsBrob && scalarAllocReady
+  val rowBlockBid = Mux(io.allocUsesExistingBlock, io.allocExistingBlockBid, nextBlockBid)
+
   val robAllocRow = Wire(new CommitTraceRow(traceParams))
   robAllocRow := io.allocRow
   robAllocRow.blockBidValid := true.B
-  robAllocRow.blockBid := nextBlockBid
+  robAllocRow.blockBid := rowBlockBid
 
   rob.io.flush := io.flush
-  rob.io.allocValid := io.allocValid && brob.io.allocReady
+  rob.io.allocValid := io.allocValid && scalarCanUseBrob
   rob.io.allocRow := robAllocRow
-  rob.io.allocBid := bidToRobId(nextBlockBid)
+  rob.io.allocBid := bidToRobId(rowBlockBid)
   rob.io.allocGid := io.allocGid
   rob.io.allocPeId := io.allocPeId
   rob.io.allocStid := io.allocStid
@@ -221,7 +237,7 @@ class DispatchROBAllocator(
   rob.io.completeRow := io.completeRow
   rob.io.deallocReady := io.deallocReady
 
-  brob.io.allocValid := io.allocValid && rob.io.allocReady
+  brob.io.allocValid := scalarBrobAllocFire || blockAllocOnlyFire
   brob.io.allocBid := nextBlockBid
   brob.io.allocTid := io.allocTid
   brob.io.allocPeId := io.allocPeId
@@ -241,17 +257,19 @@ class DispatchROBAllocator(
   brob.io.flushBid := io.blockFlushBid
   brob.io.queryBid := io.blockQueryBid
 
-  io.allocReady := brob.io.allocReady && rob.io.allocReady
+  io.allocReady := scalarAllocReady
   io.allocFire := io.allocValid && io.allocReady
-  io.allocBlockedByBrob := io.allocValid && !brob.io.allocReady
-  io.allocBlockedByRob := io.allocValid && brob.io.allocReady && !rob.io.allocReady
+  io.allocBlockedByBrob := scalarNeedsBrob && !brob.io.allocReady
+  io.allocBlockedByRob := io.allocValid && scalarCanUseBrob && !rob.io.allocReady
   io.allocDuplicateIdentity := rob.io.allocDuplicateIdentity
   io.allocRobValue := rob.io.allocRobValue
+  io.blockAllocOnlyReady := blockAllocOnlyReady
+  io.blockAllocOnlyFire := blockAllocOnlyFire
   io.renameUpdateReady := rob.io.renameUpdateReady
   io.renameUpdateAccepted := rob.io.renameUpdateAccepted
   io.renameUpdateIgnored := rob.io.renameUpdateIgnored
 
-  when(io.allocFire) {
+  when(scalarBrobAllocFire || blockAllocOnlyFire) {
     when(blockSlot === (entries - 1).U) {
       blockSlot := 0.U
       blockUniq := blockUniq + 1.U

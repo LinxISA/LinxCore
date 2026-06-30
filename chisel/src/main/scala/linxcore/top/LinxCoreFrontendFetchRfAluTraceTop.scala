@@ -80,6 +80,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val blockMarkerPc = Output(UInt(p.pcWidth.W))
   val blockMarkerInsn = Output(UInt(p.insnWidth.W))
   val blockMarkerLen = Output(UInt(4.W))
+  val blockMarkerAllocFire = Output(Bool())
+  val blockMarkerAllocBid = Output(UInt(p.blockBidWidth.W))
+  val blockMarkerActiveValid = Output(Bool())
+  val blockMarkerActiveBid = Output(UInt(p.blockBidWidth.W))
   val decRenPushFire = Output(Bool())
   val decRenPopFire = Output(Bool())
   val decRenCount = Output(UInt(decRenCountWidth.W))
@@ -305,6 +309,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.blockMarkerPc := path.io.blockMarkerPc
   io.blockMarkerInsn := path.io.blockMarkerInsn
   io.blockMarkerLen := path.io.blockMarkerLen
+  io.blockMarkerAllocFire := path.io.blockMarkerAllocFire
+  io.blockMarkerAllocBid := path.io.blockMarkerAllocBid
+  io.blockMarkerActiveValid := path.io.blockMarkerActiveValid
+  io.blockMarkerActiveBid := path.io.blockMarkerActiveBid
   io.decRenPushFire := path.io.decRenPushFire
   io.decRenPopFire := path.io.decRenPopFire
   io.decRenCount := path.io.decRenCount

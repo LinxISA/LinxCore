@@ -575,6 +575,7 @@ These packets remain the required base before broad module promotion:
 | R101 | Reduced BSTART/BSTOP marker skip for live fetch RF/ALU | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r101-live-qemu-fixture`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`, inspect preview skip rows and `crosscheck_manifest.json`, QEMU dry-run, `git diff --check` |
 | R102 | Reduced dense F4 slot queue for live fetch RF/ALU | `run_chisel_tests.sh --only F4DenseSlotQueue`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendFetchPacketSource`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `BUILD_DIR=generated/r102-default-fetch-rf-alu-trace-top-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r102-live-qemu-fixture`, `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r102-dense-qemu-elf-xcheck --elf generated/r102-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`, inspect dense preview rows and both manifests, QEMU dry-run, `git diff --check` |
 | R103 | ROB block-last to BROB scalar-done/retire sideband | `run_chisel_tests.sh --only BROB`, `run_chisel_tests.sh --only ROBEntryBank`, `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, inspect generated RF/ALU manifest, `git diff --check` |
+| R104 | Marker-owned active BID lifecycle | `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_tests.sh --only BROB`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r104-live-qemu-fixture`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r104-marker-lifecycle-qemu-elf-xcheck --elf generated/r104-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`, trace self-test, QEMU dry-run, manifest inspection, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -701,6 +702,9 @@ Update skills only for:
 - a reduced dense frontend rule where every valid F4 slot from one response
   window is queued before serial decode/ROB drain, and marker-slot checks are
   marker-owned rather than global same-cycle issue silence.
+- a reduced marker lifecycle rule where consumed `BSTART` allocates a
+  BROB-only active BID, following scalar rows reuse that full BID, and consumed
+  `BSTOP` completes the active BID before BROB retire.
 
 Run skill evolution as a trailing maintenance lane after the module docs and
 evidence are updated. The module packet owns local Markdown first; the
@@ -760,9 +764,10 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Marker-owned block lifecycle: after R103 ROB block-last to BROB sideband
-   wiring, turn skip-only `BSTART`/`BSTOP` classification into old/current
-   active BID scalar-done semantics before claiming full block execution.
+1. Full marker ROB retirement and recovery: R104 uses marker-consume timing
+   for reduced active-BID lifecycle; the next block-control packet must add
+   full marker-row retirement, per-STID active block state, and recovery-exact
+   marker cleanup before claiming full block execution.
 2. Longer live-QEMU scalar prefix: grow the direct-boot scalar prefix beyond
    the tiny three-row body while continuing to preserve legal block markers
    through the reduced marker lifecycle path.

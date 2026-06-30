@@ -380,6 +380,23 @@ contract is marker-owned: a marker slot must not select a scalar row, push
 dec/ren, or allocate ROB, but it may drain in the same cycle that an older
 scalar row enqueues to issue. Full block scalar-done/BROB semantics, LSU,
 recovery, and CoreMark live-DUT equivalence remain future packets.
+R104 started from `linx-isa` commit
+`a5ebce3b003470895ddd3a58790f8e70125b0b12`, `rtl/LinxCore` commit
+`326095a9622ebdb3599bc0b8cd737917b0fdf9ea`,
+`model/LinxCoreModel` commit
+`1993e4e749403824a4908548baf77d5e15117068`, and QEMU commit
+`8dd1dcdbde20a7543fc5081bc52fd81a7b85b985`, with unrelated architecture
+Markdown edits already dirty in the LinxCore worktree. R104 adds the reduced
+marker-owned block lifecycle after R103: consumed `BSTART` rows allocate a
+BROB-only active BID, scalar rows reuse that active full BID for ROB identity
+and commit sideband, and consumed `BSTOP` rows pulse scalar done for the active
+BID before the normal one-cycle-later BROB retire pulse. This remains reduced
+marker-consume timing, not full marker ROB retirement or recovery-exact block
+control. Evidence:
+`build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r104-live-qemu-fixture`
+and
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r104-marker-lifecycle-qemu-elf-xcheck --elf generated/r104-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
+passed with `compared_rows: 3` and `mismatch_count: 0`.
 
 ## Reference Evidence
 
@@ -408,6 +425,7 @@ facts:
 | QEMU commit JSONL / `tools/qemu/run_qemu_commit_trace.sh` / `tools/chisel/frontend_fetch_elf_memory.py` | R100 live capture evidence: the reduced gate can now collect bounded QEMU rows from a direct-boot ELF and feed the validated scalar prefix plus matching ELF bytes into the live fetch RF/ALU top. PC filters are still required to skip legal block headers until that instruction class is live in the DUT. |
 | QEMU commit JSONL / `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py` / `DecodeRenameROBPath` | R101 marker evidence: the reduced gate can consume legal single-instruction `BSTART`/`BSTOP` rows as frontend markers while keeping them out of the architectural commit comparator. Marker-only packets must advance fetch without BROB/ROB allocation or issue enqueue; R102 supersedes the earlier mixed-packet limitation with a dense-slot queue. |
 | `model/pe/ifu/iside/pe_ifu.cpp` / `model/pe/PECommon/DecodeBundle.h` / `model/bctrl/spe/DCTop.cpp` / QEMU commit JSONL | R102 dense-slot evidence: model IFU carries `DecodeBundle.mask`, `entry[]`, `isize[]`, and `tpcArr[]` through F4/F5/IB before scalar decode iterates rows. The reduced Chisel gate now captures all valid slots from one 8-byte F4 window in `F4DenseSlotQueue` and drains them serially into the existing one-row ROB path, preserving marker rows as DUT-only skip slots and scalar rows as comparator commits. |
+| `model/bctrl/BCtrl.cpp` / `model/bctrl/BROB.cpp` / `model/bctrl/spe/SPEROB.cpp` / `model/pe/PEBase.cpp` | R104 marker lifecycle evidence: `BCtrlUnit::RunFetchStage5` allocates BROB for block-start markers, keeps the resulting BID as the current block identity, stamps following scalar rows from that active BID, and treats `BSTOP` as the current block's terminal marker. `SPEROB::CommitBlock` then calls `SetBlockComplete`, and `BlockROB::commitBlock` retires only contiguous completed block entries. The reduced Chisel path now allocates BROB-only on consumed `BSTART`, reuses the active full BID for scalar ROB rows, and completes the active BID on consumed `BSTOP`. |
 
 The key hardware implication is that the C++ model gets post-allocation rename
 visibility through a shared `SimInst` pointer. Chisel `ROBEntryBank` stores
@@ -509,9 +527,10 @@ The ROB/cross-check substrate remains the required base:
 | 27 | R101 reduced block-marker skip path | `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, QEMU-row extractor, live harness/docs | live fetch xchecks with BSTART/BSTOP skip rows, no PC filter, manifest inspection |
 | 28 | R102 reduced dense multi-slot frontend packet path | `F4DenseSlotQueue.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, live fetch RF/ALU harness/docs | `F4DenseSlotQueue`, adjacent frontend/path tests, default live fetch RF/ALU xcheck, live QEMU fixture with mixed BSTART/scalar/BSTOP 8-byte windows, manifest inspection |
 | 29 | R103 ROB block-last to BROB lifecycle sideband | `BROB.scala`, `ROBEntryBank.scala`, `DispatchROBAllocator.scala`, `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, module docs | BROB stale-BID reference, full block-BID block-last deallocation sideband, reduced scalar-done and next-cycle retire diagnostics, focused ROB/BROB/top gates, manifest inspection |
-| 30 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 31 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 32 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 30 | R104 marker-owned active block lifecycle | `DispatchROBAllocator.scala`, `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, live harness/docs | marker-only BROB allocation, scalar active-BID reuse, marker-driven scalar-done/retire, default RF/ALU xcheck, live QEMU fixture with `BSTART`/scalar/`BSTOP`, manifest inspection |
+| 31 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 32 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 33 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
@@ -623,6 +642,9 @@ Update skills for:
 - a dense frontend rule where all valid slots from one F4 window are preserved
   before serial reduced decode/ROB drain, and marker-slot checks are
   marker-owned rather than global same-cycle issue silence.
+- a reduced marker lifecycle rule where consumed `BSTART` allocates a
+  BROB-only active BID, following scalar rows reuse that full BID, and consumed
+  `BSTOP` completes the active BID before BROB retire.
 
 Do not update skills for wording cleanup, one-off test vectors, or module-local
 implementation detail already captured in that module page.

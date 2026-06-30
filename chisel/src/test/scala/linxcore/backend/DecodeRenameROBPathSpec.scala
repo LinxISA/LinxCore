@@ -50,6 +50,33 @@ object DecodeRenameROBPathReference {
 
   def activeTuBankPe(peId: Int): Int =
     peId
+
+  final case class MarkerStep(
+      doneValid: Boolean,
+      doneBid: Option[BigInt],
+      nextActiveValid: Boolean,
+      nextActiveBid: Option[BigInt])
+
+  def markerLifecycleStep(
+      activeValid: Boolean,
+      activeBid: BigInt,
+      markerBoundary: Boolean,
+      markerStop: Boolean,
+      allocBid: BigInt): MarkerStep = {
+    val done = activeValid && (markerBoundary || markerStop)
+    val nextActive =
+      if (markerBoundary) Some(allocBid)
+      else if (markerStop) None
+      else if (activeValid) Some(activeBid)
+      else None
+
+    MarkerStep(
+      doneValid = done,
+      doneBid = if (done) Some(activeBid) else None,
+      nextActiveValid = nextActive.nonEmpty,
+      nextActiveBid = nextActive
+    )
+  }
 }
 
 class DecodeRenameROBPathSpec extends AnyFunSuite {
@@ -104,6 +131,35 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
   test("reference forwards queued row PE ID as reduced T/U active PE") {
     assert(activeTuBankPe(peId = 0) == 0)
     assert(activeTuBankPe(peId = 2) == 2)
+  }
+
+  test("reference marker lifecycle allocates new active BID and completes old/current BID") {
+    val firstStart = markerLifecycleStep(
+      activeValid = false,
+      activeBid = 0,
+      markerBoundary = true,
+      markerStop = false,
+      allocBid = 10)
+    assert(!firstStart.doneValid)
+    assert(firstStart.nextActiveBid.contains(10))
+
+    val nextStart = markerLifecycleStep(
+      activeValid = true,
+      activeBid = 10,
+      markerBoundary = true,
+      markerStop = false,
+      allocBid = 11)
+    assert(nextStart.doneBid.contains(10))
+    assert(nextStart.nextActiveBid.contains(11))
+
+    val stop = markerLifecycleStep(
+      activeValid = true,
+      activeBid = 11,
+      markerBoundary = false,
+      markerStop = true,
+      allocBid = 12)
+    assert(stop.doneBid.contains(11))
+    assert(!stop.nextActiveValid)
   }
 
   test("reference accepts agreeing ROB and LSU cleanup sources but blocks conflicting ones") {
@@ -165,6 +221,10 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.blockMarkerPc.getWidth == 64)
     assert(io.blockMarkerInsn.getWidth == 64)
     assert(io.blockMarkerLen.getWidth == 4)
+    assert(io.blockMarkerAllocFire.getWidth == 1)
+    assert(io.blockMarkerAllocBid.getWidth == 64)
+    assert(io.blockMarkerActiveValid.getWidth == 1)
+    assert(io.blockMarkerActiveBid.getWidth == 64)
     assert(io.decodeReady.getWidth == 1)
     assert(io.decRenPushFire.getWidth == 1)
     assert(io.decRenPopFire.getWidth == 1)
@@ -359,6 +419,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_blockMarkerSkipValid"))
     assert(sv.contains("io_blockMarkerMixedPacket"))
     assert(sv.contains("io_blockMarkerPc"))
+    assert(sv.contains("io_blockMarkerAllocFire"))
+    assert(sv.contains("io_blockMarkerActiveBid"))
     assert(sv.contains("io_robTULinkSource_tSeq_value"))
     assert(sv.contains("io_robTULinkSourceMatched"))
     assert(sv.contains("io_robDeallocTURetireSource_0_tSeq_value"))

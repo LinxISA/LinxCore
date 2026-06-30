@@ -91,6 +91,13 @@ R103 connects the existing block-last deallocation boundary to BROB lifecycle:
 row, `DecodeRenameROBPath` pulses `blockScalarDone*` for that BID, and it
 pulses `blockRetire*` one cycle later so `BrobMetaTracker` observes the
 completed state before clearing the entry.
+R104 adds reduced marker-owned block lifecycle on top of the R101/R102 marker
+consume path. A consumed `BSTART` marker allocates a BROB-only entry, records
+that full BID as the active block, and a consumed `BSTOP` pulses scalar done
+for the current active BID. If a new `BSTART` arrives while another block is
+active, the old active BID receives scalar done before the new BID becomes
+active. Scalar rows between those markers reuse the active full BID instead of
+allocating another BROB entry.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -130,6 +137,11 @@ Outputs:
   `blockMarkerInsn`, `blockMarkerLen`: reduced marker-consume diagnostics for
   live fetch RF/ALU gates. These signals are meaningful only when the module is
   constructed with `skipBlockMarkers=true`.
+- `blockMarkerAllocFire`, `blockMarkerAllocBid`,
+  `blockMarkerActiveValid`, `blockMarkerActiveBid`: reduced marker-owned block
+  lifecycle diagnostics. `blockMarkerAllocFire` identifies a consumed
+  `BSTART` that allocated a BROB-only entry; `blockMarkerActive*` reports the
+  active full BID reused by following scalar rows.
 - `decodeReady`, `decRenPushReady`, `decRenPushFire`, `decRenPopFire`,
   `decRenValid`, `decRenHead`, `decRenTail`, `decRenCount`, `decRenEmpty`,
   `decRenFull`: registered decode-to-rename queue backpressure and occupancy
@@ -209,10 +221,15 @@ module; a later width owner must provide full decode enqueue.
 When block-marker skip is enabled, selection is computed from the non-marker
 subset of decoded rows. A marker-only packet is consumed as a frontend marker:
 `decodeReady` goes high, marker sidebands are exposed, and the packet advances
-without BROB/ROB allocation or decode-to-rename queue mutation. A packet that
-contains both marker and non-marker slots is deliberately not consumed because
-advancing the source PC would otherwise drop a scalar row before dense
-multi-slot decode enqueue exists.
+without scalar selection, ROB allocation, or decode-to-rename queue mutation.
+For a consumed `BSTART`, the path requests a BROB-only allocation from
+`DispatchROBAllocator` and stores the returned full BID as the active block.
+For a consumed `BSTOP`, the path pulses scalar done for the active full BID
+and clears the active state. If a consumed `BSTART` arrives while another
+block is active, the old active BID gets scalar done and the newly allocated
+BID becomes active. A packet that contains both marker and non-marker slots is
+deliberately not consumed because advancing the source PC would otherwise drop
+a scalar row before dense multi-slot decode enqueue exists.
 
 The selected decoded row first passes through `DecodeLoadStoreIdAssign`.
 Memory-order counters advance only on `decRenPushFire`, so a stalled
@@ -221,11 +238,17 @@ row is stamped with the missing backend identity that `DCTop::Work()` and
 `SPEROB::allocROB()` supply in the C++ model before it is written into
 `DecodeRenameQueue`:
 
-- `bid` comes from the current generated block BID converted to ring `ROBID`;
+- `bid` comes from the selected full block BID converted to ring `ROBID`;
 - `rid.value` comes from the ROB allocation pointer exposed as
   `allocRobValue`;
 - `gid` is held at zero in the reduced scalar path;
-- `blockBidValid/blockBid` mirrors the generated full hardware BID.
+- `blockBidValid/blockBid` mirrors the selected full hardware BID.
+
+When marker lifecycle has an active block, scalar rows instead use that active
+full BID for both the row's `bid` sidecar conversion and `blockBid` commit
+sideband. The allocator is told to reserve only a ROB row in that case, so the
+BROB entry created by `BSTART` remains the single block owner until scalar
+done/retire.
 
 `DispatchROBAllocator.allocValid` is high when a decoded row exists and the
 `dec_ren_q` has push capacity. The row enters the queue only when both
@@ -276,8 +299,13 @@ clears only the dispatch queues and does not over-prune STQ rows.
 The allocator still owns BID generation, BROB metadata allocation, ROB row
 reservation/update forwarding, completion, deallocation, commit monitoring,
 and ROB flush pruning.
-The composition ties block scalar/engine completion and block retire inputs
-inactive because full block-control retirement is not part of this owner.
+The composition drives BROB scalar completion from two reduced sources:
+marker-owned active block lifecycle and the ROB block-last sideband. If both
+would fire in the same cycle, marker consumption stalls for one cycle so the
+single BROB scalar-done input does not drop an event. A scalar-done pulse is
+followed by a one-cycle-later BROB retire pulse for the same full BID.
+Block-engine completion remains inactive because full block-control execution
+is not part of this owner.
 
 The composition also drives the allocator's row-owned sidecars. `allocStid`
 comes from the decoded row's thread ID in the reduced path; `allocTSeq`,
@@ -342,9 +370,21 @@ registered pending bit then drives `blockRetireFire` for the same full BID on
 the following cycle. This preserves the model split where `SPEROB::dealloc`
 calls `CommitLast`/`CommitBlock`, `PEBase::SetBlockComplete` marks the block
 complete, and `BlockROB::commitBlock` later retires completed block entries.
-The current reduced marker-skip path still does not allocate or retire
-`BSTART`/`BSTOP` marker rows; a later marker lifecycle owner must connect
+At R103 the reduced marker-skip path still did not allocate or retire
+`BSTART`/`BSTOP` marker rows; the next marker lifecycle owner had to connect
 marker retire to the old/current active block BID rule.
+
+R104 connects that reduced marker lifecycle for the live fetch RF/ALU lane.
+`BCtrlUnit::RunFetchStage5` allocates a BROB entry for a block-start marker,
+keeps the resulting BID as the current block command identity, stamps following
+scalar instructions from that current BID, and treats `BSTOP` as the current
+block's terminal marker rather than a new BROB allocation. The Chisel reduced
+path mirrors this at marker-consume granularity: `BSTART` allocates BROB-only,
+scalar rows reuse the active BID, `BSTOP` completes the current active BID,
+and `BSTART` while active completes the old BID before installing the new one.
+This is still not a full marker ROB-retire implementation, and active block
+state is still reduced to the current serialized lane rather than per-STID
+arrays.
 
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
 IO and feeds the same source into `ScalarTURenameBridge.robSource`. The bridge
@@ -524,3 +564,7 @@ observability through `DecodeRenameROBPath`, `DispatchROBAllocator`, and
 R103 covers full block-BID propagation from ROB deallocation, reduced
 `blockScalarDone*` and one-cycle-later `blockRetire*` diagnostics, and
 stale same-slot BROB event rejection.
+R104 covers marker-only BROB allocation, active full-BID reuse by scalar rows,
+marker-driven scalar-done/retire for old/current active blocks, marker
+conflict gating against ROB block-last scalar-done, and top-level marker
+lifecycle IO elaboration.

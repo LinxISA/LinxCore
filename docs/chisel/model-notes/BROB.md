@@ -97,9 +97,21 @@ now exposes the full 64-bit `blockBid` for a deallocated block-last row, and
 `DecodeRenameROBPath` drives BROB scalar completion from that full BID before
 issuing a one-cycle-later retire pulse. `BrobMetaTracker` also rejects stale
 same-slot scalar, engine, or retire events unless the full BID matches the live
-entry. Legal `BSTART`/`BSTOP` marker rows are still skip-only in the reduced
-live-fetch RF/ALU gate, so marker-owned old/current-active BID retirement is a
-future packet.
+entry. At R103, legal `BSTART`/`BSTOP` marker rows were still skip-only in the
+reduced live-fetch RF/ALU gate, so marker-owned old/current-active BID
+retirement remained a future packet.
+
+R104 adds the reduced marker-owned lifecycle needed by the live fetch RF/ALU
+gate. Model evidence from `BCtrlUnit::RunFetchStage5` shows that a block-start
+marker allocates the new block identity, following scalar rows inherit the
+current block BID, and `BSTOP` is stamped with the current active block rather
+than allocating a new BROB entry. The Chisel reduced path now allocates a
+BROB-only entry on a consumed `BSTART`, records that full BID as the active
+block, stamps following scalar ROB rows with the active BID without allocating
+another BROB entry, and pulses scalar done for the old/current active BID when
+a later `BSTART` or `BSTOP` marker is consumed. This still uses marker consume
+as the reduced retire point; full marker ROB rows, per-STID active block state,
+and recovery-exact marker retirement remain future work.
 
 The reduced pyCircuit block-structure model expresses the Chisel-facing
 metadata contract as:

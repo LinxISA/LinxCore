@@ -56,6 +56,28 @@ object DispatchROBAllocatorReference {
       AllocResult(ready, bid, robValue)
     }
 
+    def allocExistingBlock(row: Row, blockBid: BigInt): AllocResult = {
+      val robValue = robAlloc
+      val ready = robSize != entries && !duplicate(row)
+      if (ready) {
+        robRows(robAlloc) = Some(row.copy(bid = blockBid.toInt))
+        advanceRob()
+        robSize += 1
+      }
+      AllocResult(ready, blockBid, robValue)
+    }
+
+    def allocBlockOnly(): AllocResult = {
+      val bid = makeBid
+      val slot = (bid & (entries - 1)).toInt
+      val ready = !blockLive(slot)
+      if (ready) {
+        blockLive(slot) = true
+        advanceBlock()
+      }
+      AllocResult(ready, bid, robAlloc)
+    }
+
     def renameUpdate(robValue: Int, row: Row): Boolean =
       robRows(robValue) match {
         case Some(_) =>
@@ -139,6 +161,23 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(!model.renameUpdate(1, Row(bid = 0, gid = 0, rid = 1)))
   }
 
+  test("reference supports marker-only BROB allocation and scalar active-BID reuse") {
+    val model = new Model(entries = 4)
+
+    val marker = model.allocBlockOnly()
+    assert(marker == AllocResult(accepted = true, blockBid = 0, robValue = 0))
+    assert(model.blockAllocatedMask == 0x1)
+    assert(model.robOccupiedMask == 0x0)
+    assert(model.nextBlockBid == 1)
+
+    val scalar = model.allocExistingBlock(Row(bid = 99, gid = 0, rid = 0), marker.blockBid)
+    assert(scalar == AllocResult(accepted = true, blockBid = 0, robValue = 0))
+    assert(model.blockAllocatedMask == 0x1)
+    assert(model.robOccupiedMask == 0x1)
+    assert(model.nextBlockBid == 1)
+    assert(model.rowAt(0).contains(Row(bid = 0, gid = 0, rid = 0)))
+  }
+
   test("Chisel DispatchROBAllocator elaborates BROB-to-ROB allocation wiring") {
     val sv = ChiselStage.emitSystemVerilog(
       new DispatchROBAllocator(
@@ -150,7 +189,12 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(sv.contains("module DispatchROBAllocator"))
     assert(sv.contains("BrobMetaTracker"))
     assert(sv.contains("ROBEntryBank"))
+    assert(sv.contains("io_allocUsesExistingBlock"))
+    assert(sv.contains("io_allocExistingBlockBid"))
     assert(sv.contains("io_allocBlockBid"))
+    assert(sv.contains("io_blockAllocOnlyValid"))
+    assert(sv.contains("io_blockAllocOnlyFire"))
+    assert(sv.contains("io_blockAllocOnlyBid"))
     assert(sv.contains("io_allocGid"))
     assert(sv.contains("io_allocPeId"))
     assert(sv.contains("io_allocIsLast"))

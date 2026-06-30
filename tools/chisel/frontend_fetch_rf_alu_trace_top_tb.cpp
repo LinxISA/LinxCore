@@ -895,7 +895,11 @@ request_done:
   std::exit(1);
 }
 
-std::uint8_t drain_dense_row(VLinxCoreFrontendFetchRfAluTraceTop &dut, const ExpectedRow &row) {
+std::uint8_t drain_dense_row(
+    VLinxCoreFrontendFetchRfAluTraceTop &dut,
+    const ExpectedRow &row,
+    bool &active_block_valid,
+    std::uint64_t &active_block_bid) {
   for (int cycle = 0; cycle < 16; ++cycle) {
     clear_inputs(dut);
     dut.eval();
@@ -910,6 +914,15 @@ std::uint8_t drain_dense_row(VLinxCoreFrontendFetchRfAluTraceTop &dut, const Exp
         std::exit(1);
       }
       if (row.skip) {
+        const bool expected_alloc = row.block_boundary;
+        const bool expected_done = active_block_valid && (row.block_boundary || row.block_stop);
+        if (row.block_stop && !active_block_valid) {
+          std::cerr << "frontend fetch RF ALU marker stop had no active block"
+                    << " pc=0x" << std::hex << row.pc
+                    << " insn=0x" << row.insn << std::dec
+                    << "\n";
+          std::exit(1);
+        }
         if (dut.io_selectedValid ||
             !dut.io_blockMarkerSkipFire ||
             dut.io_blockMarkerMixedPacket ||
@@ -918,6 +931,8 @@ std::uint8_t drain_dense_row(VLinxCoreFrontendFetchRfAluTraceTop &dut, const Exp
             dut.io_blockMarkerLen != row.len ||
             static_cast<bool>(dut.io_blockMarkerBoundary) != row.block_boundary ||
             static_cast<bool>(dut.io_blockMarkerStop) != row.block_stop ||
+            static_cast<bool>(dut.io_blockMarkerAllocFire) != expected_alloc ||
+            static_cast<bool>(dut.io_blockScalarDoneFire) != expected_done ||
             dut.io_decRenPushFire ||
             dut.io_robAllocFire) {
           std::cerr << "frontend fetch RF ALU marker dense slot mismatch"
@@ -926,12 +941,30 @@ std::uint8_t drain_dense_row(VLinxCoreFrontendFetchRfAluTraceTop &dut, const Exp
                     << " selectedValid=" << static_cast<unsigned>(dut.io_selectedValid)
                     << " skipFire=" << static_cast<unsigned>(dut.io_blockMarkerSkipFire)
                     << " mixed=" << static_cast<unsigned>(dut.io_blockMarkerMixedPacket)
+                    << " allocFire=" << static_cast<unsigned>(dut.io_blockMarkerAllocFire)
+                    << " scalarDone=" << static_cast<unsigned>(dut.io_blockScalarDoneFire)
                     << " decRenPush=" << static_cast<unsigned>(dut.io_decRenPushFire)
                     << " robAlloc=" << static_cast<unsigned>(dut.io_robAllocFire)
                     << "\n";
           std::exit(1);
         }
+        if (expected_done && dut.io_blockScalarDoneBid != active_block_bid) {
+          std::cerr << "frontend fetch RF ALU marker scalar-done BID mismatch"
+                    << " pc=0x" << std::hex << row.pc
+                    << " expected_bid=0x" << active_block_bid
+                    << " observed_bid=0x" << dut.io_blockScalarDoneBid
+                    << std::dec << "\n";
+          std::exit(1);
+        }
+        const std::uint64_t allocated_bid = dut.io_blockMarkerAllocBid;
         tick(dut);
+        if (row.block_boundary) {
+          active_block_valid = true;
+          active_block_bid = allocated_bid;
+        } else if (row.block_stop) {
+          active_block_valid = false;
+          active_block_bid = 0;
+        }
         return 0;
       }
 
@@ -948,6 +981,14 @@ std::uint8_t drain_dense_row(VLinxCoreFrontendFetchRfAluTraceTop &dut, const Exp
                   << " decRenPush=" << static_cast<unsigned>(dut.io_decRenPushFire)
                   << " robAlloc=" << static_cast<unsigned>(dut.io_robAllocFire)
                   << "\n";
+        std::exit(1);
+      }
+      if (active_block_valid && dut.io_selectedBlockBid != active_block_bid) {
+        std::cerr << "frontend fetch RF ALU scalar row used wrong active block BID"
+                  << " pc=0x" << std::hex << row.pc
+                  << " expected_bid=0x" << active_block_bid
+                  << " observed_bid=0x" << dut.io_selectedBlockBid
+                  << std::dec << "\n";
         std::exit(1);
       }
       const auto rob_value = static_cast<std::uint8_t>(dut.io_selectedRobValue);
@@ -1106,6 +1147,8 @@ int main(int argc, char **argv) {
   }
 
   start_source(dut, rows.front().pc);
+  bool active_block_valid = false;
+  std::uint64_t active_block_bid = 0;
   for (std::size_t row_index = 0; row_index < rows.size();) {
     const std::size_t window_end = dense_window_end(rows, row_index);
     fetch_dense_window(dut, rows, row_index, window_end, fetch_memory);
@@ -1114,10 +1157,10 @@ int main(int argc, char **argv) {
     for (std::size_t slot_index = row_index; slot_index < window_end; ++slot_index) {
       const ExpectedRow &row = rows[slot_index];
       if (row.skip) {
-        (void)drain_dense_row(dut, row);
+        (void)drain_dense_row(dut, row, active_block_valid, active_block_bid);
         continue;
       }
-      (void)drain_dense_row(dut, row);
+      (void)drain_dense_row(dut, row, active_block_valid, active_block_bid);
       scalar_slots.push_back(slot_index);
     }
 

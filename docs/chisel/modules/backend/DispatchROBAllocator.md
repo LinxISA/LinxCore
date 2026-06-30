@@ -42,6 +42,10 @@ queued instruction.
 R103 forwards the ROB bank's full `deallocBlockLastBlockBid` sideband so
 reduced block lifecycle owners can drive BROB scalar completion with the same
 64-bit BID that allocation wrote into the row.
+R104 separates two block-allocation cases needed by marker lifecycle: scalar
+rows can reuse an already-active full block BID without allocating a BROB
+entry, while a marker-only `BSTART` can allocate a BROB entry without reserving
+a scalar ROB row.
 
 This is still a bring-up bridge, not full dispatch, rename, or CMT. It exists
 to remove unit-test-only `ROBEntryBank.allocBid` fixtures and to make later
@@ -53,7 +57,9 @@ dispatch agents consume a real block owner.
 |---|---|---|---|---|
 | input | `flush` | `FlushBus` | `flush.req.valid` | ROB row flush request forwarded to `ROBEntryBank` |
 | input | `allocValid` | `Bool` | `allocReady` | Requests one block/ROB row allocation |
-| output | `allocReady` | `Bool` | ready | High only when both BROB slot and ROB row allocation can accept |
+| input | `allocUsesExistingBlock` | `Bool` | with `allocValid` | Scalar row uses `allocExistingBlockBid` and does not allocate a new BROB entry |
+| input | `allocExistingBlockBid` | `UInt(64.W)` by default | with `allocValid` | Active full block BID reused by a scalar ROB row |
+| output | `allocReady` | `Bool` | ready | High when the ROB row can accept and, if a new scalar block is needed, the BROB slot can accept |
 | output | `allocFire` | `Bool` | diagnostic | `allocValid && allocReady` |
 | output | `allocBlockedByBrob` | `Bool` | diagnostic | Current BID slot is not free in BROB |
 | output | `allocBlockedByRob` | `Bool` | diagnostic | BROB is ready but the ROB bank rejects the row |
@@ -70,6 +76,10 @@ dispatch agents consume a real block owner.
 | input | `allocNeedsEngine` | `Bool` | with `allocValid` | BROB completion predicate metadata |
 | output | `allocBlockBid` | `UInt(64.W)` by default | diagnostic | Full generated hardware BID for the next accepted allocation |
 | output | `allocRobValue` | `UInt(log2(entries).W)` | diagnostic | ROB slot assigned by `ROBEntryBank` on an accepted allocation |
+| input | `blockAllocOnlyValid` | `Bool` | `blockAllocOnlyReady` | Requests a BROB-only allocation for a marker-owned block start |
+| output | `blockAllocOnlyReady` | `Bool` | ready | High when no scalar allocation is using the allocator and BROB can accept |
+| output | `blockAllocOnlyFire` | `Bool` | diagnostic | `blockAllocOnlyValid && blockAllocOnlyReady` |
+| output | `blockAllocOnlyBid` | `UInt(64.W)` by default | diagnostic | Full generated hardware BID assigned to the accepted BROB-only allocation |
 | input | `renameUpdateValid` | `Bool` | `renameUpdateReady` | Post-rename update request for a previously allocated ROB row |
 | output | `renameUpdateReady` | `Bool` | ready | Forwarded `ROBEntryBank` update readiness; independent of BROB state |
 | output | `renameUpdateAccepted` | `Bool` | diagnostic | ROB row update accepted this cycle |
@@ -101,20 +111,29 @@ The allocator computes the next full BID as
 `BID.fromParts(blockUniq, blockSlot)`. This mirrors the hardware BID contract:
 low bits select the BROB slot, and high bits provide uniqueness and ordering.
 
-Allocation is atomic across BROB and ROB:
+Allocation has three reduced modes:
 
-- `BrobMetaTracker.allocValid` fires only when the ROB bank is ready.
-- `ROBEntryBank.allocValid` fires only when the BROB slot is ready.
-- `allocReady` is the conjunction of both ready signals.
-- The BID cursor advances only on `allocFire`.
+- A scalar row without an active block allocates BROB and ROB together.
+- A scalar row with `allocUsesExistingBlock` allocates only the ROB row and
+  stamps it with `allocExistingBlockBid`.
+- A marker-only block start uses `blockAllocOnlyValid` to allocate only BROB
+  metadata and returns the generated BID through `blockAllocOnlyBid`.
+
+For the scalar-new-block case, `BrobMetaTracker.allocValid` fires only when the
+ROB bank is ready, and `ROBEntryBank.allocValid` fires only when the BROB slot
+is ready. For scalar existing-block allocation, ROB readiness alone controls
+`allocReady`. Scalar allocation has priority over marker-only allocation when
+both are presented in the same cycle. The BID cursor advances only when a new
+BROB entry is accepted, either by scalar allocation or marker-only allocation.
 
 On allocation, the module writes the generated full BID into BROB metadata and
-also overwrites `allocRow.blockBidValid/blockBid` before forwarding the row to
-`ROBEntryBank`. It converts the generated BID to the ROB bank's native
-`ROBID` sidecar by taking the low slot bits as `value` and the low uniqueness
-bit as `wrap` through `FullBidRecoveryBridge.fullBidToRobId`. That sidecar
-feeds `ROBEntryBank.allocBid`; RID remains allocated locally by `ROBEntryBank`
-from its allocation pointer.
+overwrites `allocRow.blockBidValid/blockBid` before forwarding the row to
+`ROBEntryBank`. When `allocUsesExistingBlock` is set, the row sideband and
+`ROBEntryBank.allocBid` use `allocExistingBlockBid` instead. The conversion to
+the ROB bank's native `ROBID` sidecar takes the low slot bits as `value` and
+the low uniqueness bit as `wrap` through
+`FullBidRecoveryBridge.fullBidToRobId`; RID remains allocated locally by
+`ROBEntryBank` from its allocation pointer.
 
 The T/U cleanup and retire-source sidecars are forwarded unmodified to
 `ROBEntryBank` at allocation time, but the reduced R76 path intentionally
@@ -190,4 +209,5 @@ duplicate identity, separation of decode-time allocation from rename-time row
 update, ROB T/U source IO elaboration through the composed module,
 ROB deallocation retire-source and block-last-candidate IO elaboration through
 the composed module, full block-BID propagation from ROB block-last deallocation,
-and Chisel elaboration of the composed module.
+marker-only BROB allocation plus scalar active-BID reuse, and Chisel
+elaboration of the composed module.

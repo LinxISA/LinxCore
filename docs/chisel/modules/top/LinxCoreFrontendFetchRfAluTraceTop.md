@@ -74,6 +74,11 @@ R103 propagates the reduced ROB block-last to BROB lifecycle diagnostics to
 this top: full block BID on the deallocated block-last row, scalar-done pulse,
 and one-cycle-later block-retire pulse. These diagnostics prove the current
 ROB/BROB sideband path, not full `BSTART`/`BSTOP` marker retirement.
+R104 extends the same live fetch RF/ALU gate with reduced marker-owned block
+lifecycle. `BSTART` skip rows allocate BROB-only active BIDs, scalar rows reuse
+that active BID, and `BSTOP` skip rows complete and retire the current active
+BID. This remains marker-consume timing, not full marker ROB retirement or
+recovery-exact block control.
 
 ## Interface
 
@@ -92,7 +97,8 @@ ROB/BROB sideband path, not full `BSTART`/`BSTOP` marker retirement.
 | output | `f4ValidMask`, `f4SlotCount`, `decodeReady` | mixed | diagnostic | F4 slot shape and downstream decode readiness. |
 | output | `denseSlotQueueInFire`, `denseSlotQueueOutFire`, `denseSlotQueueInSlotCount`, `denseSlotQueueCount`, `denseSlotQueueHeadSlot`, `denseSlotQueueFull`, `denseSlotQueueEmpty` | mixed | diagnostic | Reduced dense-slot bridge capture/drain and occupancy observability. |
 | output | `selectedValid`, `selectedRobValue`, `selectedBlockBid` | mixed | diagnostic | Reduced selected decoded slot and allocated identities. |
-| output | `blockMarkerSkipFire`, `blockMarkerSkipValid`, `blockMarkerMixedPacket`, `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`, `blockMarkerInsn`, `blockMarkerLen` | mixed | diagnostic | Reduced block-marker consume observability on a dense-slot drain. Marker slots advance without marker-owned ROB allocation or dec/ren push; older scalar issue activity may overlap in the same cycle. |
+| output | `blockMarkerSkipFire`, `blockMarkerSkipValid`, `blockMarkerMixedPacket`, `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`, `blockMarkerInsn`, `blockMarkerLen` | mixed | diagnostic | Reduced block-marker consume observability on a dense-slot drain. Marker slots advance without scalar ROB allocation or dec/ren push; older scalar issue activity may overlap in the same cycle. |
+| output | `blockMarkerAllocFire`, `blockMarkerAllocBid`, `blockMarkerActiveValid`, `blockMarkerActiveBid` | mixed | diagnostic | Reduced marker lifecycle observability: BROB-only allocation for consumed `BSTART` and active full BID reused by scalar rows. |
 | output | `decRenPushFire`, `decRenPopFire`, `decRenCount` | mixed | diagnostic | Decode-to-rename queue events and occupancy. |
 | output | `renamedOutValid`, `renamedAccepted` | `Bool` | diagnostic | Rename output and issue-queue acceptance. |
 | output | `rfReadReadyMask`, `rfAllReadReady`, `rfReadyMask` | mixed | diagnostic | Reduced physical RF read and ready-state observability. |
@@ -141,11 +147,14 @@ drains exactly one slot per cycle into `DecodeRenameROBPath`. The path
 reserves and updates ROB rows for scalar slots, then emits renamed scalar uops
 into `ReducedScalarIssueQueue`. This top instantiates `DecodeRenameROBPath`
 with `skipBlockMarkers=true`; a drained `BSTART` or `BSTOP` marker slot drives
-`blockMarkerSkipFire` without marker-owned ROB allocation or dec/ren enqueue.
+`blockMarkerSkipFire` without scalar selection, scalar ROB allocation, or
+dec/ren enqueue. A drained `BSTART` allocates a BROB-only active BID, and
+following scalar slots are stamped with that active BID. A drained `BSTOP`
+pulses scalar done for the current active BID and clears the active state.
 Because the issue queue is decoupled, a marker drain can overlap an older
 scalar row's issue enqueue. The marker contract is no marker-owned scalar
-selection, dec/ren push, or ROB allocation, not global silence on unrelated
-older issue activity.
+selection, dec/ren push, or scalar ROB allocation, not global silence on
+unrelated older issue activity.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
 packet acceptance. The P1/I1/I2 picker reads source data from
@@ -200,6 +209,13 @@ ROB path. This top still does not model cacheline merge, branch prediction,
 multiple outstanding fetches, width-wide decode/ROB allocation, full
 oldest-ready issue preferences, read-port arbitration, bypass, load
 speculative wakeup, LSU, precise traps, or architectural redirect restart.
+R104 adds the first reduced block-lifecycle alignment for those marker slots.
+The model allocates BROB on `BSTART`, stamps following scalar instructions with
+the current block BID, and completes the current block on `BSTOP` through the
+scalar PE ROB/BROB path. The top now checks the visible reduced contract:
+`BSTART` creates an active full BID, scalar rows report that active BID, and
+`BSTOP` completes the active BID before the architectural comparator sees only
+the scalar commit rows.
 
 ## Trace/Observability
 
@@ -236,7 +252,13 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
   window;
 - for skip rows, requires `blockMarkerSkipFire`, matching marker
   PC/instruction/length and boundary/stop diagnostics, and no marker-owned
-  ROB allocation or dec/ren push;
+  scalar ROB allocation or dec/ren push;
+- for `BSTART` skip rows, requires `blockMarkerAllocFire` and records
+  `blockMarkerAllocBid` as the active full BID;
+- for scalar rows while a marker-owned block is active, requires
+  `selectedBlockBid` to match the active full BID;
+- for `BSTOP` skip rows, requires `blockScalarDoneFire` with the active full
+  BID and clears the active marker state after the drain;
 - waits for commit rows for each scalar instruction after the window's slots
   have drained;
 - writes QEMU-shaped reference and DUT JSONL through
@@ -312,6 +334,27 @@ The preview stream still preserves `C.BSTART`, three scalar rows, and
 `generated/r102-dense-qemu-elf-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 
+The R104 marker-lifecycle gate keeps the same live QEMU fixture but now checks
+the marker-owned BROB lifecycle diagnostics:
+
+```bash
+bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh \
+  --out-dir generated/r104-live-qemu-fixture
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r104-marker-lifecycle-qemu-elf-xcheck \
+  --elf generated/r104-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
+  --expected-rows 0 \
+  --capture-rows 5 \
+  --allow-block-markers \
+  --max-seconds 5
+```
+
+The preview stream still preserves `C.BSTART`, three scalar rows, and
+`C.BSTOP`. The harness now also checks BROB-only marker allocation, scalar
+active-BID reuse, and marker-driven scalar completion. The comparator manifest
+at `generated/r104-marker-lifecycle-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
@@ -326,6 +369,8 @@ records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r102-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r102-dense-qemu-elf-xcheck --elf generated/r102-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
+- `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r104-live-qemu-fixture`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r104-marker-lifecycle-qemu-elf-xcheck --elf generated/r104-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
 - `FETCH_EXPECTED_ROWS=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_QEMU_TRACE=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`

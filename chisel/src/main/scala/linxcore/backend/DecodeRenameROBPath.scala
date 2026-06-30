@@ -88,6 +88,10 @@ class DecodeRenameROBPathIO(
   val blockMarkerPc = Output(UInt(p.pcWidth.W))
   val blockMarkerInsn = Output(UInt(p.insnWidth.W))
   val blockMarkerLen = Output(UInt(4.W))
+  val blockMarkerAllocFire = Output(Bool())
+  val blockMarkerAllocBid = Output(UInt(bidWidth.W))
+  val blockMarkerActiveValid = Output(Bool())
+  val blockMarkerActiveBid = Output(UInt(bidWidth.W))
   val decodeReady = Output(Bool())
   val decRenPushReady = Output(Bool())
   val decRenPushFire = Output(Bool())
@@ -448,6 +452,8 @@ class DecodeRenameROBPath(
 
   val selectedIsLoad = selectedAny && VecInit(decode.io.loadMask.asBools)(selectedSlot)
   val selectedIsStore = selectedAny && VecInit(decode.io.storeMask.asBools)(selectedSlot)
+  val markerBoundary = markerOnlyPacket && VecInit(decode.io.blockBoundaryMask.asBools)(markerSlot)
+  val markerStop = markerOnlyPacket && VecInit(decode.io.blockStopMask.asBools)(markerSlot)
 
   val allocator = Module(new DispatchROBAllocator(
     entries = p.robEntries,
@@ -478,18 +484,22 @@ class DecodeRenameROBPath(
   memIds.io.restoreLoadId := 0.U
   memIds.io.restoreStoreId := 0.U
 
+  val activeBlockValid = RegInit(false.B)
+  val activeBlockBid = RegInit(0.U(bidWidth.W))
+  val selectedBlockBid = Mux(activeBlockValid, activeBlockBid, allocator.io.allocBlockBid)
+
   val selectedForQueue = Wire(new DecodedUop(p))
   selectedForQueue := memIds.io.out
   selectedForQueue.valid := selectedAny
   selectedForQueue.bid :=
-    FullBidRecoveryBridge.fullBidToRobId(allocator.io.allocBlockBid, selectedAny, p.robEntries, bidWidth)
+    FullBidRecoveryBridge.fullBidToRobId(selectedBlockBid, selectedAny, p.robEntries, bidWidth)
   selectedForQueue.gid := zeroRobId
   selectedForQueue.gid.valid := selectedAny
   selectedForQueue.rid.valid := selectedAny
   selectedForQueue.rid.wrap := false.B
   selectedForQueue.rid.value := allocator.io.allocRobValue
   selectedForQueue.blockBidValid := selectedAny
-  selectedForQueue.blockBid := allocator.io.allocBlockBid
+  selectedForQueue.blockBid := selectedBlockBid
 
   val decRenPush = Wire(new DecodedUop(p))
   decRenPush := selectedForQueue
@@ -583,18 +593,31 @@ class DecodeRenameROBPath(
 
   allocator.io.flush := io.cleanup.flush
   allocator.io.allocValid := selectedAny && decRenQ.io.pushReady
+  allocator.io.allocUsesExistingBlock := activeBlockValid
+  allocator.io.allocExistingBlockBid := activeBlockBid
   allocator.io.allocRow := commitReservationRow(selectedForQueue)
   allocator.io.allocGid := selectedForQueue.gid
-  allocator.io.allocTid := selectedForQueue.threadId
-  allocator.io.allocStid := selectedForQueue.threadId
+  val selectedAllocTid = selectedForQueue.threadId.pad(tidWidth)(tidWidth - 1, 0)
+  val selectedAllocStid = selectedForQueue.threadId.pad(stidWidth)(stidWidth - 1, 0)
+  val selectedAllocPeId = selectedForQueue.peId.pad(peIdWidth)(peIdWidth - 1, 0)
+  val selectedAllocBlockType = selectedForQueue.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
+  val markerAllocTid = marker.threadId.pad(tidWidth)(tidWidth - 1, 0)
+  val markerAllocStid = marker.threadId.pad(stidWidth)(stidWidth - 1, 0)
+  val markerAllocPeId = marker.peId.pad(peIdWidth)(peIdWidth - 1, 0)
+  val markerAllocBlockType = marker.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
+  allocator.io.allocTid := Mux(markerBoundary, markerAllocTid, selectedAllocTid)
+  allocator.io.allocStid := Mux(markerBoundary, markerAllocStid, selectedAllocStid)
   allocator.io.allocTSeq := zeroLocalSeq
   allocator.io.allocUSeq := zeroLocalSeq
   allocator.io.allocTUDstValid := false.B
   allocator.io.allocTUDstKind := DestinationKind.None
   allocator.io.allocIsLast := selectedForQueue.eob
-  allocator.io.allocPeId := selectedForQueue.peId.pad(peIdWidth)(peIdWidth - 1, 0)
-  allocator.io.allocBlockType := selectedForQueue.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
+  allocator.io.allocPeId := Mux(markerBoundary, markerAllocPeId, selectedAllocPeId)
+  allocator.io.allocBlockType := Mux(markerBoundary, markerAllocBlockType, selectedAllocBlockType)
   allocator.io.allocNeedsEngine := false.B
+  val robBlockLastScalarDoneFire = allocator.io.deallocBlockLastValid
+  val markerLifecycleConflict = robBlockLastScalarDoneFire
+  allocator.io.blockAllocOnlyValid := markerBoundary && !markerLifecycleConflict
   allocator.io.renameUpdateValid := rename.io.robAllocAttemptValid
   allocator.io.renameUpdateRid := queuedForRename.rid
   allocator.io.renameUpdateRow := rename.io.robAllocRow
@@ -607,8 +630,13 @@ class DecodeRenameROBPath(
   allocator.io.completeRowValid := io.completeRowValid
   allocator.io.completeRow := io.completeRow
   allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !tuRetirePath.io.cleanupActive
-  val blockScalarDoneFire = allocator.io.deallocBlockLastValid
-  val blockScalarDoneBid = allocator.io.deallocBlockLastBlockBid
+  val markerReady = !markerLifecycleConflict && (markerStop || (markerBoundary && allocator.io.blockAllocOnlyReady))
+  val markerBoundaryFire = markerBoundary && markerReady && allocator.io.blockAllocOnlyFire
+  val markerStopFire = markerStop && markerReady
+  val markerScalarDoneFire = activeBlockValid && (markerStopFire || markerBoundaryFire)
+  val markerScalarDoneBid = activeBlockBid
+  val blockScalarDoneFire = markerScalarDoneFire || robBlockLastScalarDoneFire
+  val blockScalarDoneBid = Mux(markerScalarDoneFire, markerScalarDoneBid, allocator.io.deallocBlockLastBlockBid)
   val blockRetirePending = RegInit(false.B)
   val blockRetireBidReg = RegInit(0.U(bidWidth.W))
   val blockLifecycleFlush = io.cleanup.valid && (io.cleanup.backendFlushValid || io.cleanup.blockFlushValid)
@@ -636,6 +664,17 @@ class DecodeRenameROBPath(
     blockRetirePending := false.B
   }
 
+  when(blockLifecycleFlush) {
+    activeBlockValid := false.B
+    activeBlockBid := 0.U
+  }.elsewhen(markerBoundaryFire) {
+    activeBlockValid := true.B
+    activeBlockBid := allocator.io.blockAllocOnlyBid
+  }.elsewhen(markerStopFire) {
+    activeBlockValid := false.B
+    activeBlockBid := 0.U
+  }
+
   rename.io.robSource := allocator.io.robTULinkSource
   rename.io.lsuSource := storeDispatch.io.lsuTULinkSource
   tuRetirePath.io.sources := allocator.io.deallocTURetireSource
@@ -661,15 +700,20 @@ class DecodeRenameROBPath(
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
   io.selectedRobValue := allocator.io.allocRobValue
-  io.selectedBlockBid := allocator.io.allocBlockBid
+  io.selectedBlockBid := selectedBlockBid
   io.blockMarkerSkipValid := markerOnlyPacket && !mixedMarkerPacket
   io.blockMarkerMixedPacket := mixedMarkerPacket
-  io.blockMarkerBoundary := markerOnlyPacket && VecInit(decode.io.blockBoundaryMask.asBools)(markerSlot)
-  io.blockMarkerStop := markerOnlyPacket && VecInit(decode.io.blockStopMask.asBools)(markerSlot)
+  io.blockMarkerBoundary := markerBoundary
+  io.blockMarkerStop := markerStop
   io.blockMarkerPc := marker.pc
   io.blockMarkerInsn := marker.insnRaw
   io.blockMarkerLen := marker.insnLen
-  io.decodeReady := !mixedMarkerPacket && (markerOnlyPacket || (decRenQ.io.pushReady && allocator.io.allocReady))
+  io.blockMarkerAllocFire := markerBoundaryFire
+  io.blockMarkerAllocBid := allocator.io.blockAllocOnlyBid
+  io.blockMarkerActiveValid := activeBlockValid
+  io.blockMarkerActiveBid := activeBlockBid
+  io.decodeReady := !mixedMarkerPacket &&
+    ((markerOnlyPacket && markerReady) || (decRenQ.io.pushReady && allocator.io.allocReady))
   io.decRenPushReady := decRenQ.io.pushReady && allocator.io.allocReady
   io.decRenPushFire := decRenQ.io.pushFire
   io.decRenPopFire := decRenQ.io.popFire
