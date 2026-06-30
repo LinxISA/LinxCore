@@ -214,6 +214,14 @@ and compares 978 normalized QEMU/DUT rows with zero mismatches. A 1600-row
 frontier probe then stops at `OP_MULW` at `pc=0x4000d21a`
 (`insn=0x018e21c7`), a multicycle local-source row with `rd=x3`, `rs1=x28/U0`,
 and `rs2=x24/T0`.
+R130 carries the live capture through `OP_MULW` and the adjacent compressed
+`OP_C_SUB` tail. `MULW` is still a reduced architectural-result bridge for the
+current prefix, not the future multicycle owner. The following `C.SUB` row uses
+scalar sources `x5`/`x2`, writes implicit `T0`, and relies on the same
+QEMU-trace-gap destination synthesis used by `C.ADD`/`C.AND`. The promoted
+gate captures 1481 raw QEMU rows, extracts 1365 expected rows, and compares
+980 normalized QEMU/DUT rows with zero mismatches. A 1600-row frontier probe
+then stops at `OP_ANDI` at `pc=0x4000d220` (`insn=0x003c2f15`).
 
 ## Interface
 

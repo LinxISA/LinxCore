@@ -133,6 +133,7 @@ The Chisel module implements the first reduced subset:
 | `OP_C_MOVR` | `srcData(0)` |
 | `OP_C_ADD` | `srcData(0) + srcData(1)` |
 | `OP_C_AND` | `srcData(0) & srcData(1)` |
+| `OP_C_SUB` | `srcData(0) - srcData(1)` |
 | `OP_C_LDI` | `loadLookupData`, with a reduced 8-byte load sideband at `srcData(0) + in.imm` |
 | `OP_C_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(0) + (in.imm << 3)` and store data `srcData(1)` |
 | `OP_C_SETC_EQ` | `0`, with branch sideband taken when validity-masked `srcData(0) == srcData(1)` |
@@ -151,6 +152,7 @@ The Chisel module implements the first reduced subset:
 | `OP_ADDW` | sign-extended low-32-bit `srcData(0) + srcData(1)` |
 | `OP_SD` | `0`, with a reduced 8-byte indexed store sideband at `srcData(0) + (srcData(1) << 3)` and store data `srcData(2)` |
 | `OP_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(1) + (in.imm << 3)` and store data `srcData(0)` |
+| `OP_MULW` | sign-extended low-32-bit `srcData(0) * srcData(1)` |
 | `OP_SBI` | `0`, with a reduced 1-byte store sideband at `srcData(1) + in.imm` and store data `srcData(0)` |
 | `OP_SLL` | `srcData(0) << srcData(1)(5, 0)` |
 | `OP_SLLI` | `srcData(0) << in.imm(5, 0)` |
@@ -280,6 +282,15 @@ calculates the immediate form as `src0 & imm`, truncates the result to
 32 bits, and sign-extends it back to 64 bits. The current CoreMark row writes
 architectural alias `x30/U0`, so it remains a local-destination completion row
 without scalar RF writeback.
+R130 admits `OP_MULW` at `pc=0x4000d21a` and the adjacent compressed
+`OP_C_SUB` tail at `pc=0x4000d21e`. LinxCoreModel routes `MULW` through the
+multicycle group, but the architectural result is still the low-32 product of
+source 0 and source 1 sign-extended to 64 bits. The reduced RF/ALU top computes
+that result for the bounded CoreMark prefix while preserving the future
+ownership boundary: this is not a general multicycle-pipeline replacement. The
+following `C.SUB` uses the same implicit-T local writeback contract as
+`C.ADD`/`C.AND`; the QEMU trace row omits destination/writeback fields, so the
+expected-row reducer synthesizes the `T0` completion from the encoded sources.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural
@@ -351,4 +362,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-1024-frontier-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r128-setc-ltui-1477-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1477 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r129-andiw-1479-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1479 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r130-mulw-csub-1481-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1481 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

@@ -184,6 +184,10 @@ The `FrontendDecodeStageSpec` reference cases cover:
   is not an architectural destination in the reduced no-writeback condition row
 - CoreMark `ANDIW` at `0x4000d210`, where the generic 32-bit immediate decode
   produces destination `x30/U0`, scalar source `x3`, and signed immediate `255`
+- CoreMark `MULW` at `0x4000d21a`, where generic register decode produces
+  scalar destination `x3` and local sources `x28/U0` and `x24/T0`
+- CoreMark `C.SUB` at `0x4000d21e`, where compressed source fields produce
+  scalar sources `x5`/`x2` and the fixed compressed-ALU destination `x31/T0`
 
 ## Open Work
 

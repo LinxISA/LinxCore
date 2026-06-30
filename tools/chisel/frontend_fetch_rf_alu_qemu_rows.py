@@ -51,6 +51,8 @@ SRL_MASK = 0xFE00_707F
 SRL_MATCH = 0x0000_5005
 SRA_MASK = 0xFE00_707F
 SRA_MATCH = 0x0000_6005
+MULW_MASK = 0xFE00_707F
+MULW_MATCH = 0x0000_2047
 OR_MASK = 0x707F
 OR_MATCH = 0x3005
 SETC_LTU_MASK = 0xF800_7FFF
@@ -129,6 +131,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "SRL"
         if (insn & SRA_MASK) == SRA_MATCH:
             return "SRA"
+        if (insn & MULW_MASK) == MULW_MATCH:
+            return "MULW"
         if (insn & OR_MASK) == OR_MATCH:
             return "OR"
         if (insn & SETC_LTUI_MASK) == SETC_LTUI_MATCH:
@@ -145,6 +149,8 @@ def _classify(row: dict[str, int]) -> str | None:
         key = insn & 0x3F
         if key == 0x0008:
             return "C.ADD"
+        if key == 0x0018:
+            return "C.SUB"
         if key == 0x0028:
             return "C.AND"
         if key == 0x0016:
@@ -407,6 +413,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "ADDW",
         "ADDI",
         "C.AND",
+        "C.SUB",
         "HL.LUI",
         "LD.PCR",
         "HL.LD.PCR",
@@ -417,6 +424,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "OR",
         "C.LDI",
         "C.ADD",
+        "C.SUB",
         "C.MOVR",
     }:
         raise RowExtractionError(f"{opcode} row writes reduced T destination alias {row['dst_reg']}")
@@ -509,6 +517,10 @@ def _expected_result(
         return 0
     if opcode == "SDI":
         return 0
+    if opcode == "MULW":
+        lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+        return _sext((lhs * rhs) & 0xFFFF_FFFF, 32) & MASK64
     if opcode == "C.ADD":
         lhs = _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         rhs = _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
@@ -517,6 +529,10 @@ def _expected_result(
         lhs = _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         rhs = _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
         return (lhs & rhs) & MASK64
+    if opcode == "C.SUB":
+        lhs = _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
+        rhs = _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
+        return (lhs - rhs) & MASK64
     if opcode == "HL.LUI":
         return _hl_lui_imm(row)
     if opcode == "SLL":
@@ -713,7 +729,7 @@ def _validate_reduced_row(
             raise RowExtractionError(f"row {index} SDI store data does not match src0")
         if row["mem_rdata"] != 0:
             raise RowExtractionError(f"row {index} SDI store row must not carry read data")
-    elif opcode in {"C.ADD", "C.AND"}:
+    elif opcode in {"C.ADD", "C.AND", "C.SUB"}:
         _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
     elif opcode == "HL.LUI":
@@ -722,11 +738,14 @@ def _validate_reduced_row(
         _require_sources(row, opcode, src0=False, src1=False)
         _local_source_value(local_state, _sll_src_l(row), opcode)
         _local_source_value(local_state, _sll_src_r(row), opcode)
+    elif opcode == "MULW":
+        _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
     elif opcode == "SLLI":
         if row["src1_valid"]:
             raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
         _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
-    synthesize_c_local_writeback = opcode in {"C.ADD", "C.AND"} and _is_no_writeback_trace_gap(row)
+    synthesize_c_local_writeback = opcode in {"C.ADD", "C.AND", "C.SUB"} and _is_no_writeback_trace_gap(row)
     no_writeback_opcode = opcode in {
         "C.SETC_EQ",
         "C.SETC_NE",
@@ -745,7 +764,7 @@ def _validate_reduced_row(
         raise RowExtractionError(f"row {index} {opcode} must not write a destination")
     if not synthesize_c_local_writeback and not no_writeback_opcode:
         _require_writeback(row, opcode)
-        if opcode in {"C.ADD", "C.AND"} and row["dst_reg"] != 31:
+        if opcode in {"C.ADD", "C.AND", "C.SUB"} and row["dst_reg"] != 31:
             raise RowExtractionError(f"row {index} {opcode} must write implicit T destination tag 31")
 
     expected = _expected_result(row, opcode, local_state)
@@ -2682,6 +2701,123 @@ def self_test() -> None:
         assert extracted_r129_andiw[0]["dst_data"] == 0
         assert extracted_r129_andiw[0]["src0_reg"] == 3
         assert extracted_r129_andiw[0]["src1_valid"] == 0
+
+        r130_mulw_source = tmp / "r130-mulw.jsonl"
+        r130_mulw_output = tmp / "r130-mulw.rows.jsonl"
+        addi_u_for_mulw = {
+            **rows[0],
+            "pc": 0x6000,
+            "insn": 0x00600F15,
+            "len": 4,
+            "next_pc": 0x6004,
+            "wb_valid": 1,
+            "wb_rd": 30,
+            "wb_data": 6,
+            "dst_valid": 1,
+            "dst_reg": 30,
+            "dst_data": 6,
+            "src0_valid": 1,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        addi_t_for_mulw = {
+            **rows[0],
+            "pc": 0x6004,
+            "insn": 0x00700F95,
+            "len": 4,
+            "next_pc": 0x6008,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 7,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 7,
+            "src0_valid": 1,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        mulw = {
+            **rows[0],
+            "pc": 0x6008,
+            "insn": 0x018E21C7,
+            "len": 4,
+            "next_pc": 0x600C,
+            "wb_valid": 1,
+            "wb_rd": 3,
+            "wb_data": 42,
+            "dst_valid": 1,
+            "dst_reg": 3,
+            "dst_data": 42,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(r130_mulw_source, [addi_u_for_mulw, addi_t_for_mulw, mulw])
+        count = extract_rows(r130_mulw_source, r130_mulw_output)
+        assert count == 3
+        extracted_r130_mulw = [
+            json.loads(line) for line in r130_mulw_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_r130_mulw[2]["pc"] == 0x6008
+        assert extracted_r130_mulw[2]["dst_reg"] == 3
+        assert extracted_r130_mulw[2]["dst_data"] == 42
+        assert extracted_r130_mulw[2]["src0_valid"] == 0
+        assert extracted_r130_mulw[2]["src1_valid"] == 0
+
+        r130_csub_source = tmp / "r130-csub.jsonl"
+        r130_csub_output = tmp / "r130-csub.rows.jsonl"
+        csub = {
+            **rows[0],
+            "pc": 0x6100,
+            "insn": 0x1158,
+            "len": 2,
+            "next_pc": 0x6102,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 5,
+            "src0_data": 0,
+            "src1_valid": 1,
+            "src1_reg": 2,
+            "src1_data": 0x4FFEFBF8,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(r130_csub_source, [csub])
+        count = extract_rows(r130_csub_source, r130_csub_output)
+        assert count == 1
+        extracted_r130_csub = [
+            json.loads(line) for line in r130_csub_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_r130_csub[0]["pc"] == 0x6100
+        assert extracted_r130_csub[0]["dst_valid"] == 1
+        assert extracted_r130_csub[0]["dst_reg"] == 31
+        assert extracted_r130_csub[0]["dst_data"] == 0xFFFF_FFFFB001_0408
+        assert extracted_r130_csub[0]["wb_valid"] == 1
+        assert extracted_r130_csub[0]["wb_rd"] == 31
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])
