@@ -257,6 +257,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
   val markerRedirectPending = RegInit(false.B)
   val markerRedirectPcReg = RegInit(0.U(p.pcWidth.W))
+  val blockBranchTakenValid = RegInit(false.B)
+  val blockBranchTaken = RegInit(false.B)
   val markerRedirectFire = path.io.blockMarkerStopRedirectValid
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
 
@@ -316,6 +318,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.completeRobValue := execute.io.completeRobValue
   path.io.completeRowValid := execute.io.completeValid
   path.io.completeRow := execute.io.completeRow
+  path.io.blockBranchTakenValid := blockBranchTakenValid
+  path.io.blockBranchTaken := blockBranchTaken
   path.io.deallocReady := io.deallocReady
 
   issue.io.inValid := path.io.renamedOutValid && !localIncomingBlocked
@@ -390,6 +394,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   execute.io.inValid := issue.io.issueValid
   execute.io.in := issue.io.issueUop
   execute.io.srcData := issue.io.issueSrcData
+
+  val blockBoundaryConsumed = denseSlots.io.outFire && path.io.blockMarkerSkipValid && path.io.blockMarkerBoundary
+  when(localReset) {
+    blockBranchTakenValid := false.B
+    blockBranchTaken := false.B
+  }.elsewhen(blockBoundaryConsumed) {
+    blockBranchTakenValid := false.B
+    blockBranchTaken := false.B
+  }.elsewhen(execute.io.branchConditionValid) {
+    blockBranchTakenValid := true.B
+    blockBranchTaken := execute.io.branchConditionTaken
+  }
 
   io.fetchReqValid := source.io.reqValid
   io.fetchReqPc := source.io.reqPc

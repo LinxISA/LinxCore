@@ -69,6 +69,8 @@ class DecodeRenameROBPathIO(
   val completeRobValue = Input(UInt(ptrWidth.W))
   val completeRowValid = Input(Bool())
   val completeRow = Input(new CommitTraceRow(traceParams))
+  val blockBranchTakenValid = Input(Bool())
+  val blockBranchTaken = Input(Bool())
   val deallocReady = Input(Bool())
 
   val decodedValidMask = Output(UInt(p.decodeWidth.W))
@@ -494,6 +496,7 @@ class DecodeRenameROBPath(
   val activeBlockValid = RegInit(false.B)
   val activeBlockBid = RegInit(0.U(bidWidth.W))
   val activeBlockTarget = RegInit(0.U(p.pcWidth.W))
+  val activeBlockCond = RegInit(false.B)
   val selectedBlockBid = Mux(activeBlockValid, activeBlockBid, allocator.io.allocBlockBid)
 
   val selectedForQueue = Wire(new DecodedUop(p))
@@ -627,7 +630,12 @@ class DecodeRenameROBPath(
   allocator.io.allocNeedsEngine := false.B
   val robBlockLastScalarDoneFire = allocator.io.deallocBlockLastValid
   val markerLifecycleConflict = robBlockLastScalarDoneFire
-  allocator.io.blockAllocOnlyValid := markerBoundary && !markerLifecycleConflict
+  val markerNeedsBranchDecision = markerBoundary && activeBlockValid && activeBlockCond
+  val markerRedirectBoundary =
+    markerNeedsBranchDecision && io.blockBranchTakenValid && io.blockBranchTaken
+  val markerFallthroughBoundary =
+    markerBoundary && (!markerNeedsBranchDecision || (io.blockBranchTakenValid && !io.blockBranchTaken))
+  allocator.io.blockAllocOnlyValid := markerFallthroughBoundary && !markerLifecycleConflict
   allocator.io.renameUpdateValid := rename.io.robAllocAttemptValid
   allocator.io.renameUpdateRid := queuedForRename.rid
   allocator.io.renameUpdateRow := rename.io.robAllocRow
@@ -640,13 +648,16 @@ class DecodeRenameROBPath(
   allocator.io.completeRowValid := io.completeRowValid
   allocator.io.completeRow := io.completeRow
   allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !tuRetirePath.io.cleanupActive
-  val markerReady = !markerLifecycleConflict && (markerStop || (markerBoundary && allocator.io.blockAllocOnlyReady))
-  val markerBoundaryFire = markerBoundary && markerReady && allocator.io.blockAllocOnlyFire
+  val markerReady =
+    !markerLifecycleConflict &&
+      (markerStop || markerRedirectBoundary || (markerFallthroughBoundary && allocator.io.blockAllocOnlyReady))
+  val markerBoundaryFire = markerFallthroughBoundary && markerReady && allocator.io.blockAllocOnlyFire
+  val markerBoundaryRedirectFire = markerRedirectBoundary && markerReady
   val markerStopFire = markerStop && markerReady
-  val markerScalarDoneFire = activeBlockValid && (markerStopFire || markerBoundaryFire)
+  val markerScalarDoneFire = activeBlockValid && (markerStopFire || markerBoundaryFire || markerBoundaryRedirectFire)
   val markerScalarDoneBid = activeBlockBid
   val markerStopRedirectValid =
-    markerStopFire && activeBlockValid && activeBlockTarget =/= 0.U &&
+    (markerStopFire || markerBoundaryRedirectFire) && activeBlockValid && activeBlockTarget =/= 0.U &&
       activeBlockTarget =/= (marker.pc + marker.insnLen)
   val blockScalarDoneFire = markerScalarDoneFire || robBlockLastScalarDoneFire
   val blockScalarDoneBid = Mux(markerScalarDoneFire, markerScalarDoneBid, allocator.io.deallocBlockLastBlockBid)
@@ -685,14 +696,17 @@ class DecodeRenameROBPath(
     activeBlockValid := false.B
     activeBlockBid := 0.U
     activeBlockTarget := 0.U
+    activeBlockCond := false.B
   }.elsewhen(markerBoundaryFire) {
     activeBlockValid := true.B
     activeBlockBid := allocator.io.blockAllocOnlyBid
     activeBlockTarget := marker.boundaryTarget
-  }.elsewhen(markerStopFire) {
+    activeBlockCond := marker.boundaryKind === BoundaryKind.Cond
+  }.elsewhen(markerStopFire || markerBoundaryRedirectFire) {
     activeBlockValid := false.B
     activeBlockBid := 0.U
     activeBlockTarget := 0.U
+    activeBlockCond := false.B
   }
 
   rename.io.robSource := allocator.io.robTULinkSource
@@ -740,7 +754,7 @@ class DecodeRenameROBPath(
   io.blockMarkerStopRedirectValid := markerStopRedirectValid
   io.blockMarkerStopRedirectPc := activeBlockTarget
   io.decodeReady := !mixedMarkerPacket &&
-    ((markerOnlyPacket && markerReady) || (decRenQ.io.pushReady && allocator.io.allocReady))
+    Mux(markerOnlyPacket, markerReady, decRenQ.io.pushReady && allocator.io.allocReady)
   io.decRenPushReady := decRenQ.io.pushReady && allocator.io.allocReady
   io.decRenPushFire := decRenQ.io.pushFire
   io.decRenPopFire := decRenQ.io.popFire

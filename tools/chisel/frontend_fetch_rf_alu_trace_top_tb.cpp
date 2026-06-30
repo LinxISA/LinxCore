@@ -34,6 +34,7 @@ struct ExpectedRow {
   std::uint64_t pc = 0;
   std::uint64_t insn = 0;
   std::uint8_t len = 4;
+  std::uint64_t next_pc = 0;
   bool skip = false;
   std::string skip_kind;
   bool block_boundary = false;
@@ -312,6 +313,7 @@ ExpectedRow parse_expected_row_jsonl(
   row.mem_wdata = json_u64(line, "mem_wdata", 0, context);
   row.mem_rdata = json_u64(line, "mem_rdata", 0, context);
   row.mem_size = json_u8(line, "mem_size", 0, context);
+  row.next_pc = json_u64(line, "next_pc", row.pc + row.len, context);
   return row;
 }
 
@@ -633,6 +635,33 @@ bool slot1_valid(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   return dut.io_commit_rows_1_valid;
 }
 
+void collect_commit_if_present(
+    VLinxCoreFrontendFetchRfAluTraceTop &dut,
+    std::vector<ObservedRow> &pending,
+    const char *context) {
+  if (dut.io_executeUnsupported) {
+    std::cerr << context << " execute reported unsupported opcode="
+              << static_cast<unsigned>(dut.io_executeUnsupportedOpcode) << "\n";
+    std::exit(1);
+  }
+  if (dut.io_executeCompleteValid && dut.io_completeIgnored) {
+    std::cerr << context << " execute completion was ignored"
+              << " rob=" << static_cast<unsigned>(dut.io_executeCompleteRobValue)
+              << "\n";
+    std::exit(1);
+  }
+  if (!dut.io_commit_rows_0_valid) {
+    return;
+  }
+  const ObservedRow slot0 = read_slot0(dut);
+  expect_monitor_clean(dut, context, 0x1, 1);
+  if (slot1_valid(dut)) {
+    std::cerr << context << " observed an unsupported two-row commit window\n";
+    std::exit(1);
+  }
+  pending.push_back(slot0);
+}
+
 void expect_row(const ObservedRow &observed, const ExpectedRow &expected) {
   if (!observed.valid ||
       observed.slot != 0 ||
@@ -779,7 +808,7 @@ CommitTraceJsonRow to_json_row(const ExpectedRow &row) {
   json.mem_wdata = row.mem_wdata;
   json.mem_rdata = row.mem_rdata;
   json.mem_size = row.mem_size;
-  json.next_pc = row.pc + row.len;
+  json.next_pc = row.next_pc;
   return json;
 }
 
@@ -817,8 +846,11 @@ std::size_t dense_window_end(const std::vector<ExpectedRow> &rows, std::size_t s
     if ((row.pc + row.len) - start_pc > 8U) {
       break;
     }
-    next_pc = row.pc + row.len;
+    next_pc = row.next_pc;
     ++end;
+    if (row.next_pc != row.pc + row.len) {
+      break;
+    }
   }
   if (end == start) {
     std::cerr << "dense window grouping could not fit first row"
@@ -848,21 +880,28 @@ std::uint8_t dense_window_advance(const std::vector<ExpectedRow> &rows, std::siz
   return static_cast<std::uint8_t>(advance);
 }
 
+bool row_redirects(const ExpectedRow &row) {
+  return row.next_pc != row.pc + row.len;
+}
+
 void fetch_dense_window(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const std::vector<ExpectedRow> &rows,
     std::size_t start,
     std::size_t end,
-    const FetchMemoryImage &fetch_memory) {
+    const FetchMemoryImage &fetch_memory,
+    std::vector<ObservedRow> &pending_commits) {
   const ExpectedRow &first = rows.at(start);
   const std::size_t slot_count = end - start;
   const std::uint8_t expected_mask = dense_window_mask(slot_count);
   const std::uint8_t expected_advance = dense_window_advance(rows, start, end);
+  const bool redirect_tail = row_redirects(rows.at(end - 1));
 
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
     dut.io_fetchReqReady = 1;
     dut.eval();
+    collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU fetch");
     if (dut.io_fetchReqValid) {
       if (dut.io_fetchReqPc != first.pc || !dut.io_sourceReqFire) {
         std::cerr << "frontend fetch RF ALU request mismatch"
@@ -899,16 +938,24 @@ request_done:
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
     dut.eval();
+    collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU dense drain");
     if (dut.io_rfStateError) {
       std::cerr << "frontend fetch RF ALU reported RF state error before enqueue\n";
       std::exit(1);
     }
     if (dut.io_sourceOutFire) {
-      if (!dut.io_denseSlotQueueInFire ||
-          dut.io_f4ValidMask != expected_mask ||
-          dut.io_f4SlotCount != slot_count ||
-          dut.io_denseSlotQueueInSlotCount != slot_count ||
-          dut.io_sourceAdvanceBytes != expected_advance) {
+      const bool strict_dense_match =
+          dut.io_f4ValidMask == expected_mask &&
+          dut.io_f4SlotCount == slot_count &&
+          dut.io_denseSlotQueueInSlotCount == slot_count &&
+          dut.io_sourceAdvanceBytes == expected_advance;
+      const bool redirect_prefix_match =
+          redirect_tail &&
+          (dut.io_f4ValidMask & expected_mask) == expected_mask &&
+          dut.io_f4SlotCount >= slot_count &&
+          dut.io_denseSlotQueueInSlotCount >= slot_count &&
+          dut.io_sourceAdvanceBytes >= expected_advance;
+      if (!dut.io_denseSlotQueueInFire || (!strict_dense_match && !redirect_prefix_match)) {
         std::cerr << "frontend fetch RF ALU dense packet was not captured"
                   << " pc=0x" << std::hex << first.pc << std::dec
                   << " expected_mask=0x" << std::hex << static_cast<unsigned>(expected_mask)
@@ -937,7 +984,8 @@ std::uint8_t drain_dense_row(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const ExpectedRow &row,
     bool &active_block_valid,
-    std::uint64_t &active_block_bid) {
+    std::uint64_t &active_block_bid,
+    std::vector<ObservedRow> &pending_commits) {
   for (int cycle = 0; cycle < 16; ++cycle) {
     clear_inputs(dut);
     dut.eval();
@@ -945,6 +993,7 @@ std::uint8_t drain_dense_row(
       std::cerr << "frontend fetch RF ALU reported RF state error before dense slot drain\n";
       std::exit(1);
     }
+    collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU dense slot drain");
     if (dut.io_denseSlotQueueOutFire) {
       if (!dut.io_decodeReady) {
         std::cerr << "frontend fetch RF ALU dense slot drained while decode was not ready"
@@ -953,6 +1002,7 @@ std::uint8_t drain_dense_row(
       }
       if (row.skip) {
         const bool expected_alloc = row.block_boundary;
+        const bool redirect_boundary = row.block_boundary && row_redirects(row);
         const bool expected_done = active_block_valid && (row.block_boundary || row.block_stop);
         if (row.block_stop && !active_block_valid) {
           std::cerr << "frontend fetch RF ALU marker stop had no active block"
@@ -969,7 +1019,7 @@ std::uint8_t drain_dense_row(
             dut.io_blockMarkerLen != row.len ||
             static_cast<bool>(dut.io_blockMarkerBoundary) != row.block_boundary ||
             static_cast<bool>(dut.io_blockMarkerStop) != row.block_stop ||
-            static_cast<bool>(dut.io_blockMarkerAllocFire) != expected_alloc ||
+            static_cast<bool>(dut.io_blockMarkerAllocFire) != (expected_alloc && !redirect_boundary) ||
             static_cast<bool>(dut.io_blockScalarDoneFire) != expected_done ||
             dut.io_decRenPushFire ||
             dut.io_robAllocFire) {
@@ -979,7 +1029,14 @@ std::uint8_t drain_dense_row(
                     << " selectedValid=" << static_cast<unsigned>(dut.io_selectedValid)
                     << " skipFire=" << static_cast<unsigned>(dut.io_blockMarkerSkipFire)
                     << " mixed=" << static_cast<unsigned>(dut.io_blockMarkerMixedPacket)
+                    << " boundary=" << static_cast<unsigned>(dut.io_blockMarkerBoundary)
+                    << " stop=" << static_cast<unsigned>(dut.io_blockMarkerStop)
                     << " allocFire=" << static_cast<unsigned>(dut.io_blockMarkerAllocFire)
+                    << " activeValid=" << static_cast<unsigned>(dut.io_blockMarkerActiveValid)
+                    << " activeBid=0x" << std::hex << dut.io_blockMarkerActiveBid
+                    << " activeTarget=0x" << dut.io_blockMarkerActiveTarget
+                    << " markerTarget=0x" << dut.io_blockMarkerTarget
+                    << std::dec
                     << " scalarDone=" << static_cast<unsigned>(dut.io_blockScalarDoneFire)
                     << " decRenPush=" << static_cast<unsigned>(dut.io_decRenPushFire)
                     << " robAlloc=" << static_cast<unsigned>(dut.io_robAllocFire)
@@ -996,7 +1053,10 @@ std::uint8_t drain_dense_row(
         }
         const std::uint64_t allocated_bid = dut.io_blockMarkerAllocBid;
         tick(dut);
-        if (row.block_boundary) {
+        if (redirect_boundary) {
+          active_block_valid = false;
+          active_block_bid = 0;
+        } else if (row.block_boundary) {
           active_block_valid = true;
           active_block_bid = allocated_bid;
         } else if (row.block_stop) {
@@ -1037,7 +1097,22 @@ std::uint8_t drain_dense_row(
   }
 
   std::cerr << "frontend fetch RF ALU dense slot queue did not drain row"
-            << " pc=0x" << std::hex << row.pc << std::dec << "\n";
+            << " pc=0x" << std::hex << row.pc << std::dec
+            << " queueEmpty=" << static_cast<unsigned>(dut.io_denseSlotQueueEmpty)
+            << " queueCount=" << static_cast<unsigned>(dut.io_denseSlotQueueCount)
+            << " headSlot=" << static_cast<unsigned>(dut.io_denseSlotQueueHeadSlot)
+            << " decodeReady=" << static_cast<unsigned>(dut.io_decodeReady)
+            << " selectedValid=" << static_cast<unsigned>(dut.io_selectedValid)
+            << " markerSkipValid=" << static_cast<unsigned>(dut.io_blockMarkerSkipValid)
+            << " markerMixed=" << static_cast<unsigned>(dut.io_blockMarkerMixedPacket)
+            << " blockRetireFire=" << static_cast<unsigned>(dut.io_blockRetireFire)
+            << " issueCount=" << static_cast<unsigned>(dut.io_issueQueueCount)
+            << " executeBusy=" << static_cast<unsigned>(dut.io_executeBusy)
+            << " occupiedMask=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_occupiedMask)
+            << " completedMask=0x"
+            << static_cast<unsigned long long>(dut.io_completedMask)
+            << std::dec << "\n";
   std::exit(1);
 }
 
@@ -1064,9 +1139,18 @@ void drain_empty(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
 void commit_expected_row(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const ExpectedRow &expected,
+    std::vector<ObservedRow> &pending_commits,
     std::ofstream &dut_out,
     std::ofstream &qemu_out) {
   for (int cycle = 0; cycle < 32; ++cycle) {
+    if (!pending_commits.empty()) {
+      const ObservedRow observed = pending_commits.front();
+      pending_commits.erase(pending_commits.begin());
+      expect_row(observed, expected);
+      write_dut_row(dut_out, observed);
+      write_qemu_row(qemu_out, expected);
+      return;
+    }
     clear_inputs(dut);
     dut.eval();
     if (dut.io_rfStateError) {
@@ -1084,15 +1168,12 @@ void commit_expected_row(
                 << "\n";
       std::exit(1);
     }
-    if (dut.io_commit_rows_0_valid) {
-      const ObservedRow slot0 = read_slot0(dut);
-      expect_monitor_clean(dut, "frontend fetch RF ALU trace top commit", 0x1, 1);
-      expect_row(slot0, expected);
-      if (slot1_valid(dut)) {
-        std::cerr << "frontend fetch RF ALU trace top expected a single-row commit window\n";
-        std::exit(1);
-      }
-      write_dut_row(dut_out, slot0);
+    collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU trace top commit");
+    if (!pending_commits.empty()) {
+      const ObservedRow observed = pending_commits.front();
+      pending_commits.erase(pending_commits.begin());
+      expect_row(observed, expected);
+      write_dut_row(dut_out, observed);
       write_qemu_row(qemu_out, expected);
       tick(dut);
       return;
@@ -1103,6 +1184,7 @@ void commit_expected_row(
 
   std::cerr << "frontend fetch RF ALU trace top did not emit a commit row"
             << " pc=0x" << std::hex << expected.pc << std::dec
+            << " pendingCommits=" << pending_commits.size()
             << " decRenCount=" << static_cast<unsigned>(dut.io_decRenCount)
             << " decRenValid=" << static_cast<unsigned>(dut.io_decRenValid)
             << " decRenHeadPc=0x" << std::hex
@@ -1256,28 +1338,34 @@ int main(int argc, char **argv) {
   start_source(dut, rows.front().pc);
   bool active_block_valid = false;
   std::uint64_t active_block_bid = 0;
+  std::vector<ObservedRow> pending_commits;
   for (std::size_t row_index = 0; row_index < rows.size();) {
     const std::size_t window_end = dense_window_end(rows, row_index);
-    fetch_dense_window(dut, rows, row_index, window_end, fetch_memory);
+    fetch_dense_window(dut, rows, row_index, window_end, fetch_memory, pending_commits);
 
     std::vector<std::size_t> scalar_slots;
     for (std::size_t slot_index = row_index; slot_index < window_end; ++slot_index) {
       const ExpectedRow &row = rows[slot_index];
       if (row.skip) {
-        (void)drain_dense_row(dut, row, active_block_valid, active_block_bid);
+        (void)drain_dense_row(dut, row, active_block_valid, active_block_bid, pending_commits);
         continue;
       }
-      (void)drain_dense_row(dut, row, active_block_valid, active_block_bid);
+      (void)drain_dense_row(dut, row, active_block_valid, active_block_bid, pending_commits);
       scalar_slots.push_back(slot_index);
     }
 
     for (const auto slot_index : scalar_slots) {
       const ExpectedRow &row = rows[slot_index];
-      commit_expected_row(dut, row, dut_out, qemu_out);
+      commit_expected_row(dut, row, pending_commits, dut_out, qemu_out);
     }
     row_index = window_end;
   }
 
+  if (!pending_commits.empty()) {
+    std::cerr << "frontend fetch RF ALU trace top has unconsumed commit rows="
+              << pending_commits.size() << "\n";
+    return 1;
+  }
   drain_empty(dut);
   dut.eval();
   if (!dut.io_idle || !dut.io_empty || dut.io_size != 0) {

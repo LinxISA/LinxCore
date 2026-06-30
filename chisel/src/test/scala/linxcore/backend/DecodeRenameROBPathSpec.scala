@@ -229,6 +229,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.blockMarkerActiveTarget.getWidth == 64)
     assert(io.blockMarkerStopRedirectValid.getWidth == 1)
     assert(io.blockMarkerStopRedirectPc.getWidth == 64)
+    assert(io.blockBranchTakenValid.getWidth == 1)
+    assert(io.blockBranchTaken.getWidth == 1)
     assert(io.decodeReady.getWidth == 1)
     assert(io.decRenPushFire.getWidth == 1)
     assert(io.decRenPopFire.getWidth == 1)

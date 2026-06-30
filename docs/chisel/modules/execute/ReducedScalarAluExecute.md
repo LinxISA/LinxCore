@@ -50,6 +50,8 @@ owners.
 | output | `releaseBid` | `ROBID` | with `releaseValid` | Block identity copied from the W2 uop. |
 | output | `releaseRid` | `ROBID` | with `releaseValid` | ROB identity copied from the W2 uop. |
 | output | `releaseStid` | `UInt(threadIdWidth.W)` | with `releaseValid` | STID copied from the W2 uop. |
+| output | `branchConditionValid` | `Bool` | with `completeValid` | Reduced conditional-block decision is valid for a completed compare row. |
+| output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_NE` not-equal result used by the reduced conditional BSTART owner. |
 | output | `accepted` | `Bool` | pulse | `inValid && inReady`. |
 | output | `busy` | `Bool` | state | Any E/W1/W2 pipe stage is occupied. |
 | output | `unsupported` | `Bool` | pulse | W2 uop reached execute but is outside the reduced opcode subset. |
@@ -175,6 +177,11 @@ exists to keep the live CoreMark prefix moving through a local/scalar compare
 that QEMU emits without destination fields; execute marks it supported and
 returns a zero reference result, while the decoded invalid destination keeps
 the commit row free of writeback.
+R119 extends that row into the reduced conditional-block sideband. When
+`OP_C_SETC_NE` completes, `branchConditionValid` pulses and
+`branchConditionTaken` is the not-equal comparison of validity-masked source
+data. Invalid operands are treated as zero for the decision sideband, matching
+the completion-row source suppression policy used by local T/U operands.
 R118 admits the first ordinary scalar store-immediate row, `OP_SDI`. The C++
 model decodes the 32-bit form as `src0=SrcL` store data, `src1=SrcR` address
 base, and `src2=simm12_7_s5_25_7 << 3`; `Store::CalcStoreAddr` computes
@@ -240,4 +247,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r112-coremark-sll-srl-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 17 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r113-coremark-or-c-ldi-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 19 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r118-coremark-sdi-42-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 42 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

@@ -589,6 +589,8 @@ These packets remain the required base before broad module promotion:
 | R115 | CoreMark SRA/SLLI ordered local T dependency row | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r115-coremark-sra-slli-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 23 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, 24-row mixed `C.ADD` frontier probe, `git diff --check` |
 | R116 | CoreMark mixed C.ADD plus local-source ADDI dense packet | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r116-coremark-c-add-mixed-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 26 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, 27-row zero-advance `C.BSTART` artifact probe, `git diff --check` |
 | R117 | CoreMark C.MOVR to T, scaled local C.LDI, C.SETC_NE no-writeback, and retire feedback | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r117-coremark-c-movr-c-ldi-setc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 34 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, next frontier `pc=0x4000555c`/`insn=0x13808315`, `git diff --check` |
+| R118 | CoreMark SDI local-base store sideband packet | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r118-coremark-sdi-42-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 42 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, 41/43-row dense-cut probes, `git diff --check` |
+| R119 | CoreMark conditional BSTART loop edge | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, 48-row dense-cut probe, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -781,12 +783,10 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Broader reduced scalar/CoreMark opcode body: after R118 proves the dense
-   packet through `OP_SDI` at `pc=0x4000556a`, continue at the following dense
-   packet beginning `pc=0x40005572`. That packet includes a no-writeback
-   compare row (`insn=0x3a36`) and a redirecting `C.BSTART`/branch marker at
-   `pc=0x40005574`; do not promote a capture that cuts inside this 8-byte F4
-   window.
+2. Broader reduced scalar/CoreMark opcode body: after R119 proves the
+   conditional `C.BSTART` loop edge and one fall-through iteration, continue at
+   the next dense-safe CoreMark prefix boundary beyond the second loop trip.
+   Do not promote captures that cut inside an 8-byte F4 window.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.

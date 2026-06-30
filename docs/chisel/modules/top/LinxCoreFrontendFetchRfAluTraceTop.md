@@ -117,6 +117,11 @@ T0 and uses the scaled doubleword byte offset from frontend decode, and
 The top also exposes deeper T/U rename and retire-command diagnostics so the
 live harness can distinguish active-bank allocation pressure from stale
 retire-command terminal responses.
+R118 extends through the first ordinary scalar `SDI` store-immediate sideband.
+R119 extends through the first conditional loop edge: the ALU publishes the
+`C.SETC_NE` branch decision, the top latches it until the following conditional
+marker boundary, and the backend either allocates the fallthrough marker block
+or redirects to the active block target without allocating a new marker block.
 
 ## Interface
 
@@ -174,8 +179,9 @@ overlay. Most state remains in child modules:
   source-ready snapshots, P1/I1/I2 timing, issued-entry lock, cancel, and W2
   release.
 - `ReducedScalarAluExecute`: reduced scalar ADD/ADDI/MOVR/MOVI/shift/OR/C.ADD
-  execute, narrow C.LDI zero-load sideband, C.SETC_NE no-writeback row, and
-  writeback-shaped completion.
+  execute, narrow C.LDI zero-load sideband, C.SETC_NE no-writeback row and
+  branch-decision sideband, SDI store sideband, and writeback-shaped
+  completion.
 
 ## Logic Design
 
@@ -205,6 +211,10 @@ Because the issue queue is decoupled, a marker drain can overlap an older
 scalar row's issue enqueue. The marker contract is no marker-owned scalar
 selection, dec/ren push, or scalar ROB allocation, not global silence on
 unrelated older issue activity.
+For a conditional active block, the top captures
+`ReducedScalarAluExecute.branchCondition*` and presents the pending decision to
+`DecodeRenameROBPath` until the next marker boundary consumes it. The latch is
+cleared on start/restart/frontend flush and after the boundary drains.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
 packet acceptance. The P1/I1/I2 picker reads source data from
@@ -774,6 +784,30 @@ records `status: "pass"`, `summary.compared_rows: 31`, and
 `pc=0x40005572`, which includes the no-writeback compare at `0x3a36` and a
 redirecting `C.BSTART`/branch marker at `pc=0x40005574`.
 
+The R119 CoreMark gate extends through that conditional marker edge and one
+fall-through loop iteration. The first 48-row raw probe is intentionally not a
+promotion gate because it ends inside the post-redirect dense F4 window at
+`pc=0x4000556e`; use the dense-safe 50-row capture:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 \
+  --capture-rows 50 \
+  --allow-block-markers \
+  --max-seconds 8 \
+  -- -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+The manifest at
+`generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 36`, and
+`summary.mismatch_count: 0`. The live harness now buffers commit rows observed
+while dense slots are still draining so ROB retire pulses are compared in
+program order rather than missed after the packet has drained.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
@@ -805,6 +839,7 @@ redirecting `C.BSTART`/branch marker at `pc=0x40005574`.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r112-coremark-sll-srl-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 17 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r113-coremark-or-c-ldi-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 19 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r118-coremark-sdi-42-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 42 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 8 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r108-coremark-fentry-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 11 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`

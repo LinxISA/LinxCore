@@ -43,6 +43,14 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_ADD, 0x1234, 0x100, 0).contains(0x1334))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_LDI, 0x4ffefdb0L, 0, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_SETC_NE, 0x4fff0018L, 0, 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_C_SETC_NE, 8, 256).contains(true))
+    assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_C_SETC_NE, 256, 256).contains(false))
+    assert(ReducedScalarAluExecute.referenceBranchCondition(
+      FrontendOpcodeDecodeTable.OP_C_SETC_NE,
+      src0 = 0x4fff0018L,
+      src1 = 0,
+      src0Valid = false,
+      src1Valid = true).contains(false))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SDI, 0, 0x4fff0128L, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_LD, 1, 2, 3).isEmpty)
   }
@@ -60,6 +68,8 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(sv.contains("io_completeDstPhysValid"))
     assert(sv.contains("io_completeDstPhysTag"))
     assert(sv.contains("io_completeDstData"))
+    assert(sv.contains("io_branchConditionValid"))
+    assert(sv.contains("io_branchConditionTaken"))
     assert(sv.contains("io_releaseValid"))
     assert(sv.contains("io_releaseBid_value"))
     assert(sv.contains("io_releaseRid_value"))

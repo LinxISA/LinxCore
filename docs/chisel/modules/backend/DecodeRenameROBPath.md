@@ -103,6 +103,12 @@ publishes a marker-stop redirect when a consumed `BSTOP` closes an active block
 whose target differs from the sequential marker PC. The reduced live-fetch
 top consumes this as a frontend-only restart so CoreMark direct-call headers
 follow QEMU's `BSTART` target instead of executing filler marker bytes.
+R119 extends the marker lifecycle to the first reduced conditional block loop.
+A consumed conditional `BSTART` records both the active target and that the
+active block needs a later branch decision. The following active marker waits
+until the execute owner publishes a valid condition decision: fallthrough
+allocates the next marker block, while taken redirects to the active block
+target, clears the active state, and performs no new marker allocation.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -124,6 +130,9 @@ Inputs:
   commit-mark and committed-row free hooks.
 - `checkpointValid/checkpointBid`, `commitValid/commitBid`, `cleanup`:
   pass-through control for the scalar GPR rename owner and ROB flush path.
+- `blockBranchTakenValid`, `blockBranchTaken`: reduced conditional-block
+  decision from the execute/top owner. These are consumed only when an active
+  conditional marker block reaches its following marker boundary.
 - `completeValid/completeRobValue`: reduced ROB completion hook.
 - `completeRowValid/completeRow`: optional execute/LSU completion payload
   used when a live owner replaces the allocation/rename placeholder row before
@@ -247,6 +256,16 @@ done and the newly allocated BID/target becomes active. A packet that contains
 both marker and non-marker slots is deliberately not consumed because
 advancing the source PC would otherwise drop a scalar row before dense
 multi-slot decode enqueue exists.
+
+For a conditional active block, the next marker boundary is not ready until
+`blockBranchTakenValid` is present. A false decision takes fallthrough and
+allocates the marker's new BROB-only block. A true decision completes the
+active block, emits the reduced redirect to the recorded active target, clears
+the active marker state, and suppresses new marker allocation for that boundary.
+Marker-only packets therefore drive `decodeReady` from marker lifecycle
+readiness, not from scalar decode/rename queue readiness; otherwise a
+conditional marker could drain before its branch decision or before BROB
+bookkeeping is ready.
 
 The selected decoded row first passes through `DecodeLoadStoreIdAssign`.
 Memory-order counters advance only on `decRenPushFire`, so a stalled
@@ -558,6 +577,7 @@ bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 ```
 
 Affected gates:

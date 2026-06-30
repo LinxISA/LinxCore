@@ -25,6 +25,8 @@ class ReducedScalarAluExecuteIO(
   val completeDstPhysValid = Output(Bool())
   val completeDstPhysTag = Output(UInt(p.physRegWidth.W))
   val completeDstData = Output(UInt(p.immWidth.W))
+  val branchConditionValid = Output(Bool())
+  val branchConditionTaken = Output(Bool())
 
   val releaseValid = Output(Bool())
   val releaseBid = Output(new ROBID(p.robEntries))
@@ -218,6 +220,10 @@ class ReducedScalarAluExecute(
   io.completeDstPhysValid := io.completeValid && w2Uop.dst(0).valid && (w2Uop.dst(0).kind === DestinationKind.Gpr)
   io.completeDstPhysTag := w2Uop.dst(0).physTag
   io.completeDstData := w2Result
+  val branchSrc0 = Mux(w2Uop.src(0).valid, w2SrcData(0), 0.U)
+  val branchSrc1 = Mux(w2Uop.src(1).valid, w2SrcData(1), 0.U)
+  io.branchConditionValid := io.completeValid && w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE)
+  io.branchConditionTaken := branchSrc0 =/= branchSrc1
   io.releaseValid := w2Valid
   io.releaseBid := w2Uop.bid
   io.releaseRid := w2Uop.rid
@@ -262,5 +268,19 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_ADDTPC => Some(((pc & ~BigInt(0xfff)) + imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_SETRET => Some((pc + imm) & Mask64)
       case _ => referenceResult(opcode, src0, src1, imm)
+    }
+
+  def referenceBranchCondition(
+      opcode: Int,
+      src0: BigInt,
+      src1: BigInt,
+      src0Valid: Boolean = true,
+      src1Valid: Boolean = true): Option[Boolean] =
+    opcode match {
+      case FrontendOpcodeDecodeTable.OP_C_SETC_NE =>
+        val lhs = if (src0Valid) src0 & Mask64 else BigInt(0)
+        val rhs = if (src1Valid) src1 & Mask64 else BigInt(0)
+        Some(lhs != rhs)
+      case _ => None
     }
 }

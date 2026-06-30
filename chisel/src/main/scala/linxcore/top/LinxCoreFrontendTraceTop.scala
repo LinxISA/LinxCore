@@ -112,6 +112,8 @@ class LinxCoreFrontendTraceTop(
   path.io.completeRobValue := io.completeRobValue
   path.io.completeRowValid := false.B
   path.io.completeRow := 0.U.asTypeOf(new CommitTraceRow(traceParams))
+  path.io.blockBranchTakenValid := false.B
+  path.io.blockBranchTaken := false.B
   path.io.deallocReady := io.deallocReady
 
   io.f4ValidMask := f4.io.validMask

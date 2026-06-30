@@ -516,7 +516,10 @@ def _validate_block_marker_row(
         raise RowExtractionError(f"row {index} {opcode} has trap_valid=1")
     if row["mem_valid"]:
         raise RowExtractionError(f"row {index} {opcode} has mem_valid=1")
-    if not stop and row["next_pc"] != row["pc"] + row["len"]:
+    redirecting_boundary = boundary and not stop and row["next_pc"] != row["pc"] + row["len"]
+    if redirecting_boundary and not opcode.endswith("BSTART"):
+        raise RowExtractionError(f"row {index} {opcode} has unsupported marker redirect")
+    if not stop and not redirecting_boundary and row["next_pc"] != row["pc"] + row["len"]:
         raise RowExtractionError(
             f"row {index} {opcode} is not sequential: next_pc=0x{row['next_pc']:x}, "
             f"expected 0x{row['pc'] + row['len']:x}"
@@ -1347,6 +1350,74 @@ def self_test() -> None:
         assert extracted_r118_packet[1]["mem_is_store"] == 1
         assert extracted_r118_packet[1]["mem_addr"] == 0x4FFF_0128
         assert extracted_r118_packet[1]["mem_wdata"] == 0
+
+        r119_branch_source = tmp / "r119-cond-bstart.jsonl"
+        r119_branch_output = tmp / "r119-cond-bstart.rows.jsonl"
+        setc_ne_loop = {
+            **rows[0],
+            "pc": 0x40005572,
+            "insn": 0x3A36,
+            "len": 2,
+            "next_pc": 0x40005574,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 8,
+            "src0_data": 8,
+            "src1_valid": 1,
+            "src1_reg": 7,
+            "src1_data": 256,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        redirecting_bstart = {
+            **rows[0],
+            "pc": 0x40005574,
+            "insn": 0x0194,
+            "len": 2,
+            "next_pc": 0x40005566,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(r119_branch_source, [setc_ne_loop, redirecting_bstart])
+        count = extract_rows(r119_branch_source, r119_branch_output, allow_block_markers=True)
+        assert count == 2
+        extracted_r119_packet = [
+            json.loads(line) for line in r119_branch_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert sum(1 for row in extracted_r119_packet if "skip" not in row) == 1
+        assert extracted_r119_packet[0]["pc"] == 0x40005572
+        assert extracted_r119_packet[0]["dst_valid"] == 0
+        assert extracted_r119_packet[0]["src0_reg"] == 8
+        assert extracted_r119_packet[0]["src1_reg"] == 7
+        assert extracted_r119_packet[1]["skip"] == 1
+        assert extracted_r119_packet[1]["block_boundary"] == 1
+        assert extracted_r119_packet[1]["block_stop"] == 0
+        assert extracted_r119_packet[1]["next_pc"] == 0x40005566
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])
