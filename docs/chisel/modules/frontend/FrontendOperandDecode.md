@@ -188,6 +188,15 @@ The `FrontendDecodeStageSpec` reference cases cover:
   scalar destination `x3` and local sources `x28/U0` and `x24/T0`
 - CoreMark `C.SUB` at `0x4000d21e`, where compressed source fields produce
   scalar sources `x5`/`x2` and the fixed compressed-ALU destination `x31/T0`
+- CoreMark `ANDI` at `0x4000d220` (`insn=0x003c2f15`), where the generic
+  immediate decode produces destination `x30/U0`, local source `x24/T0`, and
+  signed immediate `3`
+- CoreMark `SWI` at `0x4000d22a` (`insn=0x0041a059`), where the split
+  immediate decode produces no destination, store data source `x3`, base
+  source `x4`, and immediate `0`
+- CoreMark `ORI`, `SUB`, and `MUL` rows at `0x4000d284`, `0x4000d288`, and
+  `0x4000d2a6`, covering the generic immediate, register subtract, and
+  register multiply source/destination fields used by the R131 live gate
 
 ## Open Work
 

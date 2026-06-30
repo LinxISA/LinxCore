@@ -222,6 +222,15 @@ QEMU-trace-gap destination synthesis used by `C.ADD`/`C.AND`. The promoted
 gate captures 1481 raw QEMU rows, extracts 1365 expected rows, and compares
 980 normalized QEMU/DUT rows with zero mismatches. A 1600-row frontier probe
 then stops at `OP_ANDI` at `pc=0x4000d220` (`insn=0x003c2f15`).
+R131 carries the live capture through the next immediate-ALU, store-word,
+scalar subtract, scalar-visible shift, and multiply rows. The reduced ALU adds
+`OP_ANDI`, `OP_ORI`, `OP_SUB`, `OP_MUL`, and `OP_SWI`; the QEMU reducer also
+generalizes ordinary shift/logical source validation so rows such as
+`OP_SLL` at `pc=0x4000d292` can read scalar-visible sources rather than only
+local-overlay sources. The promoted gate captures 1595 raw QEMU rows, extracts
+1475 expected rows, and compares 1079 normalized QEMU/DUT rows with zero
+mismatches. A 1600-row frontier probe then reaches the richer `FRET.STK`
+return/load packet at `pc=0x4000d2d4` (`insn=0x02a53041`).
 
 ## Interface
 
@@ -283,11 +292,11 @@ overlay. Most state remains in child modules:
 - `ReducedScalarIssueQueue` and `ReducedScalarIssuePick`: resident issue rows,
   source-ready snapshots, P1/I1/I2 timing, issued-entry lock, cancel, and W2
   release.
-- `ReducedScalarAluExecute`: reduced scalar ADD/ADDI/SUBI/MOVR/MOVI/shift/OR/C.ADD/C.AND
-  execute, read-only C.LDI/LDI load lookup sidebands,
+- `ReducedScalarAluExecute`: reduced scalar integer/immediate ALU, compressed
+  ALU, reduced multiply, read-only C.LDI/LDI load lookup sidebands,
   C.SETC_EQ/C.SETC_NE/SETC_LTU no-writeback rows and branch-decision
   sidebands, PCR load lookup, SETC target/FRET.STK redirect, ADDW,
-  SDI/SBI/C.SDI store sidebands, and writeback-shaped completion.
+  SDI/SWI/SBI/C.SDI store sidebands, and writeback-shaped completion.
 
 ## Logic Design
 
@@ -1015,5 +1024,6 @@ because the reduced QEMU-row selector does not yet support
 - `python3 tools/chisel/frontend_fetch_rf_alu_fixture_rows.py --self-test`
 - `python3 tools/chisel/frontend_fetch_rf_alu_qemu_rows.py --self-test`
 - `python3 tools/chisel/frontend_fetch_elf_memory.py --self-test`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r131-andi-swi-ori-sub-mul-1595-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1595 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`

@@ -51,6 +51,8 @@ SRL_MASK = 0xFE00_707F
 SRL_MATCH = 0x0000_5005
 SRA_MASK = 0xFE00_707F
 SRA_MATCH = 0x0000_6005
+MUL_MASK = 0xFE00_707F
+MUL_MATCH = 0x0000_0047
 MULW_MASK = 0xFE00_707F
 MULW_MATCH = 0x0000_2047
 OR_MASK = 0x707F
@@ -99,12 +101,18 @@ def _classify(row: dict[str, int]) -> str | None:
             return "ADD"
         if key == 0x0025:
             return "ADDW"
+        if key == 0x1005:
+            return "SUB"
         if key == 0x0015:
             return "ADDI"
         if key == 0x1015:
             return "SUBI"
+        if key == 0x2015:
+            return "ANDI"
         if key == 0x2035:
             return "ANDIW"
+        if key == 0x3015:
+            return "ORI"
         if (insn & 0xFFF) == 0x0507:
             return None
         if (insn & 0x7F) == 0x0007:
@@ -119,6 +127,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "LD.PCR"
         if key == 0x0059:
             return "SBI"
+        if key == 0x2059:
+            return "SWI"
         if key == 0x3059:
             return "SDI"
         if (insn & SD_MASK) == SD_MATCH:
@@ -131,6 +141,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "SRL"
         if (insn & SRA_MASK) == SRA_MATCH:
             return "SRA"
+        if (insn & MUL_MASK) == MUL_MATCH:
+            return "MUL"
         if (insn & MULW_MASK) == MULW_MATCH:
             return "MULW"
         if (insn & OR_MASK) == OR_MATCH:
@@ -241,6 +253,10 @@ def _simm12_7_s5_25_7(row: dict[str, int]) -> int:
     insn = _mask_insn(row["insn"], row["len"])
     raw = (((insn >> 7) & 0x1F) << 7) | ((insn >> 25) & 0x7F)
     return _sext(raw, 12)
+
+
+def _simm12_7_s5_25_7_scaled_word(row: dict[str, int]) -> int:
+    return (_simm12_7_s5_25_7(row) << 2) & MASK64
 
 
 def _c_setret_imm(row: dict[str, int]) -> int:
@@ -398,7 +414,9 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "ADD",
         "ADDW",
         "ADDI",
+        "ANDI",
         "ANDIW",
+        "SUB",
         "LDI",
         "LD.PCR",
         "HL.LD.PCR",
@@ -407,11 +425,13 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "SRL",
         "SRA",
         "OR",
+        "ORI",
     }:
         raise RowExtractionError(f"{opcode} row writes reduced U destination alias {row['dst_reg']}")
     elif row["dst_reg"] == 31 and opcode not in {
         "ADDW",
         "ADDI",
+        "ANDI",
         "C.AND",
         "C.SUB",
         "HL.LUI",
@@ -422,6 +442,8 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "SRL",
         "SRA",
         "OR",
+        "ORI",
+        "SUB",
         "C.LDI",
         "C.ADD",
         "C.SUB",
@@ -474,15 +496,25 @@ def _expected_result(
         lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
         return _sext((lhs + rhs) & 0xFFFF_FFFF, 32) & MASK64
+    if opcode == "SUB":
+        lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+        return (lhs - rhs) & MASK64
     if opcode == "ADDI":
         src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         return (src0 + _uimm12(row)) & MASK64
     if opcode == "SUBI":
         src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         return (src0 - _uimm12(row)) & MASK64
+    if opcode == "ANDI":
+        src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        return (src0 & _simm12_20_s12(row)) & MASK64
     if opcode == "ANDIW":
         src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         return _sext((src0 & _simm12_20_s12(row)) & 0xFFFF_FFFF, 32) & MASK64
+    if opcode == "ORI":
+        src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        return (src0 | _simm12_20_s12(row)) & MASK64
     if opcode == "ADDTPC":
         return ((row["pc"] & ~0xFFF) + _simm20_shifted(row)) & MASK64
     if opcode == "C.MOVI":
@@ -513,6 +545,8 @@ def _expected_result(
         return 0
     if opcode == "SBI":
         return 0
+    if opcode == "SWI":
+        return 0
     if opcode == "SD":
         return 0
     if opcode == "SDI":
@@ -521,6 +555,10 @@ def _expected_result(
         lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
         return _sext((lhs * rhs) & 0xFFFF_FFFF, 32) & MASK64
+    if opcode == "MUL":
+        lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+        return (lhs * rhs) & MASK64
     if opcode == "C.ADD":
         lhs = _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         rhs = _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
@@ -536,23 +574,23 @@ def _expected_result(
     if opcode == "HL.LUI":
         return _hl_lui_imm(row)
     if opcode == "SLL":
-        lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
-        rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
+        lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
         return (lhs << (rhs & 0x3F)) & MASK64
     if opcode == "SLLI":
         lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         return (lhs << _shamt_20_25(row)) & MASK64
     if opcode == "SRL":
-        lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
-        rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
+        lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
         return (lhs >> (rhs & 0x3F)) & MASK64
     if opcode == "SRA":
-        lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
-        rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
+        lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
         return (_signed64(lhs) >> (rhs & 0x3F)) & MASK64
     if opcode == "OR":
-        lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
-        rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
+        lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
         return (lhs | rhs) & MASK64
     raise AssertionError(opcode)
 
@@ -579,6 +617,7 @@ def _validate_reduced_row(
         "SBI",
         "SD",
         "SDI",
+        "SWI",
     }:
         raise RowExtractionError(f"row {index} {opcode} has mem_valid=1")
     if opcode != "FRET_STK" and row["next_pc"] != row["pc"] + row["len"]:
@@ -587,7 +626,7 @@ def _validate_reduced_row(
             f"expected 0x{row['pc'] + row['len']:x}"
         )
 
-    if opcode in {"ADD", "ADDW"}:
+    if opcode in {"ADD", "ADDW", "SUB"}:
         _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
     elif opcode in {"ADDI", "SUBI"}:
@@ -652,7 +691,7 @@ def _validate_reduced_row(
             raise RowExtractionError(f"row {index} LDI load address does not match src0+imm")
         if row["dst_data"] != row["mem_rdata"]:
             raise RowExtractionError(f"row {index} LDI destination data does not match load data")
-    elif opcode == "ANDIW":
+    elif opcode in {"ANDI", "ANDIW", "ORI"}:
         _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         if row["src1_valid"]:
             raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
@@ -717,6 +756,18 @@ def _validate_reduced_row(
             raise RowExtractionError(f"row {index} SBI store data does not match src0")
         if row["mem_rdata"] != 0:
             raise RowExtractionError(f"row {index} SBI store row must not carry read data")
+    elif opcode == "SWI":
+        store_data = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        base = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+        if not row["mem_valid"] or not row["mem_is_store"] or row["mem_size"] != 4:
+            raise RowExtractionError(f"row {index} SWI must carry one 4-byte store")
+        expected_addr = (base + _simm12_7_s5_25_7_scaled_word(row)) & MASK64
+        if row["mem_addr"] != expected_addr:
+            raise RowExtractionError(f"row {index} SWI store address does not match src1+(imm<<2)")
+        if row["mem_wdata"] != store_data:
+            raise RowExtractionError(f"row {index} SWI store data does not match src0")
+        if row["mem_rdata"] != 0:
+            raise RowExtractionError(f"row {index} SWI store row must not carry read data")
     elif opcode == "SDI":
         store_data = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         base = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
@@ -735,10 +786,9 @@ def _validate_reduced_row(
     elif opcode == "HL.LUI":
         _require_sources(row, opcode, src0=False, src1=False)
     elif opcode in {"SLL", "SRL", "SRA", "OR"}:
-        _require_sources(row, opcode, src0=False, src1=False)
-        _local_source_value(local_state, _sll_src_l(row), opcode)
-        _local_source_value(local_state, _sll_src_r(row), opcode)
-    elif opcode == "MULW":
+        _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+    elif opcode in {"MUL", "MULW"}:
         _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
     elif opcode == "SLLI":
@@ -758,6 +808,7 @@ def _validate_reduced_row(
         "SETC_TGT",
         "SD",
         "SDI",
+        "SWI",
     }
     suppress_setc_immediate_dst = _is_setc_immediate_dst_artifact(row, opcode)
     if no_writeback_opcode and not (_is_no_writeback_trace_gap(row) or suppress_setc_immediate_dst):
@@ -2818,6 +2869,173 @@ def self_test() -> None:
         assert extracted_r130_csub[0]["dst_data"] == 0xFFFF_FFFFB001_0408
         assert extracted_r130_csub[0]["wb_valid"] == 1
         assert extracted_r130_csub[0]["wb_rd"] == 31
+
+        r131_andi_source = tmp / "r131-andi.jsonl"
+        r131_andi_output = tmp / "r131-andi.rows.jsonl"
+        andi = {
+            **rows[0],
+            "pc": 0x6102,
+            "insn": 0x003C2F15,
+            "len": 4,
+            "next_pc": 0x6106,
+            "wb_valid": 1,
+            "wb_rd": 30,
+            "wb_data": 0,
+            "dst_valid": 1,
+            "dst_reg": 30,
+            "dst_data": 0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        andi_t = {
+            **andi,
+            "pc": 0x6106,
+            "insn": 0x00422F95,
+            "next_pc": 0x610A,
+            "wb_rd": 31,
+            "dst_reg": 31,
+            "src0_valid": 1,
+            "src0_reg": 4,
+            "src0_data": 0x4FFEFBF8,
+        }
+        ori = {
+            **andi,
+            "pc": 0x610A,
+            "insn": 0x018C3315,
+            "next_pc": 0x610E,
+            "wb_rd": 6,
+            "wb_data": 0x18,
+            "dst_reg": 6,
+            "dst_data": 0x18,
+        }
+        sub = {
+            **andi,
+            "pc": 0x610E,
+            "insn": 0x06629285,
+            "next_pc": 0x6112,
+            "wb_rd": 5,
+            "wb_data": 0x118,
+            "dst_reg": 5,
+            "dst_data": 0x118,
+            "src0_valid": 1,
+            "src0_reg": 5,
+            "src0_data": 0x130,
+            "src1_valid": 1,
+            "src1_reg": 6,
+            "src1_data": 0x18,
+        }
+        sll_scalar = {
+            **andi,
+            "pc": 0x6112,
+            "insn": 0x00747F05,
+            "next_pc": 0x6116,
+            "wb_rd": 30,
+            "wb_data": 0x1_0000_0000,
+            "dst_reg": 30,
+            "dst_data": 0x1_0000_0000,
+            "src0_valid": 1,
+            "src0_reg": 8,
+            "src0_data": 1,
+            "src1_valid": 1,
+            "src1_reg": 7,
+            "src1_data": 0x20,
+        }
+        mul = {
+            **andi,
+            "pc": 0x6116,
+            "insn": 0x01CC01C7,
+            "next_pc": 0x611A,
+            "wb_rd": 3,
+            "wb_data": 0,
+            "dst_reg": 3,
+            "dst_data": 0,
+        }
+        _write_jsonl(r131_andi_source, [csub, andi, andi_t, ori, sub, sll_scalar, mul])
+        count = extract_rows(r131_andi_source, r131_andi_output)
+        assert count == 7
+        extracted_r131_andi = [
+            json.loads(line) for line in r131_andi_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_r131_andi[1]["pc"] == 0x6102
+        assert extracted_r131_andi[1]["dst_reg"] == 30
+        assert extracted_r131_andi[1]["dst_data"] == 0
+        assert extracted_r131_andi[1]["src0_valid"] == 0
+        assert extracted_r131_andi[1]["src1_valid"] == 0
+        assert extracted_r131_andi[2]["pc"] == 0x6106
+        assert extracted_r131_andi[2]["dst_reg"] == 31
+        assert extracted_r131_andi[2]["dst_data"] == 0
+        assert extracted_r131_andi[3]["pc"] == 0x610A
+        assert extracted_r131_andi[3]["dst_reg"] == 6
+        assert extracted_r131_andi[3]["dst_data"] == 0x18
+        assert extracted_r131_andi[4]["pc"] == 0x610E
+        assert extracted_r131_andi[4]["dst_reg"] == 5
+        assert extracted_r131_andi[4]["dst_data"] == 0x118
+        assert extracted_r131_andi[5]["pc"] == 0x6112
+        assert extracted_r131_andi[5]["dst_reg"] == 30
+        assert extracted_r131_andi[5]["dst_data"] == 0x1_0000_0000
+        assert extracted_r131_andi[6]["pc"] == 0x6116
+        assert extracted_r131_andi[6]["dst_reg"] == 3
+        assert extracted_r131_andi[6]["dst_data"] == 0
+
+        r131_swi_source = tmp / "r131-swi.jsonl"
+        r131_swi_output = tmp / "r131-swi.rows.jsonl"
+        swi = {
+            **rows[0],
+            "pc": 0x6200,
+            "insn": 0x0041A059,
+            "len": 4,
+            "next_pc": 0x6204,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 3,
+            "src0_data": 0,
+            "src1_valid": 1,
+            "src1_reg": 4,
+            "src1_data": 0x4FFEFBF8,
+            "mem_valid": 1,
+            "mem_is_store": 1,
+            "mem_addr": 0x4FFEFBF8,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 4,
+        }
+        swi_neg = {
+            **swi,
+            "pc": 0x6204,
+            "insn": 0xFE61AFD9,
+            "next_pc": 0x6208,
+            "src1_reg": 6,
+            "src1_data": 0x4FFEFD28,
+            "mem_addr": 0x4FFEFD24,
+        }
+        _write_jsonl(r131_swi_source, [swi, swi_neg])
+        count = extract_rows(r131_swi_source, r131_swi_output)
+        assert count == 2
+        extracted_r131_swi = [
+            json.loads(line) for line in r131_swi_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_r131_swi[0]["pc"] == 0x6200
+        assert extracted_r131_swi[0]["dst_valid"] == 0
+        assert extracted_r131_swi[0]["mem_valid"] == 1
+        assert extracted_r131_swi[0]["mem_size"] == 4
+        assert extracted_r131_swi[0]["mem_addr"] == 0x4FFEFBF8
+        assert extracted_r131_swi[1]["pc"] == 0x6204
+        assert extracted_r131_swi[1]["mem_addr"] == 0x4FFEFD24
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

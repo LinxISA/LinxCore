@@ -78,24 +78,29 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_TGT) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_ANDI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_ANDIW) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LD_PCR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_LD_PCR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_LDI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_MUL) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_MULW) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_ORI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SBI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SETC_LTU) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SETC_LTUI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SETC_TGT) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SD) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SDI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_SWI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SLL) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SLLI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SRL) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SRA) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_OR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_ADD) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_SUB) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SUBI)
 
   private def ldiScaledOffset(imm: UInt): UInt =
@@ -128,6 +133,9 @@ class ReducedScalarAluExecute(
   private def storeByteImmAddr(srcData: Vec[UInt], imm: UInt): UInt =
     srcData(1) + imm
 
+  private def storeWordImmAddr(srcData: Vec[UInt], imm: UInt): UInt =
+    srcData(1) + ((imm << 2)(p.immWidth - 1, 0))
+
   private def resultFor(
       op: UInt,
       pc: UInt,
@@ -141,10 +149,14 @@ class ReducedScalarAluExecute(
       out := srcData(0) + srcData(1)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_ADDW)) {
       out := sext32(srcData(0) + srcData(1))
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SUB)) {
+      out := srcData(0) - srcData(1)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_ADDI)) {
       out := srcData(0) + imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SUBI)) {
       out := srcData(0) - imm
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_ANDI)) {
+      out := srcData(0) & imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_ANDIW)) {
       out := sext32(srcData(0) & imm)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_ADDTPC)) {
@@ -195,6 +207,10 @@ class ReducedScalarAluExecute(
       out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SDI)) {
       out := 0.U
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SWI)) {
+      out := 0.U
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_MUL)) {
+      out := (srcData(0) * srcData(1))(p.immWidth - 1, 0)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_MULW)) {
       out := sext32(srcData(0) * srcData(1))
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SLL)) {
@@ -207,6 +223,8 @@ class ReducedScalarAluExecute(
       out := (srcData(0).asSInt >> srcData(1)(5, 0)).asUInt
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_OR)) {
       out := srcData(0) | srcData(1)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_ORI)) {
+      out := srcData(0) | imm
     }
     out
   }
@@ -324,6 +342,13 @@ class ReducedScalarAluExecute(
       row.mem.wdata := srcData(0)
       row.mem.rdata := 0.U
       row.mem.size := 1.U
+    }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SWI)) {
+      row.mem.valid := valid
+      row.mem.isStore := true.B
+      row.mem.addr := storeWordImmAddr(srcData, uop.imm)
+      row.mem.wdata := srcData(0)
+      row.mem.rdata := 0.U
+      row.mem.size := 4.U
     }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SD)) {
       row.mem.valid := valid
       row.mem.isStore := true.B
@@ -484,8 +509,10 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_ADDW =>
         val low32 = (src0 + src1) & ((BigInt(1) << 32) - 1)
         Some(signed32(low32) & Mask64)
+      case FrontendOpcodeDecodeTable.OP_SUB => Some((src0 - src1) & Mask64)
       case FrontendOpcodeDecodeTable.OP_ADDI => Some((src0 + imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_SUBI => Some((src0 - imm) & Mask64)
+      case FrontendOpcodeDecodeTable.OP_ANDI => Some((src0 & imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_ANDIW =>
         val low32 = (src0 & imm) & ((BigInt(1) << 32) - 1)
         Some(signed32(low32) & Mask64)
@@ -510,17 +537,20 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_HL_LD_PCR => Some(loadData & Mask64)
       case FrontendOpcodeDecodeTable.OP_LD_PCR => Some(loadData & Mask64)
       case FrontendOpcodeDecodeTable.OP_LDI => Some(loadData & Mask64)
+      case FrontendOpcodeDecodeTable.OP_MUL => Some((src0 * src1) & Mask64)
       case FrontendOpcodeDecodeTable.OP_MULW =>
         val low32 = (src0 * src1) & ((BigInt(1) << 32) - 1)
         Some(signed32(low32) & Mask64)
       case FrontendOpcodeDecodeTable.OP_SBI => Some(0)
       case FrontendOpcodeDecodeTable.OP_SD => Some(0)
       case FrontendOpcodeDecodeTable.OP_SDI => Some(0)
+      case FrontendOpcodeDecodeTable.OP_SWI => Some(0)
       case FrontendOpcodeDecodeTable.OP_SLL => Some((src0 << ((src1 & 0x3f).toInt)) & Mask64)
       case FrontendOpcodeDecodeTable.OP_SLLI => Some((src0 << ((imm & 0x3f).toInt)) & Mask64)
       case FrontendOpcodeDecodeTable.OP_SRL => Some((src0 & Mask64) >> ((src1 & 0x3f).toInt))
       case FrontendOpcodeDecodeTable.OP_SRA => Some((signed64(src0) >> ((src1 & 0x3f).toInt)) & Mask64)
       case FrontendOpcodeDecodeTable.OP_OR => Some((src0 | src1) & Mask64)
+      case FrontendOpcodeDecodeTable.OP_ORI => Some((src0 | imm) & Mask64)
       case _ => None
     }
 

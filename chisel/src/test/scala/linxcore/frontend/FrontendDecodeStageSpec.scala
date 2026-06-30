@@ -474,6 +474,36 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(csub.src(1).contains(2))
     assert(csub.imm.isEmpty)
 
+    val coremarkAndi = operands(BigInt("003c2f15", 16), lenBytes = 4).get
+    assert(coremarkAndi.dst.contains(30))
+    assert(coremarkAndi.src(0).contains(24))
+    assert(coremarkAndi.src(1).isEmpty)
+    assert(coremarkAndi.imm.contains(3))
+
+    val swi = operands(BigInt("0041a059", 16), lenBytes = 4).get
+    assert(swi.dst.isEmpty)
+    assert(swi.src(0).contains(3))
+    assert(swi.src(1).contains(4))
+    assert(swi.imm.contains(0))
+
+    val ori = operands(BigInt("018c3315", 16), lenBytes = 4).get
+    assert(ori.dst.contains(6))
+    assert(ori.src(0).contains(24))
+    assert(ori.src(1).isEmpty)
+    assert(ori.imm.contains(0x18))
+
+    val sub = operands(BigInt("06629285", 16), lenBytes = 4).get
+    assert(sub.dst.contains(5))
+    assert(sub.src(0).contains(5))
+    assert(sub.src(1).contains(6))
+    assert(sub.imm.isEmpty)
+
+    val mul = operands(BigInt("01cc01c7", 16), lenBytes = 4).get
+    assert(mul.dst.contains(3))
+    assert(mul.src(0).contains(24))
+    assert(mul.src(1).contains(28))
+    assert(mul.imm.isEmpty)
+
     val hlLui = operands(BigInt("1f97000e", 16), lenBytes = 6).get
     assert(hlLui.dst.contains(31))
     assert(hlLui.src.forall(_.isEmpty))

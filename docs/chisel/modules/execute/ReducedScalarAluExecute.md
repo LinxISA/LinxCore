@@ -126,7 +126,9 @@ The Chisel module implements the first reduced subset:
 |---|---|
 | `OP_ADD` | `srcData(0) + srcData(1)` |
 | `OP_ADDI` | `srcData(0) + in.imm` |
+| `OP_SUB` | `srcData(0) - srcData(1)` |
 | `OP_SUBI` | `srcData(0) - in.imm` |
+| `OP_ANDI` | `srcData(0) & in.imm` |
 | `OP_ANDIW` | sign-extended low-32-bit `srcData(0) & in.imm` |
 | `OP_ADDTPC` | `(in.pc & ~0xfff) + in.imm` |
 | `OP_C_MOVI` | `in.imm` |
@@ -152,6 +154,8 @@ The Chisel module implements the first reduced subset:
 | `OP_ADDW` | sign-extended low-32-bit `srcData(0) + srcData(1)` |
 | `OP_SD` | `0`, with a reduced 8-byte indexed store sideband at `srcData(0) + (srcData(1) << 3)` and store data `srcData(2)` |
 | `OP_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(1) + (in.imm << 3)` and store data `srcData(0)` |
+| `OP_SWI` | `0`, with a reduced 4-byte store sideband at `srcData(1) + (in.imm << 2)` and store data `srcData(0)` |
+| `OP_MUL` | low 64 bits of `srcData(0) * srcData(1)` |
 | `OP_MULW` | sign-extended low-32-bit `srcData(0) * srcData(1)` |
 | `OP_SBI` | `0`, with a reduced 1-byte store sideband at `srcData(1) + in.imm` and store data `srcData(0)` |
 | `OP_SLL` | `srcData(0) << srcData(1)(5, 0)` |
@@ -159,6 +163,7 @@ The Chisel module implements the first reduced subset:
 | `OP_SRL` | `srcData(0) >> srcData(1)(5, 0)` |
 | `OP_SRA` | `srcData(0).asSInt >> srcData(1)(5, 0)` |
 | `OP_OR` | `srcData(0) \| srcData(1)` |
+| `OP_ORI` | `srcData(0) \| in.imm` |
 
 `OP_ADDTPC` uses the `FrontendOperandDecode` `ImmIMM20` path, where the
 20-bit immediate is sign-extended and shifted left by 12 before reaching
@@ -291,6 +296,16 @@ ownership boundary: this is not a general multicycle-pipeline replacement. The
 following `C.SUB` uses the same implicit-T local writeback contract as
 `C.ADD`/`C.AND`; the QEMU trace row omits destination/writeback fields, so the
 expected-row reducer synthesizes the `T0` completion from the encoded sources.
+R131 extends the same CoreMark packet through immediate logical ALU rows,
+word-store immediates, scalar subtraction, and a scalar-result multiply:
+`OP_ANDI` at `pc=0x4000d220`, `OP_SWI` at `pc=0x4000d22a` and
+`pc=0x4000d23a`, `OP_ORI` at `pc=0x4000d284`, `OP_SUB` at `pc=0x4000d288`,
+and `OP_MUL` at `pc=0x4000d2a6`. `SWI` uses the model store-immediate shape
+with source 0 as store data, source 1 as base, and the split immediate scaled
+by four. The QEMU reducer also now lets ordinary shift and logical rows read
+either scalar-visible or local-overlay sources per encoded operand, which is
+needed by the scalar-visible `OP_SLL` row at `pc=0x4000d292`. The slice stops
+before the richer `FRET.STK` return/load packet at `pc=0x4000d2d4`.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural
@@ -300,6 +315,9 @@ sideband through the common JSONL comparator.
 For reduced `OP_SDI`, the completion row carries `mem.valid`, `mem.isStore`,
 `mem.addr`, `mem.wdata`, and `mem.size=8` but leaves `dst`/`wb` invalid. It
 does not model store queue drain, cache state, or memory mutation.
+For reduced `OP_SWI`, the completion row has the same no-writeback store
+shape, but the address is `srcData(1) + (uop.imm << 2)`, the store payload is
+`srcData(0)`, and `mem.size=4`.
 For reduced `OP_SD`, the completion row has the same no-writeback store shape,
 but the address comes from base plus scaled index and the store payload comes
 from `srcData(2)`.
@@ -363,4 +381,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r128-setc-ltui-1477-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1477 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r129-andiw-1479-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1479 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r130-mulw-csub-1481-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1481 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r131-andi-swi-ori-sub-mul-1595-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1595 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
