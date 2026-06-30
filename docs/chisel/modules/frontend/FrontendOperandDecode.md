@@ -91,6 +91,8 @@ Implemented immediate forms:
   `Cat(pfx16[15:4], main32[31:12])` and sign-extended to 64 bits
 - `SIMM_4_S12_31_17` for HL `BSTART` target byte offsets
 - compressed `SIMM12` branch offsets
+- explicit `shamt_20_25` for 32-bit shift-immediate opcodes whose generated
+  catalog metadata currently reports `ImmNONE`
 
 Explicit pyCircuit/model overrides currently cover:
 
@@ -110,7 +112,10 @@ Explicit pyCircuit/model overrides currently cover:
   `rs*_kind=NONE`;
 - `BTEXT` source plus 25-bit immediate;
 - `BLOAD`/`BSTORE` register fields;
-- `MADD`, `MADDW`, `CSEL`, `BIOR`, and indexed stores that carry `srcp32`.
+- `MADD`, `MADDW`, `CSEL`, `BIOR`, and indexed stores that carry `srcp32`;
+- R115 `SLLI`/`SRLI`/`SRAI` immediate extraction, where LinxCoreModel
+  `@shift_i` uses `src1=%shamt_20_25` even though the generated Chisel opcode
+  table still marks those opcodes as `ImmNONE`.
 
 ## Model Alignment
 
@@ -137,6 +142,7 @@ The `FrontendDecodeStageSpec` reference cases cover:
 - 32-bit register ALU (`ADD`)
 - 32-bit unsigned immediate (`ADDI`)
 - 32-bit signed immediate (`ANDI`)
+- shift-immediate shamt extraction (`SLLI`)
 - indexed store `srcp` (`SD`)
 - direct block-start byte offset (`BSTART.DIRECT`)
 - fixed-destination compressed ALU (`C.ADD`)
@@ -155,7 +161,7 @@ The `FrontendDecodeStageSpec` reference cases cover:
   driver for `DecodedUop` payload values.
 - Add T/U rename/queue consumption, SGPR aliases, and tile/vector operand
   classes.
-- Add shift/source-type sidebands (`srcr_type`, `shamt`) instead of only
-  reg/immediate fields.
+- Promote shift/source-type sidebands (`srcr_type`, `shamt`) into generated
+  metadata once the frontend table generator owns them directly.
 - Add LSID allocation, D2 queueing, store split rewrite, block split queues,
   and rename/ROB admission in their own owner packets.

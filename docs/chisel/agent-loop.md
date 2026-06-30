@@ -586,6 +586,7 @@ These packets remain the required base before broad module promotion:
 | R112 | CoreMark SLL T-destination plus SRL local T/U source rows | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r112-coremark-sll-srl-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 17 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, 18-row `OP_OR` unsupported-row probe, `git diff --check` |
 | R113 | CoreMark OR local T/U source and C.LDI zero-load sideband rows | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r113-coremark-or-c-ldi-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 19 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, 21-row `OP_C_ADD` unsupported-row probe, `git diff --check` |
 | R114 | CoreMark C.ADD local T/U source row with QEMU trace-gap synthesis | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r114-coremark-c-add-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 21 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, 22-row `OP_SRA` unsupported-row probe, `git diff --check` |
+| R115 | CoreMark SRA/SLLI ordered local T dependency row | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r115-coremark-sra-slli-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 23 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, 24-row mixed `C.ADD` frontier probe, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -778,10 +779,11 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Broader reduced scalar/CoreMark opcode body: after R114 proves compressed
-   `C.ADD` with model-derived implicit T writeback over QEMU's no-writeback
-   trace row, continue with `OP_SRA` at `pc=0x4000553e`
-   (`insn=0x01ec6f85`), which reads local T/U sources and writes T tag `31`.
+2. Broader reduced scalar/CoreMark opcode body: after R115 proves `OP_SRA` and
+   same-packet `OP_SLLI` over an ordered local T dependency, continue with the
+   mixed local/scalar `C.ADD` at `pc=0x40005546` (`insn=0x2608`), whose
+   compressed `SrcL` is T0 and `SrcR` is scalar x4 while current QEMU emits no
+   destination/writeback.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.

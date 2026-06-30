@@ -5,7 +5,7 @@ import chisel3.util.log2Ceil
 
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
-import linxcore.common.{CoreParams, InterfaceParams, OperandClass}
+import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource}
 import linxcore.lsu.StoreDispatchExecResult
@@ -221,6 +221,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val localUData = RegInit(VecInit(Seq.fill(localQueueDepth)(0.U(p.immWidth.W))))
   val localTReady = RegInit(VecInit(Seq.fill(localQueueDepth)(false.B)))
   val localUReady = RegInit(VecInit(Seq.fill(localQueueDepth)(false.B)))
+  val localPendingCountWidth = log2Ceil(issueQueueDepth + 2)
+  val localTPendingCount = RegInit(0.U(localPendingCountWidth.W))
+  val localUPendingCount = RegInit(0.U(localPendingCountWidth.W))
 
   private def pushLocal(
       data: Vec[UInt],
@@ -275,7 +278,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.slots := denseSlots.io.outSlots
   path.io.validMask := denseSlots.io.outValidMask
   path.io.flushValid := io.frontendFlushValid
-  path.io.renamedOutReady := issue.io.inReady
+  val localIncomingBlocked =
+    (localTPendingCount =/= 0.U) || (localUPendingCount =/= 0.U)
+  path.io.renamedOutReady := issue.io.inReady && !localIncomingBlocked
   path.io.storeStaExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
   path.io.storeStdExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
   path.io.storeMarkCommitValid := false.B
@@ -295,7 +300,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.completeRow := execute.io.completeRow
   path.io.deallocReady := io.deallocReady
 
-  issue.io.inValid := path.io.renamedOutValid
+  issue.io.inValid := path.io.renamedOutValid && !localIncomingBlocked
   issue.io.in := path.io.renamedOut
   issue.io.flushValid := io.frontendFlushValid
   issue.io.releaseValid := execute.io.releaseValid
@@ -329,6 +334,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   rf.io.writeData := execute.io.completeDstData
 
   val localReset = io.frontendFlushValid || io.startValid || io.restartValid
+  val localDstAllocT =
+    issue.io.enqueueFire && path.io.renamedOut.dst(0).valid && (path.io.renamedOut.dst(0).kind === DestinationKind.T)
+  val localDstAllocU =
+    issue.io.enqueueFire && path.io.renamedOut.dst(0).valid && (path.io.renamedOut.dst(0).kind === DestinationKind.U)
+  val localCompleteT =
+    execute.io.completeValid && execute.io.completeRow.wb.valid && (execute.io.completeRow.wb.reg === 31.U)
+  val localCompleteU =
+    execute.io.completeValid && execute.io.completeRow.wb.valid && (execute.io.completeRow.wb.reg === 30.U)
+
+  val localTPendingAfterComplete =
+    Mux(localCompleteT && localTPendingCount =/= 0.U, localTPendingCount - 1.U, localTPendingCount)
+  val localUPendingAfterComplete =
+    Mux(localCompleteU && localUPendingCount =/= 0.U, localUPendingCount - 1.U, localUPendingCount)
+
   when(localReset) {
     for (idx <- 0 until localQueueDepth) {
       localTData(idx) := 0.U
@@ -336,10 +355,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       localTReady(idx) := false.B
       localUReady(idx) := false.B
     }
-  }.elsewhen(execute.io.completeValid && execute.io.completeRow.wb.valid) {
-    when(execute.io.completeRow.wb.reg === 31.U) {
+    localTPendingCount := 0.U
+    localUPendingCount := 0.U
+  }.otherwise {
+    localTPendingCount := localTPendingAfterComplete + localDstAllocT.asUInt
+    localUPendingCount := localUPendingAfterComplete + localDstAllocU.asUInt
+
+    when(localCompleteT) {
       pushLocal(localTData, localTReady, execute.io.completeRow.wb.data)
-    }.elsewhen(execute.io.completeRow.wb.reg === 30.U) {
+    }.elsewhen(localCompleteU) {
       pushLocal(localUData, localUReady, execute.io.completeRow.wb.data)
     }
   }

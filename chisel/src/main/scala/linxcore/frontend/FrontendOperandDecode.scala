@@ -104,6 +104,7 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
   val simm5_6 = sext(insn16(10, 6), 5)
   val cBranchOff = fitImm(sext(insn16(15, 4), 12) << 1)
   val uimm5 = insn16(10, 6).pad(p.immWidth)
+  val shamt20_25 = insn32(25, 20).pad(p.immWidth)
   val macroImm = fitImm(insn32(11, 7).pad(p.immWidth) << 10) |
     fitImm(insn32(31, 25).pad(p.immWidth) << 3)
   val hlLuiImm = sext(Cat(pfx16(15, 4), main32(31, 12)), 32)
@@ -232,6 +233,12 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       }.otherwise {
         setImm(imm12S)
       }
+    }
+    when(opcodeIs(
+      FrontendOpcodeDecodeTable.OP_SLLI,
+      FrontendOpcodeDecodeTable.OP_SRLI,
+      FrontendOpcodeDecodeTable.OP_SRAI)) {
+      setImm(shamt20_25)
     }
     when(opcodeIs(FrontendOpcodeDecodeTable.OP_C_SETRET)) {
       setDst(10.U)

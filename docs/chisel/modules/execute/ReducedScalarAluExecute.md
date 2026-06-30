@@ -101,6 +101,10 @@ commit JSONL. The current QEMU row also omits the local destination/writeback
 fields for `C.ADD`, so the expected-row reducer synthesizes the implicit T
 writeback from the LinxCoreModel compressed arithmetic contract while keeping
 the QEMU PC/instruction stream and local-source history as the proof input.
+R115 adds `OP_SRA` and the same dense-packet `OP_SLLI` row. `OP_SRA` follows
+the LinxCoreModel arithmetic calculator default: signed 64-bit right shift by
+`src1 & 0x3f`. `OP_SLLI` uses the model `@shift_i` immediate source,
+`shamt_20_25`, carried in `RenamedUop.imm` by `FrontendOperandDecode`.
 
 The Chisel module implements the first reduced subset:
 
@@ -117,7 +121,9 @@ The Chisel module implements the first reduced subset:
 | `OP_FENTRY` | `srcData(1) - in.imm` for the reduced single-save SP update |
 | `OP_HL_LUI` | `in.imm` |
 | `OP_SLL` | `srcData(0) << srcData(1)(5, 0)` |
+| `OP_SLLI` | `srcData(0) << in.imm(5, 0)` |
 | `OP_SRL` | `srcData(0) >> srcData(1)(5, 0)` |
+| `OP_SRA` | `srcData(0).asSInt >> srcData(1)(5, 0)` |
 | `OP_OR` | `srcData(0) \| srcData(1)` |
 
 `OP_ADDTPC` uses the `FrontendOperandDecode` `ImmIMM20` path, where the
@@ -154,6 +160,10 @@ decode to T0/U0 and the implicit destination writes T0. This is still a
 local-source reduced ALU row, not a general compressed ALU expansion. Because
 QEMU currently emits that row without `dst`/`wb`, the reducer patches only this
 expected row to the model-derived implicit T writeback before comparison.
+R115 proves `OP_SRA` at `pc=0x4000553e` and the paired `OP_SLLI` at
+`pc=0x40005542`. Both read local T state, write architectural T tag `31`, and
+keep scalar RF side effects gated off; `SLLI` is included with `SRA` because
+the live frontend emits both slots in the same dense packet.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural

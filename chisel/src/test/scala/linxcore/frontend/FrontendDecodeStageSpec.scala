@@ -162,6 +162,12 @@ object FrontendDecodeStageReference {
         }
       case _ =>
     }
+    if (opcodeIs(rule,
+      FrontendOpcodeDecodeTable.OP_SLLI,
+      FrontendOpcodeDecodeTable.OP_SRLI,
+      FrontendOpcodeDecodeTable.OP_SRAI)) {
+      imm = Some(bitRange(word, 25, 20))
+    }
 
     OperandShape(src.toVector, dst, imm)
   }
@@ -367,6 +373,12 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(andi.dst.contains(1))
     assert(andi.src(0).contains(2))
     assert(andi.imm.contains(BigInt("ffffffffffffffff", 16)))
+
+    val slli = operands(BigInt("003c7f95", 16), lenBytes = 4).get
+    assert(slli.dst.contains(31))
+    assert(slli.src(0).contains(24))
+    assert(slli.src(1).isEmpty)
+    assert(slli.imm.contains(3))
 
     val sd = operands(0x00003049L | (9L << 15) | (10L << 20) | (11L << 27), lenBytes = 4).get
     assert(sd.src(0).contains(9))

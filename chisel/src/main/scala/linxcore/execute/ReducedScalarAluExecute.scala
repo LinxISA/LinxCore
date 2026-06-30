@@ -61,7 +61,9 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SLL) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_SLLI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SRL) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_SRA) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_OR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_ADD)
 
@@ -90,8 +92,12 @@ class ReducedScalarAluExecute(
       out := imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SLL)) {
       out := (srcData(0) << srcData(1)(5, 0))(p.immWidth - 1, 0)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SLLI)) {
+      out := (srcData(0) << imm(5, 0))(p.immWidth - 1, 0)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SRL)) {
       out := srcData(0) >> srcData(1)(5, 0)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SRA)) {
+      out := (srcData(0).asSInt >> srcData(1)(5, 0)).asUInt
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_OR)) {
       out := srcData(0) | srcData(1)
     }
@@ -209,6 +215,12 @@ class ReducedScalarAluExecute(
 
 object ReducedScalarAluExecute {
   private val Mask64 = (BigInt(1) << 64) - 1
+  private val SignBit64 = BigInt(1) << 63
+
+  private def signed64(value: BigInt): BigInt = {
+    val masked = value & Mask64
+    if ((masked & SignBit64) != 0) masked - (BigInt(1) << 64) else masked
+  }
 
   def referenceResult(opcode: Int, src0: BigInt, src1: BigInt, imm: BigInt): Option[BigInt] =
     opcode match {
@@ -223,7 +235,9 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_FENTRY => Some((src1 - imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_HL_LUI => Some(imm & Mask64)
       case FrontendOpcodeDecodeTable.OP_SLL => Some((src0 << ((src1 & 0x3f).toInt)) & Mask64)
+      case FrontendOpcodeDecodeTable.OP_SLLI => Some((src0 << ((imm & 0x3f).toInt)) & Mask64)
       case FrontendOpcodeDecodeTable.OP_SRL => Some((src0 & Mask64) >> ((src1 & 0x3f).toInt))
+      case FrontendOpcodeDecodeTable.OP_SRA => Some((signed64(src0) >> ((src1 & 0x3f).toInt)) & Mask64)
       case FrontendOpcodeDecodeTable.OP_OR => Some((src0 | src1) & Mask64)
       case _ => None
     }

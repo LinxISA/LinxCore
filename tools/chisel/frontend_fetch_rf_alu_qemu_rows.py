@@ -43,8 +43,12 @@ HL_LUI_MASK = 0xFFFF_0000_007F_000F
 HL_LUI_MATCH = 0x0000_0000_0017_000E
 SLL_MASK = 0xFE00_707F
 SLL_MATCH = 0x0000_7005
+SLLI_MASK = 0xFC00_707F
+SLLI_MATCH = 0x0000_7015
 SRL_MASK = 0xFE00_707F
 SRL_MATCH = 0x0000_5005
+SRA_MASK = 0xFE00_707F
+SRA_MATCH = 0x0000_6005
 OR_MASK = 0x707F
 OR_MATCH = 0x3005
 LOCAL_QUEUE_DEPTH = 4
@@ -89,10 +93,14 @@ def _classify(row: dict[str, int]) -> str | None:
             return "ADDTPC"
         if key == 0x0041:
             return "FENTRY"
+        if (insn & SLLI_MASK) == SLLI_MATCH:
+            return "SLLI"
         if (insn & SLL_MASK) == SLL_MATCH:
             return "SLL"
         if (insn & SRL_MASK) == SRL_MATCH:
             return "SRL"
+        if (insn & SRA_MASK) == SRA_MATCH:
+            return "SRA"
         if (insn & OR_MASK) == OR_MATCH:
             return "OR"
     if row["len"] == 2:
@@ -169,6 +177,10 @@ def _sll_src_l(row: dict[str, int]) -> int:
 
 def _sll_src_r(row: dict[str, int]) -> int:
     return (_mask_insn(row["insn"], row["len"]) >> 20) & 0x1F
+
+
+def _shamt_20_25(row: dict[str, int]) -> int:
+    return (_mask_insn(row["insn"], row["len"]) >> 20) & 0x3F
 
 
 def _c_src_l(row: dict[str, int]) -> int:
@@ -256,9 +268,9 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
     if not _is_reduced_tu_destination(row["dst_reg"]):
         _require_scalar_reg(row, "dst_reg", opcode)
         _require_scalar_reg(row, "wb_rd", opcode)
-    elif row["dst_reg"] == 30 and opcode not in {"ADDI", "SLL", "SRL", "OR"}:
+    elif row["dst_reg"] == 30 and opcode not in {"ADDI", "SLL", "SLLI", "SRL", "SRA", "OR"}:
         raise RowExtractionError(f"{opcode} row writes reduced U destination alias {row['dst_reg']}")
-    elif row["dst_reg"] == 31 and opcode not in {"HL.LUI", "SLL", "SRL", "OR", "C.LDI", "C.ADD"}:
+    elif row["dst_reg"] == 31 and opcode not in {"HL.LUI", "SLL", "SLLI", "SRL", "SRA", "OR", "C.LDI", "C.ADD"}:
         raise RowExtractionError(f"{opcode} row writes reduced T destination alias {row['dst_reg']}")
     if row["dst_data"] != row["wb_data"]:
         raise RowExtractionError(f"{opcode} row dst_data={row['dst_data']} differs from wb_data={row['wb_data']}")
@@ -273,6 +285,13 @@ def _is_no_writeback_trace_gap(row: dict[str, int]) -> bool:
         row["dst_data"] == 0 and
         row["wb_data"] == 0
     )
+
+
+def _signed64(value: int) -> int:
+    value &= MASK64
+    if value & (1 << 63):
+        return value - (1 << 64)
+    return value
 
 
 def _expected_result(
@@ -305,10 +324,17 @@ def _expected_result(
         lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
         rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
         return (lhs << (rhs & 0x3F)) & MASK64
+    if opcode == "SLLI":
+        lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
+        return (lhs << _shamt_20_25(row)) & MASK64
     if opcode == "SRL":
         lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
         rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
         return (lhs >> (rhs & 0x3F)) & MASK64
+    if opcode == "SRA":
+        lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
+        rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
+        return (_signed64(lhs) >> (rhs & 0x3F)) & MASK64
     if opcode == "OR":
         lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
         rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
@@ -372,10 +398,13 @@ def _validate_reduced_row(
         _local_source_value(local_state, _c_src_r(row), opcode)
     elif opcode == "HL.LUI":
         _require_sources(row, opcode, src0=False, src1=False)
-    elif opcode in {"SLL", "SRL", "OR"}:
+    elif opcode in {"SLL", "SRL", "SRA", "OR"}:
         _require_sources(row, opcode, src0=False, src1=False)
         _local_source_value(local_state, _sll_src_l(row), opcode)
         _local_source_value(local_state, _sll_src_r(row), opcode)
+    elif opcode == "SLLI":
+        _require_sources(row, opcode, src0=False, src1=False)
+        _local_source_value(local_state, _sll_src_l(row), opcode)
     synthesize_c_add_writeback = opcode == "C.ADD" and _is_no_writeback_trace_gap(row)
     if not synthesize_c_add_writeback:
         _require_writeback(row, opcode)
@@ -876,6 +905,95 @@ def self_test() -> None:
         assert extracted_c_add[9]["dst_reg"] == 31
         assert extracted_c_add[9]["wb_rd"] == 31
         assert extracted_c_add[9]["dst_data"] == 0x1_0000_0000
+
+        sra_source = tmp / "sra-tu.jsonl"
+        sra_output = tmp / "sra-tu.rows.jsonl"
+        sra_tu = {
+            **rows[0],
+            "pc": 0x4000553E,
+            "insn": 0x01EC6F85,
+            "len": 4,
+            "next_pc": 0x40005542,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 1,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 1,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(
+            sra_source,
+            [
+                addi_u_dst,
+                hl_lui,
+                sll_tu,
+                hl_lui_zero,
+                sll_t_dst,
+                srl_tu,
+                or_tu,
+                c_ldi,
+                sll_after_c_ldi,
+                c_add_tu,
+                sra_tu,
+            ],
+        )
+        count = extract_rows(sra_source, sra_output)
+        assert count == 11
+        extracted_sra = [json.loads(line) for line in sra_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_sra[10]["dst_reg"] == 31
+        assert extracted_sra[10]["wb_rd"] == 31
+        assert extracted_sra[10]["dst_data"] == 1
+
+        slli_source = tmp / "slli-tu.jsonl"
+        slli_output = tmp / "slli-tu.rows.jsonl"
+        slli_tu = {
+            **rows[0],
+            "pc": 0x40005542,
+            "insn": 0x003C7F95,
+            "len": 4,
+            "next_pc": 0x40005546,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 8,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 8,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(
+            slli_source,
+            [
+                addi_u_dst,
+                hl_lui,
+                sll_tu,
+                hl_lui_zero,
+                sll_t_dst,
+                srl_tu,
+                or_tu,
+                c_ldi,
+                sll_after_c_ldi,
+                c_add_tu,
+                sra_tu,
+                slli_tu,
+            ],
+        )
+        count = extract_rows(slli_source, slli_output)
+        assert count == 12
+        extracted_slli = [json.loads(line) for line in slli_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_slli[11]["dst_reg"] == 31
+        assert extracted_slli[11]["wb_rd"] == 31
+        assert extracted_slli[11]["dst_data"] == 8
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

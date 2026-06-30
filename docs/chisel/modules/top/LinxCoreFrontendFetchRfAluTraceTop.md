@@ -102,6 +102,10 @@ reduced local-value overlay and still suppressing local source fields in the
 QEMU-shaped completion row. The expected-row reducer synthesizes the implicit
 T writeback for this one row because current QEMU commit JSONL omits local
 destination/writeback fields for `C.ADD`.
+R115 extends the same dense packet through `OP_SRA` and `OP_SLLI`. The top now
+stalls younger rename output while any reduced local T/U producer is pending,
+so same-packet local consumers wait for the producer to complete before reading
+the temporary local overlay.
 
 ## Interface
 
@@ -266,6 +270,12 @@ and emits an 8-byte load sideband with zero data for this prefix only. R114
 adds `C.ADD` at `pc=0x4000553c`, whose compressed fields read T0/U0 and write
 implicit T0. The reducer converts QEMU's no-writeback C.ADD trace row into the
 model-derived implicit T writeback expected row before the comparator runs.
+R115 adds `SRA` at `pc=0x4000553e`, which performs signed 64-bit arithmetic
+right shift of local T0 by local U2 and writes T0=`1`, plus the paired `SLLI`
+at `pc=0x40005542`, which shifts the new T0 left by immediate `3` and writes
+T0=`8`. Because both rows are adjacent in the same dense frontend packet, the
+reduced top orders local T/U producers before younger rename output while the
+producer is pending.
 
 ## Trace/Observability
 
@@ -649,6 +659,29 @@ records `status: "pass"`, `summary.compared_rows: 16`, and
 `summary.mismatch_count: 0`. A 22-row extraction probe identifies the next
 unsupported row as `OP_SRA` (`pc=0x4000553e`, `insn=0x01ec6f85`, `len=4`),
 which reads local T/U sources and writes T tag `31`.
+
+The R115 CoreMark gate extends the prefix through `OP_SRA` and the same dense
+packet's `OP_SLLI` row:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r115-coremark-sra-slli-qemu-elf-xcheck \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 \
+  --capture-rows 23 \
+  --allow-block-markers \
+  --max-seconds 8 \
+  -- -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+The manifest at
+`generated/r115-coremark-sra-slli-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 18`, and
+`summary.mismatch_count: 0`. A 24-row extraction probe identifies the next
+frontier as a mixed local/scalar `C.ADD` at `pc=0x40005546`, `insn=0x2608`,
+`len=2`: compressed `SrcL` is T0, compressed `SrcR` is scalar x4, and current
+QEMU emits scalar `src1` but no destination/writeback fields.
 
 ## Verification
 
