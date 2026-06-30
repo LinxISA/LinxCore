@@ -45,6 +45,8 @@ SLL_MASK = 0xFE00_707F
 SLL_MATCH = 0x0000_7005
 SRL_MASK = 0xFE00_707F
 SRL_MATCH = 0x0000_5005
+OR_MASK = 0x707F
+OR_MATCH = 0x3005
 LOCAL_QUEUE_DEPTH = 4
 
 
@@ -91,6 +93,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "SLL"
         if (insn & SRL_MASK) == SRL_MATCH:
             return "SRL"
+        if (insn & OR_MASK) == OR_MATCH:
+            return "OR"
     if row["len"] == 2:
         if (insn & 0xF83F) == 0x5016:
             return "C.SETRET"
@@ -99,6 +103,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "C.MOVI"
         if key == 0x0006:
             return "C.MOVR"
+        if key == 0x001A:
+            return "C.LDI"
     if row["len"] == 6:
         if (insn & HL_LUI_MASK) == HL_LUI_MATCH:
             return "HL.LUI"
@@ -132,6 +138,10 @@ def _simm20_shifted(row: dict[str, int]) -> int:
 
 def _simm5_6(row: dict[str, int]) -> int:
     return _sext((_mask_insn(row["insn"], row["len"]) >> 6) & 0x1F, 5)
+
+
+def _simm5_11(row: dict[str, int]) -> int:
+    return _sext((_mask_insn(row["insn"], row["len"]) >> 11) & 0x1F, 5)
 
 
 def _c_setret_imm(row: dict[str, int]) -> int:
@@ -236,9 +246,9 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
     if not _is_reduced_tu_destination(row["dst_reg"]):
         _require_scalar_reg(row, "dst_reg", opcode)
         _require_scalar_reg(row, "wb_rd", opcode)
-    elif row["dst_reg"] == 30 and opcode not in {"ADDI", "SLL", "SRL"}:
+    elif row["dst_reg"] == 30 and opcode not in {"ADDI", "SLL", "SRL", "OR"}:
         raise RowExtractionError(f"{opcode} row writes reduced U destination alias {row['dst_reg']}")
-    elif row["dst_reg"] == 31 and opcode not in {"HL.LUI", "SLL", "SRL"}:
+    elif row["dst_reg"] == 31 and opcode not in {"HL.LUI", "SLL", "SRL", "OR", "C.LDI"}:
         raise RowExtractionError(f"{opcode} row writes reduced T destination alias {row['dst_reg']}")
     if row["dst_data"] != row["wb_data"]:
         raise RowExtractionError(f"{opcode} row dst_data={row['dst_data']} differs from wb_data={row['wb_data']}")
@@ -262,6 +272,8 @@ def _expected_result(
         return (row["pc"] + _c_setret_imm(row)) & MASK64
     if opcode == "FENTRY":
         return (row["mem_addr"] + 8 - _fentry_imm(row)) & MASK64
+    if opcode == "C.LDI":
+        return row["mem_rdata"] & MASK64
     if opcode == "HL.LUI":
         return _hl_lui_imm(row)
     if opcode == "SLL":
@@ -272,6 +284,10 @@ def _expected_result(
         lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
         rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
         return (lhs >> (rhs & 0x3F)) & MASK64
+    if opcode == "OR":
+        lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
+        rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
+        return (lhs | rhs) & MASK64
     raise AssertionError(opcode)
 
 
@@ -287,7 +303,7 @@ def _validate_reduced_row(
         )
     if row["trap_valid"]:
         raise RowExtractionError(f"row {index} {opcode} has trap_valid=1")
-    if row["mem_valid"] and opcode != "FENTRY":
+    if row["mem_valid"] and opcode not in {"FENTRY", "C.LDI"}:
         raise RowExtractionError(f"row {index} {opcode} has mem_valid=1")
     if row["next_pc"] != row["pc"] + row["len"]:
         raise RowExtractionError(
@@ -317,9 +333,17 @@ def _validate_reduced_row(
             raise RowExtractionError(f"row {index} FENTRY save register is outside scalar GPR range")
         if not row["mem_valid"] or not row["mem_is_store"] or row["mem_size"] != 8:
             raise RowExtractionError(f"row {index} FENTRY must carry one 8-byte store")
+    elif opcode == "C.LDI":
+        _require_sources(row, opcode, src0=True, src1=False)
+        if not row["mem_valid"] or row["mem_is_store"] or row["mem_size"] != 8:
+            raise RowExtractionError(f"row {index} C.LDI must carry one 8-byte load")
+        if row["mem_addr"] != row["src0_data"] + _simm5_11(row):
+            raise RowExtractionError(f"row {index} C.LDI load address does not match src0+imm")
+        if row["mem_rdata"] != 0 or row["dst_data"] != 0:
+            raise RowExtractionError(f"row {index} C.LDI reduced gate only supports current zero-load row")
     elif opcode == "HL.LUI":
         _require_sources(row, opcode, src0=False, src1=False)
-    elif opcode in {"SLL", "SRL"}:
+    elif opcode in {"SLL", "SRL", "OR"}:
         _require_sources(row, opcode, src0=False, src1=False)
         _local_source_value(local_state, _sll_src_l(row), opcode)
         _local_source_value(local_state, _sll_src_r(row), opcode)
@@ -684,6 +708,72 @@ def self_test() -> None:
         assert extracted_srl[5]["dst_reg"] == 31
         assert extracted_srl[5]["wb_rd"] == 31
         assert extracted_srl[5]["dst_data"] == 0
+
+        or_source = tmp / "or-tu.jsonl"
+        or_output = tmp / "or-tu.rows.jsonl"
+        or_tu = {
+            **rows[0],
+            "pc": 0x40005532,
+            "insn": 0x078E3F05,
+            "len": 4,
+            "next_pc": 0x40005536,
+            "wb_valid": 1,
+            "wb_rd": 30,
+            "wb_data": 0x1_0000_0000,
+            "dst_valid": 1,
+            "dst_reg": 30,
+            "dst_data": 0x1_0000_0000,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(or_source, [addi_u_dst, hl_lui, sll_tu, hl_lui_zero, sll_t_dst, srl_tu, or_tu])
+        count = extract_rows(or_source, or_output)
+        assert count == 7
+        extracted_or = [json.loads(line) for line in or_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_or[6]["dst_reg"] == 30
+        assert extracted_or[6]["wb_rd"] == 30
+        assert extracted_or[6]["dst_data"] == 0x1_0000_0000
+
+        c_ldi_source = tmp / "c-ldi.jsonl"
+        c_ldi_output = tmp / "c-ldi.rows.jsonl"
+        c_ldi = {
+            **rows[0],
+            "pc": 0x40005536,
+            "insn": 0x011A,
+            "len": 2,
+            "next_pc": 0x40005538,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 0,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 4,
+            "src0_data": 0x4FFE_FDB0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 1,
+            "mem_is_store": 0,
+            "mem_addr": 0x4FFE_FDB0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 8,
+        }
+        _write_jsonl(c_ldi_source, [addi_u_dst, hl_lui, sll_tu, hl_lui_zero, sll_t_dst, srl_tu, or_tu, c_ldi])
+        count = extract_rows(c_ldi_source, c_ldi_output)
+        assert count == 8
+        extracted_c_ldi = [json.loads(line) for line in c_ldi_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_c_ldi[7]["dst_reg"] == 31
+        assert extracted_c_ldi[7]["wb_rd"] == 31
+        assert extracted_c_ldi[7]["dst_data"] == 0
+        assert extracted_c_ldi[7]["mem_valid"] == 1
+        assert extracted_c_ldi[7]["mem_is_store"] == 0
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

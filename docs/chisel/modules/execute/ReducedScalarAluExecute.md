@@ -91,6 +91,10 @@ reduced RF writeback path. R109 keeps that RF writeback side effect scoped to
 `DestinationKind.Gpr`; a T/U destination still produces a QEMU-shaped
 architectural `dst`/`wb` completion row, but the reduced scalar RF is not
 cleared or written for the local-register alias.
+R113 adds `OP_OR` for the next local-source row and a narrow `OP_C_LDI`
+zero-load row: the execute owner emits the QEMU-shaped 8-byte load sideband and
+returns zero data only for the current reduced CoreMark prefix, not for general
+memory execution.
 
 The Chisel module implements the first reduced subset:
 
@@ -101,11 +105,13 @@ The Chisel module implements the first reduced subset:
 | `OP_ADDTPC` | `(in.pc & ~0xfff) + in.imm` |
 | `OP_C_MOVI` | `in.imm` |
 | `OP_C_MOVR` | `srcData(0)` |
+| `OP_C_LDI` | `0`, with a reduced 8-byte load sideband at `srcData(0) + in.imm` |
 | `OP_C_SETRET` | `in.pc + in.imm` |
 | `OP_FENTRY` | `srcData(1) - in.imm` for the reduced single-save SP update |
 | `OP_HL_LUI` | `in.imm` |
 | `OP_SLL` | `srcData(0) << srcData(1)(5, 0)` |
 | `OP_SRL` | `srcData(0) >> srcData(1)(5, 0)` |
+| `OP_OR` | `srcData(0) \| srcData(1)` |
 
 `OP_ADDTPC` uses the `FrontendOperandDecode` `ImmIMM20` path, where the
 20-bit immediate is sign-extended and shifted left by 12 before reaching
@@ -132,6 +138,10 @@ source fields invalid to match QEMU.
 R112 proves that the same shift family can write either local class in the
 reduced trace: the later `SLL` and `SRL` rows write architectural T tag `31`,
 while scalar RF side effects remain gated to GPR destinations.
+R113 proves `OP_OR` as another local-source row writing U tag `30`, then admits
+the immediately following `C.LDI` zero-load row writing T tag `31`. The latter
+is a prefix gate only; nonzero load data must wait for a real data-memory/LSU
+owner.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural
@@ -183,4 +193,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r110-coremark-hl-lui-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 13 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r112-coremark-sll-srl-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 17 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r113-coremark-or-c-ldi-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 19 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

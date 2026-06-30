@@ -57,10 +57,12 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_C_LDI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SLL) ||
-      op === opcode(FrontendOpcodeDecodeTable.OP_SRL)
+      op === opcode(FrontendOpcodeDecodeTable.OP_SRL) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_OR)
 
   private def resultFor(op: UInt, pc: UInt, srcData: Vec[UInt], imm: UInt): UInt = {
     val out = Wire(UInt(p.immWidth.W))
@@ -77,6 +79,8 @@ class ReducedScalarAluExecute(
       out := srcData(0)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET)) {
       out := pc + imm
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_LDI)) {
+      out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY)) {
       out := srcData(1) - imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI)) {
@@ -85,6 +89,8 @@ class ReducedScalarAluExecute(
       out := (srcData(0) << srcData(1)(5, 0))(p.immWidth - 1, 0)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SRL)) {
       out := srcData(0) >> srcData(1)(5, 0)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_OR)) {
+      out := srcData(0) | srcData(1)
     }
     out
   }
@@ -131,6 +137,13 @@ class ReducedScalarAluExecute(
       row.mem.addr := result + uop.imm - 8.U
       row.mem.wdata := srcData(0)
       row.mem.rdata := 0.U
+      row.mem.size := 8.U
+    }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_LDI)) {
+      row.mem.valid := valid
+      row.mem.isStore := false.B
+      row.mem.addr := srcData(0) + uop.imm
+      row.mem.wdata := 0.U
+      row.mem.rdata := result
       row.mem.size := 8.U
     }
     row
@@ -202,10 +215,12 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_C_MOVI => Some(imm & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_MOVR => Some(src0 & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_SETRET => None
+      case FrontendOpcodeDecodeTable.OP_C_LDI => Some(0)
       case FrontendOpcodeDecodeTable.OP_FENTRY => Some((src1 - imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_HL_LUI => Some(imm & Mask64)
       case FrontendOpcodeDecodeTable.OP_SLL => Some((src0 << ((src1 & 0x3f).toInt)) & Mask64)
       case FrontendOpcodeDecodeTable.OP_SRL => Some((src0 & Mask64) >> ((src1 & 0x3f).toInt))
+      case FrontendOpcodeDecodeTable.OP_OR => Some((src0 | src1) & Mask64)
       case _ => None
     }
 
