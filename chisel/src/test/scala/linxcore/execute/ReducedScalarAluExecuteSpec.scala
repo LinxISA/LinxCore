@@ -10,6 +10,12 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
   test("reference results match the model-derived reduced scalar ALU subset") {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ADD, 10, 32, 0).contains(42))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ADDI, 7, 0, 0x7ff).contains(2054))
+    assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_ADDTPC,
+      pc = BigInt("400054f8", 16),
+      src0 = 0,
+      src1 = 0,
+      imm = 0x9000).contains(BigInt("4000e000", 16)))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_MOVI, 0, 0, 0x15).contains(0x15))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_MOVR, 0x1234, 0, 0).contains(0x1234))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_LD, 1, 2, 3).isEmpty)

@@ -53,16 +53,19 @@ class ReducedScalarAluExecute(
   private def isSupported(op: UInt): Bool =
     op === opcode(FrontendOpcodeDecodeTable.OP_ADD) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_ADDI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_ADDTPC) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR)
 
-  private def resultFor(op: UInt, srcData: Vec[UInt], imm: UInt): UInt = {
+  private def resultFor(op: UInt, pc: UInt, srcData: Vec[UInt], imm: UInt): UInt = {
     val out = Wire(UInt(p.immWidth.W))
     out := 0.U
     when(op === opcode(FrontendOpcodeDecodeTable.OP_ADD)) {
       out := srcData(0) + srcData(1)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_ADDI)) {
       out := srcData(0) + imm
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_ADDTPC)) {
+      out := (pc & "hffff_ffff_ffff_f000".U(p.immWidth.W)) + imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVI)) {
       out := imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR)) {
@@ -125,7 +128,7 @@ class ReducedScalarAluExecute(
   val w2Supported = Reg(Bool())
 
   val accept = io.inValid && io.inReady
-  val eResult = resultFor(eUop.opcode, eSrcData, eUop.imm)
+  val eResult = resultFor(eUop.opcode, eUop.pc, eSrcData, eUop.imm)
   val eSupported = eValid && isSupported(eUop.opcode)
 
   w2Valid := w1Valid
@@ -170,8 +173,15 @@ object ReducedScalarAluExecute {
     opcode match {
       case FrontendOpcodeDecodeTable.OP_ADD => Some((src0 + src1) & Mask64)
       case FrontendOpcodeDecodeTable.OP_ADDI => Some((src0 + imm) & Mask64)
+      case FrontendOpcodeDecodeTable.OP_ADDTPC => None
       case FrontendOpcodeDecodeTable.OP_C_MOVI => Some(imm & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_MOVR => Some(src0 & Mask64)
       case _ => None
+    }
+
+  def referenceResult(opcode: Int, pc: BigInt, src0: BigInt, src1: BigInt, imm: BigInt): Option[BigInt] =
+    opcode match {
+      case FrontendOpcodeDecodeTable.OP_ADDTPC => Some(((pc & ~BigInt(0xfff)) + imm) & Mask64)
+      case _ => referenceResult(opcode, src0, src1, imm)
     }
 }

@@ -410,6 +410,22 @@ block instead of only the three-row smoke. Evidence:
 and
 `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r105-long-body-qemu-elf-xcheck --elf generated/r105-long-body-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 9 --allow-block-markers --max-seconds 5`
 passed with `compared_rows: 7` and `mismatch_count: 0`.
+R106 started from `linx-isa` commit
+`a5f99f55dd76542de6178dcb144e4ae35da68c2c`, `rtl/LinxCore` commit
+`96bf4fc077ec9df6759a723c3caf5ffc13154d98`,
+`model/LinxCoreModel` commit
+`1993e4e749403824a4908548baf77d5e15117068`, and QEMU commit
+`8dd1dcdbde20a7543fc5081bc52fd81a7b85b985`. R106 expands the reduced
+RF/ALU live-QEMU envelope with `ADDTPC`, the first unsupported CoreMark
+`_start` scalar row after `C.BSTART` and `C.MOVR`. Model evidence is
+`PC::CalcInstAddTPC`, which computes `(pc & ~0xfff) + imm`, with
+`FrontendOperandDecode` already sign-extending `IMM20` and shifting it by 12.
+The QEMU probe before the patch failed at `pc=0x400054f8 insn=0x9187`, and the
+R106 gate compares the first four CoreMark rows before the next unsupported
+HL call marker. Evidence:
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+passed with `status: "pass"`, `summary.compared_rows: 3`, and
+`summary.mismatch_count: 0`.
 
 ## Reference Evidence
 
@@ -425,7 +441,7 @@ facts:
 | `model/bctrl/spe/SPERename.cpp` | Rename later consumes `dec_ren_q` and mutates the same instruction object with renamed sidecars such as local T/U sequences. |
 | `model/bctrl/spe/SPEROB.cpp` / `model/bctrl/BROB.cpp` | R103 block lifecycle evidence: `SPEROB::dealloc` stops at block-last and calls `CommitLast`; `CommitBlock` marks the block complete through `SetBlockComplete`; `BlockROB::commitBlock` retires only completed block entries. The reduced Chisel path now preserves the full block BID on ROB block-last deallocation, drives BROB scalar completion, and retires it one cycle later while leaving marker-owned old/current BID semantics for a later packet. |
 | `model/iex/pipe/alu_pipe.cpp` | `ALUPipe::Work` executes in the ALU pipe and publishes resolve/writeback at W2. |
-| `isa/calculate/arithmetic/Arithmetic.cpp` / `isa/calculate/others/Others.cpp` | Reduced scalar ALU semantics for R81 are `ADD = src0 + src1`, `ADDI = src0 + imm`, and `MOVR/MOVI` move the selected source/immediate into the destination. |
+| `isa/calculate/arithmetic/Arithmetic.cpp` / `isa/calculate/others/Others.cpp` / `isa/calculate/pc/PC.cpp` | Reduced scalar ALU semantics are `ADD = src0 + src1`, `ADDI = src0 + imm`, `MOVR/MOVI` move the selected source/immediate into the destination, and `ADDTPC = (pc & ~0xfff) + imm`. |
 | `model/bctrl/spe/GPRRename.cpp` / `model/iex/rtable.cpp` / `model/iex/iex_rf.cpp` | R82 scalar RF operand sourcing uses renamed physical tags: architectural GPRs start as identity physical tags, scalar destinations allocate new physical tags, ready/data state is tracked per physical tag, and RF reads return OPD_GREG data by physical tag. |
 | `model/iex/iex_iq.cpp` / `model/iex/iex_dispatch.cpp` / `model/iex/pipe/iex_pipe.h` / `model/iex/pipe/alu_pipe.cpp` / `model/iex/iex.cpp` | R88 scalar issue handoff stores renamed rows before execute, initializes and wakes sources by physical tag, selects the oldest resident ready non-issued entry, marks selected entries issued without removing them, separates P1 pick from I1 RF-read request and I2 RF-return consumption in the pipe model, and releases issued rows later by `(bid, rid, stid)`. The reduced Chisel queue preserves enqueue, registered RF-readiness gating, ROB identity, oldest-ready resident selection, P1 in-flight lock, I1 read-cancel unlock, I2 execute handoff, issued-entry residency, and ALU W2 release while still deferring full read-port arbitration, alternate select preferences, load miss suppression, replay, and bypass. |
 | `model/pe/ifu/iside/pe_ifu.cpp` / `model/ModelCommon/bus/FetchReqBus.h` / `model/pe/PECommon/DecodeBundle.h` / `isa/ISACommon/DecodeUtiles.h` | R93 frontend fetch source evidence: F0 captures `fetchTPC`, block/thread identity, `fid`, and sidebands in `FetchReqBus`; F2 fills instruction window data and sizes with `CheckMInstSize`; F3/F4/F5 move `DecodeBundle` records under backpressure. The reduced Chisel source preserves one-outstanding PC request, response-window packetization, packet-owned UID/checkpoint, restart/flush clearing, and downstream decoded-byte PC advance while deferring cacheline merge, branch prediction, RAHQ, ELF memory loading, and multiple outstanding requests. |
@@ -542,6 +558,7 @@ The ROB/cross-check substrate remains the required base:
 | 29 | R103 ROB block-last to BROB lifecycle sideband | `BROB.scala`, `ROBEntryBank.scala`, `DispatchROBAllocator.scala`, `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, module docs | BROB stale-BID reference, full block-BID block-last deallocation sideband, reduced scalar-done and next-cycle retire diagnostics, focused ROB/BROB/top gates, manifest inspection |
 | 30 | R104 marker-owned active block lifecycle | `DispatchROBAllocator.scala`, `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, live harness/docs | marker-only BROB allocation, scalar active-BID reuse, marker-driven scalar-done/retire, default RF/ALU xcheck, live QEMU fixture with `BSTART`/scalar/`BSTOP`, manifest inspection |
 | 31 | R105 longer live-QEMU reduced scalar body | `build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`, `LinxCoreFrontendFetchRfAluTraceTop.md`, runbook docs | `--long-body` fixture build, live QEMU marker gate with `--capture-rows 9`, seven scalar commits compared, manifest inspection |
+| 32 | R106 CoreMark ADDTPC reduced scalar prefix | `ReducedScalarAluExecute.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, execute/top docs | reduced ALU unit, extractor self-test, CoreMark live-QEMU gate with `--capture-rows 4`, first three scalar commits compared, manifest inspection |
 | 32 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
 | 33 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
 | 34 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |

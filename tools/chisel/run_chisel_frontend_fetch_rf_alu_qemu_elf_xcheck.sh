@@ -34,8 +34,8 @@ Options:
 
 This wrapper captures a bounded QEMU commit JSONL prefix from a direct-boot ELF,
 validates that the selected rows are inside the current reduced scalar
-ADD/ADDI/C.MOVI/C.MOVR envelope, extracts the same ELF into sparse fetch memory,
-and then runs LinxCoreFrontendFetchRfAluTraceTop through the neutral comparator.
+ADD/ADDI/ADDTPC/C.MOVI/C.MOVR envelope, extracts the same ELF into sparse fetch
+memory, and then runs LinxCoreFrontendFetchRfAluTraceTop through the neutral comparator.
 With --allow-block-markers, legal BSTART/BSTOP rows are consumed by the reduced
 frontend/ROB path as skip rows and are not written to the comparator trace.
 USAGE

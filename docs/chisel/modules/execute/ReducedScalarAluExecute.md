@@ -11,6 +11,7 @@
   - `model/LinxCoreModel/model/ModelCommon/SimInstInfo.cpp`
   - `model/LinxCoreModel/isa/calculate/arithmetic/Arithmetic.cpp`
   - `model/LinxCoreModel/isa/calculate/others/Others.cpp`
+  - `model/LinxCoreModel/isa/calculate/pc/PC.cpp`
   - `model/LinxCoreModel/isa/ISACommon/OpcodeManager.cpp`
 - Contract IDs: `LC-IF-CHISEL-IEX-ALU-001`, `LC-IF-CHISEL-XCHK-006`
 
@@ -62,15 +63,17 @@ trace path.
 
 ## Logic Design
 
-`SPERename::InsertToSIEXQ` routes `ARITHMETIC`, `IMMEDIATE`, and `MOVE`
-instructions to the scalar ALU IEX path. `ALUPipe::Work` advances the uop
-through P1/I1/I2/E0/EX/W1/W2, calls `SimInstInfo::Execute` in EX, and publishes
-the resolve bus at W2. `SimInstInfo::Execute` runs `PrePareSrc`, `Calculate`,
-and `ProcessDst`; arithmetic `ADD` returns `src0 + src1`, `ADDI` uses the
-decoded immediate, and `MOVR/MOVI` move the source/immediate into the
-destination. `ReadyState::GetSrcData` and `InitGGPRRtable` show that scalar
-source data is attached to physical GPR tags, so the Chisel execute owner also
-exports the destination physical tag for the reduced RF writeback path.
+`SPERename::InsertToSIEXQ` routes `ARITHMETIC`, `IMMEDIATE`, `MOVE`, and the
+PC-relative constant path used by `ADDTPC` toward scalar execution.
+`ALUPipe::Work` advances the uop through P1/I1/I2/E0/EX/W1/W2, calls
+`SimInstInfo::Execute` in EX, and publishes the resolve bus at W2.
+`SimInstInfo::Execute` runs `PrePareSrc`, `Calculate`, and `ProcessDst`;
+arithmetic `ADD` returns `src0 + src1`, `ADDI` uses the decoded immediate,
+`MOVR/MOVI` move the source/immediate into the destination, and
+`PC::CalcInstAddTPC` computes `(pc & ~0xfff) + imm`. `ReadyState::GetSrcData`
+and `InitGGPRRtable` show that scalar source data is attached to physical GPR
+tags, so the Chisel execute owner also exports the destination physical tag for
+the reduced RF writeback path.
 
 The Chisel module implements the first reduced subset:
 
@@ -78,8 +81,15 @@ The Chisel module implements the first reduced subset:
 |---|---|
 | `OP_ADD` | `srcData(0) + srcData(1)` |
 | `OP_ADDI` | `srcData(0) + in.imm` |
+| `OP_ADDTPC` | `(in.pc & ~0xfff) + in.imm` |
 | `OP_C_MOVI` | `in.imm` |
 | `OP_C_MOVR` | `srcData(0)` |
+
+`OP_ADDTPC` uses the `FrontendOperandDecode` `ImmIMM20` path, where the
+20-bit immediate is sign-extended and shifted left by 12 before reaching
+execute. This matches the model and linker contract for page-relative address
+materialization and is intentionally separate from `SETRET`, which overlaps the
+low opcode field but uses different PC semantics.
 
 The completion row copies identity and control fields from the accepted
 `RenamedUop`, fills source register/data fields from `uop.src` plus
@@ -125,4 +135,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

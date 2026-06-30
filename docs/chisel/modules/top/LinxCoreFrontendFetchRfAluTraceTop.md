@@ -382,6 +382,30 @@ The manifest at
 `generated/r105-long-body-qemu-elf-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `compared_rows: 7`, and `mismatch_count: 0`.
 
+The R106 CoreMark ADDTPC gate uses the first actual CoreMark `_start` rows
+through `ADDTPC` and stops before the next unsupported HL call marker:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 \
+  --capture-rows 4 \
+  --allow-block-markers \
+  --max-seconds 8 \
+  -- -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+The compared scalar rows are `C.MOVR`, `ADDTPC`, and the following `ADDI`;
+`C.BSTART` is preserved as a skip marker. The next unsupported CoreMark row is
+the 6-byte HL call marker at `pc=0x40005500`, which belongs to a later
+block-control packet rather than this reduced scalar ALU extension. The
+manifest at
+`generated/r106-coremark-addtpc-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 3`, and
+`summary.mismatch_count: 0`.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
@@ -400,6 +424,7 @@ records `status: "pass"`, `compared_rows: 7`, and `mismatch_count: 0`.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r104-marker-lifecycle-qemu-elf-xcheck --elf generated/r104-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r105-long-body-fixture --long-body`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r105-long-body-qemu-elf-xcheck --elf generated/r105-long-body-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 9 --allow-block-markers --max-seconds 5`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `FETCH_EXPECTED_ROWS=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_QEMU_TRACE=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`

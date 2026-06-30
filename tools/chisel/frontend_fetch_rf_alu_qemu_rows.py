@@ -62,6 +62,10 @@ def _classify(row: dict[str, int]) -> str | None:
             return "ADD"
         if key == 0x0015:
             return "ADDI"
+        if (insn & 0xFFF) == 0x0507:
+            return None
+        if (insn & 0x7F) == 0x0007:
+            return "ADDTPC"
     if row["len"] == 2:
         key = insn & 0x3F
         if key == 0x0016:
@@ -89,6 +93,10 @@ def _classify_block_marker(row: dict[str, int]) -> tuple[str, bool, bool] | None
 
 def _uimm12(row: dict[str, int]) -> int:
     return (_mask_insn(row["insn"], row["len"]) >> 20) & 0xFFF
+
+
+def _simm20_shifted(row: dict[str, int]) -> int:
+    return (_sext((_mask_insn(row["insn"], row["len"]) >> 12) & 0xFFFFF, 20) << 12) & MASK64
 
 
 def _simm5_6(row: dict[str, int]) -> int:
@@ -130,6 +138,8 @@ def _expected_result(row: dict[str, int], opcode: str) -> int:
         return (row["src0_data"] + row["src1_data"]) & MASK64
     if opcode == "ADDI":
         return (row["src0_data"] + _uimm12(row)) & MASK64
+    if opcode == "ADDTPC":
+        return ((row["pc"] & ~0xFFF) + _simm20_shifted(row)) & MASK64
     if opcode == "C.MOVI":
         return _simm5_6(row) & MASK64
     if opcode == "C.MOVR":
@@ -158,6 +168,8 @@ def _validate_reduced_row(row: dict[str, int], index: int) -> dict[str, int]:
         _require_sources(row, opcode, src0=True, src1=True)
     elif opcode == "ADDI":
         _require_sources(row, opcode, src0=True, src1=False)
+    elif opcode == "ADDTPC":
+        _require_sources(row, opcode, src0=False, src1=False)
     elif opcode == "C.MOVI":
         _require_sources(row, opcode, src0=False, src1=False)
     elif opcode == "C.MOVR":
@@ -265,6 +277,33 @@ def self_test() -> None:
         assert extracted[0]["dst_data"] == 42
         assert extracted[1]["src0_data"] == 42
         assert extracted[2]["len"] == 2
+
+        addtpc_source = tmp / "addtpc.jsonl"
+        addtpc_output = tmp / "addtpc.rows.jsonl"
+        addtpc = {
+            **rows[0],
+            "pc": 0x400054F8,
+            "insn": 0x00009187,
+            "len": 4,
+            "next_pc": 0x400054FC,
+            "wb_valid": 1,
+            "wb_rd": 3,
+            "wb_data": 0x4000E000,
+            "dst_valid": 1,
+            "dst_reg": 3,
+            "dst_data": 0x4000E000,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(addtpc_source, [addtpc])
+        count = extract_rows(addtpc_source, addtpc_output)
+        assert count == 1
+        extracted_addtpc = [json.loads(line) for line in addtpc_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_addtpc[0]["dst_data"] == 0x4000E000
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])
