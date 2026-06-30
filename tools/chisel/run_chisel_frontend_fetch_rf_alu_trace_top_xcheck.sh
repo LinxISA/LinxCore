@@ -11,15 +11,26 @@ TRACE_DIR="${BUILD_DIR}/traces"
 REPORT_DIR="${BUILD_DIR}/report"
 DUT_TRACE="${TRACE_DIR}/dut.chisel.jsonl"
 QEMU_TRACE="${TRACE_DIR}/qemu.reference.jsonl"
+DEFAULT_FETCH_MEMORY_BIN="${BUILD_DIR}/fixture.fetch.bin"
+FETCH_MEMORY_BIN="${FETCH_MEMORY_BIN:-${DEFAULT_FETCH_MEMORY_BIN}}"
+FETCH_MEMORY_BASE="${FETCH_MEMORY_BASE:-0x1000}"
 
 if ! command -v verilator >/dev/null 2>&1; then
   echo "error: Verilator is required for Chisel frontend fetch RF ALU trace top xcheck" >&2
   exit 2
 fi
 
-source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
-
 mkdir -p "${TRACE_DIR}" "${REPORT_DIR}"
+
+if [[ "${FETCH_MEMORY_BIN}" == "${DEFAULT_FETCH_MEMORY_BIN}" ]]; then
+  python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_fixture_memory.py" \
+    --output "${FETCH_MEMORY_BIN}"
+elif [[ ! -f "${FETCH_MEMORY_BIN}" ]]; then
+  echo "error: FETCH_MEMORY_BIN does not exist: ${FETCH_MEMORY_BIN}" >&2
+  exit 2
+fi
+
+source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
 
 cd "${CHISEL_DIR}"
 sbt --batch --no-colors "runMain linxcore.top.EmitLinxCoreFrontendFetchRfAluTraceTop"
@@ -51,7 +62,9 @@ verilator \
 
 "${OBJ_DIR}/linxcore_frontend_fetch_rf_alu_trace_top_tb" \
   --dut-trace "${DUT_TRACE}" \
-  --qemu-trace "${QEMU_TRACE}"
+  --qemu-trace "${QEMU_TRACE}" \
+  --memory-bin "${FETCH_MEMORY_BIN}" \
+  --memory-base "${FETCH_MEMORY_BASE}"
 
 bash "${ROOT_DIR}/tools/chisel/run_chisel_qemu_crosscheck.sh" \
   --qemu-trace "${QEMU_TRACE}" \

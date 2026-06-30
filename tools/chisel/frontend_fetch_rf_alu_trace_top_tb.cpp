@@ -3,10 +3,13 @@
 
 #include "commit_trace_jsonl.h"
 
+#include <cerrno>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -19,6 +22,8 @@ using linxcore::chisel::write_qemu_commit_jsonl;
 struct Args {
   std::string dut_trace;
   std::string qemu_trace;
+  std::string memory_bin;
+  std::uint64_t memory_base = 0x1000;
 };
 
 struct ExpectedRow {
@@ -78,8 +83,20 @@ struct ObservedRow {
 
 [[noreturn]] void usage(const char *argv0) {
   std::cerr << "usage: " << argv0
-            << " --dut-trace <dut.jsonl> --qemu-trace <qemu.jsonl>\n";
+            << " --dut-trace <dut.jsonl> --qemu-trace <qemu.jsonl>"
+            << " [--memory-bin <program.bin> --memory-base <addr>]\n";
   std::exit(2);
+}
+
+std::uint64_t parse_u64_arg(const std::string &value, const char *name) {
+  errno = 0;
+  char *end = nullptr;
+  const unsigned long long parsed = std::strtoull(value.c_str(), &end, 0);
+  if (errno != 0 || end == value.c_str() || *end != '\0') {
+    std::cerr << "invalid " << name << ": " << value << "\n";
+    std::exit(2);
+  }
+  return static_cast<std::uint64_t>(parsed);
 }
 
 Args parse_args(int argc, char **argv) {
@@ -90,6 +107,10 @@ Args parse_args(int argc, char **argv) {
       args.dut_trace = argv[++i];
     } else if (arg == "--qemu-trace" && i + 1 < argc) {
       args.qemu_trace = argv[++i];
+    } else if (arg == "--memory-bin" && i + 1 < argc) {
+      args.memory_bin = argv[++i];
+    } else if (arg == "--memory-base" && i + 1 < argc) {
+      args.memory_base = parse_u64_arg(argv[++i], "--memory-base");
     } else {
       usage(argv[0]);
     }
@@ -165,6 +186,80 @@ std::uint64_t single_instruction_window(std::uint64_t insn, std::uint8_t len) {
   }
   return window;
 }
+
+class FetchMemoryImage {
+public:
+  void store_byte(std::uint64_t addr, std::uint8_t value) {
+    bytes_[addr] = value;
+  }
+
+  void load_binary(const std::string &path, std::uint64_t base) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+      std::cerr << "failed to open fetch memory image: " << path
+                << " error=" << std::strerror(errno) << "\n";
+      std::exit(2);
+    }
+
+    char ch = 0;
+    std::uint64_t offset = 0;
+    while (in.get(ch)) {
+      store_byte(base + offset, static_cast<std::uint8_t>(static_cast<unsigned char>(ch)));
+      ++offset;
+    }
+    if (offset == 0) {
+      std::cerr << "fetch memory image is empty: " << path << "\n";
+      std::exit(2);
+    }
+  }
+
+  std::uint64_t read_single_instruction_window(std::uint64_t pc, std::uint8_t len) const {
+    if (len == 0 || len > 8) {
+      std::cerr << "unsupported instruction length while reading fetch memory: "
+                << static_cast<unsigned>(len) << "\n";
+      std::exit(1);
+    }
+
+    std::uint64_t insn = 0;
+    for (std::uint8_t byte_index = 0; byte_index < len; ++byte_index) {
+      std::uint8_t byte = 0;
+      if (!read_byte(pc + byte_index, byte)) {
+        std::cerr << "fetch memory image missing byte"
+                  << " pc=0x" << std::hex << pc
+                  << " byte_addr=0x" << (pc + byte_index) << std::dec
+                  << " len=" << static_cast<unsigned>(len) << "\n";
+        std::exit(1);
+      }
+      insn |= static_cast<std::uint64_t>(byte) << (static_cast<unsigned>(byte_index) * 8U);
+    }
+    return single_instruction_window(insn, len);
+  }
+
+  static FetchMemoryImage from_rows(const std::vector<ExpectedRow> &rows) {
+    FetchMemoryImage image;
+    for (const ExpectedRow &row : rows) {
+      const std::uint64_t insn = mask_insn(row.insn, row.len);
+      for (std::uint8_t byte_index = 0; byte_index < row.len; ++byte_index) {
+        image.store_byte(
+            row.pc + byte_index,
+            static_cast<std::uint8_t>((insn >> (static_cast<unsigned>(byte_index) * 8U)) & 0xffU));
+      }
+    }
+    return image;
+  }
+
+private:
+  bool read_byte(std::uint64_t addr, std::uint8_t &value) const {
+    const auto it = bytes_.find(addr);
+    if (it == bytes_.end()) {
+      return false;
+    }
+    value = it->second;
+    return true;
+  }
+
+  std::map<std::uint64_t, std::uint8_t> bytes_;
+};
 
 void expect_monitor_clean(
     const VLinxCoreFrontendFetchRfAluTraceTop &dut,
@@ -390,7 +485,8 @@ void start_source(VLinxCoreFrontendFetchRfAluTraceTop &dut, std::uint64_t pc) {
 
 std::uint8_t fetch_and_enqueue_row(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
-    const ExpectedRow &row) {
+    const ExpectedRow &row,
+    const FetchMemoryImage &fetch_memory) {
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
     dut.io_fetchReqReady = 1;
@@ -416,7 +512,7 @@ std::uint8_t fetch_and_enqueue_row(
 request_done:
   clear_inputs(dut);
   dut.io_fetchRespValid = 1;
-  dut.io_fetchRespWindow = single_instruction_window(row.insn, row.len);
+  dut.io_fetchRespWindow = fetch_memory.read_single_instruction_window(row.pc, row.len);
   dut.eval();
   if (!dut.io_fetchRespReady || !dut.io_sourceRespFire) {
     std::cerr << "frontend fetch RF ALU response was not accepted"
@@ -643,9 +739,16 @@ int main(int argc, char **argv) {
   }
 
   const auto rows = fixture_rows();
+  FetchMemoryImage fetch_memory;
+  if (!args.memory_bin.empty()) {
+    fetch_memory.load_binary(args.memory_bin, args.memory_base);
+  } else {
+    fetch_memory = FetchMemoryImage::from_rows(rows);
+  }
+
   start_source(dut, rows.front().pc);
   for (const ExpectedRow &row : rows) {
-    const std::uint8_t rob_value = fetch_and_enqueue_row(dut, row);
+    const std::uint8_t rob_value = fetch_and_enqueue_row(dut, row, fetch_memory);
     wait_for_execute_completion(dut, rob_value);
     commit_expected_row(dut, row, dut_out, qemu_out);
   }

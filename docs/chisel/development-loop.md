@@ -244,6 +244,23 @@ memory loading, dense multi-slot packets, full issue arbitration, LSU,
 trap/recovery, and redirect restart remain later packets.
 R95 closeout: skill-evolve: update linx-core (new generated-RTL live fetch to
 RF/issue/ALU xcheck is a reusable promotion gate).
+R96 started from `linx-isa` commit
+`7de7d31252e6bba4c124764007730f8e3ee4b023`, `rtl/LinxCore` commit
+`1775df73eefaa1eadac5a0ff0499ad133466113b`, `model/LinxCoreModel` commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`, QEMU commit
+`f03477a0f56aeffb82a304e3a553b31cc2d29879`, and `skills/linx-skills` commit
+`a4947ee70ddc93b1019c2a43f899d3a9bb6cb4dd`. R96 is a harness-infrastructure
+packet for `LinxCoreFrontendFetchRfAluTraceTop`: the Verilator driver now
+loads instruction bytes through a reusable `FetchMemoryImage` and accepts
+`--memory-bin`/`--memory-base`, while the wrapper emits and passes
+`fixture.fetch.bin` for the current dependent scalar smoke. This removes
+direct response-time instruction-word injection from the live fetch RF/ALU
+gate. It still appends a single-instruction terminator using the expected
+instruction length, so dense multi-slot packet decode, ELF program segments,
+and full QEMU-vs-DUT architectural comparison remain later packets.
+R96 closeout: skill-evolve: no-update (file-backed fetch bytes are documented
+in the module gate; installed linx-core already requires the live fetch RF/ALU
+xcheck and manifest inspection).
 
 ## Reference Evidence
 
@@ -264,6 +281,7 @@ facts:
 | `model/pe/ifu/iside/pe_ifu.cpp` / `model/ModelCommon/bus/FetchReqBus.h` / `model/pe/PECommon/DecodeBundle.h` / `isa/ISACommon/DecodeUtiles.h` | R93 frontend fetch source evidence: F0 captures `fetchTPC`, block/thread identity, `fid`, and sidebands in `FetchReqBus`; F2 fills instruction window data and sizes with `CheckMInstSize`; F3/F4/F5 move `DecodeBundle` records under backpressure. The reduced Chisel source preserves one-outstanding PC request, response-window packetization, packet-owned UID/checkpoint, restart/flush clearing, and downstream decoded-byte PC advance while deferring cacheline merge, branch prediction, RAHQ, ELF memory loading, and multiple outstanding requests. |
 | `model/pe/ifu/iside/pe_ifu.cpp` / `model/bctrl/spe/DCTop.cpp` / `model/bctrl/spe/SPEROB.cpp` / `model/interface/CommitInfo.h` | R94 live frontend fetch trace-top evidence: model fetch requests become decode bundles before scalar decode/ROB allocation, and commit rows preserve model `(bid,gid,rid)` identity separately from hardware block identity. The Chisel top preserves the reduced form by feeding source-produced packets into F4 and `DecodeRenameROBPath`, advancing source PC from F4 decoded byte count, and dumping generated-RTL commit rows through the shared JSONL writer and neutral comparator. |
 | `model/pe/ifu/iside/pe_ifu.cpp` / `model/bctrl/spe/DCTop.cpp` / `model/bctrl/spe/GPRRename.cpp` / `model/iex/iex_iq.cpp` / `model/iex/iex_rf.cpp` / `model/iex/pipe/alu_pipe.cpp` / `model/interface/CommitInfo.h` | R95 live frontend fetch RF/ALU evidence: source-produced packets flow through F4 into scalar decode/rename/ROB allocation, RF-backed issue residency, RF source reads, ALU W2 completion, destination RF writeback, and commit-row export. The reduced Chisel top preserves source PC request/response ownership, F4 byte-count PC advance, queue-capacity rename acceptance, RF-readiness-gated issue, model-derived issue release identity, and separate model commit identity versus hardware block identity while still using a bounded instruction-window fixture. |
+| `model/pe/ifu/iside/pe_ifu.cpp` / `model/ModelCommon/bus/FetchReqBus.h` / `model/pe/PECommon/DecodeBundle.h` / `isa/ISACommon/DecodeUtiles.h` | R96 fetch-memory harness evidence: the model IFU boundary requests a PC and returns instruction bytes plus size-derived decode metadata before downstream scalar ownership. The reduced Chisel gate now reads response instruction bytes from a reusable memory image at the requested PC before packaging the bounded response window. It intentionally keeps one expected instruction length per response until the dense multi-slot packet path is implemented. |
 
 The key hardware implication is that the C++ model gets post-allocation rename
 visibility through a shared `SimInst` pointer. Chisel `ROBEntryBank` stores
@@ -357,11 +375,12 @@ The ROB/cross-check substrate remains the required base:
 | 19 | R93 frontend fetch packet source | `frontend/FrontendFetchPacketSource.scala`, module docs/tests | `FrontendFetchPacketSource`, `F4DecodeWindow`, `FrontendDecodeIngress`, trace self-test, QEMU dry-run |
 | 20 | R94 live frontend fetch trace top | `top/LinxCoreFrontendFetchTraceTop.scala`, `frontend/FrontendFetchPacketSource.scala`, live Chisel trace writer | `LinxCoreFrontendFetchTraceTop`, `run_chisel_frontend_fetch_trace_top_xcheck.sh`, manifest inspection |
 | 21 | R95 live frontend fetch RF-backed ALU trace top | `top/LinxCoreFrontendFetchRfAluTraceTop.scala`, `tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`, top/cross-check docs | `FrontendFetchPacketSource`, `LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, manifest inspection |
-| 22 | ELF-backed frontend memory source | frontend source/top harness and program-memory fixture | live fetch RF/ALU xcheck plus bounded QEMU trace replay evidence |
-| 23 | Dense multi-slot frontend packet path | F4/source/top harness | live fetch xchecks with multi-slot windows and manifest inspection |
-| 24 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 25 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 26 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 22 | R96 file-backed frontend fetch memory feeder | `tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`, `tools/chisel/frontend_fetch_rf_alu_fixture_memory.py`, top/cross-check docs | live fetch RF/ALU xcheck, manifest inspection, trace self-test, QEMU dry-run |
+| 23 | ELF-backed frontend memory source | frontend source/top harness and program-memory fixture | live fetch RF/ALU xcheck plus bounded QEMU trace replay evidence |
+| 24 | Dense multi-slot frontend packet path | F4/source/top harness | live fetch xchecks with multi-slot windows and manifest inspection |
+| 25 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 26 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 27 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not

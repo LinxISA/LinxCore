@@ -567,6 +567,7 @@ These packets remain the required base before broad module promotion:
 | R93 | Frontend fetch packet source | `run_chisel_tests.sh --only FrontendFetchPacketSource`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 | R94 | Live frontend fetch trace top | `run_chisel_tests.sh --only LinxCoreFrontendFetchTraceTop`, `run_chisel_tests.sh --only FrontendFetchPacketSource`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_frontend_fetch_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, manifest inspection, `git diff --check` |
 | R95 | Live frontend fetch RF-backed ALU trace top | `run_chisel_tests.sh --only FrontendFetchPacketSource`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_fetch_trace_top_xcheck.sh`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, manifest inspection, `git diff --check` |
+| R96 | File-backed live fetch RF/ALU memory feeder | `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.fetch.bin` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -598,9 +599,9 @@ Use this order for each promoted slice:
    physical-destination writeback metadata, or the shared frontend ALU
    trace-top driver.
 11. `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` after changes to
-    the live fetch source to RF-backed reduced issue/ALU top, bounded
-    memory-window response fixture, source PC advance, issue enqueue, RF
-    writeback, ALU completion, or commit export.
+    the live fetch source to RF-backed reduced issue/ALU top, file-backed
+    fetch-memory feeder, bounded memory-window response fixture, source PC
+    advance, issue enqueue, RF writeback, ALU completion, or commit export.
 12. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
 13. `run_chisel_qemu_trace_replay_xcheck.sh --dry-run` after QEMU row replay
@@ -737,9 +738,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. ELF-backed frontend memory source: replace bounded one-instruction response
-   windows with a reusable ELF/program memory feeder while preserving source PC
-   advance and manifest-producing generated-RTL comparison.
+1. ELF-backed frontend memory source: replace the R96 dense binary smoke image
+   with an ELF/program-segment loader while preserving source PC advance and
+   manifest-producing generated-RTL comparison.
 2. Dense packet and multi-slot frontend: allow one response window to carry
    multiple valid F4 slots and retire/compare the selected architectural rows
    without relying on a one-instruction-per-response fixture.
