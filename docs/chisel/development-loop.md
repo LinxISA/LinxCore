@@ -187,10 +187,28 @@ normalization boundary. This keeps model `CommitInfo` identity separate from
 hardware block identity while future live trace writers are added.
 R92 closeout: `skill-evolve: update linx-core (generated-RTL harnesses must
 use the shared commit JSONL writer before live Chisel trace writers are added)`.
+R93 started from `linx-isa` commit
+`1d15a2787fd39cdcfc61249faf261ef1a80049f5`, `rtl/LinxCore` commit
+`4ffa096d7180c682a625910ddbf8bd973c75f7b6`, `model/LinxCoreModel` commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`, QEMU commit
+`f03477a0f56aeffb82a304e3a553b31cc2d29879`, and `skills/linx-skills` commit
+`d783c308c8ed3fda088901f011c7c6457c30105f`. R93 adds
+`FrontendFetchPacketSource`, the first reduced live frontend packet producer:
+it owns one-outstanding PC request, response-window capture, packet residency,
+packet UID/checkpoint assignment, restart/flush clearing, and decoded-byte PC
+advance before `F4DecodeWindow`. The model evidence is
+`PEIFU::GenFetchReq`, `PEIFU::RunF0`, `IFUICache::getCacheData`,
+`PEIFU::InsertToF4`, `PEIFU::InsertToF5`, `PEIFU::InsertToIB`,
+`FetchReqBus`, `DecodeBundle`, and `CheckMInstSize`. This is a live-source
+substrate only; full QEMU-vs-DUT compare still waits for a top that fetches
+from ELF memory and retires real commits.
+R93 closeout: skill-evolve: no-update (module-local IFU source contract is
+documented in FrontendFetchPacketSource.md; no new reusable skill policy).
 
 ## Reference Evidence
 
-The next ROB packet is anchored to these C++ model facts:
+The active ROB, issue, and frontend packets are anchored to these C++ model
+facts:
 
 | Source | Evidence |
 |---|---|
@@ -203,6 +221,7 @@ The next ROB packet is anchored to these C++ model facts:
 | `isa/calculate/arithmetic/Arithmetic.cpp` / `isa/calculate/others/Others.cpp` | Reduced scalar ALU semantics for R81 are `ADD = src0 + src1`, `ADDI = src0 + imm`, and `MOVR/MOVI` move the selected source/immediate into the destination. |
 | `model/bctrl/spe/GPRRename.cpp` / `model/iex/rtable.cpp` / `model/iex/iex_rf.cpp` | R82 scalar RF operand sourcing uses renamed physical tags: architectural GPRs start as identity physical tags, scalar destinations allocate new physical tags, ready/data state is tracked per physical tag, and RF reads return OPD_GREG data by physical tag. |
 | `model/iex/iex_iq.cpp` / `model/iex/iex_dispatch.cpp` / `model/iex/pipe/iex_pipe.h` / `model/iex/pipe/alu_pipe.cpp` / `model/iex/iex.cpp` | R88 scalar issue handoff stores renamed rows before execute, initializes and wakes sources by physical tag, selects the oldest resident ready non-issued entry, marks selected entries issued without removing them, separates P1 pick from I1 RF-read request and I2 RF-return consumption in the pipe model, and releases issued rows later by `(bid, rid, stid)`. The reduced Chisel queue preserves enqueue, registered RF-readiness gating, ROB identity, oldest-ready resident selection, P1 in-flight lock, I1 read-cancel unlock, I2 execute handoff, issued-entry residency, and ALU W2 release while still deferring full read-port arbitration, alternate select preferences, load miss suppression, replay, and bypass. |
+| `model/pe/ifu/iside/pe_ifu.cpp` / `model/ModelCommon/bus/FetchReqBus.h` / `model/pe/PECommon/DecodeBundle.h` / `isa/ISACommon/DecodeUtiles.h` | R93 frontend fetch source evidence: F0 captures `fetchTPC`, block/thread identity, `fid`, and sidebands in `FetchReqBus`; F2 fills instruction window data and sizes with `CheckMInstSize`; F3/F4/F5 move `DecodeBundle` records under backpressure. The reduced Chisel source preserves one-outstanding PC request, response-window packetization, packet-owned UID/checkpoint, restart/flush clearing, and downstream decoded-byte PC advance while deferring cacheline merge, branch prediction, RAHQ, ELF memory loading, and multiple outstanding requests. |
 
 The key hardware implication is that the C++ model gets post-allocation rename
 visibility through a shared `SimInst` pointer. Chisel `ROBEntryBank` stores
@@ -293,9 +312,11 @@ The ROB/cross-check substrate remains the required base:
 | 16 | R90 QEMU trace replay harness | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`, trace replay wrapper docs | dry-run, archived/fresh QEMU JSONL replay with metadata-aware raw prefix, manifest inspection |
 | 17 | R91 bounded CoreMark ELF replay prefix | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`, trace replay wrapper docs | default-memory fail-fast check, CoreMark `--elf` replay with explicit `-m 1280M`, manifest inspection |
 | 18 | R92 shared commit JSONL writer | `tools/chisel/commit_trace_jsonl.h`, generated-RTL Verilator harnesses, cross-check docs | reduced/top/replay/frontend generated-RTL xchecks, trace self-test, QEMU dry-run, diff check |
-| 19 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 20 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 21 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 19 | R93 frontend fetch packet source | `frontend/FrontendFetchPacketSource.scala`, module docs/tests | `FrontendFetchPacketSource`, `F4DecodeWindow`, `FrontendDecodeIngress`, trace self-test, QEMU dry-run |
+| 20 | Live frontend fetch trace top | `top/`, `frontend/FrontendFetchPacketSource.scala`, live Chisel trace writer | generated-RTL xcheck with bounded memory-window fixture, manifest inspection |
+| 21 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 22 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 23 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not

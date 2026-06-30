@@ -346,6 +346,20 @@ field spelling or default values while future live Chisel trace writers are
 added.
 R92 closeout: `skill-evolve: update linx-core (generated-RTL harnesses must
 use the shared commit JSONL writer before live Chisel trace writers are added)`.
+R93 started from `rtl/LinxCore` commit
+`4ffa096d7180c682a625910ddbf8bd973c75f7b6` after R92 landed the shared
+commit-JSONL writer. The superproject root was
+`1d15a2787fd39cdcfc61249faf261ef1a80049f5`; LinxCoreModel remained at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; QEMU was at
+`f03477a0f56aeffb82a304e3a553b31cc2d29879`; `skills/linx-skills` was at
+`d783c308c8ed3fda088901f011c7c6457c30105f`. R93 is the first Chisel
+frontend source packet: `FrontendFetchPacketSource` owns a reduced
+one-outstanding PC request, instruction-window response, packet residency, and
+decoded-byte PC advance boundary before `F4DecodeWindow`. It is not live
+QEMU/CoreMark evidence yet; it removes the testbench-owned packet fixture that
+a later live top must replace before full compare can be valid.
+R93 closeout: skill-evolve: no-update (the reusable IFU owner contract is
+captured in the new module page; no new cross-module gate or skill policy).
 
 ## Non-Negotiable Rules
 
@@ -533,6 +547,7 @@ These packets remain the required base before broad module promotion:
 | R90 | QEMU trace replay bridge | `run_chisel_qemu_trace_replay_xcheck.sh --dry-run`, replay archived/fresh QEMU JSONL with `--qemu-trace` or `--elf`, verify metadata-aware raw prefix output, inspect `generated/chisel-qemu-trace-replay-xcheck/report/crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
 | R91 | Bounded CoreMark ELF replay prefix | `run_chisel_qemu_trace_replay_xcheck.sh --dry-run`, default-memory CoreMark `--elf` fail-fast check, CoreMark `--elf` replay with explicit `-m 1280M`, inspect `generated/r91-coremark-elf-prefix/report/crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
 | R92 | Shared commit JSONL writer | `run_chisel_reduced_rob_xcheck.sh`, `run_chisel_top_xcheck.sh`, `run_chisel_trace_replay_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
+| R93 | Frontend fetch packet source | `run_chisel_tests.sh --only FrontendFetchPacketSource`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -693,21 +708,24 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Full issue scheduler timing: add explicit wakeup ports, alternate model
+1. Live frontend fetch trace top: connect `FrontendFetchPacketSource` to
+   `F4DecodeWindow`/`DecodeRenameROBPath` with a bounded memory-window
+   provider, then dump generated-RTL commits through the shared JSONL writer.
+2. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.
-2. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
+3. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
    event stream from commit-only rows toward trap, memory, recovery, and block
    sidebands.
-3. QEMU full-compare harness: feed a bounded direct-boot or CoreMark window
+4. QEMU full-compare harness: feed a bounded direct-boot or CoreMark window
    from QEMU into the same comparator path, then make the Chisel DUT stream
    live once frontend/decode/execute/LSU can retire it.
-4. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+5. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
-5. Multi-PE packet production and bank instantiation: teach the upstream
+6. Multi-PE packet production and bank instantiation: teach the upstream
    frontend/top owner to set nonzero `FrontendDecodePacket.peId` and instantiate
    matching `ScalarTURenameBridge`/`TULinkLocalBankArray` PE banks.
-6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+7. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 
