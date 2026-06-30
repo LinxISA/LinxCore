@@ -81,6 +81,13 @@ class DecodeRenameROBPathIO(
   val selectedSlot = Output(UInt(slotWidth.W))
   val selectedRobValue = Output(UInt(ptrWidth.W))
   val selectedBlockBid = Output(UInt(bidWidth.W))
+  val blockMarkerSkipValid = Output(Bool())
+  val blockMarkerMixedPacket = Output(Bool())
+  val blockMarkerBoundary = Output(Bool())
+  val blockMarkerStop = Output(Bool())
+  val blockMarkerPc = Output(UInt(p.pcWidth.W))
+  val blockMarkerInsn = Output(UInt(p.insnWidth.W))
+  val blockMarkerLen = Output(UInt(4.W))
   val decodeReady = Output(Bool())
   val decRenPushReady = Output(Bool())
   val decRenPushFire = Output(Bool())
@@ -335,7 +342,8 @@ class DecodeRenameROBPath(
     val loadStoreSerialWidth: Int = 64,
     val tuRetireSourceQueueDepth: Int = 8,
     val tuRetireRelationCmapDepth: Int = 8,
-    val tuRetireReleaseThreshold: Int = 4)
+    val tuRetireReleaseThreshold: Int = 4,
+    val skipBlockMarkers: Boolean = false)
     extends Module {
   require(traceParams.robValueWidth >= p.robIndexWidth, "trace ROB value must hold DecodeRenameROBPath ROB index")
   require(traceParams.commitWidth == p.commitWidth, "trace commit width must match InterfaceParams")
@@ -406,13 +414,30 @@ class DecodeRenameROBPath(
   io.loadMask := decode.io.loadMask
   io.storeMask := decode.io.storeMask
 
-  val selectedAny = decode.io.outValidMask.orR
-  val selectedSlot = PriorityEncoder(decode.io.outValidMask)
+  val markerMask = decode.io.blockBoundaryMask | decode.io.blockStopMask
+  val markerValidMask = decode.io.outValidMask & markerMask
+  val nonMarkerValidMask = decode.io.outValidMask & ~markerMask
+  val skipMarkers = skipBlockMarkers.B
+  val selectedMask = Mux(skipMarkers, nonMarkerValidMask, decode.io.outValidMask)
+  val markerOnlyPacket = skipMarkers && markerValidMask.orR && !nonMarkerValidMask.orR
+  val mixedMarkerPacket = skipMarkers && markerValidMask.orR && nonMarkerValidMask.orR
+
+  val selectedAny = selectedMask.orR && !mixedMarkerPacket
+  val selectedSlot = PriorityEncoder(selectedMask)
   val selected = Wire(new DecodedUop(p))
   selected := 0.U.asTypeOf(selected)
   for (slot <- 0 until p.decodeWidth) {
     when(selectedAny && selectedSlot === slot.U) {
       selected := decode.io.out(slot)
+    }
+  }
+
+  val markerSlot = PriorityEncoder(markerValidMask)
+  val marker = Wire(new DecodedUop(p))
+  marker := 0.U.asTypeOf(marker)
+  for (slot <- 0 until p.decodeWidth) {
+    when(markerValidMask.orR && markerSlot === slot.U) {
+      marker := decode.io.out(slot)
     }
   }
 
@@ -617,7 +642,14 @@ class DecodeRenameROBPath(
   io.selectedSlot := selectedSlot
   io.selectedRobValue := allocator.io.allocRobValue
   io.selectedBlockBid := allocator.io.allocBlockBid
-  io.decodeReady := decRenQ.io.pushReady && allocator.io.allocReady
+  io.blockMarkerSkipValid := markerOnlyPacket && !mixedMarkerPacket
+  io.blockMarkerMixedPacket := mixedMarkerPacket
+  io.blockMarkerBoundary := markerOnlyPacket && VecInit(decode.io.blockBoundaryMask.asBools)(markerSlot)
+  io.blockMarkerStop := markerOnlyPacket && VecInit(decode.io.blockStopMask.asBools)(markerSlot)
+  io.blockMarkerPc := marker.pc
+  io.blockMarkerInsn := marker.insnRaw
+  io.blockMarkerLen := marker.insnLen
+  io.decodeReady := !mixedMarkerPacket && (markerOnlyPacket || (decRenQ.io.pushReady && allocator.io.allocReady))
   io.decRenPushReady := decRenQ.io.pushReady && allocator.io.allocReady
   io.decRenPushFire := decRenQ.io.pushFire
   io.decRenPopFire := decRenQ.io.popFire

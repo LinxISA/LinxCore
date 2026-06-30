@@ -86,6 +86,13 @@ adds `robRenameUpdate*` observability for the post-rename ROB update. This
 matches the model order where `DCTop::Work` calls `SPEROB::allocROB` before
 `dec_ren_q->Write`, while `SPERename::Rename` later mutates the same
 instruction object's T/U sidecars.
+R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
+evidence. When `skipBlockMarkers=true`, a packet containing only legal
+`BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
+PC/instruction/length diagnostics, and reports `decodeReady` without allocating
+BROB/ROB or pushing `dec_ren_q`. Packets that mix marker and scalar slots raise
+`blockMarkerMixedPacket` and are not consumed until the dense multi-slot owner
+exists. The default constructor keeps the old behavior for non-reduced users.
 
 ## Interface
 
@@ -113,6 +120,11 @@ Outputs:
 - `selectedValid`, `selectedSlot`, `selectedRobValue`,
   `selectedBlockBid`: first-valid decoded slot and allocator cursor
   observability.
+- `blockMarkerSkipValid`, `blockMarkerMixedPacket`,
+  `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`,
+  `blockMarkerInsn`, `blockMarkerLen`: reduced marker-consume diagnostics for
+  live fetch RF/ALU gates. These signals are meaningful only when the module is
+  constructed with `skipBlockMarkers=true`.
 - `decodeReady`, `decRenPushReady`, `decRenPushFire`, `decRenPopFire`,
   `decRenValid`, `decRenHead`, `decRenTail`, `decRenCount`, `decRenEmpty`,
   `decRenFull`: registered decode-to-rename queue backpressure and occupancy
@@ -187,6 +199,14 @@ Outputs:
 The path decodes all F4 slots, then selects the lowest-index valid decoded slot
 using `PriorityEncoder`. Later slots are not compacted or retried in this
 module; a later width owner must provide full decode enqueue.
+
+When block-marker skip is enabled, selection is computed from the non-marker
+subset of decoded rows. A marker-only packet is consumed as a frontend marker:
+`decodeReady` goes high, marker sidebands are exposed, and the packet advances
+without BROB/ROB allocation or decode-to-rename queue mutation. A packet that
+contains both marker and non-marker slots is deliberately not consumed because
+advancing the source PC would otherwise drop a scalar row before dense
+multi-slot decode enqueue exists.
 
 The selected decoded row first passes through `DecodeLoadStoreIdAssign`.
 Memory-order counters advance only on `decRenPushFire`, so a stalled

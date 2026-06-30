@@ -58,7 +58,11 @@ existing QEMU commit JSONL and extracts a strict sequential reduced-scalar
 prefix into `qemu.expected.jsonl`. R100 adds a live direct-boot ELF wrapper
 that captures a bounded QEMU commit prefix, validates the selected rows through
 that same R99 reducer, and pairs the rows with the ELF sparse fetch-memory path
-for matching PC/instruction bytes. The top still injects a
+for matching PC/instruction bytes. R101 lets the same live ELF gate run without
+PC filters for the legal entry and exit block markers: `C.BSTART` and
+`C.BSTOP` rows are preserved in the expected stream as DUT-only skip rows,
+consumed by the reduced `DecodeRenameROBPath`, and omitted from the
+architectural QEMU/DUT commit comparison. The top still injects a
 single-instruction response terminator after each expected instruction length,
 so it is not dense packet or full QEMU equivalence. Block-header execution,
 dense multi-slot packet handling, full issue arbitration, LSU, trap/recovery,
@@ -80,6 +84,7 @@ and branch restart are still outside this reduced top.
 | output | `source*` | mixed | diagnostic | Source active, request, response, packet, PC advance, and packet UID observability. |
 | output | `f4ValidMask`, `f4SlotCount`, `decodeReady` | mixed | diagnostic | F4 slot shape and downstream decode readiness. |
 | output | `selectedValid`, `selectedRobValue`, `selectedBlockBid` | mixed | diagnostic | Reduced selected decoded slot and allocated identities. |
+| output | `blockMarkerSkipFire`, `blockMarkerSkipValid`, `blockMarkerMixedPacket`, `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`, `blockMarkerInsn`, `blockMarkerLen` | mixed | diagnostic | Reduced block-marker consume observability. Marker-only packets advance without ROB allocation; mixed marker/scalar packets are rejected until dense enqueue exists. |
 | output | `decRenPushFire`, `decRenPopFire`, `decRenCount` | mixed | diagnostic | Decode-to-rename queue events and occupancy. |
 | output | `renamedOutValid`, `renamedAccepted` | `Bool` | diagnostic | Rename output and issue-queue acceptance. |
 | output | `rfReadReadyMask`, `rfAllReadReady`, `rfReadyMask` | mixed | diagnostic | Reduced physical RF read and ready-state observability. |
@@ -123,6 +128,12 @@ fixture stride.
 
 The F4 output is consumed by `DecodeRenameROBPath`, which reserves and updates
 ROB rows, then emits a renamed scalar uop into `ReducedScalarIssueQueue`.
+For R101 live-QEMU evidence, this top instantiates `DecodeRenameROBPath` with
+`skipBlockMarkers=true`. A single-instruction `BSTART` or `BSTOP` response
+therefore advances the fetch source and drives `blockMarkerSkipFire` without
+allocating a ROB row or entering issue. A response window that decodes both a
+marker and scalar row is not consumed; dense packet support must first add a
+multi-slot enqueue and compare contract.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
 packet acceptance. The P1/I1/I2 picker reads source data from
@@ -165,7 +176,12 @@ mismatches before the Verilator harness sees the rows. R100 automates that
 path for a direct-boot ELF: the wrapper captures a bounded live QEMU JSONL
 prefix through a FIFO, optionally applies a PC filter to skip legal block
 headers until this reduced top can execute them, then runs the existing
-`FETCH_ELF` plus `FETCH_QEMU_TRACE` gate. This top still does not model
+`FETCH_ELF` plus `FETCH_QEMU_TRACE` gate. R101 adds an
+`--allow-block-markers`/`FETCH_QEMU_ALLOW_BLOCK_MARKERS=1` path that preserves
+legal `BSTART`/`BSTOP` rows as `skip` entries. The harness still serves those
+rows to the DUT and asserts marker diagnostics, but only scalar reduced ALU
+rows are written into the QEMU/DUT comparator streams. This top still does not
+model
 cacheline merge, branch prediction, multiple
 outstanding fetches, dense multi-slot decode, full oldest-ready issue
 preferences, read-port arbitration, bypass, load speculative wakeup, LSU,
@@ -193,12 +209,17 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
   `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/qemu.expected.jsonl`;
 - accepts `FETCH_QEMU_MAX_ROWS` to cap the extracted strict reduced-scalar row
   prefix, with `0` meaning all normalized input rows;
+- accepts `FETCH_QEMU_ALLOW_BLOCK_MARKERS=1` to preserve legal `BSTART`/`BSTOP`
+  rows as DUT-only skip entries in `qemu.expected.jsonl`;
 - starts the live source at the first expected row PC;
 - serves one bounded instruction window per source PC request by reading bytes
   from the fetch-memory image and appending the single-instruction terminator
   after the expected length;
 - requires `sourceOutFire`, `f4ValidMask == 0x1`, and
   `sourceAdvanceBytes == instruction length`;
+- for skip rows, requires `blockMarkerSkipFire`, matching marker
+  PC/instruction/length and boundary/stop diagnostics, and no ROB allocation
+  or issue enqueue;
 - waits for issue enqueue, ALU completion, and one commit row per instruction;
 - writes QEMU-shaped reference and DUT JSONL through
   `tools/chisel/commit_trace_jsonl.h`;
@@ -235,6 +256,23 @@ the manifest. The R100 manifest at
 `generated/chisel-frontend-fetch-rf-alu-qemu-elf-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 
+The R101 block-marker gate runs the same ELF without PC filters:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
+  --expected-rows 0 \
+  --capture-rows 5 \
+  --allow-block-markers \
+  --max-seconds 5
+```
+
+The preview stream preserves five QEMU rows: `C.BSTART` at `0x10000` as a
+skip row, scalar rows at `0x10002`, `0x10006`, and `0x1000a`, and `C.BSTOP`
+at `0x1000c` as a skip row. The comparator manifest still records only the
+three architectural scalar commits: `status: "pass"`, `compared_rows: 3`, and
+`mismatch_count: 0`.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
@@ -242,6 +280,8 @@ records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`
+- `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r101-live-qemu-fixture`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
 - `FETCH_EXPECTED_ROWS=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_QEMU_TRACE=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`

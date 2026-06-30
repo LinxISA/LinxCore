@@ -34,6 +34,10 @@ struct ExpectedRow {
   std::uint64_t pc = 0;
   std::uint64_t insn = 0;
   std::uint8_t len = 4;
+  bool skip = false;
+  std::string skip_kind;
+  bool block_boundary = false;
+  bool block_stop = false;
   bool src0_valid = false;
   std::uint8_t src0_reg = 0;
   std::uint64_t src0_data = 0;
@@ -269,6 +273,10 @@ ExpectedRow parse_expected_row_jsonl(
               << context << " len=" << static_cast<unsigned>(row.len) << "\n";
     std::exit(2);
   }
+  row.skip = json_bool(line, "skip", false, context);
+  (void)json_value_token(line, "skip_kind", row.skip_kind);
+  row.block_boundary = json_bool(line, "block_boundary", false, context);
+  row.block_stop = json_bool(line, "block_stop", false, context);
 
   row.src0_valid = json_bool(line, "src0_valid", false, context);
   row.src0_reg = json_u8(line, "src0_reg", 0, context);
@@ -393,6 +401,9 @@ std::map<std::uint8_t, std::uint64_t> initial_rf_preloads(const std::vector<Expe
   };
 
   for (const ExpectedRow &row : rows) {
+    if (row.skip) {
+      continue;
+    }
     observe_source(row.src0_valid, row.src0_reg, row.src0_data);
     observe_source(row.src1_valid, row.src1_reg, row.src1_data);
     if (row.dst_valid) {
@@ -824,6 +835,24 @@ request_done:
       if (!dut.io_decodeReady || !dut.io_selectedValid ||
           dut.io_f4ValidMask != 0x1U ||
           dut.io_sourceAdvanceBytes != row.len) {
+        if (row.skip &&
+            dut.io_decodeReady &&
+            !dut.io_selectedValid &&
+            dut.io_blockMarkerSkipFire &&
+            !dut.io_blockMarkerMixedPacket &&
+            dut.io_f4ValidMask == 0x1U &&
+            dut.io_sourceAdvanceBytes == row.len &&
+            dut.io_blockMarkerPc == row.pc &&
+            mask_insn(dut.io_blockMarkerInsn, dut.io_blockMarkerLen) == mask_insn(row.insn, row.len) &&
+            dut.io_blockMarkerLen == row.len &&
+            static_cast<bool>(dut.io_blockMarkerBoundary) == row.block_boundary &&
+            static_cast<bool>(dut.io_blockMarkerStop) == row.block_stop &&
+            !dut.io_decRenPushFire &&
+            !dut.io_robAllocFire &&
+            !dut.io_issueQueueEnqueueFire) {
+          tick(dut);
+          return 0;
+        }
         std::cerr << "frontend fetch RF ALU packet was not accepted by F4/decode path"
                   << " pc=0x" << std::hex << row.pc
                   << " insn=0x" << row.insn << std::dec
@@ -832,6 +861,21 @@ request_done:
                   << " f4Mask=0x" << std::hex << static_cast<unsigned>(dut.io_f4ValidMask)
                   << std::dec
                   << " advanceBytes=" << static_cast<unsigned>(dut.io_sourceAdvanceBytes)
+                  << "\n";
+        std::exit(1);
+      }
+      if (row.skip) {
+        std::cerr << "frontend fetch RF ALU marker row entered the scalar enqueue path"
+                  << " pc=0x" << std::hex << row.pc
+                  << " insn=0x" << row.insn << std::dec
+                  << " skip_kind=" << row.skip_kind << "\n";
+        std::exit(1);
+      }
+      if (dut.io_blockMarkerMixedPacket || dut.io_blockMarkerSkipFire) {
+        std::cerr << "frontend fetch RF ALU scalar row saw unexpected block-marker sideband"
+                  << " pc=0x" << std::hex << row.pc << std::dec
+                  << " mixed=" << static_cast<unsigned>(dut.io_blockMarkerMixedPacket)
+                  << " skip_fire=" << static_cast<unsigned>(dut.io_blockMarkerSkipFire)
                   << "\n";
         std::exit(1);
       }
@@ -1042,6 +1086,10 @@ int main(int argc, char **argv) {
 
   start_source(dut, rows.front().pc);
   for (const ExpectedRow &row : rows) {
+    if (row.skip) {
+      (void)fetch_and_enqueue_row(dut, row, fetch_memory);
+      continue;
+    }
     const std::uint8_t rob_value = fetch_and_enqueue_row(dut, row, fetch_memory);
     wait_for_execute_completion(dut, rob_value);
     commit_expected_row(dut, row, dut_out, qemu_out);

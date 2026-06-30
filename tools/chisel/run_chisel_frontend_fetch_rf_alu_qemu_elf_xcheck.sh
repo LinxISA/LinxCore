@@ -15,6 +15,7 @@ CAPTURE_ROWS="${CAPTURE_ROWS:-}"
 MAX_SECONDS="${MAX_SECONDS:-30}"
 PC_LO=""
 PC_HI=""
+ALLOW_BLOCK_MARKERS=0
 
 usage() {
   cat <<USAGE
@@ -29,13 +30,14 @@ Options:
   --max-seconds <int>     Watchdog timeout for QEMU capture (default: ${MAX_SECONDS})
   --pc-lo <hex>           Optional QEMU commit-trace PC filter low bound
   --pc-hi <hex>           Optional QEMU commit-trace PC filter high bound
+  --allow-block-markers   Preserve legal BSTART/BSTOP rows as DUT-only skip rows
 
 This wrapper captures a bounded QEMU commit JSONL prefix from a direct-boot ELF,
 validates that the selected rows are inside the current reduced scalar
 ADD/ADDI/C.MOVI/C.MOVR envelope, extracts the same ELF into sparse fetch memory,
 and then runs LinxCoreFrontendFetchRfAluTraceTop through the neutral comparator.
-Until block headers are live in this reduced top, use --pc-lo/--pc-hi to select
-the scalar prefix after the legal entry BSTART.
+With --allow-block-markers, legal BSTART/BSTOP rows are consumed by the reduced
+frontend/ROB path as skip rows and are not written to the comparator trace.
 USAGE
 }
 
@@ -50,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --max-seconds) MAX_SECONDS="$2"; shift 2 ;;
     --pc-lo) PC_LO="$2"; shift 2 ;;
     --pc-hi) PC_HI="$2"; shift 2 ;;
+    --allow-block-markers) ALLOW_BLOCK_MARKERS=1; shift ;;
     --)
       shift
       QEMU_ARGS=("$@")
@@ -253,15 +256,24 @@ if [[ ! -s "${QEMU_TRACE}" ]]; then
 fi
 
 EXPECTED_PREVIEW="${TRACE_DIR}/qemu.live.expected.preview.jsonl"
-python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" \
-  --input "${QEMU_TRACE}" \
-  --output "${EXPECTED_PREVIEW}" \
-  --max-rows "${EXPECTED_ROWS}"
+if [[ "${ALLOW_BLOCK_MARKERS}" == "1" ]]; then
+  python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" \
+    --input "${QEMU_TRACE}" \
+    --output "${EXPECTED_PREVIEW}" \
+    --max-rows "${EXPECTED_ROWS}" \
+    --allow-block-markers
+else
+  python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" \
+    --input "${QEMU_TRACE}" \
+    --output "${EXPECTED_PREVIEW}" \
+    --max-rows "${EXPECTED_ROWS}"
+fi
 
 BUILD_DIR="${BUILD_DIR}" \
 FETCH_ELF="${ELF}" \
 FETCH_QEMU_TRACE="${QEMU_TRACE}" \
 FETCH_QEMU_MAX_ROWS="${EXPECTED_ROWS}" \
+FETCH_QEMU_ALLOW_BLOCK_MARKERS="${ALLOW_BLOCK_MARKERS}" \
 bash "${FETCH_RUNNER}"
 
 MANIFEST="${REPORT_DIR}/crosscheck_manifest.json"

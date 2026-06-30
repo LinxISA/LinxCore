@@ -25,6 +25,7 @@ FETCH_MEMORY_BASE="${FETCH_MEMORY_BASE:-0x1000}"
 FETCH_EXPECTED_ROWS="${FETCH_EXPECTED_ROWS:-}"
 FETCH_QEMU_TRACE="${FETCH_QEMU_TRACE:-}"
 FETCH_QEMU_MAX_ROWS="${FETCH_QEMU_MAX_ROWS:-0}"
+FETCH_QEMU_ALLOW_BLOCK_MARKERS="${FETCH_QEMU_ALLOW_BLOCK_MARKERS:-0}"
 
 if ! command -v verilator >/dev/null 2>&1; then
   echo "error: Verilator is required for Chisel frontend fetch RF ALU trace top xcheck" >&2
@@ -47,10 +48,18 @@ if [[ -n "${FETCH_QEMU_TRACE}" ]]; then
     exit 2
   fi
   FETCH_EXPECTED_ROWS="${DEFAULT_QEMU_EXPECTED_ROWS}"
-  python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" \
-    --input "${FETCH_QEMU_TRACE}" \
-    --output "${FETCH_EXPECTED_ROWS}" \
-    --max-rows "${FETCH_QEMU_MAX_ROWS}"
+  if [[ "${FETCH_QEMU_ALLOW_BLOCK_MARKERS}" == "1" ]]; then
+    python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" \
+      --input "${FETCH_QEMU_TRACE}" \
+      --output "${FETCH_EXPECTED_ROWS}" \
+      --max-rows "${FETCH_QEMU_MAX_ROWS}" \
+      --allow-block-markers
+  else
+    python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" \
+      --input "${FETCH_QEMU_TRACE}" \
+      --output "${FETCH_EXPECTED_ROWS}" \
+      --max-rows "${FETCH_QEMU_MAX_ROWS}"
+  fi
 elif [[ -z "${FETCH_EXPECTED_ROWS}" ]]; then
   FETCH_EXPECTED_ROWS="${DEFAULT_EXPECTED_ROWS}"
   python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_fixture_rows.py" \
@@ -80,6 +89,8 @@ with open(path, "r", encoding="utf-8", errors="replace") as f:
         if row.get("type") == "META":
             continue
         if row.get("valid", 1) in (0, False, "0", "false", "False"):
+            continue
+        if row.get("skip", 0) in (1, True, "1", "true", "True"):
             continue
         count += 1
 print(count)

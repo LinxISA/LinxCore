@@ -572,6 +572,7 @@ These packets remain the required base before broad module promotion:
 | R98 | External expected-row source for live fetch RF/ALU | `frontend_fetch_rf_alu_fixture_rows.py --self-test`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `FETCH_EXPECTED_ROWS=<rows.jsonl> run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 | R99 | Strict QEMU trace expected-row extraction for live fetch RF/ALU | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `FETCH_QEMU_TRACE=<qemu.jsonl> run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, default live fetch RF/ALU xcheck regression, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/qemu.expected.jsonl` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 | R100 | Live QEMU ELF capture for reduced fetch RF/ALU | `build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`, default live fetch RF/ALU xcheck regression, inspect `generated/chisel-frontend-fetch-rf-alu-qemu-elf-xcheck/report/crosscheck_manifest.json`, trace/adapter self-tests, QEMU dry-run, `git diff --check` |
+| R101 | Reduced BSTART/BSTOP marker skip for live fetch RF/ALU | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r101-live-qemu-fixture`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`, inspect preview skip rows and `crosscheck_manifest.json`, QEMU dry-run, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -693,6 +694,9 @@ Update skills only for:
 - a live-QEMU ELF gate rule where bounded FIFO capture, optional PC filtering
   after legal block headers, `FETCH_ELF`, and `FETCH_QEMU_TRACE` must pass
   together before claiming live fetch RF/ALU replacement evidence.
+- a reduced block-marker rule where legal `BSTART`/`BSTOP` rows may be
+  preserved as DUT-only skip rows, but marker/scalar mixed dense packets must
+  not be consumed until a multi-slot enqueue owner exists.
 
 Run skill evolution as a trailing maintenance lane after the module docs and
 evidence are updated. The module packet owns local Markdown first; the

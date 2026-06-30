@@ -334,6 +334,29 @@ and
 passed with `compared_rows: 3` and `mismatch_count: 0`. This is still a
 reduced scalar prefix gate; block headers, dense packets, memory/trap rows,
 LSU, recovery, and CoreMark live-DUT equivalence remain future packets.
+R101 started from `linx-isa` commit
+`b6dcb8f6c48dd6bf247ba9bec2d27d2f33be78fb`, `rtl/LinxCore` commit
+`77001f0ec3b463950c1a275fcb5e3dc1638d73cd`,
+`model/LinxCoreModel` commit
+`6a87678d48b6a58a106d3ca23206744463e529f5`, QEMU commit
+`f03477a0f56aeffb82a304e3a553b31cc2d29879`, and
+`skills/linx-skills` commit `85c027e05b1cdffda7080d8482c0a7b160a2d672`.
+Fetches confirmed LinxCore and superproject branches were ahead of
+`origin/main`, LinxCoreModel `main` matched `origin/main`, and
+`origin/SuperScalarModel` was one commit ahead for model-maintenance study but
+was not checked out over the canonical model lane. R101 adds a reduced
+block-marker consume path for the live fetch RF/ALU gate: legal `C.BSTART` and
+`C.BSTOP` rows from QEMU are preserved as `skip` entries, fetched and decoded
+by the DUT, and asserted not to allocate ROB rows or enter issue. The
+architectural comparator still receives only the three scalar rows. Evidence:
+`build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r101-live-qemu-fixture`
+and
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
+captured five raw QEMU rows, preserved skip markers at `0x10000` and
+`0x1000c`, and passed with `compared_rows: 3` and `mismatch_count: 0`. This is
+not full block execution: dense mixed marker/scalar packets, scalar_done/BROB
+retire semantics, LSU, recovery, and CoreMark live-DUT equivalence remain
+future packets.
 
 ## Reference Evidence
 
@@ -359,6 +382,7 @@ facts:
 | `model/interface/CommitInfo.h` / `model/pe/ifu/iside/pe_ifu.cpp` / `model/bctrl/spe/DCTop.cpp` / `model/iex/pipe/alu_pipe.cpp` | R98 expected-row source evidence: commit comparison is already a QEMU-shaped architectural row stream, while live fetch requests still need row-owned PC, instruction length, source data, and destination data to drive the reduced scalar top. The harness now consumes those expected rows from JSONL instead of deriving them from an internal fixture, preserving the model split between IFU memory bytes, scalar execution data, and commit-row comparison. |
 | `model/interface/CommitInfo.h` / QEMU commit JSONL / `tools/chisel/trace_schema_adapter.py` | R99 row extraction evidence: QEMU and DUT comparison already meet at normalized commit rows, but the reduced live-fetch RF/ALU top can only execute a strict sequential scalar ALU prefix. The extractor keeps QEMU row spelling and adapter normalization, then rejects rows outside the reduced scalar envelope before they become Verilator expected rows. |
 | QEMU commit JSONL / `tools/qemu/run_qemu_commit_trace.sh` / `tools/chisel/frontend_fetch_elf_memory.py` | R100 live capture evidence: the reduced gate can now collect bounded QEMU rows from a direct-boot ELF and feed the validated scalar prefix plus matching ELF bytes into the live fetch RF/ALU top. PC filters are still required to skip legal block headers until that instruction class is live in the DUT. |
+| QEMU commit JSONL / `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py` / `DecodeRenameROBPath` | R101 marker evidence: the reduced gate can consume legal single-instruction `BSTART`/`BSTOP` rows as frontend markers while keeping them out of the architectural commit comparator. Marker-only packets must advance fetch without BROB/ROB allocation or issue enqueue; mixed marker+scalar packets must stall until dense multi-slot decode enqueue exists. |
 
 The key hardware implication is that the C++ model gets post-allocation rename
 visibility through a shared `SimInst` pointer. Chisel `ROBEntryBank` stores
@@ -457,10 +481,11 @@ The ROB/cross-check substrate remains the required base:
 | 24 | R98 external expected-row source binding | `tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`, `tools/chisel/frontend_fetch_rf_alu_fixture_rows.py`, live fetch RF/ALU wrapper/docs | fixture row self-test, live fetch RF/ALU xcheck through `FETCH_EXPECTED_ROWS`, manifest inspection |
 | 25 | R99 strict QEMU trace expected-row extraction | `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py`, live fetch RF/ALU wrapper/docs | QEMU-row helper self-test, live fetch RF/ALU xcheck through `FETCH_QEMU_TRACE`, default fixture regression, manifest inspection |
 | 26 | R100 live QEMU capture plus reduced-row selection | `tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`, `tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`, live fetch RF/ALU harness/docs | bounded QEMU trace capture, `FETCH_QEMU_TRACE` plus `FETCH_ELF`, row-derived RF preload regression, manifest inspection, explicit unsupported-row report |
-| 27 | Block-header and dense multi-slot frontend packet path | F4/source/top harness | live fetch xchecks with BSTART/BSTOP and multi-slot windows, manifest inspection |
-| 28 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 29 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 30 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 27 | R101 reduced block-marker skip path | `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, QEMU-row extractor, live harness/docs | live fetch xchecks with BSTART/BSTOP skip rows, no PC filter, manifest inspection |
+| 28 | Dense multi-slot frontend packet path | F4/source/top harness | live fetch xchecks with mixed BSTART/scalar/BSTOP windows, manifest inspection |
+| 29 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 30 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 31 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
@@ -505,6 +530,9 @@ Use this ladder for every promoted packet:
    after changes to live QEMU capture, strict QEMU row selection, sparse ELF
    fetch-memory binding, or the row-derived RF preload contract for the
    reduced fetch RF/ALU gate.
+   Use `--allow-block-markers --expected-rows 0 --capture-rows 5` for the
+   legal-entry fixture when marker rows are intentionally part of the DUT input
+   stream but not part of the comparator stream.
 14. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
 15. `bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run` for

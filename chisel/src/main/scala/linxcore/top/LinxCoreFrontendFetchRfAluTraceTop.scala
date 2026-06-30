@@ -62,6 +62,14 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val selectedValid = Output(Bool())
   val selectedRobValue = Output(UInt(ptrWidth.W))
   val selectedBlockBid = Output(UInt(p.blockBidWidth.W))
+  val blockMarkerSkipFire = Output(Bool())
+  val blockMarkerSkipValid = Output(Bool())
+  val blockMarkerMixedPacket = Output(Bool())
+  val blockMarkerBoundary = Output(Bool())
+  val blockMarkerStop = Output(Bool())
+  val blockMarkerPc = Output(UInt(p.pcWidth.W))
+  val blockMarkerInsn = Output(UInt(p.insnWidth.W))
+  val blockMarkerLen = Output(UInt(4.W))
   val decRenPushFire = Output(Bool())
   val decRenPopFire = Output(Bool())
   val decRenCount = Output(UInt(decRenCountWidth.W))
@@ -154,7 +162,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     traceParams = traceParams,
     decRenQueueDepth = decRenQueueDepth,
     storeDispatchQueueDepth = storeDispatchQueueDepth,
-    mapQDepth = mapQDepth
+    mapQDepth = mapQDepth,
+    skipBlockMarkers = true
   ))
   val rf = Module(new ReducedScalarRegisterFile(p, archRegs = archRegs, physRegs = physRegs))
   val issue = Module(new ReducedScalarIssueQueue(p, depth = issueQueueDepth))
@@ -250,6 +259,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.selectedValid := path.io.selectedValid
   io.selectedRobValue := path.io.selectedRobValue
   io.selectedBlockBid := path.io.selectedBlockBid
+  io.blockMarkerSkipFire := source.io.outFire && path.io.blockMarkerSkipValid
+  io.blockMarkerSkipValid := path.io.blockMarkerSkipValid
+  io.blockMarkerMixedPacket := path.io.blockMarkerMixedPacket
+  io.blockMarkerBoundary := path.io.blockMarkerBoundary
+  io.blockMarkerStop := path.io.blockMarkerStop
+  io.blockMarkerPc := path.io.blockMarkerPc
+  io.blockMarkerInsn := path.io.blockMarkerInsn
+  io.blockMarkerLen := path.io.blockMarkerLen
   io.decRenPushFire := path.io.decRenPushFire
   io.decRenPopFire := path.io.decRenPopFire
   io.decRenCount := path.io.decRenCount

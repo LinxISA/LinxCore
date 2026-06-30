@@ -13,6 +13,20 @@ from trace_schema_adapter import REQUIRED_TRACE_FIELDS, load_jsonl, normalize_ro
 
 
 MASK64 = (1 << 64) - 1
+C_BSTART_EXACT = {
+    0x08C0,  # C.BSTART.MPAR
+    0x48C0,  # C.BSTART.MSEQ
+    0x2000,  # C.BSTART.STD.CALL
+    0x1800,  # C.BSTART.STD.COND
+    0x1000,  # C.BSTART.STD.DIRECT
+    0x0800,  # C.BSTART.STD.FALL
+    0x3000,  # C.BSTART.STD.ICALL
+    0x2800,  # C.BSTART.STD.IND
+    0x3800,  # C.BSTART.STD.RET
+    0x0840,  # C.BSTART.SYS
+    0x88C0,  # C.BSTART.VPAR
+    0xC8C0,  # C.BSTART.VSEQ
+}
 
 
 class RowExtractionError(RuntimeError):
@@ -54,6 +68,22 @@ def _classify(row: dict[str, int]) -> str | None:
             return "C.MOVI"
         if key == 0x0006:
             return "C.MOVR"
+    return None
+
+
+def _classify_block_marker(row: dict[str, int]) -> tuple[str, bool, bool] | None:
+    insn = _mask_insn(row["insn"], row["len"])
+    if row["len"] != 2:
+        return None
+    if insn == 0:
+        return ("C.BSTOP", False, True)
+    if (
+        insn in C_BSTART_EXACT
+        or (insn & 0x000F) == 0x0002  # C.BSTART.DIRECT immediate form
+        or (insn & 0x000F) == 0x0004  # C.BSTART.COND immediate form
+        or (insn & 0xC7FF) == 0x0080  # C.BSTART.FP
+    ):
+        return ("C.BSTART", True, False)
     return None
 
 
@@ -145,25 +175,60 @@ def _validate_reduced_row(row: dict[str, int], index: int) -> dict[str, int]:
     return out
 
 
+def _validate_block_marker_row(
+    row: dict[str, int],
+    index: int,
+    marker: tuple[str, bool, bool]) -> dict[str, Any]:
+    opcode, boundary, stop = marker
+    if row["trap_valid"]:
+        raise RowExtractionError(f"row {index} {opcode} has trap_valid=1")
+    if row["mem_valid"]:
+        raise RowExtractionError(f"row {index} {opcode} has mem_valid=1")
+    if row["next_pc"] != row["pc"] + row["len"]:
+        raise RowExtractionError(
+            f"row {index} {opcode} is not sequential: next_pc=0x{row['next_pc']:x}, "
+            f"expected 0x{row['pc'] + row['len']:x}"
+        )
+
+    out: dict[str, Any] = {field: int(row[field]) for field in REQUIRED_TRACE_FIELDS}
+    out["insn"] = _mask_insn(out["insn"], out["len"])
+    out["skip"] = 1
+    out["skip_kind"] = opcode
+    out["block_boundary"] = int(boundary)
+    out["block_stop"] = int(stop)
+    return out
+
+
 def _normalized_rows(path: Path) -> Iterable[dict[str, int]]:
     for seq, obj in enumerate(load_jsonl(path)):
         yield normalize_row(obj, seq)
 
 
-def extract_rows(input_path: Path, output_path: Path, max_rows: int = 0) -> int:
+def extract_rows(
+    input_path: Path,
+    output_path: Path,
+    max_rows: int = 0,
+    allow_block_markers: bool = False) -> int:
     if max_rows < 0:
         raise RowExtractionError("--max-rows must be non-negative")
 
-    rows: list[dict[str, int]] = []
+    rows: list[dict[str, Any]] = []
     expected_pc: int | None = None
+    reduced_rows = 0
     for index, row in enumerate(_normalized_rows(input_path)):
-        if max_rows > 0 and len(rows) >= max_rows:
+        if max_rows > 0 and reduced_rows >= max_rows:
             break
         if expected_pc is not None and row["pc"] != expected_pc:
             raise RowExtractionError(
                 f"row {index} breaks the strict sequential prefix: pc=0x{row['pc']:x}, expected 0x{expected_pc:x}"
             )
-        checked = _validate_reduced_row(row, index)
+
+        marker = _classify_block_marker(row) if allow_block_markers else None
+        if marker is not None:
+            checked = _validate_block_marker_row(row, index, marker)
+        else:
+            checked = _validate_reduced_row(row, index)
+            reduced_rows += 1
         rows.append(checked)
         expected_pc = checked["pc"] + checked["len"]
 
@@ -212,12 +277,48 @@ def self_test() -> None:
         else:
             raise AssertionError("unsupported row did not fail")
 
+        block_source = tmp / "block-prefix.jsonl"
+        block_output = tmp / "block-prefix.rows.jsonl"
+        bstart = {
+            **rows[0],
+            "pc": 0x2000,
+            "insn": 0x0800,
+            "len": 2,
+            "next_pc": 0x2002,
+            "wb_valid": 0,
+            "dst_valid": 0,
+            "src0_valid": 0,
+            "src1_valid": 0,
+        }
+        scalar = {**rows[0], "pc": 0x2002, "next_pc": 0x2006}
+        bstop = {
+            **rows[0],
+            "pc": 0x2006,
+            "insn": 0,
+            "len": 2,
+            "next_pc": 0x2008,
+            "wb_valid": 0,
+            "dst_valid": 0,
+            "src0_valid": 0,
+            "src1_valid": 0,
+        }
+        _write_jsonl(block_source, [bstart, scalar, bstop])
+        count = extract_rows(block_source, block_output, allow_block_markers=True)
+        assert count == 3
+        block_rows = [json.loads(line) for line in block_output.read_text(encoding="utf-8").splitlines()]
+        assert block_rows[0]["skip"] == 1
+        assert block_rows[0]["block_boundary"] == 1
+        assert "skip" not in block_rows[1]
+        assert block_rows[2]["block_stop"] == 1
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--input", help="Input QEMU commit JSONL trace")
     ap.add_argument("--output", help="Output reduced expected-row JSONL")
     ap.add_argument("--max-rows", type=int, default=0, help="Maximum reduced rows to extract; 0 means all")
+    ap.add_argument("--allow-block-markers", action="store_true",
+                    help="Preserve legal BSTART/BSTOP marker rows as skip entries while extracting scalar compare rows")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
 
@@ -229,7 +330,11 @@ def main() -> int:
         raise SystemExit("error: --input and --output are required unless --self-test is set")
 
     try:
-        count = extract_rows(Path(args.input), Path(args.output), max_rows=args.max_rows)
+        count = extract_rows(
+            Path(args.input),
+            Path(args.output),
+            max_rows=args.max_rows,
+            allow_block_markers=args.allow_block_markers)
     except RowExtractionError as exc:
         raise SystemExit(f"error: {exc}") from exc
     print(f"frontend-fetch-rf-alu-qemu-rows={args.output} rows={count}")

@@ -117,6 +117,11 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
   --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b \
   --max-seconds 5
+bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r101-live-qemu-fixture
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
+  --expected-rows 0 --capture-rows 5 --allow-block-markers \
+  --max-seconds 5
 ```
 
 `run_chisel_trace_replay_xcheck.sh` is the bridge between synthetic reduced
@@ -207,6 +212,26 @@ entry `BSTART` for now; block-header execution is a later DUT feature. QEMU
 termination after the bounded rows are captured is expected only when the
 manifest reports `status: "pass"`.
 
+R101 adds the reduced block-marker form:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
+  --expected-rows 0 \
+  --capture-rows 5 \
+  --allow-block-markers \
+  --max-seconds 5
+```
+
+`--allow-block-markers` passes legal `BSTART`/`BSTOP` rows through the
+expected-row stream as `skip` entries. The Verilator harness fetches and
+decodes them, asserts the reduced marker diagnostics, and requires no ROB
+allocation or issue enqueue for those rows. The comparator receives only the
+non-skip scalar architectural rows. R101 evidence captured five raw QEMU rows
+for `C.BSTART; ADD; ADDI; C.MOVR; C.BSTOP`, compared three scalar commits,
+and produced a manifest with `status: "pass"`, `compared_rows: 3`, and
+`mismatch_count: 0`.
+
 Full compare gate, once a Chisel commit trace exists:
 
 ```bash
@@ -285,12 +310,12 @@ Its manifest under
 `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/report` records
 `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh` captures the legal-entry
-fixture ELF through live QEMU, filters the scalar prefix after `BSTART`, runs
-the R99 strict row reducer plus R97 sparse ELF memory path, and passes with
-`status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0` under
+fixture ELF through live QEMU, either filters the scalar prefix after
+`BSTART` or preserves `BSTART`/`BSTOP` as reduced skip rows, runs the R99/R101
+row reducer plus R97 sparse ELF memory path, and passes with `status: "pass"`,
+`compared_rows: 3`, and `mismatch_count: 0` under
 `generated/chisel-frontend-fetch-rf-alu-qemu-elf-xcheck/report`.
-Block-header execution, dense packets, and non-ALU row enrichment remain later
-packets.
+Dense packets and non-ALU row enrichment remain later packets.
 The QEMU trace replay bridge now has bounded live-ELF prefix evidence using
 `tests/benchmarks/build/coremark_real.elf` with explicit `-m 1280M`; the
 default 128 MiB QEMU run fails fast with an empty-trace error because the ELF
