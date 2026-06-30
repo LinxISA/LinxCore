@@ -779,6 +779,31 @@ R122 closeout: `skill-evolve: update linx-core (read-only sparse-ELF load
 lookup bridge, local-alias row reducer policy, and redirect-marker/OP_SD next
 frontier)`.
 
+R123 started from `linx-isa` commit
+`7db96a37ffa7d9ad4ef90cc89c6157fb8fed31ee`, `rtl/LinxCore` commit
+`25367127b0674d74a6c35d19adaee3d645b2c737`,
+`model/LinxCoreModel` commit
+`1993e4e749403824a4908548baf77d5e15117068`, QEMU commit
+`70853e25c11398f33a7e7269e8718f05a36f975b`, and
+`skills/linx-skills` commit
+`7cd1f1be9ba850c8ccb507b5a518262ef815507f`. R123 fixes the redirecting
+marker frontier by distinguishing the active block's boundary kind from the
+new marker's kind: active direct/call blocks redirect unconditionally to their
+recorded target at the next marker boundary and suppress allocation of that
+boundary marker, while active conditional blocks still use the SETC result
+directly. It also updates the live RF/ALU Verilator harness to collect legal
+two-slot commit windows in slot order. Evidence:
+`run_chisel_tests.sh --only DecodeRenameROBPath`,
+`run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, and
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r123-coremark-redirect-marker-486-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 486 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+passed with `frontend-fetch-rf-alu-qemu-elf-status=pass`, `compared=323`, and
+`mismatches=0`. The next frontier remains the following indexed `OP_SD` at
+`pc=0x400055f2`, which needs explicit store memory mutation or real LSU/STQ
+ownership before promotion.
+
+R123 closeout: `skill-evolve: update linx-core (active direct/call marker
+boundary redirect policy and live RF/ALU two-slot commit collection)`.
+
 ## Reference Evidence
 
 The active ROB, issue, and frontend packets are anchored to these C++ model
@@ -927,9 +952,10 @@ The ROB/cross-check substrate remains the required base:
 | 46 | R120 CoreMark repeated loop body through scalar-created blocks and reduced store bypass | `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, `frontend_fetch_rf_alu_trace_top_tb.cpp`, module/top docs | backend/top gates, CoreMark live-QEMU gate with `--capture-rows 128`, eighty-eight scalar/macro commits compared, 68-row diagnostic pass, 256-row unsupported-opcode probe, manifest inspection |
 | 47 | R121 CoreMark LDI/C.SETC_EQ plus bounded-capture tail prefix | `ReducedScalarAluExecute.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, `frontend_fetch_rf_alu_trace_top_tb.cpp`, module/top docs | extractor self-test, execute gate, CoreMark live-QEMU gate with `--capture-rows 256`, one-hundred-seventy-three scalar/macro commits compared, tail-prefix manifest inspection |
 | 48 | R122 CoreMark read-only load lookup, SETC_LTU, and local-alias row reducer | `ReducedScalarAluExecute.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, `frontend_fetch_rf_alu_trace_top_tb.cpp`, module/top docs | extractor self-test, execute/top gates, CoreMark live-QEMU gate with `--capture-rows 470`, 315 normalized rows compared, 486-row redirect-marker allocation mismatch probe, 512-row `OP_SD` frontier probe, manifest inspection |
-| 49 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 50 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 51 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 49 | R123 CoreMark redirecting marker and two-slot commit collection | `DecodeRenameROBPath.scala`, `frontend_fetch_rf_alu_trace_top_tb.cpp`, backend/top docs | backend/top gates, CoreMark live-QEMU gate with `--capture-rows 486`, 323 normalized rows compared, next `OP_SD` indexed-store frontier, manifest inspection |
+| 50 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 51 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 52 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not

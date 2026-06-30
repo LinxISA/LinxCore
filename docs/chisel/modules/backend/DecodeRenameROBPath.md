@@ -117,6 +117,13 @@ adds an explicit constructor-only `reducedStoreDispatchBypass` for reduced
 live RF/ALU evidence tops that produce store sidebands from ALU execute but do
 not yet provide STA/STD execution plus STQ commit/free feedback. The default
 keeps full store-dispatch/STQ backpressure enabled.
+R123 records active direct/call marker blocks as unconditional redirects at the
+next marker boundary. This closes the CoreMark case where `C.BSTART.DIRECT` at
+`pc=0x400055ca` installs target `0x400055e2`, and the later
+`C.BSTART.COND` at `pc=0x400055d4` must complete that active block and
+redirect without allocating a new marker-owned BROB entry. Conditional active
+blocks still use the committed SETC result directly: false allocates
+fallthrough, true redirects to the active target.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -274,6 +281,12 @@ For a conditional active block, the next marker boundary is not ready until
 allocates the marker's new BROB-only block. A true decision completes the
 active block, emits the reduced redirect to the recorded active target, clears
 the active marker state, and suppresses new marker allocation for that boundary.
+Direct and call active blocks do not wait for a branch decision at the next
+marker boundary: they complete the active block, redirect to the active target
+when it is nonzero, and suppress allocation of the boundary marker itself. This
+matches compact `C.BSTART.DIRECT` loop headers such as the CoreMark
+`0x00c2 -> 0x0114` case, where the following conditional marker is the
+target-side boundary after the direct block redirects.
 Marker-only packets therefore drive `decodeReady` from marker lifecycle
 readiness, not from scalar decode/rename queue readiness; otherwise a
 conditional marker could drain before its branch decision or before BROB

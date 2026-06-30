@@ -656,6 +656,48 @@ bool slot1_valid(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   return dut.io_commit_rows_1_valid;
 }
 
+ObservedRow read_slot1(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
+  ObservedRow row;
+  row.valid = dut.io_commit_rows_1_valid;
+  row.seq = dut.io_commit_rows_1_seq;
+  row.cycle = dut.io_commit_rows_1_cycle;
+  row.slot = dut.io_commit_rows_1_slot;
+  row.bid = dut.io_commit_rows_1_identity_bid;
+  row.gid = dut.io_commit_rows_1_identity_gid;
+  row.rid = dut.io_commit_rows_1_identity_rid;
+  row.rob_valid = dut.io_commit_rows_1_rob_valid;
+  row.rob_wrap = dut.io_commit_rows_1_rob_wrap;
+  row.rob_value = dut.io_commit_rows_1_rob_value;
+  row.block_bid_valid = dut.io_commit_rows_1_blockBidValid;
+  row.block_bid = dut.io_commit_rows_1_blockBid;
+  row.pc = dut.io_commit_rows_1_pc;
+  row.insn = dut.io_commit_rows_1_insn;
+  row.len = dut.io_commit_rows_1_len;
+  row.wb_valid = dut.io_commit_rows_1_wb_valid;
+  row.wb_reg = dut.io_commit_rows_1_wb_reg;
+  row.wb_data = dut.io_commit_rows_1_wb_data;
+  row.src0_valid = dut.io_commit_rows_1_src0_valid;
+  row.src0_reg = dut.io_commit_rows_1_src0_reg;
+  row.src0_data = dut.io_commit_rows_1_src0_data;
+  row.src1_valid = dut.io_commit_rows_1_src1_valid;
+  row.src1_reg = dut.io_commit_rows_1_src1_reg;
+  row.src1_data = dut.io_commit_rows_1_src1_data;
+  row.dst_valid = dut.io_commit_rows_1_dst_valid;
+  row.dst_reg = dut.io_commit_rows_1_dst_reg;
+  row.dst_data = dut.io_commit_rows_1_dst_data;
+  row.mem_valid = dut.io_commit_rows_1_mem_valid;
+  row.mem_is_store = dut.io_commit_rows_1_mem_isStore;
+  row.mem_addr = dut.io_commit_rows_1_mem_addr;
+  row.mem_wdata = dut.io_commit_rows_1_mem_wdata;
+  row.mem_rdata = dut.io_commit_rows_1_mem_rdata;
+  row.mem_size = dut.io_commit_rows_1_mem_size;
+  row.trap_valid = dut.io_commit_rows_1_trap_valid;
+  row.trap_cause = dut.io_commit_rows_1_trap_cause;
+  row.trap_arg0 = dut.io_commit_rows_1_trap_arg0;
+  row.next_pc = dut.io_commit_rows_1_nextPc;
+  return row;
+}
+
 void collect_commit_if_present(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     std::vector<ObservedRow> &pending,
@@ -675,17 +717,17 @@ void collect_commit_if_present(
     return;
   }
   const ObservedRow slot0 = read_slot0(dut);
-  expect_monitor_clean(dut, context, 0x1, 1);
-  if (slot1_valid(dut)) {
-    std::cerr << context << " observed an unsupported two-row commit window\n";
-    std::exit(1);
-  }
+  const bool slot1 = slot1_valid(dut);
+  expect_monitor_clean(dut, context, slot1 ? 0x3 : 0x1, slot1 ? 2 : 1);
   pending.push_back(slot0);
+  if (slot1) {
+    pending.push_back(read_slot1(dut));
+  }
 }
 
 void expect_row(const ObservedRow &observed, const ExpectedRow &expected) {
   if (!observed.valid ||
-      observed.slot != 0 ||
+      observed.slot > 1 ||
       observed.pc != expected.pc ||
       mask_insn(observed.insn, observed.len) != mask_insn(expected.insn, expected.len) ||
       observed.len != expected.len ||

@@ -500,6 +500,7 @@ class DecodeRenameROBPath(
   val activeBlockBid = RegInit(0.U(bidWidth.W))
   val activeBlockTarget = RegInit(0.U(p.pcWidth.W))
   val activeBlockCond = RegInit(false.B)
+  val activeBlockUnconditionalRedirect = RegInit(false.B)
   val selectedBlockBid = Mux(activeBlockValid, activeBlockBid, allocator.io.allocBlockBid)
 
   val selectedForQueue = Wire(new DecodedUop(p))
@@ -639,10 +640,14 @@ class DecodeRenameROBPath(
   val robBlockLastClearsActive =
     robBlockLastScalarDoneFire && activeBlockValid && allocator.io.deallocBlockLastBlockBid === activeBlockBid
   val markerNeedsBranchDecision = markerBoundary && activeBlockValid && activeBlockCond
+  val markerUnconditionalRedirect =
+    markerBoundary && activeBlockValid && activeBlockUnconditionalRedirect && activeBlockTarget =/= 0.U
   val markerRedirectBoundary =
-    markerNeedsBranchDecision && io.blockBranchTakenValid && io.blockBranchTaken
+    markerUnconditionalRedirect ||
+      (markerNeedsBranchDecision && io.blockBranchTakenValid && io.blockBranchTaken)
   val markerFallthroughBoundary =
-    markerBoundary && (!markerNeedsBranchDecision || (io.blockBranchTakenValid && !io.blockBranchTaken))
+    markerBoundary && !markerUnconditionalRedirect &&
+      (!markerNeedsBranchDecision || (io.blockBranchTakenValid && !io.blockBranchTaken))
   allocator.io.blockAllocOnlyValid := markerFallthroughBoundary && !markerLifecycleConflict
   allocator.io.renameUpdateValid := rename.io.robAllocAttemptValid
   allocator.io.renameUpdateRid := queuedForRename.rid
@@ -705,21 +710,26 @@ class DecodeRenameROBPath(
     activeBlockBid := 0.U
     activeBlockTarget := 0.U
     activeBlockCond := false.B
+    activeBlockUnconditionalRedirect := false.B
   }.elsewhen(markerBoundaryFire) {
     activeBlockValid := true.B
     activeBlockBid := allocator.io.blockAllocOnlyBid
     activeBlockTarget := marker.boundaryTarget
     activeBlockCond := marker.boundaryKind === BoundaryKind.Cond
+    activeBlockUnconditionalRedirect :=
+      marker.boundaryKind === BoundaryKind.Direct || marker.boundaryKind === BoundaryKind.Call
   }.elsewhen(scalarBlockStartFire) {
     activeBlockValid := true.B
     activeBlockBid := allocator.io.allocBlockBid
     activeBlockTarget := 0.U
     activeBlockCond := false.B
+    activeBlockUnconditionalRedirect := false.B
   }.elsewhen(markerStopFire || markerBoundaryRedirectFire || robBlockLastClearsActive) {
     activeBlockValid := false.B
     activeBlockBid := 0.U
     activeBlockTarget := 0.U
     activeBlockCond := false.B
+    activeBlockUnconditionalRedirect := false.B
   }
 
   rename.io.robSource := allocator.io.robTULinkSource

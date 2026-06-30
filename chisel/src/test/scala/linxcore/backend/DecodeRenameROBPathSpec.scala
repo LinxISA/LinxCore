@@ -58,6 +58,12 @@ object DecodeRenameROBPathReference {
       nextActiveValid: Boolean,
       nextActiveBid: Option[BigInt])
 
+  final case class MarkerBoundaryDecision(
+      alloc: Boolean,
+      redirect: Boolean,
+      doneBid: Option[BigInt],
+      nextActiveBid: Option[BigInt])
+
   def scalarStartLifecycleStep(
       activeValid: Boolean,
       activeBid: BigInt,
@@ -97,6 +103,33 @@ object DecodeRenameROBPathReference {
       doneValid = done,
       doneBid = if (done) Some(activeBid) else None,
       nextActiveValid = nextActive.nonEmpty,
+      nextActiveBid = nextActive
+    )
+  }
+
+  def markerBoundaryDecision(
+      activeValid: Boolean,
+      activeBid: BigInt,
+      activeCond: Boolean,
+      activeUnconditionalRedirect: Boolean,
+      activeTarget: BigInt,
+      branchValid: Boolean,
+      branchTaken: Boolean,
+      allocBid: BigInt): MarkerBoundaryDecision = {
+    val unconditionalRedirect = activeValid && activeUnconditionalRedirect && activeTarget != 0
+    val needsBranchDecision = activeValid && activeCond
+    val redirect = unconditionalRedirect || (needsBranchDecision && branchValid && branchTaken)
+    val alloc = !unconditionalRedirect && (!needsBranchDecision || (branchValid && !branchTaken))
+    val nextActive =
+      if (alloc) Some(allocBid)
+      else if (redirect) None
+      else if (activeValid) Some(activeBid)
+      else None
+
+    MarkerBoundaryDecision(
+      alloc = alloc,
+      redirect = redirect,
+      doneBid = if (activeValid && (alloc || redirect)) Some(activeBid) else None,
       nextActiveBid = nextActive
     )
   }
@@ -220,6 +253,50 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
       robBlockLastBid = 13)
     assert(scalarLast.doneBid.contains(13))
     assert(!scalarLast.nextActiveValid)
+  }
+
+  test("reference redirects direct active blocks at the next marker boundary without allocation") {
+    val directClose = markerBoundaryDecision(
+      activeValid = true,
+      activeBid = 20,
+      activeCond = false,
+      activeUnconditionalRedirect = true,
+      activeTarget = 0x400055e2L,
+      branchValid = false,
+      branchTaken = false,
+      allocBid = 21)
+    assert(directClose.redirect)
+    assert(!directClose.alloc)
+    assert(directClose.doneBid.contains(20))
+    assert(directClose.nextActiveBid.isEmpty)
+
+    val condFallthrough = markerBoundaryDecision(
+      activeValid = true,
+      activeBid = 21,
+      activeCond = true,
+      activeUnconditionalRedirect = false,
+      activeTarget = 0x400055f6L,
+      branchValid = true,
+      branchTaken = false,
+      allocBid = 22)
+    assert(condFallthrough.alloc)
+    assert(!condFallthrough.redirect)
+    assert(condFallthrough.doneBid.contains(21))
+    assert(condFallthrough.nextActiveBid.contains(22))
+
+    val condRedirect = markerBoundaryDecision(
+      activeValid = true,
+      activeBid = 22,
+      activeCond = true,
+      activeUnconditionalRedirect = false,
+      activeTarget = 0x400055d4L,
+      branchValid = true,
+      branchTaken = true,
+      allocBid = 23)
+    assert(condRedirect.redirect)
+    assert(!condRedirect.alloc)
+    assert(condRedirect.doneBid.contains(22))
+    assert(condRedirect.nextActiveBid.isEmpty)
   }
 
   test("reference accepts agreeing ROB and LSU cleanup sources but blocks conflicting ones") {

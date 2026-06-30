@@ -146,6 +146,16 @@ redirecting `C.BSTART`: the 470-raw-row gate compares 315 normalized QEMU/DUT
 rows with zero mismatches. A 486-row probe reaches a marker allocation policy
 mismatch before the following `OP_SD` indexed store, making redirecting marker
 allocation and store memory mutation the next packet frontier.
+R123 fixes that redirecting marker frontier. The backend now records direct
+and call active blocks as unconditional redirects at the next marker boundary,
+so the `C.BSTART.DIRECT` at `pc=0x400055ca` can complete at the later
+`C.BSTART.COND` at `pc=0x400055d4` without allocating the conditional marker's
+own block. The Verilator harness also collects both slots of a legal
+two-row commit window in order before comparing against QEMU. The promoted
+486-raw-row CoreMark gate compares 323 normalized QEMU/DUT rows with zero
+mismatches; the next frontier remains the following indexed `OP_SD` at
+`pc=0x400055f2`, which must not be promoted without explicit store memory
+mutation or real LSU/STQ ownership.
 
 ## Interface
 
@@ -270,6 +280,11 @@ drives `loadLookupData`, and reevaluates before the clock edge. Missing bytes
 read as zero. This is intentionally read-only: prior stores do not update the
 image, and the next `OP_SD` frontier must add explicit store memory mutation or
 a real LSU/STQ path before larger CoreMark windows can rely on stored data.
+
+R123 also proves that live generated-RTL commit collection must accept the
+native two-slot commit window. The harness preserves slot order by collecting
+slot 0 followed by slot 1, then applies the same QEMU-shaped row comparison to
+each committed row.
 
 ## Model Alignment
 
