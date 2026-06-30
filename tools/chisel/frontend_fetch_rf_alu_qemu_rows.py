@@ -43,6 +43,8 @@ HL_LUI_MASK = 0xFFFF_0000_007F_000F
 HL_LUI_MATCH = 0x0000_0000_0017_000E
 SLL_MASK = 0xFE00_707F
 SLL_MATCH = 0x0000_7005
+SRL_MASK = 0xFE00_707F
+SRL_MATCH = 0x0000_5005
 LOCAL_QUEUE_DEPTH = 4
 
 
@@ -87,6 +89,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "FENTRY"
         if (insn & SLL_MASK) == SLL_MATCH:
             return "SLL"
+        if (insn & SRL_MASK) == SRL_MATCH:
+            return "SRL"
     if row["len"] == 2:
         if (insn & 0xF83F) == 0x5016:
             return "C.SETRET"
@@ -232,9 +236,9 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
     if not _is_reduced_tu_destination(row["dst_reg"]):
         _require_scalar_reg(row, "dst_reg", opcode)
         _require_scalar_reg(row, "wb_rd", opcode)
-    elif row["dst_reg"] == 30 and opcode not in {"ADDI", "SLL"}:
+    elif row["dst_reg"] == 30 and opcode not in {"ADDI", "SLL", "SRL"}:
         raise RowExtractionError(f"{opcode} row writes reduced U destination alias {row['dst_reg']}")
-    elif row["dst_reg"] == 31 and opcode != "HL.LUI":
+    elif row["dst_reg"] == 31 and opcode not in {"HL.LUI", "SLL", "SRL"}:
         raise RowExtractionError(f"{opcode} row writes reduced T destination alias {row['dst_reg']}")
     if row["dst_data"] != row["wb_data"]:
         raise RowExtractionError(f"{opcode} row dst_data={row['dst_data']} differs from wb_data={row['wb_data']}")
@@ -264,6 +268,10 @@ def _expected_result(
         lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
         rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
         return (lhs << (rhs & 0x3F)) & MASK64
+    if opcode == "SRL":
+        lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
+        rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
+        return (lhs >> (rhs & 0x3F)) & MASK64
     raise AssertionError(opcode)
 
 
@@ -311,7 +319,7 @@ def _validate_reduced_row(
             raise RowExtractionError(f"row {index} FENTRY must carry one 8-byte store")
     elif opcode == "HL.LUI":
         _require_sources(row, opcode, src0=False, src1=False)
-    elif opcode == "SLL":
+    elif opcode in {"SLL", "SRL"}:
         _require_sources(row, opcode, src0=False, src1=False)
         _local_source_value(local_state, _sll_src_l(row), opcode)
         _local_source_value(local_state, _sll_src_r(row), opcode)
@@ -610,6 +618,72 @@ def self_test() -> None:
         assert extracted_sll[2]["dst_reg"] == 30
         assert extracted_sll[2]["wb_rd"] == 30
         assert extracted_sll[2]["dst_data"] == 0x1_0000_0000
+
+        hl_lui_zero = {
+            **hl_lui,
+            "pc": 0x40005524,
+            "insn": 0x00000F97000E,
+            "next_pc": 0x4000552A,
+            "wb_data": 0,
+            "dst_data": 0,
+        }
+        sll_t_dst_source = tmp / "sll-t-dst.jsonl"
+        sll_t_dst_output = tmp / "sll-t-dst.rows.jsonl"
+        sll_t_dst = {
+            **rows[0],
+            "pc": 0x4000552A,
+            "insn": 0x01DC7F85,
+            "len": 4,
+            "next_pc": 0x4000552E,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 0,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(sll_t_dst_source, [addi_u_dst, hl_lui, sll_tu, hl_lui_zero, sll_t_dst])
+        count = extract_rows(sll_t_dst_source, sll_t_dst_output)
+        assert count == 5
+        extracted_sll_t_dst = [json.loads(line) for line in sll_t_dst_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_sll_t_dst[4]["dst_reg"] == 31
+        assert extracted_sll_t_dst[4]["wb_rd"] == 31
+        assert extracted_sll_t_dst[4]["dst_data"] == 0
+
+        srl_source = tmp / "srl-tu.jsonl"
+        srl_output = tmp / "srl-tu.rows.jsonl"
+        srl_tu = {
+            **rows[0],
+            "pc": 0x4000552E,
+            "insn": 0x01DC5F85,
+            "len": 4,
+            "next_pc": 0x40005532,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 0,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(srl_source, [addi_u_dst, hl_lui, sll_tu, hl_lui_zero, sll_t_dst, srl_tu])
+        count = extract_rows(srl_source, srl_output)
+        assert count == 6
+        extracted_srl = [json.loads(line) for line in srl_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_srl[5]["dst_reg"] == 31
+        assert extracted_srl[5]["wb_rd"] == 31
+        assert extracted_srl[5]["dst_data"] == 0
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

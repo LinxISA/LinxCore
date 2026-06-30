@@ -91,6 +91,9 @@ writeback, but their produced values are recorded in a small local overlay so a
 later T/U-source row can issue and compare against QEMU. This overlay is a
 temporary live-gate bridge until full local-bank data execution owns those
 values.
+R112 extends that bridge through the next same-window shift rows: one `SLL`
+writes T0, then `SRL` reads local T/U sources and writes T0. The dense frontend
+must capture both scalar slots when they share one 8-byte response window.
 
 ## Interface
 
@@ -145,8 +148,8 @@ overlay. Most state remains in child modules:
 - `ReducedScalarIssueQueue` and `ReducedScalarIssuePick`: resident issue rows,
   source-ready snapshots, P1/I1/I2 timing, issued-entry lock, cancel, and W2
   release.
-- `ReducedScalarAluExecute`: reduced scalar ADD/ADDI/MOVR/MOVI execute and
-  writeback-shaped completion.
+- `ReducedScalarAluExecute`: reduced scalar ADD/ADDI/MOVR/MOVI/shift execute
+  and writeback-shaped completion.
 
 ## Logic Design
 
@@ -246,6 +249,9 @@ The prior U-destination `ADDI` produces U0=`32`, `HL.LUI` produces T0=`1`, and
 `SLL` consumes T0/U0 to write U0=`0x100000000`. QEMU suppresses local-source
 fields on that row, so the reduced top must feed execute from the local overlay
 while `ReducedScalarAluExecute` leaves scalar source fields invalid.
+R112 extends the same local-overlay contract through `SLL` at `pc=0x4000552a`
+and `SRL` at `pc=0x4000552e`; both write architectural T tag `31`, and the
+17-row CoreMark capture proves the shared F4 window carries both slots.
 
 ## Trace/Observability
 
@@ -559,6 +565,30 @@ The manifest at
 records `status: "pass"`, `summary.compared_rows: 9`, and
 `summary.mismatch_count: 0`.
 
+The R112 CoreMark gate extends the prefix through the next local shift pair.
+After `HL.LUI` produces T0=`0`, the `SLL` row at `pc=0x4000552a` writes T0,
+and the following `SRL` row at `pc=0x4000552e` shares the same 8-byte F4
+response window:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r112-coremark-sll-srl-tu-qemu-elf-xcheck \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 \
+  --capture-rows 17 \
+  --allow-block-markers \
+  --max-seconds 8 \
+  -- -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+The manifest at
+`generated/r112-coremark-sll-srl-tu-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 12`, and
+`summary.mismatch_count: 0`. An 18-row probe stops at `OP_OR`
+(`pc=0x40005532`, `insn=0x078e3f05`, `len=4`), another local-source row
+reading U0/T0 and writing U0.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
@@ -587,6 +617,7 @@ records `status: "pass"`, `summary.compared_rows: 9`, and
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r109-coremark-u-dst-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 12 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r110-coremark-hl-lui-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 13 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r112-coremark-sll-srl-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 17 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 8 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r108-coremark-fentry-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 11 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
