@@ -4,6 +4,7 @@
 #include "commit_trace_jsonl.h"
 
 #include <cerrno>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -25,6 +26,7 @@ struct Args {
   std::string qemu_trace;
   std::string memory_bin;
   std::string memory_hex;
+  std::string expected_rows;
   std::uint64_t memory_base = 0x1000;
 };
 
@@ -86,6 +88,7 @@ struct ObservedRow {
 [[noreturn]] void usage(const char *argv0) {
   std::cerr << "usage: " << argv0
             << " --dut-trace <dut.jsonl> --qemu-trace <qemu.jsonl>"
+            << " [--expected-rows <rows.jsonl>]"
             << " [--memory-bin <program.bin> --memory-base <addr>]"
             << " [--memory-hex <sparse.mem>]\n";
   std::exit(2);
@@ -114,6 +117,8 @@ Args parse_args(int argc, char **argv) {
       args.memory_bin = argv[++i];
     } else if (arg == "--memory-hex" && i + 1 < argc) {
       args.memory_hex = argv[++i];
+    } else if (arg == "--expected-rows" && i + 1 < argc) {
+      args.expected_rows = argv[++i];
     } else if (arg == "--memory-base" && i + 1 < argc) {
       args.memory_base = parse_u64_arg(argv[++i], "--memory-base");
     } else {
@@ -128,6 +133,200 @@ Args parse_args(int argc, char **argv) {
     usage(argv[0]);
   }
   return args;
+}
+
+std::string trim_copy(const std::string &value) {
+  const auto first = value.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos) {
+    return "";
+  }
+  const auto last = value.find_last_not_of(" \t\r\n");
+  return value.substr(first, last - first + 1);
+}
+
+bool json_value_token(const std::string &line, const std::string &key, std::string &token) {
+  const std::string quoted_key = "\"" + key + "\"";
+  const std::size_t key_pos = line.find(quoted_key);
+  if (key_pos == std::string::npos) {
+    return false;
+  }
+  std::size_t pos = key_pos + quoted_key.size();
+  while (pos < line.size() && std::isspace(static_cast<unsigned char>(line[pos]))) {
+    ++pos;
+  }
+  if (pos >= line.size() || line[pos] != ':') {
+    return false;
+  }
+  ++pos;
+  while (pos < line.size() && std::isspace(static_cast<unsigned char>(line[pos]))) {
+    ++pos;
+  }
+  if (pos >= line.size()) {
+    return false;
+  }
+
+  if (line[pos] == '"') {
+    ++pos;
+    std::string value;
+    bool escaped = false;
+    for (; pos < line.size(); ++pos) {
+      const char ch = line[pos];
+      if (escaped) {
+        value.push_back(ch);
+        escaped = false;
+        continue;
+      }
+      if (ch == '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch == '"') {
+        token = trim_copy(value);
+        return true;
+      }
+      value.push_back(ch);
+    }
+    return false;
+  }
+
+  const std::size_t end = line.find_first_of(",}", pos);
+  if (end == std::string::npos) {
+    return false;
+  }
+  token = trim_copy(line.substr(pos, end - pos));
+  return !token.empty();
+}
+
+bool json_has_key(const std::string &line, const std::string &key) {
+  std::string ignored;
+  return json_value_token(line, key, ignored);
+}
+
+std::uint64_t json_u64(
+    const std::string &line,
+    const std::string &key,
+    std::uint64_t default_value,
+    const std::string &context) {
+  std::string token;
+  if (!json_value_token(line, key, token)) {
+    return default_value;
+  }
+  return parse_u64_arg(token, context + "." + key);
+}
+
+std::uint8_t json_u8(
+    const std::string &line,
+    const std::string &key,
+    std::uint8_t default_value,
+    const std::string &context) {
+  const std::uint64_t value = json_u64(line, key, default_value, context);
+  if (value > 0xffU) {
+    std::cerr << "expected row field out of uint8 range: "
+              << context << "." << key << "=" << value << "\n";
+    std::exit(2);
+  }
+  return static_cast<std::uint8_t>(value);
+}
+
+bool json_bool(
+    const std::string &line,
+    const std::string &key,
+    bool default_value,
+    const std::string &context) {
+  std::string token;
+  if (!json_value_token(line, key, token)) {
+    return default_value;
+  }
+  for (char &ch : token) {
+    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  }
+  if (token == "true" || token == "yes" || token == "1") {
+    return true;
+  }
+  if (token == "false" || token == "no" || token == "0") {
+    return false;
+  }
+  const std::uint64_t numeric = parse_u64_arg(token, context + "." + key);
+  return numeric != 0;
+}
+
+ExpectedRow parse_expected_row_jsonl(
+    const std::string &line,
+    const std::string &path,
+    std::uint64_t line_no) {
+  const std::string context = path + ":" + std::to_string(line_no);
+  if (!json_has_key(line, "pc") || !json_has_key(line, "insn")) {
+    std::cerr << "expected row is missing pc or insn at " << context << "\n";
+    std::exit(2);
+  }
+
+  ExpectedRow row;
+  row.pc = json_u64(line, "pc", 0, context);
+  row.insn = json_u64(line, "insn", 0, context);
+  row.len = json_u8(line, "len", 4, context);
+  if (row.len != 2 && row.len != 4 && row.len != 6 && row.len != 8) {
+    std::cerr << "expected row has unsupported instruction length at "
+              << context << " len=" << static_cast<unsigned>(row.len) << "\n";
+    std::exit(2);
+  }
+
+  row.src0_valid = json_bool(line, "src0_valid", false, context);
+  row.src0_reg = json_u8(line, "src0_reg", 0, context);
+  row.src0_data = json_u64(line, "src0_data", 0, context);
+  row.src1_valid = json_bool(line, "src1_valid", false, context);
+  row.src1_reg = json_u8(line, "src1_reg", 0, context);
+  row.src1_data = json_u64(line, "src1_data", 0, context);
+
+  const bool has_dst_valid = json_has_key(line, "dst_valid");
+  const bool has_dst_reg = json_has_key(line, "dst_reg");
+  const bool has_dst_data = json_has_key(line, "dst_data");
+  row.dst_valid = json_bool(line, "dst_valid", json_bool(line, "wb_valid", false, context), context);
+  row.dst_reg = json_u8(line, "dst_reg", json_u8(line, "wb_rd", 0, context), context);
+  row.dst_data = json_u64(line, "dst_data", json_u64(line, "wb_data", 0, context), context);
+  if (!has_dst_valid && json_has_key(line, "wb_valid")) {
+    row.dst_valid = json_bool(line, "wb_valid", false, context);
+  }
+  if (!has_dst_reg && json_has_key(line, "wb_rd")) {
+    row.dst_reg = json_u8(line, "wb_rd", 0, context);
+  }
+  if (!has_dst_data && json_has_key(line, "wb_data")) {
+    row.dst_data = json_u64(line, "wb_data", 0, context);
+  }
+  return row;
+}
+
+std::vector<ExpectedRow> load_expected_rows_jsonl(const std::string &path) {
+  std::ifstream in(path);
+  if (!in) {
+    std::cerr << "failed to open expected rows: " << path
+              << " error=" << std::strerror(errno) << "\n";
+    std::exit(2);
+  }
+
+  std::vector<ExpectedRow> rows;
+  std::string line;
+  std::uint64_t line_no = 0;
+  while (std::getline(in, line)) {
+    ++line_no;
+    line = trim_copy(line);
+    if (line.empty() || line[0] == '#') {
+      continue;
+    }
+    if (line.find("\"type\"") != std::string::npos &&
+        line.find("\"META\"") != std::string::npos) {
+      continue;
+    }
+    if (json_has_key(line, "valid") &&
+        !json_bool(line, "valid", true, path + ":" + std::to_string(line_no))) {
+      continue;
+    }
+    rows.push_back(parse_expected_row_jsonl(line, path, line_no));
+  }
+  if (rows.empty()) {
+    std::cerr << "expected row stream is empty: " << path << "\n";
+    std::exit(2);
+  }
+  return rows;
 }
 
 void clear_inputs(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
@@ -800,7 +999,9 @@ int main(int argc, char **argv) {
     return 2;
   }
 
-  const auto rows = fixture_rows();
+  const auto rows = args.expected_rows.empty()
+                        ? fixture_rows()
+                        : load_expected_rows_jsonl(args.expected_rows);
   FetchMemoryImage fetch_memory;
   if (!args.memory_hex.empty()) {
     fetch_memory.load_sparse_hex(args.memory_hex);

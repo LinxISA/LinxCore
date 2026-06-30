@@ -13,10 +13,12 @@ DUT_TRACE="${TRACE_DIR}/dut.chisel.jsonl"
 QEMU_TRACE="${TRACE_DIR}/qemu.reference.jsonl"
 DEFAULT_FETCH_MEMORY_BIN="${BUILD_DIR}/fixture.fetch.bin"
 DEFAULT_FETCH_MEMORY_HEX="${BUILD_DIR}/elf.fetch.mem"
+DEFAULT_EXPECTED_ROWS="${BUILD_DIR}/fixture.expected.jsonl"
 FETCH_ELF="${FETCH_ELF:-}"
 FETCH_MEMORY_BIN="${FETCH_MEMORY_BIN:-}"
 FETCH_MEMORY_HEX="${FETCH_MEMORY_HEX:-}"
 FETCH_MEMORY_BASE="${FETCH_MEMORY_BASE:-0x1000}"
+FETCH_EXPECTED_ROWS="${FETCH_EXPECTED_ROWS:-}"
 
 if ! command -v verilator >/dev/null 2>&1; then
   echo "error: Verilator is required for Chisel frontend fetch RF ALU trace top xcheck" >&2
@@ -24,6 +26,45 @@ if ! command -v verilator >/dev/null 2>&1; then
 fi
 
 mkdir -p "${TRACE_DIR}" "${REPORT_DIR}"
+
+if [[ -z "${FETCH_EXPECTED_ROWS}" ]]; then
+  FETCH_EXPECTED_ROWS="${DEFAULT_EXPECTED_ROWS}"
+  python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_fixture_rows.py" \
+    --output "${FETCH_EXPECTED_ROWS}"
+else
+  if [[ "${FETCH_EXPECTED_ROWS}" != /* ]]; then
+    FETCH_EXPECTED_ROWS="${ROOT_DIR}/${FETCH_EXPECTED_ROWS}"
+  fi
+  if [[ ! -f "${FETCH_EXPECTED_ROWS}" ]]; then
+    echo "error: FETCH_EXPECTED_ROWS does not exist: ${FETCH_EXPECTED_ROWS}" >&2
+    exit 2
+  fi
+fi
+
+EXPECTED_ROW_COUNT="$(python3 - "${FETCH_EXPECTED_ROWS}" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+count = 0
+with open(path, "r", encoding="utf-8", errors="replace") as f:
+    for line in f:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        row = json.loads(line)
+        if row.get("type") == "META":
+            continue
+        if row.get("valid", 1) in (0, False, "0", "false", "False"):
+            continue
+        count += 1
+print(count)
+PY
+)"
+if [[ "${EXPECTED_ROW_COUNT}" -le 0 ]]; then
+  echo "error: expected row stream is empty: ${FETCH_EXPECTED_ROWS}" >&2
+  exit 2
+fi
 
 if [[ -n "${FETCH_MEMORY_BIN}" && -n "${FETCH_MEMORY_HEX}" ]]; then
   echo "error: set only one of FETCH_MEMORY_BIN or FETCH_MEMORY_HEX" >&2
@@ -94,13 +135,14 @@ verilator \
 "${OBJ_DIR}/linxcore_frontend_fetch_rf_alu_trace_top_tb" \
   --dut-trace "${DUT_TRACE}" \
   --qemu-trace "${QEMU_TRACE}" \
+  --expected-rows "${FETCH_EXPECTED_ROWS}" \
   "${MEMORY_ARGS[@]}"
 
 bash "${ROOT_DIR}/tools/chisel/run_chisel_qemu_crosscheck.sh" \
   --qemu-trace "${QEMU_TRACE}" \
   --dut-trace "${DUT_TRACE}" \
   --report-dir "${REPORT_DIR}" \
-  --max-commits 3 \
+  --max-commits "${EXPECTED_ROW_COUNT}" \
   --mode failfast
 
 echo "frontend-fetch-rf-alu-trace-top-xcheck-report=${REPORT_DIR}"

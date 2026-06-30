@@ -569,6 +569,7 @@ These packets remain the required base before broad module promotion:
 | R95 | Live frontend fetch RF-backed ALU trace top | `run_chisel_tests.sh --only FrontendFetchPacketSource`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_fetch_trace_top_xcheck.sh`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, manifest inspection, `git diff --check` |
 | R96 | File-backed live fetch RF/ALU memory feeder | `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.fetch.bin` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 | R97 | Sparse ELF live fetch RF/ALU memory feeder | `frontend_fetch_elf_memory.py --self-test`, `FETCH_ELF=<synthetic.elf> run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/elf.fetch.mem` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
+| R98 | External expected-row source for live fetch RF/ALU | `frontend_fetch_rf_alu_fixture_rows.py --self-test`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `FETCH_EXPECTED_ROWS=<rows.jsonl> run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -740,9 +741,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. QEMU/ELF row-source binding: drive the R97 sparse ELF memory path with PCs,
-   instruction lengths, and expected scalar rows from a bounded QEMU/ELF
-   prefix rather than the fixed three-row fixture.
+1. QEMU/ELF prefix row extraction: feed the R98 `FETCH_EXPECTED_ROWS` boundary
+   from a bounded QEMU/ELF prefix and pair it with the R97 sparse ELF memory
+   path for matching PC/instruction bytes.
 2. Dense packet and multi-slot frontend: allow one response window to carry
    multiple valid F4 slots and retire/compare the selected architectural rows
    without relying on a one-instruction-per-response fixture.
