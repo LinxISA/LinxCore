@@ -20,6 +20,8 @@ The LinxCore Chisel lane uses explicit targets:
 | `frontend-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendAluTraceTop`, build the Verilator harness, drive frontend packets through reduced scalar ALU execute, and compare nonzero writeback rows against QEMU-shaped reference rows. |
 | `frontend-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendRfAluTraceTop`, build the shared Verilator harness in RF mode, preload identity scalar registers, enqueue dependent scalar ALU rows through the reduced issue queue, and compare RF-sourced writeback rows against QEMU-shaped reference rows. |
 | `frontend-fetch-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendFetchRfAluTraceTop`, build the Verilator harness, drive PC request/response windows from a binary or sparse ELF fetch-memory image plus QEMU-shaped expected-row JSONL through `FrontendFetchPacketSource`, F4, reduced rename/ROB, RF-backed issue, and ALU execute, then compare dependent scalar commit rows against QEMU-shaped reference rows. |
+| `frontend-fetch-rf-alu-qemu-elf-xcheck` | `tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh` | Capture a bounded live QEMU commit prefix from a direct-boot ELF, validate the selected rows as the strict reduced scalar subset, pair them with `FETCH_ELF` sparse fetch memory, and run the live fetch RF/ALU generated-RTL comparator gate. |
+| `frontend-fetch-rf-alu-qemu-fixture-elf` | `tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh` | Build a tiny legal-entry direct-boot ELF (`C.BSTART.STD; ADD; ADDI; C.MOVR; C.BSTOP`) and print the scalar PC filter used by the live QEMU ELF xcheck. |
 | `frontend-fetch-rf-alu-fixture-rows` | `tools/chisel/frontend_fetch_rf_alu_fixture_rows.py --self-test` | Validate the default QEMU-shaped expected-row fixture used when `FETCH_EXPECTED_ROWS` is unset. |
 | `frontend-fetch-rf-alu-qemu-rows` | `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py --self-test` | Validate strict QEMU commit JSONL prefix extraction for the reduced scalar RF/ALU gate used by `FETCH_QEMU_TRACE`. |
 | `frontend-fetch-elf-memory` | `tools/chisel/frontend_fetch_elf_memory.py --self-test` | Validate the ELF64 little-endian PT_LOAD extractor that creates sparse address-to-byte fetch-memory images for `FETCH_ELF` runs. |
@@ -75,10 +77,14 @@ now reads PC, instruction length, scalar source data, and writeback
 expectations from QEMU-shaped JSONL and the wrapper sizes the comparator window
 from that row count. R99 adds `FETCH_QEMU_TRACE`, which normalizes an existing
 QEMU commit JSONL and extracts a strict sequential reduced-scalar prefix into
-the expected-row stream. Chisel now owns packet creation, F4 byte-count PC
-advance, rename/ROB allocation, RF source data, issue residency, ALU
-completion, and commit-row export for those reduced scalar rows. Live QEMU
-capture automation and full live DUT comparison remain later owners.
+the expected-row stream. R100 adds
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`, which captures a
+bounded live QEMU prefix from a direct-boot ELF, optionally filters the scalar
+PC range after the legal entry block header, and runs the same `FETCH_ELF` plus
+`FETCH_QEMU_TRACE` comparator path. Chisel now owns packet creation, F4
+byte-count PC advance, rename/ROB allocation, RF source data, issue residency,
+ALU completion, and commit-row export for those reduced scalar rows. Full live
+DUT comparison remains a later owner.
 QEMU-row gates must keep raw replay/normalization depth separate from the
 architectural compare depth because the comparator filters metadata rows before
 checking lockstep architectural commits.

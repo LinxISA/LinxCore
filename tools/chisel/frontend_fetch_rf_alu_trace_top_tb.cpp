@@ -374,6 +374,34 @@ void init_rf(VLinxCoreFrontendFetchRfAluTraceTop &dut, std::uint8_t arch_tag, st
   dut.eval();
 }
 
+std::map<std::uint8_t, std::uint64_t> initial_rf_preloads(const std::vector<ExpectedRow> &rows) {
+  std::map<std::uint8_t, std::uint64_t> preloads;
+  std::map<std::uint8_t, bool> produced;
+
+  const auto observe_source = [&](bool valid, std::uint8_t reg, std::uint64_t data) {
+    if (!valid || produced[reg]) {
+      return;
+    }
+    const auto [it, inserted] = preloads.emplace(reg, data);
+    if (!inserted && it->second != data) {
+      std::cerr << "expected rows require conflicting initial RF data"
+                << " reg=" << static_cast<unsigned>(reg)
+                << " first=" << it->second
+                << " later=" << data << "\n";
+      std::exit(2);
+    }
+  };
+
+  for (const ExpectedRow &row : rows) {
+    observe_source(row.src0_valid, row.src0_reg, row.src0_data);
+    observe_source(row.src1_valid, row.src1_reg, row.src1_data);
+    if (row.dst_valid) {
+      produced[row.dst_reg] = true;
+    }
+  }
+  return preloads;
+}
+
 std::uint64_t mask_insn(std::uint64_t insn, std::uint8_t len) {
   if (len == 2) {
     return insn & 0xffffULL;
@@ -987,18 +1015,6 @@ int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
   const Args args = parse_args(argc, argv);
 
-  VLinxCoreFrontendFetchRfAluTraceTop dut;
-  reset(dut);
-  init_rf(dut, 4, 10);
-  init_rf(dut, 5, 32);
-
-  std::ofstream dut_out(args.dut_trace);
-  std::ofstream qemu_out(args.qemu_trace);
-  if (!dut_out || !qemu_out) {
-    std::cerr << "failed to open output traces\n";
-    return 2;
-  }
-
   const auto rows = args.expected_rows.empty()
                         ? fixture_rows()
                         : load_expected_rows_jsonl(args.expected_rows);
@@ -1009,6 +1025,19 @@ int main(int argc, char **argv) {
     fetch_memory.load_binary(args.memory_bin, args.memory_base);
   } else {
     fetch_memory = FetchMemoryImage::from_rows(rows);
+  }
+
+  VLinxCoreFrontendFetchRfAluTraceTop dut;
+  reset(dut);
+  for (const auto &[arch_tag, data] : initial_rf_preloads(rows)) {
+    init_rf(dut, arch_tag, data);
+  }
+
+  std::ofstream dut_out(args.dut_trace);
+  std::ofstream qemu_out(args.qemu_trace);
+  if (!dut_out || !qemu_out) {
+    std::cerr << "failed to open output traces\n";
+    return 2;
   }
 
   start_source(dut, rows.front().pc);

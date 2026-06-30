@@ -5,7 +5,10 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 CHISEL_DIR="${ROOT_DIR}/chisel"
 SV_DIR="${ROOT_DIR}/generated/chisel-verilog/frontend-fetch-rf-alu-trace-top"
 TOP_SV="${SV_DIR}/LinxCoreFrontendFetchRfAluTraceTop.sv"
-BUILD_DIR="${ROOT_DIR}/generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck"
+BUILD_DIR="${BUILD_DIR:-${ROOT_DIR}/generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck}"
+if [[ "${BUILD_DIR}" != /* ]]; then
+  BUILD_DIR="${ROOT_DIR}/${BUILD_DIR}"
+fi
 OBJ_DIR="${BUILD_DIR}/obj_dir"
 TRACE_DIR="${BUILD_DIR}/traces"
 REPORT_DIR="${BUILD_DIR}/report"
@@ -99,6 +102,13 @@ fi
 
 MEMORY_ARGS=()
 if [[ -n "${FETCH_ELF}" ]]; then
+  if [[ "${FETCH_ELF}" != /* ]]; then
+    FETCH_ELF="${ROOT_DIR}/${FETCH_ELF}"
+  fi
+  if [[ ! -f "${FETCH_ELF}" ]]; then
+    echo "error: FETCH_ELF does not exist: ${FETCH_ELF}" >&2
+    exit 2
+  fi
   FETCH_MEMORY_HEX="${FETCH_MEMORY_HEX:-${DEFAULT_FETCH_MEMORY_HEX}}"
   python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_elf_memory.py" \
     --elf "${FETCH_ELF}" \

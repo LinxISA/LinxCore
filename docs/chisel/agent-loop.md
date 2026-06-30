@@ -571,6 +571,7 @@ These packets remain the required base before broad module promotion:
 | R97 | Sparse ELF live fetch RF/ALU memory feeder | `frontend_fetch_elf_memory.py --self-test`, `FETCH_ELF=<synthetic.elf> run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/elf.fetch.mem` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 | R98 | External expected-row source for live fetch RF/ALU | `frontend_fetch_rf_alu_fixture_rows.py --self-test`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `FETCH_EXPECTED_ROWS=<rows.jsonl> run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 | R99 | Strict QEMU trace expected-row extraction for live fetch RF/ALU | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `FETCH_QEMU_TRACE=<qemu.jsonl> run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, default live fetch RF/ALU xcheck regression, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/qemu.expected.jsonl` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
+| R100 | Live QEMU ELF capture for reduced fetch RF/ALU | `build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`, default live fetch RF/ALU xcheck regression, inspect `generated/chisel-frontend-fetch-rf-alu-qemu-elf-xcheck/report/crosscheck_manifest.json`, trace/adapter self-tests, QEMU dry-run, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -606,19 +607,22 @@ Use this order for each promoted slice:
     or sparse ELF fetch-memory feeder, bounded memory-window response fixture,
     source PC advance, issue enqueue, RF writeback, ALU completion, or commit
     export.
-12. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
+12. `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh` after changes to
+    live QEMU capture, `FETCH_QEMU_TRACE` selection, `FETCH_ELF` binding, or
+    the row-derived RF preload contract for the reduced fetch RF/ALU gate.
+13. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
-13. `run_chisel_qemu_trace_replay_xcheck.sh --dry-run` after QEMU row replay
+14. `run_chisel_qemu_trace_replay_xcheck.sh --dry-run` after QEMU row replay
    wrapper changes, followed by a bounded `--qemu-trace` or `--elf` replay.
    `--max-commits` is the architectural compare depth; `--replay-rows` is only
    the raw search/replay cap before metadata filtering. Direct-boot CoreMark
    replay also requires trailing QEMU memory args such as `-m 1280M` because
    the current ELF maps load segments at `0x40000000`.
-14. Inspect `crosscheck_manifest.json` after any non-dry-run generated-RTL,
+15. Inspect `crosscheck_manifest.json` after any non-dry-run generated-RTL,
    QEMU-row replay, or full QEMU comparison routed through the common wrapper.
-15. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
+16. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
    commit rows for the slice.
-16. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
+17. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
    QEMU in the same run packet.
 
 ## LinxCoreModel Maintenance Loop
@@ -686,6 +690,9 @@ Update skills only for:
 - a QEMU row-source rule where a reduced live-fetch gate may consume QEMU
   commit JSONL only after strict prefix validation proves every row is inside
   the current DUT subset.
+- a live-QEMU ELF gate rule where bounded FIFO capture, optional PC filtering
+  after legal block headers, `FETCH_ELF`, and `FETCH_QEMU_TRACE` must pass
+  together before claiming live fetch RF/ALU replacement evidence.
 
 Run skill evolution as a trailing maintenance lane after the module docs and
 evidence are updated. The module packet owns local Markdown first; the
@@ -745,12 +752,14 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Live QEMU capture plus reduced-row selection: collect a bounded QEMU trace
-   for a direct-boot ELF, feed a validated `FETCH_QEMU_TRACE` prefix into the
-   R99 path, and pair it with `FETCH_ELF` for matching PC/instruction bytes.
-2. Dense packet and multi-slot frontend: allow one response window to carry
-   multiple valid F4 slots and retire/compare the selected architectural rows
-   without relying on a one-instruction-per-response fixture.
+1. Block-header and dense packet frontend: execute or explicitly classify
+   `BSTART`/`BSTOP` rows in the reduced live-fetch path, then allow one
+   response window to carry multiple valid F4 slots and retire/compare the
+   selected architectural rows without relying on a one-instruction-per-response
+   fixture.
+2. Longer live-QEMU scalar prefix: after block headers and dense packets are
+   live, remove the PC filter from the tiny fixture and grow the direct-boot
+   scalar prefix before introducing memory, trap, or recovery rows.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.

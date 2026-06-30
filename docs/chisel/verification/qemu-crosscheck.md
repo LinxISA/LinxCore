@@ -22,6 +22,8 @@ details into the comparator itself.
 - `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`
+- `tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`
 - `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py`
 - `tools/trace/crosscheck_qemu_linxcore.py`
 
@@ -110,6 +112,11 @@ bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
+  --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b \
+  --max-seconds 5
 ```
 
 `run_chisel_trace_replay_xcheck.sh` is the bridge between synthetic reduced
@@ -178,6 +185,28 @@ bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh \
   --max-seconds 30
 ```
 
+Reduced live-QEMU ELF gate:
+
+```bash
+bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh \
+  --out-dir generated/r100-live-qemu-fixture
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
+  --expected-rows 3 \
+  --capture-rows 3 \
+  --pc-lo 0x10002 \
+  --pc-hi 0x1000b \
+  --max-seconds 5
+```
+
+This gate captures a bounded QEMU JSONL prefix through a FIFO, validates the
+selected rows with `frontend_fetch_rf_alu_qemu_rows.py`, extracts the same ELF
+PT_LOAD bytes with `FETCH_ELF`, and compares the live fetch RF/ALU DUT rows
+through the common manifest-producing comparator. The PC range skips the legal
+entry `BSTART` for now; block-header execution is a later DUT feature. QEMU
+termination after the bounded rows are captured is expected only when the
+manifest reports `status: "pass"`.
+
 Full compare gate, once a Chisel commit trace exists:
 
 ```bash
@@ -206,8 +235,9 @@ bundles, reduced ROB Verilator smoke, reduced top Verilator smoke, top trace
 replay smoke, QEMU trace replay bridge,
 frontend-window trace-top Verilator lint, frontend-window trace-top Verilator
 xcheck, live frontend fetch trace-top Verilator xcheck, frontend-window ALU
-trace-top Verilator xcheck, RF-backed ALU trace-top Verilator xcheck, and live
-frontend fetch RF-backed ALU trace-top Verilator xcheck are ready. The common
+trace-top Verilator xcheck, RF-backed ALU trace-top Verilator xcheck, live
+frontend fetch RF-backed ALU trace-top Verilator xcheck, and reduced live
+QEMU ELF fetch RF/ALU xcheck are ready. The common
 wrapper emits a machine-readable `crosscheck_manifest.json` for generated-RTL
 comparisons and future full QEMU-vs-DUT windows.
 `run_chisel_reduced_rob_xcheck.sh` and `run_chisel_top_xcheck.sh` currently
@@ -254,9 +284,13 @@ trap side effects).
 Its manifest under
 `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/report` records
 `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
-The R97 sparse ELF mode extracts PT_LOAD bytes into `elf.fetch.mem`, but the
-top still needs a reduced scalar row stream that the current top can execute;
-live QEMU capture automation and non-ALU row enrichment remain later packets.
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh` captures the legal-entry
+fixture ELF through live QEMU, filters the scalar prefix after `BSTART`, runs
+the R99 strict row reducer plus R97 sparse ELF memory path, and passes with
+`status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0` under
+`generated/chisel-frontend-fetch-rf-alu-qemu-elf-xcheck/report`.
+Block-header execution, dense packets, and non-ALU row enrichment remain later
+packets.
 The QEMU trace replay bridge now has bounded live-ELF prefix evidence using
 `tests/benchmarks/build/coremark_real.elf` with explicit `-m 1280M`; the
 default 128 MiB QEMU run fails fast with an empty-trace error because the ELF

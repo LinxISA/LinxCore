@@ -6,6 +6,8 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTopSpec.scala`
 - Verilator driver: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`
 - Gate: `rtl/LinxCore/tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- Live QEMU ELF gate: `rtl/LinxCore/tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`
+- Live QEMU fixture builder: `rtl/LinxCore/tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`
 - Fixture memory helper: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_fixture_memory.py`
 - Fixture expected-row helper: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_fixture_rows.py`
 - QEMU expected-row helper: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py`
@@ -53,11 +55,14 @@ expected PC/instruction/source/writeback rows out of the C++ harness and into a
 QEMU-shaped JSONL file selected by `FETCH_EXPECTED_ROWS` or the default
 `fixture.expected.jsonl`. R99 adds `FETCH_QEMU_TRACE`, which normalizes an
 existing QEMU commit JSONL and extracts a strict sequential reduced-scalar
-prefix into `qemu.expected.jsonl`. The top still injects a single-instruction
-response terminator after each expected instruction length, so it is not dense
-packet or full QEMU equivalence. Live QEMU capture automation, dense multi-slot
-packet handling, full issue arbitration, LSU, trap/recovery, and branch restart
-are still outside this reduced top.
+prefix into `qemu.expected.jsonl`. R100 adds a live direct-boot ELF wrapper
+that captures a bounded QEMU commit prefix, validates the selected rows through
+that same R99 reducer, and pairs the rows with the ELF sparse fetch-memory path
+for matching PC/instruction bytes. The top still injects a
+single-instruction response terminator after each expected instruction length,
+so it is not dense packet or full QEMU equivalence. Block-header execution,
+dense multi-slot packet handling, full issue arbitration, LSU, trap/recovery,
+and branch restart are still outside this reduced top.
 
 ## Interface
 
@@ -156,9 +161,12 @@ expectations that the reduced top can execute. R99 allows that stream to come
 from an already captured QEMU commit trace when the first rows are the strict
 reduced scalar subset. The extractor rejects unsupported opcodes, memory or
 trap rows, non-scalar GPR aliases, non-sequential `next_pc`, and result
-mismatches before the Verilator harness sees the rows. This top still does not
-collect a live QEMU trace itself, and it does not model cacheline merge,
-branch prediction, multiple
+mismatches before the Verilator harness sees the rows. R100 automates that
+path for a direct-boot ELF: the wrapper captures a bounded live QEMU JSONL
+prefix through a FIFO, optionally applies a PC filter to skip legal block
+headers until this reduced top can execute them, then runs the existing
+`FETCH_ELF` plus `FETCH_QEMU_TRACE` gate. This top still does not model
+cacheline merge, branch prediction, multiple
 outstanding fetches, dense multi-slot decode, full oldest-ready issue
 preferences, read-port arbitration, bypass, load speculative wakeup, LSU,
 precise traps, or architectural redirect restart.
@@ -169,7 +177,8 @@ precise traps, or architectural redirect restart.
 top, builds every emitted SystemVerilog file with Verilator, and runs
 `frontend_fetch_rf_alu_trace_top_tb.cpp`. The driver:
 
-- preloads `r4=10` and `r5=32` into the reduced RF;
+- preloads initial reduced RF data from the first expected source read for any
+  architectural register that has not already been produced by an earlier row;
 - emits `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.fetch.bin`
   with dense little-endian instruction bytes unless `FETCH_MEMORY_BIN` points
   at another binary image;
@@ -196,8 +205,34 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
 - compares `ADD r3,r4,r5`, `ADDI r6,r3,0x7ff`, and `C.MOVR r5,r6` through the
   neutral comparator.
 
-The R99 manifest at
+The default wrapper manifest at
 `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
+
+`tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh` builds a tiny
+legal-entry direct-boot ELF:
+
+```text
+C.BSTART.STD; ADD; ADDI; C.MOVR; C.BSTOP
+```
+
+The R100 gate runs:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
+  --expected-rows 3 \
+  --capture-rows 3 \
+  --pc-lo 0x10002 \
+  --pc-hi 0x1000b \
+  --max-seconds 5
+```
+
+The PC filter selects the scalar prefix after the legal entry `BSTART` until
+block-header execution is live in this reduced top. QEMU termination by
+signal after the bounded rows are captured is expected; the pass/fail source is
+the manifest. The R100 manifest at
+`generated/chisel-frontend-fetch-rf-alu-qemu-elf-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 
 ## Verification
@@ -205,6 +240,8 @@ records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`
 - `FETCH_EXPECTED_ROWS=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_QEMU_TRACE=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`
