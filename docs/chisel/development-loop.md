@@ -224,6 +224,26 @@ dense multi-slot packets, real execute/LSU completion, and recovery remain
 later packets.
 R94 closeout: skill-evolve: update linx-core (new generated-RTL live fetch
 trace-top xcheck is a reusable promotion gate).
+R95 evidence was collected with `linx-isa` commit
+`b9b7066823c7c532954923cea395d11002b978c5`, `rtl/LinxCore` commit
+`f3fe4c325c0aad3c1936d9b565f84079f48d076d`, `model/LinxCoreModel` commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`, QEMU commit
+`f03477a0f56aeffb82a304e3a553b31cc2d29879`, and `skills/linx-skills` commit
+`653282e779886f057821b49f43a29d23b7a88937`. R95 adds
+`LinxCoreFrontendFetchRfAluTraceTop`, the first generated-RTL cross-check top
+that combines a live `FrontendFetchPacketSource` with the RF-backed reduced
+issue and ALU completion path. The bounded Verilator fixture now serves PC
+request/response windows instead of creating `FrontendDecodePacket` rows, and
+the Chisel source advances its PC from F4's decoded byte count before the
+decoded row flows through rename/ROB, RF source reads, issue residency, ALU W2
+completion, RF writeback, and monitored commit export. The manifest at
+`generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
+This remains reduced live-source evidence, not full QEMU equivalence; ELF
+memory loading, dense multi-slot packets, full issue arbitration, LSU,
+trap/recovery, and redirect restart remain later packets.
+R95 closeout: skill-evolve: update linx-core (new generated-RTL live fetch to
+RF/issue/ALU xcheck is a reusable promotion gate).
 
 ## Reference Evidence
 
@@ -243,6 +263,7 @@ facts:
 | `model/iex/iex_iq.cpp` / `model/iex/iex_dispatch.cpp` / `model/iex/pipe/iex_pipe.h` / `model/iex/pipe/alu_pipe.cpp` / `model/iex/iex.cpp` | R88 scalar issue handoff stores renamed rows before execute, initializes and wakes sources by physical tag, selects the oldest resident ready non-issued entry, marks selected entries issued without removing them, separates P1 pick from I1 RF-read request and I2 RF-return consumption in the pipe model, and releases issued rows later by `(bid, rid, stid)`. The reduced Chisel queue preserves enqueue, registered RF-readiness gating, ROB identity, oldest-ready resident selection, P1 in-flight lock, I1 read-cancel unlock, I2 execute handoff, issued-entry residency, and ALU W2 release while still deferring full read-port arbitration, alternate select preferences, load miss suppression, replay, and bypass. |
 | `model/pe/ifu/iside/pe_ifu.cpp` / `model/ModelCommon/bus/FetchReqBus.h` / `model/pe/PECommon/DecodeBundle.h` / `isa/ISACommon/DecodeUtiles.h` | R93 frontend fetch source evidence: F0 captures `fetchTPC`, block/thread identity, `fid`, and sidebands in `FetchReqBus`; F2 fills instruction window data and sizes with `CheckMInstSize`; F3/F4/F5 move `DecodeBundle` records under backpressure. The reduced Chisel source preserves one-outstanding PC request, response-window packetization, packet-owned UID/checkpoint, restart/flush clearing, and downstream decoded-byte PC advance while deferring cacheline merge, branch prediction, RAHQ, ELF memory loading, and multiple outstanding requests. |
 | `model/pe/ifu/iside/pe_ifu.cpp` / `model/bctrl/spe/DCTop.cpp` / `model/bctrl/spe/SPEROB.cpp` / `model/interface/CommitInfo.h` | R94 live frontend fetch trace-top evidence: model fetch requests become decode bundles before scalar decode/ROB allocation, and commit rows preserve model `(bid,gid,rid)` identity separately from hardware block identity. The Chisel top preserves the reduced form by feeding source-produced packets into F4 and `DecodeRenameROBPath`, advancing source PC from F4 decoded byte count, and dumping generated-RTL commit rows through the shared JSONL writer and neutral comparator. |
+| `model/pe/ifu/iside/pe_ifu.cpp` / `model/bctrl/spe/DCTop.cpp` / `model/bctrl/spe/GPRRename.cpp` / `model/iex/iex_iq.cpp` / `model/iex/iex_rf.cpp` / `model/iex/pipe/alu_pipe.cpp` / `model/interface/CommitInfo.h` | R95 live frontend fetch RF/ALU evidence: source-produced packets flow through F4 into scalar decode/rename/ROB allocation, RF-backed issue residency, RF source reads, ALU W2 completion, destination RF writeback, and commit-row export. The reduced Chisel top preserves source PC request/response ownership, F4 byte-count PC advance, queue-capacity rename acceptance, RF-readiness-gated issue, model-derived issue release identity, and separate model commit identity versus hardware block identity while still using a bounded instruction-window fixture. |
 
 The key hardware implication is that the C++ model gets post-allocation rename
 visibility through a shared `SimInst` pointer. Chisel `ROBEntryBank` stores
@@ -335,9 +356,12 @@ The ROB/cross-check substrate remains the required base:
 | 18 | R92 shared commit JSONL writer | `tools/chisel/commit_trace_jsonl.h`, generated-RTL Verilator harnesses, cross-check docs | reduced/top/replay/frontend generated-RTL xchecks, trace self-test, QEMU dry-run, diff check |
 | 19 | R93 frontend fetch packet source | `frontend/FrontendFetchPacketSource.scala`, module docs/tests | `FrontendFetchPacketSource`, `F4DecodeWindow`, `FrontendDecodeIngress`, trace self-test, QEMU dry-run |
 | 20 | R94 live frontend fetch trace top | `top/LinxCoreFrontendFetchTraceTop.scala`, `frontend/FrontendFetchPacketSource.scala`, live Chisel trace writer | `LinxCoreFrontendFetchTraceTop`, `run_chisel_frontend_fetch_trace_top_xcheck.sh`, manifest inspection |
-| 21 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 22 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 23 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 21 | R95 live frontend fetch RF-backed ALU trace top | `top/LinxCoreFrontendFetchRfAluTraceTop.scala`, `tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`, top/cross-check docs | `FrontendFetchPacketSource`, `LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, manifest inspection |
+| 22 | ELF-backed frontend memory source | frontend source/top harness and program-memory fixture | live fetch RF/ALU xcheck plus bounded QEMU trace replay evidence |
+| 23 | Dense multi-slot frontend packet path | F4/source/top harness | live fetch xchecks with multi-slot windows and manifest inspection |
+| 24 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 25 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 26 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
@@ -374,18 +398,22 @@ Use this ladder for every promoted packet:
    changes to scalar RF operand sourcing, registered issue-queue source
    readiness, oldest-ready issue selection, issue-pick read-confirm gating,
    physical writeback metadata, or the shared frontend ALU trace-top driver.
-12. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
+12. `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+   after changes to the live fetch source to RF-backed issue/ALU top, bounded
+   memory-window fixture, source PC advance, issue enqueue, RF writeback, ALU
+   completion, or commit export.
+13. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
-13. `bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run` for
+14. `bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run` for
    QEMU-row replay wrapper changes, then replay a bounded archived or fresh
    QEMU JSONL with `--qemu-trace` or `--elf`. Use `--replay-rows` only to cap
    the raw search window; `--max-commits` remains the architectural compare
    window.
-14. Inspect `<report-dir>/crosscheck_manifest.json` after any non-dry-run
+15. Inspect `<report-dir>/crosscheck_manifest.json` after any non-dry-run
    generated-RTL or QEMU comparison that routes through the common wrapper.
-15. Full QEMU-vs-DUT comparison only after the Chisel top emits real
+16. Full QEMU-vs-DUT comparison only after the Chisel top emits real
    architectural commit rows.
-16. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
+17. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
 
 ## Project Maintenance
 
@@ -429,6 +457,9 @@ Update skills for:
   queued row, while reduced rename acceptance remains queue-capacity driven.
 - an issue-queue lifetime rule where execute acceptance marks a row issued but
   removal waits for a later model-derived release identity.
+- a live-source promotion rule where future replacement evidence must remove
+  testbench-owned frontend packets before claiming a top can consume fetch
+  traffic.
 
 Do not update skills for wording cleanup, one-off test vectors, or module-local
 implementation detail already captured in that module page.

@@ -566,6 +566,7 @@ These packets remain the required base before broad module promotion:
 | R92 | Shared commit JSONL writer | `run_chisel_reduced_rob_xcheck.sh`, `run_chisel_top_xcheck.sh`, `run_chisel_trace_replay_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 | R93 | Frontend fetch packet source | `run_chisel_tests.sh --only FrontendFetchPacketSource`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 | R94 | Live frontend fetch trace top | `run_chisel_tests.sh --only LinxCoreFrontendFetchTraceTop`, `run_chisel_tests.sh --only FrontendFetchPacketSource`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_frontend_fetch_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, manifest inspection, `git diff --check` |
+| R95 | Live frontend fetch RF-backed ALU trace top | `run_chisel_tests.sh --only FrontendFetchPacketSource`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_fetch_trace_top_xcheck.sh`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, manifest inspection, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -596,19 +597,23 @@ Use this order for each promoted slice:
    oldest-ready issue selection, issue-queue release, execute
    physical-destination writeback metadata, or the shared frontend ALU
    trace-top driver.
-11. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
+11. `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` after changes to
+    the live fetch source to RF-backed reduced issue/ALU top, bounded
+    memory-window response fixture, source PC advance, issue enqueue, RF
+    writeback, ALU completion, or commit export.
+12. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
-12. `run_chisel_qemu_trace_replay_xcheck.sh --dry-run` after QEMU row replay
+13. `run_chisel_qemu_trace_replay_xcheck.sh --dry-run` after QEMU row replay
    wrapper changes, followed by a bounded `--qemu-trace` or `--elf` replay.
    `--max-commits` is the architectural compare depth; `--replay-rows` is only
    the raw search/replay cap before metadata filtering. Direct-boot CoreMark
    replay also requires trailing QEMU memory args such as `-m 1280M` because
    the current ELF maps load segments at `0x40000000`.
-13. Inspect `crosscheck_manifest.json` after any non-dry-run generated-RTL,
+14. Inspect `crosscheck_manifest.json` after any non-dry-run generated-RTL,
    QEMU-row replay, or full QEMU comparison routed through the common wrapper.
-14. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
+15. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
    commit rows for the slice.
-15. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
+16. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
    QEMU in the same run packet.
 
 ## LinxCoreModel Maintenance Loop
@@ -670,6 +675,9 @@ Update skills only for:
 - an issue-boundary readiness rule where RF physical source readiness must gate
   issue from a queued row, while reduced rename acceptance remains driven by
   issue-queue capacity.
+- a live-source promotion rule where future replacement evidence must remove
+  testbench-owned frontend packets before claiming a top can consume fetch
+  traffic.
 
 Run skill evolution as a trailing maintenance lane after the module docs and
 evidence are updated. The module packet owns local Markdown first; the
@@ -729,21 +737,27 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Full issue scheduler timing: add explicit wakeup ports, alternate model
+1. ELF-backed frontend memory source: replace bounded one-instruction response
+   windows with a reusable ELF/program memory feeder while preserving source PC
+   advance and manifest-producing generated-RTL comparison.
+2. Dense packet and multi-slot frontend: allow one response window to carry
+   multiple valid F4 slots and retire/compare the selected architectural rows
+   without relying on a one-instruction-per-response fixture.
+3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.
-2. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
+4. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
    event stream from commit-only rows toward trap, memory, recovery, and block
    sidebands.
-3. QEMU full-compare harness: feed a bounded direct-boot or CoreMark window
+5. QEMU full-compare harness: feed a bounded direct-boot or CoreMark window
    from QEMU into the same comparator path, then make the Chisel DUT stream
    live once frontend/decode/execute/LSU can retire it.
-4. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+6. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
-5. Multi-PE packet production and bank instantiation: teach the upstream
+7. Multi-PE packet production and bank instantiation: teach the upstream
    frontend/top owner to set nonzero `FrontendDecodePacket.peId` and instantiate
    matching `ScalarTURenameBridge`/`TULinkLocalBankArray` PE banks.
-6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+8. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

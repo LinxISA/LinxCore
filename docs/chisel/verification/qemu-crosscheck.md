@@ -21,6 +21,7 @@ details into the comparator itself.
 - `tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
+- `tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `tools/trace/crosscheck_qemu_linxcore.py`
 
 ## Evidence Manifest
@@ -107,6 +108,7 @@ bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 `run_chisel_trace_replay_xcheck.sh` is the bridge between synthetic reduced
@@ -203,10 +205,10 @@ bundles, reduced ROB Verilator smoke, reduced top Verilator smoke, top trace
 replay smoke, QEMU trace replay bridge,
 frontend-window trace-top Verilator lint, frontend-window trace-top Verilator
 xcheck, live frontend fetch trace-top Verilator xcheck, frontend-window ALU
-trace-top Verilator xcheck, and RF-backed ALU
-trace-top Verilator xcheck are ready. The common wrapper emits a
-machine-readable `crosscheck_manifest.json` for generated-RTL comparisons and
-future full QEMU-vs-DUT windows.
+trace-top Verilator xcheck, RF-backed ALU trace-top Verilator xcheck, and live
+frontend fetch RF-backed ALU trace-top Verilator xcheck are ready. The common
+wrapper emits a machine-readable `crosscheck_manifest.json` for generated-RTL
+comparisons and future full QEMU-vs-DUT windows.
 `run_chisel_reduced_rob_xcheck.sh` and `run_chisel_top_xcheck.sh` currently
 compare three Verilator-produced rows with zero mismatches.
 `run_chisel_trace_replay_xcheck.sh` proves that a normalized external commit
@@ -235,6 +237,12 @@ registers, enqueues rows through the reduced issue queue before draining
 commits, reads later sources from Chisel physical RF writeback state, and
 compares three rows with zero mismatches. Its report directory now includes a
 manifest with `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
+`run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` drives the same
+dependent scalar smoke through `LinxCoreFrontendFetchRfAluTraceTop`, replaces
+testbench-supplied frontend packets with a live PC request/response source,
+and preserves RF-backed reduced issue and ALU completion. Its manifest under
+`generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/report` records
+`status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 The QEMU trace replay bridge now has bounded live-ELF prefix evidence using
 `tests/benchmarks/build/coremark_real.elf` with explicit `-m 1280M`; the
 default 128 MiB QEMU run fails fast with an empty-trace error because the ELF
