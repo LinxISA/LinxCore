@@ -143,6 +143,7 @@ The Chisel module implements the first reduced subset:
 | `OP_C_SETC_NE` | `0`, with branch sideband taken when validity-masked `srcData(0) != srcData(1)` |
 | `OP_C_SETC_TGT` | `0`, latches `srcData(0)` as the reduced dynamic target |
 | `OP_C_SETRET` | `in.pc + in.imm` |
+| `OP_CMP_EQI` | `1` when `srcData(0) == in.imm`, otherwise `0` |
 | `OP_FENTRY` | `stackPointerData - in.imm`; the store address uses the ranged save count to place the first saved register |
 | `OP_FRET_STK` | redirect-only while the live SETC condition is true; on the condition-false RA-restore path, load `x10/ra` from `stackPointerData + in.imm - 8`, emit an 8-byte load sideband, write reduced RF tag `x10`, and redirect to the loaded value |
 | `OP_HL_LUI` | `in.imm` |
@@ -196,6 +197,11 @@ sets `mem.isStore`, writes 8 bytes, and uses `srcData(0)` as store data. The
 reduced lane keeps this opcode-specific because the generated HL PCR metadata
 still routes these rows through the ALU envelope rather than the full LSU/STQ
 path.
+R135 admits `OP_CMP_EQI` as a regular destination-producing compare, not a
+SETC branch sideband. LinxCoreModel maps `OP_CMP_EQI` to `CalcCmpEQ` with the
+signed immediate decoded as source 1, and QEMU lowers it with `setcond EQ`;
+the reduced execute result is therefore `1` when `srcData(0) == imm`, else
+`0`. The promoted CoreMark row writes architectural `x30/U0`.
 R111 proves the same local-source row shape for CoreMark `SLL`: the row reads
 T0/U0, writes architectural U tag `30`, emits `0x100000000`, and leaves scalar
 source fields invalid to match QEMU.
@@ -406,4 +412,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r131-andi-swi-ori-sub-mul-1595-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1595 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r132-fret-stk-load-1597-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1597 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r134-hl-sd-pcr-1611-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1611 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r135-cmp-eqi-1619-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1619 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

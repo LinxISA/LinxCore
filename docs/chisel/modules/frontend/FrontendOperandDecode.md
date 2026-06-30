@@ -134,6 +134,10 @@ Explicit pyCircuit/model overrides currently cover:
   unshifted signed 29-bit PC-relative store offset. The promoted CoreMark
   `OP_HL_SD_PCR` row at `pc=0x40005cce` decodes source `x3`, no destination,
   and immediate `0xa43a`, producing store address `0x40010108` in execute.
+- R135 `CMP_EQI` uses the generic 32-bit `rd`, `rs1`, and
+  `ImmSIMM12_20_S12` path. The promoted row at `pc=0x40005d2a`
+  (`insn=0x00060f55`) decodes destination `x30/U0`, source `x12`, and signed
+  immediate `0`; execute, not decode, owns the compare result value.
 - R128 `SETC.*I` immediate compare rows. The generated metadata exposes the
   encoded immediate compare register field through `rdKind=REG`, but the
   reduced scalar trace treats these rows as no-writeback condition producers.

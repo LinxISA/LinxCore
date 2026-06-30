@@ -602,6 +602,7 @@ These packets remain the required base before broad module promotion:
 | R132 | CoreMark condition-aware FRET.STK RA-load return packet | `git diff --check`, `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r132-fret-stk-load-1597-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1597 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 1597 raw rows captured, 1476 expected rows extracted, 1080 normalized rows compared, 0 mismatches; next frontier is `OP_ADDTPC` writing `x31/T0` at `pc=0x40005cb2`, `insn=0x00009f87` |
 | R133 | CoreMark post-return ADDTPC/ORI local T materialization packet | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r133-addtpc-local-1600-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1600 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 1600 raw rows captured, 1479 expected rows extracted, 1082 normalized rows compared, 0 mismatches; QEMU-only 1620-row probe reaches `OP_HL_SD_PCR` at `pc=0x40005cce`, `insn=0x43a1b569000e`, `len=6` |
 | R134 | CoreMark high-long `SD.PCR` store sideband packet | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r134-hl-sd-pcr-1611-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1611 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 1611 raw rows captured, 1488 expected rows extracted, 1089 normalized rows compared, 0 mismatches; QEMU-only 1640-row probe reaches `OP_CMP_EQI` at `pc=0x40005d2a`, `insn=0x00060f55`, `len=4`, writing reduced `x30/U0` with value `1` |
+| R135 | CoreMark `CMP_EQI` compare-immediate local result packet | `git diff --check`, `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r135-cmp-eqi-1619-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1619 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 1619 raw rows captured, 1495 expected rows extracted, 1093 normalized rows compared, 0 mismatches; QEMU-only 1660-row probe reaches `OP_LDI` writing reduced `x31/T0` at `pc=0x40005d2e`, `insn=0x0260bf99`, `len=4` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -800,13 +801,14 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Next CoreMark frontier after R134: the 1611-row gate now passes both
-   high-long `OP_HL_SD_PCR` rows as no-writeback 8-byte stores at `pc + imm`.
-   A QEMU-only 1640-row probe then reaches `OP_CMP_EQI` at `pc=0x40005d2a`,
-   `insn=0x00060f55`, `len=4`, with `src0=x12`, signed immediate `0`, and
-   destination `x30/U0` set to `1`. Treat the next packet as ordinary
-   compare-immediate result admission, then verify the following `OP_LDI` and
-   page-relative materialization rows remain covered by the reduced path.
+2. Next CoreMark frontier after R135: the 1619-row gate now passes
+   `OP_CMP_EQI` as an ordinary 0/1 destination-producing compare. A QEMU-only
+   1660-row probe then reaches `OP_LDI` at `pc=0x40005d2e`,
+   `insn=0x0260bf99`, `len=4`, with `src0=x1`, address `0x4ffefcf0`,
+   `mem_rdata=0`, and destination `x31/T0`. Treat the next packet as ordinary
+   `LDI` local-T destination admission; the reduced load datapath already
+   handles scalar/U destinations, so the likely change is reducer admission
+   plus a live gate that proves the T-local write.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.

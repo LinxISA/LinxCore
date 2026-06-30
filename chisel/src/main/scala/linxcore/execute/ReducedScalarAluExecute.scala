@@ -78,6 +78,7 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_EQ) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_TGT) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_CMP_EQI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_ANDI) ||
@@ -188,6 +189,8 @@ class ReducedScalarAluExecute(
       out := srcData(0) - srcData(1)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET)) {
       out := pc + imm
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_CMP_EQI)) {
+      out := Mux(srcData(0) === imm, 1.U, 0.U)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_LDI)) {
       out := loadData
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_LDI)) {
@@ -587,6 +590,7 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_C_AND => Some((src0 & src1) & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_SUB => Some((src0 - src1) & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_SETRET => None
+      case FrontendOpcodeDecodeTable.OP_CMP_EQI => Some(if ((src0 & Mask64) == (imm & Mask64)) 1 else 0)
       case FrontendOpcodeDecodeTable.OP_C_LDI => Some(loadData & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_SDI => Some(0)
       case FrontendOpcodeDecodeTable.OP_C_SETC_EQ => Some(0)

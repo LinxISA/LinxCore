@@ -109,6 +109,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "ADDI"
         if key == 0x1015:
             return "SUBI"
+        if key == 0x0055:
+            return "CMP_EQI"
         if key == 0x2015:
             return "ANDI"
         if key == 0x2035:
@@ -431,6 +433,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "ADDTPC",
         "ANDI",
         "ANDIW",
+        "CMP_EQI",
         "SUB",
         "LDI",
         "LD.PCR",
@@ -448,6 +451,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "ADDW",
         "ADDI",
         "ANDI",
+        "CMP_EQI",
         "C.AND",
         "C.SUB",
         "HL.LUI",
@@ -539,6 +543,9 @@ def _expected_result(
         return _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
     if opcode == "C.SETRET":
         return (row["pc"] + _c_setret_imm(row)) & MASK64
+    if opcode == "CMP_EQI":
+        src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        return 1 if src0 == (_simm12_20_s12(row) & MASK64) else 0
     if opcode == "FENTRY":
         return (row["mem_addr"] + (_fentry_save_count(row) << 3) - _fentry_imm(row)) & MASK64
     if opcode == "C.LDI":
@@ -663,6 +670,10 @@ def _validate_reduced_row(
         _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
     elif opcode == "C.SETRET":
         _require_sources(row, opcode, src0=False, src1=False)
+    elif opcode == "CMP_EQI":
+        if row["src1_valid"]:
+            raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
+        _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
     elif opcode == "FENTRY":
         _require_sources(row, opcode, src0=False, src1=False)
         if _fentry_m(row) < 2 or _fentry_m(row) > 23 or _fentry_n(row) < 2 or _fentry_n(row) > 23:
@@ -1099,6 +1110,42 @@ def self_test() -> None:
         ]
         assert extracted_hl_sd_pcr[0]["mem_addr"] == 0x40010108
         assert extracted_hl_sd_pcr[0]["mem_wdata"] == 0x4FFF0008
+
+        cmp_eqi_source = tmp / "cmp-eqi.jsonl"
+        cmp_eqi_output = tmp / "cmp-eqi.rows.jsonl"
+        cmp_eqi = {
+            **rows[0],
+            "pc": 0x40005D2A,
+            "insn": 0x00060F55,
+            "len": 4,
+            "next_pc": 0x40005D2E,
+            "wb_valid": 1,
+            "wb_rd": 30,
+            "wb_data": 1,
+            "dst_valid": 1,
+            "dst_reg": 30,
+            "dst_data": 1,
+            "src0_valid": 1,
+            "src0_reg": 12,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(cmp_eqi_source, [cmp_eqi])
+        count = extract_rows(cmp_eqi_source, cmp_eqi_output)
+        assert count == 1
+        extracted_cmp_eqi = [
+            json.loads(line) for line in cmp_eqi_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_cmp_eqi[0]["dst_reg"] == 30
+        assert extracted_cmp_eqi[0]["dst_data"] == 1
 
         c_setret_source = tmp / "c-setret.jsonl"
         c_setret_output = tmp / "c-setret.rows.jsonl"

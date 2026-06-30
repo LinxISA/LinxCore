@@ -258,6 +258,13 @@ stores `srcData(0)` to `pc + imm`, and the QEMU reducer validates both observed
 mismatches. A QEMU-only 1640-row probe identifies the next frontier as
 `OP_CMP_EQI` at `pc=0x40005d2a` (`insn=0x00060f55`, `len=4`), writing
 `x30/U0` with value `1`.
+R135 carries that compare-immediate row. `OP_CMP_EQI` is handled as a normal
+ALU result producer, with `1` for equality against the signed 12-bit immediate
+and `0` otherwise; it does not drive the reduced SETC condition sideband. The
+promoted gate captures 1619 raw QEMU rows, extracts 1495 expected rows, and
+compares 1093 normalized QEMU/DUT rows with zero mismatches. A QEMU-only
+1660-row probe identifies the next frontier as `OP_LDI` writing `x31/T0` at
+`pc=0x40005d2e` (`insn=0x0260bf99`, `len=4`).
 
 ## Interface
 
