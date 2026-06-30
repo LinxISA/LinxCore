@@ -167,9 +167,10 @@ forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the
 same commit-window contract used by the reduced QEMU cross-check harness.
 
 Open setup issues are tracked in `docs/chisel/issues.md`. The multi-agent
-development loop and skill-evolve closeout rules are captured in
-`docs/chisel/development-loop.md`, with the detailed packet ledger in
-`docs/chisel/agent-loop.md`.
+development loop is captured in `docs/chisel/development-loop.md`, with the
+detailed packet ledger in `docs/chisel/agent-loop.md`. The dedicated
+agent-facing skill-evolve loop, model-learning map, and launch prompt template
+live in `docs/chisel/skill-evolve-loop.md`.
 
 Commands from `rtl/LinxCore`:
 

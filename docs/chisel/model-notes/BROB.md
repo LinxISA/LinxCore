@@ -75,6 +75,23 @@ issue dependents. `commitBlock` walks from `commitPtr` up to
 advances `commitPtr`, decrements `size`, frees the entry, retires related
 rename resources, and publishes block retire events.
 
+R103 model-maintenance audit keeps the next Chisel packet focused on the split
+between marker consumption and real block lifecycle. The reduced live-fetch
+RF/ALU gate currently preserves legal `BSTART`/`BSTOP` rows as DUT-only skip
+slots. That is useful frontend evidence, but it is not `scalarDone` semantics.
+The model path to preserve before wider QEMU prefixes is:
+
+- `BSTART` belongs to the new block, while retiring it marks scalar done for
+  the old active block.
+- `BSTOP` retiring marks scalar done for the current active block.
+- `SPEROB::commit` moves completed uops to `INST_RETIRED`.
+- `SPEROB::dealloc` releases retired rows in order, stops at a block-last row,
+  and calls `CommitLast`.
+- `SPEROB::CommitBlock` deallocates rows for the completed block, calls
+  `SetBlockComplete`, runs `CleanCMAP`, and only then publishes
+  `ReportLocalRegBlockCommit`.
+- `BlockROB::commitBlock` can retire only oldest `COMPLETED` block entries.
+
 The reduced pyCircuit block-structure model expresses the Chisel-facing
 metadata contract as:
 

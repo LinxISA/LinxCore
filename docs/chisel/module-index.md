@@ -76,5 +76,6 @@
 | `LinxCoreFrontendFetchRfAluTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendFetchRfAluTraceTop.md` | Unit-green R102 live fetch-source to RF-backed queued ALU completion-row generated-RTL xcheck with binary or sparse ELF fetch-memory bytes, external/QEMU-trace/live-QEMU-ELF-derived expected rows, dense 8-byte response windows through `F4DenseSlotQueue`, row-derived RF preloads, BSTART/BSTOP skip rows, dependent scalar rows, and ALU release |
 | QEMU cross-check adapter | tooling | `docs/chisel/verification/qemu-crosscheck.md` | Adapter self-test green; generated-RTL compares emit `crosscheck_manifest.json`; metadata-aware QEMU trace replay bridge added; bounded CoreMark ELF prefix replay passes with explicit QEMU memory; full compare awaits real frontend/backend rows |
 | Agent development loop | coordination | `docs/chisel/agent-loop.md` | ROB/cross-check-first module loop and skill-evolve closeout runbook |
+| Skill-evolve agent loop | coordination | `docs/chisel/skill-evolve-loop.md` | R103 multi-agent Chisel loop: model-learning map, ROB/BROB and cross-check-first packet order, QEMU/model/Chisel role split, XiangShan-flow process reference, and reusable skill-update decision gate |
 
 Future rows must be added before each Chisel module leaves draft status.
