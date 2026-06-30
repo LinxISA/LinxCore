@@ -156,6 +156,14 @@ two-row commit window in order before comparing against QEMU. The promoted
 mismatches; the next frontier remains the following indexed `OP_SD` at
 `pc=0x400055f2`, which must not be promoted without explicit store memory
 mutation or real LSU/STQ ownership.
+R124 adds that explicit reduced store mutation for the `OP_SD` indexed-store
+frontier. `ReducedScalarAluExecute` emits the model-derived sideband
+`addr = base + (index << 3)`, `wdata = SrcD`, `size = 8`, while the Verilator
+harness updates the sparse memory image only after the expected committed store
+row has matched the observed DUT row. The 544-raw-row CoreMark probe compares
+357 normalized QEMU/DUT rows with zero mismatches. This remains a committed
+store sideband and sparse-memory harness bridge, not store forwarding, cache
+state, or STQ/LSU ownership.
 
 ## Interface
 
@@ -277,9 +285,11 @@ For reduced loads, the execute stage publishes a combinational lookup request
 before it captures the E-stage result. The Verilator harness evaluates the DUT,
 reads eight little-endian bytes from the sparse ELF image at `loadLookupAddr`,
 drives `loadLookupData`, and reevaluates before the clock edge. Missing bytes
-read as zero. This is intentionally read-only: prior stores do not update the
-image, and the next `OP_SD` frontier must add explicit store memory mutation or
-a real LSU/STQ path before larger CoreMark windows can rely on stored data.
+read as zero. R124 adds explicit committed-store mutation for compared 8-byte
+store rows: after a store row matches QEMU, the harness writes that little-endian
+`mem_wdata` into the same sparse image so later reduced load lookups see the
+program-order store effect. This is still not a general LSU/STQ, cache, or
+store-forwarding implementation.
 
 R123 also proves that live generated-RTL commit collection must accept the
 native two-slot commit window. The harness preserves slot order by collecting

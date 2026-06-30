@@ -595,6 +595,7 @@ These packets remain the required base before broad module promotion:
 | R121 | CoreMark LDI/C.SETC_EQ plus bounded-capture tail prefix | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r121-coremark-ldi-setceq-tail-256-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 256 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, `git diff --check` |
 | R122 | CoreMark read-only sparse-ELF load lookup, SETC_LTU, and local-alias row reducer | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r122-coremark-prefix-before-redirect-marker-470-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 470 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 315 normalized rows compared, 486-row redirect-marker allocation mismatch probe, 512-row `OP_SD` frontier probe, `git diff --check` |
 | R123 | CoreMark direct-active marker-boundary redirect and two-slot commit collection | `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r123-coremark-redirect-marker-486-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 486 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 323 normalized rows compared, next `OP_SD` frontier, `git diff --check` |
+| R124 | CoreMark OP_SD indexed store and committed sparse-memory mutation | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r124-coremark-op-sd-544-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 544 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 357 normalized rows compared, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -793,11 +794,11 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Indexed store frontier: after R123 proves direct-active marker-boundary
-   redirect through a 486-row capture, add the following `OP_SD` indexed store
-   row at `pc=0x400055f2`. Store support must either mutate the sparse memory
-   image used by later reduced loads or route through the real LSU/STQ path; do
-   not claim larger CoreMark windows while stores are only sideband-compared.
+2. Next CoreMark frontier after R124: `OP_SD` at `pc=0x400055f2` now passes
+   with committed sparse-memory mutation through a 544-row capture. Run a larger
+   bounded probe to identify the next unsupported or mismatching row; keep store
+   mutation scoped to compared 8-byte committed store rows unless a real LSU/STQ
+   path takes ownership.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.

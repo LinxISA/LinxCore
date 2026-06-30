@@ -544,6 +544,14 @@ public:
     return value;
   }
 
+  void store_u64(std::uint64_t addr, std::uint64_t value) {
+    for (std::uint8_t byte_index = 0; byte_index < 8; ++byte_index) {
+      store_byte(
+          addr + byte_index,
+          static_cast<std::uint8_t>((value >> (static_cast<unsigned>(byte_index) * 8U)) & 0xffU));
+    }
+  }
+
   static FetchMemoryImage from_rows(const std::vector<ExpectedRow> &rows) {
     FetchMemoryImage image;
     for (const ExpectedRow &row : rows) {
@@ -1218,7 +1226,7 @@ void commit_expected_row(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const ExpectedRow &expected,
     std::vector<ObservedRow> &pending_commits,
-    const FetchMemoryImage &fetch_memory,
+    FetchMemoryImage &fetch_memory,
     std::ofstream &dut_out,
     std::ofstream &qemu_out) {
   for (int cycle = 0; cycle < 32; ++cycle) {
@@ -1228,6 +1236,9 @@ void commit_expected_row(
       expect_row(observed, expected);
       write_dut_row(dut_out, observed);
       write_qemu_row(qemu_out, expected);
+      if (expected.mem_valid && expected.mem_is_store && expected.mem_size == 8) {
+        fetch_memory.store_u64(expected.mem_addr, expected.mem_wdata);
+      }
       return;
     }
     clear_inputs(dut);
@@ -1254,6 +1265,9 @@ void commit_expected_row(
       expect_row(observed, expected);
       write_dut_row(dut_out, observed);
       write_qemu_row(qemu_out, expected);
+      if (expected.mem_valid && expected.mem_is_store && expected.mem_size == 8) {
+        fetch_memory.store_u64(expected.mem_addr, expected.mem_wdata);
+      }
       tick(dut);
       return;
     }

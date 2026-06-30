@@ -132,6 +132,7 @@ The Chisel module implements the first reduced subset:
 | `OP_HL_LUI` | `in.imm` |
 | `OP_LDI` | `loadLookupData`, with a reduced 8-byte load sideband at `srcData(0) + (in.imm << 3)` |
 | `OP_SETC_LTU` | `0`, with branch sideband taken when unsigned `srcData(0) < srcData(1)` |
+| `OP_SD` | `0`, with a reduced 8-byte indexed store sideband at `srcData(0) + (srcData(1) << 3)` and store data `srcData(2)` |
 | `OP_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(1) + (in.imm << 3)` and store data `srcData(0)` |
 | `OP_SLL` | `srcData(0) << srcData(1)(5, 0)` |
 | `OP_SLLI` | `srcData(0) << in.imm(5, 0)` |
@@ -205,6 +206,15 @@ this is still not an LSU, cache, store-forwarding, or memory-mutation owner.
 R122 also admits the first 32-bit `OP_SETC_LTU` compare at `pc=0x400055e4`.
 It is a no-writeback condition row whose branch sideband is the unsigned
 comparison `src0 < src1`.
+R124 admits the indexed 64-bit store `OP_SD` at `pc=0x400055f2`. The model
+and QEMU decode use `SrcL` (`rs1`) as the base, `SrcR` (`rs2`) as the index,
+and `SrcD` (`bits[31:27]`) as the store payload. The reduced execute owner
+therefore emits a no-writeback 8-byte store sideband with
+`addr = srcData(0) + (srcData(1) << 3)` and `wdata = srcData(2)`. The current
+CoreMark row has a local T0 base, visible scalar `x2` index, and local U0
+payload, so the QEMU-shaped source fields expose only `src1=x2` while local
+source values remain internal. This is still a reduced sideband owner, not a
+general LSU/STQ path or a scalar-src2 commit-trace schema.
 R118 admits the first ordinary scalar store-immediate row, `OP_SDI`. The C++
 model decodes the 32-bit form as `src0=SrcL` store data, `src1=SrcR` address
 base, and `src2=simm12_7_s5_25_7 << 3`; `Store::CalcStoreAddr` computes
@@ -223,6 +233,9 @@ sideband through the common JSONL comparator.
 For reduced `OP_SDI`, the completion row carries `mem.valid`, `mem.isStore`,
 `mem.addr`, `mem.wdata`, and `mem.size=8` but leaves `dst`/`wb` invalid. It
 does not model store queue drain, cache state, or memory mutation.
+For reduced `OP_SD`, the completion row has the same no-writeback store shape,
+but the address comes from base plus scaled index and the store payload comes
+from `srcData(2)`.
 
 `releaseValid` is intentionally tied to any valid W2 row, not only supported
 rows. The reduced issue queue has already marked the row issued when execute
