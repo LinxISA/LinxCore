@@ -164,6 +164,14 @@ row has matched the observed DUT row. The 544-raw-row CoreMark probe compares
 357 normalized QEMU/DUT rows with zero mismatches. This remains a committed
 store sideband and sparse-memory harness bridge, not store forwarding, cache
 state, or STQ/LSU ownership.
+R125 extends the same live CoreMark path through 1024 raw QEMU rows. The
+packet adds reduced `SUBI`, compressed local `C.AND` with the same implicit-T
+trace-gap synthesis as `C.ADD`, encoded local/scalar `ADD` source validation,
+and compressed `C.SDI` store-immediate sideband handling. The 1024-raw-row
+probe extracts 953 expected rows and compares 665 normalized QEMU/DUT rows
+with zero mismatches. The store caveat is unchanged: `C.SDI` mutates the
+sparse harness memory only after the committed store row matches QEMU and does
+not claim LSU, STQ, cache, or forwarding ownership.
 
 ## Interface
 
@@ -222,10 +230,10 @@ overlay. Most state remains in child modules:
 - `ReducedScalarIssueQueue` and `ReducedScalarIssuePick`: resident issue rows,
   source-ready snapshots, P1/I1/I2 timing, issued-entry lock, cancel, and W2
   release.
-- `ReducedScalarAluExecute`: reduced scalar ADD/ADDI/MOVR/MOVI/shift/OR/C.ADD
+- `ReducedScalarAluExecute`: reduced scalar ADD/ADDI/SUBI/MOVR/MOVI/shift/OR/C.ADD/C.AND
   execute, read-only C.LDI/LDI load lookup sidebands,
   C.SETC_EQ/C.SETC_NE/SETC_LTU no-writeback rows and branch-decision
-  sidebands, SDI store sideband, and writeback-shaped completion.
+  sidebands, SDI/C.SDI store sidebands, and writeback-shaped completion.
 
 ## Logic Design
 
@@ -285,8 +293,8 @@ For reduced loads, the execute stage publishes a combinational lookup request
 before it captures the E-stage result. The Verilator harness evaluates the DUT,
 reads eight little-endian bytes from the sparse ELF image at `loadLookupAddr`,
 drives `loadLookupData`, and reevaluates before the clock edge. Missing bytes
-read as zero. R124 adds explicit committed-store mutation for compared 8-byte
-store rows: after a store row matches QEMU, the harness writes that little-endian
+read as zero. R124/R125 add explicit committed-store mutation for compared
+8-byte store rows: after a store row matches QEMU, the harness writes that little-endian
 `mem_wdata` into the same sparse image so later reduced load lookups see the
 program-order store effect. This is still not a general LSU/STQ, cache, or
 store-forwarding implementation.
@@ -928,6 +936,7 @@ because the reduced QEMU-row selector does not yet support
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r113-coremark-or-c-ldi-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 19 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r118-coremark-sdi-42-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 42 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-1024-frontier-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 8 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r108-coremark-fentry-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 11 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`

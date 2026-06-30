@@ -62,7 +62,9 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_C_AND) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_LDI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_C_SDI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_EQ) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY) ||
@@ -76,13 +78,17 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_SRL) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SRA) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_OR) ||
-      op === opcode(FrontendOpcodeDecodeTable.OP_C_ADD)
+      op === opcode(FrontendOpcodeDecodeTable.OP_C_ADD) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_SUBI)
 
   private def ldiScaledOffset(imm: UInt): UInt =
     (imm << 3)(p.immWidth - 1, 0)
 
   private def cLdiAddr(srcData: Vec[UInt], imm: UInt): UInt =
     srcData(0) + imm
+
+  private def cSdiAddr(srcData: Vec[UInt], imm: UInt): UInt =
+    srcData(0) + ((imm << 3)(p.immWidth - 1, 0))
 
   private def ldiAddr(srcData: Vec[UInt], imm: UInt): UInt =
     srcData(0) + ldiScaledOffset(imm)
@@ -97,6 +103,8 @@ class ReducedScalarAluExecute(
       out := srcData(0) + srcData(1)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_ADDI)) {
       out := srcData(0) + imm
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SUBI)) {
+      out := srcData(0) - imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_ADDTPC)) {
       out := (pc & "hffff_ffff_ffff_f000".U(p.immWidth.W)) + imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVI)) {
@@ -105,12 +113,16 @@ class ReducedScalarAluExecute(
       out := srcData(0)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_ADD)) {
       out := srcData(0) + srcData(1)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_AND)) {
+      out := srcData(0) & srcData(1)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET)) {
       out := pc + imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_LDI)) {
       out := loadData
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_LDI)) {
       out := loadData
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SDI)) {
+      out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_EQ)) {
       out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE)) {
@@ -195,6 +207,13 @@ class ReducedScalarAluExecute(
       row.mem.addr := ldiAddr(srcData, uop.imm)
       row.mem.wdata := 0.U
       row.mem.rdata := result
+      row.mem.size := 8.U
+    }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SDI)) {
+      row.mem.valid := valid
+      row.mem.isStore := true.B
+      row.mem.addr := cSdiAddr(srcData, uop.imm)
+      row.mem.wdata := srcData(1)
+      row.mem.rdata := 0.U
       row.mem.size := 8.U
     }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SDI)) {
       row.mem.valid := valid
@@ -308,12 +327,15 @@ object ReducedScalarAluExecute {
     opcode match {
       case FrontendOpcodeDecodeTable.OP_ADD => Some((src0 + src1) & Mask64)
       case FrontendOpcodeDecodeTable.OP_ADDI => Some((src0 + imm) & Mask64)
+      case FrontendOpcodeDecodeTable.OP_SUBI => Some((src0 - imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_ADDTPC => None
       case FrontendOpcodeDecodeTable.OP_C_MOVI => Some(imm & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_MOVR => Some(src0 & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_ADD => Some((src0 + src1) & Mask64)
+      case FrontendOpcodeDecodeTable.OP_C_AND => Some((src0 & src1) & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_SETRET => None
       case FrontendOpcodeDecodeTable.OP_C_LDI => Some(loadData & Mask64)
+      case FrontendOpcodeDecodeTable.OP_C_SDI => Some(0)
       case FrontendOpcodeDecodeTable.OP_C_SETC_EQ => Some(0)
       case FrontendOpcodeDecodeTable.OP_C_SETC_NE => Some(0)
       case FrontendOpcodeDecodeTable.OP_SETC_LTU => Some(0)

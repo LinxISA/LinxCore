@@ -11,6 +11,11 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ADD, 10, 32, 0).contains(42))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ADDI, 7, 0, 0x7ff).contains(2054))
     assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_SUBI,
+      src0 = 0,
+      src1 = 0,
+      imm = 24).contains(BigInt("ffffffffffffffe8", 16)))
+    assert(ReducedScalarAluExecute.referenceResult(
       FrontendOpcodeDecodeTable.OP_ADDTPC,
       pc = BigInt("400054f8", 16),
       src0 = 0,
@@ -41,7 +46,9 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_MOVI, 0, 0, 0x15).contains(0x15))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_MOVR, 0x1234, 0, 0).contains(0x1234))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_ADD, 0x1234, 0x100, 0).contains(0x1334))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_AND, 0xff0f, 0x33f0, 0).contains(0x3300))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_LDI, 0x4ffefdb0L, 0, 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_SDI, 0x4ffefdb0L, 0x40005679L, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_LDI, 0x4fff0048L, 0, BigInt("fffffffffffffffe", 16)).contains(0))
     assert(ReducedScalarAluExecute.referenceResultWithLoad(
       FrontendOpcodeDecodeTable.OP_LDI,

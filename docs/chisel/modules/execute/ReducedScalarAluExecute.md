@@ -77,6 +77,7 @@ PC-relative constant path used by `ADDTPC` toward scalar execution.
 `SimInstInfo::Execute` in EX, and publishes the resolve bus at W2.
 `SimInstInfo::Execute` runs `PrePareSrc`, `Calculate`, and `ProcessDst`;
 arithmetic `ADD` returns `src0 + src1`, `ADDI` uses the decoded immediate,
+`SUBI` subtracts the decoded immediate,
 `MOVR/MOVI` move the source/immediate into the destination, and
 `PC::CalcInstAddTPC` computes `(pc & ~0xfff) + imm`. `PC::CalcInstSetret`
 computes `pc + imm`, and the compact `C.SETRET` form reaches execute as a
@@ -120,11 +121,14 @@ The Chisel module implements the first reduced subset:
 |---|---|
 | `OP_ADD` | `srcData(0) + srcData(1)` |
 | `OP_ADDI` | `srcData(0) + in.imm` |
+| `OP_SUBI` | `srcData(0) - in.imm` |
 | `OP_ADDTPC` | `(in.pc & ~0xfff) + in.imm` |
 | `OP_C_MOVI` | `in.imm` |
 | `OP_C_MOVR` | `srcData(0)` |
 | `OP_C_ADD` | `srcData(0) + srcData(1)` |
+| `OP_C_AND` | `srcData(0) & srcData(1)` |
 | `OP_C_LDI` | `loadLookupData`, with a reduced 8-byte load sideband at `srcData(0) + in.imm` |
+| `OP_C_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(0) + (in.imm << 3)` and store data `srcData(1)` |
 | `OP_C_SETC_EQ` | `0`, with branch sideband taken when validity-masked `srcData(0) == srcData(1)` |
 | `OP_C_SETC_NE` | `0`, with branch sideband taken when validity-masked `srcData(0) != srcData(1)` |
 | `OP_C_SETRET` | `in.pc + in.imm` |
@@ -215,6 +219,16 @@ CoreMark row has a local T0 base, visible scalar `x2` index, and local U0
 payload, so the QEMU-shaped source fields expose only `src1=x2` while local
 source values remain internal. This is still a reduced sideband owner, not a
 general LSU/STQ path or a scalar-src2 commit-trace schema.
+R125 extends the reduced live CoreMark envelope with `OP_SUBI`, compressed
+local `OP_C_AND`, a local/scalar `OP_ADD` row, and compressed store-immediate
+`OP_C_SDI`. The reducer validates `SUBI` as `src0 - uimm12`, lets 32-bit `ADD`
+use encoded local or scalar source fields independently, and applies the same
+QEMU trace-gap synthesis used by `C.ADD` to `C.AND` when the QEMU row omits
+the implicit T destination/writeback. For `C.SDI`, the compressed source
+contract is the encoded base plus signed bits `[15:11] << 3`, with T0 as the
+store payload; the Chisel execute row receives that as base on `srcData(0)`,
+payload on `srcData(1)`, and emits a no-writeback 8-byte store sideband. This
+is still a reduced committed-store sideband, not a full LSU/STQ path.
 R118 admits the first ordinary scalar store-immediate row, `OP_SDI`. The C++
 model decodes the 32-bit form as `src0=SrcL` store data, `src1=SrcR` address
 base, and `src2=simm12_7_s5_25_7 << 3`; `Store::CalcStoreAddr` computes
@@ -236,6 +250,9 @@ does not model store queue drain, cache state, or memory mutation.
 For reduced `OP_SD`, the completion row has the same no-writeback store shape,
 but the address comes from base plus scaled index and the store payload comes
 from `srcData(2)`.
+For reduced `OP_C_SDI`, the completion row uses the same no-writeback store
+shape, with address from the compressed base plus scaled immediate and payload
+from the decoded T0 source carried on `srcData(1)`.
 
 `releaseValid` is intentionally tied to any valid W2 row, not only supported
 rows. The reduced issue queue has already marked the row issued when execute
@@ -284,4 +301,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r113-coremark-or-c-ldi-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 19 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r118-coremark-sdi-42-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 42 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-1024-frontier-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
