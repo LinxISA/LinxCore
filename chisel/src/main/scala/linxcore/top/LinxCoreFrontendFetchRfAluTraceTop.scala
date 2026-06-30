@@ -83,6 +83,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val blockMarkerInsn = Output(UInt(p.insnWidth.W))
   val blockMarkerLen = Output(UInt(4.W))
   val blockMarkerTarget = Output(UInt(p.pcWidth.W))
+  val blockMarkerAllocReady = Output(Bool())
+  val blockMarkerLifecycleConflict = Output(Bool())
   val blockMarkerAllocFire = Output(Bool())
   val blockMarkerAllocBid = Output(UInt(p.blockBidWidth.W))
   val blockMarkerActiveValid = Output(Bool())
@@ -144,6 +146,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val issueQueueBlockedByIssued = Output(Bool())
   val localTReadyMask = Output(UInt(4.W))
   val localUReadyMask = Output(UInt(4.W))
+  val localTPendingCount = Output(UInt(issueCountWidth.W))
+  val localUPendingCount = Output(UInt(issueCountWidth.W))
+  val localIncomingBlocked = Output(Bool())
   val decodeBlockedByRename = Output(Bool())
   val decodeBlockedByRob = Output(Bool())
   val decodeBlockedByOutput = Output(Bool())
@@ -194,6 +199,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val occupiedMask = Output(UInt(p.robEntries.W))
   val completedMask = Output(UInt(p.robEntries.W))
   val retiredMask = Output(UInt(p.robEntries.W))
+  val blockAllocatedMask = Output(UInt(p.robEntries.W))
+  val blockCompleteMask = Output(UInt(p.robEntries.W))
+  val blockPendingMask = Output(UInt(p.robEntries.W))
   val idle = Output(Bool())
 }
 
@@ -228,7 +236,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     decRenQueueDepth = decRenQueueDepth,
     storeDispatchQueueDepth = storeDispatchQueueDepth,
     mapQDepth = mapQDepth,
-    skipBlockMarkers = true
+    skipBlockMarkers = true,
+    reducedStoreDispatchBypass = true
   ))
   val rf = Module(new ReducedScalarRegisterFile(p, archRegs = archRegs, physRegs = physRegs))
   val issue = Module(new ReducedScalarIssueQueue(p, depth = issueQueueDepth))
@@ -444,6 +453,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.blockMarkerInsn := path.io.blockMarkerInsn
   io.blockMarkerLen := path.io.blockMarkerLen
   io.blockMarkerTarget := path.io.blockMarkerTarget
+  io.blockMarkerAllocReady := path.io.blockMarkerAllocReady
+  io.blockMarkerLifecycleConflict := path.io.blockMarkerLifecycleConflict
   io.blockMarkerAllocFire := path.io.blockMarkerAllocFire
   io.blockMarkerAllocBid := path.io.blockMarkerAllocBid
   io.blockMarkerActiveValid := path.io.blockMarkerActiveValid
@@ -505,6 +516,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.issueQueueBlockedByIssued := issue.io.blockedByIssued
   io.localTReadyMask := localTReady.asUInt
   io.localUReadyMask := localUReady.asUInt
+  io.localTPendingCount := localTPendingCount
+  io.localUPendingCount := localUPendingCount
+  io.localIncomingBlocked := localIncomingBlocked
   io.decodeBlockedByRename := path.io.blockedByRename
   io.decodeBlockedByRob := path.io.blockedByRob
   io.decodeBlockedByOutput := path.io.blockedByOutput
@@ -555,6 +569,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.occupiedMask := path.io.occupiedMask
   io.completedMask := path.io.completedMask
   io.retiredMask := path.io.retiredMask
+  io.blockAllocatedMask := path.io.blockAllocatedMask
+  io.blockCompleteMask := path.io.blockCompleteMask
+  io.blockPendingMask := path.io.blockPendingMask
   io.idle := path.io.empty && issue.io.empty && !execute.io.busy &&
     !source.io.waitingResponse && !source.io.packetValid
 }

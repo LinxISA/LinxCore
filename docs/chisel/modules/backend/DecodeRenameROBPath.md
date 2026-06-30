@@ -109,6 +109,14 @@ active block needs a later branch decision. The following active marker waits
 until the execute owner publishes a valid condition decision: fallthrough
 allocates the next marker block, while taken redirects to the active block
 target, clears the active state, and performs no new marker allocation.
+R120 fixes the reduced direct-call target case where QEMU enters a target body
+without first exposing a target `BSTART` marker. A scalar row that allocates a
+new BROB while no marker block is active now becomes the active block until a
+later marker boundary or block-last deallocation closes it. The packet also
+adds an explicit constructor-only `reducedStoreDispatchBypass` for reduced
+live RF/ALU evidence tops that produce store sidebands from ALU execute but do
+not yet provide STA/STD execution plus STQ commit/free feedback. The default
+keeps full store-dispatch/STQ backpressure enabled.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -151,16 +159,20 @@ Outputs:
   `blockMarkerInsn`, `blockMarkerLen`, `blockMarkerTarget`: reduced
   marker-consume diagnostics for live fetch RF/ALU gates. These signals are
   meaningful only when the module is constructed with `skipBlockMarkers=true`.
-- `blockMarkerAllocFire`, `blockMarkerAllocBid`,
+- `blockMarkerAllocReady`, `blockMarkerLifecycleConflict`,
+  `blockMarkerAllocFire`, `blockMarkerAllocBid`,
   `blockMarkerActiveValid`, `blockMarkerActiveBid`,
   `blockMarkerActiveTarget`, `blockMarkerStopRedirectValid`,
   `blockMarkerStopRedirectPc`: reduced marker-owned block lifecycle and
   frontend redirect diagnostics. `blockMarkerAllocFire` identifies a consumed
   `BSTART` that allocated a BROB-only entry; `blockMarkerActive*` reports the
-  active full BID and target reused by following scalar rows. A consumed
-  `BSTOP` asserts `blockMarkerStopRedirectValid` when the active target is
-  nonzero and non-sequential, with `blockMarkerStopRedirectPc` carrying the
-  restart PC.
+  active full BID and target reused by following scalar rows.
+  `blockMarkerAllocReady` exposes BROB-only allocation readiness, and
+  `blockMarkerLifecycleConflict` exposes the one-cycle conflict guard when
+  marker lifecycle and ROB block-last cleanup both want the single scalar-done
+  port. A consumed `BSTOP` asserts `blockMarkerStopRedirectValid` when the
+  active target is nonzero and non-sequential, with
+  `blockMarkerStopRedirectPc` carrying the restart PC.
 - `decodeReady`, `decRenPushReady`, `decRenPushFire`, `decRenPopFire`,
   `decRenValid`, `decRenHead`, `decRenTail`, `decRenCount`, `decRenEmpty`,
   `decRenFull`: registered decode-to-rename queue backpressure and occupancy
@@ -293,6 +305,14 @@ full BID for both the row's `bid` sidecar conversion and `blockBid` commit
 sideband. The allocator is told to reserve only a ROB row in that case, so the
 BROB entry created by `BSTART` remains the single block owner until scalar
 done/retire.
+If a scalar row allocates while no marker-owned block is active, the reduced
+path records that newly allocated full BID as the active block with no marker
+target and no conditional redirect state. This covers CoreMark direct-call
+targets where the visible QEMU stream starts executing the target body at the
+`BSTART` target rather than first retiring a target marker row. The
+scalar-created active block is cleared only when the matching ROB block-last
+sideband fires or when a later marker boundary/redirect installs or closes the
+active marker state.
 
 `DispatchROBAllocator.allocValid` is high when a decoded row exists and the
 `dec_ren_q` has push capacity. The row enters the queue only when both
@@ -339,6 +359,14 @@ explicit execution result is valid and the live STQ insert probe accepts that
 candidate. A backend recovery flush is passed to the STQ bank; direct frontend
 or decode maintenance flush uses `StoreDispatchSTQPath.queueFlushValid` so it
 clears only the dispatch queues and does not over-prune STQ rows.
+When `reducedStoreDispatchBypass=true`, only the reduced live RF/ALU top skips
+this store-dispatch residency. Rename still accepts store rows, and
+`StoreSplitPayload` still reports the observed split shape, but all three
+payload inputs into `StoreDispatchSTQPath` are forced invalid and
+store-dispatch backpressure is suppressed. This is a bring-up escape hatch for
+tops whose ALU execute path already emits the QEMU-shaped store sideband while
+the real STA/STD execution and STQ commit/free owners are not connected. Do not
+enable it in full backend or LSU integration paths.
 
 The allocator still owns BID generation, BROB metadata allocation, ROB row
 reservation/update forwarding, completion, deallocation, commit monitoring,

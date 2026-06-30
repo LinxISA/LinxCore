@@ -1090,7 +1090,12 @@ std::uint8_t drain_dense_row(
         std::exit(1);
       }
       const auto rob_value = static_cast<std::uint8_t>(dut.io_selectedRobValue);
+      const auto selected_block_bid = static_cast<std::uint64_t>(dut.io_selectedBlockBid);
       tick(dut);
+      if (!active_block_valid) {
+        active_block_valid = true;
+        active_block_bid = selected_block_bid;
+      }
       return rob_value;
     }
     tick(dut);
@@ -1105,6 +1110,8 @@ std::uint8_t drain_dense_row(
             << " selectedValid=" << static_cast<unsigned>(dut.io_selectedValid)
             << " markerSkipValid=" << static_cast<unsigned>(dut.io_blockMarkerSkipValid)
             << " markerMixed=" << static_cast<unsigned>(dut.io_blockMarkerMixedPacket)
+            << " markerAllocReady=" << static_cast<unsigned>(dut.io_blockMarkerAllocReady)
+            << " markerLifecycleConflict=" << static_cast<unsigned>(dut.io_blockMarkerLifecycleConflict)
             << " blockRetireFire=" << static_cast<unsigned>(dut.io_blockRetireFire)
             << " issueCount=" << static_cast<unsigned>(dut.io_issueQueueCount)
             << " executeBusy=" << static_cast<unsigned>(dut.io_executeBusy)
@@ -1112,6 +1119,12 @@ std::uint8_t drain_dense_row(
             << static_cast<unsigned long long>(dut.io_occupiedMask)
             << " completedMask=0x"
             << static_cast<unsigned long long>(dut.io_completedMask)
+            << " blockAllocatedMask=0x"
+            << static_cast<unsigned long long>(dut.io_blockAllocatedMask)
+            << " blockCompleteMask=0x"
+            << static_cast<unsigned long long>(dut.io_blockCompleteMask)
+            << " blockPendingMask=0x"
+            << static_cast<unsigned long long>(dut.io_blockPendingMask)
             << std::dec << "\n";
   std::exit(1);
 }
@@ -1224,6 +1237,9 @@ void commit_expected_row(
             << " localT=0x" << std::hex << static_cast<unsigned>(dut.io_localTReadyMask)
             << " localU=0x" << static_cast<unsigned>(dut.io_localUReadyMask)
             << std::dec
+            << " localTPending=" << static_cast<unsigned>(dut.io_localTPendingCount)
+            << " localUPending=" << static_cast<unsigned>(dut.io_localUPendingCount)
+            << " localIncomingBlocked=" << static_cast<unsigned>(dut.io_localIncomingBlocked)
             << " issueCount=" << static_cast<unsigned>(dut.io_issueQueueCount)
             << " issueHeadValid=" << static_cast<unsigned>(dut.io_issueQueueHeadValid)
             << " issueHeadIssued=" << static_cast<unsigned>(dut.io_issueQueueHeadIssued)

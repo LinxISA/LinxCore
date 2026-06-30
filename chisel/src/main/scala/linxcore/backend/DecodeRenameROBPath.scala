@@ -91,6 +91,8 @@ class DecodeRenameROBPathIO(
   val blockMarkerInsn = Output(UInt(p.insnWidth.W))
   val blockMarkerLen = Output(UInt(4.W))
   val blockMarkerTarget = Output(UInt(p.pcWidth.W))
+  val blockMarkerAllocReady = Output(Bool())
+  val blockMarkerLifecycleConflict = Output(Bool())
   val blockMarkerAllocFire = Output(Bool())
   val blockMarkerAllocBid = Output(UInt(bidWidth.W))
   val blockMarkerActiveValid = Output(Bool())
@@ -361,7 +363,8 @@ class DecodeRenameROBPath(
     val tuRetireSourceQueueDepth: Int = 8,
     val tuRetireRelationCmapDepth: Int = 8,
     val tuRetireReleaseThreshold: Int = 4,
-    val skipBlockMarkers: Boolean = false)
+    val skipBlockMarkers: Boolean = false,
+    val reducedStoreDispatchBypass: Boolean = false)
     extends Module {
   require(traceParams.robValueWidth >= p.robIndexWidth, "trace ROB value must hold DecodeRenameROBPath ROB index")
   require(traceParams.commitWidth == p.commitWidth, "trace commit width must match InterfaceParams")
@@ -573,12 +576,13 @@ class DecodeRenameROBPath(
   storeDispatch.io.commitFreeMaskValid := io.storeCommitFreeMaskValid
   storeDispatch.io.commitFreeMask := io.storeCommitFreeMask
 
+  val storeDispatchBypass = reducedStoreDispatchBypass.B
   val queuedStoreActive = queuedForRename.valid && queuedForRename.isStore
   val queuedStoreSplit =
     queuedStoreActive && queuedForRename.storeSplitIntent &&
       !queuedForRename.isLoadStorePair && !queuedForRename.cacheMaintainNoSplit
   val storeDispatchReadyForHead =
-    !queuedStoreActive ||
+    storeDispatchBypass || !queuedStoreActive ||
       Mux(queuedStoreSplit, storeDispatch.io.staReady && storeDispatch.io.stdReady, storeDispatch.io.staReady)
 
   rename.io.outReady := io.renamedOutReady && storeDispatchReadyForHead
@@ -597,12 +601,13 @@ class DecodeRenameROBPath(
   storeSplit.io.uSeq := rename.io.tuUSeq
   storeSplit.io.tuDstValid := rename.io.tuDstValid
   storeSplit.io.tuDstKind := rename.io.tuDstKind
-  storeSplit.io.staReady := storeDispatch.io.staReady
-  storeSplit.io.stdReady := storeDispatch.io.stdReady
+  storeSplit.io.staReady := Mux(storeDispatchBypass, true.B, storeDispatch.io.staReady)
+  storeSplit.io.stdReady := Mux(storeDispatchBypass, true.B, storeDispatch.io.stdReady)
 
-  storeDispatch.io.staIn := storeSplit.io.sta
-  storeDispatch.io.stdIn := storeSplit.io.std
-  storeDispatch.io.unsplitIn := storeSplit.io.unsplit
+  val bypassedStorePayload = 0.U.asTypeOf(new StoreSplitIssuePayload(p, mapQDepth))
+  storeDispatch.io.staIn := Mux(storeDispatchBypass, bypassedStorePayload, storeSplit.io.sta)
+  storeDispatch.io.stdIn := Mux(storeDispatchBypass, bypassedStorePayload, storeSplit.io.std)
+  storeDispatch.io.unsplitIn := Mux(storeDispatchBypass, bypassedStorePayload, storeSplit.io.unsplit)
 
   allocator.io.flush := io.cleanup.flush
   allocator.io.allocValid := selectedAny && decRenQ.io.pushReady
@@ -630,6 +635,9 @@ class DecodeRenameROBPath(
   allocator.io.allocNeedsEngine := false.B
   val robBlockLastScalarDoneFire = allocator.io.deallocBlockLastValid
   val markerLifecycleConflict = robBlockLastScalarDoneFire
+  val scalarBlockStartFire = allocator.io.allocFire && selectedAny && !activeBlockValid
+  val robBlockLastClearsActive =
+    robBlockLastScalarDoneFire && activeBlockValid && allocator.io.deallocBlockLastBlockBid === activeBlockBid
   val markerNeedsBranchDecision = markerBoundary && activeBlockValid && activeBlockCond
   val markerRedirectBoundary =
     markerNeedsBranchDecision && io.blockBranchTakenValid && io.blockBranchTaken
@@ -702,7 +710,12 @@ class DecodeRenameROBPath(
     activeBlockBid := allocator.io.blockAllocOnlyBid
     activeBlockTarget := marker.boundaryTarget
     activeBlockCond := marker.boundaryKind === BoundaryKind.Cond
-  }.elsewhen(markerStopFire || markerBoundaryRedirectFire) {
+  }.elsewhen(scalarBlockStartFire) {
+    activeBlockValid := true.B
+    activeBlockBid := allocator.io.allocBlockBid
+    activeBlockTarget := 0.U
+    activeBlockCond := false.B
+  }.elsewhen(markerStopFire || markerBoundaryRedirectFire || robBlockLastClearsActive) {
     activeBlockValid := false.B
     activeBlockBid := 0.U
     activeBlockTarget := 0.U
@@ -746,6 +759,8 @@ class DecodeRenameROBPath(
   io.blockMarkerInsn := marker.insnRaw
   io.blockMarkerLen := marker.insnLen
   io.blockMarkerTarget := marker.boundaryTarget
+  io.blockMarkerAllocReady := allocator.io.blockAllocOnlyReady
+  io.blockMarkerLifecycleConflict := markerLifecycleConflict
   io.blockMarkerAllocFire := markerBoundaryFire
   io.blockMarkerAllocBid := allocator.io.blockAllocOnlyBid
   io.blockMarkerActiveValid := activeBlockValid
@@ -784,8 +799,8 @@ class DecodeRenameROBPath(
   io.storeDispatchReady := storeDispatchReadyForHead
   io.storeDispatchFire := storeSplit.io.fire
   io.storeDispatchSplit := storeSplit.io.split
-  io.storeDispatchBlockedBySta := queuedStoreActive && !storeDispatch.io.staReady
-  io.storeDispatchBlockedByStd := queuedStoreSplit && !storeDispatch.io.stdReady
+  io.storeDispatchBlockedBySta := !storeDispatchBypass && queuedStoreActive && !storeDispatch.io.staReady
+  io.storeDispatchBlockedByStd := !storeDispatchBypass && queuedStoreSplit && !storeDispatch.io.stdReady
   io.storeSta := storeSplit.io.sta
   io.storeStd := storeSplit.io.std
   io.storeUnsplit := storeSplit.io.unsplit

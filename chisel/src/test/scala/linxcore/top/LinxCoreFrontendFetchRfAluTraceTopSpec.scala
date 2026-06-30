@@ -30,6 +30,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.blockMarkerInsn.getWidth == 64)
     assert(io.blockMarkerLen.getWidth == 4)
     assert(io.blockMarkerTarget.getWidth == 64)
+    assert(io.blockMarkerAllocReady.getWidth == 1)
+    assert(io.blockMarkerLifecycleConflict.getWidth == 1)
     assert(io.blockMarkerAllocFire.getWidth == 1)
     assert(io.blockMarkerAllocBid.getWidth == 64)
     assert(io.blockMarkerActiveValid.getWidth == 1)
@@ -51,6 +53,9 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.robRenameUpdateIgnored.getWidth == 1)
     assert(io.localTReadyMask.getWidth == 4)
     assert(io.localUReadyMask.getWidth == 4)
+    assert(io.localTPendingCount.getWidth == 3)
+    assert(io.localUPendingCount.getWidth == 3)
+    assert(io.localIncomingBlocked.getWidth == 1)
     assert(io.decodeBlockedByRob.getWidth == 1)
     assert(io.decodeBlockedByOutput.getWidth == 1)
     assert(io.tuRenameSourceUnderflowMask.getWidth == 3)
@@ -62,6 +67,9 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.blockScalarDoneBid.getWidth == 64)
     assert(io.blockRetireFire.getWidth == 1)
     assert(io.blockRetireBid.getWidth == 64)
+    assert(io.blockAllocatedMask.getWidth == 8)
+    assert(io.blockCompleteMask.getWidth == 8)
+    assert(io.blockPendingMask.getWidth == 8)
   }
 
   test("LinxCoreFrontendFetchRfAluTraceTop elaborates source, frontend, rename, RF, issue, ROB, and ALU execute") {
@@ -84,6 +92,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_denseSlotQueueOutFire"))
     assert(sv.contains("io_blockMarkerSkipFire"))
     assert(sv.contains("io_blockMarkerMixedPacket"))
+    assert(sv.contains("io_blockMarkerAllocReady"))
+    assert(sv.contains("io_blockMarkerLifecycleConflict"))
     assert(sv.contains("io_blockMarkerAllocFire"))
     assert(sv.contains("io_blockMarkerActiveBid"))
     assert(sv.contains("io_blockMarkerStopRedirectValid"))
@@ -93,10 +103,12 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_decRenHeadPc"))
     assert(sv.contains("io_robRenameUpdateReady"))
     assert(sv.contains("io_localTReadyMask"))
+    assert(sv.contains("io_localIncomingBlocked"))
     assert(sv.contains("io_decodeBlockedByTURename"))
     assert(sv.contains("io_executeCompleteValid"))
     assert(sv.contains("io_blockScalarDoneFire"))
     assert(sv.contains("io_blockRetireFire"))
+    assert(sv.contains("io_blockAllocatedMask"))
     assert(sv.contains("io_commitContractError"))
   }
 }

@@ -704,6 +704,31 @@ passed with `status: "pass"`, `summary.compared_rows: 36`, and
 R119 closeout: `skill-evolve: update linx-core (conditional BSTART decision
 latch, marker-only readiness, and dense-drain commit buffering)`.
 
+R120 started from `linx-isa` commit
+`ffd7822d65097a24ea5fa897c2df046d58b3fbe2`, `rtl/LinxCore` commit
+`4fdfdc4d431f4d660d0bfab605842c67b073b35d`,
+`model/LinxCoreModel` commit
+`1993e4e749403824a4908548baf77d5e15117068`, QEMU commit
+`70853e25c11398f33a7e7269e8718f05a36f975b`, and
+`skills/linx-skills` commit
+`44b0b4723a40923c1617207a6b0fd59d7ff23e97`. R120 extends the live reduced
+RF/ALU CoreMark prefix through repeated conditional-loop body trips. Two
+diagnostic failures shaped the fix: first, scalar target-body rows can create
+a BROB block without a visible target `BSTART`, so the backend must keep that
+scalar-created full BID active until a later marker boundary or matching
+block-last sideband closes it; second, this reduced top compares stores from
+the ALU-produced sideband but does not drive STA/STD execution or STQ
+commit/free feedback, so it must bypass store-dispatch residency instead of
+letting the reduced STQ shell fill on repeated `SDI` rows. Evidence:
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r120-coremark-scalar-block-store-bypass-128-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 128 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+passed with `status: "pass"`, `summary.compared_rows: 88`, and
+`summary.mismatch_count: 0`. The 256-row probe stops before RTL comparison at
+the next unsupported reduced selector row: `pc=0x40005576`,
+`insn=0xffe13319`.
+
+R120 closeout: `skill-evolve: update linx-core (scalar-created active block
+lifecycle and reduced RF/ALU store-dispatch bypass boundary)`.
+
 ## Reference Evidence
 
 The active ROB, issue, and frontend packets are anchored to these C++ model
@@ -849,9 +874,10 @@ The ROB/cross-check substrate remains the required base:
 | 43 | R117 CoreMark C.MOVR to T, scaled local C.LDI, C.SETC_NE, and retire feedback | `FrontendOperandDecode.scala`, `DecodeRenameROBPath.scala`, `ReducedScalarAluExecute.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, live harness/docs | extractor self-test, frontend/execute/backend gates, CoreMark live-QEMU gate with `--capture-rows 34`, twenty-five scalar/macro commits compared, next dense packet probe, manifest inspection |
 | 44 | R118 CoreMark SDI local-base store sideband packet | `ReducedScalarAluExecute.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, module/top docs | extractor self-test, execute gate, CoreMark live-QEMU gate with `--capture-rows 42`, thirty-one scalar/macro commits compared, 41/43-row dense-cut probes, manifest inspection |
 | 45 | R119 CoreMark conditional BSTART loop edge | `DecodeRenameROBPath.scala`, `ReducedScalarAluExecute.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, live harness/docs | extractor self-test, execute/backend/top gates, CoreMark live-QEMU gate with `--capture-rows 50`, thirty-six scalar/macro commits compared, 48-row dense-cut probe, manifest inspection |
-| 46 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 47 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 48 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 46 | R120 CoreMark repeated loop body through scalar-created blocks and reduced store bypass | `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, `frontend_fetch_rf_alu_trace_top_tb.cpp`, module/top docs | backend/top gates, CoreMark live-QEMU gate with `--capture-rows 128`, eighty-eight scalar/macro commits compared, 68-row diagnostic pass, 256-row unsupported-opcode probe, manifest inspection |
+| 47 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 48 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 49 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
@@ -966,6 +992,12 @@ Update skills for:
 - a reduced marker lifecycle rule where consumed `BSTART` allocates a
   BROB-only active BID, following scalar rows reuse that full BID, and consumed
   `BSTOP` completes the active BID before BROB retire.
+- a reduced scalar-created block rule where a target-body scalar allocation
+  with no active marker block must seed active block state until a matching
+  block-last or later marker boundary closes it.
+- a reduced live RF/ALU store rule where the top may bypass store-dispatch
+  residency only while ALU execute owns the compared store sideband and the
+  STA/STD execution plus STQ commit/free owners are absent.
 
 Do not update skills for wording cleanup, one-off test vectors, or module-local
 implementation detail already captured in that module page.

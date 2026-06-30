@@ -122,6 +122,12 @@ R119 extends through the first conditional loop edge: the ALU publishes the
 `C.SETC_NE` branch decision, the top latches it until the following conditional
 marker boundary, and the backend either allocates the fallthrough marker block
 or redirects to the active block target without allocating a new marker block.
+R120 carries the same loop through repeated direct-call target body iterations.
+The backend now keeps scalar-created blocks active when the visible target body
+has no target `BSTART` marker, and this reduced top opts into
+`DecodeRenameROBPath.reducedStoreDispatchBypass` because stores are compared
+from the ALU-produced sideband while STA/STD execution and STQ commit/free
+feedback are not connected here.
 
 ## Interface
 
@@ -141,13 +147,13 @@ or redirects to the active block target without allocating a new marker block.
 | output | `denseSlotQueueInFire`, `denseSlotQueueOutFire`, `denseSlotQueueInSlotCount`, `denseSlotQueueCount`, `denseSlotQueueHeadSlot`, `denseSlotQueueFull`, `denseSlotQueueEmpty` | mixed | diagnostic | Reduced dense-slot bridge capture/drain and occupancy observability. |
 | output | `selectedValid`, `selectedRobValue`, `selectedBlockBid` | mixed | diagnostic | Reduced selected decoded slot and allocated identities. |
 | output | `blockMarkerSkipFire`, `blockMarkerSkipValid`, `blockMarkerMixedPacket`, `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`, `blockMarkerInsn`, `blockMarkerLen`, `blockMarkerTarget` | mixed | diagnostic | Reduced block-marker consume observability on a dense-slot drain. Marker slots advance without scalar ROB allocation or dec/ren push; older scalar issue activity may overlap in the same cycle. |
-| output | `blockMarkerAllocFire`, `blockMarkerAllocBid`, `blockMarkerActiveValid`, `blockMarkerActiveBid`, `blockMarkerActiveTarget`, `blockMarkerStopRedirectValid`, `blockMarkerStopRedirectPc` | mixed | diagnostic | Reduced marker lifecycle observability: BROB-only allocation for consumed `BSTART`, active full BID/target reused by scalar rows, and marker-stop frontend restart target. |
+| output | `blockMarkerAllocReady`, `blockMarkerLifecycleConflict`, `blockMarkerAllocFire`, `blockMarkerAllocBid`, `blockMarkerActiveValid`, `blockMarkerActiveBid`, `blockMarkerActiveTarget`, `blockMarkerStopRedirectValid`, `blockMarkerStopRedirectPc` | mixed | diagnostic | Reduced marker lifecycle observability: BROB-only allocation readiness/fire for consumed `BSTART`, scalar-done conflict guard, active full BID/target reused by scalar rows, and marker-stop frontend restart target. |
 | output | `decRenPushFire`, `decRenPopFire`, `decRenCount` | mixed | diagnostic | Decode-to-rename queue events and occupancy. |
 | output | `decRenValid`, `decRenHeadPc`, `decRenHeadRidValid`, `decRenHeadRidValue` | mixed | diagnostic | Decode/rename queue head observability for live-gate stalls. |
 | output | `renamedOutValid`, `renamedAccepted` | `Bool` | diagnostic | Rename output and issue-queue acceptance. |
 | output | `rfReadReadyMask`, `rfAllReadReady`, `rfReadyMask` | mixed | diagnostic | Reduced physical RF read and ready-state observability. |
 | output | `rfWriteValid`, `rfWriteTag`, `rfWriteData`, `rfStateError` | mixed | diagnostic | Execute-to-RF writeback and RF error reporting. |
-| output | `localTReadyMask`, `localUReadyMask` | `UInt(4.W)` | diagnostic | Reduced local T/U overlay readiness visible to issue selection. |
+| output | `localTReadyMask`, `localUReadyMask`, `localTPendingCount`, `localUPendingCount`, `localIncomingBlocked` | mixed | diagnostic | Reduced local T/U overlay readiness and producer-pending gate visible to issue selection and live-stall diagnostics. |
 | output | `issueQueue*` | mixed | diagnostic | Reduced queue enqueue, pick, I1/I2, issue, cancel, release, occupancy, and block-cause signals. |
 | output | `executeAccepted`, `executeBusy`, `executeCompleteValid`, `executeCompleteRobValue` | mixed | diagnostic | Reduced ALU handoff and completion. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
@@ -157,7 +163,7 @@ or redirects to the active block target without allocating a new marker block.
 | output | `tuRetireCommandValid`, `tuRetireCommandFire`, `tuRetireLocalBlockCommit*`, `tuRetireAccepted`, `tuRetireMiss`, `tuRetireReleaseMismatch`, `tuRetireUnsupported` | mixed | diagnostic | T/U retire serializer, local block-commit event, and terminal rename response observability. |
 | output | `robDeallocBlockLastValid`, `robDeallocBlockLastBlockBid`, `blockScalarDoneFire`, `blockScalarDoneBid`, `blockRetireFire`, `blockRetireBid` | mixed | pulse/diagnostic | Reduced ROB block-last to BROB lifecycle sideband path with full 64-bit BID. |
 | output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Monitored commit rows with RF-sourced source data and ALU writeback. |
-| output | `commit*`, `dealloc*`, `occupiedMask`, `completedMask`, `retiredMask`, `idle` | mixed | diagnostic | Commit monitor, ROB lifecycle, and reduced-top idle observability. |
+| output | `commit*`, `dealloc*`, `occupiedMask`, `completedMask`, `retiredMask`, `blockAllocatedMask`, `blockCompleteMask`, `blockPendingMask`, `idle` | mixed | diagnostic | Commit monitor, ROB/BROB lifecycle, pending-block masks, and reduced-top idle observability. |
 
 ## State
 
@@ -215,6 +221,11 @@ For a conditional active block, the top captures
 `ReducedScalarAluExecute.branchCondition*` and presents the pending decision to
 `DecodeRenameROBPath` until the next marker boundary consumes it. The latch is
 cleared on start/restart/frontend flush and after the boundary drains.
+This top also constructs the backend path with `reducedStoreDispatchBypass`:
+store rows still flow through decode, rename, issue, ALU execute, ROB
+completion, and QEMU-shaped store sideband comparison, but the reduced STQ
+shell is not allowed to accumulate resident stores without a connected
+STA/STD execution and commit/free owner.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
 packet acceptance. The P1/I1/I2 picker reads source data from
@@ -807,6 +818,28 @@ records `status: "pass"`, `summary.compared_rows: 36`, and
 `summary.mismatch_count: 0`. The live harness now buffers commit rows observed
 while dense slots are still draining so ROB retire pulses are compared in
 program order rather than missed after the packet has drained.
+
+The R120 CoreMark gate extends through repeated loop-body trips after the
+conditional marker edge:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r120-coremark-scalar-block-store-bypass-128-qemu-elf-xcheck \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 \
+  --capture-rows 128 \
+  --allow-block-markers \
+  --max-seconds 8 \
+  -- -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+The manifest at
+`generated/r120-coremark-scalar-block-store-bypass-128-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 88`, and
+`summary.mismatch_count: 0`. A 256-row probe stops before RTL comparison
+because the reduced QEMU-row selector does not yet support
+`pc=0x40005576`, `insn=0xffe13319`.
 
 ## Verification
 

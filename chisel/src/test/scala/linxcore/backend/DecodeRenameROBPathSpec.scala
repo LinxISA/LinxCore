@@ -40,9 +40,10 @@ object DecodeRenameROBPathReference {
       isStore: Boolean,
       split: Boolean,
       staReady: Boolean,
-      stdReady: Boolean): Boolean = {
+      stdReady: Boolean,
+      bypass: Boolean = false): Boolean = {
     val active = valid && isStore
-    !active || (if (split) staReady && stdReady else staReady)
+    bypass || !active || (if (split) staReady && stdReady else staReady)
   }
 
   def activeTuBankStid(threadId: Int): Int =
@@ -56,6 +57,28 @@ object DecodeRenameROBPathReference {
       doneBid: Option[BigInt],
       nextActiveValid: Boolean,
       nextActiveBid: Option[BigInt])
+
+  def scalarStartLifecycleStep(
+      activeValid: Boolean,
+      activeBid: BigInt,
+      scalarAllocFire: Boolean,
+      scalarAllocBid: BigInt,
+      robBlockLastFire: Boolean,
+      robBlockLastBid: BigInt): MarkerStep = {
+    val clearsActive = robBlockLastFire && activeValid && robBlockLastBid == activeBid
+    val nextActive =
+      if (scalarAllocFire && !activeValid) Some(scalarAllocBid)
+      else if (clearsActive) None
+      else if (activeValid) Some(activeBid)
+      else None
+
+    MarkerStep(
+      doneValid = robBlockLastFire,
+      doneBid = if (robBlockLastFire) Some(robBlockLastBid) else None,
+      nextActiveValid = nextActive.nonEmpty,
+      nextActiveBid = nextActive
+    )
+  }
 
   def markerLifecycleStep(
       activeValid: Boolean,
@@ -121,6 +144,13 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(storeDispatchReady(valid = true, isStore = true, split = true, staReady = true, stdReady = true))
     assert(!storeDispatchReady(valid = true, isStore = true, split = true, staReady = true, stdReady = false))
     assert(!storeDispatchReady(valid = true, isStore = true, split = true, staReady = false, stdReady = true))
+    assert(storeDispatchReady(
+      valid = true,
+      isStore = true,
+      split = true,
+      staReady = false,
+      stdReady = false,
+      bypass = true))
   }
 
   test("reference forwards queued row thread ID as reduced T/U active STID") {
@@ -160,6 +190,36 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
       allocBid = 12)
     assert(stop.doneBid.contains(11))
     assert(!stop.nextActiveValid)
+  }
+
+  test("reference keeps scalar-created blocks active until a boundary or block-last closes them") {
+    val scalarTarget = scalarStartLifecycleStep(
+      activeValid = false,
+      activeBid = 0,
+      scalarAllocFire = true,
+      scalarAllocBid = 12,
+      robBlockLastFire = false,
+      robBlockLastBid = 0)
+    assert(scalarTarget.nextActiveBid.contains(12))
+
+    val boundaryClose = markerLifecycleStep(
+      activeValid = scalarTarget.nextActiveValid,
+      activeBid = scalarTarget.nextActiveBid.get,
+      markerBoundary = true,
+      markerStop = false,
+      allocBid = 13)
+    assert(boundaryClose.doneBid.contains(12))
+    assert(boundaryClose.nextActiveBid.contains(13))
+
+    val scalarLast = scalarStartLifecycleStep(
+      activeValid = true,
+      activeBid = 13,
+      scalarAllocFire = false,
+      scalarAllocBid = 14,
+      robBlockLastFire = true,
+      robBlockLastBid = 13)
+    assert(scalarLast.doneBid.contains(13))
+    assert(!scalarLast.nextActiveValid)
   }
 
   test("reference accepts agreeing ROB and LSU cleanup sources but blocks conflicting ones") {
@@ -222,6 +282,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.blockMarkerInsn.getWidth == 64)
     assert(io.blockMarkerLen.getWidth == 4)
     assert(io.blockMarkerTarget.getWidth == 64)
+    assert(io.blockMarkerAllocReady.getWidth == 1)
+    assert(io.blockMarkerLifecycleConflict.getWidth == 1)
     assert(io.blockMarkerAllocFire.getWidth == 1)
     assert(io.blockMarkerAllocBid.getWidth == 64)
     assert(io.blockMarkerActiveValid.getWidth == 1)
