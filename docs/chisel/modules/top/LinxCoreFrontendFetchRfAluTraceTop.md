@@ -277,6 +277,13 @@ legal-entry direct-boot ELF:
 C.BSTART.STD; ADD; ADDI; C.MOVR; C.BSTOP
 ```
 
+With `--long-body`, the same builder emits a longer legal-entry body using
+only the currently supported reduced scalar instructions:
+
+```text
+C.BSTART.STD; ADD; ADDI; C.MOVR; ADDI; ADD; C.MOVI; C.MOVR; C.BSTOP
+```
+
 The R100 gate runs:
 
 ```bash
@@ -355,6 +362,26 @@ active-BID reuse, and marker-driven scalar completion. The comparator manifest
 at `generated/r104-marker-lifecycle-qemu-elf-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 
+The R105 long-body gate exercises the same marker lifecycle over multiple F4
+windows and seven scalar commits:
+
+```bash
+bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh \
+  --out-dir generated/r105-long-body-fixture \
+  --long-body
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r105-long-body-qemu-elf-xcheck \
+  --elf generated/r105-long-body-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
+  --expected-rows 0 \
+  --capture-rows 9 \
+  --allow-block-markers \
+  --max-seconds 5
+```
+
+The manifest at
+`generated/r105-long-body-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `compared_rows: 7`, and `mismatch_count: 0`.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
@@ -371,6 +398,8 @@ records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r102-dense-qemu-elf-xcheck --elf generated/r102-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r104-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r104-marker-lifecycle-qemu-elf-xcheck --elf generated/r104-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
+- `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r105-long-body-fixture --long-body`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r105-long-body-qemu-elf-xcheck --elf generated/r105-long-body-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 9 --allow-block-markers --max-seconds 5`
 - `FETCH_EXPECTED_ROWS=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_QEMU_TRACE=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`

@@ -397,6 +397,19 @@ control. Evidence:
 and
 `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r104-marker-lifecycle-qemu-elf-xcheck --elf generated/r104-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
 passed with `compared_rows: 3` and `mismatch_count: 0`.
+R105 started from `linx-isa` commit
+`39d975bdf589923354ddbb300b49a40cb5e36313`, `rtl/LinxCore` commit
+`b487843427125df2aca2284bd17e0578f31e32e0`,
+`model/LinxCoreModel` commit
+`1993e4e749403824a4908548baf77d5e15117068`, and QEMU commit
+`8dd1dcdbde20a7543fc5081bc52fd81a7b85b985`. R105 adds an opt-in
+`--long-body` mode to the live-QEMU legal-entry fixture so the current reduced
+scalar ALU subset runs seven scalar commits under one marker-owned active
+block instead of only the three-row smoke. Evidence:
+`build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r105-long-body-fixture --long-body`
+and
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r105-long-body-qemu-elf-xcheck --elf generated/r105-long-body-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 9 --allow-block-markers --max-seconds 5`
+passed with `compared_rows: 7` and `mismatch_count: 0`.
 
 ## Reference Evidence
 
@@ -528,9 +541,10 @@ The ROB/cross-check substrate remains the required base:
 | 28 | R102 reduced dense multi-slot frontend packet path | `F4DenseSlotQueue.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, live fetch RF/ALU harness/docs | `F4DenseSlotQueue`, adjacent frontend/path tests, default live fetch RF/ALU xcheck, live QEMU fixture with mixed BSTART/scalar/BSTOP 8-byte windows, manifest inspection |
 | 29 | R103 ROB block-last to BROB lifecycle sideband | `BROB.scala`, `ROBEntryBank.scala`, `DispatchROBAllocator.scala`, `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, module docs | BROB stale-BID reference, full block-BID block-last deallocation sideband, reduced scalar-done and next-cycle retire diagnostics, focused ROB/BROB/top gates, manifest inspection |
 | 30 | R104 marker-owned active block lifecycle | `DispatchROBAllocator.scala`, `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, live harness/docs | marker-only BROB allocation, scalar active-BID reuse, marker-driven scalar-done/retire, default RF/ALU xcheck, live QEMU fixture with `BSTART`/scalar/`BSTOP`, manifest inspection |
-| 31 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 32 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 33 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 31 | R105 longer live-QEMU reduced scalar body | `build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`, `LinxCoreFrontendFetchRfAluTraceTop.md`, runbook docs | `--long-body` fixture build, live QEMU marker gate with `--capture-rows 9`, seven scalar commits compared, manifest inspection |
+| 32 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 33 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 34 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
