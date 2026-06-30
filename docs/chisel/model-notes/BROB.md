@@ -92,6 +92,15 @@ The model path to preserve before wider QEMU prefixes is:
   `ReportLocalRegBlockCommit`.
 - `BlockROB::commitBlock` can retire only oldest `COMPLETED` block entries.
 
+R103 implements the first reduced Chisel sideband for this path. The ROB bank
+now exposes the full 64-bit `blockBid` for a deallocated block-last row, and
+`DecodeRenameROBPath` drives BROB scalar completion from that full BID before
+issuing a one-cycle-later retire pulse. `BrobMetaTracker` also rejects stale
+same-slot scalar, engine, or retire events unless the full BID matches the live
+entry. Legal `BSTART`/`BSTOP` marker rows are still skip-only in the reduced
+live-fetch RF/ALU gate, so marker-owned old/current-active BID retirement is a
+future packet.
+
 The reduced pyCircuit block-structure model expresses the Chisel-facing
 metadata contract as:
 

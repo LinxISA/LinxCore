@@ -228,6 +228,11 @@ class DecodeRenameROBPathIO(
   val robDeallocBlockLastValid = Output(Bool())
   val robDeallocBlockLastBid = Output(new ROBID(p.robEntries))
   val robDeallocBlockLastGid = Output(new ROBID(p.robEntries))
+  val robDeallocBlockLastBlockBid = Output(UInt(bidWidth.W))
+  val blockScalarDoneFire = Output(Bool())
+  val blockScalarDoneBid = Output(UInt(bidWidth.W))
+  val blockRetireFire = Output(Bool())
+  val blockRetireBid = Output(UInt(bidWidth.W))
   val tuRetireSourceWindowReady = Output(Bool())
   val tuRetireSourceValidMask = Output(UInt(traceParams.commitWidth.W))
   val tuRetireSourceEnqueueCount = Output(UInt(tuRetireSourceCountWidth.W))
@@ -602,19 +607,34 @@ class DecodeRenameROBPath(
   allocator.io.completeRowValid := io.completeRowValid
   allocator.io.completeRow := io.completeRow
   allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !tuRetirePath.io.cleanupActive
-  allocator.io.blockScalarDoneValid := false.B
-  allocator.io.blockScalarDoneBid := 0.U
+  val blockScalarDoneFire = allocator.io.deallocBlockLastValid
+  val blockScalarDoneBid = allocator.io.deallocBlockLastBlockBid
+  val blockRetirePending = RegInit(false.B)
+  val blockRetireBidReg = RegInit(0.U(bidWidth.W))
+  val blockLifecycleFlush = io.cleanup.valid && (io.cleanup.backendFlushValid || io.cleanup.blockFlushValid)
+  allocator.io.blockScalarDoneValid := blockScalarDoneFire
+  allocator.io.blockScalarDoneBid := blockScalarDoneBid
   allocator.io.blockScalarTrapValid := false.B
   allocator.io.blockScalarTrapCause := 0.U
   allocator.io.blockEngineDoneValid := false.B
   allocator.io.blockEngineDoneBid := 0.U
   allocator.io.blockEngineTrapValid := false.B
   allocator.io.blockEngineTrapCause := 0.U
-  allocator.io.blockRetireValid := false.B
-  allocator.io.blockRetireBid := 0.U
+  allocator.io.blockRetireValid := blockRetirePending
+  allocator.io.blockRetireBid := blockRetireBidReg
   allocator.io.blockFlushValid := io.cleanup.blockFlushValid
   allocator.io.blockFlushBid := io.cleanup.blockFlushBid
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
+
+  when(blockLifecycleFlush) {
+    blockRetirePending := false.B
+    blockRetireBidReg := 0.U
+  }.elsewhen(blockScalarDoneFire) {
+    blockRetirePending := true.B
+    blockRetireBidReg := blockScalarDoneBid
+  }.elsewhen(blockRetirePending) {
+    blockRetirePending := false.B
+  }
 
   rename.io.robSource := allocator.io.robTULinkSource
   rename.io.lsuSource := storeDispatch.io.lsuTULinkSource
@@ -788,6 +808,11 @@ class DecodeRenameROBPath(
   io.robDeallocBlockLastValid := allocator.io.deallocBlockLastValid
   io.robDeallocBlockLastBid := allocator.io.deallocBlockLastBid
   io.robDeallocBlockLastGid := allocator.io.deallocBlockLastGid
+  io.robDeallocBlockLastBlockBid := allocator.io.deallocBlockLastBlockBid
+  io.blockScalarDoneFire := blockScalarDoneFire
+  io.blockScalarDoneBid := blockScalarDoneBid
+  io.blockRetireFire := blockRetirePending
+  io.blockRetireBid := blockRetireBidReg
   io.tuRetireSourceWindowReady := tuRetirePath.io.sourceWindowReady
   io.tuRetireSourceValidMask := tuRetirePath.io.sourceValidMask
   io.tuRetireSourceEnqueueCount := tuRetirePath.io.sourceEnqueueCount

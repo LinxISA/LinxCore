@@ -72,6 +72,7 @@ class ROBEntryBankIO(
   val deallocBlockLastValid = Output(Bool())
   val deallocBlockLastBid = Output(new ROBID(entries))
   val deallocBlockLastGid = Output(new ROBID(entries))
+  val deallocBlockLastBlockBid = Output(UInt(traceParams.blockBidWidth.W))
 
   val flushApplied = Output(Bool())
   val flushDirectMatchMask = Output(UInt(entries.W))
@@ -386,6 +387,7 @@ class ROBEntryBank(
   io.deallocBlockLastValid := deallocBlockLastValid
   io.deallocBlockLastBid := Mux(deallocBlockLastValid, rowBid(deallocBlockLastIndex), zeroRobId)
   io.deallocBlockLastGid := Mux(deallocBlockLastValid, rowGid(deallocBlockLastIndex), zeroRobId)
+  io.deallocBlockLastBlockBid := Mux(deallocBlockLastValid, rows(deallocBlockLastIndex).blockBid, 0.U)
 
   io.empty := size === 0.U
   io.full := size === entries.U

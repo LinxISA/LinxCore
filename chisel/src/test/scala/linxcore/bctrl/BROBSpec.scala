@@ -64,7 +64,7 @@ final class RefBrob(entries: Int) {
   def scalarDone(bid: BigInt, exception: Boolean = false): Unit = {
     val i = idx(bid)
     val cur = table(i)
-    if (cur.status == RefBrobStatus.Free || cur.status == RefBrobStatus.Flushed) {
+    if (cur.status == RefBrobStatus.Free || cur.status == RefBrobStatus.Flushed || cur.bid != bid) {
       return
     }
     val next = cur.copy(scalarDone = true, exception = cur.exception || exception)
@@ -78,7 +78,7 @@ final class RefBrob(entries: Int) {
   def engineDone(bid: BigInt, exception: Boolean = false): Unit = {
     val i = idx(bid)
     val cur = table(i)
-    if (cur.status == RefBrobStatus.Free || cur.status == RefBrobStatus.Flushed) {
+    if (cur.status == RefBrobStatus.Free || cur.status == RefBrobStatus.Flushed || cur.bid != bid) {
       return
     }
     val next = cur.copy(engineDone = true, exception = cur.exception || exception)
@@ -91,6 +91,14 @@ final class RefBrob(entries: Int) {
         table(i) = table(i).copy(status = RefBrobStatus.Flushed, scalarDone = false, engineDone = false, exception = false)
       }
     }
+
+  def retire(bid: BigInt): Unit = {
+    val i = idx(bid)
+    val cur = table(i)
+    if (cur.status == RefBrobStatus.Completed && cur.bid == bid) {
+      table(i) = RefBrobEntry()
+    }
+  }
 }
 
 class BROBSpec extends AnyFunSuite {
@@ -120,6 +128,23 @@ class BROBSpec extends AnyFunSuite {
     assert(brob.alloc(bid, RefBlockType.Scalar))
     brob.scalarDone(bid)
     assert(brob.entry(bid).status == RefBrobStatus.Completed)
+  }
+
+  test("BROB reference rejects stale same-slot completion and retire events") {
+    val brob = new RefBrob(entries = 4)
+    val live = BIDReference.fromParts(uniq = 1, slot = 1, entries = 4)
+    val staleSameSlot = BIDReference.fromParts(uniq = 0, slot = 1, entries = 4)
+
+    assert(brob.alloc(live, RefBlockType.Scalar))
+    brob.scalarDone(staleSameSlot)
+    assert(brob.entry(live).status == RefBrobStatus.Allocated)
+
+    brob.scalarDone(live)
+    assert(brob.entry(live).status == RefBrobStatus.Completed)
+    brob.retire(staleSameSlot)
+    assert(brob.entry(live).status == RefBrobStatus.Completed)
+    brob.retire(live)
+    assert(brob.entry(live).status == RefBrobStatus.Free)
   }
 
   test("BROB reference requires scalar and engine completion for engine blocks") {

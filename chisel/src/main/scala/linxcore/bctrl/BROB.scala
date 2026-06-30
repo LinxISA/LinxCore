@@ -105,6 +105,11 @@ class BrobMetaTracker(
   val engineSlot = BID.slot(io.engineDoneBid, entries)
   val retireSlot = BID.slot(io.retireBid, entries)
   val querySlot = BID.slot(io.queryBid, entries)
+  val scalarHit =
+    BrobEntryMeta.isAllocated(table(scalarSlot).status) && table(scalarSlot).bid === io.scalarDoneBid
+  val engineHit =
+    BrobEntryMeta.isAllocated(table(engineSlot).status) && table(engineSlot).bid === io.engineDoneBid
+  val retireHit = table(retireSlot).status === BrobStatus.Completed && table(retireSlot).bid === io.retireBid
 
   io.allocReady := table(allocSlot).status === BrobStatus.Free
 
@@ -121,7 +126,7 @@ class BrobMetaTracker(
     table(allocSlot).trapCause := 0.U
   }
 
-  when(io.scalarDoneValid && BrobEntryMeta.isAllocated(table(scalarSlot).status)) {
+  when(io.scalarDoneValid && scalarHit) {
     table(scalarSlot).scalarDone := true.B
     when(io.scalarTrapValid && !table(scalarSlot).exception) {
       table(scalarSlot).exception := true.B
@@ -132,7 +137,7 @@ class BrobMetaTracker(
     }
   }
 
-  when(io.engineDoneValid && BrobEntryMeta.isAllocated(table(engineSlot).status)) {
+  when(io.engineDoneValid && engineHit) {
     table(engineSlot).engineDone := true.B
     when(io.engineTrapValid && !table(engineSlot).exception) {
       table(engineSlot).exception := true.B
@@ -143,7 +148,7 @@ class BrobMetaTracker(
     }
   }
 
-  when(io.retireValid && table(retireSlot).status === BrobStatus.Completed) {
+  when(io.retireValid && retireHit) {
     table(retireSlot) := resetMeta
   }
 

@@ -51,7 +51,9 @@ infrastructure only; relation-cmap serialization is owned by
 R66 aligns the deallocation walk with `SPEROB::dealloc()` by stopping the
 current deallocation window after the first block-last row. The bank exposes
 that block-last row's native `(bid,gid)` as the future block-clean scheduling
-point, but it does not yet fire `CleanCMAP`.
+point and now also exposes the row's full 64-bit `blockBid` so BROB lifecycle
+owners do not have to reconstruct block identity from ring `ROBID` sidecars.
+It does not fire `CleanCMAP`.
 R74 adds the row's scalar PE owner to the deallocation T/U retire source. The
 bank stores `allocPeId` next to `allocStid`, then publishes both in
 `deallocTURetireSource` so downstream retire commands can route by retired-row
@@ -105,7 +107,7 @@ deallocation or recovery semantics into that module.
 | output | `deallocCount` | `UInt` | diagnostic | Number of rows freed this cycle |
 | output | `commit*Error` | `Bool` | monitor | `CommitTraceMonitor` contract flags for the emitted commit window |
 | output | `deallocTURetireSource` | `Vec(commitWidth, TULinkRetireSource)` | diagnostic/source | Row-owned T/U retire sources for each deallocated ROB slot |
-| output | `deallocBlockLastValid`, `deallocBlockLastBid`, `deallocBlockLastGid` | mixed | diagnostic/source | First block-last row freed by the deallocation walk; future `CleanCMAP` scheduling point |
+| output | `deallocBlockLastValid`, `deallocBlockLastBid`, `deallocBlockLastGid`, `deallocBlockLastBlockBid` | mixed | diagnostic/source | First block-last row freed by the deallocation walk; future `CleanCMAP` scheduling point plus full 64-bit block identity |
 | output | `size` | `UInt` | diagnostic | Resident non-free row count; retired rows remain resident |
 | output | `outstandingCount` | `UInt` | diagnostic | Model `osdSize`-like count; decremented at commit, not dealloc |
 | output | `flushApplied` | `Bool` | diagnostic | A matching valid row was found and the bank applied the prune mask |
@@ -243,11 +245,13 @@ so no row is lost when `commitWidth` deallocates more than one retired row.
 vector into mark/dealloc commands for `TULinkRename`.
 
 When a deallocated row is block-last, `deallocBlockLastValid` and its
-`bid/gid` outputs identify the first such row in the deallocation window. This
-is intentionally diagnostic/source plumbing for the later relation-clean
-scheduler; firing `CleanCMAP` directly from ROB commit would be too early
-because the serialized relation-cmap `ReleaseRelative` work for the block-last
-row must complete first.
+`bid/gid` outputs identify the first such row in the deallocation window.
+`deallocBlockLastBlockBid` preserves the full hardware block BID already stored
+in the row's `CommitTraceRow.blockBid`, which is the sideband needed by BROB
+scalar-completion and retire owners. This is intentionally source plumbing for
+later relation-clean scheduling; firing `CleanCMAP` directly from ROB commit
+would be too early because the serialized relation-cmap `ReleaseRelative` work
+for the block-last row must complete first.
 
 The commit output feeds `CommitTraceMonitor`; monitor errors mean the fixed
 commit window is not safe for QEMU comparison.
@@ -307,8 +311,9 @@ turning status into an architectural trace format.
 - `bash tools/chisel/build_chisel.sh`
 
 Focused tests cover commit/dealloc phase separation, block-last deallocation
-window stopping, incomplete-head blocking, duplicate identity rejection until
-deallocation, post-rename sidecar patching of a reserved row, deallocation
+window stopping, full block-BID exposure on the block-last deallocation event,
+incomplete-head blocking, duplicate identity rejection until deallocation,
+post-rename sidecar patching of a reserved row, deallocation
 backpressure, ignored invalid completion targets,
 RID-based flush pruning through the entry bank reference model, allocation
 reuse of the first pruned slot, retired-row

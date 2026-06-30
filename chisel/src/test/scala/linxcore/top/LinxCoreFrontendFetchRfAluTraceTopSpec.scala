@@ -36,6 +36,12 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.issueQueueSelectedIndex.getWidth == 2)
     assert(io.executeCompleteRobValue.getWidth == 3)
     assert(io.commit.rows.length == 2)
+    assert(io.robDeallocBlockLastValid.getWidth == 1)
+    assert(io.robDeallocBlockLastBlockBid.getWidth == 64)
+    assert(io.blockScalarDoneFire.getWidth == 1)
+    assert(io.blockScalarDoneBid.getWidth == 64)
+    assert(io.blockRetireFire.getWidth == 1)
+    assert(io.blockRetireBid.getWidth == 64)
   }
 
   test("LinxCoreFrontendFetchRfAluTraceTop elaborates source, frontend, rename, RF, issue, ROB, and ALU execute") {
@@ -61,6 +67,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_rfWriteValid"))
     assert(sv.contains("io_issueQueuePickFire"))
     assert(sv.contains("io_executeCompleteValid"))
+    assert(sv.contains("io_blockScalarDoneFire"))
+    assert(sv.contains("io_blockRetireFire"))
     assert(sv.contains("io_commitContractError"))
   }
 }

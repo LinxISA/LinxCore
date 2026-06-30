@@ -393,6 +393,7 @@ facts:
 | `model/bctrl/spe/DCTop.cpp` | `DCTop::Work` sets `inst->rid = prob[stid]->getAllocPtr()`, calls `prob[stid]->allocROB(inst)`, assigns load/store IDs, and only then writes `dec_ren_q`. |
 | `model/bctrl/spe/SPEROB.cpp` | `SPEROB::allocROB` writes a valid allocated ROB row with `tpc`, `bid`, `gid`, `last`, `rid`, and the `SimInst` pointer, then increments `allocPtr`, `size`, and `osdSize`. |
 | `model/bctrl/spe/SPERename.cpp` | Rename later consumes `dec_ren_q` and mutates the same instruction object with renamed sidecars such as local T/U sequences. |
+| `model/bctrl/spe/SPEROB.cpp` / `model/bctrl/BROB.cpp` | R103 block lifecycle evidence: `SPEROB::dealloc` stops at block-last and calls `CommitLast`; `CommitBlock` marks the block complete through `SetBlockComplete`; `BlockROB::commitBlock` retires only completed block entries. The reduced Chisel path now preserves the full block BID on ROB block-last deallocation, drives BROB scalar completion, and retires it one cycle later while leaving marker-owned old/current BID semantics for a later packet. |
 | `model/iex/pipe/alu_pipe.cpp` | `ALUPipe::Work` executes in the ALU pipe and publishes resolve/writeback at W2. |
 | `isa/calculate/arithmetic/Arithmetic.cpp` / `isa/calculate/others/Others.cpp` | Reduced scalar ALU semantics for R81 are `ADD = src0 + src1`, `ADDI = src0 + imm`, and `MOVR/MOVI` move the selected source/immediate into the destination. |
 | `model/bctrl/spe/GPRRename.cpp` / `model/iex/rtable.cpp` / `model/iex/iex_rf.cpp` | R82 scalar RF operand sourcing uses renamed physical tags: architectural GPRs start as identity physical tags, scalar destinations allocate new physical tags, ready/data state is tracked per physical tag, and RF reads return OPD_GREG data by physical tag. |
@@ -507,9 +508,10 @@ The ROB/cross-check substrate remains the required base:
 | 26 | R100 live QEMU capture plus reduced-row selection | `tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`, `tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`, live fetch RF/ALU harness/docs | bounded QEMU trace capture, `FETCH_QEMU_TRACE` plus `FETCH_ELF`, row-derived RF preload regression, manifest inspection, explicit unsupported-row report |
 | 27 | R101 reduced block-marker skip path | `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, QEMU-row extractor, live harness/docs | live fetch xchecks with BSTART/BSTOP skip rows, no PC filter, manifest inspection |
 | 28 | R102 reduced dense multi-slot frontend packet path | `F4DenseSlotQueue.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, live fetch RF/ALU harness/docs | `F4DenseSlotQueue`, adjacent frontend/path tests, default live fetch RF/ALU xcheck, live QEMU fixture with mixed BSTART/scalar/BSTOP 8-byte windows, manifest inspection |
-| 29 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 30 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 31 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 29 | R103 ROB block-last to BROB lifecycle sideband | `BROB.scala`, `ROBEntryBank.scala`, `DispatchROBAllocator.scala`, `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, module docs | BROB stale-BID reference, full block-BID block-last deallocation sideband, reduced scalar-done and next-cycle retire diagnostics, focused ROB/BROB/top gates, manifest inspection |
+| 30 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 31 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 32 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not

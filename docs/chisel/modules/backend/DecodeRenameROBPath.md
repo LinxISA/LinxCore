@@ -86,6 +86,11 @@ adds `robRenameUpdate*` observability for the post-rename ROB update. This
 matches the model order where `DCTop::Work` calls `SPEROB::allocROB` before
 `dec_ren_q->Write`, while `SPERename::Rename` later mutates the same
 instruction object's T/U sidecars.
+R103 connects the existing block-last deallocation boundary to BROB lifecycle:
+`ROBEntryBank` exposes the full block BID for the first deallocated block-last
+row, `DecodeRenameROBPath` pulses `blockScalarDone*` for that BID, and it
+pulses `blockRetire*` one cycle later so `BrobMetaTracker` observes the
+completed state before clearing the entry.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -175,8 +180,9 @@ Outputs:
   `ScalarTURenameBridge` forwards it to the bank array.
 - `allocBlockBid`, `allocRobValue`, `commit*`, `dealloc*`, `flushApplied`,
   `robTULinkSource*`, `robDeallocTURetireSource`,
-  `robDeallocBlockLast*`, `size`, `outstandingCount`, and occupancy masks:
-  `DispatchROBAllocator` and `ROBEntryBank` lifecycle observability.
+  `robDeallocBlockLast*`, `blockScalarDone*`, `blockRetire*`, `size`,
+  `outstandingCount`, and occupancy masks: `DispatchROBAllocator`,
+  `ROBEntryBank`, and reduced BROB lifecycle observability.
 - `tuRetireSource*`, `tuRetireCommand*`, `tuRetireRelation*`,
   `tuRetireAutoCleanBlock*`, `tuRetireLocalBlockCommit*`,
   `tuRetireAccepted/Miss/ReleaseMismatch/Unsupported`,
@@ -329,6 +335,17 @@ R74 routes relation-cmap retire commands through command PE/STID sidecars:
 the retire target from those sidecars rather than from `tuRenameActive*`.
 `cleanGroup*` remains inactive until a vector/MTC group-clean owner exists.
 
+R103 uses the ROB bank's full block-last BID to drive the reduced BROB
+completion path. On a deallocation cycle that frees a block-last row,
+`blockScalarDoneFire` pulses with `robDeallocBlockLastBlockBid`. A one-entry
+registered pending bit then drives `blockRetireFire` for the same full BID on
+the following cycle. This preserves the model split where `SPEROB::dealloc`
+calls `CommitLast`/`CommitBlock`, `PEBase::SetBlockComplete` marks the block
+complete, and `BlockROB::commitBlock` later retires completed block entries.
+The current reduced marker-skip path still does not allocate or retire
+`BSTART`/`BSTOP` marker rows; a later marker lifecycle owner must connect
+marker retire to the old/current active block BID rule.
+
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
 IO and feeds the same source into `ScalarTURenameBridge.robSource`. The bridge
 feeds `StoreDispatchSTQPath.lsuTULinkSource` into its LSU source input. For
@@ -458,6 +475,7 @@ bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
 bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBankArray
 bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
 bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
+bash tools/chisel/run_chisel_tests.sh --only BROB
 ```
 
 Affected gates:
@@ -503,3 +521,6 @@ ROB allocation, renamed output, and store-dispatch payload observability.
 R76 covers enqueue-time ROB/BROB reservation and post-rename sidecar update
 observability through `DecodeRenameROBPath`, `DispatchROBAllocator`, and
 `ROBEntryBank`.
+R103 covers full block-BID propagation from ROB deallocation, reduced
+`blockScalarDone*` and one-cycle-later `blockRetire*` diagnostics, and
+stale same-slot BROB event rejection.

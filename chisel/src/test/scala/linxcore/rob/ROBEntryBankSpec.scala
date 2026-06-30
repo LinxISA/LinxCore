@@ -564,6 +564,7 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_deallocTURetireSource_0_isLast"))
     assert(sv.contains("io_deallocBlockLastValid"))
     assert(sv.contains("io_deallocBlockLastBid_value"))
+    assert(sv.contains("io_deallocBlockLastBlockBid"))
     assert(sv.contains("io_robTULinkSourceMatched"))
     assert(sv.contains("io_completedMask"))
     assert(sv.contains("io_retiredMask"))

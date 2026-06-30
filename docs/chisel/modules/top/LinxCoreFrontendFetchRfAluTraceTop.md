@@ -70,6 +70,10 @@ response can now carry a mixed marker/scalar dense packet, while the reduced
 backend still drains one original F4 slot per cycle. Block-header scalar-done
 semantics, width-wide ROB allocation, full issue arbitration, LSU,
 trap/recovery, and branch restart are still outside this reduced top.
+R103 propagates the reduced ROB block-last to BROB lifecycle diagnostics to
+this top: full block BID on the deallocated block-last row, scalar-done pulse,
+and one-cycle-later block-retire pulse. These diagnostics prove the current
+ROB/BROB sideband path, not full `BSTART`/`BSTOP` marker retirement.
 
 ## Interface
 
@@ -97,6 +101,7 @@ trap/recovery, and branch restart are still outside this reduced top.
 | output | `executeAccepted`, `executeBusy`, `executeCompleteValid`, `executeCompleteRobValue` | mixed | diagnostic | Reduced ALU handoff and completion. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
 | output | `robAllocFire`, `robRenameUpdateFire`, `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB allocation, post-rename update, and completion acceptance events. |
+| output | `robDeallocBlockLastValid`, `robDeallocBlockLastBlockBid`, `blockScalarDoneFire`, `blockScalarDoneBid`, `blockRetireFire`, `blockRetireBid` | mixed | pulse/diagnostic | Reduced ROB block-last to BROB lifecycle sideband path with full 64-bit BID. |
 | output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Monitored commit rows with RF-sourced source data and ALU writeback. |
 | output | `commit*`, `dealloc*`, `occupiedMask`, `completedMask`, `retiredMask`, `idle` | mixed | diagnostic | Commit monitor, ROB lifecycle, and reduced-top idle observability. |
 

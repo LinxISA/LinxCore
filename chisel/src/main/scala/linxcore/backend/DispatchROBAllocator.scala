@@ -103,6 +103,7 @@ class DispatchROBAllocatorIO(
   val deallocBlockLastValid = Output(Bool())
   val deallocBlockLastBid = Output(new ROBID(entries))
   val deallocBlockLastGid = Output(new ROBID(entries))
+  val deallocBlockLastBlockBid = Output(UInt(bidWidth.W))
 
   val flushApplied = Output(Bool())
   val flushPruneMask = Output(UInt(entries.W))
@@ -284,6 +285,7 @@ class DispatchROBAllocator(
   io.deallocBlockLastValid := rob.io.deallocBlockLastValid
   io.deallocBlockLastBid := rob.io.deallocBlockLastBid
   io.deallocBlockLastGid := rob.io.deallocBlockLastGid
+  io.deallocBlockLastBlockBid := rob.io.deallocBlockLastBlockBid.pad(bidWidth)(bidWidth - 1, 0)
   io.flushApplied := rob.io.flushApplied
   io.flushPruneMask := rob.io.flushPruneMask
   io.flushResidentDecrement := rob.io.flushResidentDecrement

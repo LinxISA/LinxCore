@@ -39,6 +39,9 @@ R76 splits allocation from rename-produced sidecar visibility. Decode enqueue
 can reserve BROB and ROB rows atomically, while a later `renameUpdate*`
 handshake patches the reserved ROB row after `ScalarTURenameBridge` accepts the
 queued instruction.
+R103 forwards the ROB bank's full `deallocBlockLastBlockBid` sideband so
+reduced block lifecycle owners can drive BROB scalar completion with the same
+64-bit BID that allocation wrote into the row.
 
 This is still a bring-up bridge, not full dispatch, rename, or CMT. It exists
 to remove unit-test-only `ROBEntryBank.allocBid` fixtures and to make later
@@ -83,7 +86,7 @@ dispatch agents consume a real block owner.
 | output | `commit*`, `dealloc*`, `flush*`, `size`, `outstandingCount`, `*Mask` | mixed | diagnostic | `ROBEntryBank` commit, recovery, and lifecycle outputs |
 | output | `robTULinkSource*` | mixed | diagnostic/source | ROB row candidate for `TULinkFlushSourceSelector.robSource` |
 | output | `deallocTURetireSource` | `Vec(commitWidth, TULinkRetireSource)` | diagnostic/source | ROB deallocation-row source vector for `TULinkRetireCommandPath` |
-| output | `deallocBlockLast*` | mixed | diagnostic/source | First block-last row freed by the ROB deallocation walk |
+| output | `deallocBlockLast*` | mixed | diagnostic/source | First block-last row freed by the ROB deallocation walk, including native `(bid,gid)` and full `blockBid` |
 
 ## State
 
@@ -150,6 +153,9 @@ live T/U rename retire port while preserving the row's PE/STID bank identity.
 `deallocBlockLast*` is also forwarded as the
 future `CleanCMAP` scheduling source, but this allocator does not issue the
 cleanup command because relation-cmap retire serialization must finish first.
+The full `deallocBlockLastBlockBid` is forwarded separately from the ring BID
+so BROB scalar-completion and retire paths can keep using full 64-bit hardware
+BID ordering.
 BROB flush remains an explicit full-BID input
 (`blockFlushValid/blockFlushBid`) because the current Chisel recovery bus
 still uses ring `ROBID` metadata while the hardware block contract uses full
@@ -183,4 +189,5 @@ uniqueness bits, blocked-allocation hold behavior for BROB fullness and ROB
 duplicate identity, separation of decode-time allocation from rename-time row
 update, ROB T/U source IO elaboration through the composed module,
 ROB deallocation retire-source and block-last-candidate IO elaboration through
-the composed module, and Chisel elaboration of the composed module.
+the composed module, full block-BID propagation from ROB block-last deallocation,
+and Chisel elaboration of the composed module.

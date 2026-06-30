@@ -139,6 +139,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
 
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
+  val robDeallocBlockLastValid = Output(Bool())
+  val robDeallocBlockLastBlockBid = Output(UInt(p.blockBidWidth.W))
+  val blockScalarDoneFire = Output(Bool())
+  val blockScalarDoneBid = Output(UInt(p.blockBidWidth.W))
+  val blockRetireFire = Output(Bool())
+  val blockRetireBid = Output(UInt(p.blockBidWidth.W))
   val empty = Output(Bool())
   val full = Output(Bool())
   val size = Output(UInt(sizeWidth.W))
@@ -358,6 +364,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
   io.deallocValidMask := path.io.deallocValidMask
   io.deallocCount := path.io.deallocCount
+  io.robDeallocBlockLastValid := path.io.robDeallocBlockLastValid
+  io.robDeallocBlockLastBlockBid := path.io.robDeallocBlockLastBlockBid
+  io.blockScalarDoneFire := path.io.blockScalarDoneFire
+  io.blockScalarDoneBid := path.io.blockScalarDoneBid
+  io.blockRetireFire := path.io.blockRetireFire
+  io.blockRetireBid := path.io.blockRetireBid
   io.empty := path.io.empty
   io.full := path.io.full
   io.size := path.io.size
