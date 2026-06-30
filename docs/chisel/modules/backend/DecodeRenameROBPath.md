@@ -127,10 +127,18 @@ fallthrough, true redirects to the active target.
 R126 adds a reduced scalar-redirect lifecycle input for return-like execute
 redirects such as `FRET.STK`. The live fetch RF/ALU top drives
 `scalarRedirectValid` from `ReducedScalarAluExecute.redirectValid`; this
-backend uses the pulse only to clear active marker BID/target/condition state
-so the return target's first scalar row can seed a fresh scalar-created active
-block. It does not synthesize scalar-done; block completion still comes from
-marker boundaries or ROB block-last deallocation.
+backend uses the pulse to complete the active full BID through the same
+scalar-done path used by marker boundaries, then clears active
+BID/target/condition state so the return target's first scalar row can seed a
+fresh scalar-created active block.
+R127 refines that scalar-redirect lifecycle for the longer CoreMark return
+path. Marker-only conditional boundaries now wait only when a branch producer
+or scalar ROB work can still supply a decision; zero-target/no-producer
+conditional state falls through. A marker allocation that would reuse the
+current active slot first pre-retires the active BID, and BROB `Flushed` slots
+are treated as reusable by the allocator. Together these rules prevent stale
+direct-call/return block state from poisoning later conditional marker
+allocation.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -155,8 +163,9 @@ Inputs:
 - `blockBranchTakenValid`, `blockBranchTaken`: reduced conditional-block
   decision from the execute/top owner. These are consumed only when an active
   conditional marker block reaches its following marker boundary.
-- `scalarRedirectValid`: reduced execute-owned redirect pulse used to clear
-  active marker context after a scalar return/control row such as `FRET.STK`.
+- `scalarRedirectValid`: reduced execute-owned redirect pulse used to complete
+  and clear active marker context after a scalar return/control row such as
+  `FRET.STK`.
 - `completeValid/completeRobValue`: reduced ROB completion hook.
 - `completeRowValid/completeRow`: optional execute/LSU completion payload
   used when a live owner replaces the allocation/rename placeholder row before
@@ -285,11 +294,14 @@ both marker and non-marker slots is deliberately not consumed because
 advancing the source PC would otherwise drop a scalar row before dense
 multi-slot decode enqueue exists.
 
-For a conditional active block, the next marker boundary is not ready until
-`blockBranchTakenValid` is present. A false decision takes fallthrough and
-allocates the marker's new BROB-only block. A true decision completes the
-active block, emits the reduced redirect to the recorded active target, clears
-the active marker state, and suppresses new marker allocation for that boundary.
+For a conditional active block, the next marker boundary waits only when a
+branch decision can still arrive: the active target is nonzero and either
+`blockBranchTakenValid` is present or scalar ROB work remains pending behind
+the marker. A false decision takes fallthrough and allocates the marker's new
+BROB-only block. A true decision completes the active block, emits the reduced
+redirect to the recorded active target, clears the active marker state, and
+suppresses new marker allocation for that boundary. If no producer remains, the
+marker falls through rather than deadlocking on a decision that cannot arrive.
 Direct and call active blocks do not wait for a branch decision at the next
 marker boundary: they complete the active block, redirect to the active target
 when it is nonzero, and suppress allocation of the boundary marker itself. This
@@ -297,12 +309,13 @@ matches compact `C.BSTART.DIRECT` loop headers such as the CoreMark
 `0x00c2 -> 0x0114` case, where the following conditional marker is the
 boundary that closes the direct active block.
 
-When execute owns a scalar redirect, the active marker state is cleared before
-the return target body can allocate. This prevents a target-body scalar-created
-block from inheriting the previous marker's target and redirect policy. The
-backend does not pulse scalar-done from this redirect input; it waits for the
-normal ROB block-last deallocation path or later marker lifecycle event.
-target-side boundary after the direct block redirects.
+When execute owns a scalar redirect, the active marker BID is first completed
+through `blockScalarDone*`, then active marker state is cleared before the
+return target body can allocate. This prevents a target-body scalar-created
+block from inheriting the previous marker's target and redirect policy, while
+also preventing the old active BROB entry from remaining pending after the
+redirect. If a following marker allocation would wrap onto the same active
+slot, the path emits a pre-retire scalar-done pulse before allocation.
 Marker-only packets therefore drive `decodeReady` from marker lifecycle
 readiness, not from scalar decode/rename queue readiness; otherwise a
 conditional marker could drain before its branch decision or before BROB

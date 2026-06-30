@@ -52,7 +52,7 @@ The first Chisel packet implements the metadata substrate only:
 | Input | `allocPeId` | `UInt` | with `allocValid` | PE owner. |
 | Input | `allocBlockType` | `UInt` | with `allocValid` | Encoded block type placeholder. |
 | Input | `allocNeedsEngine` | `Bool` | with `allocValid` | True for blocks requiring engine completion. |
-| Output | `allocReady` | `Bool` | ready | Selected slot is free. |
+| Output | `allocReady` | `Bool` | ready | Selected slot is reusable: `Free` or `Flushed`. |
 | Input | `scalarDoneValid` | `Bool` | valid | Scalar side completion. |
 | Input | `scalarDoneBid` | `UInt(64.W)` | with valid | BID to update. |
 | Input | `scalarTrapValid` | `Bool` | with valid | Scalar completion carries exception. |
@@ -88,7 +88,9 @@ atomically.
 ## Logic Design
 
 - Allocation writes BID, owner metadata, `needsEngine`, and status
-  `Allocated` when the selected slot is free.
+  `Allocated` when the selected slot is reusable. Reusable means `Free` or
+  `Flushed`; a flushed slot is not live, so it must not strand later full-BID
+  allocation when the allocator wraps to that physical entry.
 - `DispatchROBAllocator` generates a full BID with `BID.fromParts`, passes it
   to `BrobMetaTracker.allocBid`, writes the same BID into the ROB row
   `blockBid` sideband, and drives `ROBEntryBank.allocBid` from the equivalent
@@ -99,7 +101,9 @@ atomically.
   Engine blocks become `Completed` only after scalar completion is also set.
 - Retire frees only a `Completed` entry.
 - Flush is applied after the packet's local updates and marks entries with
-  full BID greater than `flushBid` as `Flushed`.
+  full BID greater than `flushBid` as `Flushed`. `Flushed` entries remain
+  excluded from allocated/pending/complete masks but are accepted by
+  `allocReady` so reduced block-control cleanup can reuse killed slots.
 
 ## Timing
 
@@ -113,6 +117,11 @@ cycle.
 The implemented flush rule is the strict BID mask from the LinxCore contract:
 keep `bid <= flushBid`, kill `bid > flushBid`. This is intentionally full
 64-bit BID order, not low-slot order.
+
+`Flushed` is a non-live state, not a terminal allocation blocker. R127 proved
+this on the CoreMark live path: scalar-return cleanup can kill younger block
+slots, and the next marker allocation must be able to reuse the same physical
+slot after wrap/flush bookkeeping.
 
 `FullBidRecoveryBridge` is the first recovery handoff owner between this full
 BID block surface and the ring `ROBID` consumed by `ROBEntryBank` pruning.

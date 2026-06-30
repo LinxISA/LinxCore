@@ -112,6 +112,7 @@ class DecodeRenameROBPathIO(
   val decRenEmpty = Output(Bool())
   val decRenFull = Output(Bool())
   val decRenHeadPc = Output(UInt(p.pcWidth.W))
+  val decRenHeadUsesLocal = Output(Bool())
   val decRenHeadRidValid = Output(Bool())
   val decRenHeadRidValue = Output(UInt(p.robIndexWidth.W))
   val selectedIsLoad = Output(Bool())
@@ -641,7 +642,9 @@ class DecodeRenameROBPath(
   val scalarBlockStartFire = allocator.io.allocFire && selectedAny && !activeBlockValid
   val robBlockLastClearsActive =
     robBlockLastScalarDoneFire && activeBlockValid && allocator.io.deallocBlockLastBlockBid === activeBlockBid
-  val markerNeedsBranchDecision = markerBoundary && activeBlockValid && activeBlockCond
+  val markerNeedsBranchDecision =
+    markerBoundary && activeBlockValid && activeBlockCond && activeBlockTarget =/= 0.U &&
+      (io.blockBranchTakenValid || !allocator.io.empty)
   val markerUnconditionalRedirect =
     markerBoundary && activeBlockValid && activeBlockUnconditionalRedirect && activeBlockTarget =/= 0.U
   val markerRedirectBoundary =
@@ -663,21 +666,33 @@ class DecodeRenameROBPath(
   allocator.io.completeRowValid := io.completeRowValid
   allocator.io.completeRow := io.completeRow
   allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !tuRetirePath.io.cleanupActive
+  val blockRetirePending = RegInit(false.B)
+  val blockRetireBidReg = RegInit(0.U(bidWidth.W))
+  val markerAllocBlockedByActiveSlot =
+    activeBlockValid &&
+      (BID.slot(allocator.io.blockAllocOnlyBid, p.robEntries) === BID.slot(activeBlockBid, p.robEntries))
+  val markerPreRetireFire =
+    markerFallthroughBoundary && !markerLifecycleConflict && !allocator.io.blockAllocOnlyReady &&
+      markerAllocBlockedByActiveSlot && !blockRetirePending
   val markerReady =
     !markerLifecycleConflict &&
       (markerStop || markerRedirectBoundary || (markerFallthroughBoundary && allocator.io.blockAllocOnlyReady))
   val markerBoundaryFire = markerFallthroughBoundary && markerReady && allocator.io.blockAllocOnlyFire
   val markerBoundaryRedirectFire = markerRedirectBoundary && markerReady
   val markerStopFire = markerStop && markerReady
-  val markerScalarDoneFire = activeBlockValid && (markerStopFire || markerBoundaryFire || markerBoundaryRedirectFire)
+  val markerScalarDoneFire =
+    activeBlockValid && (markerStopFire || markerBoundaryFire || markerBoundaryRedirectFire || markerPreRetireFire)
   val markerScalarDoneBid = activeBlockBid
   val markerStopRedirectValid =
     (markerStopFire || markerBoundaryRedirectFire) && activeBlockValid && activeBlockTarget =/= 0.U &&
       activeBlockTarget =/= (marker.pc + marker.insnLen)
-  val blockScalarDoneFire = markerScalarDoneFire || robBlockLastScalarDoneFire
-  val blockScalarDoneBid = Mux(markerScalarDoneFire, markerScalarDoneBid, allocator.io.deallocBlockLastBlockBid)
-  val blockRetirePending = RegInit(false.B)
-  val blockRetireBidReg = RegInit(0.U(bidWidth.W))
+  val scalarRedirectScalarDoneFire = scalarRedirectClearsActive
+  val blockScalarDoneFire = markerScalarDoneFire || scalarRedirectScalarDoneFire || robBlockLastScalarDoneFire
+  val blockScalarDoneBid =
+    Mux(
+      markerScalarDoneFire,
+      markerScalarDoneBid,
+      Mux(scalarRedirectScalarDoneFire, activeBlockBid, allocator.io.deallocBlockLastBlockBid))
   val blockLifecycleFlush = io.cleanup.valid && (io.cleanup.backendFlushValid || io.cleanup.blockFlushValid)
   allocator.io.blockScalarDoneValid := blockScalarDoneFire
   allocator.io.blockScalarDoneBid := blockScalarDoneBid
@@ -798,6 +813,15 @@ class DecodeRenameROBPath(
   io.decRenEmpty := decRenQ.io.empty
   io.decRenFull := decRenQ.io.full
   io.decRenHeadPc := queuedForRename.pc
+  io.decRenHeadUsesLocal := queuedForRename.valid &&
+    (VecInit((0 until 3).map { idx =>
+      queuedForRename.src(idx).valid &&
+        ((queuedForRename.src(idx).operandClass === OperandClass.T) ||
+          (queuedForRename.src(idx).operandClass === OperandClass.U))
+    }).asUInt.orR ||
+      (queuedForRename.dst(0).valid &&
+        ((queuedForRename.dst(0).kind === DestinationKind.T) ||
+          (queuedForRename.dst(0).kind === DestinationKind.U))))
   io.decRenHeadRidValid := queuedForRename.rid.valid
   io.decRenHeadRidValue := queuedForRename.rid.value
   io.selectedIsLoad := selectedIsLoad

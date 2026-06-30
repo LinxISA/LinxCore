@@ -1189,12 +1189,19 @@ std::uint8_t drain_dense_row(
             << " markerBoundary=" << static_cast<unsigned>(dut.io_blockMarkerBoundary)
             << " markerStop=" << static_cast<unsigned>(dut.io_blockMarkerStop)
             << " markerAllocReady=" << static_cast<unsigned>(dut.io_blockMarkerAllocReady)
+            << " markerAllocBid=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_blockMarkerAllocBid)
+            << std::dec
             << " markerLifecycleConflict=" << static_cast<unsigned>(dut.io_blockMarkerLifecycleConflict)
             << " markerActiveValid=" << static_cast<unsigned>(dut.io_blockMarkerActiveValid)
             << " markerActiveBid=0x" << std::hex
             << static_cast<unsigned long long>(dut.io_blockMarkerActiveBid)
             << " markerActiveTarget=0x"
             << static_cast<unsigned long long>(dut.io_blockMarkerActiveTarget)
+            << std::dec
+            << " blockScalarDoneFire=" << static_cast<unsigned>(dut.io_blockScalarDoneFire)
+            << " blockScalarDoneBid=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_blockScalarDoneBid)
             << std::dec
             << " blockRetireFire=" << static_cast<unsigned>(dut.io_blockRetireFire)
             << " issueCount=" << static_cast<unsigned>(dut.io_issueQueueCount)
@@ -1330,10 +1337,30 @@ void commit_expected_row(
             << std::dec
             << " localTPending=" << static_cast<unsigned>(dut.io_localTPendingCount)
             << " localUPending=" << static_cast<unsigned>(dut.io_localUPendingCount)
+            << " localIncomingUsesLocal=" << static_cast<unsigned>(dut.io_localIncomingUsesLocal)
             << " localIncomingBlocked=" << static_cast<unsigned>(dut.io_localIncomingBlocked)
             << " issueCount=" << static_cast<unsigned>(dut.io_issueQueueCount)
             << " issueHeadValid=" << static_cast<unsigned>(dut.io_issueQueueHeadValid)
             << " issueHeadIssued=" << static_cast<unsigned>(dut.io_issueQueueHeadIssued)
+            << " issueHeadPc=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_issueQueueHeadPc)
+            << " issueHeadOpcode=0x"
+            << static_cast<unsigned>(dut.io_issueQueueHeadOpcode)
+            << " issueHeadSrcValid=0x"
+            << static_cast<unsigned>(dut.io_issueQueueHeadSrcValidMask)
+            << " issueHeadSrc0=(cls=" << std::dec
+            << static_cast<unsigned>(dut.io_issueQueueHeadSrcClass_0)
+            << ",phys=" << static_cast<unsigned>(dut.io_issueQueueHeadSrcPhysTag_0)
+            << ",rel=" << static_cast<unsigned>(dut.io_issueQueueHeadSrcRelTag_0)
+            << ") issueHeadSrc1=(cls="
+            << static_cast<unsigned>(dut.io_issueQueueHeadSrcClass_1)
+            << ",phys=" << static_cast<unsigned>(dut.io_issueQueueHeadSrcPhysTag_1)
+            << ",rel=" << static_cast<unsigned>(dut.io_issueQueueHeadSrcRelTag_1)
+            << ") issueHeadSrc2=(cls="
+            << static_cast<unsigned>(dut.io_issueQueueHeadSrcClass_2)
+            << ",phys=" << static_cast<unsigned>(dut.io_issueQueueHeadSrcPhysTag_2)
+            << ",rel=" << static_cast<unsigned>(dut.io_issueQueueHeadSrcRelTag_2)
+            << ")"
             << " issueSourceReady=0x" << std::hex
             << static_cast<unsigned>(dut.io_issueQueueSourceReadyMask)
             << std::dec

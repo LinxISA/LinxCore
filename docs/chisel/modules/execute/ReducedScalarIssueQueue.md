@@ -84,6 +84,7 @@ keeps the row resident until the existing ALU release path removes it.
 | output | `issuedCount`, `notIssuedCount` | `UInt(log2Ceil(depth + 1).W)` | diagnostic | Current in-flight and selectable resident-row counts. |
 | output | `headValid` | `Bool` | diagnostic | Queue has a head row. |
 | output | `headIssued` | `Bool` | diagnostic | Queue head has already issued and is waiting for release. |
+| output | `headPc`, `headOpcode`, `headSrcValidMask`, `headSrcOperandClass`, `headSrcPhysTag`, `headSrcRelTag` | mixed | diagnostic | Head-row payload and source-lane shape used by live CoreMark stall diagnostics. |
 | output | `sourceReadyMask` | `UInt(3.W)` | diagnostic | Registered readiness bits for the current head, with invalid lanes treated as ready. |
 | output | `allSourcesReady` | `Bool` | diagnostic | Every valid source lane for the head is ready; invalid lanes are ready by definition. |
 | output | `selectedValid` | `Bool` | diagnostic | An oldest-ready non-issued row was found for issue. |
@@ -148,6 +149,11 @@ R111 also exposes each selected source lane's `operandClass` and `relTag`.
 reads for local T/U sources and to feed operand data from the reduced local
 T/U overlay. This is a temporary value path for the live CoreMark prefix until
 full local-bank data execution replaces it.
+
+R127 adds head-row diagnostics for PC, opcode, source-valid mask, operand
+classes, physical tags, and relative tags. These are diagnostic-only outputs
+used by the live QEMU harness to distinguish true local-source waits from
+stale local-overlay backpressure.
 
 `releaseValid` removes the first in-flight row whose `(bid, rid, stid)` matches
 the release payload. Remaining rows are compacted toward slot 0, preserving
@@ -234,8 +240,9 @@ remain owned by existing recovery and future issue/ready-table packets.
 
 The parent `LinxCoreFrontendRfAluTraceTop` exposes enqueue, P1 pick, I1 cancel,
 I2 issue, release, count, issued/not-issued count, head-valid, head-issued,
-source-ready mask, selected-valid/index, selected-read-ready, I1/I2 stage
-valids, source-block, read-block, issued-block, and output-block diagnostics.
+head payload/source-lane shape, source-ready mask, selected-valid/index,
+selected-read-ready, I1/I2 stage valids, source-block, read-block,
+issued-block, and output-block diagnostics.
 The Verilator fixture drives three dependent scalar rows, enqueues all rows
 before draining commits, and compares the resulting commit rows against
 QEMU-shaped reference data.

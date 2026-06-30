@@ -53,6 +53,12 @@ class ReducedScalarIssueQueueIO(
   val notIssuedCount = Output(UInt(countWidth.W))
   val headValid = Output(Bool())
   val headIssued = Output(Bool())
+  val headPc = Output(UInt(p.pcWidth.W))
+  val headOpcode = Output(UInt(p.opcodeWidth.W))
+  val headSrcValidMask = Output(UInt(3.W))
+  val headSrcOperandClass = Output(Vec(3, OperandClass()))
+  val headSrcPhysTag = Output(Vec(3, UInt(p.physRegWidth.W)))
+  val headSrcRelTag = Output(Vec(3, UInt(p.archRegWidth.W)))
   val sourceReadyMask = Output(UInt(3.W))
   val allSourcesReady = Output(Bool())
   val selectedValid = Output(Bool())
@@ -177,6 +183,14 @@ class ReducedScalarIssueQueue(
   io.notIssuedCount := notIssuedCount
   io.headValid := headValid
   io.headIssued := headIssued
+  io.headPc := Mux(headValid, headUop.pc, 0.U)
+  io.headOpcode := Mux(headValid, headUop.opcode, 0.U)
+  io.headSrcValidMask := VecInit((0 until 3).map(lane => headValid && headUop.src(lane).valid)).asUInt
+  for (idx <- 0 until 3) {
+    io.headSrcOperandClass(idx) := headUop.src(idx).operandClass
+    io.headSrcPhysTag(idx) := Mux(headValid, headUop.src(idx).physTag, 0.U)
+    io.headSrcRelTag(idx) := Mux(headValid, headUop.src(idx).relTag, 0.U)
+  }
   io.sourceReadyMask := headSourceReady.asUInt
   io.allSourcesReady := headAllSourcesReady
   io.selectedValid := pick.io.selectedValid

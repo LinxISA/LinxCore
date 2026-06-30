@@ -54,7 +54,7 @@ final class RefBrob(entries: Int) {
 
   def alloc(bid: BigInt, blockType: RefBlockType.Value): Boolean = {
     val i = idx(bid)
-    if (table(i).status != RefBrobStatus.Free) {
+    if (table(i).status != RefBrobStatus.Free && table(i).status != RefBrobStatus.Flushed) {
       return false
     }
     table(i) = RefBrobEntry(bid = bid, status = RefBrobStatus.Allocated, blockType = blockType)
@@ -171,5 +171,7 @@ class BROBSpec extends AnyFunSuite {
     assert(brob.entry(keep).status == RefBrobStatus.Allocated)
     assert(brob.entry(flush).status == RefBrobStatus.Allocated)
     assert(brob.entry(kill).status == RefBrobStatus.Flushed)
+    assert(brob.alloc(kill, RefBlockType.Scalar))
+    assert(brob.entry(kill).status == RefBrobStatus.Allocated)
   }
 }

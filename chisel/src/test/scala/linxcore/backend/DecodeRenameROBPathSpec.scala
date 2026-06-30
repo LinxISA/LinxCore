@@ -62,7 +62,8 @@ object DecodeRenameROBPathReference {
       alloc: Boolean,
       redirect: Boolean,
       doneBid: Option[BigInt],
-      nextActiveBid: Option[BigInt])
+      nextActiveBid: Option[BigInt],
+      preRetire: Boolean = false)
 
   def scalarStartLifecycleStep(
       activeValid: Boolean,
@@ -80,9 +81,13 @@ object DecodeRenameROBPathReference {
       else if (activeValid) Some(activeBid)
       else None
 
+    val redirectClosesActive = scalarRedirectValid && activeValid
     MarkerStep(
-      doneValid = robBlockLastFire,
-      doneBid = if (robBlockLastFire) Some(robBlockLastBid) else None,
+      doneValid = redirectClosesActive || robBlockLastFire,
+      doneBid =
+        if (redirectClosesActive) Some(activeBid)
+        else if (robBlockLastFire) Some(robBlockLastBid)
+        else None,
       nextActiveValid = nextActive.nonEmpty,
       nextActiveBid = nextActive
     )
@@ -117,11 +122,18 @@ object DecodeRenameROBPathReference {
       activeTarget: BigInt,
       branchValid: Boolean,
       branchTaken: Boolean,
-      allocBid: BigInt): MarkerBoundaryDecision = {
+      allocBid: BigInt,
+      allocReady: Boolean = true,
+      retirePending: Boolean = false,
+      entries: Int = 8,
+      scalarWorkPending: Boolean = true): MarkerBoundaryDecision = {
     val unconditionalRedirect = activeValid && activeUnconditionalRedirect && activeTarget != 0
-    val needsBranchDecision = activeValid && activeCond
+    val needsBranchDecision = activeValid && activeCond && activeTarget != 0 && (branchValid || scalarWorkPending)
     val redirect = unconditionalRedirect || (needsBranchDecision && branchValid && branchTaken)
-    val alloc = !unconditionalRedirect && (!needsBranchDecision || (branchValid && !branchTaken))
+    val fallthrough = !unconditionalRedirect && (!needsBranchDecision || (branchValid && !branchTaken))
+    val alloc = fallthrough && allocReady
+    val sameSlot = (activeBid % entries) == (allocBid % entries)
+    val preRetire = activeValid && fallthrough && !allocReady && sameSlot && !retirePending
     val nextActive =
       if (alloc) Some(allocBid)
       else if (redirect) None
@@ -131,8 +143,9 @@ object DecodeRenameROBPathReference {
     MarkerBoundaryDecision(
       alloc = alloc,
       redirect = redirect,
-      doneBid = if (activeValid && (alloc || redirect)) Some(activeBid) else None,
-      nextActiveBid = nextActive
+      doneBid = if (activeValid && (alloc || redirect || preRetire)) Some(activeBid) else None,
+      nextActiveBid = nextActive,
+      preRetire = preRetire
     )
   }
 }
@@ -269,7 +282,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
       robBlockLastFire = false,
       robBlockLastBid = 0)
     assert(!redirected.nextActiveValid)
-    assert(!redirected.doneValid)
+    assert(redirected.doneValid)
+    assert(redirected.doneBid.contains(15))
 
     val targetBlock = scalarStartLifecycleStep(
       activeValid = redirected.nextActiveValid,
@@ -324,6 +338,79 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(!condRedirect.alloc)
     assert(condRedirect.doneBid.contains(22))
     assert(condRedirect.nextActiveBid.isEmpty)
+  }
+
+  test("reference treats zero-target conditional marker state as fallthrough") {
+    val zeroTarget = markerBoundaryDecision(
+      activeValid = true,
+      activeBid = 30,
+      activeCond = true,
+      activeUnconditionalRedirect = false,
+      activeTarget = 0,
+      branchValid = false,
+      branchTaken = false,
+      allocBid = 31)
+
+    assert(zeroTarget.alloc)
+    assert(!zeroTarget.redirect)
+    assert(zeroTarget.doneBid.contains(30))
+    assert(zeroTarget.nextActiveBid.contains(31))
+  }
+
+  test("reference treats marker-only conditional state with no branch producer as fallthrough") {
+    val markerOnly = markerBoundaryDecision(
+      activeValid = true,
+      activeBid = 32,
+      activeCond = true,
+      activeUnconditionalRedirect = false,
+      activeTarget = 0x4000d1d8L,
+      branchValid = false,
+      branchTaken = false,
+      allocBid = 33,
+      scalarWorkPending = false)
+
+    assert(markerOnly.alloc)
+    assert(!markerOnly.redirect)
+    assert(markerOnly.doneBid.contains(32))
+    assert(markerOnly.nextActiveBid.contains(33))
+  }
+
+  test("reference pre-retires an active marker block when allocation wraps onto its BROB slot") {
+    val activeBid = BigInt(0xfc)
+    val nextBidSameSlot = BigInt(0x104)
+    val blocked = markerBoundaryDecision(
+      activeValid = true,
+      activeBid = activeBid,
+      activeCond = false,
+      activeUnconditionalRedirect = false,
+      activeTarget = 0,
+      branchValid = false,
+      branchTaken = false,
+      allocBid = nextBidSameSlot,
+      allocReady = false,
+      retirePending = false,
+      entries = 8)
+
+    assert(blocked.preRetire)
+    assert(!blocked.alloc)
+    assert(!blocked.redirect)
+    assert(blocked.doneBid.contains(activeBid))
+    assert(blocked.nextActiveBid.contains(activeBid))
+
+    val waitingForRetire = markerBoundaryDecision(
+      activeValid = true,
+      activeBid = activeBid,
+      activeCond = false,
+      activeUnconditionalRedirect = false,
+      activeTarget = 0,
+      branchValid = false,
+      branchTaken = false,
+      allocBid = nextBidSameSlot,
+      allocReady = false,
+      retirePending = true,
+      entries = 8)
+    assert(!waitingForRetire.preRetire)
+    assert(waitingForRetire.doneBid.isEmpty)
   }
 
   test("reference accepts agreeing ROB and LSU cleanup sources but blocks conflicting ones") {
@@ -405,6 +492,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.decRenTail.getWidth == 2)
     assert(io.decRenCount.getWidth == 3)
     assert(io.decRenHeadPc.getWidth == 64)
+    assert(io.decRenHeadUsesLocal.getWidth == 1)
     assert(io.decRenHeadRidValid.getWidth == 1)
     assert(io.decRenHeadRidValue.getWidth == 3)
     assert(io.selectedLsId.getWidth == 32)
@@ -582,6 +670,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_robAllocAttemptValid"))
     assert(sv.contains("io_robRenameUpdateAttemptValid"))
     assert(sv.contains("io_decRenHeadPc"))
+    assert(sv.contains("io_decRenHeadUsesLocal"))
     assert(sv.contains("io_robRenameUpdateFire"))
     assert(sv.contains("io_completeRowValid"))
     assert(sv.contains("io_completeRow_wb_data"))

@@ -9,7 +9,7 @@ import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandCla
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource}
 import linxcore.lsu.StoreDispatchExecResult
-import linxcore.recovery.RecoveryCleanupIntent
+import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
 class LinxCoreFrontendFetchRfAluTraceTopIO(
@@ -135,6 +135,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val issueQueueNotIssuedCount = Output(UInt(issueCountWidth.W))
   val issueQueueHeadValid = Output(Bool())
   val issueQueueHeadIssued = Output(Bool())
+  val issueQueueHeadPc = Output(UInt(p.pcWidth.W))
+  val issueQueueHeadOpcode = Output(UInt(p.opcodeWidth.W))
+  val issueQueueHeadSrcValidMask = Output(UInt(3.W))
+  val issueQueueHeadSrcClass = Output(Vec(3, OperandClass()))
+  val issueQueueHeadSrcPhysTag = Output(Vec(3, UInt(p.physRegWidth.W)))
+  val issueQueueHeadSrcRelTag = Output(Vec(3, UInt(p.archRegWidth.W)))
   val issueQueueSourceReadyMask = Output(UInt(3.W))
   val issueQueueAllSourcesReady = Output(Bool())
   val issueQueueSelectedValid = Output(Bool())
@@ -151,6 +157,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val localUReadyMask = Output(UInt(4.W))
   val localTPendingCount = Output(UInt(issueCountWidth.W))
   val localUPendingCount = Output(UInt(issueCountWidth.W))
+  val localIncomingUsesLocal = Output(Bool())
   val localIncomingBlocked = Output(Bool())
   val decodeBlockedByRename = Output(Bool())
   val decodeBlockedByRob = Output(Bool())
@@ -254,6 +261,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val localPendingCountWidth = log2Ceil(issueQueueDepth + 2)
   val localTPendingCount = RegInit(0.U(localPendingCountWidth.W))
   val localUPendingCount = RegInit(0.U(localPendingCountWidth.W))
+  val scalarSpValue = RegInit(0.U(p.immWidth.W))
 
   private def pushLocal(
       data: Vec[UInt],
@@ -269,19 +277,41 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
   val markerRedirectPending = RegInit(false.B)
   val markerRedirectPcReg = RegInit(0.U(p.pcWidth.W))
+  val scalarRedirectPending = RegInit(false.B)
+  val scalarRedirectBidReg = RegInit(ROBID.disabled(p.robEntries))
+  val scalarRedirectRidReg = RegInit(ROBID.disabled(p.robEntries))
+  val scalarRedirectStidReg = RegInit(0.U(p.threadIdWidth.W))
+  val scalarRedirectBlockBidReg = RegInit(0.U(p.blockBidWidth.W))
   val blockBranchTakenValid = RegInit(false.B)
   val blockBranchTaken = RegInit(false.B)
   val markerRedirectFire = path.io.blockMarkerStopRedirectValid || execute.io.redirectValid
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
+  val backendPipeFlush = io.frontendFlushValid || scalarRedirectPending
 
   when(io.frontendFlushValid || io.restartValid || io.startValid) {
     markerRedirectPending := false.B
     markerRedirectPcReg := 0.U
+    scalarRedirectPending := false.B
+    scalarRedirectBidReg := ROBID.disabled(p.robEntries)
+    scalarRedirectRidReg := ROBID.disabled(p.robEntries)
+    scalarRedirectStidReg := 0.U
+    scalarRedirectBlockBidReg := 0.U
   }.elsewhen(markerRedirectFire) {
     markerRedirectPending := true.B
     markerRedirectPcReg := Mux(path.io.blockMarkerStopRedirectValid, path.io.blockMarkerStopRedirectPc, execute.io.redirectPc)
+    scalarRedirectPending := execute.io.redirectValid
+    scalarRedirectBidReg := Mux(execute.io.redirectValid, execute.io.releaseBid, ROBID.disabled(p.robEntries))
+    scalarRedirectRidReg := Mux(execute.io.redirectValid, execute.io.releaseRid, ROBID.disabled(p.robEntries))
+    scalarRedirectStidReg := Mux(execute.io.redirectValid, execute.io.releaseStid, 0.U)
+    scalarRedirectBlockBidReg :=
+      Mux(execute.io.redirectValid && execute.io.completeRow.blockBidValid, execute.io.completeRow.blockBid, 0.U)
   }.elsewhen(markerRedirectPending) {
     markerRedirectPending := false.B
+    scalarRedirectPending := false.B
+    scalarRedirectBidReg := ROBID.disabled(p.robEntries)
+    scalarRedirectRidReg := ROBID.disabled(p.robEntries)
+    scalarRedirectStidReg := 0.U
+    scalarRedirectBlockBidReg := 0.U
   }
 
   source.io.startValid := io.startValid
@@ -309,9 +339,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.d1 := denseSlots.io.outD1
   path.io.slots := denseSlots.io.outSlots
   path.io.validMask := denseSlots.io.outValidMask
-  path.io.flushValid := io.frontendFlushValid
+  path.io.flushValid := backendPipeFlush
+  val localIncomingUsesLocal =
+    path.io.decRenValid && path.io.decRenHeadUsesLocal
   val localIncomingBlocked =
-    (localTPendingCount =/= 0.U) || (localUPendingCount =/= 0.U)
+    localIncomingUsesLocal && ((localTPendingCount =/= 0.U) || (localUPendingCount =/= 0.U))
   path.io.renamedOutReady := issue.io.inReady && !localIncomingBlocked
   path.io.storeStaExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
   path.io.storeStdExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
@@ -325,7 +357,34 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.checkpointBid := ROBID.disabled(p.robEntries)
   path.io.commitValid := false.B
   path.io.commitBid := ROBID.disabled(p.robEntries)
-  path.io.cleanup := 0.U.asTypeOf(new RecoveryCleanupIntent(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
+  val pathCleanup = Wire(new RecoveryCleanupIntent(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
+  pathCleanup := 0.U.asTypeOf(pathCleanup)
+  pathCleanup.valid := scalarRedirectPending
+  pathCleanup.flush.req.valid := scalarRedirectPending
+  pathCleanup.flush.req.typ := FlushType.InnerFlush
+  pathCleanup.flush.req.peId := io.peId
+  pathCleanup.flush.req.tid := io.threadId
+  pathCleanup.flush.req.stid := scalarRedirectStidReg
+  pathCleanup.flush.req.bid := scalarRedirectBidReg
+  pathCleanup.flush.req.gid := ROBID.disabled(p.robEntries)
+  pathCleanup.flush.req.rid := ROBID.inc(scalarRedirectRidReg)
+  pathCleanup.flush.req.lsId := ROBID.disabled(p.robEntries)
+  pathCleanup.flush.req.execEngine := ExecEngineType.Scalar
+  pathCleanup.flush.req.fetchTpcValid := false.B
+  pathCleanup.flush.req.immediateFlush := true.B
+  pathCleanup.flush.baseOnBid := false.B
+  pathCleanup.flush.baseOnGroup := false.B
+  pathCleanup.flush.baseOnPE := false.B
+  pathCleanup.flush.baseOnThread := false.B
+  pathCleanup.flush.simtReplay := false.B
+  pathCleanup.flush.mtcReplay := false.B
+  pathCleanup.robPruneValid := scalarRedirectPending
+  pathCleanup.renameFlushValid := scalarRedirectPending
+  pathCleanup.backendFlushValid := scalarRedirectPending
+  pathCleanup.blockFlushValid := scalarRedirectPending
+  pathCleanup.blockFlushBid := scalarRedirectBlockBidReg
+  pathCleanup.reportQueueFlushValid := scalarRedirectPending
+  path.io.cleanup := pathCleanup
   path.io.completeValid := execute.io.completeValid
   path.io.completeRobValue := execute.io.completeRobValue
   path.io.completeRowValid := execute.io.completeValid
@@ -337,7 +396,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
   issue.io.inValid := path.io.renamedOutValid && !localIncomingBlocked
   issue.io.in := path.io.renamedOut
-  issue.io.flushValid := io.frontendFlushValid
+  issue.io.flushValid := backendPipeFlush
   issue.io.releaseValid := execute.io.releaseValid
   issue.io.releaseBid := execute.io.releaseBid
   issue.io.releaseRid := execute.io.releaseRid
@@ -349,6 +408,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   rf.io.initValid := io.rfInitValid
   rf.io.initArchTag := io.rfInitArchTag
   rf.io.initData := io.rfInitData
+  when(io.rfInitValid && io.rfInitArchTag === 1.U) {
+    scalarSpValue := io.rfInitData
+  }
   for (idx <- 0 until 3) {
     val readIsT = issue.io.readValid(idx) && (issue.io.readOperandClass(idx) === OperandClass.T)
     val readIsU = issue.io.readValid(idx) && (issue.io.readOperandClass(idx) === OperandClass.U)
@@ -367,8 +429,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   rf.io.writeValid := execute.io.completeDstPhysValid
   rf.io.writeTag := execute.io.completeDstPhysTag
   rf.io.writeData := execute.io.completeDstData
+  when(execute.io.completeValid && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U) {
+    scalarSpValue := execute.io.completeRow.wb.data
+  }
 
-  val localReset = io.frontendFlushValid || io.startValid || io.restartValid
+  val localReset = backendPipeFlush || io.startValid || io.restartValid
   val localDstAllocT =
     issue.io.enqueueFire && path.io.renamedOut.dst(0).valid && (path.io.renamedOut.dst(0).kind === DestinationKind.T)
   val localDstAllocU =
@@ -408,6 +473,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   execute.io.in := issue.io.issueUop
   execute.io.srcData := issue.io.issueSrcData
   execute.io.loadLookupData := io.loadLookupData
+  execute.io.stackPointerData := scalarSpValue
+  execute.io.flushValid := backendPipeFlush
+  execute.io.fretStkFallbackTargetValid := path.io.blockMarkerActiveValid && path.io.blockMarkerActiveTarget =/= 0.U
+  execute.io.fretStkFallbackTarget := path.io.blockMarkerActiveTarget
 
   val blockBoundaryConsumed = denseSlots.io.outFire && path.io.blockMarkerSkipValid && path.io.blockMarkerBoundary
   when(localReset) {
@@ -509,6 +578,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.issueQueueNotIssuedCount := issue.io.notIssuedCount
   io.issueQueueHeadValid := issue.io.headValid
   io.issueQueueHeadIssued := issue.io.headIssued
+  io.issueQueueHeadPc := issue.io.headPc
+  io.issueQueueHeadOpcode := issue.io.headOpcode
+  io.issueQueueHeadSrcValidMask := issue.io.headSrcValidMask
+  io.issueQueueHeadSrcClass := issue.io.headSrcOperandClass
+  io.issueQueueHeadSrcPhysTag := issue.io.headSrcPhysTag
+  io.issueQueueHeadSrcRelTag := issue.io.headSrcRelTag
   io.issueQueueSourceReadyMask := issue.io.sourceReadyMask
   io.issueQueueAllSourcesReady := issue.io.allSourcesReady
   io.issueQueueSelectedValid := issue.io.selectedValid
@@ -525,6 +600,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.localUReadyMask := localUReady.asUInt
   io.localTPendingCount := localTPendingCount
   io.localUPendingCount := localUPendingCount
+  io.localIncomingUsesLocal := localIncomingUsesLocal
   io.localIncomingBlocked := localIncomingBlocked
   io.decodeBlockedByRename := path.io.blockedByRename
   io.decodeBlockedByRob := path.io.blockedByRob
@@ -599,7 +675,7 @@ object LinxCoreFrontendFetchRfAluTraceTop {
 
 object EmitLinxCoreFrontendFetchRfAluTraceTop extends App {
   circt.stage.ChiselStage.emitSystemVerilogFile(
-    new LinxCoreFrontendFetchRfAluTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 8),
+    new LinxCoreFrontendFetchRfAluTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 32),
     args = Array("--target-dir", "../generated/chisel-verilog/frontend-fetch-rf-alu-trace-top"),
     firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
   )

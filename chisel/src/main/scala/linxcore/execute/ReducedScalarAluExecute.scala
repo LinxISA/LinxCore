@@ -19,6 +19,10 @@ class ReducedScalarAluExecuteIO(
   val in = Input(new RenamedUop(p))
   val srcData = Input(Vec(3, UInt(p.immWidth.W)))
   val loadLookupData = Input(UInt(p.immWidth.W))
+  val stackPointerData = Input(UInt(p.immWidth.W))
+  val flushValid = Input(Bool())
+  val fretStkFallbackTargetValid = Input(Bool())
+  val fretStkFallbackTarget = Input(UInt(p.pcWidth.W))
 
   val completeValid = Output(Bool())
   val completeRobValue = Output(UInt(ptrWidth.W))
@@ -120,7 +124,13 @@ class ReducedScalarAluExecute(
   private def storeByteImmAddr(srcData: Vec[UInt], imm: UInt): UInt =
     srcData(1) + imm
 
-  private def resultFor(op: UInt, pc: UInt, srcData: Vec[UInt], imm: UInt, loadData: UInt): UInt = {
+  private def resultFor(
+      op: UInt,
+      pc: UInt,
+      srcData: Vec[UInt],
+      imm: UInt,
+      loadData: UInt,
+      stackPointerData: UInt): UInt = {
     val out = Wire(UInt(p.immWidth.W))
     out := 0.U
     when(op === opcode(FrontendOpcodeDecodeTable.OP_ADD)) {
@@ -162,7 +172,7 @@ class ReducedScalarAluExecute(
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK)) {
       out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY)) {
-      out := srcData(1) - imm
+      out := stackPointerData - imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI)) {
       out := imm
     }.elsewhen(
@@ -201,7 +211,9 @@ class ReducedScalarAluExecute(
       result: UInt,
       valid: Bool,
       setcTargetValid: Bool,
-      setcTarget: UInt): CommitTraceRow = {
+      setcTarget: UInt,
+      fallbackTargetValid: Bool,
+      fallbackTarget: UInt): CommitTraceRow = {
     val row = Wire(new CommitTraceRow(traceParams))
     row := 0.U.asTypeOf(row)
     row.valid := valid
@@ -230,7 +242,10 @@ class ReducedScalarAluExecute(
     row.wb.reg := fitReg(uop.dst(0).archTag)
     row.wb.data := result
     when(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK)) {
-      row.nextPc := Mux(setcTargetValid, setcTarget, uop.pc + uop.insnLen)
+      row.nextPc := Mux(
+        setcTargetValid,
+        setcTarget,
+        Mux(fallbackTargetValid, fallbackTarget, uop.pc + uop.insnLen))
       row.src0.valid := false.B
       row.src0.reg := 0.U
       row.src0.data := 0.U
@@ -250,7 +265,7 @@ class ReducedScalarAluExecute(
       row.mem.valid := valid
       row.mem.isStore := true.B
       row.mem.addr := result + uop.imm - ((fentrySaveCount(uop.insnRaw).pad(p.immWidth) << 3)(p.immWidth - 1, 0))
-      row.mem.wdata := srcData(0)
+      row.mem.wdata := Mux(fentrySaveCount(uop.insnRaw) === 1.U, srcData(0), 0.U)
       row.mem.rdata := 0.U
       row.mem.size := 8.U
     }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_LDI)) {
@@ -332,38 +347,56 @@ class ReducedScalarAluExecute(
   val eLoadPcr =
     eUop.opcode === opcode(FrontendOpcodeDecodeTable.OP_HL_LD_PCR) ||
       eUop.opcode === opcode(FrontendOpcodeDecodeTable.OP_LD_PCR)
-  io.loadLookupValid := eValid && (eLoadC || eLoadI || eLoadPcr)
+  io.loadLookupValid := !io.flushValid && eValid && (eLoadC || eLoadI || eLoadPcr)
   io.loadLookupAddr := Mux(
     eLoadPcr,
     pcrLoadAddr(eUop.pc, eUop.imm),
     Mux(eLoadI, ldiAddr(eSrcData, eUop.imm), cLdiAddr(eSrcData, eUop.imm)))
-  val eResult = resultFor(eUop.opcode, eUop.pc, eSrcData, eUop.imm, io.loadLookupData)
+  val eResult = resultFor(eUop.opcode, eUop.pc, eSrcData, eUop.imm, io.loadLookupData, io.stackPointerData)
   val eSupported = eValid && isSupported(eUop.opcode)
 
-  w2Valid := w1Valid
-  w2Uop := w1Uop
-  w2SrcData := w1SrcData
-  w2Result := w1Result
-  w2Supported := w1Supported
+  when(io.flushValid) {
+    eValid := false.B
+    w1Valid := false.B
+    w2Valid := false.B
+    setcTargetValid := false.B
+    setcTarget := 0.U
+  }.otherwise {
+    w2Valid := w1Valid
+    w2Uop := w1Uop
+    w2SrcData := w1SrcData
+    w2Result := w1Result
+    w2Supported := w1Supported
 
-  w1Valid := eValid
-  w1Uop := eUop
-  w1SrcData := eSrcData
-  w1Result := eResult
-  w1Supported := eSupported
+    w1Valid := eValid
+    w1Uop := eUop
+    w1SrcData := eSrcData
+    w1Result := eResult
+    w1Supported := eSupported
 
-  eValid := accept
-  when(accept) {
-    eUop := io.in
-    eSrcData := io.srcData
+    eValid := accept
+    when(accept) {
+      eUop := io.in
+      eSrcData := io.srcData
+    }
   }
 
-  io.inReady := !eValid
+  io.inReady := !io.flushValid && !eValid
   io.accepted := accept
-  io.busy := eValid || w1Valid || w2Valid
-  io.completeValid := w2Valid && w2Supported
+  io.busy := !io.flushValid && (eValid || w1Valid || w2Valid)
+  io.completeValid := !io.flushValid && w2Valid && w2Supported
   io.completeRobValue := w2Uop.rid.value
-  io.completeRow := completionRow(w2Uop, w2SrcData, w2Result, io.completeValid, setcTargetValid, setcTarget)
+  val w2FretStkFallbackTargetValid = io.fretStkFallbackTargetValid
+  val w2FretStkTarget = Mux(setcTargetValid, setcTarget, io.fretStkFallbackTarget)
+  io.completeRow := completionRow(
+    w2Uop,
+    w2SrcData,
+    w2Result,
+    io.completeValid,
+    setcTargetValid,
+    setcTarget,
+    w2FretStkFallbackTargetValid,
+    io.fretStkFallbackTarget)
   io.completeDstPhysValid := io.completeValid && w2Uop.dst(0).valid && (w2Uop.dst(0).kind === DestinationKind.Gpr)
   io.completeDstPhysTag := w2Uop.dst(0).physTag
   io.completeDstData := w2Result
@@ -384,8 +417,8 @@ class ReducedScalarAluExecute(
       branchIsSetcEq,
       branchSrc0 === branchSrc1,
       Mux(branchIsSetcNe, branchSrc0 =/= branchSrc1, branchSrc0 < branchSrc1)))
-  io.redirectValid := io.completeValid && w2IsFretStk && setcTargetValid
-  io.redirectPc := setcTarget
+  io.redirectValid := io.completeValid && w2IsFretStk && (setcTargetValid || w2FretStkFallbackTargetValid)
+  io.redirectPc := w2FretStkTarget
   when(io.completeValid && branchIsSetcTgt) {
     setcTargetValid := true.B
     setcTarget := branchSrc0(p.pcWidth - 1, 0)
@@ -393,11 +426,11 @@ class ReducedScalarAluExecute(
     setcTargetValid := false.B
     setcTarget := 0.U
   }
-  io.releaseValid := w2Valid
+  io.releaseValid := !io.flushValid && w2Valid
   io.releaseBid := w2Uop.bid
   io.releaseRid := w2Uop.rid
   io.releaseStid := w2Uop.threadId
-  io.unsupported := w2Valid && !w2Supported
+  io.unsupported := !io.flushValid && w2Valid && !w2Supported
   io.unsupportedOpcode := w2Uop.opcode
 }
 
@@ -497,4 +530,11 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_SETC_TGT => Some(true)
       case _ => None
     }
+
+  def referenceFretStkNextPc(
+      pc: BigInt,
+      lenBytes: Int,
+      setcTarget: Option[BigInt],
+      fallbackTarget: Option[BigInt]): BigInt =
+    (setcTarget.orElse(fallbackTarget).getOrElse(pc + lenBytes)) & Mask64
 }

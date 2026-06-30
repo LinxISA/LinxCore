@@ -85,7 +85,9 @@ class ReducedScalarIssuePick(
   }
 
   val p1ReadReady = VecInit((0 until 3).map(idx => !selectedUop.src(idx).valid || io.readReady(idx))).asUInt.andR
-  val i1ReadReady = VecInit((0 until 3).map(idx => !io.readValid(idx) || io.readReady(idx))).asUInt.andR
+  // The reduced RF read data is combinational; once the queue selected a ready
+  // uop, later ready-bit drops must not cancel the already-picked read.
+  val i1ReadReady = true.B
   val issueValid = active && i2Valid
   val issueFire = issueValid && io.issueReady
   val i2CanAccept = !i2Valid || issueFire

@@ -100,16 +100,19 @@ Explicit pyCircuit/model overrides currently cover:
   destination architectural tag `x10/ra`, and uses `uimm5 << 1` as the
   PC-relative return-label immediate;
 - reduced single-save `FENTRY`, which maps the saved GPR field to source 0,
-  old SP (`x1`) to source 1, destination SP (`x1`) to the scalar GPR
-  destination, and keeps the macro immediate as the stack-frame size for the
-  reduced execute owner;
+  clears source 1 so QEMU's suppressed macro source shape is preserved, maps
+  destination SP (`x1`) to the scalar GPR destination, and keeps the macro
+  immediate as the stack-frame size for the reduced execute owner. The live
+  top supplies old SP through a reduced SP shadow;
 - fixed-destination compressed ALU/load forms that write architectural tag 31,
   classified as a T-queue destination;
 - compressed stores and compare forms that use architectural tag 24 as a T-link
   source;
 - macro forms `FENTRY`, `FEXIT`, `FRET.RA`, and `FRET.STK` that carry
   `rs1_32`, `rs2_32`, and macro immediate fields despite catalog
-  `rs*_kind=NONE`;
+  `rs*_kind=NONE`. `FRET.STK` clears all visible sources in the reduced
+  scalar row; its target is supplied by execute SETC/active-marker state, not
+  by a decoded source operand;
 - `BTEXT` source plus 25-bit immediate;
 - `BLOAD`/`BSTORE` register fields;
 - `MADD`, `MADDW`, `CSEL`, `BIOR`, and indexed stores that carry `srcp32`;
@@ -168,6 +171,8 @@ The `FrontendDecodeStageSpec` reference cases cover:
 - CoreMark `HL.LD.PCR` at `0x40005700`, which decodes destination `x5` and
   immediate `0xa728`, while the paired `HL.BSTART` regression still decodes a
   shifted branch target
+- CoreMark `FRET.STK` and ranged `FENTRY` macro rows, where visible source
+  suppression is part of the QEMU-shaped reduced trace contract
 
 ## Open Work
 

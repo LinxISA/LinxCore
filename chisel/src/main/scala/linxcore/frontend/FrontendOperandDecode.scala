@@ -50,6 +50,13 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
     io.src(idx) := FrontendRegAliasClassify.source(p, true.B, archTag(tag))
   }
 
+  private def clearSrc(idx: Int): Unit = {
+    io.src(idx).valid := false.B
+    io.src(idx).operandClass := OperandClass.Invalid
+    io.src(idx).archTag := regInvalid
+    io.src(idx).relTag := regInvalid
+  }
+
   private def setDst(tag: UInt): Unit = {
     io.dst(0) := FrontendRegAliasClassify.destination(p, true.B, archTag(tag))
   }
@@ -177,8 +184,13 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
 
     when(opcodeIs(FrontendOpcodeDecodeTable.OP_FENTRY)) {
       setSrc(0, rs1_32)
-      setSrc(1, 1.U)
+      clearSrc(1)
       setDst(1.U)
+    }
+
+    when(opcodeIs(FrontendOpcodeDecodeTable.OP_FRET_STK)) {
+      clearSrc(0)
+      clearSrc(1)
     }
 
     when(opcodeIs(FrontendOpcodeDecodeTable.OP_BTEXT)) {

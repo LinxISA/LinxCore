@@ -111,7 +111,7 @@ class BrobMetaTracker(
     BrobEntryMeta.isAllocated(table(engineSlot).status) && table(engineSlot).bid === io.engineDoneBid
   val retireHit = table(retireSlot).status === BrobStatus.Completed && table(retireSlot).bid === io.retireBid
 
-  io.allocReady := table(allocSlot).status === BrobStatus.Free
+  io.allocReady := (table(allocSlot).status === BrobStatus.Free) || (table(allocSlot).status === BrobStatus.Flushed)
 
   when(io.allocValid && io.allocReady) {
     table(allocSlot).bid := io.allocBid

@@ -40,7 +40,10 @@ owners.
 | output | `inReady` | `Bool` | ready | The E stage can capture a new uop. |
 | input | `in` | `RenamedUop` | with `inValid && inReady` | Renamed scalar uop from `DecodeRenameROBPath`. |
 | input | `srcData` | `Vec(3, UInt(64.W))` by default | with accepted uop | Operand values supplied by the reduced top harness. |
+| input | `flushValid` | `Bool` | pulse | Clears E/W1/W2 pipeline state and suppresses same-cycle completion/redirect outputs. |
 | input | `loadLookupData` | `UInt(64.W)` by default | combinational with E-stage load lookup | Read-only reduced load data returned by the owning top for reduced load rows including `OP_C_LDI`, `OP_LDI`, `OP_LD_PCR`, and `OP_HL_LD_PCR`. |
+| input | `fretStkFallbackTargetValid`, `fretStkFallbackTarget` | `Bool`, `UInt(pcWidth.W)` | combinational | Active-marker fallback target used by reduced `FRET.STK` when no explicit SETC target is live. |
+| input | `stackPointerData` | `UInt(64.W)` by default | combinational | Reduced SP shadow used by macro `FENTRY` rows whose visible QEMU source fields are suppressed. |
 | output | `completeValid` | `Bool` | valid | W2-stage supported uop completed. |
 | output | `completeRobValue` | `UInt(log2Ceil(robEntries).W)` | with `completeValid` | ROB row to complete. |
 | output | `completeRow` | `CommitTraceRow` | with `completeValid` | Commit-trace payload carrying PC, source data, destination data, writeback, ROB ID, and block BID sideband. |
@@ -55,8 +58,8 @@ owners.
 | output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ`, `OP_C_SETC_NE`, `OP_SETC_LTU`, and reduced SETC target rows used by the reduced block-control owner. |
 | output | `loadLookupValid` | `Bool` | E-stage valid | The current E-stage uop requests reduced read-only load data. |
 | output | `loadLookupAddr` | `UInt(64.W)` by default | with `loadLookupValid` | Byte address for the reduced read-only load lookup. |
-| output | `redirectValid` | `Bool` | with `completeValid` | Reduced scalar redirect request for `FRET.STK` when a live SETC target is available. |
-| output | `redirectPc` | `UInt(pcWidth.W)` | with `redirectValid` | Return target latched from `C.SETC.TGT` or `SETC.TGT`. |
+| output | `redirectValid` | `Bool` | with `completeValid` | Reduced scalar redirect request for `FRET.STK` when an explicit SETC target or active-marker fallback target is available. |
+| output | `redirectPc` | `UInt(pcWidth.W)` | with `redirectValid` | Return target selected from `C.SETC.TGT`/`SETC.TGT` first, then the active-marker fallback. |
 | output | `accepted` | `Bool` | pulse | `inValid && inReady`. |
 | output | `busy` | `Bool` | state | Any E/W1/W2 pipe stage is occupied. |
 | output | `unsupported` | `Bool` | pulse | W2 uop reached execute but is outside the reduced opcode subset. |
@@ -135,8 +138,8 @@ The Chisel module implements the first reduced subset:
 | `OP_C_SETC_NE` | `0`, with branch sideband taken when validity-masked `srcData(0) != srcData(1)` |
 | `OP_C_SETC_TGT` | `0`, latches `srcData(0)` as the reduced dynamic target |
 | `OP_C_SETRET` | `in.pc + in.imm` |
-| `OP_FENTRY` | `srcData(1) - in.imm`; the store address uses the ranged save count to place the first saved register |
-| `OP_FRET_STK` | `0`, no writeback, redirect to the latched SETC target |
+| `OP_FENTRY` | `stackPointerData - in.imm`; the store address uses the ranged save count to place the first saved register |
+| `OP_FRET_STK` | `0`, no writeback, redirect to the latched SETC target or active-marker fallback target |
 | `OP_HL_LUI` | `in.imm` |
 | `OP_HL_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
 | `OP_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
@@ -258,6 +261,13 @@ register count instead of assuming one saved register. `ADDW` sign-extends the
 low 32-bit sum, and `SBI` emits a no-writeback 1-byte store using the unscaled
 split immediate and base on source 1. These are still reduced CoreMark-prefix
 contracts, not a general LSU or dynamic-control implementation.
+R127 extends that contract for return-block cleanup. `FRET.STK` redirects to
+an explicit SETC target when one is live, otherwise to the active marker target
+provided by the top. `flushValid` kills all pipeline stages and gates
+completion/redirect side effects during backend cleanup. `FENTRY` now consumes
+the top-owned SP shadow instead of a visible source lane; ranged forms in the
+current reduced trace suppress store data rather than reading a synthetic
+source that QEMU does not expose.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural
@@ -289,9 +299,14 @@ when `completeValid` pulses.
 
 ## Flush/Recovery
 
-No flush or replay input is implemented in this reduced owner. Later execute
-owners must add recovery cancellation before this module can be used behind a
-multi-entry issue queue or speculative replay path.
+`flushValid` clears E/W1/W2 state, clears pending SETC target state, and gates
+same-cycle completion, release, branch-decision, redirect, load-lookup, and
+unsupported diagnostics. It is a reduced backend cleanup hook for live
+CoreMark redirect evidence, not full replay or exception recovery.
+
+Later execute owners must add recovery age checks, replay, bypass
+invalidation, and exception-priority behavior before this module can sit
+behind a general speculative issue queue.
 
 ## Trace/Observability
 

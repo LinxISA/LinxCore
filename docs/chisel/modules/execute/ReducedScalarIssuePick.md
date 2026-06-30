@@ -83,6 +83,11 @@ all requested lanes are ready and I2 can accept the row, I1 captures
 `readData` into I2. If any requested lane is not ready, I1 emits
 `cancelFire/cancelIndex` and clears; the parent queue keeps the row resident
 and clears its in-flight lock.
+R127 makes the live RF/local-overlay composition present selected-ready at I1:
+once the queue has selected a resident row that was ready at P1, I1 advances
+even if a later diagnostic readiness input drops. Selection already consumed
+the registered source-ready predicate, and selected-row data is combinationally
+available in the reduced top.
 
 I2 owns the valid/ready boundary into `ReducedScalarAluExecute`. `issueValid`
 is I2 occupancy, and `issueFire` means execute accepted the I2 row. Issue fire
@@ -104,7 +109,8 @@ R88 mirrors the reduced P1/I1/I2 slice of that split:
    queue to lock it in-flight;
 3. I1 drives RF read tags for the captured row;
 4. failed I1 RF readiness cancels the in-flight lock without deallocating the
-   queue row;
+   queue row in the generic reduced picker, while the live RF/local-overlay top
+   keeps already selected rows moving by presenting selected-ready;
 5. I2 presents the captured row/data to execute;
 6. execute acceptance and later ALU release stay separate.
 

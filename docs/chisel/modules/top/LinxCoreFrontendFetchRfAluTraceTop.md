@@ -183,6 +183,20 @@ metadata only when they are sequential, so `FRET.STK` remains in the compare
 stream and its redirected `next_pc` is checked. The promoted 1415-raw-row
 CoreMark gate extracts 1303 expected rows and compares 927 normalized QEMU/DUT
 rows with zero mismatches.
+R127 carries the same reduced path to a 1461-raw-row CoreMark live capture.
+The emitted live top now uses a 32-entry scalar mapQ, gates local-overlay
+rename stalls only when the incoming head actually uses local T/U operands,
+and splits marker redirects from scalar execute redirects: marker redirects
+restart the frontend path, while scalar redirects also flush backend issue,
+execute, rename/ROB cleanup, report queues, and the full-BID BROB block state.
+`FRET.STK` takes its next PC from an explicit SETC target when present and
+otherwise from the active marker target, `FENTRY` uses an internal SP shadow
+for its macro stack update, ranged `FENTRY` store data is suppressed for the
+reduced trace contract, and the issue picker preserves a selected-ready
+snapshot so later RF/local readiness drops do not cancel an already selected
+row. The BROB allocator now reuses `Flushed` slots. The promoted gate captures
+1461 raw QEMU rows, extracts 1348 expected rows, and compares 966 normalized
+QEMU/DUT rows with zero mismatches.
 
 ## Interface
 
@@ -209,8 +223,8 @@ rows with zero mismatches.
 | output | `renamedOutValid`, `renamedAccepted` | `Bool` | diagnostic | Rename output and issue-queue acceptance. |
 | output | `rfReadReadyMask`, `rfAllReadReady`, `rfReadyMask` | mixed | diagnostic | Reduced physical RF read and ready-state observability. |
 | output | `rfWriteValid`, `rfWriteTag`, `rfWriteData`, `rfStateError` | mixed | diagnostic | Execute-to-RF writeback and RF error reporting. |
-| output | `localTReadyMask`, `localUReadyMask`, `localTPendingCount`, `localUPendingCount`, `localIncomingBlocked` | mixed | diagnostic | Reduced local T/U overlay readiness and producer-pending gate visible to issue selection and live-stall diagnostics. |
-| output | `issueQueue*` | mixed | diagnostic | Reduced queue enqueue, pick, I1/I2, issue, cancel, release, occupancy, and block-cause signals. |
+| output | `localTReadyMask`, `localUReadyMask`, `localTPendingCount`, `localUPendingCount`, `localIncomingUsesLocal`, `localIncomingBlocked` | mixed | diagnostic | Reduced local T/U overlay readiness, whether the dec/ren head actually needs local operands, and producer-pending gate visible to issue selection and live-stall diagnostics. |
+| output | `issueQueue*` | mixed | diagnostic | Reduced queue enqueue, pick, I1/I2, issue, cancel, release, occupancy, head row fields, source lane shape, and block-cause signals. |
 | output | `executeAccepted`, `executeBusy`, `executeCompleteValid`, `executeCompleteRobValue` | mixed | diagnostic | Reduced ALU handoff and completion. |
 | output | `loadLookupValid`, `loadLookupAddr` | mixed | diagnostic | Reduced E-stage load lookup request for `OP_C_LDI`/`OP_LDI`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
@@ -238,6 +252,9 @@ overlay. Most state remains in child modules:
 - `ReducedScalarRegisterFile`: physical scalar data and ready bits.
 - `localTData/localUData` and `localTReady/localUReady`: four-entry reduced
   local T/U value overlays used only by the current CoreMark T/U-source prefix.
+- `scalarSpValue`: reduced SP shadow initialized from RF preload of
+  architectural x1 and updated by scalar x1 writeback, used by `FENTRY` macro
+  rows whose visible QEMU source fields are suppressed.
 - `ReducedScalarIssueQueue` and `ReducedScalarIssuePick`: resident issue rows,
   source-ready snapshots, P1/I1/I2 timing, issued-entry lock, cancel, and W2
   release.
@@ -282,6 +299,10 @@ cleared on start/restart/frontend flush and after the boundary drains.
 Execute-owned scalar redirects, currently `FRET.STK`, share the reduced
 frontend restart path and also pulse `DecodeRenameROBPath.scalarRedirectValid`
 so stale active marker target state cannot leak into the return target body.
+They additionally flush backend-only reduced state, publish ROB/rename cleanup,
+and block-flush the redirected full BID. Marker redirects stay frontend-only:
+they restart fetch/F4/dense decode state but do not discard older backend
+scalar work.
 This top also constructs the backend path with `reducedStoreDispatchBypass`:
 store rows still flow through decode, rename, issue, ALU execute, ROB
 completion, and QEMU-shaped store sideband comparison, but the reduced STQ
@@ -295,6 +316,10 @@ issue queue uses `readOperandClass` plus `readRelTag` to suppress scalar RF
 reads and select data from the local T/U overlay. Local readiness is sampled
 through `localTReadyMask` and `localUReadyMask`, mirroring the same registered
 issue-readiness timing used for scalar RF sources.
+The live top only blocks a renamed row behind a pending local producer when the
+queued row's operand classes actually use T/U local sources. This keeps scalar
+macro/control rows such as `FENTRY` from waiting on unrelated local-overlay
+state.
 
 On completion, the ALU sends a completion row to `DecodeRenameROBPath`, writes
 the destination physical tag in the reduced RF only for scalar GPR
@@ -953,6 +978,7 @@ because the reduced QEMU-row selector does not yet support
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-1024-frontier-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r126-coremark-fret-scalar-redirect-1415-qemu-elf-xcheck-pass --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1415 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r127-brob-flushed-reuse-1461-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1461 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 8 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r108-coremark-fentry-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 11 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`

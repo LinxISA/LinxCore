@@ -137,6 +137,7 @@ class LinxCoreFrontendRfAluTraceTop(
   val rf = Module(new ReducedScalarRegisterFile(p, archRegs = archRegs, physRegs = physRegs))
   val issue = Module(new ReducedScalarIssueQueue(p, depth = issueQueueDepth))
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
+  val scalarSpValue = RegInit(0.U(p.immWidth.W))
 
   path.io.d1 := f4.io.d1
   path.io.slots := f4.io.slots
@@ -179,6 +180,9 @@ class LinxCoreFrontendRfAluTraceTop(
   rf.io.initValid := io.rfInitValid
   rf.io.initArchTag := io.rfInitArchTag
   rf.io.initData := io.rfInitData
+  when(io.rfInitValid && io.rfInitArchTag === 1.U) {
+    scalarSpValue := io.rfInitData
+  }
   for (idx <- 0 until 3) {
     rf.io.readValid(idx) := issue.io.readValid(idx)
     rf.io.readTags(idx) := issue.io.readTags(idx)
@@ -190,12 +194,19 @@ class LinxCoreFrontendRfAluTraceTop(
   rf.io.writeValid := execute.io.completeDstPhysValid
   rf.io.writeTag := execute.io.completeDstPhysTag
   rf.io.writeData := execute.io.completeDstData
+  when(execute.io.completeValid && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U) {
+    scalarSpValue := execute.io.completeRow.wb.data
+  }
 
   issue.io.issueReady := execute.io.inReady
   execute.io.inValid := issue.io.issueValid
   execute.io.in := issue.io.issueUop
   execute.io.srcData := issue.io.issueSrcData
   execute.io.loadLookupData := 0.U
+  execute.io.stackPointerData := scalarSpValue
+  execute.io.flushValid := io.frontendFlushValid
+  execute.io.fretStkFallbackTargetValid := false.B
+  execute.io.fretStkFallbackTarget := 0.U
 
   io.f4ValidMask := f4.io.validMask
   io.f4SlotCount := f4.io.slotCount

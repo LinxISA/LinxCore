@@ -129,6 +129,10 @@ class LinxCoreFrontendAluTraceTop(
   execute.io.in := path.io.renamedOut
   execute.io.srcData := io.operandData
   execute.io.loadLookupData := 0.U
+  execute.io.stackPointerData := io.operandData(1)
+  execute.io.flushValid := io.frontendFlushValid
+  execute.io.fretStkFallbackTargetValid := false.B
+  execute.io.fretStkFallbackTarget := 0.U
 
   io.f4ValidMask := f4.io.validMask
   io.f4SlotCount := f4.io.slotCount

@@ -95,6 +95,21 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_SETC_TGT, 0x4000574cL, 0, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_C_SETC_TGT, 0x4000574cL, 0).contains(true))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_FRET_STK, 0, 0, 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceFretStkNextPc(
+      pc = BigInt("40005788", 16),
+      lenBytes = 4,
+      setcTarget = None,
+      fallbackTarget = Some(BigInt("40005f2c", 16))) == BigInt("40005f2c", 16))
+    assert(ReducedScalarAluExecute.referenceFretStkNextPc(
+      pc = BigInt("4000570a", 16),
+      lenBytes = 4,
+      setcTarget = Some(BigInt("4000574c", 16)),
+      fallbackTarget = Some(BigInt("40005f2c", 16))) == BigInt("4000574c", 16))
+    assert(ReducedScalarAluExecute.referenceFretStkNextPc(
+      pc = BigInt("40005788", 16),
+      lenBytes = 4,
+      setcTarget = None,
+      fallbackTarget = None) == BigInt("4000578c", 16))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SETC_LTU, 36, 0x6ffffffbL, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_SETC_LTU, 36, 0x6ffffffbL).contains(true))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_SETC_LTU, 0x6ffffffbL, 36).contains(false))
@@ -119,8 +134,12 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(sv.contains("io_completeDstPhysValid"))
     assert(sv.contains("io_completeDstPhysTag"))
     assert(sv.contains("io_completeDstData"))
+    assert(sv.contains("io_stackPointerData"))
     assert(sv.contains("io_branchConditionValid"))
     assert(sv.contains("io_branchConditionTaken"))
+    assert(sv.contains("io_flushValid"))
+    assert(sv.contains("io_fretStkFallbackTargetValid"))
+    assert(sv.contains("io_fretStkFallbackTarget"))
     assert(sv.contains("io_releaseValid"))
     assert(sv.contains("io_releaseBid_value"))
     assert(sv.contains("io_releaseRid_value"))
