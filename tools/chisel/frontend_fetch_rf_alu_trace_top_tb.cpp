@@ -426,14 +426,6 @@ std::uint64_t mask_insn(std::uint64_t insn, std::uint8_t len) {
   return insn;
 }
 
-std::uint64_t single_instruction_window(std::uint64_t insn, std::uint8_t len) {
-  std::uint64_t window = mask_insn(insn, len);
-  if (len < 8) {
-    window |= 0xfULL << (static_cast<unsigned>(len) * 8U);
-  }
-  return window;
-}
-
 class FetchMemoryImage {
 public:
   void store_byte(std::uint64_t addr, std::uint8_t value) {
@@ -513,26 +505,18 @@ public:
     }
   }
 
-  std::uint64_t read_single_instruction_window(std::uint64_t pc, std::uint8_t len) const {
-    if (len == 0 || len > 8) {
-      std::cerr << "unsupported instruction length while reading fetch memory: "
-                << static_cast<unsigned>(len) << "\n";
-      std::exit(1);
-    }
-
-    std::uint64_t insn = 0;
-    for (std::uint8_t byte_index = 0; byte_index < len; ++byte_index) {
-      std::uint8_t byte = 0;
-      if (!read_byte(pc + byte_index, byte)) {
-        std::cerr << "fetch memory image missing byte"
-                  << " pc=0x" << std::hex << pc
-                  << " byte_addr=0x" << (pc + byte_index) << std::dec
-                  << " len=" << static_cast<unsigned>(len) << "\n";
+  std::uint64_t read_window(std::uint64_t pc) const {
+    std::uint64_t window = 0;
+    for (std::uint8_t byte_index = 0; byte_index < 8; ++byte_index) {
+      std::uint8_t byte = 0xffU;
+      if (!read_byte(pc + byte_index, byte) && byte_index == 0) {
+        std::cerr << "fetch memory image missing first byte"
+                  << " pc=0x" << std::hex << pc << std::dec << "\n";
         std::exit(1);
       }
-      insn |= static_cast<std::uint64_t>(byte) << (static_cast<unsigned>(byte_index) * 8U);
+      window |= static_cast<std::uint64_t>(byte) << (static_cast<unsigned>(byte_index) * 8U);
     }
-    return single_instruction_window(insn, len);
+    return window;
   }
 
   static FetchMemoryImage from_rows(const std::vector<ExpectedRow> &rows) {
@@ -783,18 +767,68 @@ void start_source(VLinxCoreFrontendFetchRfAluTraceTop &dut, std::uint64_t pc) {
   }
 }
 
-std::uint8_t fetch_and_enqueue_row(
+std::size_t dense_window_end(const std::vector<ExpectedRow> &rows, std::size_t start) {
+  const std::uint64_t start_pc = rows.at(start).pc;
+  std::uint64_t next_pc = start_pc;
+  std::size_t end = start;
+  while (end < rows.size()) {
+    const ExpectedRow &row = rows[end];
+    if (row.pc != next_pc) {
+      break;
+    }
+    if ((row.pc + row.len) - start_pc > 8U) {
+      break;
+    }
+    next_pc = row.pc + row.len;
+    ++end;
+  }
+  if (end == start) {
+    std::cerr << "dense window grouping could not fit first row"
+              << " pc=0x" << std::hex << start_pc << std::dec
+              << " len=" << static_cast<unsigned>(rows[start].len) << "\n";
+    std::exit(1);
+  }
+  return end;
+}
+
+std::uint8_t dense_window_mask(std::size_t count) {
+  if (count == 0 || count > 4) {
+    std::cerr << "unsupported dense window slot count=" << count << "\n";
+    std::exit(1);
+  }
+  return static_cast<std::uint8_t>((1U << count) - 1U);
+}
+
+std::uint8_t dense_window_advance(const std::vector<ExpectedRow> &rows, std::size_t start, std::size_t end) {
+  const std::uint64_t start_pc = rows.at(start).pc;
+  const ExpectedRow &last = rows.at(end - 1);
+  const std::uint64_t advance = (last.pc + last.len) - start_pc;
+  if (advance == 0 || advance > 8) {
+    std::cerr << "unsupported dense window advance=" << advance << "\n";
+    std::exit(1);
+  }
+  return static_cast<std::uint8_t>(advance);
+}
+
+void fetch_dense_window(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
-    const ExpectedRow &row,
+    const std::vector<ExpectedRow> &rows,
+    std::size_t start,
+    std::size_t end,
     const FetchMemoryImage &fetch_memory) {
+  const ExpectedRow &first = rows.at(start);
+  const std::size_t slot_count = end - start;
+  const std::uint8_t expected_mask = dense_window_mask(slot_count);
+  const std::uint8_t expected_advance = dense_window_advance(rows, start, end);
+
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
     dut.io_fetchReqReady = 1;
     dut.eval();
     if (dut.io_fetchReqValid) {
-      if (dut.io_fetchReqPc != row.pc || !dut.io_sourceReqFire) {
+      if (dut.io_fetchReqPc != first.pc || !dut.io_sourceReqFire) {
         std::cerr << "frontend fetch RF ALU request mismatch"
-                  << " expected_pc=0x" << std::hex << row.pc
+                  << " expected_pc=0x" << std::hex << first.pc
                   << " observed_pc=0x" << dut.io_fetchReqPc << std::dec
                   << " sourceReqFire=" << static_cast<unsigned>(dut.io_sourceReqFire)
                   << "\n";
@@ -806,17 +840,17 @@ std::uint8_t fetch_and_enqueue_row(
     tick(dut);
   }
   std::cerr << "frontend fetch RF ALU source did not request pc=0x"
-            << std::hex << row.pc << std::dec << "\n";
+            << std::hex << first.pc << std::dec << "\n";
   std::exit(1);
 
 request_done:
   clear_inputs(dut);
   dut.io_fetchRespValid = 1;
-  dut.io_fetchRespWindow = fetch_memory.read_single_instruction_window(row.pc, row.len);
+  dut.io_fetchRespWindow = fetch_memory.read_window(first.pc);
   dut.eval();
   if (!dut.io_fetchRespReady || !dut.io_sourceRespFire) {
     std::cerr << "frontend fetch RF ALU response was not accepted"
-              << " pc=0x" << std::hex << row.pc << std::dec
+              << " pc=0x" << std::hex << first.pc << std::dec
               << " respReady=" << static_cast<unsigned>(dut.io_fetchRespReady)
               << " sourceRespFire=" << static_cast<unsigned>(dut.io_sourceRespFire)
               << "\n";
@@ -832,100 +866,21 @@ request_done:
       std::exit(1);
     }
     if (dut.io_sourceOutFire) {
-      if (!dut.io_decodeReady || !dut.io_selectedValid ||
-          dut.io_f4ValidMask != 0x1U ||
-          dut.io_sourceAdvanceBytes != row.len) {
-        if (row.skip &&
-            dut.io_decodeReady &&
-            !dut.io_selectedValid &&
-            dut.io_blockMarkerSkipFire &&
-            !dut.io_blockMarkerMixedPacket &&
-            dut.io_f4ValidMask == 0x1U &&
-            dut.io_sourceAdvanceBytes == row.len &&
-            dut.io_blockMarkerPc == row.pc &&
-            mask_insn(dut.io_blockMarkerInsn, dut.io_blockMarkerLen) == mask_insn(row.insn, row.len) &&
-            dut.io_blockMarkerLen == row.len &&
-            static_cast<bool>(dut.io_blockMarkerBoundary) == row.block_boundary &&
-            static_cast<bool>(dut.io_blockMarkerStop) == row.block_stop &&
-            !dut.io_decRenPushFire &&
-            !dut.io_robAllocFire &&
-            !dut.io_issueQueueEnqueueFire) {
-          tick(dut);
-          return 0;
-        }
-        std::cerr << "frontend fetch RF ALU packet was not accepted by F4/decode path"
-                  << " pc=0x" << std::hex << row.pc
-                  << " insn=0x" << row.insn << std::dec
-                  << " decodeReady=" << static_cast<unsigned>(dut.io_decodeReady)
-                  << " selectedValid=" << static_cast<unsigned>(dut.io_selectedValid)
-                  << " f4Mask=0x" << std::hex << static_cast<unsigned>(dut.io_f4ValidMask)
+      if (!dut.io_denseSlotQueueInFire ||
+          dut.io_f4ValidMask != expected_mask ||
+          dut.io_f4SlotCount != slot_count ||
+          dut.io_denseSlotQueueInSlotCount != slot_count ||
+          dut.io_sourceAdvanceBytes != expected_advance) {
+        std::cerr << "frontend fetch RF ALU dense packet was not captured"
+                  << " pc=0x" << std::hex << first.pc << std::dec
+                  << " expected_mask=0x" << std::hex << static_cast<unsigned>(expected_mask)
+                  << " observed_mask=0x" << static_cast<unsigned>(dut.io_f4ValidMask)
                   << std::dec
-                  << " advanceBytes=" << static_cast<unsigned>(dut.io_sourceAdvanceBytes)
-                  << "\n";
-        std::exit(1);
-      }
-      if (row.skip) {
-        std::cerr << "frontend fetch RF ALU marker row entered the scalar enqueue path"
-                  << " pc=0x" << std::hex << row.pc
-                  << " insn=0x" << row.insn << std::dec
-                  << " skip_kind=" << row.skip_kind << "\n";
-        std::exit(1);
-      }
-      if (dut.io_blockMarkerMixedPacket || dut.io_blockMarkerSkipFire) {
-        std::cerr << "frontend fetch RF ALU scalar row saw unexpected block-marker sideband"
-                  << " pc=0x" << std::hex << row.pc << std::dec
-                  << " mixed=" << static_cast<unsigned>(dut.io_blockMarkerMixedPacket)
-                  << " skip_fire=" << static_cast<unsigned>(dut.io_blockMarkerSkipFire)
-                  << "\n";
-        std::exit(1);
-      }
-      const auto rob_value = static_cast<std::uint8_t>(dut.io_selectedRobValue);
-      tick(dut);
-
-      for (int enqueue_cycle = 0; enqueue_cycle < 16; ++enqueue_cycle) {
-        clear_inputs(dut);
-        dut.eval();
-        if (dut.io_rfStateError) {
-          std::cerr << "frontend fetch RF ALU reported RF state error while waiting for issue enqueue\n";
-          std::exit(1);
-        }
-        if (dut.io_issueQueueEnqueueFire && dut.io_robRenameUpdateFire) {
-          tick(dut);
-          return rob_value;
-        }
-        tick(dut);
-      }
-      std::cerr << "frontend fetch RF ALU row did not enqueue into the reduced issue queue"
-                << " pc=0x" << std::hex << row.pc << std::dec << "\n";
-      std::exit(1);
-    }
-    tick(dut);
-  }
-
-  std::cerr << "frontend fetch RF ALU packet source did not emit packet"
-            << " pc=0x" << std::hex << row.pc << std::dec << "\n";
-  std::exit(1);
-}
-
-void wait_for_execute_completion(VLinxCoreFrontendFetchRfAluTraceTop &dut, std::uint8_t rob_value) {
-  for (int cycle = 0; cycle < 32; ++cycle) {
-    clear_inputs(dut);
-    dut.eval();
-    if (dut.io_rfStateError) {
-      std::cerr << "frontend fetch RF ALU reported RF state error during execute completion\n";
-      std::exit(1);
-    }
-    if (dut.io_executeUnsupported) {
-      std::cerr << "execute reported unsupported opcode="
-                << static_cast<unsigned>(dut.io_executeUnsupportedOpcode) << "\n";
-      std::exit(1);
-    }
-    if (dut.io_executeCompleteValid) {
-      if (dut.io_executeCompleteRobValue != rob_value || dut.io_completeIgnored) {
-        std::cerr << "execute completion mismatch"
-                  << " expected_rob=" << static_cast<unsigned>(rob_value)
-                  << " observed_rob=" << static_cast<unsigned>(dut.io_executeCompleteRobValue)
-                  << " ignored=" << static_cast<unsigned>(dut.io_completeIgnored)
+                  << " expected_slots=" << slot_count
+                  << " observed_f4_slots=" << static_cast<unsigned>(dut.io_f4SlotCount)
+                  << " observed_queue_slots=" << static_cast<unsigned>(dut.io_denseSlotQueueInSlotCount)
+                  << " expected_advance=" << static_cast<unsigned>(expected_advance)
+                  << " observed_advance=" << static_cast<unsigned>(dut.io_sourceAdvanceBytes)
                   << "\n";
         std::exit(1);
       }
@@ -935,8 +890,75 @@ void wait_for_execute_completion(VLinxCoreFrontendFetchRfAluTraceTop &dut, std::
     tick(dut);
   }
 
-  std::cerr << "frontend fetch RF ALU did not emit completion for rob_value="
-            << static_cast<unsigned>(rob_value) << "\n";
+  std::cerr << "frontend fetch RF ALU packet source did not emit dense packet"
+            << " pc=0x" << std::hex << first.pc << std::dec << "\n";
+  std::exit(1);
+}
+
+std::uint8_t drain_dense_row(VLinxCoreFrontendFetchRfAluTraceTop &dut, const ExpectedRow &row) {
+  for (int cycle = 0; cycle < 16; ++cycle) {
+    clear_inputs(dut);
+    dut.eval();
+    if (dut.io_rfStateError) {
+      std::cerr << "frontend fetch RF ALU reported RF state error before dense slot drain\n";
+      std::exit(1);
+    }
+    if (dut.io_denseSlotQueueOutFire) {
+      if (!dut.io_decodeReady) {
+        std::cerr << "frontend fetch RF ALU dense slot drained while decode was not ready"
+                  << " pc=0x" << std::hex << row.pc << std::dec << "\n";
+        std::exit(1);
+      }
+      if (row.skip) {
+        if (dut.io_selectedValid ||
+            !dut.io_blockMarkerSkipFire ||
+            dut.io_blockMarkerMixedPacket ||
+            dut.io_blockMarkerPc != row.pc ||
+            mask_insn(dut.io_blockMarkerInsn, dut.io_blockMarkerLen) != mask_insn(row.insn, row.len) ||
+            dut.io_blockMarkerLen != row.len ||
+            static_cast<bool>(dut.io_blockMarkerBoundary) != row.block_boundary ||
+            static_cast<bool>(dut.io_blockMarkerStop) != row.block_stop ||
+            dut.io_decRenPushFire ||
+            dut.io_robAllocFire) {
+          std::cerr << "frontend fetch RF ALU marker dense slot mismatch"
+                    << " pc=0x" << std::hex << row.pc
+                    << " insn=0x" << row.insn << std::dec
+                    << " selectedValid=" << static_cast<unsigned>(dut.io_selectedValid)
+                    << " skipFire=" << static_cast<unsigned>(dut.io_blockMarkerSkipFire)
+                    << " mixed=" << static_cast<unsigned>(dut.io_blockMarkerMixedPacket)
+                    << " decRenPush=" << static_cast<unsigned>(dut.io_decRenPushFire)
+                    << " robAlloc=" << static_cast<unsigned>(dut.io_robAllocFire)
+                    << "\n";
+          std::exit(1);
+        }
+        tick(dut);
+        return 0;
+      }
+
+      if (!dut.io_selectedValid ||
+          dut.io_blockMarkerMixedPacket ||
+          dut.io_blockMarkerSkipFire ||
+          !dut.io_decRenPushFire ||
+          !dut.io_robAllocFire) {
+        std::cerr << "frontend fetch RF ALU scalar dense slot mismatch"
+                  << " pc=0x" << std::hex << row.pc << std::dec
+                  << " selectedValid=" << static_cast<unsigned>(dut.io_selectedValid)
+                  << " mixed=" << static_cast<unsigned>(dut.io_blockMarkerMixedPacket)
+                  << " skipFire=" << static_cast<unsigned>(dut.io_blockMarkerSkipFire)
+                  << " decRenPush=" << static_cast<unsigned>(dut.io_decRenPushFire)
+                  << " robAlloc=" << static_cast<unsigned>(dut.io_robAllocFire)
+                  << "\n";
+        std::exit(1);
+      }
+      const auto rob_value = static_cast<std::uint8_t>(dut.io_selectedRobValue);
+      tick(dut);
+      return rob_value;
+    }
+    tick(dut);
+  }
+
+  std::cerr << "frontend fetch RF ALU dense slot queue did not drain row"
+            << " pc=0x" << std::hex << row.pc << std::dec << "\n";
   std::exit(1);
 }
 
@@ -994,7 +1016,6 @@ void commit_expected_row(
       write_dut_row(dut_out, slot0);
       write_qemu_row(qemu_out, expected);
       tick(dut);
-      drain_empty(dut);
       return;
     }
     expect_monitor_clean(dut, "frontend fetch RF ALU trace top wait", 0x0, 0);
@@ -1085,16 +1106,29 @@ int main(int argc, char **argv) {
   }
 
   start_source(dut, rows.front().pc);
-  for (const ExpectedRow &row : rows) {
-    if (row.skip) {
-      (void)fetch_and_enqueue_row(dut, row, fetch_memory);
-      continue;
+  for (std::size_t row_index = 0; row_index < rows.size();) {
+    const std::size_t window_end = dense_window_end(rows, row_index);
+    fetch_dense_window(dut, rows, row_index, window_end, fetch_memory);
+
+    std::vector<std::size_t> scalar_slots;
+    for (std::size_t slot_index = row_index; slot_index < window_end; ++slot_index) {
+      const ExpectedRow &row = rows[slot_index];
+      if (row.skip) {
+        (void)drain_dense_row(dut, row);
+        continue;
+      }
+      (void)drain_dense_row(dut, row);
+      scalar_slots.push_back(slot_index);
     }
-    const std::uint8_t rob_value = fetch_and_enqueue_row(dut, row, fetch_memory);
-    wait_for_execute_completion(dut, rob_value);
-    commit_expected_row(dut, row, dut_out, qemu_out);
+
+    for (const auto slot_index : scalar_slots) {
+      const ExpectedRow &row = rows[slot_index];
+      commit_expected_row(dut, row, dut_out, qemu_out);
+    }
+    row_index = window_end;
   }
 
+  drain_empty(dut);
   dut.eval();
   if (!dut.io_idle || !dut.io_empty || dut.io_size != 0) {
     std::cerr << "frontend fetch RF ALU trace top did not finish idle"

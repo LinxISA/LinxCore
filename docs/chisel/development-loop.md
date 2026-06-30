@@ -357,6 +357,29 @@ captured five raw QEMU rows, preserved skip markers at `0x10000` and
 not full block execution: dense mixed marker/scalar packets, scalar_done/BROB
 retire semantics, LSU, recovery, and CoreMark live-DUT equivalence remain
 future packets.
+R102 started from `linx-isa` commit
+`891555bda192f319627c3a20cb6e906b5bbe94ee`, `rtl/LinxCore` commit
+`7eecd8e2770658c633bd52e65654a92d61f7b4e0`,
+`model/LinxCoreModel` commit
+`6a87678d48b6a58a106d3ca23206744463e529f5`, QEMU commit
+`8dd1dcdbde20a7543fc5081bc52fd81a7b85b985`, and
+`skills/linx-skills` commit `f1290432600791a9bd1f47e31dbab10b9e41ec63`.
+Remote metadata was fetched without merging over dirty worktrees. R102 adds
+`F4DenseSlotQueue`, a reduced dense-packet bridge from `F4DecodeWindow` to the
+serialized `DecodeRenameROBPath`: it captures every valid slot from one
+8-byte F4 window, preserves original slot indices, and drains one slot per
+cycle. This aligns the reduced live fetch RF/ALU gate with the model IFU
+`DecodeBundle` path (`mask`, `entry[]`, `isize[]`, and `tpcArr[]`) while
+deferring width-wide ROB allocation. Evidence:
+`build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r102-live-qemu-fixture`,
+`BUILD_DIR=generated/r102-default-fetch-rf-alu-trace-top-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`,
+and
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r102-dense-qemu-elf-xcheck --elf generated/r102-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
+passed with `compared_rows: 3` and `mismatch_count: 0`. The R102 marker
+contract is marker-owned: a marker slot must not select a scalar row, push
+dec/ren, or allocate ROB, but it may drain in the same cycle that an older
+scalar row enqueues to issue. Full block scalar-done/BROB semantics, LSU,
+recovery, and CoreMark live-DUT equivalence remain future packets.
 
 ## Reference Evidence
 
@@ -382,7 +405,8 @@ facts:
 | `model/interface/CommitInfo.h` / `model/pe/ifu/iside/pe_ifu.cpp` / `model/bctrl/spe/DCTop.cpp` / `model/iex/pipe/alu_pipe.cpp` | R98 expected-row source evidence: commit comparison is already a QEMU-shaped architectural row stream, while live fetch requests still need row-owned PC, instruction length, source data, and destination data to drive the reduced scalar top. The harness now consumes those expected rows from JSONL instead of deriving them from an internal fixture, preserving the model split between IFU memory bytes, scalar execution data, and commit-row comparison. |
 | `model/interface/CommitInfo.h` / QEMU commit JSONL / `tools/chisel/trace_schema_adapter.py` | R99 row extraction evidence: QEMU and DUT comparison already meet at normalized commit rows, but the reduced live-fetch RF/ALU top can only execute a strict sequential scalar ALU prefix. The extractor keeps QEMU row spelling and adapter normalization, then rejects rows outside the reduced scalar envelope before they become Verilator expected rows. |
 | QEMU commit JSONL / `tools/qemu/run_qemu_commit_trace.sh` / `tools/chisel/frontend_fetch_elf_memory.py` | R100 live capture evidence: the reduced gate can now collect bounded QEMU rows from a direct-boot ELF and feed the validated scalar prefix plus matching ELF bytes into the live fetch RF/ALU top. PC filters are still required to skip legal block headers until that instruction class is live in the DUT. |
-| QEMU commit JSONL / `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py` / `DecodeRenameROBPath` | R101 marker evidence: the reduced gate can consume legal single-instruction `BSTART`/`BSTOP` rows as frontend markers while keeping them out of the architectural commit comparator. Marker-only packets must advance fetch without BROB/ROB allocation or issue enqueue; mixed marker+scalar packets must stall until dense multi-slot decode enqueue exists. |
+| QEMU commit JSONL / `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py` / `DecodeRenameROBPath` | R101 marker evidence: the reduced gate can consume legal single-instruction `BSTART`/`BSTOP` rows as frontend markers while keeping them out of the architectural commit comparator. Marker-only packets must advance fetch without BROB/ROB allocation or issue enqueue; R102 supersedes the earlier mixed-packet limitation with a dense-slot queue. |
+| `model/pe/ifu/iside/pe_ifu.cpp` / `model/pe/PECommon/DecodeBundle.h` / `model/bctrl/spe/DCTop.cpp` / QEMU commit JSONL | R102 dense-slot evidence: model IFU carries `DecodeBundle.mask`, `entry[]`, `isize[]`, and `tpcArr[]` through F4/F5/IB before scalar decode iterates rows. The reduced Chisel gate now captures all valid slots from one 8-byte F4 window in `F4DenseSlotQueue` and drains them serially into the existing one-row ROB path, preserving marker rows as DUT-only skip slots and scalar rows as comparator commits. |
 
 The key hardware implication is that the C++ model gets post-allocation rename
 visibility through a shared `SimInst` pointer. Chisel `ROBEntryBank` stores
@@ -482,7 +506,7 @@ The ROB/cross-check substrate remains the required base:
 | 25 | R99 strict QEMU trace expected-row extraction | `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py`, live fetch RF/ALU wrapper/docs | QEMU-row helper self-test, live fetch RF/ALU xcheck through `FETCH_QEMU_TRACE`, default fixture regression, manifest inspection |
 | 26 | R100 live QEMU capture plus reduced-row selection | `tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`, `tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`, live fetch RF/ALU harness/docs | bounded QEMU trace capture, `FETCH_QEMU_TRACE` plus `FETCH_ELF`, row-derived RF preload regression, manifest inspection, explicit unsupported-row report |
 | 27 | R101 reduced block-marker skip path | `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, QEMU-row extractor, live harness/docs | live fetch xchecks with BSTART/BSTOP skip rows, no PC filter, manifest inspection |
-| 28 | Dense multi-slot frontend packet path | F4/source/top harness | live fetch xchecks with mixed BSTART/scalar/BSTOP windows, manifest inspection |
+| 28 | R102 reduced dense multi-slot frontend packet path | `F4DenseSlotQueue.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, live fetch RF/ALU harness/docs | `F4DenseSlotQueue`, adjacent frontend/path tests, default live fetch RF/ALU xcheck, live QEMU fixture with mixed BSTART/scalar/BSTOP 8-byte windows, manifest inspection |
 | 29 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
 | 30 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
 | 31 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
@@ -524,8 +548,8 @@ Use this ladder for every promoted packet:
    physical writeback metadata, or the shared frontend ALU trace-top driver.
 12. `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
    after changes to the live fetch source to RF-backed issue/ALU top, bounded
-   memory-window fixture, source PC advance, issue enqueue, RF writeback, ALU
-   completion, or commit export.
+   memory-window fixture, source PC advance, dense F4 slot capture/drain,
+   issue enqueue, RF writeback, ALU completion, or commit export.
 13. `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`
    after changes to live QEMU capture, strict QEMU row selection, sparse ELF
    fetch-memory binding, or the row-derived RF preload contract for the
@@ -594,6 +618,9 @@ Update skills for:
 - a live-QEMU ELF gate rule where bounded FIFO capture, optional scalar PC
   filtering, `FETCH_ELF`, and `FETCH_QEMU_TRACE` must pass together before the
   reduced fetch RF/ALU top claims live replacement evidence.
+- a dense frontend rule where all valid slots from one F4 window are preserved
+  before serial reduced decode/ROB drain, and marker-slot checks are
+  marker-owned rather than global same-cycle issue silence.
 
 Do not update skills for wording cleanup, one-off test vectors, or module-local
 implementation detail already captured in that module page.

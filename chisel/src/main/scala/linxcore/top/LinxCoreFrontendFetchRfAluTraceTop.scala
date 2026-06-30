@@ -7,7 +7,7 @@ import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, InterfaceParams}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
-import linxcore.frontend.{F4DecodeWindow, FrontendFetchPacketSource}
+import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource}
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.RecoveryCleanupIntent
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -17,12 +17,15 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
     val traceParams: CommitTraceParams,
     val decRenQueueDepth: Int = 4,
     val issueQueueDepth: Int = 4,
+    val denseSlotQueueDepth: Int = 8,
     val physRegs: Int = 64)
     extends Bundle {
   private val ptrWidth = log2Ceil(p.robEntries)
   private val sizeWidth = log2Ceil(p.robEntries + 1)
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
   private val issueCountWidth = log2Ceil(issueQueueDepth + 1)
+  private val denseSlotQueueCountWidth = log2Ceil(denseSlotQueueDepth + 1)
+  private val denseSlotQueueSlotWidth = math.max(1, log2Ceil(p.decodeWidth))
 
   val startValid = Input(Bool())
   val startPc = Input(UInt(p.pcWidth.W))
@@ -58,6 +61,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
 
   val f4ValidMask = Output(UInt(p.decodeWidth.W))
   val f4SlotCount = Output(UInt(log2Ceil(p.decodeWidth + 1).W))
+  val denseSlotQueueInFire = Output(Bool())
+  val denseSlotQueueOutFire = Output(Bool())
+  val denseSlotQueueInSlotCount = Output(UInt(log2Ceil(p.decodeWidth + 1).W))
+  val denseSlotQueueCount = Output(UInt(denseSlotQueueCountWidth.W))
+  val denseSlotQueueHeadSlot = Output(UInt(denseSlotQueueSlotWidth.W))
+  val denseSlotQueueFull = Output(Bool())
+  val denseSlotQueueEmpty = Output(Bool())
   val decodeReady = Output(Bool())
   val selectedValid = Output(Bool())
   val selectedRobValue = Output(UInt(ptrWidth.W))
@@ -146,6 +156,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val coreParams: CoreParams = CoreParams(),
     val decRenQueueDepth: Int = 4,
     val issueQueueDepth: Int = 4,
+    val denseSlotQueueDepth: Int = 8,
     val storeDispatchQueueDepth: Int = 4,
     val mapQDepth: Int = 32,
     val archRegs: Int = 24,
@@ -153,10 +164,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     extends Module {
   private val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(coreParams)
   private val traceParams = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
-  val io = IO(new LinxCoreFrontendFetchRfAluTraceTopIO(p, traceParams, decRenQueueDepth, issueQueueDepth, physRegs))
+  val io = IO(new LinxCoreFrontendFetchRfAluTraceTopIO(
+    p = p,
+    traceParams = traceParams,
+    decRenQueueDepth = decRenQueueDepth,
+    issueQueueDepth = issueQueueDepth,
+    denseSlotQueueDepth = denseSlotQueueDepth,
+    physRegs = physRegs
+  ))
 
   val source = Module(new FrontendFetchPacketSource(p))
   val f4 = Module(new F4DecodeWindow(p))
+  val denseSlots = Module(new F4DenseSlotQueue(p, depth = denseSlotQueueDepth))
   val path = Module(new DecodeRenameROBPath(
     p = p,
     traceParams = traceParams,
@@ -179,15 +198,21 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   source.io.reqReady := io.fetchReqReady
   source.io.respValid := io.fetchRespValid
   source.io.respWindow := io.fetchRespWindow
-  source.io.outReady := path.io.decodeReady
+  source.io.outReady := denseSlots.io.inReady
   source.io.advanceBytes := f4.io.totalLenBytes
 
   f4.io.in := source.io.out
   f4.io.flushValid := io.frontendFlushValid
 
-  path.io.d1 := f4.io.d1
-  path.io.slots := f4.io.slots
-  path.io.validMask := f4.io.validMask
+  denseSlots.io.inD1 := f4.io.d1
+  denseSlots.io.inSlots := f4.io.slots
+  denseSlots.io.inValidMask := f4.io.validMask
+  denseSlots.io.outReady := path.io.decodeReady
+  denseSlots.io.flushValid := io.frontendFlushValid
+
+  path.io.d1 := denseSlots.io.outD1
+  path.io.slots := denseSlots.io.outSlots
+  path.io.validMask := denseSlots.io.outValidMask
   path.io.flushValid := io.frontendFlushValid
   path.io.renamedOutReady := issue.io.inReady
   path.io.storeStaExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
@@ -255,11 +280,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
   io.f4ValidMask := f4.io.validMask
   io.f4SlotCount := f4.io.slotCount
+  io.denseSlotQueueInFire := denseSlots.io.inFire
+  io.denseSlotQueueOutFire := denseSlots.io.outFire
+  io.denseSlotQueueInSlotCount := denseSlots.io.inSlotCount
+  io.denseSlotQueueCount := denseSlots.io.count
+  io.denseSlotQueueHeadSlot := denseSlots.io.headSlotIndex
+  io.denseSlotQueueFull := denseSlots.io.full
+  io.denseSlotQueueEmpty := denseSlots.io.empty
   io.decodeReady := path.io.decodeReady
   io.selectedValid := path.io.selectedValid
   io.selectedRobValue := path.io.selectedRobValue
   io.selectedBlockBid := path.io.selectedBlockBid
-  io.blockMarkerSkipFire := source.io.outFire && path.io.blockMarkerSkipValid
+  io.blockMarkerSkipFire := denseSlots.io.outFire && path.io.blockMarkerSkipValid
   io.blockMarkerSkipValid := path.io.blockMarkerSkipValid
   io.blockMarkerMixedPacket := path.io.blockMarkerMixedPacket
   io.blockMarkerBoundary := path.io.blockMarkerBoundary

@@ -15,6 +15,7 @@
 - Child owners:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/frontend/FrontendFetchPacketSource.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/frontend/F4DecodeWindow.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/frontend/F4DenseSlotQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarRegisterFile.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala`
@@ -62,11 +63,13 @@ for matching PC/instruction bytes. R101 lets the same live ELF gate run without
 PC filters for the legal entry and exit block markers: `C.BSTART` and
 `C.BSTOP` rows are preserved in the expected stream as DUT-only skip rows,
 consumed by the reduced `DecodeRenameROBPath`, and omitted from the
-architectural QEMU/DUT commit comparison. The top still injects a
-single-instruction response terminator after each expected instruction length,
-so it is not dense packet or full QEMU equivalence. Block-header execution,
-dense multi-slot packet handling, full issue arbitration, LSU, trap/recovery,
-and branch restart are still outside this reduced top.
+architectural QEMU/DUT commit comparison. R102 replaces the single-instruction
+response terminator with a full 8-byte F4 response window and inserts
+`F4DenseSlotQueue` between F4 and the serialized decode/ROB path. One source
+response can now carry a mixed marker/scalar dense packet, while the reduced
+backend still drains one original F4 slot per cycle. Block-header scalar-done
+semantics, width-wide ROB allocation, full issue arbitration, LSU,
+trap/recovery, and branch restart are still outside this reduced top.
 
 ## Interface
 
@@ -83,8 +86,9 @@ and branch restart are still outside this reduced top.
 | output | `fetchReqValid`, `fetchReqPc`, `fetchRespReady` | mixed | valid/ready | Live source PC request and response handshake. |
 | output | `source*` | mixed | diagnostic | Source active, request, response, packet, PC advance, and packet UID observability. |
 | output | `f4ValidMask`, `f4SlotCount`, `decodeReady` | mixed | diagnostic | F4 slot shape and downstream decode readiness. |
+| output | `denseSlotQueueInFire`, `denseSlotQueueOutFire`, `denseSlotQueueInSlotCount`, `denseSlotQueueCount`, `denseSlotQueueHeadSlot`, `denseSlotQueueFull`, `denseSlotQueueEmpty` | mixed | diagnostic | Reduced dense-slot bridge capture/drain and occupancy observability. |
 | output | `selectedValid`, `selectedRobValue`, `selectedBlockBid` | mixed | diagnostic | Reduced selected decoded slot and allocated identities. |
-| output | `blockMarkerSkipFire`, `blockMarkerSkipValid`, `blockMarkerMixedPacket`, `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`, `blockMarkerInsn`, `blockMarkerLen` | mixed | diagnostic | Reduced block-marker consume observability. Marker-only packets advance without ROB allocation; mixed marker/scalar packets are rejected until dense enqueue exists. |
+| output | `blockMarkerSkipFire`, `blockMarkerSkipValid`, `blockMarkerMixedPacket`, `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`, `blockMarkerInsn`, `blockMarkerLen` | mixed | diagnostic | Reduced block-marker consume observability on a dense-slot drain. Marker slots advance without marker-owned ROB allocation or dec/ren push; older scalar issue activity may overlap in the same cycle. |
 | output | `decRenPushFire`, `decRenPopFire`, `decRenCount` | mixed | diagnostic | Decode-to-rename queue events and occupancy. |
 | output | `renamedOutValid`, `renamedAccepted` | `Bool` | diagnostic | Rename output and issue-queue acceptance. |
 | output | `rfReadReadyMask`, `rfAllReadReady`, `rfReadyMask` | mixed | diagnostic | Reduced physical RF read and ready-state observability. |
@@ -104,6 +108,8 @@ The wrapper owns only composition wiring. State remains in child modules:
   response packet residency, packet UID/checkpoint, restart, and flush clearing.
 - `F4DecodeWindow`: combinational instruction-window slicing and decoded byte
   count.
+- `F4DenseSlotQueue`: compacted FIFO of all valid slots from one F4 packet,
+  preserving each slot's original index while draining one slot at a time.
 - `DecodeRenameROBPath`: decode-to-rename queue, scalar/T-U rename, reduced
   ROB/BROB allocation, completion, commit, and deallocation.
 - `ReducedScalarRegisterFile`: physical scalar data and ready bits.
@@ -117,23 +123,24 @@ The wrapper owns only composition wiring. State remains in child modules:
 
 `FrontendFetchPacketSource` issues a PC request after `startValid` or
 `restartValid`. The bounded Verilator fixture accepts the request, reads the
-instruction bytes for that PC from a `FetchMemoryImage`, and returns a 64-bit
-single-instruction window. The memory image can be a base-addressed binary blob
-or a sparse address-to-byte map extracted from ELF PT_LOAD segments. The source
-captures that response as a
-`FrontendDecodePacket` and presents it to F4 only when `DecodeRenameROBPath`
-can accept the packet. F4's `totalLenBytes` feeds back as `advanceBytes`, so
-the source advances by the decoded instruction size instead of by a fixed
-fixture stride.
+next eight bytes for that PC from a `FetchMemoryImage`, and returns a 64-bit
+F4 window. The memory image can be a base-addressed binary blob or a sparse
+address-to-byte map extracted from ELF PT_LOAD segments. The source captures
+that response as a `FrontendDecodePacket` and presents it to F4 only when
+`F4DenseSlotQueue` can accept every valid slot in the packet. F4's
+`totalLenBytes` feeds back as `advanceBytes`, so the source advances once by
+the whole decoded byte span of the dense window.
 
-The F4 output is consumed by `DecodeRenameROBPath`, which reserves and updates
-ROB rows, then emits a renamed scalar uop into `ReducedScalarIssueQueue`.
-For R101 live-QEMU evidence, this top instantiates `DecodeRenameROBPath` with
-`skipBlockMarkers=true`. A single-instruction `BSTART` or `BSTOP` response
-therefore advances the fetch source and drives `blockMarkerSkipFire` without
-allocating a ROB row or entering issue. A response window that decodes both a
-marker and scalar row is not consumed; dense packet support must first add a
-multi-slot enqueue and compare contract.
+`F4DenseSlotQueue` captures all valid F4 slots in original slot order, then
+drains exactly one slot per cycle into `DecodeRenameROBPath`. The path
+reserves and updates ROB rows for scalar slots, then emits renamed scalar uops
+into `ReducedScalarIssueQueue`. This top instantiates `DecodeRenameROBPath`
+with `skipBlockMarkers=true`; a drained `BSTART` or `BSTOP` marker slot drives
+`blockMarkerSkipFire` without marker-owned ROB allocation or dec/ren enqueue.
+Because the issue queue is decoupled, a marker drain can overlap an older
+scalar row's issue enqueue. The marker contract is no marker-owned scalar
+selection, dec/ren push, or ROB allocation, not global silence on unrelated
+older issue activity.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
 packet acceptance. The P1/I1/I2 picker reads source data from
@@ -180,12 +187,14 @@ headers until this reduced top can execute them, then runs the existing
 `--allow-block-markers`/`FETCH_QEMU_ALLOW_BLOCK_MARKERS=1` path that preserves
 legal `BSTART`/`BSTOP` rows as `skip` entries. The harness still serves those
 rows to the DUT and asserts marker diagnostics, but only scalar reduced ALU
-rows are written into the QEMU/DUT comparator streams. This top still does not
-model
-cacheline merge, branch prediction, multiple
-outstanding fetches, dense multi-slot decode, full oldest-ready issue
-preferences, read-port arbitration, bypass, load speculative wakeup, LSU,
-precise traps, or architectural redirect restart.
+rows are written into the QEMU/DUT comparator streams. R102 aligns the input
+packet shape with model dense frontend bundles: one 8-byte response can carry
+the entry marker, scalar body rows, and exit marker, and the reduced Chisel top
+serializes those slots through `F4DenseSlotQueue` before the current one-row
+ROB path. This top still does not model cacheline merge, branch prediction,
+multiple outstanding fetches, width-wide decode/ROB allocation, full
+oldest-ready issue preferences, read-port arbitration, bypass, load
+speculative wakeup, LSU, precise traps, or architectural redirect restart.
 
 ## Trace/Observability
 
@@ -212,15 +221,19 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
 - accepts `FETCH_QEMU_ALLOW_BLOCK_MARKERS=1` to preserve legal `BSTART`/`BSTOP`
   rows as DUT-only skip entries in `qemu.expected.jsonl`;
 - starts the live source at the first expected row PC;
-- serves one bounded instruction window per source PC request by reading bytes
-  from the fetch-memory image and appending the single-instruction terminator
-  after the expected length;
-- requires `sourceOutFire`, `f4ValidMask == 0x1`, and
-  `sourceAdvanceBytes == instruction length`;
+- serves one 8-byte instruction window per source PC request by reading bytes
+  from the fetch-memory image, padding only missing trailing bytes outside the
+  current program image;
+- groups expected rows into dense F4 windows, then requires `sourceOutFire`,
+  `denseSlotQueueInFire`, matching `f4ValidMask`, matching `f4SlotCount`, and
+  `sourceAdvanceBytes` equal to the window's decoded byte span;
+- drains every expected slot from `F4DenseSlotQueue` before fetching the next
+  window;
 - for skip rows, requires `blockMarkerSkipFire`, matching marker
-  PC/instruction/length and boundary/stop diagnostics, and no ROB allocation
-  or issue enqueue;
-- waits for issue enqueue, ALU completion, and one commit row per instruction;
+  PC/instruction/length and boundary/stop diagnostics, and no marker-owned
+  ROB allocation or dec/ren push;
+- waits for commit rows for each scalar instruction after the window's slots
+  have drained;
 - writes QEMU-shaped reference and DUT JSONL through
   `tools/chisel/commit_trace_jsonl.h`;
 - compares `ADD r3,r4,r5`, `ADDI r6,r3,0x7ff`, and `C.MOVR r5,r6` through the
@@ -273,15 +286,41 @@ at `0x1000c` as a skip row. The comparator manifest still records only the
 three architectural scalar commits: `status: "pass"`, `compared_rows: 3`, and
 `mismatch_count: 0`.
 
+The R102 dense-slot gate keeps the same five-row live QEMU input stream but
+lets F4 see natural 8-byte windows:
+
+```bash
+bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh \
+  --out-dir generated/r102-live-qemu-fixture
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r102-dense-qemu-elf-xcheck \
+  --elf generated/r102-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
+  --expected-rows 0 \
+  --capture-rows 5 \
+  --allow-block-markers \
+  --max-seconds 5
+```
+
+The preview stream still preserves `C.BSTART`, three scalar rows, and
+`C.BSTOP`. The DUT now captures mixed marker/scalar F4 packets through
+`F4DenseSlotQueue` and drains them serially. The manifest at
+`generated/r102-dense-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
+- `bash tools/chisel/run_chisel_tests.sh --only F4DenseSlotQueue`
+- `bash tools/chisel/run_chisel_tests.sh --only F4DecodeWindow`
+- `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r101-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
+- `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r102-live-qemu-fixture`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r102-dense-qemu-elf-xcheck --elf generated/r102-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`
 - `FETCH_EXPECTED_ROWS=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_QEMU_TRACE=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`
