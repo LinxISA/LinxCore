@@ -42,6 +42,16 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_MOVR, 0x1234, 0, 0).contains(0x1234))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_ADD, 0x1234, 0x100, 0).contains(0x1334))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_LDI, 0x4ffefdb0L, 0, 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_LDI, 0x4fff0048L, 0, BigInt("fffffffffffffffe", 16)).contains(0))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_SETC_EQ, 0, 0, 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_C_SETC_EQ, 0, 0).contains(true))
+    assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_C_SETC_EQ, 8, 256).contains(false))
+    assert(ReducedScalarAluExecute.referenceBranchCondition(
+      FrontendOpcodeDecodeTable.OP_C_SETC_EQ,
+      src0 = 0x4fff0018L,
+      src1 = 0,
+      src0Valid = false,
+      src1Valid = true).contains(true))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_SETC_NE, 0x4fff0018L, 0, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_C_SETC_NE, 8, 256).contains(true))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_C_SETC_NE, 256, 256).contains(false))

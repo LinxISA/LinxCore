@@ -896,6 +896,7 @@ void fetch_dense_window(
   const std::uint8_t expected_mask = dense_window_mask(slot_count);
   const std::uint8_t expected_advance = dense_window_advance(rows, start, end);
   const bool redirect_tail = row_redirects(rows.at(end - 1));
+  const bool capture_tail = end == rows.size();
 
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
@@ -949,13 +950,13 @@ request_done:
           dut.io_f4SlotCount == slot_count &&
           dut.io_denseSlotQueueInSlotCount == slot_count &&
           dut.io_sourceAdvanceBytes == expected_advance;
-      const bool redirect_prefix_match =
-          redirect_tail &&
+      const bool relaxed_prefix_match =
+          (redirect_tail || capture_tail) &&
           (dut.io_f4ValidMask & expected_mask) == expected_mask &&
           dut.io_f4SlotCount >= slot_count &&
           dut.io_denseSlotQueueInSlotCount >= slot_count &&
           dut.io_sourceAdvanceBytes >= expected_advance;
-      if (!dut.io_denseSlotQueueInFire || (!strict_dense_match && !redirect_prefix_match)) {
+      if (!dut.io_denseSlotQueueInFire || (!strict_dense_match && !relaxed_prefix_match)) {
         std::cerr << "frontend fetch RF ALU dense packet was not captured"
                   << " pc=0x" << std::hex << first.pc << std::dec
                   << " expected_mask=0x" << std::hex << static_cast<unsigned>(expected_mask)

@@ -128,6 +128,12 @@ has no target `BSTART` marker, and this reduced top opts into
 `DecodeRenameROBPath.reducedStoreDispatchBypass` because stores are compared
 from the ALU-produced sideband while STA/STD execution and STQ commit/free
 feedback are not connected here.
+R121 carries the loop through a 256-row live QEMU capture. It adds the 32-bit
+`OP_LDI` zero-load sideband row, compact `OP_C_SETC_EQ` equality branch
+sideband, and a Verilator harness tail-prefix rule: bounded captures may end
+inside an 8-byte F4 window, so the harness can accept a DUT dense-packet
+superset only for the final captured expected row while still comparing every
+committed row in the captured prefix.
 
 ## Interface
 
@@ -185,9 +191,9 @@ overlay. Most state remains in child modules:
   source-ready snapshots, P1/I1/I2 timing, issued-entry lock, cancel, and W2
   release.
 - `ReducedScalarAluExecute`: reduced scalar ADD/ADDI/MOVR/MOVI/shift/OR/C.ADD
-  execute, narrow C.LDI zero-load sideband, C.SETC_NE no-writeback row and
-  branch-decision sideband, SDI store sideband, and writeback-shaped
-  completion.
+  execute, narrow C.LDI/LDI zero-load sidebands, C.SETC_EQ/C.SETC_NE
+  no-writeback rows and branch-decision sidebands, SDI store sideband, and
+  writeback-shaped completion.
 
 ## Logic Design
 

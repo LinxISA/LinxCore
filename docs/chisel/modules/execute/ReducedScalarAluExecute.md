@@ -51,7 +51,7 @@ owners.
 | output | `releaseRid` | `ROBID` | with `releaseValid` | ROB identity copied from the W2 uop. |
 | output | `releaseStid` | `UInt(threadIdWidth.W)` | with `releaseValid` | STID copied from the W2 uop. |
 | output | `branchConditionValid` | `Bool` | with `completeValid` | Reduced conditional-block decision is valid for a completed compare row. |
-| output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_NE` not-equal result used by the reduced conditional BSTART owner. |
+| output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ` equality or `OP_C_SETC_NE` not-equal result used by the reduced conditional BSTART owner. |
 | output | `accepted` | `Bool` | pulse | `inValid && inReady`. |
 | output | `busy` | `Bool` | state | Any E/W1/W2 pipe stage is occupied. |
 | output | `unsupported` | `Bool` | pulse | W2 uop reached execute but is outside the reduced opcode subset. |
@@ -122,9 +122,12 @@ The Chisel module implements the first reduced subset:
 | `OP_C_MOVR` | `srcData(0)` |
 | `OP_C_ADD` | `srcData(0) + srcData(1)` |
 | `OP_C_LDI` | `0`, with a reduced 8-byte load sideband at `srcData(0) + in.imm` |
+| `OP_C_SETC_EQ` | `0`, with branch sideband taken when validity-masked `srcData(0) == srcData(1)` |
+| `OP_C_SETC_NE` | `0`, with branch sideband taken when validity-masked `srcData(0) != srcData(1)` |
 | `OP_C_SETRET` | `in.pc + in.imm` |
 | `OP_FENTRY` | `srcData(1) - in.imm` for the reduced single-save SP update |
 | `OP_HL_LUI` | `in.imm` |
+| `OP_LDI` | `0`, with a reduced 8-byte load sideband at `srcData(0) + (in.imm << 3)` |
 | `OP_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(1) + (in.imm << 3)` and store data `srcData(0)` |
 | `OP_SLL` | `srcData(0) << srcData(1)(5, 0)` |
 | `OP_SLLI` | `srcData(0) << in.imm(5, 0)` |
@@ -182,6 +185,13 @@ R119 extends that row into the reduced conditional-block sideband. When
 `branchConditionTaken` is the not-equal comparison of validity-masked source
 data. Invalid operands are treated as zero for the decision sideband, matching
 the completion-row source suppression policy used by local T/U operands.
+R121 adds the matching compact equality compare `OP_C_SETC_EQ` and the 32-bit
+`OP_LDI` zero-load row encountered after repeated CoreMark loop trips.
+`OP_C_SETC_EQ` shares the no-writeback completion shape and branch sideband,
+but the decision is `src0 == src1`. `OP_LDI` is a narrow reduced load bridge:
+execute returns the observed zero read data and emits one 8-byte load sideband
+at `srcData(0) + (uop.imm << 3)`. This remains a bounded CoreMark prefix
+contract; nonzero loads require the real data-memory/LSU owner.
 R118 admits the first ordinary scalar store-immediate row, `OP_SDI`. The C++
 model decodes the 32-bit form as `src0=SrcL` store data, `src1=SrcR` address
 base, and `src2=simm12_7_s5_25_7 << 3`; `Store::CalcStoreAddr` computes

@@ -60,9 +60,11 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_LDI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_EQ) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_LDI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SDI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SLL) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SLLI) ||
@@ -89,6 +91,10 @@ class ReducedScalarAluExecute(
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET)) {
       out := pc + imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_LDI)) {
+      out := 0.U
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_LDI)) {
+      out := 0.U
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_EQ)) {
       out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE)) {
       out := 0.U
@@ -162,6 +168,13 @@ class ReducedScalarAluExecute(
       row.mem.wdata := 0.U
       row.mem.rdata := result
       row.mem.size := 8.U
+    }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_LDI)) {
+      row.mem.valid := valid
+      row.mem.isStore := false.B
+      row.mem.addr := srcData(0) + ((uop.imm << 3)(p.immWidth - 1, 0))
+      row.mem.wdata := 0.U
+      row.mem.rdata := result
+      row.mem.size := 8.U
     }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SDI)) {
       row.mem.valid := valid
       row.mem.isStore := true.B
@@ -222,8 +235,10 @@ class ReducedScalarAluExecute(
   io.completeDstData := w2Result
   val branchSrc0 = Mux(w2Uop.src(0).valid, w2SrcData(0), 0.U)
   val branchSrc1 = Mux(w2Uop.src(1).valid, w2SrcData(1), 0.U)
-  io.branchConditionValid := io.completeValid && w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE)
-  io.branchConditionTaken := branchSrc0 =/= branchSrc1
+  val branchIsSetcEq = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_EQ)
+  val branchIsSetcNe = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE)
+  io.branchConditionValid := io.completeValid && (branchIsSetcEq || branchIsSetcNe)
+  io.branchConditionTaken := Mux(branchIsSetcEq, branchSrc0 === branchSrc1, branchSrc0 =/= branchSrc1)
   io.releaseValid := w2Valid
   io.releaseBid := w2Uop.bid
   io.releaseRid := w2Uop.rid
@@ -251,9 +266,11 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_C_ADD => Some((src0 + src1) & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_SETRET => None
       case FrontendOpcodeDecodeTable.OP_C_LDI => Some(0)
+      case FrontendOpcodeDecodeTable.OP_C_SETC_EQ => Some(0)
       case FrontendOpcodeDecodeTable.OP_C_SETC_NE => Some(0)
       case FrontendOpcodeDecodeTable.OP_FENTRY => Some((src1 - imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_HL_LUI => Some(imm & Mask64)
+      case FrontendOpcodeDecodeTable.OP_LDI => Some(0)
       case FrontendOpcodeDecodeTable.OP_SDI => Some(0)
       case FrontendOpcodeDecodeTable.OP_SLL => Some((src0 << ((src1 & 0x3f).toInt)) & Mask64)
       case FrontendOpcodeDecodeTable.OP_SLLI => Some((src0 << ((imm & 0x3f).toInt)) & Mask64)
@@ -277,6 +294,10 @@ object ReducedScalarAluExecute {
       src0Valid: Boolean = true,
       src1Valid: Boolean = true): Option[Boolean] =
     opcode match {
+      case FrontendOpcodeDecodeTable.OP_C_SETC_EQ =>
+        val lhs = if (src0Valid) src0 & Mask64 else BigInt(0)
+        val rhs = if (src1Valid) src1 & Mask64 else BigInt(0)
+        Some(lhs == rhs)
       case FrontendOpcodeDecodeTable.OP_C_SETC_NE =>
         val lhs = if (src0Valid) src0 & Mask64 else BigInt(0)
         val rhs = if (src1Valid) src1 & Mask64 else BigInt(0)
