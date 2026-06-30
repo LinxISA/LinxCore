@@ -83,6 +83,7 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_LDI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SBI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SETC_LTU) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_SETC_LTUI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SETC_TGT) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SD) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SDI) ||
@@ -166,6 +167,8 @@ class ReducedScalarAluExecute(
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_TGT)) {
       out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SETC_LTU)) {
+      out := 0.U
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SETC_LTUI)) {
       out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SETC_TGT)) {
       out := 0.U
@@ -405,18 +408,22 @@ class ReducedScalarAluExecute(
   val branchIsSetcEq = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_EQ)
   val branchIsSetcNe = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE)
   val branchIsSetcLtu = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SETC_LTU)
+  val branchIsSetcLtui = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SETC_LTUI)
   val branchIsSetcTgt =
     w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_TGT) ||
       w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SETC_TGT)
   val w2IsFretStk = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK)
-  io.branchConditionValid := io.completeValid && (branchIsSetcEq || branchIsSetcNe || branchIsSetcLtu || branchIsSetcTgt)
+  io.branchConditionValid := io.completeValid && (branchIsSetcEq || branchIsSetcNe || branchIsSetcLtu || branchIsSetcLtui || branchIsSetcTgt)
   io.branchConditionTaken := Mux(
     branchIsSetcTgt,
     true.B,
     Mux(
       branchIsSetcEq,
       branchSrc0 === branchSrc1,
-      Mux(branchIsSetcNe, branchSrc0 =/= branchSrc1, branchSrc0 < branchSrc1)))
+      Mux(
+        branchIsSetcNe,
+        branchSrc0 =/= branchSrc1,
+        Mux(branchIsSetcLtui, branchSrc0 < w2Uop.imm, branchSrc0 < branchSrc1))))
   io.redirectValid := io.completeValid && w2IsFretStk && (setcTargetValid || w2FretStkFallbackTargetValid)
   io.redirectPc := w2FretStkTarget
   when(io.completeValid && branchIsSetcTgt) {
@@ -483,6 +490,7 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_C_SETC_TGT => Some(0)
       case FrontendOpcodeDecodeTable.OP_FRET_STK => Some(0)
       case FrontendOpcodeDecodeTable.OP_SETC_LTU => Some(0)
+      case FrontendOpcodeDecodeTable.OP_SETC_LTUI => Some(0)
       case FrontendOpcodeDecodeTable.OP_SETC_TGT => Some(0)
       case FrontendOpcodeDecodeTable.OP_FENTRY => Some((src1 - imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_HL_LUI => Some(imm & Mask64)
@@ -527,6 +535,9 @@ object ReducedScalarAluExecute {
         val lhs = if (src0Valid) src0 & Mask64 else BigInt(0)
         val rhs = if (src1Valid) src1 & Mask64 else BigInt(0)
         Some(lhs < rhs)
+      case FrontendOpcodeDecodeTable.OP_SETC_LTUI =>
+        val lhs = if (src0Valid) src0 & Mask64 else BigInt(0)
+        Some(lhs < (src1 & Mask64))
       case FrontendOpcodeDecodeTable.OP_SETC_TGT => Some(true)
       case _ => None
     }

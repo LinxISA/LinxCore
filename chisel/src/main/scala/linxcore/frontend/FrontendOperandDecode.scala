@@ -139,6 +139,17 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       FrontendOpcodeDecodeTable.OP_HL_LW_PCR,
       FrontendOpcodeDecodeTable.OP_HL_LWU_PCR)
 
+  private def isSetcImmediateOpcode: Bool =
+    opcodeIs(
+      FrontendOpcodeDecodeTable.OP_SETC_ANDI,
+      FrontendOpcodeDecodeTable.OP_SETC_EQI,
+      FrontendOpcodeDecodeTable.OP_SETC_GEI,
+      FrontendOpcodeDecodeTable.OP_SETC_GEUI,
+      FrontendOpcodeDecodeTable.OP_SETC_LTI,
+      FrontendOpcodeDecodeTable.OP_SETC_LTUI,
+      FrontendOpcodeDecodeTable.OP_SETC_NEI,
+      FrontendOpcodeDecodeTable.OP_SETC_ORI)
+
   when(io.active) {
     when(io.meta.rdKind === FrontendOpcodeDecodeTable.OperandREG.U) {
       setDst(genericRd)
@@ -191,6 +202,13 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
     when(opcodeIs(FrontendOpcodeDecodeTable.OP_FRET_STK)) {
       clearSrc(0)
       clearSrc(1)
+    }
+
+    when(isSetcImmediateOpcode) {
+      io.dst(0).valid := false.B
+      io.dst(0).kind := DestinationKind.None
+      io.dst(0).archTag := regInvalid
+      io.dst(0).relTag := regInvalid
     }
 
     when(opcodeIs(FrontendOpcodeDecodeTable.OP_BTEXT)) {

@@ -197,6 +197,14 @@ snapshot so later RF/local readiness drops do not cancel an already selected
 row. The BROB allocator now reuses `Flushed` slots. The promoted gate captures
 1461 raw QEMU rows, extracts 1348 expected rows, and compares 966 normalized
 QEMU/DUT rows with zero mismatches.
+R128 carries the live capture through the first SETC immediate compare,
+`OP_SETC_LTUI` at `pc=0x4000d1e4`. The reduced frontend suppresses the
+generated shamt/register field as a visible destination, the ALU emits the
+unsigned immediate branch-condition sideband, and the QEMU reducer normalizes
+QEMU's `dst_valid=1`/`wb_valid=0` artifact into the no-writeback expected row.
+The promoted gate captures 1477 raw QEMU rows, extracts 1361 expected rows,
+and compares 976 normalized QEMU/DUT rows with zero mismatches. The next
+frontier is `OP_ANDIW` at `pc=0x4000d210` (`insn=0x0ff1af35`).
 
 ## Interface
 

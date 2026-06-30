@@ -55,6 +55,8 @@ OR_MASK = 0x707F
 OR_MATCH = 0x3005
 SETC_LTU_MASK = 0xF800_7FFF
 SETC_LTU_MATCH = 0x0000_6065
+SETC_LTUI_MASK = 0x707F
+SETC_LTUI_MATCH = 0x6075
 SETC_TGT_MASK = 0xFFF0_7FFF
 SETC_TGT_MATCH = 0x0000_403B
 SD_MASK = 0x7FFF
@@ -127,6 +129,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "SRA"
         if (insn & OR_MASK) == OR_MATCH:
             return "OR"
+        if (insn & SETC_LTUI_MASK) == SETC_LTUI_MATCH:
+            return "SETC_LTUI"
         if (insn & SETC_LTU_MASK) == SETC_LTU_MATCH:
             return "SETC_LTU"
         if (insn & SETC_TGT_MASK) == SETC_TGT_MATCH:
@@ -424,6 +428,18 @@ def _is_no_writeback_trace_gap(row: dict[str, int]) -> bool:
     )
 
 
+def _is_setc_immediate_dst_artifact(row: dict[str, int], opcode: str) -> bool:
+    return (
+        opcode == "SETC_LTUI" and
+        row["dst_valid"] and
+        not row["wb_valid"] and
+        row["dst_reg"] == 0 and
+        row["wb_rd"] == 0 and
+        row["dst_data"] == 0 and
+        row["wb_data"] == 0
+    )
+
+
 def _signed64(value: int) -> int:
     value &= MASK64
     if value & (1 << 63):
@@ -470,6 +486,8 @@ def _expected_result(
     if opcode in {"C.SETC_EQ", "C.SETC_NE"}:
         return 0
     if opcode == "SETC_LTU":
+        return 0
+    if opcode == "SETC_LTUI":
         return 0
     if opcode in {"C.SETC_TGT", "SETC_TGT"}:
         return 0
@@ -631,6 +649,8 @@ def _validate_reduced_row(
         _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
     elif opcode == "SETC_LTU":
         _require_sources(row, opcode, src0=True, src1=True)
+    elif opcode == "SETC_LTUI":
+        _require_sources(row, opcode, src0=True, src1=False)
     elif opcode == "C.SETC_TGT":
         _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         if row["src1_valid"]:
@@ -701,11 +721,13 @@ def _validate_reduced_row(
         "FRET_STK",
         "SBI",
         "SETC_LTU",
+        "SETC_LTUI",
         "SETC_TGT",
         "SD",
         "SDI",
     }
-    if no_writeback_opcode and not _is_no_writeback_trace_gap(row):
+    suppress_setc_immediate_dst = _is_setc_immediate_dst_artifact(row, opcode)
+    if no_writeback_opcode and not (_is_no_writeback_trace_gap(row) or suppress_setc_immediate_dst):
         raise RowExtractionError(f"row {index} {opcode} must not write a destination")
     if not synthesize_c_local_writeback and not no_writeback_opcode:
         _require_writeback(row, opcode)
@@ -720,6 +742,10 @@ def _validate_reduced_row(
 
     out = {field: int(row[field]) for field in REQUIRED_TRACE_FIELDS}
     out["insn"] = _mask_insn(out["insn"], out["len"])
+    if suppress_setc_immediate_dst:
+        out["dst_valid"] = 0
+        out["dst_reg"] = 0
+        out["dst_data"] = 0
     if synthesize_c_local_writeback:
         out["dst_valid"] = 1
         out["dst_reg"] = 31
@@ -2565,6 +2591,44 @@ def self_test() -> None:
         assert extracted_r121_setc_eq[0]["dst_valid"] == 0
         assert extracted_r121_setc_eq[0]["src0_reg"] == 6
         assert extracted_r121_setc_eq[0]["src1_reg"] == 5
+
+        r128_setc_ltui_source = tmp / "r128-setc-ltui.jsonl"
+        r128_setc_ltui_output = tmp / "r128-setc-ltui.rows.jsonl"
+        setc_ltui = {
+            **rows[0],
+            "pc": 0x4000D1E4,
+            "insn": 0x00326075,
+            "len": 4,
+            "next_pc": 0x4000D1E8,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 1,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 4,
+            "src0_data": 0x130,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(r128_setc_ltui_source, [setc_ltui])
+        count = extract_rows(r128_setc_ltui_source, r128_setc_ltui_output)
+        assert count == 1
+        extracted_r128_setc_ltui = [
+            json.loads(line) for line in r128_setc_ltui_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_r128_setc_ltui[0]["pc"] == 0x4000D1E4
+        assert extracted_r128_setc_ltui[0]["dst_valid"] == 0
+        assert extracted_r128_setc_ltui[0]["src0_reg"] == 4
+        assert extracted_r128_setc_ltui[0]["src1_valid"] == 0
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

@@ -128,6 +128,13 @@ Explicit pyCircuit/model overrides currently cover:
   forms use the unshifted signed 29-bit `Cat(pfx16[15:4], main32[31:15])`.
   `BSTART` forms keep their shifted byte-target immediates, so PCR loads must
   not reuse the generic shifted `SIMM17` or HL `BSTART` paths.
+- R128 `SETC.*I` immediate compare rows. The generated metadata exposes the
+  encoded immediate compare register field through `rdKind=REG`, but the
+  reduced scalar trace treats these rows as no-writeback condition producers.
+  Decode therefore clears the visible destination for the current immediate
+  SETC family while preserving source 0 and the decoded immediate. The
+  promoted CoreMark case is `OP_SETC_LTUI` at `pc=0x4000d1e4`
+  (`insn=0x00326075`), with source `x4`, immediate `3`, and no destination.
 
 ## Model Alignment
 
@@ -173,6 +180,8 @@ The `FrontendDecodeStageSpec` reference cases cover:
   shifted branch target
 - CoreMark `FRET.STK` and ranged `FENTRY` macro rows, where visible source
   suppression is part of the QEMU-shaped reduced trace contract
+- CoreMark `SETC.LTUI` at `0x4000d1e4`, where the encoded shamt/register field
+  is not an architectural destination in the reduced no-writeback condition row
 
 ## Open Work
 

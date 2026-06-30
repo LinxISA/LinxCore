@@ -103,6 +103,17 @@ object FrontendDecodeStageReference {
       src(0) = None
       src(1) = None
     }
+    if (opcodeIs(rule,
+      FrontendOpcodeDecodeTable.OP_SETC_ANDI,
+      FrontendOpcodeDecodeTable.OP_SETC_EQI,
+      FrontendOpcodeDecodeTable.OP_SETC_GEI,
+      FrontendOpcodeDecodeTable.OP_SETC_GEUI,
+      FrontendOpcodeDecodeTable.OP_SETC_LTI,
+      FrontendOpcodeDecodeTable.OP_SETC_LTUI,
+      FrontendOpcodeDecodeTable.OP_SETC_NEI,
+      FrontendOpcodeDecodeTable.OP_SETC_ORI)) {
+      dst = None
+    }
     if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_BTEXT)) {
       src(0) = Some(rs1_32)
     }
@@ -438,6 +449,12 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(ldPcr.dst.contains(5))
     assert(ldPcr.src.forall(_.isEmpty))
     assert(ldPcr.imm.contains(0x246))
+
+    val setcLtui = operands(BigInt("00326075", 16), lenBytes = 4).get
+    assert(setcLtui.dst.isEmpty)
+    assert(setcLtui.src(0).contains(4))
+    assert(setcLtui.src(1).isEmpty)
+    assert(setcLtui.imm.contains(3))
 
     val hlLui = operands(BigInt("1f97000e", 16), lenBytes = 6).get
     assert(hlLui.dst.contains(31))
