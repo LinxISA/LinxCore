@@ -360,6 +360,23 @@ QEMU/CoreMark evidence yet; it removes the testbench-owned packet fixture that
 a later live top must replace before full compare can be valid.
 R93 closeout: skill-evolve: no-update (the reusable IFU owner contract is
 captured in the new module page; no new cross-module gate or skill policy).
+R94 started from `rtl/LinxCore` commit
+`b9366af9986e85b6f4a1c28149aebd1b9285c3cc` after R93 landed the live source
+packet producer. The superproject root was
+`a47cc4dc339b079abd0e86fdfa1777896aa7ba88`; LinxCoreModel remained at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; QEMU was at
+`f03477a0f56aeffb82a304e3a553b31cc2d29879`; `skills/linx-skills` was at
+`d783c308c8ed3fda088901f011c7c6457c30105f` before local skill edits. R94 is
+the first live frontend fetch trace-top packet: `LinxCoreFrontendFetchTraceTop`
+connects `FrontendFetchPacketSource` to `F4DecodeWindow` and
+`DecodeRenameROBPath`, uses F4 decoded byte count to advance the source PC,
+and dumps generated-RTL commit rows through the shared JSONL writer. The
+bounded memory-window fixture intentionally exposes one valid slot per response
+while the reduced backend can retire only one selected row per packet. Its
+manifest under `generated/chisel-frontend-fetch-trace-top-xcheck/report`
+records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
+R94 closeout: skill-evolve: update linx-core (new generated-RTL live fetch
+trace-top xcheck is a reusable promotion gate).
 
 ## Non-Negotiable Rules
 
@@ -548,6 +565,7 @@ These packets remain the required base before broad module promotion:
 | R91 | Bounded CoreMark ELF replay prefix | `run_chisel_qemu_trace_replay_xcheck.sh --dry-run`, default-memory CoreMark `--elf` fail-fast check, CoreMark `--elf` replay with explicit `-m 1280M`, inspect `generated/r91-coremark-elf-prefix/report/crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
 | R92 | Shared commit JSONL writer | `run_chisel_reduced_rob_xcheck.sh`, `run_chisel_top_xcheck.sh`, `run_chisel_trace_replay_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 | R93 | Frontend fetch packet source | `run_chisel_tests.sh --only FrontendFetchPacketSource`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
+| R94 | Live frontend fetch trace top | `run_chisel_tests.sh --only LinxCoreFrontendFetchTraceTop`, `run_chisel_tests.sh --only FrontendFetchPacketSource`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_frontend_fetch_trace_top_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, manifest inspection, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -567,27 +585,30 @@ Use this order for each promoted slice:
    frontend-window-to-commit top boundary.
 7. `run_chisel_frontend_trace_top_xcheck.sh` after changes to the frontend
    trace-top driver, temporary completion surrogate, or top commit export.
-8. `run_chisel_frontend_alu_trace_top_xcheck.sh` after changes to scalar ALU
+8. `run_chisel_frontend_fetch_trace_top_xcheck.sh` after changes to the live
+   frontend fetch source top, bounded memory-window fixture, source-to-F4
+   handshake, temporary completion surrogate, or top commit export.
+9. `run_chisel_frontend_alu_trace_top_xcheck.sh` after changes to scalar ALU
    execute completion, completion-row payload wiring, or the frontend ALU
    trace-top driver.
-9. `run_chisel_frontend_rf_alu_trace_top_xcheck.sh` after changes to scalar RF
+10. `run_chisel_frontend_rf_alu_trace_top_xcheck.sh` after changes to scalar RF
    operand sourcing, registered issue-queue source readiness,
    oldest-ready issue selection, issue-queue release, execute
    physical-destination writeback metadata, or the shared frontend ALU
    trace-top driver.
-10. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
+11. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
-11. `run_chisel_qemu_trace_replay_xcheck.sh --dry-run` after QEMU row replay
+12. `run_chisel_qemu_trace_replay_xcheck.sh --dry-run` after QEMU row replay
    wrapper changes, followed by a bounded `--qemu-trace` or `--elf` replay.
    `--max-commits` is the architectural compare depth; `--replay-rows` is only
    the raw search/replay cap before metadata filtering. Direct-boot CoreMark
    replay also requires trailing QEMU memory args such as `-m 1280M` because
    the current ELF maps load segments at `0x40000000`.
-12. Inspect `crosscheck_manifest.json` after any non-dry-run generated-RTL,
+13. Inspect `crosscheck_manifest.json` after any non-dry-run generated-RTL,
    QEMU-row replay, or full QEMU comparison routed through the common wrapper.
-13. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
+14. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
    commit rows for the slice.
-14. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
+15. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
    QEMU in the same run packet.
 
 ## LinxCoreModel Maintenance Loop
@@ -708,24 +729,21 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Live frontend fetch trace top: connect `FrontendFetchPacketSource` to
-   `F4DecodeWindow`/`DecodeRenameROBPath` with a bounded memory-window
-   provider, then dump generated-RTL commits through the shared JSONL writer.
-2. Full issue scheduler timing: add explicit wakeup ports, alternate model
+1. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.
-3. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
+2. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
    event stream from commit-only rows toward trap, memory, recovery, and block
    sidebands.
-4. QEMU full-compare harness: feed a bounded direct-boot or CoreMark window
+3. QEMU full-compare harness: feed a bounded direct-boot or CoreMark window
    from QEMU into the same comparator path, then make the Chisel DUT stream
    live once frontend/decode/execute/LSU can retire it.
-5. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+4. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
-6. Multi-PE packet production and bank instantiation: teach the upstream
+5. Multi-PE packet production and bank instantiation: teach the upstream
    frontend/top owner to set nonzero `FrontendDecodePacket.peId` and instantiate
    matching `ScalarTURenameBridge`/`TULinkLocalBankArray` PE banks.
-7. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+6. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

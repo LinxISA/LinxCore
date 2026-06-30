@@ -69,6 +69,7 @@
 | `BID` / `BROB` metadata | `linxcore.bctrl` | `docs/chisel/modules/bctrl/BROB.md` | Unit-green Packet C |
 | `LinxCoreTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreTop.md` | Unit-green reduced commit shell; top Verilator xcheck-green |
 | `LinxCoreFrontendTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendTraceTop.md` | Unit-green R80 frontend packet to commit-row generated-RTL xcheck with temporary completion surrogate |
+| `LinxCoreFrontendFetchTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendFetchTraceTop.md` | Unit-green R94 live fetch-source to F4/decode/ROB generated-RTL xcheck with bounded memory-window fixture and temporary completion surrogate |
 | `LinxCoreFrontendAluTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendAluTraceTop.md` | Unit-green R81 frontend packet to ALU-produced completion-row generated-RTL xcheck |
 | `LinxCoreFrontendRfAluTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendRfAluTraceTop.md` | Unit-green R88 frontend packet to RF-backed queued ALU completion-row generated-RTL xcheck with reduced P1/I1/I2 issue diagnostics, dependent scalar rows, and ALU release |
 | QEMU cross-check adapter | tooling | `docs/chisel/verification/qemu-crosscheck.md` | Adapter self-test green; generated-RTL compares emit `crosscheck_manifest.json`; metadata-aware QEMU trace replay bridge added; bounded CoreMark ELF prefix replay passes with explicit QEMU memory; full compare awaits real frontend/backend rows |

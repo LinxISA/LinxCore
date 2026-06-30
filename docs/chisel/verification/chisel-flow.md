@@ -16,6 +16,7 @@ The LinxCore Chisel lane uses explicit targets:
 | `commit-monitor-xcheck` | `tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor` | Run Phase 1 fixed-width commit-window contract checks. |
 | `reduced-rob-xcheck` | `tools/chisel/run_chisel_reduced_rob_xcheck.sh` | Emit `ReducedCommitROB`, build the Verilator harness, assert commit-window monitor outputs, and compare normalized DUT rows against QEMU-shaped reference rows. |
 | `top-xcheck` | `tools/chisel/run_chisel_top_xcheck.sh` | Emit the reduced `LinxCoreTop` xcheck configuration, build the same Verilator harness against top-level IO, assert monitor outputs, and compare normalized DUT rows against QEMU-shaped reference rows. |
+| `frontend-fetch-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh` | Emit `LinxCoreFrontendFetchTraceTop`, build the Verilator harness, drive a bounded memory-window fixture through `FrontendFetchPacketSource`, F4, and reduced decode/ROB, and compare commit rows against QEMU-shaped reference rows. |
 | `frontend-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendAluTraceTop`, build the Verilator harness, drive frontend packets through reduced scalar ALU execute, and compare nonzero writeback rows against QEMU-shaped reference rows. |
 | `frontend-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendRfAluTraceTop`, build the shared Verilator harness in RF mode, preload identity scalar registers, enqueue dependent scalar ALU rows through the reduced issue queue, and compare RF-sourced writeback rows against QEMU-shaped reference rows. |
 | `commit-jsonl-writer` | `tools/chisel/commit_trace_jsonl.h` | Shared C++ helper used by Verilator harnesses to emit QEMU-shaped reference rows and DUT sideband rows without per-harness field spelling drift. |
@@ -55,6 +56,10 @@ encoding, and the fixed DUT sideband fields used by `trace_schema_adapter.py`.
 The QEMU trace replay wrapper is a bridge gate: it validates QEMU-row schema
 and Chisel commit-surface replay before the top-level core emits live commit
 rows from fetch/issue/execute/LSU/recovery.
+The frontend fetch trace-top xcheck is the first live source packet gate: it
+replaces testbench-supplied `FrontendDecodePacket` inputs with a PC
+request/response source and a bounded instruction-window fixture, then compares
+the retired rows through the same manifest-producing comparator path.
 QEMU-row gates must keep raw replay/normalization depth separate from the
 architectural compare depth because the comparator filters metadata rows before
 checking lockstep architectural commits.

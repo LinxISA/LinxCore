@@ -18,6 +18,7 @@ details into the comparator itself.
 - `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_trace_top_lint.sh`
 - `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
+- `tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `tools/trace/crosscheck_qemu_linxcore.py`
@@ -103,6 +104,7 @@ bash tools/chisel/run_chisel_trace_replay_xcheck.sh
 bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run
 bash tools/chisel/run_chisel_frontend_trace_top_lint.sh
 bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh
 ```
@@ -200,7 +202,8 @@ The adapter, shared C++ commit JSONL writer, wrapper, typed Chisel commit-row
 bundles, reduced ROB Verilator smoke, reduced top Verilator smoke, top trace
 replay smoke, QEMU trace replay bridge,
 frontend-window trace-top Verilator lint, frontend-window trace-top Verilator
-xcheck, frontend-window ALU trace-top Verilator xcheck, and RF-backed ALU
+xcheck, live frontend fetch trace-top Verilator xcheck, frontend-window ALU
+trace-top Verilator xcheck, and RF-backed ALU
 trace-top Verilator xcheck are ready. The common wrapper emits a
 machine-readable `crosscheck_manifest.json` for generated-RTL comparisons and
 future full QEMU-vs-DUT windows.
@@ -215,6 +218,13 @@ packets containing scalar `ADD`, `ADDI`, and compressed move rows through
 `LinxCoreFrontendTraceTop`, uses the explicit completion surrogate to retire
 the allocated ROB rows, dumps DUT JSONL, and compares three rows against a
 QEMU-shaped reference with zero mismatches.
+`run_chisel_frontend_fetch_trace_top_xcheck.sh` drives a bounded instruction
+window fixture through `FrontendFetchPacketSource`, F4, and the reduced
+decode/ROB path in `LinxCoreFrontendFetchTraceTop`, uses the explicit
+completion surrogate to retire allocated ROB rows, and compares three rows
+against a QEMU-shaped reference with zero mismatches. Its manifest under
+`generated/chisel-frontend-fetch-trace-top-xcheck/report` records
+`status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 `run_chisel_frontend_alu_trace_top_xcheck.sh` drives the same reduced frontend
 smoke through `LinxCoreFrontendAluTraceTop`, replaces the completion surrogate
 with `ReducedScalarAluExecute`, and compares three rows with nonzero source,
