@@ -94,6 +94,11 @@ object FrontendDecodeStageReference {
       src(0) = Some(rs1_32)
       src(1) = Some(rs2_32)
     }
+    if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_FENTRY)) {
+      src(0) = Some(rs1_32)
+      src(1) = Some(1)
+      dst = Some(1)
+    }
     if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_BTEXT)) {
       src(0) = Some(rs1_32)
     }
@@ -378,6 +383,12 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(hlBstartCall.dst.isEmpty)
     assert(hlBstartCall.src.forall(_.isEmpty))
     assert(hlBstartCall.imm.contains(14))
+
+    val fentry = operands(BigInt("90a50041", 16), lenBytes = 4).get
+    assert(fentry.dst.contains(1))
+    assert(fentry.src(0).contains(10))
+    assert(fentry.src(1).contains(1))
+    assert(fentry.imm.contains(576))
 
     val cAdd = operands(0x0008 | (6 << 6) | (7 << 11), lenBytes = 2).get
     assert(cAdd.dst.contains(31))

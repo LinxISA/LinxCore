@@ -56,7 +56,8 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_ADDTPC) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR) ||
-      op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET)
+      op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY)
 
   private def resultFor(op: UInt, pc: UInt, srcData: Vec[UInt], imm: UInt): UInt = {
     val out = Wire(UInt(p.immWidth.W))
@@ -73,6 +74,8 @@ class ReducedScalarAluExecute(
       out := srcData(0)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET)) {
       out := pc + imm
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY)) {
+      out := srcData(1) - imm
     }
     out
   }
@@ -111,6 +114,16 @@ class ReducedScalarAluExecute(
     row.wb.valid := valid && uop.dst(0).valid
     row.wb.reg := fitReg(uop.dst(0).archTag)
     row.wb.data := result
+    when(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FENTRY)) {
+      row.src0.valid := false.B
+      row.src1.valid := false.B
+      row.mem.valid := valid
+      row.mem.isStore := true.B
+      row.mem.addr := result + uop.imm - 8.U
+      row.mem.wdata := srcData(0)
+      row.mem.rdata := 0.U
+      row.mem.size := 8.U
+    }
     row
   }
 
@@ -180,6 +193,7 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_C_MOVI => Some(imm & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_MOVR => Some(src0 & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_SETRET => None
+      case FrontendOpcodeDecodeTable.OP_FENTRY => Some((src1 - imm) & Mask64)
       case _ => None
     }
 

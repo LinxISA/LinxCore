@@ -47,6 +47,12 @@ struct ExpectedRow {
   bool dst_valid = false;
   std::uint8_t dst_reg = 0;
   std::uint64_t dst_data = 0;
+  bool mem_valid = false;
+  bool mem_is_store = false;
+  std::uint64_t mem_addr = 0;
+  std::uint64_t mem_wdata = 0;
+  std::uint64_t mem_rdata = 0;
+  std::uint8_t mem_size = 0;
 };
 
 struct ObservedRow {
@@ -300,6 +306,12 @@ ExpectedRow parse_expected_row_jsonl(
   if (!has_dst_data && json_has_key(line, "wb_data")) {
     row.dst_data = json_u64(line, "wb_data", 0, context);
   }
+  row.mem_valid = json_bool(line, "mem_valid", false, context);
+  row.mem_is_store = json_bool(line, "mem_is_store", false, context);
+  row.mem_addr = json_u64(line, "mem_addr", 0, context);
+  row.mem_wdata = json_u64(line, "mem_wdata", 0, context);
+  row.mem_rdata = json_u64(line, "mem_rdata", 0, context);
+  row.mem_size = json_u8(line, "mem_size", 0, context);
   return row;
 }
 
@@ -627,7 +639,8 @@ void expect_row(const ObservedRow &observed, const ExpectedRow &expected) {
       observed.pc != expected.pc ||
       mask_insn(observed.insn, observed.len) != mask_insn(expected.insn, expected.len) ||
       observed.len != expected.len ||
-      observed.mem_valid ||
+      observed.mem_valid != expected.mem_valid ||
+      observed.mem_is_store != expected.mem_is_store ||
       observed.trap_valid ||
       observed.src0_valid != expected.src0_valid ||
       observed.src1_valid != expected.src1_valid ||
@@ -645,6 +658,8 @@ void expect_row(const ObservedRow &observed, const ExpectedRow &expected) {
               << static_cast<unsigned>(observed.src1_reg) << ")"
               << " dst=(" << observed.dst_valid << ","
               << static_cast<unsigned>(observed.dst_reg) << ")"
+              << " mem=(" << observed.mem_valid << ","
+              << observed.mem_is_store << ")"
               << " next_pc=0x" << std::hex << observed.next_pc << std::dec
               << "\n";
     std::exit(1);
@@ -678,6 +693,23 @@ void expect_row(const ObservedRow &observed, const ExpectedRow &expected) {
               << "," << observed.dst_data << ") observed_wb=("
               << static_cast<unsigned>(observed.wb_reg)
               << "," << observed.wb_data << ")\n";
+    std::exit(1);
+  }
+  if (observed.mem_valid &&
+      (observed.mem_addr != expected.mem_addr ||
+       observed.mem_wdata != expected.mem_wdata ||
+       observed.mem_rdata != expected.mem_rdata ||
+       observed.mem_size != expected.mem_size)) {
+    std::cerr << "frontend fetch RF ALU trace top mem mismatch"
+              << " expected=(addr=0x" << std::hex << expected.mem_addr
+              << ",wdata=0x" << expected.mem_wdata
+              << ",rdata=0x" << expected.mem_rdata
+              << std::dec << ",size=" << static_cast<unsigned>(expected.mem_size)
+              << ") observed=(addr=0x" << std::hex << observed.mem_addr
+              << ",wdata=0x" << observed.mem_wdata
+              << ",rdata=0x" << observed.mem_rdata
+              << std::dec << ",size=" << static_cast<unsigned>(observed.mem_size)
+              << ")\n";
     std::exit(1);
   }
 }
@@ -741,6 +773,12 @@ CommitTraceJsonRow to_json_row(const ExpectedRow &row) {
   json.dst_valid = row.dst_valid;
   json.dst_reg = row.dst_reg;
   json.dst_data = row.dst_data;
+  json.mem_valid = row.mem_valid;
+  json.mem_is_store = row.mem_is_store;
+  json.mem_addr = row.mem_addr;
+  json.mem_wdata = row.mem_wdata;
+  json.mem_rdata = row.mem_rdata;
+  json.mem_size = row.mem_size;
   json.next_pc = row.pc + row.len;
   return json;
 }

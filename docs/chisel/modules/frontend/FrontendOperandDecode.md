@@ -96,6 +96,10 @@ Explicit pyCircuit/model overrides currently cover:
 - compact `C.SETRET`, which aliases the `C.MOVI` low-opcode form, forces
   destination architectural tag `x10/ra`, and uses `uimm5 << 1` as the
   PC-relative return-label immediate;
+- reduced single-save `FENTRY`, which maps the saved GPR field to source 0,
+  old SP (`x1`) to source 1, destination SP (`x1`) to the scalar GPR
+  destination, and keeps the macro immediate as the stack-frame size for the
+  reduced execute owner;
 - fixed-destination compressed ALU/load forms that write architectural tag 31,
   classified as a T-queue destination;
 - compressed stores and compare forms that use architectural tag 24 as a T-link
@@ -138,6 +142,7 @@ The `FrontendDecodeStageSpec` reference cases cover:
 - compressed signed immediate (`C.MOVI`)
 - compact return-label alias (`C.SETRET`)
 - HL block-start byte offset (`HL.BSTART.STD CALL`)
+- reduced single-save macro prologue (`FENTRY`)
 - model-derived reg6 alias classification for scalar GPR, T-link, U-link, and
   T/U queue destination boundaries
 

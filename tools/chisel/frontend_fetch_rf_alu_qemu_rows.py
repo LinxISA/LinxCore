@@ -78,6 +78,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return None
         if (insn & 0x7F) == 0x0007:
             return "ADDTPC"
+        if key == 0x0041:
+            return "FENTRY"
     if row["len"] == 2:
         if (insn & 0xF83F) == 0x5016:
             return "C.SETRET"
@@ -120,6 +122,19 @@ def _simm5_6(row: dict[str, int]) -> int:
 
 def _c_setret_imm(row: dict[str, int]) -> int:
     return ((_mask_insn(row["insn"], row["len"]) >> 6) & 0x1F) << 1
+
+
+def _fentry_imm(row: dict[str, int]) -> int:
+    insn = _mask_insn(row["insn"], row["len"])
+    return (((insn >> 7) & 0x1F) << 10) | (((insn >> 25) & 0x7F) << 3)
+
+
+def _fentry_m(row: dict[str, int]) -> int:
+    return (_mask_insn(row["insn"], row["len"]) >> 15) & 0x1F
+
+
+def _fentry_n(row: dict[str, int]) -> int:
+    return (_mask_insn(row["insn"], row["len"]) >> 20) & 0x1F
 
 
 def _require_scalar_reg(row: dict[str, int], field: str, opcode: str) -> None:
@@ -165,6 +180,8 @@ def _expected_result(row: dict[str, int], opcode: str) -> int:
         return row["src0_data"] & MASK64
     if opcode == "C.SETRET":
         return (row["pc"] + _c_setret_imm(row)) & MASK64
+    if opcode == "FENTRY":
+        return (row["mem_addr"] + 8 - _fentry_imm(row)) & MASK64
     raise AssertionError(opcode)
 
 
@@ -177,7 +194,7 @@ def _validate_reduced_row(row: dict[str, int], index: int) -> dict[str, int]:
         )
     if row["trap_valid"]:
         raise RowExtractionError(f"row {index} {opcode} has trap_valid=1")
-    if row["mem_valid"]:
+    if row["mem_valid"] and opcode != "FENTRY":
         raise RowExtractionError(f"row {index} {opcode} has mem_valid=1")
     if row["next_pc"] != row["pc"] + row["len"]:
         raise RowExtractionError(
@@ -197,6 +214,16 @@ def _validate_reduced_row(row: dict[str, int], index: int) -> dict[str, int]:
         _require_sources(row, opcode, src0=True, src1=False)
     elif opcode == "C.SETRET":
         _require_sources(row, opcode, src0=False, src1=False)
+    elif opcode == "FENTRY":
+        _require_sources(row, opcode, src0=False, src1=False)
+        if _fentry_m(row) != _fentry_n(row):
+            raise RowExtractionError(
+                f"row {index} FENTRY saves multiple registers: m={_fentry_m(row)} n={_fentry_n(row)}"
+            )
+        if _fentry_m(row) < 2 or _fentry_m(row) > 23:
+            raise RowExtractionError(f"row {index} FENTRY save register is outside scalar GPR range")
+        if not row["mem_valid"] or not row["mem_is_store"] or row["mem_size"] != 8:
+            raise RowExtractionError(f"row {index} FENTRY must carry one 8-byte store")
     _require_writeback(row, opcode)
 
     expected = _expected_result(row, opcode)
@@ -369,6 +396,40 @@ def self_test() -> None:
         assert count == 1
         extracted_c_setret = [json.loads(line) for line in c_setret_output.read_text(encoding="utf-8").splitlines()]
         assert extracted_c_setret[0]["dst_data"] == 0x4000550A
+
+        fentry_source = tmp / "fentry.jsonl"
+        fentry_output = tmp / "fentry.rows.jsonl"
+        fentry = {
+            **rows[0],
+            "pc": 0x4000550E,
+            "insn": 0x90A50041,
+            "len": 4,
+            "next_pc": 0x40005512,
+            "wb_valid": 1,
+            "wb_rd": 1,
+            "wb_data": 0x4FFE_FDB0,
+            "dst_valid": 1,
+            "dst_reg": 1,
+            "dst_data": 0x4FFE_FDB0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 1,
+            "mem_is_store": 1,
+            "mem_addr": 0x4FFE_FFE8,
+            "mem_wdata": 0x4000550A,
+            "mem_rdata": 0,
+            "mem_size": 8,
+        }
+        _write_jsonl(fentry_source, [fentry])
+        count = extract_rows(fentry_source, fentry_output)
+        assert count == 1
+        extracted_fentry = [json.loads(line) for line in fentry_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_fentry[0]["dst_data"] == 0x4FFE_FDB0
+        assert extracted_fentry[0]["mem_wdata"] == 0x4000550A
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

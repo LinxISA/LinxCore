@@ -22,6 +22,11 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
       src0 = 0,
       src1 = 0,
       imm = 4).contains(BigInt("4000550a", 16)))
+    assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_FENTRY,
+      src0 = BigInt("4000550a", 16),
+      src1 = BigInt("4ffefff0", 16),
+      imm = 576).contains(BigInt("4ffefdb0", 16)))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_MOVI, 0, 0, 0x15).contains(0x15))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_MOVR, 0x1234, 0, 0).contains(0x1234))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_LD, 1, 2, 3).isEmpty)

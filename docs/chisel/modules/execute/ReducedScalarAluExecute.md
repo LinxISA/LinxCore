@@ -73,9 +73,14 @@ arithmetic `ADD` returns `src0 + src1`, `ADDI` uses the decoded immediate,
 `PC::CalcInstAddTPC` computes `(pc & ~0xfff) + imm`. `PC::CalcInstSetret`
 computes `pc + imm`, and the compact `C.SETRET` form reaches execute as a
 decoded alias of the `C.MOVI` low-opcode encoding when the destination is
-`ra/x10`. `ReadyState::GetSrcData` and `InitGGPRRtable` show that scalar source
-data is attached to physical GPR tags, so the Chisel execute owner also exports
-the destination physical tag for the reduced RF writeback path.
+`ra/x10`. R108 adds a narrow `FENTRY` macro-template subset based on
+`GenCodeFENTRY`: for the current CoreMark single-save form, the reduced decoder
+reads the saved GPR and old SP, execute writes `SP - imm` back to SP, and the
+completion row carries one 8-byte store at `newSP + imm - 8`. This is not a
+general stack-template or LSU implementation. `ReadyState::GetSrcData` and
+`InitGGPRRtable` show that scalar source data is attached to physical GPR tags,
+so the Chisel execute owner also exports the destination physical tag for the
+reduced RF writeback path.
 
 The Chisel module implements the first reduced subset:
 
@@ -87,6 +92,7 @@ The Chisel module implements the first reduced subset:
 | `OP_C_MOVI` | `in.imm` |
 | `OP_C_MOVR` | `srcData(0)` |
 | `OP_C_SETRET` | `in.pc + in.imm` |
+| `OP_FENTRY` | `srcData(1) - in.imm` for the reduced single-save SP update |
 
 `OP_ADDTPC` uses the `FrontendOperandDecode` `ImmIMM20` path, where the
 20-bit immediate is sign-extended and shifted left by 12 before reaching
@@ -99,6 +105,12 @@ The completion row copies identity and control fields from the accepted
 `srcData`, fills `dst` and `wb` from `uop.dst(0)` plus the computed result,
 exports the same result and destination physical tag on `completeDst*`, and
 leaves memory/trap fields zero.
+
+For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
+source fields so it matches QEMU's macro row, while preserving the architectural
+SP writeback and one store sideband (`mem.valid`, `mem.isStore`, `mem.addr`,
+`mem.wdata`, and `mem.size=8`). The reduced top/harness compares that memory
+sideband through the common JSONL comparator.
 
 `releaseValid` is intentionally tied to any valid W2 row, not only supported
 rows. The reduced issue queue has already marked the row issued when execute
@@ -140,4 +152,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 8 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r108-coremark-fentry-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 11 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

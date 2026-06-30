@@ -152,6 +152,12 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       setSrc(1, rs2_32)
     }
 
+    when(opcodeIs(FrontendOpcodeDecodeTable.OP_FENTRY)) {
+      setSrc(0, rs1_32)
+      setSrc(1, 1.U)
+      setDst(1.U)
+    }
+
     when(opcodeIs(FrontendOpcodeDecodeTable.OP_BTEXT)) {
       setSrc(0, rs1_32)
     }
