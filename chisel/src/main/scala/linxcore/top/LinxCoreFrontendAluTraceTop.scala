@@ -127,6 +127,7 @@ class LinxCoreFrontendAluTraceTop(
   execute.io.inValid := path.io.renamedOutValid
   execute.io.in := path.io.renamedOut
   execute.io.srcData := io.operandData
+  execute.io.loadLookupData := 0.U
 
   io.f4ValidMask := f4.io.validMask
   io.f4SlotCount := f4.io.slotCount

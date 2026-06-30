@@ -134,6 +134,18 @@ sideband, and a Verilator harness tail-prefix rule: bounded captures may end
 inside an 8-byte F4 window, so the harness can accept a DUT dense-packet
 superset only for the final captured expected row while still comparing every
 committed row in the captured prefix.
+R122 replaces the zero-only `OP_LDI` shortcut with a reduced read-only load
+lookup from the same sparse ELF image used for instruction fetch. The top
+threads `loadLookupValid/loadLookupAddr/loadLookupData` between
+`ReducedScalarAluExecute` and the Verilator harness, letting CoreMark loads
+return nonzero ELF data without claiming an LSU, cache, store queue, or memory
+mutation owner. The expected-row reducer also admits `OP_SETC_LTU` as a
+no-writeback unsigned condition sideband and recognizes the next local-alias
+ADDI/LDI/C.MOVR row shapes. The live proof is bounded before the next
+redirecting `C.BSTART`: the 470-raw-row gate compares 315 normalized QEMU/DUT
+rows with zero mismatches. A 486-row probe reaches a marker allocation policy
+mismatch before the following `OP_SD` indexed store, making redirecting marker
+allocation and store memory mutation the next packet frontier.
 
 ## Interface
 
@@ -145,6 +157,7 @@ committed row in the captured prefix.
 | input | `peId`, `threadId` | `UInt` | with source packet | Packet-owned PE/STID sidecars for decode/rename. |
 | input | `fetchReqReady` | `Bool` | ready | Bounded fixture accepts a source PC request. |
 | input | `fetchRespValid`, `fetchRespWindow` | `Bool`, `UInt(windowWidth.W)` | valid | Bounded fixture returns one instruction window for the issued PC. |
+| input | `loadLookupData` | `UInt(64.W)` by default | combinational with `loadLookupValid` | Reduced read-only load data supplied by the harness from the sparse ELF memory image. |
 | input | `rfInitValid`, `rfInitArchTag`, `rfInitData` | mixed | pulse | Preloads identity physical RF state for architectural scalar GPRs. |
 | input | `deallocReady` | `Bool` | ready | Allows retired ROB rows to deallocate. |
 | output | `fetchReqValid`, `fetchReqPc`, `fetchRespReady` | mixed | valid/ready | Live source PC request and response handshake. |
@@ -162,6 +175,7 @@ committed row in the captured prefix.
 | output | `localTReadyMask`, `localUReadyMask`, `localTPendingCount`, `localUPendingCount`, `localIncomingBlocked` | mixed | diagnostic | Reduced local T/U overlay readiness and producer-pending gate visible to issue selection and live-stall diagnostics. |
 | output | `issueQueue*` | mixed | diagnostic | Reduced queue enqueue, pick, I1/I2, issue, cancel, release, occupancy, and block-cause signals. |
 | output | `executeAccepted`, `executeBusy`, `executeCompleteValid`, `executeCompleteRobValue` | mixed | diagnostic | Reduced ALU handoff and completion. |
+| output | `loadLookupValid`, `loadLookupAddr` | mixed | diagnostic | Reduced E-stage load lookup request for `OP_C_LDI`/`OP_LDI`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
 | output | `robAllocFire`, `robRenameUpdateFire`, `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB allocation, post-rename update, and completion acceptance events. |
 | output | `decodeBlockedByRename`, `decodeBlockedByRob`, `decodeBlockedByOutput`, `decodeBlockedByTURename`, `tuRenameSourceUnderflowMask`, `robRenameUpdate*` | mixed | diagnostic | Reduced decode/rename/ROB backpressure and post-rename update diagnostics. |
@@ -191,9 +205,9 @@ overlay. Most state remains in child modules:
   source-ready snapshots, P1/I1/I2 timing, issued-entry lock, cancel, and W2
   release.
 - `ReducedScalarAluExecute`: reduced scalar ADD/ADDI/MOVR/MOVI/shift/OR/C.ADD
-  execute, narrow C.LDI/LDI zero-load sidebands, C.SETC_EQ/C.SETC_NE
-  no-writeback rows and branch-decision sidebands, SDI store sideband, and
-  writeback-shaped completion.
+  execute, read-only C.LDI/LDI load lookup sidebands,
+  C.SETC_EQ/C.SETC_NE/SETC_LTU no-writeback rows and branch-decision
+  sidebands, SDI store sideband, and writeback-shaped completion.
 
 ## Logic Design
 
@@ -248,6 +262,14 @@ destinations, pushes T/U destination data into the local overlay for tags
 monitored commit row then carries the original PC/instruction, scalar source
 architectural tags and data, destination/writeback data, model `(bid,gid,rid)`
 identity, and hardware `blockBid` sideband through the shared JSONL writer.
+
+For reduced loads, the execute stage publishes a combinational lookup request
+before it captures the E-stage result. The Verilator harness evaluates the DUT,
+reads eight little-endian bytes from the sparse ELF image at `loadLookupAddr`,
+drives `loadLookupData`, and reevaluates before the clock edge. Missing bytes
+read as zero. This is intentionally read-only: prior stores do not update the
+image, and the next `OP_SD` frontier must add explicit store memory mutation or
+a real LSU/STQ path before larger CoreMark windows can rely on stored data.
 
 ## Model Alignment
 
@@ -346,6 +368,8 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
 - serves one 8-byte instruction window per source PC request by reading bytes
   from the fetch-memory image, padding only missing trailing bytes outside the
   current program image;
+- serves reduced read-only load lookups from the same sparse memory image when
+  `loadLookupValid` is asserted, returning zero for missing bytes;
 - groups expected rows into dense F4 windows, then requires `sourceOutFire`,
   `denseSlotQueueInFire`, matching `f4ValidMask`, matching `f4SlotCount`, and
   `sourceAdvanceBytes` equal to the window's decoded byte span;

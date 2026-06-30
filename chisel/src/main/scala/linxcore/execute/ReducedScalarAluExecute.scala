@@ -18,6 +18,7 @@ class ReducedScalarAluExecuteIO(
   val inReady = Output(Bool())
   val in = Input(new RenamedUop(p))
   val srcData = Input(Vec(3, UInt(p.immWidth.W)))
+  val loadLookupData = Input(UInt(p.immWidth.W))
 
   val completeValid = Output(Bool())
   val completeRobValue = Output(UInt(ptrWidth.W))
@@ -27,6 +28,8 @@ class ReducedScalarAluExecuteIO(
   val completeDstData = Output(UInt(p.immWidth.W))
   val branchConditionValid = Output(Bool())
   val branchConditionTaken = Output(Bool())
+  val loadLookupValid = Output(Bool())
+  val loadLookupAddr = Output(UInt(p.immWidth.W))
 
   val releaseValid = Output(Bool())
   val releaseBid = Output(new ROBID(p.robEntries))
@@ -65,6 +68,7 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_LDI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_SETC_LTU) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SDI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SLL) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SLLI) ||
@@ -73,7 +77,16 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_OR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_ADD)
 
-  private def resultFor(op: UInt, pc: UInt, srcData: Vec[UInt], imm: UInt): UInt = {
+  private def ldiScaledOffset(imm: UInt): UInt =
+    (imm << 3)(p.immWidth - 1, 0)
+
+  private def cLdiAddr(srcData: Vec[UInt], imm: UInt): UInt =
+    srcData(0) + imm
+
+  private def ldiAddr(srcData: Vec[UInt], imm: UInt): UInt =
+    srcData(0) + ldiScaledOffset(imm)
+
+  private def resultFor(op: UInt, pc: UInt, srcData: Vec[UInt], imm: UInt, loadData: UInt): UInt = {
     val out = Wire(UInt(p.immWidth.W))
     out := 0.U
     when(op === opcode(FrontendOpcodeDecodeTable.OP_ADD)) {
@@ -91,12 +104,14 @@ class ReducedScalarAluExecute(
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET)) {
       out := pc + imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_LDI)) {
-      out := 0.U
+      out := loadData
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_LDI)) {
-      out := 0.U
+      out := loadData
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_EQ)) {
       out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE)) {
+      out := 0.U
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SETC_LTU)) {
       out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY)) {
       out := srcData(1) - imm
@@ -164,14 +179,14 @@ class ReducedScalarAluExecute(
     }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_LDI)) {
       row.mem.valid := valid
       row.mem.isStore := false.B
-      row.mem.addr := srcData(0) + uop.imm
+      row.mem.addr := cLdiAddr(srcData, uop.imm)
       row.mem.wdata := 0.U
       row.mem.rdata := result
       row.mem.size := 8.U
     }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_LDI)) {
       row.mem.valid := valid
       row.mem.isStore := false.B
-      row.mem.addr := srcData(0) + ((uop.imm << 3)(p.immWidth - 1, 0))
+      row.mem.addr := ldiAddr(srcData, uop.imm)
       row.mem.wdata := 0.U
       row.mem.rdata := result
       row.mem.size := 8.U
@@ -203,7 +218,11 @@ class ReducedScalarAluExecute(
   val w2Supported = Reg(Bool())
 
   val accept = io.inValid && io.inReady
-  val eResult = resultFor(eUop.opcode, eUop.pc, eSrcData, eUop.imm)
+  val eLoadC = eUop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_LDI)
+  val eLoadI = eUop.opcode === opcode(FrontendOpcodeDecodeTable.OP_LDI)
+  io.loadLookupValid := eValid && (eLoadC || eLoadI)
+  io.loadLookupAddr := Mux(eLoadI, ldiAddr(eSrcData, eUop.imm), cLdiAddr(eSrcData, eUop.imm))
+  val eResult = resultFor(eUop.opcode, eUop.pc, eSrcData, eUop.imm, io.loadLookupData)
   val eSupported = eValid && isSupported(eUop.opcode)
 
   w2Valid := w1Valid
@@ -237,8 +256,12 @@ class ReducedScalarAluExecute(
   val branchSrc1 = Mux(w2Uop.src(1).valid, w2SrcData(1), 0.U)
   val branchIsSetcEq = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_EQ)
   val branchIsSetcNe = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE)
-  io.branchConditionValid := io.completeValid && (branchIsSetcEq || branchIsSetcNe)
-  io.branchConditionTaken := Mux(branchIsSetcEq, branchSrc0 === branchSrc1, branchSrc0 =/= branchSrc1)
+  val branchIsSetcLtu = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SETC_LTU)
+  io.branchConditionValid := io.completeValid && (branchIsSetcEq || branchIsSetcNe || branchIsSetcLtu)
+  io.branchConditionTaken := Mux(
+    branchIsSetcEq,
+    branchSrc0 === branchSrc1,
+    Mux(branchIsSetcNe, branchSrc0 =/= branchSrc1, branchSrc0 < branchSrc1))
   io.releaseValid := w2Valid
   io.releaseBid := w2Uop.bid
   io.releaseRid := w2Uop.rid
@@ -256,7 +279,19 @@ object ReducedScalarAluExecute {
     if ((masked & SignBit64) != 0) masked - (BigInt(1) << 64) else masked
   }
 
-  def referenceResult(opcode: Int, src0: BigInt, src1: BigInt, imm: BigInt): Option[BigInt] =
+  def referenceResult(
+      opcode: Int,
+      src0: BigInt,
+      src1: BigInt,
+      imm: BigInt): Option[BigInt] =
+    referenceResultWithLoad(opcode, src0, src1, imm, loadData = 0)
+
+  def referenceResultWithLoad(
+      opcode: Int,
+      src0: BigInt,
+      src1: BigInt,
+      imm: BigInt,
+      loadData: BigInt): Option[BigInt] =
     opcode match {
       case FrontendOpcodeDecodeTable.OP_ADD => Some((src0 + src1) & Mask64)
       case FrontendOpcodeDecodeTable.OP_ADDI => Some((src0 + imm) & Mask64)
@@ -265,12 +300,13 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_C_MOVR => Some(src0 & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_ADD => Some((src0 + src1) & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_SETRET => None
-      case FrontendOpcodeDecodeTable.OP_C_LDI => Some(0)
+      case FrontendOpcodeDecodeTable.OP_C_LDI => Some(loadData & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_SETC_EQ => Some(0)
       case FrontendOpcodeDecodeTable.OP_C_SETC_NE => Some(0)
+      case FrontendOpcodeDecodeTable.OP_SETC_LTU => Some(0)
       case FrontendOpcodeDecodeTable.OP_FENTRY => Some((src1 - imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_HL_LUI => Some(imm & Mask64)
-      case FrontendOpcodeDecodeTable.OP_LDI => Some(0)
+      case FrontendOpcodeDecodeTable.OP_LDI => Some(loadData & Mask64)
       case FrontendOpcodeDecodeTable.OP_SDI => Some(0)
       case FrontendOpcodeDecodeTable.OP_SLL => Some((src0 << ((src1 & 0x3f).toInt)) & Mask64)
       case FrontendOpcodeDecodeTable.OP_SLLI => Some((src0 << ((imm & 0x3f).toInt)) & Mask64)
@@ -302,6 +338,10 @@ object ReducedScalarAluExecute {
         val lhs = if (src0Valid) src0 & Mask64 else BigInt(0)
         val rhs = if (src1Valid) src1 & Mask64 else BigInt(0)
         Some(lhs != rhs)
+      case FrontendOpcodeDecodeTable.OP_SETC_LTU =>
+        val lhs = if (src0Valid) src0 & Mask64 else BigInt(0)
+        val rhs = if (src1Valid) src1 & Mask64 else BigInt(0)
+        Some(lhs < rhs)
       case _ => None
     }
 }

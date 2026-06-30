@@ -45,6 +45,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val rfInitArchTag = Input(UInt(p.archRegWidth.W))
   val rfInitData = Input(UInt(p.immWidth.W))
   val deallocReady = Input(Bool())
+  val loadLookupData = Input(UInt(p.immWidth.W))
 
   val fetchReqValid = Output(Bool())
   val fetchReqPc = Output(UInt(p.pcWidth.W))
@@ -105,6 +106,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val executeBusy = Output(Bool())
   val executeCompleteValid = Output(Bool())
   val executeCompleteRobValue = Output(UInt(ptrWidth.W))
+  val loadLookupValid = Output(Bool())
+  val loadLookupAddr = Output(UInt(p.immWidth.W))
   val executeUnsupported = Output(Bool())
   val executeUnsupportedOpcode = Output(UInt(p.opcodeWidth.W))
   val robAllocFire = Output(Bool())
@@ -403,6 +406,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   execute.io.inValid := issue.io.issueValid
   execute.io.in := issue.io.issueUop
   execute.io.srcData := issue.io.issueSrcData
+  execute.io.loadLookupData := io.loadLookupData
 
   val blockBoundaryConsumed = denseSlots.io.outFire && path.io.blockMarkerSkipValid && path.io.blockMarkerBoundary
   when(localReset) {
@@ -475,6 +479,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.executeBusy := execute.io.busy
   io.executeCompleteValid := execute.io.completeValid
   io.executeCompleteRobValue := execute.io.completeRobValue
+  io.loadLookupValid := execute.io.loadLookupValid
+  io.loadLookupAddr := execute.io.loadLookupAddr
   io.executeUnsupported := execute.io.unsupported
   io.executeUnsupportedOpcode := execute.io.unsupportedOpcode
   io.robAllocFire := path.io.robAllocFire

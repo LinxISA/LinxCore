@@ -366,6 +366,7 @@ void clear_inputs(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   dut.io_rfInitArchTag = 0;
   dut.io_rfInitData = 0;
   dut.io_deallocReady = 1;
+  dut.io_loadLookupData = 0;
 }
 
 void tick(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
@@ -533,6 +534,16 @@ public:
     return window;
   }
 
+  std::uint64_t read_u64_or_zero(std::uint64_t addr) const {
+    std::uint64_t value = 0;
+    for (std::uint8_t byte_index = 0; byte_index < 8; ++byte_index) {
+      std::uint8_t byte = 0;
+      (void)read_byte(addr + byte_index, byte);
+      value |= static_cast<std::uint64_t>(byte) << (static_cast<unsigned>(byte_index) * 8U);
+    }
+    return value;
+  }
+
   static FetchMemoryImage from_rows(const std::vector<ExpectedRow> &rows) {
     FetchMemoryImage image;
     for (const ExpectedRow &row : rows) {
@@ -558,6 +569,16 @@ private:
 
   std::map<std::uint64_t, std::uint8_t> bytes_;
 };
+
+void eval_with_load_lookup(
+    VLinxCoreFrontendFetchRfAluTraceTop &dut,
+    const FetchMemoryImage &fetch_memory) {
+  dut.eval();
+  if (dut.io_loadLookupValid) {
+    dut.io_loadLookupData = fetch_memory.read_u64_or_zero(dut.io_loadLookupAddr);
+    dut.eval();
+  }
+}
 
 void expect_monitor_clean(
     const VLinxCoreFrontendFetchRfAluTraceTop &dut,
@@ -901,7 +922,7 @@ void fetch_dense_window(
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
     dut.io_fetchReqReady = 1;
-    dut.eval();
+    eval_with_load_lookup(dut, fetch_memory);
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU fetch");
     if (dut.io_fetchReqValid) {
       if (dut.io_fetchReqPc != first.pc || !dut.io_sourceReqFire) {
@@ -925,7 +946,7 @@ request_done:
   clear_inputs(dut);
   dut.io_fetchRespValid = 1;
   dut.io_fetchRespWindow = fetch_memory.read_window(first.pc);
-  dut.eval();
+  eval_with_load_lookup(dut, fetch_memory);
   if (!dut.io_fetchRespReady || !dut.io_sourceRespFire) {
     std::cerr << "frontend fetch RF ALU response was not accepted"
               << " pc=0x" << std::hex << first.pc << std::dec
@@ -938,7 +959,7 @@ request_done:
 
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
-    dut.eval();
+    eval_with_load_lookup(dut, fetch_memory);
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU dense drain");
     if (dut.io_rfStateError) {
       std::cerr << "frontend fetch RF ALU reported RF state error before enqueue\n";
@@ -986,10 +1007,11 @@ std::uint8_t drain_dense_row(
     const ExpectedRow &row,
     bool &active_block_valid,
     std::uint64_t &active_block_bid,
+    const FetchMemoryImage &fetch_memory,
     std::vector<ObservedRow> &pending_commits) {
   for (int cycle = 0; cycle < 16; ++cycle) {
     clear_inputs(dut);
-    dut.eval();
+    eval_with_load_lookup(dut, fetch_memory);
     if (dut.io_rfStateError) {
       std::cerr << "frontend fetch RF ALU reported RF state error before dense slot drain\n";
       std::exit(1);
@@ -1130,10 +1152,10 @@ std::uint8_t drain_dense_row(
   std::exit(1);
 }
 
-void drain_empty(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
+void drain_empty(VLinxCoreFrontendFetchRfAluTraceTop &dut, const FetchMemoryImage &fetch_memory) {
   for (int cycle = 0; cycle < 16; ++cycle) {
     clear_inputs(dut);
-    dut.eval();
+    eval_with_load_lookup(dut, fetch_memory);
     if (dut.io_idle && dut.io_empty && dut.io_size == 0 && !dut.io_executeBusy) {
       return;
     }
@@ -1154,6 +1176,7 @@ void commit_expected_row(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const ExpectedRow &expected,
     std::vector<ObservedRow> &pending_commits,
+    const FetchMemoryImage &fetch_memory,
     std::ofstream &dut_out,
     std::ofstream &qemu_out) {
   for (int cycle = 0; cycle < 32; ++cycle) {
@@ -1166,7 +1189,7 @@ void commit_expected_row(
       return;
     }
     clear_inputs(dut);
-    dut.eval();
+    eval_with_load_lookup(dut, fetch_memory);
     if (dut.io_rfStateError) {
       std::cerr << "frontend fetch RF ALU reported RF state error while waiting for commit\n";
       std::exit(1);
@@ -1364,16 +1387,16 @@ int main(int argc, char **argv) {
     for (std::size_t slot_index = row_index; slot_index < window_end; ++slot_index) {
       const ExpectedRow &row = rows[slot_index];
       if (row.skip) {
-        (void)drain_dense_row(dut, row, active_block_valid, active_block_bid, pending_commits);
+        (void)drain_dense_row(dut, row, active_block_valid, active_block_bid, fetch_memory, pending_commits);
         continue;
       }
-      (void)drain_dense_row(dut, row, active_block_valid, active_block_bid, pending_commits);
+      (void)drain_dense_row(dut, row, active_block_valid, active_block_bid, fetch_memory, pending_commits);
       scalar_slots.push_back(slot_index);
     }
 
     for (const auto slot_index : scalar_slots) {
       const ExpectedRow &row = rows[slot_index];
-      commit_expected_row(dut, row, pending_commits, dut_out, qemu_out);
+      commit_expected_row(dut, row, pending_commits, fetch_memory, dut_out, qemu_out);
     }
     row_index = window_end;
   }
@@ -1383,8 +1406,8 @@ int main(int argc, char **argv) {
               << pending_commits.size() << "\n";
     return 1;
   }
-  drain_empty(dut);
-  dut.eval();
+  drain_empty(dut, fetch_memory);
+  eval_with_load_lookup(dut, fetch_memory);
   if (!dut.io_idle || !dut.io_empty || dut.io_size != 0) {
     std::cerr << "frontend fetch RF ALU trace top did not finish idle"
               << " idle=" << static_cast<unsigned>(dut.io_idle)

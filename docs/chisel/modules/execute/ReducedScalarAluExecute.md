@@ -40,6 +40,7 @@ owners.
 | output | `inReady` | `Bool` | ready | The E stage can capture a new uop. |
 | input | `in` | `RenamedUop` | with `inValid && inReady` | Renamed scalar uop from `DecodeRenameROBPath`. |
 | input | `srcData` | `Vec(3, UInt(64.W))` by default | with accepted uop | Operand values supplied by the reduced top harness. |
+| input | `loadLookupData` | `UInt(64.W)` by default | combinational with E-stage load lookup | Read-only reduced load data returned by the owning top for `OP_C_LDI`/`OP_LDI`. |
 | output | `completeValid` | `Bool` | valid | W2-stage supported uop completed. |
 | output | `completeRobValue` | `UInt(log2Ceil(robEntries).W)` | with `completeValid` | ROB row to complete. |
 | output | `completeRow` | `CommitTraceRow` | with `completeValid` | Commit-trace payload carrying PC, source data, destination data, writeback, ROB ID, and block BID sideband. |
@@ -51,7 +52,9 @@ owners.
 | output | `releaseRid` | `ROBID` | with `releaseValid` | ROB identity copied from the W2 uop. |
 | output | `releaseStid` | `UInt(threadIdWidth.W)` | with `releaseValid` | STID copied from the W2 uop. |
 | output | `branchConditionValid` | `Bool` | with `completeValid` | Reduced conditional-block decision is valid for a completed compare row. |
-| output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ` equality or `OP_C_SETC_NE` not-equal result used by the reduced conditional BSTART owner. |
+| output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ`, `OP_C_SETC_NE`, or `OP_SETC_LTU` decision used by the reduced conditional BSTART owner. |
+| output | `loadLookupValid` | `Bool` | E-stage valid | The current E-stage uop requests reduced read-only load data. |
+| output | `loadLookupAddr` | `UInt(64.W)` by default | with `loadLookupValid` | Byte address for the reduced read-only load lookup. |
 | output | `accepted` | `Bool` | pulse | `inValid && inReady`. |
 | output | `busy` | `Bool` | state | Any E/W1/W2 pipe stage is occupied. |
 | output | `unsupported` | `Bool` | pulse | W2 uop reached execute but is outside the reduced opcode subset. |
@@ -121,13 +124,14 @@ The Chisel module implements the first reduced subset:
 | `OP_C_MOVI` | `in.imm` |
 | `OP_C_MOVR` | `srcData(0)` |
 | `OP_C_ADD` | `srcData(0) + srcData(1)` |
-| `OP_C_LDI` | `0`, with a reduced 8-byte load sideband at `srcData(0) + in.imm` |
+| `OP_C_LDI` | `loadLookupData`, with a reduced 8-byte load sideband at `srcData(0) + in.imm` |
 | `OP_C_SETC_EQ` | `0`, with branch sideband taken when validity-masked `srcData(0) == srcData(1)` |
 | `OP_C_SETC_NE` | `0`, with branch sideband taken when validity-masked `srcData(0) != srcData(1)` |
 | `OP_C_SETRET` | `in.pc + in.imm` |
 | `OP_FENTRY` | `srcData(1) - in.imm` for the reduced single-save SP update |
 | `OP_HL_LUI` | `in.imm` |
-| `OP_LDI` | `0`, with a reduced 8-byte load sideband at `srcData(0) + (in.imm << 3)` |
+| `OP_LDI` | `loadLookupData`, with a reduced 8-byte load sideband at `srcData(0) + (in.imm << 3)` |
+| `OP_SETC_LTU` | `0`, with branch sideband taken when unsigned `srcData(0) < srcData(1)` |
 | `OP_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(1) + (in.imm << 3)` and store data `srcData(0)` |
 | `OP_SLL` | `srcData(0) << srcData(1)(5, 0)` |
 | `OP_SLLI` | `srcData(0) << in.imm(5, 0)` |
@@ -192,6 +196,15 @@ but the decision is `src0 == src1`. `OP_LDI` is a narrow reduced load bridge:
 execute returns the observed zero read data and emits one 8-byte load sideband
 at `srcData(0) + (uop.imm << 3)`. This remains a bounded CoreMark prefix
 contract; nonzero loads require the real data-memory/LSU owner.
+R122 replaces that zero-only load shortcut with an explicit read-only load
+lookup owned by the live top and harness. For `OP_C_LDI` and `OP_LDI`, execute
+publishes `loadLookupValid/loadLookupAddr` while the row is in E and captures
+`loadLookupData` as the result and memory read data. The current live harness
+serves that data from the sparse ELF image and returns zero for missing bytes;
+this is still not an LSU, cache, store-forwarding, or memory-mutation owner.
+R122 also admits the first 32-bit `OP_SETC_LTU` compare at `pc=0x400055e4`.
+It is a no-writeback condition row whose branch sideband is the unsigned
+comparison `src0 < src1`.
 R118 admits the first ordinary scalar store-immediate row, `OP_SDI`. The C++
 model decodes the 32-bit form as `src0=SrcL` store data, `src1=SrcR` address
 base, and `src2=simm12_7_s5_25_7 << 3`; `Store::CalcStoreAddr` computes

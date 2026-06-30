@@ -194,6 +194,7 @@ class LinxCoreFrontendRfAluTraceTop(
   execute.io.inValid := issue.io.issueValid
   execute.io.in := issue.io.issueUop
   execute.io.srcData := issue.io.issueSrcData
+  execute.io.loadLookupData := 0.U
 
   io.f4ValidMask := f4.io.validMask
   io.f4SlotCount := f4.io.slotCount
