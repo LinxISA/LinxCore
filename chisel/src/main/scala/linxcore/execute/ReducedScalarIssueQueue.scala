@@ -3,7 +3,7 @@ package linxcore.execute
 import chisel3._
 import chisel3.util.{log2Ceil, PopCount}
 
-import linxcore.common.{DestinationKind, InterfaceParams, RenamedUop}
+import linxcore.common.{DestinationKind, InterfaceParams, OperandClass, RenamedOperand, RenamedUop}
 import linxcore.rob.{ROBID}
 
 class ReducedScalarIssueQueueIO(
@@ -24,8 +24,12 @@ class ReducedScalarIssueQueueIO(
   val releaseStid = Input(UInt(p.threadIdWidth.W))
 
   val readyMask = Input(UInt((1 << p.physRegWidth).W))
+  val localTReadyMask = Input(UInt(4.W))
+  val localUReadyMask = Input(UInt(4.W))
   val readValid = Output(Vec(3, Bool()))
   val readTags = Output(Vec(3, UInt(p.physRegWidth.W)))
+  val readOperandClass = Output(Vec(3, OperandClass()))
+  val readRelTag = Output(Vec(3, UInt(p.archRegWidth.W)))
   val readReady = Input(Vec(3, Bool()))
   val readData = Input(Vec(3, UInt(p.immWidth.W)))
 
@@ -87,8 +91,20 @@ class ReducedScalarIssueQueue(
   val headIssued = headValid && issued(0)
   val headUop = entries(0)
 
-  private def laneReadyFromMask(uop: RenamedUop, lane: Int): Bool =
-    !uop.src(lane).valid || io.readyMask(uop.src(lane).physTag)
+  private def localSourceReady(src: RenamedOperand): Bool = {
+    val rel = src.relTag(1, 0)
+    Mux(
+      src.operandClass === OperandClass.T,
+      io.localTReadyMask(rel),
+      Mux(src.operandClass === OperandClass.U, io.localUReadyMask(rel), false.B)
+    )
+  }
+
+  private def laneReadyFromMask(uop: RenamedUop, lane: Int): Bool = {
+    val src = uop.src(lane)
+    val isLocal = src.operandClass === OperandClass.T || src.operandClass === OperandClass.U
+    !src.valid || Mux(isLocal, localSourceReady(src), io.readyMask(src.physTag))
+  }
 
   val rawReleaseMatches = Wire(Vec(depth, Bool()))
   val releaseMatches = Wire(Vec(depth, Bool()))
@@ -142,6 +158,8 @@ class ReducedScalarIssueQueue(
   for (idx <- 0 until 3) {
     io.readValid(idx) := pick.io.readValid(idx)
     io.readTags(idx) := pick.io.readTags(idx)
+    io.readOperandClass(idx) := pick.io.readOperandClass(idx)
+    io.readRelTag(idx) := pick.io.readRelTag(idx)
     io.issueSrcData(idx) := pick.io.issueSrcData(idx)
   }
 

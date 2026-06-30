@@ -41,6 +41,9 @@ HL_BSTART_MATCHES = {
 }
 HL_LUI_MASK = 0xFFFF_0000_007F_000F
 HL_LUI_MATCH = 0x0000_0000_0017_000E
+SLL_MASK = 0xFE00_707F
+SLL_MATCH = 0x0000_7005
+LOCAL_QUEUE_DEPTH = 4
 
 
 class RowExtractionError(RuntimeError):
@@ -82,6 +85,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "ADDTPC"
         if key == 0x0041:
             return "FENTRY"
+        if (insn & SLL_MASK) == SLL_MATCH:
+            return "SLL"
     if row["len"] == 2:
         if (insn & 0xF83F) == 0x5016:
             return "C.SETRET"
@@ -142,10 +147,55 @@ def _fentry_n(row: dict[str, int]) -> int:
     return (_mask_insn(row["insn"], row["len"]) >> 20) & 0x1F
 
 
+def _sll_src_l(row: dict[str, int]) -> int:
+    return (_mask_insn(row["insn"], row["len"]) >> 15) & 0x1F
+
+
+def _sll_src_r(row: dict[str, int]) -> int:
+    return (_mask_insn(row["insn"], row["len"]) >> 20) & 0x1F
+
+
 def _hl_lui_imm(row: dict[str, int]) -> int:
     insn = _mask_insn(row["insn"], row["len"])
     imm32 = (((insn >> 4) & 0xFFF) << 20) | ((insn >> 28) & 0xFFFFF)
     return _sext(imm32, 32) & MASK64
+
+
+def _new_local_state() -> dict[str, list[int | None]]:
+    return {
+        "T": [None] * LOCAL_QUEUE_DEPTH,
+        "U": [None] * LOCAL_QUEUE_DEPTH,
+    }
+
+
+def _local_queue_for_reg(reg: int) -> tuple[str, int] | None:
+    if 24 <= reg <= 27:
+        return ("T", reg - 24)
+    if 28 <= reg <= 31:
+        return ("U", reg - 28)
+    return None
+
+
+def _local_source_value(state: dict[str, list[int | None]], reg: int, opcode: str) -> int:
+    queue_info = _local_queue_for_reg(reg)
+    if queue_info is None:
+        raise RowExtractionError(f"{opcode} row source reg {reg} is not a reduced T/U local source")
+    queue_name, index = queue_info
+    value = state[queue_name][index]
+    if value is None:
+        raise RowExtractionError(f"{opcode} row reads empty {queue_name}{index} local source")
+    return value
+
+
+def _push_local_destination(state: dict[str, list[int | None]], reg: int, value: int) -> None:
+    if reg == 31:
+        queue = state["T"]
+    elif reg == 30:
+        queue = state["U"]
+    else:
+        return
+    queue.insert(0, value & MASK64)
+    del queue[LOCAL_QUEUE_DEPTH:]
 
 
 def _require_scalar_reg(row: dict[str, int], field: str, opcode: str) -> None:
@@ -182,7 +232,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
     if not _is_reduced_tu_destination(row["dst_reg"]):
         _require_scalar_reg(row, "dst_reg", opcode)
         _require_scalar_reg(row, "wb_rd", opcode)
-    elif row["dst_reg"] == 30 and opcode != "ADDI":
+    elif row["dst_reg"] == 30 and opcode not in {"ADDI", "SLL"}:
         raise RowExtractionError(f"{opcode} row writes reduced U destination alias {row['dst_reg']}")
     elif row["dst_reg"] == 31 and opcode != "HL.LUI":
         raise RowExtractionError(f"{opcode} row writes reduced T destination alias {row['dst_reg']}")
@@ -190,7 +240,10 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         raise RowExtractionError(f"{opcode} row dst_data={row['dst_data']} differs from wb_data={row['wb_data']}")
 
 
-def _expected_result(row: dict[str, int], opcode: str) -> int:
+def _expected_result(
+    row: dict[str, int],
+    opcode: str,
+    local_state: dict[str, list[int | None]]) -> int:
     if opcode == "ADD":
         return (row["src0_data"] + row["src1_data"]) & MASK64
     if opcode == "ADDI":
@@ -207,10 +260,17 @@ def _expected_result(row: dict[str, int], opcode: str) -> int:
         return (row["mem_addr"] + 8 - _fentry_imm(row)) & MASK64
     if opcode == "HL.LUI":
         return _hl_lui_imm(row)
+    if opcode == "SLL":
+        lhs = _local_source_value(local_state, _sll_src_l(row), opcode)
+        rhs = _local_source_value(local_state, _sll_src_r(row), opcode)
+        return (lhs << (rhs & 0x3F)) & MASK64
     raise AssertionError(opcode)
 
 
-def _validate_reduced_row(row: dict[str, int], index: int) -> dict[str, int]:
+def _validate_reduced_row(
+    row: dict[str, int],
+    index: int,
+    local_state: dict[str, list[int | None]]) -> dict[str, int]:
     opcode = _classify(row)
     if opcode is None:
         raise RowExtractionError(
@@ -251,9 +311,13 @@ def _validate_reduced_row(row: dict[str, int], index: int) -> dict[str, int]:
             raise RowExtractionError(f"row {index} FENTRY must carry one 8-byte store")
     elif opcode == "HL.LUI":
         _require_sources(row, opcode, src0=False, src1=False)
+    elif opcode == "SLL":
+        _require_sources(row, opcode, src0=False, src1=False)
+        _local_source_value(local_state, _sll_src_l(row), opcode)
+        _local_source_value(local_state, _sll_src_r(row), opcode)
     _require_writeback(row, opcode)
 
-    expected = _expected_result(row, opcode)
+    expected = _expected_result(row, opcode, local_state)
     if row["dst_data"] != expected:
         raise RowExtractionError(
             f"row {index} {opcode} result mismatch: dst_data=0x{row['dst_data']:x}, expected 0x{expected:x}"
@@ -316,6 +380,7 @@ def extract_rows(
 
     rows: list[dict[str, Any]] = []
     expected_pc: int | None = None
+    local_state = _new_local_state()
     reduced_rows = 0
     for index, row in enumerate(_normalized_rows(input_path)):
         if max_rows > 0 and reduced_rows >= max_rows:
@@ -331,7 +396,8 @@ def extract_rows(
         if marker is not None:
             checked = _validate_block_marker_row(row, index, marker)
         else:
-            checked = _validate_reduced_row(row, index)
+            checked = _validate_reduced_row(row, index, local_state)
+            _push_local_destination(local_state, checked["dst_reg"], checked["dst_data"])
             reduced_rows += 1
         rows.append(checked)
         expected_pc = checked["next_pc"]
@@ -515,6 +581,35 @@ def self_test() -> None:
         assert extracted_hl_lui[0]["dst_reg"] == 31
         assert extracted_hl_lui[0]["wb_rd"] == 31
         assert extracted_hl_lui[0]["dst_data"] == 1
+
+        sll_source = tmp / "sll-tu.jsonl"
+        sll_output = tmp / "sll-tu.rows.jsonl"
+        sll_tu = {
+            **rows[0],
+            "pc": 0x40005520,
+            "insn": 0x01CC7F05,
+            "len": 4,
+            "next_pc": 0x40005524,
+            "wb_valid": 1,
+            "wb_rd": 30,
+            "wb_data": 0x1_0000_0000,
+            "dst_valid": 1,
+            "dst_reg": 30,
+            "dst_data": 0x1_0000_0000,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(sll_source, [addi_u_dst, hl_lui, sll_tu])
+        count = extract_rows(sll_source, sll_output)
+        assert count == 3
+        extracted_sll = [json.loads(line) for line in sll_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_sll[2]["dst_reg"] == 30
+        assert extracted_sll[2]["wb_rd"] == 30
+        assert extracted_sll[2]["dst_data"] == 0x1_0000_0000
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

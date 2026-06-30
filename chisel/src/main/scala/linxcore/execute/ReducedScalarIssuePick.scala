@@ -3,7 +3,7 @@ package linxcore.execute
 import chisel3._
 import chisel3.util.log2Ceil
 
-import linxcore.common.{InterfaceParams, RenamedUop}
+import linxcore.common.{InterfaceParams, OperandClass, RenamedUop}
 
 class ReducedScalarIssuePickIO(
     val p: InterfaceParams = InterfaceParams(),
@@ -21,6 +21,8 @@ class ReducedScalarIssuePickIO(
 
   val readValid = Output(Vec(3, Bool()))
   val readTags = Output(Vec(3, UInt(p.physRegWidth.W)))
+  val readOperandClass = Output(Vec(3, OperandClass()))
+  val readRelTag = Output(Vec(3, UInt(p.archRegWidth.W)))
   val readReady = Input(Vec(3, Bool()))
   val readData = Input(Vec(3, UInt(p.immWidth.W)))
 
@@ -77,6 +79,8 @@ class ReducedScalarIssuePick(
   for (idx <- 0 until 3) {
     io.readValid(idx) := active && i1Valid && i1Uop.src(idx).valid
     io.readTags(idx) := i1Uop.src(idx).physTag
+    io.readOperandClass(idx) := i1Uop.src(idx).operandClass
+    io.readRelTag(idx) := i1Uop.src(idx).relTag
     io.issueSrcData(idx) := i2SrcData(idx)
   }
 

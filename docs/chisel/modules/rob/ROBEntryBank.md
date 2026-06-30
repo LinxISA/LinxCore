@@ -85,6 +85,7 @@ deallocation or recovery semantics into that module.
 | input | `allocTUDstValid` / `allocTUDstKind` | mixed | with `allocValid` | Whether the row owns a T or U destination that needs previous-sequence adjustment |
 | input | `allocIsLast` | `Bool` | with `allocValid` | Whether the row is the model block-last instruction for relation-cmap release |
 | output | `allocRobValue` | `UInt(log2(entries).W)` | diagnostic | ROB slot that will be assigned on an accepted allocation |
+| output | `allocRobWrap` | `Bool` | diagnostic | ROB allocation epoch bit that pairs with `allocRobValue` to form the native RID |
 | input | `renameUpdateValid` | `Bool` | `renameUpdateReady` | Requests a post-rename update for an already reserved row |
 | output | `renameUpdateReady` | `Bool` | yes | High when `renameUpdateRid` names a resident allocated/renamed row and no flush owns the cycle |
 | output | `renameUpdateAccepted` | `Bool` | diagnostic | `renameUpdateValid && renameUpdateReady` |
@@ -164,6 +165,11 @@ pointer, stores native flush metadata in `rowBid`/`rowRid`, marks the slot
 `outstandingCount`. `rowBid` comes from the backend/BROB owner through
 `allocBid`; `rowRid` is allocated locally from the bank allocation pointer,
 matching `SPEROB::allocROB` assigning `inst->rid` from `allocPtr`.
+The bank exposes both `allocRobValue` and `allocRobWrap` so the decode/rename
+queue can stamp the exact native RID before enqueue. R111 depends on this:
+the first CoreMark `SLL` row is the ninth scalar allocation in an 8-entry
+generated top, so a slot-only RID would target value 0 with the wrong epoch and
+make `renameUpdateReady` reject the post-rename row.
 The allocation also stores the T/U source sidecars supplied by the dispatch
 allocator. In the C++ model, `SPERename::Rename` writes `inst->tSeq` and
 `inst->uSeq` before destination rename; `SPEROB::getRetireID` later exposes
@@ -315,6 +321,7 @@ window stopping, full block-BID exposure on the block-last deallocation event,
 incomplete-head blocking, duplicate identity rejection until deallocation,
 post-rename sidecar patching of a reserved row, deallocation
 backpressure, ignored invalid completion targets,
+native allocation RID wrap publication,
 RID-based flush pruning through the entry bank reference model, allocation
 reuse of the first pruned slot, retired-row
 flush accounting, flush comparison through native row IDs rather than trace

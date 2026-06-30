@@ -5,7 +5,7 @@ import chisel3.util.log2Ceil
 
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
-import linxcore.common.{CoreParams, InterfaceParams}
+import linxcore.common.{CoreParams, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource}
 import linxcore.lsu.StoreDispatchExecResult
@@ -91,6 +91,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val decRenPushFire = Output(Bool())
   val decRenPopFire = Output(Bool())
   val decRenCount = Output(UInt(decRenCountWidth.W))
+  val decRenValid = Output(Bool())
+  val decRenHeadPc = Output(UInt(p.pcWidth.W))
+  val decRenHeadRidValid = Output(Bool())
+  val decRenHeadRidValue = Output(UInt(p.robIndexWidth.W))
   val renamedOutValid = Output(Bool())
   val renamedAccepted = Output(Bool())
   val executeAccepted = Output(Bool())
@@ -100,7 +104,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val executeUnsupported = Output(Bool())
   val executeUnsupportedOpcode = Output(UInt(p.opcodeWidth.W))
   val robAllocFire = Output(Bool())
+  val robRenameUpdateAttemptValid = Output(Bool())
+  val robRenameUpdateReady = Output(Bool())
   val robRenameUpdateFire = Output(Bool())
+  val robRenameUpdateIgnored = Output(Bool())
   val completeAccepted = Output(Bool())
   val completeIgnored = Output(Bool())
 
@@ -133,6 +140,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val issueQueueBlockedByRead = Output(Bool())
   val issueQueueBlockedByOutput = Output(Bool())
   val issueQueueBlockedByIssued = Output(Bool())
+  val localTReadyMask = Output(UInt(4.W))
+  val localUReadyMask = Output(UInt(4.W))
+  val decodeBlockedByRename = Output(Bool())
+  val decodeBlockedByRob = Output(Bool())
+  val decodeBlockedByOutput = Output(Bool())
+  val decodeBlockedByTURename = Output(Bool())
+  val tuRenameSourceUnderflowMask = Output(UInt(3.W))
 
   val commit = Output(new CommitTracePort(traceParams))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -201,6 +215,24 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val rf = Module(new ReducedScalarRegisterFile(p, archRegs = archRegs, physRegs = physRegs))
   val issue = Module(new ReducedScalarIssueQueue(p, depth = issueQueueDepth))
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
+
+  val localQueueDepth = 4
+  val localTData = RegInit(VecInit(Seq.fill(localQueueDepth)(0.U(p.immWidth.W))))
+  val localUData = RegInit(VecInit(Seq.fill(localQueueDepth)(0.U(p.immWidth.W))))
+  val localTReady = RegInit(VecInit(Seq.fill(localQueueDepth)(false.B)))
+  val localUReady = RegInit(VecInit(Seq.fill(localQueueDepth)(false.B)))
+
+  private def pushLocal(
+      data: Vec[UInt],
+      ready: Vec[Bool],
+      value: UInt): Unit = {
+    for (idx <- (1 until localQueueDepth).reverse) {
+      data(idx) := data(idx - 1)
+      ready(idx) := ready(idx - 1)
+    }
+    data(0) := value
+    ready(0) := true.B
+  }
 
   val markerRedirectPending = RegInit(false.B)
   val markerRedirectPcReg = RegInit(0.U(p.pcWidth.W))
@@ -271,21 +303,46 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   issue.io.releaseRid := execute.io.releaseRid
   issue.io.releaseStid := execute.io.releaseStid
   issue.io.readyMask := rf.io.readyMask
+  issue.io.localTReadyMask := localTReady.asUInt
+  issue.io.localUReadyMask := localUReady.asUInt
 
   rf.io.initValid := io.rfInitValid
   rf.io.initArchTag := io.rfInitArchTag
   rf.io.initData := io.rfInitData
   for (idx <- 0 until 3) {
-    rf.io.readValid(idx) := issue.io.readValid(idx)
+    val readIsT = issue.io.readValid(idx) && (issue.io.readOperandClass(idx) === OperandClass.T)
+    val readIsU = issue.io.readValid(idx) && (issue.io.readOperandClass(idx) === OperandClass.U)
+    val readIsLocal = readIsT || readIsU
+    val rel = issue.io.readRelTag(idx)(1, 0)
+    val localReadReady = Mux(readIsT, localTReady(rel), Mux(readIsU, localUReady(rel), false.B))
+    val localReadData = Mux(readIsT, localTData(rel), localUData(rel))
+
+    rf.io.readValid(idx) := issue.io.readValid(idx) && !readIsLocal
     rf.io.readTags(idx) := issue.io.readTags(idx)
-    issue.io.readReady(idx) := rf.io.readReady(idx)
-    issue.io.readData(idx) := rf.io.readData(idx)
+    issue.io.readReady(idx) := Mux(readIsLocal, localReadReady, rf.io.readReady(idx))
+    issue.io.readData(idx) := Mux(readIsLocal, localReadData, rf.io.readData(idx))
   }
   rf.io.clearValid := issue.io.enqueueDstValid
   rf.io.clearTag := issue.io.enqueueDstTag
   rf.io.writeValid := execute.io.completeDstPhysValid
   rf.io.writeTag := execute.io.completeDstPhysTag
   rf.io.writeData := execute.io.completeDstData
+
+  val localReset = io.frontendFlushValid || io.startValid || io.restartValid
+  when(localReset) {
+    for (idx <- 0 until localQueueDepth) {
+      localTData(idx) := 0.U
+      localUData(idx) := 0.U
+      localTReady(idx) := false.B
+      localUReady(idx) := false.B
+    }
+  }.elsewhen(execute.io.completeValid && execute.io.completeRow.wb.valid) {
+    when(execute.io.completeRow.wb.reg === 31.U) {
+      pushLocal(localTData, localTReady, execute.io.completeRow.wb.data)
+    }.elsewhen(execute.io.completeRow.wb.reg === 30.U) {
+      pushLocal(localUData, localUReady, execute.io.completeRow.wb.data)
+    }
+  }
 
   issue.io.issueReady := execute.io.inReady
   execute.io.inValid := issue.io.issueValid
@@ -339,6 +396,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.decRenPushFire := path.io.decRenPushFire
   io.decRenPopFire := path.io.decRenPopFire
   io.decRenCount := path.io.decRenCount
+  io.decRenValid := path.io.decRenValid
+  io.decRenHeadPc := path.io.decRenHeadPc
+  io.decRenHeadRidValid := path.io.decRenHeadRidValid
+  io.decRenHeadRidValue := path.io.decRenHeadRidValue
   io.renamedOutValid := path.io.renamedOutValid
   io.renamedAccepted := path.io.accepted
   io.executeAccepted := execute.io.accepted
@@ -348,7 +409,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.executeUnsupported := execute.io.unsupported
   io.executeUnsupportedOpcode := execute.io.unsupportedOpcode
   io.robAllocFire := path.io.robAllocFire
+  io.robRenameUpdateAttemptValid := path.io.robRenameUpdateAttemptValid
+  io.robRenameUpdateReady := path.io.robRenameUpdateReady
   io.robRenameUpdateFire := path.io.robRenameUpdateFire
+  io.robRenameUpdateIgnored := path.io.robRenameUpdateIgnored
   io.completeAccepted := path.io.completeAccepted
   io.completeIgnored := path.io.completeIgnored
 
@@ -381,6 +445,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.issueQueueBlockedByRead := issue.io.blockedByRead
   io.issueQueueBlockedByOutput := issue.io.blockedByOutput
   io.issueQueueBlockedByIssued := issue.io.blockedByIssued
+  io.localTReadyMask := localTReady.asUInt
+  io.localUReadyMask := localUReady.asUInt
+  io.decodeBlockedByRename := path.io.blockedByRename
+  io.decodeBlockedByRob := path.io.blockedByRob
+  io.decodeBlockedByOutput := path.io.blockedByOutput
+  io.decodeBlockedByTURename := path.io.blockedByTURename
+  io.tuRenameSourceUnderflowMask := path.io.tuRenameSourceUnderflowMask
 
   io.commit := path.io.commit
   io.commitValidMask := path.io.commitValidMask

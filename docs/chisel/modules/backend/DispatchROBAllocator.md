@@ -76,6 +76,7 @@ dispatch agents consume a real block owner.
 | input | `allocNeedsEngine` | `Bool` | with `allocValid` | BROB completion predicate metadata |
 | output | `allocBlockBid` | `UInt(64.W)` by default | diagnostic | Full generated hardware BID for the next accepted allocation |
 | output | `allocRobValue` | `UInt(log2(entries).W)` | diagnostic | ROB slot assigned by `ROBEntryBank` on an accepted allocation |
+| output | `allocRobWrap` | `Bool` | diagnostic | ROB allocation epoch bit paired with `allocRobValue` for native RID stamping |
 | input | `blockAllocOnlyValid` | `Bool` | `blockAllocOnlyReady` | Requests a BROB-only allocation for a marker-owned block start |
 | output | `blockAllocOnlyReady` | `Bool` | ready | High when no scalar allocation is using the allocator and BROB can accept |
 | output | `blockAllocOnlyFire` | `Bool` | diagnostic | `blockAllocOnlyValid && blockAllocOnlyReady` |
@@ -133,7 +134,10 @@ overwrites `allocRow.blockBidValid/blockBid` before forwarding the row to
 the ROB bank's native `ROBID` sidecar takes the low slot bits as `value` and
 the low uniqueness bit as `wrap` through
 `FullBidRecoveryBridge.fullBidToRobId`; RID remains allocated locally by
-`ROBEntryBank` from its allocation pointer.
+`ROBEntryBank` from its allocation pointer. R111 exposes both `allocRobValue`
+and `allocRobWrap` so `DecodeRenameROBPath` can stamp the exact native RID
+into the queued row; the slot value alone is insufficient after the reduced
+8-entry ROB wraps.
 
 The T/U cleanup and retire-source sidecars are forwarded unmodified to
 `ROBEntryBank` at allocation time, but the reduced R76 path intentionally
@@ -209,5 +213,5 @@ duplicate identity, separation of decode-time allocation from rename-time row
 update, ROB T/U source IO elaboration through the composed module,
 ROB deallocation retire-source and block-last-candidate IO elaboration through
 the composed module, full block-BID propagation from ROB block-last deallocation,
-marker-only BROB allocation plus scalar active-BID reuse, and Chisel
-elaboration of the composed module.
+marker-only BROB allocation plus scalar active-BID reuse, ROB RID wrap
+publication, and Chisel elaboration of the composed module.

@@ -47,6 +47,7 @@ class DispatchROBAllocatorIO(
   val allocNeedsEngine = Input(Bool())
   val allocBlockBid = Output(UInt(bidWidth.W))
   val allocRobValue = Output(UInt(ptrWidth.W))
+  val allocRobWrap = Output(Bool())
   val blockAllocOnlyValid = Input(Bool())
   val blockAllocOnlyReady = Output(Bool())
   val blockAllocOnlyFire = Output(Bool())
@@ -263,6 +264,7 @@ class DispatchROBAllocator(
   io.allocBlockedByRob := io.allocValid && scalarCanUseBrob && !rob.io.allocReady
   io.allocDuplicateIdentity := rob.io.allocDuplicateIdentity
   io.allocRobValue := rob.io.allocRobValue
+  io.allocRobWrap := rob.io.allocRobWrap
   io.blockAllocOnlyReady := blockAllocOnlyReady
   io.blockAllocOnlyFire := blockAllocOnlyFire
   io.renameUpdateReady := rob.io.renameUpdateReady

@@ -548,6 +548,7 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_deallocReady"))
     assert(sv.contains("io_allocBid"))
     assert(sv.contains("io_allocGid"))
+    assert(sv.contains("io_allocRobWrap"))
     assert(sv.contains("io_allocPeId"))
     assert(sv.contains("io_allocIsLast"))
     assert(sv.contains("io_allocTSeq_value"))

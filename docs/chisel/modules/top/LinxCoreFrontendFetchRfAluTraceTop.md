@@ -85,6 +85,12 @@ marker-stop redirect PC, and the top restarts the frontend source to that
 target while flushing only the reduced frontend slot path. This is enough for
 CoreMark's first `HL.BSTART.STD CALL`/`C.SETRET`/`C.BSTOP` prefix; it is not a
 general branch, trap, or recovery redirect owner.
+R111 adds the first reduced local T/U source value bridge needed by CoreMark's
+`SLL` row after `HL.LUI`. T and U destination rows still avoid scalar RF
+writeback, but their produced values are recorded in a small local overlay so a
+later T/U-source row can issue and compare against QEMU. This overlay is a
+temporary live-gate bridge until full local-bank data execution owns those
+values.
 
 ## Interface
 
@@ -106,20 +112,24 @@ general branch, trap, or recovery redirect owner.
 | output | `blockMarkerSkipFire`, `blockMarkerSkipValid`, `blockMarkerMixedPacket`, `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`, `blockMarkerInsn`, `blockMarkerLen`, `blockMarkerTarget` | mixed | diagnostic | Reduced block-marker consume observability on a dense-slot drain. Marker slots advance without scalar ROB allocation or dec/ren push; older scalar issue activity may overlap in the same cycle. |
 | output | `blockMarkerAllocFire`, `blockMarkerAllocBid`, `blockMarkerActiveValid`, `blockMarkerActiveBid`, `blockMarkerActiveTarget`, `blockMarkerStopRedirectValid`, `blockMarkerStopRedirectPc` | mixed | diagnostic | Reduced marker lifecycle observability: BROB-only allocation for consumed `BSTART`, active full BID/target reused by scalar rows, and marker-stop frontend restart target. |
 | output | `decRenPushFire`, `decRenPopFire`, `decRenCount` | mixed | diagnostic | Decode-to-rename queue events and occupancy. |
+| output | `decRenValid`, `decRenHeadPc`, `decRenHeadRidValid`, `decRenHeadRidValue` | mixed | diagnostic | Decode/rename queue head observability for live-gate stalls. |
 | output | `renamedOutValid`, `renamedAccepted` | `Bool` | diagnostic | Rename output and issue-queue acceptance. |
 | output | `rfReadReadyMask`, `rfAllReadReady`, `rfReadyMask` | mixed | diagnostic | Reduced physical RF read and ready-state observability. |
 | output | `rfWriteValid`, `rfWriteTag`, `rfWriteData`, `rfStateError` | mixed | diagnostic | Execute-to-RF writeback and RF error reporting. |
+| output | `localTReadyMask`, `localUReadyMask` | `UInt(4.W)` | diagnostic | Reduced local T/U overlay readiness visible to issue selection. |
 | output | `issueQueue*` | mixed | diagnostic | Reduced queue enqueue, pick, I1/I2, issue, cancel, release, occupancy, and block-cause signals. |
 | output | `executeAccepted`, `executeBusy`, `executeCompleteValid`, `executeCompleteRobValue` | mixed | diagnostic | Reduced ALU handoff and completion. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
 | output | `robAllocFire`, `robRenameUpdateFire`, `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB allocation, post-rename update, and completion acceptance events. |
+| output | `decodeBlockedByRename`, `decodeBlockedByRob`, `decodeBlockedByOutput`, `decodeBlockedByTURename`, `tuRenameSourceUnderflowMask`, `robRenameUpdate*` | mixed | diagnostic | Reduced decode/rename/ROB backpressure and post-rename update diagnostics. |
 | output | `robDeallocBlockLastValid`, `robDeallocBlockLastBlockBid`, `blockScalarDoneFire`, `blockScalarDoneBid`, `blockRetireFire`, `blockRetireBid` | mixed | pulse/diagnostic | Reduced ROB block-last to BROB lifecycle sideband path with full 64-bit BID. |
 | output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Monitored commit rows with RF-sourced source data and ALU writeback. |
 | output | `commit*`, `dealloc*`, `occupiedMask`, `completedMask`, `retiredMask`, `idle` | mixed | diagnostic | Commit monitor, ROB lifecycle, and reduced-top idle observability. |
 
 ## State
 
-The wrapper owns only composition wiring. State remains in child modules:
+The wrapper owns composition wiring plus a temporary reduced local T/U value
+overlay. Most state remains in child modules:
 
 - `FrontendFetchPacketSource`: active PC, one-outstanding request state,
   response packet residency, packet UID/checkpoint, restart, and flush clearing.
@@ -130,6 +140,8 @@ The wrapper owns only composition wiring. State remains in child modules:
 - `DecodeRenameROBPath`: decode-to-rename queue, scalar/T-U rename, reduced
   ROB/BROB allocation, completion, commit, and deallocation.
 - `ReducedScalarRegisterFile`: physical scalar data and ready bits.
+- `localTData/localUData` and `localTReady/localUReady`: four-entry reduced
+  local T/U value overlays used only by the current CoreMark T/U-source prefix.
 - `ReducedScalarIssueQueue` and `ReducedScalarIssuePick`: resident issue rows,
   source-ready snapshots, P1/I1/I2 timing, issued-entry lock, cancel, and W2
   release.
@@ -167,15 +179,19 @@ unrelated older issue activity.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
 packet acceptance. The P1/I1/I2 picker reads source data from
-`ReducedScalarRegisterFile` and presents confirmed data to
-`ReducedScalarAluExecute`.
+`ReducedScalarRegisterFile` for scalar P operands. For T/U local operands, the
+issue queue uses `readOperandClass` plus `readRelTag` to suppress scalar RF
+reads and select data from the local T/U overlay. Local readiness is sampled
+through `localTReadyMask` and `localUReadyMask`, mirroring the same registered
+issue-readiness timing used for scalar RF sources.
 
 On completion, the ALU sends a completion row to `DecodeRenameROBPath`, writes
-the destination physical tag in the reduced RF, and releases the issue-queue
-entry by `(bid, rid, stid)`. The monitored commit row then carries the original
-PC/instruction, source architectural tags and data, destination/writeback data,
-model `(bid,gid,rid)` identity, and hardware `blockBid` sideband through the
-shared JSONL writer.
+the destination physical tag in the reduced RF only for scalar GPR
+destinations, pushes T/U destination data into the local overlay for tags
+`31`/`30`, and releases the issue-queue entry by `(bid, rid, stid)`. The
+monitored commit row then carries the original PC/instruction, scalar source
+architectural tags and data, destination/writeback data, model `(bid,gid,rid)`
+identity, and hardware `blockBid` sideband through the shared JSONL writer.
 
 ## Model Alignment
 
@@ -225,6 +241,11 @@ scalar PE ROB/BROB path. The top now checks the visible reduced contract:
 `BSTART` creates an active full BID, scalar rows report that active BID, and
 `BSTOP` completes the active BID before the architectural comparator sees only
 the scalar commit rows.
+R111 extends that live prefix through CoreMark `OP_SLL` at `pc=0x40005520`.
+The prior U-destination `ADDI` produces U0=`32`, `HL.LUI` produces T0=`1`, and
+`SLL` consumes T0/U0 to write U0=`0x100000000`. QEMU suppresses local-source
+fields on that row, so the reduced top must feed execute from the local overlay
+while `ReducedScalarAluExecute` leaves scalar source fields invalid.
 
 ## Trace/Observability
 
@@ -514,6 +535,30 @@ records `status: "pass"`, `summary.compared_rows: 8`, and
 (`pc=0x40005520`, `insn=0x01cc7f05`, `len=4`), the first row needing T/U
 local-register sources rather than only T/U destinations.
 
+The R111 CoreMark gate extends the prefix through that `OP_SLL` local-source
+row and also covers the first reduced ROB wrap case. The `SLL` row is the
+ninth scalar allocation in the generated 8-entry top, so
+`DecodeRenameROBPath` must stamp the queued row with both `allocRobValue` and
+`allocRobWrap`; otherwise the post-rename update names the right slot with the
+wrong epoch and stalls before issue:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 \
+  --capture-rows 14 \
+  --allow-block-markers \
+  --max-seconds 8 \
+  -- -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+The manifest at
+`generated/r111-coremark-sll-tu-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 9`, and
+`summary.mismatch_count: 0`.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
@@ -541,6 +586,7 @@ local-register sources rather than only T/U destinations.
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r109-coremark-u-dst-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 12 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r110-coremark-hl-lui-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 13 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 8 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r108-coremark-fentry-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 11 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`

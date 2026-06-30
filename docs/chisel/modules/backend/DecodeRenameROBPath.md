@@ -156,6 +156,9 @@ Outputs:
   `decRenValid`, `decRenHead`, `decRenTail`, `decRenCount`, `decRenEmpty`,
   `decRenFull`: registered decode-to-rename queue backpressure and occupancy
   observability.
+- `decRenHeadPc`, `decRenHeadRidValid`, `decRenHeadRidValue`: queued-head
+  diagnostics used by live CoreMark gates to localize reservation/update
+  stalls.
 - `selectedIsLoad`, `selectedIsStore`, `selectedMemoryValid`,
   `lsidAssignFire`, `selectedLsId`, `selectedLoadId`, `selectedStoreId`,
   `nextLsId`, `nextLoadId`, `nextStoreId`, `storeSplitIntent`: reduced
@@ -255,8 +258,16 @@ row is stamped with the missing backend identity that `DCTop::Work()` and
 - `bid` comes from the selected full block BID converted to ring `ROBID`;
 - `rid.value` comes from the ROB allocation pointer exposed as
   `allocRobValue`;
+- `rid.wrap` comes from the ROB allocation pointer wrap exposed as
+  `allocRobWrap`;
 - `gid` is held at zero in the reduced scalar path;
 - `blockBidValid/blockBid` mirrors the selected full hardware BID.
+
+R111 makes that native RID stamping strict. CoreMark's first `OP_SLL` row is
+the ninth scalar allocation in the reduced 8-entry top, so its queued RID must
+carry `wrap=true`. A queued false-wrap RID names the same slot value but fails
+`ROBEntryBank.renameUpdateReady`, leaving the row resident in `dec_ren_q` with
+`decodeBlockedByRob` asserted.
 
 When marker lifecycle has an active block, scalar rows instead use that active
 full BID for both the row's `bid` sidecar conversion and `blockBid` commit
@@ -531,6 +542,7 @@ bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
 bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 ```
 
 Affected gates:
@@ -539,6 +551,7 @@ Affected gates:
 bash tools/chisel/run_chisel_tests.sh --only ScalarDecodeRenameBridge
 bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeStage
 bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
+bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
 bash tools/chisel/run_chisel_tests.sh --only STQEntryBank
 bash tools/chisel/run_chisel_tests.sh --only StoreDispatchToSTQ
 bash tools/chisel/run_chisel_tests.sh --only GPRRenameCheckpoint

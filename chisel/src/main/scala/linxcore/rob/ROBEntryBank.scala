@@ -33,6 +33,7 @@ class ROBEntryBankIO(
   val allocTUDstKind = Input(DestinationKind())
   val allocIsLast = Input(Bool())
   val allocRobValue = Output(UInt(ptrWidth.W))
+  val allocRobWrap = Output(Bool())
 
   val renameUpdateValid = Input(Bool())
   val renameUpdateReady = Output(Bool())
@@ -293,6 +294,7 @@ class ROBEntryBank(
   io.allocDuplicateIdentity := io.allocValid && duplicateVec.asUInt.orR
   io.allocReady := !flushApplied && (size =/= entries.U) && !io.allocDuplicateIdentity
   io.allocRobValue := allocValue
+  io.allocRobWrap := allocWrap
   val allocFire = io.allocValid && io.allocReady
 
   val renameUpdateStatus = status(io.renameUpdateRid.value)

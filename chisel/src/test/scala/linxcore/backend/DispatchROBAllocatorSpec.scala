@@ -6,7 +6,7 @@ import org.scalatest.funsuite.AnyFunSuite
 
 object DispatchROBAllocatorReference {
   final case class Row(bid: Int, gid: Int, rid: Int)
-  final case class AllocResult(accepted: Boolean, blockBid: BigInt, robValue: Int)
+  final case class AllocResult(accepted: Boolean, blockBid: BigInt, robValue: Int, robWrap: Boolean = false)
 
   final class Model(entries: Int) {
     require(entries > 1 && (entries & (entries - 1)) == 0)
@@ -16,6 +16,7 @@ object DispatchROBAllocatorReference {
     private var blockSlot = 0
     private var blockUniq = BigInt(0)
     private var robAlloc = 0
+    private var robWrap = false
     private var robSize = 0
 
     private def slotBits: Int =
@@ -36,7 +37,12 @@ object DispatchROBAllocatorReference {
       }
 
     private def advanceRob(): Unit =
-      robAlloc = (robAlloc + 1) & (entries - 1)
+      if (robAlloc == entries - 1) {
+        robAlloc = 0
+        robWrap = !robWrap
+      } else {
+        robAlloc += 1
+      }
 
     def nextBlockBid: BigInt =
       makeBid
@@ -45,6 +51,7 @@ object DispatchROBAllocatorReference {
       val bid = makeBid
       val slot = (bid & (entries - 1)).toInt
       val robValue = robAlloc
+      val allocWrap = robWrap
       val ready = !blockLive(slot) && robSize != entries && !duplicate(row)
       if (ready) {
         blockLive(slot) = true
@@ -53,18 +60,19 @@ object DispatchROBAllocatorReference {
         advanceRob()
         robSize += 1
       }
-      AllocResult(ready, bid, robValue)
+      AllocResult(ready, bid, robValue, allocWrap)
     }
 
     def allocExistingBlock(row: Row, blockBid: BigInt): AllocResult = {
       val robValue = robAlloc
+      val allocWrap = robWrap
       val ready = robSize != entries && !duplicate(row)
       if (ready) {
         robRows(robAlloc) = Some(row.copy(bid = blockBid.toInt))
         advanceRob()
         robSize += 1
       }
-      AllocResult(ready, blockBid, robValue)
+      AllocResult(ready, blockBid, robValue, allocWrap)
     }
 
     def allocBlockOnly(): AllocResult = {
@@ -75,7 +83,7 @@ object DispatchROBAllocatorReference {
         blockLive(slot) = true
         advanceBlock()
       }
-      AllocResult(ready, bid, robAlloc)
+      AllocResult(ready, bid, robAlloc, robWrap)
     }
 
     def renameUpdate(robValue: Int, row: Row): Boolean =
@@ -123,6 +131,14 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     val model = new Model(entries = 4)
     assert((0 until 4).map(i => model.alloc(Row(1, 0, i)).blockBid) == Seq(0, 1, 2, 3))
     assert(model.nextBlockBid == 4)
+  }
+
+  test("reference exposes ROB RID wrap when the allocation cursor returns to slot zero") {
+    val model = new Model(entries = 4)
+    val firstRound = (0 until 4).map(i => model.alloc(Row(1, 0, i)))
+
+    assert(firstRound.map(r => (r.robValue, r.robWrap)) == Seq((0, false), (1, false), (2, false), (3, false)))
+    assert(model.allocExistingBlock(Row(1, 0, 4), blockBid = 0).robWrap)
   }
 
   test("reference holds both allocators when BROB slot is occupied") {
@@ -192,6 +208,7 @@ class DispatchROBAllocatorSpec extends AnyFunSuite {
     assert(sv.contains("io_allocUsesExistingBlock"))
     assert(sv.contains("io_allocExistingBlockBid"))
     assert(sv.contains("io_allocBlockBid"))
+    assert(sv.contains("io_allocRobWrap"))
     assert(sv.contains("io_blockAllocOnlyValid"))
     assert(sv.contains("io_blockAllocOnlyFire"))
     assert(sv.contains("io_blockAllocOnlyBid"))

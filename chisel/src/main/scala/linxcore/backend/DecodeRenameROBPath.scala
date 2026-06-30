@@ -106,6 +106,9 @@ class DecodeRenameROBPathIO(
   val decRenCount = Output(UInt(decRenCountWidth.W))
   val decRenEmpty = Output(Bool())
   val decRenFull = Output(Bool())
+  val decRenHeadPc = Output(UInt(p.pcWidth.W))
+  val decRenHeadRidValid = Output(Bool())
+  val decRenHeadRidValue = Output(UInt(p.robIndexWidth.W))
   val selectedIsLoad = Output(Bool())
   val selectedIsStore = Output(Bool())
   val selectedMemoryValid = Output(Bool())
@@ -501,7 +504,7 @@ class DecodeRenameROBPath(
   selectedForQueue.gid := zeroRobId
   selectedForQueue.gid.valid := selectedAny
   selectedForQueue.rid.valid := selectedAny
-  selectedForQueue.rid.wrap := false.B
+  selectedForQueue.rid.wrap := allocator.io.allocRobWrap
   selectedForQueue.rid.value := allocator.io.allocRobValue
   selectedForQueue.blockBidValid := selectedAny
   selectedForQueue.blockBid := selectedBlockBid
@@ -738,6 +741,9 @@ class DecodeRenameROBPath(
   io.decRenCount := decRenQ.io.count
   io.decRenEmpty := decRenQ.io.empty
   io.decRenFull := decRenQ.io.full
+  io.decRenHeadPc := queuedForRename.pc
+  io.decRenHeadRidValid := queuedForRename.rid.valid
+  io.decRenHeadRidValue := queuedForRename.rid.value
   io.selectedIsLoad := selectedIsLoad
   io.selectedIsStore := selectedIsStore
   io.selectedMemoryValid := memIds.io.memoryValid

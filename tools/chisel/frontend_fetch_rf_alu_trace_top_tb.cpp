@@ -1102,7 +1102,57 @@ void commit_expected_row(
   }
 
   std::cerr << "frontend fetch RF ALU trace top did not emit a commit row"
-            << " pc=0x" << std::hex << expected.pc << std::dec << "\n";
+            << " pc=0x" << std::hex << expected.pc << std::dec
+            << " decRenCount=" << static_cast<unsigned>(dut.io_decRenCount)
+            << " decRenValid=" << static_cast<unsigned>(dut.io_decRenValid)
+            << " decRenHeadPc=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_decRenHeadPc)
+            << " decRenHeadRidValid=" << std::dec
+            << static_cast<unsigned>(dut.io_decRenHeadRidValid)
+            << " decRenHeadRidValue=" << static_cast<unsigned>(dut.io_decRenHeadRidValue)
+            << " renamedOutValid=" << static_cast<unsigned>(dut.io_renamedOutValid)
+            << " renamedAccepted=" << static_cast<unsigned>(dut.io_renamedAccepted)
+            << " decodeBlockedByRename=" << static_cast<unsigned>(dut.io_decodeBlockedByRename)
+            << " decodeBlockedByRob=" << static_cast<unsigned>(dut.io_decodeBlockedByRob)
+            << " decodeBlockedByOutput=" << static_cast<unsigned>(dut.io_decodeBlockedByOutput)
+            << " decodeBlockedByTURename=" << static_cast<unsigned>(dut.io_decodeBlockedByTURename)
+            << " robRenameUpdateAttemptValid="
+            << static_cast<unsigned>(dut.io_robRenameUpdateAttemptValid)
+            << " robRenameUpdateReady=" << static_cast<unsigned>(dut.io_robRenameUpdateReady)
+            << " robRenameUpdateFire=" << static_cast<unsigned>(dut.io_robRenameUpdateFire)
+            << " robRenameUpdateIgnored=" << static_cast<unsigned>(dut.io_robRenameUpdateIgnored)
+            << " tuUnderflow=0x" << std::hex
+            << static_cast<unsigned>(dut.io_tuRenameSourceUnderflowMask)
+            << " localT=0x" << static_cast<unsigned>(dut.io_localTReadyMask)
+            << " localU=0x" << static_cast<unsigned>(dut.io_localUReadyMask)
+            << std::dec
+            << " issueCount=" << static_cast<unsigned>(dut.io_issueQueueCount)
+            << " issueHeadValid=" << static_cast<unsigned>(dut.io_issueQueueHeadValid)
+            << " issueHeadIssued=" << static_cast<unsigned>(dut.io_issueQueueHeadIssued)
+            << " issueSourceReady=0x" << std::hex
+            << static_cast<unsigned>(dut.io_issueQueueSourceReadyMask)
+            << std::dec
+            << " issueSelectedValid=" << static_cast<unsigned>(dut.io_issueQueueSelectedValid)
+            << " issueSelectedReadReady=" << static_cast<unsigned>(dut.io_issueQueueSelectedReadReady)
+            << " issueI1Valid=" << static_cast<unsigned>(dut.io_issueQueueI1Valid)
+            << " issueI2Valid=" << static_cast<unsigned>(dut.io_issueQueueI2Valid)
+            << " issueBlockedBySource=" << static_cast<unsigned>(dut.io_issueQueueBlockedBySource)
+            << " issueBlockedByRead=" << static_cast<unsigned>(dut.io_issueQueueBlockedByRead)
+            << " issueBlockedByOutput=" << static_cast<unsigned>(dut.io_issueQueueBlockedByOutput)
+            << " issueBlockedByIssued=" << static_cast<unsigned>(dut.io_issueQueueBlockedByIssued)
+            << " executeBusy=" << static_cast<unsigned>(dut.io_executeBusy)
+            << " outstanding=" << static_cast<unsigned>(dut.io_outstandingCount)
+            << " commitHeadValid=" << static_cast<unsigned>(dut.io_commitHeadValid)
+            << " commitHeadStatus=" << static_cast<unsigned>(dut.io_commitHeadStatus)
+            << " commitHeadRobValue=" << static_cast<unsigned>(dut.io_commitHeadRobValue)
+            << " occupiedMask=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_occupiedMask)
+            << " completedMask=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_completedMask)
+            << " retiredMask=0x"
+            << static_cast<unsigned long long>(dut.io_retiredMask)
+            << std::dec
+            << "\n";
   std::exit(1);
 }
 

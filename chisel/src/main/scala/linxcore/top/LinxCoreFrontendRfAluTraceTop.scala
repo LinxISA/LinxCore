@@ -170,6 +170,8 @@ class LinxCoreFrontendRfAluTraceTop(
   issue.io.releaseRid := execute.io.releaseRid
   issue.io.releaseStid := execute.io.releaseStid
   issue.io.readyMask := rf.io.readyMask
+  issue.io.localTReadyMask := 0.U
+  issue.io.localUReadyMask := 0.U
 
   rf.io.initValid := io.rfInitValid
   rf.io.initArchTag := io.rfInitArchTag

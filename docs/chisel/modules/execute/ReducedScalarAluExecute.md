@@ -75,7 +75,9 @@ computes `pc + imm`, and the compact `C.SETRET` form reaches execute as a
 decoded alias of the `C.MOVI` low-opcode encoding when the destination is
 `ra/x10`. `OP_HL_LUI` materializes the sign-extended 48-bit-format IMM32
 payload directly into the destination; the frontend packs `pfx16[15:4]` over
-`main32[31:12]` before execute receives `in.imm`. R108 adds a narrow `FENTRY`
+`main32[31:12]` before execute receives `in.imm`. R111 adds `OP_SLL`, which
+left-shifts SrcL by the low six bits of SrcR; CoreMark's first instance reads
+T0 and U0 local sources and writes U0. R108 adds a narrow `FENTRY`
 macro-template subset based on
 `GenCodeFENTRY`: for the current CoreMark single-save form, the reduced decoder
 reads the saved GPR and old SP, execute writes `SP - imm` back to SP, and the
@@ -100,6 +102,7 @@ The Chisel module implements the first reduced subset:
 | `OP_C_SETRET` | `in.pc + in.imm` |
 | `OP_FENTRY` | `srcData(1) - in.imm` for the reduced single-save SP update |
 | `OP_HL_LUI` | `in.imm` |
+| `OP_SLL` | `srcData(0) << srcData(1)(5, 0)` |
 
 `OP_ADDTPC` uses the `FrontendOperandDecode` `ImmIMM20` path, where the
 20-bit immediate is sign-extended and shifted left by 12 before reaching
@@ -108,15 +111,21 @@ materialization and is intentionally separate from `C.SETRET`, whose compact
 form uses `uimm5 << 1` and `pc + imm` return-address semantics.
 
 The completion row copies identity and control fields from the accepted
-`RenamedUop`, fills source register/data fields from `uop.src` plus
-`srcData`, fills `dst` and `wb` from `uop.dst(0)` plus the computed result,
+`RenamedUop`, fills source register/data fields only for scalar
+`OperandClass.P` operands, fills `dst` and `wb` from `uop.dst(0)` plus the
+computed result,
 exports the same result and destination physical tag on `completeDst*` only for
 scalar GPR destinations, and leaves memory/trap fields zero. T/U destinations
 remain visible in the completion row for the comparator, but their local
-register data path is owned by `ScalarTURenameBridge` and later T/U issue
-owners rather than by the scalar RF.
+register data path is owned by `ScalarTURenameBridge`, the reduced local-value
+overlay in the live top, and later T/U issue owners rather than by the scalar
+RF. T/U local sources are consumed internally and suppressed from the
+QEMU-shaped source fields.
 R110 proves this for CoreMark's first `HL.LUI`, which writes architectural tag
 `31` as a T destination while scalar RF writeback remains gated off.
+R111 proves the same local-source row shape for CoreMark `SLL`: the row reads
+T0/U0, writes architectural U tag `30`, emits `0x100000000`, and leaves scalar
+source fields invalid to match QEMU.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural
@@ -166,4 +175,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 8 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r108-coremark-fentry-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 11 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r110-coremark-hl-lui-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 13 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.log2Ceil
 
 import linxcore.commit.{CommitTraceParams, CommitTraceRow}
-import linxcore.common.{DestinationKind, InterfaceParams, RenamedUop}
+import linxcore.common.{DestinationKind, InterfaceParams, OperandClass, RenamedUop}
 import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.rob.ROBID
 
@@ -58,7 +58,8 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY) ||
-      op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI)
+      op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_SLL)
 
   private def resultFor(op: UInt, pc: UInt, srcData: Vec[UInt], imm: UInt): UInt = {
     val out = Wire(UInt(p.immWidth.W))
@@ -79,6 +80,8 @@ class ReducedScalarAluExecute(
       out := srcData(1) - imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI)) {
       out := imm
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SLL)) {
+      out := (srcData(0) << srcData(1)(5, 0))(p.immWidth - 1, 0)
     }
     out
   }
@@ -105,10 +108,10 @@ class ReducedScalarAluExecute(
     row.insn := uop.insnRaw
     row.len := uop.insnLen
     row.nextPc := uop.pc + uop.insnLen
-    row.src0.valid := valid && uop.src(0).valid
+    row.src0.valid := valid && uop.src(0).valid && (uop.src(0).operandClass === OperandClass.P)
     row.src0.reg := fitReg(uop.src(0).archTag)
     row.src0.data := srcData(0)
-    row.src1.valid := valid && uop.src(1).valid
+    row.src1.valid := valid && uop.src(1).valid && (uop.src(1).operandClass === OperandClass.P)
     row.src1.reg := fitReg(uop.src(1).archTag)
     row.src1.data := srcData(1)
     row.dst.valid := valid && uop.dst(0).valid
@@ -198,6 +201,7 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_C_SETRET => None
       case FrontendOpcodeDecodeTable.OP_FENTRY => Some((src1 - imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_HL_LUI => Some(imm & Mask64)
+      case FrontendOpcodeDecodeTable.OP_SLL => Some((src0 << ((src1 & 0x3f).toInt)) & Mask64)
       case _ => None
     }
 

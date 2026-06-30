@@ -61,8 +61,11 @@ keeps the row resident until the existing ALU release path removes it.
 | input | `releaseRid` | `ROBID` | with `releaseValid` | ROB identity of the issued row to remove. |
 | input | `releaseStid` | `UInt(threadIdWidth.W)` | with `releaseValid` | STID of the issued row to remove. |
 | input | `readyMask` | `UInt(physRegCount.W)` | combinational | Reduced scalar RF ready-table snapshot used to initialize and update resident source-ready bits. |
+| input | `localTReadyMask`, `localUReadyMask` | `UInt(4.W)` | combinational | Reduced local T/U queue readiness snapshots for source aliases in the live CoreMark prefix. |
 | output | `readValid` | `Vec(3, Bool)` | combinational | Valid source lanes for the selected ready row. |
 | output | `readTags` | `Vec(3, UInt(physRegWidth.W))` | combinational | Physical source tags for the selected ready row. |
+| output | `readOperandClass` | `Vec(3, OperandClass)` | combinational | Source operand class for each selected read lane so the top can choose scalar RF versus local T/U data. |
+| output | `readRelTag` | `Vec(3, UInt(archRegWidth.W))` | combinational | Frontend relative T/U source tag for local queue lookup. |
 | input | `readReady` | `Vec(3, Bool)` | combinational | Physical RF readiness for the requested source tags, retained as RF-read observability while issue eligibility comes from registered source-ready state. |
 | input | `readData` | `Vec(3, UInt(immWidth.W))` | combinational | Physical RF data for the selected ready row. |
 | output | `issueValid` | `Bool` | valid | At least one resident non-issued row has all valid sources ready. |
@@ -127,15 +130,24 @@ readiness is not confirmed, and presents a read-confirmed row to execute from
 I2.
 
 `readyMask` snapshots the reduced scalar RF ready table. On enqueue, each
-source lane captures `!src.valid || readyMask(src.physTag)`. While resident,
-each lane ORs in the same ready-mask predicate on the next clock edge. This is
-the reduced equivalent of model issue-queue wakeup: a ready-table bit observed
-in cycle N cannot feed selection in cycle N, but it can make the dependent row
-selectable after the issue queue samples that predicate. In this reduced top,
-an ALU writeback that first updates the RF ready table can therefore include
-the RF register boundary before the issue queue observes it. The RF `readReady`
-response remains wired for observability and read-port contract continuity, not
-as the direct issue predicate.
+scalar P source lane captures `!src.valid || readyMask(src.physTag)`. T and U
+source lanes instead sample `localTReadyMask(src.relTag(1,0))` or
+`localUReadyMask(src.relTag(1,0))`. While resident, each lane ORs in the same
+class-specific readiness predicate on the next clock edge. This is the reduced
+equivalent of model issue-queue wakeup: a ready-table bit observed in cycle N
+cannot feed selection in cycle N, but it can make the dependent row selectable
+after the issue queue samples that predicate. In this reduced top, an ALU
+writeback that first updates the RF ready table or local T/U overlay can
+therefore include the register/local-value boundary before the issue queue
+observes it. The RF `readReady` response remains wired for observability and
+read-port contract continuity for scalar P sources, not as the direct issue
+predicate.
+
+R111 also exposes each selected source lane's `operandClass` and `relTag`.
+`LinxCoreFrontendFetchRfAluTraceTop` uses those sidebands to suppress scalar RF
+reads for local T/U sources and to feed operand data from the reduced local
+T/U overlay. This is a temporary value path for the live CoreMark prefix until
+full local-bank data execution replaces it.
 
 `releaseValid` removes the first in-flight row whose `(bid, rid, stid)` matches
 the release payload. Remaining rows are compacted toward slot 0, preserving
@@ -167,6 +179,8 @@ RF-backed scalar ALU lane:
 3. dependent rows can enqueue before their producer commits;
 4. a ready younger row can issue when older resident rows are not selectable;
 5. issue preserves the row's ROB identity and renamed sidecars into execute.
+6. T/U local sources use local queue readiness and relative tags rather than
+   scalar RF physical tags.
 
 The deliberate reduction is pipeline depth and cancellation behavior. The full
 model tracks pipe stages and can cancel or replay issued entries. This reduced
@@ -233,6 +247,7 @@ QEMU-shaped reference data.
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 - `bash tools/chisel/build_chisel.sh`

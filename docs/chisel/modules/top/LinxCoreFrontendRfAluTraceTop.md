@@ -55,6 +55,11 @@ R88 exposes the reduced P1/I1/I2 timing split: P1 pick locks a queue row, I1
 drives RF read tags and may cancel the lock if RF readiness is not confirmed,
 and I2 presents the captured row/data to execute.
 
+R111 adds local T/U source ports to `ReducedScalarIssueQueue` for the live
+fetch CoreMark path. This older packet-fixture top remains scalar-P only and
+ties those local readiness masks empty; T/U local source execution is owned by
+`LinxCoreFrontendFetchRfAluTraceTop`.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -115,6 +120,8 @@ captures `readData` into I2, cancels the queue lock if I1 RF readiness is not
 confirmed, and emits execute valid from I2.
 The RF `readyMask` feeds the queue's registered resident source-ready bits.
 Invalid source lanes are treated as ready inside the picker.
+The local T/U ready-mask inputs are tied to zero in this top, so any T/U source
+row remains unsupported here rather than reading scalar RF aliases.
 
 When a row enqueues with a scalar destination, the top clears the destination
 physical tag readiness in the RF through `issue.enqueueDst*`. When any resident

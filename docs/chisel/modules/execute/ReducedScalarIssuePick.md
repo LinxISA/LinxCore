@@ -36,6 +36,8 @@ events. It does keep cancellable issue state out of queue compaction logic.
 | input | `flushValid` | `Bool` | pulse | Clears P1/I1/I2 owner state. Parent queue separately clears residency. |
 | output | `readValid` | `Vec(3, Bool)` | I1 valid | I1 row's valid source lanes. No RF read is requested in P1. |
 | output | `readTags` | `Vec(3, UInt(physRegWidth.W))` | with `readValid` | I1 row's physical source tags. |
+| output | `readOperandClass` | `Vec(3, OperandClass)` | with `readValid` | I1 row's source operand classes for scalar RF versus local T/U read selection in the parent top. |
+| output | `readRelTag` | `Vec(3, UInt(archRegWidth.W))` | with `readValid` | I1 row's frontend relative tags used for local T/U queue lookup. |
 | input | `readReady` | `Vec(3, Bool)` | combinational | RF read readiness for the I1 source tags. |
 | input | `readData` | `Vec(3, UInt(immWidth.W))` | combinational | RF read data captured when I1 advances to I2. |
 | output | `issueValid` | `Bool` | valid | I2 row is present and can be offered to execute. |
@@ -74,7 +76,9 @@ P1 candidate, and `selectedIndex` points at the candidate row.
 
 P1 fires when a candidate exists and I1 can accept a new row. `pickFire`
 locks the parent queue slot as in-flight, then the selected payload is captured
-into I1 on the clock edge. I1 drives the RF read tags for the captured row. If
+into I1 on the clock edge. I1 drives the read tags, operand classes, and
+relative tags for the captured row. The parent top may use those sidebands to
+route scalar P reads to the RF and local T/U reads to a local-value owner. If
 all requested lanes are ready and I2 can accept the row, I1 captures
 `readData` into I2. If any requested lane is not ready, I1 emits
 `cancelFire/cancelIndex` and clears; the parent queue keeps the row resident
