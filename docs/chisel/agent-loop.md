@@ -332,6 +332,20 @@ explicit QEMU RAM, e.g. `-m 1280M`. R91 evidence captured 128 raw QEMU rows
 from `tests/benchmarks/build/coremark_real.elf`, sliced 5 replay rows with 4
 architectural commits, and passed the Chisel replay cross-check with zero
 mismatches.
+R92 started from `rtl/LinxCore` commit
+`9cd2e09af329ff08d0370c9bb334ae72298b1281` after R91 landed bounded
+CoreMark ELF prefix replay evidence. The superproject root was
+`2d51e6a1625e213908131096a8c0360ba102f748`; LinxCoreModel remained at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; QEMU was at
+`f03477a0f56aeffb82a304e3a553b31cc2d29879`; `skills/linx-skills` was at
+`67bcb752359e67b1de87920349f44f9d21eb65d7`. R92 is the shared
+commit-JSONL writer packet. It factors QEMU-shaped reference rows and DUT
+sideband rows into `tools/chisel/commit_trace_jsonl.h` so reduced ROB, top
+replay, frontend trace, ALU, and RF/ALU Verilator harnesses cannot drift in
+field spelling or default values while future live Chisel trace writers are
+added.
+R92 closeout: `skill-evolve: update linx-core (generated-RTL harnesses must
+use the shared commit JSONL writer before live Chisel trace writers are added)`.
 
 ## Non-Negotiable Rules
 
@@ -518,6 +532,7 @@ These packets remain the required base before broad module promotion:
 | R89 | QEMU cross-check manifest evidence | `run_chisel_qemu_crosscheck.sh --dry-run`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, inspect each `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
 | R90 | QEMU trace replay bridge | `run_chisel_qemu_trace_replay_xcheck.sh --dry-run`, replay archived/fresh QEMU JSONL with `--qemu-trace` or `--elf`, verify metadata-aware raw prefix output, inspect `generated/chisel-qemu-trace-replay-xcheck/report/crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
 | R91 | Bounded CoreMark ELF replay prefix | `run_chisel_qemu_trace_replay_xcheck.sh --dry-run`, default-memory CoreMark `--elf` fail-fast check, CoreMark `--elf` replay with explicit `-m 1280M`, inspect `generated/r91-coremark-elf-prefix/report/crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
+| R92 | Shared commit JSONL writer | `run_chisel_reduced_rob_xcheck.sh`, `run_chisel_top_xcheck.sh`, `run_chisel_trace_replay_xcheck.sh`, `run_chisel_frontend_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored

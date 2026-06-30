@@ -9,6 +9,7 @@ details into the comparator itself.
 
 ## Tools
 
+- `tools/chisel/commit_trace_jsonl.h`
 - `tools/chisel/trace_schema_adapter.py`
 - `tools/chisel/run_chisel_qemu_crosscheck.sh`
 - `tools/chisel/run_chisel_reduced_rob_xcheck.sh`
@@ -64,6 +65,24 @@ For nested Chisel rows, the adapter accepts `identity.bid`, `identity.gid`,
 `blockBid`, `mem.isStore`, `trap.arg0`, and `nextPc`. Rows with `valid: 0` are
 filtered before sequence numbering so a fixed-width commit vector can be dumped
 without creating false comparator rows.
+
+## Shared C++ Writer
+
+Generated-RTL Verilator harnesses should emit commit JSONL through
+`tools/chisel/commit_trace_jsonl.h` instead of open-coding JSON strings. The
+helper owns two wire formats:
+
+- `write_qemu_commit_jsonl`: architectural fields only, matching the QEMU
+  commit trace shape in `target/linx/helper.c` and the trace-manager plugin.
+- `write_dut_commit_jsonl`: the same architectural fields plus fixed-width
+  Chisel sidebands: `valid`, `seq`, `cycle`, `slot`, `bid/gid/rid`,
+  `rob_valid/rob_wrap/rob_value`, `block_bid_valid`, and `block_bid`.
+
+Harness-specific code still owns how it reads Verilated pins and how it builds
+expected rows. The shared writer only owns spelling, default zeros, and boolean
+encoding. This preserves the LinxCoreModel split between 32-bit
+`CommitInfo(bid,gid,rid)` identity and the 64-bit hardware `block_bid` while
+future live Chisel tops are wired into the same neutral comparator path.
 
 ## QEMU Binary Selection
 
@@ -177,9 +196,9 @@ Expected report outputs:
 
 ## Current Status
 
-The adapter, wrapper, typed Chisel commit-row bundles, reduced ROB Verilator
-smoke, reduced top Verilator smoke, top trace replay smoke, QEMU trace replay
-bridge,
+The adapter, shared C++ commit JSONL writer, wrapper, typed Chisel commit-row
+bundles, reduced ROB Verilator smoke, reduced top Verilator smoke, top trace
+replay smoke, QEMU trace replay bridge,
 frontend-window trace-top Verilator lint, frontend-window trace-top Verilator
 xcheck, frontend-window ALU trace-top Verilator xcheck, and RF-backed ALU
 trace-top Verilator xcheck are ready. The common wrapper emits a

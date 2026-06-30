@@ -1,6 +1,8 @@
 #include "VLinxCoreFrontendTraceTop.h"
 #include "verilated.h"
 
+#include "commit_trace_jsonl.h"
+
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -9,6 +11,10 @@
 #include <vector>
 
 namespace {
+
+using linxcore::chisel::CommitTraceJsonRow;
+using linxcore::chisel::write_dut_commit_jsonl;
+using linxcore::chisel::write_qemu_commit_jsonl;
 
 struct Args {
   std::string dut_trace;
@@ -304,72 +310,69 @@ void expect_row(const ObservedRow &observed, const ExpectedRow &expected) {
   }
 }
 
+CommitTraceJsonRow to_json_row(const ObservedRow &row) {
+  CommitTraceJsonRow json;
+  json.valid = row.valid;
+  json.seq = row.seq;
+  json.cycle = row.cycle;
+  json.slot = row.slot;
+  json.bid = row.bid;
+  json.gid = row.gid;
+  json.rid = row.rid;
+  json.rob_valid = row.rob_valid;
+  json.rob_wrap = row.rob_wrap;
+  json.rob_value = row.rob_value;
+  json.block_bid_valid = row.block_bid_valid;
+  json.block_bid = row.block_bid;
+  json.pc = row.pc;
+  json.insn = row.insn;
+  json.len = row.len;
+  json.wb_valid = row.wb_valid;
+  json.wb_rd = row.wb_reg;
+  json.wb_data = row.wb_data;
+  json.src0_valid = row.src0_valid;
+  json.src0_reg = row.src0_reg;
+  json.src0_data = row.src0_data;
+  json.src1_valid = row.src1_valid;
+  json.src1_reg = row.src1_reg;
+  json.src1_data = row.src1_data;
+  json.dst_valid = row.dst_valid;
+  json.dst_reg = row.dst_reg;
+  json.dst_data = row.dst_data;
+  json.mem_valid = row.mem_valid;
+  json.mem_is_store = row.mem_is_store;
+  json.mem_addr = row.mem_addr;
+  json.mem_wdata = row.mem_wdata;
+  json.mem_rdata = row.mem_rdata;
+  json.mem_size = row.mem_size;
+  json.trap_valid = row.trap_valid;
+  json.trap_cause = row.trap_cause;
+  json.trap_arg0 = row.trap_arg0;
+  json.next_pc = row.next_pc;
+  return json;
+}
+
+CommitTraceJsonRow to_json_row(const ExpectedRow &row) {
+  CommitTraceJsonRow json;
+  json.pc = row.pc;
+  json.insn = mask_insn(row.insn, row.len);
+  json.len = row.len;
+  json.src0_valid = row.src0_valid;
+  json.src0_reg = row.src0_reg;
+  json.src1_valid = row.src1_valid;
+  json.src1_reg = row.src1_reg;
+  json.dst_valid = row.dst_valid;
+  json.dst_reg = row.dst_reg;
+  json.next_pc = row.pc + row.len;
+  return json;
+}
+
 void write_dut_row(std::ofstream &out, const ObservedRow &row) {
-  out << "{\"valid\":" << row.valid
-      << ",\"seq\":" << row.seq
-      << ",\"cycle\":" << row.cycle
-      << ",\"slot\":" << static_cast<unsigned>(row.slot)
-      << ",\"bid\":" << row.bid
-      << ",\"gid\":" << row.gid
-      << ",\"rid\":" << row.rid
-      << ",\"rob_valid\":" << row.rob_valid
-      << ",\"rob_wrap\":" << row.rob_wrap
-      << ",\"rob_value\":" << static_cast<unsigned>(row.rob_value)
-      << ",\"block_bid_valid\":" << row.block_bid_valid
-      << ",\"block_bid\":" << row.block_bid
-      << ",\"pc\":" << row.pc
-      << ",\"insn\":" << row.insn
-      << ",\"len\":" << static_cast<unsigned>(row.len)
-      << ",\"wb_valid\":" << row.wb_valid
-      << ",\"wb_rd\":" << static_cast<unsigned>(row.wb_reg)
-      << ",\"wb_data\":" << row.wb_data
-      << ",\"src0_valid\":" << row.src0_valid
-      << ",\"src0_reg\":" << static_cast<unsigned>(row.src0_reg)
-      << ",\"src0_data\":" << row.src0_data
-      << ",\"src1_valid\":" << row.src1_valid
-      << ",\"src1_reg\":" << static_cast<unsigned>(row.src1_reg)
-      << ",\"src1_data\":" << row.src1_data
-      << ",\"dst_valid\":" << row.dst_valid
-      << ",\"dst_reg\":" << static_cast<unsigned>(row.dst_reg)
-      << ",\"dst_data\":" << row.dst_data
-      << ",\"mem_valid\":" << row.mem_valid
-      << ",\"mem_is_store\":" << row.mem_is_store
-      << ",\"mem_addr\":" << row.mem_addr
-      << ",\"mem_wdata\":" << row.mem_wdata
-      << ",\"mem_rdata\":" << row.mem_rdata
-      << ",\"mem_size\":" << static_cast<unsigned>(row.mem_size)
-      << ",\"trap_valid\":" << row.trap_valid
-      << ",\"trap_cause\":" << row.trap_cause
-      << ",\"traparg0\":" << row.trap_arg0
-      << ",\"next_pc\":" << row.next_pc << "}\n";
+  write_dut_commit_jsonl(out, to_json_row(row));
 }
 
 void write_qemu_row(std::ofstream &out, const ExpectedRow &row) {
-  out << "{\"pc\":" << row.pc
-      << ",\"insn\":" << mask_insn(row.insn, row.len)
-      << ",\"len\":" << static_cast<unsigned>(row.len)
-      << ",\"wb_valid\":0"
-      << ",\"wb_rd\":0"
-      << ",\"wb_data\":0"
-      << ",\"src0_valid\":" << row.src0_valid
-      << ",\"src0_reg\":" << static_cast<unsigned>(row.src0_reg)
-      << ",\"src0_data\":0"
-      << ",\"src1_valid\":" << row.src1_valid
-      << ",\"src1_reg\":" << static_cast<unsigned>(row.src1_reg)
-      << ",\"src1_data\":0"
-      << ",\"dst_valid\":" << row.dst_valid
-      << ",\"dst_reg\":" << static_cast<unsigned>(row.dst_reg)
-      << ",\"dst_data\":0"
-      << ",\"mem_valid\":0"
-      << ",\"mem_is_store\":0"
-      << ",\"mem_addr\":0"
-      << ",\"mem_wdata\":0"
-      << ",\"mem_rdata\":0"
-      << ",\"mem_size\":0"
-      << ",\"trap_valid\":0"
-      << ",\"trap_cause\":0"
-      << ",\"traparg0\":0"
-      << ",\"next_pc\":" << (row.pc + row.len) << "}\n";
+  write_qemu_commit_jsonl(out, to_json_row(row));
 }
 
 std::uint8_t enqueue_frontend_row(

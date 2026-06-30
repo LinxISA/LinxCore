@@ -18,6 +18,7 @@ The LinxCore Chisel lane uses explicit targets:
 | `top-xcheck` | `tools/chisel/run_chisel_top_xcheck.sh` | Emit the reduced `LinxCoreTop` xcheck configuration, build the same Verilator harness against top-level IO, assert monitor outputs, and compare normalized DUT rows against QEMU-shaped reference rows. |
 | `frontend-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendAluTraceTop`, build the Verilator harness, drive frontend packets through reduced scalar ALU execute, and compare nonzero writeback rows against QEMU-shaped reference rows. |
 | `frontend-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendRfAluTraceTop`, build the shared Verilator harness in RF mode, preload identity scalar registers, enqueue dependent scalar ALU rows through the reduced issue queue, and compare RF-sourced writeback rows against QEMU-shaped reference rows. |
+| `commit-jsonl-writer` | `tools/chisel/commit_trace_jsonl.h` | Shared C++ helper used by Verilator harnesses to emit QEMU-shaped reference rows and DUT sideband rows without per-harness field spelling drift. |
 | `qemu-crosscheck` | `tools/chisel/run_chisel_qemu_crosscheck.sh` | Normalize QEMU and DUT commit JSONL, run the neutral comparator, and emit `crosscheck_manifest.json` tying raw traces, normalized traces, reports, QEMU binary, row counts, and git context into one evidence bundle. |
 | `qemu-trace-replay-xcheck` | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh` | Capture or consume a bounded QEMU commit JSONL prefix, replay those rows through the current Chisel commit surface in an isolated build directory, and preserve comparator manifest evidence. |
 
@@ -47,6 +48,10 @@ as the handoff artifact for later QEMU/CoreMark promotion: it should name the
 raw traces, normalized traces, comparator reports, selected QEMU binary, row
 counts, `max_commits`, `normalize_rows`, and the LinxCore/superproject
 revisions used by the run.
+Generated-RTL Verilator harnesses should use `tools/chisel/commit_trace_jsonl.h`
+for emitted commit JSONL. Harness code may still convert top-specific pins into
+rows, but the helper owns QEMU field names, default zero values, boolean
+encoding, and the fixed DUT sideband fields used by `trace_schema_adapter.py`.
 The QEMU trace replay wrapper is a bridge gate: it validates QEMU-row schema
 and Chisel commit-surface replay before the top-level core emits live commit
 rows from fetch/issue/execute/LSU/recovery.

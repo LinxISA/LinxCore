@@ -1,6 +1,6 @@
 # LinxCore Chisel Development Loop
 
-Date: 2026-06-29
+Date: 2026-06-30
 
 ## Purpose
 
@@ -171,6 +171,22 @@ memory such as `-m 1280M` when replaying
 `tests/benchmarks/build/coremark_real.elf`. R91 evidence captured 128 raw QEMU
 rows from that ELF, sliced 5 replay rows containing 4 architectural commits,
 and passed the Chisel replay cross-check with zero mismatches.
+R92 started from `linx-isa` commit
+`2d51e6a1625e213908131096a8c0360ba102f748`, `rtl/LinxCore` commit
+`9cd2e09af329ff08d0370c9bb334ae72298b1281`,
+`model/LinxCoreModel` commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`, QEMU commit
+`f03477a0f56aeffb82a304e3a553b31cc2d29879`, and
+`skills/linx-skills` commit `67bcb752359e67b1de87920349f44f9d21eb65d7`.
+R92 is a shared trace-writer packet: generated-RTL Verilator harnesses should
+use `tools/chisel/commit_trace_jsonl.h` for QEMU-shaped reference rows and
+DUT sideband rows instead of open-coded JSON strings. The helper preserves the
+QEMU commit field set, plus optional DUT sidebands `seq/cycle/slot`,
+`bid/gid/rid`, ROB id, and `block_bid`; `trace_schema_adapter.py` remains the
+normalization boundary. This keeps model `CommitInfo` identity separate from
+hardware block identity while future live trace writers are added.
+R92 closeout: `skill-evolve: update linx-core (generated-RTL harnesses must
+use the shared commit JSONL writer before live Chisel trace writers are added)`.
 
 ## Reference Evidence
 
@@ -276,9 +292,10 @@ The ROB/cross-check substrate remains the required base:
 | 15 | R89 QEMU cross-check manifest evidence | `tools/chisel/run_chisel_qemu_crosscheck.sh`, cross-check docs | dry-run, RF/ALU xcheck, ALU xcheck, trace self-test, diff check |
 | 16 | R90 QEMU trace replay harness | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`, trace replay wrapper docs | dry-run, archived/fresh QEMU JSONL replay with metadata-aware raw prefix, manifest inspection |
 | 17 | R91 bounded CoreMark ELF replay prefix | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`, trace replay wrapper docs | default-memory fail-fast check, CoreMark `--elf` replay with explicit `-m 1280M`, manifest inspection |
-| 18 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 19 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 20 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 18 | R92 shared commit JSONL writer | `tools/chisel/commit_trace_jsonl.h`, generated-RTL Verilator harnesses, cross-check docs | reduced/top/replay/frontend generated-RTL xchecks, trace self-test, QEMU dry-run, diff check |
+| 19 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 20 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 21 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not

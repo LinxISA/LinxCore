@@ -9,6 +9,8 @@
 #include LINXCORE_COMMIT_TRACE_DUT_HEADER
 #include "verilated.h"
 
+#include "commit_trace_jsonl.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
@@ -22,6 +24,9 @@
 namespace {
 
 using CommitTraceDut = LINXCORE_COMMIT_TRACE_DUT_CLASS;
+using linxcore::chisel::CommitTraceJsonRow;
+using linxcore::chisel::write_dut_commit_jsonl;
+using linxcore::chisel::write_qemu_commit_jsonl;
 
 struct Args {
   std::string input_trace;
@@ -513,112 +518,137 @@ void expect_slot1(const CommitTraceDut &dut, const Row &row, std::uint8_t slot) 
   }
 }
 
+CommitTraceJsonRow to_json_row(const Row &row) {
+  CommitTraceJsonRow json;
+  json.seq = row.seq;
+  json.cycle = row.cycle;
+  json.bid = row.bid;
+  json.gid = row.gid;
+  json.rid = row.rid;
+  json.block_bid_valid = true;
+  json.block_bid = row.block_bid;
+  json.pc = row.pc;
+  json.insn = row.insn;
+  json.len = row.len;
+  json.wb_valid = row.wb_valid;
+  json.wb_rd = row.wb_rd;
+  json.wb_data = row.wb_data;
+  json.src0_valid = row.src0_valid;
+  json.src0_reg = row.src0_reg;
+  json.src0_data = row.src0_data;
+  json.src1_valid = row.src1_valid;
+  json.src1_reg = row.src1_reg;
+  json.src1_data = row.src1_data;
+  json.dst_valid = row.dst_valid;
+  json.dst_reg = row.dst_reg;
+  json.dst_data = row.dst_data;
+  json.mem_valid = row.mem_valid;
+  json.mem_is_store = row.mem_is_store;
+  json.mem_addr = row.mem_addr;
+  json.mem_wdata = row.mem_wdata;
+  json.mem_rdata = row.mem_rdata;
+  json.mem_size = row.mem_size;
+  json.trap_valid = row.trap_valid;
+  json.trap_cause = row.trap_cause;
+  json.trap_arg0 = row.trap_arg0;
+  json.next_pc = row.next_pc;
+  return json;
+}
+
+CommitTraceJsonRow dut_slot0_to_json(const CommitTraceDut &dut) {
+  CommitTraceJsonRow row;
+  row.valid = dut.io_commit_rows_0_valid;
+  row.seq = dut.io_commit_rows_0_seq;
+  row.cycle = dut.io_commit_rows_0_cycle;
+  row.slot = dut.io_commit_rows_0_slot;
+  row.bid = dut.io_commit_rows_0_identity_bid;
+  row.gid = dut.io_commit_rows_0_identity_gid;
+  row.rid = dut.io_commit_rows_0_identity_rid;
+  row.rob_valid = dut.io_commit_rows_0_rob_valid;
+  row.rob_wrap = dut.io_commit_rows_0_rob_wrap;
+  row.rob_value = dut.io_commit_rows_0_rob_value;
+  row.block_bid_valid = dut.io_commit_rows_0_blockBidValid;
+  row.block_bid = dut.io_commit_rows_0_blockBid;
+  row.pc = dut.io_commit_rows_0_pc;
+  row.insn = dut.io_commit_rows_0_insn;
+  row.len = dut.io_commit_rows_0_len;
+  row.wb_valid = dut.io_commit_rows_0_wb_valid;
+  row.wb_rd = dut.io_commit_rows_0_wb_reg;
+  row.wb_data = dut.io_commit_rows_0_wb_data;
+  row.src0_valid = dut.io_commit_rows_0_src0_valid;
+  row.src0_reg = dut.io_commit_rows_0_src0_reg;
+  row.src0_data = dut.io_commit_rows_0_src0_data;
+  row.src1_valid = dut.io_commit_rows_0_src1_valid;
+  row.src1_reg = dut.io_commit_rows_0_src1_reg;
+  row.src1_data = dut.io_commit_rows_0_src1_data;
+  row.dst_valid = dut.io_commit_rows_0_dst_valid;
+  row.dst_reg = dut.io_commit_rows_0_dst_reg;
+  row.dst_data = dut.io_commit_rows_0_dst_data;
+  row.mem_valid = dut.io_commit_rows_0_mem_valid;
+  row.mem_is_store = dut.io_commit_rows_0_mem_isStore;
+  row.mem_addr = dut.io_commit_rows_0_mem_addr;
+  row.mem_wdata = dut.io_commit_rows_0_mem_wdata;
+  row.mem_rdata = dut.io_commit_rows_0_mem_rdata;
+  row.mem_size = dut.io_commit_rows_0_mem_size;
+  row.trap_valid = dut.io_commit_rows_0_trap_valid;
+  row.trap_cause = dut.io_commit_rows_0_trap_cause;
+  row.trap_arg0 = dut.io_commit_rows_0_trap_arg0;
+  row.next_pc = dut.io_commit_rows_0_nextPc;
+  return row;
+}
+
+CommitTraceJsonRow dut_slot1_to_json(const CommitTraceDut &dut) {
+  CommitTraceJsonRow row;
+  row.valid = dut.io_commit_rows_1_valid;
+  row.seq = dut.io_commit_rows_1_seq;
+  row.cycle = dut.io_commit_rows_1_cycle;
+  row.slot = dut.io_commit_rows_1_slot;
+  row.bid = dut.io_commit_rows_1_identity_bid;
+  row.gid = dut.io_commit_rows_1_identity_gid;
+  row.rid = dut.io_commit_rows_1_identity_rid;
+  row.rob_valid = dut.io_commit_rows_1_rob_valid;
+  row.rob_wrap = dut.io_commit_rows_1_rob_wrap;
+  row.rob_value = dut.io_commit_rows_1_rob_value;
+  row.block_bid_valid = dut.io_commit_rows_1_blockBidValid;
+  row.block_bid = dut.io_commit_rows_1_blockBid;
+  row.pc = dut.io_commit_rows_1_pc;
+  row.insn = dut.io_commit_rows_1_insn;
+  row.len = dut.io_commit_rows_1_len;
+  row.wb_valid = dut.io_commit_rows_1_wb_valid;
+  row.wb_rd = dut.io_commit_rows_1_wb_reg;
+  row.wb_data = dut.io_commit_rows_1_wb_data;
+  row.src0_valid = dut.io_commit_rows_1_src0_valid;
+  row.src0_reg = dut.io_commit_rows_1_src0_reg;
+  row.src0_data = dut.io_commit_rows_1_src0_data;
+  row.src1_valid = dut.io_commit_rows_1_src1_valid;
+  row.src1_reg = dut.io_commit_rows_1_src1_reg;
+  row.src1_data = dut.io_commit_rows_1_src1_data;
+  row.dst_valid = dut.io_commit_rows_1_dst_valid;
+  row.dst_reg = dut.io_commit_rows_1_dst_reg;
+  row.dst_data = dut.io_commit_rows_1_dst_data;
+  row.mem_valid = dut.io_commit_rows_1_mem_valid;
+  row.mem_is_store = dut.io_commit_rows_1_mem_isStore;
+  row.mem_addr = dut.io_commit_rows_1_mem_addr;
+  row.mem_wdata = dut.io_commit_rows_1_mem_wdata;
+  row.mem_rdata = dut.io_commit_rows_1_mem_rdata;
+  row.mem_size = dut.io_commit_rows_1_mem_size;
+  row.trap_valid = dut.io_commit_rows_1_trap_valid;
+  row.trap_cause = dut.io_commit_rows_1_trap_cause;
+  row.trap_arg0 = dut.io_commit_rows_1_trap_arg0;
+  row.next_pc = dut.io_commit_rows_1_nextPc;
+  return row;
+}
+
 void write_qemu_row(std::ofstream &out, const Row &row) {
-  out << "{\"pc\":" << row.pc
-      << ",\"insn\":" << row.insn
-      << ",\"len\":" << static_cast<unsigned>(row.len)
-      << ",\"wb_valid\":" << row.wb_valid
-      << ",\"wb_rd\":" << static_cast<unsigned>(row.wb_rd)
-      << ",\"wb_data\":" << row.wb_data
-      << ",\"src0_valid\":" << row.src0_valid
-      << ",\"src0_reg\":" << static_cast<unsigned>(row.src0_reg)
-      << ",\"src0_data\":" << row.src0_data
-      << ",\"src1_valid\":" << row.src1_valid
-      << ",\"src1_reg\":" << static_cast<unsigned>(row.src1_reg)
-      << ",\"src1_data\":" << row.src1_data
-      << ",\"dst_valid\":" << row.dst_valid
-      << ",\"dst_reg\":" << static_cast<unsigned>(row.dst_reg)
-      << ",\"dst_data\":" << row.dst_data
-      << ",\"mem_valid\":" << row.mem_valid
-      << ",\"mem_is_store\":" << row.mem_is_store
-      << ",\"mem_addr\":" << row.mem_addr
-      << ",\"mem_wdata\":" << row.mem_wdata
-      << ",\"mem_rdata\":" << row.mem_rdata
-      << ",\"mem_size\":" << static_cast<unsigned>(row.mem_size)
-      << ",\"trap_valid\":" << row.trap_valid
-      << ",\"trap_cause\":" << row.trap_cause
-      << ",\"traparg0\":" << row.trap_arg0
-      << ",\"next_pc\":" << row.next_pc << "}\n";
+  write_qemu_commit_jsonl(out, to_json_row(row));
 }
 
 void write_dut_slot0(std::ofstream &out, const CommitTraceDut &dut) {
-  out << "{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_0_valid)
-      << ",\"seq\":" << dut.io_commit_rows_0_seq
-      << ",\"cycle\":" << dut.io_commit_rows_0_cycle
-      << ",\"slot\":" << static_cast<unsigned>(dut.io_commit_rows_0_slot)
-      << ",\"identity\":{\"bid\":" << dut.io_commit_rows_0_identity_bid
-      << ",\"gid\":" << dut.io_commit_rows_0_identity_gid
-      << ",\"rid\":" << dut.io_commit_rows_0_identity_rid
-      << "},\"rob\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_0_rob_valid)
-      << ",\"wrap\":" << static_cast<unsigned>(dut.io_commit_rows_0_rob_wrap)
-      << ",\"value\":" << static_cast<unsigned>(dut.io_commit_rows_0_rob_value)
-      << "},\"blockBidValid\":" << static_cast<unsigned>(dut.io_commit_rows_0_blockBidValid)
-      << ",\"blockBid\":" << dut.io_commit_rows_0_blockBid
-      << ",\"pc\":" << dut.io_commit_rows_0_pc
-      << ",\"insn\":" << dut.io_commit_rows_0_insn
-      << ",\"len\":" << static_cast<unsigned>(dut.io_commit_rows_0_len)
-      << ",\"wb\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_0_wb_valid)
-      << ",\"rd\":" << static_cast<unsigned>(dut.io_commit_rows_0_wb_reg)
-      << ",\"data\":" << dut.io_commit_rows_0_wb_data
-      << "},\"src0\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_0_src0_valid)
-      << ",\"reg\":" << static_cast<unsigned>(dut.io_commit_rows_0_src0_reg)
-      << ",\"data\":" << dut.io_commit_rows_0_src0_data
-      << "},\"src1\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_0_src1_valid)
-      << ",\"reg\":" << static_cast<unsigned>(dut.io_commit_rows_0_src1_reg)
-      << ",\"data\":" << dut.io_commit_rows_0_src1_data
-      << "},\"dst\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_0_dst_valid)
-      << ",\"reg\":" << static_cast<unsigned>(dut.io_commit_rows_0_dst_reg)
-      << ",\"data\":" << dut.io_commit_rows_0_dst_data
-      << "},\"mem\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_0_mem_valid)
-      << ",\"isStore\":" << static_cast<unsigned>(dut.io_commit_rows_0_mem_isStore)
-      << ",\"addr\":" << dut.io_commit_rows_0_mem_addr
-      << ",\"wdata\":" << dut.io_commit_rows_0_mem_wdata
-      << ",\"rdata\":" << dut.io_commit_rows_0_mem_rdata
-      << ",\"size\":" << static_cast<unsigned>(dut.io_commit_rows_0_mem_size)
-      << "},\"trap\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_0_trap_valid)
-      << ",\"cause\":" << dut.io_commit_rows_0_trap_cause
-      << ",\"arg0\":" << dut.io_commit_rows_0_trap_arg0
-      << "},\"nextPc\":" << dut.io_commit_rows_0_nextPc << "}\n";
+  write_dut_commit_jsonl(out, dut_slot0_to_json(dut));
 }
 
 void write_dut_slot1(std::ofstream &out, const CommitTraceDut &dut) {
-  out << "{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_1_valid)
-      << ",\"seq\":" << dut.io_commit_rows_1_seq
-      << ",\"cycle\":" << dut.io_commit_rows_1_cycle
-      << ",\"slot\":" << static_cast<unsigned>(dut.io_commit_rows_1_slot)
-      << ",\"identity\":{\"bid\":" << dut.io_commit_rows_1_identity_bid
-      << ",\"gid\":" << dut.io_commit_rows_1_identity_gid
-      << ",\"rid\":" << dut.io_commit_rows_1_identity_rid
-      << "},\"rob\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_1_rob_valid)
-      << ",\"wrap\":" << static_cast<unsigned>(dut.io_commit_rows_1_rob_wrap)
-      << ",\"value\":" << static_cast<unsigned>(dut.io_commit_rows_1_rob_value)
-      << "},\"blockBidValid\":" << static_cast<unsigned>(dut.io_commit_rows_1_blockBidValid)
-      << ",\"blockBid\":" << dut.io_commit_rows_1_blockBid
-      << ",\"pc\":" << dut.io_commit_rows_1_pc
-      << ",\"insn\":" << dut.io_commit_rows_1_insn
-      << ",\"len\":" << static_cast<unsigned>(dut.io_commit_rows_1_len)
-      << ",\"wb\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_1_wb_valid)
-      << ",\"rd\":" << static_cast<unsigned>(dut.io_commit_rows_1_wb_reg)
-      << ",\"data\":" << dut.io_commit_rows_1_wb_data
-      << "},\"src0\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_1_src0_valid)
-      << ",\"reg\":" << static_cast<unsigned>(dut.io_commit_rows_1_src0_reg)
-      << ",\"data\":" << dut.io_commit_rows_1_src0_data
-      << "},\"src1\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_1_src1_valid)
-      << ",\"reg\":" << static_cast<unsigned>(dut.io_commit_rows_1_src1_reg)
-      << ",\"data\":" << dut.io_commit_rows_1_src1_data
-      << "},\"dst\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_1_dst_valid)
-      << ",\"reg\":" << static_cast<unsigned>(dut.io_commit_rows_1_dst_reg)
-      << ",\"data\":" << dut.io_commit_rows_1_dst_data
-      << "},\"mem\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_1_mem_valid)
-      << ",\"isStore\":" << static_cast<unsigned>(dut.io_commit_rows_1_mem_isStore)
-      << ",\"addr\":" << dut.io_commit_rows_1_mem_addr
-      << ",\"wdata\":" << dut.io_commit_rows_1_mem_wdata
-      << ",\"rdata\":" << dut.io_commit_rows_1_mem_rdata
-      << ",\"size\":" << static_cast<unsigned>(dut.io_commit_rows_1_mem_size)
-      << "},\"trap\":{\"valid\":" << static_cast<unsigned>(dut.io_commit_rows_1_trap_valid)
-      << ",\"cause\":" << dut.io_commit_rows_1_trap_cause
-      << ",\"arg0\":" << dut.io_commit_rows_1_trap_arg0
-      << "},\"nextPc\":" << dut.io_commit_rows_1_nextPc << "}\n";
+  write_dut_commit_jsonl(out, dut_slot1_to_json(dut));
 }
 
 void run_builtin_smoke(CommitTraceDut &dut, std::ofstream &dut_out, std::ofstream &qemu_out) {
