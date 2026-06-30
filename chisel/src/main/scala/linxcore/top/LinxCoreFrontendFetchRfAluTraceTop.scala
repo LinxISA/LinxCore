@@ -477,6 +477,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   execute.io.flushValid := backendPipeFlush
   execute.io.fretStkFallbackTargetValid := path.io.blockMarkerActiveValid && path.io.blockMarkerActiveTarget =/= 0.U
   execute.io.fretStkFallbackTarget := path.io.blockMarkerActiveTarget
+  execute.io.fretStkConditionValid := blockBranchTakenValid
+  execute.io.fretStkConditionTaken := blockBranchTaken
 
   val blockBoundaryConsumed = denseSlots.io.outFire && path.io.blockMarkerSkipValid && path.io.blockMarkerBoundary
   when(localReset) {

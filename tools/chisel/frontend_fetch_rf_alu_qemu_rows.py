@@ -542,7 +542,7 @@ def _expected_result(
     if opcode in {"C.SETC_TGT", "SETC_TGT"}:
         return 0
     if opcode == "FRET_STK":
-        return 0
+        return row["mem_rdata"] & MASK64 if row["mem_valid"] else 0
     if opcode == "SBI":
         return 0
     if opcode == "SWI":
@@ -614,6 +614,7 @@ def _validate_reduced_row(
         "LDI",
         "LD.PCR",
         "HL.LD.PCR",
+        "FRET_STK",
         "SBI",
         "SD",
         "SDI",
@@ -652,7 +653,14 @@ def _validate_reduced_row(
     elif opcode == "FRET_STK":
         _require_sources(row, opcode, src0=False, src1=False)
         if row["mem_valid"]:
-            raise RowExtractionError(f"row {index} FRET_STK must not carry memory sideband")
+            if row["mem_is_store"] or row["mem_size"] != 8:
+                raise RowExtractionError(f"row {index} FRET_STK must carry one 8-byte RA load")
+            if row["dst_reg"] != 10 or row["wb_rd"] != 10:
+                raise RowExtractionError(f"row {index} FRET_STK RA load must write x10")
+            if row["dst_data"] != row["mem_rdata"] or row["wb_data"] != row["mem_rdata"]:
+                raise RowExtractionError(f"row {index} FRET_STK RA data must match memory read data")
+            if row["next_pc"] != row["mem_rdata"]:
+                raise RowExtractionError(f"row {index} FRET_STK next_pc must use the loaded RA")
     elif opcode == "C.LDI":
         if row["src1_valid"]:
             raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
@@ -801,7 +809,6 @@ def _validate_reduced_row(
         "C.SETC_NE",
         "C.SETC_TGT",
         "C.SDI",
-        "FRET_STK",
         "SBI",
         "SETC_LTU",
         "SETC_LTUI",
@@ -809,7 +816,7 @@ def _validate_reduced_row(
         "SD",
         "SDI",
         "SWI",
-    }
+    } or (opcode == "FRET_STK" and not row["mem_valid"])
     suppress_setc_immediate_dst = _is_setc_immediate_dst_artifact(row, opcode)
     if no_writeback_opcode and not (_is_no_writeback_trace_gap(row) or suppress_setc_immediate_dst):
         raise RowExtractionError(f"row {index} {opcode} must not write a destination")
@@ -880,6 +887,28 @@ def _is_zero_advance_marker_artifact(row: dict[str, int], marker: tuple[str, boo
     )
 
 
+def _is_fret_stk_zero_advance_load_prefix(row: dict[str, int], next_row: dict[str, int] | None) -> bool:
+    if next_row is None or _classify(row) != "FRET_STK" or _classify(next_row) != "FRET_STK":
+        return False
+    return (
+        row["pc"] == next_row["pc"] and
+        _mask_insn(row["insn"], row["len"]) == _mask_insn(next_row["insn"], next_row["len"]) and
+        row["next_pc"] == row["pc"] and
+        not row["trap_valid"] and
+        not row["mem_valid"] and
+        not row["wb_valid"] and
+        not row["dst_valid"] and
+        bool(next_row["mem_valid"]) and
+        not next_row["mem_is_store"] and
+        next_row["mem_size"] == 8 and
+        next_row["dst_valid"] and
+        next_row["dst_reg"] == 10 and
+        next_row["wb_valid"] and
+        next_row["wb_rd"] == 10 and
+        next_row["next_pc"] == next_row["mem_rdata"]
+    )
+
+
 def _normalized_rows(path: Path) -> Iterable[dict[str, int]]:
     for seq, obj in enumerate(load_jsonl(path)):
         yield normalize_row(obj, seq)
@@ -897,7 +926,8 @@ def extract_rows(
     expected_pc: int | None = None
     local_state = _new_local_state()
     reduced_rows = 0
-    for index, row in enumerate(_normalized_rows(input_path)):
+    normalized = list(_normalized_rows(input_path))
+    for index, row in enumerate(normalized):
         if max_rows > 0 and reduced_rows >= max_rows:
             break
         if expected_pc is not None and row["pc"] != expected_pc:
@@ -907,6 +937,9 @@ def extract_rows(
 
         marker = _classify_block_marker(row) if allow_block_markers else None
         if marker is not None and _is_zero_advance_marker_artifact(row, marker):
+            continue
+        next_row = normalized[index + 1] if index + 1 < len(normalized) else None
+        if _is_fret_stk_zero_advance_load_prefix(row, next_row):
             continue
         if marker is not None:
             checked = _validate_block_marker_row(row, index, marker)
@@ -2411,6 +2444,42 @@ def self_test() -> None:
         assert extracted_r126_fret_stk[0]["pc"] == 0x4000_570A
         assert extracted_r126_fret_stk[0]["next_pc"] == 0x4000_574C
         assert extracted_r126_fret_stk[0]["dst_valid"] == 0
+
+        r132_fret_stk_source = tmp / "r132-fret-stk-load.jsonl"
+        r132_fret_stk_output = tmp / "r132-fret-stk-load.rows.jsonl"
+        fret_stk_template_prefix = {
+            **fret_stk,
+            "pc": 0x4000_D2D4,
+            "insn": 0x02A5_3041,
+            "next_pc": 0x4000_D2D4,
+        }
+        fret_stk_ra_load = {
+            **fret_stk_template_prefix,
+            "next_pc": 0x4000_5CB0,
+            "wb_valid": 1,
+            "wb_rd": 10,
+            "wb_data": 0x4000_5CB0,
+            "dst_valid": 1,
+            "dst_reg": 10,
+            "dst_data": 0x4000_5CB0,
+            "mem_valid": 1,
+            "mem_is_store": 0,
+            "mem_addr": 0x4FFE_FBB8,
+            "mem_wdata": 0,
+            "mem_rdata": 0x4000_5CB0,
+            "mem_size": 8,
+        }
+        _write_jsonl(r132_fret_stk_source, [fret_stk_template_prefix, fret_stk_ra_load])
+        count = extract_rows(r132_fret_stk_source, r132_fret_stk_output)
+        assert count == 1
+        extracted_r132_fret_stk = [
+            json.loads(line) for line in r132_fret_stk_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_r132_fret_stk[0]["pc"] == 0x4000_D2D4
+        assert extracted_r132_fret_stk[0]["next_pc"] == 0x4000_5CB0
+        assert extracted_r132_fret_stk[0]["dst_valid"] == 1
+        assert extracted_r132_fret_stk[0]["dst_reg"] == 10
+        assert extracted_r132_fret_stk[0]["mem_valid"] == 1
 
         r126_addw_slli_source = tmp / "r126-addw-slli.jsonl"
         r126_addw_slli_output = tmp / "r126-addw-slli.rows.jsonl"

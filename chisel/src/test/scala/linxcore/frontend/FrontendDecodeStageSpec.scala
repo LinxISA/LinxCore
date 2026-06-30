@@ -515,6 +515,11 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(fentry.src(1).isEmpty)
     assert(fentry.imm.contains(576))
 
+    val fretStkRa = operands(BigInt("02a53041", 16), lenBytes = 4).get
+    assert(fretStkRa.dst.isEmpty)
+    assert(fretStkRa.src.forall(_.isEmpty))
+    assert(fretStkRa.imm.contains(8))
+
     val cAdd = operands(0x0008 | (6 << 6) | (7 << 11), lenBytes = 2).get
     assert(cAdd.dst.contains(31))
     assert(cAdd.src(0).contains(6))

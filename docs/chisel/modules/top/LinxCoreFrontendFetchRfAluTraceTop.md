@@ -231,6 +231,16 @@ local-overlay sources. The promoted gate captures 1595 raw QEMU rows, extracts
 1475 expected rows, and compares 1079 normalized QEMU/DUT rows with zero
 mismatches. A 1600-row frontier probe then reaches the richer `FRET.STK`
 return/load packet at `pc=0x4000d2d4` (`insn=0x02a53041`).
+R132 carries that return/load packet. The top forwards the latest reduced SETC
+condition into `ReducedScalarAluExecute`; redirect-only `FRET.STK` rows still
+take the active target when the condition is true, while the condition-false
+template row loads `x10/ra` from sparse memory, writes reduced RF tag `x10`,
+and redirects to the loaded RA. The QEMU reducer skips only the zero-advance
+metadata prefix that is immediately followed by the same `FRET.STK` load row.
+The promoted gate captures 1597 raw QEMU rows, extracts 1476 expected rows, and
+compares 1080 normalized QEMU/DUT rows with zero mismatches. The next frontier
+is the post-return `OP_ADDTPC` row at `pc=0x40005cb2` (`insn=0x00009f87`),
+which writes local alias `x31/T0`.
 
 ## Interface
 

@@ -41,14 +41,15 @@ owners.
 | input | `in` | `RenamedUop` | with `inValid && inReady` | Renamed scalar uop from `DecodeRenameROBPath`. |
 | input | `srcData` | `Vec(3, UInt(64.W))` by default | with accepted uop | Operand values supplied by the reduced top harness. |
 | input | `flushValid` | `Bool` | pulse | Clears E/W1/W2 pipeline state and suppresses same-cycle completion/redirect outputs. |
-| input | `loadLookupData` | `UInt(64.W)` by default | combinational with E-stage load lookup | Read-only reduced load data returned by the owning top for reduced load rows including `OP_C_LDI`, `OP_LDI`, `OP_LD_PCR`, and `OP_HL_LD_PCR`. |
+| input | `loadLookupData` | `UInt(64.W)` by default | combinational with E-stage load lookup | Read-only reduced load data returned by the owning top for reduced load rows including `OP_C_LDI`, `OP_LDI`, `OP_LD_PCR`, `OP_HL_LD_PCR`, and the R132 `FRET.STK` RA-load path. |
 | input | `fretStkFallbackTargetValid`, `fretStkFallbackTarget` | `Bool`, `UInt(pcWidth.W)` | combinational | Active-marker fallback target used by reduced `FRET.STK` when no explicit SETC target is live. |
-| input | `stackPointerData` | `UInt(64.W)` by default | combinational | Reduced SP shadow used by macro `FENTRY` rows whose visible QEMU source fields are suppressed. |
+| input | `fretStkConditionValid`, `fretStkConditionTaken` | `Bool`, `Bool` | combinational | Latest reduced SETC condition. `FRET.STK` takes the latched/fallback target only when the condition is absent or taken; a valid false condition selects the RA-load return path when the restore range includes `x10`. |
+| input | `stackPointerData` | `UInt(64.W)` by default | combinational | Reduced SP shadow used by macro `FENTRY` rows and R132 `FRET.STK` RA-load address generation. |
 | output | `completeValid` | `Bool` | valid | W2-stage supported uop completed. |
 | output | `completeRobValue` | `UInt(log2Ceil(robEntries).W)` | with `completeValid` | ROB row to complete. |
 | output | `completeRow` | `CommitTraceRow` | with `completeValid` | Commit-trace payload carrying PC, source data, destination data, writeback, ROB ID, and block BID sideband. |
 | output | `completeDstPhysValid` | `Bool` | with `completeValid` | Destination physical tag and data are valid for a scalar GPR writeback. |
-| output | `completeDstPhysTag` | `UInt(physRegWidth.W)` | with `completeDstPhysValid` | Renamed physical destination tag copied from `in.dst(0).physTag`. |
+| output | `completeDstPhysTag` | `UInt(physRegWidth.W)` | with `completeDstPhysValid` | Renamed physical destination tag copied from `in.dst(0).physTag`; R132 `FRET.STK` RA-load uses reduced identity tag `x10` because decode remains no-destination. |
 | output | `completeDstData` | `UInt(64.W)` by default | with `completeDstPhysValid` | ALU result for the RF/ready-table writeback owner. |
 | output | `releaseValid` | `Bool` | valid | W2-stage uop reached the reduced issue-queue release point, including unsupported reduced opcodes. |
 | output | `releaseBid` | `ROBID` | with `releaseValid` | Block identity copied from the W2 uop. |
@@ -58,8 +59,8 @@ owners.
 | output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ`, `OP_C_SETC_NE`, `OP_SETC_LTU`, and reduced SETC target rows used by the reduced block-control owner. |
 | output | `loadLookupValid` | `Bool` | E-stage valid | The current E-stage uop requests reduced read-only load data. |
 | output | `loadLookupAddr` | `UInt(64.W)` by default | with `loadLookupValid` | Byte address for the reduced read-only load lookup. |
-| output | `redirectValid` | `Bool` | with `completeValid` | Reduced scalar redirect request for `FRET.STK` when an explicit SETC target or active-marker fallback target is available. |
-| output | `redirectPc` | `UInt(pcWidth.W)` | with `redirectValid` | Return target selected from `C.SETC.TGT`/`SETC.TGT` first, then the active-marker fallback. |
+| output | `redirectValid` | `Bool` | with `completeValid` | Reduced scalar redirect request for `FRET.STK` target-taken rows or condition-false RA-load return rows. |
+| output | `redirectPc` | `UInt(pcWidth.W)` | with `redirectValid` | Return target selected from the loaded RA for R132 load-return rows, otherwise from `C.SETC.TGT`/`SETC.TGT` first and active-marker fallback second. |
 | output | `accepted` | `Bool` | pulse | `inValid && inReady`. |
 | output | `busy` | `Bool` | state | Any E/W1/W2 pipe stage is occupied. |
 | output | `unsupported` | `Bool` | pulse | W2 uop reached execute but is outside the reduced opcode subset. |
@@ -143,7 +144,7 @@ The Chisel module implements the first reduced subset:
 | `OP_C_SETC_TGT` | `0`, latches `srcData(0)` as the reduced dynamic target |
 | `OP_C_SETRET` | `in.pc + in.imm` |
 | `OP_FENTRY` | `stackPointerData - in.imm`; the store address uses the ranged save count to place the first saved register |
-| `OP_FRET_STK` | `0`, no writeback, redirect to the latched SETC target or active-marker fallback target |
+| `OP_FRET_STK` | redirect-only while the live SETC condition is true; on the condition-false RA-restore path, load `x10/ra` from `stackPointerData + in.imm - 8`, emit an 8-byte load sideband, write reduced RF tag `x10`, and redirect to the loaded value |
 | `OP_HL_LUI` | `in.imm` |
 | `OP_HL_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
 | `OP_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
@@ -306,6 +307,16 @@ by four. The QEMU reducer also now lets ordinary shift and logical rows read
 either scalar-visible or local-overlay sources per encoded operand, which is
 needed by the scalar-visible `OP_SLL` row at `pc=0x4000d292`. The slice stops
 before the richer `FRET.STK` return/load packet at `pc=0x4000d2d4`.
+R132 admits that `FRET.STK` return/load packet. The top supplies the latest
+SETC condition to execute. While the condition remains true, `FRET.STK` keeps
+the R126/R127 redirect-only row shape and does not allocate or write `ra`.
+When the condition is known false and the encoded restore range includes
+`x10/ra`, execute requests the sparse-memory load at `SP + stacksize - 8`,
+emits the QEMU-shaped `dst/wb x10` and load sideband, writes reduced RF tag
+`x10`, and redirects to the loaded RA. The decode stage intentionally still
+marks `FRET.STK` as no visible destination; the reduced RF write is an
+execute-owned macro-template approximation until a full template uop protocol
+exists.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural
@@ -382,4 +393,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r129-andiw-1479-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1479 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r130-mulw-csub-1481-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1481 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r131-andi-swi-ori-sub-mul-1595-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1595 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r132-fret-stk-load-1597-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1597 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

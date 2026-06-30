@@ -101,6 +101,12 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_SETC_TGT, 0x4000574cL, 0, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_C_SETC_TGT, 0x4000574cL, 0).contains(true))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_FRET_STK, 0, 0, 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceResultWithLoad(
+      FrontendOpcodeDecodeTable.OP_FRET_STK,
+      src0 = 0,
+      src1 = 0,
+      imm = 8,
+      loadData = 0x40005cb0L).contains(0x40005cb0L))
     assert(ReducedScalarAluExecute.referenceFretStkNextPc(
       pc = BigInt("40005788", 16),
       lenBytes = 4,
@@ -177,6 +183,8 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(sv.contains("io_stackPointerData"))
     assert(sv.contains("io_branchConditionValid"))
     assert(sv.contains("io_branchConditionTaken"))
+    assert(sv.contains("io_fretStkConditionValid"))
+    assert(sv.contains("io_fretStkConditionTaken"))
     assert(sv.contains("io_flushValid"))
     assert(sv.contains("io_fretStkFallbackTargetValid"))
     assert(sv.contains("io_fretStkFallbackTarget"))

@@ -23,6 +23,8 @@ class ReducedScalarAluExecuteIO(
   val flushValid = Input(Bool())
   val fretStkFallbackTargetValid = Input(Bool())
   val fretStkFallbackTarget = Input(UInt(p.pcWidth.W))
+  val fretStkConditionValid = Input(Bool())
+  val fretStkConditionTaken = Input(Bool())
 
   val completeValid = Output(Bool())
   val completeRobValue = Output(UInt(ptrWidth.W))
@@ -127,6 +129,18 @@ class ReducedScalarAluExecute(
     Mux(end >= begin, end - begin + 1.U, end + 23.U - begin)
   }
 
+  private def macroRangeContains(insn: UInt, reg: UInt): Bool = {
+    val begin = insn(19, 15)
+    val end = insn(24, 20)
+    Mux(end >= begin, reg >= begin && reg <= end, reg >= begin || reg <= end)
+  }
+
+  private def fretStkRestoresRa(insn: UInt): Bool =
+    macroRangeContains(insn, 10.U)
+
+  private def fretStkRaLoadAddr(stackPointerData: UInt, imm: UInt): UInt =
+    stackPointerData + imm - 8.U
+
   private def sdIndexedAddr(srcData: Vec[UInt]): UInt =
     srcData(0) + ((srcData(1) << 3)(p.immWidth - 1, 0))
 
@@ -192,7 +206,7 @@ class ReducedScalarAluExecute(
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SETC_TGT)) {
       out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK)) {
-      out := 0.U
+      out := loadData
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY)) {
       out := stackPointerData - imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI)) {
@@ -243,7 +257,9 @@ class ReducedScalarAluExecute(
       setcTargetValid: Bool,
       setcTarget: UInt,
       fallbackTargetValid: Bool,
-      fallbackTarget: UInt): CommitTraceRow = {
+      fallbackTarget: UInt,
+      fretStkLoadReturn: Bool,
+      stackPointerData: UInt): CommitTraceRow = {
     val row = Wire(new CommitTraceRow(traceParams))
     row := 0.U.asTypeOf(row)
     row.valid := valid
@@ -273,21 +289,36 @@ class ReducedScalarAluExecute(
     row.wb.data := result
     when(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK)) {
       row.nextPc := Mux(
-        setcTargetValid,
-        setcTarget,
-        Mux(fallbackTargetValid, fallbackTarget, uop.pc + uop.insnLen))
+        fretStkLoadReturn,
+        result,
+        Mux(setcTargetValid, setcTarget, Mux(fallbackTargetValid, fallbackTarget, uop.pc + uop.insnLen)))
       row.src0.valid := false.B
       row.src0.reg := 0.U
       row.src0.data := 0.U
       row.src1.valid := false.B
       row.src1.reg := 0.U
       row.src1.data := 0.U
-      row.dst.valid := false.B
-      row.dst.reg := 0.U
-      row.dst.data := 0.U
-      row.wb.valid := false.B
-      row.wb.reg := 0.U
-      row.wb.data := 0.U
+      when(fretStkLoadReturn) {
+        row.dst.valid := valid
+        row.dst.reg := 10.U
+        row.dst.data := result
+        row.wb.valid := valid
+        row.wb.reg := 10.U
+        row.wb.data := result
+        row.mem.valid := valid
+        row.mem.isStore := false.B
+        row.mem.addr := fretStkRaLoadAddr(stackPointerData, uop.imm)
+        row.mem.wdata := 0.U
+        row.mem.rdata := result
+        row.mem.size := 8.U
+      }.otherwise {
+        row.dst.valid := false.B
+        row.dst.reg := 0.U
+        row.dst.data := 0.U
+        row.wb.valid := false.B
+        row.wb.reg := 0.U
+        row.wb.data := 0.U
+      }
     }
     when(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FENTRY)) {
       row.src0.valid := false.B
@@ -369,12 +400,16 @@ class ReducedScalarAluExecute(
   val w1SrcData = Reg(Vec(3, UInt(p.immWidth.W)))
   val w1Result = Reg(UInt(p.immWidth.W))
   val w1Supported = Reg(Bool())
+  val w1StackPointerData = Reg(UInt(p.immWidth.W))
+  val w1FretStkLoadReturn = Reg(Bool())
 
   val w2Valid = RegInit(false.B)
   val w2Uop = Reg(new RenamedUop(p))
   val w2SrcData = Reg(Vec(3, UInt(p.immWidth.W)))
   val w2Result = Reg(UInt(p.immWidth.W))
   val w2Supported = Reg(Bool())
+  val w2StackPointerData = Reg(UInt(p.immWidth.W))
+  val w2FretStkLoadReturn = Reg(Bool())
   val setcTargetValid = RegInit(false.B)
   val setcTarget = RegInit(0.U(p.pcWidth.W))
 
@@ -384,11 +419,19 @@ class ReducedScalarAluExecute(
   val eLoadPcr =
     eUop.opcode === opcode(FrontendOpcodeDecodeTable.OP_HL_LD_PCR) ||
       eUop.opcode === opcode(FrontendOpcodeDecodeTable.OP_LD_PCR)
-  io.loadLookupValid := !io.flushValid && eValid && (eLoadC || eLoadI || eLoadPcr)
+  val eFretStkConditionNotTaken = io.fretStkConditionValid && !io.fretStkConditionTaken
+  val eFretStkLoadReturn =
+    eUop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK) &&
+      eFretStkConditionNotTaken &&
+      fretStkRestoresRa(eUop.insnRaw)
+  io.loadLookupValid := !io.flushValid && eValid && (eLoadC || eLoadI || eLoadPcr || eFretStkLoadReturn)
   io.loadLookupAddr := Mux(
-    eLoadPcr,
-    pcrLoadAddr(eUop.pc, eUop.imm),
-    Mux(eLoadI, ldiAddr(eSrcData, eUop.imm), cLdiAddr(eSrcData, eUop.imm)))
+    eFretStkLoadReturn,
+    fretStkRaLoadAddr(io.stackPointerData, eUop.imm),
+    Mux(
+      eLoadPcr,
+      pcrLoadAddr(eUop.pc, eUop.imm),
+      Mux(eLoadI, ldiAddr(eSrcData, eUop.imm), cLdiAddr(eSrcData, eUop.imm))))
   val eResult = resultFor(eUop.opcode, eUop.pc, eSrcData, eUop.imm, io.loadLookupData, io.stackPointerData)
   val eSupported = eValid && isSupported(eUop.opcode)
 
@@ -404,12 +447,16 @@ class ReducedScalarAluExecute(
     w2SrcData := w1SrcData
     w2Result := w1Result
     w2Supported := w1Supported
+    w2StackPointerData := w1StackPointerData
+    w2FretStkLoadReturn := w1FretStkLoadReturn
 
     w1Valid := eValid
     w1Uop := eUop
     w1SrcData := eSrcData
     w1Result := eResult
     w1Supported := eSupported
+    w1StackPointerData := io.stackPointerData
+    w1FretStkLoadReturn := eFretStkLoadReturn
 
     eValid := accept
     when(accept) {
@@ -423,19 +470,27 @@ class ReducedScalarAluExecute(
   io.busy := !io.flushValid && (eValid || w1Valid || w2Valid)
   io.completeValid := !io.flushValid && w2Valid && w2Supported
   io.completeRobValue := w2Uop.rid.value
+  val w2IsFretStk = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK)
   val w2FretStkFallbackTargetValid = io.fretStkFallbackTargetValid
+  val w2FretStkConditionAllowsTarget = !io.fretStkConditionValid || io.fretStkConditionTaken
+  val w2FretStkTargetTaken =
+    (setcTargetValid || w2FretStkFallbackTargetValid) && w2FretStkConditionAllowsTarget
   val w2FretStkTarget = Mux(setcTargetValid, setcTarget, io.fretStkFallbackTarget)
   io.completeRow := completionRow(
     w2Uop,
     w2SrcData,
     w2Result,
     io.completeValid,
-    setcTargetValid,
+    setcTargetValid && w2FretStkConditionAllowsTarget,
     setcTarget,
-    w2FretStkFallbackTargetValid,
-    io.fretStkFallbackTarget)
-  io.completeDstPhysValid := io.completeValid && w2Uop.dst(0).valid && (w2Uop.dst(0).kind === DestinationKind.Gpr)
-  io.completeDstPhysTag := w2Uop.dst(0).physTag
+    w2FretStkFallbackTargetValid && w2FretStkConditionAllowsTarget,
+    io.fretStkFallbackTarget,
+    w2FretStkLoadReturn,
+    w2StackPointerData)
+  io.completeDstPhysValid :=
+    io.completeValid &&
+      Mux(w2FretStkLoadReturn, true.B, w2Uop.dst(0).valid && (w2Uop.dst(0).kind === DestinationKind.Gpr))
+  io.completeDstPhysTag := Mux(w2FretStkLoadReturn, 10.U(p.physRegWidth.W), w2Uop.dst(0).physTag)
   io.completeDstData := w2Result
   val branchSrc0 = Mux(w2Uop.src(0).valid, w2SrcData(0), 0.U)
   val branchSrc1 = Mux(w2Uop.src(1).valid, w2SrcData(1), 0.U)
@@ -446,7 +501,6 @@ class ReducedScalarAluExecute(
   val branchIsSetcTgt =
     w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_TGT) ||
       w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SETC_TGT)
-  val w2IsFretStk = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK)
   io.branchConditionValid := io.completeValid && (branchIsSetcEq || branchIsSetcNe || branchIsSetcLtu || branchIsSetcLtui || branchIsSetcTgt)
   io.branchConditionTaken := Mux(
     branchIsSetcTgt,
@@ -458,8 +512,8 @@ class ReducedScalarAluExecute(
         branchIsSetcNe,
         branchSrc0 =/= branchSrc1,
         Mux(branchIsSetcLtui, branchSrc0 < w2Uop.imm, branchSrc0 < branchSrc1))))
-  io.redirectValid := io.completeValid && w2IsFretStk && (setcTargetValid || w2FretStkFallbackTargetValid)
-  io.redirectPc := w2FretStkTarget
+  io.redirectValid := io.completeValid && w2IsFretStk && (w2FretStkLoadReturn || w2FretStkTargetTaken)
+  io.redirectPc := Mux(w2FretStkLoadReturn, w2Result(p.pcWidth - 1, 0), w2FretStkTarget)
   when(io.completeValid && branchIsSetcTgt) {
     setcTargetValid := true.B
     setcTarget := branchSrc0(p.pcWidth - 1, 0)
@@ -528,7 +582,7 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_C_SETC_EQ => Some(0)
       case FrontendOpcodeDecodeTable.OP_C_SETC_NE => Some(0)
       case FrontendOpcodeDecodeTable.OP_C_SETC_TGT => Some(0)
-      case FrontendOpcodeDecodeTable.OP_FRET_STK => Some(0)
+      case FrontendOpcodeDecodeTable.OP_FRET_STK => Some(loadData & Mask64)
       case FrontendOpcodeDecodeTable.OP_SETC_LTU => Some(0)
       case FrontendOpcodeDecodeTable.OP_SETC_LTUI => Some(0)
       case FrontendOpcodeDecodeTable.OP_SETC_TGT => Some(0)

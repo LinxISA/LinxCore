@@ -207,6 +207,8 @@ class LinxCoreFrontendRfAluTraceTop(
   execute.io.flushValid := io.frontendFlushValid
   execute.io.fretStkFallbackTargetValid := false.B
   execute.io.fretStkFallbackTarget := 0.U
+  execute.io.fretStkConditionValid := false.B
+  execute.io.fretStkConditionTaken := false.B
 
   io.f4ValidMask := f4.io.validMask
   io.f4SlotCount := f4.io.slotCount

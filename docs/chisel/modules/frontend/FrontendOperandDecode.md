@@ -111,8 +111,9 @@ Explicit pyCircuit/model overrides currently cover:
 - macro forms `FENTRY`, `FEXIT`, `FRET.RA`, and `FRET.STK` that carry
   `rs1_32`, `rs2_32`, and macro immediate fields despite catalog
   `rs*_kind=NONE`. `FRET.STK` clears all visible sources in the reduced
-  scalar row; its target is supplied by execute SETC/active-marker state, not
-  by a decoded source operand;
+  scalar row and remains a no-destination header at decode. R132's reduced
+  RA-load return writes `x10` from execute only, so redirect-only `FRET.STK`
+  rows do not allocate an unwritten RA physical register;
 - `BTEXT` source plus 25-bit immediate;
 - `BLOAD`/`BSTORE` register fields;
 - `MADD`, `MADDW`, `CSEL`, `BIOR`, and indexed stores that carry `srcp32`;
