@@ -319,6 +319,19 @@ The bridge keeps raw replay/normalization rows separate from architectural
 compare rows: QEMU metadata rows can be skipped by the comparator, so R90
 normalizes a wider raw window and slices the replay input to the smallest prefix
 that contains the requested non-metadata commits.
+R91 started from `rtl/LinxCore` commit
+`1c40d4eeae136370003d1e257669972e2f90e433` after R90 landed archived QEMU row
+replay evidence. The superproject root was
+`f8a6c3e7c703c770b426ab9fbc702469e4ec5993`; LinxCoreModel remained at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; QEMU was at
+`f17c551aaef51a784a99d5cccc69cf65ff2a7b32`; `skills/linx-skills` was at
+`0580ef69ed3e77f179f91d139062f3223cd01120`. R91 is a live-ELF replay prefix
+hardening packet: early QEMU failure no longer leaves the FIFO reader hanging,
+and direct-boot CoreMark-style images mapped at `0x40000000` are replayed with
+explicit QEMU RAM, e.g. `-m 1280M`. R91 evidence captured 128 raw QEMU rows
+from `tests/benchmarks/build/coremark_real.elf`, sliced 5 replay rows with 4
+architectural commits, and passed the Chisel replay cross-check with zero
+mismatches.
 
 ## Non-Negotiable Rules
 
@@ -336,6 +349,9 @@ that contains the requested non-metadata commits.
 - Non-dry-run QEMU/DUT comparisons that route through
   `run_chisel_qemu_crosscheck.sh` must leave a `crosscheck_manifest.json`
   evidence bundle in the report directory.
+- Direct-boot ET_DYN benchmark ELFs mapped near `0x40000000`, including the
+  current CoreMark ELF, need explicit Linx QEMU memory such as `-m 1280M`; the
+  default 128 MiB `virt` machine is expected to fail before trace production.
 - Direct `gfsim -f <elf>` model comparison runs only after the same ELF passed
   QEMU in the same run packet.
 - Every closeout records `skill-evolve: update ...` or
@@ -501,6 +517,7 @@ These packets remain the required base before broad module promotion:
 | R88 | Reduced P1/I1/I2 issue timing | `run_chisel_tests.sh --only ReducedScalarIssuePick`, `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R89 | QEMU cross-check manifest evidence | `run_chisel_qemu_crosscheck.sh --dry-run`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, inspect each `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
 | R90 | QEMU trace replay bridge | `run_chisel_qemu_trace_replay_xcheck.sh --dry-run`, replay archived/fresh QEMU JSONL with `--qemu-trace` or `--elf`, verify metadata-aware raw prefix output, inspect `generated/chisel-qemu-trace-replay-xcheck/report/crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
+| R91 | Bounded CoreMark ELF replay prefix | `run_chisel_qemu_trace_replay_xcheck.sh --dry-run`, default-memory CoreMark `--elf` fail-fast check, CoreMark `--elf` replay with explicit `-m 1280M`, inspect `generated/r91-coremark-elf-prefix/report/crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -533,7 +550,9 @@ Use this order for each promoted slice:
 11. `run_chisel_qemu_trace_replay_xcheck.sh --dry-run` after QEMU row replay
    wrapper changes, followed by a bounded `--qemu-trace` or `--elf` replay.
    `--max-commits` is the architectural compare depth; `--replay-rows` is only
-   the raw search/replay cap before metadata filtering.
+   the raw search/replay cap before metadata filtering. Direct-boot CoreMark
+   replay also requires trailing QEMU memory args such as `-m 1280M` because
+   the current ELF maps load segments at `0x40000000`.
 12. Inspect `crosscheck_manifest.json` after any non-dry-run generated-RTL,
    QEMU-row replay, or full QEMU comparison routed through the common wrapper.
 13. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural

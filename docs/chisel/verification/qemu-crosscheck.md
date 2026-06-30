@@ -108,6 +108,29 @@ architectural rows. This keeps QEMU BSTART/template/control metadata from
 starving the compare window while avoiding extra DUT tail rows after the
 bounded compare point.
 
+In `--elf` mode, `--replay-rows` also bounds the raw QEMU prefix collected from
+the FIFO before the wrapper stops QEMU. If QEMU exits before opening or
+producing the FIFO, the reader is killed and the wrapper must fail with an
+empty-trace error rather than hanging. Direct-boot CoreMark-style ET_DYN images
+currently carry physical load segments at `0x40000000`, while the Linx QEMU
+`virt` machine defaults to 128 MiB of RAM. Use an explicit memory argument for
+that class of ELF:
+
+```bash
+bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh \
+  --build-dir generated/r91-coremark-elf-prefix \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --max-commits 4 \
+  --replay-rows 128 \
+  --max-seconds 10 \
+  -- -nographic -monitor none -machine virt -m 1280M \
+     -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+R91 evidence for that command captured 128 raw QEMU rows, sliced 5 replay rows
+containing 4 architectural commits, and passed the Chisel replay cross-check
+with `compared_rows: 4` and `mismatch_count: 0`.
+
 The common wrapper exposes the same distinction directly:
 
 ```bash
@@ -183,5 +206,9 @@ registers, enqueues rows through the reduced issue queue before draining
 commits, reads later sources from Chisel physical RF writeback state, and
 compares three rows with zero mismatches. Its report directory now includes a
 manifest with `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
+The QEMU trace replay bridge now has bounded live-ELF prefix evidence using
+`tests/benchmarks/build/coremark_real.elf` with explicit `-m 1280M`; the
+default 128 MiB QEMU run fails fast with an empty-trace error because the ELF
+segment at `0x40000000` does not fit.
 Full-core QEMU comparison remains blocked until the Chisel top emits live
 architectural commit rows from real fetch, full issue, LSU, and recovery paths.

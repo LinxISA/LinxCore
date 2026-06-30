@@ -156,6 +156,21 @@ R90 also separates raw replay/normalization depth from architectural compare
 depth: QEMU metadata rows may be filtered by the comparator, so the bridge
 normalizes a wider raw window and slices the replay input to the smallest
 prefix containing the requested non-metadata commit rows.
+R91 started from `linx-isa` commit
+`f8a6c3e7c703c770b426ab9fbc702469e4ec5993`, `rtl/LinxCore` commit
+`1c40d4eeae136370003d1e257669972e2f90e433`,
+`model/LinxCoreModel` commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`, QEMU commit
+`f17c551aaef51a784a99d5cccc69cf65ff2a7b32`, and
+`skills/linx-skills` commit `0580ef69ed3e77f179f91d139062f3223cd01120`.
+R91 hardens the live `--elf` QEMU trace replay path: the FIFO prefix reader is
+bounded by `--replay-rows`, gets killed if QEMU exits before producing rows,
+and the wrapper fails fast with an empty-trace error instead of hanging. The
+CoreMark direct-boot ELF maps load segments at `0x40000000`; use explicit QEMU
+memory such as `-m 1280M` when replaying
+`tests/benchmarks/build/coremark_real.elf`. R91 evidence captured 128 raw QEMU
+rows from that ELF, sliced 5 replay rows containing 4 architectural commits,
+and passed the Chisel replay cross-check with zero mismatches.
 
 ## Reference Evidence
 
@@ -260,9 +275,10 @@ The ROB/cross-check substrate remains the required base:
 | 14 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay/frontend-top gates |
 | 15 | R89 QEMU cross-check manifest evidence | `tools/chisel/run_chisel_qemu_crosscheck.sh`, cross-check docs | dry-run, RF/ALU xcheck, ALU xcheck, trace self-test, diff check |
 | 16 | R90 QEMU trace replay harness | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`, trace replay wrapper docs | dry-run, archived/fresh QEMU JSONL replay with metadata-aware raw prefix, manifest inspection |
-| 17 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 18 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 19 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 17 | R91 bounded CoreMark ELF replay prefix | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`, trace replay wrapper docs | default-memory fail-fast check, CoreMark `--elf` replay with explicit `-m 1280M`, manifest inspection |
+| 18 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 19 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 20 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
