@@ -570,6 +570,7 @@ These packets remain the required base before broad module promotion:
 | R96 | File-backed live fetch RF/ALU memory feeder | `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.fetch.bin` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 | R97 | Sparse ELF live fetch RF/ALU memory feeder | `frontend_fetch_elf_memory.py --self-test`, `FETCH_ELF=<synthetic.elf> run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/elf.fetch.mem` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 | R98 | External expected-row source for live fetch RF/ALU | `frontend_fetch_rf_alu_fixture_rows.py --self-test`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `FETCH_EXPECTED_ROWS=<rows.jsonl> run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
+| R99 | Strict QEMU trace expected-row extraction for live fetch RF/ALU | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `FETCH_QEMU_TRACE=<qemu.jsonl> run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, default live fetch RF/ALU xcheck regression, inspect `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/qemu.expected.jsonl` and `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -682,6 +683,9 @@ Update skills only for:
 - a live-source promotion rule where future replacement evidence must remove
   testbench-owned frontend packets before claiming a top can consume fetch
   traffic.
+- a QEMU row-source rule where a reduced live-fetch gate may consume QEMU
+  commit JSONL only after strict prefix validation proves every row is inside
+  the current DUT subset.
 
 Run skill evolution as a trailing maintenance lane after the module docs and
 evidence are updated. The module packet owns local Markdown first; the
@@ -741,9 +745,9 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. QEMU/ELF prefix row extraction: feed the R98 `FETCH_EXPECTED_ROWS` boundary
-   from a bounded QEMU/ELF prefix and pair it with the R97 sparse ELF memory
-   path for matching PC/instruction bytes.
+1. Live QEMU capture plus reduced-row selection: collect a bounded QEMU trace
+   for a direct-boot ELF, feed a validated `FETCH_QEMU_TRACE` prefix into the
+   R99 path, and pair it with `FETCH_ELF` for matching PC/instruction bytes.
 2. Dense packet and multi-slot frontend: allow one response window to carry
    multiple valid F4 slots and retire/compare the selected architectural rows
    without relying on a one-instruction-per-response fixture.

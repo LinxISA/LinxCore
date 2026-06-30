@@ -14,11 +14,14 @@ QEMU_TRACE="${TRACE_DIR}/qemu.reference.jsonl"
 DEFAULT_FETCH_MEMORY_BIN="${BUILD_DIR}/fixture.fetch.bin"
 DEFAULT_FETCH_MEMORY_HEX="${BUILD_DIR}/elf.fetch.mem"
 DEFAULT_EXPECTED_ROWS="${BUILD_DIR}/fixture.expected.jsonl"
+DEFAULT_QEMU_EXPECTED_ROWS="${BUILD_DIR}/qemu.expected.jsonl"
 FETCH_ELF="${FETCH_ELF:-}"
 FETCH_MEMORY_BIN="${FETCH_MEMORY_BIN:-}"
 FETCH_MEMORY_HEX="${FETCH_MEMORY_HEX:-}"
 FETCH_MEMORY_BASE="${FETCH_MEMORY_BASE:-0x1000}"
 FETCH_EXPECTED_ROWS="${FETCH_EXPECTED_ROWS:-}"
+FETCH_QEMU_TRACE="${FETCH_QEMU_TRACE:-}"
+FETCH_QEMU_MAX_ROWS="${FETCH_QEMU_MAX_ROWS:-0}"
 
 if ! command -v verilator >/dev/null 2>&1; then
   echo "error: Verilator is required for Chisel frontend fetch RF ALU trace top xcheck" >&2
@@ -27,7 +30,25 @@ fi
 
 mkdir -p "${TRACE_DIR}" "${REPORT_DIR}"
 
-if [[ -z "${FETCH_EXPECTED_ROWS}" ]]; then
+if [[ -n "${FETCH_EXPECTED_ROWS}" && -n "${FETCH_QEMU_TRACE}" ]]; then
+  echo "error: set only one of FETCH_EXPECTED_ROWS or FETCH_QEMU_TRACE" >&2
+  exit 2
+fi
+
+if [[ -n "${FETCH_QEMU_TRACE}" ]]; then
+  if [[ "${FETCH_QEMU_TRACE}" != /* ]]; then
+    FETCH_QEMU_TRACE="${ROOT_DIR}/${FETCH_QEMU_TRACE}"
+  fi
+  if [[ ! -f "${FETCH_QEMU_TRACE}" ]]; then
+    echo "error: FETCH_QEMU_TRACE does not exist: ${FETCH_QEMU_TRACE}" >&2
+    exit 2
+  fi
+  FETCH_EXPECTED_ROWS="${DEFAULT_QEMU_EXPECTED_ROWS}"
+  python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" \
+    --input "${FETCH_QEMU_TRACE}" \
+    --output "${FETCH_EXPECTED_ROWS}" \
+    --max-rows "${FETCH_QEMU_MAX_ROWS}"
+elif [[ -z "${FETCH_EXPECTED_ROWS}" ]]; then
   FETCH_EXPECTED_ROWS="${DEFAULT_EXPECTED_ROWS}"
   python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_fixture_rows.py" \
     --output "${FETCH_EXPECTED_ROWS}"

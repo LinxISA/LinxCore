@@ -8,6 +8,7 @@
 - Gate: `rtl/LinxCore/tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - Fixture memory helper: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_fixture_memory.py`
 - Fixture expected-row helper: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_fixture_rows.py`
+- QEMU expected-row helper: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py`
 - ELF memory helper: `rtl/LinxCore/tools/chisel/frontend_fetch_elf_memory.py`
 - Child owners:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/frontend/FrontendFetchPacketSource.scala`
@@ -50,9 +51,11 @@ little-endian ELF64 PT_LOAD extractor that writes a sparse address-to-byte
 image for high-address or non-contiguous program segments. R98 moves the
 expected PC/instruction/source/writeback rows out of the C++ harness and into a
 QEMU-shaped JSONL file selected by `FETCH_EXPECTED_ROWS` or the default
-`fixture.expected.jsonl`. The top still injects a single-instruction response
-terminator after each expected instruction length, so it is not dense packet or
-full QEMU equivalence. Automatic QEMU-prefix row extraction, dense multi-slot
+`fixture.expected.jsonl`. R99 adds `FETCH_QEMU_TRACE`, which normalizes an
+existing QEMU commit JSONL and extracts a strict sequential reduced-scalar
+prefix into `qemu.expected.jsonl`. The top still injects a single-instruction
+response terminator after each expected instruction length, so it is not dense
+packet or full QEMU equivalence. Live QEMU capture automation, dense multi-slot
 packet handling, full issue arbitration, LSU, trap/recovery, and branch restart
 are still outside this reduced top.
 
@@ -149,8 +152,12 @@ scalar smoke. The R96/R97 memory feeders remove direct instruction-word
 injection from the response driver and allow sparse ELF-backed program bytes.
 R98 separates expected row ownership from the harness: a JSONL row stream now
 provides the PC, instruction, length, scalar source data, and writeback
-expectations that the reduced top can execute. This top does not yet collect or
-filter that stream from a live QEMU run, and it does not model cacheline merge,
+expectations that the reduced top can execute. R99 allows that stream to come
+from an already captured QEMU commit trace when the first rows are the strict
+reduced scalar subset. The extractor rejects unsupported opcodes, memory or
+trap rows, non-scalar GPR aliases, non-sequential `next_pc`, and result
+mismatches before the Verilator harness sees the rows. This top still does not
+collect a live QEMU trace itself, and it does not model cacheline merge,
 branch prediction, multiple
 outstanding fetches, dense multi-slot decode, full oldest-ready issue
 preferences, read-port arbitration, bypass, load speculative wakeup, LSU,
@@ -172,6 +179,11 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
 - accepts `FETCH_MEMORY_HEX` directly for sparse address-to-byte memory tests;
 - emits `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl`
   unless `FETCH_EXPECTED_ROWS` points at another QEMU-shaped expected-row file;
+- when `FETCH_QEMU_TRACE` points at a QEMU commit JSONL, runs
+  `frontend_fetch_rf_alu_qemu_rows.py` to produce
+  `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/qemu.expected.jsonl`;
+- accepts `FETCH_QEMU_MAX_ROWS` to cap the extracted strict reduced-scalar row
+  prefix, with `0` meaning all normalized input rows;
 - starts the live source at the first expected row PC;
 - serves one bounded instruction window per source PC request by reading bytes
   from the fetch-memory image and appending the single-instruction terminator
@@ -184,7 +196,7 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
 - compares `ADD r3,r4,r5`, `ADDI r6,r3,0x7ff`, and `C.MOVR r5,r6` through the
   neutral comparator.
 
-The R98 manifest at
+The R99 manifest at
 `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 
@@ -194,10 +206,12 @@ records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_EXPECTED_ROWS=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_QEMU_TRACE=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
 - `python3 tools/chisel/frontend_fetch_rf_alu_fixture_rows.py --self-test`
+- `python3 tools/chisel/frontend_fetch_rf_alu_qemu_rows.py --self-test`
 - `python3 tools/chisel/frontend_fetch_elf_memory.py --self-test`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`

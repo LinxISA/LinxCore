@@ -22,6 +22,7 @@ details into the comparator itself.
 - `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py`
 - `tools/trace/crosscheck_qemu_linxcore.py`
 
 ## Evidence Manifest
@@ -245,13 +246,17 @@ serves instruction bytes from a `FETCH_MEMORY_BIN`, `FETCH_MEMORY_HEX`, or
 QEMU-shaped JSONL selected by `FETCH_EXPECTED_ROWS`, and preserves RF-backed
 reduced issue and ALU completion. When `FETCH_EXPECTED_ROWS` is unset, the
 wrapper emits `fixture.expected.jsonl` and sizes `--max-commits` from the
-expected row count.
+expected row count. It can also derive that expected-row stream from an
+existing QEMU commit JSONL with `FETCH_QEMU_TRACE`; the helper writes
+`qemu.expected.jsonl` only after validating a strict sequential reduced-scalar
+prefix (`ADD`, `ADDI`, `C.MOVI`, or `C.MOVR`, scalar GPRs only, no memory or
+trap side effects).
 Its manifest under
 `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/report` records
 `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 The R97 sparse ELF mode extracts PT_LOAD bytes into `elf.fetch.mem`, but the
-top still needs an externally supplied reduced scalar row stream; automatic
-QEMU/ELF prefix extraction and row enrichment remain later packets.
+top still needs a reduced scalar row stream that the current top can execute;
+live QEMU capture automation and non-ALU row enrichment remain later packets.
 The QEMU trace replay bridge now has bounded live-ELF prefix evidence using
 `tests/benchmarks/build/coremark_real.elf` with explicit `-m 1280M`; the
 default 128 MiB QEMU run fails fast with an empty-trace error because the ELF
