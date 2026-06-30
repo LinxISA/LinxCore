@@ -174,6 +174,9 @@ object FrontendDecodeStageReference {
         } else {
           imm = Some(sext((bitRange(pfx16, 15, 4) << 18) | (bitRange(word, 47, 31) << 1), 30))
         }
+      case FrontendOpcodeDecodeTable.ImmSIMM_4_S12_23_5_36_12 =>
+        val pfx16 = bitRange(word, 15, 0)
+        imm = Some(sext((bitRange(pfx16, 15, 4) << 17) | (bitRange(word, 27, 23) << 12) | bitRange(word, 47, 36), 29))
       case FrontendOpcodeDecodeTable.ImmIMM20 =>
         if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_SETRET)) {
           imm = Some((bitRange(word, 31, 12) << 1) & Mask64)
@@ -450,6 +453,12 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(hlLdPcr.dst.contains(5))
     assert(hlLdPcr.src.forall(_.isEmpty))
     assert(hlLdPcr.imm.contains(BigInt("a728", 16)))
+
+    val hlSdPcr = operands(BigInt("43a1b569000e", 16), lenBytes = 6).get
+    assert(hlSdPcr.dst.isEmpty)
+    assert(hlSdPcr.src(0).contains(3))
+    assert(hlSdPcr.src(1).isEmpty)
+    assert(hlSdPcr.imm.contains(BigInt("a43a", 16)))
 
     val ldPcr = operands(BigInt("012332b9", 16), lenBytes = 4).get
     assert(ldPcr.dst.contains(5))

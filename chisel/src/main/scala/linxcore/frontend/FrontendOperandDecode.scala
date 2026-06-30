@@ -118,6 +118,7 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
   val hlLuiImm = sext(Cat(pfx16(15, 4), main32(31, 12)), 32)
   val hlBstartOff = sext(Cat(pfx16(15, 4), io.insn(47, 31), 0.U(1.W)), 30)
   val hlPcrOff = sext(Cat(pfx16(15, 4), io.insn(47, 31)), 29)
+  val hlStorePcrOff = sext(Cat(pfx16(15, 4), io.insn(27, 23), io.insn(47, 36)), 29)
 
   private def isLoadPcrOpcode: Bool =
     opcodeIs(
@@ -282,6 +283,9 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       }.otherwise {
         setImm(hlBstartOff)
       }
+    }
+    when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM_4_S12_23_5_36_12.U) {
+      setImm(hlStorePcrOff)
     }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmIMM20.U) {
       when(opcodeIs(FrontendOpcodeDecodeTable.OP_SETRET)) {

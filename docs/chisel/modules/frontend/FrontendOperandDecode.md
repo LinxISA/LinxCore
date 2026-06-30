@@ -129,6 +129,11 @@ Explicit pyCircuit/model overrides currently cover:
   forms use the unshifted signed 29-bit `Cat(pfx16[15:4], main32[31:15])`.
   `BSTART` forms keep their shifted byte-target immediates, so PCR loads must
   not reuse the generic shifted `SIMM17` or HL `BSTART` paths.
+- R134 PCR store immediate extraction. High-long `HL.*.PCR` store forms use
+  the model split field `Cat(pfx16[15:4], insn[27:23], insn[47:36])` as an
+  unshifted signed 29-bit PC-relative store offset. The promoted CoreMark
+  `OP_HL_SD_PCR` row at `pc=0x40005cce` decodes source `x3`, no destination,
+  and immediate `0xa43a`, producing store address `0x40010108` in execute.
 - R128 `SETC.*I` immediate compare rows. The generated metadata exposes the
   encoded immediate compare register field through `rdKind=REG`, but the
   reduced scalar trace treats these rows as no-writeback condition producers.

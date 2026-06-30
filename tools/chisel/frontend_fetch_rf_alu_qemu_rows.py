@@ -43,6 +43,8 @@ HL_LUI_MASK = 0xFFFF_0000_007F_000F
 HL_LUI_MATCH = 0x0000_0000_0017_000E
 HL_LD_PCR_MASK = 0xFFFF_0000_707F_000F
 HL_LD_PCR_MATCH = 0x0000_0000_3039_000E
+HL_SD_PCR_MASK = 0xFFFF_0000_707F_000F
+HL_SD_PCR_MATCH = 0x0000_0000_3069_000E
 SLL_MASK = 0xFE00_707F
 SLL_MATCH = 0x0000_7005
 SLLI_MASK = 0xFC00_707F
@@ -182,6 +184,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "HL.LUI"
         if (insn & HL_LD_PCR_MASK) == HL_LD_PCR_MATCH:
             return "HL.LD.PCR"
+        if (insn & HL_SD_PCR_MASK) == HL_SD_PCR_MATCH:
+            return "HL.SD.PCR"
     return None
 
 
@@ -240,6 +244,12 @@ def _simm17_unscaled(row: dict[str, int]) -> int:
 def _hl_pcr_simm(row: dict[str, int]) -> int:
     insn = _mask_insn(row["insn"], row["len"])
     raw = (((insn >> 4) & 0xFFF) << 17) | ((insn >> 31) & 0x1_FFFF)
+    return _sext(raw, 29)
+
+
+def _hl_store_pcr_simm(row: dict[str, int]) -> int:
+    insn = _mask_insn(row["insn"], row["len"])
+    raw = (((insn >> 4) & 0xFFF) << 17) | (((insn >> 23) & 0x1F) << 12) | ((insn >> 36) & 0xFFF)
     return _sext(raw, 29)
 
 
@@ -306,6 +316,10 @@ def _c_src_l(row: dict[str, int]) -> int:
 
 def _c_src_r(row: dict[str, int]) -> int:
     return (_mask_insn(row["insn"], row["len"]) >> 11) & 0x1F
+
+
+def _hl_src_l(row: dict[str, int]) -> int:
+    return (_mask_insn(row["insn"], row["len"]) >> 31) & 0x1F
 
 
 def _hl_lui_imm(row: dict[str, int]) -> int:
@@ -535,6 +549,8 @@ def _expected_result(
         return row["mem_rdata"] & MASK64
     if opcode in {"LD.PCR", "HL.LD.PCR"}:
         return row["mem_rdata"] & MASK64
+    if opcode == "HL.SD.PCR":
+        return 0
     if opcode in {"C.SETC_EQ", "C.SETC_NE"}:
         return 0
     if opcode == "SETC_LTU":
@@ -616,6 +632,7 @@ def _validate_reduced_row(
         "LDI",
         "LD.PCR",
         "HL.LD.PCR",
+        "HL.SD.PCR",
         "FRET_STK",
         "SBI",
         "SD",
@@ -723,6 +740,19 @@ def _validate_reduced_row(
             raise RowExtractionError(f"row {index} HL.LD.PCR load address does not match pc+imm")
         if row["dst_data"] != row["mem_rdata"]:
             raise RowExtractionError(f"row {index} HL.LD.PCR destination data does not match load data")
+    elif opcode == "HL.SD.PCR":
+        store_data = _encoded_source_value(row, "src0", _hl_src_l(row), opcode, local_state)
+        if row["src1_valid"]:
+            raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
+        if not row["mem_valid"] or not row["mem_is_store"] or row["mem_size"] != 8:
+            raise RowExtractionError(f"row {index} HL.SD.PCR must carry one 8-byte store")
+        expected_addr = (row["pc"] + _hl_store_pcr_simm(row)) & MASK64
+        if row["mem_addr"] != expected_addr:
+            raise RowExtractionError(f"row {index} HL.SD.PCR store address does not match pc+imm")
+        if row["mem_wdata"] != store_data:
+            raise RowExtractionError(f"row {index} HL.SD.PCR store data does not match src0")
+        if row["mem_rdata"] != 0:
+            raise RowExtractionError(f"row {index} HL.SD.PCR store row must not carry read data")
     elif opcode in {"C.SETC_EQ", "C.SETC_NE"}:
         _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
@@ -818,6 +848,7 @@ def _validate_reduced_row(
         "SD",
         "SDI",
         "SWI",
+        "HL.SD.PCR",
     } or (opcode == "FRET_STK" and not row["mem_valid"])
     suppress_setc_immediate_dst = _is_setc_immediate_dst_artifact(row, opcode)
     if no_writeback_opcode and not (_is_no_writeback_trace_gap(row) or suppress_setc_immediate_dst):
@@ -1032,6 +1063,42 @@ def self_test() -> None:
         assert extracted_addtpc_t[0]["dst_reg"] == 31
         assert extracted_addtpc_t[0]["wb_rd"] == 31
         assert extracted_addtpc_t[0]["dst_data"] == 0x4000E000
+
+        hl_sd_pcr_source = tmp / "hl-sd-pcr.jsonl"
+        hl_sd_pcr_output = tmp / "hl-sd-pcr.rows.jsonl"
+        hl_sd_pcr = {
+            **rows[0],
+            "pc": 0x40005CCE,
+            "insn": 0x43A1B569000E,
+            "len": 6,
+            "next_pc": 0x40005CD4,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 3,
+            "src0_data": 0x4FFF0008,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 1,
+            "mem_is_store": 1,
+            "mem_addr": 0x40010108,
+            "mem_wdata": 0x4FFF0008,
+            "mem_rdata": 0,
+            "mem_size": 8,
+        }
+        _write_jsonl(hl_sd_pcr_source, [hl_sd_pcr])
+        count = extract_rows(hl_sd_pcr_source, hl_sd_pcr_output)
+        assert count == 1
+        extracted_hl_sd_pcr = [
+            json.loads(line) for line in hl_sd_pcr_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_hl_sd_pcr[0]["mem_addr"] == 0x40010108
+        assert extracted_hl_sd_pcr[0]["mem_wdata"] == 0x4FFF0008
 
         c_setret_source = tmp / "c-setret.jsonl"
         c_setret_output = tmp / "c-setret.rows.jsonl"

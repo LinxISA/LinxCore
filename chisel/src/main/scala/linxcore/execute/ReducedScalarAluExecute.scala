@@ -84,6 +84,7 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_ANDIW) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LD_PCR) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_HL_SD_PCR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_LD_PCR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_LDI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_MUL) ||
@@ -215,6 +216,8 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LD_PCR) ||
         op === opcode(FrontendOpcodeDecodeTable.OP_LD_PCR)) {
       out := loadData
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_SD_PCR)) {
+      out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SBI)) {
       out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SD)) {
@@ -351,6 +354,13 @@ class ReducedScalarAluExecute(
       row.mem.addr := pcrLoadAddr(uop.pc, uop.imm)
       row.mem.wdata := 0.U
       row.mem.rdata := result
+      row.mem.size := 8.U
+    }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_HL_SD_PCR)) {
+      row.mem.valid := valid
+      row.mem.isStore := true.B
+      row.mem.addr := pcrLoadAddr(uop.pc, uop.imm)
+      row.mem.wdata := srcData(0)
+      row.mem.rdata := 0.U
       row.mem.size := 8.U
     }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_C_SDI)) {
       row.mem.valid := valid
@@ -589,6 +599,7 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_FENTRY => Some((src1 - imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_HL_LUI => Some(imm & Mask64)
       case FrontendOpcodeDecodeTable.OP_HL_LD_PCR => Some(loadData & Mask64)
+      case FrontendOpcodeDecodeTable.OP_HL_SD_PCR => Some(0)
       case FrontendOpcodeDecodeTable.OP_LD_PCR => Some(loadData & Mask64)
       case FrontendOpcodeDecodeTable.OP_LDI => Some(loadData & Mask64)
       case FrontendOpcodeDecodeTable.OP_MUL => Some((src0 * src1) & Mask64)

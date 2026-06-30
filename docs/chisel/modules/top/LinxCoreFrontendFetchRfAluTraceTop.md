@@ -250,6 +250,14 @@ extracts 1479 expected rows, and compares 1082 normalized QEMU/DUT rows with
 zero mismatches. A QEMU-only 1620-row probe identifies the next frontier as
 `OP_HL_SD_PCR` at `pc=0x40005cce` (`insn=0x43a1b569000e`, `len=6`), an
 8-byte PCR-relative store sideband.
+R134 carries that high-long store-PCR packet. `FrontendOperandDecode` extracts
+the split PCR-store immediate, `ReducedScalarAluExecute` emits no writeback and
+stores `srcData(0)` to `pc + imm`, and the QEMU reducer validates both observed
+`HL.SD.PCR` store rows. The promoted gate captures 1611 raw QEMU rows, extracts
+1488 expected rows, and compares 1089 normalized QEMU/DUT rows with zero
+mismatches. A QEMU-only 1640-row probe identifies the next frontier as
+`OP_CMP_EQI` at `pc=0x40005d2a` (`insn=0x00060f55`, `len=4`), writing
+`x30/U0` with value `1`.
 
 ## Interface
 
