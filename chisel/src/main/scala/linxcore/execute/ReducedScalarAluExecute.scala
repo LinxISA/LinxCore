@@ -57,7 +57,8 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET) ||
-      op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY)
+      op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI)
 
   private def resultFor(op: UInt, pc: UInt, srcData: Vec[UInt], imm: UInt): UInt = {
     val out = Wire(UInt(p.immWidth.W))
@@ -76,6 +77,8 @@ class ReducedScalarAluExecute(
       out := pc + imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY)) {
       out := srcData(1) - imm
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI)) {
+      out := imm
     }
     out
   }
@@ -194,6 +197,7 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_C_MOVR => Some(src0 & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_SETRET => None
       case FrontendOpcodeDecodeTable.OP_FENTRY => Some((src1 - imm) & Mask64)
+      case FrontendOpcodeDecodeTable.OP_HL_LUI => Some(imm & Mask64)
       case _ => None
     }
 

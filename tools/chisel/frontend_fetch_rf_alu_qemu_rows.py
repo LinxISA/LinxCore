@@ -39,6 +39,8 @@ HL_BSTART_MATCHES = {
     0x1001_000E,  # HL.BSTART.STD.FALL
     0x1081_000E,  # HL.BSTART.SYS
 }
+HL_LUI_MASK = 0xFFFF_0000_007F_000F
+HL_LUI_MATCH = 0x0000_0000_0017_000E
 
 
 class RowExtractionError(RuntimeError):
@@ -88,6 +90,9 @@ def _classify(row: dict[str, int]) -> str | None:
             return "C.MOVI"
         if key == 0x0006:
             return "C.MOVR"
+    if row["len"] == 6:
+        if (insn & HL_LUI_MASK) == HL_LUI_MATCH:
+            return "HL.LUI"
     return None
 
 
@@ -137,6 +142,12 @@ def _fentry_n(row: dict[str, int]) -> int:
     return (_mask_insn(row["insn"], row["len"]) >> 20) & 0x1F
 
 
+def _hl_lui_imm(row: dict[str, int]) -> int:
+    insn = _mask_insn(row["insn"], row["len"])
+    imm32 = (((insn >> 4) & 0xFFF) << 20) | ((insn >> 28) & 0xFFFFF)
+    return _sext(imm32, 32) & MASK64
+
+
 def _require_scalar_reg(row: dict[str, int], field: str, opcode: str) -> None:
     reg = row[field]
     if reg >= 24:
@@ -147,9 +158,9 @@ def _require_scalar_reg(row: dict[str, int], field: str, opcode: str) -> None:
 
 def _is_reduced_tu_destination(reg: int) -> bool:
     # FrontendRegAliasClassify maps architectural destination alias 30 to U
-    # and 31 to T. The current live CoreMark prefix reaches only U-producing
-    # ADDI rows; T remains rejected until a testable prefix needs it.
-    return reg == 30
+    # and 31 to T. Keep admission opcode-specific so future T/U producers are
+    # forced through their own QEMU-backed gate.
+    return reg == 30 or reg == 31
 
 
 def _require_sources(row: dict[str, int], opcode: str, src0: bool, src1: bool) -> None:
@@ -171,8 +182,10 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
     if not _is_reduced_tu_destination(row["dst_reg"]):
         _require_scalar_reg(row, "dst_reg", opcode)
         _require_scalar_reg(row, "wb_rd", opcode)
-    elif opcode != "ADDI":
+    elif row["dst_reg"] == 30 and opcode != "ADDI":
         raise RowExtractionError(f"{opcode} row writes reduced U destination alias {row['dst_reg']}")
+    elif row["dst_reg"] == 31 and opcode != "HL.LUI":
+        raise RowExtractionError(f"{opcode} row writes reduced T destination alias {row['dst_reg']}")
     if row["dst_data"] != row["wb_data"]:
         raise RowExtractionError(f"{opcode} row dst_data={row['dst_data']} differs from wb_data={row['wb_data']}")
 
@@ -192,6 +205,8 @@ def _expected_result(row: dict[str, int], opcode: str) -> int:
         return (row["pc"] + _c_setret_imm(row)) & MASK64
     if opcode == "FENTRY":
         return (row["mem_addr"] + 8 - _fentry_imm(row)) & MASK64
+    if opcode == "HL.LUI":
+        return _hl_lui_imm(row)
     raise AssertionError(opcode)
 
 
@@ -234,6 +249,8 @@ def _validate_reduced_row(row: dict[str, int], index: int) -> dict[str, int]:
             raise RowExtractionError(f"row {index} FENTRY save register is outside scalar GPR range")
         if not row["mem_valid"] or not row["mem_is_store"] or row["mem_size"] != 8:
             raise RowExtractionError(f"row {index} FENTRY must carry one 8-byte store")
+    elif opcode == "HL.LUI":
+        _require_sources(row, opcode, src0=False, src1=False)
     _require_writeback(row, opcode)
 
     expected = _expected_result(row, opcode)
@@ -469,6 +486,35 @@ def self_test() -> None:
         assert extracted_u_dst[0]["dst_reg"] == 30
         assert extracted_u_dst[0]["wb_rd"] == 30
         assert extracted_u_dst[0]["dst_data"] == 32
+
+        hl_lui_source = tmp / "hl-lui.jsonl"
+        hl_lui_output = tmp / "hl-lui.rows.jsonl"
+        hl_lui = {
+            **rows[0],
+            "pc": 0x4000551A,
+            "insn": 0x1F97000E,
+            "len": 6,
+            "next_pc": 0x40005520,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 1,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 1,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(hl_lui_source, [hl_lui])
+        count = extract_rows(hl_lui_source, hl_lui_output)
+        assert count == 1
+        extracted_hl_lui = [json.loads(line) for line in hl_lui_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_hl_lui[0]["dst_reg"] == 31
+        assert extracted_hl_lui[0]["wb_rd"] == 31
+        assert extracted_hl_lui[0]["dst_data"] == 1
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

@@ -70,7 +70,7 @@ Implemented scalar field sources:
 - 16-bit compressed fields:
   - `rd16 = insn[15:11]`
   - `rs16 = insn[10:6]`
-- 48-bit HL.LUI fields:
+- 48-bit HL fields:
   - prefix `pfx16 = insn[15:0]`
   - main word `main32 = insn[47:16]`
   - `rd_hl = main32[11:7]`
@@ -87,7 +87,8 @@ Implemented immediate forms:
 - `UIMM5`
 - `FENTRY_UIMM_HI`
 - `IMM20`, including `SETRET`'s unsigned shifted return-label form
-- `IMM32` for `HL.LUI`
+- `IMM32` for `HL.LUI` and related HL immediate forms, packed as
+  `Cat(pfx16[15:4], main32[31:12])` and sign-extended to 64 bits
 - `SIMM_4_S12_31_17` for HL `BSTART` target byte offsets
 - compressed `SIMM12` branch offsets
 
@@ -145,6 +146,8 @@ The `FrontendDecodeStageSpec` reference cases cover:
 - reduced single-save macro prologue (`FENTRY`)
 - model-derived reg6 alias classification for scalar GPR, T-link, U-link, and
   T/U queue destination boundaries
+- CoreMark `HL.LUI` at `0x4000551a`, which decodes destination tag `31`
+  (`DestinationKind.T`) and immediate `1`
 
 ## Open Work
 
