@@ -3,7 +3,7 @@ package linxcore.execute
 import chisel3._
 import chisel3.util.{log2Ceil, PopCount}
 
-import linxcore.common.{InterfaceParams, RenamedUop}
+import linxcore.common.{DestinationKind, InterfaceParams, RenamedUop}
 import linxcore.rob.{ROBID}
 
 class ReducedScalarIssueQueueIO(
@@ -150,7 +150,7 @@ class ReducedScalarIssueQueue(
   io.issueFire := issueFire
   io.cancelFire := cancelFire
   io.releaseFire := releaseFire
-  io.enqueueDstValid := enqueueFire && io.in.dst(0).valid
+  io.enqueueDstValid := enqueueFire && io.in.dst(0).valid && (io.in.dst(0).kind === DestinationKind.Gpr)
   io.enqueueDstTag := io.in.dst(0).physTag
   io.empty := count === 0.U
   io.full := count === depth.U

@@ -145,6 +145,13 @@ def _require_scalar_reg(row: dict[str, int], field: str, opcode: str) -> None:
         )
 
 
+def _is_reduced_tu_destination(reg: int) -> bool:
+    # FrontendRegAliasClassify maps architectural destination alias 30 to U
+    # and 31 to T. The current live CoreMark prefix reaches only U-producing
+    # ADDI rows; T remains rejected until a testable prefix needs it.
+    return reg == 30
+
+
 def _require_sources(row: dict[str, int], opcode: str, src0: bool, src1: bool) -> None:
     if bool(row["src0_valid"]) != src0:
         raise RowExtractionError(f"{opcode} row has src0_valid={row['src0_valid']}, expected {int(src0)}")
@@ -159,10 +166,13 @@ def _require_sources(row: dict[str, int], opcode: str, src0: bool, src1: bool) -
 def _require_writeback(row: dict[str, int], opcode: str) -> None:
     if not row["dst_valid"] or not row["wb_valid"]:
         raise RowExtractionError(f"{opcode} row must have destination/writeback valid")
-    _require_scalar_reg(row, "dst_reg", opcode)
-    _require_scalar_reg(row, "wb_rd", opcode)
     if row["dst_reg"] != row["wb_rd"]:
         raise RowExtractionError(f"{opcode} row dst_reg={row['dst_reg']} differs from wb_rd={row['wb_rd']}")
+    if not _is_reduced_tu_destination(row["dst_reg"]):
+        _require_scalar_reg(row, "dst_reg", opcode)
+        _require_scalar_reg(row, "wb_rd", opcode)
+    elif opcode != "ADDI":
+        raise RowExtractionError(f"{opcode} row writes reduced U destination alias {row['dst_reg']}")
     if row["dst_data"] != row["wb_data"]:
         raise RowExtractionError(f"{opcode} row dst_data={row['dst_data']} differs from wb_data={row['wb_data']}")
 
@@ -430,6 +440,35 @@ def self_test() -> None:
         extracted_fentry = [json.loads(line) for line in fentry_output.read_text(encoding="utf-8").splitlines()]
         assert extracted_fentry[0]["dst_data"] == 0x4FFE_FDB0
         assert extracted_fentry[0]["mem_wdata"] == 0x4000550A
+
+        u_dst_source = tmp / "addi-u-dst.jsonl"
+        u_dst_output = tmp / "addi-u-dst.rows.jsonl"
+        addi_u_dst = {
+            **rows[0],
+            "pc": 0x40005516,
+            "insn": 0x02000F15,
+            "len": 4,
+            "next_pc": 0x4000551A,
+            "wb_valid": 1,
+            "wb_rd": 30,
+            "wb_data": 32,
+            "dst_valid": 1,
+            "dst_reg": 30,
+            "dst_data": 32,
+            "src0_valid": 1,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(u_dst_source, [addi_u_dst])
+        count = extract_rows(u_dst_source, u_dst_output)
+        assert count == 1
+        extracted_u_dst = [json.loads(line) for line in u_dst_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_u_dst[0]["dst_reg"] == 30
+        assert extracted_u_dst[0]["wb_rd"] == 30
+        assert extracted_u_dst[0]["dst_data"] == 32
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

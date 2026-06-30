@@ -74,7 +74,7 @@ keeps the row resident until the existing ALU release path removes it.
 | output | `issueFire` | `Bool` | pulse | I2 row accepted by execute. This does not deallocate queue residency. |
 | output | `cancelFire` | `Bool` | pulse | I1 read readiness failed and the selected row's in-flight lock was cleared. |
 | output | `releaseFire` | `Bool` | pulse | One issued row matched the release identity and was removed. |
-| output | `enqueueDstValid` | `Bool` | pulse | Enqueued row allocated a scalar destination physical tag. |
+| output | `enqueueDstValid` | `Bool` | pulse | Enqueued row allocated a scalar GPR destination physical tag. T/U destinations do not clear scalar RF readiness. |
 | output | `enqueueDstTag` | `UInt(physRegWidth.W)` | with `enqueueDstValid` | Destination physical tag to mark not-ready in the RF. |
 | output | `empty`, `full` | `Bool` | diagnostic | Occupancy status. |
 | output | `count` | `UInt(log2Ceil(depth + 1).W)` | diagnostic | Queue occupancy. |
@@ -111,6 +111,11 @@ The depth must be a power of two and greater than one.
 The queue accepts one row when `inValid && inReady`. `inReady` is high when the
 queue is not full or when an issued row releases in the same cycle, so a full
 queue can sustain one release plus one enqueue.
+
+On enqueue, `enqueueDstValid` is asserted only for `DestinationKind.Gpr`.
+`ScalarTURenameBridge` may overlay a T/U destination onto the `RenamedUop` for
+model-local register ownership, but that destination must not invalidate a
+scalar physical RF entry in this reduced queue/RF composition.
 
 The queue builds a selectable mask over resident rows. A row is selectable when
 it is valid, not already in flight, and every valid source lane's registered

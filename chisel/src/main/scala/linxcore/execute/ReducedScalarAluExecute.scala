@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.log2Ceil
 
 import linxcore.commit.{CommitTraceParams, CommitTraceRow}
-import linxcore.common.{InterfaceParams, RenamedUop}
+import linxcore.common.{DestinationKind, InterfaceParams, RenamedUop}
 import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.rob.ROBID
 
@@ -171,7 +171,7 @@ class ReducedScalarAluExecute(
   io.completeValid := w2Valid && w2Supported
   io.completeRobValue := w2Uop.rid.value
   io.completeRow := completionRow(w2Uop, w2SrcData, w2Result, io.completeValid)
-  io.completeDstPhysValid := io.completeValid && w2Uop.dst(0).valid
+  io.completeDstPhysValid := io.completeValid && w2Uop.dst(0).valid && (w2Uop.dst(0).kind === DestinationKind.Gpr)
   io.completeDstPhysTag := w2Uop.dst(0).physTag
   io.completeDstData := w2Result
   io.releaseValid := w2Valid

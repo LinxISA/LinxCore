@@ -418,7 +418,7 @@ std::map<std::uint8_t, std::uint64_t> initial_rf_preloads(const std::vector<Expe
     }
     observe_source(row.src0_valid, row.src0_reg, row.src0_data);
     observe_source(row.src1_valid, row.src1_reg, row.src1_data);
-    if (row.dst_valid) {
+    if (row.dst_valid && row.dst_reg < 24) {
       produced[row.dst_reg] = true;
     }
   }

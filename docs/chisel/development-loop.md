@@ -457,6 +457,22 @@ prologue shape, not full stack-template or LSU execution. Evidence:
 passed with `status: "pass"`, `summary.compared_rows: 6`, and
 `summary.mismatch_count: 0`. A 12-row probe stops at the next unsupported row:
 `ADDI` writing architectural tag `30`.
+R109 started from `linx-isa` commit
+`8a0a20d691cf9021d1b3ec96df7265668168ee4e`, `rtl/LinxCore` commit
+`795e78fb6dc68863e0fcf108f7b2d9f2375249e0`,
+`model/LinxCoreModel` commit
+`1993e4e749403824a4908548baf77d5e15117068`, and QEMU commit
+`085f20cc8bda1dbc5d34808fda3effb4afc19b77`. R109 lets the reduced live
+RF/ALU path compare that CoreMark `ADDI` writing architectural tag `30` without
+treating the U alias as a scalar RF register. `ScalarTURenameBridge` already
+owns the T/U destination overlay from the model `OPD_ULINK` path; the reduced
+issue and execute owners now gate scalar RF clear/write side effects to
+`DestinationKind.Gpr`, while the commit row still carries the QEMU-shaped
+`dst_reg=30` and `wb_rd=30` architectural fields. Evidence:
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r109-coremark-u-dst-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 12 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+passed with `status: "pass"`, `summary.compared_rows: 7`, and
+`summary.mismatch_count: 0`. A 13-row probe stops at the next unsupported row:
+`OP_HL_LUI` at `pc=0x4000551a`, `insn=0x1f97000e`, `len=6`.
 
 ## Reference Evidence
 
@@ -592,9 +608,10 @@ The ROB/cross-check substrate remains the required base:
 | 32 | R106 CoreMark ADDTPC reduced scalar prefix | `ReducedScalarAluExecute.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, execute/top docs | reduced ALU unit, extractor self-test, CoreMark live-QEMU gate with `--capture-rows 4`, first three scalar commits compared, manifest inspection |
 | 33 | R107 CoreMark HL call marker and compact SETRET prefix | `FrontendDecodeStage.scala`, `FrontendOperandDecode.scala`, `F4DecodeWindow.scala`, `DecodeRenameROBPath.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, `ReducedScalarAluExecute.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, module docs | extractor self-test, focused Chisel gates, CoreMark live-QEMU gate with `--capture-rows 8`, first four scalar commits compared, manifest inspection |
 | 34 | R108 CoreMark single-save FENTRY reduced macro row | `FrontendOperandDecode.scala`, `ReducedScalarAluExecute.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, `frontend_fetch_rf_alu_trace_top_tb.cpp`, module docs | extractor self-test, focused Chisel gates, CoreMark live-QEMU gate with `--capture-rows 11`, first six scalar/macro commits compared, manifest inspection |
-| 35 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 36 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 37 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 35 | R109 CoreMark U-destination ADDI reduced local-register row | `ReducedScalarIssueQueue.scala`, `ReducedScalarAluExecute.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, `frontend_fetch_rf_alu_trace_top_tb.cpp`, module docs | extractor self-test, focused issue/execute/TU/path/top gates, CoreMark live-QEMU gate with `--capture-rows 12`, seven scalar/macro commits compared, 13-row `OP_HL_LUI` probe, manifest inspection |
+| 36 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 37 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 38 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not

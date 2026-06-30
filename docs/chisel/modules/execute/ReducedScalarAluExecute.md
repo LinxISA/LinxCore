@@ -80,7 +80,10 @@ completion row carries one 8-byte store at `newSP + imm - 8`. This is not a
 general stack-template or LSU implementation. `ReadyState::GetSrcData` and
 `InitGGPRRtable` show that scalar source data is attached to physical GPR tags,
 so the Chisel execute owner also exports the destination physical tag for the
-reduced RF writeback path.
+reduced RF writeback path. R109 keeps that RF writeback side effect scoped to
+`DestinationKind.Gpr`; a T/U destination still produces a QEMU-shaped
+architectural `dst`/`wb` completion row, but the reduced scalar RF is not
+cleared or written for the local-register alias.
 
 The Chisel module implements the first reduced subset:
 
@@ -103,8 +106,11 @@ form uses `uimm5 << 1` and `pc + imm` return-address semantics.
 The completion row copies identity and control fields from the accepted
 `RenamedUop`, fills source register/data fields from `uop.src` plus
 `srcData`, fills `dst` and `wb` from `uop.dst(0)` plus the computed result,
-exports the same result and destination physical tag on `completeDst*`, and
-leaves memory/trap fields zero.
+exports the same result and destination physical tag on `completeDst*` only for
+scalar GPR destinations, and leaves memory/trap fields zero. T/U destinations
+remain visible in the completion row for the comparator, but their local
+register data path is owned by `ScalarTURenameBridge` and later T/U issue
+owners rather than by the scalar RF.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural
