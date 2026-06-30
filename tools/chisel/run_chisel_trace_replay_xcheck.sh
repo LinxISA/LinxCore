@@ -5,23 +5,20 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 CHISEL_DIR="${ROOT_DIR}/chisel"
 SV_DIR="${ROOT_DIR}/generated/chisel-verilog/top-xcheck"
 TOP_SV="${SV_DIR}/LinxCoreTop.sv"
-BUILD_DIR="${ROOT_DIR}/generated/chisel-trace-replay-xcheck"
-OBJ_DIR="${BUILD_DIR}/obj_dir"
-TRACE_DIR="${BUILD_DIR}/traces"
-REPORT_DIR="${BUILD_DIR}/report"
+BUILD_DIR="${BUILD_DIR:-${ROOT_DIR}/generated/chisel-trace-replay-xcheck}"
 RAW_INPUT_TRACE=""
-INPUT_TRACE="${TRACE_DIR}/input.normalized.jsonl"
-DUT_TRACE="${TRACE_DIR}/dut.chisel.jsonl"
-QEMU_TRACE="${TRACE_DIR}/qemu.reference.jsonl"
 MAX_COMMITS="4"
+REPLAY_ROWS=""
 
 usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0") [--input-trace <commit.jsonl>] [--max-commits <int>]
+  $(basename "$0") [--input-trace <commit.jsonl>] [--max-commits <int>] [--replay-rows <int>] [--build-dir <dir>]
 
 When --input-trace is omitted, this gate generates a small flat commit trace
 fixture. Any provided input trace is normalized before the Verilator replay.
+--max-commits bounds architectural comparison; --replay-rows bounds raw rows
+driven through the replay harness before comparator metadata filtering.
 USAGE
 }
 
@@ -29,10 +26,27 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --input-trace) RAW_INPUT_TRACE="$2"; shift 2 ;;
     --max-commits) MAX_COMMITS="$2"; shift 2 ;;
+    --replay-rows) REPLAY_ROWS="$2"; shift 2 ;;
+    --build-dir) BUILD_DIR="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
+
+if [[ "${BUILD_DIR}" != /* ]]; then
+  BUILD_DIR="${ROOT_DIR}/${BUILD_DIR}"
+fi
+
+if [[ -z "${REPLAY_ROWS}" ]]; then
+  REPLAY_ROWS="${MAX_COMMITS}"
+fi
+
+OBJ_DIR="${BUILD_DIR}/obj_dir"
+TRACE_DIR="${BUILD_DIR}/traces"
+REPORT_DIR="${BUILD_DIR}/report"
+INPUT_TRACE="${TRACE_DIR}/input.normalized.jsonl"
+DUT_TRACE="${TRACE_DIR}/dut.chisel.jsonl"
+QEMU_TRACE="${TRACE_DIR}/qemu.reference.jsonl"
 
 source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
 
@@ -126,7 +140,7 @@ fi
 python3 "${ROOT_DIR}/tools/chisel/trace_schema_adapter.py" \
   --input "${RAW_INPUT_TRACE}" \
   --output "${INPUT_TRACE}" \
-  --max-rows "${MAX_COMMITS}"
+  --max-rows "${REPLAY_ROWS}"
 
 cd "${CHISEL_DIR}"
 sbt --batch --no-colors "runMain linxcore.top.EmitLinxCoreTopXcheck"
@@ -158,7 +172,7 @@ verilator \
 
 "${OBJ_DIR}/linxcore_trace_replay_tb" \
   --input-trace "${INPUT_TRACE}" \
-  --max-rows "${MAX_COMMITS}" \
+  --max-rows "${REPLAY_ROWS}" \
   --dut-trace "${DUT_TRACE}" \
   --qemu-trace "${QEMU_TRACE}"
 
@@ -167,6 +181,7 @@ bash "${ROOT_DIR}/tools/chisel/run_chisel_qemu_crosscheck.sh" \
   --dut-trace "${DUT_TRACE}" \
   --report-dir "${REPORT_DIR}" \
   --max-commits "${MAX_COMMITS}" \
+  --normalize-rows "${REPLAY_ROWS}" \
   --mode failfast
 
 echo "trace-replay-xcheck-report=${REPORT_DIR}"

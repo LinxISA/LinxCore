@@ -304,6 +304,21 @@ infrastructure: `run_chisel_qemu_crosscheck.sh` now emits
 archive one evidence bundle naming the selected QEMU binary, raw traces,
 normalized traces, reports, row counts, first mismatch, CBSTOP summary, and
 git context.
+R90 started from `rtl/LinxCore` commit
+`3d23b7c561aca535d500c1c2ce00d7e86013cc59` after R89 landed manifest
+evidence. The superproject root was
+`774c4fbd6935d098e778e45bd717b57af72d7db8`; LinxCoreModel remained at
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`; QEMU was at
+`f17c551aaef51a784a99d5cccc69cf65ff2a7b32`; `skills/linx-skills` was at
+`848bd17bb9ced589eaadf648dc0f5293ab0a3dc4`. R90 is a bridge packet:
+archived or freshly collected QEMU rows are replayed through the current
+Chisel commit-surface harness in a separate build directory and compared with
+manifest evidence, while live full-DUT comparison remains a later top-level
+trace-writer packet.
+The bridge keeps raw replay/normalization rows separate from architectural
+compare rows: QEMU metadata rows can be skipped by the comparator, so R90
+normalizes a wider raw window and slices the replay input to the smallest prefix
+that contains the requested non-metadata commits.
 
 ## Non-Negotiable Rules
 
@@ -485,6 +500,7 @@ These packets remain the required base before broad module promotion:
 | R87 | Reduced issue-pick read-confirm owner | `run_chisel_tests.sh --only ReducedScalarIssuePick`, `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R88 | Reduced P1/I1/I2 issue timing | `run_chisel_tests.sh --only ReducedScalarIssuePick`, `run_chisel_tests.sh --only ReducedScalarIssueQueue`, `run_chisel_tests.sh --only LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, `trace_schema_adapter.py --self-test`, `run_chisel_qemu_crosscheck.sh --dry-run`, `build_chisel.sh`, `run_chisel_verilator_lint.sh` |
 | R89 | QEMU cross-check manifest evidence | `run_chisel_qemu_crosscheck.sh --dry-run`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, `run_chisel_frontend_alu_trace_top_xcheck.sh`, inspect each `crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
+| R90 | QEMU trace replay bridge | `run_chisel_qemu_trace_replay_xcheck.sh --dry-run`, replay archived/fresh QEMU JSONL with `--qemu-trace` or `--elf`, verify metadata-aware raw prefix output, inspect `generated/chisel-qemu-trace-replay-xcheck/report/crosscheck_manifest.json`, `trace_schema_adapter.py --self-test`, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -514,11 +530,15 @@ Use this order for each promoted slice:
    trace-top driver.
 10. `run_chisel_qemu_crosscheck.sh --dry-run` after wrapper or QEMU selection
    changes.
-11. Inspect `crosscheck_manifest.json` after any non-dry-run generated-RTL or
-   full QEMU comparison routed through the common wrapper.
-12. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
+11. `run_chisel_qemu_trace_replay_xcheck.sh --dry-run` after QEMU row replay
+   wrapper changes, followed by a bounded `--qemu-trace` or `--elf` replay.
+   `--max-commits` is the architectural compare depth; `--replay-rows` is only
+   the raw search/replay cap before metadata filtering.
+12. Inspect `crosscheck_manifest.json` after any non-dry-run generated-RTL,
+   QEMU-row replay, or full QEMU comparison routed through the common wrapper.
+13. Full QEMU-vs-DUT trace compare only after the DUT emits real architectural
    commit rows for the slice.
-13. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
+14. LinxCoreModel `gfsim -f <elf>` only after the same direct-boot ELF passed
    QEMU in the same run packet.
 
 ## LinxCoreModel Maintenance Loop

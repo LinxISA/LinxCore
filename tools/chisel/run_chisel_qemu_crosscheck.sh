@@ -8,6 +8,7 @@ QEMU_TRACE=""
 DUT_TRACE=""
 REPORT_DIR=""
 MAX_COMMITS="1000"
+NORMALIZE_ROWS=""
 MODE="diagnostic"
 DRY_RUN=0
 PRINT_QEMU_BIN=0
@@ -30,6 +31,7 @@ Usage:
 Options:
   --report-dir <dir>       Output report directory
   --max-commits <int>      Compare window (default: 1000)
+  --normalize-rows <int>   Raw rows normalized before comparator metadata filtering
   --mode <diagnostic|failfast>
   --dry-run                Validate tool paths without comparing traces
   --print-qemu-bin         Print selected QEMU binary and exit
@@ -42,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --dut-trace) DUT_TRACE="$2"; shift 2 ;;
     --report-dir) REPORT_DIR="$2"; shift 2 ;;
     --max-commits) MAX_COMMITS="$2"; shift 2 ;;
+    --normalize-rows) NORMALIZE_ROWS="$2"; shift 2 ;;
     --mode) MODE="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --print-qemu-bin) PRINT_QEMU_BIN=1; shift ;;
@@ -60,6 +63,9 @@ if [[ "${DRY_RUN}" -eq 1 ]]; then
   echo "qemu-bin=${QEMU_BIN}"
   python3 "${ROOT_DIR}/tools/chisel/trace_schema_adapter.py" --self-test
   exit 0
+fi
+if [[ -z "${NORMALIZE_ROWS}" ]]; then
+  NORMALIZE_ROWS="${MAX_COMMITS}"
 fi
 
 if [[ -z "${QEMU_TRACE}" || -z "${DUT_TRACE}" ]]; then
@@ -90,9 +96,9 @@ MISMATCH_JSON="${REPORT_DIR}/crosscheck_mismatches.json"
 MANIFEST_JSON="${REPORT_DIR}/crosscheck_manifest.json"
 
 python3 "${ROOT_DIR}/tools/chisel/trace_schema_adapter.py" \
-  --input "${QEMU_TRACE}" --output "${NORM_QEMU}" --max-rows "${MAX_COMMITS}"
+  --input "${QEMU_TRACE}" --output "${NORM_QEMU}" --max-rows "${NORMALIZE_ROWS}"
 python3 "${ROOT_DIR}/tools/chisel/trace_schema_adapter.py" \
-  --input "${DUT_TRACE}" --output "${NORM_DUT}" --max-rows "${MAX_COMMITS}"
+  --input "${DUT_TRACE}" --output "${NORM_DUT}" --max-rows "${NORMALIZE_ROWS}"
 
 COMPARATOR_STATUS=0
 python3 "${ROOT_DIR}/tools/trace/crosscheck_qemu_linxcore.py" \
@@ -113,6 +119,7 @@ python3 - \
   "${NORM_DUT}" \
   "${QEMU_BIN}" \
   "${MAX_COMMITS}" \
+  "${NORMALIZE_ROWS}" \
   "${MODE}" \
   "${COMPARATOR_STATUS}" \
   "${ROOT_DIR}" \
@@ -134,6 +141,7 @@ from pathlib import Path
     norm_dut,
     qemu_bin,
     max_commits,
+    normalize_rows,
     mode,
     comparator_status,
     root_dir,
@@ -177,6 +185,7 @@ manifest = {
     "generated_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     "mode": mode,
     "max_commits": int(max_commits),
+    "normalize_rows": int(normalize_rows),
     "status": "pass" if int(comparator_status) == 0 and report.get("mismatch_count", 0) == 0 else "fail",
     "comparator_status": int(comparator_status),
     "qemu_bin": qemu_bin,

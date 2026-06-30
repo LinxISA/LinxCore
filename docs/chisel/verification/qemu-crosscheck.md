@@ -14,6 +14,7 @@ details into the comparator itself.
 - `tools/chisel/run_chisel_reduced_rob_xcheck.sh`
 - `tools/chisel/run_chisel_top_xcheck.sh`
 - `tools/chisel/run_chisel_trace_replay_xcheck.sh`
+- `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_trace_top_lint.sh`
 - `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 - `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
@@ -31,6 +32,8 @@ is `linxcore.chisel.crosscheck_manifest.v1` and records:
 - normalized QEMU and DUT trace paths,
 - comparator report paths,
 - row counts, mismatch count, first mismatch, and CBSTOP inflation summary,
+- `max_commits` plus the raw `normalize_rows` window used before metadata
+  filtering,
 - `rtl/LinxCore` and superproject `HEAD` plus dirty flags.
 
 The wrapper preserves the comparator exit status after writing the manifest.
@@ -78,6 +81,7 @@ python3 tools/chisel/trace_schema_adapter.py --self-test
 bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
 bash tools/chisel/run_chisel_top_xcheck.sh
 bash tools/chisel/run_chisel_trace_replay_xcheck.sh
+bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run
 bash tools/chisel/run_chisel_frontend_trace_top_lint.sh
 bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh
@@ -91,6 +95,41 @@ replays the bounded row stream through the `LinxCoreTop` commit export in a
 Verilator harness, and compares the resulting DUT JSONL against the same rows
 as QEMU-shaped reference data. When `--input-trace` is omitted it generates a
 four-row fixture covering writeback, store, load, and trap envelopes.
+
+`run_chisel_qemu_trace_replay_xcheck.sh` is the QEMU-facing replay bridge. In
+`--elf` mode it first runs `tools/qemu/run_qemu_commit_trace.sh` to collect a
+QEMU JSONL trace, then runs `run_chisel_trace_replay_xcheck.sh` in
+`generated/chisel-qemu-trace-replay-xcheck`. In `--qemu-trace` mode it skips
+QEMU execution and replays an existing QEMU JSONL trace. Both paths preserve
+the comparator `crosscheck_manifest.json` under the isolated report directory.
+The bridge first normalizes a wider raw window, then slices the replay input to
+the smallest prefix that contains the requested number of non-metadata
+architectural rows. This keeps QEMU BSTART/template/control metadata from
+starving the compare window while avoiding extra DUT tail rows after the
+bounded compare point.
+
+The common wrapper exposes the same distinction directly:
+
+```bash
+bash tools/chisel/run_chisel_qemu_crosscheck.sh \
+  --qemu-trace <qemu.jsonl> \
+  --dut-trace <dut.jsonl> \
+  --max-commits 4 \
+  --normalize-rows 8
+```
+
+`--max-commits` is the architectural compare window. `--normalize-rows` is the
+raw row window presented to schema normalization before comparator metadata
+filtering.
+
+QEMU-row replay gate:
+
+```bash
+bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh \
+  --elf <direct-boot-smoke.elf> \
+  --max-commits 32 \
+  --max-seconds 30
+```
 
 Full compare gate, once a Chisel commit trace exists:
 
@@ -116,7 +155,8 @@ Expected report outputs:
 ## Current Status
 
 The adapter, wrapper, typed Chisel commit-row bundles, reduced ROB Verilator
-smoke, reduced top Verilator smoke, top trace replay smoke,
+smoke, reduced top Verilator smoke, top trace replay smoke, QEMU trace replay
+bridge,
 frontend-window trace-top Verilator lint, frontend-window trace-top Verilator
 xcheck, frontend-window ALU trace-top Verilator xcheck, and RF-backed ALU
 trace-top Verilator xcheck are ready. The common wrapper emits a
@@ -126,7 +166,9 @@ future full QEMU-vs-DUT windows.
 compare three Verilator-produced rows with zero mismatches.
 `run_chisel_trace_replay_xcheck.sh` proves that a normalized external commit
 row stream can drive the top-level commit observation surface and pass the same
-comparator. `run_chisel_frontend_trace_top_xcheck.sh` drives raw frontend
+comparator. `run_chisel_qemu_trace_replay_xcheck.sh` can feed archived or fresh
+QEMU rows into that same replay path while the live Chisel top is still being
+connected. `run_chisel_frontend_trace_top_xcheck.sh` drives raw frontend
 packets containing scalar `ADD`, `ADDI`, and compressed move rows through
 `LinxCoreFrontendTraceTop`, uses the explicit completion surrogate to retire
 the allocated ROB rows, dumps DUT JSONL, and compares three rows against a

@@ -140,6 +140,22 @@ infrastructure packet: `run_chisel_qemu_crosscheck.sh` now emits
 comparator exit status while tying raw traces, normalized traces, reports,
 QEMU binary selection, row counts, first mismatch, CBSTOP summary, and
 LinxCore/superproject git context into one evidence bundle.
+R90 started from `linx-isa` commit
+`774c4fbd6935d098e778e45bd717b57af72d7db8`, `rtl/LinxCore` commit
+`3d23b7c561aca535d500c1c2ce00d7e86013cc59`,
+`model/LinxCoreModel` commit
+`68b06b2a8dd07db98bd562aeae7e5a8867c6d450`, QEMU commit
+`f17c551aaef51a784a99d5cccc69cf65ff2a7b32`, and
+`skills/linx-skills` commit `848bd17bb9ced589eaadf648dc0f5293ab0a3dc4`.
+The R90 packet is a bounded bridge: it feeds archived or freshly collected QEMU
+commit rows through the current Chisel trace replay surface in an isolated
+build/report directory. It does not claim live full-DUT QEMU equivalence; that
+remains blocked until the Chisel top emits architectural commit rows from real
+fetch, issue, execute, LSU, trap, and recovery paths.
+R90 also separates raw replay/normalization depth from architectural compare
+depth: QEMU metadata rows may be filtered by the comparator, so the bridge
+normalizes a wider raw window and slices the replay input to the smallest
+prefix containing the requested non-metadata commit rows.
 
 ## Reference Evidence
 
@@ -243,9 +259,10 @@ The ROB/cross-check substrate remains the required base:
 | 13 | R88 reduced P1/I1/I2 issue timing | `execute/ReducedScalarIssuePick.scala`, `execute/ReducedScalarIssueQueue.scala`, `top/LinxCoreFrontendRfAluTraceTop.scala`, issue/top module docs | `ReducedScalarIssuePick`, `ReducedScalarIssueQueue`, `LinxCoreFrontendRfAluTraceTop`, `run_chisel_frontend_rf_alu_trace_top_xcheck.sh`, R81/R82 trace regressions |
 | 14 | Live commit trace schema | `commit/`, `top/`, `tools/chisel/trace_schema_adapter.py` | `trace_schema_adapter.py --self-test`, reduced/top/replay/frontend-top gates |
 | 15 | R89 QEMU cross-check manifest evidence | `tools/chisel/run_chisel_qemu_crosscheck.sh`, cross-check docs | dry-run, RF/ALU xcheck, ALU xcheck, trace self-test, diff check |
-| 16 | QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 17 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 18 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 16 | R90 QEMU trace replay harness | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`, trace replay wrapper docs | dry-run, archived/fresh QEMU JSONL replay with metadata-aware raw prefix, manifest inspection |
+| 17 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 18 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 19 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
@@ -281,11 +298,16 @@ Use this ladder for every promoted packet:
    physical writeback metadata, or the shared frontend ALU trace-top driver.
 11. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
-12. Inspect `<report-dir>/crosscheck_manifest.json` after any non-dry-run
+12. `bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run` for
+   QEMU-row replay wrapper changes, then replay a bounded archived or fresh
+   QEMU JSONL with `--qemu-trace` or `--elf`. Use `--replay-rows` only to cap
+   the raw search window; `--max-commits` remains the architectural compare
+   window.
+13. Inspect `<report-dir>/crosscheck_manifest.json` after any non-dry-run
    generated-RTL or QEMU comparison that routes through the common wrapper.
-13. Full QEMU-vs-DUT comparison only after the Chisel top emits real
+14. Full QEMU-vs-DUT comparison only after the Chisel top emits real
    architectural commit rows.
-14. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
+15. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
 
 ## Project Maintenance
 
