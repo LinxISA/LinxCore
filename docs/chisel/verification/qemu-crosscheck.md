@@ -240,10 +240,14 @@ manifest with `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` drives the same
 dependent scalar smoke through `LinxCoreFrontendFetchRfAluTraceTop`, replaces
 testbench-supplied frontend packets with a live PC request/response source,
-serves instruction bytes from a `FETCH_MEMORY_BIN` image, and preserves
-RF-backed reduced issue and ALU completion. Its manifest under
+serves instruction bytes from a `FETCH_MEMORY_BIN`, `FETCH_MEMORY_HEX`, or
+`FETCH_ELF` image, and preserves RF-backed reduced issue and ALU completion.
+Its manifest under
 `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/report` records
 `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
+The R97 sparse ELF mode extracts PT_LOAD bytes into `elf.fetch.mem`, but the
+top still compares the fixed dependent scalar rows until a later packet binds
+expected rows to a bounded QEMU/ELF prefix.
 The QEMU trace replay bridge now has bounded live-ELF prefix evidence using
 `tests/benchmarks/build/coremark_real.elf` with explicit `-m 1280M`; the
 default 128 MiB QEMU run fails fast with an empty-trace error because the ELF

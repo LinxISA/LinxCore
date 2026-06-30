@@ -12,7 +12,10 @@ REPORT_DIR="${BUILD_DIR}/report"
 DUT_TRACE="${TRACE_DIR}/dut.chisel.jsonl"
 QEMU_TRACE="${TRACE_DIR}/qemu.reference.jsonl"
 DEFAULT_FETCH_MEMORY_BIN="${BUILD_DIR}/fixture.fetch.bin"
-FETCH_MEMORY_BIN="${FETCH_MEMORY_BIN:-${DEFAULT_FETCH_MEMORY_BIN}}"
+DEFAULT_FETCH_MEMORY_HEX="${BUILD_DIR}/elf.fetch.mem"
+FETCH_ELF="${FETCH_ELF:-}"
+FETCH_MEMORY_BIN="${FETCH_MEMORY_BIN:-}"
+FETCH_MEMORY_HEX="${FETCH_MEMORY_HEX:-}"
 FETCH_MEMORY_BASE="${FETCH_MEMORY_BASE:-0x1000}"
 
 if ! command -v verilator >/dev/null 2>&1; then
@@ -22,12 +25,40 @@ fi
 
 mkdir -p "${TRACE_DIR}" "${REPORT_DIR}"
 
-if [[ "${FETCH_MEMORY_BIN}" == "${DEFAULT_FETCH_MEMORY_BIN}" ]]; then
-  python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_fixture_memory.py" \
-    --output "${FETCH_MEMORY_BIN}"
-elif [[ ! -f "${FETCH_MEMORY_BIN}" ]]; then
-  echo "error: FETCH_MEMORY_BIN does not exist: ${FETCH_MEMORY_BIN}" >&2
+if [[ -n "${FETCH_MEMORY_BIN}" && -n "${FETCH_MEMORY_HEX}" ]]; then
+  echo "error: set only one of FETCH_MEMORY_BIN or FETCH_MEMORY_HEX" >&2
   exit 2
+fi
+
+if [[ -n "${FETCH_ELF}" && -n "${FETCH_MEMORY_BIN}" ]]; then
+  echo "error: FETCH_ELF produces sparse memory and cannot be combined with FETCH_MEMORY_BIN" >&2
+  exit 2
+fi
+
+MEMORY_ARGS=()
+if [[ -n "${FETCH_ELF}" ]]; then
+  FETCH_MEMORY_HEX="${FETCH_MEMORY_HEX:-${DEFAULT_FETCH_MEMORY_HEX}}"
+  python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_elf_memory.py" \
+    --elf "${FETCH_ELF}" \
+    --output "${FETCH_MEMORY_HEX}"
+fi
+
+if [[ -n "${FETCH_MEMORY_HEX}" ]]; then
+  if [[ ! -f "${FETCH_MEMORY_HEX}" ]]; then
+    echo "error: FETCH_MEMORY_HEX does not exist: ${FETCH_MEMORY_HEX}" >&2
+    exit 2
+  fi
+  MEMORY_ARGS=(--memory-hex "${FETCH_MEMORY_HEX}")
+else
+  FETCH_MEMORY_BIN="${FETCH_MEMORY_BIN:-${DEFAULT_FETCH_MEMORY_BIN}}"
+  if [[ "${FETCH_MEMORY_BIN}" == "${DEFAULT_FETCH_MEMORY_BIN}" ]]; then
+    python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_fixture_memory.py" \
+      --output "${FETCH_MEMORY_BIN}"
+  elif [[ ! -f "${FETCH_MEMORY_BIN}" ]]; then
+    echo "error: FETCH_MEMORY_BIN does not exist: ${FETCH_MEMORY_BIN}" >&2
+    exit 2
+  fi
+  MEMORY_ARGS=(--memory-bin "${FETCH_MEMORY_BIN}" --memory-base "${FETCH_MEMORY_BASE}")
 fi
 
 source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
@@ -63,8 +94,7 @@ verilator \
 "${OBJ_DIR}/linxcore_frontend_fetch_rf_alu_trace_top_tb" \
   --dut-trace "${DUT_TRACE}" \
   --qemu-trace "${QEMU_TRACE}" \
-  --memory-bin "${FETCH_MEMORY_BIN}" \
-  --memory-base "${FETCH_MEMORY_BASE}"
+  "${MEMORY_ARGS[@]}"
 
 bash "${ROOT_DIR}/tools/chisel/run_chisel_qemu_crosscheck.sh" \
   --qemu-trace "${QEMU_TRACE}" \

@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,7 @@ struct Args {
   std::string dut_trace;
   std::string qemu_trace;
   std::string memory_bin;
+  std::string memory_hex;
   std::uint64_t memory_base = 0x1000;
 };
 
@@ -84,11 +86,12 @@ struct ObservedRow {
 [[noreturn]] void usage(const char *argv0) {
   std::cerr << "usage: " << argv0
             << " --dut-trace <dut.jsonl> --qemu-trace <qemu.jsonl>"
-            << " [--memory-bin <program.bin> --memory-base <addr>]\n";
+            << " [--memory-bin <program.bin> --memory-base <addr>]"
+            << " [--memory-hex <sparse.mem>]\n";
   std::exit(2);
 }
 
-std::uint64_t parse_u64_arg(const std::string &value, const char *name) {
+std::uint64_t parse_u64_arg(const std::string &value, const std::string &name) {
   errno = 0;
   char *end = nullptr;
   const unsigned long long parsed = std::strtoull(value.c_str(), &end, 0);
@@ -109,6 +112,8 @@ Args parse_args(int argc, char **argv) {
       args.qemu_trace = argv[++i];
     } else if (arg == "--memory-bin" && i + 1 < argc) {
       args.memory_bin = argv[++i];
+    } else if (arg == "--memory-hex" && i + 1 < argc) {
+      args.memory_hex = argv[++i];
     } else if (arg == "--memory-base" && i + 1 < argc) {
       args.memory_base = parse_u64_arg(argv[++i], "--memory-base");
     } else {
@@ -116,6 +121,10 @@ Args parse_args(int argc, char **argv) {
     }
   }
   if (args.dut_trace.empty() || args.qemu_trace.empty()) {
+    usage(argv[0]);
+  }
+  if (!args.memory_bin.empty() && !args.memory_hex.empty()) {
+    std::cerr << "--memory-bin and --memory-hex are mutually exclusive\n";
     usage(argv[0]);
   }
   return args;
@@ -209,6 +218,59 @@ public:
     }
     if (offset == 0) {
       std::cerr << "fetch memory image is empty: " << path << "\n";
+      std::exit(2);
+    }
+  }
+
+  void load_sparse_hex(const std::string &path) {
+    std::ifstream in(path);
+    if (!in) {
+      std::cerr << "failed to open sparse fetch memory image: " << path
+                << " error=" << std::strerror(errno) << "\n";
+      std::exit(2);
+    }
+
+    std::string line;
+    std::uint64_t loaded = 0;
+    std::uint64_t line_no = 0;
+    while (std::getline(in, line)) {
+      ++line_no;
+      const auto comment = line.find('#');
+      if (comment != std::string::npos) {
+        line.resize(comment);
+      }
+
+      std::istringstream iss(line);
+      std::string addr_token;
+      std::string byte_token;
+      std::string extra;
+      if (!(iss >> addr_token)) {
+        continue;
+      }
+      if (!(iss >> byte_token) || (iss >> extra)) {
+        std::cerr << "invalid sparse fetch memory line"
+                  << " path=" << path
+                  << " line=" << line_no << "\n";
+        std::exit(2);
+      }
+
+      const std::uint64_t addr =
+          parse_u64_arg(addr_token, "sparse memory address at " + path + ":" + std::to_string(line_no));
+      const std::uint64_t byte =
+          parse_u64_arg(byte_token, "sparse memory byte at " + path + ":" + std::to_string(line_no));
+      if (byte > 0xffU) {
+        std::cerr << "sparse fetch memory byte out of range"
+                  << " path=" << path
+                  << " line=" << line_no
+                  << " value=0x" << std::hex << byte << std::dec << "\n";
+        std::exit(2);
+      }
+      store_byte(addr, static_cast<std::uint8_t>(byte));
+      ++loaded;
+    }
+
+    if (loaded == 0) {
+      std::cerr << "sparse fetch memory image is empty: " << path << "\n";
       std::exit(2);
     }
   }
@@ -740,7 +802,9 @@ int main(int argc, char **argv) {
 
   const auto rows = fixture_rows();
   FetchMemoryImage fetch_memory;
-  if (!args.memory_bin.empty()) {
+  if (!args.memory_hex.empty()) {
+    fetch_memory.load_sparse_hex(args.memory_hex);
+  } else if (!args.memory_bin.empty()) {
     fetch_memory.load_binary(args.memory_bin, args.memory_base);
   } else {
     fetch_memory = FetchMemoryImage::from_rows(rows);

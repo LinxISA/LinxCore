@@ -7,6 +7,7 @@
 - Verilator driver: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`
 - Gate: `rtl/LinxCore/tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - Fixture memory helper: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_fixture_memory.py`
+- ELF memory helper: `rtl/LinxCore/tools/chisel/frontend_fetch_elf_memory.py`
 - Child owners:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/frontend/FrontendFetchPacketSource.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/frontend/F4DecodeWindow.scala`
@@ -42,12 +43,14 @@ RF-backed source reads, reduced ALU execute, RF writeback, and monitored ROB
 commit.
 
 The top proves one more replacement step on the CoreMark path: the harness now
-serves instruction bytes through a reusable fetch-memory image path, and the
-frontend packet row is created by Chisel logic. R96 still injects a
-single-instruction response terminator after the expected instruction length,
-so it is not full ELF, dense packet, or QEMU equivalence. Dense multi-slot
-packet handling, full issue arbitration, LSU, trap/recovery, and branch restart
-are still outside this reduced top.
+serves instruction bytes through reusable binary or sparse fetch-memory image
+paths, and the frontend packet row is created by Chisel logic. R97 adds a
+little-endian ELF64 PT_LOAD extractor that writes a sparse address-to-byte
+image for high-address or non-contiguous program segments. The top still
+injects a single-instruction response terminator after the expected instruction
+length, so it is not dense packet or full QEMU equivalence. QEMU-derived row
+selection, dense multi-slot packet handling, full issue arbitration, LSU,
+trap/recovery, and branch restart are still outside this reduced top.
 
 ## Interface
 
@@ -98,7 +101,9 @@ The wrapper owns only composition wiring. State remains in child modules:
 `FrontendFetchPacketSource` issues a PC request after `startValid` or
 `restartValid`. The bounded Verilator fixture accepts the request, reads the
 instruction bytes for that PC from a `FetchMemoryImage`, and returns a 64-bit
-single-instruction window. The source captures that response as a
+single-instruction window. The memory image can be a base-addressed binary blob
+or a sparse address-to-byte map extracted from ELF PT_LOAD segments. The source
+captures that response as a
 `FrontendDecodePacket` and presents it to F4 only when `DecodeRenameROBPath`
 can accept the packet. F4's `totalLenBytes` feeds back as `advanceBytes`, so
 the source advances by the decoded instruction size instead of by a fixed
@@ -136,13 +141,14 @@ The C++ model flow being reduced here is:
    `CommitInfo(bid,gid,rid)` separately from hardware block identity.
 
 The reduced Chisel top preserves those ownership boundaries for a serialized
-three-row scalar smoke. The R96 file-backed memory feeder removes direct
-instruction-word injection from the response driver, but it deliberately still
-uses one expected instruction length per source request. It does not model
-cacheline merge, branch prediction, multiple outstanding fetches, dense
-multi-slot decode, full oldest-ready issue preferences, read-port arbitration,
-bypass, load speculative wakeup, LSU, precise traps, or architectural redirect
-restart.
+three-row scalar smoke. The R96/R97 memory feeders remove direct
+instruction-word injection from the response driver and allow sparse ELF-backed
+program bytes, but they deliberately still use one expected instruction length
+per source request. This top does not yet derive PCs or expected rows from a
+QEMU trace, and it does not model cacheline merge, branch prediction, multiple
+outstanding fetches, dense multi-slot decode, full oldest-ready issue
+preferences, read-port arbitration, bypass, load speculative wakeup, LSU,
+precise traps, or architectural redirect restart.
 
 ## Trace/Observability
 
@@ -154,10 +160,14 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
 - emits `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.fetch.bin`
   with dense little-endian instruction bytes unless `FETCH_MEMORY_BIN` points
   at another binary image;
+- when `FETCH_ELF` is set, extracts ELF64 little-endian PT_LOAD segments into
+  `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/elf.fetch.mem` or
+  `FETCH_MEMORY_HEX`, then passes that sparse image to the harness;
+- accepts `FETCH_MEMORY_HEX` directly for sparse address-to-byte memory tests;
 - starts the live source at `0x1000`;
 - serves one bounded instruction window per source PC request by reading bytes
-  from the fetch-memory image at `FETCH_MEMORY_BASE` and appending the
-  single-instruction terminator after the expected length;
+  from the fetch-memory image and appending the single-instruction terminator
+  after the expected length;
 - requires `sourceOutFire`, `f4ValidMask == 0x1`, and
   `sourceAdvanceBytes == instruction length`;
 - waits for issue enqueue, ALU completion, and one commit row per instruction;
@@ -166,7 +176,7 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
 - compares `ADD r3,r4,r5`, `ADDI r6,r3,0x7ff`, and `C.MOVR r5,r6` through the
   neutral comparator.
 
-The R96 manifest at
+The R97 manifest at
 `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 
@@ -178,5 +188,6 @@ records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
 - `bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
+- `python3 tools/chisel/frontend_fetch_elf_memory.py --self-test`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`

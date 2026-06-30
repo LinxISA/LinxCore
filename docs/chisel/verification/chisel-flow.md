@@ -19,7 +19,8 @@ The LinxCore Chisel lane uses explicit targets:
 | `frontend-fetch-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh` | Emit `LinxCoreFrontendFetchTraceTop`, build the Verilator harness, drive a bounded memory-window fixture through `FrontendFetchPacketSource`, F4, and reduced decode/ROB, and compare commit rows against QEMU-shaped reference rows. |
 | `frontend-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendAluTraceTop`, build the Verilator harness, drive frontend packets through reduced scalar ALU execute, and compare nonzero writeback rows against QEMU-shaped reference rows. |
 | `frontend-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendRfAluTraceTop`, build the shared Verilator harness in RF mode, preload identity scalar registers, enqueue dependent scalar ALU rows through the reduced issue queue, and compare RF-sourced writeback rows against QEMU-shaped reference rows. |
-| `frontend-fetch-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendFetchRfAluTraceTop`, build the Verilator harness, drive PC request/response windows from a file-backed fetch-memory image through `FrontendFetchPacketSource`, F4, reduced rename/ROB, RF-backed issue, and ALU execute, then compare dependent scalar commit rows against QEMU-shaped reference rows. |
+| `frontend-fetch-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendFetchRfAluTraceTop`, build the Verilator harness, drive PC request/response windows from a binary or sparse ELF fetch-memory image through `FrontendFetchPacketSource`, F4, reduced rename/ROB, RF-backed issue, and ALU execute, then compare dependent scalar commit rows against QEMU-shaped reference rows. |
+| `frontend-fetch-elf-memory` | `tools/chisel/frontend_fetch_elf_memory.py --self-test` | Validate the ELF64 little-endian PT_LOAD extractor that creates sparse address-to-byte fetch-memory images for `FETCH_ELF` runs. |
 | `commit-jsonl-writer` | `tools/chisel/commit_trace_jsonl.h` | Shared C++ helper used by Verilator harnesses to emit QEMU-shaped reference rows and DUT sideband rows without per-harness field spelling drift. |
 | `qemu-crosscheck` | `tools/chisel/run_chisel_qemu_crosscheck.sh` | Normalize QEMU and DUT commit JSONL, run the neutral comparator, and emit `crosscheck_manifest.json` tying raw traces, normalized traces, reports, QEMU binary, row counts, and git context into one evidence bundle. |
 | `qemu-trace-replay-xcheck` | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh` | Capture or consume a bounded QEMU commit JSONL prefix, replay those rows through the current Chisel commit surface in an isolated build directory, and preserve comparator manifest evidence. |
@@ -64,11 +65,13 @@ the retired rows through the same manifest-producing comparator path.
 The frontend fetch RF/ALU trace-top xcheck extends that live source gate into
 the RF-backed reduced issue and ALU path. The wrapper emits
 `fixture.fetch.bin` by default and passes it as `FETCH_MEMORY_BIN`/`--memory-bin`
-to the Verilator driver, which reads instruction bytes at each requested PC and
-then forms the bounded single-instruction response window. Chisel now owns
-packet creation, F4 byte-count PC advance, rename/ROB allocation, RF source
-data, issue residency, ALU completion, and commit-row export for the three
-dependent scalar rows.
+to the Verilator driver. R97 adds `FETCH_ELF` and `FETCH_MEMORY_HEX`; ELF runs
+extract PT_LOAD segments into a sparse address-to-byte map before the driver
+reads instruction bytes at each requested PC and forms the bounded
+single-instruction response window. Chisel now owns packet creation, F4
+byte-count PC advance, rename/ROB allocation, RF source data, issue residency,
+ALU completion, and commit-row export for the three dependent scalar rows.
+Expected PC/row derivation from QEMU or ELF remains a later owner.
 QEMU-row gates must keep raw replay/normalization depth separate from the
 architectural compare depth because the comparator filters metadata rows before
 checking lockstep architectural commits.
