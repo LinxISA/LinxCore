@@ -241,6 +241,15 @@ The promoted gate captures 1597 raw QEMU rows, extracts 1476 expected rows, and
 compares 1080 normalized QEMU/DUT rows with zero mismatches. The next frontier
 is the post-return `OP_ADDTPC` row at `pc=0x40005cb2` (`insn=0x00009f87`),
 which writes local alias `x31/T0`.
+R133 admits that post-return local materialization packet in the reducer. The
+existing frontend decode, T/U rename bridge, local overlay, and execute
+completion row already carry `OP_ADDTPC` and the following `OP_ORI` as
+`x31/T0` writes; the only change is letting the QEMU reducer accept ADDTPC as a
+legal reduced T/U destination. The promoted gate captures 1600 raw QEMU rows,
+extracts 1479 expected rows, and compares 1082 normalized QEMU/DUT rows with
+zero mismatches. A QEMU-only 1620-row probe identifies the next frontier as
+`OP_HL_SD_PCR` at `pc=0x40005cce` (`insn=0x43a1b569000e`, `len=6`), an
+8-byte PCR-relative store sideband.
 
 ## Interface
 

@@ -414,6 +414,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "ADD",
         "ADDW",
         "ADDI",
+        "ADDTPC",
         "ANDI",
         "ANDIW",
         "SUB",
@@ -429,6 +430,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
     }:
         raise RowExtractionError(f"{opcode} row writes reduced U destination alias {row['dst_reg']}")
     elif row["dst_reg"] == 31 and opcode not in {
+        "ADDTPC",
         "ADDW",
         "ADDI",
         "ANDI",
@@ -1010,6 +1012,26 @@ def self_test() -> None:
         assert count == 1
         extracted_addtpc = [json.loads(line) for line in addtpc_output.read_text(encoding="utf-8").splitlines()]
         assert extracted_addtpc[0]["dst_data"] == 0x4000E000
+
+        addtpc_t_source = tmp / "addtpc-t-dst.jsonl"
+        addtpc_t_output = tmp / "addtpc-t-dst.rows.jsonl"
+        addtpc_t = {
+            **addtpc,
+            "pc": 0x40005CB2,
+            "insn": 0x00009F87,
+            "next_pc": 0x40005CB6,
+            "wb_rd": 31,
+            "dst_reg": 31,
+        }
+        _write_jsonl(addtpc_t_source, [addtpc_t])
+        count = extract_rows(addtpc_t_source, addtpc_t_output)
+        assert count == 1
+        extracted_addtpc_t = [
+            json.loads(line) for line in addtpc_t_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_addtpc_t[0]["dst_reg"] == 31
+        assert extracted_addtpc_t[0]["wb_rd"] == 31
+        assert extracted_addtpc_t[0]["dst_data"] == 0x4000E000
 
         c_setret_source = tmp / "c-setret.jsonl"
         c_setret_output = tmp / "c-setret.rows.jsonl"

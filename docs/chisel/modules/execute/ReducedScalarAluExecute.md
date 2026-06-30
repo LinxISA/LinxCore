@@ -185,6 +185,9 @@ RF. T/U local sources are consumed internally and suppressed from the
 QEMU-shaped source fields.
 R110 proves this for CoreMark's first `HL.LUI`, which writes architectural tag
 `31` as a T destination while scalar RF writeback remains gated off.
+R133 proves the same row shape for post-return `OP_ADDTPC`: the ALU already
+computes `(pc & ~0xfff) + imm`, while the reduced QEMU extractor now admits
+architectural tags `30`/`31` as legal U/T destinations for ADDTPC rows.
 R111 proves the same local-source row shape for CoreMark `SLL`: the row reads
 T0/U0, writes architectural U tag `30`, emits `0x100000000`, and leaves scalar
 source fields invalid to match QEMU.

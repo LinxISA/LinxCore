@@ -600,6 +600,7 @@ These packets remain the required base before broad module promotion:
 | R126 | CoreMark PCR return, FRET.STK redirect, and SBI byte store packet | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r126-coremark-fret-scalar-redirect-1415-qemu-elf-xcheck-pass --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1415 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 927 normalized rows compared, `git diff --check` |
 | R131 | CoreMark ANDI/SWI/ORI/SUB/SLL/MUL packet before richer FRET.STK | `git diff --check`, `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r131-andi-swi-ori-sub-mul-1595-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1595 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 1595 raw rows captured, 1475 expected rows extracted, 1079 normalized rows compared, 0 mismatches; next frontier is the repeated `FRET.STK` return/load packet at `pc=0x4000d2d4`, `insn=0x02a53041` |
 | R132 | CoreMark condition-aware FRET.STK RA-load return packet | `git diff --check`, `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r132-fret-stk-load-1597-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1597 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 1597 raw rows captured, 1476 expected rows extracted, 1080 normalized rows compared, 0 mismatches; next frontier is `OP_ADDTPC` writing `x31/T0` at `pc=0x40005cb2`, `insn=0x00009f87` |
+| R133 | CoreMark post-return ADDTPC/ORI local T materialization packet | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r133-addtpc-local-1600-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1600 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 1600 raw rows captured, 1479 expected rows extracted, 1082 normalized rows compared, 0 mismatches; QEMU-only 1620-row probe reaches `OP_HL_SD_PCR` at `pc=0x40005cce`, `insn=0x43a1b569000e`, `len=6` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -798,12 +799,14 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Next CoreMark frontier after R132: the 1597-row gate now passes through the
-   condition-false `FRET.STK` RA-load row at `pc=0x4000d2d4`,
-   `insn=0x02a53041`. The next probe reaches the post-return `OP_ADDTPC` at
-   `pc=0x40005cb2`, `insn=0x00009f87`, which writes local alias `x31/T0`.
-   Treat the next packet as local-destination ADDTPC admission plus any
-   following post-return immediate materialization rows.
+2. Next CoreMark frontier after R133: the 1600-row gate now passes through the
+   post-return `OP_ADDTPC` at `pc=0x40005cb2` and the following `OP_ORI`, both
+   writing local alias `x31/T0`. A QEMU-only 1620-row probe then reaches
+   `OP_HL_SD_PCR` at `pc=0x40005cce`, `insn=0x43a1b569000e`, `len=6`, with
+   `src0=x3`, `mem_valid=1`, `mem_is_store=1`, and store data `x3`. Treat the
+   next packet as high-long PCR store sideband admission, then verify whether
+   the immediately following `OP_LDI` load row at `pc=0x40005cd4` is already
+   covered by the reduced load path.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.
