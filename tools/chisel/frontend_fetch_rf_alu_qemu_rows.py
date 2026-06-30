@@ -101,6 +101,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "ADDI"
         if key == 0x1015:
             return "SUBI"
+        if key == 0x2035:
+            return "ANDIW"
         if (insn & 0xFFF) == 0x0507:
             return None
         if (insn & 0x7F) == 0x0007:
@@ -189,6 +191,10 @@ def _uimm12(row: dict[str, int]) -> int:
 def _simm12_20_s12_scaled_double(row: dict[str, int]) -> int:
     raw = (_mask_insn(row["insn"], row["len"]) >> 20) & 0xFFF
     return (_sext(raw, 12) << 3) & MASK64
+
+
+def _simm12_20_s12(row: dict[str, int]) -> int:
+    return _sext((_mask_insn(row["insn"], row["len"]) >> 20) & 0xFFF, 12)
 
 
 def _simm20_shifted(row: dict[str, int]) -> int:
@@ -386,6 +392,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "ADD",
         "ADDW",
         "ADDI",
+        "ANDIW",
         "LDI",
         "LD.PCR",
         "HL.LD.PCR",
@@ -465,6 +472,9 @@ def _expected_result(
     if opcode == "SUBI":
         src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         return (src0 - _uimm12(row)) & MASK64
+    if opcode == "ANDIW":
+        src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        return _sext((src0 & _simm12_20_s12(row)) & 0xFFFF_FFFF, 32) & MASK64
     if opcode == "ADDTPC":
         return ((row["pc"] & ~0xFFF) + _simm20_shifted(row)) & MASK64
     if opcode == "C.MOVI":
@@ -626,6 +636,10 @@ def _validate_reduced_row(
             raise RowExtractionError(f"row {index} LDI load address does not match src0+imm")
         if row["dst_data"] != row["mem_rdata"]:
             raise RowExtractionError(f"row {index} LDI destination data does not match load data")
+    elif opcode == "ANDIW":
+        _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        if row["src1_valid"]:
+            raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
     elif opcode == "LD.PCR":
         _require_sources(row, opcode, src0=False, src1=False)
         if not row["mem_valid"] or row["mem_is_store"] or row["mem_size"] != 8:
@@ -2629,6 +2643,45 @@ def self_test() -> None:
         assert extracted_r128_setc_ltui[0]["dst_valid"] == 0
         assert extracted_r128_setc_ltui[0]["src0_reg"] == 4
         assert extracted_r128_setc_ltui[0]["src1_valid"] == 0
+
+        r129_andiw_source = tmp / "r129-andiw.jsonl"
+        r129_andiw_output = tmp / "r129-andiw.rows.jsonl"
+        andiw = {
+            **rows[0],
+            "pc": 0x4000D210,
+            "insn": 0x0FF1AF35,
+            "len": 4,
+            "next_pc": 0x4000D214,
+            "wb_valid": 1,
+            "wb_rd": 30,
+            "wb_data": 0,
+            "dst_valid": 1,
+            "dst_reg": 30,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 3,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(r129_andiw_source, [andiw])
+        count = extract_rows(r129_andiw_source, r129_andiw_output)
+        assert count == 1
+        extracted_r129_andiw = [
+            json.loads(line) for line in r129_andiw_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_r129_andiw[0]["pc"] == 0x4000D210
+        assert extracted_r129_andiw[0]["dst_reg"] == 30
+        assert extracted_r129_andiw[0]["dst_data"] == 0
+        assert extracted_r129_andiw[0]["src0_reg"] == 3
+        assert extracted_r129_andiw[0]["src1_valid"] == 0
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

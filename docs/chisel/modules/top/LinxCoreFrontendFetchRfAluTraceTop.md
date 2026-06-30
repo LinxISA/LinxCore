@@ -205,6 +205,15 @@ QEMU's `dst_valid=1`/`wb_valid=0` artifact into the no-writeback expected row.
 The promoted gate captures 1477 raw QEMU rows, extracts 1361 expected rows,
 and compares 976 normalized QEMU/DUT rows with zero mismatches. The next
 frontier is `OP_ANDIW` at `pc=0x4000d210` (`insn=0x0ff1af35`).
+R129 carries the live capture through that `OP_ANDIW` row. The reduced ALU
+uses the model-derived word-immediate rule, `(src0 & imm)` truncated to
+32 bits and sign-extended to 64 bits, while keeping architectural alias
+`x30/U0` as a local-destination completion instead of a scalar RF writeback.
+The promoted gate captures 1479 raw QEMU rows, extracts 1363 expected rows,
+and compares 978 normalized QEMU/DUT rows with zero mismatches. A 1600-row
+frontier probe then stops at `OP_MULW` at `pc=0x4000d21a`
+(`insn=0x018e21c7`), a multicycle local-source row with `rd=x3`, `rs1=x28/U0`,
+and `rs2=x24/T0`.
 
 ## Interface
 

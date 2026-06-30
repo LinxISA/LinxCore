@@ -21,6 +21,12 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
       src0 = 0,
       src1 = 0,
       imm = 24).contains(BigInt("ffffffffffffffe8", 16)))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ANDIW, 0, 0, 255).contains(0))
+    assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_ANDIW,
+      BigInt("ffffffffffffffff", 16),
+      0,
+      BigInt("ffffffffffffffff", 16)).contains(BigInt("ffffffffffffffff", 16)))
     assert(ReducedScalarAluExecute.referenceResult(
       FrontendOpcodeDecodeTable.OP_ADDTPC,
       pc = BigInt("400054f8", 16),

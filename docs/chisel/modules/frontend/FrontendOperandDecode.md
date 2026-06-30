@@ -182,6 +182,8 @@ The `FrontendDecodeStageSpec` reference cases cover:
   suppression is part of the QEMU-shaped reduced trace contract
 - CoreMark `SETC.LTUI` at `0x4000d1e4`, where the encoded shamt/register field
   is not an architectural destination in the reduced no-writeback condition row
+- CoreMark `ANDIW` at `0x4000d210`, where the generic 32-bit immediate decode
+  produces destination `x30/U0`, scalar source `x3`, and signed immediate `255`
 
 ## Open Work
 
