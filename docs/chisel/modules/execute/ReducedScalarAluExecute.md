@@ -94,7 +94,13 @@ cleared or written for the local-register alias.
 R113 adds `OP_OR` for the next local-source row and a narrow `OP_C_LDI`
 zero-load row: the execute owner emits the QEMU-shaped 8-byte load sideband and
 returns zero data only for the current reduced CoreMark prefix, not for general
-memory execution.
+memory execution. R114 adds the compressed local arithmetic row `OP_C_ADD`:
+the compressed source fields select local T/U sources, the row writes implicit
+T destination tag `31`, and QEMU still suppresses those local source fields in
+commit JSONL. The current QEMU row also omits the local destination/writeback
+fields for `C.ADD`, so the expected-row reducer synthesizes the implicit T
+writeback from the LinxCoreModel compressed arithmetic contract while keeping
+the QEMU PC/instruction stream and local-source history as the proof input.
 
 The Chisel module implements the first reduced subset:
 
@@ -105,6 +111,7 @@ The Chisel module implements the first reduced subset:
 | `OP_ADDTPC` | `(in.pc & ~0xfff) + in.imm` |
 | `OP_C_MOVI` | `in.imm` |
 | `OP_C_MOVR` | `srcData(0)` |
+| `OP_C_ADD` | `srcData(0) + srcData(1)` |
 | `OP_C_LDI` | `0`, with a reduced 8-byte load sideband at `srcData(0) + in.imm` |
 | `OP_C_SETRET` | `in.pc + in.imm` |
 | `OP_FENTRY` | `srcData(1) - in.imm` for the reduced single-save SP update |
@@ -142,6 +149,11 @@ R113 proves `OP_OR` as another local-source row writing U tag `30`, then admits
 the immediately following `C.LDI` zero-load row writing T tag `31`. The latter
 is a prefix gate only; nonzero load data must wait for a real data-memory/LSU
 owner.
+R114 proves `OP_C_ADD` at `pc=0x4000553c`, where compressed source fields
+decode to T0/U0 and the implicit destination writes T0. This is still a
+local-source reduced ALU row, not a general compressed ALU expansion. Because
+QEMU currently emits that row without `dst`/`wb`, the reducer patches only this
+expected row to the model-derived implicit T writeback before comparison.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural

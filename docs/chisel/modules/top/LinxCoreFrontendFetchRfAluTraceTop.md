@@ -97,6 +97,11 @@ must capture both scalar slots when they share one 8-byte response window.
 R113 extends the same reduced prefix through `OR` on local T/U sources and a
 single zero-data `C.LDI` load sideband. The load support is only a bounded
 CoreMark prefix bridge; it is not a data-memory or LSU implementation.
+R114 adds the following compressed `C.ADD` local-source row, still using the
+reduced local-value overlay and still suppressing local source fields in the
+QEMU-shaped completion row. The expected-row reducer synthesizes the implicit
+T writeback for this one row because current QEMU commit JSONL omits local
+destination/writeback fields for `C.ADD`.
 
 ## Interface
 
@@ -151,7 +156,7 @@ overlay. Most state remains in child modules:
 - `ReducedScalarIssueQueue` and `ReducedScalarIssuePick`: resident issue rows,
   source-ready snapshots, P1/I1/I2 timing, issued-entry lock, cancel, and W2
   release.
-- `ReducedScalarAluExecute`: reduced scalar ADD/ADDI/MOVR/MOVI/shift/OR
+- `ReducedScalarAluExecute`: reduced scalar ADD/ADDI/MOVR/MOVI/shift/OR/C.ADD
   execute, narrow C.LDI zero-load sideband, and writeback-shaped completion.
 
 ## Logic Design
@@ -257,7 +262,10 @@ and `SRL` at `pc=0x4000552e`; both write architectural T tag `31`, and the
 17-row CoreMark capture proves the shared F4 window carries both slots.
 R113 adds `OR` at `pc=0x40005532`, which reads local U0/T0 and writes U0, plus
 the following `C.LDI` at `pc=0x40005536`, which reads scalar x4, writes T0,
-and emits an 8-byte load sideband with zero data for this prefix only.
+and emits an 8-byte load sideband with zero data for this prefix only. R114
+adds `C.ADD` at `pc=0x4000553c`, whose compressed fields read T0/U0 and write
+implicit T0. The reducer converts QEMU's no-writeback C.ADD trace row into the
+model-derived implicit T writeback expected row before the comparator runs.
 
 ## Trace/Observability
 
@@ -617,6 +625,30 @@ records `status: "pass"`, `summary.compared_rows: 14`, and
 `SLL` at `pc=0x40005538` but ends mid-window; a 21-row extraction probe
 identifies the next true blocker as `OP_C_ADD` (`pc=0x4000553c`,
 `insn=0xe608`, `len=2`).
+
+The R114 CoreMark gate extends the prefix through that `OP_C_ADD` row. The raw
+QEMU trace omits the C.ADD local destination fields, so
+`frontend_fetch_rf_alu_qemu_rows.py` synthesizes the model-derived implicit T
+writeback from the local T/U queue state:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r114-coremark-c-add-qemu-elf-xcheck \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 \
+  --capture-rows 21 \
+  --allow-block-markers \
+  --max-seconds 8 \
+  -- -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+The manifest at
+`generated/r114-coremark-c-add-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 16`, and
+`summary.mismatch_count: 0`. A 22-row extraction probe identifies the next
+unsupported row as `OP_SRA` (`pc=0x4000553e`, `insn=0x01ec6f85`, `len=4`),
+which reads local T/U sources and writes T tag `31`.
 
 ## Verification
 
