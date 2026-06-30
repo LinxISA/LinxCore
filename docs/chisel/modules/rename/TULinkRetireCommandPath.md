@@ -62,9 +62,10 @@ Inputs:
   `CleanCMAP(bid)`.
 - `cleanGroupValid/cleanGroupBid/cleanGroupGid`: group cleanup equivalent to
   `CleanGroupCMAP(bid, gid)`.
-- `commandReady`: actual downstream command acceptance. The integrated path
-  drives this from `ScalarTURenameBridge.tuRetireAccepted`, not from predicted
-  readiness.
+- `commandReady`: actual downstream terminal command response. The integrated
+  path drives this from `ScalarTURenameBridge` response pulses
+  (`tuRetireAccepted`, `tuRetireMiss`, `tuRetireReleaseMismatch`, or
+  `tuRetireUnsupported`), not from predicted readiness.
 - `localBlockCommitReady`: downstream acceptance for the scalar local-register
   block-commit event that follows the auto `CleanCMAP` pulse. In the reduced
   backend this now comes from `ScalarTURenameBridge.tuLocalBlockCommitReady`.
@@ -127,9 +128,12 @@ The FIFO and embedded relation-cmap preserve `peId/stid` through this
 width-to-one conversion. No command may reconstruct bank identity from the
 currently selected rename row.
 
-`commandReady` is tied to actual rename acceptance in the integrated path.
-This keeps flush and commit priority inside `TULinkRename`: if rename rejects
-a retire command because flush or commit maintenance wins, relation-cmap keeps
+`commandReady` is tied to an actual terminal rename response in the integrated
+path. Accepted commands advance normally. Miss, release-mismatch, and
+unsupported responses also advance the serializer after surfacing diagnostics,
+because those responses prove the live rename owner has consumed and rejected
+the command. Predicted readiness is still insufficient: if rename gives no
+terminal response because flush or commit maintenance wins, relation-cmap keeps
 the command pending and the source stream does not advance past that policy
 point.
 
@@ -186,7 +190,8 @@ The preserved C++ order is:
   the selected STID.
 
 `TULinkRetireCommandPath` owns only the width-to-one serialization and the
-acceptance coupling to `TULinkRename`. The detailed relation policy remains in
+terminal-response coupling to `TULinkRename`. The detailed relation policy
+remains in
 `TULinkRelationCmap`, queued source cleanup mirrors that policy before rows
 enter relation-cmap, the scalar block-clean scheduler drives the post-drain
 `CleanCMAP` pulse, the local block-commit event preserves the next model

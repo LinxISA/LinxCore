@@ -115,6 +115,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "C.MOVR"
         if key == 0x001A:
             return "C.LDI"
+        if key == 0x0036:
+            return "C.SETC_NE"
     if row["len"] == 6:
         if (insn & HL_LUI_MASK) == HL_LUI_MATCH:
             return "HL.LUI"
@@ -152,6 +154,12 @@ def _simm5_6(row: dict[str, int]) -> int:
 
 def _simm5_11(row: dict[str, int]) -> int:
     return _sext((_mask_insn(row["insn"], row["len"]) >> 11) & 0x1F, 5)
+
+
+def _simm5_11_scaled_double(row: dict[str, int]) -> int:
+    raw = (_mask_insn(row["insn"], row["len"]) >> 11) & 0x1F
+    signed = raw - 0x20 if raw & 0x10 else raw
+    return (signed << 3) & MASK64
 
 
 def _c_setret_imm(row: dict[str, int]) -> int:
@@ -295,7 +303,17 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         _require_scalar_reg(row, "wb_rd", opcode)
     elif row["dst_reg"] == 30 and opcode not in {"ADDI", "SLL", "SLLI", "SRL", "SRA", "OR"}:
         raise RowExtractionError(f"{opcode} row writes reduced U destination alias {row['dst_reg']}")
-    elif row["dst_reg"] == 31 and opcode not in {"HL.LUI", "SLL", "SLLI", "SRL", "SRA", "OR", "C.LDI", "C.ADD"}:
+    elif row["dst_reg"] == 31 and opcode not in {
+        "HL.LUI",
+        "SLL",
+        "SLLI",
+        "SRL",
+        "SRA",
+        "OR",
+        "C.LDI",
+        "C.ADD",
+        "C.MOVR",
+    }:
         raise RowExtractionError(f"{opcode} row writes reduced T destination alias {row['dst_reg']}")
     if row["dst_data"] != row["wb_data"]:
         raise RowExtractionError(f"{opcode} row dst_data={row['dst_data']} differs from wb_data={row['wb_data']}")
@@ -340,6 +358,8 @@ def _expected_result(
         return (row["mem_addr"] + 8 - _fentry_imm(row)) & MASK64
     if opcode == "C.LDI":
         return row["mem_rdata"] & MASK64
+    if opcode == "C.SETC_NE":
+        return 0
     if opcode == "C.ADD":
         lhs = _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         rhs = _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
@@ -413,13 +433,19 @@ def _validate_reduced_row(
         if not row["mem_valid"] or not row["mem_is_store"] or row["mem_size"] != 8:
             raise RowExtractionError(f"row {index} FENTRY must carry one 8-byte store")
     elif opcode == "C.LDI":
-        _require_sources(row, opcode, src0=True, src1=False)
+        if row["src1_valid"]:
+            raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
+        src0 = _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         if not row["mem_valid"] or row["mem_is_store"] or row["mem_size"] != 8:
             raise RowExtractionError(f"row {index} C.LDI must carry one 8-byte load")
-        if row["mem_addr"] != row["src0_data"] + _simm5_11(row):
+        expected_addr = (src0 + _simm5_11_scaled_double(row)) & MASK64
+        if row["mem_addr"] != expected_addr:
             raise RowExtractionError(f"row {index} C.LDI load address does not match src0+imm")
         if row["mem_rdata"] != 0 or row["dst_data"] != 0:
             raise RowExtractionError(f"row {index} C.LDI reduced gate only supports current zero-load row")
+    elif opcode == "C.SETC_NE":
+        _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
+        _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
     elif opcode == "C.ADD":
         _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
@@ -433,13 +459,16 @@ def _validate_reduced_row(
         _require_sources(row, opcode, src0=False, src1=False)
         _local_source_value(local_state, _sll_src_l(row), opcode)
     synthesize_c_add_writeback = opcode == "C.ADD" and _is_no_writeback_trace_gap(row)
-    if not synthesize_c_add_writeback:
+    no_writeback_opcode = opcode == "C.SETC_NE"
+    if no_writeback_opcode and not _is_no_writeback_trace_gap(row):
+        raise RowExtractionError(f"row {index} {opcode} must not write a destination")
+    if not synthesize_c_add_writeback and not no_writeback_opcode:
         _require_writeback(row, opcode)
         if opcode == "C.ADD" and row["dst_reg"] != 31:
             raise RowExtractionError(f"row {index} C.ADD must write implicit T destination tag 31")
 
     expected = _expected_result(row, opcode, local_state)
-    if not synthesize_c_add_writeback and row["dst_data"] != expected:
+    if not synthesize_c_add_writeback and not no_writeback_opcode and row["dst_data"] != expected:
         raise RowExtractionError(
             f"row {index} {opcode} result mismatch: dst_data=0x{row['dst_data']:x}, expected 0x{expected:x}"
         )
@@ -1143,6 +1172,108 @@ def self_test() -> None:
         assert extracted_r116_packet[14]["pc"] == 0x4000554C
         assert extracted_r116_packet[14]["dst_reg"] == 5
         assert extracted_r116_packet[14]["dst_data"] == 0
+
+        r117_packet_source = tmp / "r117-packet.jsonl"
+        r117_packet_output = tmp / "r117-packet.rows.jsonl"
+        c_movr_t = {
+            **rows[0],
+            "pc": 0x40005550,
+            "insn": 0xF886,
+            "len": 2,
+            "next_pc": 0x40005552,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 0x4FFF_0010,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 0x4FFF_0010,
+            "src0_valid": 1,
+            "src0_reg": 2,
+            "src0_data": 0x4FFF_0010,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        addi_local_after_movr = {
+            **rows[0],
+            "pc": 0x40005552,
+            "insn": 0x008C0115,
+            "len": 4,
+            "next_pc": 0x40005556,
+            "wb_valid": 1,
+            "wb_rd": 2,
+            "wb_data": 0x4FFF_0018,
+            "dst_valid": 1,
+            "dst_reg": 2,
+            "dst_data": 0x4FFF_0018,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        c_ldi_local = {
+            **rows[0],
+            "pc": 0x40005556,
+            "insn": 0xF61A,
+            "len": 2,
+            "next_pc": 0x40005558,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 0,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 1,
+            "mem_is_store": 0,
+            "mem_addr": 0x4FFF_0000,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 8,
+        }
+        c_setc_ne = {
+            **rows[0],
+            "pc": 0x40005558,
+            "insn": 0x2E36,
+            "len": 2,
+            "next_pc": 0x4000555A,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 1,
+            "src1_reg": 5,
+            "src1_data": 0,
+        }
+        _write_jsonl(r117_packet_source, [c_movr_t, addi_local_after_movr, c_ldi_local, c_setc_ne])
+        count = extract_rows(r117_packet_source, r117_packet_output)
+        assert count == 4
+        extracted_r117_packet = [
+            json.loads(line) for line in r117_packet_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_r117_packet[0]["dst_reg"] == 31
+        assert extracted_r117_packet[0]["dst_data"] == 0x4FFF_0010
+        assert extracted_r117_packet[1]["src0_valid"] == 0
+        assert extracted_r117_packet[1]["dst_data"] == 0x4FFF_0018
+        assert extracted_r117_packet[2]["mem_addr"] == 0x4FFF_0000
+        assert extracted_r117_packet[2]["dst_reg"] == 31
+        assert extracted_r117_packet[2]["dst_data"] == 0
+        assert extracted_r117_packet[3]["pc"] == 0x40005558
+        assert extracted_r117_packet[3]["src1_valid"] == 1
+        assert extracted_r117_packet[3]["src1_reg"] == 5
+        assert extracted_r117_packet[3]["dst_valid"] == 0
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

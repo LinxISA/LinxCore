@@ -535,6 +535,8 @@ class DecodeRenameROBPath(
   ))
   val activeTURenamePeId = queuedForRename.peId.pad(peIdWidth)(peIdWidth - 1, 0)
   val activeTURenameStid = queuedForRename.threadId.pad(stidWidth)(stidWidth - 1, 0)
+  val renameCommitValid = Wire(Bool())
+  val renameCommitBid = Wire(new ROBID(p.robEntries))
   rename.io.in := queuedForRename
   rename.io.activePeId := activeTURenamePeId
   rename.io.activeStid := activeTURenameStid
@@ -580,8 +582,8 @@ class DecodeRenameROBPath(
   rename.io.robAllocReady := allocator.io.renameUpdateReady
   rename.io.checkpointValid := io.checkpointValid
   rename.io.checkpointBid := io.checkpointBid
-  rename.io.commitValid := io.commitValid
-  rename.io.commitBid := io.commitBid
+  rename.io.commitValid := renameCommitValid
+  rename.io.commitBid := renameCommitBid
   rename.io.cleanup := io.cleanup
 
   decRenQ.io.popReady := rename.io.inReady
@@ -664,6 +666,10 @@ class DecodeRenameROBPath(
   allocator.io.blockFlushValid := io.cleanup.blockFlushValid
   allocator.io.blockFlushBid := io.cleanup.blockFlushBid
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
+  val internalBlockCommitBid =
+    FullBidRecoveryBridge.fullBidToRobId(blockRetireBidReg, blockRetirePending, p.robEntries, bidWidth)
+  renameCommitValid := io.commitValid || blockRetirePending
+  renameCommitBid := Mux(io.commitValid, io.commitBid, internalBlockCommitBid)
 
   when(blockLifecycleFlush) {
     blockRetirePending := false.B
@@ -699,7 +705,10 @@ class DecodeRenameROBPath(
   tuRetirePath.io.cleanGroupValid := false.B
   tuRetirePath.io.cleanGroupBid := zeroRobId
   tuRetirePath.io.cleanGroupGid := zeroRobId
-  tuRetirePath.io.commandReady := rename.io.tuRetireAccepted
+  val tuRetireCommandTerminal =
+    rename.io.tuRetireAccepted || rename.io.tuRetireMiss ||
+      rename.io.tuRetireReleaseMismatch || rename.io.tuRetireUnsupported
+  tuRetirePath.io.commandReady := tuRetireCommandTerminal
   tuRetirePath.io.localBlockCommitReady := rename.io.tuLocalBlockCommitReady
   rename.io.tuRetireValid := tuRetirePath.io.command.valid
   rename.io.tuRetireKind := tuRetirePath.io.command.kind

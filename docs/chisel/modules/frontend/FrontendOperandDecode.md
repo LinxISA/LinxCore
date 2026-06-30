@@ -116,6 +116,10 @@ Explicit pyCircuit/model overrides currently cover:
 - R115 `SLLI`/`SRLI`/`SRAI` immediate extraction, where LinxCoreModel
   `@shift_i` uses `src1=%shamt_20_25` even though the generated Chisel opcode
   table still marks those opcodes as `ImmNONE`.
+- R117 `C.LDI` immediate extraction, where bits `[15:11]` are a signed 5-bit
+  doubleword offset and must be shifted left by 3 before execute. This
+  intentionally overrides the generic `ImmSIMM5_11_S5` path used by ordinary
+  compressed signed immediates.
 
 ## Model Alignment
 
@@ -154,6 +158,8 @@ The `FrontendDecodeStageSpec` reference cases cover:
   T/U queue destination boundaries
 - CoreMark `HL.LUI` at `0x4000551a`, which decodes destination tag `31`
   (`DestinationKind.T`) and immediate `1`
+- CoreMark `C.LDI` at `0x40005556`, which decodes destination tag `31`,
+  source tag `24` (`T0`), and immediate `0xfffffffffffffff0`
 
 ## Open Work
 

@@ -205,6 +205,9 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM5_11_S5.U) {
       setImm(simm5_11)
     }
+    when(opcodeIs(FrontendOpcodeDecodeTable.OP_C_LDI)) {
+      setImm(fitImm(simm5_11 << 3))
+    }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM5_6_S5.U) {
       setImm(simm5_6)
     }

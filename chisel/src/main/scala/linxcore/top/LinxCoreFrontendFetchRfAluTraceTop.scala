@@ -18,6 +18,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
     val decRenQueueDepth: Int = 4,
     val issueQueueDepth: Int = 4,
     val denseSlotQueueDepth: Int = 8,
+    val mapQDepth: Int = 32,
     val physRegs: Int = 64)
     extends Bundle {
   private val ptrWidth = log2Ceil(p.robEntries)
@@ -26,6 +27,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   private val issueCountWidth = log2Ceil(issueQueueDepth + 1)
   private val denseSlotQueueCountWidth = log2Ceil(denseSlotQueueDepth + 1)
   private val denseSlotQueueSlotWidth = math.max(1, log2Ceil(p.decodeWidth))
+  private val tuCountWidth = log2Ceil(mapQDepth + 1)
 
   val startValid = Input(Bool())
   val startPc = Input(UInt(p.pcWidth.W))
@@ -147,6 +149,21 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val decodeBlockedByOutput = Output(Bool())
   val decodeBlockedByTURename = Output(Bool())
   val tuRenameSourceUnderflowMask = Output(UInt(3.W))
+  val tuRenameActiveBankValid = Output(Bool())
+  val tuRenameBlockedByTAlloc = Output(Bool())
+  val tuRenameBlockedByUAlloc = Output(Bool())
+  val tuRenameTUsedEntries = Output(UInt(tuCountWidth.W))
+  val tuRenameUUsedEntries = Output(UInt(tuCountWidth.W))
+  val tuRetireCommandValid = Output(Bool())
+  val tuRetireCommandFire = Output(Bool())
+  val tuRetireLocalBlockCommitPending = Output(Bool())
+  val tuRetireLocalBlockCommitValid = Output(Bool())
+  val tuRetireLocalBlockCommitReady = Output(Bool())
+  val tuRetireLocalBlockCommitFire = Output(Bool())
+  val tuRetireAccepted = Output(Bool())
+  val tuRetireMiss = Output(Bool())
+  val tuRetireReleaseMismatch = Output(Bool())
+  val tuRetireUnsupported = Output(Bool())
 
   val commit = Output(new CommitTracePort(traceParams))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -198,6 +215,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     decRenQueueDepth = decRenQueueDepth,
     issueQueueDepth = issueQueueDepth,
     denseSlotQueueDepth = denseSlotQueueDepth,
+    mapQDepth = mapQDepth,
     physRegs = physRegs
   ))
 
@@ -476,6 +494,21 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.decodeBlockedByOutput := path.io.blockedByOutput
   io.decodeBlockedByTURename := path.io.blockedByTURename
   io.tuRenameSourceUnderflowMask := path.io.tuRenameSourceUnderflowMask
+  io.tuRenameActiveBankValid := path.io.tuRenameActiveBankValid
+  io.tuRenameBlockedByTAlloc := path.io.tuRenameBlockedByTAlloc
+  io.tuRenameBlockedByUAlloc := path.io.tuRenameBlockedByUAlloc
+  io.tuRenameTUsedEntries := path.io.tuRenameTUsedEntries
+  io.tuRenameUUsedEntries := path.io.tuRenameUUsedEntries
+  io.tuRetireCommandValid := path.io.tuRetireCommandValid
+  io.tuRetireCommandFire := path.io.tuRetireCommandFire
+  io.tuRetireLocalBlockCommitPending := path.io.tuRetireLocalBlockCommitPending
+  io.tuRetireLocalBlockCommitValid := path.io.tuRetireLocalBlockCommitValid
+  io.tuRetireLocalBlockCommitReady := path.io.tuRetireLocalBlockCommitReady
+  io.tuRetireLocalBlockCommitFire := path.io.tuRetireLocalBlockCommitFire
+  io.tuRetireAccepted := path.io.tuRetireAccepted
+  io.tuRetireMiss := path.io.tuRetireMiss
+  io.tuRetireReleaseMismatch := path.io.tuRetireReleaseMismatch
+  io.tuRetireUnsupported := path.io.tuRetireUnsupported
 
   io.commit := path.io.commit
   io.commitValidMask := path.io.commitValidMask

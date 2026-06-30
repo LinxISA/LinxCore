@@ -411,6 +411,18 @@ This is still not a full marker ROB-retire implementation, and active block
 state is still reduced to the current serialized lane rather than per-STID
 arrays.
 
+R117 feeds reduced marker/block retire back into scalar rename commit
+bookkeeping. When the marker-owned block-retire pending bit is set, the path
+converts the retiring full BID through `FullBidRecoveryBridge.fullBidToRobId`
+and ORs that event into `ScalarTURenameBridge.commitValid`. This releases
+scalar GPR mapQ entries at marker-owned block boundaries even when there is no
+external scalar commit pulse for that internal reduced block-retire event.
+R117 also treats every terminal T/U retire-command response as progress:
+`accepted`, `miss`, `releaseMismatch`, and `unsupported` all drive
+`TULinkRetireCommandPath.commandReady`. The diagnostics remain visible on the
+module IO, but a stale relation command can no longer hold the retire
+serializer and block later local C.LDI/C.SETC packet work forever.
+
 The composition forwards `DispatchROBAllocator.robTULinkSource*` to the module
 IO and feeds the same source into `ScalarTURenameBridge.robSource`. The bridge
 feeds `StoreDispatchSTQPath.lsuTULinkSource` into its LSU source input. For
@@ -509,6 +521,9 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - External live block/group commit clean event wiring into
   `TULinkRetireCommandPath.cleanBlock*` and `cleanGroup*`; scalar block-last
   auto clean is now owned inside `TULinkRetireCommandPath`.
+- Full scalar commit ownership for real marker ROB-retire rows. The current
+  R117 feedback only bridges reduced marker/block-retire events into scalar
+  rename mapQ release.
 - Multi-PE `TULinkLocalBankArray` instantiation and top-level nonzero PE
   packet production. The active selector now consumes row `peId`, but current
   frontend/top packets still default that sidecar to PE0 unless an upstream

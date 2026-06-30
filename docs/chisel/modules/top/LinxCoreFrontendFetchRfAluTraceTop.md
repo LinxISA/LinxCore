@@ -106,6 +106,17 @@ R115 extends the same dense packet through `OP_SRA` and `OP_SLLI`. The top now
 stalls younger rename output while any reduced local T/U producer is pending,
 so same-packet local consumers wait for the producer to complete before reading
 the temporary local overlay.
+R116 extends the next dense packet through mixed local/scalar `C.ADD`,
+local-source `ADDI`, and scalar `C.MOVR`, with expected-row validation choosing
+scalar or suppressed local source handling per encoded operand instead of per
+opcode.
+R117 extends through the following marker and scalar/local packet: `C.MOVR`
+writes T tag `31`, local-source `ADDI` writes scalar x2, `C.LDI` reads local
+T0 and uses the scaled doubleword byte offset from frontend decode, and
+`C.SETC_NE` validates a local/scalar compare row without emitting writeback.
+The top also exposes deeper T/U rename and retire-command diagnostics so the
+live harness can distinguish active-bank allocation pressure from stale
+retire-command terminal responses.
 
 ## Interface
 
@@ -137,6 +148,8 @@ the temporary local overlay.
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
 | output | `robAllocFire`, `robRenameUpdateFire`, `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB allocation, post-rename update, and completion acceptance events. |
 | output | `decodeBlockedByRename`, `decodeBlockedByRob`, `decodeBlockedByOutput`, `decodeBlockedByTURename`, `tuRenameSourceUnderflowMask`, `robRenameUpdate*` | mixed | diagnostic | Reduced decode/rename/ROB backpressure and post-rename update diagnostics. |
+| output | `tuRenameActiveBankValid`, `tuRenameBlockedByTAlloc`, `tuRenameBlockedByUAlloc`, `tuRenameTUsedEntries`, `tuRenameUUsedEntries` | mixed | diagnostic | Active T/U bank selection, mapQ pressure, and used-entry observability from the reduced rename path. |
+| output | `tuRetireCommandValid`, `tuRetireCommandFire`, `tuRetireLocalBlockCommit*`, `tuRetireAccepted`, `tuRetireMiss`, `tuRetireReleaseMismatch`, `tuRetireUnsupported` | mixed | diagnostic | T/U retire serializer, local block-commit event, and terminal rename response observability. |
 | output | `robDeallocBlockLastValid`, `robDeallocBlockLastBlockBid`, `blockScalarDoneFire`, `blockScalarDoneBid`, `blockRetireFire`, `blockRetireBid` | mixed | pulse/diagnostic | Reduced ROB block-last to BROB lifecycle sideband path with full 64-bit BID. |
 | output | `commit.rows` | `Vec(commitWidth, CommitTraceRow)` | row `valid` | Monitored commit rows with RF-sourced source data and ALU writeback. |
 | output | `commit*`, `dealloc*`, `occupiedMask`, `completedMask`, `retiredMask`, `idle` | mixed | diagnostic | Commit monitor, ROB lifecycle, and reduced-top idle observability. |
@@ -161,7 +174,8 @@ overlay. Most state remains in child modules:
   source-ready snapshots, P1/I1/I2 timing, issued-entry lock, cancel, and W2
   release.
 - `ReducedScalarAluExecute`: reduced scalar ADD/ADDI/MOVR/MOVI/shift/OR/C.ADD
-  execute, narrow C.LDI zero-load sideband, and writeback-shaped completion.
+  execute, narrow C.LDI zero-load sideband, C.SETC_NE no-writeback row, and
+  writeback-shaped completion.
 
 ## Logic Design
 
@@ -707,6 +721,31 @@ The manifest at
 records `status: "pass"`, `summary.compared_rows: 21`, and
 `summary.mismatch_count: 0`. A 27-row probe still passes and shows the next raw
 row as a zero-advance `C.BSTART` artifact at `pc=0x4000554e`, `insn=0x0004`.
+
+The R117 CoreMark gate extends across that marker artifact and through the
+next scalar/local packet. The promoted window includes `C.MOVR` at
+`pc=0x40005550` writing T tag `31`, local-source `ADDI` at `pc=0x40005552`,
+scaled local-base `C.LDI` at `pc=0x40005556`, no-writeback `C.SETC_NE` at
+`pc=0x40005558`, and `C.BSTART.STD.FALL` at `pc=0x4000555a`:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r117-coremark-c-movr-c-ldi-setc-qemu-elf-xcheck \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 \
+  --capture-rows 34 \
+  --allow-block-markers \
+  --max-seconds 8 \
+  -- -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+The manifest at
+`generated/r117-coremark-c-movr-c-ldi-setc-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `expected rows: 31`,
+`summary.compared_rows: 25`, and `summary.mismatch_count: 0`. The next
+frontier starts at `pc=0x4000555c`, `insn=0x13808315`, followed by
+`0x10000395`, `0x4146`, and a marker at `0x40005566`.
 
 ## Verification
 

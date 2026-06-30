@@ -152,9 +152,11 @@ R112 proves that the same shift family can write either local class in the
 reduced trace: the later `SLL` and `SRL` rows write architectural T tag `31`,
 while scalar RF side effects remain gated to GPR destinations.
 R113 proves `OP_OR` as another local-source row writing U tag `30`, then admits
-the immediately following `C.LDI` zero-load row writing T tag `31`. The latter
-is a prefix gate only; nonzero load data must wait for a real data-memory/LSU
-owner.
+the immediately following `C.LDI` zero-load row writing T tag `31`. The
+reduced memory sideband address is `srcData(0) + uop.imm`; starting in R117,
+`FrontendOperandDecode` provides `uop.imm` as signed bits `[15:11]` shifted
+left by 3. This remains a prefix gate only; nonzero load data must wait for a
+real data-memory/LSU owner.
 R114 proves `OP_C_ADD` at `pc=0x4000553c`, where compressed source fields
 decode to T0/U0 and the implicit destination writes T0. This is still a
 local-source reduced ALU row, not a general compressed ALU expansion. Because
@@ -164,6 +166,11 @@ R115 proves `OP_SRA` at `pc=0x4000553e` and the paired `OP_SLLI` at
 `pc=0x40005542`. Both read local T state, write architectural T tag `31`, and
 keep scalar RF side effects gated off; `SLLI` is included with `SRA` because
 the live frontend emits both slots in the same dense packet.
+R117 admits `OP_C_SETC_NE` as a reduced no-writeback compare row. The row
+exists to keep the live CoreMark prefix moving through a local/scalar compare
+that QEMU emits without destination fields; execute marks it supported and
+returns a zero reference result, while the decoded invalid destination keeps
+the commit row free of writeback.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural
