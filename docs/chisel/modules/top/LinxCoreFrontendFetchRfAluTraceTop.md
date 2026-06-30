@@ -683,6 +683,31 @@ frontier as a mixed local/scalar `C.ADD` at `pc=0x40005546`, `insn=0x2608`,
 `len=2`: compressed `SrcL` is T0, compressed `SrcR` is scalar x4, and current
 QEMU emits scalar `src1` but no destination/writeback fields.
 
+The R116 CoreMark gate extends through the full dense packet starting at that
+mixed `C.ADD` row. The packet contains `C.ADD` at `pc=0x40005546`, local-source
+`ADDI` at `pc=0x40005548`, and scalar `C.MOVR` at `pc=0x4000554c`; a
+`--capture-rows 24` gate cuts inside this 8-byte fetch window and fails the
+dense-packet boundary check, so use `--capture-rows 26` for the promoted
+packet:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r116-coremark-c-add-mixed-qemu-elf-xcheck \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 \
+  --capture-rows 26 \
+  --allow-block-markers \
+  --max-seconds 8 \
+  -- -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+The manifest at
+`generated/r116-coremark-c-add-mixed-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 21`, and
+`summary.mismatch_count: 0`. A 27-row probe still passes and shows the next raw
+row as a zero-advance `C.BSTART` artifact at `pc=0x4000554e`, `insn=0x0004`.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`

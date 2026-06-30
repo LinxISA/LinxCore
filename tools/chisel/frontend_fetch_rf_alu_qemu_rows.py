@@ -212,6 +212,10 @@ def _local_queue_for_reg(reg: int) -> tuple[str, int] | None:
     return None
 
 
+def _is_local_source_reg(reg: int) -> bool:
+    return _local_queue_for_reg(reg) is not None
+
+
 def _local_source_value(state: dict[str, list[int | None]], reg: int, opcode: str) -> int:
     queue_info = _local_queue_for_reg(reg)
     if queue_info is None:
@@ -260,6 +264,27 @@ def _require_sources(row: dict[str, int], opcode: str, src0: bool, src1: bool) -
         _require_scalar_reg(row, "src1_reg", opcode)
 
 
+def _encoded_source_value(
+    row: dict[str, int],
+    field: str,
+    reg: int,
+    opcode: str,
+    local_state: dict[str, list[int | None]]) -> int:
+    valid_field = f"{field}_valid"
+    reg_field = f"{field}_reg"
+    data_field = f"{field}_data"
+    if _is_local_source_reg(reg):
+        if row[valid_field]:
+            raise RowExtractionError(f"{opcode} row has {valid_field}=1 for local source reg {reg}")
+        return _local_source_value(local_state, reg, opcode)
+    _require_scalar_reg(row, reg_field, opcode)
+    if not row[valid_field]:
+        raise RowExtractionError(f"{opcode} row has {valid_field}=0 for scalar source reg {reg}")
+    if row[reg_field] != reg:
+        raise RowExtractionError(f"{opcode} row {reg_field}={row[reg_field]} differs from compressed source {reg}")
+    return row[data_field] & MASK64
+
+
 def _require_writeback(row: dict[str, int], opcode: str) -> None:
     if not row["dst_valid"] or not row["wb_valid"]:
         raise RowExtractionError(f"{opcode} row must have destination/writeback valid")
@@ -301,7 +326,8 @@ def _expected_result(
     if opcode == "ADD":
         return (row["src0_data"] + row["src1_data"]) & MASK64
     if opcode == "ADDI":
-        return (row["src0_data"] + _uimm12(row)) & MASK64
+        src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        return (src0 + _uimm12(row)) & MASK64
     if opcode == "ADDTPC":
         return ((row["pc"] & ~0xFFF) + _simm20_shifted(row)) & MASK64
     if opcode == "C.MOVI":
@@ -315,8 +341,8 @@ def _expected_result(
     if opcode == "C.LDI":
         return row["mem_rdata"] & MASK64
     if opcode == "C.ADD":
-        lhs = _local_source_value(local_state, _c_src_l(row), opcode)
-        rhs = _local_source_value(local_state, _c_src_r(row), opcode)
+        lhs = _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
+        rhs = _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
         return (lhs + rhs) & MASK64
     if opcode == "HL.LUI":
         return _hl_lui_imm(row)
@@ -365,7 +391,9 @@ def _validate_reduced_row(
     if opcode == "ADD":
         _require_sources(row, opcode, src0=True, src1=True)
     elif opcode == "ADDI":
-        _require_sources(row, opcode, src0=True, src1=False)
+        if row["src1_valid"]:
+            raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
+        _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
     elif opcode == "ADDTPC":
         _require_sources(row, opcode, src0=False, src1=False)
     elif opcode == "C.MOVI":
@@ -393,9 +421,8 @@ def _validate_reduced_row(
         if row["mem_rdata"] != 0 or row["dst_data"] != 0:
             raise RowExtractionError(f"row {index} C.LDI reduced gate only supports current zero-load row")
     elif opcode == "C.ADD":
-        _require_sources(row, opcode, src0=False, src1=False)
-        _local_source_value(local_state, _c_src_l(row), opcode)
-        _local_source_value(local_state, _c_src_r(row), opcode)
+        _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
+        _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
     elif opcode == "HL.LUI":
         _require_sources(row, opcode, src0=False, src1=False)
     elif opcode in {"SLL", "SRL", "SRA", "OR"}:
@@ -994,6 +1021,128 @@ def self_test() -> None:
         assert extracted_slli[11]["dst_reg"] == 31
         assert extracted_slli[11]["wb_rd"] == 31
         assert extracted_slli[11]["dst_data"] == 8
+
+        c_add_mixed_source = tmp / "c-add-mixed.jsonl"
+        c_add_mixed_output = tmp / "c-add-mixed.rows.jsonl"
+        c_add_mixed = {
+            **rows[0],
+            "pc": 0x40005546,
+            "insn": 0x2608,
+            "len": 2,
+            "next_pc": 0x40005548,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 1,
+            "src1_reg": 4,
+            "src1_data": 0x4FFE_FDB0,
+        }
+        _write_jsonl(
+            c_add_mixed_source,
+            [
+                addi_u_dst,
+                hl_lui,
+                sll_tu,
+                hl_lui_zero,
+                sll_t_dst,
+                srl_tu,
+                or_tu,
+                c_ldi,
+                sll_after_c_ldi,
+                c_add_tu,
+                sra_tu,
+                slli_tu,
+                c_add_mixed,
+            ],
+        )
+        count = extract_rows(c_add_mixed_source, c_add_mixed_output)
+        assert count == 13
+        extracted_c_add_mixed = [
+            json.loads(line) for line in c_add_mixed_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_c_add_mixed[12]["src1_valid"] == 1
+        assert extracted_c_add_mixed[12]["src1_reg"] == 4
+        assert extracted_c_add_mixed[12]["dst_reg"] == 31
+        assert extracted_c_add_mixed[12]["wb_rd"] == 31
+        assert extracted_c_add_mixed[12]["dst_data"] == 0x4FFE_FDB8
+
+        r116_packet_source = tmp / "r116-packet.jsonl"
+        r116_packet_output = tmp / "r116-packet.rows.jsonl"
+        addi_local_src = {
+            **rows[0],
+            "pc": 0x40005548,
+            "insn": 0x018C0115,
+            "len": 4,
+            "next_pc": 0x4000554C,
+            "wb_valid": 1,
+            "wb_rd": 2,
+            "wb_data": 0x4FFE_FDD0,
+            "dst_valid": 1,
+            "dst_reg": 2,
+            "dst_data": 0x4FFE_FDD0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        c_movr_x0 = {
+            **rows[0],
+            "pc": 0x4000554C,
+            "insn": 0x2806,
+            "len": 2,
+            "next_pc": 0x4000554E,
+            "wb_valid": 1,
+            "wb_rd": 5,
+            "wb_data": 0,
+            "dst_valid": 1,
+            "dst_reg": 5,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(
+            r116_packet_source,
+            [
+                addi_u_dst,
+                hl_lui,
+                sll_tu,
+                hl_lui_zero,
+                sll_t_dst,
+                srl_tu,
+                or_tu,
+                c_ldi,
+                sll_after_c_ldi,
+                c_add_tu,
+                sra_tu,
+                slli_tu,
+                c_add_mixed,
+                addi_local_src,
+                c_movr_x0,
+            ],
+        )
+        count = extract_rows(r116_packet_source, r116_packet_output)
+        assert count == 15
+        extracted_r116_packet = [
+            json.loads(line) for line in r116_packet_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_r116_packet[13]["src0_valid"] == 0
+        assert extracted_r116_packet[13]["dst_reg"] == 2
+        assert extracted_r116_packet[13]["dst_data"] == 0x4FFE_FDD0
+        assert extracted_r116_packet[14]["pc"] == 0x4000554C
+        assert extracted_r116_packet[14]["dst_reg"] == 5
+        assert extracted_r116_packet[14]["dst_data"] == 0
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])

@@ -590,6 +590,34 @@ R115 closeout: `skill-evolve: update linx-core (shift-immediate rows need
 explicit shamt extraction despite generated ImmNONE metadata, and same-packet
 local T/U consumers need an ordered producer stall in the reduced top)`.
 
+R116 started from `linx-isa` commit
+`a92aa18f560b52df6c7b10e8ae7cfc4d136be7b7`, `rtl/LinxCore` commit
+`b332ab2427df2c63ff18e3b1c422bd232ec1315b`,
+`model/LinxCoreModel` commit
+`1993e4e749403824a4908548baf77d5e15117068`, QEMU commit
+`c561976c60fa5f76f00987563772283a4f2d9b97`, and
+`skills/linx-skills` commit
+`87b46a294ef1e5a0b6eefe3c827d1bf21ce00372`. R116 extends the live reduced
+RF/ALU CoreMark prefix through the full dense packet beginning at
+`pc=0x40005546`: mixed local/scalar `C.ADD` (`insn=0x2608`) reads compressed
+`SrcL=T0` plus scalar `SrcR=x4` and synthesizes QEMU's missing implicit T
+writeback, the following `ADDI` (`insn=0x018c0115`) reads encoded `SrcL=T0`
+with QEMU's local source field suppressed and writes scalar x2, and `C.MOVR`
+(`insn=0x2806`) moves scalar x0 into x5. The expected-row reducer now validates
+encoded source fields by checking whether each encoded register is a local T/U
+alias or scalar GPR, instead of hard-coding opcode-wide source-valid patterns.
+A 24-row gate is intentionally too short because it cuts through the three-slot
+dense packet; use the 26-row gate for this packet. Evidence:
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r116-coremark-c-add-mixed-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 26 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+passed with `status: "pass"`, `summary.compared_rows: 21`, and
+`summary.mismatch_count: 0`. A 27-row probe still passes and shows the next raw
+row as a zero-advance `C.BSTART` artifact at `pc=0x4000554e`, `insn=0x0004`;
+the current marker-skip logic already drops that artifact.
+
+R116 closeout: `skill-evolve: update linx-core (QEMU-shaped expected rows for
+encoded sources must validate each source independently as scalar or suppressed
+local T/U; dense-packet gates must not stop inside an 8-byte fetch window)`.
+
 ## Reference Evidence
 
 The active ROB, issue, and frontend packets are anchored to these C++ model
@@ -731,9 +759,10 @@ The ROB/cross-check substrate remains the required base:
 | 39 | R113 CoreMark OR local T/U source and C.LDI zero-load sideband rows | `ReducedScalarAluExecute.scala`, `ReducedScalarAluExecuteSpec.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, module/top docs | extractor self-test, execute gate, CoreMark live-QEMU gate with `--capture-rows 19`, fourteen scalar/macro commits compared, 21-row `OP_C_ADD` probe, manifest inspection |
 | 40 | R114 CoreMark C.ADD local T/U source row with QEMU trace-gap synthesis | `ReducedScalarAluExecute.scala`, `ReducedScalarAluExecuteSpec.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, module/top docs | extractor self-test, execute gate, CoreMark live-QEMU gate with `--capture-rows 21`, sixteen scalar/macro commits compared, 22-row `OP_SRA` probe, manifest inspection |
 | 41 | R115 CoreMark SRA/SLLI local T dependency packet | `FrontendOperandDecode.scala`, `ReducedScalarAluExecute.scala`, `LinxCoreFrontendFetchRfAluTraceTop.scala`, `frontend_fetch_rf_alu_qemu_rows.py`, module/top docs | extractor self-test, frontend/execute/top gates, CoreMark live-QEMU gate with `--capture-rows 23`, eighteen scalar/macro commits compared, 24-row mixed `C.ADD` probe, manifest inspection |
-| 42 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
-| 43 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
-| 44 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
+| 42 | R116 CoreMark mixed C.ADD/local-source ADDI dense packet | `frontend_fetch_rf_alu_qemu_rows.py`, module/top docs | extractor self-test, CoreMark live-QEMU gate with `--capture-rows 26`, twenty-one scalar/macro commits compared, 27-row zero-advance `C.BSTART` artifact probe, manifest inspection |
+| 43 | Live QEMU full-compare harness | `tools/chisel/run_chisel_qemu_crosscheck.sh`, live Chisel trace writer | dry-run, manifest inspection, then full compare on a bounded direct-boot smoke |
+| 44 | Multi-PE/STID bank expansion | frontend packet production plus T/U bank array | PE/STID-specific rename and retire-source gates |
+| 45 | LinxCoreModel ROB maintenance note | `docs/chisel/model-notes/ROBCommit.md` and model-lane notes | documentation check plus model ownership review |
 
 R76 implemented the reservation/update split at `rtl/LinxCore` commit
 `11529bf345c407fe1c7614973e61b68be8d99fb4`. Future agents must not
