@@ -61,6 +61,7 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_SDI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SLL) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SLLI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_SRL) ||
@@ -93,6 +94,8 @@ class ReducedScalarAluExecute(
       out := srcData(1) - imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_HL_LUI)) {
       out := imm
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SDI)) {
+      out := 0.U
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SLL)) {
       out := (srcData(0) << srcData(1)(5, 0))(p.immWidth - 1, 0)
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SLLI)) {
@@ -156,6 +159,13 @@ class ReducedScalarAluExecute(
       row.mem.addr := srcData(0) + uop.imm
       row.mem.wdata := 0.U
       row.mem.rdata := result
+      row.mem.size := 8.U
+    }.elsewhen(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SDI)) {
+      row.mem.valid := valid
+      row.mem.isStore := true.B
+      row.mem.addr := srcData(1) + ((uop.imm << 3)(p.immWidth - 1, 0))
+      row.mem.wdata := srcData(0)
+      row.mem.rdata := 0.U
       row.mem.size := 8.U
     }
     row
@@ -238,6 +248,7 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_C_SETC_NE => Some(0)
       case FrontendOpcodeDecodeTable.OP_FENTRY => Some((src1 - imm) & Mask64)
       case FrontendOpcodeDecodeTable.OP_HL_LUI => Some(imm & Mask64)
+      case FrontendOpcodeDecodeTable.OP_SDI => Some(0)
       case FrontendOpcodeDecodeTable.OP_SLL => Some((src0 << ((src1 & 0x3f).toInt)) & Mask64)
       case FrontendOpcodeDecodeTable.OP_SLLI => Some((src0 << ((imm & 0x3f).toInt)) & Mask64)
       case FrontendOpcodeDecodeTable.OP_SRL => Some((src0 & Mask64) >> ((src1 & 0x3f).toInt))

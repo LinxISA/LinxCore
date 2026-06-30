@@ -781,12 +781,12 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Broader reduced scalar/CoreMark opcode body: after R117 proves `C.MOVR`
-   into T, local-source `ADDI`, scaled local-base `C.LDI`, no-writeback
-   `C.SETC_NE`, and the following `C.BSTART.STD.FALL`, continue at the dense
-   packet beginning `pc=0x4000555c` (`insn=0x13808315`, likely `ADDTPC`) and
-   include the following `0x10000395`/`0x4146` rows plus the marker at
-   `0x40005566` as one packet if the F4 window requires it.
+2. Broader reduced scalar/CoreMark opcode body: after R118 proves the dense
+   packet through `OP_SDI` at `pc=0x4000556a`, continue at the following dense
+   packet beginning `pc=0x40005572`. That packet includes a no-writeback
+   compare row (`insn=0x3a36`) and a redirecting `C.BSTART`/branch marker at
+   `pc=0x40005574`; do not promote a capture that cuts inside this 8-byte F4
+   window.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.

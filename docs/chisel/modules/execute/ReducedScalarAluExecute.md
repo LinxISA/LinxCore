@@ -12,7 +12,10 @@
   - `model/LinxCoreModel/isa/calculate/arithmetic/Arithmetic.cpp`
   - `model/LinxCoreModel/isa/calculate/others/Others.cpp`
   - `model/LinxCoreModel/isa/calculate/pc/PC.cpp`
+  - `model/LinxCoreModel/isa/calculate/store/Store.cpp`
+  - `model/LinxCoreModel/isa/ISACommon/OpcodeManager.h`
   - `model/LinxCoreModel/isa/ISACommon/OpcodeManager.cpp`
+  - `emulator/qemu/target/linx/translate.c`
 - Contract IDs: `LC-IF-CHISEL-IEX-ALU-001`, `LC-IF-CHISEL-XCHK-006`
 
 ## Purpose
@@ -120,6 +123,7 @@ The Chisel module implements the first reduced subset:
 | `OP_C_SETRET` | `in.pc + in.imm` |
 | `OP_FENTRY` | `srcData(1) - in.imm` for the reduced single-save SP update |
 | `OP_HL_LUI` | `in.imm` |
+| `OP_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(1) + (in.imm << 3)` and store data `srcData(0)` |
 | `OP_SLL` | `srcData(0) << srcData(1)(5, 0)` |
 | `OP_SLLI` | `srcData(0) << in.imm(5, 0)` |
 | `OP_SRL` | `srcData(0) >> srcData(1)(5, 0)` |
@@ -171,12 +175,24 @@ exists to keep the live CoreMark prefix moving through a local/scalar compare
 that QEMU emits without destination fields; execute marks it supported and
 returns a zero reference result, while the decoded invalid destination keeps
 the commit row free of writeback.
+R118 admits the first ordinary scalar store-immediate row, `OP_SDI`. The C++
+model decodes the 32-bit form as `src0=SrcL` store data, `src1=SrcR` address
+base, and `src2=simm12_7_s5_25_7 << 3`; `Store::CalcStoreAddr` computes
+`src1 + src2`, and `GetStoreDataSrcIndex` selects source 0 for non-PCR stores.
+Linx QEMU's `trans_sdi` matches that contract with data from `SrcL` and
+address `SrcR + simm12 * 8`. The reduced execute owner therefore emits a
+no-writeback 8-byte store sideband with `addr = srcData(1) + (uop.imm << 3)`
+and `wdata = srcData(0)`. The current CoreMark row uses a suppressed local T0
+base and visible scalar x5 store data.
 
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural
 SP writeback and one store sideband (`mem.valid`, `mem.isStore`, `mem.addr`,
 `mem.wdata`, and `mem.size=8`). The reduced top/harness compares that memory
 sideband through the common JSONL comparator.
+For reduced `OP_SDI`, the completion row carries `mem.valid`, `mem.isStore`,
+`mem.addr`, `mem.wdata`, and `mem.size=8` but leaves `dst`/`wb` invalid. It
+does not model store queue drain, cache state, or memory mutation.
 
 `releaseValid` is intentionally tied to any valid W2 row, not only supported
 rows. The reduced issue queue has already marked the row issued when execute
@@ -223,4 +239,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r112-coremark-sll-srl-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 17 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r113-coremark-or-c-ldi-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 19 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r118-coremark-sdi-42-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 42 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

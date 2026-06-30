@@ -93,6 +93,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "ADDTPC"
         if key == 0x0041:
             return "FENTRY"
+        if key == 0x3059:
+            return "SDI"
         if (insn & SLLI_MASK) == SLLI_MATCH:
             return "SLLI"
         if (insn & SLL_MASK) == SLL_MATCH:
@@ -160,6 +162,12 @@ def _simm5_11_scaled_double(row: dict[str, int]) -> int:
     raw = (_mask_insn(row["insn"], row["len"]) >> 11) & 0x1F
     signed = raw - 0x20 if raw & 0x10 else raw
     return (signed << 3) & MASK64
+
+
+def _simm12_7_s5_25_7_scaled_double(row: dict[str, int]) -> int:
+    insn = _mask_insn(row["insn"], row["len"])
+    raw = (((insn >> 7) & 0x1F) << 7) | ((insn >> 25) & 0x7F)
+    return (_sext(raw, 12) << 3) & MASK64
 
 
 def _c_setret_imm(row: dict[str, int]) -> int:
@@ -360,6 +368,8 @@ def _expected_result(
         return row["mem_rdata"] & MASK64
     if opcode == "C.SETC_NE":
         return 0
+    if opcode == "SDI":
+        return 0
     if opcode == "C.ADD":
         lhs = _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         rhs = _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
@@ -400,7 +410,7 @@ def _validate_reduced_row(
         )
     if row["trap_valid"]:
         raise RowExtractionError(f"row {index} {opcode} has trap_valid=1")
-    if row["mem_valid"] and opcode not in {"FENTRY", "C.LDI"}:
+    if row["mem_valid"] and opcode not in {"FENTRY", "C.LDI", "SDI"}:
         raise RowExtractionError(f"row {index} {opcode} has mem_valid=1")
     if row["next_pc"] != row["pc"] + row["len"]:
         raise RowExtractionError(
@@ -446,6 +456,18 @@ def _validate_reduced_row(
     elif opcode == "C.SETC_NE":
         _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
+    elif opcode == "SDI":
+        store_data = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        base = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+        if not row["mem_valid"] or not row["mem_is_store"] or row["mem_size"] != 8:
+            raise RowExtractionError(f"row {index} SDI must carry one 8-byte store")
+        expected_addr = (base + _simm12_7_s5_25_7_scaled_double(row)) & MASK64
+        if row["mem_addr"] != expected_addr:
+            raise RowExtractionError(f"row {index} SDI store address does not match src1+imm")
+        if row["mem_wdata"] != store_data:
+            raise RowExtractionError(f"row {index} SDI store data does not match src0")
+        if row["mem_rdata"] != 0:
+            raise RowExtractionError(f"row {index} SDI store row must not carry read data")
     elif opcode == "C.ADD":
         _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
@@ -459,7 +481,7 @@ def _validate_reduced_row(
         _require_sources(row, opcode, src0=False, src1=False)
         _local_source_value(local_state, _sll_src_l(row), opcode)
     synthesize_c_add_writeback = opcode == "C.ADD" and _is_no_writeback_trace_gap(row)
-    no_writeback_opcode = opcode == "C.SETC_NE"
+    no_writeback_opcode = opcode in {"C.SETC_NE", "SDI"}
     if no_writeback_opcode and not _is_no_writeback_trace_gap(row):
         raise RowExtractionError(f"row {index} {opcode} must not write a destination")
     if not synthesize_c_add_writeback and not no_writeback_opcode:
@@ -1274,6 +1296,57 @@ def self_test() -> None:
         assert extracted_r117_packet[3]["src1_valid"] == 1
         assert extracted_r117_packet[3]["src1_reg"] == 5
         assert extracted_r117_packet[3]["dst_valid"] == 0
+
+        r118_packet_source = tmp / "r118-sdi.jsonl"
+        r118_packet_output = tmp / "r118-sdi.rows.jsonl"
+        c_movr_t_for_sdi = {
+            **c_movr_t,
+            "pc": 0x40005560,
+            "next_pc": 0x40005562,
+            "wb_data": 0x4FFF_0128,
+            "dst_data": 0x4FFF_0128,
+            "src0_data": 0x4FFF_0128,
+        }
+        sdi_local_base = {
+            **rows[0],
+            "pc": 0x40005562,
+            "insn": 0x0182B059,
+            "len": 4,
+            "next_pc": 0x40005566,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 5,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 1,
+            "mem_is_store": 1,
+            "mem_addr": 0x4FFF_0128,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 8,
+        }
+        _write_jsonl(r118_packet_source, [c_movr_t_for_sdi, sdi_local_base])
+        count = extract_rows(r118_packet_source, r118_packet_output)
+        assert count == 2
+        extracted_r118_packet = [
+            json.loads(line) for line in r118_packet_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_r118_packet[1]["pc"] == 0x40005562
+        assert extracted_r118_packet[1]["src0_valid"] == 1
+        assert extracted_r118_packet[1]["src0_reg"] == 5
+        assert extracted_r118_packet[1]["src1_valid"] == 0
+        assert extracted_r118_packet[1]["dst_valid"] == 0
+        assert extracted_r118_packet[1]["mem_valid"] == 1
+        assert extracted_r118_packet[1]["mem_is_store"] == 1
+        assert extracted_r118_packet[1]["mem_addr"] == 0x4FFF_0128
+        assert extracted_r118_packet[1]["mem_wdata"] == 0
 
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])
