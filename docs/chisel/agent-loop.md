@@ -598,6 +598,7 @@ These packets remain the required base before broad module promotion:
 | R124 | CoreMark OP_SD indexed store and committed sparse-memory mutation | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r124-coremark-op-sd-544-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 544 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 357 normalized rows compared, `git diff --check` |
 | R125 | CoreMark SUBI, C.AND, local/scalar ADD, and C.SDI packet | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-subi-cand-add-csdi-768-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 768 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-1024-frontier-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 665 normalized rows compared in the promoted 1024-row probe, `git diff --check` |
 | R126 | CoreMark PCR return, FRET.STK redirect, and SBI byte store packet | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r126-coremark-fret-scalar-redirect-1415-qemu-elf-xcheck-pass --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1415 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 927 normalized rows compared, `git diff --check` |
+| R131 | CoreMark ANDI/SWI/ORI/SUB/SLL/MUL packet before richer FRET.STK | `git diff --check`, `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r131-andi-swi-ori-sub-mul-1595-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1595 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 1595 raw rows captured, 1475 expected rows extracted, 1079 normalized rows compared, 0 mismatches; next frontier is the repeated `FRET.STK` return/load packet at `pc=0x4000d2d4`, `insn=0x02a53041` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -796,11 +797,13 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Next CoreMark frontier after R126: the 1415-row gate passes through the
-   PCR return and `SBI` byte-store prefix. A larger bounded probe should target
-   the next unsupported or mismatching row after the `pc=0x4000574c` target
-   body; keep reduced store mutation scoped to compared committed store rows
-   unless a real LSU/STQ path takes ownership.
+2. Next CoreMark frontier after R131: the 1595-row gate passes before the
+   repeated `FRET.STK` at `pc=0x4000d2d4`, `insn=0x02a53041`. The 1596-row
+   probe shows two QEMU rows for the same instruction: a side-effect-free
+   redirect row with `next_pc=0x4000d2d4`, followed by a load-return row with
+   `dst=x10`, `mem_valid=1`, `mem_size=8`, `mem_addr=0x4ffefbb8`,
+   `mem_rdata=0x40005cb0`, and `next_pc=0x40005cb0`. Treat R132 as a reduced
+   return/load semantics packet, not a pure reducer whitelist change.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.
