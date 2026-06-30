@@ -60,6 +60,7 @@ class F4DecodeWindow(val p: InterfaceParams = InterfaceParams()) extends Module 
   val offsets = Wire(Vec(p.decodeWidth, UInt(4.W)))
   val lens = Wire(Vec(p.decodeWidth, UInt(4.W)))
   val valids = Wire(Vec(p.decodeWidth, Bool()))
+  val stops = Wire(Vec(p.decodeWidth, Bool()))
   val shiftedWindows = Wire(Vec(p.decodeWidth, UInt(p.windowWidth.W)))
   val rawInsns = Wire(Vec(p.decodeWidth, UInt(p.insnWidth.W)))
   val endBytes = Wire(Vec(p.decodeWidth, UInt(4.W)))
@@ -75,9 +76,10 @@ class F4DecodeWindow(val p: InterfaceParams = InterfaceParams()) extends Module 
 
     val remainingBytes = F4DecodeWindow.WindowBytes.U(4.W) - offsets(slot)
     val fitsWindow = offsets(slot) < F4DecodeWindow.WindowBytes.U && lens(slot) <= remainingBytes
-    val priorValid = if (slot == 0) true.B else valids(slot - 1)
+    val priorContinues = if (slot == 0) true.B else valids(slot - 1) && !stops(slot - 1)
 
-    valids(slot) := active && priorValid && fitsWindow
+    valids(slot) := active && priorContinues && fitsWindow
+    stops(slot) := valids(slot) && lens(slot) === 2.U && shiftedWindows(slot)(15, 0) === 0.U
     rawInsns(slot) := shiftedWindows(slot) & F4DecodeWindow.lowBytesMask(lens(slot))
     val slotPc = (io.in.pc + offsets(slot))(p.pcWidth - 1, 0)
     val slotEndBytes = (offsets(slot) + lens(slot))(3, 0)

@@ -39,6 +39,10 @@ object FrontendDecodeStageReference {
     values.contains(rule.opcode)
 
   def operands(word: BigInt, lenBytes: Int): Option[OperandShape] = decode(word, lenBytes).map { rule =>
+    val cSetretAlias =
+      lenBytes == 2 &&
+        rule.opcode == FrontendOpcodeDecodeTable.OP_C_MOVI &&
+        ((word & BigInt("f83f", 16)) == BigInt("5016", 16))
     val src = Array.fill[Option[Int]](3)(None)
     var dst: Option[Int] = None
     var imm: Option[BigInt] = None
@@ -93,7 +97,7 @@ object FrontendDecodeStageReference {
     if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_BTEXT)) {
       src(0) = Some(rs1_32)
     }
-    if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_SETRET)) {
+    if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_SETRET) || cSetretAlias) {
       dst = Some(10)
     }
     if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_BLOAD, FrontendOpcodeDecodeTable.OP_BSTORE)) {
@@ -123,7 +127,12 @@ object FrontendDecodeStageReference {
       case FrontendOpcodeDecodeTable.ImmSIMM17 => imm = Some((sext(bitRange(word, 31, 15), 17) << 1) & Mask64)
       case FrontendOpcodeDecodeTable.ImmSIMM25 => imm = Some(sext(bitRange(word, 31, 7), 25))
       case FrontendOpcodeDecodeTable.ImmSIMM5_11_S5 => imm = Some(sext(bitRange(word, 15, 11), 5))
-      case FrontendOpcodeDecodeTable.ImmSIMM5_6_S5 => imm = Some(sext(bitRange(word, 10, 6), 5))
+      case FrontendOpcodeDecodeTable.ImmSIMM5_6_S5 =>
+        if (cSetretAlias) {
+          imm = Some((bitRange(word, 10, 6) << 1) & Mask64)
+        } else {
+          imm = Some(sext(bitRange(word, 10, 6), 5))
+        }
       case FrontendOpcodeDecodeTable.ImmUIMM5 => imm = Some(bitRange(word, 10, 6))
       case FrontendOpcodeDecodeTable.ImmFENTRY_UIMM_HI =>
         imm = Some((bitRange(word, 11, 7) << 10) | (bitRange(word, 31, 25) << 3))
@@ -131,6 +140,9 @@ object FrontendDecodeStageReference {
         val pfx16 = bitRange(word, 15, 0)
         val main = word >> 16
         imm = Some(sext((bitRange(pfx16, 15, 4) << 20) | bitRange(main, 31, 12), 32))
+      case FrontendOpcodeDecodeTable.ImmSIMM_4_S12_31_17 =>
+        val pfx16 = bitRange(word, 15, 0)
+        imm = Some(sext((bitRange(pfx16, 15, 4) << 18) | (bitRange(word, 47, 31) << 1), 30))
       case FrontendOpcodeDecodeTable.ImmIMM20 =>
         if (opcodeIs(rule, FrontendOpcodeDecodeTable.OP_SETRET)) {
           imm = Some((bitRange(word, 31, 12) << 1) & Mask64)
@@ -287,6 +299,7 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
   test("reference decode uses the pyCircuit most-specific mask rule") {
     assert(decode(0x0000, lenBytes = 2).map(_.symbol).contains("OP_C_BSTOP"))
     assert(decode(0x0002, lenBytes = 2).map(_.symbol).contains("OP_C_BSTART_DIRECT"))
+    assert(decode(0x5096, lenBytes = 2).map(_.symbol).contains("OP_C_MOVI"))
     assert(decode(0x00000001L, lenBytes = 4).map(_.symbol).contains("OP_BSTOP"))
     assert(decode(0x00002001L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_STD_DIRECT"))
     assert(decode(0x00000005L, lenBytes = 4).map(_.symbol).contains("OP_ADD"))
@@ -361,6 +374,11 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(bstart.src.forall(_.isEmpty))
     assert(bstart.imm.contains(2))
 
+    val hlBstartCall = operands(BigInt("3c001000e", 16), lenBytes = 6).get
+    assert(hlBstartCall.dst.isEmpty)
+    assert(hlBstartCall.src.forall(_.isEmpty))
+    assert(hlBstartCall.imm.contains(14))
+
     val cAdd = operands(0x0008 | (6 << 6) | (7 << 11), lenBytes = 2).get
     assert(cAdd.dst.contains(31))
     assert(cAdd.src(0).contains(6))
@@ -369,6 +387,10 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     val cMovi = operands(0x0016 | (0x1f << 6) | (5 << 11), lenBytes = 2).get
     assert(cMovi.dst.contains(5))
     assert(cMovi.imm.contains(BigInt("ffffffffffffffff", 16)))
+
+    val cSetretAlias = operands(0x5096, lenBytes = 2).get
+    assert(cSetretAlias.dst.contains(10))
+    assert(cSetretAlias.imm.contains(4))
   }
 
   test("IO exposes decoded uops plus model-derived sideband masks") {

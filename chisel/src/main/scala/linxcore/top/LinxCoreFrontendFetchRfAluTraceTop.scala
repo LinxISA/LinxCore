@@ -80,10 +80,14 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val blockMarkerPc = Output(UInt(p.pcWidth.W))
   val blockMarkerInsn = Output(UInt(p.insnWidth.W))
   val blockMarkerLen = Output(UInt(4.W))
+  val blockMarkerTarget = Output(UInt(p.pcWidth.W))
   val blockMarkerAllocFire = Output(Bool())
   val blockMarkerAllocBid = Output(UInt(p.blockBidWidth.W))
   val blockMarkerActiveValid = Output(Bool())
   val blockMarkerActiveBid = Output(UInt(p.blockBidWidth.W))
+  val blockMarkerActiveTarget = Output(UInt(p.pcWidth.W))
+  val blockMarkerStopRedirectValid = Output(Bool())
+  val blockMarkerStopRedirectPc = Output(UInt(p.pcWidth.W))
   val decRenPushFire = Output(Bool())
   val decRenPopFire = Output(Bool())
   val decRenCount = Output(UInt(decRenCountWidth.W))
@@ -198,10 +202,25 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val issue = Module(new ReducedScalarIssueQueue(p, depth = issueQueueDepth))
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
 
+  val markerRedirectPending = RegInit(false.B)
+  val markerRedirectPcReg = RegInit(0.U(p.pcWidth.W))
+  val markerRedirectFire = path.io.blockMarkerStopRedirectValid
+  val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
+
+  when(io.frontendFlushValid || io.restartValid || io.startValid) {
+    markerRedirectPending := false.B
+    markerRedirectPcReg := 0.U
+  }.elsewhen(markerRedirectFire) {
+    markerRedirectPending := true.B
+    markerRedirectPcReg := path.io.blockMarkerStopRedirectPc
+  }.elsewhen(markerRedirectPending) {
+    markerRedirectPending := false.B
+  }
+
   source.io.startValid := io.startValid
   source.io.startPc := io.startPc
-  source.io.restartValid := io.restartValid
-  source.io.restartPc := io.restartPc
+  source.io.restartValid := io.restartValid || markerRedirectPending
+  source.io.restartPc := Mux(markerRedirectPending, markerRedirectPcReg, io.restartPc)
   source.io.flushValid := io.frontendFlushValid
   source.io.peId := io.peId
   source.io.threadId := io.threadId
@@ -212,13 +231,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   source.io.advanceBytes := f4.io.totalLenBytes
 
   f4.io.in := source.io.out
-  f4.io.flushValid := io.frontendFlushValid
+  f4.io.flushValid := frontendPipeFlush
 
   denseSlots.io.inD1 := f4.io.d1
   denseSlots.io.inSlots := f4.io.slots
   denseSlots.io.inValidMask := f4.io.validMask
   denseSlots.io.outReady := path.io.decodeReady
-  denseSlots.io.flushValid := io.frontendFlushValid
+  denseSlots.io.flushValid := frontendPipeFlush
 
   path.io.d1 := denseSlots.io.outD1
   path.io.slots := denseSlots.io.outSlots
@@ -309,10 +328,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.blockMarkerPc := path.io.blockMarkerPc
   io.blockMarkerInsn := path.io.blockMarkerInsn
   io.blockMarkerLen := path.io.blockMarkerLen
+  io.blockMarkerTarget := path.io.blockMarkerTarget
   io.blockMarkerAllocFire := path.io.blockMarkerAllocFire
   io.blockMarkerAllocBid := path.io.blockMarkerAllocBid
   io.blockMarkerActiveValid := path.io.blockMarkerActiveValid
   io.blockMarkerActiveBid := path.io.blockMarkerActiveBid
+  io.blockMarkerActiveTarget := path.io.blockMarkerActiveTarget
+  io.blockMarkerStopRedirectValid := path.io.blockMarkerStopRedirectValid
+  io.blockMarkerStopRedirectPc := path.io.blockMarkerStopRedirectPc
   io.decRenPushFire := path.io.decRenPushFire
   io.decRenPopFire := path.io.decRenPopFire
   io.decRenCount := path.io.decRenCount

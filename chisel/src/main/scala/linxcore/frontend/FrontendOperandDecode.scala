@@ -107,6 +107,7 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
   val macroImm = fitImm(insn32(11, 7).pad(p.immWidth) << 10) |
     fitImm(insn32(31, 25).pad(p.immWidth) << 3)
   val hlLuiImm = sext(Cat(pfx16(15, 4), main32(31, 12)), 32)
+  val hlBstartOff = sext(Cat(pfx16(15, 4), io.insn(47, 31), 0.U(1.W)), 30)
 
   when(io.active) {
     when(io.meta.rdKind === FrontendOpcodeDecodeTable.OperandREG.U) {
@@ -209,6 +210,9 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmIMM32.U) {
       setImm(hlLuiImm)
     }
+    when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmSIMM_4_S12_31_17.U) {
+      setImm(hlBstartOff)
+    }
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmIMM20.U) {
       when(opcodeIs(FrontendOpcodeDecodeTable.OP_SETRET)) {
         setImm(setretImm)
@@ -222,6 +226,10 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       }.otherwise {
         setImm(imm12S)
       }
+    }
+    when(opcodeIs(FrontendOpcodeDecodeTable.OP_C_SETRET)) {
+      setDst(10.U)
+      setImm(fitImm(uimm5 << 1))
     }
   }
 }

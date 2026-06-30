@@ -35,7 +35,11 @@ object F4DecodeWindowReference {
       val shifted = (window >> (offset * 8)) & RawMask
       val len = instructionLengthBytes(shifted)
       val fits = active && offset < WindowBytes && len <= (WindowBytes - offset)
-      val slotValid = fits && (slot == 0 || ((mask & (1 << (slot - 1))) != 0))
+      val priorValid = slot == 0 || ((mask & (1 << (slot - 1))) != 0)
+      val priorStop =
+        slot > 0 &&
+          slotsTakeStop(window, slots = slot, startOffset = 0)
+      val slotValid = fits && priorValid && !priorStop
 
       if (slotValid) {
         val raw = shifted & ((BigInt(1) << (len * 8)) - 1)
@@ -57,6 +61,21 @@ object F4DecodeWindowReference {
     }
 
     Result(slots = slots, validMask = mask, slotCount = slots.count(_.valid), totalLenBytes = total, d1Valid = active)
+  }
+
+  private def slotsTakeStop(window: BigInt, slots: Int, startOffset: Int): Boolean = {
+    var offset = startOffset
+    var stop = false
+    var idx = 0
+    while (idx < slots && !stop) {
+      val shifted = (window >> (offset * 8)) & RawMask
+      val len = instructionLengthBytes(shifted)
+      val fits = offset < WindowBytes && len <= (WindowBytes - offset)
+      stop = fits && len == 2 && (shifted & 0xffff) == 0
+      offset += (if (fits) len else 0)
+      idx += 1
+    }
+    stop
   }
 }
 
@@ -103,7 +122,7 @@ class F4DecodeWindowSpec extends AnyFunSuite {
   }
 
   test("reference slices four 16-bit instructions without compaction") {
-    val window = pack(Seq(u(0x0000) -> 2, u(0x0010) -> 2, u(0x0020) -> 2, u(0x0030) -> 2))
+    val window = pack(Seq(u(0x0010) -> 2, u(0x0020) -> 2, u(0x0030) -> 2, u(0x0040) -> 2))
     val decoded = F4DecodeWindowReference.decode(window = window, pc = 0x1000, pktUid = 0x25)
 
     assert(decoded.d1Valid)
@@ -114,6 +133,17 @@ class F4DecodeWindowSpec extends AnyFunSuite {
     assert(decoded.slots.map(_.lenBytes) == Seq(2, 2, 2, 2))
     assert(decoded.slots.map(_.pc) == Seq(0x1000, 0x1002, 0x1004, 0x1006))
     assert(decoded.slots.map(_.uopUid) == Seq(0x128, 0x129, 0x12a, 0x12b))
+  }
+
+  test("reference terminates a packet after C.BSTOP") {
+    val window = pack(Seq(u(0x0000) -> 2, u(0x1002) -> 2, u(0x0000) -> 2))
+    val decoded = F4DecodeWindowReference.decode(window = window, pc = 0x7000, pktUid = 0x15)
+
+    assert(decoded.validMask == 0x1)
+    assert(decoded.slotCount == 1)
+    assert(decoded.totalLenBytes == 2)
+    assert(decoded.slots.head.pc == 0x7000)
+    assert(decoded.slots.head.insnRaw == 0)
   }
 
   test("reference accepts mixed 32-bit and 16-bit instructions") {

@@ -21,7 +21,10 @@
 the shared F4 packet, applies flush masking, and slices one 64-bit fetch window
 into up to four sequential instruction slots without compaction. It does not
 perform full opcode decode yet; it owns only instruction length, slot offset,
-slot PC, raw instruction payload, and packet-derived uop UID metadata.
+slot PC, raw instruction payload, and packet-derived uop UID metadata. It also
+terminates the current response window after a valid 2-byte `C.BSTOP` marker
+so reduced marker-stop redirects do not expose filler marker halfwords as
+later slots in the same packet.
 
 ## Interface
 
@@ -69,6 +72,13 @@ complete instruction fits in the 8-byte window. If a candidate instruction does
 not fit, that slot and all later slots remain invalid; no later instruction is
 compacted forward.
 
+A valid 2-byte raw zero instruction is the compact `C.BSTOP` marker in the
+current reduced frontend path. When such a slot is valid, all later slots are
+invalidated even if bytes remain in the 8-byte window. This preserves QEMU's
+block-stop redirect behavior for CoreMark call headers, where the marker stop
+transfers control to the active `BSTART` target instead of executing filler
+marker halfwords.
+
 Full opcode decode, register extraction, immediate construction, macro-boundary
 standalone behavior, and D1/D2 uop construction are intentionally deferred until
 the Chisel opcode table and decode-owner modules exist.
@@ -104,4 +114,5 @@ These identifiers are not commit identity. Commit comparison still uses
 
 The focused test locks the LinxCoreModel length rule, four 16-bit slots, mixed
 32/16-bit slots, 48/16-bit slots, single 64-bit instruction windows, truncated
-candidate rejection, flush masking, slot field widths, and Chisel elaboration.
+candidate rejection, stop termination after `C.BSTOP`, flush masking, slot
+field widths, and Chisel elaboration.

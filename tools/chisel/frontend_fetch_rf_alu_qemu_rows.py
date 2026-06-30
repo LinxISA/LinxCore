@@ -27,6 +27,18 @@ C_BSTART_EXACT = {
     0x88C0,  # C.BSTART.VPAR
     0xC8C0,  # C.BSTART.VSEQ
 }
+HL_BSTART_MASK = 0xFFFF_0000_7FFF_000F
+HL_BSTART_MATCHES = {
+    0x4101_000E,  # HL.BSTART.FP.CALL
+    0x3101_000E,  # HL.BSTART.FP.COND
+    0x2101_000E,  # HL.BSTART.FP.DIRECT
+    0x1101_000E,  # HL.BSTART.FP.FALL
+    0x4001_000E,  # HL.BSTART.STD.CALL
+    0x3001_000E,  # HL.BSTART.STD.COND
+    0x2001_000E,  # HL.BSTART.STD.DIRECT
+    0x1001_000E,  # HL.BSTART.STD.FALL
+    0x1081_000E,  # HL.BSTART.SYS
+}
 
 
 class RowExtractionError(RuntimeError):
@@ -67,6 +79,8 @@ def _classify(row: dict[str, int]) -> str | None:
         if (insn & 0x7F) == 0x0007:
             return "ADDTPC"
     if row["len"] == 2:
+        if (insn & 0xF83F) == 0x5016:
+            return "C.SETRET"
         key = insn & 0x3F
         if key == 0x0016:
             return "C.MOVI"
@@ -77,17 +91,18 @@ def _classify(row: dict[str, int]) -> str | None:
 
 def _classify_block_marker(row: dict[str, int]) -> tuple[str, bool, bool] | None:
     insn = _mask_insn(row["insn"], row["len"])
-    if row["len"] != 2:
-        return None
-    if insn == 0:
-        return ("C.BSTOP", False, True)
-    if (
-        insn in C_BSTART_EXACT
-        or (insn & 0x000F) == 0x0002  # C.BSTART.DIRECT immediate form
-        or (insn & 0x000F) == 0x0004  # C.BSTART.COND immediate form
-        or (insn & 0xC7FF) == 0x0080  # C.BSTART.FP
-    ):
-        return ("C.BSTART", True, False)
+    if row["len"] == 2:
+        if insn == 0:
+            return ("C.BSTOP", False, True)
+        if (
+            insn in C_BSTART_EXACT
+            or (insn & 0x000F) == 0x0002  # C.BSTART.DIRECT immediate form
+            or (insn & 0x000F) == 0x0004  # C.BSTART.COND immediate form
+            or (insn & 0xC7FF) == 0x0080  # C.BSTART.FP
+        ):
+            return ("C.BSTART", True, False)
+    if row["len"] == 6 and (insn & HL_BSTART_MASK) in HL_BSTART_MATCHES:
+        return ("HL.BSTART", True, False)
     return None
 
 
@@ -101,6 +116,10 @@ def _simm20_shifted(row: dict[str, int]) -> int:
 
 def _simm5_6(row: dict[str, int]) -> int:
     return _sext((_mask_insn(row["insn"], row["len"]) >> 6) & 0x1F, 5)
+
+
+def _c_setret_imm(row: dict[str, int]) -> int:
+    return ((_mask_insn(row["insn"], row["len"]) >> 6) & 0x1F) << 1
 
 
 def _require_scalar_reg(row: dict[str, int], field: str, opcode: str) -> None:
@@ -144,6 +163,8 @@ def _expected_result(row: dict[str, int], opcode: str) -> int:
         return _simm5_6(row) & MASK64
     if opcode == "C.MOVR":
         return row["src0_data"] & MASK64
+    if opcode == "C.SETRET":
+        return (row["pc"] + _c_setret_imm(row)) & MASK64
     raise AssertionError(opcode)
 
 
@@ -174,6 +195,8 @@ def _validate_reduced_row(row: dict[str, int], index: int) -> dict[str, int]:
         _require_sources(row, opcode, src0=False, src1=False)
     elif opcode == "C.MOVR":
         _require_sources(row, opcode, src0=True, src1=False)
+    elif opcode == "C.SETRET":
+        _require_sources(row, opcode, src0=False, src1=False)
     _require_writeback(row, opcode)
 
     expected = _expected_result(row, opcode)
@@ -196,7 +219,7 @@ def _validate_block_marker_row(
         raise RowExtractionError(f"row {index} {opcode} has trap_valid=1")
     if row["mem_valid"]:
         raise RowExtractionError(f"row {index} {opcode} has mem_valid=1")
-    if row["next_pc"] != row["pc"] + row["len"]:
+    if not stop and row["next_pc"] != row["pc"] + row["len"]:
         raise RowExtractionError(
             f"row {index} {opcode} is not sequential: next_pc=0x{row['next_pc']:x}, "
             f"expected 0x{row['pc'] + row['len']:x}"
@@ -209,6 +232,19 @@ def _validate_block_marker_row(
     out["block_boundary"] = int(boundary)
     out["block_stop"] = int(stop)
     return out
+
+
+def _is_zero_advance_marker_artifact(row: dict[str, int], marker: tuple[str, bool, bool]) -> bool:
+    opcode, boundary, stop = marker
+    return (
+        boundary and
+        not stop and
+        opcode.endswith("BSTART") and
+        row["next_pc"] == row["pc"] and
+        not row["trap_valid"] and
+        not row["mem_valid"] and
+        not row["wb_valid"]
+    )
 
 
 def _normalized_rows(path: Path) -> Iterable[dict[str, int]]:
@@ -236,13 +272,15 @@ def extract_rows(
             )
 
         marker = _classify_block_marker(row) if allow_block_markers else None
+        if marker is not None and _is_zero_advance_marker_artifact(row, marker):
+            continue
         if marker is not None:
             checked = _validate_block_marker_row(row, index, marker)
         else:
             checked = _validate_reduced_row(row, index)
             reduced_rows += 1
         rows.append(checked)
-        expected_pc = checked["pc"] + checked["len"]
+        expected_pc = checked["next_pc"]
 
     if not rows:
         raise RowExtractionError(f"no reduced RF/ALU rows were extracted from {input_path}")
@@ -305,6 +343,33 @@ def self_test() -> None:
         extracted_addtpc = [json.loads(line) for line in addtpc_output.read_text(encoding="utf-8").splitlines()]
         assert extracted_addtpc[0]["dst_data"] == 0x4000E000
 
+        c_setret_source = tmp / "c-setret.jsonl"
+        c_setret_output = tmp / "c-setret.rows.jsonl"
+        c_setret = {
+            **rows[0],
+            "pc": 0x40005506,
+            "insn": 0x5096,
+            "len": 2,
+            "next_pc": 0x40005508,
+            "wb_valid": 1,
+            "wb_rd": 10,
+            "wb_data": 0x4000550A,
+            "dst_valid": 1,
+            "dst_reg": 10,
+            "dst_data": 0x4000550A,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(c_setret_source, [c_setret])
+        count = extract_rows(c_setret_source, c_setret_output)
+        assert count == 1
+        extracted_c_setret = [json.loads(line) for line in c_setret_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_c_setret[0]["dst_data"] == 0x4000550A
+
         unsupported = tmp / "unsupported.jsonl"
         bad = dict(rows[0])
         bad["mem_valid"] = 1
@@ -349,6 +414,42 @@ def self_test() -> None:
         assert block_rows[0]["block_boundary"] == 1
         assert "skip" not in block_rows[1]
         assert block_rows[2]["block_stop"] == 1
+
+        hl_block_source = tmp / "hl-block-prefix.jsonl"
+        hl_block_output = tmp / "hl-block-prefix.rows.jsonl"
+        hl_artifact = {
+            **rows[0],
+            "pc": 0x40005500,
+            "insn": 0x3C001000E,
+            "len": 6,
+            "next_pc": 0x40005500,
+            "wb_valid": 0,
+            "dst_valid": 0,
+            "src0_valid": 0,
+            "src1_valid": 0,
+        }
+        hl_bstart = {**hl_artifact, "next_pc": 0x40005506}
+        c_setret_after_hl = {**c_setret, "pc": 0x40005506, "next_pc": 0x40005508}
+        c_bstop_after_hl = {
+            **rows[0],
+            "pc": 0x40005508,
+            "insn": 0,
+            "len": 2,
+            "next_pc": 0x4000550E,
+            "wb_valid": 0,
+            "dst_valid": 0,
+            "src0_valid": 0,
+            "src1_valid": 0,
+        }
+        _write_jsonl(hl_block_source, [hl_artifact, hl_bstart, c_setret_after_hl, c_bstop_after_hl])
+        count = extract_rows(hl_block_source, hl_block_output, allow_block_markers=True)
+        assert count == 3
+        hl_rows = [json.loads(line) for line in hl_block_output.read_text(encoding="utf-8").splitlines()]
+        assert hl_rows[0]["skip"] == 1
+        assert hl_rows[0]["skip_kind"] == "HL.BSTART"
+        assert hl_rows[1]["pc"] == 0x40005506
+        assert hl_rows[2]["block_stop"] == 1
+        assert hl_rows[2]["next_pc"] == 0x4000550E
 
 
 def main() -> int:

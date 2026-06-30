@@ -59,11 +59,28 @@ class FrontendDecodeStage(val p: InterfaceParams = InterfaceParams()) extends Mo
 
   for (slot <- 0 until p.decodeWidth) {
     slotActive(slot) := active && io.slots(slot).valid && io.validMask(slot)
-    val meta = FrontendOpcodeDecodeTable.decode(p, io.slots(slot).insnRaw, io.slots(slot).lenBytes)
+    val rawMeta = FrontendOpcodeDecodeTable.decode(p, io.slots(slot).insnRaw, io.slots(slot).lenBytes)
+    val cSetretAlias =
+      rawMeta.valid &&
+        rawMeta.opcode === FrontendOpcodeDecodeTable.OP_C_MOVI.U(p.opcodeWidth.W) &&
+        io.slots(slot).lenBytes === 2.U &&
+        (io.slots(slot).insnRaw(15, 0) & "hf83f".U) === "h5016".U
+    val meta = Wire(new FrontendOpcodeMeta(p))
+    meta := rawMeta
+    when(cSetretAlias) {
+      meta.opcode := FrontendOpcodeDecodeTable.OP_C_SETRET.U(p.opcodeWidth.W)
+    }
     val operandDecode = Module(new FrontendOperandDecode(p))
     operandDecode.io.active := slotActive(slot) && meta.valid
     operandDecode.io.meta := meta
     operandDecode.io.insn := io.slots(slot).insnRaw
+    val hasBoundaryTarget = Seq(
+      FrontendOpcodeDecodeTable.OP_C_BSTART_COND,
+      FrontendOpcodeDecodeTable.OP_C_BSTART_DIRECT,
+      FrontendOpcodeDecodeTable.OP_BSTART_STD_CALL,
+      FrontendOpcodeDecodeTable.OP_BSTART_STD_COND,
+      FrontendOpcodeDecodeTable.OP_BSTART_STD_DIRECT
+    ).map(op => meta.opcode === op.U(p.opcodeWidth.W)).reduce(_ || _)
 
     val out = Wire(new DecodedUop(p))
     out := 0.U.asTypeOf(out)
@@ -87,7 +104,7 @@ class FrontendDecodeStage(val p: InterfaceParams = InterfaceParams()) extends Mo
     out.sob := meta.isBlockBoundary
     out.eob := meta.isBlockStop
     out.boundaryKind := meta.boundaryKind
-    out.boundaryTarget := 0.U
+    out.boundaryTarget := Mux(hasBoundaryTarget && operandDecode.io.immValid, out.pc + operandDecode.io.imm, 0.U)
     out.predTaken := false.B
     out.insnLen := meta.lenBytes
     out.insnRaw := io.slots(slot).insnRaw

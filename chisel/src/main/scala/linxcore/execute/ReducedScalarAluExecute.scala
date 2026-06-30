@@ -55,7 +55,8 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_ADDI) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_ADDTPC) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVI) ||
-      op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR)
+      op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET)
 
   private def resultFor(op: UInt, pc: UInt, srcData: Vec[UInt], imm: UInt): UInt = {
     val out = Wire(UInt(p.immWidth.W))
@@ -70,6 +71,8 @@ class ReducedScalarAluExecute(
       out := imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR)) {
       out := srcData(0)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SETRET)) {
+      out := pc + imm
     }
     out
   }
@@ -176,12 +179,14 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_ADDTPC => None
       case FrontendOpcodeDecodeTable.OP_C_MOVI => Some(imm & Mask64)
       case FrontendOpcodeDecodeTable.OP_C_MOVR => Some(src0 & Mask64)
+      case FrontendOpcodeDecodeTable.OP_C_SETRET => None
       case _ => None
     }
 
   def referenceResult(opcode: Int, pc: BigInt, src0: BigInt, src1: BigInt, imm: BigInt): Option[BigInt] =
     opcode match {
       case FrontendOpcodeDecodeTable.OP_ADDTPC => Some(((pc & ~BigInt(0xfff)) + imm) & Mask64)
+      case FrontendOpcodeDecodeTable.OP_C_SETRET => Some((pc + imm) & Mask64)
       case _ => referenceResult(opcode, src0, src1, imm)
     }
 }

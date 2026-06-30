@@ -88,10 +88,14 @@ class DecodeRenameROBPathIO(
   val blockMarkerPc = Output(UInt(p.pcWidth.W))
   val blockMarkerInsn = Output(UInt(p.insnWidth.W))
   val blockMarkerLen = Output(UInt(4.W))
+  val blockMarkerTarget = Output(UInt(p.pcWidth.W))
   val blockMarkerAllocFire = Output(Bool())
   val blockMarkerAllocBid = Output(UInt(bidWidth.W))
   val blockMarkerActiveValid = Output(Bool())
   val blockMarkerActiveBid = Output(UInt(bidWidth.W))
+  val blockMarkerActiveTarget = Output(UInt(p.pcWidth.W))
+  val blockMarkerStopRedirectValid = Output(Bool())
+  val blockMarkerStopRedirectPc = Output(UInt(p.pcWidth.W))
   val decodeReady = Output(Bool())
   val decRenPushReady = Output(Bool())
   val decRenPushFire = Output(Bool())
@@ -486,6 +490,7 @@ class DecodeRenameROBPath(
 
   val activeBlockValid = RegInit(false.B)
   val activeBlockBid = RegInit(0.U(bidWidth.W))
+  val activeBlockTarget = RegInit(0.U(p.pcWidth.W))
   val selectedBlockBid = Mux(activeBlockValid, activeBlockBid, allocator.io.allocBlockBid)
 
   val selectedForQueue = Wire(new DecodedUop(p))
@@ -635,6 +640,9 @@ class DecodeRenameROBPath(
   val markerStopFire = markerStop && markerReady
   val markerScalarDoneFire = activeBlockValid && (markerStopFire || markerBoundaryFire)
   val markerScalarDoneBid = activeBlockBid
+  val markerStopRedirectValid =
+    markerStopFire && activeBlockValid && activeBlockTarget =/= 0.U &&
+      activeBlockTarget =/= (marker.pc + marker.insnLen)
   val blockScalarDoneFire = markerScalarDoneFire || robBlockLastScalarDoneFire
   val blockScalarDoneBid = Mux(markerScalarDoneFire, markerScalarDoneBid, allocator.io.deallocBlockLastBlockBid)
   val blockRetirePending = RegInit(false.B)
@@ -667,12 +675,15 @@ class DecodeRenameROBPath(
   when(blockLifecycleFlush) {
     activeBlockValid := false.B
     activeBlockBid := 0.U
+    activeBlockTarget := 0.U
   }.elsewhen(markerBoundaryFire) {
     activeBlockValid := true.B
     activeBlockBid := allocator.io.blockAllocOnlyBid
+    activeBlockTarget := marker.boundaryTarget
   }.elsewhen(markerStopFire) {
     activeBlockValid := false.B
     activeBlockBid := 0.U
+    activeBlockTarget := 0.U
   }
 
   rename.io.robSource := allocator.io.robTULinkSource
@@ -708,10 +719,14 @@ class DecodeRenameROBPath(
   io.blockMarkerPc := marker.pc
   io.blockMarkerInsn := marker.insnRaw
   io.blockMarkerLen := marker.insnLen
+  io.blockMarkerTarget := marker.boundaryTarget
   io.blockMarkerAllocFire := markerBoundaryFire
   io.blockMarkerAllocBid := allocator.io.blockAllocOnlyBid
   io.blockMarkerActiveValid := activeBlockValid
   io.blockMarkerActiveBid := activeBlockBid
+  io.blockMarkerActiveTarget := activeBlockTarget
+  io.blockMarkerStopRedirectValid := markerStopRedirectValid
+  io.blockMarkerStopRedirectPc := activeBlockTarget
   io.decodeReady := !mixedMarkerPacket &&
     ((markerOnlyPacket && markerReady) || (decRenQ.io.pushReady && allocator.io.allocReady))
   io.decRenPushReady := decRenQ.io.pushReady && allocator.io.allocReady

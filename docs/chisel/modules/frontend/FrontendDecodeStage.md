@@ -33,8 +33,8 @@ Outputs:
 
 - `out[4]`: `DecodedUop` records with valid, `peId/threadId`, PC, opcode,
   dispatch-kind sideband, scalar source/destination tags plus GPR/T/U alias
-  classes, immediate value/valid, load/store class bits, raw instruction,
-  length, UID, parent packet UID, and checkpoint.
+  classes, immediate value/valid, block boundary kind/target, load/store class
+  bits, raw instruction, length, UID, parent packet UID, and checkpoint.
 - `meta[4]`: opcode decode metadata for integration/debug.
 - `outValidMask`: recognized decoded-uop mask.
 - `invalidOpcodeMask`: active slot whose raw instruction did not match the
@@ -62,8 +62,11 @@ The Chisel stage is combinational. For each F4 slot:
    `validMask(i)`.
 2. It decodes the slot raw instruction and length through
    `FrontendOpcodeDecodeTable`.
-3. It emits a `DecodedUop` skeleton when the slot is active and recognized.
-4. It preserves slot identity:
+3. It rewrites the compact `C.MOVI`/`ra` alias pattern into `OP_C_SETRET`
+   before operand extraction, matching the pyCircuit/QEMU compact return-label
+   encoding.
+4. It emits a `DecodedUop` skeleton when the slot is active and recognized.
+5. It preserves slot identity:
    - `pc = slots(i).pc`
    - `insnRaw = slots(i).insnRaw`
    - `insnLen = decoded lenBytes`
@@ -74,12 +77,14 @@ The Chisel stage is combinational. For each F4 slot:
    - `peId = d1.peId`
    - `threadId = d1.threadId`
    - `checkpointId = d1.checkpointId`
-5. It delegates scalar source/destination and immediate extraction to
+6. It delegates scalar source/destination and immediate extraction to
    `FrontendOperandDecode`.
-6. It copies generated `isLoad`/`isStore`, load/store-pair, PCR-store, and
+7. It forms `boundaryTarget = pc + imm` for target-bearing compact and HL
+   `BSTART` forms.
+8. It copies generated `isLoad`/`isStore`, load/store-pair, PCR-store, and
    cache-maintain split metadata into the output uop and visible metadata
    sidebands.
-7. It classifies basic dispatch:
+9. It classifies basic dispatch:
    - `ALU_INT`, `COMPRESSED`, and `HL_PCR` -> `DispatchTarget.Alu`
    - `BRU_SETC_CMP` -> `DispatchTarget.Bru`
    - `LOAD` / `STORE` -> `DispatchTarget.Lsu`
@@ -121,6 +126,8 @@ Affected gates:
 bash tools/chisel/run_chisel_tests.sh --only F4DecodeWindow
 bash tools/chisel/run_chisel_tests.sh --only FrontendDecodeIngress
 bash tools/chisel/run_chisel_tests.sh --only InterfaceBundles
+bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
+bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
 Cross-check smoke:

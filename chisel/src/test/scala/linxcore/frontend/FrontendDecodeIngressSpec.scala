@@ -104,7 +104,7 @@ class FrontendDecodeIngressSpec extends AnyFunSuite {
 
   test("reference exposes a pushed packet only after FIFO residency") {
     val ingress = new FrontendDecodeIngressReference.Model(depth = 4)
-    val window = pack(Seq(u(0x0000) -> 2, u(0x0010) -> 2, u(0x0020) -> 2, u(0x0030) -> 2))
+    val window = pack(Seq(u(0x0010) -> 2, u(0x0020) -> 2, u(0x0030) -> 2, u(0x0040) -> 2))
 
     val push = ingress.step(push = packet(1, window), decodeReady = true)
     assert(push.pushReady)

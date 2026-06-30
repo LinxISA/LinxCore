@@ -79,6 +79,12 @@ lifecycle. `BSTART` skip rows allocate BROB-only active BIDs, scalar rows reuse
 that active BID, and `BSTOP` skip rows complete and retire the current active
 BID. This remains marker-consume timing, not full marker ROB retirement or
 recovery-exact block control.
+R107 adds the reduced direct-call header restart path: target-bearing
+`BSTART` skip rows carry `boundaryTarget`, `BSTOP` skip rows can publish a
+marker-stop redirect PC, and the top restarts the frontend source to that
+target while flushing only the reduced frontend slot path. This is enough for
+CoreMark's first `HL.BSTART.STD CALL`/`C.SETRET`/`C.BSTOP` prefix; it is not a
+general branch, trap, or recovery redirect owner.
 
 ## Interface
 
@@ -97,8 +103,8 @@ recovery-exact block control.
 | output | `f4ValidMask`, `f4SlotCount`, `decodeReady` | mixed | diagnostic | F4 slot shape and downstream decode readiness. |
 | output | `denseSlotQueueInFire`, `denseSlotQueueOutFire`, `denseSlotQueueInSlotCount`, `denseSlotQueueCount`, `denseSlotQueueHeadSlot`, `denseSlotQueueFull`, `denseSlotQueueEmpty` | mixed | diagnostic | Reduced dense-slot bridge capture/drain and occupancy observability. |
 | output | `selectedValid`, `selectedRobValue`, `selectedBlockBid` | mixed | diagnostic | Reduced selected decoded slot and allocated identities. |
-| output | `blockMarkerSkipFire`, `blockMarkerSkipValid`, `blockMarkerMixedPacket`, `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`, `blockMarkerInsn`, `blockMarkerLen` | mixed | diagnostic | Reduced block-marker consume observability on a dense-slot drain. Marker slots advance without scalar ROB allocation or dec/ren push; older scalar issue activity may overlap in the same cycle. |
-| output | `blockMarkerAllocFire`, `blockMarkerAllocBid`, `blockMarkerActiveValid`, `blockMarkerActiveBid` | mixed | diagnostic | Reduced marker lifecycle observability: BROB-only allocation for consumed `BSTART` and active full BID reused by scalar rows. |
+| output | `blockMarkerSkipFire`, `blockMarkerSkipValid`, `blockMarkerMixedPacket`, `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`, `blockMarkerInsn`, `blockMarkerLen`, `blockMarkerTarget` | mixed | diagnostic | Reduced block-marker consume observability on a dense-slot drain. Marker slots advance without scalar ROB allocation or dec/ren push; older scalar issue activity may overlap in the same cycle. |
+| output | `blockMarkerAllocFire`, `blockMarkerAllocBid`, `blockMarkerActiveValid`, `blockMarkerActiveBid`, `blockMarkerActiveTarget`, `blockMarkerStopRedirectValid`, `blockMarkerStopRedirectPc` | mixed | diagnostic | Reduced marker lifecycle observability: BROB-only allocation for consumed `BSTART`, active full BID/target reused by scalar rows, and marker-stop frontend restart target. |
 | output | `decRenPushFire`, `decRenPopFire`, `decRenCount` | mixed | diagnostic | Decode-to-rename queue events and occupancy. |
 | output | `renamedOutValid`, `renamedAccepted` | `Bool` | diagnostic | Rename output and issue-queue acceptance. |
 | output | `rfReadReadyMask`, `rfAllReadReady`, `rfReadyMask` | mixed | diagnostic | Reduced physical RF read and ready-state observability. |
@@ -117,8 +123,8 @@ The wrapper owns only composition wiring. State remains in child modules:
 
 - `FrontendFetchPacketSource`: active PC, one-outstanding request state,
   response packet residency, packet UID/checkpoint, restart, and flush clearing.
-- `F4DecodeWindow`: combinational instruction-window slicing and decoded byte
-  count.
+- `F4DecodeWindow`: combinational instruction-window slicing, stop termination
+  after valid `C.BSTOP`, and decoded byte count.
 - `F4DenseSlotQueue`: compacted FIFO of all valid slots from one F4 packet,
   preserving each slot's original index while draining one slot at a time.
 - `DecodeRenameROBPath`: decode-to-rename queue, scalar/T-U rename, reduced
@@ -149,8 +155,11 @@ into `ReducedScalarIssueQueue`. This top instantiates `DecodeRenameROBPath`
 with `skipBlockMarkers=true`; a drained `BSTART` or `BSTOP` marker slot drives
 `blockMarkerSkipFire` without scalar selection, scalar ROB allocation, or
 dec/ren enqueue. A drained `BSTART` allocates a BROB-only active BID, and
-following scalar slots are stamped with that active BID. A drained `BSTOP`
-pulses scalar done for the current active BID and clears the active state.
+following scalar slots are stamped with that active BID while the marker target
+is retained. A drained `BSTOP` pulses scalar done for the current active BID,
+clears the active state, and can request a reduced frontend restart to the
+active marker target. The top applies that restart by flushing F4/dense-slot
+state and driving `FrontendFetchPacketSource.restartValid` on the next cycle.
 Because the issue queue is decoupled, a marker drain can overlap an older
 scalar row's issue enqueue. The marker contract is no marker-owned scalar
 selection, dec/ren push, or scalar ROB allocation, not global silence on
@@ -251,14 +260,15 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
 - drains every expected slot from `F4DenseSlotQueue` before fetching the next
   window;
 - for skip rows, requires `blockMarkerSkipFire`, matching marker
-  PC/instruction/length and boundary/stop diagnostics, and no marker-owned
-  scalar ROB allocation or dec/ren push;
+  PC/instruction/length, boundary/stop diagnostics, marker target, and no
+  marker-owned scalar ROB allocation or dec/ren push;
 - for `BSTART` skip rows, requires `blockMarkerAllocFire` and records
-  `blockMarkerAllocBid` as the active full BID;
+  `blockMarkerAllocBid` plus `blockMarkerTarget` as the active full BID/target;
 - for scalar rows while a marker-owned block is active, requires
   `selectedBlockBid` to match the active full BID;
 - for `BSTOP` skip rows, requires `blockScalarDoneFire` with the active full
-  BID and clears the active marker state after the drain;
+  BID, checks any non-sequential `blockMarkerStopRedirectPc`, and clears the
+  active marker state after the drain;
 - waits for commit rows for each scalar instruction after the window's slots
   have drained;
 - writes QEMU-shaped reference and DUT JSONL through
@@ -406,6 +416,31 @@ manifest at
 records `status: "pass"`, `summary.compared_rows: 3`, and
 `summary.mismatch_count: 0`.
 
+The R107 CoreMark gate extends that prefix through the first direct-call
+header. The top now accepts target-bearing `BSTART` skip rows, lets
+`F4DecodeWindow` terminate an 8-byte response packet at `C.BSTOP`, and applies
+a reduced frontend-only restart to the active `BSTART` target after consuming
+the marker stop. This matches QEMU's `HL.BSTART.STD CALL`/`C.SETRET`/`C.BSTOP`
+sequence, where `C.SETRET` writes the return address and `C.BSTOP` redirects to
+the call target instead of executing filler markers:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 \
+  --capture-rows 8 \
+  --allow-block-markers \
+  --max-seconds 8 \
+  -- -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+The manifest at
+`generated/r107-coremark-hl-call-setret-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 4`, and
+`summary.mismatch_count: 0`.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
@@ -425,6 +460,7 @@ records `status: "pass"`, `summary.compared_rows: 3`, and
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r105-long-body-fixture --long-body`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r105-long-body-qemu-elf-xcheck --elf generated/r105-long-body-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 9 --allow-block-markers --max-seconds 5`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 8 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `FETCH_EXPECTED_ROWS=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_QEMU_TRACE=generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/fixture.expected.jsonl bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`

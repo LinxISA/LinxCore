@@ -70,10 +70,12 @@ PC-relative constant path used by `ADDTPC` toward scalar execution.
 `SimInstInfo::Execute` runs `PrePareSrc`, `Calculate`, and `ProcessDst`;
 arithmetic `ADD` returns `src0 + src1`, `ADDI` uses the decoded immediate,
 `MOVR/MOVI` move the source/immediate into the destination, and
-`PC::CalcInstAddTPC` computes `(pc & ~0xfff) + imm`. `ReadyState::GetSrcData`
-and `InitGGPRRtable` show that scalar source data is attached to physical GPR
-tags, so the Chisel execute owner also exports the destination physical tag for
-the reduced RF writeback path.
+`PC::CalcInstAddTPC` computes `(pc & ~0xfff) + imm`. `PC::CalcInstSetret`
+computes `pc + imm`, and the compact `C.SETRET` form reaches execute as a
+decoded alias of the `C.MOVI` low-opcode encoding when the destination is
+`ra/x10`. `ReadyState::GetSrcData` and `InitGGPRRtable` show that scalar source
+data is attached to physical GPR tags, so the Chisel execute owner also exports
+the destination physical tag for the reduced RF writeback path.
 
 The Chisel module implements the first reduced subset:
 
@@ -84,12 +86,13 @@ The Chisel module implements the first reduced subset:
 | `OP_ADDTPC` | `(in.pc & ~0xfff) + in.imm` |
 | `OP_C_MOVI` | `in.imm` |
 | `OP_C_MOVR` | `srcData(0)` |
+| `OP_C_SETRET` | `in.pc + in.imm` |
 
 `OP_ADDTPC` uses the `FrontendOperandDecode` `ImmIMM20` path, where the
 20-bit immediate is sign-extended and shifted left by 12 before reaching
 execute. This matches the model and linker contract for page-relative address
-materialization and is intentionally separate from `SETRET`, which overlaps the
-low opcode field but uses different PC semantics.
+materialization and is intentionally separate from `C.SETRET`, whose compact
+form uses `uimm5 << 1` and `pc + imm` return-address semantics.
 
 The completion row copies identity and control fields from the accepted
 `RenamedUop`, fills source register/data fields from `uop.src` plus
@@ -136,4 +139,5 @@ removes the issued row only after this pipe reaches the reduced release point.
 - `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 8 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

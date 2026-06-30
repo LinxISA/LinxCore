@@ -578,6 +578,7 @@ These packets remain the required base before broad module promotion:
 | R104 | Marker-owned active BID lifecycle | `run_chisel_tests.sh --only DispatchROBAllocator`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_tests.sh --only BROB`, `run_chisel_rob_bookkeeping.sh --reduced-rob`, `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, `build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r104-live-qemu-fixture`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r104-marker-lifecycle-qemu-elf-xcheck --elf generated/r104-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 5 --allow-block-markers --max-seconds 5`, trace self-test, QEMU dry-run, manifest inspection, `git diff --check` |
 | R105 | Longer live-QEMU reduced scalar body | `build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r105-long-body-fixture --long-body`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r105-long-body-qemu-elf-xcheck --elf generated/r105-long-body-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 0 --capture-rows 9 --allow-block-markers --max-seconds 5`, default fixture build regression, manifest inspection, `git diff --check` |
 | R106 | CoreMark ADDTPC reduced scalar prefix | `run_chisel_tests.sh --only ReducedScalarAluExecute`, `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, `git diff --check` |
+| R107 | CoreMark HL call marker, compact SETRET, and C.BSTOP redirect prefix | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only F4DecodeWindow`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only DecodeRenameROBPath`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_tests.sh --only FrontendDecodeIngress`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r107-coremark-hl-call-setret-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 8 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, manifest inspection, `git diff --check` |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -770,10 +771,11 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Broader reduced scalar/CoreMark opcode body: after R106 proves
-   `ADDTPC` over the first CoreMark `_start` prefix, continue with the next
-   model-backed unsupported scalar row only when decode, execute, QEMU
-   extraction, and RF/commit checks advance together.
+2. Broader reduced scalar/CoreMark opcode body: after R107 proves the first
+   CoreMark direct-call header through `HL.BSTART.STD CALL`, compact
+   `C.SETRET`, and redirecting `C.BSTOP`, continue with the next
+   model-backed unsupported row after `pc=0x4000550e` only when decode,
+   execute, QEMU extraction, and RF/commit checks advance together.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.

@@ -98,6 +98,11 @@ for the current active BID. If a new `BSTART` arrives while another block is
 active, the old active BID receives scalar done before the new BID becomes
 active. Scalar rows between those markers reuse the active full BID instead of
 allocating another BROB entry.
+R107 also records the target carried by target-bearing `BSTART` markers and
+publishes a marker-stop redirect when a consumed `BSTOP` closes an active block
+whose target differs from the sequential marker PC. The reduced live-fetch
+top consumes this as a frontend-only restart so CoreMark direct-call headers
+follow QEMU's `BSTART` target instead of executing filler marker bytes.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -134,14 +139,19 @@ Outputs:
   observability.
 - `blockMarkerSkipValid`, `blockMarkerMixedPacket`,
   `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`,
-  `blockMarkerInsn`, `blockMarkerLen`: reduced marker-consume diagnostics for
-  live fetch RF/ALU gates. These signals are meaningful only when the module is
-  constructed with `skipBlockMarkers=true`.
+  `blockMarkerInsn`, `blockMarkerLen`, `blockMarkerTarget`: reduced
+  marker-consume diagnostics for live fetch RF/ALU gates. These signals are
+  meaningful only when the module is constructed with `skipBlockMarkers=true`.
 - `blockMarkerAllocFire`, `blockMarkerAllocBid`,
-  `blockMarkerActiveValid`, `blockMarkerActiveBid`: reduced marker-owned block
-  lifecycle diagnostics. `blockMarkerAllocFire` identifies a consumed
+  `blockMarkerActiveValid`, `blockMarkerActiveBid`,
+  `blockMarkerActiveTarget`, `blockMarkerStopRedirectValid`,
+  `blockMarkerStopRedirectPc`: reduced marker-owned block lifecycle and
+  frontend redirect diagnostics. `blockMarkerAllocFire` identifies a consumed
   `BSTART` that allocated a BROB-only entry; `blockMarkerActive*` reports the
-  active full BID reused by following scalar rows.
+  active full BID and target reused by following scalar rows. A consumed
+  `BSTOP` asserts `blockMarkerStopRedirectValid` when the active target is
+  nonzero and non-sequential, with `blockMarkerStopRedirectPc` carrying the
+  restart PC.
 - `decodeReady`, `decRenPushReady`, `decRenPushFire`, `decRenPopFire`,
   `decRenValid`, `decRenHead`, `decRenTail`, `decRenCount`, `decRenEmpty`,
   `decRenFull`: registered decode-to-rename queue backpressure and occupancy
@@ -223,13 +233,17 @@ subset of decoded rows. A marker-only packet is consumed as a frontend marker:
 `decodeReady` goes high, marker sidebands are exposed, and the packet advances
 without scalar selection, ROB allocation, or decode-to-rename queue mutation.
 For a consumed `BSTART`, the path requests a BROB-only allocation from
-`DispatchROBAllocator` and stores the returned full BID as the active block.
+`DispatchROBAllocator` and stores the returned full BID plus decoded
+`boundaryTarget` as the active block.
 For a consumed `BSTOP`, the path pulses scalar done for the active full BID
-and clears the active state. If a consumed `BSTART` arrives while another
-block is active, the old active BID gets scalar done and the newly allocated
-BID becomes active. A packet that contains both marker and non-marker slots is
-deliberately not consumed because advancing the source PC would otherwise drop
-a scalar row before dense multi-slot decode enqueue exists.
+and clears the active state. If the active target is nonzero and differs from
+the sequential marker PC, the path also emits a one-cycle
+`blockMarkerStopRedirect*` pulse for the reduced frontend source. If a consumed
+`BSTART` arrives while another block is active, the old active BID gets scalar
+done and the newly allocated BID/target becomes active. A packet that contains
+both marker and non-marker slots is deliberately not consumed because
+advancing the source PC would otherwise drop a scalar row before dense
+multi-slot decode enqueue exists.
 
 The selected decoded row first passes through `DecodeLoadStoreIdAssign`.
 Memory-order counters advance only on `decRenPushFire`, so a stalled
@@ -516,6 +530,7 @@ bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBankArray
 bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
 bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath
 bash tools/chisel/run_chisel_tests.sh --only BROB
+bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
 Affected gates:
