@@ -288,7 +288,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val storeDispatchQueueDepth: Int = 4,
     val mapQDepth: Int = 32,
     val archRegs: Int = 24,
-    val physRegs: Int = 64)
+    val physRegs: Int = 64,
+    val skipBlockMarkers: Boolean = true,
+    val useMarkerDecodeContext: Boolean = false)
     extends Module {
   require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
   private val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(
@@ -316,7 +318,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     storeDispatchQueueDepth = storeDispatchQueueDepth,
     physRegs = physRegs,
     mapQDepth = mapQDepth,
-    skipBlockMarkers = true,
+    useMarkerDecodeContext = useMarkerDecodeContext,
+    skipBlockMarkers = skipBlockMarkers,
     reducedStoreDispatchBypass = true
   ))
   val rf = Module(new ReducedScalarRegisterFile(p, archRegs = archRegs, physRegs = physRegs))

@@ -3,6 +3,7 @@
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
+- Marker-row harness: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluMarkerRowsTraceTop.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTopSpec.scala`
 - Verilator driver: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`
 - Gate: `rtl/LinxCore/tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
@@ -26,6 +27,8 @@
   - `model/LinxCoreModel/model/ModelCommon/bus/FetchReqBus.h`
   - `model/LinxCoreModel/model/pe/PECommon/DecodeBundle.h`
   - `model/LinxCoreModel/isa/ISACommon/DecodeUtiles.h`
+  - `model/LinxCoreModel/model/bctrl/BCtrl.cpp`
+  - `model/LinxCoreModel/model/bctrl/BROB.cpp`
   - `model/LinxCoreModel/model/bctrl/spe/DCTop.cpp`
   - `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`
   - `model/LinxCoreModel/model/bctrl/spe/GPRRename.cpp`
@@ -488,6 +491,18 @@ compared rows and zero mismatches. BFU runtime-promotion diagnostics remain
 clean at that depth: 685341 static external matches, zero body-cut arm
 mismatches, and 228445 promoted runtime body-end replay comparisons all match
 with zero replay mismatches or overwrites.
+
+R178 adds a named non-default marker-row harness,
+`LinxCoreFrontendFetchRfAluMarkerRowsTraceTop`. The default live CoreMark top
+still runs with `skipBlockMarkers=true` because the current Verilator/QEMU
+comparison path treats legal `BSTART`/`BSTOP` markers as DUT-only skip rows.
+The marker-row harness instantiates the same live fetch, dense F4, reduced
+rename/ROB, RF, issue, and ALU path with `skipBlockMarkers=false` and
+`useMarkerDecodeContext=true`, so admitted marker rows can reserve and
+rename-update ROB rows while following scalar rows receive the decode-time
+active BID selected by `BlockMarkerDecodeContext`. This wrapper is an
+elaboration/proof surface for the full marker-row migration; it is not yet the
+promoted live QEMU comparator target.
 
 ## Interface
 

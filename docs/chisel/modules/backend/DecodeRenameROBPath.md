@@ -6,6 +6,8 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/backend/DecodeRenameROBPathSpec.scala`
 - LinxCoreModel:
   - `model/LinxCoreModel/model/bctrl/spe/DCTop.cpp`
+  - `model/LinxCoreModel/model/bctrl/BCtrl.cpp`
+  - `model/LinxCoreModel/model/bctrl/BROB.cpp`
   - `model/LinxCoreModel/model/bctrl/spe/SPERename.cpp`
   - `model/LinxCoreModel/model/bctrl/spe/GPRRename.cpp`
   - `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`
@@ -195,6 +197,23 @@ does not switch the live `LinxCoreFrontendFetchRfAluTraceTop` out of
 `skipBlockMarkers=true`: the full marker-row active-BID lifecycle still needs a
 two-phase decode/retire design before the live CoreMark marker-skip lane can be
 removed.
+R176/R177 split marker BID ownership into a decode-time context and wire that
+context behind an explicit backend opt-in. In the model,
+`BCtrlUnit::Work` allocates BROB state for a `BSTART`, stamps the current
+block command BID onto the instruction before scalar PE decode, and
+`DCTop::Work` allocates the PE ROB row before writing `dec_ren_q`. Chisel now
+models that early BID-selection surface with `BlockMarkerDecodeContext`:
+decoded `BSTART` rows use the allocator's new full BID even if an older active
+block exists, following scalar rows reuse that active BID, decoded `BSTOP`
+rows reuse and close the active BID, and accepted scalar rows can seed an
+active scalar-created block. The owner keeps `decodeValid` for combinational
+candidate selection separate from `decodeFire` for state mutation so allocator
+readiness does not feed back into `allocUsesExistingBlock`.
+R178 adds the named top-level harness
+`LinxCoreFrontendFetchRfAluMarkerRowsTraceTop`, which instantiates this path
+with `skipBlockMarkers=false` and `useMarkerDecodeContext=true`. The default
+live CoreMark top remains in marker-skip mode until the C++ harness and
+QEMU/DUT comparator stop treating legal marker rows as skip entries.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker

@@ -141,6 +141,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module F4DecodeWindow"))
     assert(sv.contains("module F4DenseSlotQueue"))
     assert(sv.contains("module DecodeRenameROBPath"))
+    assert(!sv.contains("module BlockMarkerDecodeContext"))
     assert(sv.contains("module ReducedScalarRegisterFile"))
     assert(sv.contains("module ReducedScalarIssueQueue"))
     assert(sv.contains("module ReducedScalarIssuePick"))
@@ -197,5 +198,22 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_blockRetireFire"))
     assert(sv.contains("io_blockAllocatedMask"))
     assert(sv.contains("io_commitContractError"))
+  }
+
+  test("marker-row harness elaborates admitted markers with decode-time BID context") {
+    val sv = ChiselStage.emitSystemVerilog(
+      new LinxCoreFrontendFetchRfAluMarkerRowsTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 8)
+    )
+
+    assert(sv.contains("module LinxCoreFrontendFetchRfAluMarkerRowsTraceTop"))
+    assert(sv.contains("module DecodeRenameROBPath"))
+    assert(sv.contains("module BlockMarkerDecodeContext"))
+    assert(sv.contains("io_decodeValid"))
+    assert(sv.contains("io_decodeFire"))
+    assert(sv.contains("io_decodeBlockBid"))
+    assert(sv.contains("io_decodeUsesExistingBlock"))
+    assert(sv.contains("io_robRenameUpdateReady"))
+    assert(sv.contains("io_executeCompleteValid"))
+    assert(sv.contains("io_blockMarkerSkipValid"))
   }
 }
