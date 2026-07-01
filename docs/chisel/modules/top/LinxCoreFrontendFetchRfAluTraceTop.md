@@ -395,17 +395,28 @@ module, then forwards the accepted prediction-owned payload to
 `ReducedBfuBodyCutPredictor`. The external row is still temporary, but it no
 longer appears as inline top-level comparison logic.
 
+R153 adds `ReducedBfuLocalBodyWindow` and changes body-cut eligibility to
+resolved loop evidence. The local body window arms only when the learned header
+is visible in F4 and holds that geometry until a cut fires. The prediction latch
+now learns only from accepted `ReducedBfuResolvedBodyEndOwner` rows, not from
+every static boundary geometry row, because the same conditional `BSTART` can
+be taken backward or fall through at runtime. The body-cut predictor receives
+local-window geometry when trained and resolved body-end geometry as a
+same-cycle cold-cut fallback. `ReducedBfuBodyCutArm` remains a diagnostic
+comparison between the remembered prediction and the temporary replay oracle.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
 |---|---|---|---|---|
 | input | `startValid`, `startPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Arms the live fetch source at a starting PC. |
 | input | `restartValid`, `restartPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Replaces the active fetch PC for a reduced restart. |
-| input | `reducedBfuBodyValid`, `reducedBfuHeaderPc`, `reducedBfuHSizeBytes`, `reducedBfuBSizeBytes` | mixed | with live-F4 packet | Temporary reduced BFU body-geometry hint from loop-aware expected rows. R152 uses it as the cut-arm candidate, resolved-event source, and oracle; the body-cut payload comes from the static prediction latch after `ReducedBfuBodyCutArm` acceptance. |
+| input | `reducedBfuBodyValid`, `reducedBfuHeaderPc`, `reducedBfuHSizeBytes`, `reducedBfuBSizeBytes` | mixed | with live-F4 packet | Temporary reduced BFU body-geometry hint from loop-aware expected rows. R153 uses it as the resolved body-end source and oracle; accepted resolved geometry trains the prediction latch and can feed the body-cut predictor as a same-cycle cold-cut fallback. |
 | output | `reducedBfuStaticGeometryValid`, `reducedBfuStaticHeaderActive`, `reducedBfuStaticLearnedFire`, `reducedBfuStaticResolvedLearnedFire` | `Bool` | diagnostic | Reduced static-predictor geometry diagnostics for the learned geometry feeding the BFU prediction latch. |
 | output | `reducedBfuResolvedBodyEndAccepted`, `reducedBfuResolvedBodyEndHeaderMismatch`, `reducedBfuResolvedBodyEndInactiveDrop`, `reducedBfuResolvedBodyEndFlushDrop`, `reducedBfuResolvedBodyEndUnderflow` | `Bool` | diagnostic | R149 resolved body-end owner acceptance/drop diagnostics before the static producer consumes the normalized event. |
 | output | `reducedBfuStaticExternalComparable`, `reducedBfuStaticExternalMatch`, `reducedBfuStaticExternalMismatch`, `reducedBfuStaticExternalHeaderMismatch`, `reducedBfuStaticExternalHSizeMismatch`, `reducedBfuStaticExternalBSizeMismatch` | `Bool` | diagnostic | R148 agreement check between diagnostic static geometry and the external replay geometry that remains the temporary oracle. |
-| output | `reducedBfuBodyCutArmComparable`, `reducedBfuBodyCutArmAccepted`, `reducedBfuBodyCutArmMismatch`, `reducedBfuBodyCutArmHeaderMismatch`, `reducedBfuBodyCutArmHSizeMismatch`, `reducedBfuBodyCutArmBSizeMismatch` | `Bool` | diagnostic | R152 cut-arm owner diagnostics comparing the latched static prediction with the temporary external arm geometry before body-cut control is enabled. |
+| output | `reducedBfuBodyCutArmComparable`, `reducedBfuBodyCutArmAccepted`, `reducedBfuBodyCutArmMismatch`, `reducedBfuBodyCutArmHeaderMismatch`, `reducedBfuBodyCutArmHSizeMismatch`, `reducedBfuBodyCutArmBSizeMismatch` | `Bool` | diagnostic | R153 diagnostic comparison between the latched resolved-body prediction and the temporary external oracle. It no longer controls body-cut eligibility. |
+| output | `reducedBfuLocalBodyWindowActive`, `reducedBfuLocalBodyWindowArmFire`, `reducedBfuLocalBodyWindowReleaseFire`, `reducedBfuLocalBodyWindowArmSlot` | mixed | diagnostic | R153 local BFU body-window active, arm, release, and matched F4-slot observability. |
 | input | `frontendFlushValid` | `Bool` | valid | Clears source packet state, F4, decode path, and reduced issue state. |
 | input | `peId`, `threadId` | `UInt` | with source packet | Packet-owned PE/STID sidecars for decode/rename. |
 | input | `fetchReqReady` | `Bool` | ready | Bounded fixture accepts a source PC request. |
@@ -612,6 +623,14 @@ oracle.
 R152 moves the latched-prediction/external-arm equality check into
 `ReducedBfuBodyCutArm` and exposes accepted/mismatch diagnostics that the
 generated-RTL harness treats as replay-proof invariants.
+
+R153 prevents static-only body-cut arming. Explicit `BSTART` geometry may close
+the previous body in the model, but branch direction is dynamic; a conditional
+marker can reenter the loop body or fall through to the next block. The reduced
+top therefore trains cut-eligible prediction only from accepted resolved
+body-end geometry and uses that same resolved event as the cold same-cycle cut
+fallback. Static geometry and `ReducedBfuBodyCutArm` stay diagnostic until a
+real branch/BFU resolver replaces the replay sideband.
 R104 adds the first reduced block-lifecycle alignment for those marker slots.
 The model allocates BROB on `BSTART`, stamps following scalar instructions with
 the current block BID, and completes the current block on `BSTOP` through the
@@ -1230,3 +1249,9 @@ because the reduced QEMU-row selector does not yet support
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r131-andi-swi-ori-sub-mul-1595-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1595 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedBfuLocalBodyWindow`
+- `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
+- `python3 tools/chisel/frontend_fetch_rf_alu_qemu_rows.py --self-test`
+- `bash -n tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `bash -n tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`
+- `BUILD_DIR=generated/r153-local-body-window-4000-rtl-replay-v6 FETCH_QEMU_TRACE=generated/r153-next-frontier-4000-qemu-probe/traces/qemu.live.raw.jsonl FETCH_QEMU_MAX_ROWS=0 FETCH_QEMU_ALLOW_BLOCK_MARKERS=1 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1 FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`

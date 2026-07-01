@@ -7,7 +7,7 @@ import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
-import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuResolvedBodyEndOwner, ReducedBfuStaticGeometryProducer}
+import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuResolvedBodyEndOwner, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -91,6 +91,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedBfuBodyCutArmHeaderMismatch = Output(Bool())
   val reducedBfuBodyCutArmHSizeMismatch = Output(Bool())
   val reducedBfuBodyCutArmBSizeMismatch = Output(Bool())
+  val reducedBfuLocalBodyWindowActive = Output(Bool())
+  val reducedBfuLocalBodyWindowArmFire = Output(Bool())
+  val reducedBfuLocalBodyWindowReleaseFire = Output(Bool())
+  val reducedBfuLocalBodyWindowArmSlot = Output(UInt(log2Ceil(p.decodeWidth).W))
 
   val f4ValidMask = Output(UInt(p.decodeWidth.W))
   val f4SlotCount = Output(UInt(log2Ceil(p.decodeWidth + 1).W))
@@ -364,10 +368,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
   val staticBfuPrediction = Module(new ReducedBfuGeometryPredictionLatch(p))
   staticBfuPrediction.io.flushValid := io.frontendFlushValid || io.startValid || io.restartValid
-  staticBfuPrediction.io.learnValid := staticBfuGeometry.io.geometryValid
-  staticBfuPrediction.io.learnHeaderPc := staticBfuGeometry.io.headerPc
-  staticBfuPrediction.io.learnHSizeBytes := staticBfuGeometry.io.hsizeBytes
-  staticBfuPrediction.io.learnBSizeBytes := staticBfuGeometry.io.bsizeBytes
+  staticBfuPrediction.io.learnValid := resolvedBfuBodyEnd.io.geometryValid
+  staticBfuPrediction.io.learnHeaderPc := resolvedBfuBodyEnd.io.geometryHeaderPc
+  staticBfuPrediction.io.learnHSizeBytes := resolvedBfuBodyEnd.io.hsizeBytes
+  staticBfuPrediction.io.learnBSizeBytes := resolvedBfuBodyEnd.io.bsizeBytes
 
   val bodyCutArm = Module(new ReducedBfuBodyCutArm(p))
   bodyCutArm.io.predictionValid := staticBfuPrediction.io.geometryValid
@@ -379,11 +383,27 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   bodyCutArm.io.armHSizeBytes := io.reducedBfuHSizeBytes
   bodyCutArm.io.armBSizeBytes := io.reducedBfuBSizeBytes
 
+  val localBfuBodyWindow = Module(new ReducedBfuLocalBodyWindow(p))
+  localBfuBodyWindow.io.flushValid := frontendPipeFlush || io.startValid || io.restartValid || markerRedirectFire
+  localBfuBodyWindow.io.f4ScanValid := f4.io.d1.valid
+  localBfuBodyWindow.io.predictionValid := staticBfuPrediction.io.geometryValid
+  localBfuBodyWindow.io.predictionHeaderPc := staticBfuPrediction.io.headerPc
+  localBfuBodyWindow.io.predictionHSizeBytes := staticBfuPrediction.io.hsizeBytes
+  localBfuBodyWindow.io.predictionBSizeBytes := staticBfuPrediction.io.bsizeBytes
+  localBfuBodyWindow.io.f4Valid := f4.io.d1.valid
+  localBfuBodyWindow.io.f4Slots := f4.io.slots
+  localBfuBodyWindow.io.f4ValidMask := f4.io.validMask
+
+  val bodyCutGeometryValid = localBfuBodyWindow.io.geometryValid || resolvedBfuBodyEnd.io.geometryValid
+  val bodyCutHeaderPc = Mux(localBfuBodyWindow.io.geometryValid, localBfuBodyWindow.io.headerPc, resolvedBfuBodyEnd.io.geometryHeaderPc)
+  val bodyCutHSizeBytes = Mux(localBfuBodyWindow.io.geometryValid, localBfuBodyWindow.io.hsizeBytes, resolvedBfuBodyEnd.io.hsizeBytes)
+  val bodyCutBSizeBytes = Mux(localBfuBodyWindow.io.geometryValid, localBfuBodyWindow.io.bsizeBytes, resolvedBfuBodyEnd.io.bsizeBytes)
+
   val bodyCut = Module(new ReducedBfuBodyCutPredictor(p))
-  bodyCut.io.geometryValid := bodyCutArm.io.geometryValid
-  bodyCut.io.headerPc := bodyCutArm.io.headerPc
-  bodyCut.io.hsizeBytes := bodyCutArm.io.hsizeBytes
-  bodyCut.io.bsizeBytes := bodyCutArm.io.bsizeBytes
+  bodyCut.io.geometryValid := bodyCutGeometryValid
+  bodyCut.io.headerPc := bodyCutHeaderPc
+  bodyCut.io.hsizeBytes := bodyCutHSizeBytes
+  bodyCut.io.bsizeBytes := bodyCutBSizeBytes
   bodyCut.io.f4Valid := f4.io.d1.valid
   bodyCut.io.f4Pc := f4.io.d1.pc
   bodyCut.io.f4Slots := f4.io.slots
@@ -395,6 +415,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val frontendSlotCount = bodyCut.io.slotCount
   val effectiveSourceAdvanceBytes = bodyCut.io.advanceBytes
   val bodyCutRestartFire = source.io.outFire && reducedBodyCutActive
+  localBfuBodyWindow.io.cutFire := bodyCutRestartFire
 
   when(io.frontendFlushValid || io.restartValid || io.startValid) {
     markerRedirectPending := false.B
@@ -659,6 +680,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedBfuBodyCutArmHeaderMismatch := bodyCutArm.io.headerMismatch
   io.reducedBfuBodyCutArmHSizeMismatch := bodyCutArm.io.hsizeMismatch
   io.reducedBfuBodyCutArmBSizeMismatch := bodyCutArm.io.bsizeMismatch
+  io.reducedBfuLocalBodyWindowActive := localBfuBodyWindow.io.active
+  io.reducedBfuLocalBodyWindowArmFire := localBfuBodyWindow.io.armFire
+  io.reducedBfuLocalBodyWindowReleaseFire := localBfuBodyWindow.io.releaseFire
+  io.reducedBfuLocalBodyWindowArmSlot := localBfuBodyWindow.io.armSlot
   io.f4ValidMask := frontendValidMask
   io.f4SlotCount := frontendSlotCount
   io.denseSlotQueueInFire := denseSlots.io.inFire

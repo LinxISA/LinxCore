@@ -12,10 +12,10 @@ the reduced CoreMark loop replay:
 
 The `+2` body-base step follows LinxCoreModel `BFUUtils::NextBlockPC`, which
 advances by one 16-bit bundle slot from the header bundle position. The module
-does not predict `hsize` or `bsize`; R152 receives those payload values from
-the latched reduced static-geometry path after `ReducedBfuBodyCutArm` accepts
-the temporary external cut-arm. The loop-aware harness remains the temporary
-arm, resolved-event source, and oracle.
+does not predict `hsize` or `bsize`; R153 receives those payload values either
+from `ReducedBfuLocalBodyWindow` after a trained header match or from
+`ReducedBfuResolvedBodyEndOwner` for the cold same-cycle body-end cut. The
+loop-aware harness remains the temporary resolved-event source and oracle.
 
 ## Interface
 
@@ -58,13 +58,15 @@ geometry case: header `0x4000630c`, `hsize=0`, `bsize=0x20`, F4 window
 `0x4000632a..0x40006331`, clipped mask `0x3`, restart `0x4000630c`, and
 advance `4`.
 
-The affected top-level replay also passes with this module in the path. R150
-routes its geometry payload through `ReducedBfuGeometryPredictionLatch`, and
-R152 factors the external loop-reentry oracle acceptance into
-`ReducedBfuBodyCutArm`. This proves that learned body-end events can feed later
-cuts without allowing same-cycle or stale sequential-packet clipping:
-`BUILD_DIR=generated/r144-bfu-geometry-loop-replay
-FETCH_EXPECTED_ROWS=/tmp/r142-loop.expected.jsonl
+The affected top-level replay also passes with this module in the path. R153
+uses resolved geometry for cold body-end cuts and trains a local body window for
+later header-visible cuts without allowing forward/fallthrough `BSTART` rows to
+clip the body:
+`BUILD_DIR=generated/r153-local-body-window-4000-rtl-replay-v6
+FETCH_QEMU_TRACE=generated/r153-next-frontier-4000-qemu-probe/traces/qemu.live.raw.jsonl
+FETCH_QEMU_MAX_ROWS=0
+FETCH_QEMU_ALLOW_BLOCK_MARKERS=1
+FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1
 FETCH_ELF=tests/benchmarks/build/coremark_real.elf
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
-compares 1330 normalized QEMU/DUT rows with zero mismatches.
+compares 3280 normalized QEMU/DUT rows with zero mismatches.

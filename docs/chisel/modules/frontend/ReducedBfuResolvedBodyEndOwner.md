@@ -8,10 +8,11 @@ normalizes a resolved BFU body-end event before
 `SetBsize(header, bodyBasePc, bodyEndPc)` handoff as a standalone Chisel module
 so a later branch/BFU resolver has a concrete interface to drive.
 
-This module is diagnostic in R149. `LinxCoreFrontendFetchRfAluTraceTop` still
-drives `ReducedBfuBodyCutPredictor` from the external replay geometry while
-the new owner feeds only the static geometry producer and exposes drop/mismatch
-diagnostics.
+In R153 this module has two live reduced-top roles. It trains
+`ReducedBfuGeometryPredictionLatch` for later local body-window cuts, and it
+also provides the same-cycle cold-cut geometry when the current F4 packet is
+the packet that proves the body end. The external replay row is still temporary;
+a real branch/BFU resolver must eventually drive this interface.
 
 ## Interface
 
@@ -55,7 +56,7 @@ diagnostic drop flags.
 
 R149 adds reference tests for accepted CoreMark FALL body geometry, resolved
 `hsize` carry, header mismatch/inactive/flush drops, and underflow saturation.
-The live top replay gate must still pass with static/external agreement before
-this owner is allowed to replace the external body-cut geometry. The R149
-generated-RTL harness fails on any resolved-event rejection and reports
-`bfu_resolved_body_end_accepts=33` for the loop-aware CoreMark replay.
+The generated-RTL harness fails on any resolved-event rejection. The R153
+4000-row replay reports `bfu_resolved_body_end_accepts=483` and zero
+QEMU/DUT mismatches while using this owner as both prediction training source
+and cold-cut fallback.

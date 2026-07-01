@@ -2,18 +2,19 @@
 
 ## Purpose
 
-`ReducedBfuBodyCutArm` is the reduced BFU control boundary between a latched
-static geometry prediction and the temporary external replay arm. It does not
-compute body geometry and it does not choose a branch target. Instead, it
-accepts the body-cut payload only when the candidate arm row agrees with the
-latched prediction on `headerPc`, `hsizeBytes`, and `bsizeBytes`.
+`ReducedBfuBodyCutArm` is the reduced BFU diagnostic boundary between a latched
+geometry prediction and the temporary external replay oracle. It does not
+compute body geometry and it does not choose a branch target. It reports whether
+the candidate arm row agrees with the latched prediction on `headerPc`,
+`hsizeBytes`, and `bsizeBytes`.
 
 This keeps the R150 behavior intact while separating two roles that must become
 different owners later:
 
-- `ReducedBfuGeometryPredictionLatch` owns the static prediction payload.
-- The external `reducedBfu*` row is only the temporary cut-arm and oracle until a
-  real branch/BFU resolver replaces it.
+- `ReducedBfuGeometryPredictionLatch` owns the remembered resolved body-end
+  payload used by the local body window.
+- The external `reducedBfu*` row is the temporary resolved-event source and
+  oracle until a real branch/BFU resolver replaces it.
 
 ## Interface
 
@@ -23,7 +24,7 @@ different owners later:
 | input | `predictionHeaderPc`, `predictionHSizeBytes`, `predictionBSizeBytes` | `UInt(pcWidth.W)` | Latched static geometry that will feed `ReducedBfuBodyCutPredictor` if accepted. |
 | input | `armValid` | `Bool` | A candidate body-cut arm event is available. R152 drives this from the external replay row. |
 | input | `armHeaderPc`, `armHSizeBytes`, `armBSizeBytes` | `UInt(pcWidth.W)` | Candidate geometry used only to validate and arm the latched prediction. |
-| output | `geometryValid` | `Bool` | The prediction row is accepted for body-cut control. |
+| output | `geometryValid` | `Bool` | The prediction row matches the oracle. R153 treats this as diagnostic; top-level body-cut control uses the local body window plus resolved fallback. |
 | output | `headerPc`, `hsizeBytes`, `bsizeBytes` | `UInt(pcWidth.W)` | Payload forwarded from the prediction side, not from the arm side. |
 | output | `comparable`, `accepted` | `Bool` | Both sides are present, and all compared fields match. |
 | output | `headerMatch`, `hsizeMatch`, `bsizeMatch` | `Bool` | Per-field match diagnostics, qualified by `comparable`. |
@@ -39,10 +40,10 @@ The module is combinational:
 3. `geometryValid` follows `accepted`.
 4. The forwarded geometry payload always comes from the prediction inputs.
 
-Forwarding the prediction payload is intentional. The arm input is a permission
-and verification event, not the body-cut data source. If a future branch/BFU
-resolver drives the arm side, it must prove it selects the same geometry as the
-static prediction before `ReducedBfuBodyCutPredictor` can cut a live packet.
+Forwarding the prediction payload is intentional. The arm input is a verification
+event, not the body-cut data source. If a future branch/BFU resolver drives the
+arm side, it must prove it selects the same geometry as the remembered
+prediction before a later packet can remove the temporary oracle.
 
 ## Model Evidence
 
@@ -63,7 +64,6 @@ The owner split follows the LinxCoreModel BFU flow:
 R152 focused tests elaborate `ReducedBfuBodyCutArm` and cover exact acceptance,
 payload ownership, all mismatch diagnostics, and non-comparable idle cases. The
 top-level generated-RTL replay reports comparable, accepted, and mismatched arm
-counts alongside existing BFU static and resolved body-end diagnostics. A
-mismatch is diagnostic in R152 because the external replay row still serves as
-both resolved-event source and temporary arm source; only accepted rows enable
-`ReducedBfuBodyCutPredictor`.
+counts alongside existing BFU static and resolved body-end diagnostics. R153
+keeps this module as a diagnostic oracle check while body-cut control is driven
+by `ReducedBfuLocalBodyWindow` or the same-cycle resolved body-end fallback.

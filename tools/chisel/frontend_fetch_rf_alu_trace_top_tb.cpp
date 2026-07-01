@@ -1098,6 +1098,13 @@ struct BfuGeometryDiagnostics {
   std::uint64_t cut_arm_comparable_count = 0;
   std::uint64_t cut_arm_accept_count = 0;
   std::uint64_t cut_arm_mismatch_count = 0;
+  std::uint64_t local_body_cut_prefix_count = 0;
+};
+
+struct FetchDenseWindowResult {
+  bool captured_tail_superset = false;
+  bool local_body_cut_prefix = false;
+  std::size_t captured_slots = 0;
 };
 
 void observe_bfu_geometry_diagnostics(
@@ -1202,7 +1209,20 @@ void drive_bfu_body_geometry_hint(VLinxCoreFrontendFetchRfAluTraceTop &dut, cons
   dut.io_reducedBfuBSizeBytes = hint.bsize_bytes;
 }
 
-bool fetch_dense_window(
+bool is_suppressed_local_body_cut_marker(const std::vector<ExpectedRow> &rows, std::size_t index) {
+  if (index + 1 >= rows.size()) {
+    return false;
+  }
+  const ExpectedRow &row = rows[index];
+  return row.skip &&
+         row.block_boundary &&
+         !row.block_stop &&
+         row_redirects(row) &&
+         row.next_pc < row.pc &&
+         rows[index + 1].pc == row.next_pc;
+}
+
+FetchDenseWindowResult fetch_dense_window(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const std::vector<ExpectedRow> &rows,
     std::size_t start,
@@ -1283,7 +1303,16 @@ request_done:
           dut.io_f4SlotCount >= slot_count &&
           dut.io_denseSlotQueueInSlotCount >= slot_count &&
           dut.io_sourceAdvanceBytes >= expected_advance;
-      if (!dut.io_denseSlotQueueInFire || (!strict_dense_match && !relaxed_prefix_match)) {
+      const std::size_t observed_slots = static_cast<std::size_t>(dut.io_denseSlotQueueInSlotCount);
+      const bool observed_strict_prefix = observed_slots > 0 && observed_slots < slot_count;
+      const bool local_body_cut_prefix =
+          observed_strict_prefix &&
+          dut.io_reducedBodyCutFire &&
+          dut.io_f4SlotCount == observed_slots &&
+          dut.io_f4ValidMask == dense_window_mask(observed_slots) &&
+          dut.io_sourceAdvanceBytes == dense_window_advance(rows, start, start + observed_slots) &&
+          dut.io_reducedBodyCutAdvanceBytes == dut.io_sourceAdvanceBytes;
+      if (!dut.io_denseSlotQueueInFire || (!strict_dense_match && !relaxed_prefix_match && !local_body_cut_prefix)) {
         std::cerr << "frontend fetch RF ALU dense packet was not captured"
                   << " pc=0x" << std::hex << first.pc << std::dec
                   << " expected_mask=0x" << std::hex << static_cast<unsigned>(expected_mask)
@@ -1297,8 +1326,13 @@ request_done:
                   << "\n";
         std::exit(1);
       }
-      const bool captured_tail_superset =
-          capture_tail && dut.io_denseSlotQueueInSlotCount > slot_count;
+      FetchDenseWindowResult result;
+      result.captured_tail_superset = capture_tail && observed_slots > slot_count;
+      result.local_body_cut_prefix = local_body_cut_prefix;
+      result.captured_slots = local_body_cut_prefix ? observed_slots : slot_count;
+      if (local_body_cut_prefix) {
+        ++bfu_stats.local_body_cut_prefix_count;
+      }
       if (body_cut.valid && bfu_stats.match_count == bfu_match_count_before) {
         std::cerr << "frontend fetch RF ALU BFU body-geometry hint did not produce a static/external match"
                   << " header_pc=0x" << std::hex << body_cut.header_pc
@@ -1308,7 +1342,7 @@ request_done:
         std::exit(1);
       }
       tick(dut);
-      return captured_tail_superset;
+      return result;
     }
     tick(dut);
   }
@@ -1318,13 +1352,19 @@ request_done:
   std::exit(1);
 }
 
-std::uint8_t drain_dense_row(
+struct DrainDenseRowResult {
+  std::uint8_t rob_value = 0;
+  bool marker_redirect = false;
+};
+
+DrainDenseRowResult drain_dense_row(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const ExpectedRow &row,
     bool &active_block_valid,
     std::uint64_t &active_block_bid,
     const FetchMemoryImage &fetch_memory,
-    std::vector<ObservedRow> &pending_commits) {
+    std::vector<ObservedRow> &pending_commits,
+    bool local_body_cut_reentry_header = false) {
   for (int cycle = 0; cycle < kDenseRowDrainCycles; ++cycle) {
     clear_inputs(dut);
     eval_with_load_lookup(dut, fetch_memory);
@@ -1343,6 +1383,8 @@ std::uint8_t drain_dense_row(
         const bool expected_alloc = row.block_boundary;
         const bool redirect_boundary = row.block_boundary && row_redirects(row);
         const bool expected_done = active_block_valid && (row.block_boundary || row.block_stop);
+        const bool expected_alloc_fire =
+            expected_alloc && !redirect_boundary && !local_body_cut_reentry_header;
         if (row.block_stop && !active_block_valid) {
           std::cerr << "frontend fetch RF ALU marker stop had no active block"
                     << " pc=0x" << std::hex << row.pc
@@ -1358,7 +1400,7 @@ std::uint8_t drain_dense_row(
             dut.io_blockMarkerLen != row.len ||
             static_cast<bool>(dut.io_blockMarkerBoundary) != row.block_boundary ||
             static_cast<bool>(dut.io_blockMarkerStop) != row.block_stop ||
-            static_cast<bool>(dut.io_blockMarkerAllocFire) != (expected_alloc && !redirect_boundary) ||
+            static_cast<bool>(dut.io_blockMarkerAllocFire) != expected_alloc_fire ||
             static_cast<bool>(dut.io_blockScalarDoneFire) != expected_done ||
             dut.io_decRenPushFire ||
             dut.io_robAllocFire) {
@@ -1390,9 +1432,11 @@ std::uint8_t drain_dense_row(
                     << std::dec << "\n";
           std::exit(1);
         }
+        DrainDenseRowResult result;
+        result.marker_redirect = dut.io_blockMarkerStopRedirectValid;
         const std::uint64_t allocated_bid = dut.io_blockMarkerAllocBid;
         tick(dut);
-        if (redirect_boundary) {
+        if (redirect_boundary || local_body_cut_reentry_header) {
           active_block_valid = false;
           active_block_bid = 0;
         } else if (row.block_boundary) {
@@ -1402,7 +1446,7 @@ std::uint8_t drain_dense_row(
           active_block_valid = false;
           active_block_bid = 0;
         }
-        return 0;
+        return result;
       }
 
       if (!dut.io_selectedValid ||
@@ -1438,7 +1482,9 @@ std::uint8_t drain_dense_row(
         active_block_valid = true;
         active_block_bid = selected_block_bid;
       }
-      return rob_value;
+      DrainDenseRowResult result;
+      result.rob_value = rob_value;
+      return result;
     }
     tick(dut);
   }
@@ -1741,18 +1787,53 @@ int main(int argc, char **argv) {
   bool active_block_valid = false;
   std::uint64_t active_block_bid = 0;
   bool captured_tail_superset = false;
+  bool next_local_body_cut_reentry_header = false;
+  std::uint64_t next_local_body_cut_reentry_pc = 0;
   std::vector<ObservedRow> pending_commits;
   BfuGeometryDiagnostics bfu_stats;
   for (std::size_t row_index = 0; row_index < rows.size();) {
     const std::size_t window_end = dense_window_end(rows, row_index);
-    captured_tail_superset |=
+    const FetchDenseWindowResult capture =
         fetch_dense_window(dut, rows, row_index, window_end, fetch_memory, pending_commits, bfu_stats);
+    captured_tail_superset |= capture.captured_tail_superset;
+    const std::size_t drain_end = row_index + capture.captured_slots;
 
     std::vector<std::size_t> scalar_slots;
-    for (std::size_t slot_index = row_index; slot_index < window_end; ++slot_index) {
+    bool replay_local_body_cut_reentry_header = false;
+    for (std::size_t slot_index = row_index; slot_index < drain_end; ++slot_index) {
       const ExpectedRow &row = rows[slot_index];
+      const bool local_body_cut_reentry_header =
+          next_local_body_cut_reentry_header &&
+          slot_index == row_index &&
+          row.skip &&
+          row.block_boundary &&
+          row.pc == next_local_body_cut_reentry_pc;
+      if (next_local_body_cut_reentry_header && slot_index == row_index && !local_body_cut_reentry_header) {
+        std::cerr << "frontend fetch RF ALU expected a local-body-cut re-entry header"
+                  << " expected_pc=0x" << std::hex << next_local_body_cut_reentry_pc
+                  << " observed_pc=0x" << row.pc << std::dec
+                  << " skip=" << static_cast<unsigned>(row.skip)
+                  << " block_boundary=" << static_cast<unsigned>(row.block_boundary)
+                  << "\n";
+        return 1;
+      }
       if (row.skip) {
-        (void)drain_dense_row(dut, row, active_block_valid, active_block_bid, fetch_memory, pending_commits);
+        const DrainDenseRowResult drain_result = drain_dense_row(
+            dut,
+            row,
+            active_block_valid,
+            active_block_bid,
+            fetch_memory,
+            pending_commits,
+            local_body_cut_reentry_header);
+        if (local_body_cut_reentry_header) {
+          next_local_body_cut_reentry_header = false;
+          next_local_body_cut_reentry_pc = 0;
+          if (drain_result.marker_redirect) {
+            replay_local_body_cut_reentry_header = true;
+            break;
+          }
+        }
         continue;
       }
       (void)drain_dense_row(dut, row, active_block_valid, active_block_bid, fetch_memory, pending_commits);
@@ -1763,7 +1844,30 @@ int main(int argc, char **argv) {
       const ExpectedRow &row = rows[slot_index];
       commit_expected_row(dut, row, pending_commits, fetch_memory, dut_out, qemu_out);
     }
-    row_index = window_end;
+    if (replay_local_body_cut_reentry_header) {
+      continue;
+    }
+    row_index = drain_end;
+    if (capture.local_body_cut_prefix) {
+      if (!is_suppressed_local_body_cut_marker(rows, row_index)) {
+        std::cerr << "frontend fetch RF ALU local body cut did not stop before a redirecting BSTART marker"
+                  << " row_index=" << row_index;
+        if (row_index < rows.size()) {
+          const ExpectedRow &row = rows[row_index];
+          std::cerr << " pc=0x" << std::hex << row.pc
+                    << " next_pc=0x" << row.next_pc << std::dec
+                    << " skip=" << static_cast<unsigned>(row.skip)
+                    << " block_boundary=" << static_cast<unsigned>(row.block_boundary);
+        }
+        std::cerr << "\n";
+        return 1;
+      }
+      next_local_body_cut_reentry_header = true;
+      next_local_body_cut_reentry_pc = rows[row_index].next_pc;
+      ++row_index;
+    } else {
+      row_index = window_end;
+    }
   }
 
   if (!pending_commits.empty()) {
@@ -1778,6 +1882,7 @@ int main(int argc, char **argv) {
               << " bfu_body_cut_arm_comparable=" << bfu_stats.cut_arm_comparable_count
               << " bfu_body_cut_arm_accepts=" << bfu_stats.cut_arm_accept_count
               << " bfu_body_cut_arm_mismatches=" << bfu_stats.cut_arm_mismatch_count
+              << " bfu_local_body_cut_prefixes=" << bfu_stats.local_body_cut_prefix_count
               << "\n";
   };
   if (captured_tail_superset) {
