@@ -1777,7 +1777,7 @@ void filter_pending_marker_commits(
   }
 }
 
-void wait_for_admitted_marker_stop_redirect(
+void wait_for_admitted_marker_redirect(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const ExpectedRow &expected,
     std::vector<ObservedRow> &pending_commits,
@@ -1789,6 +1789,7 @@ void wait_for_admitted_marker_stop_redirect(
   bool saw_lifecycle_boundary_fire = false;
   bool saw_lifecycle_stop_fire = false;
   bool saw_retire_source_valid = false;
+  bool saw_retire_source_boundary = false;
   bool saw_retire_source_stop = false;
   bool saw_dealloc_block_last = false;
   bool saw_redirect_valid = false;
@@ -1799,7 +1800,7 @@ void wait_for_admitted_marker_stop_redirect(
   for (int cycle = 0; cycle < 64; ++cycle) {
     filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
     if (!pending_commits.empty()) {
-      std::cerr << "frontend fetch RF ALU saw scalar commit while waiting for admitted marker stop redirect"
+      std::cerr << "frontend fetch RF ALU saw scalar commit while waiting for admitted marker redirect"
                 << " marker_pc=0x" << std::hex << expected.pc
                 << " observed_pc=0x" << pending_commits.front().pc << std::dec
                 << "\n";
@@ -1813,6 +1814,7 @@ void wait_for_admitted_marker_stop_redirect(
     saw_lifecycle_boundary_fire |= dut.io_robMarkerRetireSourceLifecycleBoundaryFire;
     saw_lifecycle_stop_fire |= dut.io_robMarkerRetireSourceLifecycleStopFire;
     saw_retire_source_valid |= dut.io_robMarkerRetireSourceValid;
+    saw_retire_source_boundary |= dut.io_robMarkerRetireSourceBoundary;
     saw_retire_source_stop |= dut.io_robMarkerRetireSourceStop;
     saw_dealloc_block_last |= dut.io_robDeallocBlockLastValid;
     saw_redirect_valid |= dut.io_blockMarkerStopRedirectValid;
@@ -1827,26 +1829,26 @@ void wait_for_admitted_marker_stop_redirect(
       last_redirect_pc = dut.io_blockMarkerStopRedirectPc;
     }
     if (dut.io_rfStateError) {
-      std::cerr << "frontend fetch RF ALU reported RF state error while waiting for marker stop redirect\n";
+      std::cerr << "frontend fetch RF ALU reported RF state error while waiting for marker redirect\n";
       std::exit(1);
     }
     if (dut.io_executeUnsupported) {
-      std::cerr << "execute reported unsupported opcode while waiting for marker stop redirect opcode="
+      std::cerr << "execute reported unsupported opcode while waiting for marker redirect opcode="
                 << static_cast<unsigned>(dut.io_executeUnsupportedOpcode) << "\n";
       std::exit(1);
     }
     if (dut.io_executeCompleteValid && dut.io_completeIgnored) {
-      std::cerr << "execute completion was ignored while waiting for marker stop redirect"
+      std::cerr << "execute completion was ignored while waiting for marker redirect"
                 << " rob=" << static_cast<unsigned>(dut.io_executeCompleteRobValue)
                 << "\n";
       std::exit(1);
     }
 
     const bool observed_commit_window = dut.io_commit_rows_0_valid;
-    collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU marker stop redirect wait");
+    collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU marker redirect wait");
     filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
     if (!pending_commits.empty()) {
-      std::cerr << "frontend fetch RF ALU saw scalar commit after marker filtering while waiting for stop redirect"
+      std::cerr << "frontend fetch RF ALU saw scalar commit after marker filtering while waiting for redirect"
                 << " marker_pc=0x" << std::hex << expected.pc
                 << " observed_pc=0x" << pending_commits.front().pc << std::dec
                 << "\n";
@@ -1855,7 +1857,7 @@ void wait_for_admitted_marker_stop_redirect(
 
     if (dut.io_blockMarkerStopRedirectValid) {
       if (dut.io_blockMarkerStopRedirectPc != expected.next_pc) {
-        std::cerr << "frontend fetch RF ALU admitted marker stop redirect mismatch"
+        std::cerr << "frontend fetch RF ALU admitted marker redirect mismatch"
                   << " marker_pc=0x" << std::hex << expected.pc
                   << " expected_pc=0x" << expected.next_pc
                   << " observed_pc=0x" << dut.io_blockMarkerStopRedirectPc
@@ -1869,11 +1871,11 @@ void wait_for_admitted_marker_stop_redirect(
       tick(dut);
       continue;
     }
-    expect_monitor_clean(dut, "frontend fetch RF ALU marker stop redirect wait", 0x0, 0);
+    expect_monitor_clean(dut, "frontend fetch RF ALU marker redirect wait", 0x0, 0);
     tick(dut);
   }
 
-  std::cerr << "frontend fetch RF ALU admitted marker stop did not redirect"
+  std::cerr << "frontend fetch RF ALU admitted marker did not redirect"
             << " marker_pc=0x" << std::hex << expected.pc
             << " expected_pc=0x" << expected.next_pc << std::dec
             << " pending_markers=" << filtered_marker_commits.size()
@@ -1899,6 +1901,7 @@ void wait_for_admitted_marker_stop_redirect(
             << " saw_lifecycle_boundary_fire=" << static_cast<unsigned>(saw_lifecycle_boundary_fire)
             << " saw_lifecycle_stop_fire=" << static_cast<unsigned>(saw_lifecycle_stop_fire)
             << " saw_retire_source_valid=" << static_cast<unsigned>(saw_retire_source_valid)
+            << " saw_retire_source_boundary=" << static_cast<unsigned>(saw_retire_source_boundary)
             << " saw_retire_source_stop=" << static_cast<unsigned>(saw_retire_source_stop)
             << " saw_dealloc_block_last=" << static_cast<unsigned>(saw_dealloc_block_last)
             << " saw_redirect_valid=" << static_cast<unsigned>(saw_redirect_valid)
@@ -2200,8 +2203,21 @@ int main(int argc, char **argv) {
             local_body_cut_reentry_header);
         if (args.admit_marker_rows) {
           ++marker_rows_admitted;
-          if (row.block_stop) {
-            wait_for_admitted_marker_stop_redirect(
+          if ((row.block_boundary || row.block_stop) && row_redirects(row)) {
+            for (const auto pending_scalar_slot : scalar_slots) {
+              const ExpectedRow &pending_scalar = rows[pending_scalar_slot];
+              commit_expected_row(
+                  dut,
+                  pending_scalar,
+                  pending_commits,
+                  filtered_marker_commits,
+                  marker_commits_filtered,
+                  fetch_memory,
+                  dut_out,
+                  qemu_out);
+            }
+            scalar_slots.clear();
+            wait_for_admitted_marker_redirect(
                 dut,
                 row,
                 pending_commits,

@@ -129,6 +129,9 @@ object ROBEntryBankReference {
     private def osdActive(status: Status): Boolean =
       status == Allocated || status == Renamed || status == Issued || status == Completed || status == NeedFlush
 
+    private def markerWindowStop(tu: TUSidecar): Boolean =
+      tu.marker.isBoundary || tu.marker.isStop
+
     def size: Int = count
 
     def outstandingCount: Int = outstanding
@@ -202,6 +205,9 @@ object ROBEntryBankReference {
             commitPtr = nextCommitPtr
             commitWrap = nextCommitWrap
             outstanding -= 1
+            if (markerWindowStop(entry.tu)) {
+              return out.toSeq
+            }
           case _ =>
             return out.toSeq
         }
@@ -230,7 +236,7 @@ object ROBEntryBankReference {
               uSeq = tu.uSeq,
               dst = tu.dst
             )
-            if (tu.isLast) {
+            if (tu.isLast || markerWindowStop(tu)) {
               return out.toSeq
             }
           case _ =>
@@ -270,7 +276,7 @@ object ROBEntryBankReference {
                 boundaryTarget = tu.marker.boundaryTarget
               )
             }
-            if (tu.isLast) {
+            if (tu.isLast || markerWindowStop(tu)) {
               keepScanning = false
             }
           case _ =>
@@ -295,7 +301,7 @@ object ROBEntryBankReference {
             deallocPtr = nextDeallocPtr
             deallocWrap = nextDeallocWrap
             count -= 1
-            if (entry.tu.isLast) {
+            if (entry.tu.isLast || markerWindowStop(entry.tu)) {
               return out.toSeq
             }
           case _ =>
@@ -597,6 +603,30 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(rob.deallocTURetireSources().map(_.rid) == Seq(id(r2)))
   }
 
+  test("reference treats marker rows as commit and dealloc window terminators") {
+    val rob = new Model(entries = 8, commitWidth = 4)
+    val r0 = rob.alloc(row(0), tu = TUSidecar()).get
+    val r1 = rob.alloc(
+      row(1).copy(blockBid = 0x21),
+      tu = TUSidecar(marker = MarkerSidecar(isBoundary = true, boundaryKind = "Cond", boundaryTarget = 0x4000))
+    ).get
+    val r2 = rob.alloc(row(2).copy(blockBid = 0x21), tu = TUSidecar()).get
+    val r3 = rob.alloc(row(3).copy(blockBid = 0x21), tu = TUSidecar(isLast = true, marker = MarkerSidecar(isStop = true))).get
+
+    Seq(r0, r1, r2, r3).foreach(rob.complete)
+
+    assert(rob.commit().map(_.rid) == Seq(0, 1))
+    assert(rob.commit().map(_.rid) == Seq(2, 3))
+
+    assert(rob.deallocTURetireSources().map(_.rid) == Seq(id(r0), id(r1)))
+    assert(rob.deallocBlockMarkerRetireSources().map(_.rid) == Seq(id(r1)))
+    assert(rob.dealloc() == Seq(r0, r1))
+
+    assert(rob.deallocTURetireSources().map(_.rid) == Seq(id(r2), id(r3)))
+    assert(rob.deallocBlockMarkerRetireSources().map(_.rid) == Seq(id(r3)))
+    assert(rob.dealloc() == Seq(r2, r3))
+  }
+
   test("reference exposes marker retire metadata from deallocated ROB rows") {
     val rob = new Model(entries = 8, commitWidth = 4)
     val r0 = rob.alloc(
@@ -631,7 +661,9 @@ class ROBEntryBankSpec extends AnyFunSuite {
     ).get
 
     Seq(r0, r1, r2, r3).foreach(rob.complete)
-    assert(rob.commit().map(_.rid) == Seq(0, 1, 2, 3))
+    assert(rob.commit().map(_.rid) == Seq(0))
+    assert(rob.commit().map(_.rid) == Seq(1, 2))
+    assert(rob.commit().map(_.rid) == Seq(3))
 
     assert(rob.deallocBlockMarkerRetireSources() == Seq(
       BlockMarkerRetireSource(
@@ -650,24 +682,10 @@ class ROBEntryBankSpec extends AnyFunSuite {
         length = 4,
         boundaryKind = "Direct",
         boundaryTarget = 0x4000),
-      BlockMarkerRetireSource(
-        valid = true,
-        isBoundary = false,
-        isStop = true,
-        isLast = true,
-        bid = id(2),
-        gid = id(1),
-        rid = id(r2),
-        peId = 3,
-        stid = 1,
-        blockBid = 0x20,
-        pc = 0x1008,
-        insn = 0x13,
-        length = 4,
-        boundaryKind = "Fall",
-        boundaryTarget = 0)
     ))
-    assert(rob.dealloc() == Seq(r0, r1, r2))
+    assert(rob.dealloc() == Seq(r0))
+    assert(rob.deallocBlockMarkerRetireSources().map(_.rid) == Seq(id(r2)))
+    assert(rob.dealloc() == Seq(r1, r2))
     assert(rob.deallocBlockMarkerRetireSources().map(_.rid) == Seq(id(r3)))
   }
 

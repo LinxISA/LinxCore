@@ -371,6 +371,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val blockBranchTakenValid = RegInit(false.B)
   val blockBranchTaken = RegInit(false.B)
   val markerRedirectFire = path.io.blockMarkerStopRedirectValid || execute.io.redirectValid
+  val markerRedirectRetireSource = path.io.robMarkerRetireSource
+  val markerRedirectSourceBid =
+    Mux(markerRedirectRetireSource.valid, markerRedirectRetireSource.bid, ROBID.disabled(p.robEntries))
+  val markerRedirectSourceRid =
+    Mux(markerRedirectRetireSource.valid, markerRedirectRetireSource.rid, ROBID.disabled(p.robEntries))
+  val markerRedirectSourceStid =
+    Mux(markerRedirectRetireSource.valid, markerRedirectRetireSource.stid, 0.U(p.threadIdWidth.W))
+  val markerRedirectSourceBlockBid =
+    Mux(
+      markerRedirectRetireSource.valid && markerRedirectRetireSource.blockBidValid,
+      markerRedirectRetireSource.blockBid,
+      0.U(p.blockBidWidth.W))
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
   val backendPipeFlush = io.frontendFlushValid || scalarRedirectPending
   val externalBfuGeometryValid = io.reducedBfuBodyValid
@@ -512,12 +524,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   }.elsewhen(markerRedirectFire) {
     markerRedirectPending := true.B
     markerRedirectPcReg := Mux(path.io.blockMarkerStopRedirectValid, path.io.blockMarkerStopRedirectPc, execute.io.redirectPc)
-    scalarRedirectPending := execute.io.redirectValid
-    scalarRedirectBidReg := Mux(execute.io.redirectValid, execute.io.releaseBid, ROBID.disabled(p.robEntries))
-    scalarRedirectRidReg := Mux(execute.io.redirectValid, execute.io.releaseRid, ROBID.disabled(p.robEntries))
-    scalarRedirectStidReg := Mux(execute.io.redirectValid, execute.io.releaseStid, 0.U)
+    scalarRedirectPending := true.B
+    scalarRedirectBidReg := Mux(execute.io.redirectValid, execute.io.releaseBid, markerRedirectSourceBid)
+    scalarRedirectRidReg := Mux(execute.io.redirectValid, execute.io.releaseRid, markerRedirectSourceRid)
+    scalarRedirectStidReg := Mux(execute.io.redirectValid, execute.io.releaseStid, markerRedirectSourceStid)
     scalarRedirectBlockBidReg :=
-      Mux(execute.io.redirectValid && execute.io.completeRow.blockBidValid, execute.io.completeRow.blockBid, 0.U)
+      Mux(
+        execute.io.redirectValid,
+        Mux(execute.io.completeRow.blockBidValid, execute.io.completeRow.blockBid, 0.U),
+        markerRedirectSourceBlockBid)
   }.elsewhen(markerRedirectPending) {
     markerRedirectPending := false.B
     scalarRedirectPending := false.B

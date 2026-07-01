@@ -353,13 +353,19 @@ class ROBEntryBank(
   io.completeAccepted := completeAccepted
   io.completeIgnored := io.completeValid && (!completeMayUpdate || flushApplied)
 
+  val deallocMarkerWindowStop = Wire(Bool())
   val commitFireVec = Wire(Vec(traceParams.commitWidth, Bool()))
+  val commitContinueVec = Wire(Vec(traceParams.commitWidth, Bool()))
   for (slot <- 0 until traceParams.commitWidth) {
     val idx = wrapIndex(commitValue, slot)
-    val priorSlotsFire =
-      if (slot == 0) true.B else commitFireVec.take(slot).reduce(_ && _)
-    val fires = !flushApplied && priorSlotsFire && rows(idx).valid && ROBEntryStatus.canCommit(status(idx))
+    val priorSlotsContinue =
+      if (slot == 0) true.B else commitContinueVec(slot - 1)
+    val markerWindowStop = rowMarkerBoundary(idx) || rowMarkerStop(idx)
+    val fires =
+      !flushApplied && !deallocMarkerWindowStop && priorSlotsContinue &&
+        rows(idx).valid && ROBEntryStatus.canCommit(status(idx))
     commitFireVec(slot) := fires
+    commitContinueVec(slot) := fires && !markerWindowStop
 
     val out = Wire(new CommitTraceRow(traceParams))
     out := rows(idx)
@@ -385,14 +391,18 @@ class ROBEntryBank(
 
   val deallocFireVec = Wire(Vec(traceParams.commitWidth, Bool()))
   val deallocContinueVec = Wire(Vec(traceParams.commitWidth, Bool()))
+  val deallocMarkerWindowStopVec = Wire(Vec(traceParams.commitWidth, Bool()))
   for (slot <- 0 until traceParams.commitWidth) {
     val idx = wrapIndex(deallocValue, slot)
     val priorSlotsContinue =
       if (slot == 0) true.B else deallocContinueVec(slot - 1)
     deallocFireVec(slot) :=
       !flushApplied && io.deallocReady && priorSlotsContinue && rows(idx).valid && ROBEntryStatus.canDealloc(status(idx))
-    deallocContinueVec(slot) := deallocFireVec(slot) && !rowIsLast(idx)
+    deallocMarkerWindowStopVec(slot) := deallocFireVec(slot) && (rowMarkerBoundary(idx) || rowMarkerStop(idx))
+    deallocContinueVec(slot) := deallocFireVec(slot) &&
+      !rowIsLast(idx) && !rowMarkerBoundary(idx) && !rowMarkerStop(idx)
   }
+  deallocMarkerWindowStop := deallocMarkerWindowStopVec.asUInt.orR
   val deallocCount = PopCount(deallocFireVec)
   io.deallocValidMask := deallocFireVec.asUInt
   io.deallocCount := deallocCount
