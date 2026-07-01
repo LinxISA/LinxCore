@@ -142,6 +142,10 @@ piece of that model order. A full live switch away from `skipBlockMarkers=true`
 still needs an explicit decode/retire split for active block context, because
 model decode uses the `BSTART` BID for subsequent scalar rows before the
 corresponding marker row has retired.
+R176 adds `BlockMarkerDecodeContext` as that decode-time owner. This lifecycle
+module still owns retire-time scalar-done, delayed block retire, retired marker
+source consumption, and marker redirect policy. Do not reintroduce following-row
+BID assignment into this module while the decode context exists.
 
 The C++ model carries block-control context per scalar thread. `BRQ` owns
 `stashH[stid]` and `brq[stid]` and sizes both arrays from
@@ -156,6 +160,7 @@ still instantiates one lane.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerLifecycle`
+- `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerDecodeContextSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerRetireSourceSerializer`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`

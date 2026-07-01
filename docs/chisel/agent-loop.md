@@ -841,37 +841,44 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Full marker lifecycle split and live-top switch: R172 feeds serialized
+1. Wire `BlockMarkerDecodeContext` into `DecodeRenameROBPath` behind an
+   opt-in constructor mode. R176 adds the standalone decode-time owner that
+   assigns a decoded `BSTART` row's new full BID before rename/ROB retirement
+   and leaves retire-time scalar-done/redirect policy in
+   `BlockMarkerLifecycle`. The next packet should use it to replace the
+   backend-local active-BID mux in a non-default path, prove marker boundary
+   rows get a new BROB allocation while following scalar rows reuse that BID,
+   and keep the existing skip-mode live gate as the default regression.
+2. Full marker lifecycle split and live-top switch: R172 feeds serialized
    retired marker rows into `BlockMarkerLifecycle` with row-owned BID evidence,
    R173 gives the marker-source queue recovery-exact suffix pruning, R174 makes
    active marker state STID-indexed, and R175 lets unskipped marker rows
    rename-update, stay off the reduced scalar ALU path, and complete internally
-   through the ROB. The reduced live top still uses `skipBlockMarkers=true`.
-   The next block-control packet must split or otherwise prove decode-time
-   active-BID assignment for following scalar rows versus retire-time
-   scalar-done/redirect semantics, then remove marker skipping from the live
-   CoreMark gate.
-2. Replace the temporary replay resolved-event source with real branch/BFU
+   through the ROB. R176 adds the decode-time context owner but does not wire it
+   into the live backend path. The reduced live top still uses
+   `skipBlockMarkers=true`; remove marker skipping only after the harness can
+   compare admitted marker rows directly.
+3. Replace the temporary replay resolved-event source with real branch/BFU
    resolver outputs. R153 has resolved cold-cut fallback and local
    header-window arming, but external QEMU metadata still provides body-end
    eligibility; the next packet should derive that from decoded/execute branch
    outcome and close skipped-marker lifecycle without replay-side help.
-3. Full issue scheduler timing: add explicit wakeup ports, alternate model
+4. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.
-4. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
+5. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
    event stream from commit-only rows toward trap, memory, recovery, and block
    sidebands.
-5. QEMU full-compare harness: scale the reduced live CoreMark window beyond
+6. QEMU full-compare harness: scale the reduced live CoreMark window beyond
    the R166 3.2M-row pass, or feed a bounded direct-boot window into the same
    comparator path once frontend/decode/execute/LSU can retire it from the
    full DUT stream.
-6. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+7. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
-7. Multi-PE packet production and bank instantiation: teach the upstream
+8. Multi-PE packet production and bank instantiation: teach the upstream
    frontend/top owner to set nonzero `FrontendDecodePacket.peId` and instantiate
    matching `ScalarTURenameBridge`/`TULinkLocalBankArray` PE banks.
-8. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+9. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

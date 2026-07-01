@@ -760,6 +760,10 @@ publication, SCB/MDB handoff, and memory trace side effects.
   packet production. The active selector now consumes row `peId`, but current
   frontend/top packets still default that sidecar to PE0 unless an upstream
   owner drives it.
+- Wiring `BlockMarkerDecodeContext` into the selected-row BID path. R176 adds
+  the decode-side owner and reference tests, but `DecodeRenameROBPath` still
+  uses the reduced `BlockMarkerLifecycle` active BID while the live top remains
+  in marker-skip mode.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - SGPR/tile/vector operand classification and rename.
@@ -779,6 +783,7 @@ Focused gate:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only BlockMarkerLifecycle
+bash tools/chisel/run_chisel_tests.sh --only BlockMarkerDecodeContextSpec
 bash tools/chisel/run_chisel_tests.sh --only BlockMarkerRetireSourceSerializer
 bash tools/chisel/run_chisel_tests.sh --only BlockScalarDoneSequencer
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
@@ -876,6 +881,18 @@ consumed, hidden from scalar issue and store split, buffered until the external
 completion port is idle, and then completed through the ROB bank. The live
 CoreMark top is still intentionally verified in marker-skip mode until the
 full marker lifecycle split is implemented.
+R176 adds `BlockMarkerDecodeContext` as the decode-time half of that lifecycle
+split. It proves, in a standalone Chisel owner, that a decoded boundary marker
+receives the allocator's new full BID even while a prior active context exists,
+following scalar rows reuse that new BID, decoded stops reuse and clear the
+active BID, and flush/redirect/ROB block-last cleanup remains STID-scoped.
+The R176 live CoreMark regression
+`generated/r176-marker-decode-context-prep-6000-qemu-elf-xcheck` preserved the
+current skip-mode live behavior: 6000 raw QEMU rows, 5866 expected rows, 5138
+normalized QEMU/DUT rows, 5137 compared rows, zero mismatches, and no CBSTOP
+divergence. Its manifest recorded dirty QEMU due to unrelated local
+`target/linx/cpu.c` changes, so use the run as a regression on this Chisel
+packet rather than as clean-QEMU release evidence.
 The R175 live CoreMark regression
 `generated/r175-marker-row-completion-shell-6000-qemu-elf-xcheck` captured
 6000 QEMU rows, produced 5866 expected rows, normalized 5138 QEMU/DUT rows,
