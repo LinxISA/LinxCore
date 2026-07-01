@@ -81,6 +81,7 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_NE) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_C_SETC_TGT) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_CMP_EQI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_CSEL) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_FENTRY) ||
       op === opcode(FrontendOpcodeDecodeTable.OP_ANDI) ||
@@ -193,6 +194,8 @@ class ReducedScalarAluExecute(
       out := pc + imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_CMP_EQI)) {
       out := Mux(srcData(0) === imm, 1.U, 0.U)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_CSEL)) {
+      out := Mux(srcData(2) =/= 0.U, srcData(0), srcData(1))
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_LDI)) {
       out := loadData
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_LDI)) {
@@ -626,6 +629,9 @@ object ReducedScalarAluExecute {
       case FrontendOpcodeDecodeTable.OP_ORI => Some((src0 | imm) & Mask64)
       case _ => None
     }
+
+  def referenceCsel(srcL: BigInt, srcR: BigInt, srcP: BigInt): BigInt =
+    if ((srcP & Mask64) != 0) srcL & Mask64 else srcR & Mask64
 
   def referenceResult(opcode: Int, pc: BigInt, src0: BigInt, src1: BigInt, imm: BigInt): Option[BigInt] =
     opcode match {

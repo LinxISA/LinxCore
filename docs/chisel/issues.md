@@ -53,16 +53,17 @@ Current mitigation:
 
 ## CHISEL-ISSUE-003: CSEL Model/QEMU Source-Order Divergence
 
-Status: open
+Status: resolved locally for the reduced RTL/QEMU/LLVM lanes; pending rebuild
+and live CoreMark promotion
 
 Impact:
 
 - The R136 reduced CoreMark live fetch/RF/ALU gate passes through 1620 raw QEMU
   rows, then the 1660-row probe reaches `OP_CSEL` at `pc=0x40005d32`.
-- LinxCoreModel and Sail select `SrcL` when `SrcP != 0`; the current QEMU
-  translator selects `SrcR` when `SrcP != 0`.
-- LinxCore RTL must not silently implement the QEMU behavior as architectural
-  `CSEL` while the model and Sail disagree, because this lane is model-aligned.
+- LinxCoreModel and Sail select `SrcL` when `SrcP != 0`; the old QEMU
+  translator selected `SrcR` when `SrcP != 0`.
+- LinxCore RTL must keep the model/Sail behavior and reject any downstream
+  regression that silently restores the old QEMU source order.
 
 Evidence:
 
@@ -78,16 +79,19 @@ Evidence:
   `srcP = srcs[0]`, `srcL = srcs[1]`, `srcR = srcs[2]`, and writes `srcL`
   when `srcP != 0`.
 - QEMU source:
-  `emulator/qemu/target/linx/translate.c:3404` initializes the output from
-  `SrcL`, then overwrites it with `SrcR` when the predicate is nonzero.
+  old `emulator/qemu/target/linx/translate.c:3404` initialized the output from
+  `SrcL`, then overwrote it with `SrcR` when the predicate was nonzero.
 - Live QEMU row 1625 in the 1660-row probe distinguishes the behavior:
   immediately before the row, `srcp=x24/T0=1`, `SrcL=x2=0`, and
   `SrcR=x28/U0=0x40000768`; QEMU writes `U0=0x40000768`, which is
   true-to-`SrcR`.
+- R138 local patches align QEMU scalar `trans_csel`, LLVM CSEL MC lowering, the
+  reduced Chisel `OP_CSEL` execute result, and the row-reducer expected value to
+  true-to-`SrcL`.
 
 Current mitigation:
 
-- Keep reduced RTL `OP_CSEL` unsupported until the architecture/model/QEMU
-  owner resolves the source-order contract.
-- Future QEMU-lane work should either align QEMU with Sail/LinxCoreModel or
-  record an explicit architecture decision that changes the model and Sail.
+- Run focused QEMU/LLVM/Chisel CSEL gates before treating R138 as promoted.
+- The current reduced QEMU row schema exposes only two source fields, so the row
+  reducer admits CSEL when `SrcP` is in the reduced T/U local overlay. A
+  scalar-predicate CSEL row must wait for a source-2 trace-schema extension.

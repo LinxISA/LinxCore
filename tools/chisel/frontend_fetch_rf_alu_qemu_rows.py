@@ -117,6 +117,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "ANDIW"
         if key == 0x3015:
             return "ORI"
+        if key == 0x0077:
+            return "CSEL"
         if (insn & 0xFFF) == 0x0507:
             return None
         if (insn & 0x7F) == 0x0007:
@@ -418,6 +420,18 @@ def _encoded_source_value(
     return row[data_field] & MASK64
 
 
+def _csel_predicate_value(
+    row: dict[str, int],
+    opcode: str,
+    local_state: dict[str, list[int | None]]) -> int:
+    reg = _srcp(row)
+    if not _is_local_source_reg(reg):
+        raise RowExtractionError(
+            f"{opcode} row uses scalar predicate reg {reg}; reduced RF/ALU row schema has no src2"
+        )
+    return _local_source_value(local_state, reg, opcode)
+
+
 def _require_writeback(row: dict[str, int], opcode: str) -> None:
     if not row["dst_valid"] or not row["wb_valid"]:
         raise RowExtractionError(f"{opcode} row must have destination/writeback valid")
@@ -434,6 +448,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "ANDI",
         "ANDIW",
         "CMP_EQI",
+        "CSEL",
         "SUB",
         "LDI",
         "LD.PCR",
@@ -452,6 +467,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "ADDI",
         "ANDI",
         "CMP_EQI",
+        "CSEL",
         "C.AND",
         "C.SUB",
         "HL.LUI",
@@ -547,6 +563,11 @@ def _expected_result(
     if opcode == "CMP_EQI":
         src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         return 1 if src0 == (_simm12_20_s12(row) & MASK64) else 0
+    if opcode == "CSEL":
+        src_l = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        src_r = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+        src_p = _csel_predicate_value(row, opcode, local_state)
+        return src_l if src_p != 0 else src_r
     if opcode == "FENTRY":
         return (row["mem_addr"] + (_fentry_save_count(row) << 3) - _fentry_imm(row)) & MASK64
     if opcode == "C.LDI":
@@ -675,6 +696,10 @@ def _validate_reduced_row(
         if row["src1_valid"]:
             raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
         _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+    elif opcode == "CSEL":
+        _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+        _csel_predicate_value(row, opcode, local_state)
     elif opcode == "FENTRY":
         _require_sources(row, opcode, src0=False, src1=False)
         if _fentry_m(row) < 2 or _fentry_m(row) > 23 or _fentry_n(row) < 2 or _fentry_n(row) > 23:
@@ -1423,6 +1448,75 @@ def self_test() -> None:
         assert extracted_c_and[2]["dst_valid"] == 1
         assert extracted_c_and[2]["dst_reg"] == 31
         assert extracted_c_and[2]["dst_data"] == 32
+
+        csel_source = tmp / "csel-local-predicate.jsonl"
+        csel_output = tmp / "csel-local-predicate.rows.jsonl"
+        addi_u_true_for_csel = {
+            **addi_u_dst,
+            "pc": 0x5120,
+            "next_pc": 0x5124,
+        }
+        addi_t_for_csel = {
+            **addi_t_dst,
+            "pc": 0x5124,
+            "next_pc": 0x5128,
+        }
+        csel_true = {
+            **rows[0],
+            "pc": 0x5128,
+            "insn": 0xE1860077,
+            "len": 4,
+            "next_pc": 0x512C,
+            "wb_valid": 1,
+            "wb_rd": 2,
+            "wb_data": 0x1111_2222_3333_4444,
+            "dst_valid": 1,
+            "dst_reg": 2,
+            "dst_data": 0x1111_2222_3333_4444,
+            "src0_valid": 1,
+            "src0_reg": 12,
+            "src0_data": 0x1111_2222_3333_4444,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        addi_u_false_for_csel = {
+            **addi_u_dst,
+            "pc": 0x512C,
+            "insn": 0x00000F95,
+            "next_pc": 0x5130,
+            "wb_data": 0,
+            "dst_data": 0,
+            "src0_data": 0,
+        }
+        csel_false = {
+            **csel_true,
+            "pc": 0x5130,
+            "next_pc": 0x5134,
+            "wb_rd": 3,
+            "wb_data": 0x4000_ECE8,
+            "dst_reg": 3,
+            "dst_data": 0x4000_ECE8,
+        }
+        _write_jsonl(
+            csel_source,
+            [addi_u_true_for_csel, addi_t_for_csel, csel_true, addi_u_false_for_csel, csel_false],
+        )
+        count = extract_rows(csel_source, csel_output)
+        assert count == 5
+        extracted_csel = [
+            json.loads(line) for line in csel_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_csel[2]["dst_reg"] == 2
+        assert extracted_csel[2]["dst_data"] == 0x1111_2222_3333_4444
+        assert extracted_csel[4]["dst_reg"] == 3
+        assert extracted_csel[4]["dst_data"] == 0x4000_ECE8
 
         add_local_scalar_source = tmp / "add-local-scalar.jsonl"
         add_local_scalar_output = tmp / "add-local-scalar.rows.jsonl"

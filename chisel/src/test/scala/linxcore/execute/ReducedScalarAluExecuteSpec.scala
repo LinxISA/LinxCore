@@ -49,6 +49,14 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
       src0 = 1,
       src1 = 0,
       imm = 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceCsel(
+      srcL = BigInt("1111222233334444", 16),
+      srcR = BigInt("aaaabbbbccccdddd", 16),
+      srcP = 1).equals(BigInt("1111222233334444", 16)))
+    assert(ReducedScalarAluExecute.referenceCsel(
+      srcL = BigInt("1111222233334444", 16),
+      srcR = BigInt("aaaabbbbccccdddd", 16),
+      srcP = 0).equals(BigInt("aaaabbbbccccdddd", 16)))
     assert(ReducedScalarAluExecute.referenceResult(
       FrontendOpcodeDecodeTable.OP_FENTRY,
       src0 = BigInt("4000550a", 16),

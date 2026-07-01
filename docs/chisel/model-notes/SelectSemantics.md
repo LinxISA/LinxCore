@@ -28,10 +28,10 @@ dst = (SrcP != 0) ? SrcL : SrcR
 
 The Sail v0.56 model in `exec_csel` documents the same source order.
 
-## QEMU Divergence
+## QEMU Resolution
 
-The current QEMU `trans_csel` implementation documents and implements the
-opposite data choice:
+R137 found that the previous QEMU `trans_csel` implementation documented and
+implemented the opposite data choice:
 
 ```text
 dst = (SrcP != 0) ? SrcR : SrcL
@@ -45,24 +45,28 @@ The R136 1660-row CoreMark probe reaches a distinguishing pair of rows:
   `SrcR=x28/U0=0x40000768`, `SrcP=x24/T0=1`; QEMU writes `0x40000768`,
   proving the live QEMU lane is true-to-`SrcR`.
 
+R138 resolves the local source-order contract by aligning the implementation
+lanes to LinxCoreModel/Sail:
+
+- QEMU scalar `trans_csel` selects `SrcL` when `SrcP != 0` and uses `SrcR` as
+  the false case.
+- LLVM MC lowering maps the machine node true operand to CSEL `SrcL` and the
+  false operand to CSEL `SrcR`.
+- The reduced Chisel execute path implements `OP_CSEL` as
+  `Mux(srcData(2) =/= 0.U, srcData(0), srcData(1))`.
+- The reduced QEMU-row extractor recognizes CSEL rows whose predicate is carried
+  by a reduced T/U local queue. Scalar-predicate CSEL remains outside the current
+  two-source commit-row schema and must wait for a trace-schema extension.
+
 ## Hardware Direction
 
-Do not add reduced Chisel `OP_CSEL` execute support by copying the current QEMU
-translator behavior. The Chisel lane is model-aligned, and the current model
-plus Sail evidence selects `SrcL` when `SrcP` is nonzero.
-
-Before promoting a CoreMark gate past the R137 frontier, resolve the contract
-in one of these lanes:
-
-- QEMU lane: change QEMU and its tests to match Sail/LinxCoreModel.
-- Architecture/model lane: explicitly update Sail and LinxCoreModel, then
-  regenerate downstream contracts and record the architecture decision.
-- Temporary reduced-QEMU lane: if a short-term QEMU-compatible workaround is
-  required, mark it as non-architectural in the module docs and keep it out of
-  model-aligned replacement evidence.
+Do not reintroduce a QEMU-compatible true-to-`SrcR` workaround. The Chisel lane
+is model-aligned, and CSEL must keep true-to-`SrcL` behavior unless Sail and
+LinxCoreModel are deliberately changed first.
 
 ## Open Items
 
-- Add a focused CSEL architectural regression once the owner decision is made.
-- Re-run the live CoreMark reduced fetch/RF/ALU gate past 1620 rows only after
-  the selected source-order contract is implemented consistently.
+- Rebuild QEMU and LLVM after the local source patches and run the focused CSEL
+  regressions before promoting a larger live CoreMark window.
+- Extend the trace schema or row reducer before admitting scalar-predicate CSEL
+  rows, because the current QEMU-shaped row exposes only two source fields.

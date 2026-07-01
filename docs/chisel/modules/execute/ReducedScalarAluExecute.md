@@ -147,6 +147,7 @@ The Chisel module implements the first reduced subset:
 | `OP_C_SETC_TGT` | `0`, latches `srcData(0)` as the reduced dynamic target |
 | `OP_C_SETRET` | `in.pc + in.imm` |
 | `OP_CMP_EQI` | `1` when `srcData(0) == in.imm`, otherwise `0` |
+| `OP_CSEL` | `srcData(0)` when `srcData(2) != 0`, otherwise `srcData(1)` |
 | `OP_FENTRY` | `stackPointerData - in.imm`; the store address uses the ranged save count to place the first saved register |
 | `OP_FRET_STK` | redirect-only while the live SETC condition is true; on the condition-false RA-restore path, load `x10/ra` from `stackPointerData + in.imm - 8`, emit an 8-byte load sideband, write reduced RF tag `x10`, emit `fretStkSpRestoreData = stackPointerData + in.imm`, and redirect to the loaded value |
 | `OP_HL_LUI` | `in.imm` |
@@ -171,11 +172,12 @@ The Chisel module implements the first reduced subset:
 | `OP_OR` | `srcData(0) \| srcData(1)` |
 | `OP_ORI` | `srcData(0) \| in.imm` |
 
-`OP_CSEL` is intentionally not in this reduced execute table as of R137.
-LinxCoreModel and Sail select `SrcL` when `SrcP != 0`, while the current QEMU
-translator and live CoreMark QEMU trace select `SrcR` when `SrcP != 0`. See
-`docs/chisel/model-notes/SelectSemantics.md` and `CHISEL-ISSUE-003` before
-adding CSEL support to this module.
+R138 adds model-aligned `OP_CSEL`. `FrontendOperandDecode` maps `srcData(0)` to
+`SrcL`, `srcData(1)` to `SrcR`, and `srcData(2)` to `SrcP`; execute therefore
+selects `SrcL` when the predicate is nonzero. The row reducer currently admits
+the CoreMark frontier shape where `SrcP` is a reduced T/U local source. A
+scalar-predicate CSEL row needs a source-2 trace-schema extension before it can
+be promoted in the QEMU-shaped reduced-row gate.
 
 `OP_ADDTPC` uses the `FrontendOperandDecode` `ImmIMM20` path, where the
 20-bit immediate is sign-extended and shifted left by 12 before reaching
@@ -221,6 +223,11 @@ preceding condition-false `FRET.STK` RA-load path restores architectural
 only `x10/ra`; execute now exposes that restore as a sideband for the reduced
 top's SP shadow. The promoted gate captures 1620 raw QEMU rows, extracts 1496
 expected rows, and compares 1094 normalized QEMU/DUT rows with zero mismatches.
+R138 unblocks the next CSEL frontier by aligning QEMU, LLVM MC lowering, the
+reduced row reducer, and Chisel execute to LinxCoreModel/Sail true-to-`SrcL`
+semantics. The Chisel operation is side-effect free and destination-producing;
+the trace row still suppresses local T/U sources, so the reducer uses the local
+overlay for the observed `SrcP` and `SrcR` local aliases.
 R111 proves the same local-source row shape for CoreMark `SLL`: the row reads
 T0/U0, writes architectural U tag `30`, emits `0x100000000`, and leaves scalar
 source fields invalid to match QEMU.

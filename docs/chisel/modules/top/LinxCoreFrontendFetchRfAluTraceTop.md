@@ -162,13 +162,13 @@ harness may accept the packet superset, compare only the expected prefix rows,
 and stop before draining post-capture slots into the reduced backend. This
 does not relax any compared row fields; it only prevents the tail-prefix gate
 from demanding idle state for instructions outside the requested capture.
-R137 records the next frontier as a model/QEMU semantic divergence rather than
-a top-level implementation gap. The QEMU-only 1660-row probe reaches
-`OP_CSEL` after the R136 prefix. LinxCoreModel plus Sail define
-`SrcP != 0` as selecting `SrcL`, while QEMU's translator and a later live trace
-row select `SrcR`. This top should not promote a larger model-aligned CoreMark
-window by adding a QEMU-shaped CSEL workaround unless that workaround is
-explicitly marked non-architectural.
+R137 recorded the next frontier as a model/QEMU semantic divergence rather than
+a top-level implementation gap. R138 resolves that local contract by aligning
+QEMU scalar `CSEL`, LLVM MC lowering, the reduced row reducer, and
+`ReducedScalarAluExecute` to the LinxCoreModel/Sail rule:
+`SrcP != 0` selects `SrcL`. The top remains bounded by the current two-source
+QEMU-shaped trace row; the promoted CSEL shape uses the reduced local overlay
+for the observed T/U predicate and false-source aliases.
 R124 adds that explicit reduced store mutation for the `OP_SD` indexed-store
 frontier. `ReducedScalarAluExecute` emits the model-derived sideband
 `addr = base + (index << 3)`, `wdata = SrcD`, `size = 8`, while the Verilator
