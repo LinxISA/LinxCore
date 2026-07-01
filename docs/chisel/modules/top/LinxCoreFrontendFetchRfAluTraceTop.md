@@ -689,6 +689,10 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
 The default wrapper manifest at
 `generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
+R151 extends the common manifest provenance for this harness path with
+`git.linxcore_model` and `git.qemu` entries alongside `git.linxcore` and
+`git.superproject`, so later BFU/ROB packets can cite the C++ model and
+emulator SHAs from the same evidence bundle as the comparator result.
 
 `tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh` builds a tiny
 legal-entry direct-boot ELF:
@@ -738,7 +742,8 @@ The preview stream preserves five QEMU rows: `C.BSTART` at `0x10000` as a
 skip row, scalar rows at `0x10002`, `0x10006`, and `0x1000a`, and `C.BSTOP`
 at `0x1000c` as a skip row. The comparator manifest still records only the
 three architectural scalar commits: `status: "pass"`, `compared_rows: 3`, and
-`mismatch_count: 0`.
+`mismatch_count: 0`; R151 and later manifests also record LinxCoreModel and
+QEMU repository provenance.
 
 The R102 dense-slot gate keeps the same five-row live QEMU input stream but
 lets F4 see natural 8-byte windows:

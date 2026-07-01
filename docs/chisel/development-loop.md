@@ -140,6 +140,16 @@ infrastructure packet: `run_chisel_qemu_crosscheck.sh` now emits
 comparator exit status while tying raw traces, normalized traces, reports,
 QEMU binary selection, row counts, first mismatch, CBSTOP summary, and
 LinxCore/superproject git context into one evidence bundle.
+R151 started from `linx-isa` commit
+`164028a3c72ff5ab6e370f0d9d14f10d662679f1`, `rtl/LinxCore` commit
+`26481a1900e8f5f577538d511e94ba717ff2627a`,
+`model/LinxCoreModel` commit
+`3c0878da3aa1e06669b718e93269f094e7244066`, and QEMU commit
+`cc3877bf395120e0133f8287c2e8a976347d33bd`. The R151 cross-check
+infrastructure packet extends the common manifest's git context with
+`linxcore_model` and `qemu` entries, preserving the existing comparator
+behavior while making every later generated-RTL/QEMU replay identify the C++
+model and emulator revisions that shaped the evidence.
 R90 started from `linx-isa` commit
 `774c4fbd6935d098e778e45bd717b57af72d7db8`, `rtl/LinxCore` commit
 `3d23b7c561aca535d500c1c2ce00d7e86013cc59`,
@@ -1116,6 +1126,9 @@ Use this ladder for every promoted packet:
    window.
 16. Inspect `<report-dir>/crosscheck_manifest.json` after any non-dry-run
    generated-RTL or QEMU comparison that routes through the common wrapper.
+   R151 and later manifests must include `git.linxcore`, `git.linxcore_model`,
+   `git.qemu`, and `git.superproject` before the run is cited as provenance for
+   a promoted RTL packet.
 17. Full QEMU-vs-DUT comparison only after the Chisel top emits real
    architectural commit rows.
 18. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.

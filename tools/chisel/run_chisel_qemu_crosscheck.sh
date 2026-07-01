@@ -172,6 +172,14 @@ def git_dirty(path: str) -> bool:
         return False
 
 
+def git_context(path: str) -> dict:
+    return {
+        "path": path,
+        "head": git_rev(path),
+        "dirty": git_dirty(path),
+    }
+
+
 def read_json(path: str, default):
     p = Path(path)
     if not p.is_file():
@@ -212,16 +220,10 @@ manifest = {
         "cbstop_counts": report.get("cbstop_counts", {}),
     },
     "git": {
-        "linxcore": {
-            "path": root_dir,
-            "head": git_rev(root_dir),
-            "dirty": git_dirty(root_dir),
-        },
-        "superproject": {
-            "path": linx_root,
-            "head": git_rev(linx_root),
-            "dirty": git_dirty(linx_root),
-        },
+        "linxcore": git_context(root_dir),
+        "linxcore_model": git_context(str(Path(linx_root) / "model" / "LinxCoreModel")),
+        "qemu": git_context(str(Path(linx_root) / "emulator" / "qemu")),
+        "superproject": git_context(linx_root),
     },
 }
 Path(manifest_path).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
