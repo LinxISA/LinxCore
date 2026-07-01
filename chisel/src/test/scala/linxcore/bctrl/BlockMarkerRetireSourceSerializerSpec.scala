@@ -11,7 +11,8 @@ object BlockMarkerRetireSourceSerializerReference {
       enqueueCount: Int,
       count: Int,
       out: Option[Source],
-      dequeued: Boolean)
+      dequeued: Boolean,
+      pruneCount: Int)
 
   final class State(sourceWidth: Int, depth: Int) {
     private var queue = Vector.empty[Source]
@@ -24,22 +25,35 @@ object BlockMarkerRetireSourceSerializerReference {
     def step(
         sources: Seq[Option[Source]] = Seq.empty,
         outReady: Boolean = false,
-        clear: Boolean = false): StepResult = {
+        clear: Boolean = false,
+        flushValid: Boolean = false,
+        flushBid: Int = 0,
+        flushBaseOnBid: Boolean = false): StepResult = {
       val paddedSources = sources.padTo(sourceWidth, None).take(sourceWidth)
-      val ready = !clear && queue.size <= depth - sourceWidth
+      val ready = !clear && !flushValid && queue.size <= depth - sourceWidth
       val acceptedSources = if (ready) paddedSources.flatten else Seq.empty
-      val out = if (!clear) queue.headOption else None
-      val dequeued = outReady && out.nonEmpty && !clear
+      val out = if (!clear && !flushValid) queue.headOption else None
+      val dequeued = outReady && out.nonEmpty && !clear && !flushValid
+      val flushMatches = queue.map { source =>
+        if (flushBaseOnBid) source.id >= flushBid else source.id > flushBid
+      }
+      val pruneMask = flushMatches.zipWithIndex.map { case (matches, idx) =>
+        matches && flushMatches.drop(idx + 1).forall(identity)
+      }
+      val pruneCount = if (flushValid) pruneMask.count(identity) else 0
       val result = StepResult(
         ready = ready,
         validMask = mask(paddedSources),
         enqueueCount = acceptedSources.size,
         count = queue.size,
         out = out,
-        dequeued = dequeued)
+        dequeued = dequeued,
+        pruneCount = pruneCount)
 
       if (clear) {
         queue = Vector.empty
+      } else if (flushValid) {
+        queue = queue.zip(pruneMask).collect { case (source, false) => source }
       } else {
         if (dequeued) {
           queue = queue.tail
@@ -95,6 +109,38 @@ class BlockMarkerRetireSourceSerializerSpec extends AnyFunSuite {
     assert(accepted.enqueueCount == 1)
   }
 
+  test("reference prunes only the newest flushed marker-source suffix") {
+    val state = new State(sourceWidth = 2, depth = 8)
+
+    state.step(Seq(Some(Source(1)), Some(Source(2))))
+    state.step(Seq(Some(Source(3)), Some(Source(4))))
+
+    val flushed = state.step(flushValid = true, flushBid = 2, flushBaseOnBid = false)
+    assert(!flushed.ready)
+    assert(flushed.out.isEmpty)
+    assert(!flushed.dequeued)
+    assert(flushed.pruneCount == 2)
+
+    val next = state.step()
+    assert(next.count == 2)
+    assert(next.out.contains(Source(1)))
+  }
+
+  test("reference base-on-BID flush includes the base marker source") {
+    val state = new State(sourceWidth = 2, depth = 8)
+
+    state.step(Seq(Some(Source(1)), Some(Source(2))))
+    state.step(Seq(Some(Source(3)), Some(Source(4))))
+
+    val flushed = state.step(flushValid = true, flushBid = 2, flushBaseOnBid = true)
+    assert(!flushed.ready)
+    assert(flushed.pruneCount == 3)
+
+    val next = state.step()
+    assert(next.count == 1)
+    assert(next.out.contains(Source(1)))
+  }
+
   test("reference clear drops queued marker sources and blocks same-cycle enqueue") {
     val state = new State(sourceWidth = 2, depth = 4)
 
@@ -119,6 +165,7 @@ class BlockMarkerRetireSourceSerializerSpec extends AnyFunSuite {
     assert(sv.contains("io_sourceValidMask"))
     assert(sv.contains("io_sourceEnqueueCount"))
     assert(sv.contains("io_sourceDequeued"))
+    assert(sv.contains("io_sourcePruneCount"))
     assert(sv.contains("io_out_boundaryTarget"))
   }
 }

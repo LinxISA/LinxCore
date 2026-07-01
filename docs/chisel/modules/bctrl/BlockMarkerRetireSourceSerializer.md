@@ -33,6 +33,10 @@ R172 connects `outReady` to `BlockMarkerLifecycle.retiredMarkerReady` and feeds
 policy-free: it preserves order and credit, while lifecycle decides whether a
 boundary redirects, installs row-owned active state, completes an active BID, or
 backpressures a malformed retired boundary.
+R173 adds recovery-exact queue pruning. Backend cleanup no longer drops every
+queued marker source; `flush` prunes only the newest flushed suffix using the
+same ROBID rule as `TULinkRetireCommandPath`, then compacts surviving marker
+sources in order.
 
 ## Interface
 
@@ -40,6 +44,7 @@ backpressures a malformed retired boundary.
 |---|---|---|---|
 | Input | `sources` | `Vec(sourceWidth, BlockMarkerRetireSource)` | Marker sources from one ROB deallocation window. Invalid lanes are ignored. |
 | Input | `clear` | `Bool` | Drops queued marker sources and blocks same-cycle enqueue/dequeue. |
+| Input | `flush` | `FlushBus` | Recovery cleanup selector used to prune queued marker sources. |
 | Input | `outReady` | `Bool` | Downstream `BlockMarkerLifecycle` consumed the current serialized marker source. |
 | Output | `sourceWindowReady` | `Bool` | True when the queue can accept a full `sourceWidth` window. |
 | Output | `sourceValidMask` | `UInt(sourceWidth.W)` | Raw valid lanes observed in the input window. |
@@ -47,6 +52,7 @@ backpressures a malformed retired boundary.
 | Output | `sourceQueueCount` | `UInt` | Current queued marker-source count. |
 | Output | `sourceQueueFull/sourceQueueEmpty` | `Bool` | Queue occupancy diagnostics. |
 | Output | `sourceDequeued` | `Bool` | Current serialized source fired to downstream. |
+| Output | `sourcePruneCount` | `UInt` | Number of queued marker sources pruned by the current flush. |
 | Output | `out` | `BlockMarkerRetireSource` | Queue head source with `valid` asserted while the queue is non-empty. |
 
 ## Logic Design
@@ -66,6 +72,13 @@ backpressures a malformed retired boundary.
 - Downstream backpressure is allowed to hold the queue head indefinitely. In
   R172 this is how `BlockMarkerLifecycle` prevents a retired fallthrough
   boundary with `blockBidValid=false` from being dropped.
+- `flush.req.valid` blocks same-cycle enqueue/dequeue, hides `out.valid`, and
+  compacts the queued marker sources before the next cycle.
+- Base-on-BID flush prunes queued marker sources with `source.bid >= flush.bid`.
+  Non-base flush prunes queued marker sources with `source.bid > flush.bid`.
+  Only the newest contiguous flushed suffix is removed; an older matching row
+  before an unflushed row is kept, matching the existing T/U retire-source
+  cleanup rule.
 
 ## Model Alignment
 
@@ -81,9 +94,14 @@ complete, redirect, or clear BCTRL active state.
 Marker classification, boundary target, and full block BID are therefore
 row-owned metadata by the time dealloc publishes the source.
 
+`SPEROB::FlushRelativeReg`-style cleanup removes only the newest suffix of
+speculative row-owned state. R173 mirrors the existing Chisel
+`TULinkRetireCommandPath` pruning policy for marker sources so recovery cleanup
+does not discard older already-retained marker evidence.
+
 ## Deferred Owners
 
-- Per-STID active marker state and recovery-exact queued-source pruning.
+- Per-STID active marker state.
 - Full marker-row ROB admission in place of the current reduced marker-skip
   path.
 
@@ -92,10 +110,12 @@ row-owned metadata by the time dealloc publishes the source.
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerRetireSourceSerializer`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r172-retired-marker-lifecycle-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r173-marker-retire-source-flush-prune-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 
 Focused tests cover slot-order compaction, full-window admission backpressure,
-clear/drop behavior, and Chisel elaboration of the queue and serialized source
-ports. The backend composition test covers the integrated deallocation credit,
-diagnostic IO surface, and lifecycle-ready/fire diagnostics. The R172 live gate
-passed with 5137 compared CoreMark rows, zero mismatches, and no CBSTOP
+flush suffix pruning, base-on-BID inclusive pruning, clear/drop behavior, and
+Chisel elaboration of the queue and serialized source ports. The backend
+composition test covers the integrated deallocation credit, diagnostic IO
+surface, lifecycle-ready/fire diagnostics, and prune-count IO. The R173 live
+gate passed with 5137 compared CoreMark rows, zero mismatches, and no CBSTOP
 divergence.

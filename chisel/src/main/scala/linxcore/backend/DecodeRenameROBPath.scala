@@ -267,6 +267,7 @@ class DecodeRenameROBPathIO(
   val robMarkerRetireSourceQueueFull = Output(Bool())
   val robMarkerRetireSourceQueueEmpty = Output(Bool())
   val robMarkerRetireSourceDequeued = Output(Bool())
+  val robMarkerRetireSourcePruneCount = Output(UInt(markerRetireSourceQueueCountWidth.W))
   val robMarkerRetireSourceLifecycleReady = Output(Bool())
   val robMarkerRetireSourceLifecycleFire = Output(Bool())
   val robMarkerRetireSourceLifecycleBoundaryFire = Output(Bool())
@@ -799,7 +800,8 @@ class DecodeRenameROBPath(
   rename.io.tuLocalBlockCommitStid := tuRetirePath.io.localBlockCommitStid
 
   markerRetireSerializer.io.sources := allocator.io.deallocBlockMarkerRetireSource
-  markerRetireSerializer.io.clear := blockLifecycleFlush
+  markerRetireSerializer.io.clear := false.B
+  markerRetireSerializer.io.flush := io.cleanup.flush
   markerRetireSerializer.io.outReady := markerLifecycle.io.retiredMarkerReady
   markerLifecycle.io.retiredMarker := markerRetireSerializer.io.out
 
@@ -983,6 +985,7 @@ class DecodeRenameROBPath(
   io.robMarkerRetireSourceQueueFull := markerRetireSerializer.io.sourceQueueFull
   io.robMarkerRetireSourceQueueEmpty := markerRetireSerializer.io.sourceQueueEmpty
   io.robMarkerRetireSourceDequeued := markerRetireSerializer.io.sourceDequeued
+  io.robMarkerRetireSourcePruneCount := markerRetireSerializer.io.sourcePruneCount
   io.robMarkerRetireSourceLifecycleReady := markerLifecycle.io.retiredMarkerReady
   io.robMarkerRetireSourceLifecycleFire := markerLifecycle.io.retiredMarkerFire
   io.robMarkerRetireSourceLifecycleBoundaryFire := markerLifecycle.io.retiredMarkerBoundaryFire

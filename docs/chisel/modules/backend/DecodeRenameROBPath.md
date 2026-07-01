@@ -172,6 +172,10 @@ retired fallthrough boundaries use the row-owned `blockBid` carried by the ROB
 row instead of requesting a retire-time BROB allocation. The reduced
 decode-time marker-skip lane remains separate until full marker-row ROB
 admission replaces it.
+R173 wires backend recovery flush into that marker serializer. Queued marker
+sources are pruned by newest flushed suffix and compacted, matching the
+existing T/U retire-source cleanup policy instead of clearing all queued marker
+sources on every backend cleanup.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -290,6 +294,7 @@ Outputs:
   `robTULinkSource*`, `robDeallocTURetireSource`,
   `robDeallocBlockMarkerRetireSource`,
   `robMarkerRetireSource*`,
+  `robMarkerRetireSourcePruneCount`,
   `robMarkerRetireSourceLifecycle*`,
   `robDeallocBlockLast*`, `blockScalarDone*`, `blockRetire*`, `size`,
   `outstandingCount`, and occupancy masks: `DispatchROBAllocator`,
@@ -545,6 +550,11 @@ image. A retired fallthrough boundary without `blockBidValid` is backpressured
 at this boundary instead of being silently consumed. `robMarkerRetireSource*`
 keeps queue/source diagnostics, while `robMarkerRetireSourceLifecycle*` reports
 the lifecycle consumer ready/fire/boundary/stop pulses.
+R173 passes `cleanup.flush` into `BlockMarkerRetireSourceSerializer` and keeps
+the serializer's hard `clear` inactive in this composition. Recovery cleanup
+therefore blocks marker-source enqueue/dequeue for the cycle, prunes only the
+newest flushed suffix, compacts surviving sources, and reports the removed
+count as `robMarkerRetireSourcePruneCount`.
 
 R103 uses the ROB bank's full block-last BID to drive the reduced BROB
 completion path. On a deallocation cycle that frees a block-last row,
@@ -688,9 +698,9 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - Full scalar commit ownership for real marker ROB-retire rows. The current
   R117 feedback only bridges reduced marker/block-retire events into scalar
   rename mapQ release; R172 feeds serialized marker retire sources into
-  lifecycle using the row-owned block BID, but it does not yet add per-STID
-  active marker state, recovery-exact marker-source pruning, or full marker-row
-  ROB admission.
+  lifecycle using the row-owned block BID, and R173 prunes queued marker
+  sources on recovery cleanup. Per-STID active marker state and full marker-row
+  ROB admission remain deferred.
 - Multi-PE `TULinkLocalBankArray` instantiation and top-level nonzero PE
   packet production. The active selector now consumes row `peId`, but current
   frontend/top packets still default that sidecar to PE0 unless an upstream
@@ -730,6 +740,7 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r172-retired-marker-lifecycle-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r173-marker-retire-source-flush-prune-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 ```
 
 Affected gates:
@@ -794,6 +805,9 @@ R172 covers the retired-marker lifecycle consumer in `BlockMarkerLifecycle`,
 backend serializer `outReady` wiring, `robMarkerRetireSourceLifecycle*`
 diagnostics, row-owned retired boundary BID use, and malformed retired boundary
 backpressure.
+R173 covers marker retire-source recovery pruning through the backend cleanup
+flush, `robMarkerRetireSourcePruneCount` IO elaboration, and live top
+elaboration with the new serializer flush input.
 R104 covers marker-only BROB allocation, active full-BID reuse by scalar rows,
 marker-driven scalar-done/retire for old/current active blocks, marker
 conflict gating against ROB block-last scalar-done, and top-level marker

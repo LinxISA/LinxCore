@@ -4,6 +4,8 @@ import chisel3._
 import chisel3.util.{log2Ceil, PopCount}
 
 import linxcore.common.{BlockMarkerRetireSource, InterfaceParams}
+import linxcore.recovery.FlushBus
+import linxcore.rob.ROBID
 
 class BlockMarkerRetireSourceSerializerIO(
     val p: InterfaceParams = InterfaceParams(),
@@ -25,6 +27,7 @@ class BlockMarkerRetireSourceSerializerIO(
     stidWidth = stidWidth
   )))
   val clear = Input(Bool())
+  val flush = Input(new FlushBus(p.robEntries, stidWidth = stidWidth))
   val outReady = Input(Bool())
 
   val sourceWindowReady = Output(Bool())
@@ -34,6 +37,7 @@ class BlockMarkerRetireSourceSerializerIO(
   val sourceQueueFull = Output(Bool())
   val sourceQueueEmpty = Output(Bool())
   val sourceDequeued = Output(Bool())
+  val sourcePruneCount = Output(UInt(sourceQueueCountWidth.W))
   val out = Output(new BlockMarkerRetireSource(
     entries = p.robEntries,
     blockBidWidth = p.blockBidWidth,
@@ -87,6 +91,12 @@ class BlockMarkerRetireSourceSerializer(
     Mux(sum >= depth, sum - depth, sum)(ptrWidth - 1, 0)
   }
 
+  private def tailFromCount(nextCount: UInt): UInt =
+    Mux(nextCount === sourceQueueDepth.U, 0.U(ptrWidth.W), nextCount(ptrWidth - 1, 0))
+
+  private def flushMatches(source: BlockMarkerRetireSource): Bool =
+    Mux(io.flush.baseOnBid, ROBID.lessEqual(io.flush.req.bid, source.bid), ROBID.less(io.flush.req.bid, source.bid))
+
   val sourceQueue = RegInit(VecInit(Seq.fill(sourceQueueDepth)(zeroSource)))
   val head = RegInit(0.U(ptrWidth.W))
   val tail = RegInit(0.U(ptrWidth.W))
@@ -95,10 +105,41 @@ class BlockMarkerRetireSourceSerializer(
   val sourceValidMask = VecInit(io.sources.map(_.valid)).asUInt
   val sourceValidCount = PopCount(sourceValidMask)
   val freeCount = sourceQueueDepth.U(countWidth.W) - count
-  val sourceWindowReady = !io.clear && (freeCount >= sourceWidth.U)
+  val cleanupFire = io.flush.req.valid
+  val sourceWindowReady = !io.clear && !cleanupFire && (freeCount >= sourceWidth.U)
   val enqueueCount = Mux(sourceWindowReady, sourceValidCount, 0.U)
   val queueNonEmpty = count =/= 0.U
-  val dequeueFire = queueNonEmpty && io.outReady && !io.clear
+  val dequeueFire = queueNonEmpty && io.outReady && !io.clear && !cleanupFire
+
+  val sourceValidVec = Wire(Vec(sourceQueueDepth, Bool()))
+  val sourceFlushVec = Wire(Vec(sourceQueueDepth, Bool()))
+  val sourcePruneVec = Wire(Vec(sourceQueueDepth, Bool()))
+  for (offset <- 0 until sourceQueueDepth) {
+    val source = sourceQueue(addPtr(head, offset.U))
+    sourceValidVec(offset) := offset.U < count
+    sourceFlushVec(offset) := sourceValidVec(offset) && io.flush.req.valid && flushMatches(source)
+  }
+  for (offset <- 0 until sourceQueueDepth) {
+    val newerFlush =
+      if (offset == sourceQueueDepth - 1) true.B
+      else (offset + 1 until sourceQueueDepth).map(idx => !sourceValidVec(idx) || sourceFlushVec(idx)).reduce(_ && _)
+    sourcePruneVec(offset) := sourceFlushVec(offset) && newerFlush
+  }
+
+  val sourceCompacted = Wire(Vec(sourceQueueDepth, sourceType))
+  sourceCompacted := VecInit(Seq.fill(sourceQueueDepth)(zeroSource))
+  val sourceKeepVec = Wire(Vec(sourceQueueDepth, Bool()))
+  for (offset <- 0 until sourceQueueDepth) {
+    val keep = sourceValidVec(offset) && !sourcePruneVec(offset)
+    sourceKeepVec(offset) := keep
+    val keptBefore = Wire(UInt(countWidth.W))
+    keptBefore := (if (offset == 0) 0.U else PopCount(VecInit(sourceKeepVec.take(offset)).asUInt))
+    when(keep) {
+      sourceCompacted(keptBefore(ptrWidth - 1, 0)) := sourceQueue(addPtr(head, offset.U))
+    }
+  }
+  val sourcePruneCount = PopCount(sourcePruneVec.asUInt)
+  val sourceCompactedCount = PopCount(sourceKeepVec.asUInt)
 
   when(io.clear) {
     for (idx <- 0 until sourceQueueDepth) {
@@ -107,6 +148,11 @@ class BlockMarkerRetireSourceSerializer(
     head := 0.U
     tail := 0.U
     count := 0.U
+  }.elsewhen(cleanupFire) {
+    sourceQueue := sourceCompacted
+    head := 0.U
+    tail := tailFromCount(sourceCompactedCount)
+    count := sourceCompactedCount
   }.otherwise {
     for (slot <- 0 until sourceWidth) {
       val priorValidCount =
@@ -127,8 +173,8 @@ class BlockMarkerRetireSourceSerializer(
   }
 
   val outSource = Wire(sourceType)
-  outSource := Mux(queueNonEmpty && !io.clear, sourceQueue(head), zeroSource)
-  outSource.valid := queueNonEmpty && !io.clear
+  outSource := Mux(queueNonEmpty && !io.clear && !cleanupFire, sourceQueue(head), zeroSource)
+  outSource.valid := queueNonEmpty && !io.clear && !cleanupFire
 
   io.sourceWindowReady := sourceWindowReady
   io.sourceValidMask := sourceValidMask
@@ -137,5 +183,6 @@ class BlockMarkerRetireSourceSerializer(
   io.sourceQueueFull := count === sourceQueueDepth.U
   io.sourceQueueEmpty := count === 0.U
   io.sourceDequeued := dequeueFire
+  io.sourcePruneCount := sourcePruneCount
   io.out := outSource
 }
