@@ -418,6 +418,11 @@ R156 adds `ReducedBfuPendingRuntimeBodyEndCandidate` as a diagnostic-only
 promotion checker. It exposes when retained runtime feedback already matches
 the current active header and compares that replay-free candidate against the
 temporary replay oracle, but it does not feed the source arbiter yet.
+R157 promotes that candidate into `ReducedBfuResolvedBodyEndSource`, so local
+runtime body-end feedback no longer waits for replay timing once it matches the
+active header. `ReducedBfuPromotedRuntimeBodyEndOracle` keeps replay as the
+proof surface by retaining promoted runtime events until a later replay row
+matches or reports mismatch/overwrite.
 
 ## Interface
 
@@ -430,7 +435,8 @@ temporary replay oracle, but it does not feed the source arbiter yet.
 | output | `reducedBfuResolvedBodyEndAccepted`, `reducedBfuResolvedBodyEndHeaderMismatch`, `reducedBfuResolvedBodyEndInactiveDrop`, `reducedBfuResolvedBodyEndFlushDrop`, `reducedBfuResolvedBodyEndUnderflow` | `Bool` | diagnostic | R149 resolved body-end owner acceptance/drop diagnostics before the static producer consumes the normalized event. |
 | output | `reducedBfuResolvedBodyEndSourceRuntimeSelected`, `reducedBfuResolvedBodyEndSourceReplaySelected`, `reducedBfuResolvedBodyEndSourceRuntimeReplay*` | `Bool` | diagnostic | R154/R155 resolved body-end source-selection and runtime/replay comparison diagnostics. |
 | output | `reducedBfuResolvedBodyEndSourceRuntimePending*` | `Bool` | diagnostic | R155 pending runtime body-end feedback lifecycle, consume, drop-mismatch, and candidate comparison diagnostics. |
-| output | `reducedBfuPendingRuntimeCandidate*` | `Bool` | diagnostic | R156 replay-free pending runtime candidate eligibility and replay comparison diagnostics. This does not drive body-end source selection in R156. |
+| output | `reducedBfuPendingRuntimeCandidate*` | `Bool` | diagnostic | R157 replay-free pending runtime candidate eligibility and same-cycle replay comparison diagnostics. This candidate now drives body-end source selection. |
+| output | `reducedBfuPromotedRuntimeBodyEndOracle*` | `Bool` | diagnostic | R157 promoted runtime body-end replay oracle diagnostics: pending, capture, replay comparable/match/mismatch, and overwrite. |
 | output | `reducedBfuStaticExternalComparable`, `reducedBfuStaticExternalMatch`, `reducedBfuStaticExternalMismatch`, `reducedBfuStaticExternalHeaderMismatch`, `reducedBfuStaticExternalHSizeMismatch`, `reducedBfuStaticExternalBSizeMismatch` | `Bool` | diagnostic | R148 agreement check between diagnostic static geometry and the external replay geometry that remains the temporary oracle. |
 | output | `reducedBfuBodyCutArmComparable`, `reducedBfuBodyCutArmAccepted`, `reducedBfuBodyCutArmMismatch`, `reducedBfuBodyCutArmHeaderMismatch`, `reducedBfuBodyCutArmHSizeMismatch`, `reducedBfuBodyCutArmBSizeMismatch` | `Bool` | diagnostic | R153 diagnostic comparison between the latched resolved-body prediction and the temporary external oracle. It no longer controls body-cut eligibility. |
 | output | `reducedBfuLocalBodyWindowActive`, `reducedBfuLocalBodyWindowArmFire`, `reducedBfuLocalBodyWindowReleaseFire`, `reducedBfuLocalBodyWindowArmSlot` | mixed | diagnostic | R153 local BFU body-window active, arm, release, and matched F4-slot observability. |
@@ -663,8 +669,9 @@ lifetime without claiming full replay removal.
 R156 adds `ReducedBfuPendingRuntimeBodyEndCandidate` beside the R155 owner.
 It checks whether the pending payload would be source-eligible from active
 header state alone and fails the generated-RTL harness on any comparable
-candidate/replay mismatch. The actual source selection remains R155's
-replay-qualified path.
+candidate/replay mismatch. R157 uses that active-header candidate as the
+runtime source and adds `ReducedBfuPromotedRuntimeBodyEndOracle` so replay can
+still validate promoted events after the pending slot is consumed.
 R104 adds the first reduced block-lifecycle alignment for those marker slots.
 The model allocates BROB on `BSTART`, stamps following scalar instructions with
 the current block BID, and completes the current block on `BSTOP` through the

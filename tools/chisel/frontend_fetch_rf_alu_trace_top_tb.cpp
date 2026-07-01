@@ -1114,6 +1114,12 @@ struct BfuGeometryDiagnostics {
   std::uint64_t pending_runtime_candidate_replay_comparable_count = 0;
   std::uint64_t pending_runtime_candidate_replay_match_count = 0;
   std::uint64_t pending_runtime_candidate_replay_mismatch_count = 0;
+  std::uint64_t promoted_runtime_body_end_oracle_pending_count = 0;
+  std::uint64_t promoted_runtime_body_end_oracle_capture_count = 0;
+  std::uint64_t promoted_runtime_body_end_oracle_replay_comparable_count = 0;
+  std::uint64_t promoted_runtime_body_end_oracle_replay_match_count = 0;
+  std::uint64_t promoted_runtime_body_end_oracle_replay_mismatch_count = 0;
+  std::uint64_t promoted_runtime_body_end_oracle_overwrite_count = 0;
   std::uint64_t resolved_source_runtime_replay_comparable_count = 0;
   std::uint64_t resolved_source_runtime_replay_match_count = 0;
   std::uint64_t resolved_source_runtime_replay_mismatch_count = 0;
@@ -1206,6 +1212,30 @@ void observe_bfu_geometry_diagnostics(
     }
     if (dut.io_reducedBfuPendingRuntimeCandidateReplayMatch) {
       ++stats.pending_runtime_candidate_replay_match_count;
+    }
+  }
+  if (dut.io_reducedBfuPromotedRuntimeBodyEndOraclePending) {
+    ++stats.promoted_runtime_body_end_oracle_pending_count;
+  }
+  if (dut.io_reducedBfuPromotedRuntimeBodyEndOracleCaptureFire) {
+    ++stats.promoted_runtime_body_end_oracle_capture_count;
+  }
+  if (dut.io_reducedBfuPromotedRuntimeBodyEndOracleOverwritePending) {
+    ++stats.promoted_runtime_body_end_oracle_overwrite_count;
+    std::cerr << "frontend fetch RF ALU promoted runtime body-end oracle was overwritten before replay during "
+              << context << "\n";
+    std::exit(1);
+  }
+  if (dut.io_reducedBfuPromotedRuntimeBodyEndOracleReplayComparable) {
+    ++stats.promoted_runtime_body_end_oracle_replay_comparable_count;
+    if (dut.io_reducedBfuPromotedRuntimeBodyEndOracleReplayMismatch) {
+      ++stats.promoted_runtime_body_end_oracle_replay_mismatch_count;
+      std::cerr << "frontend fetch RF ALU promoted runtime body-end oracle mismatched replay during "
+                << context << "\n";
+      std::exit(1);
+    }
+    if (dut.io_reducedBfuPromotedRuntimeBodyEndOracleReplayMatch) {
+      ++stats.promoted_runtime_body_end_oracle_replay_match_count;
     }
   }
   if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeReplayComparable) {
@@ -1984,6 +2014,18 @@ int main(int argc, char **argv) {
               << bfu_stats.pending_runtime_candidate_replay_match_count
               << " bfu_pending_runtime_candidate_replay_mismatches="
               << bfu_stats.pending_runtime_candidate_replay_mismatch_count
+              << " bfu_promoted_runtime_body_end_oracle_pending="
+              << bfu_stats.promoted_runtime_body_end_oracle_pending_count
+              << " bfu_promoted_runtime_body_end_oracle_captures="
+              << bfu_stats.promoted_runtime_body_end_oracle_capture_count
+              << " bfu_promoted_runtime_body_end_oracle_replay_comparable="
+              << bfu_stats.promoted_runtime_body_end_oracle_replay_comparable_count
+              << " bfu_promoted_runtime_body_end_oracle_replay_matches="
+              << bfu_stats.promoted_runtime_body_end_oracle_replay_match_count
+              << " bfu_promoted_runtime_body_end_oracle_replay_mismatches="
+              << bfu_stats.promoted_runtime_body_end_oracle_replay_mismatch_count
+              << " bfu_promoted_runtime_body_end_oracle_overwrites="
+              << bfu_stats.promoted_runtime_body_end_oracle_overwrite_count
               << " bfu_resolved_source_runtime_replay_comparable="
               << bfu_stats.resolved_source_runtime_replay_comparable_count
               << " bfu_resolved_source_runtime_replay_matches="

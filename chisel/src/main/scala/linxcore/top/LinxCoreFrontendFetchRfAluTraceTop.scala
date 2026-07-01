@@ -7,7 +7,7 @@ import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
-import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
+import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -97,6 +97,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedBfuPendingRuntimeCandidateReplayComparable = Output(Bool())
   val reducedBfuPendingRuntimeCandidateReplayMatch = Output(Bool())
   val reducedBfuPendingRuntimeCandidateReplayMismatch = Output(Bool())
+  val reducedBfuPromotedRuntimeBodyEndOraclePending = Output(Bool())
+  val reducedBfuPromotedRuntimeBodyEndOracleCaptureFire = Output(Bool())
+  val reducedBfuPromotedRuntimeBodyEndOracleReplayComparable = Output(Bool())
+  val reducedBfuPromotedRuntimeBodyEndOracleReplayMatch = Output(Bool())
+  val reducedBfuPromotedRuntimeBodyEndOracleReplayMismatch = Output(Bool())
+  val reducedBfuPromotedRuntimeBodyEndOracleOverwritePending = Output(Bool())
   val reducedBfuStaticExternalComparable = Output(Bool())
   val reducedBfuStaticExternalMatch = Output(Bool())
   val reducedBfuStaticExternalMismatch = Output(Bool())
@@ -357,12 +363,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val staticBfuGeometry = Module(new ReducedBfuStaticGeometryProducer(p))
   val localBfuCutFeedbackPending = Module(new ReducedBfuResolvedBodyEndPending(p))
   val pendingRuntimeBodyEndCandidate = Module(new ReducedBfuPendingRuntimeBodyEndCandidate(p))
+  val promotedRuntimeBodyEndOracle = Module(new ReducedBfuPromotedRuntimeBodyEndOracle(p))
   val resolvedBfuBodyEndSource = Module(new ReducedBfuResolvedBodyEndSource(p))
   val resolvedBfuBodyEnd = Module(new ReducedBfuResolvedBodyEndOwner(p))
-  resolvedBfuBodyEndSource.io.runtimeValid := localBfuCutFeedbackPending.io.runtimeValid
-  resolvedBfuBodyEndSource.io.runtimeHeaderPc := localBfuCutFeedbackPending.io.runtimeHeaderPc
-  resolvedBfuBodyEndSource.io.runtimeHSizeBytes := localBfuCutFeedbackPending.io.runtimeHSizeBytes
-  resolvedBfuBodyEndSource.io.runtimeBodyEndPc := localBfuCutFeedbackPending.io.runtimeBodyEndPc
+  resolvedBfuBodyEndSource.io.runtimeValid := pendingRuntimeBodyEndCandidate.io.candidateValid
+  resolvedBfuBodyEndSource.io.runtimeHeaderPc := pendingRuntimeBodyEndCandidate.io.candidateHeaderPc
+  resolvedBfuBodyEndSource.io.runtimeHSizeBytes := pendingRuntimeBodyEndCandidate.io.candidateHSizeBytes
+  resolvedBfuBodyEndSource.io.runtimeBodyEndPc := pendingRuntimeBodyEndCandidate.io.candidateBodyEndPc
   resolvedBfuBodyEndSource.io.replayValid := externalBfuGeometryValid
   resolvedBfuBodyEndSource.io.replayHeaderPc := io.reducedBfuHeaderPc
   resolvedBfuBodyEndSource.io.replayHSizeBytes := io.reducedBfuHSizeBytes
@@ -387,6 +394,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   pendingRuntimeBodyEndCandidate.io.replayHeaderPc := io.reducedBfuHeaderPc
   pendingRuntimeBodyEndCandidate.io.replayHSizeBytes := io.reducedBfuHSizeBytes
   pendingRuntimeBodyEndCandidate.io.replayBSizeBytes := io.reducedBfuBSizeBytes
+  promotedRuntimeBodyEndOracle.io.flushValid := frontendPipeFlush || io.startValid || io.restartValid || markerRedirectFire
+  promotedRuntimeBodyEndOracle.io.promoteValid :=
+    resolvedBfuBodyEndSource.io.selectedRuntime && pendingRuntimeBodyEndCandidate.io.candidateValid
+  promotedRuntimeBodyEndOracle.io.promoteHeaderPc := pendingRuntimeBodyEndCandidate.io.candidateHeaderPc
+  promotedRuntimeBodyEndOracle.io.promoteHSizeBytes := pendingRuntimeBodyEndCandidate.io.candidateHSizeBytes
+  promotedRuntimeBodyEndOracle.io.promoteBodyEndPc := pendingRuntimeBodyEndCandidate.io.candidateBodyEndPc
+  promotedRuntimeBodyEndOracle.io.replayValid := externalBfuGeometryValid
+  promotedRuntimeBodyEndOracle.io.replayHeaderPc := io.reducedBfuHeaderPc
+  promotedRuntimeBodyEndOracle.io.replayHSizeBytes := io.reducedBfuHSizeBytes
+  promotedRuntimeBodyEndOracle.io.replayBSizeBytes := io.reducedBfuBSizeBytes
   resolvedBfuBodyEnd.io.flushValid := frontendPipeFlush || io.startValid || io.restartValid
   resolvedBfuBodyEnd.io.headerActive := staticBfuGeometry.io.headerActive
   resolvedBfuBodyEnd.io.activeHeaderPc := staticBfuGeometry.io.headerPc
@@ -750,6 +767,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     pendingRuntimeBodyEndCandidate.io.replayHeaderMismatch ||
       pendingRuntimeBodyEndCandidate.io.replayHSizeMismatch ||
       pendingRuntimeBodyEndCandidate.io.replayBodyEndMismatch
+  io.reducedBfuPromotedRuntimeBodyEndOraclePending := promotedRuntimeBodyEndOracle.io.pending
+  io.reducedBfuPromotedRuntimeBodyEndOracleCaptureFire := promotedRuntimeBodyEndOracle.io.captureFire
+  io.reducedBfuPromotedRuntimeBodyEndOracleReplayComparable :=
+    promotedRuntimeBodyEndOracle.io.replayComparable
+  io.reducedBfuPromotedRuntimeBodyEndOracleReplayMatch :=
+    promotedRuntimeBodyEndOracle.io.replayMatch
+  io.reducedBfuPromotedRuntimeBodyEndOracleReplayMismatch :=
+    promotedRuntimeBodyEndOracle.io.replayHeaderMismatch ||
+      promotedRuntimeBodyEndOracle.io.replayHSizeMismatch ||
+      promotedRuntimeBodyEndOracle.io.replayBodyEndMismatch
+  io.reducedBfuPromotedRuntimeBodyEndOracleOverwritePending :=
+    promotedRuntimeBodyEndOracle.io.overwritePending
   io.reducedBfuStaticExternalComparable := staticExternalComparable
   io.reducedBfuStaticExternalMatch := staticExternalMatch
   io.reducedBfuStaticExternalMismatch :=

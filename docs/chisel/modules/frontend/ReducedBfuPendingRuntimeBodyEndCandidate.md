@@ -2,15 +2,15 @@
 
 ## Purpose
 
-`ReducedBfuPendingRuntimeBodyEndCandidate` is the R156 diagnostic owner for
-pending BFU runtime body-end feedback. It answers a narrower question than the
-source arbiter: if replay timing were removed, would the retained runtime
-payload be acceptable against the current active header?
+`ReducedBfuPendingRuntimeBodyEndCandidate` is the R157 active-header eligibility
+owner for pending BFU runtime body-end feedback. It answers the control
+question that R156 first measured diagnostically: if replay timing is removed,
+is the retained runtime payload acceptable against the current active header?
 
-The module does not drive control in R156. `ReducedBfuResolvedBodyEndPending`
-still requires the replay-qualified candidate before the runtime event reaches
-`ReducedBfuResolvedBodyEndSource`. This checker only exposes the replay-free
-candidate condition and compares it with replay when both are visible.
+In R157 this candidate drives `ReducedBfuResolvedBodyEndSource`. Replay remains
+only as an oracle: same-cycle candidate/replay comparisons are still exposed
+here, and delayed comparisons after promotion are owned by
+`ReducedBfuPromotedRuntimeBodyEndOracle`.
 
 ## Interface
 
@@ -19,7 +19,7 @@ candidate condition and compares it with replay when both are visible.
 | input | `pendingValid`, `pendingHeaderPc`, `pendingHSizeBytes`, `pendingBodyEndPc` | mixed | Retained local body-window cut feedback from `ReducedBfuResolvedBodyEndPending`. |
 | input | `headerActive`, `activeHeaderPc` | mixed | Current static-predictor active-header state. |
 | input | `replayValid`, `replayHeaderPc`, `replayHSizeBytes`, `replayBSizeBytes` | mixed | Temporary replay/reducer oracle used only for diagnostics. |
-| output | `candidateValid`, `candidateHeaderPc`, `candidateHSizeBytes`, `candidateBodyEndPc` | mixed | Replay-free diagnostic candidate when pending feedback matches the active header. |
+| output | `candidateValid`, `candidateHeaderPc`, `candidateHSizeBytes`, `candidateBodyEndPc` | mixed | Replay-free source candidate when pending feedback matches the active header. |
 | output | `pendingWithoutActiveHeader`, `activeHeaderMismatch` | `Bool` | Pending feedback could not be promoted because the active-header state is absent or different. |
 | output | `replayComparable`, `replayMatch`, `replay*Mismatch` | `Bool` | Candidate-vs-replay comparison diagnostics. |
 
@@ -42,9 +42,10 @@ source arbiter:
 replayBodyEndPc = replayHeaderPc + 2 + replayBSizeBytes
 ```
 
-R156 keeps this as proof infrastructure. A later packet may promote this
-candidate to the source arbiter only after the generated-RTL replay shows
-nonzero candidate/replay comparisons with zero mismatches.
+R157 promotes this candidate into the source arbiter. Replay comparisons in
+this module are now same-cycle diagnostics only; once source selection consumes
+the pending event before replay arrives, `ReducedBfuPromotedRuntimeBodyEndOracle`
+retains the promoted payload until replay can check it.
 
 ## Model Evidence
 
@@ -71,10 +72,10 @@ Affected top gate:
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
-R156 generated-RTL replay gate:
+R157 generated-RTL replay gate:
 
 ```bash
-BUILD_DIR=generated/r156-pending-runtime-candidate-4000-rtl-replay \
+BUILD_DIR=generated/r157-promoted-runtime-source-4000-rtl-replay \
 FETCH_QEMU_TRACE=generated/r153-next-frontier-4000-qemu-probe/traces/qemu.live.raw.jsonl \
 FETCH_QEMU_MAX_ROWS=0 \
 FETCH_QEMU_ALLOW_BLOCK_MARKERS=1 \
@@ -83,6 +84,6 @@ FETCH_ELF=tests/benchmarks/build/coremark_real.elf \
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
-This replay compared 3280 normalized QEMU/DUT rows with zero mismatches and
-reported `bfu_pending_runtime_candidate_replay_matches=159` with
-`bfu_pending_runtime_candidate_replay_mismatches=0`.
+The R157 replay compared 3280 normalized QEMU/DUT rows with zero mismatches and
+reported zero pending-candidate replay mismatches. Delayed promoted-runtime
+replay proof is reported by the promoted oracle counters.
