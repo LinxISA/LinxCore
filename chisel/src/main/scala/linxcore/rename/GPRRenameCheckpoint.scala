@@ -83,6 +83,12 @@ class GPRRenameCheckpointIO(
   val cmapLiveCount = Output(UInt(freeCountWidth.W))
   val mapQLiveCount = Output(UInt(freeCountWidth.W))
   val livePhysCount = Output(UInt(freeCountWidth.W))
+  val freeFromLiveCount = Output(UInt(freeCountWidth.W))
+  val freeListMismatchCount = Output(UInt(freeCountWidth.W))
+  val nextMapQValidCount = Output(UInt(mapQCountWidth.W))
+  val nextMapQLiveCount = Output(UInt(freeCountWidth.W))
+  val nextLivePhysCount = Output(UInt(freeCountWidth.W))
+  val nextFreeFromLiveCount = Output(UInt(freeCountWidth.W))
   val committedMapQMask = Output(UInt(mapQDepth.W))
   val prunedMapQMask = Output(UInt(mapQDepth.W))
   val releasedPhysMask = Output(UInt(physRegs.W))
@@ -224,6 +230,8 @@ class GPRRenameCheckpoint(
       .map(idx => Mux(mapQ(idx).valid, UIntToOH(mapQ(idx).physTag, physRegs), 0.U(physRegs.W)))
       .reduce(_ | _)
   val currentLivePhysMask = currentSmapLiveMask | currentCmapLiveMask | currentMapQLiveMask
+  val currentFreeFromLiveMask = (~currentLivePhysMask).asUInt & allocatablePhysMask
+  val currentFreeListMismatchMask = (freeList.asUInt ^ currentFreeFromLiveMask) & allocatablePhysMask
   val firstFreePhys = PriorityEncoder(freeMask)
   val firstFreeMapQ = PriorityEncoder(~mapQValidMask)
   val hasFreePhys = freeMask.orR
@@ -416,6 +424,8 @@ class GPRRenameCheckpoint(
       .map(idx => Mux(nextMapQ(idx).valid, UIntToOH(nextMapQ(idx).physTag, physRegs), 0.U(physRegs.W)))
       .reduce(_ | _)
   val nextLivePhysMask = nextSmapLiveMask | nextCmapLiveMask | nextMapQLiveMask
+  val nextMapQValidVec = VecInit(nextMapQ.map(_.valid))
+  val nextFreeFromLiveMask = (~nextLivePhysMask).asUInt & allocatablePhysMask
   for (phys <- 0 until physRegs) {
     nextFreeList(phys) := !nextLivePhysMask(phys) && allocatablePhysMask(phys).asBool
   }
@@ -458,6 +468,12 @@ class GPRRenameCheckpoint(
   io.cmapLiveCount := PopCount(currentCmapLiveMask).asUInt(freeCountWidth - 1, 0)
   io.mapQLiveCount := PopCount(currentMapQLiveMask).asUInt(freeCountWidth - 1, 0)
   io.livePhysCount := PopCount(currentLivePhysMask).asUInt(freeCountWidth - 1, 0)
+  io.freeFromLiveCount := PopCount(currentFreeFromLiveMask).asUInt(freeCountWidth - 1, 0)
+  io.freeListMismatchCount := PopCount(currentFreeListMismatchMask).asUInt(freeCountWidth - 1, 0)
+  io.nextMapQValidCount := PopCount(nextMapQValidVec).asUInt(mapQCountWidth - 1, 0)
+  io.nextMapQLiveCount := PopCount(nextMapQLiveMask).asUInt(freeCountWidth - 1, 0)
+  io.nextLivePhysCount := PopCount(nextLivePhysMask).asUInt(freeCountWidth - 1, 0)
+  io.nextFreeFromLiveCount := PopCount(nextFreeFromLiveMask).asUInt(freeCountWidth - 1, 0)
   io.committedMapQMask := Mux(commitFire, committedMapQMask, 0.U(mapQDepth.W))
   io.prunedMapQMask := Mux(flushFire, prunedMapQMask, 0.U(mapQDepth.W))
   io.releasedPhysMask := Mux(commitFire, commitReleaseMask, 0.U(physRegs.W)) |

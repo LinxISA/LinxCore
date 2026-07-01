@@ -47,6 +47,7 @@ class DecodeRenameROBPathIO(
   private val sizeWidth = log2Ceil(p.robEntries + 1)
   private val decRenPtrWidth = math.max(1, log2Ceil(decRenQueueDepth))
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
+  private val gprReservationCountWidth = decRenCountWidth
   private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
   private val stqCountWidth = log2Ceil(p.robEntries + 1)
   private val gprFreeWidth = log2Ceil(physRegs + 1)
@@ -117,6 +118,13 @@ class DecodeRenameROBPathIO(
   val blockMarkerStopRedirectValid = Output(Bool())
   val blockMarkerStopRedirectPc = Output(UInt(p.pcWidth.W))
   val decodeReady = Output(Bool())
+  val decodeQueuePushReady = Output(Bool())
+  val decodeAllocReady = Output(Bool())
+  val decodeGprReservationReady = Output(Bool())
+  val decodeSelectedClosesActiveRedirect = Output(Bool())
+  val decodeSelectedNeedsGprReservation = Output(Bool())
+  val gprReservationCount = Output(UInt(gprReservationCountWidth.W))
+  val gprReservationNeed = Output(UInt(gprReservationCountWidth.W))
   val decRenPushReady = Output(Bool())
   val decRenPushFire = Output(Bool())
   val decRenPopFire = Output(Bool())
@@ -229,6 +237,12 @@ class DecodeRenameROBPathIO(
   val gprCmapLiveCount = Output(UInt(gprFreeWidth.W))
   val gprMapQLiveCount = Output(UInt(gprFreeWidth.W))
   val gprLivePhysCount = Output(UInt(gprFreeWidth.W))
+  val gprFreeFromLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprFreeListMismatchCount = Output(UInt(gprFreeWidth.W))
+  val gprNextMapQValidCount = Output(UInt(gprMapQFreeWidth.W))
+  val gprNextMapQLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprNextLivePhysCount = Output(UInt(gprFreeWidth.W))
+  val gprNextFreeFromLiveCount = Output(UInt(gprFreeWidth.W))
   val tuRenameReady = Output(Bool())
   val tuRenameAccepted = Output(Bool())
   val tuRenameActivePeId = Output(UInt(peIdWidth.W))
@@ -952,6 +966,13 @@ class DecodeRenameROBPath(
       markerOnlyPacket,
       markerLifecycle.io.markerReady,
       decRenQ.io.pushReady && allocator.io.allocReady && gprReservationReady && !selectedClosesActiveRedirect)
+  io.decodeQueuePushReady := decRenQ.io.pushReady
+  io.decodeAllocReady := allocator.io.allocReady
+  io.decodeGprReservationReady := gprReservationReady
+  io.decodeSelectedClosesActiveRedirect := selectedClosesActiveRedirect
+  io.decodeSelectedNeedsGprReservation := selectedNeedsGprReservation
+  io.gprReservationCount := gprReservationCount
+  io.gprReservationNeed := gprReservationNeed
   io.decRenPushReady := decRenQ.io.pushReady && allocator.io.allocReady && gprReservationReady && !selectedClosesActiveRedirect
   io.decRenPushFire := decRenQ.io.pushFire
   io.decRenPopFire := decRenQ.io.popFire
@@ -1081,6 +1102,12 @@ class DecodeRenameROBPath(
   io.gprCmapLiveCount := rename.io.gprCmapLiveCount
   io.gprMapQLiveCount := rename.io.gprMapQLiveCount
   io.gprLivePhysCount := rename.io.gprLivePhysCount
+  io.gprFreeFromLiveCount := rename.io.gprFreeFromLiveCount
+  io.gprFreeListMismatchCount := rename.io.gprFreeListMismatchCount
+  io.gprNextMapQValidCount := rename.io.gprNextMapQValidCount
+  io.gprNextMapQLiveCount := rename.io.gprNextMapQLiveCount
+  io.gprNextLivePhysCount := rename.io.gprNextLivePhysCount
+  io.gprNextFreeFromLiveCount := rename.io.gprNextFreeFromLiveCount
   io.tuRenameReady := rename.io.tuReady
   io.tuRenameAccepted := rename.io.tuAccepted
   io.tuRenameActivePeId := activeTURenamePeId
