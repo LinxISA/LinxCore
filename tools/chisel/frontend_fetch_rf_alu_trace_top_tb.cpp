@@ -1949,6 +1949,17 @@ DrainDenseRowResult drain_dense_row(
             << " headSlot=" << static_cast<unsigned>(dut.io_denseSlotQueueHeadSlot)
             << " decodeReady=" << static_cast<unsigned>(dut.io_decodeReady)
             << " selectedValid=" << static_cast<unsigned>(dut.io_selectedValid)
+            << " decRenCount=" << static_cast<unsigned>(dut.io_decRenCount)
+            << " decRenValid=" << static_cast<unsigned>(dut.io_decRenValid)
+            << " decRenHeadPc=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_decRenHeadPc)
+            << std::dec
+            << " decodeBlockedByRename=" << static_cast<unsigned>(dut.io_decodeBlockedByRename)
+            << " decodeBlockedByRob=" << static_cast<unsigned>(dut.io_decodeBlockedByRob)
+            << " decodeBlockedByOutput=" << static_cast<unsigned>(dut.io_decodeBlockedByOutput)
+            << " decodeBlockedByTURename=" << static_cast<unsigned>(dut.io_decodeBlockedByTURename)
+            << " gprFree=" << static_cast<unsigned>(dut.io_gprFreeCount)
+            << " gprMapQFree=" << static_cast<unsigned>(dut.io_gprMapQFreeCount)
             << " markerSkipValid=" << static_cast<unsigned>(dut.io_blockMarkerSkipValid)
             << " markerMixed=" << static_cast<unsigned>(dut.io_blockMarkerMixedPacket)
             << " markerBoundary=" << static_cast<unsigned>(dut.io_blockMarkerBoundary)

@@ -543,6 +543,8 @@ class DecodeRenameROBPath(
   val markerStop = markerOnlyPacket && VecInit(decode.io.blockStopMask.asBools)(markerSlot)
   val selectedStid = selected.threadId.pad(stidWidth)(stidWidth - 1, 0)
   val markerStid = marker.threadId.pad(stidWidth)(stidWidth - 1, 0)
+  val localScalarRedirectValid = Wire(Bool())
+  val localScalarRedirectStid = Wire(UInt(stidWidth.W))
 
   val allocator = Module(new DispatchROBAllocator(
     entries = p.robEntries,
@@ -584,8 +586,8 @@ class DecodeRenameROBPath(
   markerLifecycle.io.scalarWorkPending := !allocator.io.empty
   markerLifecycle.io.markerLifecycleConflict := markerLifecycleConflict
   markerLifecycle.io.retirePending := blockScalarDoneSeq.io.retirePending
-  markerLifecycle.io.scalarRedirectValid := io.scalarRedirectValid
-  markerLifecycle.io.scalarRedirectStid := io.scalarRedirectStid
+  markerLifecycle.io.scalarRedirectValid := localScalarRedirectValid
+  markerLifecycle.io.scalarRedirectStid := localScalarRedirectStid
   markerLifecycle.io.scalarBlockStartFire :=
     allocator.io.allocFire && selectedAny && !markerLifecycle.io.activeValid
   markerLifecycle.io.scalarBlockStartStid := selectedStid
@@ -612,8 +614,8 @@ class DecodeRenameROBPath(
       ctx.io.decodeAllocBid := allocator.io.allocBlockBid
       ctx.io.decodeTarget := selected.boundaryTarget
       ctx.io.decodeBoundaryKind := selected.boundaryKind
-      ctx.io.scalarRedirectValid := io.scalarRedirectValid
-      ctx.io.scalarRedirectStid := io.scalarRedirectStid
+      ctx.io.scalarRedirectValid := localScalarRedirectValid
+      ctx.io.scalarRedirectStid := localScalarRedirectStid
       ctx.io.robBlockLastValid := robBlockLastScalarDoneFire
       ctx.io.robBlockLastBid := allocator.io.deallocBlockLastBlockBid
       ctx.io.queryStid := selectedStid
@@ -640,6 +642,15 @@ class DecodeRenameROBPath(
   val activeBlockValid = markerDecodeContextOpt.map(_.io.activeValid).getOrElse(markerLifecycle.io.activeValid)
   val activeBlockBid = markerDecodeContextOpt.map(_.io.activeBid).getOrElse(markerLifecycle.io.activeBid)
   val activeBlockTarget = markerDecodeContextOpt.map(_.io.activeTarget).getOrElse(markerLifecycle.io.activeTarget)
+  val activeBlockCond = markerDecodeContextOpt.map(_.io.activeCond).getOrElse(markerLifecycle.io.activeCond)
+  val activeBlockUnconditionalRedirect =
+    markerDecodeContextOpt.map(_.io.activeUnconditionalRedirect).getOrElse(markerLifecycle.io.activeUnconditionalRedirect)
+  val selectedClosesActiveRedirect =
+    selectedAny && !selected.sob && !selected.eob && activeBlockValid && activeBlockTarget =/= 0.U &&
+      selected.pc === activeBlockTarget &&
+      (activeBlockUnconditionalRedirect || (activeBlockCond && io.blockBranchTakenValid && io.blockBranchTaken))
+  localScalarRedirectValid := io.scalarRedirectValid || selectedClosesActiveRedirect
+  localScalarRedirectStid := Mux(selectedClosesActiveRedirect, selectedStid, io.scalarRedirectStid)
   val selectedBlockBid =
     markerDecodeContextOpt
       .map(_.io.decodeBlockBid)
@@ -673,7 +684,7 @@ class DecodeRenameROBPath(
 
   val decRenPush = Wire(new DecodedUop(p))
   decRenPush := selectedForQueue
-  decRenPush.valid := selectedAny && allocator.io.allocReady && gprReservationReady
+  decRenPush.valid := selectedAny && allocator.io.allocReady && gprReservationReady && !selectedClosesActiveRedirect
 
   val decRenQ = Module(new DecodeRenameQueue(p, depth = decRenQueueDepth))
   decRenQ.io.push := decRenPush
@@ -794,7 +805,7 @@ class DecodeRenameROBPath(
   storeDispatch.io.unsplitIn := Mux(storeDispatchBypass, bypassedStorePayload, storeSplit.io.unsplit)
 
   allocator.io.flush := io.cleanup.flush
-  allocator.io.allocValid := selectedAny && decRenQ.io.pushReady && gprReservationReady
+  allocator.io.allocValid := selectedAny && decRenQ.io.pushReady && gprReservationReady && !selectedClosesActiveRedirect
   allocator.io.allocUsesExistingBlock := selectedUsesExistingBlock
   allocator.io.allocExistingBlockBid := selectedExistingBlockBid
   allocator.io.allocRow := commitReservationRow(selectedForQueue)
@@ -932,8 +943,11 @@ class DecodeRenameROBPath(
   io.blockMarkerStopRedirectValid := markerLifecycle.io.stopRedirectValid
   io.blockMarkerStopRedirectPc := markerLifecycle.io.stopRedirectPc
   io.decodeReady := !mixedMarkerPacket &&
-    Mux(markerOnlyPacket, markerLifecycle.io.markerReady, decRenQ.io.pushReady && allocator.io.allocReady && gprReservationReady)
-  io.decRenPushReady := decRenQ.io.pushReady && allocator.io.allocReady && gprReservationReady
+    Mux(
+      markerOnlyPacket,
+      markerLifecycle.io.markerReady,
+      decRenQ.io.pushReady && allocator.io.allocReady && gprReservationReady && !selectedClosesActiveRedirect)
+  io.decRenPushReady := decRenQ.io.pushReady && allocator.io.allocReady && gprReservationReady && !selectedClosesActiveRedirect
   io.decRenPushFire := decRenQ.io.pushFire
   io.decRenPopFire := decRenQ.io.popFire
   io.decRenValid := decRenQ.io.out.valid

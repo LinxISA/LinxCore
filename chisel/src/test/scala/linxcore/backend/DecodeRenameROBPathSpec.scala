@@ -24,16 +24,37 @@ object DecodeRenameROBPathReference {
   def accepted(attemptValid: Boolean, robReady: Boolean): Boolean =
     attemptValid && robReady
 
-  def robReservationAttemptValid(inputValid: Boolean, queueReady: Boolean, gprReservationReady: Boolean = true): Boolean =
-    inputValid && queueReady && gprReservationReady
+  def robReservationAttemptValid(
+      inputValid: Boolean,
+      queueReady: Boolean,
+      gprReservationReady: Boolean = true,
+      redirectClose: Boolean = false): Boolean =
+    inputValid && queueReady && gprReservationReady && !redirectClose
 
-  def decodeReady(queueReady: Boolean, robReady: Boolean, gprReservationReady: Boolean = true): Boolean =
-    queueReady && robReady && gprReservationReady
+  def decodeReady(
+      queueReady: Boolean,
+      robReady: Boolean,
+      gprReservationReady: Boolean = true,
+      redirectClose: Boolean = false): Boolean =
+    queueReady && robReady && gprReservationReady && !redirectClose
 
   def gprReservationReady(pending: Int, selectedNeedsGpr: Boolean, freePhys: Int, freeMapQ: Int): Boolean = {
     val needed = pending + (if (selectedNeedsGpr) 1 else 0)
     needed <= freePhys && needed <= freeMapQ
   }
+
+  def closesActiveRedirectTarget(
+      selectedValid: Boolean,
+      selectedMarker: Boolean,
+      selectedPc: BigInt,
+      activeValid: Boolean,
+      activeTarget: BigInt,
+      activeCond: Boolean,
+      activeUnconditionalRedirect: Boolean,
+      branchValid: Boolean,
+      branchTaken: Boolean): Boolean =
+    selectedValid && !selectedMarker && activeValid && activeTarget != 0 && selectedPc == activeTarget &&
+      (activeUnconditionalRedirect || (activeCond && branchValid && branchTaken))
 
   def queuePushReady(count: Int, depth: Int, popFire: Boolean, flush: Boolean = false): Boolean = {
     require(depth > 0 && (depth & (depth - 1)) == 0)
@@ -198,6 +219,55 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(!gprReservationReady(pending = 1, selectedNeedsGpr = true, freePhys = 2, freeMapQ = 1))
     assert(!robReservationAttemptValid(inputValid = true, queueReady = true, gprReservationReady = false))
     assert(!decodeReady(queueReady = true, robReady = true, gprReservationReady = false))
+  }
+
+  test("reference closes active redirect blocks before admitting the target scalar row") {
+    val directClose = closesActiveRedirectTarget(
+      selectedValid = true,
+      selectedMarker = false,
+      selectedPc = 0x40005f2cL,
+      activeValid = true,
+      activeTarget = 0x40005f2cL,
+      activeCond = false,
+      activeUnconditionalRedirect = true,
+      branchValid = false,
+      branchTaken = false)
+    assert(directClose)
+    assert(!robReservationAttemptValid(inputValid = true, queueReady = true, redirectClose = directClose))
+    assert(!decodeReady(queueReady = true, robReady = true, redirectClose = directClose))
+
+    val condTakenClose = closesActiveRedirectTarget(
+      selectedValid = true,
+      selectedMarker = false,
+      selectedPc = 0x40005f2cL,
+      activeValid = true,
+      activeTarget = 0x40005f2cL,
+      activeCond = true,
+      activeUnconditionalRedirect = false,
+      branchValid = true,
+      branchTaken = true)
+    assert(condTakenClose)
+
+    assert(!closesActiveRedirectTarget(
+      selectedValid = true,
+      selectedMarker = true,
+      selectedPc = 0x40005f2cL,
+      activeValid = true,
+      activeTarget = 0x40005f2cL,
+      activeCond = false,
+      activeUnconditionalRedirect = true,
+      branchValid = false,
+      branchTaken = false))
+    assert(!closesActiveRedirectTarget(
+      selectedValid = true,
+      selectedMarker = false,
+      selectedPc = 0x40005f2cL,
+      activeValid = true,
+      activeTarget = 0x40005f2cL,
+      activeCond = true,
+      activeUnconditionalRedirect = false,
+      branchValid = true,
+      branchTaken = false))
   }
 
   test("reference admits decode only when the dec-ren queue can accept") {
