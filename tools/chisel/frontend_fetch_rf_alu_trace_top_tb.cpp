@@ -853,8 +853,10 @@ void expect_row(const ObservedRow &observed, const ExpectedRow &expected) {
       observed.wb_valid != expected.dst_valid ||
       observed.next_pc != expected.next_pc) {
     std::cerr << "frontend fetch RF ALU trace top commit row mismatch"
-              << " pc=0x" << std::hex << observed.pc
-              << " insn=0x" << observed.insn
+              << " expected_pc=0x" << std::hex << expected.pc
+              << " observed_pc=0x" << observed.pc
+              << " expected_insn=0x" << mask_insn(expected.insn, expected.len)
+              << " observed_insn=0x" << observed.insn
               << std::dec << " len=" << static_cast<unsigned>(observed.len)
               << " wb_valid=" << observed.wb_valid
               << " src0=(" << observed.src0_valid << ","
@@ -1803,6 +1805,7 @@ void wait_for_admitted_marker_redirect(
       std::cerr << "frontend fetch RF ALU saw scalar commit while waiting for admitted marker redirect"
                 << " marker_pc=0x" << std::hex << expected.pc
                 << " observed_pc=0x" << pending_commits.front().pc << std::dec
+                << " admittedMarkerBarrier=" << static_cast<unsigned>(dut.io_admittedMarkerDrainBarrier)
                 << "\n";
       std::exit(1);
     }
@@ -1851,6 +1854,7 @@ void wait_for_admitted_marker_redirect(
       std::cerr << "frontend fetch RF ALU saw scalar commit after marker filtering while waiting for redirect"
                 << " marker_pc=0x" << std::hex << expected.pc
                 << " observed_pc=0x" << pending_commits.front().pc << std::dec
+                << " admittedMarkerBarrier=" << static_cast<unsigned>(dut.io_admittedMarkerDrainBarrier)
                 << "\n";
       std::exit(1);
     }
@@ -1932,6 +1936,9 @@ void commit_expected_row(
       write_qemu_row(qemu_out, expected);
       if (expected.mem_valid && expected.mem_is_store && expected.mem_size == 8) {
         fetch_memory.store_u64(expected.mem_addr, expected.mem_wdata);
+      }
+      if (pending_commits.empty()) {
+        tick(dut);
       }
       return;
     }

@@ -1,7 +1,7 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util.{UIntToOH, log2Ceil}
 
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
@@ -129,6 +129,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val denseSlotQueueHeadSlot = Output(UInt(denseSlotQueueSlotWidth.W))
   val denseSlotQueueFull = Output(Bool())
   val denseSlotQueueEmpty = Output(Bool())
+  val admittedMarkerDrainBarrier = Output(Bool())
   val decodeReady = Output(Bool())
   val selectedValid = Output(Bool())
   val selectedRobValue = Output(UInt(ptrWidth.W))
@@ -371,6 +372,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val blockBranchTakenValid = RegInit(false.B)
   val blockBranchTaken = RegInit(false.B)
   val markerRedirectFire = path.io.blockMarkerStopRedirectValid || execute.io.redirectValid
+  val admittedMarkerDrainBarrier = RegInit(false.B)
+  val selectedSlotOH = UIntToOH(path.io.selectedSlot, p.decodeWidth)
+  val selectedMarkerMask = path.io.blockBoundaryMask | path.io.blockStopMask
+  val admittedMarkerDrainFire =
+    (!skipBlockMarkers).B && denseSlots.io.outFire && path.io.selectedValid && (selectedMarkerMask & selectedSlotOH).orR
   val markerRedirectRetireSource = path.io.robMarkerRetireSource
   val markerRedirectSourceBid =
     Mux(markerRedirectRetireSource.valid, markerRedirectRetireSource.bid, ROBID.disabled(p.robEntries))
@@ -541,6 +547,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     scalarRedirectStidReg := 0.U
     scalarRedirectBlockBidReg := 0.U
   }
+  when(io.frontendFlushValid || io.restartValid || io.startValid || markerRedirectFire) {
+    admittedMarkerDrainBarrier := false.B
+  }.elsewhen(admittedMarkerDrainFire) {
+    admittedMarkerDrainBarrier := true.B
+  }.elsewhen(path.io.robMarkerRetireSourceLifecycleFire) {
+    admittedMarkerDrainBarrier := false.B
+  }
   when(io.frontendFlushValid || io.restartValid || io.startValid || markerRedirectFire || markerRedirectPending) {
     bodyCutRestartPending := false.B
     bodyCutRestartPcReg := 0.U
@@ -571,7 +584,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   denseSlots.io.inD1 := f4.io.d1
   denseSlots.io.inSlots := f4.io.slots
   denseSlots.io.inValidMask := frontendValidMask
-  denseSlots.io.outReady := path.io.decodeReady
+  denseSlots.io.outReady := path.io.decodeReady && !admittedMarkerDrainBarrier
   denseSlots.io.flushValid := frontendPipeFlush
 
   path.io.d1 := denseSlots.io.outD1
@@ -836,6 +849,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.denseSlotQueueHeadSlot := denseSlots.io.headSlotIndex
   io.denseSlotQueueFull := denseSlots.io.full
   io.denseSlotQueueEmpty := denseSlots.io.empty
+  io.admittedMarkerDrainBarrier := admittedMarkerDrainBarrier
   io.decodeReady := path.io.decodeReady
   io.selectedValid := path.io.selectedValid
   io.selectedRobValue := path.io.selectedRobValue

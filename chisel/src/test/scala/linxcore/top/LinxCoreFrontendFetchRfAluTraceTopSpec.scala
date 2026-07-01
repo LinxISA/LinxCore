@@ -76,6 +76,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.denseSlotQueueInSlotCount.getWidth == 3)
     assert(io.denseSlotQueueCount.getWidth == 4)
     assert(io.denseSlotQueueHeadSlot.getWidth == 2)
+    assert(io.admittedMarkerDrainBarrier.getWidth == 1)
     assert(io.blockMarkerSkipFire.getWidth == 1)
     assert(io.blockMarkerMixedPacket.getWidth == 1)
     assert(io.blockMarkerPc.getWidth == 64)
@@ -174,6 +175,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedBfuBodyCutArmAccepted"))
     assert(sv.contains("io_reducedBfuBodyCutArmBSizeMismatch"))
     assert(sv.contains("io_denseSlotQueueOutFire"))
+    assert(sv.contains("io_admittedMarkerDrainBarrier"))
     assert(sv.contains("io_blockMarkerSkipFire"))
     assert(sv.contains("io_blockMarkerMixedPacket"))
     assert(sv.contains("io_blockMarkerAllocReady"))
@@ -215,5 +217,6 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_robRenameUpdateReady"))
     assert(sv.contains("io_executeCompleteValid"))
     assert(sv.contains("io_blockMarkerSkipValid"))
+    assert(sv.contains("io_admittedMarkerDrainBarrier"))
   }
 }
