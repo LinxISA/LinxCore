@@ -11,6 +11,7 @@ class BlockMarkerDecodeContextIO(
     extends Bundle {
   val flushValid = Input(Bool())
 
+  val decodeValid = Input(Bool())
   val decodeFire = Input(Bool())
   val decodeBoundary = Input(Bool())
   val decodeStop = Input(Bool())
@@ -112,16 +113,16 @@ class BlockMarkerDecodeContext(
     queryStidInRange && selectBool(activeUnconditionalRedirect, queryStidMatch)
 
   val decodeMarker = io.decodeBoundary || io.decodeStop
-  val decodeScalar = io.decodeFire && !decodeMarker
-  val decodeUsesExistingBlock = io.decodeFire && decodeActiveValid && !io.decodeBoundary
+  val decodeScalarFire = io.decodeFire && !decodeMarker
+  val decodeUsesExistingBlock = io.decodeValid && decodeActiveValid && !io.decodeBoundary
   val decodeStartsNewBlock =
-    io.decodeFire && decodeStidInRange && (io.decodeBoundary || (decodeScalar && !decodeActiveValid))
+    io.decodeFire && decodeStidInRange && (io.decodeBoundary || (decodeScalarFire && !decodeActiveValid))
   val decodeClosesActive =
     io.decodeFire && decodeStidInRange && decodeActiveValid && (io.decodeBoundary || io.decodeStop)
 
   val decodeBoundaryFire = io.decodeFire && decodeStidInRange && io.decodeBoundary
   val decodeStopFire = io.decodeFire && decodeStidInRange && io.decodeStop && !io.decodeBoundary
-  val decodeScalarStartFire = decodeScalar && decodeStidInRange && !decodeActiveValid
+  val decodeScalarStartFire = decodeScalarFire && decodeStidInRange && !decodeActiveValid
   val robBlockLastClearsActive =
     VecInit((0 until stidCount).map(idx =>
       io.robBlockLastValid && activeValid(idx) && io.robBlockLastBid === activeBid(idx)))

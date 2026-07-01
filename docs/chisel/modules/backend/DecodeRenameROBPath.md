@@ -760,10 +760,11 @@ publication, SCB/MDB handoff, and memory trace side effects.
   packet production. The active selector now consumes row `peId`, but current
   frontend/top packets still default that sidecar to PE0 unless an upstream
   owner drives it.
-- Wiring `BlockMarkerDecodeContext` into the selected-row BID path. R176 adds
-  the decode-side owner and reference tests, but `DecodeRenameROBPath` still
-  uses the reduced `BlockMarkerLifecycle` active BID while the live top remains
-  in marker-skip mode.
+- Defaulting the live path to `BlockMarkerDecodeContext`. R177 wires the
+  decode-side owner into `DecodeRenameROBPath` behind
+  `useMarkerDecodeContext=true`, but the live top still instantiates the
+  default reduced `BlockMarkerLifecycle` BID source while the harness treats
+  legal markers as skip rows.
 - Ready-table mutation and physical tag wakeup/release side effects for
   relation cleanup entries.
 - SGPR/tile/vector operand classification and rename.
@@ -886,6 +887,16 @@ split. It proves, in a standalone Chisel owner, that a decoded boundary marker
 receives the allocator's new full BID even while a prior active context exists,
 following scalar rows reuse that new BID, decoded stops reuse and clear the
 active BID, and flush/redirect/ROB block-last cleanup remains STID-scoped.
+R177 wires that owner into `DecodeRenameROBPath` behind
+`useMarkerDecodeContext=true`. The candidate/fire split is intentional:
+`decodeValid` produces the selected block-BID and `allocUsesExistingBlock`
+decision before allocator acceptance, while `decodeFire` mutates active context
+only after `allocator.io.allocFire`.
+The R177 live CoreMark regression
+`generated/r177-marker-decode-context-optin-6000-qemu-elf-xcheck` kept the
+default live top in skip mode and passed with the same 5137 compared rows, zero
+mismatches, and no CBSTOP divergence. The manifest again recorded dirty QEMU
+because of unrelated local `target/linx/cpu.c` changes.
 The R176 live CoreMark regression
 `generated/r176-marker-decode-context-prep-6000-qemu-elf-xcheck` preserved the
 current skip-mode live behavior: 6000 raw QEMU rows, 5866 expected rows, 5138

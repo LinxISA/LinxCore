@@ -799,4 +799,21 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_tuCleanupSelectedFromLsu"))
     assert(sv.contains("io_commitContractError"))
   }
+
+  test("DecodeRenameROBPath elaborates marker decode context in opt-in mode") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    val sv = ChiselStage.emitSystemVerilog(
+      new DecodeRenameROBPath(
+        p = p,
+        traceParams = trace,
+        mapQDepth = 8,
+        useMarkerDecodeContext = true)
+    )
+
+    assert(sv.contains("BlockMarkerDecodeContext"))
+    assert(sv.contains("io_decodeValid"))
+    assert(sv.contains("io_decodeBlockBid"))
+    assert(sv.contains("io_decodeUsesExistingBlock"))
+  }
 }

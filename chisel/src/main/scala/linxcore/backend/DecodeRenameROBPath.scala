@@ -3,7 +3,13 @@ package linxcore.backend
 import chisel3._
 import chisel3.util.{log2Ceil, PriorityEncoder}
 
-import linxcore.bctrl.{BID, BlockMarkerLifecycle, BlockMarkerRetireSourceSerializer, BlockScalarDoneSequencer}
+import linxcore.bctrl.{
+  BID,
+  BlockMarkerDecodeContext,
+  BlockMarkerLifecycle,
+  BlockMarkerRetireSourceSerializer,
+  BlockScalarDoneSequencer
+}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
@@ -410,6 +416,7 @@ class DecodeRenameROBPath(
     val tuRetireRelationCmapDepth: Int = 8,
     val markerRetireSourceQueueDepth: Int = 8,
     val tuRetireReleaseThreshold: Int = 4,
+    val useMarkerDecodeContext: Boolean = false,
     val skipBlockMarkers: Boolean = false,
     val reducedStoreDispatchBypass: Boolean = false)
     extends Module {
@@ -580,6 +587,32 @@ class DecodeRenameROBPath(
   markerLifecycle.io.activeQueryStid := selectedStid
 
   val decRenFlush = io.flushValid || (io.cleanup.valid && io.cleanup.backendFlushValid)
+  val markerDecodeContextOpt =
+    if (useMarkerDecodeContext) {
+      val ctx = Module(new BlockMarkerDecodeContext(
+        bidWidth = bidWidth,
+        pcWidth = p.pcWidth,
+        stidWidth = stidWidth,
+        stidCount = scalarStidCount
+      ))
+      ctx.io.flushValid := decRenFlush || blockLifecycleFlush
+      ctx.io.decodeValid := selectedAny
+      ctx.io.decodeFire := allocator.io.allocFire
+      ctx.io.decodeBoundary := selected.sob
+      ctx.io.decodeStop := selected.eob
+      ctx.io.decodeStid := selectedStid
+      ctx.io.decodeAllocBid := allocator.io.allocBlockBid
+      ctx.io.decodeTarget := selected.boundaryTarget
+      ctx.io.decodeBoundaryKind := selected.boundaryKind
+      ctx.io.scalarRedirectValid := io.scalarRedirectValid
+      ctx.io.scalarRedirectStid := io.scalarRedirectStid
+      ctx.io.robBlockLastValid := robBlockLastScalarDoneFire
+      ctx.io.robBlockLastBid := allocator.io.deallocBlockLastBlockBid
+      ctx.io.queryStid := selectedStid
+      Some(ctx)
+    } else {
+      None
+    }
   val memIds = Module(new DecodeLoadStoreIdAssign(p, serialWidth = loadStoreSerialWidth))
   memIds.io.in := selected
   memIds.io.isLoad := selectedIsLoad
@@ -596,10 +629,17 @@ class DecodeRenameROBPath(
   memIds.io.restoreLoadId := 0.U
   memIds.io.restoreStoreId := 0.U
 
-  val activeBlockValid = markerLifecycle.io.activeValid
-  val activeBlockBid = markerLifecycle.io.activeBid
-  val activeBlockTarget = markerLifecycle.io.activeTarget
-  val selectedBlockBid = Mux(activeBlockValid, activeBlockBid, allocator.io.allocBlockBid)
+  val activeBlockValid = markerDecodeContextOpt.map(_.io.activeValid).getOrElse(markerLifecycle.io.activeValid)
+  val activeBlockBid = markerDecodeContextOpt.map(_.io.activeBid).getOrElse(markerLifecycle.io.activeBid)
+  val activeBlockTarget = markerDecodeContextOpt.map(_.io.activeTarget).getOrElse(markerLifecycle.io.activeTarget)
+  val selectedBlockBid =
+    markerDecodeContextOpt
+      .map(_.io.decodeBlockBid)
+      .getOrElse(Mux(activeBlockValid, activeBlockBid, allocator.io.allocBlockBid))
+  val selectedUsesExistingBlock =
+    markerDecodeContextOpt.map(_.io.decodeUsesExistingBlock).getOrElse(activeBlockValid)
+  val selectedExistingBlockBid =
+    markerDecodeContextOpt.map(_.io.decodeActiveBid).getOrElse(activeBlockBid)
 
   val selectedForQueue = Wire(new DecodedUop(p))
   selectedForQueue := memIds.io.out
@@ -730,8 +770,8 @@ class DecodeRenameROBPath(
 
   allocator.io.flush := io.cleanup.flush
   allocator.io.allocValid := selectedAny && decRenQ.io.pushReady
-  allocator.io.allocUsesExistingBlock := activeBlockValid
-  allocator.io.allocExistingBlockBid := activeBlockBid
+  allocator.io.allocUsesExistingBlock := selectedUsesExistingBlock
+  allocator.io.allocExistingBlockBid := selectedExistingBlockBid
   allocator.io.allocRow := commitReservationRow(selectedForQueue)
   allocator.io.allocGid := selectedForQueue.gid
   val selectedAllocTid = selectedForQueue.threadId.pad(tidWidth)(tidWidth - 1, 0)

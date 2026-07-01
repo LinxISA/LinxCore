@@ -841,23 +841,22 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Wire `BlockMarkerDecodeContext` into `DecodeRenameROBPath` behind an
-   opt-in constructor mode. R176 adds the standalone decode-time owner that
-   assigns a decoded `BSTART` row's new full BID before rename/ROB retirement
-   and leaves retire-time scalar-done/redirect policy in
-   `BlockMarkerLifecycle`. The next packet should use it to replace the
-   backend-local active-BID mux in a non-default path, prove marker boundary
-   rows get a new BROB allocation while following scalar rows reuse that BID,
-   and keep the existing skip-mode live gate as the default regression.
+1. Add a non-default marker-row harness mode for
+   `useMarkerDecodeContext=true`. R176 adds the standalone decode-time owner and
+   R177 wires it into `DecodeRenameROBPath` as an opt-in BID source. The next
+   packet should build a focused backend/top harness that admits marker rows,
+   proves boundary rows allocate a new BROB while following scalar rows reuse
+   that BID, and still leaves the existing skip-mode CoreMark gate as the
+   default regression until QEMU/DUT compare semantics are migrated.
 2. Full marker lifecycle split and live-top switch: R172 feeds serialized
    retired marker rows into `BlockMarkerLifecycle` with row-owned BID evidence,
    R173 gives the marker-source queue recovery-exact suffix pruning, R174 makes
    active marker state STID-indexed, and R175 lets unskipped marker rows
    rename-update, stay off the reduced scalar ALU path, and complete internally
-   through the ROB. R176 adds the decode-time context owner but does not wire it
-   into the live backend path. The reduced live top still uses
-   `skipBlockMarkers=true`; remove marker skipping only after the harness can
-   compare admitted marker rows directly.
+   through the ROB. R176 adds the decode-time context owner and R177 wires it
+   into the backend path behind `useMarkerDecodeContext=true`. The reduced live
+   top still uses `skipBlockMarkers=true`; remove marker skipping only after the
+   harness can compare admitted marker rows directly.
 3. Replace the temporary replay resolved-event source with real branch/BFU
    resolver outputs. R153 has resolved cold-cut fallback and local
    header-window arming, but external QEMU metadata still provides body-end

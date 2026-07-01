@@ -146,6 +146,9 @@ R176 adds `BlockMarkerDecodeContext` as that decode-time owner. This lifecycle
 module still owns retire-time scalar-done, delayed block retire, retired marker
 source consumption, and marker redirect policy. Do not reintroduce following-row
 BID assignment into this module while the decode context exists.
+R177 wires the decode context into `DecodeRenameROBPath` behind
+`useMarkerDecodeContext=true`; this lifecycle owner remains the default live
+source while `skipBlockMarkers=true` is still used by the top-level harness.
 
 The C++ model carries block-control context per scalar thread. `BRQ` owns
 `stashH[stid]` and `brq[stid]` and sizes both arrays from

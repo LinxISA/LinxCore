@@ -9,6 +9,7 @@ object BlockMarkerDecodeContextReference {
   }
 
   final case class Input(
+      decodeValid: Boolean = false,
       decodeFire: Boolean = false,
       boundary: Boolean = false,
       stop: Boolean = false,
@@ -73,8 +74,9 @@ object BlockMarkerDecodeContextReference {
       val decodeActive = decodeLane.exists(activeValid)
       val decodeActiveBid = decodeLane.map(activeBid).getOrElse(BigInt(0))
       val decodeMarker = in.boundary || in.stop
+      val candidateValid = in.decodeValid || in.decodeFire
       val decodeScalar = in.decodeFire && !decodeMarker
-      val usesExisting = in.decodeFire && decodeActive && !in.boundary
+      val usesExisting = candidateValid && decodeActive && !in.boundary
       val startsNew =
         in.decodeFire && decodeLane.nonEmpty && (in.boundary || (decodeScalar && !decodeActive))
       val closesActive = in.decodeFire && decodeLane.nonEmpty && decodeActive && (in.boundary || in.stop)
@@ -210,6 +212,22 @@ class BlockMarkerDecodeContextSpec extends AnyFunSuite {
     assert(stop.decodeBlockBid == 0xe0)
   }
 
+  test("reference publishes candidate active BID without mutating state before decode fires") {
+    val state = new State
+
+    state.step(Input(decodeFire = true, boundary = true, allocBid = 0xf0))
+
+    val stalledScalar = state.step(Input(decodeValid = true, decodeFire = false, allocBid = 0x100))
+    assert(stalledScalar.activeBid.contains(0xf0))
+    assert(stalledScalar.usesExistingBlock)
+    assert(!stalledScalar.startsNewBlock)
+    assert(!stalledScalar.closesActive)
+    assert(stalledScalar.decodeBlockBid == 0xf0)
+
+    val stillActive = state.step(Input())
+    assert(stillActive.activeBid.contains(0xf0))
+  }
+
   test("BlockMarkerDecodeContext elaborates the decode-side active BID ports") {
     val sv = ChiselStage.emitSystemVerilog(new BlockMarkerDecodeContext(
       bidWidth = 64,
@@ -217,6 +235,7 @@ class BlockMarkerDecodeContextSpec extends AnyFunSuite {
       stidCount = 2))
 
     assert(sv.contains("module BlockMarkerDecodeContext"))
+    assert(sv.contains("io_decodeValid"))
     assert(sv.contains("io_decodeFire"))
     assert(sv.contains("io_decodeBlockBid"))
     assert(sv.contains("io_decodeUsesExistingBlock"))

@@ -35,7 +35,8 @@ flip the live top away from `skipBlockMarkers=true`.
 | Direction | Signal | Type | Description |
 |---|---|---|---|
 | Input | `flushValid` | `Bool` | Clears all decode-side active context. |
-| Input | `decodeFire` | `Bool` | Current decoded row is accepted for ROB allocation. |
+| Input | `decodeValid` | `Bool` | Current decoded candidate is present and needs a pre-allocation BID decision. |
+| Input | `decodeFire` | `Bool` | Current decoded row is accepted for ROB allocation and may update context state. |
 | Input | `decodeBoundary` | `Bool` | Accepted row is a `BSTART` boundary marker. |
 | Input | `decodeStop` | `Bool` | Accepted row is a `BSTOP` marker. |
 | Input | `decodeStid` | `UInt(stidWidth.W)` | STID lane for the accepted decoded row. |
@@ -59,6 +60,10 @@ flip the live top away from `skipBlockMarkers=true`.
 
 - State is an STID-indexed active context array containing valid, full BID,
   target, conditional flag, and unconditional redirect flag.
+- `decodeValid` drives the combinational `decodeBlockBid` and
+  `decodeUsesExistingBlock` decision. `decodeFire` updates state. Keeping those
+  inputs separate prevents allocator-ready feedback from forming a combinational
+  loop through `decodeUsesExistingBlock`.
 - A decoded boundary marker always uses `decodeAllocBid`, even when an older
   active context exists. The boundary installs that new BID as active for the
   STID after the row is accepted.
@@ -91,13 +96,18 @@ retire-source serializer continue to capture retired row evidence from
 
 ## Integration Contract
 
-When this module is wired into `DecodeRenameROBPath`, the intended split is:
+R177 wires this module into `DecodeRenameROBPath` behind the opt-in
+`useMarkerDecodeContext=true` constructor parameter. The default live
+instantiations keep `useMarkerDecodeContext=false`.
+
+The integration split is:
 
 - `BlockMarkerDecodeContext.decodeBlockBid` replaces the current direct
   `Mux(activeBlockValid, activeBlockBid, allocator.io.allocBlockBid)` selected
-  BID.
+  BID when the opt-in is enabled.
 - `BlockMarkerDecodeContext.decodeUsesExistingBlock` drives
-  `DispatchROBAllocator.allocUsesExistingBlock`.
+  `DispatchROBAllocator.allocUsesExistingBlock` from candidate state, not from
+  the accept/fire pulse.
 - `BlockMarkerDecodeContext.decodeStartsNewBlock` identifies rows that need a
   new BROB allocation.
 - `BlockMarkerLifecycle` keeps owning scalar-done, delayed retire, retired
@@ -116,6 +126,8 @@ When this module is wired into `DecodeRenameROBPath`, the intended split is:
 R176 tests cover scalar seeding, boundary replacement of an active BID, stop
 reuse and clear, STID isolation, flush/redirect/ROB block-last cleanup, malformed
 stop diagnostics, and SystemVerilog elaboration.
+R177 extends the tests with the stalled-candidate contract and the
+`DecodeRenameROBPath` opt-in elaboration gate.
 
 The R176 live CoreMark regression
 `generated/r176-marker-decode-context-prep-6000-qemu-elf-xcheck` captured
@@ -126,3 +138,13 @@ The manifest recorded dirty LinxCore
 LinxCoreModel `3c0878da3aa1e06669b718e93269f094e7244066`, dirty QEMU
 `08783bb4572df9c5f6623bed0d468641befab762`, and dirty superproject
 `bc456855704986c24c91e485cb27ac0d27a48c84`.
+
+The R177 live CoreMark regression
+`generated/r177-marker-decode-context-optin-6000-qemu-elf-xcheck` preserved the
+default live top while the opt-in backend path elaborates: 6000 raw QEMU rows,
+5866 expected rows, 5138 normalized QEMU/DUT rows, 5137 compared rows, zero
+mismatches, and no CBSTOP divergence. The manifest recorded dirty LinxCore
+`6d84e2191a19259fa6fef8ffe92884debdc4f02e`, clean LinxCoreModel
+`3c0878da3aa1e06669b718e93269f094e7244066`, dirty QEMU
+`08783bb4572df9c5f6623bed0d468641befab762`, and dirty superproject
+`ee9f482bd5e178c66b45ec4b186714b23a5510d3`.
