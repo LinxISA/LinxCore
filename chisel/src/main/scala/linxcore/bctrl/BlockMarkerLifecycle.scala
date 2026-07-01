@@ -92,6 +92,7 @@ class BlockMarkerLifecycle(
   val activeTarget = RegInit(VecInit(Seq.fill(stidCount)(0.U(pcWidth.W))))
   val activeCond = RegInit(VecInit(Seq.fill(stidCount)(false.B)))
   val activeUnconditionalRedirect = RegInit(VecInit(Seq.fill(stidCount)(false.B)))
+  val activeClearsOnRobBlockLast = RegInit(VecInit(Seq.fill(stidCount)(false.B)))
 
   private def matchesStid(stid: UInt): Vec[Bool] =
     VecInit((0 until stidCount).map(idx => stid === idx.U(stidWidth.W)))
@@ -111,6 +112,7 @@ class BlockMarkerLifecycle(
     activeTarget(idx) := 0.U
     activeCond(idx) := false.B
     activeUnconditionalRedirect(idx) := false.B
+    activeClearsOnRobBlockLast(idx) := false.B
   }
 
   private def installLane(idx: Int, bid: UInt, target: UInt, kind: BoundaryKind.Type): Unit = {
@@ -120,6 +122,7 @@ class BlockMarkerLifecycle(
     activeCond(idx) := kind === BoundaryKind.Cond
     activeUnconditionalRedirect(idx) :=
       kind === BoundaryKind.Direct || kind === BoundaryKind.Call
+    activeClearsOnRobBlockLast(idx) := false.B
   }
 
   private def installScalarLane(idx: Int, bid: UInt): Unit = {
@@ -128,6 +131,7 @@ class BlockMarkerLifecycle(
     activeTarget(idx) := 0.U
     activeCond(idx) := false.B
     activeUnconditionalRedirect(idx) := false.B
+    activeClearsOnRobBlockLast(idx) := true.B
   }
 
   val markerStidMatch = matchesStid(io.markerStid)
@@ -196,7 +200,8 @@ class BlockMarkerLifecycle(
   val scalarRedirectScalarDoneFire = io.scalarRedirectValid && scalarRedirectActiveValid
   val robBlockLastClearsActive =
     VecInit((0 until stidCount).map(idx =>
-      io.robBlockLastValid && activeValid(idx) && io.robBlockLastBid === activeBid(idx)))
+      io.robBlockLastValid && activeValid(idx) && activeClearsOnRobBlockLast(idx) &&
+        io.robBlockLastBid === activeBid(idx)))
 
   val decodeMarkerActive = io.markerBoundary || io.markerStop
   val retiredBoundary = io.retiredMarker.valid && io.retiredMarker.isBoundary
@@ -212,10 +217,15 @@ class BlockMarkerLifecycle(
   val retiredFallthroughBoundary =
     retiredBoundary && !retiredUnconditionalRedirect &&
       (!retiredNeedsBranchDecision || (io.branchTakenValid && !io.branchTaken))
+  val retiredMarkerOwnsBlockLast =
+    io.retiredMarker.valid && io.retiredMarker.isLast && io.retiredMarker.blockBidValid &&
+      io.robBlockLastValid && io.retiredMarker.blockBid === io.robBlockLastBid
   val retiredLifecycleIdle =
-    !decodeMarkerActive && !io.flushValid && !scalarRedirectScalarDoneFire && !io.robBlockLastValid
+    !decodeMarkerActive && !io.flushValid && !scalarRedirectScalarDoneFire &&
+      (!io.robBlockLastValid || retiredMarkerOwnsBlockLast)
+  val retiredMarkerConflict = io.markerLifecycleConflict && !retiredMarkerOwnsBlockLast
   val retiredReady =
-    retiredLifecycleIdle && !io.markerLifecycleConflict &&
+    retiredLifecycleIdle && !retiredMarkerConflict &&
       (!io.retiredMarker.valid || (retiredStidInRange && (retiredStop || retiredRedirectBoundary ||
         (retiredFallthroughBoundary && io.retiredMarker.blockBidValid))
       ))

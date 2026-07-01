@@ -1107,6 +1107,17 @@ bool is_marker_row_shape(const ObservedRow &observed, const ExpectedRow &expecte
          !observed.wb_valid;
 }
 
+bool is_observed_marker_commit(const ObservedRow &observed) {
+  return observed.valid &&
+         observed.slot <= 1 &&
+         !observed.mem_valid &&
+         !observed.trap_valid &&
+         !observed.src0_valid &&
+         !observed.src1_valid &&
+         !observed.dst_valid &&
+         !observed.wb_valid;
+}
+
 void expect_marker_commit(const ObservedRow &observed, const ExpectedRow &expected) {
   if (!is_marker_row_shape(observed, expected)) {
     std::cerr << "frontend fetch RF ALU marker commit mismatch"
@@ -1756,11 +1767,147 @@ void filter_pending_marker_commits(
     std::vector<ExpectedRow> &filtered_marker_commits,
     std::uint64_t &marker_commit_filter_count) {
   while (!pending_commits.empty() && !filtered_marker_commits.empty()) {
+    if (!is_observed_marker_commit(pending_commits.front())) {
+      return;
+    }
     expect_marker_commit(pending_commits.front(), filtered_marker_commits.front());
     pending_commits.erase(pending_commits.begin());
     filtered_marker_commits.erase(filtered_marker_commits.begin());
     ++marker_commit_filter_count;
   }
+}
+
+void wait_for_admitted_marker_stop_redirect(
+    VLinxCoreFrontendFetchRfAluTraceTop &dut,
+    const ExpectedRow &expected,
+    std::vector<ObservedRow> &pending_commits,
+    std::vector<ExpectedRow> &filtered_marker_commits,
+    std::uint64_t &marker_commit_filter_count,
+    FetchMemoryImage &fetch_memory) {
+  bool saw_lifecycle_ready = false;
+  bool saw_lifecycle_fire = false;
+  bool saw_lifecycle_boundary_fire = false;
+  bool saw_lifecycle_stop_fire = false;
+  bool saw_retire_source_valid = false;
+  bool saw_retire_source_stop = false;
+  bool saw_dealloc_block_last = false;
+  bool saw_redirect_valid = false;
+  std::uint64_t last_retire_source_block_bid = 0;
+  std::uint64_t last_retire_source_boundary_target = 0;
+  std::uint64_t last_dealloc_block_last_bid = 0;
+  std::uint64_t last_redirect_pc = 0;
+  for (int cycle = 0; cycle < 64; ++cycle) {
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
+    if (!pending_commits.empty()) {
+      std::cerr << "frontend fetch RF ALU saw scalar commit while waiting for admitted marker stop redirect"
+                << " marker_pc=0x" << std::hex << expected.pc
+                << " observed_pc=0x" << pending_commits.front().pc << std::dec
+                << "\n";
+      std::exit(1);
+    }
+
+    clear_inputs(dut);
+    eval_with_load_lookup(dut, fetch_memory);
+    saw_lifecycle_ready |= dut.io_robMarkerRetireSourceLifecycleReady;
+    saw_lifecycle_fire |= dut.io_robMarkerRetireSourceLifecycleFire;
+    saw_lifecycle_boundary_fire |= dut.io_robMarkerRetireSourceLifecycleBoundaryFire;
+    saw_lifecycle_stop_fire |= dut.io_robMarkerRetireSourceLifecycleStopFire;
+    saw_retire_source_valid |= dut.io_robMarkerRetireSourceValid;
+    saw_retire_source_stop |= dut.io_robMarkerRetireSourceStop;
+    saw_dealloc_block_last |= dut.io_robDeallocBlockLastValid;
+    saw_redirect_valid |= dut.io_blockMarkerStopRedirectValid;
+    if (dut.io_robMarkerRetireSourceValid) {
+      last_retire_source_block_bid = dut.io_robMarkerRetireSourceBlockBid;
+      last_retire_source_boundary_target = dut.io_robMarkerRetireSourceBoundaryTarget;
+    }
+    if (dut.io_robDeallocBlockLastValid) {
+      last_dealloc_block_last_bid = dut.io_robDeallocBlockLastBlockBid;
+    }
+    if (dut.io_blockMarkerStopRedirectValid) {
+      last_redirect_pc = dut.io_blockMarkerStopRedirectPc;
+    }
+    if (dut.io_rfStateError) {
+      std::cerr << "frontend fetch RF ALU reported RF state error while waiting for marker stop redirect\n";
+      std::exit(1);
+    }
+    if (dut.io_executeUnsupported) {
+      std::cerr << "execute reported unsupported opcode while waiting for marker stop redirect opcode="
+                << static_cast<unsigned>(dut.io_executeUnsupportedOpcode) << "\n";
+      std::exit(1);
+    }
+    if (dut.io_executeCompleteValid && dut.io_completeIgnored) {
+      std::cerr << "execute completion was ignored while waiting for marker stop redirect"
+                << " rob=" << static_cast<unsigned>(dut.io_executeCompleteRobValue)
+                << "\n";
+      std::exit(1);
+    }
+
+    const bool observed_commit_window = dut.io_commit_rows_0_valid;
+    collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU marker stop redirect wait");
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
+    if (!pending_commits.empty()) {
+      std::cerr << "frontend fetch RF ALU saw scalar commit after marker filtering while waiting for stop redirect"
+                << " marker_pc=0x" << std::hex << expected.pc
+                << " observed_pc=0x" << pending_commits.front().pc << std::dec
+                << "\n";
+      std::exit(1);
+    }
+
+    if (dut.io_blockMarkerStopRedirectValid) {
+      if (dut.io_blockMarkerStopRedirectPc != expected.next_pc) {
+        std::cerr << "frontend fetch RF ALU admitted marker stop redirect mismatch"
+                  << " marker_pc=0x" << std::hex << expected.pc
+                  << " expected_pc=0x" << expected.next_pc
+                  << " observed_pc=0x" << dut.io_blockMarkerStopRedirectPc
+                  << std::dec << "\n";
+        std::exit(1);
+      }
+      tick(dut);
+      return;
+    }
+    if (observed_commit_window) {
+      tick(dut);
+      continue;
+    }
+    expect_monitor_clean(dut, "frontend fetch RF ALU marker stop redirect wait", 0x0, 0);
+    tick(dut);
+  }
+
+  std::cerr << "frontend fetch RF ALU admitted marker stop did not redirect"
+            << " marker_pc=0x" << std::hex << expected.pc
+            << " expected_pc=0x" << expected.next_pc << std::dec
+            << " pending_markers=" << filtered_marker_commits.size()
+            << " pending_commits=" << pending_commits.size()
+            << " lifecycle_ready=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceLifecycleReady)
+            << " lifecycle_fire=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceLifecycleFire)
+            << " lifecycle_boundary_fire=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceLifecycleBoundaryFire)
+            << " lifecycle_stop_fire=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceLifecycleStopFire)
+            << " retire_source_valid=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceValid)
+            << " retire_source_boundary=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceBoundary)
+            << " retire_source_stop=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceStop)
+            << " retire_source_last=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceLast)
+            << " retire_source_block_bid_valid=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceBlockBidValid)
+            << " retire_source_block_bid=0x" << std::hex << dut.io_robMarkerRetireSourceBlockBid
+            << " retire_source_boundary_target=0x" << dut.io_robMarkerRetireSourceBoundaryTarget
+            << " dealloc_block_last_valid=" << std::dec << static_cast<unsigned>(dut.io_robDeallocBlockLastValid)
+            << " dealloc_block_last_block_bid=0x" << std::hex << dut.io_robDeallocBlockLastBlockBid
+            << " active_valid=" << std::dec << static_cast<unsigned>(dut.io_blockMarkerActiveValid)
+            << " active_bid=0x" << std::hex << dut.io_blockMarkerActiveBid
+            << " active_target=0x" << dut.io_blockMarkerActiveTarget
+            << " saw_lifecycle_ready=" << std::dec << static_cast<unsigned>(saw_lifecycle_ready)
+            << " saw_lifecycle_fire=" << static_cast<unsigned>(saw_lifecycle_fire)
+            << " saw_lifecycle_boundary_fire=" << static_cast<unsigned>(saw_lifecycle_boundary_fire)
+            << " saw_lifecycle_stop_fire=" << static_cast<unsigned>(saw_lifecycle_stop_fire)
+            << " saw_retire_source_valid=" << static_cast<unsigned>(saw_retire_source_valid)
+            << " saw_retire_source_stop=" << static_cast<unsigned>(saw_retire_source_stop)
+            << " saw_dealloc_block_last=" << static_cast<unsigned>(saw_dealloc_block_last)
+            << " saw_redirect_valid=" << static_cast<unsigned>(saw_redirect_valid)
+            << " last_retire_source_block_bid=0x" << std::hex << last_retire_source_block_bid
+            << " last_retire_source_boundary_target=0x" << last_retire_source_boundary_target
+            << " last_dealloc_block_last_bid=0x" << last_dealloc_block_last_bid
+            << " last_redirect_pc=0x" << last_redirect_pc << std::dec
+            << "\n";
+  std::exit(1);
 }
 
 void commit_expected_row(
@@ -2053,6 +2200,15 @@ int main(int argc, char **argv) {
             local_body_cut_reentry_header);
         if (args.admit_marker_rows) {
           ++marker_rows_admitted;
+          if (row.block_stop) {
+            wait_for_admitted_marker_stop_redirect(
+                dut,
+                row,
+                pending_commits,
+                filtered_marker_commits,
+                marker_commits_filtered,
+                fetch_memory);
+          }
         }
         if (local_body_cut_reentry_header) {
           next_local_body_cut_reentry_header = false;
