@@ -9,6 +9,7 @@
   - `model/LinxCoreModel/model/bctrl/spe/SPERename.cpp`
   - `model/LinxCoreModel/model/bctrl/spe/GPRRename.cpp`
   - `model/LinxCoreModel/model/bctrl/spe/SPEROB.cpp`
+  - `model/LinxCoreModel/model/iex/iex_dispatch.cpp`
 - Related Chisel:
   - `chisel/src/main/scala/linxcore/frontend/FrontendDecodeStage.scala`
   - `chisel/src/main/scala/linxcore/backend/DecodeLoadStoreIdAssign.scala`
@@ -184,6 +185,16 @@ redirect cleanup passes `scalarRedirectStid` so only the redirecting STID lane
 is closed. The default composition still instantiates one scalar STID lane, so
 existing STID0 live gates preserve their behavior while the interface is ready
 for multi-STID block-control work.
+R175 adds the first full marker-row ROB-admission shell. When marker rows are
+not skipped, rename can accept a `sob`/`eob` row, update its reserved ROB row,
+and internally consume the renamed marker instead of presenting it to the
+reduced scalar issue/ALU path. A one-entry marker completion buffer reuses the
+rename-produced `CommitTraceRow`, waits behind any external execute completion,
+then completes the marker ROB row through `DispatchROBAllocator`. This packet
+does not switch the live `LinxCoreFrontendFetchRfAluTraceTop` out of
+`skipBlockMarkers=true`: the full marker-row active-BID lifecycle still needs a
+two-phase decode/retire design before the live CoreMark marker-skip lane can be
+removed.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -287,6 +298,10 @@ Outputs:
 - `robRenameUpdateAttemptValid`, `robRenameUpdateReady`,
   `robRenameUpdateFire`, `robRenameUpdateIgnored`: post-rename ROB row update
   observability for sidecars produced after the queue head accepts.
+- `robMarkerRowCompletePending`, `robMarkerRowCompleteFire`: marker-row
+  internal completion diagnostics. `Pending` means a renamed marker row was
+  consumed internally and is waiting for the single ROB completion port.
+  `Fire` means the buffered marker completion was accepted by the ROB bank.
 - `blockedBy*`, `blockedByTURename`, `unsupported*`: scalar/T/U rename bridge
   diagnostics.
 - `tuRename*`: T/U rename readiness, accepted event, pre-allocation
@@ -443,6 +458,18 @@ T/U destination ownership into `ROBEntryBank.renameUpdate*`. This is the
 explicit Chisel value-row replacement for the C++ model's shared `SimInst`
 pointer mutation after `SPEROB::allocROB`.
 
+For a queued marker row, rename acceptance is an internal command-path
+boundary. The row still performs the same ROB rename update as an ordinary
+decoded row, but `DecodeRenameROBPath` masks the renamed marker from
+`renamedOutValid` and from `StoreSplitPayload` so the reduced scalar ALU never
+sees unsupported `BSTART`/`BSTOP` opcodes. The accepted marker row is buffered
+as a one-entry internal completion using the rename bridge's
+`robAllocRow`; the buffered completion waits whenever the external
+`completeValid` port is in use and is cleared by decode/backend lifecycle
+flushes. The module IO `completeAccepted/completeIgnored` remains scoped to
+external completions, while `robMarkerRowComplete*` observes the internal
+marker completion path.
+
 For store rows at the queue head, the path computes reduced store-dispatch
 readiness before rename accepts the row. Unsplit stores require only STA
 readiness; split stores require both STA and STD readiness so the model STA/STD
@@ -571,6 +598,13 @@ the active-state owner STID-indexed. `DecodeRenameROBPath` now drives
 `activeQueryStid` and `scalarBlockStartStid` from the selected scalar row, and
 adds `scalarRedirectStid` to the backend IO so live execute redirects clear the
 matching STID lane instead of treating active block context as global.
+R175 keeps decode-time marker-skip lifecycle and retired-marker lifecycle
+separate. The new marker-row completion shell prevents admitted marker rows
+from deadlocking in the reduced scalar ALU, but it intentionally does not use
+retired marker rows as the live active-BID source yet. A full live switch must
+split active-BID assignment for following scalar decode from retire-time
+completion/redirect semantics, or otherwise prove that one combined lifecycle
+cannot double-close the same block.
 
 R103 uses the ROB bank's full block-last BID to drive the reduced BROB
 completion path. On a deallocation cycle that frees a block-last row,
@@ -634,6 +668,10 @@ The C++ model order being preserved is:
    snapshots `inst->tSeq/uSeq` before T/U destination rename, allocates
    scalar and T/U destinations, captures checkpoints for `isLastInBlock`, and
    forwards the renamed uop toward dispatch.
+   `SPERename::InsertToSIEXQ()` sends `InstGroup::BLOCK_SPLIT` rows to the
+   command IEX queue through `InsertToCmdIEX`; the reduced Chisel path models
+   this first command boundary by internally consuming and completing marker
+   rows after rename instead of sending them to scalar ALU execute.
 6. `GPRRename` owns scalar `smap`, `cmap`, checkpoints, free tags, and mapQ;
    T/U `LocalRegMgr` instances own local link sequence, offset lookup,
    allocation pressure, and cleanup pruning.
@@ -710,12 +748,14 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - External live block/group commit clean event wiring into
   `TULinkRetireCommandPath.cleanBlock*` and `cleanGroup*`; scalar block-last
   auto clean is now owned inside `TULinkRetireCommandPath`.
-- Full scalar commit ownership for real marker ROB-retire rows. The current
-  R117 feedback only bridges reduced marker/block-retire events into scalar
-  rename mapQ release; R172 feeds serialized marker retire sources into
-  lifecycle using the row-owned block BID, and R173 prunes queued marker
-  sources on recovery cleanup. Per-STID active marker state and full marker-row
-  ROB admission remain deferred.
+- Full live scalar commit ownership for real marker ROB-retire rows. The
+  current R117 feedback only bridges reduced marker/block-retire events into
+  scalar rename mapQ release; R172 feeds serialized marker retire sources into
+  lifecycle using the row-owned block BID; R173 prunes queued marker sources on
+  recovery cleanup; R174 makes the active context STID-indexed; and R175 lets
+  admitted marker rows complete internally. The remaining full-marker work is
+  the two-phase active-BID lifecycle and live-top removal of
+  `skipBlockMarkers=true`.
 - Multi-PE `TULinkLocalBankArray` instantiation and top-level nonzero PE
   packet production. The active selector now consumes row `peId`, but current
   frontend/top packets still default that sidecar to PE0 unless an upstream
@@ -830,6 +870,21 @@ The R174 live CoreMark gate
 `generated/r174-stid-marker-lifecycle-6000-qemu-elf-xcheck` captured 6000 QEMU
 rows, produced 5866 expected rows, normalized 5138 QEMU/DUT rows, compared
 5137 rows, and passed with zero mismatches and no CBSTOP divergence.
+R175 covers the marker-row ROB-admission shell through
+`DecodeRenameROBPathSpec`: marker rows accepted after rename are internally
+consumed, hidden from scalar issue and store split, buffered until the external
+completion port is idle, and then completed through the ROB bank. The live
+CoreMark top is still intentionally verified in marker-skip mode until the
+full marker lifecycle split is implemented.
+The R175 live CoreMark regression
+`generated/r175-marker-row-completion-shell-6000-qemu-elf-xcheck` captured
+6000 QEMU rows, produced 5866 expected rows, normalized 5138 QEMU/DUT rows,
+compared 5137 rows, and passed with zero mismatches and no CBSTOP divergence.
+The manifest recorded dirty LinxCore
+`50ea2b10c648435608d07d64e9928b71cc2c9b52` for the uncommitted packet, clean
+LinxCoreModel `3c0878da3aa1e06669b718e93269f094e7244066`, clean QEMU
+`08783bb4572df9c5f6623bed0d468641befab762`, and dirty superproject
+`8d7582a21800cccd3b6461f0be8376c3228a3fc5`.
 R104 covers marker-only BROB allocation, active full-BID reuse by scalar rows,
 marker-driven scalar-done/retire for old/current active blocks, marker
 conflict gating against ROB block-last scalar-done, and top-level marker

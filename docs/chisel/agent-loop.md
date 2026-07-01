@@ -841,12 +841,16 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Full marker ROB admission: R172 feeds serialized retired marker rows into
-   `BlockMarkerLifecycle` with row-owned BID evidence, R173 gives the
-   marker-source queue recovery-exact suffix pruning, and R174 makes active
-   marker state STID-indexed. The reduced marker-skip lane still bypasses ROB
-   admission. The next block-control packet must replace marker-skip with full
-   marker-row ROB admission before claiming full block execution.
+1. Full marker lifecycle split and live-top switch: R172 feeds serialized
+   retired marker rows into `BlockMarkerLifecycle` with row-owned BID evidence,
+   R173 gives the marker-source queue recovery-exact suffix pruning, R174 makes
+   active marker state STID-indexed, and R175 lets unskipped marker rows
+   rename-update, stay off the reduced scalar ALU path, and complete internally
+   through the ROB. The reduced live top still uses `skipBlockMarkers=true`.
+   The next block-control packet must split or otherwise prove decode-time
+   active-BID assignment for following scalar rows versus retire-time
+   scalar-done/redirect semantics, then remove marker skipping from the live
+   CoreMark gate.
 2. Replace the temporary replay resolved-event source with real branch/BFU
    resolver outputs. R153 has resolved cold-cut fallback and local
    header-window arming, but external QEMU metadata still provides body-end

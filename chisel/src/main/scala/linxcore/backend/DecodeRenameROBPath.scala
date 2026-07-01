@@ -203,6 +203,8 @@ class DecodeRenameROBPathIO(
   val robRenameUpdateReady = Output(Bool())
   val robRenameUpdateFire = Output(Bool())
   val robRenameUpdateIgnored = Output(Bool())
+  val robMarkerRowCompletePending = Output(Bool())
+  val robMarkerRowCompleteFire = Output(Bool())
   val blockedByMaintenance = Output(Bool())
   val blockedByRename = Output(Bool())
   val blockedByRob = Output(Bool())
@@ -623,6 +625,7 @@ class DecodeRenameROBPath(
 
   val queuedForRename = Wire(new DecodedUop(p))
   queuedForRename := decRenQ.io.out
+  val queuedMarkerForRename = queuedForRename.valid && (queuedForRename.sob || queuedForRename.eob)
 
   val rename = Module(new ScalarTURenameBridge(
     p = p,
@@ -690,7 +693,12 @@ class DecodeRenameROBPath(
     storeDispatchBypass || !queuedStoreActive ||
       Mux(queuedStoreSplit, storeDispatch.io.staReady && storeDispatch.io.stdReady, storeDispatch.io.staReady)
 
-  rename.io.outReady := io.renamedOutReady && storeDispatchReadyForHead
+  val markerCompletionPending = RegInit(false.B)
+  val markerCompletionRobValue = Reg(UInt(p.robIndexWidth.W))
+  val markerCompletionRow = Reg(new CommitTraceRow(traceParams))
+  val markerCanConsumeRename = !markerCompletionPending
+  rename.io.outReady :=
+    Mux(queuedMarkerForRename, markerCanConsumeRename, io.renamedOutReady && storeDispatchReadyForHead)
   rename.io.robAllocReady := allocator.io.renameUpdateReady
   rename.io.checkpointValid := io.checkpointValid
   rename.io.checkpointBid := io.checkpointBid
@@ -701,7 +709,13 @@ class DecodeRenameROBPath(
   decRenQ.io.popReady := rename.io.inReady
 
   val storeSplit = Module(new StoreSplitPayload(p, mapQDepth))
-  storeSplit.io.in := rename.io.out
+  val renamedOutIsMarker = rename.io.outValid && (rename.io.out.sob || rename.io.out.eob)
+  val storeSplitIn = Wire(new RenamedUop(p))
+  storeSplitIn := rename.io.out
+  when(renamedOutIsMarker) {
+    storeSplitIn.valid := false.B
+  }
+  storeSplit.io.in := storeSplitIn
   storeSplit.io.tSeq := rename.io.tuTSeq
   storeSplit.io.uSeq := rename.io.tuUSeq
   storeSplit.io.tuDstValid := rename.io.tuDstValid
@@ -750,10 +764,11 @@ class DecodeRenameROBPath(
   allocator.io.renameUpdateUSeq := rename.io.tuUSeq
   allocator.io.renameUpdateTUDstValid := rename.io.tuDstValid
   allocator.io.renameUpdateTUDstKind := rename.io.tuDstKind
-  allocator.io.completeValid := io.completeValid
-  allocator.io.completeRobValue := io.completeRobValue
-  allocator.io.completeRowValid := io.completeRowValid
-  allocator.io.completeRow := io.completeRow
+  val markerCompletionPortValid = markerCompletionPending && !io.completeValid
+  allocator.io.completeValid := io.completeValid || markerCompletionPortValid
+  allocator.io.completeRobValue := Mux(io.completeValid, io.completeRobValue, markerCompletionRobValue)
+  allocator.io.completeRowValid := Mux(io.completeValid, io.completeRowValid, true.B)
+  allocator.io.completeRow := Mux(io.completeValid, io.completeRow, markerCompletionRow)
   allocator.io.deallocReady :=
     io.deallocReady &&
       tuRetirePath.io.sourceWindowReady &&
@@ -817,6 +832,18 @@ class DecodeRenameROBPath(
   markerRetireSerializer.io.outReady := markerLifecycle.io.retiredMarkerReady
   markerLifecycle.io.retiredMarker := markerRetireSerializer.io.out
 
+  val markerRenameAccepted = rename.io.accepted && queuedMarkerForRename
+  val markerCompletionAccepted = markerCompletionPortValid && allocator.io.completeAccepted
+  when(decRenFlush || blockLifecycleFlush) {
+    markerCompletionPending := false.B
+  }.elsewhen(markerCompletionAccepted) {
+    markerCompletionPending := false.B
+  }.elsewhen(markerRenameAccepted) {
+    markerCompletionPending := true.B
+    markerCompletionRobValue := queuedForRename.rid.value
+    markerCompletionRow := rename.io.robAllocRow
+  }
+
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
   io.selectedRobValue := allocator.io.allocRobValue
@@ -873,7 +900,7 @@ class DecodeRenameROBPath(
   io.nextStoreId := memIds.io.nextStoreId
   io.storeSplitIntent := memIds.io.storeSplitIntent
 
-  io.renamedOutValid := rename.io.outValid
+  io.renamedOutValid := rename.io.outValid && !renamedOutIsMarker
   io.renamedOut := rename.io.out
   io.storeDispatchReady := storeDispatchReadyForHead
   io.storeDispatchFire := storeSplit.io.fire
@@ -942,6 +969,8 @@ class DecodeRenameROBPath(
   io.robRenameUpdateReady := allocator.io.renameUpdateReady
   io.robRenameUpdateFire := allocator.io.renameUpdateAccepted
   io.robRenameUpdateIgnored := allocator.io.renameUpdateIgnored
+  io.robMarkerRowCompletePending := markerCompletionPending
+  io.robMarkerRowCompleteFire := markerCompletionAccepted
   io.blockedByMaintenance := rename.io.blockedByMaintenance
   io.blockedByRename := rename.io.blockedByRename
   io.blockedByRob := rename.io.blockedByRob
@@ -974,8 +1003,8 @@ class DecodeRenameROBPath(
 
   io.allocBlockBid := allocator.io.allocBlockBid
   io.allocRobValue := allocator.io.allocRobValue
-  io.completeAccepted := allocator.io.completeAccepted
-  io.completeIgnored := allocator.io.completeIgnored
+  io.completeAccepted := io.completeValid && allocator.io.completeAccepted
+  io.completeIgnored := io.completeValid && allocator.io.completeIgnored
   io.commit := allocator.io.commit
   io.commitValidMask := allocator.io.commitValidMask
   io.commitCount := allocator.io.commitCount

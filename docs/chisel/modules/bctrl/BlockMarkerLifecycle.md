@@ -41,6 +41,14 @@ STID-indexed array. The default instantiation still has one STID lane for the
 current reduced top, but marker consumption, retired marker consumption, scalar
 redirect cleanup, scalar-created active blocks, and diagnostic active-state
 queries now carry the STID that owns the operation.
+R175 does not change this module, but it constrains the next full marker-row
+design. `DecodeRenameROBPath` can now admit, rename-update, internally consume,
+and complete marker rows without issuing them to the reduced scalar ALU.
+However, this lifecycle owner still combines decode-time active-BID assignment
+with retire-time scalar-done/redirect policy. The retired-marker lane cannot
+simply replace decode-time marker consumption in the live top until the design
+splits or otherwise proves how following scalar rows receive the new boundary
+BID before the marker row retires.
 
 ## Interface
 
@@ -129,6 +137,11 @@ row reaches dispatch. Later, `SPEROB::dealloc()` and the block commit helpers
 observe the retired row image. R172 follows that order by treating
 `BlockMarkerRetireSource.blockBid` as row-owned retirement evidence instead of
 performing another BROB allocation when the marker retires.
+R175's marker-row completion shell covers only the command-path completion
+piece of that model order. A full live switch away from `skipBlockMarkers=true`
+still needs an explicit decode/retire split for active block context, because
+model decode uses the `BSTART` BID for subsequent scalar rows before the
+corresponding marker row has retired.
 
 The C++ model carries block-control context per scalar thread. `BRQ` owns
 `stashH[stid]` and `brq[stid]` and sizes both arrays from

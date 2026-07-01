@@ -46,6 +46,15 @@ object DecodeRenameROBPathReference {
     bypass || !active || (if (split) staReady && stdReady else staReady)
   }
 
+  def markerRowConsumesRename(valid: Boolean, sob: Boolean, eob: Boolean, completionPending: Boolean): Boolean =
+    valid && (sob || eob) && !completionPending
+
+  def markerRowVisibleToScalarIssue(outValid: Boolean, sob: Boolean, eob: Boolean): Boolean =
+    outValid && !(sob || eob)
+
+  def markerCompletionUsesPort(pending: Boolean, externalCompleteValid: Boolean): Boolean =
+    pending && !externalCompleteValid
+
   def activeTuBankStid(threadId: Int): Int =
     threadId
 
@@ -199,6 +208,29 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
       staReady = false,
       stdReady = false,
       bypass = true))
+  }
+
+  test("reference internally consumes marker rows after rename instead of issuing them to scalar ALU") {
+    assert(markerRowConsumesRename(valid = true, sob = true, eob = false, completionPending = false))
+    assert(markerRowConsumesRename(valid = true, sob = false, eob = true, completionPending = false))
+    assert(!markerRowConsumesRename(valid = true, sob = true, eob = false, completionPending = true))
+    assert(!markerRowConsumesRename(valid = false, sob = true, eob = false, completionPending = false))
+
+    assert(!markerRowVisibleToScalarIssue(outValid = true, sob = true, eob = false))
+    assert(!markerRowVisibleToScalarIssue(outValid = true, sob = false, eob = true))
+    assert(markerRowVisibleToScalarIssue(outValid = true, sob = false, eob = false))
+
+    assert(markerCompletionUsesPort(pending = true, externalCompleteValid = false))
+    assert(!markerCompletionUsesPort(pending = true, externalCompleteValid = true))
+    assert(!markerCompletionUsesPort(pending = false, externalCompleteValid = false))
+  }
+
+  test("reference gives external execute completions priority over pending marker row completion") {
+    val externalBusy = markerCompletionUsesPort(pending = true, externalCompleteValid = true)
+    assert(!externalBusy)
+
+    val nextCycle = markerCompletionUsesPort(pending = true, externalCompleteValid = false)
+    assert(nextCycle)
   }
 
   test("reference forwards queued row thread ID as reduced T/U active STID") {
@@ -567,6 +599,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.robRenameUpdateReady.getWidth == 1)
     assert(io.robRenameUpdateFire.getWidth == 1)
     assert(io.robRenameUpdateIgnored.getWidth == 1)
+    assert(io.robMarkerRowCompletePending.getWidth == 1)
+    assert(io.robMarkerRowCompleteFire.getWidth == 1)
     assert(io.robTULinkSource.tSeq.value.getWidth == 5)
     assert(io.robTULinkSource.uSeq.value.getWidth == 5)
     assert(io.robTULinkSourceMatched.getWidth == 1)
@@ -698,6 +732,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("io_decRenHeadPc"))
     assert(sv.contains("io_decRenHeadUsesLocal"))
     assert(sv.contains("io_robRenameUpdateFire"))
+    assert(sv.contains("io_robMarkerRowCompletePending"))
+    assert(sv.contains("io_robMarkerRowCompleteFire"))
     assert(sv.contains("io_completeRowValid"))
     assert(sv.contains("io_completeRow_wb_data"))
     assert(sv.contains("io_renamedOut_peId"))
