@@ -73,6 +73,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedBfuStaticGeometryValid = Output(Bool())
   val reducedBfuStaticHeaderActive = Output(Bool())
   val reducedBfuStaticLearnedFire = Output(Bool())
+  val reducedBfuStaticResolvedLearnedFire = Output(Bool())
 
   val f4ValidMask = Output(UInt(p.decodeWidth.W))
   val f4SlotCount = Output(UInt(log2Ceil(p.decodeWidth + 1).W))
@@ -313,14 +314,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val markerRedirectFire = path.io.blockMarkerStopRedirectValid || execute.io.redirectValid
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
   val backendPipeFlush = io.frontendFlushValid || scalarRedirectPending
+  val externalBfuGeometryValid = io.reducedBfuBodyValid
+  val externalBfuBodyBasePc = (io.reducedBfuHeaderPc + 2.U)(p.pcWidth - 1, 0)
+  val externalBfuBodyEndPc = (externalBfuBodyBasePc + io.reducedBfuBSizeBytes)(p.pcWidth - 1, 0)
   val staticBfuGeometry = Module(new ReducedBfuStaticGeometryProducer(p))
   staticBfuGeometry.io.flushValid := frontendPipeFlush || io.startValid || io.restartValid
   staticBfuGeometry.io.f4UpdateFire := source.io.outFire
   staticBfuGeometry.io.f4Valid := f4.io.d1.valid
   staticBfuGeometry.io.f4Slots := f4.io.slots
   staticBfuGeometry.io.f4ValidMask := f4.io.validMask
-
-  val externalBfuGeometryValid = io.reducedBfuBodyValid
+  staticBfuGeometry.io.resolvedBodyEndValid := externalBfuGeometryValid
+  staticBfuGeometry.io.resolvedHeaderPc := io.reducedBfuHeaderPc
+  staticBfuGeometry.io.resolvedBodyEndPc := externalBfuBodyEndPc
 
   val bodyCut = Module(new ReducedBfuBodyCutPredictor(p))
   bodyCut.io.geometryValid := externalBfuGeometryValid
@@ -582,6 +587,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedBfuStaticGeometryValid := staticBfuGeometry.io.geometryValid
   io.reducedBfuStaticHeaderActive := staticBfuGeometry.io.headerActive
   io.reducedBfuStaticLearnedFire := staticBfuGeometry.io.learnedFire
+  io.reducedBfuStaticResolvedLearnedFire := staticBfuGeometry.io.resolvedLearnedFire
   io.f4ValidMask := frontendValidMask
   io.f4SlotCount := frontendSlotCount
   io.denseSlotQueueInFire := denseSlots.io.inFire

@@ -354,6 +354,13 @@ general `hsize` and CoreMark's observed continuation at `0x4000632e` is
 `OP_ACRC` rather than a boundary event. The producer diagnostics expose when
 explicit boundary or `BSTOP` events would learn reduced `bsize` geometry.
 
+R146 feeds that diagnostic producer with the same resolved body-end PC that the
+R144 external geometry already implies. This mirrors the LinxCoreModel
+`SetBsize` path that can learn an end PC outside explicit block-marker decode,
+without routing the partial producer into control. Body cuts still use the
+external `reducedBfu*` geometry until a real branch-resolution owner and `hsize`
+contract are present.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -361,7 +368,7 @@ explicit boundary or `BSTOP` events would learn reduced `bsize` geometry.
 | input | `startValid`, `startPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Arms the live fetch source at a starting PC. |
 | input | `restartValid`, `restartPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Replaces the active fetch PC for a reduced restart. |
 | input | `reducedBfuBodyValid`, `reducedBfuHeaderPc`, `reducedBfuHSizeBytes`, `reducedBfuBSizeBytes` | mixed | with live-F4 packet | Temporary reduced BFU body-geometry hint from loop-aware expected rows. `ReducedBfuBodyCutPredictor` converts this to the current F4 cut and source-only restart. |
-| output | `reducedBfuStaticGeometryValid`, `reducedBfuStaticHeaderActive`, `reducedBfuStaticLearnedFire` | `Bool` | diagnostic | R145 reduced static-predictor geometry diagnostics. They do not drive cut/restart yet. |
+| output | `reducedBfuStaticGeometryValid`, `reducedBfuStaticHeaderActive`, `reducedBfuStaticLearnedFire`, `reducedBfuStaticResolvedLearnedFire` | `Bool` | diagnostic | R145/R146 reduced static-predictor geometry diagnostics. They do not drive cut/restart yet. |
 | input | `frontendFlushValid` | `Bool` | valid | Clears source packet state, F4, decode path, and reduced issue state. |
 | input | `peId`, `threadId` | `UInt` | with source packet | Packet-owned PE/STID sidecars for decode/rename. |
 | input | `fetchReqReady` | `Bool` | ready | Bounded fixture accepts a source PC request. |

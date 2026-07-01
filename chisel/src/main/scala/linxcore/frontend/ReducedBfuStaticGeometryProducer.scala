@@ -10,6 +10,9 @@ class ReducedBfuStaticGeometryProducerIO(val p: InterfaceParams = InterfaceParam
   val f4Valid = Input(Bool())
   val f4Slots = Input(Vec(p.decodeWidth, new F4Slot(p)))
   val f4ValidMask = Input(UInt(p.decodeWidth.W))
+  val resolvedBodyEndValid = Input(Bool())
+  val resolvedHeaderPc = Input(UInt(p.pcWidth.W))
+  val resolvedBodyEndPc = Input(UInt(p.pcWidth.W))
 
   val geometryValid = Output(Bool())
   val headerPc = Output(UInt(p.pcWidth.W))
@@ -18,6 +21,8 @@ class ReducedBfuStaticGeometryProducerIO(val p: InterfaceParams = InterfaceParam
 
   val headerActive = Output(Bool())
   val learnedFire = Output(Bool())
+  val eventLearnedFire = Output(Bool())
+  val resolvedLearnedFire = Output(Bool())
   val eventValid = Output(Bool())
   val eventSlot = Output(UInt(log2Ceil(p.decodeWidth).W))
   val eventPc = Output(UInt(p.pcWidth.W))
@@ -55,14 +60,20 @@ class ReducedBfuStaticGeometryProducer(val p: InterfaceParams = InterfaceParams(
   val eventBodyEndPc = Mux(eventIsStop, (eventPc + eventLen)(p.pcWidth - 1, 0), eventPc)
   val bodyBasePc = (headerPcReg + 2.U)(p.pcWidth - 1, 0)
   val learnedBsize = Mux(eventBodyEndPc > bodyBasePc, (eventBodyEndPc - bodyBasePc)(p.pcWidth - 1, 0), 0.U)
-  val learnedFire = headerActiveReg && eventValid
+  val learnAllowed = !io.flushValid
+  val eventLearnedFire = learnAllowed && headerActiveReg && eventValid
+  val resolvedLearnedFire = learnAllowed && headerActiveReg && io.resolvedBodyEndValid && io.resolvedHeaderPc === headerPcReg
+  val resolvedBsize = Mux(io.resolvedBodyEndPc > bodyBasePc, (io.resolvedBodyEndPc - bodyBasePc)(p.pcWidth - 1, 0), 0.U)
+  val learnedFire = resolvedLearnedFire || eventLearnedFire
 
   io.geometryValid := learnedFire
   io.headerPc := headerPcReg
   io.hsizeBytes := hsizeReg
-  io.bsizeBytes := learnedBsize
+  io.bsizeBytes := Mux(resolvedLearnedFire, resolvedBsize, learnedBsize)
   io.headerActive := headerActiveReg
   io.learnedFire := learnedFire
+  io.eventLearnedFire := eventLearnedFire
+  io.resolvedLearnedFire := resolvedLearnedFire
   io.eventValid := eventValid
   io.eventSlot := eventSlot
   io.eventPc := Mux(eventValid, eventPc, 0.U)
