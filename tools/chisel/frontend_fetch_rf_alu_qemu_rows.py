@@ -129,6 +129,8 @@ def _classify(row: dict[str, int]) -> str | None:
             return "FRET_STK"
         if key == 0x3019:
             return "LDI"
+        if key == 0x4019:
+            return "LBUI"
         if key == 0x3039:
             return "LD.PCR"
         if key == 0x0059:
@@ -453,6 +455,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "LDI",
         "LD.PCR",
         "HL.LD.PCR",
+        "LBUI",
         "SLL",
         "SLLI",
         "SRL",
@@ -473,6 +476,7 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "HL.LUI",
         "LD.PCR",
         "HL.LD.PCR",
+        "LBUI",
         "LDI",
         "SLL",
         "SLLI",
@@ -576,6 +580,8 @@ def _expected_result(
         return 0
     if opcode == "LDI":
         return row["mem_rdata"] & MASK64
+    if opcode == "LBUI":
+        return row["mem_rdata"] & 0xFF
     if opcode in {"LD.PCR", "HL.LD.PCR"}:
         return row["mem_rdata"] & MASK64
     if opcode == "HL.SD.PCR":
@@ -659,6 +665,7 @@ def _validate_reduced_row(
         "C.LDI",
         "C.SDI",
         "LDI",
+        "LBUI",
         "LD.PCR",
         "HL.LD.PCR",
         "HL.SD.PCR",
@@ -755,6 +762,17 @@ def _validate_reduced_row(
             raise RowExtractionError(f"row {index} LDI load address does not match src0+imm")
         if row["dst_data"] != row["mem_rdata"]:
             raise RowExtractionError(f"row {index} LDI destination data does not match load data")
+    elif opcode == "LBUI":
+        if row["src1_valid"]:
+            raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
+        base = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        if not row["mem_valid"] or row["mem_is_store"] or row["mem_size"] != 1:
+            raise RowExtractionError(f"row {index} LBUI must carry one 1-byte load")
+        expected_addr = (base + _simm12_20_s12(row)) & MASK64
+        if row["mem_addr"] != expected_addr:
+            raise RowExtractionError(f"row {index} LBUI load address does not match src0+imm")
+        if row["dst_data"] != (row["mem_rdata"] & 0xFF):
+            raise RowExtractionError(f"row {index} LBUI destination data does not match zero-extended load byte")
     elif opcode in {"ANDI", "ANDIW", "ORI"}:
         _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         if row["src1_valid"]:
@@ -2812,6 +2830,44 @@ def self_test() -> None:
         assert extracted_r126_addw_slli[0]["dst_reg"] == 2
         assert extracted_r126_addw_slli[1]["pc"] == 0x4000_5F42
         assert extracted_r126_addw_slli[1]["src0_reg"] == 2
+
+        r139_lbui_source = tmp / "r139-lbui.jsonl"
+        r139_lbui_output = tmp / "r139-lbui.rows.jsonl"
+        lbui_zero = {
+            **rows[0],
+            "pc": 0x4000_5D8A,
+            "insn": 0xFFF1_4F99,
+            "len": 4,
+            "next_pc": 0x4000_5D8E,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 0,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 2,
+            "src0_data": 1,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 1,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 1,
+        }
+        _write_jsonl(r139_lbui_source, [lbui_zero])
+        count = extract_rows(r139_lbui_source, r139_lbui_output)
+        assert count == 1
+        extracted_r139_lbui = [
+            json.loads(line) for line in r139_lbui_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_r139_lbui[0]["pc"] == 0x4000_5D8A
+        assert extracted_r139_lbui[0]["dst_reg"] == 31
+        assert extracted_r139_lbui[0]["mem_addr"] == 0
+        assert extracted_r139_lbui[0]["mem_size"] == 1
 
         r126_sbi_source = tmp / "r126-sbi.jsonl"
         r126_sbi_output = tmp / "r126-sbi.rows.jsonl"

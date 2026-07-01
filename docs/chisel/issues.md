@@ -53,8 +53,7 @@ Current mitigation:
 
 ## CHISEL-ISSUE-003: CSEL Model/QEMU Source-Order Divergence
 
-Status: resolved locally for the reduced RTL/QEMU/LLVM lanes; pending rebuild
-and live CoreMark promotion
+Status: resolved and promoted through the R139 live CoreMark prefix
 
 Impact:
 
@@ -91,7 +90,39 @@ Evidence:
 
 Current mitigation:
 
-- Run focused QEMU/LLVM/Chisel CSEL gates before treating R138 as promoted.
 - The current reduced QEMU row schema exposes only two source fields, so the row
   reducer admits CSEL when `SrcP` is in the reduced T/U local overlay. A
   scalar-predicate CSEL row must wait for a source-2 trace-schema extension.
+
+## CHISEL-ISSUE-004: Conditional Marker Drain After R139 LBUI
+
+Status: open
+
+Impact:
+
+- The R139 `LBUI` packet promotes the live CoreMark prefix to 1642 captured raw
+  QEMU rows with zero normalized mismatches.
+- A 1660-row probe reaches `pc=0x40005d94`, a `C.BSTART COND`, and the
+  Verilator harness reports the dense slot queue did not drain.
+- At the failure, `markerSkipValid=1`, `markerActiveValid=1`,
+  `markerActiveBid=0x112`, `markerActiveTarget=0x40005d72`, `issueCount=1`,
+  and `executeBusy=1`. This points at marker admission/drain timing around an
+  active conditional block, not at `LBUI` data or memory semantics.
+
+Evidence:
+
+- LinxCore `540ed8a3c26bd27b4e97d5a7cf07b03a61ad8d46` before R139 edits.
+- Local LinxCoreModel `1993e4e749403824a4908548baf77d5e15117068`.
+- QEMU `513018b25c8212bc38e9f42241d3996e79e918c7`.
+- Passing gate:
+  `generated/r139-lbui-1642-qemu-elf-xcheck/report/crosscheck_report.md`
+  compares 1114 normalized rows with zero mismatches.
+- Failing probe:
+  `generated/r139-lbui-1660-qemu-elf-xcheck` extracts 1534 expected rows, then
+  fails at the conditional marker drain.
+
+Current mitigation:
+
+- Keep R139 promoted only to the 1642-row prefix.
+- The next block-control packet must resolve marker drain timing before
+  promoting the 1660-row window.

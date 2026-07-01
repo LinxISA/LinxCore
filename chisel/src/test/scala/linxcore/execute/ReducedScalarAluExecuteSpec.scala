@@ -87,6 +87,12 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
       imm = 0,
       loadData = 0x6ffffffbL).contains(0x6ffffffbL))
     assert(ReducedScalarAluExecute.referenceResultWithLoad(
+      FrontendOpcodeDecodeTable.OP_LBUI,
+      src0 = 1,
+      src1 = 0,
+      imm = BigInt("ffffffffffffffff", 16),
+      loadData = 0x1234L).contains(0x34))
+    assert(ReducedScalarAluExecute.referenceResultWithLoad(
       FrontendOpcodeDecodeTable.OP_HL_LD_PCR,
       src0 = 0,
       src1 = 0,

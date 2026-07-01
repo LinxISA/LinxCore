@@ -66,7 +66,5 @@ LinxCoreModel are deliberately changed first.
 
 ## Open Items
 
-- Rebuild QEMU and LLVM after the local source patches and run the focused CSEL
-  regressions before promoting a larger live CoreMark window.
 - Extend the trace schema or row reducer before admitting scalar-predicate CSEL
   rows, because the current QEMU-shaped row exposes only two source fields.

@@ -153,6 +153,7 @@ The Chisel module implements the first reduced subset:
 | `OP_HL_LUI` | `in.imm` |
 | `OP_HL_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
 | `OP_HL_SD_PCR` | `0`, with a reduced 8-byte store sideband at `in.pc + in.imm` and store data `srcData(0)` |
+| `OP_LBUI` | zero-extended byte from `loadLookupData(7, 0)`, with a reduced 1-byte load sideband at `srcData(0) + in.imm` |
 | `OP_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
 | `OP_LDI` | `loadLookupData`, with a reduced 8-byte load sideband at `srcData(0) + (in.imm << 3)` |
 | `OP_SETC_TGT` | `0`, latches `srcData(0)` as the reduced dynamic target |
@@ -228,6 +229,16 @@ reduced row reducer, and Chisel execute to LinxCoreModel/Sail true-to-`SrcL`
 semantics. The Chisel operation is side-effect free and destination-producing;
 the trace row still suppresses local T/U sources, so the reducer uses the local
 overlay for the observed `SrcP` and `SrcR` local aliases.
+R139 adds the first unsigned byte load-immediate row, `OP_LBUI`, from the
+post-CSEL CoreMark frontier. LinxCoreModel routes `LBUI` through `CalcLoadAddr`
+with `accMemAddr = SrcL + simm12`, and QEMU uses `MO_UB`. The reduced execute
+path requests that unscaled byte address, masks the sparse lookup data to 8
+bits, emits `mem.size = 1`, and allows the local T destination tag `31` to feed
+the following local-source `ADDW`. The promoted live gate captures 1642 raw QEMU
+rows, extracts 1518 expected rows, and compares 1114 normalized QEMU/DUT rows
+with zero mismatches. A larger 1660-row probe now fails later at a conditional
+marker drain around `pc=0x40005d94`; that is a block-control frontier, not an
+`LBUI` load-data mismatch.
 R111 proves the same local-source row shape for CoreMark `SLL`: the row reads
 T0/U0, writes architectural U tag `30`, emits `0x100000000`, and leaves scalar
 source fields invalid to match QEMU.

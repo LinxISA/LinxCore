@@ -169,6 +169,14 @@ QEMU scalar `CSEL`, LLVM MC lowering, the reduced row reducer, and
 `SrcP != 0` selects `SrcL`. The top remains bounded by the current two-source
 QEMU-shaped trace row; the promoted CSEL shape uses the reduced local overlay
 for the observed T/U predicate and false-source aliases.
+R139 carries the next byte-load packet through `OP_LBUI`. The top's sparse
+memory lookup still supplies an aligned 64-bit word, while
+`ReducedScalarAluExecute` masks the low byte for the unsigned byte result and
+emits a 1-byte load sideband. The promoted 1642-raw-row CoreMark gate extracts
+1518 expected rows and compares 1114 normalized QEMU/DUT rows with zero
+mismatches. The 1660-row probe reaches the next top-level frontier: a
+conditional-marker drain at `pc=0x40005d94` while execute/issue still hold a
+row from the active block.
 R124 adds that explicit reduced store mutation for the `OP_SD` indexed-store
 frontier. `ReducedScalarAluExecute` emits the model-derived sideband
 `addr = base + (index << 3)`, `wdata = SrcD`, `size = 8`, while the Verilator

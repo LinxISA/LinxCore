@@ -606,6 +606,7 @@ These packets remain the required base before broad module promotion:
 | R136 | CoreMark `LDI` local-T destination after hidden `FRET.STK` SP restore | `git diff --check`, `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only FrontendDecodeStage`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r136-ldi-t-dst-1620-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1620 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`, 1620 raw rows captured, 1496 expected rows extracted, 1094 normalized rows compared, 0 mismatches; QEMU-only 1660-row probe reaches `OP_CSEL` at `pc=0x40005d32`, `insn=0xe7860177`, `len=4`, `rd=x2`, `rs1=x12`, `rs2=x24/T0`, `srcp=x28/U0`, visible `src0=x12=0`, destination `x2=0` |
 | R137 | CoreMark `CSEL` model/QEMU source-order divergence packet | `git diff --check`, `python3 tools/chisel/frontend_fetch_rf_alu_qemu_rows.py --input generated/r136-next-frontier-1660-qemu-probe/traces/qemu.live.raw.jsonl --output /tmp/r137-csel-check.jsonl --max-rows 0 --allow-block-markers` is expected to fail at `pc=0x40005d32` because `OP_CSEL` remains unsupported; evidence collected from Sail `exec_csel`, LinxCoreModel `Compound.cpp`, fetched `origin/SuperScalarModel`, QEMU `trans_csel`, and the 1660-row QEMU probe. LinxCoreModel/Sail select `SrcL` when `SrcP != 0`; QEMU selects `SrcR` when `SrcP != 0`; `docs/chisel/issues.md` records `CHISEL-ISSUE-003`. No RTL CSEL support is promoted until the source-order contract is resolved. |
 | R138 | CoreMark `CSEL` model-aligned source-order packet | Local QEMU scalar `trans_csel`, LLVM MC lowering, reduced Chisel `OP_CSEL`, and the QEMU-row reducer are aligned to LinxCoreModel/Sail true-to-`SrcL` semantics. Focused gates: `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, LLVM `csel-source-order.ll`, and AVS `05_move.c` literal CSEL tests after rebuilding the affected tools. The reduced row schema still only admits CSEL when `SrcP` is a tracked T/U local source. |
+| R139 | CoreMark `LBUI` local-T byte-load packet | `git diff --check`, `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, and `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r139-lbui-1642-qemu-elf-xcheck --qemu-bin /Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64 --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1642 --allow-block-markers --max-seconds 12 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` passed: 1642 raw rows captured, 1518 expected rows extracted, 1114 normalized rows compared, 0 mismatches. A 1660-row probe now fails later at `pc=0x40005d94` with dense-slot queue not drained while a conditional marker is active and execute/issue are still busy. |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -804,9 +805,11 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Promote the R138 CSEL packet with rebuilt tools, then rerun the live CoreMark
-   reduced fetch/RF/ALU gate past the 1660-row frontier. Keep scalar-predicate
-   CSEL rows guarded until the trace schema exposes a third source field.
+2. Resolve the post-R139 conditional-marker drain frontier at `pc=0x40005d94`.
+   The 1660-row probe reaches a legal `C.BSTART COND` while the active block,
+   issue queue, and execute pipe still hold work; the next block-control packet
+   should make marker admission/drain timing model-aligned without relaxing
+   compared commit rows.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.
