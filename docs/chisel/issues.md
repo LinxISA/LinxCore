@@ -280,14 +280,14 @@ Resolution:
 
 ## CHISEL-ISSUE-009: Model-sized GPRRenameCheckpoint Is Too Large For Fast Verilator Front-end Compile
 
-Status: open after R197
+Status: closed in R198
 
 Impact:
 
-- The exact 1024-row admitted-marker CoreMark gate cannot yet produce a DUT
-  trace at `gprMapQDepth = 256` because Verilator stays in front-end processing
-  before creating `obj_dir`.
-- This blocks proving whether the R196 model-capacity fix advances past the
+- The exact 1024-row admitted-marker CoreMark gate could not produce a DUT
+  trace at `gprMapQDepth = 256` because Verilator stayed in front-end
+  processing before creating `obj_dir`.
+- This blocked proving whether the R196 model-capacity fix advanced past the
   old R195 `pc=0x4000557a` stall.
 
 Evidence:
@@ -299,11 +299,58 @@ Evidence:
   emit dropped to roughly 20 seconds and Verilator RSS dropped to roughly
   1.6 GB, but `GPRRenameCheckpoint.sv` was still about 24 MB and 252k lines,
   and Verilator still did not create `obj_dir` after a long front-end run.
+- R198 split the largest per-architectural-register replay and commit mapQ
+  scans into `GPRRenameReplaySurvivorSelect` and
+  `GPRRenameCommitArchSelect`. The generated parent checkpoint module dropped
+  to roughly 7.4 MB and 154k lines, with the helper modules emitted separately.
+- `BUILD_DIR=generated/r198-helper-split-marker-row-smoke bash tools/chisel/run_chisel_frontend_fetch_rf_alu_marker_rows_smoke.sh`
+  passed. Verilator reported 46 generated modules, 73 C++ files, roughly
+  262 seconds wall time, and roughly 1.6 GB allocation.
+- The 1024-row admitted-marker CoreMark gate now reaches DUT comparison,
+  proving the old pre-`obj_dir` compile blocker is gone.
+
+Resolution:
+
+- Keep the helper-module split for model-sized scalar GPR mapQ scans. Do not
+  inline those per-architecture replay/commit scans back into the parent
+  checkpoint without rerunning the model-sized Verilator smoke and 1024-row
+  marker-row gate.
+
+## CHISEL-ISSUE-010: R198 Marker-row Source Read Sees x6 As Zero After Capacity Fix
+
+Status: open
+
+Impact:
+
+- After the model-sized GPR mapQ path became Verilator-practical, the 1024-row
+  admitted-marker CoreMark gate advanced past the old R195
+  `gprMapQFree=0` stall and exposed a functional RF/source-value mismatch.
+- The next work item is no longer scalar GPR mapQ capacity; it is the data path
+  that should supply the live `x6` value through rename, RF writeback/read, or
+  reduced source forwarding.
+
+Evidence:
+
+- Command:
+  `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r198-helper-split-marker-row-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- The run captured 1024 raw QEMU rows, extracted 953 expected rows, emitted the
+  Chisel top in roughly 16 seconds, and built the Verilated model before
+  failing in the comparator.
+- Comparator failure:
+  `expected_pc=0x400055be`, `observed_pc=0x400055be`,
+  `expected_insn=0x31f6`, `observed_insn=0x31f6`,
+  `expected=(6,296)`, `observed=(6,0)`,
+  `src_phys_mask=0x3`, `src_phys=(46,20,0)`, and `rf_write=(0,0,0)`.
+- The comparator's last-writer diagnostic reported source-1 physical tag 20:
+  `writer_pc=0x40005576`, `writer_insn=0xffe13319`, `writer_wb=6`,
+  `writer_data=0`.
+- The saved JSONL traces contain the first 181 matched rows; the failing row
+  is printed by the Verilator comparator before it is appended to
+  `generated/r198-helper-split-marker-row-1024-qemu-elf-xcheck/traces/dut.chisel.jsonl`.
 
 Next action:
 
-- Structurally shrink or partition scalar GPR mapQ/checkpoint generated logic
-  without changing LinxCoreModel-visible rename, commit, flush, and replay
-  behavior.
-- Rerun the same 1024-row marker-row command after the generated model becomes
-  practical.
+- Debug why the source read for architectural `x6` maps to a physical tag whose
+  last recorded writeback data is zero when QEMU expects 296 at the same PC.
+- Start from the reduced RF writeback/read path and the marker-row path's
+  source-physical-tag diagnostics before changing rename capacity again.

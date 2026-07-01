@@ -131,9 +131,18 @@ commit path now builds release sets from one-hot physical-tag masks, the
 "later same architectural register" check uses a reverse architectural-tag mask
 scan, and the final live-reference protection uses one combined live physical
 mask. This preserves the ordered model commit result while cutting Chisel emit
-time and Verilator RSS for the 256-depth top. The generated module is still
-large enough that the exact 1024-row marker-row Verilator gate remains an open
-compile-cost blocker.
+time and Verilator RSS for the 256-depth top.
+
+R198 keeps the model-sized capacity but splits the largest per-architecture
+mapQ scans into helper modules. `GPRRenameReplaySurvivorSelect` owns the
+survivor replay selection for one architectural register, and
+`GPRRenameCommitArchSelect` owns the latest committed mapQ row selection for
+one architectural register. This keeps the parent checkpoint behavior aligned
+with the model's ordered commit, flush, and replay results while making the
+generated 256-depth marker-row top Verilator-practical. The smoke gate built
+46 generated modules into 73 C++ files in roughly 262 seconds and the
+1024-row marker-row gate now reaches DUT comparison instead of stalling before
+`obj_dir`.
 
 ## Flush And Replay
 
@@ -194,4 +203,5 @@ The current test reference covers:
 - live-reference protection while `smap`, `cmap`, or `mapQ` still mention a
   physical tag,
 - Chisel elaboration of cleanup, map, checkpoint, release outputs, 128 physical
-  GPR tags, and the model-sized scalar GPR mapQ pressure path.
+  GPR tags, the model-sized scalar GPR mapQ pressure path, and the helper
+  modules used to keep the 256-entry path practical.

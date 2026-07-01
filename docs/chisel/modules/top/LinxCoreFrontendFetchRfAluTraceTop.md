@@ -568,6 +568,20 @@ roughly 20 seconds and Verilator RSS drops from roughly 4.7 GB to roughly
 `obj_dir` for the 256-depth marker-row top. Treat this as a generated-model
 compile-cost issue, not as a CoreMark comparator mismatch.
 
+R198 resolves that compile-cost blocker by splitting the largest
+`GPRRenameCheckpoint` replay and commit scans into helper modules. The
+256-depth marker-row smoke builds in Verilator, reporting 46 generated modules
+and 73 C++ files. The 1024-row admitted-marker CoreMark gate now reaches DUT
+comparison and fails at the next functional frontier instead of the old
+`gprMapQFree=0` stall: `pc=0x400055be`, `insn=0x31f6`, expected source
+`x6 = 296`, observed source `x6 = 0`, source physical tags `(46,20,0)`, and
+last writer for physical tag 20 at `pc=0x40005576`, `insn=0xffe13319`,
+writing `x6 = 0`. The saved JSONL traces contain the first 181 matched rows;
+the failing row is reported by the Verilator comparator before it is appended
+to `traces/dut.chisel.jsonl`. The next packet should debug RF writeback,
+readiness, or reduced source-value forwarding for the post-capacity marker-row
+path, not scalar GPR mapQ capacity.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -1422,6 +1436,8 @@ records `status: "pass"`, `summary.compared_rows: 3`,
 - `bash tools/chisel/run_chisel_tests.sh --only GPRRenameCheckpoint`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r196-gpr-mapq-256-marker-row-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r197-gpr-mapq-mask-optimized-marker-row-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `BUILD_DIR=generated/r198-helper-split-marker-row-smoke bash tools/chisel/run_chisel_frontend_fetch_rf_alu_marker_rows_smoke.sh`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r198-helper-split-marker-row-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r109-coremark-u-dst-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 12 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r110-coremark-hl-lui-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 13 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
