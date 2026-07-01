@@ -790,7 +790,9 @@ publication, SCB/MDB handoff, and memory trace side effects.
 - Width-wide slot-order LSID/SID allocation and same-cycle memory ordering.
 - Full `load_id`/`sid` payload carry into LIQ/STQ owners.
 - Real STA/STD execution owners that drive `storeStaExec` and `storeStdExec`.
-- Automatic checkpoint capture from validated `isLastInBlock`.
+- Exact automatic checkpoint capture from validated `isLastInBlock`; the
+  reduced in-order path currently refreshes scalar GPR checkpoints after each
+  accepted row so block-stop recovery restores the latest map for that block.
 - External live block/group commit clean event wiring into
   `TULinkRetireCommandPath.cleanBlock*` and `cleanGroup*`; scalar block-last
   auto clean is now owned inside `TULinkRetireCommandPath`.

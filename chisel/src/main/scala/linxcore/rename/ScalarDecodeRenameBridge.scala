@@ -153,6 +153,8 @@ class ScalarDecodeRenameBridge(
   gpr.io.renameGid := io.in.gid
   gpr.io.checkpointValid := io.checkpointValid
   gpr.io.checkpointBid := io.checkpointBid
+  gpr.io.postRenameCheckpointValid := accepted
+  gpr.io.postRenameCheckpointBid := io.in.bid
   gpr.io.commitValid := io.commitValid
   gpr.io.commitBid := io.commitBid
   gpr.io.commitBlockBid := io.commitBlockBid

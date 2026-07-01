@@ -582,6 +582,20 @@ to `traces/dut.chisel.jsonl`. The next packet should debug RF writeback,
 readiness, or reduced source-value forwarding for the post-capacity marker-row
 path, not scalar GPR mapQ capacity.
 
+R202 closes that frontier. The R198 diagnostic printed source physical tags in
+hex and was later superseded by ROB-keyed source diagnostics: the true stale
+`x6` source was physical tag 32, while the latest architectural writer had
+allocated a newer tag. The reduced marker-row path was restoring scalar GGPR
+state from the checkpoint before the current block because block-stop cleanup
+fed the current block BID into a checkpoint owner whose model rule restores
+`flush.bid - 1`. The top now asks marker-stop cleanup to restore from the next
+block BID, so `GPRRenameCheckpoint` restores the just-finished block's
+post-rename checkpoint. The bridge also refreshes that checkpoint after every
+accepted row in the reduced in-order path. This preserves adjacent
+`C.SETRET` materialization through the first `FENTRY` save and lets the
+1024-row marker-row CoreMark gate pass with 288 admitted marker commits
+filtered and 665 normalized QEMU/DUT rows compared.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -615,6 +629,7 @@ path, not scalar GPR mapQ capacity.
 | output | `executeCompleteSrcPhysValidMask`, `executeCompleteSrcPhysTag`, `executeCompletePc`, `executeCompleteInsn`, `executeCompleteWbReg` | mixed | diagnostic | Execute-completion physical-source and row identity diagnostics used to correlate QEMU/DUT divergences with rename map state. |
 | output | `blockMarkerSkipFire`, `blockMarkerSkipValid`, `blockMarkerMixedPacket`, `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`, `blockMarkerInsn`, `blockMarkerLen`, `blockMarkerTarget` | mixed | diagnostic | Reduced block-marker consume observability on a dense-slot drain. Marker slots advance without scalar ROB allocation or dec/ren push; older scalar issue activity may overlap in the same cycle. |
 | output | `blockMarkerAllocReady`, `blockMarkerLifecycleConflict`, `blockMarkerAllocFire`, `blockMarkerAllocBid`, `blockMarkerActiveValid`, `blockMarkerActiveBid`, `blockMarkerActiveTarget`, `blockMarkerStopRedirectValid`, `blockMarkerStopRedirectPc` | mixed | diagnostic | Reduced marker lifecycle observability: BROB-only allocation readiness/fire for consumed `BSTART`, scalar-done conflict guard, active full BID/target reused by scalar rows, and marker-stop frontend restart target. |
+| output | `robMarkerRetireSourceBid*`, `robMarkerRetireSourceRid*`, `robMarkerRetireSourceStid` | mixed | diagnostic | Marker-retire source identity used to debug restart cleanup ownership and distinguish block BID from row RID. |
 | output | `decRenPushFire`, `decRenPopFire`, `decRenCount` | mixed | diagnostic | Decode-to-rename queue events and occupancy. |
 | output | `decRenValid`, `decRenHeadPc`, `decRenHeadRidValid`, `decRenHeadRidValue` | mixed | diagnostic | Decode/rename queue head observability for live-gate stalls. |
 | output | `renamedOutValid`, `renamedAccepted` | `Bool` | diagnostic | Rename output and issue-queue acceptance. |
@@ -1438,6 +1453,7 @@ records `status: "pass"`, `summary.compared_rows: 3`,
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r197-gpr-mapq-mask-optimized-marker-row-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `BUILD_DIR=generated/r198-helper-split-marker-row-smoke bash tools/chisel/run_chisel_frontend_fetch_rf_alu_marker_rows_smoke.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r198-helper-split-marker-row-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r202-marker-stop-restore-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r109-coremark-u-dst-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 12 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r110-coremark-hl-lui-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 13 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`

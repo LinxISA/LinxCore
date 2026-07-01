@@ -48,6 +48,8 @@ class GPRRenameCheckpointIO(
 
   val checkpointValid = Input(Bool())
   val checkpointBid = Input(new ROBID(entries))
+  val postRenameCheckpointValid = Input(Bool())
+  val postRenameCheckpointBid = Input(new ROBID(entries))
 
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(entries))
@@ -229,6 +231,8 @@ class GPRRenameCheckpoint(
   val replayFire = io.cleanup.valid && !io.cleanup.renameFlushValid && io.cleanup.renameReplayValid && cleanupTargetsStid0
   val commitFire = !cleanupValid && io.commitValid
   val checkpointFire = !cleanupValid && !io.commitValid && io.checkpointValid
+  val postRenameCheckpointFire =
+    !cleanupValid && !io.commitValid && !io.checkpointValid && io.postRenameCheckpointValid
   val renameCanFire = !cleanupValid && !io.commitValid && !io.checkpointValid && hasFreePhys && hasFreeMapQ
   val renameAccepted = io.renameValid && renameCanFire
 
@@ -324,6 +328,7 @@ class GPRRenameCheckpoint(
   val nextRenamePtr = Wire(new ROBID(entries))
   val nextFreeList = Wire(Vec(physRegs, Bool()))
   val nextMapQ = Wire(Vec(mapQDepth, new GPRRenameMapQueueEntry(entries, bidWidth, archTagWidth, physTagWidth)))
+  val smapAfterRename = Wire(Vec(archRegs, UInt(physTagWidth.W)))
 
   nextSmap := smap
   nextCmap := cmap
@@ -332,6 +337,8 @@ class GPRRenameCheckpoint(
   nextRenamePtr := renamePtr
   nextFreeList := freeList
   nextMapQ := mapQ
+  smapAfterRename := smap
+  smapAfterRename(io.renameArchTag) := firstFreePhys
 
   when(flushFire) {
     when(restoreNeeded) {
@@ -374,7 +381,7 @@ class GPRRenameCheckpoint(
     nextCheckpointValid(io.checkpointBid.value) := true.B
     nextRenamePtr := io.checkpointBid
   }.elsewhen(renameAccepted) {
-    nextSmap(io.renameArchTag) := firstFreePhys
+    nextSmap := smapAfterRename
     nextFreeList(firstFreePhys) := false.B
     nextMapQ(firstFreeMapQ).valid := true.B
     nextMapQ(firstFreeMapQ).bid := io.renameBid
@@ -383,6 +390,15 @@ class GPRRenameCheckpoint(
     nextMapQ(firstFreeMapQ).gid := io.renameGid
     nextMapQ(firstFreeMapQ).archTag := io.renameArchTag
     nextMapQ(firstFreeMapQ).physTag := firstFreePhys
+    when(io.postRenameCheckpointValid) {
+      nextCheckpointMap(io.postRenameCheckpointBid.value) := smapAfterRename
+      nextCheckpointValid(io.postRenameCheckpointBid.value) := true.B
+      nextRenamePtr := io.postRenameCheckpointBid
+    }
+  }.elsewhen(postRenameCheckpointFire) {
+    nextCheckpointMap(io.postRenameCheckpointBid.value) := smap
+    nextCheckpointValid(io.postRenameCheckpointBid.value) := true.B
+    nextRenamePtr := io.postRenameCheckpointBid
   }
   val nextSmapLiveMask =
     (0 until archRegs).map(arch => UIntToOH(nextSmap(arch), physRegs)).reduce(_ | _)
@@ -414,7 +430,8 @@ class GPRRenameCheckpoint(
   io.renameReady := renameCanFire
   io.renameAccepted := renameAccepted
   io.renamePhysTag := firstFreePhys
-  io.checkpointAccepted := checkpointFire
+  io.checkpointAccepted := checkpointFire || (renameAccepted && io.postRenameCheckpointValid) ||
+    (postRenameCheckpointFire && !io.renameValid)
   io.commitAccepted := commitFire
   io.cleanupReady := true.B
   io.cleanupFlushApplied := flushFire

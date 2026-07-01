@@ -128,15 +128,19 @@ The C++ model establishes this order:
 4. `GPRRename` owns scalar `smap`, `cmap`, checkpoints, free tags, and mapQ.
 
 The bridge is a bring-up composition of steps 2 and 3 for scalar GPR operands.
-It keeps checkpoint capture explicit because `isLastInBlock` is not yet a
-fully-owned Chisel signal and because the existing scalar map owner prioritizes
-checkpoint and rename as separate commands.
+For the reduced in-order marker-row top, every accepted row refreshes the
+checkpoint for its block BID through `GPRRenameCheckpoint`'s post-rename
+checkpoint input. This approximates the model's `isLastInBlock` capture until
+the exact decoded block-last owner is wired, and it preserves return-label
+materialization rows such as `C.SETRET` across block-stop redirect cleanup.
 
 ## Deferred Owners
 
 - Registered `dec_ren_q` / D2-D3 staging.
 - Width-wide rename with multiple destinations per cycle.
-- Automatic checkpoint capture from validated `isLastInBlock` metadata.
+- Exact automatic checkpoint capture from validated `isLastInBlock` metadata;
+  the reduced top currently uses accepted-row post-rename refresh as a
+  conservative in-order approximation.
 - LSID allocation and load/store same-cycle ordering.
 - Integrated handoff from `StoreSplitPayload` into STA/STD dispatch queues.
 - Direct T/U/SGPR/tile/vector rename. T/U is composed by

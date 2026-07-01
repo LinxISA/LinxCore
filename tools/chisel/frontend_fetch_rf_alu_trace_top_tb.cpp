@@ -155,12 +155,14 @@ struct PhysWriter {
   bool valid = false;
   std::uint64_t pc = 0;
   std::uint64_t insn = 0;
+  std::uint8_t phys_tag = 0;
   std::uint8_t wb_reg = 0;
   std::uint64_t data = 0;
 };
 
-std::map<std::uint64_t, IssueDebug> g_issue_debug_by_pc;
+std::map<std::uint8_t, IssueDebug> g_issue_debug_by_rob;
 std::map<std::uint8_t, PhysWriter> g_phys_writer_by_tag;
+std::map<std::uint8_t, PhysWriter> g_arch_writer_by_reg;
 std::uint64_t g_tb_cycle = 0;
 
 bool trace_top_debug_enabled() {
@@ -673,29 +675,31 @@ void eval_with_load_lookup(
     dut.io_loadLookupData = fetch_memory.read_u64_or_zero(dut.io_loadLookupAddr);
     dut.eval();
   }
-  if (dut.io_executeAccepted && dut.io_issueQueueHeadValid) {
+  if (dut.io_executeCompleteValid) {
     IssueDebug debug;
-    debug.src_valid_mask = dut.io_issueQueueHeadSrcValidMask;
-    debug.src_phys_tag0 = dut.io_issueQueueHeadSrcPhysTag_0;
-    debug.src_phys_tag1 = dut.io_issueQueueHeadSrcPhysTag_1;
-    debug.src_phys_tag2 = dut.io_issueQueueHeadSrcPhysTag_2;
-    g_issue_debug_by_pc[dut.io_issueQueueHeadPc] = debug;
+    debug.src_valid_mask = dut.io_executeCompleteSrcPhysValidMask;
+    debug.src_phys_tag0 = dut.io_executeCompleteSrcPhysTag_0;
+    debug.src_phys_tag1 = dut.io_executeCompleteSrcPhysTag_1;
+    debug.src_phys_tag2 = dut.io_executeCompleteSrcPhysTag_2;
+    g_issue_debug_by_rob[dut.io_executeCompleteRobValue] = debug;
   }
   if (dut.io_rfWriteValid) {
     PhysWriter writer;
     writer.valid = true;
     writer.pc = dut.io_executeCompletePc;
     writer.insn = dut.io_executeCompleteInsn;
+    writer.phys_tag = dut.io_rfWriteTag;
     writer.wb_reg = dut.io_executeCompleteWbReg;
     writer.data = dut.io_rfWriteData;
     g_phys_writer_by_tag[dut.io_rfWriteTag] = writer;
+    g_arch_writer_by_reg[writer.wb_reg] = writer;
   }
   trace_top_debug_pipeline(dut, context);
 }
 
 void attach_issue_debug(ObservedRow &row) {
-  const auto it = g_issue_debug_by_pc.find(row.pc);
-  if (it == g_issue_debug_by_pc.end()) {
+  const auto it = g_issue_debug_by_rob.find(row.rob_value);
+  if (it == g_issue_debug_by_rob.end()) {
     return;
   }
   row.src_phys_valid_mask = it->second.src_valid_mask;
@@ -717,8 +721,34 @@ void dump_phys_writer_line(const char *label, std::uint8_t tag) {
             << " writer_pc=0x" << std::hex << it->second.pc
             << " writer_insn=0x" << it->second.insn
             << std::dec
+            << " writer_phys=" << static_cast<unsigned>(it->second.phys_tag)
             << " writer_wb=" << static_cast<unsigned>(it->second.wb_reg)
             << " writer_data=" << it->second.data << "\n";
+}
+
+void dump_arch_writer_line(const char *label, std::uint8_t reg) {
+  const auto it = g_arch_writer_by_reg.find(reg);
+  if (it == g_arch_writer_by_reg.end() || !it->second.valid) {
+    std::cerr << "frontend fetch RF ALU " << label
+              << " reg=" << static_cast<unsigned>(reg)
+              << " writer=<none>\n";
+    return;
+  }
+  std::cerr << "frontend fetch RF ALU " << label
+            << " reg=" << static_cast<unsigned>(reg)
+            << " writer_pc=0x" << std::hex << it->second.pc
+            << " writer_insn=0x" << it->second.insn
+            << std::dec
+            << " writer_phys=" << static_cast<unsigned>(it->second.phys_tag)
+            << " writer_data=" << it->second.data << "\n";
+}
+
+bool is_fentry_insn(std::uint64_t insn) {
+  return (insn & 0x707full) == 0x41ull;
+}
+
+std::uint8_t fentry_begin_reg(std::uint64_t insn) {
+  return static_cast<std::uint8_t>((insn >> 15) & 0x1f);
 }
 
 void trace_top_debug_pipeline(
@@ -739,7 +769,9 @@ void trace_top_debug_pipeline(
       dut.io_executeAccepted ||
       dut.io_executeCompleteValid ||
       dut.io_completeAccepted ||
-      dut.io_commit_rows_0_valid;
+      dut.io_commit_rows_0_valid ||
+      dut.io_blockMarkerStopRedirectValid ||
+      dut.io_robMarkerRetireSourceLifecycleFire;
   if (!interesting) {
     return;
   }
@@ -778,6 +810,26 @@ void trace_top_debug_pipeline(
             << static_cast<unsigned long long>(dut.io_commit_rows_0_pc)
             << std::dec
             << " commit0_rob=" << static_cast<unsigned>(dut.io_commit_rows_0_rob_value)
+            << " marker_redirect=" << static_cast<unsigned>(dut.io_blockMarkerStopRedirectValid)
+            << " marker_redirect_pc=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_blockMarkerStopRedirectPc)
+            << std::dec
+            << " marker_lifecycle_fire=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceLifecycleFire)
+            << " marker_source_valid=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceValid)
+            << " marker_source_bid=("
+            << static_cast<unsigned>(dut.io_robMarkerRetireSourceBidValid)
+            << "," << static_cast<unsigned>(dut.io_robMarkerRetireSourceBidWrap)
+            << "," << static_cast<unsigned>(dut.io_robMarkerRetireSourceBidValue)
+            << ") marker_source_rid=("
+            << static_cast<unsigned>(dut.io_robMarkerRetireSourceRidValid)
+            << "," << static_cast<unsigned>(dut.io_robMarkerRetireSourceRidWrap)
+            << "," << static_cast<unsigned>(dut.io_robMarkerRetireSourceRidValue)
+            << ") marker_source_stid=" << static_cast<unsigned>(dut.io_robMarkerRetireSourceStid)
+            << " marker_source_block_bid_valid="
+            << static_cast<unsigned>(dut.io_robMarkerRetireSourceBlockBidValid)
+            << " marker_source_block_bid=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_robMarkerRetireSourceBlockBid)
+            << std::dec
             << "\n";
 }
 
@@ -1027,6 +1079,7 @@ void expect_row(
               << static_cast<unsigned>(observed.src0_reg)
               << "," << observed.src0_data << ")"
               << " src_phys_mask=0x" << std::hex << static_cast<unsigned>(observed.src_phys_valid_mask)
+              << std::dec
               << " src_phys=(" << static_cast<unsigned>(observed.src_phys_tag0)
               << "," << static_cast<unsigned>(observed.src_phys_tag1)
               << "," << static_cast<unsigned>(observed.src_phys_tag2) << ")"
@@ -1034,6 +1087,7 @@ void expect_row(
               << "," << static_cast<unsigned>(observed.rf_write_tag)
               << "," << observed.rf_write_data << ")\n";
     dump_phys_writer_line("src0 last writer", observed.src_phys_tag0);
+    dump_arch_writer_line("src0 arch last writer", expected.src0_reg);
     std::exit(1);
   }
   if (observed.src1_valid &&
@@ -1049,6 +1103,7 @@ void expect_row(
               << static_cast<unsigned>(observed.src1_reg)
               << "," << observed.src1_data << ")"
               << " src_phys_mask=0x" << std::hex << static_cast<unsigned>(observed.src_phys_valid_mask)
+              << std::dec
               << " src_phys=(" << static_cast<unsigned>(observed.src_phys_tag0)
               << "," << static_cast<unsigned>(observed.src_phys_tag1)
               << "," << static_cast<unsigned>(observed.src_phys_tag2) << ")"
@@ -1056,6 +1111,7 @@ void expect_row(
               << "," << static_cast<unsigned>(observed.rf_write_tag)
               << "," << observed.rf_write_data << ")\n";
     dump_phys_writer_line("src1 last writer", observed.src_phys_tag1);
+    dump_arch_writer_line("src1 arch last writer", expected.src1_reg);
     std::exit(1);
   }
   if (observed.dst_valid &&
@@ -1081,6 +1137,10 @@ void expect_row(
        observed.mem_rdata != expected.mem_rdata ||
        observed.mem_size != expected.mem_size)) {
     std::cerr << "frontend fetch RF ALU trace top mem mismatch"
+              << " expected_pc=0x" << std::hex << expected.pc
+              << " observed_pc=0x" << observed.pc
+              << " expected_insn=0x" << mask_insn(expected.insn, expected.len)
+              << " observed_insn=0x" << mask_insn(observed.insn, observed.len)
               << " expected=(addr=0x" << std::hex << expected.mem_addr
               << ",wdata=0x" << expected.mem_wdata
               << ",rdata=0x" << expected.mem_rdata
@@ -1089,7 +1149,22 @@ void expect_row(
               << ",wdata=0x" << observed.mem_wdata
               << ",rdata=0x" << observed.mem_rdata
               << std::dec << ",size=" << static_cast<unsigned>(observed.mem_size)
-              << ")\n";
+              << ")"
+              << " src_phys_mask=0x" << std::hex << static_cast<unsigned>(observed.src_phys_valid_mask)
+              << std::dec
+              << " src_phys=(" << static_cast<unsigned>(observed.src_phys_tag0)
+              << "," << static_cast<unsigned>(observed.src_phys_tag1)
+              << "," << static_cast<unsigned>(observed.src_phys_tag2) << ")"
+              << " visible_src0=(" << static_cast<unsigned>(observed.src0_reg)
+              << "," << observed.src0_data << ")"
+              << " visible_src1=(" << static_cast<unsigned>(observed.src1_reg)
+              << "," << observed.src1_data << ")\n";
+    dump_phys_writer_line("mem src0 last writer", observed.src_phys_tag0);
+    dump_phys_writer_line("mem src1 last writer", observed.src_phys_tag1);
+    dump_phys_writer_line("mem src2 last writer", observed.src_phys_tag2);
+    if (is_fentry_insn(observed.insn)) {
+      dump_arch_writer_line("fentry save-source arch last writer", fentry_begin_reg(observed.insn));
+    }
     std::exit(1);
   }
 }

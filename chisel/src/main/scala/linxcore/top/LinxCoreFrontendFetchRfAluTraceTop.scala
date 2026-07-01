@@ -161,6 +161,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val robMarkerRetireSourceBoundary = Output(Bool())
   val robMarkerRetireSourceStop = Output(Bool())
   val robMarkerRetireSourceLast = Output(Bool())
+  val robMarkerRetireSourceBidValid = Output(Bool())
+  val robMarkerRetireSourceBidWrap = Output(Bool())
+  val robMarkerRetireSourceBidValue = Output(UInt(p.robIndexWidth.W))
+  val robMarkerRetireSourceRidValid = Output(Bool())
+  val robMarkerRetireSourceRidWrap = Output(Bool())
+  val robMarkerRetireSourceRidValue = Output(UInt(p.robIndexWidth.W))
+  val robMarkerRetireSourceStid = Output(UInt(p.threadIdWidth.W))
   val robMarkerRetireSourceBlockBidValid = Output(Bool())
   val robMarkerRetireSourceBlockBid = Output(UInt(p.blockBidWidth.W))
   val robMarkerRetireSourceBoundaryTarget = Output(UInt(p.pcWidth.W))
@@ -393,6 +400,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       markerRedirectRetireSource.valid && markerRedirectRetireSource.blockBidValid,
       markerRedirectRetireSource.blockBid,
       0.U(p.blockBidWidth.W))
+  val markerRedirectCleanupBid =
+    Mux(path.io.blockMarkerStopRedirectValid, ROBID.inc(markerRedirectSourceBid), markerRedirectSourceBid)
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
   val backendPipeFlush = io.frontendFlushValid || scalarRedirectPending
   val externalBfuGeometryValid = io.reducedBfuBodyValid
@@ -535,7 +544,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     markerRedirectPending := true.B
     markerRedirectPcReg := Mux(path.io.blockMarkerStopRedirectValid, path.io.blockMarkerStopRedirectPc, execute.io.redirectPc)
     scalarRedirectPending := true.B
-    scalarRedirectBidReg := Mux(execute.io.redirectValid, execute.io.releaseBid, markerRedirectSourceBid)
+    scalarRedirectBidReg := Mux(execute.io.redirectValid, execute.io.releaseBid, markerRedirectCleanupBid)
     scalarRedirectRidReg := Mux(execute.io.redirectValid, execute.io.releaseRid, markerRedirectSourceRid)
     scalarRedirectStidReg := Mux(execute.io.redirectValid, execute.io.releaseStid, markerRedirectSourceStid)
     scalarRedirectBlockBidReg :=
@@ -886,6 +895,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.robMarkerRetireSourceBoundary := path.io.robMarkerRetireSource.isBoundary
   io.robMarkerRetireSourceStop := path.io.robMarkerRetireSource.isStop
   io.robMarkerRetireSourceLast := path.io.robMarkerRetireSource.isLast
+  io.robMarkerRetireSourceBidValid := path.io.robMarkerRetireSource.bid.valid
+  io.robMarkerRetireSourceBidWrap := path.io.robMarkerRetireSource.bid.wrap
+  io.robMarkerRetireSourceBidValue := path.io.robMarkerRetireSource.bid.value
+  io.robMarkerRetireSourceRidValid := path.io.robMarkerRetireSource.rid.valid
+  io.robMarkerRetireSourceRidWrap := path.io.robMarkerRetireSource.rid.wrap
+  io.robMarkerRetireSourceRidValue := path.io.robMarkerRetireSource.rid.value
+  io.robMarkerRetireSourceStid := path.io.robMarkerRetireSource.stid
   io.robMarkerRetireSourceBlockBidValid := path.io.robMarkerRetireSource.blockBidValid
   io.robMarkerRetireSourceBlockBid := path.io.robMarkerRetireSource.blockBid
   io.robMarkerRetireSourceBoundaryTarget := path.io.robMarkerRetireSource.boundaryTarget

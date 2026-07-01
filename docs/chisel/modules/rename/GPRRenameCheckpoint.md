@@ -42,6 +42,8 @@ bundle-width allocation remain later owner packets.
 | `renameBid` / `renameRid` / `renameGid` | input | `ROBID` | Model identity stored in the mapQ row. |
 | `checkpointValid` | input | `Bool` | Captures the current `smap` into `checkpointBid.value`. |
 | `checkpointBid` | input | `ROBID` | Checkpoint slot and new `renamePtr`. |
+| `postRenameCheckpointValid` | input | `Bool` | Captures the post-accepted-rename `smap` into `postRenameCheckpointBid.value`; if no rename fires, captures current `smap`. |
+| `postRenameCheckpointBid` | input | `ROBID` | Checkpoint slot used by the reduced post-rename checkpoint refresh path. |
 | `commitValid` | input | `Bool` | Retires all mapQ rows matching `commitBid`. |
 | `commitBid` | input | `ROBID` | Block identity for `GPRRename::RetireBlock`. |
 | `cleanup` | input | `RecoveryCleanupIntent` | Registered recovery intent from `RecoveryCleanupControl`. |
@@ -97,6 +99,16 @@ Checkpoint capture copies the current `smap` into
 `SPERename` when the renamed instruction is marked `isLastInBlock`; later
 decode/dispatch owners may choose the exact boundary handoff, but the Chisel
 state owner only requires an explicit checkpoint command.
+
+R202 adds the reduced post-rename checkpoint refresh used by the marker-row
+top. When a rename allocation is accepted and `postRenameCheckpointValid` is
+set, the checkpoint slot receives the `smap` after the new destination mapping
+is installed. When no destination rename fires, the same input captures the
+current `smap`. This is a reduced in-order approximation of the model's
+`isLastInBlock` checkpoint rule: by the time a block-stop redirect asks
+recovery to restore the just-finished block, the checkpoint for that block BID
+contains the latest scalar map, including adjacent `C.SETRET` materialization
+rows.
 
 ## Commit
 
@@ -204,4 +216,5 @@ The current test reference covers:
   physical tag,
 - Chisel elaboration of cleanup, map, checkpoint, release outputs, 128 physical
   GPR tags, the model-sized scalar GPR mapQ pressure path, and the helper
-  modules used to keep the 256-entry path practical.
+  modules used to keep the 256-entry path practical,
+- post-rename checkpoint IO for the reduced block-stop restore path.

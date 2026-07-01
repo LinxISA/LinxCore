@@ -329,6 +329,8 @@ class GPRRenameCheckpointSpec extends AnyFunSuite {
     assert(sv.contains("io_renameBlockBid"))
     assert(sv.contains("io_commitBlockBid"))
     assert(sv.contains("io_cleanup_renameFlushValid"))
+    assert(sv.contains("io_postRenameCheckpointValid"))
+    assert(sv.contains("io_postRenameCheckpointBid_value"))
     assert(sv.contains("io_restoreFromCheckpoint"))
     assert(sv.contains("io_smap_0"))
     assert(sv.contains("io_cmap_0"))

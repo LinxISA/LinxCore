@@ -318,16 +318,17 @@ Resolution:
 
 ## CHISEL-ISSUE-010: R198 Marker-row Source Read Sees x6 As Zero After Capacity Fix
 
-Status: open
+Status: closed in R202
 
 Impact:
 
 - After the model-sized GPR mapQ path became Verilator-practical, the 1024-row
   admitted-marker CoreMark gate advanced past the old R195
   `gprMapQFree=0` stall and exposed a functional RF/source-value mismatch.
-- The next work item is no longer scalar GPR mapQ capacity; it is the data path
-  that should supply the live `x6` value through rename, RF writeback/read, or
-  reduced source forwarding.
+- The first diagnostic framed this as RF/source-value, but the later ROB-keyed
+  source-tag diagnostic showed a rename recovery problem: the row was using an
+  older physical tag while the latest architectural writer had allocated a
+  newer tag.
 
 Evidence:
 
@@ -347,10 +348,24 @@ Evidence:
 - The saved JSONL traces contain the first 181 matched rows; the failing row
   is printed by the Verilator comparator before it is appended to
   `generated/r198-helper-split-marker-row-1024-qemu-elf-xcheck/traces/dut.chisel.jsonl`.
+- R202 diagnostics corrected the source tag printing to decimal and keyed
+  issue source tags by ROB. The old `src_phys=(46,20,0)` line had been
+  misleading because the relevant tag was printed as hex; the true stale tag
+  was physical 32. The same diagnostic later caught the first `FENTRY` save
+  row using identity physical tag 10 while `C.SETRET pc=0x40005506` had already
+  produced architectural `x10` into physical tag 25.
 
-Next action:
+Resolution:
 
-- Debug why the source read for architectural `x6` maps to a physical tag whose
-  last recorded writeback data is zero when QEMU expects 296 at the same PC.
-- Start from the reduced RF writeback/read path and the marker-row path's
-  source-physical-tag diagnostics before changing rename capacity again.
+- `ScalarDecodeRenameBridge` now refreshes the scalar GPR checkpoint for the
+  current block after each accepted reduced in-order row, using the post-rename
+  map when a destination is allocated.
+- `LinxCoreFrontendFetchRfAluTraceTop` now feeds marker-stop cleanup with the
+  next block BID. `GPRRenameCheckpoint` follows the model restore rule
+  `restoreBid = flush.bid - 1`, so a block-stop redirect must ask to restore
+  the just-finished block checkpoint rather than the checkpoint before it.
+- The passing R202 command:
+  `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r202-marker-stop-restore-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- Result: 1024 raw QEMU rows captured, 953 expected rows extracted, 288 marker
+  commits admitted/filtered, 665 normalized QEMU/DUT rows compared, and zero
+  mismatches.
