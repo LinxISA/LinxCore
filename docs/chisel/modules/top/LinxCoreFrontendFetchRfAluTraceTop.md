@@ -549,7 +549,9 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
   `denseSlotQueueInFire`, matching `f4ValidMask`, matching `f4SlotCount`, and
   `sourceAdvanceBytes` equal to the window's decoded byte span;
 - drains every expected slot from `F4DenseSlotQueue` before fetching the next
-  window;
+  window, with a 64-cycle per-row budget so marker-only rows can wait for
+  in-flight reduced RF/issue/execute work such as the `c.setc.eq` decision
+  preceding a conditional `BSTART`;
 - stops after the compared prefix, without requiring full top idle, when the
   final captured dense window deliberately contained post-prefix slots;
 - for skip rows, requires `blockMarkerSkipFire`, matching marker

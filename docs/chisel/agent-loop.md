@@ -805,11 +805,10 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Resolve the post-R139 conditional-marker drain frontier at `pc=0x40005d94`.
-   The 1660-row probe reaches a legal `C.BSTART COND` while the active block,
-   issue queue, and execute pipe still hold work; the next block-control packet
-   should make marker admission/drain timing model-aligned without relaxing
-   compared commit rows.
+2. Promote beyond the R140 1660-row CoreMark prefix. The conditional marker at
+   `pc=0x40005d94` is now covered by the 64-cycle dense-row harness budget; the
+   next packet should capture the next bounded QEMU window and classify the
+   first unsupported opcode or semantic mismatch before editing RTL.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.

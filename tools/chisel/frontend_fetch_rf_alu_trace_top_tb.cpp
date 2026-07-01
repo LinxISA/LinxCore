@@ -21,6 +21,8 @@ using linxcore::chisel::CommitTraceJsonRow;
 using linxcore::chisel::write_dut_commit_jsonl;
 using linxcore::chisel::write_qemu_commit_jsonl;
 
+constexpr int kDenseRowDrainCycles = 64;
+
 struct Args {
   std::string dut_trace;
   std::string qemu_trace;
@@ -1061,7 +1063,7 @@ std::uint8_t drain_dense_row(
     std::uint64_t &active_block_bid,
     const FetchMemoryImage &fetch_memory,
     std::vector<ObservedRow> &pending_commits) {
-  for (int cycle = 0; cycle < 16; ++cycle) {
+  for (int cycle = 0; cycle < kDenseRowDrainCycles; ++cycle) {
     clear_inputs(dut);
     eval_with_load_lookup(dut, fetch_memory);
     if (dut.io_rfStateError) {

@@ -96,7 +96,7 @@ Current mitigation:
 
 ## CHISEL-ISSUE-004: Conditional Marker Drain After R139 LBUI
 
-Status: open
+Status: closed in R140
 
 Impact:
 
@@ -108,6 +108,8 @@ Impact:
   `markerActiveBid=0x112`, `markerActiveTarget=0x40005d72`, `issueCount=1`,
   and `executeBusy=1`. This points at marker admission/drain timing around an
   active conditional block, not at `LBUI` data or memory semantics.
+- R140 showed the RTL drains naturally once the harness row-drain budget covers
+  the reduced RF/issue/execute latency for the in-flight `c.setc.eq` decision.
 
 Evidence:
 
@@ -120,9 +122,15 @@ Evidence:
 - Failing probe:
   `generated/r139-lbui-1660-qemu-elf-xcheck` extracts 1534 expected rows, then
   fails at the conditional marker drain.
+- R140 passing gate:
+  `generated/r140-drain64-1660-qemu-elf-xcheck/report/crosscheck_report.md`
+  compares 1124 normalized rows with zero mismatches after increasing the
+  harness dense-row drain budget from 16 to 64 cycles.
 
-Current mitigation:
+Resolution:
 
-- Keep R139 promoted only to the 1642-row prefix.
-- The next block-control packet must resolve marker drain timing before
-  promoting the 1660-row window.
+- The RTL was not changed for this issue.
+- `tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp` now names the dense-row
+  drain budget as `kDenseRowDrainCycles = 64`, allowing the marker row to wait
+  for the prior block's in-flight scalar branch-decision row to complete.
+- The promoted CoreMark prefix is now the 1660 captured raw-row window.
