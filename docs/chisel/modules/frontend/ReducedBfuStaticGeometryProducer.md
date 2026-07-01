@@ -90,4 +90,8 @@ R148 compares the producer's emitted diagnostic geometry against the external
 replay geometry at `LinxCoreFrontendFetchRfAluTraceTop`, proving the handoff
 contract before the producer is allowed to drive reduced body-cut control.
 R149 inserts `ReducedBfuResolvedBodyEndOwner` in front of the resolved input and
-keeps the same replay comparison as the generated-RTL proof.
+keeps the same replay comparison as the generated-RTL proof. R150 feeds this
+producer's learned geometry into `ReducedBfuGeometryPredictionLatch`, and
+`ReducedBfuBodyCutPredictor` consumes the latched row when the external
+loop-reentry oracle arms a matching cut. The external replay row remains the
+temporary resolved-event source and oracle.

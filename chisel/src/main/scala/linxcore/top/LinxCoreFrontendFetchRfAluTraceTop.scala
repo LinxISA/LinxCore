@@ -7,7 +7,7 @@ import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
-import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutPredictor, ReducedBfuResolvedBodyEndOwner, ReducedBfuStaticGeometryProducer}
+import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuResolvedBodyEndOwner, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -356,11 +356,23 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val staticExternalHSizeMismatch = staticExternalComparable && !staticExternalHSizeMatch
   val staticExternalBSizeMismatch = staticExternalComparable && !staticExternalBSizeMatch
 
+  val staticBfuPrediction = Module(new ReducedBfuGeometryPredictionLatch(p))
+  staticBfuPrediction.io.flushValid := io.frontendFlushValid || io.startValid || io.restartValid
+  staticBfuPrediction.io.learnValid := staticBfuGeometry.io.geometryValid
+  staticBfuPrediction.io.learnHeaderPc := staticBfuGeometry.io.headerPc
+  staticBfuPrediction.io.learnHSizeBytes := staticBfuGeometry.io.hsizeBytes
+  staticBfuPrediction.io.learnBSizeBytes := staticBfuGeometry.io.bsizeBytes
+  val staticPredictionExternalMatch =
+    staticBfuPrediction.io.geometryValid && externalBfuGeometryValid &&
+      staticBfuPrediction.io.headerPc === io.reducedBfuHeaderPc &&
+      staticBfuPrediction.io.hsizeBytes === io.reducedBfuHSizeBytes &&
+      staticBfuPrediction.io.bsizeBytes === io.reducedBfuBSizeBytes
+
   val bodyCut = Module(new ReducedBfuBodyCutPredictor(p))
-  bodyCut.io.geometryValid := externalBfuGeometryValid
-  bodyCut.io.headerPc := io.reducedBfuHeaderPc
-  bodyCut.io.hsizeBytes := io.reducedBfuHSizeBytes
-  bodyCut.io.bsizeBytes := io.reducedBfuBSizeBytes
+  bodyCut.io.geometryValid := staticPredictionExternalMatch
+  bodyCut.io.headerPc := staticBfuPrediction.io.headerPc
+  bodyCut.io.hsizeBytes := staticBfuPrediction.io.hsizeBytes
+  bodyCut.io.bsizeBytes := staticBfuPrediction.io.bsizeBytes
   bodyCut.io.f4Valid := f4.io.d1.valid
   bodyCut.io.f4Pc := f4.io.d1.pc
   bodyCut.io.f4Slots := f4.io.slots

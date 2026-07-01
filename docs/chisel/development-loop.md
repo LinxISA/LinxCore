@@ -1099,10 +1099,14 @@ Use this ladder for every promoted packet:
    explicit block-boundary or `BSTOP` events, R146 adds resolved body-end
    learning for the same `SetBsize` contract, and R147 carries resolved
    `hsize` payload on that diagnostic row. R148 compares the diagnostic row
-   against the external replay geometry, and R149 factors resolved body-end
-   normalization into `ReducedBfuResolvedBodyEndOwner`, but both still keep the
-   diagnostic producer out of control until real branch-resolution/body-end
-   ownership is replay-proven.
+   against the external replay geometry, R149 factors resolved body-end
+   normalization into `ReducedBfuResolvedBodyEndOwner`, and R150 lets
+   `ReducedBfuBodyCutPredictor` consume latched static geometry payload through
+   `ReducedBfuGeometryPredictionLatch`. The latch prevents same-cycle learning
+   from clipping the sequential packet that discovered a body end. The external
+   replay row remains only the temporary cut-arm, resolved-event source, and
+   comparison oracle until real branch-resolution/body-end ownership is
+   replay-proven.
 14. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
 15. `bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run` for
