@@ -130,6 +130,16 @@ struct PhysWriter {
 
 std::map<std::uint64_t, IssueDebug> g_issue_debug_by_pc;
 std::map<std::uint8_t, PhysWriter> g_phys_writer_by_tag;
+std::uint64_t g_tb_cycle = 0;
+
+bool trace_top_debug_enabled() {
+  static const bool enabled = std::getenv("LINXCORE_TRACE_TOP_DEBUG") != nullptr;
+  return enabled;
+}
+
+void trace_top_debug_pipeline(
+    const VLinxCoreFrontendFetchRfAluTraceTop &dut,
+    const char *context);
 
 [[noreturn]] void usage(const char *argv0) {
   std::cerr << "usage: " << argv0
@@ -420,6 +430,7 @@ void tick(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   dut.eval();
   dut.clock = 0;
   dut.eval();
+  ++g_tb_cycle;
 }
 
 void reset(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
@@ -624,7 +635,8 @@ private:
 
 void eval_with_load_lookup(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
-    const FetchMemoryImage &fetch_memory) {
+    const FetchMemoryImage &fetch_memory,
+    const char *context = "eval") {
   dut.eval();
   if (dut.io_loadLookupValid) {
     dut.io_loadLookupData = fetch_memory.read_u64_or_zero(dut.io_loadLookupAddr);
@@ -647,6 +659,7 @@ void eval_with_load_lookup(
     writer.data = dut.io_rfWriteData;
     g_phys_writer_by_tag[dut.io_rfWriteTag] = writer;
   }
+  trace_top_debug_pipeline(dut, context);
 }
 
 void attach_issue_debug(ObservedRow &row) {
@@ -675,6 +688,66 @@ void dump_phys_writer_line(const char *label, std::uint8_t tag) {
             << std::dec
             << " writer_wb=" << static_cast<unsigned>(it->second.wb_reg)
             << " writer_data=" << it->second.data << "\n";
+}
+
+void trace_top_debug_pipeline(
+    const VLinxCoreFrontendFetchRfAluTraceTop &dut,
+    const char *context) {
+  if (!trace_top_debug_enabled()) {
+    return;
+  }
+  const bool interesting =
+      dut.io_denseSlotQueueOutFire ||
+      dut.io_decRenPushFire ||
+      dut.io_decRenPopFire ||
+      dut.io_renamedAccepted ||
+      dut.io_issueQueueEnqueueFire ||
+      dut.io_issueQueuePickFire ||
+      dut.io_issueQueueIssueFire ||
+      dut.io_issueQueueReleaseFire ||
+      dut.io_executeAccepted ||
+      dut.io_executeCompleteValid ||
+      dut.io_completeAccepted ||
+      dut.io_commit_rows_0_valid;
+  if (!interesting) {
+    return;
+  }
+  std::cerr << "[trace-top-debug]"
+            << " cycle=" << g_tb_cycle
+            << " context=" << context
+            << " dense_out=" << static_cast<unsigned>(dut.io_denseSlotQueueOutFire)
+            << " dense_head_slot=" << static_cast<unsigned>(dut.io_denseSlotQueueHeadSlot)
+            << " selected_rob=" << static_cast<unsigned>(dut.io_selectedRobValue)
+            << " dec_push=" << static_cast<unsigned>(dut.io_decRenPushFire)
+            << " dec_pop=" << static_cast<unsigned>(dut.io_decRenPopFire)
+            << " dec_count=" << static_cast<unsigned>(dut.io_decRenCount)
+            << " dec_head_pc=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_decRenHeadPc)
+            << std::dec
+            << " renamed=" << static_cast<unsigned>(dut.io_renamedAccepted)
+            << " rename_upd=" << static_cast<unsigned>(dut.io_robRenameUpdateFire)
+            << " issue_enq=" << static_cast<unsigned>(dut.io_issueQueueEnqueueFire)
+            << " issue_pick=" << static_cast<unsigned>(dut.io_issueQueuePickFire)
+            << " issue_fire=" << static_cast<unsigned>(dut.io_issueQueueIssueFire)
+            << " issue_rel=" << static_cast<unsigned>(dut.io_issueQueueReleaseFire)
+            << " issue_count=" << static_cast<unsigned>(dut.io_issueQueueCount)
+            << " issue_head_pc=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_issueQueueHeadPc)
+            << " exec_acc=" << std::dec << static_cast<unsigned>(dut.io_executeAccepted)
+            << " exec_done=" << static_cast<unsigned>(dut.io_executeCompleteValid)
+            << " exec_pc=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_executeCompletePc)
+            << " exec_insn=0x"
+            << static_cast<unsigned long long>(dut.io_executeCompleteInsn)
+            << std::dec
+            << " exec_rob=" << static_cast<unsigned>(dut.io_executeCompleteRobValue)
+            << " complete_acc=" << static_cast<unsigned>(dut.io_completeAccepted)
+            << " commit_mask=0x" << std::hex << static_cast<unsigned>(dut.io_commitValidMask)
+            << " commit0_pc=0x"
+            << static_cast<unsigned long long>(dut.io_commit_rows_0_pc)
+            << std::dec
+            << " commit0_rob=" << static_cast<unsigned>(dut.io_commit_rows_0_rob_value)
+            << "\n";
 }
 
 void expect_monitor_clean(
@@ -838,7 +911,10 @@ void collect_commit_if_present(
   }
 }
 
-void expect_row(const ObservedRow &observed, const ExpectedRow &expected) {
+void expect_row(
+    const ObservedRow &observed,
+    const ExpectedRow &expected,
+    const VLinxCoreFrontendFetchRfAluTraceTop *dut = nullptr) {
   if (!observed.valid ||
       observed.slot > 1 ||
       observed.pc != expected.pc ||
@@ -868,7 +944,42 @@ void expect_row(const ObservedRow &observed, const ExpectedRow &expected) {
               << " mem=(" << observed.mem_valid << ","
               << observed.mem_is_store << ")"
               << " next_pc=0x" << std::hex << observed.next_pc << std::dec
+              << " seq=" << observed.seq
+              << " cycle=" << observed.cycle
+              << " slot=" << static_cast<unsigned>(observed.slot)
+              << " rob=(" << observed.rob_valid
+              << "," << observed.rob_wrap
+              << "," << static_cast<unsigned>(observed.rob_value) << ")"
               << "\n";
+    if (dut != nullptr) {
+      std::cerr << "frontend fetch RF ALU commit debug"
+                << " commit_mask=0x" << std::hex << static_cast<unsigned>(dut->io_commitValidMask)
+                << " dealloc_mask=0x" << static_cast<unsigned>(dut->io_deallocValidMask)
+                << " occupied=0x" << static_cast<unsigned long long>(dut->io_occupiedMask)
+                << " completed=0x" << static_cast<unsigned long long>(dut->io_completedMask)
+                << " retired=0x" << static_cast<unsigned long long>(dut->io_retiredMask)
+                << std::dec
+                << " commit_count=" << static_cast<unsigned>(dut->io_commitCount)
+                << " dealloc_count=" << static_cast<unsigned>(dut->io_deallocCount)
+                << " commit_head_valid=" << static_cast<unsigned>(dut->io_commitHeadValid)
+                << " commit_head_status=" << static_cast<unsigned>(dut->io_commitHeadStatus)
+                << " commit_head_rob=" << static_cast<unsigned>(dut->io_commitHeadRobValue)
+                << " size=" << static_cast<unsigned>(dut->io_size)
+                << " outstanding=" << static_cast<unsigned>(dut->io_outstandingCount)
+                << " dec_ren_count=" << static_cast<unsigned>(dut->io_decRenCount)
+                << " dec_ren_valid=" << static_cast<unsigned>(dut->io_decRenValid)
+                << " dec_ren_head_pc=0x" << std::hex
+                << static_cast<unsigned long long>(dut->io_decRenHeadPc)
+                << std::dec
+                << " renamed_accepted=" << static_cast<unsigned>(dut->io_renamedAccepted)
+                << " rename_update_attempt=" << static_cast<unsigned>(dut->io_robRenameUpdateAttemptValid)
+                << " rename_update_fire=" << static_cast<unsigned>(dut->io_robRenameUpdateFire)
+                << " complete_accepted=" << static_cast<unsigned>(dut->io_completeAccepted)
+                << " execute_accepted=" << static_cast<unsigned>(dut->io_executeAccepted)
+                << " dense_count=" << static_cast<unsigned>(dut->io_denseSlotQueueCount)
+                << " marker_barrier=" << static_cast<unsigned>(dut->io_admittedMarkerDrainBarrier)
+                << "\n";
+    }
     std::exit(1);
   }
 
@@ -1578,6 +1689,18 @@ DrainDenseRowResult drain_dense_row(
           }
           const auto rob_value = static_cast<std::uint8_t>(dut.io_selectedRobValue);
           const auto selected_block_bid = static_cast<std::uint64_t>(dut.io_selectedBlockBid);
+          if (trace_top_debug_enabled()) {
+            std::cerr << "[trace-top-debug]"
+                      << " cycle=" << g_tb_cycle
+                      << " reserve_marker pc=0x" << std::hex << row.pc
+                      << " insn=0x" << mask_insn(row.insn, row.len)
+                      << std::dec
+                      << " len=" << static_cast<unsigned>(row.len)
+                      << " rob=" << static_cast<unsigned>(rob_value)
+                      << " dense_head_slot=" << static_cast<unsigned>(dut.io_denseSlotQueueHeadSlot)
+                      << " barrier=" << static_cast<unsigned>(dut.io_admittedMarkerDrainBarrier)
+                      << "\n";
+          }
           filtered_marker_commits.push_back(row);
           tick(dut);
           if (row.block_boundary) {
@@ -1686,6 +1809,18 @@ DrainDenseRowResult drain_dense_row(
       }
       const auto rob_value = static_cast<std::uint8_t>(dut.io_selectedRobValue);
       const auto selected_block_bid = static_cast<std::uint64_t>(dut.io_selectedBlockBid);
+      if (trace_top_debug_enabled()) {
+        std::cerr << "[trace-top-debug]"
+                  << " cycle=" << g_tb_cycle
+                  << " reserve_scalar pc=0x" << std::hex << row.pc
+                  << " insn=0x" << mask_insn(row.insn, row.len)
+                  << std::dec
+                  << " len=" << static_cast<unsigned>(row.len)
+                  << " rob=" << static_cast<unsigned>(rob_value)
+                  << " dense_head_slot=" << static_cast<unsigned>(dut.io_denseSlotQueueHeadSlot)
+                  << " barrier=" << static_cast<unsigned>(dut.io_admittedMarkerDrainBarrier)
+                  << "\n";
+      }
       tick(dut);
       if (row_redirects(row)) {
         active_block_valid = false;
@@ -1931,13 +2066,14 @@ void commit_expected_row(
     if (!pending_commits.empty()) {
       const ObservedRow observed = pending_commits.front();
       pending_commits.erase(pending_commits.begin());
-      expect_row(observed, expected);
+      expect_row(observed, expected, &dut);
       write_dut_row(dut_out, observed);
       write_qemu_row(qemu_out, expected);
       if (expected.mem_valid && expected.mem_is_store && expected.mem_size == 8) {
         fetch_memory.store_u64(expected.mem_addr, expected.mem_wdata);
       }
       if (pending_commits.empty()) {
+        clear_inputs(dut);
         tick(dut);
       }
       return;
@@ -1965,7 +2101,7 @@ void commit_expected_row(
     if (!pending_commits.empty()) {
       const ObservedRow observed = pending_commits.front();
       pending_commits.erase(pending_commits.begin());
-      expect_row(observed, expected);
+      expect_row(observed, expected, &dut);
       write_dut_row(dut_out, observed);
       write_qemu_row(qemu_out, expected);
       if (expected.mem_valid && expected.mem_is_store && expected.mem_size == 8) {

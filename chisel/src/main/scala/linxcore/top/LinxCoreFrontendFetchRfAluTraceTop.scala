@@ -588,8 +588,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   denseSlots.io.flushValid := frontendPipeFlush
 
   path.io.d1 := denseSlots.io.outD1
+  path.io.d1.valid := denseSlots.io.outD1.valid && !admittedMarkerDrainBarrier
   path.io.slots := denseSlots.io.outSlots
-  path.io.validMask := denseSlots.io.outValidMask
+  path.io.validMask := Mux(admittedMarkerDrainBarrier, 0.U, denseSlots.io.outValidMask)
   path.io.flushValid := backendPipeFlush
   val localIncomingUsesLocal =
     path.io.decRenValid && path.io.decRenHeadUsesLocal

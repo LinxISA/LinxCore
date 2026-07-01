@@ -83,9 +83,9 @@ object GPRRenameCheckpointReference {
   def flush(state: State, flushBid: ROBIDValue, flushRid: ROBIDValue, baseOnBid: Boolean, entries: Int): (State, Set[Int]) = {
     val restoreBid = ROBIDReference.sub(flushBid, 1, entries)
     val needRestore = ROBIDReference.lessEqual(restoreBid, state.renamePtr, entries)
+    val restoreFromCheckpoint = needRestore && state.checkpointValid(restoreBid.value)
     var smap =
-      if (!needRestore) state.smap
-      else if (state.checkpointValid(restoreBid.value)) state.checkpoints(restoreBid.value)
+      if (restoreFromCheckpoint) state.checkpoints(restoreBid.value)
       else state.cmap
     var renamePtr = state.renamePtr
     if (needRestore) {
@@ -108,9 +108,23 @@ object GPRRenameCheckpointReference {
           mapQ = mapQ.updated(idx, entry.copy(valid = false))
         }
       }
-      val afterPrune = mapQ(idx)
-      if (afterPrune.valid && !baseOnBid && afterPrune.bid == flushBid) {
-        smap = smap.updated(afterPrune.archTag, afterPrune.physTag)
+    }
+
+    if (restoreFromCheckpoint) {
+      for ((entry, idx) <- mapQ.zipWithIndex) {
+        if (entry.valid && !baseOnBid && entry.bid == flushBid) {
+          smap = smap.updated(entry.archTag, entry.physTag)
+        }
+      }
+    } else {
+      for (arch <- state.smap.indices) {
+        val newest = mapQ.filter(entry => entry.valid && entry.archTag == arch).reduceOption { (lhs, rhs) =>
+          val lhsOlder =
+            ROBIDReference.less(lhs.bid, rhs.bid) ||
+              (lhs.bid == rhs.bid && ROBIDReference.less(lhs.rid, rhs.rid))
+          if (lhsOlder) rhs else lhs
+        }
+        newest.foreach(entry => smap = smap.updated(arch, entry.physTag))
       }
     }
 
@@ -234,6 +248,19 @@ class GPRRenameCheckpointSpec extends AnyFunSuite {
     assert(s5.smap(3) == 3)
     assert(s5.smap(4) == 4)
     assert(s5.mapQ.count(_.valid) == 1)
+  }
+
+  test("non-BID flush without checkpoints rebuilds smap from older surviving wrapped-BID mapQ entries") {
+    val oldLoopBid = ROBIDValue(valid = true, wrap = true, value = 2)
+    val markerBid = ROBIDValue(valid = true, wrap = true, value = 3)
+    val (s1, p24) = rename(initial(), archTag = 8, bid = oldLoopBid, rid = ROBIDValue(value = 1))
+    val (s2, released) = flush(s1, flushBid = markerBid, flushRid = ROBIDValue(value = 0), baseOnBid = false, entries = 8)
+
+    assert(p24 == 24)
+    assert(released.isEmpty)
+    assert(s2.renamePtr == ROBIDReference.sub(markerBid, 1, entries = 8))
+    assert(s2.smap(8) == 24)
+    assert(s2.mapQ.exists(e => e.valid && e.archTag == 8 && e.physTag == 24))
   }
 
   test("Chisel GPRRenameCheckpoint elaborates cleanup, map, checkpoint, and release outputs") {

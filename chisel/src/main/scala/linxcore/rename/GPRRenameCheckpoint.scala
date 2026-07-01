@@ -132,6 +132,7 @@ class GPRRenameCheckpoint(
   val restoreBid = ROBID.sub(io.cleanup.flush.req.bid, 1.U)
   val restoreNeeded = ROBID.lessEqual(restoreBid, renamePtr)
   val restoreCheckpointValid = checkpointValid(restoreBid.value)
+  val restoreFromCheckpoint = restoreNeeded && restoreCheckpointValid
   val restoreBase = Wire(Vec(archRegs, UInt(physTagWidth.W)))
   restoreBase := Mux(restoreCheckpointValid, checkpointMap(restoreBid.value), cmap)
 
@@ -162,6 +163,35 @@ class GPRRenameCheckpoint(
 
   val committedMapQMask = commitHitVec.asUInt
   val prunedMapQMask = flushPruneVec.asUInt
+  val flushSurvivorVec = Wire(Vec(mapQDepth, Bool()))
+  for (idx <- 0 until mapQDepth) {
+    flushSurvivorVec(idx) := mapQ(idx).valid && !flushPruneVec(idx)
+  }
+
+  val replaySurvivorMap = Wire(Vec(archRegs, UInt(physTagWidth.W)))
+  for (arch <- 0 until archRegs) {
+    val bestValid = Wire(Vec(mapQDepth + 1, Bool()))
+    val bestBid = Wire(Vec(mapQDepth + 1, new ROBID(entries)))
+    val bestRid = Wire(Vec(mapQDepth + 1, new ROBID(entries)))
+    val bestPhys = Wire(Vec(mapQDepth + 1, UInt(physTagWidth.W)))
+    bestValid(0) := false.B
+    bestBid(0) := 0.U.asTypeOf(new ROBID(entries))
+    bestRid(0) := 0.U.asTypeOf(new ROBID(entries))
+    bestPhys(0) := restoreBase(arch)
+    for (idx <- 0 until mapQDepth) {
+      val hit = flushSurvivorVec(idx) && mapQ(idx).archTag === arch.U
+      val newerThanBest =
+        !bestValid(idx) ||
+          ROBID.less(bestBid(idx), mapQ(idx).bid) ||
+          (ROBID.equal(bestBid(idx), mapQ(idx).bid) && ROBID.less(bestRid(idx), mapQ(idx).rid))
+      val take = hit && newerThanBest
+      bestValid(idx + 1) := bestValid(idx) || hit
+      bestBid(idx + 1) := Mux(take, mapQ(idx).bid, bestBid(idx))
+      bestRid(idx + 1) := Mux(take, mapQ(idx).rid, bestRid(idx))
+      bestPhys(idx + 1) := Mux(take, mapQ(idx).physTag, bestPhys(idx))
+    }
+    replaySurvivorMap(arch) := bestPhys(mapQDepth)
+  }
 
   val commitReleaseVec = Wire(Vec(physRegs, Bool()))
   val flushReleaseVec = Wire(Vec(physRegs, Bool()))
@@ -200,7 +230,11 @@ class GPRRenameCheckpoint(
   when(flushFire) {
     when(restoreNeeded) {
       nextRenamePtr := restoreBid
+    }
+    when(restoreFromCheckpoint) {
       nextSmap := restoreBase
+    }.elsewhen(restoreNeeded) {
+      nextSmap := replaySurvivorMap
     }
     for (idx <- 0 until mapQDepth) {
       when(flushPruneVec(idx)) {
@@ -209,7 +243,7 @@ class GPRRenameCheckpoint(
       }
     }
     for (idx <- 0 until mapQDepth) {
-      when(flushSameBidSurvivorVec(idx)) {
+      when(restoreFromCheckpoint && flushSameBidSurvivorVec(idx)) {
         nextSmap(mapQ(idx).archTag) := mapQ(idx).physTag
       }
     }
@@ -277,8 +311,8 @@ class GPRRenameCheckpoint(
   io.cleanupReady := true.B
   io.cleanupFlushApplied := flushFire
   io.cleanupReplayObserved := replayFire
-  io.restoreFromCheckpoint := flushFire && restoreNeeded && restoreCheckpointValid
-  io.restoreFromCommitMap := flushFire && restoreNeeded && !restoreCheckpointValid
+  io.restoreFromCheckpoint := flushFire && restoreFromCheckpoint
+  io.restoreFromCommitMap := flushFire && !restoreFromCheckpoint
   io.cleanupThreadMismatch := cleanupValid && !cleanupTargetsStid0
 
   io.freeMask := freeMask

@@ -816,7 +816,7 @@ class DecodeRenameROBPath(
       !tuRetirePath.io.cleanupActive
   val blockScalarDoneFire = markerLifecycle.io.scalarDoneValid
   val blockScalarDoneBid = markerLifecycle.io.scalarDoneBid
-  blockScalarDoneSeq.io.flushValid := blockLifecycleFlush
+  blockScalarDoneSeq.io.flushValid := io.flushValid && !io.cleanup.valid
   blockScalarDoneSeq.io.inValid := blockScalarDoneFire
   blockScalarDoneSeq.io.inBid := blockScalarDoneBid
   allocator.io.blockScalarDoneValid := blockScalarDoneSeq.io.scalarDoneValid

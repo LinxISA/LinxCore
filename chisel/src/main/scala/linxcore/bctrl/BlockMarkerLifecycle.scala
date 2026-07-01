@@ -93,6 +93,8 @@ class BlockMarkerLifecycle(
   val activeCond = RegInit(VecInit(Seq.fill(stidCount)(false.B)))
   val activeUnconditionalRedirect = RegInit(VecInit(Seq.fill(stidCount)(false.B)))
   val activeClearsOnRobBlockLast = RegInit(VecInit(Seq.fill(stidCount)(false.B)))
+  val markerOwnedDonePending = RegInit(false.B)
+  val markerOwnedDoneBid = RegInit(0.U(bidWidth.W))
 
   private def matchesStid(stid: UInt): Vec[Bool] =
     VecInit((0 until stidCount).map(idx => stid === idx.U(stidWidth.W)))
@@ -189,7 +191,7 @@ class BlockMarkerLifecycle(
     markerStidInRange && markerFallthroughBoundary && !io.markerLifecycleConflict && !io.markerAllocReady &&
       markerAllocBlockedByActiveSlot && !io.retirePending
   val markerReady =
-    markerStidInRange && !io.markerLifecycleConflict &&
+    markerStidInRange && !markerOwnedDonePending && !io.markerLifecycleConflict &&
       (io.markerStop || markerRedirectBoundary || (markerFallthroughBoundary && io.markerAllocReady))
   val markerBoundaryFire = markerFallthroughBoundary && markerReady && io.markerAllocReady
   val markerBoundaryRedirectFire = markerRedirectBoundary && markerReady
@@ -221,7 +223,7 @@ class BlockMarkerLifecycle(
     io.retiredMarker.valid && io.retiredMarker.isLast && io.retiredMarker.blockBidValid &&
       io.robBlockLastValid && io.retiredMarker.blockBid === io.robBlockLastBid
   val retiredLifecycleIdle =
-    !decodeMarkerActive && !io.flushValid && !scalarRedirectScalarDoneFire &&
+    !markerOwnedDonePending && !decodeMarkerActive && !io.flushValid && !scalarRedirectScalarDoneFire &&
       (!io.robBlockLastValid || retiredMarkerOwnsBlockLast)
   val retiredMarkerConflict = io.markerLifecycleConflict && !retiredMarkerOwnsBlockLast
   val retiredReady =
@@ -235,6 +237,12 @@ class BlockMarkerLifecycle(
   val retiredMarkerFire = retiredBoundaryFire || retiredBoundaryRedirectFire || retiredStopFire
   val retiredScalarDoneFire =
     retiredActiveValid && (retiredStopFire || retiredBoundaryFire || retiredBoundaryRedirectFire)
+  val retiredRedirectOwnsMarkerOnlyBlock =
+    retiredBoundaryRedirectFire && io.retiredMarker.blockBidValid &&
+      (!retiredActiveValid || io.retiredMarker.blockBid =/= retiredActiveBid)
+  val liveScalarDoneFire =
+    markerScalarDoneFire || retiredScalarDoneFire || scalarRedirectScalarDoneFire || io.robBlockLastValid
+  val markerOwnedDoneFire = markerOwnedDonePending && !liveScalarDoneFire
 
   val markerSequentialPc = io.markerPc + io.markerInsnLen.pad(pcWidth)(pcWidth - 1, 0)
   val retiredSequentialPc = io.retiredMarker.pc + io.retiredMarker.len.pad(pcWidth)(pcWidth - 1, 0)
@@ -260,13 +268,26 @@ class BlockMarkerLifecycle(
   io.markerRedirectBoundaryFire := markerBoundaryRedirectFire
   io.markerStopFire := markerStopFire
   io.scalarDoneValid :=
-    markerScalarDoneFire || retiredScalarDoneFire || scalarRedirectScalarDoneFire || io.robBlockLastValid
+    markerScalarDoneFire || retiredScalarDoneFire || scalarRedirectScalarDoneFire ||
+      io.robBlockLastValid || markerOwnedDoneFire
   io.scalarDoneBid :=
     Mux(markerScalarDoneFire, markerActiveBid,
       Mux(retiredScalarDoneFire, retiredActiveBid,
-        Mux(scalarRedirectScalarDoneFire, scalarRedirectActiveBid, io.robBlockLastBid)))
+        Mux(scalarRedirectScalarDoneFire, scalarRedirectActiveBid,
+          Mux(io.robBlockLastValid, io.robBlockLastBid, markerOwnedDoneBid))))
   io.stopRedirectValid := markerRedirectValid || retiredRedirectValid
   io.stopRedirectPc := Mux(retiredRedirectValid, retiredActiveTarget, markerActiveTarget)
+
+  when(io.flushValid) {
+    markerOwnedDonePending := false.B
+    markerOwnedDoneBid := 0.U
+  }.elsewhen(markerOwnedDoneFire) {
+    markerOwnedDonePending := false.B
+    markerOwnedDoneBid := 0.U
+  }.elsewhen(retiredRedirectOwnsMarkerOnlyBlock) {
+    markerOwnedDonePending := true.B
+    markerOwnedDoneBid := io.retiredMarker.blockBid
+  }
 
   when(io.flushValid) {
     for (idx <- 0 until stidCount) {

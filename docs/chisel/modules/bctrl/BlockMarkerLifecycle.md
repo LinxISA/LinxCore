@@ -49,6 +49,12 @@ with retire-time scalar-done/redirect policy. The retired-marker lane cannot
 simply replace decode-time marker consumption in the live top until the design
 splits or otherwise proves how following scalar rows receive the new boundary
 BID before the marker row retires.
+R192 adds the marker-row redirect boundary drain rule found by the filtered
+marker-row QEMU gate. A retired redirecting boundary can own a row-allocated
+BROB entry even when the marker redirects instead of opening a scalar body.
+The lifecycle now completes the previous active block first, records the
+marker-owned boundary BID, and emits a later scalar-done event for that
+marker-only block when the scalar-done port is free.
 
 ## Interface
 
@@ -117,8 +123,15 @@ BID before the marker row retires.
   was allocated before dispatch.
 - A retired boundary that redirects the previous active direct/call or taken
   conditional block completes the old active BID and clears active state without
-  installing a new boundary. A retired stop marker completes and clears the
-  active context.
+  installing a new active scalar block. If that retired boundary also carries a
+  different row-owned marker BID, the marker-only BID is queued for scalar-done
+  on a later cycle. A retired stop marker completes and clears the active
+  context.
+- Pending marker-owned completion blocks new marker/retired-marker lifecycle
+  consumption until the queued BID has used the scalar-done port. Live scalar
+  done sources keep priority; the queued marker-only BID fires only when no
+  marker, retired marker, scalar redirect, or ROB block-last source owns the
+  port.
 - A retired fallthrough boundary with `blockBidValid=false` is deliberately not
   ready. That malformed row remains queued instead of being silently dropped.
 
@@ -149,6 +162,12 @@ BID assignment into this module while the decode context exists.
 R177 wires the decode context into `DecodeRenameROBPath` behind
 `useMarkerDecodeContext=true`; this lifecycle owner remains the default live
 source while `skipBlockMarkers=true` is still used by the top-level harness.
+R192 covers the marker-row mode that does use `useMarkerDecodeContext=true`.
+The model order is still row-owned: the redirecting marker row allocated its
+own BROB entry before dispatch, so even when its retire-time policy redirects
+and does not open a scalar body, the row-owned BID must become completed and
+retired. The Chisel lifecycle preserves that by separating previous-active BID
+completion from the marker-only row BID completion.
 
 The C++ model carries block-control context per scalar thread. `BRQ` owns
 `stashH[stid]` and `brq[stid]` and sizes both arrays from
@@ -171,6 +190,7 @@ still instantiates one lane.
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPathSpec`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r168-block-marker-lifecycle-smoke --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 30 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r172-retired-marker-lifecycle-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r192-marker-row-brob-retire-drain-128-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 128 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 
 The R172 focused test adds retired-boundary and malformed-boundary reference
 cases. The live CoreMark gate captured 6000 QEMU rows, normalized 5138 QEMU/DUT
@@ -185,3 +205,10 @@ manifest recorded dirty LinxCore `b8b94fa82e4f67d3c322b71fd92ccd11b4b36786`
 for the uncommitted packet, clean LinxCoreModel
 `3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU
 `08783bb4572df9c5f6623bed0d468641befab762`.
+R192 adds a reference case for a marker-owned redirect boundary block. The
+focused R192 live CoreMark marker-row gate
+`generated/r192-marker-row-brob-retire-drain-128-qemu-elf-xcheck` admitted and
+filtered 36 marker commits, normalized 88 QEMU/DUT rows, compared 88 rows, and
+passed with zero mismatches and no CBSTOP divergence. The default skip-mode
+regression `generated/r192-default-skip-regression-qemu-elf-xcheck` compared
+the three-row prefix with zero marker admissions and zero mismatches.

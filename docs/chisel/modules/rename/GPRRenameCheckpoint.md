@@ -131,9 +131,12 @@ After the optional restore, mapQ rows matching the flush request are pruned:
 - `baseOnBid`: prune rows with `flush.bid <= row.bid`.
 - non-BID: prune rows with `(flush.bid, flush.rid) <= (row.bid, row.rid)`.
 
-For non-BID flushes, surviving same-BID mapQ rows are re-applied into `smap`.
-This preserves the model loop that restores older same-block speculative
-renames after pruning younger rows.
+After pruning, surviving mapQ rows are re-applied into `smap` in model age
+order. This includes older surviving rows from wrapped BIDs when no valid
+checkpoint is available, not only rows in the same BID as the cleanup point.
+The fold starts from the checkpoint or `cmap` restore image and replays each
+valid survivor whose `(bid,rid)` is older than the flush point, so speculative
+mappings that remain architecturally live are not lost on redirect cleanup.
 
 `renameReplayValid` is observed but does not mutate scalar GPR maps in this
 packet. SGPR/ClockHands replay and queue cleanup belong to later rename
@@ -169,6 +172,8 @@ The current test reference covers:
 - ordered block commit including same-arch mapQ rows,
 - base-on-BID flush restore and pruning,
 - non-BID flush restoration of surviving same-BID mapQ rows,
+- non-BID flush restoration of older surviving wrapped-BID mapQ rows when no
+  checkpoint is valid,
 - no identity-tag release on first architectural commits,
 - live-reference protection while `smap`, `cmap`, or `mapQ` still mention a
   physical tag,

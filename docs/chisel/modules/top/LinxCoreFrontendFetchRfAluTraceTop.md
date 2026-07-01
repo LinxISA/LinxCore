@@ -531,6 +531,14 @@ passes with `marker_rows_admitted=1`, `marker_commits_filtered=1`,
 prefix remains in skip mode and passes with `marker_rows_admitted=0`,
 `marker_commits_filtered=0`, `compared=3`, and `mismatches=0`. This is still a
 non-default filtered comparator path, not the final live CoreMark top switch.
+R192 extends marker-row mode through the repeated-loop 128-row CoreMark window.
+While the marker-row wrapper is holding the dense queue at an admitted marker
+drain barrier, the backend decode inputs are explicitly invalidated so older
+scalar rows cannot be recommitted from the held dense slot payload. The
+filtered marker-row gate now admits and filters 36 marker commits, compares 88
+scalar/macro rows, and passes with zero mismatches. The default live top still
+uses skip mode on the same short prefix, admits zero marker rows, and compares
+the three-row prefix with zero mismatches.
 
 ## Interface
 
@@ -1348,6 +1356,15 @@ records `status: "pass"`, `summary.compared_rows: 88`, and
 because the reduced QEMU-row selector does not yet support
 `pc=0x40005576`, `insn=0xffe13319`.
 
+The R192 marker-row manifest at
+`generated/r192-marker-row-brob-retire-drain-128-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 88`, and
+`summary.mismatch_count: 0` after admitting and filtering 36 marker commits.
+The paired default skip-mode manifest at
+`generated/r192-default-skip-regression-qemu-elf-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 3`,
+`summary.mismatch_count: 0`, and zero marker-row admissions.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only FrontendFetchPacketSource`
@@ -1381,6 +1398,8 @@ because the reduced QEMU-row selector does not yet support
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r113-coremark-or-c-ldi-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 19 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r118-coremark-sdi-42-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 42 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r192-marker-row-brob-retire-drain-128-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 128 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r192-default-skip-regression-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 3 --capture-rows 16 --allow-block-markers --max-seconds 10 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-1024-frontier-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r126-coremark-fret-scalar-redirect-1415-qemu-elf-xcheck-pass --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1415 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r127-brob-flushed-reuse-1461-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1461 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`

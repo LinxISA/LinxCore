@@ -64,6 +64,8 @@ object BlockMarkerLifecycleReference {
     private val activeCond = Array.fill(stidCount)(false)
     private val activeUnconditionalRedirect = Array.fill(stidCount)(false)
     private val activeClearsOnRobBlockLast = Array.fill(stidCount)(false)
+    private var markerOwnedDonePending = false
+    private var markerOwnedDoneBid = BigInt(0)
 
     private def sameSlot(a: BigInt, b: BigInt): Boolean =
       (a % entries) == (b % entries)
@@ -145,7 +147,7 @@ object BlockMarkerLifecycleReference {
         markerStidInRange && markerFallthroughBoundary && !in.markerLifecycleConflict && !in.markerAllocReady &&
           markerAllocBlockedByActiveSlot && !in.retirePending
       val markerReady =
-        markerStidInRange && !in.markerLifecycleConflict &&
+        markerStidInRange && !markerOwnedDonePending && !in.markerLifecycleConflict &&
           (in.markerStop || markerRedirectBoundary || (markerFallthroughBoundary && in.markerAllocReady))
       val markerAllocFire = markerFallthroughBoundary && markerReady && in.markerAllocReady
       val markerBoundaryRedirectFire = markerRedirectBoundary && markerReady
@@ -175,7 +177,7 @@ object BlockMarkerLifecycleReference {
         in.retiredMarkerValid && in.retiredMarkerIsLast && in.retiredMarkerBlockBidValid &&
           in.robBlockLastValid && in.retiredMarkerBlockBid == in.robBlockLastBid
       val retiredLifecycleIdle =
-        !decodeMarkerActive && !in.flushValid && !scalarRedirectScalarDoneFire &&
+        !markerOwnedDonePending && !decodeMarkerActive && !in.flushValid && !scalarRedirectScalarDoneFire &&
           (!in.robBlockLastValid || retiredMarkerOwnsBlockLast)
       val retiredMarkerConflict = in.markerLifecycleConflict && !retiredMarkerOwnsBlockLast
       val retiredStidInRange = retiredLane.nonEmpty
@@ -190,12 +192,19 @@ object BlockMarkerLifecycleReference {
       val retiredMarkerFire = retiredMarkerBoundaryFire || retiredMarkerRedirectFire || retiredMarkerStopFire
       val retiredScalarDoneFire =
         retiredActiveValid && (retiredMarkerStopFire || retiredMarkerBoundaryFire || retiredMarkerRedirectFire)
+      val retiredRedirectOwnsMarkerOnlyBlock =
+        retiredMarkerRedirectFire && in.retiredMarkerBlockBidValid &&
+          (!retiredActiveValid || in.retiredMarkerBlockBid != retiredActiveBid)
+      val liveScalarDoneFire =
+        markerScalarDoneFire || retiredScalarDoneFire || scalarRedirectScalarDoneFire || in.robBlockLastValid
+      val markerOwnedDoneFire = markerOwnedDonePending && !liveScalarDoneFire
 
       val scalarDoneBid =
         if (markerScalarDoneFire) Some(markerActiveBid)
         else if (retiredScalarDoneFire) Some(retiredActiveBid)
         else if (scalarRedirectScalarDoneFire) Some(scalarRedirectActiveBid)
         else if (in.robBlockLastValid) Some(in.robBlockLastBid)
+        else if (markerOwnedDoneFire) Some(markerOwnedDoneBid)
         else None
       val stopRedirectPc =
         if ((markerStopFire || markerBoundaryRedirectFire) && markerActiveValid &&
@@ -218,6 +227,17 @@ object BlockMarkerLifecycleReference {
         markerPreRetireFire = markerPreRetireFire,
         scalarDoneBid = scalarDoneBid,
         stopRedirectPc = stopRedirectPc)
+
+      if (in.flushValid) {
+        markerOwnedDonePending = false
+        markerOwnedDoneBid = 0
+      } else if (markerOwnedDoneFire) {
+        markerOwnedDonePending = false
+        markerOwnedDoneBid = 0
+      } else if (retiredRedirectOwnsMarkerOnlyBlock) {
+        markerOwnedDonePending = true
+        markerOwnedDoneBid = in.retiredMarkerBlockBid
+      }
 
       if (in.flushValid) {
         activeValid.indices.foreach(clear)
@@ -376,6 +396,42 @@ class BlockMarkerLifecycleSpec extends AnyFunSuite {
 
     val clear = state.step(Input())
     assert(clear.activeBid.isEmpty)
+  }
+
+  test("reference completes marker-owned redirect boundary block after active block") {
+    val state = new State(entries = 8)
+
+    state.step(Input(
+      retiredMarkerValid = true,
+      retiredMarkerBoundary = true,
+      retiredMarkerTarget = 0x40005566L,
+      retiredMarkerKind = Kind.Direct,
+      retiredMarkerBlockBidValid = true,
+      retiredMarkerBlockBid = 0x44))
+
+    val redirect = state.step(Input(
+      retiredMarkerValid = true,
+      retiredMarkerBoundary = true,
+      retiredMarkerPc = 0x40005574L,
+      retiredMarkerTarget = 0x40005566L,
+      retiredMarkerInsnLen = 2,
+      retiredMarkerKind = Kind.Direct,
+      retiredMarkerBlockBidValid = true,
+      retiredMarkerBlockBid = 0x45))
+    assert(redirect.activeBid.contains(0x44))
+    assert(redirect.retiredMarkerReady)
+    assert(redirect.retiredMarkerFire)
+    assert(redirect.scalarDoneBid.contains(0x44))
+    assert(redirect.stopRedirectPc.contains(0x40005566L))
+
+    val markerOnlyDone = state.step(Input())
+    assert(markerOnlyDone.activeBid.isEmpty)
+    assert(!markerOnlyDone.retiredMarkerReady)
+    assert(markerOnlyDone.scalarDoneBid.contains(0x45))
+
+    val idle = state.step(Input())
+    assert(idle.activeBid.isEmpty)
+    assert(idle.scalarDoneBid.isEmpty)
   }
 
   test("reference backpressures malformed retired marker boundaries") {
