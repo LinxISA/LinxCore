@@ -14,6 +14,12 @@ from accepted resolved body-end rows and uses this module for the trained
 local header window; same-cycle cold cuts still use
 `ReducedBfuResolvedBodyEndOwner` as a resolved fallback.
 
+In R154 a local-window cut also feeds a registered runtime body-end feedback
+event into `ReducedBfuResolvedBodyEndSource`. That feedback is one cycle later
+than the cut, so it does not create a combinational source-advance loop; it
+only retrains or verifies the resolved body-end path after a local prediction
+has already cut the packet.
+
 ## Interface
 
 | Direction | Signal | Type | Description |

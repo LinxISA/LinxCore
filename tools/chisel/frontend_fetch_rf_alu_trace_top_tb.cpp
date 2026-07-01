@@ -1099,6 +1099,12 @@ struct BfuGeometryDiagnostics {
   std::uint64_t cut_arm_accept_count = 0;
   std::uint64_t cut_arm_mismatch_count = 0;
   std::uint64_t local_body_cut_prefix_count = 0;
+  std::uint64_t resolved_source_runtime_selected_count = 0;
+  std::uint64_t resolved_source_replay_selected_count = 0;
+  std::uint64_t resolved_source_runtime_feedback_count = 0;
+  std::uint64_t resolved_source_runtime_replay_comparable_count = 0;
+  std::uint64_t resolved_source_runtime_replay_match_count = 0;
+  std::uint64_t resolved_source_runtime_replay_mismatch_count = 0;
 };
 
 struct FetchDenseWindowResult {
@@ -1141,6 +1147,24 @@ void observe_bfu_geometry_diagnostics(
   }
   if (dut.io_reducedBfuResolvedBodyEndAccepted) {
     ++stats.resolved_accept_count;
+  }
+  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeSelected) {
+    ++stats.resolved_source_runtime_selected_count;
+  }
+  if (dut.io_reducedBfuResolvedBodyEndSourceReplaySelected) {
+    ++stats.resolved_source_replay_selected_count;
+  }
+  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeFeedbackFire) {
+    ++stats.resolved_source_runtime_feedback_count;
+  }
+  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeReplayComparable) {
+    ++stats.resolved_source_runtime_replay_comparable_count;
+    if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeReplayMismatch) {
+      ++stats.resolved_source_runtime_replay_mismatch_count;
+    }
+    if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeReplayMatch) {
+      ++stats.resolved_source_runtime_replay_match_count;
+    }
   }
   if (dut.io_reducedBfuBodyCutArmComparable) {
     ++stats.cut_arm_comparable_count;
@@ -1883,6 +1907,15 @@ int main(int argc, char **argv) {
               << " bfu_body_cut_arm_accepts=" << bfu_stats.cut_arm_accept_count
               << " bfu_body_cut_arm_mismatches=" << bfu_stats.cut_arm_mismatch_count
               << " bfu_local_body_cut_prefixes=" << bfu_stats.local_body_cut_prefix_count
+              << " bfu_resolved_source_runtime_selected=" << bfu_stats.resolved_source_runtime_selected_count
+              << " bfu_resolved_source_replay_selected=" << bfu_stats.resolved_source_replay_selected_count
+              << " bfu_resolved_source_runtime_feedback=" << bfu_stats.resolved_source_runtime_feedback_count
+              << " bfu_resolved_source_runtime_replay_comparable="
+              << bfu_stats.resolved_source_runtime_replay_comparable_count
+              << " bfu_resolved_source_runtime_replay_matches="
+              << bfu_stats.resolved_source_runtime_replay_match_count
+              << " bfu_resolved_source_runtime_replay_mismatches="
+              << bfu_stats.resolved_source_runtime_replay_mismatch_count
               << "\n";
   };
   if (captured_tail_superset) {

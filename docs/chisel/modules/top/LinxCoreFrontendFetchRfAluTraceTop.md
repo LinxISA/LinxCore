@@ -631,6 +631,12 @@ top therefore trains cut-eligible prediction only from accepted resolved
 body-end geometry and uses that same resolved event as the cold same-cycle cut
 fallback. Static geometry and `ReducedBfuBodyCutArm` stay diagnostic until a
 real branch/BFU resolver replaces the replay sideband.
+R154 adds `ReducedBfuResolvedBodyEndSource` before the resolved owner. The
+source still converts replay `headerPc`/`hsize`/`bsize` into the cold fallback
+body-end PC, but it can now prioritize a registered RTL local-cut feedback
+event produced after `ReducedBfuLocalBodyWindow` fires. This starts moving
+repeated body-end evidence into RTL-owned state without removing the replay
+oracle needed for the first cold FALL re-entry.
 R104 adds the first reduced block-lifecycle alignment for those marker slots.
 The model allocates BROB on `BSTART`, stamps following scalar instructions with
 the current block BID, and completes the current block on `BSTOP` through the

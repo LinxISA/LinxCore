@@ -7,7 +7,7 @@ import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
-import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuResolvedBodyEndOwner, ReducedBfuStaticGeometryProducer}
+import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -79,6 +79,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedBfuResolvedBodyEndInactiveDrop = Output(Bool())
   val reducedBfuResolvedBodyEndFlushDrop = Output(Bool())
   val reducedBfuResolvedBodyEndUnderflow = Output(Bool())
+  val reducedBfuResolvedBodyEndSourceRuntimeSelected = Output(Bool())
+  val reducedBfuResolvedBodyEndSourceReplaySelected = Output(Bool())
+  val reducedBfuResolvedBodyEndSourceRuntimeReplayComparable = Output(Bool())
+  val reducedBfuResolvedBodyEndSourceRuntimeReplayMatch = Output(Bool())
+  val reducedBfuResolvedBodyEndSourceRuntimeReplayMismatch = Output(Bool())
+  val reducedBfuResolvedBodyEndSourceRuntimeFeedbackFire = Output(Bool())
   val reducedBfuStaticExternalComparable = Output(Bool())
   val reducedBfuStaticExternalMatch = Output(Bool())
   val reducedBfuStaticExternalMismatch = Output(Bool())
@@ -336,17 +342,28 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
   val backendPipeFlush = io.frontendFlushValid || scalarRedirectPending
   val externalBfuGeometryValid = io.reducedBfuBodyValid
-  val externalBfuBodyBasePc = (io.reducedBfuHeaderPc + 2.U)(p.pcWidth - 1, 0)
-  val externalBfuBodyEndPc = (externalBfuBodyBasePc + io.reducedBfuBSizeBytes)(p.pcWidth - 1, 0)
+  val localBfuCutFeedbackValidReg = RegInit(false.B)
+  val localBfuCutFeedbackHeaderPcReg = RegInit(0.U(p.pcWidth.W))
+  val localBfuCutFeedbackHSizeBytesReg = RegInit(0.U(p.pcWidth.W))
+  val localBfuCutFeedbackBodyEndPcReg = RegInit(0.U(p.pcWidth.W))
   val staticBfuGeometry = Module(new ReducedBfuStaticGeometryProducer(p))
+  val resolvedBfuBodyEndSource = Module(new ReducedBfuResolvedBodyEndSource(p))
   val resolvedBfuBodyEnd = Module(new ReducedBfuResolvedBodyEndOwner(p))
+  resolvedBfuBodyEndSource.io.runtimeValid := localBfuCutFeedbackValidReg
+  resolvedBfuBodyEndSource.io.runtimeHeaderPc := localBfuCutFeedbackHeaderPcReg
+  resolvedBfuBodyEndSource.io.runtimeHSizeBytes := localBfuCutFeedbackHSizeBytesReg
+  resolvedBfuBodyEndSource.io.runtimeBodyEndPc := localBfuCutFeedbackBodyEndPcReg
+  resolvedBfuBodyEndSource.io.replayValid := externalBfuGeometryValid
+  resolvedBfuBodyEndSource.io.replayHeaderPc := io.reducedBfuHeaderPc
+  resolvedBfuBodyEndSource.io.replayHSizeBytes := io.reducedBfuHSizeBytes
+  resolvedBfuBodyEndSource.io.replayBSizeBytes := io.reducedBfuBSizeBytes
   resolvedBfuBodyEnd.io.flushValid := frontendPipeFlush || io.startValid || io.restartValid
   resolvedBfuBodyEnd.io.headerActive := staticBfuGeometry.io.headerActive
   resolvedBfuBodyEnd.io.activeHeaderPc := staticBfuGeometry.io.headerPc
-  resolvedBfuBodyEnd.io.resolvedValid := externalBfuGeometryValid
-  resolvedBfuBodyEnd.io.resolvedHeaderPc := io.reducedBfuHeaderPc
-  resolvedBfuBodyEnd.io.resolvedHSizeBytes := io.reducedBfuHSizeBytes
-  resolvedBfuBodyEnd.io.resolvedBodyEndPc := externalBfuBodyEndPc
+  resolvedBfuBodyEnd.io.resolvedValid := resolvedBfuBodyEndSource.io.resolvedValid
+  resolvedBfuBodyEnd.io.resolvedHeaderPc := resolvedBfuBodyEndSource.io.resolvedHeaderPc
+  resolvedBfuBodyEnd.io.resolvedHSizeBytes := resolvedBfuBodyEndSource.io.resolvedHSizeBytes
+  resolvedBfuBodyEnd.io.resolvedBodyEndPc := resolvedBfuBodyEndSource.io.resolvedBodyEndPc
   staticBfuGeometry.io.flushValid := frontendPipeFlush || io.startValid || io.restartValid
   staticBfuGeometry.io.f4UpdateFire := source.io.outFire
   staticBfuGeometry.io.f4Valid := f4.io.d1.valid
@@ -415,7 +432,25 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val frontendSlotCount = bodyCut.io.slotCount
   val effectiveSourceAdvanceBytes = bodyCut.io.advanceBytes
   val bodyCutRestartFire = source.io.outFire && reducedBodyCutActive
+  val localBfuCutFeedbackFire = bodyCutRestartFire && localBfuBodyWindow.io.geometryValid
   localBfuBodyWindow.io.cutFire := bodyCutRestartFire
+
+  when(frontendPipeFlush || io.startValid || io.restartValid || markerRedirectFire) {
+    localBfuCutFeedbackValidReg := false.B
+    localBfuCutFeedbackHeaderPcReg := 0.U
+    localBfuCutFeedbackHSizeBytesReg := 0.U
+    localBfuCutFeedbackBodyEndPcReg := 0.U
+  }.elsewhen(localBfuCutFeedbackFire) {
+    localBfuCutFeedbackValidReg := true.B
+    localBfuCutFeedbackHeaderPcReg := localBfuBodyWindow.io.headerPc
+    localBfuCutFeedbackHSizeBytesReg := localBfuBodyWindow.io.hsizeBytes
+    localBfuCutFeedbackBodyEndPcReg := bodyCut.io.cutPc
+  }.elsewhen(localBfuCutFeedbackValidReg) {
+    localBfuCutFeedbackValidReg := false.B
+    localBfuCutFeedbackHeaderPcReg := 0.U
+    localBfuCutFeedbackHSizeBytesReg := 0.U
+    localBfuCutFeedbackBodyEndPcReg := 0.U
+  }
 
   when(io.frontendFlushValid || io.restartValid || io.startValid) {
     markerRedirectPending := false.B
@@ -666,6 +701,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedBfuResolvedBodyEndInactiveDrop := resolvedBfuBodyEnd.io.inactiveDrop
   io.reducedBfuResolvedBodyEndFlushDrop := resolvedBfuBodyEnd.io.flushDrop
   io.reducedBfuResolvedBodyEndUnderflow := resolvedBfuBodyEnd.io.bodyEndUnderflow
+  io.reducedBfuResolvedBodyEndSourceRuntimeSelected := resolvedBfuBodyEndSource.io.selectedRuntime
+  io.reducedBfuResolvedBodyEndSourceReplaySelected := resolvedBfuBodyEndSource.io.selectedReplay
+  io.reducedBfuResolvedBodyEndSourceRuntimeReplayComparable := resolvedBfuBodyEndSource.io.runtimeReplayComparable
+  io.reducedBfuResolvedBodyEndSourceRuntimeReplayMatch := resolvedBfuBodyEndSource.io.runtimeReplayMatch
+  io.reducedBfuResolvedBodyEndSourceRuntimeReplayMismatch :=
+    resolvedBfuBodyEndSource.io.runtimeReplayHeaderMismatch ||
+      resolvedBfuBodyEndSource.io.runtimeReplayHSizeMismatch ||
+      resolvedBfuBodyEndSource.io.runtimeReplayBodyEndMismatch
+  io.reducedBfuResolvedBodyEndSourceRuntimeFeedbackFire := localBfuCutFeedbackFire
   io.reducedBfuStaticExternalComparable := staticExternalComparable
   io.reducedBfuStaticExternalMatch := staticExternalMatch
   io.reducedBfuStaticExternalMismatch :=

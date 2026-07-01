@@ -14,6 +14,10 @@ also provides the same-cycle cold-cut geometry when the current F4 packet is
 the packet that proves the body end. The external replay row is still temporary;
 a real branch/BFU resolver must eventually drive this interface.
 
+R154 inserts `ReducedBfuResolvedBodyEndSource` in front of this owner. Replay
+still supplies the cold fallback, but registered local body-cut feedback can now
+drive the same normalized owner path before replay once available.
+
 ## Interface
 
 | Direction | Signal | Type | Description |
