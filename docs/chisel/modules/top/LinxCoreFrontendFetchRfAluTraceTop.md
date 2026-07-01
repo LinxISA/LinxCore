@@ -481,6 +481,14 @@ clean at that depth: 342483 static external matches, zero body-cut arm
 mismatches, and 114159 promoted runtime body-end replay comparisons all match
 with zero replay mismatches or overwrites.
 
+R166 extends the same reduced live CoreMark path to 3200000 raw QEMU rows. The
+QEMU capture produced 3199866 reduced expected rows, the generated-RTL
+comparator normalizes 2970995 QEMU/DUT rows, and the run passes with 2970994
+compared rows and zero mismatches. BFU runtime-promotion diagnostics remain
+clean at that depth: 685341 static external matches, zero body-cut arm
+mismatches, and 228445 promoted runtime body-end replay comparisons all match
+with zero replay mismatches or overwrites.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -1355,6 +1363,7 @@ because the reduced QEMU-row selector does not yet support
 - `BUILD_DIR=/Users/zhoubot/linx-isa/rtl/LinxCore/generated/r163-coremark-next-frontier-400000-qemu-elf-xcheck FETCH_ELF=/Users/zhoubot/linx-isa/rtl/LinxCore/tests/benchmarks/build/coremark_real.elf FETCH_QEMU_TRACE=/Users/zhoubot/linx-isa/rtl/LinxCore/generated/r163-coremark-next-frontier-400000-qemu-elf-xcheck/traces/qemu.live.raw.jsonl FETCH_QEMU_MAX_ROWS=0 FETCH_QEMU_ALLOW_BLOCK_MARKERS=1 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r164-coremark-next-frontier-800000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 800000 --allow-block-markers --allow-block-loop-reentry --max-seconds 1440 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r165-coremark-next-frontier-1600000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1600000 --allow-block-markers --allow-block-loop-reentry --max-seconds 2880 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r166-coremark-next-frontier-3200000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 3200000 --allow-block-markers --allow-block-loop-reentry --max-seconds 5760 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedBfuLocalBodyWindow`
