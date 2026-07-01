@@ -842,12 +842,16 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Scale the R192 marker-row filtered comparator beyond the 128-row CoreMark
+1. Scale the R194 marker-row filtered comparator beyond the 512-row CoreMark
    repeated-loop window. R178 adds `LinxCoreFrontendFetchRfAluMarkerRowsTraceTop`,
    R179 proves the wrapper admits the first `C.BSTART` row in generated RTL,
    R180 adds `--marker-rows` to the QEMU/Verilator gate, and R192 proves
    admitted marker rows through redirect cleanup with 36 filtered marker
-   commits and 88 compared scalar/macro rows. The next packet should grow that
+   commits and 88 compared scalar/macro rows. R194 proves the same admitted
+   marker path at 512 raw QEMU rows with 161 filtered marker commits and 337
+   compared scalar/macro rows; it also fixes the generated-RTL harness rule for
+   bounded captures that end on an admitted marker by draining only marker
+   commits after the final expected row. The next packet should grow that
    filtered policy while watching marker-only BROB retire drain, loop re-entry,
    stop/redirect boundaries, and default skip-mode parity before changing the
    default live CoreMark top.
@@ -861,10 +865,12 @@ Closeout:
    mode a named top-level wrapper, R179 proves the wrapper in generated RTL,
    and R180 gives it a filtered QEMU comparator path for the first CoreMark
    prefix. R192 adds marker-owned redirect-boundary BROB completion and keeps
-   sequencer retire pulses alive across redirect cleanup. The reduced live top
-   still uses `skipBlockMarkers=true`; remove marker skipping only after the
-   filtered marker-row path scales beyond the R192 window and its lifecycle
-   side effects are checked across broader stops and redirects.
+   sequencer retire pulses alive across redirect cleanup. R194 scales the
+   filtered marker-row path to 512 raw QEMU rows and keeps marker-only tail
+   commits out of the scalar comparator. The reduced live top still uses
+   `skipBlockMarkers=true`; remove marker skipping only after the filtered
+   marker-row path scales beyond the R194 window and its lifecycle side effects
+   are checked across broader stops and redirects.
 3. Replace the temporary replay resolved-event source with real branch/BFU
    resolver outputs. R153 has resolved cold-cut fallback and local
    header-window arming, but external QEMU metadata still provides body-end

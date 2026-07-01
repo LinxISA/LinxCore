@@ -1195,6 +1195,10 @@ Update skills for:
 - a reduced live RF/ALU store rule where the top may bypass store-dispatch
   residency only while ALU execute owns the compared store sideband and the
   STA/STD execution plus STQ commit/free owners are absent.
+- a marker-row comparator rule where a bounded capture ending on an admitted
+  marker must drain and filter marker-shaped commits after the final scalar
+  expected row, while treating any scalar commit past the captured prefix as a
+  failure.
 
 Do not update skills for wording cleanup, one-off test vectors, or module-local
 implementation detail already captured in that module page.

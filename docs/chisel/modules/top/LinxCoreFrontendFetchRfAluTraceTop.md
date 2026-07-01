@@ -540,6 +540,16 @@ scalar/macro rows, and passes with zero mismatches. The default live top still
 uses skip mode on the same short prefix, admits zero marker rows, and compares
 the three-row prefix with zero mismatches.
 
+R194 scales the same admitted-marker comparator to a 512-row CoreMark capture.
+The first probe exposed a harness tail-prefix issue rather than an RTL
+mismatch: the bounded expected stream can end on a legal admitted marker, and
+that marker-shaped ROB commit may retire after the last compared scalar row.
+The generated-RTL driver now drains only pending marker commits at end of
+stream, validates them against the expected skip rows, and still fails if any
+scalar commit appears past the captured prefix. The promoted 512-row marker-row
+gate admits and filters 161 marker commits, compares 337 normalized QEMU/DUT
+rows, and passes with zero mismatches.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |

@@ -2052,6 +2052,64 @@ void wait_for_admitted_marker_redirect(
   std::exit(1);
 }
 
+void drain_tail_marker_commits(
+    VLinxCoreFrontendFetchRfAluTraceTop &dut,
+    std::vector<ObservedRow> &pending_commits,
+    std::vector<ExpectedRow> &filtered_marker_commits,
+    std::uint64_t &marker_commit_filter_count,
+    FetchMemoryImage &fetch_memory) {
+  for (int cycle = 0; cycle < 64; ++cycle) {
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
+    if (filtered_marker_commits.empty()) {
+      return;
+    }
+    if (!pending_commits.empty()) {
+      std::cerr << "frontend fetch RF ALU saw scalar commit while draining tail marker"
+                << " marker_pc=0x" << std::hex << filtered_marker_commits.front().pc
+                << " observed_pc=0x" << pending_commits.front().pc << std::dec
+                << "\n";
+      std::exit(1);
+    }
+
+    clear_inputs(dut);
+    eval_with_load_lookup(dut, fetch_memory);
+    if (dut.io_rfStateError) {
+      std::cerr << "frontend fetch RF ALU reported RF state error while draining tail marker\n";
+      std::exit(1);
+    }
+    if (dut.io_executeUnsupported) {
+      std::cerr << "execute reported unsupported opcode while draining tail marker opcode="
+                << static_cast<unsigned>(dut.io_executeUnsupportedOpcode) << "\n";
+      std::exit(1);
+    }
+    if (dut.io_executeCompleteValid && dut.io_completeIgnored) {
+      std::cerr << "execute completion was ignored while draining tail marker"
+                << " rob=" << static_cast<unsigned>(dut.io_executeCompleteRobValue)
+                << "\n";
+      std::exit(1);
+    }
+    const std::uint64_t tail_marker_pc = filtered_marker_commits.front().pc;
+    collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU tail marker drain");
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
+    if (!pending_commits.empty()) {
+      std::cerr << "frontend fetch RF ALU saw scalar commit after tail marker filtering"
+                << " marker_pc=0x" << std::hex << tail_marker_pc
+                << " observed_pc=0x" << pending_commits.front().pc << std::dec
+                << "\n";
+      std::exit(1);
+    }
+    tick(dut);
+  }
+
+  if (!filtered_marker_commits.empty()) {
+    std::cerr << "frontend fetch RF ALU tail marker did not retire"
+              << " marker_pc=0x" << std::hex << filtered_marker_commits.front().pc
+              << " next_pc=0x" << filtered_marker_commits.front().next_pc
+              << std::dec << "\n";
+    std::exit(1);
+  }
+}
+
 void commit_expected_row(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const ExpectedRow &expected,
@@ -2430,9 +2488,17 @@ int main(int argc, char **argv) {
   }
 
   if (!filtered_marker_commits.empty()) {
+    drain_tail_marker_commits(
+        dut,
+        pending_commits,
+        filtered_marker_commits,
+        marker_commits_filtered,
+        fetch_memory);
+  }
+  if (!filtered_marker_commits.empty()) {
     std::cerr << "frontend fetch RF ALU trace top has unfiltered marker commits="
               << filtered_marker_commits.size()
-              << " next_pc=0x" << std::hex << filtered_marker_commits.front().pc
+              << " pc=0x" << std::hex << filtered_marker_commits.front().pc
               << std::dec << "\n";
     return 1;
   }
