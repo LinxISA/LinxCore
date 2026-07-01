@@ -16,6 +16,7 @@ MAX_SECONDS="${MAX_SECONDS:-30}"
 PC_LO=""
 PC_HI=""
 ALLOW_BLOCK_MARKERS=0
+ALLOW_BLOCK_LOOP_REENTRY=0
 
 usage() {
   cat <<USAGE
@@ -31,6 +32,8 @@ Options:
   --pc-lo <hex>           Optional QEMU commit-trace PC filter low bound
   --pc-hi <hex>           Optional QEMU commit-trace PC filter high bound
   --allow-block-markers   Preserve legal BSTART/BSTOP rows as DUT-only skip rows
+  --allow-block-loop-reentry
+                          Allow dynamic FALL-block re-entry rows in the QEMU reducer
 
 This wrapper captures a bounded QEMU commit JSONL prefix from a direct-boot ELF,
 validates that the selected rows are inside the current reduced scalar
@@ -53,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --pc-lo) PC_LO="$2"; shift 2 ;;
     --pc-hi) PC_HI="$2"; shift 2 ;;
     --allow-block-markers) ALLOW_BLOCK_MARKERS=1; shift ;;
+    --allow-block-loop-reentry) ALLOW_BLOCK_LOOP_REENTRY=1; shift ;;
     --)
       shift
       QEMU_ARGS=("$@")
@@ -256,24 +260,25 @@ if [[ ! -s "${QEMU_TRACE}" ]]; then
 fi
 
 EXPECTED_PREVIEW="${TRACE_DIR}/qemu.live.expected.preview.jsonl"
+row_args=(
+  --input "${QEMU_TRACE}"
+  --output "${EXPECTED_PREVIEW}"
+  --max-rows "${EXPECTED_ROWS}"
+)
 if [[ "${ALLOW_BLOCK_MARKERS}" == "1" ]]; then
-  python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" \
-    --input "${QEMU_TRACE}" \
-    --output "${EXPECTED_PREVIEW}" \
-    --max-rows "${EXPECTED_ROWS}" \
-    --allow-block-markers
-else
-  python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" \
-    --input "${QEMU_TRACE}" \
-    --output "${EXPECTED_PREVIEW}" \
-    --max-rows "${EXPECTED_ROWS}"
+  row_args+=(--allow-block-markers)
 fi
+if [[ "${ALLOW_BLOCK_LOOP_REENTRY}" == "1" ]]; then
+  row_args+=(--allow-block-loop-reentry)
+fi
+python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" "${row_args[@]}"
 
 BUILD_DIR="${BUILD_DIR}" \
 FETCH_ELF="${ELF}" \
 FETCH_QEMU_TRACE="${QEMU_TRACE}" \
 FETCH_QEMU_MAX_ROWS="${EXPECTED_ROWS}" \
 FETCH_QEMU_ALLOW_BLOCK_MARKERS="${ALLOW_BLOCK_MARKERS}" \
+FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY="${ALLOW_BLOCK_LOOP_REENTRY}" \
 bash "${FETCH_RUNNER}"
 
 MANIFEST="${REPORT_DIR}/crosscheck_manifest.json"

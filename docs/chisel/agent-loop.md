@@ -607,6 +607,7 @@ These packets remain the required base before broad module promotion:
 | R137 | CoreMark `CSEL` model/QEMU source-order divergence packet | `git diff --check`, `python3 tools/chisel/frontend_fetch_rf_alu_qemu_rows.py --input generated/r136-next-frontier-1660-qemu-probe/traces/qemu.live.raw.jsonl --output /tmp/r137-csel-check.jsonl --max-rows 0 --allow-block-markers` is expected to fail at `pc=0x40005d32` because `OP_CSEL` remains unsupported; evidence collected from Sail `exec_csel`, LinxCoreModel `Compound.cpp`, fetched `origin/SuperScalarModel`, QEMU `trans_csel`, and the 1660-row QEMU probe. LinxCoreModel/Sail select `SrcL` when `SrcP != 0`; QEMU selects `SrcR` when `SrcP != 0`; `docs/chisel/issues.md` records `CHISEL-ISSUE-003`. No RTL CSEL support is promoted until the source-order contract is resolved. |
 | R138 | CoreMark `CSEL` model-aligned source-order packet | Local QEMU scalar `trans_csel`, LLVM MC lowering, reduced Chisel `OP_CSEL`, and the QEMU-row reducer are aligned to LinxCoreModel/Sail true-to-`SrcL` semantics. Focused gates: `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, LLVM `csel-source-order.ll`, and AVS `05_move.c` literal CSEL tests after rebuilding the affected tools. The reduced row schema still only admits CSEL when `SrcP` is a tracked T/U local source. |
 | R139 | CoreMark `LBUI` local-T byte-load packet | `git diff --check`, `frontend_fetch_rf_alu_qemu_rows.py --self-test`, `run_chisel_tests.sh --only ReducedScalarAluExecute`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, and `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r139-lbui-1642-qemu-elf-xcheck --qemu-bin /Users/zhoubot/linx-isa/emulator/qemu/build-linx/qemu-system-linx64 --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1642 --allow-block-markers --max-seconds 12 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` passed: 1642 raw rows captured, 1518 expected rows extracted, 1114 normalized rows compared, 0 mismatches. A 1660-row probe now fails later at `pc=0x40005d94` with dense-slot queue not drained while a conditional marker is active and execute/issue are still busy. |
+| R142 | CoreMark FALL block re-entry row-source diagnostic | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, shell syntax checks for the live-fetch RF/ALU wrappers, and a 1900-row CoreMark QEMU probe. Strict extraction fails at raw row 1747 (`pc=0x4000630c`, expected `0x4000632e`); `--allow-block-markers --allow-block-loop-reentry` extracts 1766 rows with 11 annotated `loop_reentry` markers. Replaying the loop-aware expected stream against current generated RTL is expected to fail at `pc=0x4000632a` because F4 captures three slots through `0x4000632e` instead of cutting after two body slots and restarting at the FALL header. See `CHISEL-ISSUE-007`; do not promote this diagnostic flag as a pass criterion before the RTL body-boundary cut/restart is implemented. |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -805,13 +806,12 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Promote beyond the R141 reduced CoreMark RF/ALU prefix. The current replay
-   matches 1188 normalized QEMU/DUT rows from the 1747-row capture after
-   model-sized 128-entry GGPR capacity, live-reference free-list protection,
-   SP-shadow readiness, and `FRET.STK` target-precedence fixes. The next
-   packet should make the QEMU-row extractor and reduced block-control path
-   loop-aware around the `pc=0x4000630c` backedge instead of extending the
-   strict sequential prefix by hand.
+2. Promote beyond the R142 FALL re-entry diagnostic. The row extractor now
+   emits `loop_reentry` metadata for the `pc=0x4000630c` CoreMark backedge, but
+   RTL replay fails at `pc=0x4000632a` because F4 captures three slots through
+   `0x4000632e` instead of cutting after two body slots and restarting at
+   `0x4000630c`. The next packet must add the model-derived block body-boundary
+   cut/restart before treating the loop stream as replacement evidence.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.

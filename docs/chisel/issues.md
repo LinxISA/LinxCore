@@ -192,3 +192,42 @@ Resolution:
 - The same traces rerun through
   `tools/chisel/run_chisel_qemu_crosscheck.sh` pass with
   `compared=1188 mismatches=0`.
+
+## CHISEL-ISSUE-007: FALL Block Re-entry Needs F4 Body-Boundary Cut
+
+Status: open after R142
+
+Impact:
+
+- The first post-R141 CoreMark loop probe reaches a model/QEMU dynamic FALL
+  block re-entry around `pc=0x4000630c`. QEMU repeats the `C.BSTART.STD.FALL`
+  header after the body row at `pc=0x4000632c`, while the previous scalar row
+  still reports `next_pc=0x4000632e`.
+- The reduced QEMU-row extractor can now admit and annotate this shape with
+  `--allow-block-loop-reentry`, but the current Chisel live-fetch path still
+  captures an extra F4 slot at `0x4000632e` instead of cutting the packet at the
+  model block body boundary and restarting at the FALL header.
+
+Evidence:
+
+- `generated/r142-loop-frontier-1900-qemu-probe/traces/qemu.live.raw.jsonl`
+  has 1900 raw QEMU rows. Strict extraction fails at raw row 1747 with
+  `pc=0x4000630c, expected 0x4000632e`.
+- The loop-aware extraction command emits 1766 expected rows and 11 annotated
+  `loop_reentry` marker rows:
+  `python3 tools/chisel/frontend_fetch_rf_alu_qemu_rows.py --input generated/r142-loop-frontier-1900-qemu-probe/traces/qemu.live.raw.jsonl --output generated/r142-loop-frontier-1900-qemu-probe/traces/qemu.live.expected.loop.jsonl --max-rows 0 --allow-block-markers --allow-block-loop-reentry`.
+- Replaying that expected stream against the current top fails before compare:
+  `frontend fetch RF ALU dense packet was not captured pc=0x4000632a
+  expected_mask=0x3 observed_mask=0x7 expected_slots=2 observed_f4_slots=3
+  expected_advance=4 observed_advance=8`.
+
+Resolution plan:
+
+- Add model-derived block-body end metadata to the reduced frontend path, using
+  LinxCoreModel BFU evidence that FALL resolves to `fallBPC`, computed from
+  header geometry (`spInfo->hsize` when present).
+- Teach the live-fetch/F4 path to cut the response before the static fallBPC
+  continuation when the active reduced block resolves back to the FALL header,
+  then restart at the annotated re-entry PC.
+- Promote the R142 loop stream only after the generated-RTL replay compares
+  past the first `loop_reentry` row.

@@ -27,6 +27,14 @@ C_BSTART_EXACT = {
     0x88C0,  # C.BSTART.VPAR
     0xC8C0,  # C.BSTART.VSEQ
 }
+C_BSTART_FALL_EXACT = {
+    0x0800,  # C.BSTART.STD.FALL
+    0x0840,  # C.BSTART.SYS.FALL
+    0x08C0,  # C.BSTART.MPAR.FALL
+    0x48C0,  # C.BSTART.MSEQ.FALL
+    0x88C0,  # C.BSTART.VPAR.FALL
+    0xC8C0,  # C.BSTART.VSEQ.FALL
+}
 HL_BSTART_MASK = 0xFFFF_0000_7FFF_000F
 HL_BSTART_MATCHES = {
     0x4101_000E,  # HL.BSTART.FP.CALL
@@ -38,6 +46,11 @@ HL_BSTART_MATCHES = {
     0x2001_000E,  # HL.BSTART.STD.DIRECT
     0x1001_000E,  # HL.BSTART.STD.FALL
     0x1081_000E,  # HL.BSTART.SYS
+}
+HL_BSTART_FALL_MATCHES = {
+    0x1101_000E,  # HL.BSTART.FP.FALL
+    0x1001_000E,  # HL.BSTART.STD.FALL
+    0x1081_000E,  # HL.BSTART.SYS.FALL
 }
 HL_LUI_MASK = 0xFFFF_0000_007F_000F
 HL_LUI_MATCH = 0x0000_0000_0017_000E
@@ -260,6 +273,21 @@ def _classify_block_marker(row: dict[str, int]) -> tuple[str, bool, bool] | None
     if row["len"] == 6 and (insn & HL_BSTART_MASK) in HL_BSTART_MATCHES:
         return ("HL.BSTART", True, False)
     return None
+
+
+def _is_fall_bstart_marker(row: dict[str, int], marker: tuple[str, bool, bool]) -> bool:
+    opcode, boundary, stop = marker
+    if not boundary or stop or not opcode.endswith("BSTART"):
+        return False
+    insn = _mask_insn(row["insn"], row["len"])
+    if row["len"] == 2:
+        return (
+            insn in C_BSTART_FALL_EXACT or
+            ((insn & 0xC7FF) == 0x0080 and ((insn >> 11) & 0x7) == 1)
+        )
+    if row["len"] == 6:
+        return (insn & HL_BSTART_MASK) in HL_BSTART_FALL_MATCHES
+    return False
 
 
 def _uimm12(row: dict[str, int]) -> int:
@@ -1183,24 +1211,42 @@ def extract_rows(
     input_path: Path,
     output_path: Path,
     max_rows: int = 0,
-    allow_block_markers: bool = False) -> int:
+    allow_block_markers: bool = False,
+    allow_block_loop_reentry: bool = False) -> int:
     if max_rows < 0:
         raise RowExtractionError("--max-rows must be non-negative")
+    if allow_block_loop_reentry and not allow_block_markers:
+        raise RowExtractionError("--allow-block-loop-reentry requires --allow-block-markers")
 
     rows: list[dict[str, Any]] = []
     expected_pc: int | None = None
+    active_fall_header_pc: int | None = None
     local_state = _new_local_state()
     reduced_rows = 0
     normalized = list(_normalized_rows(input_path))
     for index, row in enumerate(normalized):
         if max_rows > 0 and reduced_rows >= max_rows:
             break
+        loop_reentry_from_pc: int | None = None
         if expected_pc is not None and row["pc"] != expected_pc:
-            raise RowExtractionError(
-                f"row {index} breaks the strict sequential prefix: pc=0x{row['pc']:x}, expected 0x{expected_pc:x}"
-            )
+            if (
+                allow_block_loop_reentry and
+                active_fall_header_pc is not None and
+                row["pc"] == active_fall_header_pc
+            ):
+                loop_reentry_from_pc = expected_pc
+            else:
+                raise RowExtractionError(
+                    f"row {index} breaks the strict sequential prefix: pc=0x{row['pc']:x}, expected 0x{expected_pc:x}"
+                )
 
         marker = _classify_block_marker(row) if allow_block_markers else None
+        if loop_reentry_from_pc is not None and (
+            marker is None or not _is_fall_bstart_marker(row, marker)
+        ):
+            raise RowExtractionError(
+                f"row {index} re-enters pc=0x{row['pc']:x}, but the row is not the active FALL BSTART marker"
+            )
         if marker is not None and _is_zero_advance_marker_artifact(row, marker):
             continue
         next_row = normalized[index + 1] if index + 1 < len(normalized) else None
@@ -1208,6 +1254,13 @@ def extract_rows(
             continue
         if marker is not None:
             checked = _validate_block_marker_row(row, index, marker)
+            if loop_reentry_from_pc is not None:
+                checked["loop_reentry"] = 1
+                checked["loop_reentry_from_pc"] = loop_reentry_from_pc
+            if _is_fall_bstart_marker(row, marker):
+                active_fall_header_pc = checked["pc"]
+            elif marker[2]:
+                active_fall_header_pc = None
         else:
             checked = _validate_reduced_row(row, index, local_state)
             _push_local_destination(local_state, checked["dst_reg"], checked["dst_data"])
@@ -4207,6 +4260,64 @@ def self_test() -> None:
         assert hl_rows[2]["block_stop"] == 1
         assert hl_rows[2]["next_pc"] == 0x4000550E
 
+        block_loop_source = tmp / "block-loop-reentry.jsonl"
+        block_loop_output = tmp / "block-loop-reentry.rows.jsonl"
+        loop_bstart = {
+            **bstart,
+            "pc": 0x3000,
+            "next_pc": 0x3002,
+        }
+        loop_scalar = {
+            **rows[0],
+            "pc": 0x3002,
+            "next_pc": 0x3006,
+        }
+        loop_bstart_reentry = {
+            **loop_bstart,
+            "next_pc": 0x3002,
+        }
+        loop_scalar_reentry = {
+            **rows[0],
+            "pc": 0x3002,
+            "next_pc": 0x3006,
+        }
+        _write_jsonl(block_loop_source, [loop_bstart, loop_scalar, loop_bstart_reentry, loop_scalar_reentry])
+        try:
+            extract_rows(block_loop_source, block_loop_output, allow_block_markers=True)
+        except RowExtractionError as exc:
+            assert "strict sequential prefix" in str(exc)
+        else:
+            raise AssertionError("strict extraction accepted a FALL block loop re-entry")
+        bad_loop_source = tmp / "block-loop-bad-reentry.jsonl"
+        bad_loop_output = tmp / "block-loop-bad-reentry.rows.jsonl"
+        bad_scalar_reentry = {
+            **rows[0],
+            "pc": 0x3000,
+            "next_pc": 0x3004,
+        }
+        _write_jsonl(bad_loop_source, [loop_bstart, loop_scalar, bad_scalar_reentry])
+        try:
+            extract_rows(
+                bad_loop_source,
+                bad_loop_output,
+                allow_block_markers=True,
+                allow_block_loop_reentry=True)
+        except RowExtractionError as exc:
+            assert "not the active FALL BSTART marker" in str(exc)
+        else:
+            raise AssertionError("loop-aware extraction accepted a non-marker re-entry")
+        count = extract_rows(
+            block_loop_source,
+            block_loop_output,
+            allow_block_markers=True,
+            allow_block_loop_reentry=True)
+        assert count == 4
+        loop_rows = [json.loads(line) for line in block_loop_output.read_text(encoding="utf-8").splitlines()]
+        assert loop_rows[0]["skip"] == 1
+        assert loop_rows[2]["skip"] == 1
+        assert loop_rows[2]["loop_reentry"] == 1
+        assert loop_rows[2]["loop_reentry_from_pc"] == 0x3006
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -4215,6 +4326,8 @@ def main() -> int:
     ap.add_argument("--max-rows", type=int, default=0, help="Maximum reduced rows to extract; 0 means all")
     ap.add_argument("--allow-block-markers", action="store_true",
                     help="Preserve legal BSTART/BSTOP marker rows as skip entries while extracting scalar compare rows")
+    ap.add_argument("--allow-block-loop-reentry", action="store_true",
+                    help="Allow QEMU dynamic rows to re-enter the current FALL BSTART after block resolve")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
 
@@ -4230,7 +4343,8 @@ def main() -> int:
             Path(args.input),
             Path(args.output),
             max_rows=args.max_rows,
-            allow_block_markers=args.allow_block_markers)
+            allow_block_markers=args.allow_block_markers,
+            allow_block_loop_reentry=args.allow_block_loop_reentry)
     except RowExtractionError as exc:
         raise SystemExit(f"error: {exc}") from exc
     print(f"frontend-fetch-rf-alu-qemu-rows={args.output} rows={count}")

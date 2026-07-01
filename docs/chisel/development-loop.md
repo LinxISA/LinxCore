@@ -1088,7 +1088,10 @@ Use this ladder for every promoted packet:
    reduced fetch RF/ALU gate.
    Use `--allow-block-markers --expected-rows 0 --capture-rows 5` for the
    legal-entry fixture when marker rows are intentionally part of the DUT input
-   stream but not part of the comparator stream.
+   stream but not part of the comparator stream. Use
+   `--allow-block-loop-reentry` only with `--allow-block-markers` for dynamic
+   FALL-header re-entry diagnostics; it is not a pass criterion until RTL
+   handles `CHISEL-ISSUE-007`.
 14. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
 15. `bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run` for

@@ -315,6 +315,17 @@ strict sequential extractor still stops before the dynamic loop backedge at
 `pc=0x4000630c`, so loop-aware block-control extraction remains the next
 frontier.
 
+R142 adds the first loop-aware cross-check infrastructure rather than claiming
+the loop in RTL. `frontend_fetch_rf_alu_qemu_rows.py` now has an opt-in
+`--allow-block-loop-reentry` mode that preserves strict extraction by default
+but can annotate model/QEMU FALL-block re-entry markers as `loop_reentry`
+rows. A 1900-row CoreMark probe extracts 1766 expected rows with 11 annotated
+re-entries. Replaying that stream against the current live top fails at the
+frontend packet boundary (`pc=0x4000632a`): the reduced F4 path captures the
+static continuation slot at `0x4000632e` while the model/QEMU stream resolves
+back to `0x4000630c`. This makes the next RTL packet a model-derived block
+body-boundary cut plus restart, not another scalar ALU row.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -505,6 +516,11 @@ ROB path. This top still does not model cacheline merge, branch prediction,
 multiple outstanding fetches, width-wide decode/ROB allocation, full
 oldest-ready issue preferences, read-port arbitration, bypass, load
 speculative wakeup, LSU, precise traps, or architectural redirect restart.
+R142 extends the QEMU-row source only: `--allow-block-loop-reentry` and
+`FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1` allow dynamic FALL-header re-entry rows
+to be emitted with `loop_reentry` metadata. The generated-RTL replay is still
+expected to fail until the frontend/F4 path can cut at the model block body
+boundary; see `CHISEL-ISSUE-007`.
 R104 adds the first reduced block-lifecycle alignment for those marker slots.
 The model allocates BROB on `BSTART`, stamps following scalar instructions with
 the current block BID, and completes the current block on `BSTOP` through the
