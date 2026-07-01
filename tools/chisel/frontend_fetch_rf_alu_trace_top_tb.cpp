@@ -1094,6 +1094,7 @@ struct BfuBodyGeometryHint {
 struct BfuGeometryDiagnostics {
   std::uint64_t comparable_count = 0;
   std::uint64_t match_count = 0;
+  std::uint64_t resolved_accept_count = 0;
 };
 
 void observe_bfu_geometry_diagnostics(
@@ -1113,6 +1114,23 @@ void observe_bfu_geometry_diagnostics(
               << " bsizeMismatch=" << static_cast<unsigned>(dut.io_reducedBfuStaticExternalBSizeMismatch)
               << "\n";
     std::exit(1);
+  }
+  if (dut.io_reducedBfuResolvedBodyEndHeaderMismatch ||
+      dut.io_reducedBfuResolvedBodyEndInactiveDrop ||
+      dut.io_reducedBfuResolvedBodyEndFlushDrop ||
+      dut.io_reducedBfuResolvedBodyEndUnderflow) {
+    std::cerr << "frontend fetch RF ALU BFU resolved body-end owner rejected replay geometry during "
+              << context
+              << " accepted=" << static_cast<unsigned>(dut.io_reducedBfuResolvedBodyEndAccepted)
+              << " headerMismatch=" << static_cast<unsigned>(dut.io_reducedBfuResolvedBodyEndHeaderMismatch)
+              << " inactiveDrop=" << static_cast<unsigned>(dut.io_reducedBfuResolvedBodyEndInactiveDrop)
+              << " flushDrop=" << static_cast<unsigned>(dut.io_reducedBfuResolvedBodyEndFlushDrop)
+              << " underflow=" << static_cast<unsigned>(dut.io_reducedBfuResolvedBodyEndUnderflow)
+              << "\n";
+    std::exit(1);
+  }
+  if (dut.io_reducedBfuResolvedBodyEndAccepted) {
+    ++stats.resolved_accept_count;
   }
   if (dut.io_reducedBfuStaticExternalComparable) {
     ++stats.comparable_count;
@@ -1741,6 +1759,7 @@ int main(int argc, char **argv) {
   const auto print_bfu_stats = [&]() {
     std::cout << "bfu_static_external_comparable=" << bfu_stats.comparable_count
               << " bfu_static_external_matches=" << bfu_stats.match_count
+              << " bfu_resolved_body_end_accepts=" << bfu_stats.resolved_accept_count
               << "\n";
   };
   if (captured_tail_superset) {

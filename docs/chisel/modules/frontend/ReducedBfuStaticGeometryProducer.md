@@ -6,7 +6,7 @@
 LinxCoreModel static-predictor block geometry. It watches accepted F4 slots,
 opens a header on a decoded block-boundary instruction, and emits
 `headerPc`/`hsize`/`bsize` geometry when a later block boundary, `BSTOP`, or
-resolved body-end event closes the current body.
+normalized resolved body-end event closes the current body.
 
 This module does not replace full BFU scan ownership. It only implements the
 model rule for explicit block-split and stop events. CoreMark's current FALL
@@ -55,7 +55,10 @@ active-header state:
 The registered `hsizeBytes` is currently zero, matching the reduced compressed
 FALL replay case and the observed model static-predictor path. The resolved
 input lets a future branch-resolution/header-size owner provide a value without
-routing this diagnostic producer into control.
+routing this diagnostic producer into control. R149 factors resolved-event
+normalization into `ReducedBfuResolvedBodyEndOwner`, so this producer now
+consumes an already matched active-header event instead of comparing the raw
+replay header itself.
 
 ## Model Evidence
 
@@ -86,3 +89,5 @@ R147 adds a resolved-`hsize` reference case and keeps the producer diagnostic.
 R148 compares the producer's emitted diagnostic geometry against the external
 replay geometry at `LinxCoreFrontendFetchRfAluTraceTop`, proving the handoff
 contract before the producer is allowed to drive reduced body-cut control.
+R149 inserts `ReducedBfuResolvedBodyEndOwner` in front of the resolved input and
+keeps the same replay comparison as the generated-RTL proof.

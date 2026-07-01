@@ -7,7 +7,7 @@ import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
-import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutPredictor, ReducedBfuStaticGeometryProducer}
+import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutPredictor, ReducedBfuResolvedBodyEndOwner, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -74,6 +74,11 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedBfuStaticHeaderActive = Output(Bool())
   val reducedBfuStaticLearnedFire = Output(Bool())
   val reducedBfuStaticResolvedLearnedFire = Output(Bool())
+  val reducedBfuResolvedBodyEndAccepted = Output(Bool())
+  val reducedBfuResolvedBodyEndHeaderMismatch = Output(Bool())
+  val reducedBfuResolvedBodyEndInactiveDrop = Output(Bool())
+  val reducedBfuResolvedBodyEndFlushDrop = Output(Bool())
+  val reducedBfuResolvedBodyEndUnderflow = Output(Bool())
   val reducedBfuStaticExternalComparable = Output(Bool())
   val reducedBfuStaticExternalMatch = Output(Bool())
   val reducedBfuStaticExternalMismatch = Output(Bool())
@@ -324,15 +329,23 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val externalBfuBodyBasePc = (io.reducedBfuHeaderPc + 2.U)(p.pcWidth - 1, 0)
   val externalBfuBodyEndPc = (externalBfuBodyBasePc + io.reducedBfuBSizeBytes)(p.pcWidth - 1, 0)
   val staticBfuGeometry = Module(new ReducedBfuStaticGeometryProducer(p))
+  val resolvedBfuBodyEnd = Module(new ReducedBfuResolvedBodyEndOwner(p))
+  resolvedBfuBodyEnd.io.flushValid := frontendPipeFlush || io.startValid || io.restartValid
+  resolvedBfuBodyEnd.io.headerActive := staticBfuGeometry.io.headerActive
+  resolvedBfuBodyEnd.io.activeHeaderPc := staticBfuGeometry.io.headerPc
+  resolvedBfuBodyEnd.io.resolvedValid := externalBfuGeometryValid
+  resolvedBfuBodyEnd.io.resolvedHeaderPc := io.reducedBfuHeaderPc
+  resolvedBfuBodyEnd.io.resolvedHSizeBytes := io.reducedBfuHSizeBytes
+  resolvedBfuBodyEnd.io.resolvedBodyEndPc := externalBfuBodyEndPc
   staticBfuGeometry.io.flushValid := frontendPipeFlush || io.startValid || io.restartValid
   staticBfuGeometry.io.f4UpdateFire := source.io.outFire
   staticBfuGeometry.io.f4Valid := f4.io.d1.valid
   staticBfuGeometry.io.f4Slots := f4.io.slots
   staticBfuGeometry.io.f4ValidMask := f4.io.validMask
-  staticBfuGeometry.io.resolvedBodyEndValid := externalBfuGeometryValid
-  staticBfuGeometry.io.resolvedHeaderPc := io.reducedBfuHeaderPc
-  staticBfuGeometry.io.resolvedHSizeBytes := io.reducedBfuHSizeBytes
-  staticBfuGeometry.io.resolvedBodyEndPc := externalBfuBodyEndPc
+  staticBfuGeometry.io.resolvedBodyEndValid := resolvedBfuBodyEnd.io.geometryValid
+  staticBfuGeometry.io.resolvedHeaderPc := resolvedBfuBodyEnd.io.geometryHeaderPc
+  staticBfuGeometry.io.resolvedHSizeBytes := resolvedBfuBodyEnd.io.hsizeBytes
+  staticBfuGeometry.io.resolvedBodyEndPc := resolvedBfuBodyEnd.io.bodyEndPc
   val staticExternalComparable = staticBfuGeometry.io.geometryValid && externalBfuGeometryValid
   val staticExternalHeaderMatch = staticBfuGeometry.io.headerPc === io.reducedBfuHeaderPc
   val staticExternalHSizeMatch = staticBfuGeometry.io.hsizeBytes === io.reducedBfuHSizeBytes
@@ -604,6 +617,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedBfuStaticHeaderActive := staticBfuGeometry.io.headerActive
   io.reducedBfuStaticLearnedFire := staticBfuGeometry.io.learnedFire
   io.reducedBfuStaticResolvedLearnedFire := staticBfuGeometry.io.resolvedLearnedFire
+  io.reducedBfuResolvedBodyEndAccepted := resolvedBfuBodyEnd.io.accepted
+  io.reducedBfuResolvedBodyEndHeaderMismatch := resolvedBfuBodyEnd.io.headerMismatch
+  io.reducedBfuResolvedBodyEndInactiveDrop := resolvedBfuBodyEnd.io.inactiveDrop
+  io.reducedBfuResolvedBodyEndFlushDrop := resolvedBfuBodyEnd.io.flushDrop
+  io.reducedBfuResolvedBodyEndUnderflow := resolvedBfuBodyEnd.io.bodyEndUnderflow
   io.reducedBfuStaticExternalComparable := staticExternalComparable
   io.reducedBfuStaticExternalMatch := staticExternalMatch
   io.reducedBfuStaticExternalMismatch :=

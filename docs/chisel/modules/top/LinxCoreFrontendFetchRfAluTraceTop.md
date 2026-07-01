@@ -377,6 +377,13 @@ The generated-RTL harness fails on any field mismatch and prints the comparable
 and matched diagnostic counts. Control still uses the external geometry inputs
 in R148.
 
+R149 inserts `ReducedBfuResolvedBodyEndOwner` between the external resolved
+body-end hint and `ReducedBfuStaticGeometryProducer`. The owner matches the
+resolved event to the active static header, carries resolved `hsize`, computes
+model-style saturated `bsize`, and exposes rejected-event diagnostics. Control
+still uses the external geometry inputs in R149; the new owner is a replaceable
+handoff target for a later real branch/BFU resolver.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -385,6 +392,7 @@ in R148.
 | input | `restartValid`, `restartPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Replaces the active fetch PC for a reduced restart. |
 | input | `reducedBfuBodyValid`, `reducedBfuHeaderPc`, `reducedBfuHSizeBytes`, `reducedBfuBSizeBytes` | mixed | with live-F4 packet | Temporary reduced BFU body-geometry hint from loop-aware expected rows. `ReducedBfuBodyCutPredictor` converts this to the current F4 cut and source-only restart. |
 | output | `reducedBfuStaticGeometryValid`, `reducedBfuStaticHeaderActive`, `reducedBfuStaticLearnedFire`, `reducedBfuStaticResolvedLearnedFire` | `Bool` | diagnostic | R145/R147 reduced static-predictor geometry diagnostics. They do not drive cut/restart yet. |
+| output | `reducedBfuResolvedBodyEndAccepted`, `reducedBfuResolvedBodyEndHeaderMismatch`, `reducedBfuResolvedBodyEndInactiveDrop`, `reducedBfuResolvedBodyEndFlushDrop`, `reducedBfuResolvedBodyEndUnderflow` | `Bool` | diagnostic | R149 resolved body-end owner acceptance/drop diagnostics before the static producer consumes the normalized event. |
 | output | `reducedBfuStaticExternalComparable`, `reducedBfuStaticExternalMatch`, `reducedBfuStaticExternalMismatch`, `reducedBfuStaticExternalHeaderMismatch`, `reducedBfuStaticExternalHSizeMismatch`, `reducedBfuStaticExternalBSizeMismatch` | `Bool` | diagnostic | R148 agreement check between diagnostic static geometry and the external replay geometry currently driving `ReducedBfuBodyCutPredictor`. |
 | input | `frontendFlushValid` | `Bool` | valid | Clears source packet state, F4, decode path, and reduced issue state. |
 | input | `peId`, `threadId` | `UInt` | with source packet | Packet-owned PE/STID sidecars for decode/rename. |
@@ -583,6 +591,9 @@ only changes the source advance, F4 valid mask, and source-only restart for the
 current loop-aware packet; it deliberately does not model the full BFU static
 predictor or make `--allow-block-loop-reentry` a general architectural pass
 criterion.
+R149 adds `ReducedBfuResolvedBodyEndOwner` as the normalized resolved-event
+handoff into the diagnostic static-geometry path. It does not change the body
+cut control source.
 R104 adds the first reduced block-lifecycle alignment for those marker slots.
 The model allocates BROB on `BSTART`, stamps following scalar instructions with
 the current block BID, and completes the current block on `BSTOP` through the
