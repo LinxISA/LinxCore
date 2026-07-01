@@ -223,7 +223,12 @@ class DecodeRenameROBPathIO(
   val unsupportedOperandClass = Output(Bool())
   val blockedByTURename = Output(Bool())
   val gprFreeCount = Output(UInt(gprFreeWidth.W))
+  val gprMapQValidCount = Output(UInt(gprMapQFreeWidth.W))
   val gprMapQFreeCount = Output(UInt(gprMapQFreeWidth.W))
+  val gprSmapLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprCmapLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprMapQLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprLivePhysCount = Output(UInt(gprFreeWidth.W))
   val tuRenameReady = Output(Bool())
   val tuRenameAccepted = Output(Bool())
   val tuRenameActivePeId = Output(UInt(peIdWidth.W))
@@ -1070,7 +1075,12 @@ class DecodeRenameROBPath(
   io.unsupportedOperandClass := rename.io.unsupportedOperandClass
   io.blockedByTURename := rename.io.blockedByTURename
   io.gprFreeCount := rename.io.gprFreeCount
+  io.gprMapQValidCount := rename.io.gprMapQValidCount
   io.gprMapQFreeCount := rename.io.gprMapQFreeCount
+  io.gprSmapLiveCount := rename.io.gprSmapLiveCount
+  io.gprCmapLiveCount := rename.io.gprCmapLiveCount
+  io.gprMapQLiveCount := rename.io.gprMapQLiveCount
+  io.gprLivePhysCount := rename.io.gprLivePhysCount
   io.tuRenameReady := rename.io.tuReady
   io.tuRenameAccepted := rename.io.tuAccepted
   io.tuRenameActivePeId := activeTURenamePeId

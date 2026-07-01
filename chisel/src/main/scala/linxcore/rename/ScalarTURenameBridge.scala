@@ -104,7 +104,12 @@ class ScalarTURenameBridgeIO(
   val cleanupFlushApplied = Output(Bool())
   val cleanupReplayObserved = Output(Bool())
   val gprFreeCount = Output(UInt(gprFreeWidth.W))
+  val gprMapQValidCount = Output(UInt(gprMapQFreeWidth.W))
   val gprMapQFreeCount = Output(UInt(gprMapQFreeWidth.W))
+  val gprSmapLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprCmapLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprMapQLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprLivePhysCount = Output(UInt(gprFreeWidth.W))
 
   val tuReady = Output(Bool())
   val tuAccepted = Output(Bool())
@@ -319,7 +324,12 @@ class ScalarTURenameBridge(
   io.cleanupFlushApplied := scalar.io.cleanupFlushApplied || tu.io.flushApplied
   io.cleanupReplayObserved := scalar.io.cleanupReplayObserved
   io.gprFreeCount := scalar.io.gprFreeCount
+  io.gprMapQValidCount := scalar.io.gprMapQValidCount
   io.gprMapQFreeCount := scalar.io.gprMapQFreeCount
+  io.gprSmapLiveCount := scalar.io.gprSmapLiveCount
+  io.gprCmapLiveCount := scalar.io.gprCmapLiveCount
+  io.gprMapQLiveCount := scalar.io.gprMapQLiveCount
+  io.gprLivePhysCount := scalar.io.gprLivePhysCount
 
   io.tuReady := tu.io.ready
   io.tuAccepted := tu.io.accepted

@@ -247,7 +247,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val decodeBlockedByOutput = Output(Bool())
   val decodeBlockedByTURename = Output(Bool())
   val gprFreeCount = Output(UInt(gprFreeWidth.W))
+  val gprMapQValidCount = Output(UInt(gprMapQFreeWidth.W))
   val gprMapQFreeCount = Output(UInt(gprMapQFreeWidth.W))
+  val gprSmapLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprCmapLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprMapQLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprLivePhysCount = Output(UInt(gprFreeWidth.W))
   val tuRenameSourceUnderflowMask = Output(UInt(3.W))
   val tuRenameActiveBankValid = Output(Bool())
   val tuRenameBlockedByTAlloc = Output(Bool())
@@ -981,7 +986,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.decodeBlockedByOutput := path.io.blockedByOutput
   io.decodeBlockedByTURename := path.io.blockedByTURename
   io.gprFreeCount := path.io.gprFreeCount
+  io.gprMapQValidCount := path.io.gprMapQValidCount
   io.gprMapQFreeCount := path.io.gprMapQFreeCount
+  io.gprSmapLiveCount := path.io.gprSmapLiveCount
+  io.gprCmapLiveCount := path.io.gprCmapLiveCount
+  io.gprMapQLiveCount := path.io.gprMapQLiveCount
+  io.gprLivePhysCount := path.io.gprLivePhysCount
   io.tuRenameSourceUnderflowMask := path.io.tuRenameSourceUnderflowMask
   io.tuRenameActiveBankValid := path.io.tuRenameActiveBankValid
   io.tuRenameBlockedByTAlloc := path.io.tuRenameBlockedByTAlloc

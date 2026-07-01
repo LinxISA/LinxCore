@@ -59,7 +59,12 @@ class ScalarDecodeRenameBridgeIO(
   val cleanupFlushApplied = Output(Bool())
   val cleanupReplayObserved = Output(Bool())
   val gprFreeCount = Output(UInt(log2Ceil(physRegs + 1).W))
+  val gprMapQValidCount = Output(UInt(log2Ceil(mapQDepth + 1).W))
   val gprMapQFreeCount = Output(UInt(log2Ceil(mapQDepth + 1).W))
+  val gprSmapLiveCount = Output(UInt(log2Ceil(physRegs + 1).W))
+  val gprCmapLiveCount = Output(UInt(log2Ceil(physRegs + 1).W))
+  val gprMapQLiveCount = Output(UInt(log2Ceil(physRegs + 1).W))
+  val gprLivePhysCount = Output(UInt(log2Ceil(physRegs + 1).W))
 }
 
 class ScalarDecodeRenameBridge(
@@ -183,7 +188,12 @@ class ScalarDecodeRenameBridge(
   io.cleanupFlushApplied := gpr.io.cleanupFlushApplied
   io.cleanupReplayObserved := gpr.io.cleanupReplayObserved
   io.gprFreeCount := gpr.io.freeCount
+  io.gprMapQValidCount := gpr.io.mapQValidCount
   io.gprMapQFreeCount := gpr.io.mapQFreeCount
+  io.gprSmapLiveCount := gpr.io.smapLiveCount
+  io.gprCmapLiveCount := gpr.io.cmapLiveCount
+  io.gprMapQLiveCount := gpr.io.mapQLiveCount
+  io.gprLivePhysCount := gpr.io.livePhysCount
 
   val renamed = Wire(new RenamedUop(p))
   renamed := 0.U.asTypeOf(renamed)

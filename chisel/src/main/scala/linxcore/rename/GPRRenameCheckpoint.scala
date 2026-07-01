@@ -73,11 +73,16 @@ class GPRRenameCheckpointIO(
   val freeMask = Output(UInt(physRegs.W))
   val freeCount = Output(UInt(freeCountWidth.W))
   val mapQValidMask = Output(UInt(mapQDepth.W))
+  val mapQValidCount = Output(UInt(mapQCountWidth.W))
   val mapQFreeCount = Output(UInt(mapQCountWidth.W))
   val checkpointValidMask = Output(UInt(entries.W))
   val renamePtr = Output(new ROBID(entries))
   val smap = Output(Vec(archRegs, UInt(physTagWidth.W)))
   val cmap = Output(Vec(archRegs, UInt(physTagWidth.W)))
+  val smapLiveCount = Output(UInt(freeCountWidth.W))
+  val cmapLiveCount = Output(UInt(freeCountWidth.W))
+  val mapQLiveCount = Output(UInt(freeCountWidth.W))
+  val livePhysCount = Output(UInt(freeCountWidth.W))
   val committedMapQMask = Output(UInt(mapQDepth.W))
   val prunedMapQMask = Output(UInt(mapQDepth.W))
   val releasedPhysMask = Output(UInt(physRegs.W))
@@ -210,6 +215,15 @@ class GPRRenameCheckpoint(
   val mapQValidVec = VecInit(mapQ.map(_.valid))
   val mapQValidMask = mapQValidVec.asUInt
   val freeMask = freeList.asUInt
+  val currentSmapLiveMask =
+    (0 until archRegs).map(arch => UIntToOH(smap(arch), physRegs)).reduce(_ | _)
+  val currentCmapLiveMask =
+    (0 until archRegs).map(arch => UIntToOH(cmap(arch), physRegs)).reduce(_ | _)
+  val currentMapQLiveMask =
+    (0 until mapQDepth)
+      .map(idx => Mux(mapQ(idx).valid, UIntToOH(mapQ(idx).physTag, physRegs), 0.U(physRegs.W)))
+      .reduce(_ | _)
+  val currentLivePhysMask = currentSmapLiveMask | currentCmapLiveMask | currentMapQLiveMask
   val firstFreePhys = PriorityEncoder(freeMask)
   val firstFreeMapQ = PriorityEncoder(~mapQValidMask)
   val hasFreePhys = freeMask.orR
@@ -443,11 +457,16 @@ class GPRRenameCheckpoint(
   io.freeMask := freeMask
   io.freeCount := PopCount(freeList).asUInt(freeCountWidth - 1, 0)
   io.mapQValidMask := mapQValidMask
+  io.mapQValidCount := PopCount(mapQValidVec).asUInt(mapQCountWidth - 1, 0)
   io.mapQFreeCount := (mapQDepth.U - PopCount(mapQValidVec))(mapQCountWidth - 1, 0)
   io.checkpointValidMask := checkpointValid.asUInt
   io.renamePtr := renamePtr
   io.smap := smap
   io.cmap := cmap
+  io.smapLiveCount := PopCount(currentSmapLiveMask).asUInt(freeCountWidth - 1, 0)
+  io.cmapLiveCount := PopCount(currentCmapLiveMask).asUInt(freeCountWidth - 1, 0)
+  io.mapQLiveCount := PopCount(currentMapQLiveMask).asUInt(freeCountWidth - 1, 0)
+  io.livePhysCount := PopCount(currentLivePhysMask).asUInt(freeCountWidth - 1, 0)
   io.committedMapQMask := Mux(commitFire, committedMapQMask, 0.U(mapQDepth.W))
   io.prunedMapQMask := Mux(flushFire, prunedMapQMask, 0.U(mapQDepth.W))
   io.releasedPhysMask := Mux(commitFire, commitReleaseMask, 0.U(physRegs.W)) |
