@@ -3,7 +3,7 @@ package linxcore.backend
 import chisel3._
 import chisel3.util.{log2Ceil, PriorityEncoder}
 
-import linxcore.bctrl.{BID, BlockScalarDoneSequencer}
+import linxcore.bctrl.{BID, BlockMarkerLifecycle, BlockScalarDoneSequencer}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
@@ -486,6 +486,35 @@ class DecodeRenameROBPath(
     mapQDepth = mapQDepth,
     stidWidth = stidWidth
   ))
+  val blockLifecycleFlush = io.cleanup.valid && (io.cleanup.backendFlushValid || io.cleanup.blockFlushValid)
+  val blockScalarDoneSeq = Module(new BlockScalarDoneSequencer(bidWidth))
+  val markerLifecycle = Module(new BlockMarkerLifecycle(
+    entries = p.robEntries,
+    bidWidth = bidWidth,
+    pcWidth = p.pcWidth
+  ))
+  val robBlockLastScalarDoneFire = allocator.io.deallocBlockLastValid
+  val markerLifecycleConflict = robBlockLastScalarDoneFire
+  markerLifecycle.io.flushValid := blockLifecycleFlush
+  markerLifecycle.io.markerBoundary := markerBoundary
+  markerLifecycle.io.markerStop := markerStop
+  markerLifecycle.io.markerPc := marker.pc
+  markerLifecycle.io.markerTarget := marker.boundaryTarget
+  markerLifecycle.io.markerInsnLen := marker.insnLen
+  markerLifecycle.io.markerBoundaryKind := marker.boundaryKind
+  markerLifecycle.io.markerAllocReady := allocator.io.blockAllocOnlyReady
+  markerLifecycle.io.markerAllocBid := allocator.io.blockAllocOnlyBid
+  markerLifecycle.io.branchTakenValid := io.blockBranchTakenValid
+  markerLifecycle.io.branchTaken := io.blockBranchTaken
+  markerLifecycle.io.scalarWorkPending := !allocator.io.empty
+  markerLifecycle.io.markerLifecycleConflict := markerLifecycleConflict
+  markerLifecycle.io.retirePending := blockScalarDoneSeq.io.retirePending
+  markerLifecycle.io.scalarRedirectValid := io.scalarRedirectValid
+  markerLifecycle.io.scalarBlockStartFire :=
+    allocator.io.allocFire && selectedAny && !markerLifecycle.io.activeValid
+  markerLifecycle.io.scalarBlockStartBid := allocator.io.allocBlockBid
+  markerLifecycle.io.robBlockLastValid := robBlockLastScalarDoneFire
+  markerLifecycle.io.robBlockLastBid := allocator.io.deallocBlockLastBlockBid
 
   val decRenFlush = io.flushValid || (io.cleanup.valid && io.cleanup.backendFlushValid)
   val memIds = Module(new DecodeLoadStoreIdAssign(p, serialWidth = loadStoreSerialWidth))
@@ -504,11 +533,9 @@ class DecodeRenameROBPath(
   memIds.io.restoreLoadId := 0.U
   memIds.io.restoreStoreId := 0.U
 
-  val activeBlockValid = RegInit(false.B)
-  val activeBlockBid = RegInit(0.U(bidWidth.W))
-  val activeBlockTarget = RegInit(0.U(p.pcWidth.W))
-  val activeBlockCond = RegInit(false.B)
-  val activeBlockUnconditionalRedirect = RegInit(false.B)
+  val activeBlockValid = markerLifecycle.io.activeValid
+  val activeBlockBid = markerLifecycle.io.activeBid
+  val activeBlockTarget = markerLifecycle.io.activeTarget
   val selectedBlockBid = Mux(activeBlockValid, activeBlockBid, allocator.io.allocBlockBid)
 
   val selectedForQueue = Wire(new DecodedUop(p))
@@ -642,24 +669,7 @@ class DecodeRenameROBPath(
   allocator.io.allocPeId := Mux(markerBoundary, markerAllocPeId, selectedAllocPeId)
   allocator.io.allocBlockType := Mux(markerBoundary, markerAllocBlockType, selectedAllocBlockType)
   allocator.io.allocNeedsEngine := false.B
-  val robBlockLastScalarDoneFire = allocator.io.deallocBlockLastValid
-  val markerLifecycleConflict = robBlockLastScalarDoneFire
-  val scalarRedirectClearsActive = io.scalarRedirectValid && activeBlockValid
-  val scalarBlockStartFire = allocator.io.allocFire && selectedAny && !activeBlockValid
-  val robBlockLastClearsActive =
-    robBlockLastScalarDoneFire && activeBlockValid && allocator.io.deallocBlockLastBlockBid === activeBlockBid
-  val markerNeedsBranchDecision =
-    markerBoundary && activeBlockValid && activeBlockCond && activeBlockTarget =/= 0.U &&
-      (io.blockBranchTakenValid || !allocator.io.empty)
-  val markerUnconditionalRedirect =
-    markerBoundary && activeBlockValid && activeBlockUnconditionalRedirect && activeBlockTarget =/= 0.U
-  val markerRedirectBoundary =
-    markerUnconditionalRedirect ||
-      (markerNeedsBranchDecision && io.blockBranchTakenValid && io.blockBranchTaken)
-  val markerFallthroughBoundary =
-    markerBoundary && !markerUnconditionalRedirect &&
-      (!markerNeedsBranchDecision || (io.blockBranchTakenValid && !io.blockBranchTaken))
-  allocator.io.blockAllocOnlyValid := markerFallthroughBoundary && !markerLifecycleConflict
+  allocator.io.blockAllocOnlyValid := markerLifecycle.io.blockAllocOnlyValid
   allocator.io.renameUpdateValid := rename.io.robAllocAttemptValid
   allocator.io.renameUpdateRid := queuedForRename.rid
   allocator.io.renameUpdateRow := rename.io.robAllocRow
@@ -672,33 +682,8 @@ class DecodeRenameROBPath(
   allocator.io.completeRowValid := io.completeRowValid
   allocator.io.completeRow := io.completeRow
   allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !tuRetirePath.io.cleanupActive
-  val blockLifecycleFlush = io.cleanup.valid && (io.cleanup.backendFlushValid || io.cleanup.blockFlushValid)
-  val blockScalarDoneSeq = Module(new BlockScalarDoneSequencer(bidWidth))
-  val markerAllocBlockedByActiveSlot =
-    activeBlockValid &&
-      (BID.slot(allocator.io.blockAllocOnlyBid, p.robEntries) === BID.slot(activeBlockBid, p.robEntries))
-  val markerPreRetireFire =
-    markerFallthroughBoundary && !markerLifecycleConflict && !allocator.io.blockAllocOnlyReady &&
-      markerAllocBlockedByActiveSlot && !blockScalarDoneSeq.io.retirePending
-  val markerReady =
-    !markerLifecycleConflict &&
-      (markerStop || markerRedirectBoundary || (markerFallthroughBoundary && allocator.io.blockAllocOnlyReady))
-  val markerBoundaryFire = markerFallthroughBoundary && markerReady && allocator.io.blockAllocOnlyFire
-  val markerBoundaryRedirectFire = markerRedirectBoundary && markerReady
-  val markerStopFire = markerStop && markerReady
-  val markerScalarDoneFire =
-    activeBlockValid && (markerStopFire || markerBoundaryFire || markerBoundaryRedirectFire || markerPreRetireFire)
-  val markerScalarDoneBid = activeBlockBid
-  val markerStopRedirectValid =
-    (markerStopFire || markerBoundaryRedirectFire) && activeBlockValid && activeBlockTarget =/= 0.U &&
-      activeBlockTarget =/= (marker.pc + marker.insnLen)
-  val scalarRedirectScalarDoneFire = scalarRedirectClearsActive
-  val blockScalarDoneFire = markerScalarDoneFire || scalarRedirectScalarDoneFire || robBlockLastScalarDoneFire
-  val blockScalarDoneBid =
-    Mux(
-      markerScalarDoneFire,
-      markerScalarDoneBid,
-      Mux(scalarRedirectScalarDoneFire, activeBlockBid, allocator.io.deallocBlockLastBlockBid))
+  val blockScalarDoneFire = markerLifecycle.io.scalarDoneValid
+  val blockScalarDoneBid = markerLifecycle.io.scalarDoneBid
   blockScalarDoneSeq.io.flushValid := blockLifecycleFlush
   blockScalarDoneSeq.io.inValid := blockScalarDoneFire
   blockScalarDoneSeq.io.inBid := blockScalarDoneBid
@@ -723,39 +708,6 @@ class DecodeRenameROBPath(
       bidWidth)
   renameCommitValid := io.commitValid || blockScalarDoneSeq.io.retireValid
   renameCommitBid := Mux(io.commitValid, io.commitBid, internalBlockCommitBid)
-
-  when(blockLifecycleFlush) {
-    activeBlockValid := false.B
-    activeBlockBid := 0.U
-    activeBlockTarget := 0.U
-    activeBlockCond := false.B
-    activeBlockUnconditionalRedirect := false.B
-  }.elsewhen(scalarRedirectClearsActive) {
-    activeBlockValid := false.B
-    activeBlockBid := 0.U
-    activeBlockTarget := 0.U
-    activeBlockCond := false.B
-    activeBlockUnconditionalRedirect := false.B
-  }.elsewhen(markerBoundaryFire) {
-    activeBlockValid := true.B
-    activeBlockBid := allocator.io.blockAllocOnlyBid
-    activeBlockTarget := marker.boundaryTarget
-    activeBlockCond := marker.boundaryKind === BoundaryKind.Cond
-    activeBlockUnconditionalRedirect :=
-      marker.boundaryKind === BoundaryKind.Direct || marker.boundaryKind === BoundaryKind.Call
-  }.elsewhen(scalarBlockStartFire) {
-    activeBlockValid := true.B
-    activeBlockBid := allocator.io.allocBlockBid
-    activeBlockTarget := 0.U
-    activeBlockCond := false.B
-    activeBlockUnconditionalRedirect := false.B
-  }.elsewhen(markerStopFire || markerBoundaryRedirectFire || robBlockLastClearsActive) {
-    activeBlockValid := false.B
-    activeBlockBid := 0.U
-    activeBlockTarget := 0.U
-    activeBlockCond := false.B
-    activeBlockUnconditionalRedirect := false.B
-  }
 
   rename.io.robSource := allocator.io.robTULinkSource
   rename.io.lsuSource := storeDispatch.io.lsuTULinkSource
@@ -796,15 +748,15 @@ class DecodeRenameROBPath(
   io.blockMarkerTarget := marker.boundaryTarget
   io.blockMarkerAllocReady := allocator.io.blockAllocOnlyReady
   io.blockMarkerLifecycleConflict := markerLifecycleConflict
-  io.blockMarkerAllocFire := markerBoundaryFire
+  io.blockMarkerAllocFire := markerLifecycle.io.markerAllocFire
   io.blockMarkerAllocBid := allocator.io.blockAllocOnlyBid
   io.blockMarkerActiveValid := activeBlockValid
   io.blockMarkerActiveBid := activeBlockBid
   io.blockMarkerActiveTarget := activeBlockTarget
-  io.blockMarkerStopRedirectValid := markerStopRedirectValid
-  io.blockMarkerStopRedirectPc := activeBlockTarget
+  io.blockMarkerStopRedirectValid := markerLifecycle.io.stopRedirectValid
+  io.blockMarkerStopRedirectPc := markerLifecycle.io.stopRedirectPc
   io.decodeReady := !mixedMarkerPacket &&
-    Mux(markerOnlyPacket, markerReady, decRenQ.io.pushReady && allocator.io.allocReady)
+    Mux(markerOnlyPacket, markerLifecycle.io.markerReady, decRenQ.io.pushReady && allocator.io.allocReady)
   io.decRenPushReady := decRenQ.io.pushReady && allocator.io.allocReady
   io.decRenPushFire := decRenQ.io.pushFire
   io.decRenPopFire := decRenQ.io.popFire
