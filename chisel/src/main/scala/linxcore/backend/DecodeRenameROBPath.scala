@@ -267,6 +267,10 @@ class DecodeRenameROBPathIO(
   val robMarkerRetireSourceQueueFull = Output(Bool())
   val robMarkerRetireSourceQueueEmpty = Output(Bool())
   val robMarkerRetireSourceDequeued = Output(Bool())
+  val robMarkerRetireSourceLifecycleReady = Output(Bool())
+  val robMarkerRetireSourceLifecycleFire = Output(Bool())
+  val robMarkerRetireSourceLifecycleBoundaryFire = Output(Bool())
+  val robMarkerRetireSourceLifecycleStopFire = Output(Bool())
   val robMarkerRetireSource =
     Output(new BlockMarkerRetireSource(
       entries = p.robEntries,
@@ -532,7 +536,11 @@ class DecodeRenameROBPath(
   val markerLifecycle = Module(new BlockMarkerLifecycle(
     entries = p.robEntries,
     bidWidth = bidWidth,
-    pcWidth = p.pcWidth
+    pcWidth = p.pcWidth,
+    insnWidth = p.insnWidth,
+    lenWidth = p.lenWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth
   ))
   val robBlockLastScalarDoneFire = allocator.io.deallocBlockLastValid
   val markerLifecycleConflict = robBlockLastScalarDoneFire
@@ -792,7 +800,8 @@ class DecodeRenameROBPath(
 
   markerRetireSerializer.io.sources := allocator.io.deallocBlockMarkerRetireSource
   markerRetireSerializer.io.clear := blockLifecycleFlush
-  markerRetireSerializer.io.outReady := true.B
+  markerRetireSerializer.io.outReady := markerLifecycle.io.retiredMarkerReady
+  markerLifecycle.io.retiredMarker := markerRetireSerializer.io.out
 
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
@@ -974,6 +983,10 @@ class DecodeRenameROBPath(
   io.robMarkerRetireSourceQueueFull := markerRetireSerializer.io.sourceQueueFull
   io.robMarkerRetireSourceQueueEmpty := markerRetireSerializer.io.sourceQueueEmpty
   io.robMarkerRetireSourceDequeued := markerRetireSerializer.io.sourceDequeued
+  io.robMarkerRetireSourceLifecycleReady := markerLifecycle.io.retiredMarkerReady
+  io.robMarkerRetireSourceLifecycleFire := markerLifecycle.io.retiredMarkerFire
+  io.robMarkerRetireSourceLifecycleBoundaryFire := markerLifecycle.io.retiredMarkerBoundaryFire
+  io.robMarkerRetireSourceLifecycleStopFire := markerLifecycle.io.retiredMarkerStopFire
   io.robMarkerRetireSource := markerRetireSerializer.io.out
   io.robDeallocBlockLastValid := allocator.io.deallocBlockLastValid
   io.robDeallocBlockLastBid := allocator.io.deallocBlockLastBid

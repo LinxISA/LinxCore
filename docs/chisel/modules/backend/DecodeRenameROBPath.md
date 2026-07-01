@@ -147,25 +147,31 @@ R167 extracts the block scalar-done to block-retire sequencing into
 selection from marker lifecycle, scalar redirects, and ROB block-last
 deallocation, but the one-cycle delayed retire pulse and retire-pending query now
 live in a reusable BCTRL module. This preserves R103/R104 timing while giving
-future full marker-row retirement a single event boundary to feed.
+marker-row retirement a single event boundary to feed.
 R168 extracts the active marker/scalar-created block lifecycle into
 `BlockMarkerLifecycle`. `DecodeRenameROBPath` still detects marker-only packets
 and wires allocator/decode/execute inputs, but active full-BID state, conditional
 and direct marker decisions, same-slot pre-retire, scalar redirect cleanup,
 block-last closure, marker readiness, and scalar-done source selection now live
 under BCTRL. This is still the reduced marker-consume path; full marker-row ROB
-retirement and per-STID active state remain the next block-control work.
+admission, recovery-exact cleanup, and per-STID active state remain the next
+block-control work.
 R169 forwards decoded marker sidecars into the allocation-time ROB row image and
 exposes `robDeallocBlockMarkerRetireSource` from `ROBEntryBank` through this
-composition boundary. The new vector is not yet consumed by
-`BlockMarkerLifecycle`; it is the first source boundary needed before the
-reduced marker-skip path can be replaced by full marker-row ROB retirement.
+composition boundary. That vector is the first source boundary needed before
+the reduced marker-skip path can be replaced by full marker-row ROB admission.
 R171 instantiates `BlockMarkerRetireSourceSerializer` behind that vector,
 gates ROB deallocation on marker-source full-window queue credit, clears the
-serializer on backend/block lifecycle cleanup, drains the serialized source
-policy-free, and exposes `robMarkerRetireSource*` diagnostics. This still does
-not feed `BlockMarkerLifecycle`; it makes marker-source preservation part of
-the live deallocation handshake before lifecycle policy is connected.
+serializer on backend/block lifecycle cleanup, and exposes
+`robMarkerRetireSource*` diagnostics. This makes marker-source preservation
+part of the live deallocation handshake before lifecycle policy is connected.
+R172 connects the serializer output to `BlockMarkerLifecycle` as a distinct
+retired-marker lane. Serializer `outReady` now comes from lifecycle retired
+marker readiness, the backend exposes lifecycle-ready/fire diagnostics, and
+retired fallthrough boundaries use the row-owned `blockBid` carried by the ROB
+row instead of requesting a retire-time BROB allocation. The reduced
+decode-time marker-skip lane remains separate until full marker-row ROB
+admission replaces it.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -284,6 +290,7 @@ Outputs:
   `robTULinkSource*`, `robDeallocTURetireSource`,
   `robDeallocBlockMarkerRetireSource`,
   `robMarkerRetireSource*`,
+  `robMarkerRetireSourceLifecycle*`,
   `robDeallocBlockLast*`, `blockScalarDone*`, `blockRetire*`, `size`,
   `outstandingCount`, and occupancy masks: `DispatchROBAllocator`,
   `ROBEntryBank`, and reduced BROB lifecycle observability. R167 routes
@@ -522,15 +529,22 @@ the retire target from those sidecars rather than from `tuRenameActive*`.
 R169 forwards `robDeallocBlockMarkerRetireSource` beside the T/U and block-last
 deallocation outputs. The vector carries marker-row metadata at the same
 deallocation timing point as `SPEROB::dealloc()` observes `uop.last` and marker
-instructions before calling block handlers, but this composition does not yet
-serialize or feed those sources into `BlockMarkerLifecycle`.
+instructions before calling block handlers.
 R171 feeds that vector into `BlockMarkerRetireSourceSerializer`. The allocator
 accepts a ROB deallocation window only when both the existing T/U retire-source
 path and the marker serializer have room for a full commit-width window, so a
 cycle that observes marker retire sources cannot lose lanes to queue
-backpressure. The serialized `robMarkerRetireSource` output is drained
-immediately in this packet and is exposed for diagnostics only; lifecycle
-mutation remains a later BCTRL owner.
+backpressure.
+R172 feeds the serialized `robMarkerRetireSource` output into
+`BlockMarkerLifecycle.retiredMarker`, and serializer dequeue readiness is now
+`BlockMarkerLifecycle.retiredMarkerReady`. Retired marker lifecycle mutation is
+kept distinct from the reduced decode-time marker-skip inputs: decode-time
+markers can still allocate BROB-only entries for the bring-up lane, while
+retired marker rows consume the full block BID already carried in the ROB row
+image. A retired fallthrough boundary without `blockBidValid` is backpressured
+at this boundary instead of being silently consumed. `robMarkerRetireSource*`
+keeps queue/source diagnostics, while `robMarkerRetireSourceLifecycle*` reports
+the lifecycle consumer ready/fire/boundary/stop pulses.
 
 R103 uses the ROB bank's full block-last BID to drive the reduced BROB
 completion path. On a deallocation cycle that frees a block-last row,
@@ -551,9 +565,9 @@ block's terminal marker rather than a new BROB allocation. The Chisel reduced
 path mirrors this at marker-consume granularity: `BSTART` allocates BROB-only,
 scalar rows reuse the active BID, `BSTOP` completes the current active BID,
 and `BSTART` while active completes the old BID before installing the new one.
-This is still not a full marker ROB-retire implementation, and active block
-state is still reduced to the current serialized lane rather than per-STID
-arrays.
+At R104 this was not a full marker ROB-retire implementation, and the current
+path still keeps active block state reduced to the current serialized lane
+rather than per-STID arrays.
 
 R117 feeds reduced marker/block retire back into scalar rename commit
 bookkeeping. When the marker-owned block-retire pending bit is set, the path
@@ -610,8 +624,10 @@ The C++ model order being preserved is:
    group change, or pressure.
 10. The same deallocation walk skips `MinstPipeView` for `OP_BSTOP` and calls
     block handlers from the retired row image. Chisel now preserves marker row
-    metadata as a width-wide deallocation source, but the reduced live path still
-    consumes marker-only packets before ROB admission.
+    metadata as a width-wide deallocation source, serializes it, and feeds the
+    lifecycle owner with row-owned block BID evidence. The reduced live path
+    still consumes marker-only packets before ROB admission until full marker
+    row enqueue replaces the skip path.
 
 `DecodeRenameROBPath` now preserves the registered `dec_ren_q` timing point,
 assigns reduced memory-order identity before queue enqueue, and reserves
@@ -671,9 +687,10 @@ publication, SCB/MDB handoff, and memory trace side effects.
   auto clean is now owned inside `TULinkRetireCommandPath`.
 - Full scalar commit ownership for real marker ROB-retire rows. The current
   R117 feedback only bridges reduced marker/block-retire events into scalar
-  rename mapQ release; R171 serializes the marker retire-source vector and
-  gates ROB deallocation for lossless capture, but it does not yet add the
-  lifecycle consumer or per-STID active marker state.
+  rename mapQ release; R172 feeds serialized marker retire sources into
+  lifecycle using the row-owned block BID, but it does not yet add per-STID
+  active marker state, recovery-exact marker-source pruning, or full marker-row
+  ROB admission.
 - Multi-PE `TULinkLocalBankArray` instantiation and top-level nonzero PE
   packet production. The active selector now consumes row `peId`, but current
   frontend/top packets still default that sidecar to PE0 unless an upstream
@@ -697,6 +714,7 @@ Focused gate:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only BlockMarkerLifecycle
+bash tools/chisel/run_chisel_tests.sh --only BlockMarkerRetireSourceSerializer
 bash tools/chisel/run_chisel_tests.sh --only BlockScalarDoneSequencer
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
@@ -711,6 +729,7 @@ bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r172-retired-marker-lifecycle-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 ```
 
 Affected gates:
@@ -771,6 +790,10 @@ R169 covers marker sidecar forwarding into ROB reservation and
 composition.
 R171 covers `BlockMarkerRetireSourceSerializer` integration in the backend
 deallocation handshake plus `robMarkerRetireSource*` IO elaboration.
+R172 covers the retired-marker lifecycle consumer in `BlockMarkerLifecycle`,
+backend serializer `outReady` wiring, `robMarkerRetireSourceLifecycle*`
+diagnostics, row-owned retired boundary BID use, and malformed retired boundary
+backpressure.
 R104 covers marker-only BROB allocation, active full-BID reuse by scalar rows,
 marker-driven scalar-done/retire for old/current active blocks, marker
 conflict gating against ROB block-last scalar-done, and top-level marker

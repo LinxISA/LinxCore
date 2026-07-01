@@ -27,9 +27,15 @@ state and scalar-done source selection out of `DecodeRenameROBPath` so later
 full marker-row retirement and per-STID active block state can feed one BCTRL
 owner instead of growing backend-local registers.
 R170 adds `BlockMarkerRetireSourceSerializer` as the policy-free queue boundary
-for future full marker-row retirement. That serializer preserves every marker
+for marker-row retirement. That serializer preserves every marker
 source from a ROB deallocation window before this lifecycle owner consumes a
 single marker event.
+R172 adds that retired-marker source lane to this lifecycle owner. Serialized
+`BlockMarkerRetireSource` rows now consume lifecycle readiness directly, use
+the row-owned `blockBid` captured before dispatch, and backpressure malformed
+retired boundaries that do not carry a valid block BID. The decode-time
+reduced marker-skip inputs remain separate until full marker-row admission
+replaces the bring-up skip path.
 
 ## Interface
 
@@ -51,12 +57,17 @@ single marker event.
 | Input | `scalarRedirectValid` | `Bool` | Reduced scalar execute redirect that closes the active block context. |
 | Input | `scalarBlockStartFire/scalarBlockStartBid` | `Bool`/`UInt` | Scalar row allocated a new block while no marker block was active. |
 | Input | `robBlockLastValid/robBlockLastBid` | `Bool`/`UInt` | ROB deallocation reached a block-last row. |
+| Input | `retiredMarker` | `BlockMarkerRetireSource` | One serialized retired marker row from `BlockMarkerRetireSourceSerializer`, including row-owned BID, PC, length, boundary kind, and target. |
 | Output | `activeValid/activeBid/activeTarget` | mixed | Current active block context. |
 | Output | `activeCond/activeUnconditionalRedirect` | `Bool` | Internal active marker decision class, exposed for diagnostics/future owners. |
 | Output | `blockAllocOnlyValid` | `Bool` | Request a BROB-only marker allocation. |
 | Output | `markerReady` | `Bool` | Marker-only packet readiness used for `decodeReady`. |
 | Output | `markerAllocFire` | `Bool` | Marker boundary allocation fires and becomes the new active BID. |
 | Output | `markerPreRetireFire` | `Bool` | Active BID is completed before a same-slot marker allocation can proceed. |
+| Output | `retiredMarkerReady` | `Bool` | Downstream readiness for the serialized retired marker source. False backpressures the serializer and, transitively, ROB deallocation when queued credit is exhausted. |
+| Output | `retiredMarkerFire` | `Bool` | Retired marker source consumed by lifecycle policy. |
+| Output | `retiredMarkerBoundaryFire` | `Bool` | Retired fallthrough boundary installed row-owned active state. |
+| Output | `retiredMarkerStopFire` | `Bool` | Retired stop marker completed the active context. |
 | Output | `scalarDoneValid/scalarDoneBid` | `Bool`/`UInt` | Selected scalar-done source for `BlockScalarDoneSequencer`. |
 | Output | `stopRedirectValid/stopRedirectPc` | `Bool`/`UInt` | Consumed stop/direct marker redirects frontend to the active target. |
 
@@ -77,9 +88,18 @@ single marker event.
   the scalar row's full BID and a zero target.
 - ROB block-last deallocation emits scalar done for the deallocated block BID
   and clears active state only when the full BID matches the active context.
-- Future marker-row retirement should consume one serialized
-  `BlockMarkerRetireSource` at a time from `BlockMarkerRetireSourceSerializer`
-  rather than scanning the ROB deallocation vector directly.
+- Serialized retired marker sources are consumed only when no decode-time
+  marker, scalar redirect, backend flush, or ROB block-last owner is using the
+  lifecycle for the cycle.
+- A retired fallthrough boundary installs `retiredMarker.blockBid` as the active
+  BID. It never requests a BROB allocation at retire time because the marker row
+  was allocated before dispatch.
+- A retired boundary that redirects the previous active direct/call or taken
+  conditional block completes the old active BID and clears active state without
+  installing a new boundary. A retired stop marker completes and clears the
+  active context.
+- A retired fallthrough boundary with `blockBidValid=false` is deliberately not
+  ready. That malformed row remains queued instead of being silently dropped.
 
 ## Model Alignment
 
@@ -91,6 +111,12 @@ timing for `BSTART`/`BSTOP`, but the active-context owner now mirrors the model
 handoff shape: select the active full BID, produce scalar completion, then let
 `BlockScalarDoneSequencer` issue the delayed retire/free pulse.
 
+`BCtrlUnit::RunFetchStage5` allocates a block BID for marker rows before the
+row reaches dispatch. Later, `SPEROB::dealloc()` and the block commit helpers
+observe the retired row image. R172 follows that order by treating
+`BlockMarkerRetireSource.blockBid` as row-owned retirement evidence instead of
+performing another BROB allocation when the marker retires.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerLifecycle`
@@ -98,3 +124,9 @@ handoff shape: select the active full BID, produce scalar completion, then let
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r168-block-marker-lifecycle-smoke --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 30 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r172-retired-marker-lifecycle-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+
+The R172 focused test adds retired-boundary and malformed-boundary reference
+cases. The live CoreMark gate captured 6000 QEMU rows, normalized 5138 QEMU/DUT
+rows, compared 5137 rows, and passed with zero mismatches and no CBSTOP
+divergence.
