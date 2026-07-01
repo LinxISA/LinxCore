@@ -7,7 +7,13 @@ import linxcore.rob.ROBIDReference
 import linxcore.rob.ROBIDValue
 
 object GPRRenameCheckpointReference {
-  final case class MapQEntry(valid: Boolean, bid: ROBIDValue, rid: ROBIDValue, archTag: Int, physTag: Int)
+  final case class MapQEntry(
+      valid: Boolean,
+      bid: ROBIDValue,
+      fullBid: BigInt,
+      rid: ROBIDValue,
+      archTag: Int,
+      physTag: Int)
 
   final case class State(
       smap: Vector[Int],
@@ -30,19 +36,37 @@ object GPRRenameCheckpointReference {
       checkpointValid = Vector.fill(entries)(false),
       renamePtr = ROBIDValue(),
       free = (0 until physRegs).map(_ >= archRegs).toVector,
-      mapQ = Vector.fill(mapQDepth)(MapQEntry(valid = false, ROBIDValue(), ROBIDValue(), archTag = 0, physTag = 0))
+      mapQ = Vector.fill(mapQDepth)(
+        MapQEntry(
+          valid = false,
+          bid = ROBIDValue(),
+          fullBid = 0,
+          rid = ROBIDValue(),
+          archTag = 0,
+          physTag = 0))
     )
   }
 
-  def rename(state: State, archTag: Int, bid: ROBIDValue, rid: ROBIDValue): (State, Int) = {
+  private def defaultFullBid(bid: ROBIDValue, entries: Int = 8): BigInt =
+    BigInt(bid.value) + (if (bid.wrap) BigInt(entries) else BigInt(0))
+
+  def rename(
+      state: State,
+      archTag: Int,
+      bid: ROBIDValue,
+      rid: ROBIDValue,
+      fullBid: BigInt = -1): (State, Int) = {
     require(state.freeCount > 0)
     require(state.mapQFreeCount > 0)
+    val storedFullBid = if (fullBid >= 0) fullBid else defaultFullBid(bid)
     val phys = state.free.indexWhere(identity)
     val mapIdx = state.mapQ.indexWhere(!_.valid)
     val next = state.copy(
       smap = state.smap.updated(archTag, phys),
       free = state.free.updated(phys, false),
-      mapQ = state.mapQ.updated(mapIdx, MapQEntry(valid = true, bid = bid, rid = rid, archTag = archTag, physTag = phys))
+      mapQ = state.mapQ.updated(
+        mapIdx,
+        MapQEntry(valid = true, bid = bid, fullBid = storedFullBid, rid = rid, archTag = archTag, physTag = phys))
     )
     next -> phys
   }
@@ -61,14 +85,15 @@ object GPRRenameCheckpointReference {
       renamePtr = bid
     )
 
-  def commit(state: State, bid: ROBIDValue): (State, Set[Int]) = {
+  def commit(state: State, bid: ROBIDValue, fullBid: BigInt = -1): (State, Set[Int]) = {
+    val targetFullBid = if (fullBid >= 0) fullBid else defaultFullBid(bid)
     var cmap = state.cmap
     var free = state.free
     var mapQ = state.mapQ
     var released = Set.empty[Int]
 
     for ((entry, idx) <- state.mapQ.zipWithIndex) {
-      if (entry.valid && entry.bid == bid) {
+      if (entry.valid && entry.fullBid == targetFullBid) {
         if (cmap(entry.archTag) >= state.smap.length) {
           released += cmap(entry.archTag)
           free = free.updated(cmap(entry.archTag), true)
@@ -80,7 +105,14 @@ object GPRRenameCheckpointReference {
     protectLive(state.copy(cmap = cmap, free = free, mapQ = mapQ)) -> released
   }
 
-  def flush(state: State, flushBid: ROBIDValue, flushRid: ROBIDValue, baseOnBid: Boolean, entries: Int): (State, Set[Int]) = {
+  def flush(
+      state: State,
+      flushBid: ROBIDValue,
+      flushRid: ROBIDValue,
+      baseOnBid: Boolean,
+      entries: Int,
+      flushFullBid: BigInt = -1): (State, Set[Int]) = {
+    val targetFullBid = if (flushFullBid >= 0) flushFullBid else defaultFullBid(flushBid, entries)
     val restoreBid = ROBIDReference.sub(flushBid, 1, entries)
     val needRestore = ROBIDReference.lessEqual(restoreBid, state.renamePtr, entries)
     val restoreFromCheckpoint = needRestore && state.checkpointValid(restoreBid.value)
@@ -98,8 +130,8 @@ object GPRRenameCheckpointReference {
     for ((entry, idx) <- state.mapQ.zipWithIndex) {
       if (entry.valid) {
         val prune =
-          if (baseOnBid) ROBIDReference.lessEqual(flushBid, entry.bid, entries)
-          else ROBIDReference.lessEqualBidRid(flushBid, flushRid, entry.bid, entry.rid, entries)
+          if (baseOnBid) targetFullBid <= entry.fullBid
+          else targetFullBid < entry.fullBid || (targetFullBid == entry.fullBid && ROBIDReference.lessEqual(flushRid, entry.rid, entries))
         if (prune) {
           if (entry.physTag >= state.smap.length) {
             released += entry.physTag
@@ -112,7 +144,7 @@ object GPRRenameCheckpointReference {
 
     if (restoreFromCheckpoint) {
       for ((entry, idx) <- mapQ.zipWithIndex) {
-        if (entry.valid && !baseOnBid && entry.bid == flushBid) {
+        if (entry.valid && !baseOnBid && entry.fullBid == targetFullBid) {
           smap = smap.updated(entry.archTag, entry.physTag)
         }
       }
@@ -120,8 +152,8 @@ object GPRRenameCheckpointReference {
       for (arch <- state.smap.indices) {
         val newest = mapQ.filter(entry => entry.valid && entry.archTag == arch).reduceOption { (lhs, rhs) =>
           val lhsOlder =
-            ROBIDReference.less(lhs.bid, rhs.bid) ||
-              (lhs.bid == rhs.bid && ROBIDReference.less(lhs.rid, rhs.rid))
+            lhs.fullBid < rhs.fullBid ||
+              (lhs.fullBid == rhs.fullBid && ROBIDReference.less(lhs.rid, rhs.rid))
           if (lhsOlder) rhs else lhs
         }
         newest.foreach(entry => smap = smap.updated(arch, entry.physTag))
@@ -263,10 +295,39 @@ class GPRRenameCheckpointSpec extends AnyFunSuite {
     assert(s2.mapQ.exists(e => e.valid && e.archTag == 8 && e.physTag == 24))
   }
 
+  test("survivor replay orders scalar GPR mapQ by full block BID across wrapped ROBID aliases") {
+    val olderFullBid = BigInt(71)
+    val newerFullBid = BigInt(146)
+    val olderWrappedBid = ROBIDValue(valid = true, wrap = false, value = 7)
+    val newerWrappedBid = ROBIDValue(valid = true, wrap = false, value = 2)
+    val flushAfterBoth = ROBIDValue(valid = true, wrap = false, value = 3)
+    val (s1, olderPhys) =
+      rename(initial(), archTag = 6, bid = olderWrappedBid, rid = ROBIDValue(value = 2), fullBid = olderFullBid)
+    val (s2, newerPhys) =
+      rename(s1, archTag = 6, bid = newerWrappedBid, rid = ROBIDValue(value = 1), fullBid = newerFullBid)
+    val (s3, released) =
+      flush(
+        s2,
+        flushBid = flushAfterBoth,
+        flushRid = ROBIDValue(value = 7),
+        baseOnBid = false,
+        entries = 8,
+        flushFullBid = 200)
+
+    assert(olderPhys == 24)
+    assert(newerPhys == 25)
+    assert(released.isEmpty)
+    assert(s3.smap(6) == newerPhys)
+    assert(s3.mapQ.exists(e => e.valid && e.archTag == 6 && e.fullBid == olderFullBid && e.physTag == olderPhys))
+    assert(s3.mapQ.exists(e => e.valid && e.archTag == 6 && e.fullBid == newerFullBid && e.physTag == newerPhys))
+  }
+
   test("Chisel GPRRenameCheckpoint elaborates cleanup, map, checkpoint, and release outputs") {
     val sv = ChiselStage.emitSystemVerilog(new GPRRenameCheckpoint(entries = 8, physRegs = 64, mapQDepth = 8))
 
     assert(sv.contains("module GPRRenameCheckpoint"))
+    assert(sv.contains("io_renameBlockBid"))
+    assert(sv.contains("io_commitBlockBid"))
     assert(sv.contains("io_cleanup_renameFlushValid"))
     assert(sv.contains("io_restoreFromCheckpoint"))
     assert(sv.contains("io_smap_0"))
