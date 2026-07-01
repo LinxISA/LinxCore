@@ -7,6 +7,8 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTopSpec.scala`
 - Verilator driver: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp`
 - Gate: `rtl/LinxCore/tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- Marker-row smoke: `rtl/LinxCore/tools/chisel/run_chisel_frontend_fetch_rf_alu_marker_rows_smoke.sh`
+- Marker-row smoke driver: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_marker_rows_trace_top_tb.cpp`
 - Live QEMU ELF gate: `rtl/LinxCore/tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`
 - Live QEMU fixture builder: `rtl/LinxCore/tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`
 - Fixture memory helper: `rtl/LinxCore/tools/chisel/frontend_fetch_rf_alu_fixture_memory.py`
@@ -503,6 +505,16 @@ rename-update ROB rows while following scalar rows receive the decode-time
 active BID selected by `BlockMarkerDecodeContext`. This wrapper is an
 elaboration/proof surface for the full marker-row migration; it is not yet the
 promoted live QEMU comparator target.
+
+R179 adds the first generated-RTL smoke for that marker-row harness. The smoke
+emits `LinxCoreFrontendFetchRfAluMarkerRowsTraceTop`, builds it with
+Verilator, drives the first CoreMark dense fetch window, and requires that the
+first selected row is admitted as a real marker row rather than consumed as a
+skip row. It captures the marker row's selected full block BID and then proves
+the following scalar row reuses the same BID. This is a focused marker-row
+BID/admission proof, not a QEMU comparator migration: the default live
+CoreMark wrapper still preserves skip-row semantics until marker rows have a
+marker-aware compare/filter policy.
 
 ## Interface
 

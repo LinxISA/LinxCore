@@ -214,6 +214,14 @@ R178 adds the named top-level harness
 with `skipBlockMarkers=false` and `useMarkerDecodeContext=true`. The default
 live CoreMark top remains in marker-skip mode until the C++ harness and
 QEMU/DUT comparator stop treating legal marker rows as skip entries.
+R179 adds `run_chisel_frontend_fetch_rf_alu_marker_rows_smoke.sh` as the first
+generated-RTL proof for that opt-in. The smoke drives the first CoreMark dense
+window through the marker-row wrapper, asserts the `C.BSTART` row is selected,
+allocates ROB state, is not consumed through the skip-marker lane, records its
+selected full block BID, and asserts the following scalar row reuses that BID.
+This closes the elaboration-only gap for marker-row admission; it still leaves
+marker-aware QEMU/DUT comparison and the default live-top switch to later
+packets.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
