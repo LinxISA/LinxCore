@@ -6,6 +6,7 @@
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/bctrl/BlockMarkerLifecycleSpec.scala`
 - Integration:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DecodeRenameROBPath.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BlockMarkerRetireSourceSerializer.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BlockScalarDoneSequencer.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 - LinxCoreModel evidence:
@@ -25,6 +26,10 @@ as ordinary ROB rows when `skipBlockMarkers=true`. R168 moves the active-context
 state and scalar-done source selection out of `DecodeRenameROBPath` so later
 full marker-row retirement and per-STID active block state can feed one BCTRL
 owner instead of growing backend-local registers.
+R170 adds `BlockMarkerRetireSourceSerializer` as the policy-free queue boundary
+for future full marker-row retirement. That serializer preserves every marker
+source from a ROB deallocation window before this lifecycle owner consumes a
+single marker event.
 
 ## Interface
 
@@ -72,6 +77,9 @@ owner instead of growing backend-local registers.
   the scalar row's full BID and a zero target.
 - ROB block-last deallocation emits scalar done for the deallocated block BID
   and clears active state only when the full BID matches the active context.
+- Future marker-row retirement should consume one serialized
+  `BlockMarkerRetireSource` at a time from `BlockMarkerRetireSourceSerializer`
+  rather than scanning the ROB deallocation vector directly.
 
 ## Model Alignment
 
@@ -86,6 +94,7 @@ handoff shape: select the active full BID, produce scalar completion, then let
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerLifecycle`
+- `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerRetireSourceSerializer`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r168-block-marker-lifecycle-smoke --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 30 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`

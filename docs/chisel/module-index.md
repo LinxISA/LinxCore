@@ -79,6 +79,7 @@
 | `FlushControl` / `FlushOlderSelector` | `linxcore.recovery` | `docs/chisel/modules/recovery/FlushControl.md` | Unit-green Packet B |
 | `BID` / `BROB` metadata | `linxcore.bctrl` | `docs/chisel/modules/bctrl/BROB.md` | Unit-green Packet C |
 | `BlockMarkerLifecycle` | `linxcore.bctrl` | `docs/chisel/modules/bctrl/BlockMarkerLifecycle.md` | Unit-green R168 reduced active marker/scalar-created block context owner with marker readiness, scalar-done source selection, same-slot pre-retire, scalar redirect cleanup, and block-last closure |
+| `BlockMarkerRetireSourceSerializer` | `linxcore.bctrl` | `docs/chisel/modules/bctrl/BlockMarkerRetireSourceSerializer.md` | Unit-green R170 BCTRL marker retire-source queue that compacts ROB deallocation marker sources in slot order and exposes one policy-free marker source at a time |
 | `BlockScalarDoneSequencer` | `linxcore.bctrl` | `docs/chisel/modules/bctrl/BlockScalarDoneSequencer.md` | Unit-green R167 scalar-done pass-through plus one-cycle-later BROB retire/free sequencing, integrated in `DecodeRenameROBPath` and live CoreMark smoke-green |
 | `LinxCoreTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreTop.md` | Unit-green reduced commit shell; top Verilator xcheck-green |
 | `LinxCoreFrontendTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendTraceTop.md` | Unit-green R80 frontend packet to commit-row generated-RTL xcheck with temporary completion surrogate |
