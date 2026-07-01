@@ -3,7 +3,7 @@ package linxcore.backend
 import chisel3._
 import chisel3.util.{log2Ceil, PriorityEncoder}
 
-import linxcore.bctrl.BID
+import linxcore.bctrl.{BID, BlockScalarDoneSequencer}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
@@ -672,14 +672,14 @@ class DecodeRenameROBPath(
   allocator.io.completeRowValid := io.completeRowValid
   allocator.io.completeRow := io.completeRow
   allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !tuRetirePath.io.cleanupActive
-  val blockRetirePending = RegInit(false.B)
-  val blockRetireBidReg = RegInit(0.U(bidWidth.W))
+  val blockLifecycleFlush = io.cleanup.valid && (io.cleanup.backendFlushValid || io.cleanup.blockFlushValid)
+  val blockScalarDoneSeq = Module(new BlockScalarDoneSequencer(bidWidth))
   val markerAllocBlockedByActiveSlot =
     activeBlockValid &&
       (BID.slot(allocator.io.blockAllocOnlyBid, p.robEntries) === BID.slot(activeBlockBid, p.robEntries))
   val markerPreRetireFire =
     markerFallthroughBoundary && !markerLifecycleConflict && !allocator.io.blockAllocOnlyReady &&
-      markerAllocBlockedByActiveSlot && !blockRetirePending
+      markerAllocBlockedByActiveSlot && !blockScalarDoneSeq.io.retirePending
   val markerReady =
     !markerLifecycleConflict &&
       (markerStop || markerRedirectBoundary || (markerFallthroughBoundary && allocator.io.blockAllocOnlyReady))
@@ -699,34 +699,30 @@ class DecodeRenameROBPath(
       markerScalarDoneFire,
       markerScalarDoneBid,
       Mux(scalarRedirectScalarDoneFire, activeBlockBid, allocator.io.deallocBlockLastBlockBid))
-  val blockLifecycleFlush = io.cleanup.valid && (io.cleanup.backendFlushValid || io.cleanup.blockFlushValid)
-  allocator.io.blockScalarDoneValid := blockScalarDoneFire
-  allocator.io.blockScalarDoneBid := blockScalarDoneBid
+  blockScalarDoneSeq.io.flushValid := blockLifecycleFlush
+  blockScalarDoneSeq.io.inValid := blockScalarDoneFire
+  blockScalarDoneSeq.io.inBid := blockScalarDoneBid
+  allocator.io.blockScalarDoneValid := blockScalarDoneSeq.io.scalarDoneValid
+  allocator.io.blockScalarDoneBid := blockScalarDoneSeq.io.scalarDoneBid
   allocator.io.blockScalarTrapValid := false.B
   allocator.io.blockScalarTrapCause := 0.U
   allocator.io.blockEngineDoneValid := false.B
   allocator.io.blockEngineDoneBid := 0.U
   allocator.io.blockEngineTrapValid := false.B
   allocator.io.blockEngineTrapCause := 0.U
-  allocator.io.blockRetireValid := blockRetirePending
-  allocator.io.blockRetireBid := blockRetireBidReg
+  allocator.io.blockRetireValid := blockScalarDoneSeq.io.retireValid
+  allocator.io.blockRetireBid := blockScalarDoneSeq.io.retireBid
   allocator.io.blockFlushValid := io.cleanup.blockFlushValid
   allocator.io.blockFlushBid := io.cleanup.blockFlushBid
   allocator.io.blockQueryBid := allocator.io.allocBlockBid
   val internalBlockCommitBid =
-    FullBidRecoveryBridge.fullBidToRobId(blockRetireBidReg, blockRetirePending, p.robEntries, bidWidth)
-  renameCommitValid := io.commitValid || blockRetirePending
+    FullBidRecoveryBridge.fullBidToRobId(
+      blockScalarDoneSeq.io.retireBid,
+      blockScalarDoneSeq.io.retireValid,
+      p.robEntries,
+      bidWidth)
+  renameCommitValid := io.commitValid || blockScalarDoneSeq.io.retireValid
   renameCommitBid := Mux(io.commitValid, io.commitBid, internalBlockCommitBid)
-
-  when(blockLifecycleFlush) {
-    blockRetirePending := false.B
-    blockRetireBidReg := 0.U
-  }.elsewhen(blockScalarDoneFire) {
-    blockRetirePending := true.B
-    blockRetireBidReg := blockScalarDoneBid
-  }.elsewhen(blockRetirePending) {
-    blockRetirePending := false.B
-  }
 
   when(blockLifecycleFlush) {
     activeBlockValid := false.B
@@ -964,8 +960,8 @@ class DecodeRenameROBPath(
   io.robDeallocBlockLastBlockBid := allocator.io.deallocBlockLastBlockBid
   io.blockScalarDoneFire := blockScalarDoneFire
   io.blockScalarDoneBid := blockScalarDoneBid
-  io.blockRetireFire := blockRetirePending
-  io.blockRetireBid := blockRetireBidReg
+  io.blockRetireFire := blockScalarDoneSeq.io.retireValid
+  io.blockRetireBid := blockScalarDoneSeq.io.retireBid
   io.tuRetireSourceWindowReady := tuRetirePath.io.sourceWindowReady
   io.tuRetireSourceValidMask := tuRetirePath.io.sourceValidMask
   io.tuRetireSourceEnqueueCount := tuRetirePath.io.sourceEnqueueCount

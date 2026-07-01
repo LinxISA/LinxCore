@@ -4,6 +4,7 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BID.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BROB.scala`
+- Chisel sequencing: `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BlockScalarDoneSequencer.scala`
 - Chisel integration: `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 - Chisel recovery bridge: `rtl/LinxCore/chisel/src/main/scala/linxcore/recovery/FlushControl.scala`
 - Previous pyCircuit owner: `rtl/LinxCore/src/bcc/bctrl/brob.py`
@@ -99,6 +100,10 @@ atomically.
   Scalar-only blocks become `Completed`.
 - Engine completion sets `engineDone` and captures the first engine exception.
   Engine blocks become `Completed` only after scalar completion is also set.
+- `BlockScalarDoneSequencer` is the reduced integration owner for scalar-only
+  completion followed by retire/free. It forwards scalar done in the source
+  cycle and emits the matching retire one cycle later, so this metadata tracker
+  observes `Completed` before the free request arrives.
 - Retire frees only a `Completed` entry.
 - Flush is applied after the packet's local updates and marks entries with
   full BID greater than `flushBid` as `Flushed`. `Flushed` entries remain
@@ -139,6 +144,8 @@ neutral QEMU/LinxCore commit adapter.
 ## Verification
 
 - `chisel/src/test/scala/linxcore/bctrl/BROBSpec.scala`
+- `chisel/src/test/scala/linxcore/bctrl/BlockScalarDoneSequencerSpec.scala`
+- `bash tools/chisel/run_chisel_tests.sh --only BlockScalarDoneSequencer`
 - `bash tools/chisel/run_chisel_tests.sh --only BROB`
 - `bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator`
 - `bash tools/chisel/run_chisel_tests.sh --only FullBidRecoveryBridge`

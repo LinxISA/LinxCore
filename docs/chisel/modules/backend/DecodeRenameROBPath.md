@@ -20,6 +20,7 @@
   - `chisel/src/main/scala/linxcore/rename/TULinkRetireCommandPath.scala`
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchQueues.scala`
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala`
+  - `chisel/src/main/scala/linxcore/bctrl/BlockScalarDoneSequencer.scala`
   - `chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 
 ## Purpose
@@ -139,6 +140,12 @@ current active slot first pre-retires the active BID, and BROB `Flushed` slots
 are treated as reusable by the allocator. Together these rules prevent stale
 direct-call/return block state from poisoning later conditional marker
 allocation.
+R167 extracts the block scalar-done to block-retire sequencing into
+`BlockScalarDoneSequencer`. `DecodeRenameROBPath` still owns reduced source
+selection from marker lifecycle, scalar redirects, and ROB block-last
+deallocation, but the one-cycle delayed retire pulse and retire-pending query now
+live in a reusable BCTRL module. This preserves R103/R104 timing while giving
+future full marker-row retirement a single event boundary to feed.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -257,7 +264,9 @@ Outputs:
   `robTULinkSource*`, `robDeallocTURetireSource`,
   `robDeallocBlockLast*`, `blockScalarDone*`, `blockRetire*`, `size`,
   `outstandingCount`, and occupancy masks: `DispatchROBAllocator`,
-  `ROBEntryBank`, and reduced BROB lifecycle observability.
+  `ROBEntryBank`, and reduced BROB lifecycle observability. R167 routes
+  `blockRetire*` through `BlockScalarDoneSequencer`, so retire remains a
+  registered next-cycle pulse after the same-cycle `blockScalarDone*` event.
 - `tuRetireSource*`, `tuRetireCommand*`, `tuRetireRelation*`,
   `tuRetireAutoCleanBlock*`, `tuRetireLocalBlockCommit*`,
   `tuRetireAccepted/Miss/ReleaseMismatch/Unsupported`,
@@ -639,6 +648,7 @@ publication, SCB/MDB handoff, and memory trace side effects.
 Focused gate:
 
 ```bash
+bash tools/chisel/run_chisel_tests.sh --only BlockScalarDoneSequencer
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 bash tools/chisel/run_chisel_tests.sh --only DecodeLoadStoreIdAssign
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
@@ -701,6 +711,8 @@ observability through `DecodeRenameROBPath`, `DispatchROBAllocator`, and
 R103 covers full block-BID propagation from ROB deallocation, reduced
 `blockScalarDone*` and one-cycle-later `blockRetire*` diagnostics, and
 stale same-slot BROB event rejection.
+R167 covers the extracted `BlockScalarDoneSequencer` boundary that preserves the
+same same-cycle scalar-done and next-cycle retire/free timing for those events.
 R104 covers marker-only BROB allocation, active full-BID reuse by scalar rows,
 marker-driven scalar-done/retire for old/current active blocks, marker
 conflict gating against ROB block-last scalar-done, and top-level marker

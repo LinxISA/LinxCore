@@ -651,6 +651,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(sv.contains("StoreDispatchQueues"))
     assert(sv.contains("STQEntryBank"))
     assert(sv.contains("DispatchROBAllocator"))
+    assert(sv.contains("BlockScalarDoneSequencer"))
     assert(sv.contains("TULinkRecoveryCleanupPath"))
     assert(sv.contains("io_decodeReady"))
     assert(sv.contains("io_decRenPushFire"))

@@ -78,6 +78,7 @@
 | `CommitTraceMonitor` | `linxcore.commit` | `docs/chisel/modules/commit/CommitTraceMonitor.md` | Unit-green Phase 1 schema monitor; wired into reduced ROB |
 | `FlushControl` / `FlushOlderSelector` | `linxcore.recovery` | `docs/chisel/modules/recovery/FlushControl.md` | Unit-green Packet B |
 | `BID` / `BROB` metadata | `linxcore.bctrl` | `docs/chisel/modules/bctrl/BROB.md` | Unit-green Packet C |
+| `BlockScalarDoneSequencer` | `linxcore.bctrl` | `docs/chisel/modules/bctrl/BlockScalarDoneSequencer.md` | Unit-green R167 scalar-done pass-through plus one-cycle-later BROB retire/free sequencing, integrated in `DecodeRenameROBPath` and live CoreMark smoke-green |
 | `LinxCoreTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreTop.md` | Unit-green reduced commit shell; top Verilator xcheck-green |
 | `LinxCoreFrontendTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendTraceTop.md` | Unit-green R80 frontend packet to commit-row generated-RTL xcheck with temporary completion surrogate |
 | `LinxCoreFrontendFetchTraceTop` | `linxcore.top` | `docs/chisel/modules/top/LinxCoreFrontendFetchTraceTop.md` | Unit-green R94 live fetch-source to F4/decode/ROB generated-RTL xcheck with bounded memory-window fixture and temporary completion surrogate |
