@@ -1096,10 +1096,10 @@ Use this ladder for every promoted packet:
    `reducedBfu*` geometry consumed by `ReducedBfuBodyCutPredictor`; do not claim
    full BFU closure until a real static-predictor geometry producer replaces
    that harness source. R145 adds only diagnostic static-geometry learning from
-   explicit block-boundary or `BSTOP` events, and R146 adds resolved body-end
-   learning for the same `SetBsize` contract. Keep the diagnostic producer out
-   of control until real branch-resolution/body-end ownership and the `hsize`
-   contract are replay-proven.
+   explicit block-boundary or `BSTOP` events, R146 adds resolved body-end
+   learning for the same `SetBsize` contract, and R147 carries resolved
+   `hsize` payload on that diagnostic row. Keep the diagnostic producer out of
+   control until real branch-resolution/body-end ownership is replay-proven.
 14. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
 15. `bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run` for

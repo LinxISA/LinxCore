@@ -7,7 +7,7 @@ import org.scalatest.funsuite.AnyFunSuite
 
 object ReducedBfuStaticGeometryProducerReference {
   final case class Event(valid: Boolean, pc: BigInt = 0, lenBytes: Int = 0, boundary: Boolean = false, stop: Boolean = false)
-  final case class ResolvedBodyEnd(valid: Boolean, headerPc: BigInt = 0, bodyEndPc: BigInt = 0)
+  final case class ResolvedBodyEnd(valid: Boolean, headerPc: BigInt = 0, hsizeBytes: BigInt = 0, bodyEndPc: BigInt = 0)
   final case class Result(geometryValid: Boolean, headerPc: BigInt, hsizeBytes: BigInt, bsizeBytes: BigInt, activeAfter: Boolean)
 
   final class Model {
@@ -31,7 +31,8 @@ object ReducedBfuStaticGeometryProducerReference {
       }
       val bodyBase = headerPc + 2
       val bsize = if (geometryValid && bodyEnd > bodyBase) bodyEnd - bodyBase else BigInt(0)
-      val observed = Result(geometryValid, headerPc, hsize, bsize, activeAfter = active)
+      val observedHsize = if (resolvedFire) resolved.hsizeBytes else hsize
+      val observed = Result(geometryValid, headerPc, observedHsize, bsize, activeAfter = active)
 
       if (flush) {
         active = false
@@ -62,6 +63,7 @@ class ReducedBfuStaticGeometryProducerProbeIO(val p: InterfaceParams = Interface
   val f4ValidMask = Input(UInt(p.decodeWidth.W))
   val resolvedBodyEndValid = Input(Bool())
   val resolvedHeaderPc = Input(UInt(p.pcWidth.W))
+  val resolvedHSizeBytes = Input(UInt(p.pcWidth.W))
   val resolvedBodyEndPc = Input(UInt(p.pcWidth.W))
 
   val geometryValid = Output(Bool())
@@ -83,6 +85,7 @@ class ReducedBfuStaticGeometryProducerProbe(val p: InterfaceParams = InterfacePa
   producer.io.f4ValidMask := io.f4ValidMask
   producer.io.resolvedBodyEndValid := io.resolvedBodyEndValid
   producer.io.resolvedHeaderPc := io.resolvedHeaderPc
+  producer.io.resolvedHSizeBytes := io.resolvedHSizeBytes
   producer.io.resolvedBodyEndPc := io.resolvedBodyEndPc
 
   io.geometryValid := producer.io.geometryValid
@@ -153,6 +156,29 @@ class ReducedBfuStaticGeometryProducerSpec extends AnyFunSuite {
     assert(learned.activeAfter)
   }
 
+  test("reference carries resolved hsize only on the resolved body-end geometry row") {
+    val model = new ReducedBfuStaticGeometryProducerReference.Model
+
+    model.step(ReducedBfuStaticGeometryProducerReference.Event(valid = true, pc = 0x4000, lenBytes = 2, boundary = true))
+    val learned = model.step(
+      ReducedBfuStaticGeometryProducerReference.Event(valid = false),
+      resolved = ReducedBfuStaticGeometryProducerReference.ResolvedBodyEnd(
+        valid = true,
+        headerPc = 0x4000,
+        hsizeBytes = 6,
+        bodyEndPc = 0x4012))
+    val idleAfter = model.step(ReducedBfuStaticGeometryProducerReference.Event(valid = false))
+
+    assert(learned.geometryValid)
+    assert(learned.headerPc == 0x4000)
+    assert(learned.hsizeBytes == 6)
+    assert(learned.bsizeBytes == 0x10)
+    assert(learned.activeAfter)
+    assert(!idleAfter.geometryValid)
+    assert(idleAfter.hsizeBytes == 0)
+    assert(idleAfter.activeAfter)
+  }
+
   test("reference suppresses resolved body-end learning during flush") {
     val model = new ReducedBfuStaticGeometryProducerReference.Model
 
@@ -174,6 +200,7 @@ class ReducedBfuStaticGeometryProducerSpec extends AnyFunSuite {
     assert(sv.contains("io_geometryValid"))
     assert(sv.contains("io_bsizeBytes"))
     assert(sv.contains("io_resolvedBodyEndValid"))
+    assert(sv.contains("io_resolvedHSizeBytes"))
     assert(sv.contains("io_resolvedLearnedFire"))
   }
 }

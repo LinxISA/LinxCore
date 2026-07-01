@@ -325,6 +325,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   staticBfuGeometry.io.f4ValidMask := f4.io.validMask
   staticBfuGeometry.io.resolvedBodyEndValid := externalBfuGeometryValid
   staticBfuGeometry.io.resolvedHeaderPc := io.reducedBfuHeaderPc
+  staticBfuGeometry.io.resolvedHSizeBytes := io.reducedBfuHSizeBytes
   staticBfuGeometry.io.resolvedBodyEndPc := externalBfuBodyEndPc
 
   val bodyCut = Module(new ReducedBfuBodyCutPredictor(p))

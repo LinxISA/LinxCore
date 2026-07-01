@@ -361,6 +361,12 @@ without routing the partial producer into control. Body cuts still use the
 external `reducedBfu*` geometry until a real branch-resolution owner and `hsize`
 contract are present.
 
+R147 also feeds the diagnostic producer with the external `reducedBfuHSizeBytes`
+payload. The observed LinxCoreModel static-predictor path leaves
+`SPMInstInfo::hsize` at its default zero and only copies/consumes it later, so
+the top still treats this as diagnostic payload and keeps cut/restart control
+on the external geometry inputs.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -368,7 +374,7 @@ contract are present.
 | input | `startValid`, `startPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Arms the live fetch source at a starting PC. |
 | input | `restartValid`, `restartPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Replaces the active fetch PC for a reduced restart. |
 | input | `reducedBfuBodyValid`, `reducedBfuHeaderPc`, `reducedBfuHSizeBytes`, `reducedBfuBSizeBytes` | mixed | with live-F4 packet | Temporary reduced BFU body-geometry hint from loop-aware expected rows. `ReducedBfuBodyCutPredictor` converts this to the current F4 cut and source-only restart. |
-| output | `reducedBfuStaticGeometryValid`, `reducedBfuStaticHeaderActive`, `reducedBfuStaticLearnedFire`, `reducedBfuStaticResolvedLearnedFire` | `Bool` | diagnostic | R145/R146 reduced static-predictor geometry diagnostics. They do not drive cut/restart yet. |
+| output | `reducedBfuStaticGeometryValid`, `reducedBfuStaticHeaderActive`, `reducedBfuStaticLearnedFire`, `reducedBfuStaticResolvedLearnedFire` | `Bool` | diagnostic | R145/R147 reduced static-predictor geometry diagnostics. They do not drive cut/restart yet. |
 | input | `frontendFlushValid` | `Bool` | valid | Clears source packet state, F4, decode path, and reduced issue state. |
 | input | `peId`, `threadId` | `UInt` | with source packet | Packet-owned PE/STID sidecars for decode/rename. |
 | input | `fetchReqReady` | `Bool` | ready | Bounded fixture accepts a source PC request. |

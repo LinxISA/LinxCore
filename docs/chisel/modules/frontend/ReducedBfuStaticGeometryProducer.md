@@ -14,7 +14,10 @@ loop still needs the external loop replay geometry because its static
 continuation at `0x4000632e` decodes as `OP_ACRC`, not as a block-boundary
 event in the current Chisel metadata. R146 therefore models the resolved-end
 learning path separately: an external or future branch-resolution owner can
-provide the body end without classifying that instruction as a boundary.
+provide the body end without classifying that instruction as a boundary. R147
+also carries a resolved `hsize` value on that same diagnostic row while keeping
+the registered static-predictor header size at zero until a real producer is
+identified.
 
 ## Interface
 
@@ -23,7 +26,7 @@ provide the body end without classifying that instruction as a boundary.
 | input | `flushValid` | `Bool` | Clears the active reduced header state. |
 | input | `f4UpdateFire` | `Bool` | Pulses when the current F4 packet is accepted and may update active header state. |
 | input | `f4Valid`, `f4Slots`, `f4ValidMask` | mixed | Current F4 window and decoded slot shape. |
-| input | `resolvedBodyEndValid`, `resolvedHeaderPc`, `resolvedBodyEndPc` | mixed | Resolved body-end learning hook for the active header. This mirrors the model path that sets `bsize` from an end PC learned outside explicit block-marker decode. |
+| input | `resolvedBodyEndValid`, `resolvedHeaderPc`, `resolvedHSizeBytes`, `resolvedBodyEndPc` | mixed | Resolved geometry learning hook for the active header. This mirrors the model path that sets `bsize` from an end PC learned outside explicit block-marker decode and carries the resolved `hsize` payload alongside it. |
 | output | `geometryValid` | `Bool` | A block body geometry row was learned this cycle. |
 | output | `headerPc`, `hsizeBytes`, `bsizeBytes` | `UInt(pcWidth.W)` | Geometry consumed by `ReducedBfuBodyCutPredictor`. |
 | output | `headerActive`, `learnedFire`, `eventLearnedFire`, `resolvedLearnedFire` | `Bool` | Reduced diagnostics for active header state and whether geometry came from an explicit F4 event or a resolved body end. |
@@ -44,11 +47,15 @@ active-header state:
 - If a header is active and a `BSTOP` appears, the producer emits
   `bsize = (bstopPc + bstopLen) - (headerPc + 2)` and clears the active header.
 - If a matching resolved body end appears, the producer emits
-  `bsize = resolvedBodyEndPc - (headerPc + 2)` and leaves the active header
-  state unchanged.
+  `hsize = resolvedHSizeBytes` and
+  `bsize = resolvedBodyEndPc - (headerPc + 2)`, then leaves the active header
+  state unchanged. A flush suppresses both explicit-event and resolved-end
+  learning for that cycle.
 
-`hsizeBytes` is currently zero, matching the reduced compressed FALL replay
-case. Full header-size/fallBPC ownership remains a later BFU packet.
+The registered `hsizeBytes` is currently zero, matching the reduced compressed
+FALL replay case and the observed model static-predictor path. The resolved
+input lets a future branch-resolution/header-size owner provide a value without
+routing this diagnostic producer into control.
 
 ## Model Evidence
 
@@ -64,6 +71,10 @@ The owner boundary mirrors LinxCoreModel:
   base before adding `bsize`.
 - `model/bctrl/BCtrl.cpp`: `ConvertToBHeader` resolves FALL restart from
   `inst.pc + spInfo->hsize`.
+- `model/ModelCommon/SimInstInfo.h` and `SimInstInfo.cpp`: `SPMInstInfo::hsize`
+  defaults to zero and is copied through BFU machine-info wrappers in the
+  observed path; R147 therefore carries resolved `hsize` as diagnostic payload
+  only.
 
 ## Verification
 
@@ -71,3 +82,4 @@ R145 focused tests cover the reference geometry rule for boundary-closed and
 `BSTOP`-closed bodies, document that CoreMark's `OP_ACRC` continuation is not
 yet a producer event, and elaborate the Chisel module. R146 adds a resolved
 body-end reference case for the CoreMark FALL body ending at `0x4000632e`.
+R147 adds a resolved-`hsize` reference case and keeps the producer diagnostic.

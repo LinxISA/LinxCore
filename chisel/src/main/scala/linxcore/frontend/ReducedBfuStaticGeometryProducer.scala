@@ -12,6 +12,7 @@ class ReducedBfuStaticGeometryProducerIO(val p: InterfaceParams = InterfaceParam
   val f4ValidMask = Input(UInt(p.decodeWidth.W))
   val resolvedBodyEndValid = Input(Bool())
   val resolvedHeaderPc = Input(UInt(p.pcWidth.W))
+  val resolvedHSizeBytes = Input(UInt(p.pcWidth.W))
   val resolvedBodyEndPc = Input(UInt(p.pcWidth.W))
 
   val geometryValid = Output(Bool())
@@ -68,7 +69,7 @@ class ReducedBfuStaticGeometryProducer(val p: InterfaceParams = InterfaceParams(
 
   io.geometryValid := learnedFire
   io.headerPc := headerPcReg
-  io.hsizeBytes := hsizeReg
+  io.hsizeBytes := Mux(resolvedLearnedFire, io.resolvedHSizeBytes, hsizeReg)
   io.bsizeBytes := Mux(resolvedLearnedFire, resolvedBsize, learnedBsize)
   io.headerActive := headerActiveReg
   io.learnedFire := learnedFire
