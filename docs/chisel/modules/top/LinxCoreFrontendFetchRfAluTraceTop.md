@@ -298,6 +298,22 @@ update its scalar-SP shadow and sources later architectural `x1` reads from
 that shadow, avoiding a second RF write port in the reduced bring-up top. The
 promoted gate captures 1620 raw QEMU rows, extracts 1496 expected rows, and
 compares 1094 normalized QEMU/DUT rows with zero mismatches.
+R137/R138 resolve the following `CSEL` semantic frontier by aligning QEMU,
+LLVM MC, the reduced row reducer, and Chisel execute to the LinxCoreModel/Sail
+true-to-`SrcL` rule when `SrcP != 0`. R139 promotes the unsigned byte-load
+frontier through `OP_LBUI`. R140 proves the next conditional-marker drain was
+a harness budget issue, not a new RTL semantic failure.
+R141 promotes the reduced live top through the next CoreMark RF/ALU prefix by
+matching LinxCoreModel's 128-entry GGPR capacity in the emitted live top,
+widening physical tags to 7 bits, and surfacing GPR free/mapQ counts plus
+execute source physical-tag diagnostics. The same packet keeps the reduced SP
+shadow as the data source for architectural `x1`, fixes `FRET.STK` arbitration
+so pending SETC/marker targets outrank RA-load return unless a valid false
+condition selects the load path, and verifies the 1188-row normalized
+QEMU/DUT prefix from the 1747-row CoreMark capture with zero mismatches. The
+strict sequential extractor still stops before the dynamic loop backedge at
+`pc=0x4000630c`, so loop-aware block-control extraction remains the next
+frontier.
 
 ## Interface
 
@@ -317,6 +333,8 @@ compares 1094 normalized QEMU/DUT rows with zero mismatches.
 | output | `f4ValidMask`, `f4SlotCount`, `decodeReady` | mixed | diagnostic | F4 slot shape and downstream decode readiness. |
 | output | `denseSlotQueueInFire`, `denseSlotQueueOutFire`, `denseSlotQueueInSlotCount`, `denseSlotQueueCount`, `denseSlotQueueHeadSlot`, `denseSlotQueueFull`, `denseSlotQueueEmpty` | mixed | diagnostic | Reduced dense-slot bridge capture/drain and occupancy observability. |
 | output | `selectedValid`, `selectedRobValue`, `selectedBlockBid` | mixed | diagnostic | Reduced selected decoded slot and allocated identities. |
+| output | `gprFreeCount`, `gprMapQFreeCount` | mixed | diagnostic | Scalar GPR rename free-list and mapQ capacity counters surfaced for long CoreMark stall triage. |
+| output | `executeCompleteSrcPhysValidMask`, `executeCompleteSrcPhysTag`, `executeCompletePc`, `executeCompleteInsn`, `executeCompleteWbReg` | mixed | diagnostic | Execute-completion physical-source and row identity diagnostics used to correlate QEMU/DUT divergences with rename map state. |
 | output | `blockMarkerSkipFire`, `blockMarkerSkipValid`, `blockMarkerMixedPacket`, `blockMarkerBoundary`, `blockMarkerStop`, `blockMarkerPc`, `blockMarkerInsn`, `blockMarkerLen`, `blockMarkerTarget` | mixed | diagnostic | Reduced block-marker consume observability on a dense-slot drain. Marker slots advance without scalar ROB allocation or dec/ren push; older scalar issue activity may overlap in the same cycle. |
 | output | `blockMarkerAllocReady`, `blockMarkerLifecycleConflict`, `blockMarkerAllocFire`, `blockMarkerAllocBid`, `blockMarkerActiveValid`, `blockMarkerActiveBid`, `blockMarkerActiveTarget`, `blockMarkerStopRedirectValid`, `blockMarkerStopRedirectPc` | mixed | diagnostic | Reduced marker lifecycle observability: BROB-only allocation readiness/fire for consumed `BSTART`, scalar-done conflict guard, active full BID/target reused by scalar rows, and marker-stop frontend restart target. |
 | output | `decRenPushFire`, `decRenPopFire`, `decRenCount` | mixed | diagnostic | Decode-to-rename queue events and occupancy. |
@@ -1058,6 +1076,7 @@ because the reduced QEMU-row selector does not yet support
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `BUILD_DIR=generated/r141-diagnostic-replay-1747-fret-target-priority FETCH_EXPECTED_ROWS=generated/r141-logical-local-1747-qemu-elf-xcheck/qemu.expected.jsonl FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r101-live-qemu-fixture`

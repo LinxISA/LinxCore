@@ -211,6 +211,12 @@ The `FrontendDecodeStageSpec` reference cases cover:
 - CoreMark `ORI`, `SUB`, and `MUL` rows at `0x4000d284`, `0x4000d288`, and
   `0x4000d2a6`, covering the generic immediate, register subtract, and
   register multiply source/destination fields used by the R131 live gate
+- R141 rows rely on the same generic decode boundaries: compact sign/zero
+  extensions and `SSRSET` remain no-special decode cases, `XORI` uses the
+  generic immediate form, `SETC_LT` keeps two register sources and no
+  writeback, compact `C.SWI` uses the compressed store source/immediate shape,
+  and high-long PCR byte/half/word/doubleword stores share the R134 split
+  PCR-store immediate extraction while execute owns the store size.
 
 ## Open Work
 

@@ -29,6 +29,7 @@ class DecodeRenameROBPathIO(
     val decRenQueueDepth: Int = 4,
     val storeDispatchQueueDepth: Int = 4,
     val loadStoreSerialWidth: Int = 64,
+    val physRegs: Int = 64,
     val mapQDepth: Int = 32,
     val tuRetireSourceQueueDepth: Int = 8,
     val tuRetireRelationCmapDepth: Int = 8)
@@ -40,6 +41,8 @@ class DecodeRenameROBPathIO(
   private val decRenCountWidth = log2Ceil(decRenQueueDepth + 1)
   private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
   private val stqCountWidth = log2Ceil(p.robEntries + 1)
+  private val gprFreeWidth = log2Ceil(physRegs + 1)
+  private val gprMapQFreeWidth = log2Ceil(mapQDepth + 1)
   private val tuCountWidth = log2Ceil(Seq(32, 32, mapQDepth).max + 1)
   private val tuRetireSourceCountWidth = log2Ceil(traceParams.commitWidth + 1)
   private val tuRetireSourceQueueCountWidth = log2Ceil(tuRetireSourceQueueDepth + 1)
@@ -205,6 +208,8 @@ class DecodeRenameROBPathIO(
   val unsupportedDst = Output(Bool())
   val unsupportedOperandClass = Output(Bool())
   val blockedByTURename = Output(Bool())
+  val gprFreeCount = Output(UInt(gprFreeWidth.W))
+  val gprMapQFreeCount = Output(UInt(gprMapQFreeWidth.W))
   val tuRenameReady = Output(Bool())
   val tuRenameAccepted = Output(Bool())
   val tuRenameActivePeId = Output(UInt(peIdWidth.W))
@@ -419,6 +424,7 @@ class DecodeRenameROBPath(
     decRenQueueDepth = decRenQueueDepth,
     storeDispatchQueueDepth = storeDispatchQueueDepth,
     loadStoreSerialWidth = loadStoreSerialWidth,
+    physRegs = physRegs,
     mapQDepth = mapQDepth,
     tuRetireSourceQueueDepth = tuRetireSourceQueueDepth,
     tuRetireRelationCmapDepth = tuRetireRelationCmapDepth
@@ -914,6 +920,8 @@ class DecodeRenameROBPath(
   io.unsupportedDst := rename.io.unsupportedDst
   io.unsupportedOperandClass := rename.io.unsupportedOperandClass
   io.blockedByTURename := rename.io.blockedByTURename
+  io.gprFreeCount := rename.io.gprFreeCount
+  io.gprMapQFreeCount := rename.io.gprMapQFreeCount
   io.tuRenameReady := rename.io.tuReady
   io.tuRenameAccepted := rename.io.tuAccepted
   io.tuRenameActivePeId := activeTURenamePeId

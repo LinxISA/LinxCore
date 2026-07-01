@@ -47,6 +47,7 @@ class ReducedScalarRegisterFile(
   val initTagInRange = io.initArchTag < archRegs.U
   val clearTagInRange = io.clearTag < physRegs.U
   val writeTagInRange = io.writeTag < physRegs.U
+  val initPhysTag = io.initArchTag.pad(p.physRegWidth)(p.physRegWidth - 1, 0)
 
   for (idx <- 0 until 3) {
     io.readData(idx) := data(io.readTags(idx))
@@ -61,8 +62,8 @@ class ReducedScalarRegisterFile(
       (io.writeValid && !writeTagInRange)
 
   when(io.initValid && initTagInRange) {
-    data(io.initArchTag) := io.initData
-    ready(io.initArchTag) := true.B
+    data(initPhysTag) := io.initData
+    ready(initPhysTag) := true.B
   }
 
   when(io.clearValid && clearTagInRange) {

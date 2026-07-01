@@ -70,7 +70,7 @@ bundle-width allocation remain later owner packets.
 Reset mirrors `GPRRename::Build` for a single scalar thread:
 
 - `smap[i] = i` and `cmap[i] = i` for the 24 model GPRs.
-- physical tags `0..23` are allocated; tags `24..63` are free.
+- physical tags `0..23` are allocated; tags `24..physRegs-1` are free.
 - checkpoints are invalid and initialized to identity maps.
 - mapQ rows are invalid.
 
@@ -109,6 +109,15 @@ The Chisel implementation preserves the effective result of that ordered walk:
 the last committed row for an architectural tag becomes the new `cmap` value,
 the pre-commit committed tag is released, and earlier same-arch committed
 physical tags are also released.
+
+R141 hardens the release path for the reduced CoreMark gate. Identity tags
+`0..23` are never returned to the free pool, and after cleanup/commit/rename
+state is computed, any physical tag still referenced by next `smap`, next
+`cmap`, or a valid next `mapQ` row is forced allocated. This mirrors the model
+ownership rule that a tag is reusable only after all speculative and committed
+references to it are gone. The same packet removes the previous 64-physical-tag
+bring-up cap; the implementation now elaborates at LinxCoreModel's
+`ggpr_count = 128` capacity.
 
 ## Flush And Replay
 
@@ -160,4 +169,8 @@ The current test reference covers:
 - ordered block commit including same-arch mapQ rows,
 - base-on-BID flush restore and pruning,
 - non-BID flush restoration of surviving same-BID mapQ rows,
-- Chisel elaboration of cleanup, map, checkpoint, and release outputs.
+- no identity-tag release on first architectural commits,
+- live-reference protection while `smap`, `cmap`, or `mapQ` still mention a
+  physical tag,
+- Chisel elaboration of cleanup, map, checkpoint, release outputs, and 128
+  physical GPR tags.

@@ -44,7 +44,7 @@ model `CommitInfo.bid` field.
 | `pcWidth` / `windowWidth` | 64 | F4 and D1 packet interfaces |
 | `opcodeWidth` | 12 | pyCircuit opcode catalog IDs |
 | `insnWidth` / `lenWidth` | 64 / 4 | 16/32/48/64-bit Linx encodings plus byte length |
-| `archRegWidth` / `physRegWidth` | 6 / 6 | `REG_INVALID=0x3f`, 64-entry ptag bring-up |
+| `archRegWidth` / `physRegWidth` | 6 / 6 | `REG_INVALID=0x3f`, 64-entry ptag bring-up by default; live reduced tops may widen physical tags when matching model capacity |
 | `robEntries` / `iqEntries` | 64 / 32 | pyCircuit `OooParams` defaults |
 | `blockBidWidth` / `blockUidWidth` | 64 / 64 | model and DFX identity fields |
 | `uopUidWidth` | 64 | `UOP_UID_FIELDS` |
@@ -79,7 +79,12 @@ The bundle shape follows these rules:
 - preserve F4/D1 width contracts from `src/common/interfaces.py`;
 - preserve LinxCoreModel instruction lengths 2, 4, 6, and 8 bytes from
   `CheckMInstSize`;
-- preserve `REG_INVALID=0x3f` and `TRAP_BRU_RECOVERY_NOT_BSTART=0x0000b001`;
+- preserve `REG_INVALID=0x3f` for the architectural reg6 namespace and
+  `TRAP_BRU_RECOVERY_NOT_BSTART=0x0000b001`;
+- allow `physRegWidth >= 6`. Widths above six use an all-ones invalid
+  physical tag so the reg6 invalid sentinel `0x3f` remains a legal physical
+  tag when a reduced top instantiates LinxCoreModel-sized 128-entry GGPR
+  storage;
 - preserve block boundary kind ordering `fall, cond, call, ret, direct, ind,
   icall` from `src/common/isa.py`;
 - keep source operands as `{P,T,U,CArg}` and destination operands as

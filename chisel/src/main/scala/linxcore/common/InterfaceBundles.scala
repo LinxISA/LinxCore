@@ -45,7 +45,7 @@ final case class InterfaceParams(
   require(insnWidth >= 48, "instruction payload must hold 48-bit Linx encodings")
   require(lenWidth >= 4, "instruction length must encode 0, 2, 4, 6, and 8 byte rows")
   require(archRegWidth == 6, "architectural register tags use the reg6 namespace")
-  require(physRegWidth == 6, "bring-up physical register tags use 64 entries")
+  require(physRegWidth >= 6, "physical register tags must cover the 64-entry bring-up default")
   require(robEntries > 1 && (robEntries & (robEntries - 1)) == 0, "robEntries must be a power of two")
   require(iqEntries > 1 && (iqEntries & (iqEntries - 1)) == 0, "iqEntries must be a power of two")
   require(blockBidWidth >= 64, "hardware block BID must preserve the 64-bit model-derived sideband")
@@ -65,7 +65,10 @@ object LinxCommonConstants {
   val RegInvalid: BigInt = 0x3f
   val TrapBruRecoveryNotBstart: BigInt = 0x0000b001L
 
-  def regInvalid(width: Int = 6): UInt = RegInvalid.U(width.W)
+  def regInvalid(width: Int = 6): UInt = {
+    val value = if (width <= 6) RegInvalid else (BigInt(1) << width) - 1
+    value.U(width.W)
+  }
   def trapBruRecoveryNotBstart(width: Int = 32): UInt = TrapBruRecoveryNotBstart.U(width.W)
 }
 

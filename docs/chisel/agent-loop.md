@@ -805,10 +805,13 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Promote beyond the R140 1660-row CoreMark prefix. The conditional marker at
-   `pc=0x40005d94` is now covered by the 64-cycle dense-row harness budget; the
-   next packet should capture the next bounded QEMU window and classify the
-   first unsupported opcode or semantic mismatch before editing RTL.
+2. Promote beyond the R141 reduced CoreMark RF/ALU prefix. The current replay
+   matches 1188 normalized QEMU/DUT rows from the 1747-row capture after
+   model-sized 128-entry GGPR capacity, live-reference free-list protection,
+   SP-shadow readiness, and `FRET.STK` target-precedence fixes. The next
+   packet should make the QEMU-row extractor and reduced block-control path
+   loop-aware around the `pc=0x4000630c` backedge instead of extending the
+   strict sequential prefix by hand.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.

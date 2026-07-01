@@ -47,10 +47,15 @@ dependent scalar ALU rows observable through the monitored commit trace.
 - `data[physRegs]`: scalar physical GPR values.
 - `ready[physRegs]`: reduced physical tag readiness.
 
-Reset initializes physical tags `0..23` ready and tags `24..63` not-ready.
+Reset initializes physical tags `0..23` ready and tags `24..physRegs-1`
+not-ready.
 Data resets to zero. This follows `GPR::GPR_COUNT = 24` and
 `GPRRename::Build`, where the speculative and committed maps start as
 architectural identity maps and free tags begin above the architectural count.
+R141 lets this reduced RF elaborate with 128 physical entries, matching
+LinxCoreModel `ggpr_count`, while keeping initialization in the 6-bit
+architectural reg namespace. The init path pads `initArchTag` to the configured
+physical tag width before indexing the RF.
 
 ## Logic Design
 

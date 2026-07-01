@@ -202,6 +202,10 @@ Outputs:
   `decRenValid`, `decRenHead`, `decRenTail`, `decRenCount`, `decRenEmpty`,
   `decRenFull`: registered decode-to-rename queue backpressure and occupancy
   observability.
+- `gprFreeCount`, `gprMapQFreeCount`: scalar GPR rename capacity diagnostics
+  from `ScalarTURenameBridge`/`GPRRenameCheckpoint`. R141 wires these through
+  the live top so long CoreMark probes can distinguish physical free-list
+  pressure from mapQ pressure.
 - `decRenHeadPc`, `decRenHeadRidValid`, `decRenHeadRidValue`: queued-head
   diagnostics used by live CoreMark gates to localize reservation/update
   stalls.

@@ -109,7 +109,8 @@ class ReducedScalarIssueQueue(
   private def laneReadyFromMask(uop: RenamedUop, lane: Int): Bool = {
     val src = uop.src(lane)
     val isLocal = src.operandClass === OperandClass.T || src.operandClass === OperandClass.U
-    !src.valid || Mux(isLocal, localSourceReady(src), io.readyMask(src.physTag))
+    val isScalarSp = src.operandClass === OperandClass.P && src.relTag === 1.U
+    !src.valid || Mux(isLocal, localSourceReady(src), Mux(isScalarSp, true.B, io.readyMask(src.physTag)))
   }
 
   val rawReleaseMatches = Wire(Vec(depth, Bool()))

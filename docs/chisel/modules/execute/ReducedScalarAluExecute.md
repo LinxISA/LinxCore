@@ -57,7 +57,7 @@ owners.
 | output | `releaseRid` | `ROBID` | with `releaseValid` | ROB identity copied from the W2 uop. |
 | output | `releaseStid` | `UInt(threadIdWidth.W)` | with `releaseValid` | STID copied from the W2 uop. |
 | output | `branchConditionValid` | `Bool` | with `completeValid` | Reduced conditional-block decision is valid for a completed compare row. |
-| output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ`, `OP_C_SETC_NE`, `OP_SETC_LTU`, and reduced SETC target rows used by the reduced block-control owner. |
+| output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ`, `OP_C_SETC_NE`, `OP_SETC_LT`, `OP_SETC_LTU`, `OP_SETC_LTUI`, and reduced SETC target rows used by the reduced block-control owner. |
 | output | `loadLookupValid` | `Bool` | E-stage valid | The current E-stage uop requests reduced read-only load data. |
 | output | `loadLookupAddr` | `UInt(64.W)` by default | with `loadLookupValid` | Byte address for the reduced read-only load lookup. |
 | output | `fretStkSpRestoreValid` | `Bool` | with `completeValid` | The condition-false `FRET.STK` RA-load path also restores architectural `x1/sp`. |
@@ -128,10 +128,11 @@ The Chisel module implements the first reduced subset:
 
 | Opcode | Result |
 |---|---|
-| `OP_ADD` | `srcData(0) + srcData(1)` |
+| `OP_ADD` | `srcData(0) + SrcR`, including model SrcR modifier and shift fields |
 | `OP_ADDI` | `srcData(0) + in.imm` |
-| `OP_SUB` | `srcData(0) - srcData(1)` |
+| `OP_SUB` | `srcData(0) - SrcR`, including model SrcR modifier and shift fields |
 | `OP_SUBI` | `srcData(0) - in.imm` |
+| `OP_AND` | `srcData(0) & SrcR`, including model SrcR modifier and shift fields |
 | `OP_ANDI` | `srcData(0) & in.imm` |
 | `OP_ANDIW` | sign-extended low-32-bit `srcData(0) & in.imm` |
 | `OP_ADDTPC` | `(in.pc & ~0xfff) + in.imm` |
@@ -140,8 +141,11 @@ The Chisel module implements the first reduced subset:
 | `OP_C_ADD` | `srcData(0) + srcData(1)` |
 | `OP_C_AND` | `srcData(0) & srcData(1)` |
 | `OP_C_SUB` | `srcData(0) - srcData(1)` |
+| `OP_C_SEXT_B/H/W` | sign-extend `srcData(0)` from 8, 16, or 32 bits |
+| `OP_C_ZEXT_B/H/W` | zero-extend `srcData(0)` from 8, 16, or 32 bits |
 | `OP_C_LDI` | `loadLookupData`, with a reduced 8-byte load sideband at `srcData(0) + in.imm` |
 | `OP_C_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(0) + (in.imm << 3)` and store data `srcData(1)` |
+| `OP_C_SWI` | `0`, with a reduced 4-byte store sideband at `srcData(0) + (in.imm << 2)` and store data `srcData(1)` |
 | `OP_C_SETC_EQ` | `0`, with branch sideband taken when validity-masked `srcData(0) == srcData(1)` |
 | `OP_C_SETC_NE` | `0`, with branch sideband taken when validity-masked `srcData(0) != srcData(1)` |
 | `OP_C_SETC_TGT` | `0`, latches `srcData(0)` as the reduced dynamic target |
@@ -152,10 +156,14 @@ The Chisel module implements the first reduced subset:
 | `OP_FRET_STK` | redirect-only while the live SETC condition is true; on the condition-false RA-restore path, load `x10/ra` from `stackPointerData + in.imm - 8`, emit an 8-byte load sideband, write reduced RF tag `x10`, emit `fretStkSpRestoreData = stackPointerData + in.imm`, and redirect to the loaded value |
 | `OP_HL_LUI` | `in.imm` |
 | `OP_HL_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
+| `OP_HL_SB_PCR` | `0`, with a reduced 1-byte store sideband at `in.pc + in.imm` and store data `srcData(0)` |
 | `OP_HL_SD_PCR` | `0`, with a reduced 8-byte store sideband at `in.pc + in.imm` and store data `srcData(0)` |
+| `OP_HL_SH_PCR` | `0`, with a reduced 2-byte store sideband at `in.pc + in.imm` and store data `srcData(0)` |
+| `OP_HL_SW_PCR` | `0`, with a reduced 4-byte store sideband at `in.pc + in.imm` and store data `srcData(0)` |
 | `OP_LBUI` | zero-extended byte from `loadLookupData(7, 0)`, with a reduced 1-byte load sideband at `srcData(0) + in.imm` |
 | `OP_LD_PCR` | `loadLookupData`, with an 8-byte load sideband at `in.pc + in.imm` |
 | `OP_LDI` | `loadLookupData`, with a reduced 8-byte load sideband at `srcData(0) + (in.imm << 3)` |
+| `OP_SETC_LT` | `0`, with branch sideband taken when signed `srcData(0) < SrcR`, including model SrcR modifier and shift fields |
 | `OP_SETC_TGT` | `0`, latches `srcData(0)` as the reduced dynamic target |
 | `OP_SETC_LTU` | `0`, with branch sideband taken when unsigned `srcData(0) < srcData(1)` |
 | `OP_SETC_LTUI` | `0`, with branch sideband taken when unsigned `srcData(0) < in.imm` |
@@ -170,7 +178,9 @@ The Chisel module implements the first reduced subset:
 | `OP_SLLI` | `srcData(0) << in.imm(5, 0)` |
 | `OP_SRL` | `srcData(0) >> srcData(1)(5, 0)` |
 | `OP_SRA` | `srcData(0).asSInt >> srcData(1)(5, 0)` |
-| `OP_OR` | `srcData(0) \| srcData(1)` |
+| `OP_SSRSET` | `0`, with no writeback side effect |
+| `OP_XORI` | `srcData(0) ^ in.imm` |
+| `OP_OR` | `srcData(0) \| SrcR`, including model SrcR modifier and shift fields |
 | `OP_ORI` | `srcData(0) \| in.imm` |
 
 R138 adds model-aligned `OP_CSEL`. `FrontendOperandDecode` maps `srcData(0)` to
@@ -372,6 +382,16 @@ marks `FRET.STK` as no visible destination; the reduced RF write is an
 execute-owned macro-template approximation until a full template uop protocol
 exists.
 
+R141 tightens that `FRET.STK` arbitration. A pending SETC target or active
+marker fallback target wins when the condition is absent or taken; the
+RA-load-return path wins only when there is no target pending or when a valid
+condition explicitly says not-taken. This matches CoreMark shapes where the
+same restore-range encoding can either loop to a block target or finally load
+`ra` from the stack. R141 also promotes the current scalar subset through
+model SrcR modifiers for register `ADD/ADDW/SUB/AND/OR`, compact
+sign/zero-extension rows, `XORI`, `SSRSET`, signed `SETC_LT`, compact word
+stores, and high-long PCR byte/half/word/doubleword stores.
+
 For reduced `OP_FENTRY`, the completion row intentionally suppresses internal
 source fields so it matches QEMU's macro row, while preserving the architectural
 SP writeback and one store sideband (`mem.valid`, `mem.isStore`, `mem.addr`,
@@ -422,6 +442,9 @@ frontend trace lane. It is designed to feed `ROBEntryBank.completeRow` through
 QEMU-shaped comparator. `completeDstPhysValid/Tag/Data` feed
 `ReducedScalarRegisterFile` in `LinxCoreFrontendRfAluTraceTop`, allowing later
 frontend rows to read earlier Chisel writebacks through renamed physical tags.
+`completeSrcPhysValid/Tag` are diagnostic sidebands used by the live
+CoreMark harness to correlate issue-time source physical tags with the
+writeback/rename map when debugging alias or premature-free hazards.
 `releaseValid/Bid/Rid/Stid` feed `ReducedScalarIssueQueue` so the queue
 removes the issued row only after this pipe reaches the reduced release point.
 

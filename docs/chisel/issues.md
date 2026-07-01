@@ -134,3 +134,61 @@ Resolution:
   drain budget as `kDenseRowDrainCycles = 64`, allowing the marker row to wait
   for the prior block's in-flight scalar branch-decision row to complete.
 - The promoted CoreMark prefix is now the 1660 captured raw-row window.
+
+## CHISEL-ISSUE-005: Reduced GPR Rename Reused Live Physical Tags
+
+Status: resolved in R141
+
+Impact:
+
+- Long CoreMark RF/ALU probes exposed an alias where a physical tag was
+  returned to the free pool while still referenced by a live rename map. The
+  visible symptom was unrelated architectural registers sharing a physical
+  source tag later in the reduced top.
+- After identity-tag release was blocked, the same probe showed real
+  free-list pressure with 64 physical tags: `gprFree=0` while mapQ still had
+  entries available.
+
+Evidence:
+
+- LinxCoreModel `configs/core.toml` sets `ggpr_count = 128` and
+  `ggpr_mapq_depth = 256`.
+- The reduced CoreMark diagnostic replay showed `decodeBlockedByRename=1`,
+  `gprFree=0`, and nonzero `gprMapQFree`, proving physical capacity, not mapQ,
+  was the active bottleneck.
+
+Resolution:
+
+- `GPRRenameCheckpoint` no longer releases identity tags and forces any tag
+  referenced by next `smap`, `cmap`, or valid `mapQ` to remain allocated.
+- `LinxCoreFrontendFetchRfAluTraceTop` emits with 128 physical registers and
+  7-bit physical tags, while common bundle invalid physical tags widen to
+  all-ones so physical tag `63` remains usable.
+- The reduced issue queue treats `x1/sp` as ready because the live top sources
+  SP data from its scalar-SP shadow.
+
+## CHISEL-ISSUE-006: Bounded Crosscheck False Trace-Length Failure
+
+Status: resolved in R141
+
+Impact:
+
+- A finite expected-row replay loaded 1189 QEMU rows and 1189 DUT rows, matched
+  every compared architectural field, then failed with a synthetic
+  `trace_length` mismatch because one side-effect-free metadata row was
+  filtered before compare.
+
+Evidence:
+
+- `generated/r141-diagnostic-replay-1747-fret-target-priority/report/crosscheck_report.md`
+  reported equal loaded row counts and the final architectural row matched,
+  but `compared=1188` against `--max-commits 1189`.
+
+Resolution:
+
+- `tools/trace/crosscheck_qemu_linxcore.py` now allows bounded finite windows
+  to pass when both metadata-filtered streams end together before
+  `--max-commits`.
+- The same traces rerun through
+  `tools/chisel/run_chisel_qemu_crosscheck.sh` pass with
+  `compared=1188 mismatches=0`.

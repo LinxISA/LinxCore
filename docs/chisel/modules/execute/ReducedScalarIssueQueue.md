@@ -144,6 +144,13 @@ observes it. The RF `readReady` response remains wired for observability and
 read-port contract continuity for scalar P sources, not as the direct issue
 predicate.
 
+R141 adds one top-specific scalar exception: architectural `x1/sp` sources are
+considered ready by the queue because `LinxCoreFrontendFetchRfAluTraceTop`
+feeds their data from the reduced `scalarSpValue` shadow rather than from the
+ordinary scalar RF readiness table. This prevents model-sized 128-entry
+renaming from stalling when `sp` has been renamed to a non-identity physical
+tag but the reduced top still owns SP as macro-control state.
+
 R111 also exposes each selected source lane's `operandClass` and `relTag`.
 `LinxCoreFrontendFetchRfAluTraceTop` uses those sidebands to suppress scalar RF
 reads for local T/U sources and to feed operand data from the reduced local

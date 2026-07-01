@@ -478,8 +478,13 @@ def main() -> int:
     else:
         # Bounded compare window: QEMU can legitimately have extra tail rows
         # because DUT halts at MAX_COMMITS while QEMU is sampled asynchronously.
-        # Only fail for DUT overflow or when both traces terminate too early.
-        if d_rem_nonmeta > 0 or ((q_rem_nonmeta == 0) and (d_rem_nonmeta == 0) and (compared < compare_limit)):
+        # Only fail for DUT overflow or DUT early termination while QEMU still
+        # has architectural rows. If both metadata-filtered streams end
+        # together before `max_commits`, the caller provided a finite trace
+        # window and the compared prefix is complete.
+        dut_overflow = d_rem_nonmeta > 0
+        dut_terminated_before_qemu = q_rem_nonmeta > 0 and d_rem_nonmeta == 0 and compared < compare_limit
+        if dut_overflow or dut_terminated_before_qemu:
             mismatches.append(
                 {
                     "seq": compared if not d_compared_rows else d_compared_rows[-1].seq,

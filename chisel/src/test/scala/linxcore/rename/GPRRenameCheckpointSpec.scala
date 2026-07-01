@@ -47,6 +47,13 @@ object GPRRenameCheckpointReference {
     next -> phys
   }
 
+  private def protectLive(state: State): State = {
+    val live = state.smap.toSet ++ state.cmap.toSet ++ state.mapQ.collect {
+      case entry if entry.valid => entry.physTag
+    }
+    state.copy(free = state.free.zipWithIndex.map { case (free, phys) => free && !live.contains(phys) })
+  }
+
   def checkpoint(state: State, bid: ROBIDValue): State =
     state.copy(
       checkpoints = state.checkpoints.updated(bid.value, state.smap),
@@ -62,13 +69,15 @@ object GPRRenameCheckpointReference {
 
     for ((entry, idx) <- state.mapQ.zipWithIndex) {
       if (entry.valid && entry.bid == bid) {
-        released += cmap(entry.archTag)
-        free = free.updated(cmap(entry.archTag), true)
+        if (cmap(entry.archTag) >= state.smap.length) {
+          released += cmap(entry.archTag)
+          free = free.updated(cmap(entry.archTag), true)
+        }
         cmap = cmap.updated(entry.archTag, entry.physTag)
         mapQ = mapQ.updated(idx, entry.copy(valid = false))
       }
     }
-    state.copy(cmap = cmap, free = free, mapQ = mapQ) -> released
+    protectLive(state.copy(cmap = cmap, free = free, mapQ = mapQ)) -> released
   }
 
   def flush(state: State, flushBid: ROBIDValue, flushRid: ROBIDValue, baseOnBid: Boolean, entries: Int): (State, Set[Int]) = {
@@ -92,8 +101,10 @@ object GPRRenameCheckpointReference {
           if (baseOnBid) ROBIDReference.lessEqual(flushBid, entry.bid, entries)
           else ROBIDReference.lessEqualBidRid(flushBid, flushRid, entry.bid, entry.rid, entries)
         if (prune) {
-          released += entry.physTag
-          free = free.updated(entry.physTag, true)
+          if (entry.physTag >= state.smap.length) {
+            released += entry.physTag
+            free = free.updated(entry.physTag, true)
+          }
           mapQ = mapQ.updated(idx, entry.copy(valid = false))
         }
       }
@@ -103,7 +114,7 @@ object GPRRenameCheckpointReference {
       }
     }
 
-    state.copy(smap = smap, renamePtr = renamePtr, free = free, mapQ = mapQ) -> released
+    protectLive(state.copy(smap = smap, renamePtr = renamePtr, free = free, mapQ = mapQ)) -> released
   }
 
   implicit final class ROBIDReferenceOps(private val ref: ROBIDReference.type) extends AnyVal {
@@ -148,12 +159,50 @@ class GPRRenameCheckpointSpec extends AnyFunSuite {
 
     assert(p24 == 24)
     assert(p25 == 25)
-    assert(released == Set(2, 24))
+    assert(released == Set(24))
     assert(s3.cmap(2) == 25)
     assert(s3.mapQ.forall(!_.valid))
-    assert(s3.free(2))
+    assert(!s3.free(2))
     assert(s3.free(24))
     assert(!s3.free(25))
+  }
+
+  test("committing first architectural writes never returns identity tags to the free pool") {
+    val bid1 = ROBIDValue(value = 1)
+    val bid2 = ROBIDValue(value = 2)
+    val (s1, p24) = rename(initial(), archTag = 4, bid = bid1, rid = ROBIDValue(value = 0))
+    val (s2, released) = commit(s1, bid1)
+    val (s3, p25) = rename(s2, archTag = 8, bid = bid2, rid = ROBIDValue(value = 0))
+
+    assert(p24 == 24)
+    assert(released.isEmpty)
+    assert(!s2.free.take(24).exists(identity))
+    assert(p25 == 25)
+    assert(s3.smap(4) == 24)
+    assert(s3.smap(8) == 25)
+  }
+
+  test("commit keeps a physical tag allocated while any map still references it") {
+    val bid1 = ROBIDValue(value = 1)
+    val bid2 = ROBIDValue(value = 2)
+    val base = initial()
+    val staleFree = base.copy(
+      smap = base.smap.updated(4, 28),
+      cmap = base.cmap.updated(4, 28),
+      free = base.free.zipWithIndex.map {
+        case (_, phys) if phys >= 24 && phys < 28 => false
+        case (_, 28) => true
+        case (free, _) => free
+      }
+    )
+    val (s1, p28) = rename(staleFree, archTag = 4, bid = bid1, rid = ROBIDValue(value = 0))
+    val (s2, _) = commit(s1, bid1)
+    val (s3, nextPhys) = rename(s2, archTag = 8, bid = bid2, rid = ROBIDValue(value = 0))
+
+    assert(p28 == 28)
+    assert(!s2.free(28))
+    assert(nextPhys != 28)
+    assert(s3.smap(4) == 28)
   }
 
   test("base-on-BID flush restores from prior checkpoint and prunes younger mapQ rows") {
@@ -196,5 +245,13 @@ class GPRRenameCheckpointSpec extends AnyFunSuite {
     assert(sv.contains("io_smap_0"))
     assert(sv.contains("io_cmap_0"))
     assert(sv.contains("io_releasedPhysMask"))
+  }
+
+  test("Chisel GPRRenameCheckpoint elaborates model GGPR physical capacity") {
+    val sv = ChiselStage.emitSystemVerilog(new GPRRenameCheckpoint(entries = 8, physRegs = 128, mapQDepth = 8))
+
+    assert(sv.contains("module GPRRenameCheckpoint"))
+    assert(sv.contains("output [127:0] io_freeMask"))
+    assert(sv.contains("output [127:0] io_releasedPhysMask"))
   }
 }

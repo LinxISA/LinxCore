@@ -43,8 +43,14 @@ HL_LUI_MASK = 0xFFFF_0000_007F_000F
 HL_LUI_MATCH = 0x0000_0000_0017_000E
 HL_LD_PCR_MASK = 0xFFFF_0000_707F_000F
 HL_LD_PCR_MATCH = 0x0000_0000_3039_000E
+HL_SB_PCR_MASK = 0xFFFF_0000_707F_000F
+HL_SB_PCR_MATCH = 0x0000_0000_0069_000E
 HL_SD_PCR_MASK = 0xFFFF_0000_707F_000F
 HL_SD_PCR_MATCH = 0x0000_0000_3069_000E
+HL_SH_PCR_MASK = 0xFFFF_0000_707F_000F
+HL_SH_PCR_MATCH = 0x0000_0000_1069_000E
+HL_SW_PCR_MASK = 0xFFFF_0000_707F_000F
+HL_SW_PCR_MATCH = 0x0000_0000_2069_000E
 SLL_MASK = 0xFE00_707F
 SLL_MATCH = 0x0000_7005
 SLLI_MASK = 0xFC00_707F
@@ -59,12 +65,28 @@ MULW_MASK = 0xFE00_707F
 MULW_MATCH = 0x0000_2047
 OR_MASK = 0x707F
 OR_MATCH = 0x3005
+SETC_LT_MASK = 0xF800_7FFF
+SETC_LT_MATCH = 0x0000_4065
 SETC_LTU_MASK = 0xF800_7FFF
 SETC_LTU_MATCH = 0x0000_6065
 SETC_LTUI_MASK = 0x707F
 SETC_LTUI_MATCH = 0x6075
 SETC_TGT_MASK = 0xFFF0_7FFF
 SETC_TGT_MATCH = 0x0000_403B
+SSRSET_MASK = 0x7FFF
+SSRSET_MATCH = 0x103B
+C_SEXT_B_MASK = 0xF83F
+C_SEXT_B_MATCH = 0x401C
+C_SEXT_H_MASK = 0xF83F
+C_SEXT_H_MATCH = 0x481C
+C_SEXT_W_MASK = 0xF83F
+C_SEXT_W_MATCH = 0x501C
+C_ZEXT_B_MASK = 0xF83F
+C_ZEXT_B_MATCH = 0x581C
+C_ZEXT_H_MASK = 0xF83F
+C_ZEXT_H_MATCH = 0x601C
+C_ZEXT_W_MASK = 0xF83F
+C_ZEXT_W_MATCH = 0x681C
 SD_MASK = 0x7FFF
 SD_MATCH = 0x3049
 LOCAL_QUEUE_DEPTH = 4
@@ -111,12 +133,16 @@ def _classify(row: dict[str, int]) -> str | None:
             return "SUBI"
         if key == 0x0055:
             return "CMP_EQI"
+        if key == 0x2005:
+            return "AND"
         if key == 0x2015:
             return "ANDI"
         if key == 0x2035:
             return "ANDIW"
         if key == 0x3015:
             return "ORI"
+        if key == 0x4015:
+            return "XORI"
         if key == 0x0077:
             return "CSEL"
         if (insn & 0xFFF) == 0x0507:
@@ -157,10 +183,14 @@ def _classify(row: dict[str, int]) -> str | None:
             return "OR"
         if (insn & SETC_LTUI_MASK) == SETC_LTUI_MATCH:
             return "SETC_LTUI"
+        if (insn & SETC_LT_MASK) == SETC_LT_MATCH:
+            return "SETC_LT"
         if (insn & SETC_LTU_MASK) == SETC_LTU_MATCH:
             return "SETC_LTU"
         if (insn & SETC_TGT_MASK) == SETC_TGT_MATCH:
             return "SETC_TGT"
+        if (insn & SSRSET_MASK) == SSRSET_MATCH:
+            return "SSRSET"
     if row["len"] == 2:
         if (insn & 0xF83F) == 0x5016:
             return "C.SETRET"
@@ -177,8 +207,22 @@ def _classify(row: dict[str, int]) -> str | None:
             return "C.MOVI"
         if key == 0x0006:
             return "C.MOVR"
+        if (insn & C_SEXT_B_MASK) == C_SEXT_B_MATCH:
+            return "C.SEXT_B"
+        if (insn & C_SEXT_H_MASK) == C_SEXT_H_MATCH:
+            return "C.SEXT_H"
+        if (insn & C_SEXT_W_MASK) == C_SEXT_W_MATCH:
+            return "C.SEXT_W"
+        if (insn & C_ZEXT_B_MASK) == C_ZEXT_B_MATCH:
+            return "C.ZEXT_B"
+        if (insn & C_ZEXT_H_MASK) == C_ZEXT_H_MATCH:
+            return "C.ZEXT_H"
+        if (insn & C_ZEXT_W_MASK) == C_ZEXT_W_MATCH:
+            return "C.ZEXT_W"
         if key == 0x001A:
             return "C.LDI"
+        if key == 0x002A:
+            return "C.SWI"
         if key == 0x003A:
             return "C.SDI"
         if key == 0x0026:
@@ -190,8 +234,14 @@ def _classify(row: dict[str, int]) -> str | None:
             return "HL.LUI"
         if (insn & HL_LD_PCR_MASK) == HL_LD_PCR_MATCH:
             return "HL.LD.PCR"
+        if (insn & HL_SB_PCR_MASK) == HL_SB_PCR_MATCH:
+            return "HL.SB.PCR"
         if (insn & HL_SD_PCR_MASK) == HL_SD_PCR_MATCH:
             return "HL.SD.PCR"
+        if (insn & HL_SH_PCR_MASK) == HL_SH_PCR_MATCH:
+            return "HL.SH.PCR"
+        if (insn & HL_SW_PCR_MASK) == HL_SW_PCR_MATCH:
+            return "HL.SW.PCR"
     return None
 
 
@@ -241,6 +291,12 @@ def _simm5_11_scaled_double(row: dict[str, int]) -> int:
     raw = (_mask_insn(row["insn"], row["len"]) >> 11) & 0x1F
     signed = raw - 0x20 if raw & 0x10 else raw
     return (signed << 3) & MASK64
+
+
+def _simm5_11_scaled_word(row: dict[str, int]) -> int:
+    raw = (_mask_insn(row["insn"], row["len"]) >> 11) & 0x1F
+    signed = raw - 0x20 if raw & 0x10 else raw
+    return (signed << 2) & MASK64
 
 
 def _simm17_unscaled(row: dict[str, int]) -> int:
@@ -314,6 +370,14 @@ def _srcp(row: dict[str, int]) -> int:
 
 def _shamt_20_25(row: dict[str, int]) -> int:
     return (_mask_insn(row["insn"], row["len"]) >> 20) & 0x3F
+
+
+def _src_r_type(row: dict[str, int]) -> int:
+    return (_mask_insn(row["insn"], row["len"]) >> 25) & 0x3
+
+
+def _src_r_shamt(row: dict[str, int]) -> int:
+    return (_mask_insn(row["insn"], row["len"]) >> 27) & 0x1F
 
 
 def _c_src_l(row: dict[str, int]) -> int:
@@ -447,11 +511,13 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "ADDW",
         "ADDI",
         "ADDTPC",
+        "AND",
         "ANDI",
         "ANDIW",
         "CMP_EQI",
         "CSEL",
         "SUB",
+        "SUBI",
         "LDI",
         "LD.PCR",
         "HL.LD.PCR",
@@ -462,12 +528,14 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "SRA",
         "OR",
         "ORI",
+        "XORI",
     }:
         raise RowExtractionError(f"{opcode} row writes reduced U destination alias {row['dst_reg']}")
     elif row["dst_reg"] == 31 and opcode not in {
         "ADDTPC",
         "ADDW",
         "ADDI",
+        "AND",
         "ANDI",
         "CMP_EQI",
         "CSEL",
@@ -484,10 +552,19 @@ def _require_writeback(row: dict[str, int], opcode: str) -> None:
         "SRA",
         "OR",
         "ORI",
+        "XORI",
         "SUB",
+        "SUBI",
         "C.LDI",
         "C.ADD",
         "C.SUB",
+        "C.SEXT_B",
+        "C.SEXT_H",
+        "C.SEXT_W",
+        "C.ZEXT_B",
+        "C.ZEXT_H",
+        "C.ZEXT_W",
+        "C.MOVI",
         "C.MOVR",
     }:
         raise RowExtractionError(f"{opcode} row writes reduced T destination alias {row['dst_reg']}")
@@ -525,22 +602,64 @@ def _signed64(value: int) -> int:
     return value
 
 
+def _addsub_src_r_value(row: dict[str, int], value: int) -> int:
+    src_r_type = _src_r_type(row)
+    if src_r_type == 0:
+        converted = _sext(value & 0xFFFF_FFFF, 32)
+    elif src_r_type == 1:
+        converted = value & 0xFFFF_FFFF
+    elif src_r_type == 2:
+        converted = (-value) & MASK64
+    else:
+        converted = value & MASK64
+    return (converted << _src_r_shamt(row)) & MASK64
+
+
+def _logic_src_r_value(row: dict[str, int], value: int) -> int:
+    src_r_type = _src_r_type(row)
+    if src_r_type == 0:
+        converted = _sext(value & 0xFFFF_FFFF, 32)
+    elif src_r_type == 1:
+        converted = value & 0xFFFF_FFFF
+    elif src_r_type == 2:
+        converted = (~value) & MASK64
+    else:
+        converted = value & MASK64
+    return (converted << _src_r_shamt(row)) & MASK64
+
+
 def _expected_result(
     row: dict[str, int],
     opcode: str,
     local_state: dict[str, list[int | None]]) -> int:
     if opcode == "ADD":
         lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
-        rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+        rhs = _addsub_src_r_value(
+            row,
+            _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state),
+        )
         return (lhs + rhs) & MASK64
     if opcode == "ADDW":
         lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
-        rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+        rhs = _addsub_src_r_value(
+            row,
+            _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state),
+        )
         return _sext((lhs + rhs) & 0xFFFF_FFFF, 32) & MASK64
     if opcode == "SUB":
         lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
-        rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+        rhs = _addsub_src_r_value(
+            row,
+            _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state),
+        )
         return (lhs - rhs) & MASK64
+    if opcode == "AND":
+        lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        rhs = _logic_src_r_value(
+            row,
+            _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state),
+        )
+        return (lhs & rhs) & MASK64
     if opcode == "ADDI":
         src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         return (src0 + _uimm12(row)) & MASK64
@@ -556,12 +675,27 @@ def _expected_result(
     if opcode == "ORI":
         src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         return (src0 | _simm12_20_s12(row)) & MASK64
+    if opcode == "XORI":
+        src0 = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        return (src0 ^ _simm12_20_s12(row)) & MASK64
     if opcode == "ADDTPC":
         return ((row["pc"] & ~0xFFF) + _simm20_shifted(row)) & MASK64
     if opcode == "C.MOVI":
         return _simm5_6(row) & MASK64
     if opcode == "C.MOVR":
         return _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
+    if opcode == "C.SEXT_B":
+        return _sext(_encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state) & 0xFF, 8) & MASK64
+    if opcode == "C.SEXT_H":
+        return _sext(_encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state) & 0xFFFF, 16) & MASK64
+    if opcode == "C.SEXT_W":
+        return _sext(_encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state) & 0xFFFF_FFFF, 32) & MASK64
+    if opcode == "C.ZEXT_B":
+        return _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state) & 0xFF
+    if opcode == "C.ZEXT_H":
+        return _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state) & 0xFFFF
+    if opcode == "C.ZEXT_W":
+        return _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state) & 0xFFFF_FFFF
     if opcode == "C.SETRET":
         return (row["pc"] + _c_setret_imm(row)) & MASK64
     if opcode == "CMP_EQI":
@@ -576,6 +710,8 @@ def _expected_result(
         return (row["mem_addr"] + (_fentry_save_count(row) << 3) - _fentry_imm(row)) & MASK64
     if opcode == "C.LDI":
         return row["mem_rdata"] & MASK64
+    if opcode == "C.SWI":
+        return 0
     if opcode == "C.SDI":
         return 0
     if opcode == "LDI":
@@ -584,9 +720,11 @@ def _expected_result(
         return row["mem_rdata"] & 0xFF
     if opcode in {"LD.PCR", "HL.LD.PCR"}:
         return row["mem_rdata"] & MASK64
-    if opcode == "HL.SD.PCR":
+    if opcode in {"HL.SB.PCR", "HL.SD.PCR", "HL.SH.PCR", "HL.SW.PCR"}:
         return 0
     if opcode in {"C.SETC_EQ", "C.SETC_NE"}:
+        return 0
+    if opcode == "SETC_LT":
         return 0
     if opcode == "SETC_LTU":
         return 0
@@ -641,9 +779,14 @@ def _expected_result(
         lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
         return (_signed64(lhs) >> (rhs & 0x3F)) & MASK64
+    if opcode == "SSRSET":
+        return 0
     if opcode == "OR":
         lhs = _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
-        rhs = _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
+        rhs = _logic_src_r_value(
+            row,
+            _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state),
+        )
         return (lhs | rhs) & MASK64
     raise AssertionError(opcode)
 
@@ -664,11 +807,15 @@ def _validate_reduced_row(
         "FENTRY",
         "C.LDI",
         "C.SDI",
+        "C.SWI",
         "LDI",
         "LBUI",
         "LD.PCR",
         "HL.LD.PCR",
+        "HL.SB.PCR",
         "HL.SD.PCR",
+        "HL.SH.PCR",
+        "HL.SW.PCR",
         "FRET_STK",
         "SBI",
         "SD",
@@ -682,7 +829,7 @@ def _validate_reduced_row(
             f"expected 0x{row['pc'] + row['len']:x}"
         )
 
-    if opcode in {"ADD", "ADDW", "SUB"}:
+    if opcode in {"ADD", "ADDW", "SUB", "AND"}:
         _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
     elif opcode in {"ADDI", "SUBI"}:
@@ -694,6 +841,10 @@ def _validate_reduced_row(
     elif opcode == "C.MOVI":
         _require_sources(row, opcode, src0=False, src1=False)
     elif opcode == "C.MOVR":
+        if row["src1_valid"]:
+            raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
+        _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
+    elif opcode in {"C.SEXT_B", "C.SEXT_H", "C.SEXT_W", "C.ZEXT_B", "C.ZEXT_H", "C.ZEXT_W"}:
         if row["src1_valid"]:
             raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
         _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
@@ -738,8 +889,8 @@ def _validate_reduced_row(
     elif opcode == "C.SDI":
         base = _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         store_data = _local_source_value(local_state, 24, opcode)
-        if row["src0_valid"] or row["src1_valid"]:
-            raise RowExtractionError(f"row {index} C.SDI local sources must be suppressed")
+        if row["src1_valid"]:
+            raise RowExtractionError(f"row {index} C.SDI implicit T store source must be suppressed")
         if not row["mem_valid"] or not row["mem_is_store"] or row["mem_size"] != 8:
             raise RowExtractionError(f"row {index} C.SDI must carry one 8-byte store")
         expected_addr = (base + _simm5_11_scaled_double(row)) & MASK64
@@ -749,6 +900,20 @@ def _validate_reduced_row(
             raise RowExtractionError(f"row {index} C.SDI store data does not match T0")
         if row["mem_rdata"] != 0:
             raise RowExtractionError(f"row {index} C.SDI store row must not carry read data")
+    elif opcode == "C.SWI":
+        base = _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
+        store_data = _local_source_value(local_state, 24, opcode)
+        if row["src1_valid"]:
+            raise RowExtractionError(f"row {index} C.SWI implicit T store source must be suppressed")
+        if not row["mem_valid"] or not row["mem_is_store"] or row["mem_size"] != 4:
+            raise RowExtractionError(f"row {index} C.SWI must carry one 4-byte store")
+        expected_addr = (base + _simm5_11_scaled_word(row)) & MASK64
+        if row["mem_addr"] != expected_addr:
+            raise RowExtractionError(f"row {index} C.SWI store address does not match src0+imm")
+        if row["mem_wdata"] != store_data:
+            raise RowExtractionError(f"row {index} C.SWI store data does not match T0")
+        if row["mem_rdata"] != 0:
+            raise RowExtractionError(f"row {index} C.SWI store row must not carry read data")
     elif opcode == "LDI":
         if row["src1_valid"]:
             raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
@@ -773,7 +938,7 @@ def _validate_reduced_row(
             raise RowExtractionError(f"row {index} LBUI load address does not match src0+imm")
         if row["dst_data"] != (row["mem_rdata"] & 0xFF):
             raise RowExtractionError(f"row {index} LBUI destination data does not match zero-extended load byte")
-    elif opcode in {"ANDI", "ANDIW", "ORI"}:
+    elif opcode in {"ANDI", "ANDIW", "ORI", "XORI"}:
         _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
         if row["src1_valid"]:
             raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
@@ -795,24 +960,26 @@ def _validate_reduced_row(
             raise RowExtractionError(f"row {index} HL.LD.PCR load address does not match pc+imm")
         if row["dst_data"] != row["mem_rdata"]:
             raise RowExtractionError(f"row {index} HL.LD.PCR destination data does not match load data")
-    elif opcode == "HL.SD.PCR":
+    elif opcode in {"HL.SB.PCR", "HL.SD.PCR", "HL.SH.PCR", "HL.SW.PCR"}:
         store_data = _encoded_source_value(row, "src0", _hl_src_l(row), opcode, local_state)
         if row["src1_valid"]:
             raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
-        if not row["mem_valid"] or not row["mem_is_store"] or row["mem_size"] != 8:
-            raise RowExtractionError(f"row {index} HL.SD.PCR must carry one 8-byte store")
+        expected_size = {"HL.SB.PCR": 1, "HL.SH.PCR": 2, "HL.SW.PCR": 4, "HL.SD.PCR": 8}[opcode]
+        if not row["mem_valid"] or not row["mem_is_store"] or row["mem_size"] != expected_size:
+            raise RowExtractionError(f"row {index} {opcode} must carry one {expected_size}-byte store")
         expected_addr = (row["pc"] + _hl_store_pcr_simm(row)) & MASK64
         if row["mem_addr"] != expected_addr:
-            raise RowExtractionError(f"row {index} HL.SD.PCR store address does not match pc+imm")
+            raise RowExtractionError(f"row {index} {opcode} store address does not match pc+imm")
         if row["mem_wdata"] != store_data:
-            raise RowExtractionError(f"row {index} HL.SD.PCR store data does not match src0")
+            raise RowExtractionError(f"row {index} {opcode} store data does not match src0")
         if row["mem_rdata"] != 0:
-            raise RowExtractionError(f"row {index} HL.SD.PCR store row must not carry read data")
+            raise RowExtractionError(f"row {index} {opcode} store row must not carry read data")
     elif opcode in {"C.SETC_EQ", "C.SETC_NE"}:
         _encoded_source_value(row, "src0", _c_src_l(row), opcode, local_state)
         _encoded_source_value(row, "src1", _c_src_r(row), opcode, local_state)
-    elif opcode == "SETC_LTU":
-        _require_sources(row, opcode, src0=True, src1=True)
+    elif opcode in {"SETC_LT", "SETC_LTU"}:
+        _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+        _encoded_source_value(row, "src1", _sll_src_r(row), opcode, local_state)
     elif opcode == "SETC_LTUI":
         _require_sources(row, opcode, src0=True, src1=False)
     elif opcode == "C.SETC_TGT":
@@ -890,20 +1057,30 @@ def _validate_reduced_row(
         if row["src1_valid"]:
             raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
         _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
+    elif opcode == "SSRSET":
+        if row["src1_valid"]:
+            raise RowExtractionError(f"{opcode} row has src1_valid={row['src1_valid']}, expected 0")
+        _encoded_source_value(row, "src0", _sll_src_l(row), opcode, local_state)
     synthesize_c_local_writeback = opcode in {"C.ADD", "C.AND", "C.SUB"} and _is_no_writeback_trace_gap(row)
     no_writeback_opcode = opcode in {
         "C.SETC_EQ",
         "C.SETC_NE",
         "C.SETC_TGT",
         "C.SDI",
+        "C.SWI",
         "SBI",
+        "SETC_LT",
         "SETC_LTU",
         "SETC_LTUI",
         "SETC_TGT",
         "SD",
         "SDI",
+        "SSRSET",
         "SWI",
+        "HL.SB.PCR",
         "HL.SD.PCR",
+        "HL.SH.PCR",
+        "HL.SW.PCR",
     } or (opcode == "FRET_STK" and not row["mem_valid"])
     suppress_setc_immediate_dst = _is_setc_immediate_dst_artifact(row, opcode)
     if no_writeback_opcode and not (_is_no_writeback_trace_gap(row) or suppress_setc_immediate_dst):
@@ -1155,6 +1332,115 @@ def self_test() -> None:
         assert extracted_hl_sd_pcr[0]["mem_addr"] == 0x40010108
         assert extracted_hl_sd_pcr[0]["mem_wdata"] == 0x4FFF0008
 
+        hl_sb_pcr_source = tmp / "hl-sb-pcr-local.jsonl"
+        hl_sb_pcr_output = tmp / "hl-sb-pcr-local.rows.jsonl"
+        c_movi_one_for_hl_sb = {
+            **rows[0],
+            "pc": 0x40006304,
+            "insn": 0xF856,
+            "len": 2,
+            "next_pc": 0x40006306,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 1,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 1,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        hl_sb_pcr = {
+            **rows[0],
+            "pc": 0x40006306,
+            "insn": 0xDFAC04E9000E,
+            "len": 6,
+            "next_pc": 0x4000630C,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 1,
+            "mem_is_store": 1,
+            "mem_addr": 0x40010100,
+            "mem_wdata": 1,
+            "mem_rdata": 0,
+            "mem_size": 1,
+        }
+        _write_jsonl(hl_sb_pcr_source, [c_movi_one_for_hl_sb, hl_sb_pcr])
+        count = extract_rows(hl_sb_pcr_source, hl_sb_pcr_output)
+        assert count == 2
+        extracted_hl_sb_pcr = [
+            json.loads(line) for line in hl_sb_pcr_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_hl_sb_pcr[1]["src0_valid"] == 0
+        assert extracted_hl_sb_pcr[1]["mem_addr"] == 0x40010100
+        assert extracted_hl_sb_pcr[1]["mem_wdata"] == 1
+        assert extracted_hl_sb_pcr[1]["mem_size"] == 1
+
+        c_swi_source = tmp / "c-swi-local.jsonl"
+        c_swi_output = tmp / "c-swi-local.rows.jsonl"
+        c_movi_two_for_c_swi = {
+            **c_movi_one_for_hl_sb,
+            "pc": 0x4000630E,
+            "insn": 0xF896,
+            "next_pc": 0x40006310,
+            "wb_data": 2,
+            "dst_data": 2,
+        }
+        c_swi = {
+            **rows[0],
+            "pc": 0x40006310,
+            "insn": 0x536A,
+            "len": 2,
+            "next_pc": 0x40006312,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 13,
+            "src0_data": 0x4000_FF90,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 1,
+            "mem_is_store": 1,
+            "mem_addr": 0x4000_FFB8,
+            "mem_wdata": 2,
+            "mem_rdata": 0,
+            "mem_size": 4,
+        }
+        _write_jsonl(c_swi_source, [c_movi_two_for_c_swi, c_swi])
+        count = extract_rows(c_swi_source, c_swi_output)
+        assert count == 2
+        extracted_c_swi = [
+            json.loads(line) for line in c_swi_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_c_swi[1]["src0_valid"] == 1
+        assert extracted_c_swi[1]["src1_valid"] == 0
+        assert extracted_c_swi[1]["mem_addr"] == 0x4000_FFB8
+        assert extracted_c_swi[1]["mem_size"] == 4
+
         cmp_eqi_source = tmp / "cmp-eqi.jsonl"
         cmp_eqi_output = tmp / "cmp-eqi.rows.jsonl"
         cmp_eqi = {
@@ -1255,6 +1541,196 @@ def self_test() -> None:
         assert count == 1
         extracted_c_setret = [json.loads(line) for line in c_setret_output.read_text(encoding="utf-8").splitlines()]
         assert extracted_c_setret[0]["dst_data"] == 0x4000550A
+
+        c_movi_t_source = tmp / "c-movi-t-dst.jsonl"
+        c_movi_t_output = tmp / "c-movi-t-dst.rows.jsonl"
+        c_movi_t = {
+            **rows[0],
+            "pc": 0x400061F6,
+            "insn": 0xF9D6,
+            "len": 2,
+            "next_pc": 0x400061F8,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 7,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 7,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+        }
+        _write_jsonl(c_movi_t_source, [c_movi_t])
+        count = extract_rows(c_movi_t_source, c_movi_t_output)
+        assert count == 1
+        extracted_c_movi_t = [
+            json.loads(line) for line in c_movi_t_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_c_movi_t[0]["dst_reg"] == 31
+        assert extracted_c_movi_t[0]["wb_rd"] == 31
+        assert extracted_c_movi_t[0]["dst_data"] == 7
+
+        setc_ltu_local_source = tmp / "setc-ltu-local.jsonl"
+        setc_ltu_local_output = tmp / "setc-ltu-local.rows.jsonl"
+        setc_ltu_t_scalar = {
+            **rows[0],
+            "pc": 0x400061F8,
+            "insn": 0x062C6065,
+            "len": 4,
+            "next_pc": 0x400061FC,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 1,
+            "src1_reg": 2,
+            "src1_data": 8,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(setc_ltu_local_source, [c_movi_t, setc_ltu_t_scalar])
+        count = extract_rows(setc_ltu_local_source, setc_ltu_local_output)
+        assert count == 2
+        extracted_setc_ltu = [
+            json.loads(line) for line in setc_ltu_local_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_setc_ltu[1]["src0_valid"] == 0
+        assert extracted_setc_ltu[1]["src1_valid"] == 1
+        assert extracted_setc_ltu[1]["dst_valid"] == 0
+        assert extracted_setc_ltu[1]["wb_valid"] == 0
+
+        ssrset_source = tmp / "ssrset.jsonl"
+        ssrset_output = tmp / "ssrset.rows.jsonl"
+        ssrset = {
+            **rows[0],
+            "pc": 0x4000D7EC,
+            "insn": 0x0001103B,
+            "len": 4,
+            "next_pc": 0x4000D7F0,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 1,
+            "src0_reg": 2,
+            "src0_data": 0x4001_0058,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(ssrset_source, [ssrset])
+        count = extract_rows(ssrset_source, ssrset_output)
+        assert count == 1
+        extracted_ssrset = [
+            json.loads(line) for line in ssrset_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_ssrset[0]["src0_valid"] == 1
+        assert extracted_ssrset[0]["src0_reg"] == 2
+        assert extracted_ssrset[0]["dst_valid"] == 0
+        assert extracted_ssrset[0]["wb_valid"] == 0
+
+        c_sext_w_source = tmp / "c-sext-w.jsonl"
+        c_sext_w_output = tmp / "c-sext-w.rows.jsonl"
+        c_sext_w = {
+            **rows[0],
+            "pc": 0x400062F6,
+            "insn": 0x509C,
+            "len": 2,
+            "next_pc": 0x400062F8,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 0xFFFF_FFFF_8000_0001,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 0xFFFF_FFFF_8000_0001,
+            "src0_valid": 1,
+            "src0_reg": 2,
+            "src0_data": 0x8000_0001,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(c_sext_w_source, [c_sext_w])
+        count = extract_rows(c_sext_w_source, c_sext_w_output)
+        assert count == 1
+        extracted_c_sext_w = [
+            json.loads(line) for line in c_sext_w_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_c_sext_w[0]["src0_valid"] == 1
+        assert extracted_c_sext_w[0]["dst_reg"] == 31
+        assert extracted_c_sext_w[0]["dst_data"] == 0xFFFF_FFFF_8000_0001
+
+        setc_lt_local_source = tmp / "setc-lt-local.jsonl"
+        setc_lt_local_output = tmp / "setc-lt-local.rows.jsonl"
+        c_sext_w_zero = {
+            **c_sext_w,
+            "pc": 0x5400,
+            "next_pc": 0x5402,
+            "wb_data": 0,
+            "dst_data": 0,
+            "src0_data": 0,
+        }
+        setc_lt_t_scalar = {
+            **rows[0],
+            "pc": 0x5402,
+            "insn": 0x06CC4065,
+            "len": 4,
+            "next_pc": 0x5406,
+            "wb_valid": 0,
+            "wb_rd": 0,
+            "wb_data": 0,
+            "dst_valid": 0,
+            "dst_reg": 0,
+            "dst_data": 0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 1,
+            "src1_reg": 12,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(setc_lt_local_source, [c_sext_w_zero, setc_lt_t_scalar])
+        count = extract_rows(setc_lt_local_source, setc_lt_local_output)
+        assert count == 2
+        extracted_setc_lt = [
+            json.loads(line) for line in setc_lt_local_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_setc_lt[1]["src0_valid"] == 0
+        assert extracted_setc_lt[1]["src1_valid"] == 1
+        assert extracted_setc_lt[1]["dst_valid"] == 0
+        assert extracted_setc_lt[1]["wb_valid"] == 0
 
         fentry_source = tmp / "fentry.jsonl"
         fentry_output = tmp / "fentry.rows.jsonl"
@@ -1419,6 +1895,28 @@ def self_test() -> None:
         assert extracted_subi[0]["dst_reg"] == 8
         assert extracted_subi[0]["dst_data"] == MASK64 - 23
 
+        subi_t_source = tmp / "subi-t-dst.jsonl"
+        subi_t_output = tmp / "subi-t-dst.rows.jsonl"
+        subi_t = {
+            **subi,
+            "pc": 0x4000626C,
+            "insn": 0x0C801F95,
+            "next_pc": 0x40006270,
+            "wb_rd": 31,
+            "wb_data": MASK64 - 199,
+            "dst_reg": 31,
+            "dst_data": MASK64 - 199,
+            "src0_reg": 0,
+            "src0_data": 0,
+        }
+        _write_jsonl(subi_t_source, [subi_t])
+        count = extract_rows(subi_t_source, subi_t_output)
+        assert count == 1
+        extracted_subi_t = [json.loads(line) for line in subi_t_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_subi_t[0]["dst_reg"] == 31
+        assert extracted_subi_t[0]["wb_rd"] == 31
+        assert extracted_subi_t[0]["dst_data"] == MASK64 - 199
+
         c_and_source = tmp / "c-and-local.jsonl"
         c_and_output = tmp / "c-and-local.rows.jsonl"
         addi_u_for_c_and = {
@@ -1579,6 +2077,168 @@ def self_test() -> None:
         assert extracted_add_local[1]["src1_valid"] == 1
         assert extracted_add_local[1]["dst_reg"] == 30
         assert extracted_add_local[1]["dst_data"] == 0x4000_ECE8
+
+        add_shifted_local_source = tmp / "add-shifted-local.jsonl"
+        add_shifted_local_output = tmp / "add-shifted-local.rows.jsonl"
+        add_u0_seed = {
+            **rows[0],
+            "pc": 0x5300,
+            "insn": 0x06010F05,
+            "len": 4,
+            "next_pc": 0x5304,
+            "wb_valid": 1,
+            "wb_rd": 30,
+            "wb_data": 0x4001_0070,
+            "dst_valid": 1,
+            "dst_reg": 30,
+            "dst_data": 0x4001_0070,
+            "src0_valid": 1,
+            "src0_reg": 2,
+            "src0_data": 0x4001_0070,
+            "src1_valid": 1,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        xori_t0_seed = {
+            **rows[0],
+            "pc": 0x5304,
+            "insn": 0xFFF14F95,
+            "len": 4,
+            "next_pc": 0x5308,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": MASK64,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": MASK64,
+            "src0_valid": 1,
+            "src0_reg": 2,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        add_u0_t0_shifted = {
+            **rows[0],
+            "pc": 0x5308,
+            "insn": 0x1F8E0785,
+            "len": 4,
+            "next_pc": 0x530C,
+            "wb_valid": 1,
+            "wb_rd": 15,
+            "wb_data": 0x4001_0068,
+            "dst_valid": 1,
+            "dst_reg": 15,
+            "dst_data": 0x4001_0068,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(add_shifted_local_source, [add_u0_seed, xori_t0_seed, add_u0_t0_shifted])
+        count = extract_rows(add_shifted_local_source, add_shifted_local_output)
+        assert count == 3
+        extracted_add_shifted = [
+            json.loads(line) for line in add_shifted_local_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_add_shifted[2]["src0_valid"] == 0
+        assert extracted_add_shifted[2]["src1_valid"] == 0
+        assert extracted_add_shifted[2]["dst_reg"] == 15
+        assert extracted_add_shifted[2]["dst_data"] == 0x4001_0068
+
+        and_local_scalar_source = tmp / "and-local-scalar.jsonl"
+        and_local_scalar_output = tmp / "and-local-scalar.rows.jsonl"
+        and_t1_seed = {
+            **rows[0],
+            "pc": 0x5210,
+            "insn": 0x0F008F95,
+            "len": 4,
+            "next_pc": 0x5214,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": 0xF0F0,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": 0xF0F0,
+            "src0_valid": 1,
+            "src0_reg": 1,
+            "src0_data": 0xF000,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        and_t0_seed = {
+            **and_t1_seed,
+            "pc": 0x5214,
+            "insn": 0x0FF00F95,
+            "next_pc": 0x5218,
+            "wb_data": 0xFF,
+            "dst_data": 0xFF,
+            "src0_reg": 0,
+            "src0_data": 0,
+        }
+        and_t1_scalar = {
+            **rows[0],
+            "pc": 0x5218,
+            "insn": 0x063CA185,
+            "len": 4,
+            "next_pc": 0x521C,
+            "wb_valid": 1,
+            "wb_rd": 3,
+            "wb_data": 0xF0,
+            "dst_valid": 1,
+            "dst_reg": 3,
+            "dst_data": 0xF0,
+            "src0_valid": 0,
+            "src0_reg": 0,
+            "src0_data": 0,
+            "src1_valid": 1,
+            "src1_reg": 3,
+            "src1_data": 0x0FF0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(and_local_scalar_source, [and_t1_seed, and_t0_seed, and_t1_scalar])
+        count = extract_rows(and_local_scalar_source, and_local_scalar_output)
+        assert count == 3
+        extracted_and_local = [
+            json.loads(line) for line in and_local_scalar_output.read_text(encoding="utf-8").splitlines()
+        ]
+        assert extracted_and_local[2]["pc"] == 0x5218
+        assert extracted_and_local[2]["src0_valid"] == 0
+        assert extracted_and_local[2]["src1_valid"] == 1
+        assert extracted_and_local[2]["dst_reg"] == 3
+        assert extracted_and_local[2]["dst_data"] == 0xF0
 
         c_sdi_source = tmp / "c-sdi-local.jsonl"
         c_sdi_output = tmp / "c-sdi-local.rows.jsonl"
@@ -1865,6 +2525,41 @@ def self_test() -> None:
         assert extracted_or[6]["dst_reg"] == 30
         assert extracted_or[6]["wb_rd"] == 30
         assert extracted_or[6]["dst_data"] == 0x1_0000_0000
+
+        xori_t_source = tmp / "xori-t-dst.jsonl"
+        xori_t_output = tmp / "xori-t-dst.rows.jsonl"
+        xori_t = {
+            **rows[0],
+            "pc": 0x40006282,
+            "insn": 0xFFF14F95,
+            "len": 4,
+            "next_pc": 0x40006286,
+            "wb_valid": 1,
+            "wb_rd": 31,
+            "wb_data": MASK64,
+            "dst_valid": 1,
+            "dst_reg": 31,
+            "dst_data": MASK64,
+            "src0_valid": 1,
+            "src0_reg": 2,
+            "src0_data": 0,
+            "src1_valid": 0,
+            "src1_reg": 0,
+            "src1_data": 0,
+            "mem_valid": 0,
+            "mem_is_store": 0,
+            "mem_addr": 0,
+            "mem_wdata": 0,
+            "mem_rdata": 0,
+            "mem_size": 0,
+        }
+        _write_jsonl(xori_t_source, [xori_t])
+        count = extract_rows(xori_t_source, xori_t_output)
+        assert count == 1
+        extracted_xori_t = [json.loads(line) for line in xori_t_output.read_text(encoding="utf-8").splitlines()]
+        assert extracted_xori_t[0]["dst_reg"] == 31
+        assert extracted_xori_t[0]["wb_rd"] == 31
+        assert extracted_xori_t[0]["dst_data"] == MASK64
 
         c_ldi_source = tmp / "c-ldi.jsonl"
         c_ldi_output = tmp / "c-ldi.rows.jsonl"

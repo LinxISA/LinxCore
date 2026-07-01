@@ -9,6 +9,12 @@ import org.scalatest.funsuite.AnyFunSuite
 class ReducedScalarAluExecuteSpec extends AnyFunSuite {
   test("reference results match the model-derived reduced scalar ALU subset") {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ADD, 10, 32, 0).contains(42))
+    assert(ReducedScalarAluExecute.referenceResultWithInsn(
+      FrontendOpcodeDecodeTable.OP_ADD,
+      insnRaw = BigInt("1f8e0785", 16),
+      src0 = BigInt("40010070", 16),
+      src1 = BigInt("ffffffffffffffff", 16),
+      imm = 0).contains(BigInt("40010068", 16)))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ADDW, 10, 32, 0).contains(42))
     assert(ReducedScalarAluExecute.referenceResult(
       FrontendOpcodeDecodeTable.OP_ADDW,
@@ -72,13 +78,40 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
       BigInt("fffffffffffff000", 16),
       4,
       0).contains(BigInt("ffffffffffffff00", 16)))
+    assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_SSRSET,
+      BigInt("40010058", 16),
+      0,
+      0).contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_OR, BigInt("100000000", 16), 0x5a, 0).contains(BigInt("10000005a", 16)))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_MOVI, 0, 0, 0x15).contains(0x15))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_MOVR, 0x1234, 0, 0).contains(0x1234))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_ADD, 0x1234, 0x100, 0).contains(0x1334))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_AND, 0xff0f, 0x33f0, 0).contains(0x3300))
+    assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_C_SEXT_B,
+      BigInt("80", 16),
+      0,
+      0).contains(BigInt("ffffffffffffff80", 16)))
+    assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_C_SEXT_H,
+      BigInt("8001", 16),
+      0,
+      0).contains(BigInt("ffffffffffff8001", 16)))
+    assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_C_SEXT_W,
+      BigInt("80000001", 16),
+      0,
+      0).contains(BigInt("ffffffff80000001", 16)))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_ZEXT_B, BigInt("ff80", 16), 0, 0)
+      .contains(0x80))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_ZEXT_H, BigInt("ffff8001", 16), 0, 0)
+      .contains(0x8001))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_ZEXT_W, BigInt("ffffffff80000001", 16), 0, 0)
+      .contains(BigInt("80000001", 16)))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_LDI, 0x4ffefdb0L, 0, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_SDI, 0x4ffefdb0L, 0x40005679L, 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_C_SWI, 0x4000ff90L, 2, 40).contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_LDI, 0x4fff0048L, 0, BigInt("fffffffffffffffe", 16)).contains(0))
     assert(ReducedScalarAluExecute.referenceResultWithLoad(
       FrontendOpcodeDecodeTable.OP_LDI,
@@ -99,10 +132,25 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
       imm = 0xa728,
       loadData = 0x4000574cL).contains(0x4000574cL))
     assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_HL_SB_PCR,
+      src0 = 1,
+      src1 = 0,
+      imm = 0x9dfa).contains(0))
+    assert(ReducedScalarAluExecute.referenceResult(
       FrontendOpcodeDecodeTable.OP_HL_SD_PCR,
       src0 = 0x4fff0008L,
       src1 = 0,
       imm = 0xa43a).contains(0))
+    assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_HL_SH_PCR,
+      src0 = 1,
+      src1 = 0,
+      imm = 0x9dfa).contains(0))
+    assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_HL_SW_PCR,
+      src0 = 1,
+      src1 = 0,
+      imm = 0x9dfa).contains(0))
     assert(ReducedScalarAluExecute.referenceResultWithLoad(
       FrontendOpcodeDecodeTable.OP_LD_PCR,
       src0 = 0,
@@ -151,6 +199,46 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
       lenBytes = 4,
       setcTarget = None,
       fallbackTarget = None) == BigInt("4000578c", 16))
+    assert(ReducedScalarAluExecute.referenceFretStkLoadsReturn(
+      restoresRa = true,
+      conditionValid = false,
+      conditionTaken = false))
+    assert(ReducedScalarAluExecute.referenceFretStkLoadsReturn(
+      restoresRa = true,
+      conditionValid = true,
+      conditionTaken = false))
+    assert(!ReducedScalarAluExecute.referenceFretStkLoadsReturn(
+      restoresRa = true,
+      conditionValid = true,
+      conditionTaken = true))
+    assert(!ReducedScalarAluExecute.referenceFretStkLoadsReturn(
+      restoresRa = false,
+      conditionValid = false,
+      conditionTaken = false))
+    assert(!ReducedScalarAluExecute.referenceFretStkLoadsReturn(
+      restoresRa = true,
+      conditionValid = false,
+      conditionTaken = false,
+      targetPending = true))
+    assert(!ReducedScalarAluExecute.referenceFretStkLoadsReturn(
+      restoresRa = true,
+      conditionValid = true,
+      conditionTaken = true,
+      targetPending = true))
+    assert(ReducedScalarAluExecute.referenceFretStkLoadsReturn(
+      restoresRa = true,
+      conditionValid = true,
+      conditionTaken = false,
+      targetPending = true))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SETC_LT, 0, 1, 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceBranchCondition(
+      FrontendOpcodeDecodeTable.OP_SETC_LT,
+      BigInt("ffffffffffffffff", 16),
+      1).contains(true))
+    assert(ReducedScalarAluExecute.referenceBranchCondition(
+      FrontendOpcodeDecodeTable.OP_SETC_LT,
+      1,
+      BigInt("ffffffffffffffff", 16)).contains(false))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SETC_LTU, 36, 0x6ffffffbL, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_SETC_LTU, 36, 0x6ffffffbL).contains(true))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_SETC_LTU, 0x6ffffffbL, 36).contains(false))
@@ -177,12 +265,22 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ANDI, BigInt("f0", 16), 0, 3)
       .contains(0))
     assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_AND,
+      BigInt("f0f0", 16),
+      BigInt("0ff0", 16),
+      0).contains(BigInt("00f0", 16)))
+    assert(ReducedScalarAluExecute.referenceResult(
       FrontendOpcodeDecodeTable.OP_ANDI,
       BigInt("ffff", 16),
       0,
       BigInt("fffffffffffffff0", 16)).contains(BigInt("fff0", 16)))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_ORI, 0, 0, 0x18)
       .contains(0x18))
+    assert(ReducedScalarAluExecute.referenceResult(
+      FrontendOpcodeDecodeTable.OP_XORI,
+      0,
+      0,
+      BigInt("ffffffffffffffff", 16)).contains(BigInt("ffffffffffffffff", 16)))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SUB, 0x130, 0x18, 0)
       .contains(0x118))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_MUL, 6, 7, 0).contains(42))

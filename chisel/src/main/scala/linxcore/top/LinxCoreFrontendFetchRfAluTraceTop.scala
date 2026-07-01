@@ -27,6 +27,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   private val issueCountWidth = log2Ceil(issueQueueDepth + 1)
   private val denseSlotQueueCountWidth = log2Ceil(denseSlotQueueDepth + 1)
   private val denseSlotQueueSlotWidth = math.max(1, log2Ceil(p.decodeWidth))
+  private val gprFreeWidth = log2Ceil(physRegs + 1)
+  private val gprMapQFreeWidth = log2Ceil(mapQDepth + 1)
   private val tuCountWidth = log2Ceil(mapQDepth + 1)
 
   val startValid = Input(Bool())
@@ -124,6 +126,11 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val rfWriteValid = Output(Bool())
   val rfWriteTag = Output(UInt(p.physRegWidth.W))
   val rfWriteData = Output(UInt(p.immWidth.W))
+  val executeCompleteSrcPhysValidMask = Output(UInt(3.W))
+  val executeCompleteSrcPhysTag = Output(Vec(3, UInt(p.physRegWidth.W)))
+  val executeCompletePc = Output(UInt(p.pcWidth.W))
+  val executeCompleteInsn = Output(UInt(p.insnWidth.W))
+  val executeCompleteWbReg = Output(UInt(traceParams.regWidth.W))
   val rfStateError = Output(Bool())
   val issueQueueEnqueueFire = Output(Bool())
   val issueQueuePickFire = Output(Bool())
@@ -163,6 +170,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val decodeBlockedByRob = Output(Bool())
   val decodeBlockedByOutput = Output(Bool())
   val decodeBlockedByTURename = Output(Bool())
+  val gprFreeCount = Output(UInt(gprFreeWidth.W))
+  val gprMapQFreeCount = Output(UInt(gprMapQFreeWidth.W))
   val tuRenameSourceUnderflowMask = Output(UInt(3.W))
   val tuRenameActiveBankValid = Output(Bool())
   val tuRenameBlockedByTAlloc = Output(Bool())
@@ -225,7 +234,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val archRegs: Int = 24,
     val physRegs: Int = 64)
     extends Module {
-  private val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(coreParams)
+  require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
+  private val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(
+    coreParams,
+    physRegWidth = log2Ceil(physRegs)
+  )
   private val traceParams = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
   val io = IO(new LinxCoreFrontendFetchRfAluTraceTopIO(
     p = p,
@@ -245,6 +258,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     traceParams = traceParams,
     decRenQueueDepth = decRenQueueDepth,
     storeDispatchQueueDepth = storeDispatchQueueDepth,
+    physRegs = physRegs,
     mapQDepth = mapQDepth,
     skipBlockMarkers = true,
     reducedStoreDispatchBypass = true
@@ -577,6 +591,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.rfWriteValid := rf.io.writeValid
   io.rfWriteTag := rf.io.writeTag
   io.rfWriteData := rf.io.writeData
+  io.executeCompleteSrcPhysValidMask := execute.io.completeSrcPhysValid.asUInt
+  io.executeCompleteSrcPhysTag := execute.io.completeSrcPhysTag
+  io.executeCompletePc := execute.io.completeRow.pc
+  io.executeCompleteInsn := execute.io.completeRow.insn
+  io.executeCompleteWbReg := execute.io.completeRow.wb.reg
   io.rfStateError := rf.io.stateError
   io.issueQueueEnqueueFire := issue.io.enqueueFire
   io.issueQueuePickFire := issue.io.pickFire
@@ -616,6 +635,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.decodeBlockedByRob := path.io.blockedByRob
   io.decodeBlockedByOutput := path.io.blockedByOutput
   io.decodeBlockedByTURename := path.io.blockedByTURename
+  io.gprFreeCount := path.io.gprFreeCount
+  io.gprMapQFreeCount := path.io.gprMapQFreeCount
   io.tuRenameSourceUnderflowMask := path.io.tuRenameSourceUnderflowMask
   io.tuRenameActiveBankValid := path.io.tuRenameActiveBankValid
   io.tuRenameBlockedByTAlloc := path.io.tuRenameBlockedByTAlloc
@@ -670,10 +691,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 }
 
 object LinxCoreFrontendFetchRfAluTraceTop {
-  def interfaceParamsFor(coreParams: CoreParams): InterfaceParams =
+  def interfaceParamsFor(coreParams: CoreParams, physRegWidth: Int = 6): InterfaceParams =
     InterfaceParams(
       robEntries = coreParams.robEntries,
-      commitWidth = coreParams.commitWidth
+      commitWidth = coreParams.commitWidth,
+      physRegWidth = physRegWidth
     )
 
   def traceParamsFor(p: InterfaceParams): CommitTraceParams =
@@ -685,7 +707,7 @@ object LinxCoreFrontendFetchRfAluTraceTop {
 
 object EmitLinxCoreFrontendFetchRfAluTraceTop extends App {
   circt.stage.ChiselStage.emitSystemVerilogFile(
-    new LinxCoreFrontendFetchRfAluTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 32),
+    new LinxCoreFrontendFetchRfAluTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 32, physRegs = 128),
     args = Array("--target-dir", "../generated/chisel-verilog/frontend-fetch-rf-alu-trace-top"),
     firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
   )

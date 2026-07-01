@@ -91,7 +91,6 @@ class GPRRenameCheckpoint(
   require(entries > 1 && (entries & (entries - 1)) == 0, "rename checkpoint entries must be a power of two")
   require(archRegs == 24, "current scalar GPR rename owner follows LinxCoreModel GPR_COUNT=24")
   require(physRegs > archRegs, "GPR rename requires physical tags beyond the architectural identity tags")
-  require(physRegs <= 64, "current bring-up ready/free masks are limited to 64 physical tags")
   require(mapQDepth > 0, "GPR rename mapQ depth must be nonzero")
 
   private val archTagWidth = math.max(1, log2Ceil(archRegs))
@@ -168,16 +167,18 @@ class GPRRenameCheckpoint(
   val flushReleaseVec = Wire(Vec(physRegs, Bool()))
   for (phys <- 0 until physRegs) {
     commitReleaseVec(phys) :=
-      (0 until archRegs).map(arch =>
-        commitHitVec.asUInt.orR &&
-          (cmap(arch) === phys.U) &&
-          (0 until mapQDepth).map(idx => commitHitVec(idx) && (mapQ(idx).archTag === arch.U)).reduce(_ || _)
-      ).reduce(_ || _) ||
-        (0 until mapQDepth).map(idx =>
-          commitHitVec(idx) && commitHitHasLaterSameArch(idx) && (mapQ(idx).physTag === phys.U)
-        ).reduce(_ || _)
+      (phys >= archRegs).B && (
+        (0 until archRegs).map(arch =>
+          commitHitVec.asUInt.orR &&
+            (cmap(arch) === phys.U) &&
+            (0 until mapQDepth).map(idx => commitHitVec(idx) && (mapQ(idx).archTag === arch.U)).reduce(_ || _)
+        ).reduce(_ || _) ||
+          (0 until mapQDepth).map(idx =>
+            commitHitVec(idx) && commitHitHasLaterSameArch(idx) && (mapQ(idx).physTag === phys.U)
+          ).reduce(_ || _))
     flushReleaseVec(phys) :=
-      (0 until mapQDepth).map(idx => flushPruneVec(idx) && (mapQ(idx).physTag === phys.U)).reduce(_ || _)
+      (phys >= archRegs).B &&
+        (0 until mapQDepth).map(idx => flushPruneVec(idx) && (mapQ(idx).physTag === phys.U)).reduce(_ || _)
   }
 
   val nextSmap = Wire(Vec(archRegs, UInt(physTagWidth.W)))
@@ -243,6 +244,17 @@ class GPRRenameCheckpoint(
     nextMapQ(firstFreeMapQ).gid := io.renameGid
     nextMapQ(firstFreeMapQ).archTag := io.renameArchTag
     nextMapQ(firstFreeMapQ).physTag := firstFreePhys
+  }
+  for (phys <- 0 until physRegs) {
+    val liveInSmap =
+      (0 until archRegs).map(arch => nextSmap(arch) === phys.U).reduce(_ || _)
+    val liveInCmap =
+      (0 until archRegs).map(arch => nextCmap(arch) === phys.U).reduce(_ || _)
+    val liveInMapQ =
+      (0 until mapQDepth).map(idx => nextMapQ(idx).valid && (nextMapQ(idx).physTag === phys.U)).reduce(_ || _)
+    when(liveInSmap || liveInCmap || liveInMapQ) {
+      nextFreeList(phys) := false.B
+    }
   }
 
   smap := nextSmap

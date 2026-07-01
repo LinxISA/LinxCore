@@ -170,7 +170,11 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       FrontendOpcodeDecodeTable.OP_C_SUB,
       FrontendOpcodeDecodeTable.OP_C_LDI,
       FrontendOpcodeDecodeTable.OP_C_LWI,
+      FrontendOpcodeDecodeTable.OP_C_SEXT_B,
+      FrontendOpcodeDecodeTable.OP_C_SEXT_H,
       FrontendOpcodeDecodeTable.OP_C_SEXT_W,
+      FrontendOpcodeDecodeTable.OP_C_ZEXT_B,
+      FrontendOpcodeDecodeTable.OP_C_ZEXT_H,
       FrontendOpcodeDecodeTable.OP_C_ZEXT_W,
       FrontendOpcodeDecodeTable.OP_C_CMP_EQI,
       FrontendOpcodeDecodeTable.OP_C_CMP_NEI)) {

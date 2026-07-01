@@ -185,6 +185,14 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh \
 raw row window presented to schema normalization before comparator metadata
 filtering.
 
+For bounded windows, comparator length handling is metadata-aware. If QEMU and
+DUT both terminate after the same metadata-filtered architectural prefix before
+`--max-commits`, the compare passes; this is the expected shape for finite
+expected-row files that still contain side-effect-free marker/sysreg metadata.
+The comparator still fails if the DUT has extra architectural rows or if QEMU
+has remaining architectural rows while the DUT ended before the requested
+bounded window.
+
 QEMU-row replay gate:
 
 ```bash

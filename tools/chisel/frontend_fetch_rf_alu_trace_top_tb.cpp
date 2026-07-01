@@ -96,7 +96,32 @@ struct ObservedRow {
   std::uint32_t trap_cause = 0;
   std::uint64_t trap_arg0 = 0;
   std::uint64_t next_pc = 0;
+  bool rf_write_valid = false;
+  std::uint8_t rf_write_tag = 0;
+  std::uint64_t rf_write_data = 0;
+  std::uint8_t src_phys_valid_mask = 0;
+  std::uint8_t src_phys_tag0 = 0;
+  std::uint8_t src_phys_tag1 = 0;
+  std::uint8_t src_phys_tag2 = 0;
 };
+
+struct IssueDebug {
+  std::uint8_t src_valid_mask = 0;
+  std::uint8_t src_phys_tag0 = 0;
+  std::uint8_t src_phys_tag1 = 0;
+  std::uint8_t src_phys_tag2 = 0;
+};
+
+struct PhysWriter {
+  bool valid = false;
+  std::uint64_t pc = 0;
+  std::uint64_t insn = 0;
+  std::uint8_t wb_reg = 0;
+  std::uint64_t data = 0;
+};
+
+std::map<std::uint64_t, IssueDebug> g_issue_debug_by_pc;
+std::map<std::uint8_t, PhysWriter> g_phys_writer_by_tag;
 
 [[noreturn]] void usage(const char *argv0) {
   std::cerr << "usage: " << argv0
@@ -588,6 +613,51 @@ void eval_with_load_lookup(
     dut.io_loadLookupData = fetch_memory.read_u64_or_zero(dut.io_loadLookupAddr);
     dut.eval();
   }
+  if (dut.io_executeAccepted && dut.io_issueQueueHeadValid) {
+    IssueDebug debug;
+    debug.src_valid_mask = dut.io_issueQueueHeadSrcValidMask;
+    debug.src_phys_tag0 = dut.io_issueQueueHeadSrcPhysTag_0;
+    debug.src_phys_tag1 = dut.io_issueQueueHeadSrcPhysTag_1;
+    debug.src_phys_tag2 = dut.io_issueQueueHeadSrcPhysTag_2;
+    g_issue_debug_by_pc[dut.io_issueQueueHeadPc] = debug;
+  }
+  if (dut.io_rfWriteValid) {
+    PhysWriter writer;
+    writer.valid = true;
+    writer.pc = dut.io_executeCompletePc;
+    writer.insn = dut.io_executeCompleteInsn;
+    writer.wb_reg = dut.io_executeCompleteWbReg;
+    writer.data = dut.io_rfWriteData;
+    g_phys_writer_by_tag[dut.io_rfWriteTag] = writer;
+  }
+}
+
+void attach_issue_debug(ObservedRow &row) {
+  const auto it = g_issue_debug_by_pc.find(row.pc);
+  if (it == g_issue_debug_by_pc.end()) {
+    return;
+  }
+  row.src_phys_valid_mask = it->second.src_valid_mask;
+  row.src_phys_tag0 = it->second.src_phys_tag0;
+  row.src_phys_tag1 = it->second.src_phys_tag1;
+  row.src_phys_tag2 = it->second.src_phys_tag2;
+}
+
+void dump_phys_writer_line(const char *label, std::uint8_t tag) {
+  const auto it = g_phys_writer_by_tag.find(tag);
+  if (it == g_phys_writer_by_tag.end() || !it->second.valid) {
+    std::cerr << "frontend fetch RF ALU " << label
+              << " tag=" << static_cast<unsigned>(tag)
+              << " writer=<none>\n";
+    return;
+  }
+  std::cerr << "frontend fetch RF ALU " << label
+            << " tag=" << static_cast<unsigned>(tag)
+            << " writer_pc=0x" << std::hex << it->second.pc
+            << " writer_insn=0x" << it->second.insn
+            << std::dec
+            << " writer_wb=" << static_cast<unsigned>(it->second.wb_reg)
+            << " writer_data=" << it->second.data << "\n";
 }
 
 void expect_monitor_clean(
@@ -659,6 +729,14 @@ ObservedRow read_slot0(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   row.trap_cause = dut.io_commit_rows_0_trap_cause;
   row.trap_arg0 = dut.io_commit_rows_0_trap_arg0;
   row.next_pc = dut.io_commit_rows_0_nextPc;
+  row.rf_write_valid = dut.io_rfWriteValid;
+  row.rf_write_tag = dut.io_rfWriteTag;
+  row.rf_write_data = dut.io_rfWriteData;
+  row.src_phys_valid_mask = dut.io_executeCompleteSrcPhysValidMask;
+  row.src_phys_tag0 = dut.io_executeCompleteSrcPhysTag_0;
+  row.src_phys_tag1 = dut.io_executeCompleteSrcPhysTag_1;
+  row.src_phys_tag2 = dut.io_executeCompleteSrcPhysTag_2;
+  attach_issue_debug(row);
   return row;
 }
 
@@ -705,6 +783,14 @@ ObservedRow read_slot1(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   row.trap_cause = dut.io_commit_rows_1_trap_cause;
   row.trap_arg0 = dut.io_commit_rows_1_trap_arg0;
   row.next_pc = dut.io_commit_rows_1_nextPc;
+  row.rf_write_valid = dut.io_rfWriteValid;
+  row.rf_write_tag = dut.io_rfWriteTag;
+  row.rf_write_data = dut.io_rfWriteData;
+  row.src_phys_valid_mask = dut.io_executeCompleteSrcPhysValidMask;
+  row.src_phys_tag0 = dut.io_executeCompleteSrcPhysTag_0;
+  row.src_phys_tag1 = dut.io_executeCompleteSrcPhysTag_1;
+  row.src_phys_tag2 = dut.io_executeCompleteSrcPhysTag_2;
+  attach_issue_debug(row);
   return row;
 }
 
@@ -770,25 +856,56 @@ void expect_row(const ObservedRow &observed, const ExpectedRow &expected) {
   if (observed.src0_valid &&
       (observed.src0_reg != expected.src0_reg || observed.src0_data != expected.src0_data)) {
     std::cerr << "frontend fetch RF ALU trace top src0 mismatch"
+              << " expected_pc=0x" << std::hex << expected.pc
+              << " observed_pc=0x" << observed.pc
+              << " expected_insn=0x" << mask_insn(expected.insn, expected.len)
+              << " observed_insn=0x" << mask_insn(observed.insn, observed.len)
+              << std::dec
               << " expected=(" << static_cast<unsigned>(expected.src0_reg)
               << "," << expected.src0_data << ") observed=("
               << static_cast<unsigned>(observed.src0_reg)
-              << "," << observed.src0_data << ")\n";
+              << "," << observed.src0_data << ")"
+              << " src_phys_mask=0x" << std::hex << static_cast<unsigned>(observed.src_phys_valid_mask)
+              << " src_phys=(" << static_cast<unsigned>(observed.src_phys_tag0)
+              << "," << static_cast<unsigned>(observed.src_phys_tag1)
+              << "," << static_cast<unsigned>(observed.src_phys_tag2) << ")"
+              << " rf_write=(" << std::dec << observed.rf_write_valid
+              << "," << static_cast<unsigned>(observed.rf_write_tag)
+              << "," << observed.rf_write_data << ")\n";
+    dump_phys_writer_line("src0 last writer", observed.src_phys_tag0);
     std::exit(1);
   }
   if (observed.src1_valid &&
       (observed.src1_reg != expected.src1_reg || observed.src1_data != expected.src1_data)) {
     std::cerr << "frontend fetch RF ALU trace top src1 mismatch"
+              << " expected_pc=0x" << std::hex << expected.pc
+              << " observed_pc=0x" << observed.pc
+              << " expected_insn=0x" << mask_insn(expected.insn, expected.len)
+              << " observed_insn=0x" << mask_insn(observed.insn, observed.len)
+              << std::dec
               << " expected=(" << static_cast<unsigned>(expected.src1_reg)
               << "," << expected.src1_data << ") observed=("
               << static_cast<unsigned>(observed.src1_reg)
-              << "," << observed.src1_data << ")\n";
+              << "," << observed.src1_data << ")"
+              << " src_phys_mask=0x" << std::hex << static_cast<unsigned>(observed.src_phys_valid_mask)
+              << " src_phys=(" << static_cast<unsigned>(observed.src_phys_tag0)
+              << "," << static_cast<unsigned>(observed.src_phys_tag1)
+              << "," << static_cast<unsigned>(observed.src_phys_tag2) << ")"
+              << " rf_write=(" << std::dec << observed.rf_write_valid
+              << "," << static_cast<unsigned>(observed.rf_write_tag)
+              << "," << observed.rf_write_data << ")\n";
+    dump_phys_writer_line("src1 last writer", observed.src_phys_tag1);
     std::exit(1);
   }
   if (observed.dst_valid &&
       (observed.dst_reg != expected.dst_reg || observed.dst_data != expected.dst_data ||
        observed.wb_reg != expected.dst_reg || observed.wb_data != expected.dst_data)) {
     std::cerr << "frontend fetch RF ALU trace top dst/wb mismatch"
+              << " expected_pc=0x" << std::hex << expected.pc
+              << " observed_pc=0x" << observed.pc
+              << " expected_insn=0x" << mask_insn(expected.insn, expected.len)
+              << " observed_insn=0x" << mask_insn(observed.insn, observed.len)
+              << std::dec
               << " expected=(" << static_cast<unsigned>(expected.dst_reg)
               << "," << expected.dst_data << ") observed_dst=("
               << static_cast<unsigned>(observed.dst_reg)
@@ -887,10 +1004,12 @@ CommitTraceJsonRow to_json_row(const ExpectedRow &row) {
 
 void write_dut_row(std::ofstream &out, const ObservedRow &row) {
   write_dut_commit_jsonl(out, to_json_row(row));
+  out.flush();
 }
 
 void write_qemu_row(std::ofstream &out, const ExpectedRow &row) {
   write_qemu_commit_jsonl(out, to_json_row(row));
+  out.flush();
 }
 
 void start_source(VLinxCoreFrontendFetchRfAluTraceTop &dut, std::uint64_t pc) {
@@ -1313,6 +1432,8 @@ void commit_expected_row(
             << " decodeBlockedByRob=" << static_cast<unsigned>(dut.io_decodeBlockedByRob)
             << " decodeBlockedByOutput=" << static_cast<unsigned>(dut.io_decodeBlockedByOutput)
             << " decodeBlockedByTURename=" << static_cast<unsigned>(dut.io_decodeBlockedByTURename)
+            << " gprFree=" << static_cast<unsigned>(dut.io_gprFreeCount)
+            << " gprMapQFree=" << static_cast<unsigned>(dut.io_gprMapQFreeCount)
             << " robRenameUpdateAttemptValid="
             << static_cast<unsigned>(dut.io_robRenameUpdateAttemptValid)
             << " robRenameUpdateReady=" << static_cast<unsigned>(dut.io_robRenameUpdateReady)
