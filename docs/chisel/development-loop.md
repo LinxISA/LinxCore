@@ -1113,10 +1113,12 @@ Use this ladder for every promoted packet:
    normalization into `ReducedBfuResolvedBodyEndOwner`, and R150 lets
    `ReducedBfuBodyCutPredictor` consume latched static geometry payload through
    `ReducedBfuGeometryPredictionLatch`. The latch prevents same-cycle learning
-   from clipping the sequential packet that discovered a body end. The external
-   replay row remains only the temporary cut-arm, resolved-event source, and
-   comparison oracle until real branch-resolution/body-end ownership is
-   replay-proven.
+   from clipping the sequential packet that discovered a body end. R152 factors
+   external cut-arm acceptance into `ReducedBfuBodyCutArm`; the generated-RTL
+   harness reports comparable, accepted, and mismatched arm rows while only
+   accepted rows can enable body-cut control. The external replay row remains
+   only the temporary cut-arm, resolved-event source, and comparison oracle
+   until real branch-resolution/body-end ownership is replay-proven.
 14. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
 15. `bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run` for

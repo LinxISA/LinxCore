@@ -1095,6 +1095,9 @@ struct BfuGeometryDiagnostics {
   std::uint64_t comparable_count = 0;
   std::uint64_t match_count = 0;
   std::uint64_t resolved_accept_count = 0;
+  std::uint64_t cut_arm_comparable_count = 0;
+  std::uint64_t cut_arm_accept_count = 0;
+  std::uint64_t cut_arm_mismatch_count = 0;
 };
 
 void observe_bfu_geometry_diagnostics(
@@ -1131,6 +1134,18 @@ void observe_bfu_geometry_diagnostics(
   }
   if (dut.io_reducedBfuResolvedBodyEndAccepted) {
     ++stats.resolved_accept_count;
+  }
+  if (dut.io_reducedBfuBodyCutArmComparable) {
+    ++stats.cut_arm_comparable_count;
+    if (dut.io_reducedBfuBodyCutArmMismatch ||
+        dut.io_reducedBfuBodyCutArmHeaderMismatch ||
+        dut.io_reducedBfuBodyCutArmHSizeMismatch ||
+        dut.io_reducedBfuBodyCutArmBSizeMismatch) {
+      ++stats.cut_arm_mismatch_count;
+    }
+  }
+  if (dut.io_reducedBfuBodyCutArmAccepted) {
+    ++stats.cut_arm_accept_count;
   }
   if (dut.io_reducedBfuStaticExternalComparable) {
     ++stats.comparable_count;
@@ -1760,6 +1775,9 @@ int main(int argc, char **argv) {
     std::cout << "bfu_static_external_comparable=" << bfu_stats.comparable_count
               << " bfu_static_external_matches=" << bfu_stats.match_count
               << " bfu_resolved_body_end_accepts=" << bfu_stats.resolved_accept_count
+              << " bfu_body_cut_arm_comparable=" << bfu_stats.cut_arm_comparable_count
+              << " bfu_body_cut_arm_accepts=" << bfu_stats.cut_arm_accept_count
+              << " bfu_body_cut_arm_mismatches=" << bfu_stats.cut_arm_mismatch_count
               << "\n";
   };
   if (captured_tail_superset) {

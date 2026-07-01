@@ -7,7 +7,7 @@ import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
-import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuResolvedBodyEndOwner, ReducedBfuStaticGeometryProducer}
+import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuResolvedBodyEndOwner, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -85,6 +85,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedBfuStaticExternalHeaderMismatch = Output(Bool())
   val reducedBfuStaticExternalHSizeMismatch = Output(Bool())
   val reducedBfuStaticExternalBSizeMismatch = Output(Bool())
+  val reducedBfuBodyCutArmComparable = Output(Bool())
+  val reducedBfuBodyCutArmAccepted = Output(Bool())
+  val reducedBfuBodyCutArmMismatch = Output(Bool())
+  val reducedBfuBodyCutArmHeaderMismatch = Output(Bool())
+  val reducedBfuBodyCutArmHSizeMismatch = Output(Bool())
+  val reducedBfuBodyCutArmBSizeMismatch = Output(Bool())
 
   val f4ValidMask = Output(UInt(p.decodeWidth.W))
   val f4SlotCount = Output(UInt(log2Ceil(p.decodeWidth + 1).W))
@@ -362,17 +368,22 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   staticBfuPrediction.io.learnHeaderPc := staticBfuGeometry.io.headerPc
   staticBfuPrediction.io.learnHSizeBytes := staticBfuGeometry.io.hsizeBytes
   staticBfuPrediction.io.learnBSizeBytes := staticBfuGeometry.io.bsizeBytes
-  val staticPredictionExternalMatch =
-    staticBfuPrediction.io.geometryValid && externalBfuGeometryValid &&
-      staticBfuPrediction.io.headerPc === io.reducedBfuHeaderPc &&
-      staticBfuPrediction.io.hsizeBytes === io.reducedBfuHSizeBytes &&
-      staticBfuPrediction.io.bsizeBytes === io.reducedBfuBSizeBytes
+
+  val bodyCutArm = Module(new ReducedBfuBodyCutArm(p))
+  bodyCutArm.io.predictionValid := staticBfuPrediction.io.geometryValid
+  bodyCutArm.io.predictionHeaderPc := staticBfuPrediction.io.headerPc
+  bodyCutArm.io.predictionHSizeBytes := staticBfuPrediction.io.hsizeBytes
+  bodyCutArm.io.predictionBSizeBytes := staticBfuPrediction.io.bsizeBytes
+  bodyCutArm.io.armValid := externalBfuGeometryValid
+  bodyCutArm.io.armHeaderPc := io.reducedBfuHeaderPc
+  bodyCutArm.io.armHSizeBytes := io.reducedBfuHSizeBytes
+  bodyCutArm.io.armBSizeBytes := io.reducedBfuBSizeBytes
 
   val bodyCut = Module(new ReducedBfuBodyCutPredictor(p))
-  bodyCut.io.geometryValid := staticPredictionExternalMatch
-  bodyCut.io.headerPc := staticBfuPrediction.io.headerPc
-  bodyCut.io.hsizeBytes := staticBfuPrediction.io.hsizeBytes
-  bodyCut.io.bsizeBytes := staticBfuPrediction.io.bsizeBytes
+  bodyCut.io.geometryValid := bodyCutArm.io.geometryValid
+  bodyCut.io.headerPc := bodyCutArm.io.headerPc
+  bodyCut.io.hsizeBytes := bodyCutArm.io.hsizeBytes
+  bodyCut.io.bsizeBytes := bodyCutArm.io.bsizeBytes
   bodyCut.io.f4Valid := f4.io.d1.valid
   bodyCut.io.f4Pc := f4.io.d1.pc
   bodyCut.io.f4Slots := f4.io.slots
@@ -641,6 +652,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedBfuStaticExternalHeaderMismatch := staticExternalHeaderMismatch
   io.reducedBfuStaticExternalHSizeMismatch := staticExternalHSizeMismatch
   io.reducedBfuStaticExternalBSizeMismatch := staticExternalBSizeMismatch
+  io.reducedBfuBodyCutArmComparable := bodyCutArm.io.comparable
+  io.reducedBfuBodyCutArmAccepted := bodyCutArm.io.accepted
+  io.reducedBfuBodyCutArmMismatch :=
+    bodyCutArm.io.headerMismatch || bodyCutArm.io.hsizeMismatch || bodyCutArm.io.bsizeMismatch
+  io.reducedBfuBodyCutArmHeaderMismatch := bodyCutArm.io.headerMismatch
+  io.reducedBfuBodyCutArmHSizeMismatch := bodyCutArm.io.hsizeMismatch
+  io.reducedBfuBodyCutArmBSizeMismatch := bodyCutArm.io.bsizeMismatch
   io.f4ValidMask := frontendValidMask
   io.f4SlotCount := frontendSlotCount
   io.denseSlotQueueInFire := denseSlots.io.inFire

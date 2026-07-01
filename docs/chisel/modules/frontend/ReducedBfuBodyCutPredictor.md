@@ -12,9 +12,10 @@ the reduced CoreMark loop replay:
 
 The `+2` body-base step follows LinxCoreModel `BFUUtils::NextBlockPC`, which
 advances by one 16-bit bundle slot from the header bundle position. The module
-does not predict `hsize` or `bsize`; R150 receives those payload values from
-the latched reduced static-geometry path while the loop-aware harness remains
-the temporary cut-arm, resolved-event source, and oracle.
+does not predict `hsize` or `bsize`; R152 receives those payload values from
+the latched reduced static-geometry path after `ReducedBfuBodyCutArm` accepts
+the temporary external cut-arm. The loop-aware harness remains the temporary
+arm, resolved-event source, and oracle.
 
 ## Interface
 
@@ -58,10 +59,10 @@ geometry case: header `0x4000630c`, `hsize=0`, `bsize=0x20`, F4 window
 advance `4`.
 
 The affected top-level replay also passes with this module in the path. R150
-routes its geometry payload through `ReducedBfuGeometryPredictionLatch` and
-arms the cut from the external loop-reentry oracle. This proves that learned
-body-end events can feed later cuts without allowing same-cycle or stale
-sequential-packet clipping:
+routes its geometry payload through `ReducedBfuGeometryPredictionLatch`, and
+R152 factors the external loop-reentry oracle acceptance into
+`ReducedBfuBodyCutArm`. This proves that learned body-end events can feed later
+cuts without allowing same-cycle or stale sequential-packet clipping:
 `BUILD_DIR=generated/r144-bfu-geometry-loop-replay
 FETCH_EXPECTED_ROWS=/tmp/r142-loop.expected.jsonl
 FETCH_ELF=tests/benchmarks/build/coremark_real.elf

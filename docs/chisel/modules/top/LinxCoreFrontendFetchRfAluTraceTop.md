@@ -389,16 +389,23 @@ R150 lets `ReducedBfuBodyCutPredictor` consume static geometry payload through
 supplies the temporary cut-arm, resolved body-end event, and replay oracle
 checked by the static/external diagnostics.
 
+R152 factors the cut-arm acceptance rule into `ReducedBfuBodyCutArm`. The top
+now sends the latched static prediction and the external replay arm into that
+module, then forwards the accepted prediction-owned payload to
+`ReducedBfuBodyCutPredictor`. The external row is still temporary, but it no
+longer appears as inline top-level comparison logic.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
 |---|---|---|---|---|
 | input | `startValid`, `startPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Arms the live fetch source at a starting PC. |
 | input | `restartValid`, `restartPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Replaces the active fetch PC for a reduced restart. |
-| input | `reducedBfuBodyValid`, `reducedBfuHeaderPc`, `reducedBfuHSizeBytes`, `reducedBfuBSizeBytes` | mixed | with live-F4 packet | Temporary reduced BFU body-geometry hint from loop-aware expected rows. R150 uses it as the cut-arm, resolved-event source, and oracle; the body-cut payload comes from the static prediction latch. |
+| input | `reducedBfuBodyValid`, `reducedBfuHeaderPc`, `reducedBfuHSizeBytes`, `reducedBfuBSizeBytes` | mixed | with live-F4 packet | Temporary reduced BFU body-geometry hint from loop-aware expected rows. R152 uses it as the cut-arm candidate, resolved-event source, and oracle; the body-cut payload comes from the static prediction latch after `ReducedBfuBodyCutArm` acceptance. |
 | output | `reducedBfuStaticGeometryValid`, `reducedBfuStaticHeaderActive`, `reducedBfuStaticLearnedFire`, `reducedBfuStaticResolvedLearnedFire` | `Bool` | diagnostic | Reduced static-predictor geometry diagnostics for the learned geometry feeding the BFU prediction latch. |
 | output | `reducedBfuResolvedBodyEndAccepted`, `reducedBfuResolvedBodyEndHeaderMismatch`, `reducedBfuResolvedBodyEndInactiveDrop`, `reducedBfuResolvedBodyEndFlushDrop`, `reducedBfuResolvedBodyEndUnderflow` | `Bool` | diagnostic | R149 resolved body-end owner acceptance/drop diagnostics before the static producer consumes the normalized event. |
-| output | `reducedBfuStaticExternalComparable`, `reducedBfuStaticExternalMatch`, `reducedBfuStaticExternalMismatch`, `reducedBfuStaticExternalHeaderMismatch`, `reducedBfuStaticExternalHSizeMismatch`, `reducedBfuStaticExternalBSizeMismatch` | `Bool` | diagnostic | R148 agreement check between diagnostic static geometry and the external replay geometry currently driving `ReducedBfuBodyCutPredictor`. |
+| output | `reducedBfuStaticExternalComparable`, `reducedBfuStaticExternalMatch`, `reducedBfuStaticExternalMismatch`, `reducedBfuStaticExternalHeaderMismatch`, `reducedBfuStaticExternalHSizeMismatch`, `reducedBfuStaticExternalBSizeMismatch` | `Bool` | diagnostic | R148 agreement check between diagnostic static geometry and the external replay geometry that remains the temporary oracle. |
+| output | `reducedBfuBodyCutArmComparable`, `reducedBfuBodyCutArmAccepted`, `reducedBfuBodyCutArmMismatch`, `reducedBfuBodyCutArmHeaderMismatch`, `reducedBfuBodyCutArmHSizeMismatch`, `reducedBfuBodyCutArmBSizeMismatch` | `Bool` | diagnostic | R152 cut-arm owner diagnostics comparing the latched static prediction with the temporary external arm geometry before body-cut control is enabled. |
 | input | `frontendFlushValid` | `Bool` | valid | Clears source packet state, F4, decode path, and reduced issue state. |
 | input | `peId`, `threadId` | `UInt` | with source packet | Packet-owned PE/STID sidecars for decode/rename. |
 | input | `fetchReqReady` | `Bool` | ready | Bounded fixture accepts a source PC request. |
@@ -602,6 +609,9 @@ cut control source.
 R150 changes that control payload source to the static producer's latched
 geometry, while preserving the external row as cut-arm, resolver surrogate, and
 oracle.
+R152 moves the latched-prediction/external-arm equality check into
+`ReducedBfuBodyCutArm` and exposes accepted/mismatch diagnostics that the
+generated-RTL harness treats as replay-proof invariants.
 R104 adds the first reduced block-lifecycle alignment for those marker slots.
 The model allocates BROB on `BSTART`, stamps following scalar instructions with
 the current block BID, and completes the current block on `BSTOP` through the
