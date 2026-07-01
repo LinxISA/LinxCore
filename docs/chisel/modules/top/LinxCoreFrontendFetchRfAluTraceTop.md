@@ -414,6 +414,10 @@ state until the next matching replay-qualified candidate consumes it, drops
 stale mismatches, and exposes pending/consume/drop diagnostics. Replay is still
 the timing oracle for this packet; the selected geometry can now come from
 retained runtime state when the candidate proves it is the same body end.
+R156 adds `ReducedBfuPendingRuntimeBodyEndCandidate` as a diagnostic-only
+promotion checker. It exposes when retained runtime feedback already matches
+the current active header and compares that replay-free candidate against the
+temporary replay oracle, but it does not feed the source arbiter yet.
 
 ## Interface
 
@@ -426,6 +430,7 @@ retained runtime state when the candidate proves it is the same body end.
 | output | `reducedBfuResolvedBodyEndAccepted`, `reducedBfuResolvedBodyEndHeaderMismatch`, `reducedBfuResolvedBodyEndInactiveDrop`, `reducedBfuResolvedBodyEndFlushDrop`, `reducedBfuResolvedBodyEndUnderflow` | `Bool` | diagnostic | R149 resolved body-end owner acceptance/drop diagnostics before the static producer consumes the normalized event. |
 | output | `reducedBfuResolvedBodyEndSourceRuntimeSelected`, `reducedBfuResolvedBodyEndSourceReplaySelected`, `reducedBfuResolvedBodyEndSourceRuntimeReplay*` | `Bool` | diagnostic | R154/R155 resolved body-end source-selection and runtime/replay comparison diagnostics. |
 | output | `reducedBfuResolvedBodyEndSourceRuntimePending*` | `Bool` | diagnostic | R155 pending runtime body-end feedback lifecycle, consume, drop-mismatch, and candidate comparison diagnostics. |
+| output | `reducedBfuPendingRuntimeCandidate*` | `Bool` | diagnostic | R156 replay-free pending runtime candidate eligibility and replay comparison diagnostics. This does not drive body-end source selection in R156. |
 | output | `reducedBfuStaticExternalComparable`, `reducedBfuStaticExternalMatch`, `reducedBfuStaticExternalMismatch`, `reducedBfuStaticExternalHeaderMismatch`, `reducedBfuStaticExternalHSizeMismatch`, `reducedBfuStaticExternalBSizeMismatch` | `Bool` | diagnostic | R148 agreement check between diagnostic static geometry and the external replay geometry that remains the temporary oracle. |
 | output | `reducedBfuBodyCutArmComparable`, `reducedBfuBodyCutArmAccepted`, `reducedBfuBodyCutArmMismatch`, `reducedBfuBodyCutArmHeaderMismatch`, `reducedBfuBodyCutArmHSizeMismatch`, `reducedBfuBodyCutArmBSizeMismatch` | `Bool` | diagnostic | R153 diagnostic comparison between the latched resolved-body prediction and the temporary external oracle. It no longer controls body-cut eligibility. |
 | output | `reducedBfuLocalBodyWindowActive`, `reducedBfuLocalBodyWindowArmFire`, `reducedBfuLocalBodyWindowReleaseFire`, `reducedBfuLocalBodyWindowArmSlot` | mixed | diagnostic | R153 local BFU body-window active, arm, release, and matched F4-slot observability. |
@@ -655,6 +660,11 @@ event now stays pending until the next replay-qualified candidate has matching
 instead of replay for that candidate. Mismatched pending feedback is dropped
 and replay remains the fallback. This fixes the R154 one-cycle feedback
 lifetime without claiming full replay removal.
+R156 adds `ReducedBfuPendingRuntimeBodyEndCandidate` beside the R155 owner.
+It checks whether the pending payload would be source-eligible from active
+header state alone and fails the generated-RTL harness on any comparable
+candidate/replay mismatch. The actual source selection remains R155's
+replay-qualified path.
 R104 adds the first reduced block-lifecycle alignment for those marker slots.
 The model allocates BROB on `BSTART`, stamps following scalar instructions with
 the current block BID, and completes the current block on `BSTOP` through the

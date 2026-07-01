@@ -22,7 +22,8 @@ come from retained RTL runtime state once the next candidate proves the
 | input | `candidateValid`, `candidateHeaderPc`, `candidateHSizeBytes`, `candidateBSizeBytes` | mixed | Replay-qualified candidate used to decide whether the pending runtime event is eligible this cycle. |
 | input | `consumeValid` | `Bool` | Source-arbiter consume pulse for a selected runtime event. |
 | output | `runtimeValid`, `runtimeHeaderPc`, `runtimeHSizeBytes`, `runtimeBodyEndPc` | mixed | Runtime event forwarded to `ReducedBfuResolvedBodyEndSource` only when pending feedback matches the candidate. |
-| output | `pending`, `captureFire`, `consumeFire` | `Bool` | Pending-store lifecycle diagnostics. |
+| output | `pending`, `pendingHeaderPc`, `pendingHSizeBytes`, `pendingBodyEndPc` | mixed | Pending-store state and retained payload for downstream diagnostics. |
+| output | `captureFire`, `consumeFire` | `Bool` | Pending-store lifecycle diagnostics. |
 | output | `dropMismatch`, `candidateComparable`, `candidateMatch`, `candidateMismatch` | `Bool` | Replay-oracle diagnostics for stale or mismatched pending feedback. |
 
 ## Logic

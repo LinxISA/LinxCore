@@ -1108,6 +1108,12 @@ struct BfuGeometryDiagnostics {
   std::uint64_t resolved_source_runtime_pending_candidate_comparable_count = 0;
   std::uint64_t resolved_source_runtime_pending_candidate_match_count = 0;
   std::uint64_t resolved_source_runtime_pending_candidate_mismatch_count = 0;
+  std::uint64_t pending_runtime_candidate_valid_count = 0;
+  std::uint64_t pending_runtime_candidate_without_active_header_count = 0;
+  std::uint64_t pending_runtime_candidate_active_header_mismatch_count = 0;
+  std::uint64_t pending_runtime_candidate_replay_comparable_count = 0;
+  std::uint64_t pending_runtime_candidate_replay_match_count = 0;
+  std::uint64_t pending_runtime_candidate_replay_mismatch_count = 0;
   std::uint64_t resolved_source_runtime_replay_comparable_count = 0;
   std::uint64_t resolved_source_runtime_replay_match_count = 0;
   std::uint64_t resolved_source_runtime_replay_mismatch_count = 0;
@@ -1180,6 +1186,27 @@ void observe_bfu_geometry_diagnostics(
   }
   if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePendingCandidateMismatch) {
     ++stats.resolved_source_runtime_pending_candidate_mismatch_count;
+  }
+  if (dut.io_reducedBfuPendingRuntimeCandidateValid) {
+    ++stats.pending_runtime_candidate_valid_count;
+  }
+  if (dut.io_reducedBfuPendingRuntimeCandidatePendingWithoutActiveHeader) {
+    ++stats.pending_runtime_candidate_without_active_header_count;
+  }
+  if (dut.io_reducedBfuPendingRuntimeCandidateActiveHeaderMismatch) {
+    ++stats.pending_runtime_candidate_active_header_mismatch_count;
+  }
+  if (dut.io_reducedBfuPendingRuntimeCandidateReplayComparable) {
+    ++stats.pending_runtime_candidate_replay_comparable_count;
+    if (dut.io_reducedBfuPendingRuntimeCandidateReplayMismatch) {
+      ++stats.pending_runtime_candidate_replay_mismatch_count;
+      std::cerr << "frontend fetch RF ALU pending runtime candidate mismatched replay during "
+                << context << "\n";
+      std::exit(1);
+    }
+    if (dut.io_reducedBfuPendingRuntimeCandidateReplayMatch) {
+      ++stats.pending_runtime_candidate_replay_match_count;
+    }
   }
   if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeReplayComparable) {
     ++stats.resolved_source_runtime_replay_comparable_count;
@@ -1945,6 +1972,18 @@ int main(int argc, char **argv) {
               << bfu_stats.resolved_source_runtime_pending_candidate_match_count
               << " bfu_resolved_source_runtime_pending_candidate_mismatches="
               << bfu_stats.resolved_source_runtime_pending_candidate_mismatch_count
+              << " bfu_pending_runtime_candidate_valid="
+              << bfu_stats.pending_runtime_candidate_valid_count
+              << " bfu_pending_runtime_candidate_without_active_header="
+              << bfu_stats.pending_runtime_candidate_without_active_header_count
+              << " bfu_pending_runtime_candidate_active_header_mismatches="
+              << bfu_stats.pending_runtime_candidate_active_header_mismatch_count
+              << " bfu_pending_runtime_candidate_replay_comparable="
+              << bfu_stats.pending_runtime_candidate_replay_comparable_count
+              << " bfu_pending_runtime_candidate_replay_matches="
+              << bfu_stats.pending_runtime_candidate_replay_match_count
+              << " bfu_pending_runtime_candidate_replay_mismatches="
+              << bfu_stats.pending_runtime_candidate_replay_mismatch_count
               << " bfu_resolved_source_runtime_replay_comparable="
               << bfu_stats.resolved_source_runtime_replay_comparable_count
               << " bfu_resolved_source_runtime_replay_matches="
