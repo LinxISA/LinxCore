@@ -4,7 +4,14 @@ import chisel3._
 import chisel3.util.log2Ceil
 import linxcore.bctrl.{BID, BrobEntryMeta, BrobMetaTracker}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
-import linxcore.common.{DestinationKind, InterfaceParams, TULinkFlushSequenceSource, TULinkRetireSource}
+import linxcore.common.{
+  BlockMarkerRetireSource,
+  BoundaryKind,
+  DestinationKind,
+  InterfaceParams,
+  TULinkFlushSequenceSource,
+  TULinkRetireSource
+}
 import linxcore.recovery.{FlushBus, FullBidRecoveryBridge}
 import linxcore.rob.{ROBEntryBank, ROBEntryStatus, ROBID}
 
@@ -42,6 +49,10 @@ class DispatchROBAllocatorIO(
   val allocTUDstValid = Input(Bool())
   val allocTUDstKind = Input(DestinationKind())
   val allocIsLast = Input(Bool())
+  val allocMarkerBoundary = Input(Bool())
+  val allocMarkerStop = Input(Bool())
+  val allocMarkerBoundaryKind = Input(BoundaryKind())
+  val allocMarkerBoundaryTarget = Input(UInt(traceParams.pcWidth.W))
   val allocPeId = Input(UInt(peIdWidth.W))
   val allocBlockType = Input(UInt(blockTypeWidth.W))
   val allocNeedsEngine = Input(Bool())
@@ -107,6 +118,16 @@ class DispatchROBAllocatorIO(
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
   val deallocTURetireSource =
     Output(Vec(traceParams.commitWidth, new TULinkRetireSource(sourceParams, mapQDepth, stidWidth, peIdWidth)))
+  val deallocBlockMarkerRetireSource =
+    Output(Vec(traceParams.commitWidth, new BlockMarkerRetireSource(
+      entries = entries,
+      blockBidWidth = traceParams.blockBidWidth,
+      pcWidth = traceParams.pcWidth,
+      insnWidth = traceParams.insnWidth,
+      lenWidth = traceParams.lenWidth,
+      peIdWidth = peIdWidth,
+      stidWidth = stidWidth
+    )))
   val deallocBlockLastValid = Output(Bool())
   val deallocBlockLastBid = Output(new ROBID(entries))
   val deallocBlockLastGid = Output(new ROBID(entries))
@@ -225,6 +246,10 @@ class DispatchROBAllocator(
   rob.io.allocTUDstValid := io.allocTUDstValid
   rob.io.allocTUDstKind := io.allocTUDstKind
   rob.io.allocIsLast := io.allocIsLast
+  rob.io.allocMarkerBoundary := io.allocMarkerBoundary
+  rob.io.allocMarkerStop := io.allocMarkerStop
+  rob.io.allocMarkerBoundaryKind := io.allocMarkerBoundaryKind
+  rob.io.allocMarkerBoundaryTarget := io.allocMarkerBoundaryTarget
   rob.io.renameUpdateValid := io.renameUpdateValid
   rob.io.renameUpdateRid := io.renameUpdateRid
   rob.io.renameUpdateRow := io.renameUpdateRow
@@ -302,6 +327,7 @@ class DispatchROBAllocator(
   io.deallocValidMask := rob.io.deallocValidMask
   io.deallocCount := rob.io.deallocCount
   io.deallocTURetireSource := rob.io.deallocTURetireSource
+  io.deallocBlockMarkerRetireSource := rob.io.deallocBlockMarkerRetireSource
   io.deallocBlockLastValid := rob.io.deallocBlockLastValid
   io.deallocBlockLastBid := rob.io.deallocBlockLastBid
   io.deallocBlockLastGid := rob.io.deallocBlockLastGid

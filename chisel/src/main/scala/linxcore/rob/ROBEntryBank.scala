@@ -3,7 +3,14 @@ package linxcore.rob
 import chisel3._
 import chisel3.util.{log2Ceil, OHToUInt, PopCount, PriorityEncoderOH}
 import linxcore.commit.{CommitTraceMonitor, CommitTraceParams, CommitTracePort, CommitTraceRow}
-import linxcore.common.{DestinationKind, InterfaceParams, TULinkFlushSequenceSource, TULinkRetireSource}
+import linxcore.common.{
+  BlockMarkerRetireSource,
+  BoundaryKind,
+  DestinationKind,
+  InterfaceParams,
+  TULinkFlushSequenceSource,
+  TULinkRetireSource
+}
 import linxcore.recovery.FlushBus
 
 class ROBEntryBankIO(
@@ -32,6 +39,10 @@ class ROBEntryBankIO(
   val allocTUDstValid = Input(Bool())
   val allocTUDstKind = Input(DestinationKind())
   val allocIsLast = Input(Bool())
+  val allocMarkerBoundary = Input(Bool())
+  val allocMarkerStop = Input(Bool())
+  val allocMarkerBoundaryKind = Input(BoundaryKind())
+  val allocMarkerBoundaryTarget = Input(UInt(traceParams.pcWidth.W))
   val allocRobValue = Output(UInt(ptrWidth.W))
   val allocRobWrap = Output(Bool())
 
@@ -70,6 +81,16 @@ class ROBEntryBankIO(
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
   val deallocTURetireSource =
     Output(Vec(traceParams.commitWidth, new TULinkRetireSource(sourceParams, mapQDepth, stidWidth, peIdWidth)))
+  val deallocBlockMarkerRetireSource =
+    Output(Vec(traceParams.commitWidth, new BlockMarkerRetireSource(
+      entries = entries,
+      blockBidWidth = traceParams.blockBidWidth,
+      pcWidth = traceParams.pcWidth,
+      insnWidth = traceParams.insnWidth,
+      lenWidth = traceParams.lenWidth,
+      peIdWidth = peIdWidth,
+      stidWidth = stidWidth
+    )))
   val deallocBlockLastValid = Output(Bool())
   val deallocBlockLastBid = Output(new ROBID(entries))
   val deallocBlockLastGid = Output(new ROBID(entries))
@@ -168,6 +189,20 @@ class ROBEntryBank(
     source
   }
 
+  private def zeroBlockMarkerRetireSource: BlockMarkerRetireSource = {
+    val source = Wire(new BlockMarkerRetireSource(
+      entries = entries,
+      blockBidWidth = traceParams.blockBidWidth,
+      pcWidth = traceParams.pcWidth,
+      insnWidth = traceParams.insnWidth,
+      lenWidth = traceParams.lenWidth,
+      peIdWidth = peIdWidth,
+      stidWidth = stidWidth
+    ))
+    source := 0.U.asTypeOf(source)
+    source
+  }
+
   private def allocatedRid: ROBID = {
     val id = Wire(new ROBID(entries))
     id.valid := true.B
@@ -205,6 +240,10 @@ class ROBEntryBank(
   val rowTUDstValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
   val rowTUDstKind = RegInit(VecInit(Seq.fill(entries)(DestinationKind.None)))
   val rowIsLast = RegInit(VecInit(Seq.fill(entries)(false.B)))
+  val rowMarkerBoundary = RegInit(VecInit(Seq.fill(entries)(false.B)))
+  val rowMarkerStop = RegInit(VecInit(Seq.fill(entries)(false.B)))
+  val rowMarkerBoundaryKind = RegInit(VecInit(Seq.fill(entries)(BoundaryKind.Fall)))
+  val rowMarkerBoundaryTarget = RegInit(VecInit(Seq.fill(entries)(0.U(traceParams.pcWidth.W))))
   val status = RegInit(VecInit(Seq.fill(entries)(ROBEntryStatus.Free)))
   val allocValue = RegInit(0.U(ptrWidth.W))
   val allocWrap = RegInit(false.B)
@@ -374,6 +413,35 @@ class ROBEntryBank(
     source.dstValid := rowTUDstValid(idx)
     source.dstKind := rowTUDstKind(idx)
     io.deallocTURetireSource(slot) := source
+
+    val markerSource = Wire(new BlockMarkerRetireSource(
+      entries = entries,
+      blockBidWidth = traceParams.blockBidWidth,
+      pcWidth = traceParams.pcWidth,
+      insnWidth = traceParams.insnWidth,
+      lenWidth = traceParams.lenWidth,
+      peIdWidth = peIdWidth,
+      stidWidth = stidWidth
+    ))
+    markerSource := zeroBlockMarkerRetireSource
+    markerSource.valid := deallocFireVec(slot) && (rowMarkerBoundary(idx) || rowMarkerStop(idx))
+    markerSource.isBoundary := rowMarkerBoundary(idx)
+    markerSource.isStop := rowMarkerStop(idx)
+    markerSource.isLast := rowIsLast(idx)
+    markerSource.bid := rowBid(idx)
+    markerSource.gid := rowGid(idx)
+    markerSource.rid := rowRid(idx)
+    markerSource.peId := rowPeId(idx)
+    markerSource.stid := rowStid(idx)
+    markerSource.blockBidValid := rows(idx).blockBidValid
+    markerSource.blockBid := rows(idx).blockBid
+    markerSource.pc := rows(idx).pc
+    markerSource.insn := rows(idx).insn
+    markerSource.len := rows(idx).len
+    markerSource.boundaryKind := rowMarkerBoundaryKind(idx)
+    markerSource.boundaryTarget := rowMarkerBoundaryTarget(idx)
+    io.deallocBlockMarkerRetireSource(slot) := markerSource
+
     deallocBlockLastVec(slot) := deallocFireVec(slot) && rowIsLast(idx)
   }
   val deallocBlockLastValid = deallocBlockLastVec.asUInt.orR
@@ -415,6 +483,10 @@ class ROBEntryBank(
       rowTUDstValid(idx) := false.B
       rowTUDstKind(idx) := DestinationKind.None
       rowIsLast(idx) := false.B
+      rowMarkerBoundary(idx) := false.B
+      rowMarkerStop(idx) := false.B
+      rowMarkerBoundaryKind(idx) := BoundaryKind.Fall
+      rowMarkerBoundaryTarget(idx) := 0.U
       status(idx) := ROBEntryStatus.Free
     }
   }
@@ -470,6 +542,10 @@ class ROBEntryBank(
       rowTUDstValid(idx) := false.B
       rowTUDstKind(idx) := DestinationKind.None
       rowIsLast(idx) := false.B
+      rowMarkerBoundary(idx) := false.B
+      rowMarkerStop(idx) := false.B
+      rowMarkerBoundaryKind(idx) := BoundaryKind.Fall
+      rowMarkerBoundaryTarget(idx) := 0.U
       status(idx) := ROBEntryStatus.Free
     }
   }
@@ -492,6 +568,10 @@ class ROBEntryBank(
     rowTUDstValid(allocValue) := io.allocTUDstValid
     rowTUDstKind(allocValue) := io.allocTUDstKind
     rowIsLast(allocValue) := io.allocIsLast
+    rowMarkerBoundary(allocValue) := io.allocMarkerBoundary
+    rowMarkerStop(allocValue) := io.allocMarkerStop
+    rowMarkerBoundaryKind(allocValue) := io.allocMarkerBoundaryKind
+    rowMarkerBoundaryTarget(allocValue) := io.allocMarkerBoundaryTarget
     status(allocValue) := ROBEntryStatus.Allocated
   }
 

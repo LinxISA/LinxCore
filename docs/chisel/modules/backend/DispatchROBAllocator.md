@@ -11,6 +11,7 @@
   - `model/LinxCoreModel/model/bctrl/spe/SPERename.cpp`
   - `model/LinxCoreModel/model/ModelCommon/ROBID.*`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/common/BlockMarkerBundles.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/common/TULinkBundles.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BID.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/bctrl/BROB.scala`
@@ -46,6 +47,10 @@ R104 separates two block-allocation cases needed by marker lifecycle: scalar
 rows can reuse an already-active full block BID without allocating a BROB
 entry, while a marker-only `BSTART` can allocate a BROB entry without reserving
 a scalar ROB row.
+R169 forwards allocation-time marker row sidecars into `ROBEntryBank` and
+returns the ROB bank's width-wide `deallocBlockMarkerRetireSource` vector. The
+allocator does not consume those marker retire sources; it preserves the
+boundary between row storage and future BCTRL marker-row retirement policy.
 
 This is still a bring-up bridge, not full dispatch, rename, or CMT. It exists
 to remove unit-test-only `ROBEntryBank.allocBid` fixtures and to make later
@@ -71,6 +76,9 @@ dispatch agents consume a real block owner.
 | input | `allocTSeq` / `allocUSeq` | `ROBID(mapQDepth)` | with `allocValid` | ROB row T/U cleanup source sequence sidecars |
 | input | `allocTUDstValid` / `allocTUDstKind` | mixed | with `allocValid` | ROB row T/U destination ownership sidecar |
 | input | `allocIsLast` | `Bool` | with `allocValid` | Native block-last sidecar forwarded to relation-cmap retire-source publication |
+| input | `allocMarkerBoundary`, `allocMarkerStop` | `Bool` | with `allocValid` | Marker-row classification sidecars forwarded to `ROBEntryBank` |
+| input | `allocMarkerBoundaryKind` | `BoundaryKind.Type` | with `allocValid` | Decoded marker boundary kind forwarded to `ROBEntryBank` |
+| input | `allocMarkerBoundaryTarget` | `UInt(pcWidth.W)` | with `allocValid` | Decoded marker target forwarded to `ROBEntryBank` |
 | input | `allocPeId` | `UInt` | with `allocValid` | BROB PE owner metadata and ROB retired-row bank sidecar |
 | input | `allocBlockType` | `UInt` | with `allocValid` | Reduced block type metadata |
 | input | `allocNeedsEngine` | `Bool` | with `allocValid` | BROB completion predicate metadata |
@@ -97,6 +105,7 @@ dispatch agents consume a real block owner.
 | output | `commit*`, `dealloc*`, `flush*`, `size`, `outstandingCount`, `*Mask` | mixed | diagnostic | `ROBEntryBank` commit, recovery, and lifecycle outputs |
 | output | `robTULinkSource*` | mixed | diagnostic/source | ROB row candidate for `TULinkFlushSourceSelector.robSource` |
 | output | `deallocTURetireSource` | `Vec(commitWidth, TULinkRetireSource)` | diagnostic/source | ROB deallocation-row source vector for `TULinkRetireCommandPath` |
+| output | `deallocBlockMarkerRetireSource` | `Vec(commitWidth, BlockMarkerRetireSource)` | diagnostic/source | ROB deallocation-row marker source vector for future marker-row retirement |
 | output | `deallocBlockLast*` | mixed | diagnostic/source | First block-last row freed by the ROB deallocation walk, including native `(bid,gid)` and full `blockBid` |
 
 ## State
@@ -149,6 +158,10 @@ before `dec_ren_q`, and later `SPERename::Rename` mutates the shared
 instruction object. The Chisel row stores values, so the later mutation is an
 explicit update handshake.
 
+Marker classification and boundary metadata are forwarded with the same
+allocation handshake. The allocator treats them as row image sidecars, not as
+control decisions; full marker-row retirement remains a downstream BCTRL owner.
+
 `DecodeRenameROBPath` drives `allocGid`, `allocPeId`, and `allocIsLast` from
 the decoded row/reduced owner metadata at reservation time so ROB deallocation
 can publish relation-cmap retire sources without depending on commit-trace
@@ -179,6 +192,10 @@ cleanup command because relation-cmap retire serialization must finish first.
 The full `deallocBlockLastBlockBid` is forwarded separately from the ring BID
 so BROB scalar-completion and retire paths can keep using full 64-bit hardware
 BID ordering.
+R169 also forwards `deallocBlockMarkerRetireSource` unchanged from the ROB bank.
+The vector stays width-wide across the allocator boundary so a future serializer
+or lifecycle consumer can process every retired marker row in the deallocation
+window.
 BROB flush remains an explicit full-BID input
 (`blockFlushValid/blockFlushBid`) because the current Chisel recovery bus
 still uses ring `ROBID` metadata while the hardware block contract uses full
@@ -214,4 +231,5 @@ update, ROB T/U source IO elaboration through the composed module,
 ROB deallocation retire-source and block-last-candidate IO elaboration through
 the composed module, full block-BID propagation from ROB block-last deallocation,
 marker-only BROB allocation plus scalar active-BID reuse, ROB RID wrap
-publication, and Chisel elaboration of the composed module.
+publication, marker-retire source IO forwarding, and Chisel elaboration of the
+composed module.

@@ -247,6 +247,16 @@ class DecodeRenameROBPathIO(
   val deallocValidMask = Output(UInt(traceParams.commitWidth.W))
   val deallocCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
   val robDeallocTURetireSource = Output(Vec(traceParams.commitWidth, new TULinkRetireSource(p, mapQDepth, stidWidth, peIdWidth)))
+  val robDeallocBlockMarkerRetireSource =
+    Output(Vec(traceParams.commitWidth, new BlockMarkerRetireSource(
+      entries = p.robEntries,
+      blockBidWidth = traceParams.blockBidWidth,
+      pcWidth = traceParams.pcWidth,
+      insnWidth = traceParams.insnWidth,
+      lenWidth = traceParams.lenWidth,
+      peIdWidth = peIdWidth,
+      stidWidth = stidWidth
+    )))
   val robDeallocBlockLastValid = Output(Bool())
   val robDeallocBlockLastBid = Output(new ROBID(p.robEntries))
   val robDeallocBlockLastGid = Output(new ROBID(p.robEntries))
@@ -666,6 +676,10 @@ class DecodeRenameROBPath(
   allocator.io.allocTUDstValid := false.B
   allocator.io.allocTUDstKind := DestinationKind.None
   allocator.io.allocIsLast := selectedForQueue.eob
+  allocator.io.allocMarkerBoundary := selectedForQueue.sob
+  allocator.io.allocMarkerStop := selectedForQueue.eob
+  allocator.io.allocMarkerBoundaryKind := selectedForQueue.boundaryKind
+  allocator.io.allocMarkerBoundaryTarget := selectedForQueue.boundaryTarget
   allocator.io.allocPeId := Mux(markerBoundary, markerAllocPeId, selectedAllocPeId)
   allocator.io.allocBlockType := Mux(markerBoundary, markerAllocBlockType, selectedAllocBlockType)
   allocator.io.allocNeedsEngine := false.B
@@ -906,6 +920,7 @@ class DecodeRenameROBPath(
   io.deallocValidMask := allocator.io.deallocValidMask
   io.deallocCount := allocator.io.deallocCount
   io.robDeallocTURetireSource := allocator.io.deallocTURetireSource
+  io.robDeallocBlockMarkerRetireSource := allocator.io.deallocBlockMarkerRetireSource
   io.robDeallocBlockLastValid := allocator.io.deallocBlockLastValid
   io.robDeallocBlockLastBid := allocator.io.deallocBlockLastBid
   io.robDeallocBlockLastGid := allocator.io.deallocBlockLastGid

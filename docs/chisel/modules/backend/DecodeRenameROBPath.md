@@ -154,6 +154,11 @@ and direct marker decisions, same-slot pre-retire, scalar redirect cleanup,
 block-last closure, marker readiness, and scalar-done source selection now live
 under BCTRL. This is still the reduced marker-consume path; full marker-row ROB
 retirement and per-STID active state remain the next block-control work.
+R169 forwards decoded marker sidecars into the allocation-time ROB row image and
+exposes `robDeallocBlockMarkerRetireSource` from `ROBEntryBank` through this
+composition boundary. The new vector is not yet consumed by
+`BlockMarkerLifecycle`; it is the first source boundary needed before the
+reduced marker-skip path can be replaced by full marker-row ROB retirement.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -270,6 +275,7 @@ Outputs:
   `ScalarTURenameBridge` forwards it to the bank array.
 - `allocBlockBid`, `allocRobValue`, `commit*`, `dealloc*`, `flushApplied`,
   `robTULinkSource*`, `robDeallocTURetireSource`,
+  `robDeallocBlockMarkerRetireSource`,
   `robDeallocBlockLast*`, `blockScalarDone*`, `blockRetire*`, `size`,
   `outstandingCount`, and occupancy masks: `DispatchROBAllocator`,
   `ROBEntryBank`, and reduced BROB lifecycle observability. R167 routes
@@ -370,6 +376,12 @@ full BID for both the row's `bid` sidecar conversion and `blockBid` commit
 sideband. The allocator is told to reserve only a ROB row in that case, so the
 BROB entry created by `BSTART` remains the single block owner until scalar
 done/retire.
+R169 also forwards `selectedForQueue.sob`, `selectedForQueue.eob`,
+`selectedForQueue.boundaryKind`, and `selectedForQueue.boundaryTarget` into the
+allocator's marker sidecar inputs. In the current reduced live path those fields
+are mostly inactive because legal marker-only packets are consumed before ROB
+reservation; preserving the wiring now fixes the future row image boundary for
+dense/full marker-row admission.
 If a scalar row allocates while no marker-owned block is active, the reduced
 path records that newly allocated full BID as the active block with no marker
 target and no conditional redirect state. This covers CoreMark direct-call
@@ -499,6 +511,11 @@ R74 routes relation-cmap retire commands through command PE/STID sidecars:
 `ScalarTURenameBridge.tuRetirePeId/Stid`, and `TULinkLocalBankArray` selects
 the retire target from those sidecars rather than from `tuRenameActive*`.
 `cleanGroup*` remains inactive until a vector/MTC group-clean owner exists.
+R169 forwards `robDeallocBlockMarkerRetireSource` beside the T/U and block-last
+deallocation outputs. The vector carries marker-row metadata at the same
+deallocation timing point as `SPEROB::dealloc()` observes `uop.last` and marker
+instructions before calling block handlers, but this composition does not yet
+serialize or feed those sources into `BlockMarkerLifecycle`.
 
 R103 uses the ROB bank's full block-last BID to drive the reduced BROB
 completion path. On a deallocation cycle that frees a block-last row,
@@ -576,6 +593,10 @@ The C++ model order being preserved is:
    `ReleaseRelative()` before freeing the row image; that relation path marks
    T/U local mapQ entries retired and releases oldest relations on block-last,
    group change, or pressure.
+10. The same deallocation walk skips `MinstPipeView` for `OP_BSTOP` and calls
+    block handlers from the retired row image. Chisel now preserves marker row
+    metadata as a width-wide deallocation source, but the reduced live path still
+    consumes marker-only packets before ROB admission.
 
 `DecodeRenameROBPath` now preserves the registered `dec_ren_q` timing point,
 assigns reduced memory-order identity before queue enqueue, and reserves
@@ -635,7 +656,8 @@ publication, SCB/MDB handoff, and memory trace side effects.
   auto clean is now owned inside `TULinkRetireCommandPath`.
 - Full scalar commit ownership for real marker ROB-retire rows. The current
   R117 feedback only bridges reduced marker/block-retire events into scalar
-  rename mapQ release.
+  rename mapQ release; R169 exposes the marker retire-source vector but does not
+  yet add the serializer/consumer or per-STID active marker state.
 - Multi-PE `TULinkLocalBankArray` instantiation and top-level nonzero PE
   packet production. The active selector now consumes row `peId`, but current
   frontend/top packets still default that sidecar to PE0 unless an upstream
@@ -728,6 +750,9 @@ R168 covers the extracted `BlockMarkerLifecycle` owner for active full-BID
 context, marker readiness, direct/conditional boundary handling, same-slot
 pre-retire, scalar redirect cleanup, scalar-created active blocks, and
 block-last closure.
+R169 covers marker sidecar forwarding into ROB reservation and
+`robDeallocBlockMarkerRetireSource` IO elaboration through the backend
+composition.
 R104 covers marker-only BROB allocation, active full-BID reuse by scalar rows,
 marker-driven scalar-done/retire for old/current active blocks, marker
 conflict gating against ROB block-last scalar-done, and top-level marker

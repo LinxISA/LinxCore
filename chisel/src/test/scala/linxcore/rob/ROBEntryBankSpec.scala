@@ -1,7 +1,7 @@
 package linxcore.rob
 
 import circt.stage.ChiselStage
-import linxcore.common.DestinationKind
+import linxcore.common.{BoundaryKind, DestinationKind}
 import linxcore.commit.CommitTraceParams
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -38,7 +38,13 @@ object ROBEntryBankReference {
       tSeq: Id = Id(),
       uSeq: Id = Id(),
       dst: TUDst = NoTUDst,
-      isLast: Boolean = false)
+      isLast: Boolean = false,
+      marker: MarkerSidecar = MarkerSidecar())
+  final case class MarkerSidecar(
+      isBoundary: Boolean = false,
+      isStop: Boolean = false,
+      boundaryKind: String = "Fall",
+      boundaryTarget: BigInt = 0)
   final case class TUSource(
       valid: Boolean,
       bid: Id,
@@ -58,6 +64,22 @@ object ROBEntryBankReference {
       tSeq: Id,
       uSeq: Id,
       dst: TUDst)
+  final case class BlockMarkerRetireSource(
+      valid: Boolean,
+      isBoundary: Boolean,
+      isStop: Boolean,
+      isLast: Boolean,
+      bid: Id,
+      gid: Id,
+      rid: Id,
+      peId: Int,
+      stid: Int,
+      blockBid: BigInt,
+      pc: BigInt,
+      insn: BigInt,
+      length: Int,
+      boundaryKind: String,
+      boundaryTarget: BigInt)
 
   private final case class Entry(row: Row, status: Status, bid: Id, gid: Id, rid: Id, tu: TUSidecar)
 
@@ -214,6 +236,47 @@ object ROBEntryBankReference {
           case _ =>
             return out.toSeq
         }
+      }
+      out.toSeq
+    }
+
+    def deallocBlockMarkerRetireSources(ready: Boolean = true): Seq[BlockMarkerRetireSource] = {
+      if (!ready) {
+        return Seq.empty
+      }
+      val out = collection.mutable.ArrayBuffer.empty[BlockMarkerRetireSource]
+      var keepScanning = true
+      var lane = 0
+      while (lane < commitWidth && keepScanning) {
+        val idx = (deallocPtr + lane) & (entries - 1)
+        table(idx) match {
+          case Some(Entry(row, Retired, bid, gid, rid, tu)) =>
+            if (tu.marker.isBoundary || tu.marker.isStop) {
+              out += BlockMarkerRetireSource(
+                valid = true,
+                isBoundary = tu.marker.isBoundary,
+                isStop = tu.marker.isStop,
+                isLast = tu.isLast,
+                bid = bid,
+                gid = gid,
+                rid = rid,
+                peId = tu.peId,
+                stid = tu.stid,
+                blockBid = row.blockBid,
+                pc = row.pc,
+                insn = row.insn,
+                length = row.length,
+                boundaryKind = tu.marker.boundaryKind,
+                boundaryTarget = tu.marker.boundaryTarget
+              )
+            }
+            if (tu.isLast) {
+              keepScanning = false
+            }
+          case _ =>
+            keepScanning = false
+        }
+        lane += 1
       }
       out.toSeq
     }
@@ -534,6 +597,80 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(rob.deallocTURetireSources().map(_.rid) == Seq(id(r2)))
   }
 
+  test("reference exposes marker retire metadata from deallocated ROB rows") {
+    val rob = new Model(entries = 8, commitWidth = 4)
+    val r0 = rob.alloc(
+      row(0).copy(bid = 2, gid = 1, blockBid = 0x20),
+      bid = Some(id(2)),
+      tu = TUSidecar(
+        peId = 3,
+        stid = 1,
+        marker = MarkerSidecar(
+          isBoundary = true,
+          boundaryKind = "Direct",
+          boundaryTarget = 0x4000))
+    ).get
+    val r1 = rob.alloc(
+      row(1).copy(bid = 2, gid = 1, blockBid = 0x20),
+      bid = Some(id(2)),
+      tu = TUSidecar(isLast = false)
+    ).get
+    val r2 = rob.alloc(
+      row(2).copy(bid = 2, gid = 1, blockBid = 0x20),
+      bid = Some(id(2)),
+      tu = TUSidecar(
+        peId = 3,
+        stid = 1,
+        isLast = true,
+        marker = MarkerSidecar(isStop = true))
+    ).get
+    val r3 = rob.alloc(
+      row(3).copy(bid = 3, gid = 0, blockBid = 0x30),
+      bid = Some(id(3)),
+      tu = TUSidecar(marker = MarkerSidecar(isBoundary = true, boundaryKind = "Cond", boundaryTarget = 0x5000))
+    ).get
+
+    Seq(r0, r1, r2, r3).foreach(rob.complete)
+    assert(rob.commit().map(_.rid) == Seq(0, 1, 2, 3))
+
+    assert(rob.deallocBlockMarkerRetireSources() == Seq(
+      BlockMarkerRetireSource(
+        valid = true,
+        isBoundary = true,
+        isStop = false,
+        isLast = false,
+        bid = id(2),
+        gid = id(1),
+        rid = id(r0),
+        peId = 3,
+        stid = 1,
+        blockBid = 0x20,
+        pc = 0x1000,
+        insn = 0x13,
+        length = 4,
+        boundaryKind = "Direct",
+        boundaryTarget = 0x4000),
+      BlockMarkerRetireSource(
+        valid = true,
+        isBoundary = false,
+        isStop = true,
+        isLast = true,
+        bid = id(2),
+        gid = id(1),
+        rid = id(r2),
+        peId = 3,
+        stid = 1,
+        blockBid = 0x20,
+        pc = 0x1008,
+        insn = 0x13,
+        length = 4,
+        boundaryKind = "Fall",
+        boundaryTarget = 0)
+    ))
+    assert(rob.dealloc() == Seq(r0, r1, r2))
+    assert(rob.deallocBlockMarkerRetireSources().map(_.rid) == Seq(id(r3)))
+  }
+
   test("Chisel ROBEntryBank elaborates with status masks and commit monitor outputs") {
     val sv = ChiselStage.emitSystemVerilog(
       new ROBEntryBank(
@@ -551,6 +688,10 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_allocRobWrap"))
     assert(sv.contains("io_allocPeId"))
     assert(sv.contains("io_allocIsLast"))
+    assert(sv.contains("io_allocMarkerBoundary"))
+    assert(sv.contains("io_allocMarkerStop"))
+    assert(sv.contains("io_allocMarkerBoundaryKind"))
+    assert(sv.contains("io_allocMarkerBoundaryTarget"))
     assert(sv.contains("io_allocTSeq_value"))
     assert(sv.contains("io_allocTUDstKind"))
     assert(sv.contains("io_renameUpdateReady"))
@@ -563,6 +704,10 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("io_deallocTURetireSource_0_tSeq_value"))
     assert(sv.contains("io_deallocTURetireSource_0_peId"))
     assert(sv.contains("io_deallocTURetireSource_0_isLast"))
+    assert(sv.contains("io_deallocBlockMarkerRetireSource_0_isBoundary"))
+    assert(sv.contains("io_deallocBlockMarkerRetireSource_0_isStop"))
+    assert(sv.contains("io_deallocBlockMarkerRetireSource_0_boundaryTarget"))
+    assert(sv.contains("io_deallocBlockMarkerRetireSource_0_blockBid"))
     assert(sv.contains("io_deallocBlockLastValid"))
     assert(sv.contains("io_deallocBlockLastBid_value"))
     assert(sv.contains("io_deallocBlockLastBlockBid"))
@@ -575,5 +720,6 @@ class ROBEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("CommitTraceMonitor"))
     assert(DestinationKind.T.asUInt.litValue == 2)
     assert(DestinationKind.U.asUInt.litValue == 3)
+    assert(BoundaryKind.Direct.asUInt.litValue == 4)
   }
 }

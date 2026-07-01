@@ -11,6 +11,7 @@
   - `model/LinxCoreModel/model/bctrl/spe/SPERename.cpp`
   - `model/LinxCoreModel/model/ModelCommon/LSUUtils.cpp`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/common/BlockMarkerBundles.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/common/TULinkBundles.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rename/TULinkRelationCmap.scala`
@@ -64,6 +65,13 @@ only decode-time identity and zero T/U sidecars. When rename later accepts the
 queued instruction, `renameUpdate*` patches the stored `CommitTraceRow`,
 `tSeq/uSeq`, and T/U destination ownership and moves the row from `Allocated`
 to `Renamed`.
+R169 adds row-owned marker-retire source plumbing. Allocation stores whether the
+reserved row represents a block boundary or `BSTOP` marker, plus boundary
+kind/target. Deallocation now exposes a width-wide
+`deallocBlockMarkerRetireSource` vector containing the retired marker row's
+native IDs, full block BID, PC, raw instruction, length, and boundary metadata.
+The current reduced marker-consume path still bypasses ROB marker rows; this is
+source infrastructure for the future full marker-row retirement consumer.
 
 `ReducedCommitROB` remains the reduced trace harness. Do not retrofit full
 deallocation or recovery semantics into that module.
@@ -84,6 +92,9 @@ deallocation or recovery semantics into that module.
 | input | `allocTSeq` / `allocUSeq` | `ROBID(mapQDepth)` | with `allocValid` | Row-owned local T/U sequence snapshots from rename |
 | input | `allocTUDstValid` / `allocTUDstKind` | mixed | with `allocValid` | Whether the row owns a T or U destination that needs previous-sequence adjustment |
 | input | `allocIsLast` | `Bool` | with `allocValid` | Whether the row is the model block-last instruction for relation-cmap release |
+| input | `allocMarkerBoundary`, `allocMarkerStop` | `Bool` | with `allocValid` | Whether the allocated row is a block boundary marker or a `BSTOP` marker |
+| input | `allocMarkerBoundaryKind` | `BoundaryKind.Type` | with `allocValid` | Decoded marker boundary kind stored for future marker-row retirement |
+| input | `allocMarkerBoundaryTarget` | `UInt(pcWidth.W)` | with `allocValid` | Decoded marker target stored with the marker row |
 | output | `allocRobValue` | `UInt(log2(entries).W)` | diagnostic | ROB slot that will be assigned on an accepted allocation |
 | output | `allocRobWrap` | `Bool` | diagnostic | ROB allocation epoch bit that pairs with `allocRobValue` to form the native RID |
 | input | `renameUpdateValid` | `Bool` | `renameUpdateReady` | Requests a post-rename update for an already reserved row |
@@ -108,6 +119,7 @@ deallocation or recovery semantics into that module.
 | output | `deallocCount` | `UInt` | diagnostic | Number of rows freed this cycle |
 | output | `commit*Error` | `Bool` | monitor | `CommitTraceMonitor` contract flags for the emitted commit window |
 | output | `deallocTURetireSource` | `Vec(commitWidth, TULinkRetireSource)` | diagnostic/source | Row-owned T/U retire sources for each deallocated ROB slot |
+| output | `deallocBlockMarkerRetireSource` | `Vec(commitWidth, BlockMarkerRetireSource)` | diagnostic/source | Row-owned marker retire sources for each deallocated marker ROB slot |
 | output | `deallocBlockLastValid`, `deallocBlockLastBid`, `deallocBlockLastGid`, `deallocBlockLastBlockBid` | mixed | diagnostic/source | First block-last row freed by the deallocation walk; future `CleanCMAP` scheduling point plus full 64-bit block identity |
 | output | `size` | `UInt` | diagnostic | Resident non-free row count; retired rows remain resident |
 | output | `outstandingCount` | `UInt` | diagnostic | Model `osdSize`-like count; decremented at commit, not dealloc |
@@ -145,6 +157,9 @@ deallocation or recovery semantics into that module.
 - `rowTUDstValid` / `rowTUDstKind`: whether the row owns a T/U destination
   that requires previous-sequence cleanup adjustment.
 - `rowIsLast`: model block-last sidecar used by relation-cmap release.
+- `rowMarkerBoundary` / `rowMarkerStop`: marker-row classification sidecars.
+- `rowMarkerBoundaryKind` / `rowMarkerBoundaryTarget`: decoded boundary
+  metadata preserved for marker-row retirement.
 - `status`: one `ROBEntryStatus.Type` per slot, reset to `Free`.
 - `allocValue` / `allocWrap`: circular allocation pointer.
 - `commitValue` / `commitWrap`: circular commit pointer.
@@ -182,6 +197,10 @@ R74 additionally stores `rowPeId` because `SPEROB::ReleaseRelative` and
 `RelateInfo` preserve the PE owner used later by
 `SPERename::RepLocalRetired`; the reduced path currently supplies PE0, but the
 row image must already carry the sidecar.
+R169 extends that row image with marker sidecars. `DCTop::Work()` allocates ROB
+rows before rename and `SPEROB::dealloc()` later observes the same instruction
+image, so marker classification, boundary kind, and target must be captured at
+allocation rather than reconstructed from commit trace rows after retirement.
 
 Post-rename update is the value-row equivalent of the C++ model's shared
 `SimInst` pointer. `DCTop::Work` allocates the PE ROB row before writing
@@ -249,6 +268,13 @@ destination ownership. The output is a vector rather than a collapsed command
 so no row is lost when `commitWidth` deallocates more than one retired row.
 `TULinkRelationCmap` is the downstream policy owner that serializes this
 vector into mark/dealloc commands for `TULinkRename`.
+
+The same deallocation window also emits
+`deallocBlockMarkerRetireSource(slot)` for rows whose stored marker sidecars
+identify a boundary or stop marker. The payload is width-wide for the same
+reason as T/U retire sources: future marker lifecycle logic must not lose a
+marker row when multiple retired ROB rows are freed together. The vector is not
+yet consumed by `BlockMarkerLifecycle`; R169 only publishes the row-owned source.
 
 When a deallocated row is block-last, `deallocBlockLastValid` and its
 `bid/gid` outputs identify the first such row in the deallocation window.
@@ -327,5 +353,6 @@ reuse of the first pruned slot, retired-row
 flush accounting, flush comparison through native row IDs rather than trace
 identity sidebands, exact non-base ROB T/U source publication and source clear
 after flush, deallocation-row T/U retire source publication with native
-`bid/gid/rid` plus `peId/stid`, and Chisel elaboration with monitor plus
-flush/TU diagnostic outputs.
+`bid/gid/rid` plus `peId/stid`, marker retire-source metadata publication from
+deallocated ROB rows, and Chisel elaboration with monitor plus flush/TU/marker
+diagnostic outputs.

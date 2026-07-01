@@ -3,6 +3,7 @@
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/common/InterfaceBundles.scala`
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/common/BlockMarkerBundles.scala`
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/common/TULinkBundles.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/common/InterfaceBundlesSpec.scala`
 - Previous pyCircuit owners:
@@ -26,6 +27,8 @@
 lane. It defines passive bundle shapes for frontend-to-decode packets, decoded
 uops, renamed uops, issue queue entries, LSU request/response packets, ROB
 rows, and lightweight trace probes.
+`BlockMarkerBundles.scala` adds the first shared marker-row deallocation source
+record for ROB-to-BCTRL marker retirement infrastructure.
 
 The packet intentionally carries both LinxCoreModel-style `bid/gid/rid`
 identity and the hardware 64-bit `blockBid` sideband. These are separate
@@ -68,6 +71,7 @@ model `CommitInfo.bid` field.
 | `TULinkFlushSequenceSource` | Shared ROB/LSU source snapshot for T/U recovery cleanup | `valid`, `bid/rid/stid`, `tSeq/uSeq`, `dstValid/dstKind` |
 | `TULinkRetireSource` | ROB deallocation-row source for SPEROB relation-cmap retire/release | `valid`, `isLast`, `bid/gid/rid`, `peId/stid`, `tSeq/uSeq`, `dstValid/dstKind` |
 | `TULinkRetireCommand` | Serialized command for `TULinkRename.retire*` | `valid`, `kind`, `seq`, `dealloc`, `peId/stid` |
+| `BlockMarkerRetireSource` | ROB deallocation-row source for future block-marker retirement | `valid`, `isBoundary`, `isStop`, `isLast`, `bid/gid/rid`, `peId/stid`, `blockBid`, `pc`, `insn`, `len`, `boundaryKind/Target` |
 
 ## Logic Design
 
@@ -112,6 +116,11 @@ The bundle shape follows these rules:
   sources and commands also carry row-owned `peId/stid` so local mark/release
   commands route to the retired row's SGPR bank instead of the active
   rename-head bank.
+- keep block marker retire sources as common bundles because ROB row storage and
+  BCTRL marker lifecycle policy meet at deallocation. The source preserves both
+  native row IDs and full hardware block BID, plus decoded marker kind/target
+  and raw PC/instruction/length, so a future marker-row consumer does not have
+  to reconstruct block ownership from commit trace identity.
 
 ## Timing
 
@@ -148,4 +157,6 @@ ordering, 4-bit instruction length fields, frontend packet PE/STID widths,
 decoded/renamed/LSU/ROB/trace packet field widths, T/U flush source and retire
 source ROB-vs-local sequence widths, retire source/command PE/STID sidecar
 widths, serialized retire-command width, and Chisel elaboration through a
-probe module.
+probe module. R169 marker-retire bundle widths are covered through
+`ROBEntryBank`, `DispatchROBAllocator`, and `DecodeRenameROBPath` elaboration
+gates rather than the older `InterfaceBundles` probe.
