@@ -1,7 +1,7 @@
 package linxcore.rename
 
 import chisel3._
-import chisel3.util.{log2Ceil, PopCount, PriorityEncoder}
+import chisel3.util.{log2Ceil, PopCount, PriorityEncoder, UIntToOH}
 
 import linxcore.bctrl.BID
 import linxcore.recovery.RecoveryCleanupIntent
@@ -101,6 +101,8 @@ class GPRRenameCheckpoint(
   private val physTagWidth = math.max(1, log2Ceil(physRegs))
   private val freeCountWidth = log2Ceil(physRegs + 1)
   private val mapQCountWidth = log2Ceil(mapQDepth + 1)
+  private val allocatablePhysMask =
+    (((BigInt(1) << physRegs) - 1) ^ ((BigInt(1) << archRegs) - 1)).U(physRegs.W)
 
   val io = IO(new GPRRenameCheckpointIO(entries, archRegs, physRegs, mapQDepth, bidWidth, stidWidth, peIdWidth, tidWidth))
 
@@ -155,15 +157,13 @@ class GPRRenameCheckpoint(
     flushSameBidSurvivorVec(idx) :=
       e.valid && !flushPruneVec(idx) && !io.cleanup.flush.baseOnBid && (io.cleanup.blockFlushBid === e.fullBid)
     commitHitVec(idx) := e.valid && (e.fullBid === io.commitBlockBid)
-    val laterSameArch =
-      if (idx + 1 >= mapQDepth) {
-        false.B
-      } else {
-        (idx + 1 until mapQDepth)
-          .map(j => commitHitVec(j) && (mapQ(j).archTag === e.archTag))
-          .reduce(_ || _)
-      }
-    commitHitHasLaterSameArch(idx) := laterSameArch
+  }
+  val laterCommitArchMask = Wire(Vec(mapQDepth + 1, UInt(archRegs.W)))
+  laterCommitArchMask(mapQDepth) := 0.U
+  for (idx <- (0 until mapQDepth).reverse) {
+    val archOH = UIntToOH(mapQ(idx).archTag, archRegs)
+    commitHitHasLaterSameArch(idx) := (laterCommitArchMask(idx + 1) & archOH).orR
+    laterCommitArchMask(idx) := laterCommitArchMask(idx + 1) | Mux(commitHitVec(idx), archOH, 0.U(archRegs.W))
   }
 
   val committedMapQMask = commitHitVec.asUInt
@@ -177,12 +177,10 @@ class GPRRenameCheckpoint(
   for (arch <- 0 until archRegs) {
     val bestValid = Wire(Vec(mapQDepth + 1, Bool()))
     val bestFullBid = Wire(Vec(mapQDepth + 1, UInt(bidWidth.W)))
-    val bestBid = Wire(Vec(mapQDepth + 1, new ROBID(entries)))
     val bestRid = Wire(Vec(mapQDepth + 1, new ROBID(entries)))
     val bestPhys = Wire(Vec(mapQDepth + 1, UInt(physTagWidth.W)))
     bestValid(0) := false.B
     bestFullBid(0) := 0.U
-    bestBid(0) := 0.U.asTypeOf(new ROBID(entries))
     bestRid(0) := 0.U.asTypeOf(new ROBID(entries))
     bestPhys(0) := restoreBase(arch)
     for (idx <- 0 until mapQDepth) {
@@ -194,30 +192,31 @@ class GPRRenameCheckpoint(
       val take = hit && newerThanBest
       bestValid(idx + 1) := bestValid(idx) || hit
       bestFullBid(idx + 1) := Mux(take, mapQ(idx).fullBid, bestFullBid(idx))
-      bestBid(idx + 1) := Mux(take, mapQ(idx).bid, bestBid(idx))
       bestRid(idx + 1) := Mux(take, mapQ(idx).rid, bestRid(idx))
       bestPhys(idx + 1) := Mux(take, mapQ(idx).physTag, bestPhys(idx))
     }
     replaySurvivorMap(arch) := bestPhys(mapQDepth)
   }
 
-  val commitReleaseVec = Wire(Vec(physRegs, Bool()))
-  val flushReleaseVec = Wire(Vec(physRegs, Bool()))
-  for (phys <- 0 until physRegs) {
-    commitReleaseVec(phys) :=
-      (phys >= archRegs).B && (
-        (0 until archRegs).map(arch =>
-          commitHitVec.asUInt.orR &&
-            (cmap(arch) === phys.U) &&
-            (0 until mapQDepth).map(idx => commitHitVec(idx) && (mapQ(idx).archTag === arch.U)).reduce(_ || _)
-        ).reduce(_ || _) ||
-          (0 until mapQDepth).map(idx =>
-            commitHitVec(idx) && commitHitHasLaterSameArch(idx) && (mapQ(idx).physTag === phys.U)
-          ).reduce(_ || _))
-    flushReleaseVec(phys) :=
-      (phys >= archRegs).B &&
-        (0 until mapQDepth).map(idx => flushPruneVec(idx) && (mapQ(idx).physTag === phys.U)).reduce(_ || _)
+  val commitAnyForArch = Wire(Vec(archRegs, Bool()))
+  for (arch <- 0 until archRegs) {
+    commitAnyForArch(arch) :=
+      (0 until mapQDepth).map(idx => commitHitVec(idx) && (mapQ(idx).archTag === arch.U)).reduce(_ || _)
   }
+  val commitCmapReleaseMask =
+    (0 until archRegs)
+      .map(arch => Mux(commitAnyForArch(arch), UIntToOH(cmap(arch), physRegs), 0.U(physRegs.W)))
+      .reduce(_ | _)
+  val commitIntermediateReleaseMask =
+    (0 until mapQDepth)
+      .map(idx =>
+        Mux(commitHitVec(idx) && commitHitHasLaterSameArch(idx), UIntToOH(mapQ(idx).physTag, physRegs), 0.U(physRegs.W)))
+      .reduce(_ | _)
+  val commitReleaseMask = (commitCmapReleaseMask | commitIntermediateReleaseMask) & allocatablePhysMask
+  val flushReleaseMask =
+    (0 until mapQDepth)
+      .map(idx => Mux(flushPruneVec(idx), UIntToOH(mapQ(idx).physTag, physRegs), 0.U(physRegs.W)))
+      .reduce(_ | _) & allocatablePhysMask
 
   val nextSmap = Wire(Vec(archRegs, UInt(physTagWidth.W)))
   val nextCmap = Wire(Vec(archRegs, UInt(physTagWidth.W)))
@@ -257,7 +256,7 @@ class GPRRenameCheckpoint(
     }
   }.elsewhen(commitFire) {
     for (phys <- 0 until physRegs) {
-      when(commitReleaseVec(phys)) {
+      when(commitReleaseMask(phys)) {
         nextFreeList(phys) := true.B
       }
     }
@@ -288,14 +287,17 @@ class GPRRenameCheckpoint(
     nextMapQ(firstFreeMapQ).archTag := io.renameArchTag
     nextMapQ(firstFreeMapQ).physTag := firstFreePhys
   }
+  val nextSmapLiveMask =
+    (0 until archRegs).map(arch => UIntToOH(nextSmap(arch), physRegs)).reduce(_ | _)
+  val nextCmapLiveMask =
+    (0 until archRegs).map(arch => UIntToOH(nextCmap(arch), physRegs)).reduce(_ | _)
+  val nextMapQLiveMask =
+    (0 until mapQDepth)
+      .map(idx => Mux(nextMapQ(idx).valid, UIntToOH(nextMapQ(idx).physTag, physRegs), 0.U(physRegs.W)))
+      .reduce(_ | _)
+  val nextLivePhysMask = nextSmapLiveMask | nextCmapLiveMask | nextMapQLiveMask
   for (phys <- 0 until physRegs) {
-    val liveInSmap =
-      (0 until archRegs).map(arch => nextSmap(arch) === phys.U).reduce(_ || _)
-    val liveInCmap =
-      (0 until archRegs).map(arch => nextCmap(arch) === phys.U).reduce(_ || _)
-    val liveInMapQ =
-      (0 until mapQDepth).map(idx => nextMapQ(idx).valid && (nextMapQ(idx).physTag === phys.U)).reduce(_ || _)
-    when(liveInSmap || liveInCmap || liveInMapQ) {
+    when(nextLivePhysMask(phys)) {
       nextFreeList(phys) := false.B
     }
   }
@@ -334,7 +336,7 @@ class GPRRenameCheckpoint(
   io.cmap := cmap
   io.committedMapQMask := Mux(commitFire, committedMapQMask, 0.U(mapQDepth.W))
   io.prunedMapQMask := Mux(flushFire, prunedMapQMask, 0.U(mapQDepth.W))
-  io.releasedPhysMask := Mux(commitFire, commitReleaseVec.asUInt, 0.U(physRegs.W)) |
-    Mux(flushFire, flushReleaseVec.asUInt, 0.U(physRegs.W))
+  io.releasedPhysMask := Mux(commitFire, commitReleaseMask, 0.U(physRegs.W)) |
+    Mux(flushFire, flushReleaseMask, 0.U(physRegs.W))
   io.stateError := cleanupValid && !cleanupTargetsStid0
 }
