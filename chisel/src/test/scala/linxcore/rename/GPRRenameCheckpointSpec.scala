@@ -342,4 +342,13 @@ class GPRRenameCheckpointSpec extends AnyFunSuite {
     assert(sv.contains("output [127:0] io_freeMask"))
     assert(sv.contains("output [127:0] io_releasedPhysMask"))
   }
+
+  test("Chisel GPRRenameCheckpoint elaborates model-sized GGPR mapQ through helper modules") {
+    val sv = ChiselStage.emitSystemVerilog(new GPRRenameCheckpoint(entries = 8, physRegs = 128, mapQDepth = 256))
+
+    assert(sv.contains("module GPRRenameCheckpoint"))
+    assert(sv.contains("module GPRRenameReplaySurvivorSelect"))
+    assert(sv.contains("module GPRRenameCommitArchSelect"))
+    assert(sv.contains("output [255:0] io_mapQValidMask"))
+  }
 }
