@@ -347,6 +347,13 @@ predictor will drive later. The R144 replay in
 `generated/r144-bfu-geometry-loop-replay/report` compares 1330 normalized
 QEMU/DUT rows with zero mismatches.
 
+R145 adds `ReducedBfuStaticGeometryProducer` as a diagnostic static-predictor
+owner next to the cut predictor. The top still drives cuts only from the
+external loop-replay geometry, because the producer intentionally does not own
+general `hsize` and CoreMark's observed continuation at `0x4000632e` is
+`OP_ACRC` rather than a boundary event. The producer diagnostics expose when
+explicit boundary or `BSTOP` events would learn reduced `bsize` geometry.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -354,6 +361,7 @@ QEMU/DUT rows with zero mismatches.
 | input | `startValid`, `startPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Arms the live fetch source at a starting PC. |
 | input | `restartValid`, `restartPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Replaces the active fetch PC for a reduced restart. |
 | input | `reducedBfuBodyValid`, `reducedBfuHeaderPc`, `reducedBfuHSizeBytes`, `reducedBfuBSizeBytes` | mixed | with live-F4 packet | Temporary reduced BFU body-geometry hint from loop-aware expected rows. `ReducedBfuBodyCutPredictor` converts this to the current F4 cut and source-only restart. |
+| output | `reducedBfuStaticGeometryValid`, `reducedBfuStaticHeaderActive`, `reducedBfuStaticLearnedFire` | `Bool` | diagnostic | R145 reduced static-predictor geometry diagnostics. They do not drive cut/restart yet. |
 | input | `frontendFlushValid` | `Bool` | valid | Clears source packet state, F4, decode path, and reduced issue state. |
 | input | `peId`, `threadId` | `UInt` | with source packet | Packet-owned PE/STID sidecars for decode/rename. |
 | input | `fetchReqReady` | `Bool` | ready | Bounded fixture accepts a source PC request. |

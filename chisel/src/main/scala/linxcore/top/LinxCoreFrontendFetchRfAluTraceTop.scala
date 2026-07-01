@@ -7,7 +7,7 @@ import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
-import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutPredictor}
+import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutPredictor, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -70,6 +70,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedBodyCutActive = Output(Bool())
   val reducedBodyCutFire = Output(Bool())
   val reducedBodyCutAdvanceBytes = Output(UInt(4.W))
+  val reducedBfuStaticGeometryValid = Output(Bool())
+  val reducedBfuStaticHeaderActive = Output(Bool())
+  val reducedBfuStaticLearnedFire = Output(Bool())
 
   val f4ValidMask = Output(UInt(p.decodeWidth.W))
   val f4SlotCount = Output(UInt(log2Ceil(p.decodeWidth + 1).W))
@@ -310,8 +313,17 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val markerRedirectFire = path.io.blockMarkerStopRedirectValid || execute.io.redirectValid
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
   val backendPipeFlush = io.frontendFlushValid || scalarRedirectPending
+  val staticBfuGeometry = Module(new ReducedBfuStaticGeometryProducer(p))
+  staticBfuGeometry.io.flushValid := frontendPipeFlush || io.startValid || io.restartValid
+  staticBfuGeometry.io.f4UpdateFire := source.io.outFire
+  staticBfuGeometry.io.f4Valid := f4.io.d1.valid
+  staticBfuGeometry.io.f4Slots := f4.io.slots
+  staticBfuGeometry.io.f4ValidMask := f4.io.validMask
+
+  val externalBfuGeometryValid = io.reducedBfuBodyValid
+
   val bodyCut = Module(new ReducedBfuBodyCutPredictor(p))
-  bodyCut.io.geometryValid := io.reducedBfuBodyValid
+  bodyCut.io.geometryValid := externalBfuGeometryValid
   bodyCut.io.headerPc := io.reducedBfuHeaderPc
   bodyCut.io.hsizeBytes := io.reducedBfuHSizeBytes
   bodyCut.io.bsizeBytes := io.reducedBfuBSizeBytes
@@ -567,6 +579,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedBodyCutActive := reducedBodyCutActive
   io.reducedBodyCutFire := bodyCutRestartFire
   io.reducedBodyCutAdvanceBytes := Mux(reducedBodyCutActive, effectiveSourceAdvanceBytes, 0.U)
+  io.reducedBfuStaticGeometryValid := staticBfuGeometry.io.geometryValid
+  io.reducedBfuStaticHeaderActive := staticBfuGeometry.io.headerActive
+  io.reducedBfuStaticLearnedFire := staticBfuGeometry.io.learnedFire
   io.f4ValidMask := frontendValidMask
   io.f4SlotCount := frontendSlotCount
   io.denseSlotQueueInFire := denseSlots.io.inFire

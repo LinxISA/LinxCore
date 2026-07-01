@@ -610,6 +610,7 @@ These packets remain the required base before broad module promotion:
 | R142 | CoreMark FALL block re-entry row-source diagnostic | `frontend_fetch_rf_alu_qemu_rows.py --self-test`, shell syntax checks for the live-fetch RF/ALU wrappers, and a 1900-row CoreMark QEMU probe. Strict extraction fails at raw row 1747 (`pc=0x4000630c`, expected `0x4000632e`); `--allow-block-markers --allow-block-loop-reentry` extracts 1766 rows with 11 annotated `loop_reentry` markers. Replaying the loop-aware expected stream against current generated RTL is expected to fail at `pc=0x4000632a` because F4 captures three slots through `0x4000632e` instead of cutting after two body slots and restarting at the FALL header. See `CHISEL-ISSUE-007`; do not promote this diagnostic flag as a pass criterion before the RTL body-boundary cut/restart is implemented. |
 | R143 | CoreMark FALL body-cut/restart bridge | `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `frontend_fetch_rf_alu_qemu_rows.py --self-test`, shell syntax checks for the live-fetch RF/ALU wrappers, `git diff --check`, and `BUILD_DIR=generated/r143b-loop-reentry-rtl-replay FETCH_EXPECTED_ROWS=/tmp/r142-loop.expected.jsonl FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`. The reduced top consumes loop-aware `loop_reentry` metadata as a temporary `reducedBodyCut*` sideband, cuts the F4 packet before the static continuation slot, advances the source only to the body boundary, and restarts at the FALL header without flushing clipped rows. Replay compares 1330 normalized QEMU/DUT rows with zero mismatches. Full BFU static-predictor `bsize`/`hsize`/fallBPC metadata remains a future packet. |
 | R144 | Reduced BFU body-geometry cut module | `run_chisel_tests.sh --only ReducedBfuBodyCutPredictor`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `BUILD_DIR=generated/r144-bfu-geometry-loop-replay FETCH_EXPECTED_ROWS=/tmp/r142-loop.expected.jsonl FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, extractor self-test, shell syntax, and scoped `git diff --check`. `ReducedBfuBodyCutPredictor` now owns the model-style arithmetic `cutPc = headerPc + 2 + bsize` and `restartPc = headerPc + hsize`; the live top consumes `reducedBfu*` geometry instead of exact `cutPc`/`restartPc` commands. The generated-RTL replay compares 1330 normalized QEMU/DUT rows with zero mismatches and emits `generated/r144-bfu-geometry-loop-replay/report/crosscheck_manifest.json`. The reduced harness still supplies geometry from `loop_reentry` rows, so the next packet remains a real BFU/static-predictor geometry producer. |
+| R145 | Reduced BFU static-geometry diagnostics | `run_chisel_tests.sh --only ReducedBfuStaticGeometryProducer`, `run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `BUILD_DIR=generated/r145-static-bfu-diagnostic-loop-replay FETCH_EXPECTED_ROWS=/tmp/r142-loop.expected.jsonl FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`, extractor self-test, shell syntax, and scoped `git diff --check`. `ReducedBfuStaticGeometryProducer` learns model-style `bsize` from explicit block-boundary or `BSTOP` events and exposes top diagnostics, but the cut path remains driven only by external R144 geometry because general `hsize` and the CoreMark `OP_ACRC` continuation scan are not owned yet. The generated-RTL replay compares 1330 normalized QEMU/DUT rows with zero mismatches and emits `generated/r145-static-bfu-diagnostic-loop-replay/report/crosscheck_manifest.json`. |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -808,12 +809,12 @@ Closeout:
    for reduced active-BID lifecycle; the next block-control packet must add
    full marker-row retirement, per-STID active block state, and recovery-exact
    marker cleanup before claiming full block execution.
-2. Promote beyond the R144 reduced BFU geometry bridge. The reduced top can now
-   compute cut/restart PCs from `headerPc`/`hsize`/`bsize`, but those values are
-   still supplied by the harness from loop-aware rows. The next packet should
-   add the frontend BFU/static-predictor geometry producer and drive
-   `ReducedBfuBodyCutPredictor` from decoded header/body state before treating
-   loop re-entry as full block-control closure.
+2. Promote beyond the R145 BFU static-geometry diagnostic boundary. The
+   reduced top can compute cut/restart PCs from `headerPc`/`hsize`/`bsize`, and
+   a diagnostic producer now learns `bsize` from explicit block-boundary or
+   `BSTOP` events. The next packet should add real `hsize` ownership and the
+   non-boundary continuation scan needed for CoreMark's `OP_ACRC` body end
+   before driving `ReducedBfuBodyCutPredictor` from decoded frontend state.
 3. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.
