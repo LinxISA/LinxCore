@@ -21,6 +21,7 @@ It is the normative mapping between:
 | `LC-MA-MMU-001` | MMU | Translation and fault behavior are precise and gate-validated |
 | `LC-MA-IRQ-001` | Interrupts | Timer IRQ delivery and entry/return behavior are deterministic under strict gates |
 | `LC-MA-MEM-001` | Memory ordering | Load/store forwarding, replay, and commit-visible ordering stay legal |
+| `LC-MA-ENG-001` | Engine integration | Engine-backed execution remains visible through the lowered block stream and canonical block/BID completion model |
 | `LC-MA-FWD-001` | Forward progress | Branch, flush, load-miss, and replay paths preserve progress |
 | `LC-MA-STAGE-001` | Stage ownership | Every documented pipeline stage maps to a dedicated owner file and `@module` boundary |
 | `LC-IF-PYC-001` | pyCircuit interface versioning | pyCircuit-LinxCore contract follows SemVer with gate-enforced compatibility |
@@ -28,12 +29,13 @@ It is the normative mapping between:
 | `LC-IF-TRACE-001` | Trace schema | LinxTrace schema stays synchronized across producer and consumer tools |
 | `LC-IF-TRACE-002` | Trace compatibility | Breaking trace changes require major-version bump and compatibility checks |
 | `LC-IF-SYNC-001` | Cross-tool sync | Emitter, linter, and viewer contracts remain synchronized and gate-validated |
+| `LC-IF-MODEL-001` | LinxCoreModel reference | LinxCore behavior changes identify the current LinxCoreModel commit, build path, and `gfsim` comparison evidence when the model lane is relevant |
 
 ## Gate-to-contract traceability (required PR gates)
 
 | Gate key | Contract IDs covered |
 |---|---|
-| `Architecture::LinxCore architecture contract lint` | `LC-ARCH-DOC-001`, `LC-MA-PIPE-001`, `LC-MA-HAZ-001`, `LC-MA-BLK-001`, `LC-MA-PRV-001`, `LC-MA-MMU-001`, `LC-MA-IRQ-001`, `LC-MA-MEM-001`, `LC-MA-FWD-001`, `LC-MA-STAGE-001`, `LC-IF-PYC-001`, `LC-IF-PYC-002`, `LC-IF-TRACE-001`, `LC-IF-TRACE-002`, `LC-IF-SYNC-001` |
+| `Architecture::LinxCore architecture contract lint` | `LC-ARCH-DOC-001`, `LC-MA-PIPE-001`, `LC-MA-HAZ-001`, `LC-MA-BLK-001`, `LC-MA-PRV-001`, `LC-MA-MMU-001`, `LC-MA-IRQ-001`, `LC-MA-MEM-001`, `LC-MA-ENG-001`, `LC-MA-FWD-001`, `LC-MA-STAGE-001`, `LC-IF-PYC-001`, `LC-IF-PYC-002`, `LC-IF-TRACE-001`, `LC-IF-TRACE-002`, `LC-IF-SYNC-001`, `LC-IF-MODEL-001` |
 | `Architecture::mkdocs architecture nav/docs` | `LC-ARCH-DOC-001` |
 | `LinxCore::stage/connectivity lint` | `LC-MA-PIPE-001`, `LC-MA-STAGE-001` |
 | `LinxCore::opcode parity` | `LC-MA-PIPE-001`, `LC-MA-BLK-001` |
@@ -41,13 +43,15 @@ It is the normative mapping between:
 | `LinxCore::trace schema and memory smoke` | `LC-MA-HAZ-001`, `LC-MA-MEM-001`, `LC-IF-TRACE-001` |
 | `LinxCore::cosim smoke` | `LC-MA-PRV-001`, `LC-MA-MMU-001`, `LC-MA-IRQ-001`, `LC-MA-MEM-001` |
 | `Testbench::ROB bookkeeping` | `LC-MA-PIPE-001`, `LC-MA-HAZ-001`, `LC-MA-FWD-001` |
-| `Testbench::block struct pyc flow smoke` | `LC-MA-BLK-001`, `LC-MA-HAZ-001` |
+| `Testbench::block struct pyc flow smoke` | `LC-MA-BLK-001`, `LC-MA-HAZ-001`, `LC-MA-ENG-001` |
 | `pyCircuit::CPU C++ smoke` | `LC-IF-PYC-001`, `LC-IF-PYC-002` |
 | `pyCircuit::QEMU vs pyCircuit trace diff` | `LC-MA-PRV-001`, `LC-MA-MMU-001`, `LC-MA-MEM-001`, `LC-IF-PYC-002`, `LC-IF-TRACE-001` |
 | `pyCircuit::interface contract gate` | `LC-IF-PYC-001`, `LC-IF-PYC-002` |
 | `LinxTrace::contract sync lint` | `LC-IF-TRACE-001`, `LC-IF-SYNC-001` |
 | `LinxTrace::sample trace lint` | `LC-IF-TRACE-001`, `LC-IF-SYNC-001` |
 | `LinxTrace::semver compatibility gate` | `LC-IF-TRACE-002`, `LC-IF-TRACE-001` |
+| `LinxCoreModel::gfsim build` | `LC-IF-MODEL-001` |
+| `LinxCoreModel::gfsim workload comparison` | `LC-MA-ENG-001`, `LC-MA-FWD-001`, `LC-IF-MODEL-001` |
 
 ## PR mandatory matrix
 
@@ -68,6 +72,7 @@ It is the normative mapping between:
 | LinxTrace | `LinxTrace::contract sync lint` | `python3 rtl/LinxCore/tools/linxcoresight/lint_trace_contract_sync.py` | emitter, linter, and viewer pipeline contract sync |
 | LinxTrace | `LinxTrace::sample trace lint` | `bash rtl/LinxCore/tests/test_konata_sanity.sh` | trace validity and stage presence |
 | LinxTrace | `LinxTrace::semver compatibility gate` | `python3 tools/bringup/check_trace_semver_compat.py --root . --strict` | schema version compatibility policy enforcement |
+| LinxCoreModel | `LinxCoreModel::gfsim build` | `cd model/LinxCoreModel && python3 build.py all --target gfsim -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)"` | current executable-reference build remains available for comparison |
 
 ## PR opt-in extensions
 
@@ -88,6 +93,7 @@ It is the normative mapping between:
 | pyCircuit | `pyCircuit::simulation regression` | `bash tools/pyCircuit/flows/scripts/run_sims.sh` | regression simulation lane |
 | pyCircuit | `pyCircuit::nightly simulation regression` | `bash tools/pyCircuit/flows/scripts/run_sims_nightly.sh` | deep nightly flow closure |
 | Integration | `Integration::LinxCore performance floor` | `python3 tools/bringup/check_linxcore_perf_floor.py --root . --max-regression 10.0` | <=10% regression cap enforcement |
+| LinxCoreModel | `LinxCoreModel::gfsim workload comparison` | `model/LinxCoreModel/bin/gfsim -f <qemu-passing-linx.elf>` | model-lane comparison for Janus-Core-visible workload behavior |
 
 ## Acceptance scenarios
 

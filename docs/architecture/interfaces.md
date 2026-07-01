@@ -64,6 +64,44 @@ The following must stay synchronized when trace/pipeline contracts change:
 
 Viewer-side contract sync is validated through LinxTrace gates.
 
+## LinxCoreModel simulator contract (LC-IF-MODEL-001)
+
+`LinxISA/LinxCoreModel` is the current executable reference for the most
+accurate Janus Core simulation lane. LinxCore changes that alter
+architecture-visible execution, direct-boot workload flow, block/engine
+completion, BFU recovery, ELF loading, or MMIO finisher behavior must identify
+whether LinxCoreModel already implements the intended behavior.
+
+Required model checkout:
+
+- Repository: `https://github.com/LinxISA/LinxCoreModel.git`
+- Branch: `linx-isa-0.57`
+- Current aligned commit: `3c0878d`
+
+Current build contract from the aligned model:
+
+```bash
+cd /Users/zhoubot/linx-isa/model/LinxCoreModel
+python3 build.py all --target gfsim -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
+```
+
+The build helper is the preferred path because it carries the model's current
+multi-platform policy:
+
+- CMake minimum is 3.10.
+- C++17 requires GCC 8+ or Clang 10+.
+- Linux uses the selected system GCC/Clang through `CC` and `CXX`.
+- macOS uses Clang and requires Homebrew `libelf`; non-interactive runs may use
+  `python3 build.py ... -y` to allow dependency installation.
+- `rapidjson` is vendored under `third_party/rapidjson` and should not require
+  a host package.
+
+Manual CMake remains legal when the build helper is unsuitable, but it must
+preserve the same options and dependency assumptions. Optimized workload
+promotion should build `gfsim` with `-DOPT_LEVEL=O3` and
+`-DDISABLE_DEBUG_SYMBOLS=ON` when comparing against the AI workload final
+target.
+
 ## Scope boundary
 
 This document covers **external** LinxCore interface governance only:
@@ -71,6 +109,7 @@ This document covers **external** LinxCore interface governance only:
 - pyCircuit contract
 - trace schema contract
 - cross-tool synchronization rules
+- LinxCoreModel executable-reference build and comparison contract
 
 Detailed LinxCore **microarchitectural** interface contracts (two-layer block machine, BROB-facing resolve,
 raw engine fabric, engine/block-type mapping) belong under:
@@ -89,3 +128,5 @@ governance.
 - Interface-visible changes must update contract artifacts first.
 - Gate rows in `docs/architecture/linxcore/verification-matrix.md` are the release blocker for interface promotion.
 - Any contract-major bump must include migration notes and dual-lane evidence.
+- LinxCoreModel-visible behavior changes must record the model commit and the
+  exact `gfsim` build/run command used for comparison.

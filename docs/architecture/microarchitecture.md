@@ -571,6 +571,22 @@ Detailed ordering behavior remains documented in:
 - Engine issue, completion, exception, and flush behavior must remain visible
   to ROB, BROB, and trace machinery through the canonical interfaces.
 
+### LinxCoreModel executable-reference rules
+
+- LinxCoreModel is the executable reference for Janus-Core-visible BFU, CUBE,
+  ELF loading, direct-boot, and MMIO finisher behavior.
+- Invalid BFU pipe states, missing local-pipe ownership, unsupported CUBE data
+  conversions, and unsupported tile fill/element forms are model-invalid states.
+  They must fail fast in debug/reference execution rather than silently
+  selecting a replacement architectural behavior.
+- Fallback return values that exist only to satisfy host compiler control-flow
+  analysis after an assertion are not architectural defaults. LinxCore RTL or
+  pyCircuit logic must not reinterpret those fallback values as legal recovery
+  paths.
+- Public headers and loader names must follow the current model contract
+  (`ElfLoader.h` for ELF/text checkpoint loading) when LinxCore tooling shares
+  model-side loaders or direct-boot setup code.
+
 ## Forward-progress contract (LC-MA-FWD-001)
 
 - Branch, flush, load-miss, replay, and interrupt interactions must not

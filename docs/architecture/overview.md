@@ -36,6 +36,30 @@ When wording diverges, the LinxISA architecture pages and the LinxCore
 contract pages listed above are normative. Deep-dive implementation notes are
 subordinate.
 
+## LinxCoreModel alignment
+
+`LinxISA/LinxCoreModel` is the most accurate executable simulator for Janus
+Core behavior. LinxCore specification changes that affect architecturally
+visible execution, engine completion, block recovery, ELF loading, or direct
+boot workload behavior must be checked against the active model branch for the
+current LinxISA line before promotion.
+
+Current alignment point:
+
+- Repository: `https://github.com/LinxISA/LinxCoreModel.git`
+- Local checkout: `/Users/zhoubot/linx-isa/model/LinxCoreModel`
+- Reference branch: `linx-isa-0.57`
+- Latest pulled commit for this spec alignment pass: `3c0878d`
+
+The model is an executable reference, not a replacement for the written ISA
+contract. When LinxCore docs and LinxCoreModel behavior disagree in a
+Janus-Core-visible way, the discrepancy must be resolved explicitly by either:
+
+- updating the LinxCore spec to match LinxCoreModel when the model represents
+  the intended Janus Core behavior, or
+- filing a model-lane fix when the model is an implementation bug relative to
+  the LinxISA/LinxCore contract.
+
 ## Core definition
 
 LinxCore is a block-ordered heterogeneous superscalar core.
