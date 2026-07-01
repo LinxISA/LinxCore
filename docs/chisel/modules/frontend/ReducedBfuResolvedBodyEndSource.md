@@ -7,18 +7,19 @@
 body-end event interface while the implementation transitions away from the
 temporary replay sideband.
 
-R154 keeps replay geometry as the cold same-cycle fallback, but adds a
-registered runtime source from local body-cut feedback. When a learned local
-body window cuts a packet, the top records `headerPc`, `hsize`, and the cut PC;
-on the next cycle this module can provide that RTL-owned body-end event to the
-existing owner. Replay remains an oracle and fallback until the full branch/BFU
-resolver exists.
+R154 kept replay geometry as the cold same-cycle fallback, but added a runtime
+source from local body-cut feedback. R155 moves the feedback lifetime into
+`ReducedBfuResolvedBodyEndPending`: when a learned local body window cuts a
+packet, the top records `headerPc`, `hsize`, and the cut PC, then emits that
+RTL-owned body-end event only when the next replay-qualified candidate matches.
+Replay remains an oracle and timing fallback until the full branch/BFU resolver
+exists.
 
 ## Interface
 
 | Direction | Signal | Type | Description |
 |---|---|---|---|
-| input | `runtimeValid`, `runtimeHeaderPc`, `runtimeHSizeBytes`, `runtimeBodyEndPc` | mixed | Registered RTL-owned body-end event, currently produced by local body-cut feedback in the reduced top. |
+| input | `runtimeValid`, `runtimeHeaderPc`, `runtimeHSizeBytes`, `runtimeBodyEndPc` | mixed | RTL-owned body-end event, currently produced by `ReducedBfuResolvedBodyEndPending` from local body-cut feedback. |
 | input | `replayValid`, `replayHeaderPc`, `replayHSizeBytes`, `replayBSizeBytes` | mixed | Temporary replay/QEMU geometry sideband. |
 | output | `resolvedValid`, `resolvedHeaderPc`, `resolvedHSizeBytes`, `resolvedBodyEndPc` | mixed | Selected normalized event forwarded to `ReducedBfuResolvedBodyEndOwner`. |
 | output | `replayBodyEndPc` | `UInt(pcWidth.W)` | Replay `headerPc + 2 + bsize`, exposed for diagnostics. |
@@ -43,11 +44,12 @@ else if replayValid:
   use replay event converted to body-end PC
 ```
 
-Runtime priority is a forward-compatibility choice. Once the real branch/BFU
-resolver owns a body-end event, replay should remain only a comparison source.
-R154 does not remove the replay cold fallback because the first CoreMark FALL
-re-entry body end is still supplied by QEMU metadata before a local learned
-window can cut on its own.
+Runtime priority is a forward-compatibility choice. R155 qualifies the runtime
+event before it reaches this arbiter, so a stale pending event cannot override
+the replay candidate. Once the real branch/BFU resolver owns a body-end event,
+replay should remain only a comparison source. R155 still does not remove the
+replay cold fallback because the first CoreMark FALL re-entry body end is
+supplied by QEMU metadata before a local learned window can cut on its own.
 
 ## Model Evidence
 
@@ -61,10 +63,11 @@ window can cut on its own.
 
 ## Verification
 
-R154 adds focused reference/elaboration tests:
+Focused reference/elaboration tests:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ReducedBfuResolvedBodyEndSource
+bash tools/chisel/run_chisel_tests.sh --only ReducedBfuResolvedBodyEndPending
 ```
 
 The integrated top exposes source-selection and runtime-feedback diagnostics so

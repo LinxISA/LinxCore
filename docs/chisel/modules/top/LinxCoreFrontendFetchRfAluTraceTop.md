@@ -405,6 +405,16 @@ local-window geometry when trained and resolved body-end geometry as a
 same-cycle cold-cut fallback. `ReducedBfuBodyCutArm` remains a diagnostic
 comparison between the remembered prediction and the temporary replay oracle.
 
+R154 adds `ReducedBfuResolvedBodyEndSource` before the resolved owner. The
+source still converts replay `headerPc`/`hsize`/`bsize` into the cold fallback
+body-end PC, but it can prioritize RTL local-cut feedback once available.
+R155 adds `ReducedBfuResolvedBodyEndPending` so that local-cut feedback is no
+longer a one-cycle pulse. The pending owner holds `headerPc`/`hsize`/body-end
+state until the next matching replay-qualified candidate consumes it, drops
+stale mismatches, and exposes pending/consume/drop diagnostics. Replay is still
+the timing oracle for this packet; the selected geometry can now come from
+retained runtime state when the candidate proves it is the same body end.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -414,6 +424,8 @@ comparison between the remembered prediction and the temporary replay oracle.
 | input | `reducedBfuBodyValid`, `reducedBfuHeaderPc`, `reducedBfuHSizeBytes`, `reducedBfuBSizeBytes` | mixed | with live-F4 packet | Temporary reduced BFU body-geometry hint from loop-aware expected rows. R153 uses it as the resolved body-end source and oracle; accepted resolved geometry trains the prediction latch and can feed the body-cut predictor as a same-cycle cold-cut fallback. |
 | output | `reducedBfuStaticGeometryValid`, `reducedBfuStaticHeaderActive`, `reducedBfuStaticLearnedFire`, `reducedBfuStaticResolvedLearnedFire` | `Bool` | diagnostic | Reduced static-predictor geometry diagnostics for the learned geometry feeding the BFU prediction latch. |
 | output | `reducedBfuResolvedBodyEndAccepted`, `reducedBfuResolvedBodyEndHeaderMismatch`, `reducedBfuResolvedBodyEndInactiveDrop`, `reducedBfuResolvedBodyEndFlushDrop`, `reducedBfuResolvedBodyEndUnderflow` | `Bool` | diagnostic | R149 resolved body-end owner acceptance/drop diagnostics before the static producer consumes the normalized event. |
+| output | `reducedBfuResolvedBodyEndSourceRuntimeSelected`, `reducedBfuResolvedBodyEndSourceReplaySelected`, `reducedBfuResolvedBodyEndSourceRuntimeReplay*` | `Bool` | diagnostic | R154/R155 resolved body-end source-selection and runtime/replay comparison diagnostics. |
+| output | `reducedBfuResolvedBodyEndSourceRuntimePending*` | `Bool` | diagnostic | R155 pending runtime body-end feedback lifecycle, consume, drop-mismatch, and candidate comparison diagnostics. |
 | output | `reducedBfuStaticExternalComparable`, `reducedBfuStaticExternalMatch`, `reducedBfuStaticExternalMismatch`, `reducedBfuStaticExternalHeaderMismatch`, `reducedBfuStaticExternalHSizeMismatch`, `reducedBfuStaticExternalBSizeMismatch` | `Bool` | diagnostic | R148 agreement check between diagnostic static geometry and the external replay geometry that remains the temporary oracle. |
 | output | `reducedBfuBodyCutArmComparable`, `reducedBfuBodyCutArmAccepted`, `reducedBfuBodyCutArmMismatch`, `reducedBfuBodyCutArmHeaderMismatch`, `reducedBfuBodyCutArmHSizeMismatch`, `reducedBfuBodyCutArmBSizeMismatch` | `Bool` | diagnostic | R153 diagnostic comparison between the latched resolved-body prediction and the temporary external oracle. It no longer controls body-cut eligibility. |
 | output | `reducedBfuLocalBodyWindowActive`, `reducedBfuLocalBodyWindowArmFire`, `reducedBfuLocalBodyWindowReleaseFire`, `reducedBfuLocalBodyWindowArmSlot` | mixed | diagnostic | R153 local BFU body-window active, arm, release, and matched F4-slot observability. |
@@ -637,6 +649,12 @@ body-end PC, but it can now prioritize a registered RTL local-cut feedback
 event produced after `ReducedBfuLocalBodyWindow` fires. This starts moving
 repeated body-end evidence into RTL-owned state without removing the replay
 oracle needed for the first cold FALL re-entry.
+R155 moves that feedback into `ReducedBfuResolvedBodyEndPending`. The runtime
+event now stays pending until the next replay-qualified candidate has matching
+`headerPc`, `hsize`, and body-end PC, then the source arbiter selects runtime
+instead of replay for that candidate. Mismatched pending feedback is dropped
+and replay remains the fallback. This fixes the R154 one-cycle feedback
+lifetime without claiming full replay removal.
 R104 adds the first reduced block-lifecycle alignment for those marker slots.
 The model allocates BROB on `BSTART`, stamps following scalar instructions with
 the current block BID, and completes the current block on `BSTOP` through the

@@ -1102,6 +1102,12 @@ struct BfuGeometryDiagnostics {
   std::uint64_t resolved_source_runtime_selected_count = 0;
   std::uint64_t resolved_source_replay_selected_count = 0;
   std::uint64_t resolved_source_runtime_feedback_count = 0;
+  std::uint64_t resolved_source_runtime_pending_count = 0;
+  std::uint64_t resolved_source_runtime_pending_consume_count = 0;
+  std::uint64_t resolved_source_runtime_pending_drop_mismatch_count = 0;
+  std::uint64_t resolved_source_runtime_pending_candidate_comparable_count = 0;
+  std::uint64_t resolved_source_runtime_pending_candidate_match_count = 0;
+  std::uint64_t resolved_source_runtime_pending_candidate_mismatch_count = 0;
   std::uint64_t resolved_source_runtime_replay_comparable_count = 0;
   std::uint64_t resolved_source_runtime_replay_match_count = 0;
   std::uint64_t resolved_source_runtime_replay_mismatch_count = 0;
@@ -1156,6 +1162,24 @@ void observe_bfu_geometry_diagnostics(
   }
   if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeFeedbackFire) {
     ++stats.resolved_source_runtime_feedback_count;
+  }
+  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePending) {
+    ++stats.resolved_source_runtime_pending_count;
+  }
+  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePendingConsumeFire) {
+    ++stats.resolved_source_runtime_pending_consume_count;
+  }
+  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePendingDropMismatch) {
+    ++stats.resolved_source_runtime_pending_drop_mismatch_count;
+  }
+  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePendingCandidateComparable) {
+    ++stats.resolved_source_runtime_pending_candidate_comparable_count;
+  }
+  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePendingCandidateMatch) {
+    ++stats.resolved_source_runtime_pending_candidate_match_count;
+  }
+  if (dut.io_reducedBfuResolvedBodyEndSourceRuntimePendingCandidateMismatch) {
+    ++stats.resolved_source_runtime_pending_candidate_mismatch_count;
   }
   if (dut.io_reducedBfuResolvedBodyEndSourceRuntimeReplayComparable) {
     ++stats.resolved_source_runtime_replay_comparable_count;
@@ -1910,6 +1934,17 @@ int main(int argc, char **argv) {
               << " bfu_resolved_source_runtime_selected=" << bfu_stats.resolved_source_runtime_selected_count
               << " bfu_resolved_source_replay_selected=" << bfu_stats.resolved_source_replay_selected_count
               << " bfu_resolved_source_runtime_feedback=" << bfu_stats.resolved_source_runtime_feedback_count
+              << " bfu_resolved_source_runtime_pending=" << bfu_stats.resolved_source_runtime_pending_count
+              << " bfu_resolved_source_runtime_pending_consumes="
+              << bfu_stats.resolved_source_runtime_pending_consume_count
+              << " bfu_resolved_source_runtime_pending_drop_mismatches="
+              << bfu_stats.resolved_source_runtime_pending_drop_mismatch_count
+              << " bfu_resolved_source_runtime_pending_candidate_comparable="
+              << bfu_stats.resolved_source_runtime_pending_candidate_comparable_count
+              << " bfu_resolved_source_runtime_pending_candidate_matches="
+              << bfu_stats.resolved_source_runtime_pending_candidate_match_count
+              << " bfu_resolved_source_runtime_pending_candidate_mismatches="
+              << bfu_stats.resolved_source_runtime_pending_candidate_mismatch_count
               << " bfu_resolved_source_runtime_replay_comparable="
               << bfu_stats.resolved_source_runtime_replay_comparable_count
               << " bfu_resolved_source_runtime_replay_matches="
