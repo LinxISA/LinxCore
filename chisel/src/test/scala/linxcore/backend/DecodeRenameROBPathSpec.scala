@@ -691,6 +691,16 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.blockAllocatedMask.getWidth == 8)
   }
 
+  test("IO exposes model-sized scalar GPR mapQ pressure without widening T/U sequences") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    val io = new DecodeRenameROBPathIO(p, trace, mapQDepth = 8, gprMapQDepth = 256)
+
+    assert(io.gprMapQFreeCount.getWidth == 9)
+    assert(io.tuRenameTSeq.value.getWidth == 3)
+    assert(io.tuRenameUSeq.value.getWidth == 3)
+  }
+
   test("DecodeRenameROBPath elaborates frontend decode through rename and DispatchROBAllocator") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)

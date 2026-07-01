@@ -17,6 +17,7 @@ class ScalarTURenameBridgeIO(
     val localRegsT: Int = 32,
     val localRegsU: Int = 32,
     val mapQDepth: Int = 32,
+    val gprMapQDepth: Int = 32,
     val bidWidth: Int = BID.DefaultWidth,
     val stidWidth: Int = 8,
     val peIdWidth: Int = 8,
@@ -25,7 +26,7 @@ class ScalarTURenameBridgeIO(
     val scalarStidCount: Int = 1)
     extends Bundle {
   private val gprFreeWidth = log2Ceil(physRegs + 1)
-  private val gprMapQFreeWidth = log2Ceil(mapQDepth + 1)
+  private val gprMapQFreeWidth = log2Ceil(gprMapQDepth + 1)
   private val tuCountWidth = log2Ceil(Seq(localRegsT, localRegsU, mapQDepth).max + 1)
 
   val in = Input(new DecodedUop(p))
@@ -158,6 +159,7 @@ class ScalarTURenameBridge(
     val localRegsT: Int = 32,
     val localRegsU: Int = 32,
     val mapQDepth: Int = 32,
+    val gprMapQDepth: Int = 32,
     val bidWidth: Int = BID.DefaultWidth,
     val stidWidth: Int = 8,
     val peIdWidth: Int = 8,
@@ -181,6 +183,7 @@ class ScalarTURenameBridge(
     localRegsT,
     localRegsU,
     mapQDepth,
+    gprMapQDepth,
     bidWidth,
     stidWidth,
     peIdWidth,
@@ -233,7 +236,7 @@ class ScalarTURenameBridge(
     traceParams = traceParams,
     scalarArchRegs = scalarArchRegs,
     physRegs = physRegs,
-    mapQDepth = mapQDepth,
+    mapQDepth = gprMapQDepth,
     bidWidth = bidWidth,
     stidWidth = stidWidth,
     peIdWidth = peIdWidth,

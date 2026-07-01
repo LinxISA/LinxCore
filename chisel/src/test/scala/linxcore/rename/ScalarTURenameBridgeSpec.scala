@@ -119,6 +119,16 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(io.tuCleanupSourceConflict.getWidth == 1)
   }
 
+  test("IO keeps scalar GPR mapQ depth independent of local T/U mapQ depth") {
+    val p = InterfaceParams(robEntries = 8, commitWidth = 2)
+    val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)
+    val io = new ScalarTURenameBridgeIO(p, trace, mapQDepth = 8, gprMapQDepth = 256, scalarStidCount = 2)
+
+    assert(io.gprMapQFreeCount.getWidth == 9)
+    assert(io.tuTSeq.value.getWidth == 3)
+    assert(io.tuUSeq.value.getWidth == 3)
+  }
+
   test("ScalarTURenameBridge elaborates as scalar GPR rename plus T/U cleanup composition owner") {
     val p = InterfaceParams(robEntries = 8, commitWidth = 2)
     val trace = CommitTraceParams(commitWidth = 2, robValueWidth = p.robIndexWidth)

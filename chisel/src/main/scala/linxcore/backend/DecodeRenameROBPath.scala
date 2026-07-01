@@ -37,6 +37,7 @@ class DecodeRenameROBPathIO(
     val loadStoreSerialWidth: Int = 64,
     val physRegs: Int = 64,
     val mapQDepth: Int = 32,
+    val gprMapQDepth: Int = 32,
     val tuRetireSourceQueueDepth: Int = 8,
     val tuRetireRelationCmapDepth: Int = 8,
     val markerRetireSourceQueueDepth: Int = 8)
@@ -49,7 +50,7 @@ class DecodeRenameROBPathIO(
   private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
   private val stqCountWidth = log2Ceil(p.robEntries + 1)
   private val gprFreeWidth = log2Ceil(physRegs + 1)
-  private val gprMapQFreeWidth = log2Ceil(mapQDepth + 1)
+  private val gprMapQFreeWidth = log2Ceil(gprMapQDepth + 1)
   private val tuCountWidth = log2Ceil(Seq(32, 32, mapQDepth).max + 1)
   private val tuRetireSourceCountWidth = log2Ceil(traceParams.commitWidth + 1)
   private val tuRetireSourceQueueCountWidth = log2Ceil(tuRetireSourceQueueDepth + 1)
@@ -410,6 +411,7 @@ class DecodeRenameROBPath(
     val scalarArchRegs: Int = 24,
     val physRegs: Int = 64,
     val mapQDepth: Int = 32,
+    val gprMapQDepth: Int = 32,
     val decRenQueueDepth: Int = 4,
     val storeDispatchQueueDepth: Int = 4,
     val loadStoreSerialWidth: Int = 64,
@@ -485,6 +487,7 @@ class DecodeRenameROBPath(
     loadStoreSerialWidth = loadStoreSerialWidth,
     physRegs = physRegs,
     mapQDepth = mapQDepth,
+    gprMapQDepth = gprMapQDepth,
     tuRetireSourceQueueDepth = tuRetireSourceQueueDepth,
     tuRetireRelationCmapDepth = tuRetireRelationCmapDepth,
     markerRetireSourceQueueDepth = markerRetireSourceQueueDepth
@@ -674,6 +677,7 @@ class DecodeRenameROBPath(
     scalarArchRegs = scalarArchRegs,
     physRegs = physRegs,
     mapQDepth = mapQDepth,
+    gprMapQDepth = gprMapQDepth,
     bidWidth = bidWidth,
     stidWidth = stidWidth,
     peIdWidth = peIdWidth,

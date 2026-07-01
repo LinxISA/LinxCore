@@ -19,6 +19,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
     val issueQueueDepth: Int = 4,
     val denseSlotQueueDepth: Int = 8,
     val mapQDepth: Int = 32,
+    val gprMapQDepth: Int = 32,
     val physRegs: Int = 64)
     extends Bundle {
   private val ptrWidth = log2Ceil(p.robEntries)
@@ -28,7 +29,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   private val denseSlotQueueCountWidth = log2Ceil(denseSlotQueueDepth + 1)
   private val denseSlotQueueSlotWidth = math.max(1, log2Ceil(p.decodeWidth))
   private val gprFreeWidth = log2Ceil(physRegs + 1)
-  private val gprMapQFreeWidth = log2Ceil(mapQDepth + 1)
+  private val gprMapQFreeWidth = log2Ceil(gprMapQDepth + 1)
   private val tuCountWidth = log2Ceil(mapQDepth + 1)
 
   val startValid = Input(Bool())
@@ -299,6 +300,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val denseSlotQueueDepth: Int = 8,
     val storeDispatchQueueDepth: Int = 4,
     val mapQDepth: Int = 32,
+    val gprMapQDepth: Int = 32,
     val archRegs: Int = 24,
     val physRegs: Int = 64,
     val skipBlockMarkers: Boolean = true,
@@ -317,6 +319,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     issueQueueDepth = issueQueueDepth,
     denseSlotQueueDepth = denseSlotQueueDepth,
     mapQDepth = mapQDepth,
+    gprMapQDepth = gprMapQDepth,
     physRegs = physRegs
   ))
 
@@ -330,6 +333,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     storeDispatchQueueDepth = storeDispatchQueueDepth,
     physRegs = physRegs,
     mapQDepth = mapQDepth,
+    gprMapQDepth = gprMapQDepth,
     useMarkerDecodeContext = useMarkerDecodeContext,
     skipBlockMarkers = skipBlockMarkers,
     reducedStoreDispatchBypass = true
@@ -1032,7 +1036,11 @@ object LinxCoreFrontendFetchRfAluTraceTop {
 
 object EmitLinxCoreFrontendFetchRfAluTraceTop extends App {
   circt.stage.ChiselStage.emitSystemVerilogFile(
-    new LinxCoreFrontendFetchRfAluTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 32, physRegs = 128),
+    new LinxCoreFrontendFetchRfAluTraceTop(
+      CoreParams(robEntries = 8, commitWidth = 2),
+      mapQDepth = 32,
+      gprMapQDepth = 256,
+      physRegs = 128),
     args = Array("--target-dir", "../generated/chisel-verilog/frontend-fetch-rf-alu-trace-top"),
     firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
   )
