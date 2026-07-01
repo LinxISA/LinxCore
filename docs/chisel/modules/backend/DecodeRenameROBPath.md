@@ -21,6 +21,7 @@
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchQueues.scala`
   - `chisel/src/main/scala/linxcore/lsu/StoreDispatchSTQPath.scala`
   - `chisel/src/main/scala/linxcore/bctrl/BlockMarkerLifecycle.scala`
+  - `chisel/src/main/scala/linxcore/bctrl/BlockMarkerRetireSourceSerializer.scala`
   - `chisel/src/main/scala/linxcore/bctrl/BlockScalarDoneSequencer.scala`
   - `chisel/src/main/scala/linxcore/backend/DispatchROBAllocator.scala`
 
@@ -159,6 +160,12 @@ exposes `robDeallocBlockMarkerRetireSource` from `ROBEntryBank` through this
 composition boundary. The new vector is not yet consumed by
 `BlockMarkerLifecycle`; it is the first source boundary needed before the
 reduced marker-skip path can be replaced by full marker-row ROB retirement.
+R171 instantiates `BlockMarkerRetireSourceSerializer` behind that vector,
+gates ROB deallocation on marker-source full-window queue credit, clears the
+serializer on backend/block lifecycle cleanup, drains the serialized source
+policy-free, and exposes `robMarkerRetireSource*` diagnostics. This still does
+not feed `BlockMarkerLifecycle`; it makes marker-source preservation part of
+the live deallocation handshake before lifecycle policy is connected.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -276,6 +283,7 @@ Outputs:
 - `allocBlockBid`, `allocRobValue`, `commit*`, `dealloc*`, `flushApplied`,
   `robTULinkSource*`, `robDeallocTURetireSource`,
   `robDeallocBlockMarkerRetireSource`,
+  `robMarkerRetireSource*`,
   `robDeallocBlockLast*`, `blockScalarDone*`, `blockRetire*`, `size`,
   `outstandingCount`, and occupancy masks: `DispatchROBAllocator`,
   `ROBEntryBank`, and reduced BROB lifecycle observability. R167 routes
@@ -516,6 +524,13 @@ deallocation outputs. The vector carries marker-row metadata at the same
 deallocation timing point as `SPEROB::dealloc()` observes `uop.last` and marker
 instructions before calling block handlers, but this composition does not yet
 serialize or feed those sources into `BlockMarkerLifecycle`.
+R171 feeds that vector into `BlockMarkerRetireSourceSerializer`. The allocator
+accepts a ROB deallocation window only when both the existing T/U retire-source
+path and the marker serializer have room for a full commit-width window, so a
+cycle that observes marker retire sources cannot lose lanes to queue
+backpressure. The serialized `robMarkerRetireSource` output is drained
+immediately in this packet and is exposed for diagnostics only; lifecycle
+mutation remains a later BCTRL owner.
 
 R103 uses the ROB bank's full block-last BID to drive the reduced BROB
 completion path. On a deallocation cycle that frees a block-last row,
@@ -656,8 +671,9 @@ publication, SCB/MDB handoff, and memory trace side effects.
   auto clean is now owned inside `TULinkRetireCommandPath`.
 - Full scalar commit ownership for real marker ROB-retire rows. The current
   R117 feedback only bridges reduced marker/block-retire events into scalar
-  rename mapQ release; R169 exposes the marker retire-source vector but does not
-  yet add the serializer/consumer or per-STID active marker state.
+  rename mapQ release; R171 serializes the marker retire-source vector and
+  gates ROB deallocation for lossless capture, but it does not yet add the
+  lifecycle consumer or per-STID active marker state.
 - Multi-PE `TULinkLocalBankArray` instantiation and top-level nonzero PE
   packet production. The active selector now consumes row `peId`, but current
   frontend/top packets still default that sidecar to PE0 unless an upstream
@@ -753,6 +769,8 @@ block-last closure.
 R169 covers marker sidecar forwarding into ROB reservation and
 `robDeallocBlockMarkerRetireSource` IO elaboration through the backend
 composition.
+R171 covers `BlockMarkerRetireSourceSerializer` integration in the backend
+deallocation handshake plus `robMarkerRetireSource*` IO elaboration.
 R104 covers marker-only BROB allocation, active full-BID reuse by scalar rows,
 marker-driven scalar-done/retire for old/current active blocks, marker
 conflict gating against ROB block-last scalar-done, and top-level marker

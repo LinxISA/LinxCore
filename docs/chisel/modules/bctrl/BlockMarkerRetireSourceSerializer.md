@@ -25,6 +25,11 @@ This module does not yet mutate `BlockMarkerLifecycle`. It exists so the later
 full marker-row retirement owner can consume retired marker rows without
 collapsing a width-wide deallocation event into one lossy pulse.
 
+R171 integrates this serializer into `DecodeRenameROBPath`: ROB deallocation
+is gated by `sourceWindowReady`, queued state clears on backend/block lifecycle
+cleanup, and the serialized output is exposed as policy-free diagnostics while
+the lifecycle consumer remains deferred.
+
 ## Interface
 
 | Direction | Signal | Type | Description |
@@ -43,9 +48,10 @@ collapsing a width-wide deallocation event into one lossy pulse.
 ## Logic Design
 
 - `sourceWindowReady` is conservative: it requires room for the full
-  `sourceWidth`, not only the number of valid lanes in the current window. A
-  future ROB deallocation gate can therefore depend on this signal without
-  knowing how many marker rows will be present before the row image is observed.
+  `sourceWidth`, not only the number of valid lanes in the current window.
+  `DecodeRenameROBPath` depends on this signal when gating ROB deallocation, so
+  it does not need to predict how many marker rows will be present before the
+  row image is observed.
 - Valid source lanes enqueue in original slot order. Invalid lanes are skipped,
   but they do not reorder later marker rows.
 - `out.valid` reflects queue non-empty state, not the stored lane's original
@@ -69,7 +75,6 @@ publishes the source.
 
 ## Deferred Owners
 
-- Integration into `DecodeRenameROBPath` deallocation backpressure.
 - A lifecycle adapter that converts serialized marker sources into
   `BlockMarkerLifecycle` marker inputs.
 - Per-STID active marker state and recovery-exact queued-source pruning.
@@ -79,7 +84,9 @@ publishes the source.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerRetireSourceSerializer`
+- `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 
 Focused tests cover slot-order compaction, full-window admission backpressure,
 clear/drop behavior, and Chisel elaboration of the queue and serialized source
-ports.
+ports. The backend composition test covers the integrated deallocation credit
+and diagnostic IO surface.

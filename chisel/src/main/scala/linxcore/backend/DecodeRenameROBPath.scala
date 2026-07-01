@@ -3,7 +3,7 @@ package linxcore.backend
 import chisel3._
 import chisel3.util.{log2Ceil, PriorityEncoder}
 
-import linxcore.bctrl.{BID, BlockMarkerLifecycle, BlockScalarDoneSequencer}
+import linxcore.bctrl.{BID, BlockMarkerLifecycle, BlockMarkerRetireSourceSerializer, BlockScalarDoneSequencer}
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
@@ -32,7 +32,8 @@ class DecodeRenameROBPathIO(
     val physRegs: Int = 64,
     val mapQDepth: Int = 32,
     val tuRetireSourceQueueDepth: Int = 8,
-    val tuRetireRelationCmapDepth: Int = 8)
+    val tuRetireRelationCmapDepth: Int = 8,
+    val markerRetireSourceQueueDepth: Int = 8)
     extends Bundle {
   private val slotWidth = math.max(1, log2Ceil(p.decodeWidth))
   private val ptrWidth = log2Ceil(p.robEntries)
@@ -47,6 +48,8 @@ class DecodeRenameROBPathIO(
   private val tuRetireSourceCountWidth = log2Ceil(traceParams.commitWidth + 1)
   private val tuRetireSourceQueueCountWidth = log2Ceil(tuRetireSourceQueueDepth + 1)
   private val tuRetireRelationCountWidth = log2Ceil(tuRetireRelationCmapDepth + 1)
+  private val markerRetireSourceCountWidth = log2Ceil(traceParams.commitWidth + 1)
+  private val markerRetireSourceQueueCountWidth = log2Ceil(markerRetireSourceQueueDepth + 1)
 
   val d1 = Input(new FrontendDecodePacket(p))
   val slots = Input(Vec(p.decodeWidth, new F4Slot(p)))
@@ -257,6 +260,23 @@ class DecodeRenameROBPathIO(
       peIdWidth = peIdWidth,
       stidWidth = stidWidth
     )))
+  val robMarkerRetireSourceWindowReady = Output(Bool())
+  val robMarkerRetireSourceValidMask = Output(UInt(traceParams.commitWidth.W))
+  val robMarkerRetireSourceEnqueueCount = Output(UInt(markerRetireSourceCountWidth.W))
+  val robMarkerRetireSourceQueueCount = Output(UInt(markerRetireSourceQueueCountWidth.W))
+  val robMarkerRetireSourceQueueFull = Output(Bool())
+  val robMarkerRetireSourceQueueEmpty = Output(Bool())
+  val robMarkerRetireSourceDequeued = Output(Bool())
+  val robMarkerRetireSource =
+    Output(new BlockMarkerRetireSource(
+      entries = p.robEntries,
+      blockBidWidth = traceParams.blockBidWidth,
+      pcWidth = traceParams.pcWidth,
+      insnWidth = traceParams.insnWidth,
+      lenWidth = traceParams.lenWidth,
+      peIdWidth = peIdWidth,
+      stidWidth = stidWidth
+    ))
   val robDeallocBlockLastValid = Output(Bool())
   val robDeallocBlockLastBid = Output(new ROBID(p.robEntries))
   val robDeallocBlockLastGid = Output(new ROBID(p.robEntries))
@@ -379,12 +399,17 @@ class DecodeRenameROBPath(
     val loadStoreSerialWidth: Int = 64,
     val tuRetireSourceQueueDepth: Int = 8,
     val tuRetireRelationCmapDepth: Int = 8,
+    val markerRetireSourceQueueDepth: Int = 8,
     val tuRetireReleaseThreshold: Int = 4,
     val skipBlockMarkers: Boolean = false,
     val reducedStoreDispatchBypass: Boolean = false)
     extends Module {
   require(traceParams.robValueWidth >= p.robIndexWidth, "trace ROB value must hold DecodeRenameROBPath ROB index")
   require(traceParams.commitWidth == p.commitWidth, "trace commit width must match InterfaceParams")
+  require(traceParams.blockBidWidth == p.blockBidWidth, "trace block BID width must match InterfaceParams")
+  require(traceParams.pcWidth == p.pcWidth, "trace PC width must match InterfaceParams")
+  require(traceParams.insnWidth == p.insnWidth, "trace instruction width must match InterfaceParams")
+  require(traceParams.lenWidth == p.lenWidth, "trace instruction length width must match InterfaceParams")
   require((p.robEntries & (p.robEntries - 1)) == 0, "ROB entries must be a power of two")
   require(decRenQueueDepth > 0 && (decRenQueueDepth & (decRenQueueDepth - 1)) == 0,
     "decode-to-rename queue depth must be a power of two")
@@ -392,6 +417,11 @@ class DecodeRenameROBPath(
     "T/U retire source queue must hold one full ROB dealloc window")
   require((tuRetireSourceQueueDepth & (tuRetireSourceQueueDepth - 1)) == 0,
     "T/U retire source queue depth must be a power of two")
+  require(markerRetireSourceQueueDepth > 1, "marker retire source queue depth must be greater than one")
+  require(markerRetireSourceQueueDepth >= traceParams.commitWidth,
+    "marker retire source queue must hold one full ROB dealloc window")
+  require((markerRetireSourceQueueDepth & (markerRetireSourceQueueDepth - 1)) == 0,
+    "marker retire source queue depth must be a power of two")
 
   private val zeroRobId = 0.U.asTypeOf(new ROBID(p.robEntries))
   private val zeroLocalSeq = 0.U.asTypeOf(new ROBID(mapQDepth))
@@ -437,7 +467,8 @@ class DecodeRenameROBPath(
     physRegs = physRegs,
     mapQDepth = mapQDepth,
     tuRetireSourceQueueDepth = tuRetireSourceQueueDepth,
-    tuRetireRelationCmapDepth = tuRetireRelationCmapDepth
+    tuRetireRelationCmapDepth = tuRetireRelationCmapDepth,
+    markerRetireSourceQueueDepth = markerRetireSourceQueueDepth
   ))
 
   val decode = Module(new FrontendDecodeStage(p))
@@ -602,6 +633,13 @@ class DecodeRenameROBPath(
     peIdWidth = peIdWidth,
     stidWidth = stidWidth
   ))
+  val markerRetireSerializer = Module(new BlockMarkerRetireSourceSerializer(
+    p = p,
+    sourceWidth = traceParams.commitWidth,
+    sourceQueueDepth = markerRetireSourceQueueDepth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth
+  ))
   val storeDispatch = Module(new StoreDispatchSTQPath(
     p = p,
     queueDepth = storeDispatchQueueDepth,
@@ -695,7 +733,11 @@ class DecodeRenameROBPath(
   allocator.io.completeRobValue := io.completeRobValue
   allocator.io.completeRowValid := io.completeRowValid
   allocator.io.completeRow := io.completeRow
-  allocator.io.deallocReady := io.deallocReady && tuRetirePath.io.sourceWindowReady && !tuRetirePath.io.cleanupActive
+  allocator.io.deallocReady :=
+    io.deallocReady &&
+      tuRetirePath.io.sourceWindowReady &&
+      markerRetireSerializer.io.sourceWindowReady &&
+      !tuRetirePath.io.cleanupActive
   val blockScalarDoneFire = markerLifecycle.io.scalarDoneValid
   val blockScalarDoneBid = markerLifecycle.io.scalarDoneBid
   blockScalarDoneSeq.io.flushValid := blockLifecycleFlush
@@ -747,6 +789,10 @@ class DecodeRenameROBPath(
   rename.io.tuLocalBlockCommitValid := tuRetirePath.io.localBlockCommitValid
   rename.io.tuLocalBlockCommitBid := tuRetirePath.io.localBlockCommitBid
   rename.io.tuLocalBlockCommitStid := tuRetirePath.io.localBlockCommitStid
+
+  markerRetireSerializer.io.sources := allocator.io.deallocBlockMarkerRetireSource
+  markerRetireSerializer.io.clear := blockLifecycleFlush
+  markerRetireSerializer.io.outReady := true.B
 
   io.selectedValid := selectedAny
   io.selectedSlot := selectedSlot
@@ -921,6 +967,14 @@ class DecodeRenameROBPath(
   io.deallocCount := allocator.io.deallocCount
   io.robDeallocTURetireSource := allocator.io.deallocTURetireSource
   io.robDeallocBlockMarkerRetireSource := allocator.io.deallocBlockMarkerRetireSource
+  io.robMarkerRetireSourceWindowReady := markerRetireSerializer.io.sourceWindowReady
+  io.robMarkerRetireSourceValidMask := markerRetireSerializer.io.sourceValidMask
+  io.robMarkerRetireSourceEnqueueCount := markerRetireSerializer.io.sourceEnqueueCount
+  io.robMarkerRetireSourceQueueCount := markerRetireSerializer.io.sourceQueueCount
+  io.robMarkerRetireSourceQueueFull := markerRetireSerializer.io.sourceQueueFull
+  io.robMarkerRetireSourceQueueEmpty := markerRetireSerializer.io.sourceQueueEmpty
+  io.robMarkerRetireSourceDequeued := markerRetireSerializer.io.sourceDequeued
+  io.robMarkerRetireSource := markerRetireSerializer.io.out
   io.robDeallocBlockLastValid := allocator.io.deallocBlockLastValid
   io.robDeallocBlockLastBid := allocator.io.deallocBlockLastBid
   io.robDeallocBlockLastGid := allocator.io.deallocBlockLastGid
