@@ -1,7 +1,7 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util.{PopCount, log2Ceil}
 
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
@@ -35,6 +35,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val startPc = Input(UInt(p.pcWidth.W))
   val restartValid = Input(Bool())
   val restartPc = Input(UInt(p.pcWidth.W))
+  val reducedBodyCutValid = Input(Bool())
+  val reducedBodyCutPc = Input(UInt(p.pcWidth.W))
+  val reducedBodyCutRestartPc = Input(UInt(p.pcWidth.W))
   val frontendFlushValid = Input(Bool())
   val peId = Input(UInt(p.peIdWidth.W))
   val threadId = Input(UInt(p.threadIdWidth.W))
@@ -63,6 +66,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val sourceCurrentPc = Output(UInt(p.pcWidth.W))
   val sourceIssuedPc = Output(UInt(p.pcWidth.W))
   val sourceNextPktUid = Output(UInt(p.uopUidWidth.W))
+  val reducedBodyCutActive = Output(Bool())
+  val reducedBodyCutFire = Output(Bool())
+  val reducedBodyCutAdvanceBytes = Output(UInt(4.W))
 
   val f4ValidMask = Output(UInt(p.decodeWidth.W))
   val f4SlotCount = Output(UInt(log2Ceil(p.decodeWidth + 1).W))
@@ -291,6 +297,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
   val markerRedirectPending = RegInit(false.B)
   val markerRedirectPcReg = RegInit(0.U(p.pcWidth.W))
+  val bodyCutRestartPending = RegInit(false.B)
+  val bodyCutRestartPcReg = RegInit(0.U(p.pcWidth.W))
   val scalarRedirectPending = RegInit(false.B)
   val scalarRedirectBidReg = RegInit(ROBID.disabled(p.robEntries))
   val scalarRedirectRidReg = RegInit(ROBID.disabled(p.robEntries))
@@ -301,6 +309,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val markerRedirectFire = path.io.blockMarkerStopRedirectValid || execute.io.redirectValid
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
   val backendPipeFlush = io.frontendFlushValid || scalarRedirectPending
+  // Temporary reduced BFU hook: loop-aware row replay supplies the block-body
+  // cut until the frontend owns static-predictor bsize/hsize metadata.
+  val f4WindowEndPc = (f4.io.d1.pc + F4DecodeWindow.WindowBytes.U)(p.pcWidth - 1, 0)
+  val reducedBodyCutActive =
+    io.reducedBodyCutValid && f4.io.d1.valid &&
+      io.reducedBodyCutPc > f4.io.d1.pc && io.reducedBodyCutPc <= f4WindowEndPc
+  val reducedBodyCutAdvanceBytes = (io.reducedBodyCutPc - f4.io.d1.pc)(3, 0)
+  val reducedBodyCutMask = VecInit((0 until p.decodeWidth).map { slot =>
+    !reducedBodyCutActive || (f4.io.slots(slot).valid && f4.io.slots(slot).pc < io.reducedBodyCutPc)
+  }).asUInt
+  val frontendValidMask = f4.io.validMask & reducedBodyCutMask
+  val frontendSlotCount = PopCount(frontendValidMask)
+  val effectiveSourceAdvanceBytes = Mux(reducedBodyCutActive, reducedBodyCutAdvanceBytes, f4.io.totalLenBytes)
+  val bodyCutRestartFire = source.io.outFire && reducedBodyCutActive
 
   when(io.frontendFlushValid || io.restartValid || io.startValid) {
     markerRedirectPending := false.B
@@ -327,11 +349,21 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     scalarRedirectStidReg := 0.U
     scalarRedirectBlockBidReg := 0.U
   }
+  when(io.frontendFlushValid || io.restartValid || io.startValid || markerRedirectFire || markerRedirectPending) {
+    bodyCutRestartPending := false.B
+    bodyCutRestartPcReg := 0.U
+  }.elsewhen(bodyCutRestartFire) {
+    bodyCutRestartPending := true.B
+    bodyCutRestartPcReg := io.reducedBodyCutRestartPc
+  }.elsewhen(bodyCutRestartPending) {
+    bodyCutRestartPending := false.B
+    bodyCutRestartPcReg := 0.U
+  }
 
   source.io.startValid := io.startValid
   source.io.startPc := io.startPc
-  source.io.restartValid := io.restartValid || markerRedirectPending
-  source.io.restartPc := Mux(markerRedirectPending, markerRedirectPcReg, io.restartPc)
+  source.io.restartValid := io.restartValid || markerRedirectPending || bodyCutRestartPending
+  source.io.restartPc := Mux(markerRedirectPending, markerRedirectPcReg, Mux(bodyCutRestartPending, bodyCutRestartPcReg, io.restartPc))
   source.io.flushValid := io.frontendFlushValid
   source.io.peId := io.peId
   source.io.threadId := io.threadId
@@ -339,14 +371,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   source.io.respValid := io.fetchRespValid
   source.io.respWindow := io.fetchRespWindow
   source.io.outReady := denseSlots.io.inReady
-  source.io.advanceBytes := f4.io.totalLenBytes
+  source.io.advanceBytes := effectiveSourceAdvanceBytes
 
   f4.io.in := source.io.out
   f4.io.flushValid := frontendPipeFlush
 
   denseSlots.io.inD1 := f4.io.d1
   denseSlots.io.inSlots := f4.io.slots
-  denseSlots.io.inValidMask := f4.io.validMask
+  denseSlots.io.inValidMask := frontendValidMask
   denseSlots.io.outReady := path.io.decodeReady
   denseSlots.io.flushValid := frontendPipeFlush
 
@@ -524,13 +556,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.sourceRespFire := source.io.respFire
   io.sourceOutFire := source.io.outFire
   io.sourceAdvanceZero := source.io.advanceZero
-  io.sourceAdvanceBytes := f4.io.totalLenBytes
+  io.sourceAdvanceBytes := effectiveSourceAdvanceBytes
   io.sourceCurrentPc := source.io.currentPc
   io.sourceIssuedPc := source.io.issuedPc
   io.sourceNextPktUid := source.io.nextPktUid
 
-  io.f4ValidMask := f4.io.validMask
-  io.f4SlotCount := f4.io.slotCount
+  io.reducedBodyCutActive := reducedBodyCutActive
+  io.reducedBodyCutFire := bodyCutRestartFire
+  io.reducedBodyCutAdvanceBytes := Mux(reducedBodyCutActive, reducedBodyCutAdvanceBytes, 0.U)
+  io.f4ValidMask := frontendValidMask
+  io.f4SlotCount := frontendSlotCount
   io.denseSlotQueueInFire := denseSlots.io.inFire
   io.denseSlotQueueOutFire := denseSlots.io.outFire
   io.denseSlotQueueInSlotCount := denseSlots.io.inSlotCount

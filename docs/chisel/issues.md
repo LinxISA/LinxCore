@@ -195,7 +195,8 @@ Resolution:
 
 ## CHISEL-ISSUE-007: FALL Block Re-entry Needs F4 Body-Boundary Cut
 
-Status: open after R142
+Status: closed for the reduced live top by R143; full BFU metadata ownership
+remains future work
 
 Impact:
 
@@ -204,7 +205,7 @@ Impact:
   header after the body row at `pc=0x4000632c`, while the previous scalar row
   still reports `next_pc=0x4000632e`.
 - The reduced QEMU-row extractor can now admit and annotate this shape with
-  `--allow-block-loop-reentry`, but the current Chisel live-fetch path still
+  `--allow-block-loop-reentry`, but the R142 Chisel live-fetch path still
   captures an extra F4 slot at `0x4000632e` instead of cutting the packet at the
   model block body boundary and restarting at the FALL header.
 
@@ -216,18 +217,23 @@ Evidence:
 - The loop-aware extraction command emits 1766 expected rows and 11 annotated
   `loop_reentry` marker rows:
   `python3 tools/chisel/frontend_fetch_rf_alu_qemu_rows.py --input generated/r142-loop-frontier-1900-qemu-probe/traces/qemu.live.raw.jsonl --output generated/r142-loop-frontier-1900-qemu-probe/traces/qemu.live.expected.loop.jsonl --max-rows 0 --allow-block-markers --allow-block-loop-reentry`.
-- Replaying that expected stream against the current top fails before compare:
+- Replaying that expected stream against the R142 top fails before compare:
   `frontend fetch RF ALU dense packet was not captured pc=0x4000632a
   expected_mask=0x3 observed_mask=0x7 expected_slots=2 observed_f4_slots=3
   expected_advance=4 observed_advance=8`.
+- R143 adds a temporary reduced BFU body-cut sideband to the live top and
+  harness. The loop-aware expected replay in
+  `generated/r143b-loop-reentry-rtl-replay/report` compares 1330 normalized
+  QEMU/DUT rows with zero mismatches.
 
-Resolution plan:
+Resolution:
 
-- Add model-derived block-body end metadata to the reduced frontend path, using
-  LinxCoreModel BFU evidence that FALL resolves to `fallBPC`, computed from
-  header geometry (`spInfo->hsize` when present).
-- Teach the live-fetch/F4 path to cut the response before the static fallBPC
-  continuation when the active reduced block resolves back to the FALL header,
-  then restart at the annotated re-entry PC.
-- Promote the R142 loop stream only after the generated-RTL replay compares
-  past the first `loop_reentry` row.
+- The reduced live-fetch/F4 path now consumes `reducedBodyCut*` metadata derived
+  from the loop-aware row stream, masks off slots at and after the model body
+  boundary, advances the source only to that cut PC, preserves the clipped dense
+  rows, and schedules a source-only restart to the annotated FALL header.
+- This closes the R142 packet-boundary failure as replacement evidence for the
+  reduced top. It does not close the architectural BFU work: a later packet must
+  replace the harness-provided sideband with real static-predictor block-body
+  metadata (`bsize`/`hsize`/fallBPC ownership) before claiming full
+  block-control closure.

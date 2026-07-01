@@ -326,12 +326,24 @@ static continuation slot at `0x4000632e` while the model/QEMU stream resolves
 back to `0x4000630c`. This makes the next RTL packet a model-derived block
 body-boundary cut plus restart, not another scalar ALU row.
 
+R143 adds a temporary reduced BFU body-cut sideband to close that reduced-top
+packet boundary. The loop-aware expected-row stream drives `reducedBodyCut*`
+metadata into the top; F4 masks off slots at and after the model body boundary,
+the fetch source advances only to the cut PC, the clipped dense rows remain
+visible to the comparator, and the source restarts at the annotated FALL
+header without flushing those rows. The replay in
+`generated/r143b-loop-reentry-rtl-replay/report` compares 1330 normalized
+QEMU/DUT rows with zero mismatches. This is replacement evidence for the
+reduced live top, not full BFU closure; a later packet must replace the harness
+sideband with real static-predictor `bsize`/`hsize`/fallBPC metadata.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
 |---|---|---|---|---|
 | input | `startValid`, `startPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Arms the live fetch source at a starting PC. |
 | input | `restartValid`, `restartPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Replaces the active fetch PC for a reduced restart. |
+| input | `reducedBodyCutValid`, `reducedBodyCutPc`, `reducedBodyCutRestartPc` | mixed | with live-F4 packet | Temporary reduced BFU body-cut hint from loop-aware expected rows. When active, the top cuts the current F4 packet before `reducedBodyCutPc` and schedules a source-only restart at `reducedBodyCutRestartPc`. |
 | input | `frontendFlushValid` | `Bool` | valid | Clears source packet state, F4, decode path, and reduced issue state. |
 | input | `peId`, `threadId` | `UInt` | with source packet | Packet-owned PE/STID sidecars for decode/rename. |
 | input | `fetchReqReady` | `Bool` | ready | Bounded fixture accepts a source PC request. |
@@ -341,6 +353,7 @@ body-boundary cut plus restart, not another scalar ALU row.
 | input | `deallocReady` | `Bool` | ready | Allows retired ROB rows to deallocate. |
 | output | `fetchReqValid`, `fetchReqPc`, `fetchRespReady` | mixed | valid/ready | Live source PC request and response handshake. |
 | output | `source*` | mixed | diagnostic | Source active, request, response, packet, PC advance, and packet UID observability. |
+| output | `reducedBodyCutActive`, `reducedBodyCutFire`, `reducedBodyCutAdvanceBytes` | mixed | diagnostic | Temporary body-cut observability for the reduced loop-reentry bridge: active hint match, source handoff cycle, and cut-local source advance. |
 | output | `f4ValidMask`, `f4SlotCount`, `decodeReady` | mixed | diagnostic | F4 slot shape and downstream decode readiness. |
 | output | `denseSlotQueueInFire`, `denseSlotQueueOutFire`, `denseSlotQueueInSlotCount`, `denseSlotQueueCount`, `denseSlotQueueHeadSlot`, `denseSlotQueueFull`, `denseSlotQueueEmpty` | mixed | diagnostic | Reduced dense-slot bridge capture/drain and occupancy observability. |
 | output | `selectedValid`, `selectedRobValue`, `selectedBlockBid` | mixed | diagnostic | Reduced selected decoded slot and allocated identities. |
@@ -521,6 +534,11 @@ R142 extends the QEMU-row source only: `--allow-block-loop-reentry` and
 to be emitted with `loop_reentry` metadata. The generated-RTL replay is still
 expected to fail until the frontend/F4 path can cut at the model block body
 boundary; see `CHISEL-ISSUE-007`.
+R143 consumes that metadata through the temporary `reducedBodyCut*` interface
+in the reduced top. The cut logic only changes the source advance, F4 valid
+mask, and source-only restart for the current loop-aware packet; it deliberately
+does not model the full BFU static predictor or make `--allow-block-loop-reentry`
+a general architectural pass criterion.
 R104 adds the first reduced block-lifecycle alignment for those marker slots.
 The model allocates BROB on `BSTART`, stamps following scalar instructions with
 the current block BID, and completes the current block on `BSTOP` through the

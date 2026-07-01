@@ -41,6 +41,8 @@ struct ExpectedRow {
   std::string skip_kind;
   bool block_boundary = false;
   bool block_stop = false;
+  bool loop_reentry = false;
+  std::uint64_t loop_reentry_from_pc = 0;
   bool src0_valid = false;
   std::uint8_t src0_reg = 0;
   std::uint64_t src0_data = 0;
@@ -311,6 +313,8 @@ ExpectedRow parse_expected_row_jsonl(
   (void)json_value_token(line, "skip_kind", row.skip_kind);
   row.block_boundary = json_bool(line, "block_boundary", false, context);
   row.block_stop = json_bool(line, "block_stop", false, context);
+  row.loop_reentry = json_bool(line, "loop_reentry", false, context);
+  row.loop_reentry_from_pc = json_u64(line, "loop_reentry_from_pc", 0, context);
 
   row.src0_valid = json_bool(line, "src0_valid", false, context);
   row.src0_reg = json_u8(line, "src0_reg", 0, context);
@@ -383,6 +387,9 @@ void clear_inputs(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   dut.io_startPc = 0;
   dut.io_restartValid = 0;
   dut.io_restartPc = 0;
+  dut.io_reducedBodyCutValid = 0;
+  dut.io_reducedBodyCutPc = 0;
+  dut.io_reducedBodyCutRestartPc = 0;
   dut.io_frontendFlushValid = 0;
   dut.io_peId = 0;
   dut.io_threadId = 0;
@@ -1076,6 +1083,45 @@ bool row_redirects(const ExpectedRow &row) {
   return row.next_pc != row.pc + row.len;
 }
 
+struct BodyCutHint {
+  bool valid = false;
+  std::uint64_t cut_pc = 0;
+  std::uint64_t restart_pc = 0;
+};
+
+BodyCutHint dense_window_body_cut(const std::vector<ExpectedRow> &rows, std::size_t start, std::size_t end) {
+  BodyCutHint hint;
+  if (end <= start || end >= rows.size()) {
+    return hint;
+  }
+  const ExpectedRow &next = rows[end];
+  if (!next.loop_reentry || next.loop_reentry_from_pc == 0) {
+    return hint;
+  }
+  const std::uint64_t cut_pc = rows[end - 1].pc + rows[end - 1].len;
+  if (next.loop_reentry_from_pc != cut_pc) {
+    std::cerr << "loop re-entry metadata does not match dense window cut"
+              << " start_pc=0x" << std::hex << rows[start].pc
+              << " expected_cut=0x" << cut_pc
+              << " row_cut=0x" << next.loop_reentry_from_pc
+              << " restart=0x" << next.pc << std::dec << "\n";
+    std::exit(1);
+  }
+  hint.valid = true;
+  hint.cut_pc = cut_pc;
+  hint.restart_pc = next.pc;
+  return hint;
+}
+
+void drive_body_cut_hint(VLinxCoreFrontendFetchRfAluTraceTop &dut, const BodyCutHint &hint) {
+  if (!hint.valid) {
+    return;
+  }
+  dut.io_reducedBodyCutValid = 1;
+  dut.io_reducedBodyCutPc = hint.cut_pc;
+  dut.io_reducedBodyCutRestartPc = hint.restart_pc;
+}
+
 bool fetch_dense_window(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const std::vector<ExpectedRow> &rows,
@@ -1089,10 +1135,12 @@ bool fetch_dense_window(
   const std::uint8_t expected_advance = dense_window_advance(rows, start, end);
   const bool redirect_tail = row_redirects(rows.at(end - 1));
   const bool capture_tail = end == rows.size();
+  const BodyCutHint body_cut = dense_window_body_cut(rows, start, end);
 
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
     dut.io_fetchReqReady = 1;
+    drive_body_cut_hint(dut, body_cut);
     eval_with_load_lookup(dut, fetch_memory);
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU fetch");
     if (dut.io_fetchReqValid) {
@@ -1117,6 +1165,7 @@ request_done:
   clear_inputs(dut);
   dut.io_fetchRespValid = 1;
   dut.io_fetchRespWindow = fetch_memory.read_window(first.pc);
+  drive_body_cut_hint(dut, body_cut);
   eval_with_load_lookup(dut, fetch_memory);
   if (!dut.io_fetchRespReady || !dut.io_sourceRespFire) {
     std::cerr << "frontend fetch RF ALU response was not accepted"
@@ -1130,6 +1179,7 @@ request_done:
 
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
+    drive_body_cut_hint(dut, body_cut);
     eval_with_load_lookup(dut, fetch_memory);
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU dense drain");
     if (dut.io_rfStateError) {
