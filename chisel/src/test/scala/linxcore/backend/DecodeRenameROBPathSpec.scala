@@ -497,6 +497,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.selectedSlot.getWidth == 2)
     assert(io.selectedRobValue.getWidth == 3)
     assert(io.selectedBlockBid.getWidth == 64)
+    assert(io.commitBlockBid.getWidth == 64)
     assert(io.blockMarkerSkipValid.getWidth == 1)
     assert(io.blockMarkerMixedPacket.getWidth == 1)
     assert(io.blockMarkerBoundary.getWidth == 1)

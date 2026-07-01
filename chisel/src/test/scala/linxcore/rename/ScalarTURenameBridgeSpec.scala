@@ -83,6 +83,7 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(io.out.threadId.getWidth == 8)
     assert(io.out.dst.length == 1)
     assert(io.robAllocRow.identity.rid.getWidth == 32)
+    assert(io.commitBlockBid.getWidth == 64)
     assert(io.tuSrc.length == 3)
     assert(io.tuActivePeInRange.getWidth == 1)
     assert(io.tuActiveStidInRange.getWidth == 1)

@@ -113,6 +113,7 @@ class ScalarDecodeRenameBridgeSpec extends AnyFunSuite {
     assert(io.robAllocAttemptValid.getWidth == 1)
     assert(io.robAllocRow.identity.bid.getWidth == 32)
     assert(io.robAllocRow.pc.getWidth == 64)
+    assert(io.commitBlockBid.getWidth == 64)
     assert(io.unsupportedSrcMask.getWidth == 3)
     assert(io.srcPhysTags.length == 3)
     assert(io.dstPhysTag.getWidth == 6)
