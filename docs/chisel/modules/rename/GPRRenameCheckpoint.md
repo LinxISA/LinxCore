@@ -119,6 +119,22 @@ references to it are gone. The same packet removes the previous 64-physical-tag
 bring-up cap; the implementation now elaborates at LinxCoreModel's
 `ggpr_count = 128` capacity.
 
+R196 aligns the reduced live top with LinxCoreModel's independent
+`ggpr_mapq_depth = 256` setting. This scalar GPR mapQ capacity is separate from
+the reduced local T/U `mapQDepth` used for T/U ROBID sequence plumbing; do not
+increase the local T/U depth just to model GGPR rename pressure. The top-level
+marker-row emitters pass `gprMapQDepth = 256` into the scalar rename owner while
+leaving local T/U sequences compact.
+
+R197 reduces generated release/live-mask fanout for the model-sized mapQ. The
+commit path now builds release sets from one-hot physical-tag masks, the
+"later same architectural register" check uses a reverse architectural-tag mask
+scan, and the final live-reference protection uses one combined live physical
+mask. This preserves the ordered model commit result while cutting Chisel emit
+time and Verilator RSS for the 256-depth top. The generated module is still
+large enough that the exact 1024-row marker-row Verilator gate remains an open
+compile-cost blocker.
+
 ## Flush And Replay
 
 For `renameFlushValid`, the model computes `restoreBid = flush.bid - 1`. If
@@ -177,5 +193,5 @@ The current test reference covers:
 - no identity-tag release on first architectural commits,
 - live-reference protection while `smap`, `cmap`, or `mapQ` still mention a
   physical tag,
-- Chisel elaboration of cleanup, map, checkpoint, release outputs, and 128
-  physical GPR tags.
+- Chisel elaboration of cleanup, map, checkpoint, release outputs, 128 physical
+  GPR tags, and the model-sized scalar GPR mapQ pressure path.

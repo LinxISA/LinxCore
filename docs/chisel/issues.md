@@ -244,3 +244,66 @@ Resolution:
   replace the harness-provided sideband with real static-predictor block-body
   metadata (`bsize`/`hsize`/fallBPC ownership) before claiming full
   block-control closure.
+
+## CHISEL-ISSUE-008: Scalar GPR mapQ Capacity Was Tied To Local T/U Depth
+
+Status: resolved in R196
+
+Impact:
+
+- The admitted-marker CoreMark path stopped before QEMU row 227 at
+  `pc=0x4000557a` with `decodeBlockedByRename=1`, `gprFree=63`, and
+  `gprMapQFree=0`.
+- This was not the stale wrapped-BID rename bug fixed earlier; it was a
+  capacity mismatch. The reduced Chisel top used one `mapQDepth = 32` for both
+  scalar GPR mapQ pressure and local T/U sequence plumbing.
+
+Evidence:
+
+- LinxCoreModel `configs/core.toml` sets `ggpr_count = 128` and
+  `ggpr_mapq_depth = 256`.
+- LinxCoreModel `model/bctrl/spe/GPRRename.cpp` builds the GGPR mapQ from
+  `sim->core->configs.ggpr_mapq_depth` and stalls when `mapQFreeSize[stid]`
+  reaches zero.
+- The R195 gate
+  `generated/r195-marker-row-scale-1024-qemu-elf-xcheck` compared 157
+  normalized scalar rows before the model-sized queue mismatch stopped the RTL.
+
+Resolution:
+
+- `ScalarTURenameBridge`, `DecodeRenameROBPath`, and the fetch/RF/ALU trace
+  tops now carry a separate `gprMapQDepth` parameter.
+- The marker-row emitters instantiate `gprMapQDepth = 256` and `physRegs = 128`
+  while leaving local T/U `mapQDepth = 32`.
+- Focused interface tests assert that scalar GPR mapQ free-count width follows
+  the model-sized capacity without widening local T/U ROBID sequence widths.
+
+## CHISEL-ISSUE-009: Model-sized GPRRenameCheckpoint Is Too Large For Fast Verilator Front-end Compile
+
+Status: open after R197
+
+Impact:
+
+- The exact 1024-row admitted-marker CoreMark gate cannot yet produce a DUT
+  trace at `gprMapQDepth = 256` because Verilator stays in front-end processing
+  before creating `obj_dir`.
+- This blocks proving whether the R196 model-capacity fix advances past the
+  old R195 `pc=0x4000557a` stall.
+
+Evidence:
+
+- R196 emitted the marker-row top in roughly 108 seconds and Verilator reached
+  about 4.7 GB RSS before the run was interrupted while still before object
+  generation.
+- R197 rewrote scalar GPR release/live masks with one-hot reductions. Chisel
+  emit dropped to roughly 20 seconds and Verilator RSS dropped to roughly
+  1.6 GB, but `GPRRenameCheckpoint.sv` was still about 24 MB and 252k lines,
+  and Verilator still did not create `obj_dir` after a long front-end run.
+
+Next action:
+
+- Structurally shrink or partition scalar GPR mapQ/checkpoint generated logic
+  without changing LinxCoreModel-visible rename, commit, flush, and replay
+  behavior.
+- Rerun the same 1024-row marker-row command after the generated model becomes
+  practical.

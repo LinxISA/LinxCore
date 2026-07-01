@@ -842,7 +842,20 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Scale the R194 marker-row filtered comparator beyond the 512-row CoreMark
+1. Make the model-sized scalar GPR mapQ Verilator-practical, then rerun the
+   admitted-marker 1024-row CoreMark gate. R195 proved the next functional
+   blocker after full-BID cleanup was scalar GGPR mapQ capacity:
+   `pc=0x4000557a`, `decodeBlockedByRename=1`, `gprFree=63`,
+   `gprMapQFree=0`. R196 split scalar `gprMapQDepth = 256` from the compact
+   local T/U `mapQDepth = 32`, matching LinxCoreModel `ggpr_mapq_depth = 256`.
+   R197 reduced `GPRRenameCheckpoint` release/live-mask fanout, cutting Chisel
+   emit time and Verilator memory, but the 256-depth marker-row top still stays
+   in Verilator front-end processing before `obj_dir` creation. The next packet
+   should structurally shrink or partition the scalar GPR mapQ/checkpoint
+   implementation without changing model-visible rename, commit, flush, and
+   replay semantics, then rerun
+   `generated/r197-gpr-mapq-mask-optimized-marker-row-1024-qemu-elf-xcheck`.
+2. Scale the R194 marker-row filtered comparator beyond the 512-row CoreMark
    repeated-loop window. R178 adds `LinxCoreFrontendFetchRfAluMarkerRowsTraceTop`,
    R179 proves the wrapper admits the first `C.BSTART` row in generated RTL,
    R180 adds `--marker-rows` to the QEMU/Verilator gate, and R192 proves
@@ -855,7 +868,7 @@ Closeout:
    filtered policy while watching marker-only BROB retire drain, loop re-entry,
    stop/redirect boundaries, and default skip-mode parity before changing the
    default live CoreMark top.
-2. Full marker lifecycle split and live-top switch: R172 feeds serialized
+3. Full marker lifecycle split and live-top switch: R172 feeds serialized
    retired marker rows into `BlockMarkerLifecycle` with row-owned BID evidence,
    R173 gives the marker-source queue recovery-exact suffix pruning, R174 makes
    active marker state STID-indexed, and R175 lets unskipped marker rows
@@ -871,27 +884,27 @@ Closeout:
    `skipBlockMarkers=true`; remove marker skipping only after the filtered
    marker-row path scales beyond the R194 window and its lifecycle side effects
    are checked across broader stops and redirects.
-3. Replace the temporary replay resolved-event source with real branch/BFU
+4. Replace the temporary replay resolved-event source with real branch/BFU
    resolver outputs. R153 has resolved cold-cut fallback and local
    header-window arming, but external QEMU metadata still provides body-end
    eligibility; the next packet should derive that from decoded/execute branch
    outcome and close skipped-marker lifecycle without replay-side help.
-4. Full issue scheduler timing: add explicit wakeup ports, alternate model
+5. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.
-5. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
+6. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
    event stream from commit-only rows toward trap, memory, recovery, and block
    sidebands.
-6. QEMU full-compare harness: scale the reduced live CoreMark window beyond
+7. QEMU full-compare harness: scale the reduced live CoreMark window beyond
    the R166 3.2M-row pass, or feed a bounded direct-boot window into the same
    comparator path once frontend/decode/execute/LSU can retire it from the
    full DUT stream.
-7. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+8. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
-8. Multi-PE packet production and bank instantiation: teach the upstream
+9. Multi-PE packet production and bank instantiation: teach the upstream
    frontend/top owner to set nonzero `FrontendDecodePacket.peId` and instantiate
    matching `ScalarTURenameBridge`/`TULinkLocalBankArray` PE banks.
-9. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+10. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 
