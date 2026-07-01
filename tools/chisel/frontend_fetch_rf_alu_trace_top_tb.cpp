@@ -1091,6 +1091,40 @@ struct BfuBodyGeometryHint {
   std::uint64_t bsize_bytes = 0;
 };
 
+struct BfuGeometryDiagnostics {
+  std::uint64_t comparable_count = 0;
+  std::uint64_t match_count = 0;
+};
+
+void observe_bfu_geometry_diagnostics(
+    VLinxCoreFrontendFetchRfAluTraceTop &dut,
+    BfuGeometryDiagnostics &stats,
+    const char *context) {
+  if (dut.io_reducedBfuStaticExternalMismatch ||
+      dut.io_reducedBfuStaticExternalHeaderMismatch ||
+      dut.io_reducedBfuStaticExternalHSizeMismatch ||
+      dut.io_reducedBfuStaticExternalBSizeMismatch) {
+    std::cerr << "frontend fetch RF ALU BFU static/external geometry mismatch during "
+              << context
+              << " comparable=" << static_cast<unsigned>(dut.io_reducedBfuStaticExternalComparable)
+              << " match=" << static_cast<unsigned>(dut.io_reducedBfuStaticExternalMatch)
+              << " headerMismatch=" << static_cast<unsigned>(dut.io_reducedBfuStaticExternalHeaderMismatch)
+              << " hsizeMismatch=" << static_cast<unsigned>(dut.io_reducedBfuStaticExternalHSizeMismatch)
+              << " bsizeMismatch=" << static_cast<unsigned>(dut.io_reducedBfuStaticExternalBSizeMismatch)
+              << "\n";
+    std::exit(1);
+  }
+  if (dut.io_reducedBfuStaticExternalComparable) {
+    ++stats.comparable_count;
+    if (!dut.io_reducedBfuStaticExternalMatch) {
+      std::cerr << "frontend fetch RF ALU BFU geometry was comparable without a match during "
+                << context << "\n";
+      std::exit(1);
+    }
+    ++stats.match_count;
+  }
+}
+
 BfuBodyGeometryHint dense_window_bfu_body_geometry(const std::vector<ExpectedRow> &rows, std::size_t start, std::size_t end) {
   BfuBodyGeometryHint hint;
   if (end <= start || end >= rows.size()) {
@@ -1141,7 +1175,8 @@ bool fetch_dense_window(
     std::size_t start,
     std::size_t end,
     const FetchMemoryImage &fetch_memory,
-    std::vector<ObservedRow> &pending_commits) {
+    std::vector<ObservedRow> &pending_commits,
+    BfuGeometryDiagnostics &bfu_stats) {
   const ExpectedRow &first = rows.at(start);
   const std::size_t slot_count = end - start;
   const std::uint8_t expected_mask = dense_window_mask(slot_count);
@@ -1149,12 +1184,14 @@ bool fetch_dense_window(
   const bool redirect_tail = row_redirects(rows.at(end - 1));
   const bool capture_tail = end == rows.size();
   const BfuBodyGeometryHint body_cut = dense_window_bfu_body_geometry(rows, start, end);
+  const std::uint64_t bfu_match_count_before = bfu_stats.match_count;
 
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
     dut.io_fetchReqReady = 1;
     drive_bfu_body_geometry_hint(dut, body_cut);
     eval_with_load_lookup(dut, fetch_memory);
+    observe_bfu_geometry_diagnostics(dut, bfu_stats, "fetch request");
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU fetch");
     if (dut.io_fetchReqValid) {
       if (dut.io_fetchReqPc != first.pc || !dut.io_sourceReqFire) {
@@ -1180,6 +1217,7 @@ request_done:
   dut.io_fetchRespWindow = fetch_memory.read_window(first.pc);
   drive_bfu_body_geometry_hint(dut, body_cut);
   eval_with_load_lookup(dut, fetch_memory);
+  observe_bfu_geometry_diagnostics(dut, bfu_stats, "fetch response");
   if (!dut.io_fetchRespReady || !dut.io_sourceRespFire) {
     std::cerr << "frontend fetch RF ALU response was not accepted"
               << " pc=0x" << std::hex << first.pc << std::dec
@@ -1194,6 +1232,7 @@ request_done:
     clear_inputs(dut);
     drive_bfu_body_geometry_hint(dut, body_cut);
     eval_with_load_lookup(dut, fetch_memory);
+    observe_bfu_geometry_diagnostics(dut, bfu_stats, "dense packet drain");
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU dense drain");
     if (dut.io_rfStateError) {
       std::cerr << "frontend fetch RF ALU reported RF state error before enqueue\n";
@@ -1227,6 +1266,14 @@ request_done:
       }
       const bool captured_tail_superset =
           capture_tail && dut.io_denseSlotQueueInSlotCount > slot_count;
+      if (body_cut.valid && bfu_stats.match_count == bfu_match_count_before) {
+        std::cerr << "frontend fetch RF ALU BFU body-geometry hint did not produce a static/external match"
+                  << " header_pc=0x" << std::hex << body_cut.header_pc
+                  << " hsize=0x" << body_cut.hsize_bytes
+                  << " bsize=0x" << body_cut.bsize_bytes
+                  << std::dec << "\n";
+        std::exit(1);
+      }
       tick(dut);
       return captured_tail_superset;
     }
@@ -1662,10 +1709,11 @@ int main(int argc, char **argv) {
   std::uint64_t active_block_bid = 0;
   bool captured_tail_superset = false;
   std::vector<ObservedRow> pending_commits;
+  BfuGeometryDiagnostics bfu_stats;
   for (std::size_t row_index = 0; row_index < rows.size();) {
     const std::size_t window_end = dense_window_end(rows, row_index);
     captured_tail_superset |=
-        fetch_dense_window(dut, rows, row_index, window_end, fetch_memory, pending_commits);
+        fetch_dense_window(dut, rows, row_index, window_end, fetch_memory, pending_commits, bfu_stats);
 
     std::vector<std::size_t> scalar_slots;
     for (std::size_t slot_index = row_index; slot_index < window_end; ++slot_index) {
@@ -1690,7 +1738,13 @@ int main(int argc, char **argv) {
               << pending_commits.size() << "\n";
     return 1;
   }
+  const auto print_bfu_stats = [&]() {
+    std::cout << "bfu_static_external_comparable=" << bfu_stats.comparable_count
+              << " bfu_static_external_matches=" << bfu_stats.match_count
+              << "\n";
+  };
   if (captured_tail_superset) {
+    print_bfu_stats();
     dut.final();
     return 0;
   }
@@ -1706,6 +1760,7 @@ int main(int argc, char **argv) {
   }
   expect_monitor_clean(dut, "post-drain idle window", 0x0, 0);
 
+  print_bfu_stats();
   dut.final();
   return 0;
 }

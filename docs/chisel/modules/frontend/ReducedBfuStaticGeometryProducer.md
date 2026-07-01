@@ -83,3 +83,6 @@ R145 focused tests cover the reference geometry rule for boundary-closed and
 yet a producer event, and elaborate the Chisel module. R146 adds a resolved
 body-end reference case for the CoreMark FALL body ending at `0x4000632e`.
 R147 adds a resolved-`hsize` reference case and keeps the producer diagnostic.
+R148 compares the producer's emitted diagnostic geometry against the external
+replay geometry at `LinxCoreFrontendFetchRfAluTraceTop`, proving the handoff
+contract before the producer is allowed to drive reduced body-cut control.

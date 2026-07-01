@@ -74,6 +74,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedBfuStaticHeaderActive = Output(Bool())
   val reducedBfuStaticLearnedFire = Output(Bool())
   val reducedBfuStaticResolvedLearnedFire = Output(Bool())
+  val reducedBfuStaticExternalComparable = Output(Bool())
+  val reducedBfuStaticExternalMatch = Output(Bool())
+  val reducedBfuStaticExternalMismatch = Output(Bool())
+  val reducedBfuStaticExternalHeaderMismatch = Output(Bool())
+  val reducedBfuStaticExternalHSizeMismatch = Output(Bool())
+  val reducedBfuStaticExternalBSizeMismatch = Output(Bool())
 
   val f4ValidMask = Output(UInt(p.decodeWidth.W))
   val f4SlotCount = Output(UInt(log2Ceil(p.decodeWidth + 1).W))
@@ -327,6 +333,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   staticBfuGeometry.io.resolvedHeaderPc := io.reducedBfuHeaderPc
   staticBfuGeometry.io.resolvedHSizeBytes := io.reducedBfuHSizeBytes
   staticBfuGeometry.io.resolvedBodyEndPc := externalBfuBodyEndPc
+  val staticExternalComparable = staticBfuGeometry.io.geometryValid && externalBfuGeometryValid
+  val staticExternalHeaderMatch = staticBfuGeometry.io.headerPc === io.reducedBfuHeaderPc
+  val staticExternalHSizeMatch = staticBfuGeometry.io.hsizeBytes === io.reducedBfuHSizeBytes
+  val staticExternalBSizeMatch = staticBfuGeometry.io.bsizeBytes === io.reducedBfuBSizeBytes
+  val staticExternalMatch =
+    staticExternalComparable && staticExternalHeaderMatch && staticExternalHSizeMatch && staticExternalBSizeMatch
+  val staticExternalHeaderMismatch = staticExternalComparable && !staticExternalHeaderMatch
+  val staticExternalHSizeMismatch = staticExternalComparable && !staticExternalHSizeMatch
+  val staticExternalBSizeMismatch = staticExternalComparable && !staticExternalBSizeMatch
 
   val bodyCut = Module(new ReducedBfuBodyCutPredictor(p))
   bodyCut.io.geometryValid := externalBfuGeometryValid
@@ -589,6 +604,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedBfuStaticHeaderActive := staticBfuGeometry.io.headerActive
   io.reducedBfuStaticLearnedFire := staticBfuGeometry.io.learnedFire
   io.reducedBfuStaticResolvedLearnedFire := staticBfuGeometry.io.resolvedLearnedFire
+  io.reducedBfuStaticExternalComparable := staticExternalComparable
+  io.reducedBfuStaticExternalMatch := staticExternalMatch
+  io.reducedBfuStaticExternalMismatch :=
+    staticExternalHeaderMismatch || staticExternalHSizeMismatch || staticExternalBSizeMismatch
+  io.reducedBfuStaticExternalHeaderMismatch := staticExternalHeaderMismatch
+  io.reducedBfuStaticExternalHSizeMismatch := staticExternalHSizeMismatch
+  io.reducedBfuStaticExternalBSizeMismatch := staticExternalBSizeMismatch
   io.f4ValidMask := frontendValidMask
   io.f4SlotCount := frontendSlotCount
   io.denseSlotQueueInFire := denseSlots.io.inFire
