@@ -1091,10 +1091,11 @@ Use this ladder for every promoted packet:
    stream but not part of the comparator stream. Use
    `--allow-block-loop-reentry` only with `--allow-block-markers` for dynamic
    FALL-header re-entry streams. For R143 and later reduced-top promotion, feed
-   those loop-aware rows through the live fetch RF/ALU top with the temporary
-   `reducedBodyCut*` sideband and require a zero-mismatch generated-RTL replay;
-   do not claim full BFU closure until real static-predictor
-   `bsize`/`hsize`/fallBPC metadata replaces that harness sideband.
+   those loop-aware rows through the live fetch RF/ALU top and require a
+   zero-mismatch generated-RTL replay. R144 moves the temporary contract to
+   `reducedBfu*` geometry consumed by `ReducedBfuBodyCutPredictor`; do not claim
+   full BFU closure until a real static-predictor geometry producer replaces
+   that harness source.
 14. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
    QEMU-selection changes.
 15. `bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run` for

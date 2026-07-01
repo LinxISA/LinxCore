@@ -387,9 +387,10 @@ void clear_inputs(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   dut.io_startPc = 0;
   dut.io_restartValid = 0;
   dut.io_restartPc = 0;
-  dut.io_reducedBodyCutValid = 0;
-  dut.io_reducedBodyCutPc = 0;
-  dut.io_reducedBodyCutRestartPc = 0;
+  dut.io_reducedBfuBodyValid = 0;
+  dut.io_reducedBfuHeaderPc = 0;
+  dut.io_reducedBfuHSizeBytes = 0;
+  dut.io_reducedBfuBSizeBytes = 0;
   dut.io_frontendFlushValid = 0;
   dut.io_peId = 0;
   dut.io_threadId = 0;
@@ -1083,14 +1084,15 @@ bool row_redirects(const ExpectedRow &row) {
   return row.next_pc != row.pc + row.len;
 }
 
-struct BodyCutHint {
+struct BfuBodyGeometryHint {
   bool valid = false;
-  std::uint64_t cut_pc = 0;
-  std::uint64_t restart_pc = 0;
+  std::uint64_t header_pc = 0;
+  std::uint64_t hsize_bytes = 0;
+  std::uint64_t bsize_bytes = 0;
 };
 
-BodyCutHint dense_window_body_cut(const std::vector<ExpectedRow> &rows, std::size_t start, std::size_t end) {
-  BodyCutHint hint;
+BfuBodyGeometryHint dense_window_bfu_body_geometry(const std::vector<ExpectedRow> &rows, std::size_t start, std::size_t end) {
+  BfuBodyGeometryHint hint;
   if (end <= start || end >= rows.size()) {
     return hint;
   }
@@ -1107,19 +1109,30 @@ BodyCutHint dense_window_body_cut(const std::vector<ExpectedRow> &rows, std::siz
               << " restart=0x" << next.pc << std::dec << "\n";
     std::exit(1);
   }
+  const std::uint64_t header_pc = next.pc;
+  const std::uint64_t body_base_pc = header_pc + 2;
+  if (cut_pc < body_base_pc) {
+    std::cerr << "loop re-entry metadata cuts before reduced BFU body base"
+              << " header_pc=0x" << std::hex << header_pc
+              << " body_base=0x" << body_base_pc
+              << " cut=0x" << cut_pc << std::dec << "\n";
+    std::exit(1);
+  }
   hint.valid = true;
-  hint.cut_pc = cut_pc;
-  hint.restart_pc = next.pc;
+  hint.header_pc = header_pc;
+  hint.hsize_bytes = 0;
+  hint.bsize_bytes = cut_pc - body_base_pc;
   return hint;
 }
 
-void drive_body_cut_hint(VLinxCoreFrontendFetchRfAluTraceTop &dut, const BodyCutHint &hint) {
+void drive_bfu_body_geometry_hint(VLinxCoreFrontendFetchRfAluTraceTop &dut, const BfuBodyGeometryHint &hint) {
   if (!hint.valid) {
     return;
   }
-  dut.io_reducedBodyCutValid = 1;
-  dut.io_reducedBodyCutPc = hint.cut_pc;
-  dut.io_reducedBodyCutRestartPc = hint.restart_pc;
+  dut.io_reducedBfuBodyValid = 1;
+  dut.io_reducedBfuHeaderPc = hint.header_pc;
+  dut.io_reducedBfuHSizeBytes = hint.hsize_bytes;
+  dut.io_reducedBfuBSizeBytes = hint.bsize_bytes;
 }
 
 bool fetch_dense_window(
@@ -1135,12 +1148,12 @@ bool fetch_dense_window(
   const std::uint8_t expected_advance = dense_window_advance(rows, start, end);
   const bool redirect_tail = row_redirects(rows.at(end - 1));
   const bool capture_tail = end == rows.size();
-  const BodyCutHint body_cut = dense_window_body_cut(rows, start, end);
+  const BfuBodyGeometryHint body_cut = dense_window_bfu_body_geometry(rows, start, end);
 
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
     dut.io_fetchReqReady = 1;
-    drive_body_cut_hint(dut, body_cut);
+    drive_bfu_body_geometry_hint(dut, body_cut);
     eval_with_load_lookup(dut, fetch_memory);
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU fetch");
     if (dut.io_fetchReqValid) {
@@ -1165,7 +1178,7 @@ request_done:
   clear_inputs(dut);
   dut.io_fetchRespValid = 1;
   dut.io_fetchRespWindow = fetch_memory.read_window(first.pc);
-  drive_body_cut_hint(dut, body_cut);
+  drive_bfu_body_geometry_hint(dut, body_cut);
   eval_with_load_lookup(dut, fetch_memory);
   if (!dut.io_fetchRespReady || !dut.io_sourceRespFire) {
     std::cerr << "frontend fetch RF ALU response was not accepted"
@@ -1179,7 +1192,7 @@ request_done:
 
   for (int cycle = 0; cycle < 8; ++cycle) {
     clear_inputs(dut);
-    drive_body_cut_hint(dut, body_cut);
+    drive_bfu_body_geometry_hint(dut, body_cut);
     eval_with_load_lookup(dut, fetch_memory);
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU dense drain");
     if (dut.io_rfStateError) {

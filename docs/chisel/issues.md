@@ -225,6 +225,9 @@ Evidence:
   harness. The loop-aware expected replay in
   `generated/r143b-loop-reentry-rtl-replay/report` compares 1330 normalized
   QEMU/DUT rows with zero mismatches.
+- R144 moves the arithmetic into `ReducedBfuBodyCutPredictor`: the reduced
+  harness now supplies `headerPc`/`hsize`/`bsize` geometry, and the top computes
+  the cut and restart locally.
 
 Resolution:
 
@@ -232,6 +235,10 @@ Resolution:
   from the loop-aware row stream, masks off slots at and after the model body
   boundary, advances the source only to that cut PC, preserves the clipped dense
   rows, and schedules a source-only restart to the annotated FALL header.
+- R144 narrows this temporary contract to BFU-style body geometry rather than
+  exact cut/restart commands: `cutPc = headerPc + 2 + bsize`, matching
+  LinxCoreModel `BFUUtils::NextBlockPC`, and `restartPc = headerPc + hsize`,
+  matching `BCtrlUnit::ConvertToBHeader` FALL resolution.
 - This closes the R142 packet-boundary failure as replacement evidence for the
   reduced top. It does not close the architectural BFU work: a later packet must
   replace the harness-provided sideband with real static-predictor block-body

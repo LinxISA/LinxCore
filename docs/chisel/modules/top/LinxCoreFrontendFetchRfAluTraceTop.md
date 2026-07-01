@@ -337,13 +337,23 @@ QEMU/DUT rows with zero mismatches. This is replacement evidence for the
 reduced live top, not full BFU closure; a later packet must replace the harness
 sideband with real static-predictor `bsize`/`hsize`/fallBPC metadata.
 
+R144 moves that cut calculation behind `ReducedBfuBodyCutPredictor`. The
+harness no longer drives exact `cutPc`/`restartPc` commands; it drives reduced
+BFU geometry (`headerPc`, `hsize`, `bsize`) derived from the loop-aware stream,
+and the top computes `cutPc = headerPc + 2 + bsize` plus
+`restartPc = headerPc + hsize` internally. This preserves the R143 replay
+behavior while creating the RTL module boundary that a real BFU static
+predictor will drive later. The R144 replay in
+`generated/r144-bfu-geometry-loop-replay/report` compares 1330 normalized
+QEMU/DUT rows with zero mismatches.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
 |---|---|---|---|---|
 | input | `startValid`, `startPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Arms the live fetch source at a starting PC. |
 | input | `restartValid`, `restartPc` | `Bool`, `UInt(pcWidth.W)` | pulse | Replaces the active fetch PC for a reduced restart. |
-| input | `reducedBodyCutValid`, `reducedBodyCutPc`, `reducedBodyCutRestartPc` | mixed | with live-F4 packet | Temporary reduced BFU body-cut hint from loop-aware expected rows. When active, the top cuts the current F4 packet before `reducedBodyCutPc` and schedules a source-only restart at `reducedBodyCutRestartPc`. |
+| input | `reducedBfuBodyValid`, `reducedBfuHeaderPc`, `reducedBfuHSizeBytes`, `reducedBfuBSizeBytes` | mixed | with live-F4 packet | Temporary reduced BFU body-geometry hint from loop-aware expected rows. `ReducedBfuBodyCutPredictor` converts this to the current F4 cut and source-only restart. |
 | input | `frontendFlushValid` | `Bool` | valid | Clears source packet state, F4, decode path, and reduced issue state. |
 | input | `peId`, `threadId` | `UInt` | with source packet | Packet-owned PE/STID sidecars for decode/rename. |
 | input | `fetchReqReady` | `Bool` | ready | Bounded fixture accepts a source PC request. |
@@ -534,11 +544,13 @@ R142 extends the QEMU-row source only: `--allow-block-loop-reentry` and
 to be emitted with `loop_reentry` metadata. The generated-RTL replay is still
 expected to fail until the frontend/F4 path can cut at the model block body
 boundary; see `CHISEL-ISSUE-007`.
-R143 consumes that metadata through the temporary `reducedBodyCut*` interface
-in the reduced top. The cut logic only changes the source advance, F4 valid
-mask, and source-only restart for the current loop-aware packet; it deliberately
-does not model the full BFU static predictor or make `--allow-block-loop-reentry`
-a general architectural pass criterion.
+R143 consumes that metadata through a temporary reduced body-cut interface in
+the reduced top. R144 changes the interface to `reducedBfu*` geometry and lets
+`ReducedBfuBodyCutPredictor` compute the cut/restart locally. The cut logic
+only changes the source advance, F4 valid mask, and source-only restart for the
+current loop-aware packet; it deliberately does not model the full BFU static
+predictor or make `--allow-block-loop-reentry` a general architectural pass
+criterion.
 R104 adds the first reduced block-lifecycle alignment for those marker slots.
 The model allocates BROB on `BSTART`, stamps following scalar instructions with
 the current block BID, and completes the current block on `BSTOP` through the

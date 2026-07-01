@@ -1,13 +1,13 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.{PopCount, log2Ceil}
+import chisel3.util.log2Ceil
 
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
-import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource}
+import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutPredictor}
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -35,9 +35,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val startPc = Input(UInt(p.pcWidth.W))
   val restartValid = Input(Bool())
   val restartPc = Input(UInt(p.pcWidth.W))
-  val reducedBodyCutValid = Input(Bool())
-  val reducedBodyCutPc = Input(UInt(p.pcWidth.W))
-  val reducedBodyCutRestartPc = Input(UInt(p.pcWidth.W))
+  val reducedBfuBodyValid = Input(Bool())
+  val reducedBfuHeaderPc = Input(UInt(p.pcWidth.W))
+  val reducedBfuHSizeBytes = Input(UInt(p.pcWidth.W))
+  val reducedBfuBSizeBytes = Input(UInt(p.pcWidth.W))
   val frontendFlushValid = Input(Bool())
   val peId = Input(UInt(p.peIdWidth.W))
   val threadId = Input(UInt(p.threadIdWidth.W))
@@ -309,19 +310,21 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val markerRedirectFire = path.io.blockMarkerStopRedirectValid || execute.io.redirectValid
   val frontendPipeFlush = io.frontendFlushValid || markerRedirectPending
   val backendPipeFlush = io.frontendFlushValid || scalarRedirectPending
-  // Temporary reduced BFU hook: loop-aware row replay supplies the block-body
-  // cut until the frontend owns static-predictor bsize/hsize metadata.
-  val f4WindowEndPc = (f4.io.d1.pc + F4DecodeWindow.WindowBytes.U)(p.pcWidth - 1, 0)
-  val reducedBodyCutActive =
-    io.reducedBodyCutValid && f4.io.d1.valid &&
-      io.reducedBodyCutPc > f4.io.d1.pc && io.reducedBodyCutPc <= f4WindowEndPc
-  val reducedBodyCutAdvanceBytes = (io.reducedBodyCutPc - f4.io.d1.pc)(3, 0)
-  val reducedBodyCutMask = VecInit((0 until p.decodeWidth).map { slot =>
-    !reducedBodyCutActive || (f4.io.slots(slot).valid && f4.io.slots(slot).pc < io.reducedBodyCutPc)
-  }).asUInt
-  val frontendValidMask = f4.io.validMask & reducedBodyCutMask
-  val frontendSlotCount = PopCount(frontendValidMask)
-  val effectiveSourceAdvanceBytes = Mux(reducedBodyCutActive, reducedBodyCutAdvanceBytes, f4.io.totalLenBytes)
+  val bodyCut = Module(new ReducedBfuBodyCutPredictor(p))
+  bodyCut.io.geometryValid := io.reducedBfuBodyValid
+  bodyCut.io.headerPc := io.reducedBfuHeaderPc
+  bodyCut.io.hsizeBytes := io.reducedBfuHSizeBytes
+  bodyCut.io.bsizeBytes := io.reducedBfuBSizeBytes
+  bodyCut.io.f4Valid := f4.io.d1.valid
+  bodyCut.io.f4Pc := f4.io.d1.pc
+  bodyCut.io.f4Slots := f4.io.slots
+  bodyCut.io.f4ValidMask := f4.io.validMask
+  bodyCut.io.f4TotalLenBytes := f4.io.totalLenBytes
+
+  val reducedBodyCutActive = bodyCut.io.cutActive
+  val frontendValidMask = bodyCut.io.validMask
+  val frontendSlotCount = bodyCut.io.slotCount
+  val effectiveSourceAdvanceBytes = bodyCut.io.advanceBytes
   val bodyCutRestartFire = source.io.outFire && reducedBodyCutActive
 
   when(io.frontendFlushValid || io.restartValid || io.startValid) {
@@ -354,7 +357,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     bodyCutRestartPcReg := 0.U
   }.elsewhen(bodyCutRestartFire) {
     bodyCutRestartPending := true.B
-    bodyCutRestartPcReg := io.reducedBodyCutRestartPc
+    bodyCutRestartPcReg := bodyCut.io.restartPc
   }.elsewhen(bodyCutRestartPending) {
     bodyCutRestartPending := false.B
     bodyCutRestartPcReg := 0.U
@@ -563,7 +566,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
   io.reducedBodyCutActive := reducedBodyCutActive
   io.reducedBodyCutFire := bodyCutRestartFire
-  io.reducedBodyCutAdvanceBytes := Mux(reducedBodyCutActive, reducedBodyCutAdvanceBytes, 0.U)
+  io.reducedBodyCutAdvanceBytes := Mux(reducedBodyCutActive, effectiveSourceAdvanceBytes, 0.U)
   io.f4ValidMask := frontendValidMask
   io.f4SlotCount := frontendSlotCount
   io.denseSlotQueueInFire := denseSlots.io.inFire
