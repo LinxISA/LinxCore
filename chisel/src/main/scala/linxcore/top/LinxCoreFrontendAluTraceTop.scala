@@ -123,6 +123,7 @@ class LinxCoreFrontendAluTraceTop(
   path.io.blockBranchTakenValid := false.B
   path.io.blockBranchTaken := false.B
   path.io.scalarRedirectValid := false.B
+  path.io.scalarRedirectStid := 0.U
   path.io.deallocReady := io.deallocReady
 
   execute.io.inValid := path.io.renamedOutValid

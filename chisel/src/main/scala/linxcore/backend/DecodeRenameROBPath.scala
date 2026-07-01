@@ -78,6 +78,7 @@ class DecodeRenameROBPathIO(
   val blockBranchTakenValid = Input(Bool())
   val blockBranchTaken = Input(Bool())
   val scalarRedirectValid = Input(Bool())
+  val scalarRedirectStid = Input(UInt(stidWidth.W))
   val deallocReady = Input(Bool())
 
   val decodedValidMask = Output(UInt(p.decodeWidth.W))
@@ -394,6 +395,7 @@ class DecodeRenameROBPath(
     val peIdWidth: Int = 8,
     val tidWidth: Int = 8,
     val localStid: Int = 0,
+    val scalarStidCount: Int = 1,
     val blockTypeWidth: Int = 4,
     val trapCauseWidth: Int = 32,
     val scalarArchRegs: Int = 24,
@@ -427,6 +429,8 @@ class DecodeRenameROBPath(
     "marker retire source queue must hold one full ROB dealloc window")
   require((markerRetireSourceQueueDepth & (markerRetireSourceQueueDepth - 1)) == 0,
     "marker retire source queue depth must be a power of two")
+  require(scalarStidCount > 0, "DecodeRenameROBPath must expose at least one scalar STID lane")
+  require(BigInt(scalarStidCount) <= (BigInt(1) << stidWidth), "scalar STID count must fit stidWidth")
 
   private val zeroRobId = 0.U.asTypeOf(new ROBID(p.robEntries))
   private val zeroLocalSeq = 0.U.asTypeOf(new ROBID(mapQDepth))
@@ -520,6 +524,8 @@ class DecodeRenameROBPath(
   val selectedIsStore = selectedAny && VecInit(decode.io.storeMask.asBools)(selectedSlot)
   val markerBoundary = markerOnlyPacket && VecInit(decode.io.blockBoundaryMask.asBools)(markerSlot)
   val markerStop = markerOnlyPacket && VecInit(decode.io.blockStopMask.asBools)(markerSlot)
+  val selectedStid = selected.threadId.pad(stidWidth)(stidWidth - 1, 0)
+  val markerStid = marker.threadId.pad(stidWidth)(stidWidth - 1, 0)
 
   val allocator = Module(new DispatchROBAllocator(
     entries = p.robEntries,
@@ -541,7 +547,8 @@ class DecodeRenameROBPath(
     insnWidth = p.insnWidth,
     lenWidth = p.lenWidth,
     peIdWidth = peIdWidth,
-    stidWidth = stidWidth
+    stidWidth = stidWidth,
+    stidCount = scalarStidCount
   ))
   val robBlockLastScalarDoneFire = allocator.io.deallocBlockLastValid
   val markerLifecycleConflict = robBlockLastScalarDoneFire
@@ -552,6 +559,7 @@ class DecodeRenameROBPath(
   markerLifecycle.io.markerTarget := marker.boundaryTarget
   markerLifecycle.io.markerInsnLen := marker.insnLen
   markerLifecycle.io.markerBoundaryKind := marker.boundaryKind
+  markerLifecycle.io.markerStid := markerStid
   markerLifecycle.io.markerAllocReady := allocator.io.blockAllocOnlyReady
   markerLifecycle.io.markerAllocBid := allocator.io.blockAllocOnlyBid
   markerLifecycle.io.branchTakenValid := io.blockBranchTakenValid
@@ -560,11 +568,14 @@ class DecodeRenameROBPath(
   markerLifecycle.io.markerLifecycleConflict := markerLifecycleConflict
   markerLifecycle.io.retirePending := blockScalarDoneSeq.io.retirePending
   markerLifecycle.io.scalarRedirectValid := io.scalarRedirectValid
+  markerLifecycle.io.scalarRedirectStid := io.scalarRedirectStid
   markerLifecycle.io.scalarBlockStartFire :=
     allocator.io.allocFire && selectedAny && !markerLifecycle.io.activeValid
+  markerLifecycle.io.scalarBlockStartStid := selectedStid
   markerLifecycle.io.scalarBlockStartBid := allocator.io.allocBlockBid
   markerLifecycle.io.robBlockLastValid := robBlockLastScalarDoneFire
   markerLifecycle.io.robBlockLastBid := allocator.io.deallocBlockLastBlockBid
+  markerLifecycle.io.activeQueryStid := selectedStid
 
   val decRenFlush = io.flushValid || (io.cleanup.valid && io.cleanup.backendFlushValid)
   val memIds = Module(new DecodeLoadStoreIdAssign(p, serialWidth = loadStoreSerialWidth))
@@ -623,7 +634,8 @@ class DecodeRenameROBPath(
     stidWidth = stidWidth,
     peIdWidth = peIdWidth,
     tidWidth = tidWidth,
-    localStid = localStid
+    localStid = localStid,
+    scalarStidCount = scalarStidCount
   ))
   val activeTURenamePeId = queuedForRename.peId.pad(peIdWidth)(peIdWidth - 1, 0)
   val activeTURenameStid = queuedForRename.threadId.pad(stidWidth)(stidWidth - 1, 0)
@@ -713,7 +725,7 @@ class DecodeRenameROBPath(
   val selectedAllocPeId = selectedForQueue.peId.pad(peIdWidth)(peIdWidth - 1, 0)
   val selectedAllocBlockType = selectedForQueue.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
   val markerAllocTid = marker.threadId.pad(tidWidth)(tidWidth - 1, 0)
-  val markerAllocStid = marker.threadId.pad(stidWidth)(stidWidth - 1, 0)
+  val markerAllocStid = markerStid
   val markerAllocPeId = marker.peId.pad(peIdWidth)(peIdWidth - 1, 0)
   val markerAllocBlockType = marker.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
   allocator.io.allocTid := Mux(markerBoundary, markerAllocTid, selectedAllocTid)

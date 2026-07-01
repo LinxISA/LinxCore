@@ -15,6 +15,7 @@ object BlockMarkerLifecycleReference {
       markerTarget: BigInt = 0,
       markerInsnLen: BigInt = 2,
       markerKind: Kind.Value = Kind.Fall,
+      markerStid: Int = 0,
       markerAllocReady: Boolean = true,
       markerAllocBid: BigInt = 0,
       branchTakenValid: Boolean = false,
@@ -29,13 +30,17 @@ object BlockMarkerLifecycleReference {
       retiredMarkerTarget: BigInt = 0,
       retiredMarkerInsnLen: BigInt = 2,
       retiredMarkerKind: Kind.Value = Kind.Fall,
+      retiredMarkerStid: Int = 0,
       retiredMarkerBlockBidValid: Boolean = false,
       retiredMarkerBlockBid: BigInt = 0,
       scalarRedirectValid: Boolean = false,
+      scalarRedirectStid: Int = 0,
       scalarBlockStartFire: Boolean = false,
+      scalarBlockStartStid: Int = 0,
       scalarBlockStartBid: BigInt = 0,
       robBlockLastValid: Boolean = false,
       robBlockLastBid: BigInt = 0,
+      activeQueryStid: Int = 0,
       flushValid: Boolean = false)
 
   final case class Output(
@@ -50,51 +55,110 @@ object BlockMarkerLifecycleReference {
       scalarDoneBid: Option[BigInt],
       stopRedirectPc: Option[BigInt])
 
-  final class State(entries: Int) {
-    private var activeValid = false
-    private var activeBid = BigInt(0)
-    private var activeTarget = BigInt(0)
-    private var activeCond = false
-    private var activeUnconditionalRedirect = false
+  final class State(entries: Int, stidCount: Int = 1) {
+    require(stidCount > 0)
+    private val activeValid = Array.fill(stidCount)(false)
+    private val activeBid = Array.fill(stidCount)(BigInt(0))
+    private val activeTarget = Array.fill(stidCount)(BigInt(0))
+    private val activeCond = Array.fill(stidCount)(false)
+    private val activeUnconditionalRedirect = Array.fill(stidCount)(false)
 
     private def sameSlot(a: BigInt, b: BigInt): Boolean =
       (a % entries) == (b % entries)
 
+    private def lane(stid: Int): Option[Int] =
+      if (stid >= 0 && stid < stidCount) Some(stid) else None
+
+    private def isActive(lane: Option[Int]): Boolean =
+      lane.exists(activeValid)
+
+    private def laneBid(lane: Option[Int]): BigInt =
+      lane.map(activeBid).getOrElse(BigInt(0))
+
+    private def laneTarget(lane: Option[Int]): BigInt =
+      lane.map(activeTarget).getOrElse(BigInt(0))
+
+    private def laneCond(lane: Option[Int]): Boolean =
+      lane.exists(activeCond)
+
+    private def laneUnconditionalRedirect(lane: Option[Int]): Boolean =
+      lane.exists(activeUnconditionalRedirect)
+
+    private def clear(lane: Int): Unit = {
+      activeValid(lane) = false
+      activeBid(lane) = 0
+      activeTarget(lane) = 0
+      activeCond(lane) = false
+      activeUnconditionalRedirect(lane) = false
+    }
+
+    private def installBoundary(lane: Int, bid: BigInt, target: BigInt, kind: Kind.Value): Unit = {
+      activeValid(lane) = true
+      activeBid(lane) = bid
+      activeTarget(lane) = target
+      activeCond(lane) = kind == Kind.Cond
+      activeUnconditionalRedirect(lane) = kind == Kind.Direct || kind == Kind.Call
+    }
+
+    private def installScalar(lane: Int, bid: BigInt): Unit = {
+      activeValid(lane) = true
+      activeBid(lane) = bid
+      activeTarget(lane) = 0
+      activeCond(lane) = false
+      activeUnconditionalRedirect(lane) = false
+    }
+
     def step(in: Input): Output = {
-      val markerAllocBlockedByActiveSlot = activeValid && sameSlot(in.markerAllocBid, activeBid)
+      val markerLane = lane(in.markerStid)
+      val retiredLane = lane(in.retiredMarkerStid)
+      val queryLane = lane(in.activeQueryStid)
+      val scalarRedirectLane = lane(in.scalarRedirectStid)
+      val scalarBlockStartLane = lane(in.scalarBlockStartStid)
+      val markerActiveValid = isActive(markerLane)
+      val markerActiveBid = laneBid(markerLane)
+      val markerActiveTarget = laneTarget(markerLane)
+      val retiredActiveValid = isActive(retiredLane)
+      val retiredActiveBid = laneBid(retiredLane)
+      val retiredActiveTarget = laneTarget(retiredLane)
+      val scalarRedirectActiveValid = isActive(scalarRedirectLane)
+      val scalarRedirectActiveBid = laneBid(scalarRedirectLane)
+
+      val markerAllocBlockedByActiveSlot = markerActiveValid && sameSlot(in.markerAllocBid, markerActiveBid)
       val markerNeedsBranchDecision =
-        in.markerBoundary && activeValid && activeCond && activeTarget != 0 &&
+        in.markerBoundary && markerActiveValid && laneCond(markerLane) && markerActiveTarget != 0 &&
           (in.branchTakenValid || in.scalarWorkPending)
       val markerUnconditionalRedirect =
-        in.markerBoundary && activeValid && activeUnconditionalRedirect && activeTarget != 0
+        in.markerBoundary && markerActiveValid && laneUnconditionalRedirect(markerLane) && markerActiveTarget != 0
       val markerRedirectBoundary =
         markerUnconditionalRedirect || (markerNeedsBranchDecision && in.branchTakenValid && in.branchTaken)
       val markerFallthroughBoundary =
         in.markerBoundary && !markerUnconditionalRedirect &&
           (!markerNeedsBranchDecision || (in.branchTakenValid && !in.branchTaken))
-      val blockAllocOnlyValid = markerFallthroughBoundary && !in.markerLifecycleConflict
+      val markerStidInRange = markerLane.nonEmpty
+      val blockAllocOnlyValid = markerStidInRange && markerFallthroughBoundary && !in.markerLifecycleConflict
       val markerPreRetireFire =
-        markerFallthroughBoundary && !in.markerLifecycleConflict && !in.markerAllocReady &&
+        markerStidInRange && markerFallthroughBoundary && !in.markerLifecycleConflict && !in.markerAllocReady &&
           markerAllocBlockedByActiveSlot && !in.retirePending
       val markerReady =
-        !in.markerLifecycleConflict &&
+        markerStidInRange && !in.markerLifecycleConflict &&
           (in.markerStop || markerRedirectBoundary || (markerFallthroughBoundary && in.markerAllocReady))
       val markerAllocFire = markerFallthroughBoundary && markerReady && in.markerAllocReady
       val markerBoundaryRedirectFire = markerRedirectBoundary && markerReady
       val markerStopFire = in.markerStop && markerReady
       val markerScalarDoneFire =
-        activeValid && (markerStopFire || markerAllocFire || markerBoundaryRedirectFire || markerPreRetireFire)
-      val scalarRedirectScalarDoneFire = in.scalarRedirectValid && activeValid
-      val robBlockLastClearsActive = in.robBlockLastValid && activeValid && in.robBlockLastBid == activeBid
+        markerActiveValid && (markerStopFire || markerAllocFire || markerBoundaryRedirectFire || markerPreRetireFire)
+      val scalarRedirectScalarDoneFire = in.scalarRedirectValid && scalarRedirectActiveValid
+      val robBlockLastClearsActive =
+        activeValid.indices.exists(idx => in.robBlockLastValid && activeValid(idx) && in.robBlockLastBid == activeBid(idx))
 
       val decodeMarkerActive = in.markerBoundary || in.markerStop
       val retiredBoundary = in.retiredMarkerValid && in.retiredMarkerBoundary
       val retiredStop = in.retiredMarkerValid && in.retiredMarkerStop
       val retiredNeedsBranchDecision =
-        retiredBoundary && activeValid && activeCond && activeTarget != 0 &&
+        retiredBoundary && retiredActiveValid && laneCond(retiredLane) && retiredActiveTarget != 0 &&
           (in.branchTakenValid || in.scalarWorkPending)
       val retiredUnconditionalRedirect =
-        retiredBoundary && activeValid && activeUnconditionalRedirect && activeTarget != 0
+        retiredBoundary && retiredActiveValid && laneUnconditionalRedirect(retiredLane) && retiredActiveTarget != 0
       val retiredRedirectBoundary =
         retiredUnconditionalRedirect || (retiredNeedsBranchDecision && in.branchTakenValid && in.branchTaken)
       val retiredFallthroughBoundary =
@@ -102,34 +166,37 @@ object BlockMarkerLifecycleReference {
           (!retiredNeedsBranchDecision || (in.branchTakenValid && !in.branchTaken))
       val retiredLifecycleIdle =
         !decodeMarkerActive && !in.flushValid && !scalarRedirectScalarDoneFire && !in.robBlockLastValid
+      val retiredStidInRange = retiredLane.nonEmpty
       val retiredMarkerReady =
         retiredLifecycleIdle && !in.markerLifecycleConflict &&
-          (!in.retiredMarkerValid || retiredStop || retiredRedirectBoundary ||
-            (retiredFallthroughBoundary && in.retiredMarkerBlockBidValid))
+          (!in.retiredMarkerValid || (retiredStidInRange && (retiredStop || retiredRedirectBoundary ||
+            (retiredFallthroughBoundary && in.retiredMarkerBlockBidValid))))
       val retiredMarkerBoundaryFire =
         retiredFallthroughBoundary && retiredMarkerReady && in.retiredMarkerBlockBidValid
       val retiredMarkerRedirectFire = retiredRedirectBoundary && retiredMarkerReady
       val retiredMarkerStopFire = retiredStop && retiredMarkerReady
       val retiredMarkerFire = retiredMarkerBoundaryFire || retiredMarkerRedirectFire || retiredMarkerStopFire
       val retiredScalarDoneFire =
-        activeValid && (retiredMarkerStopFire || retiredMarkerBoundaryFire || retiredMarkerRedirectFire)
+        retiredActiveValid && (retiredMarkerStopFire || retiredMarkerBoundaryFire || retiredMarkerRedirectFire)
 
       val scalarDoneBid =
-        if (markerScalarDoneFire || retiredScalarDoneFire || scalarRedirectScalarDoneFire) Some(activeBid)
+        if (markerScalarDoneFire) Some(markerActiveBid)
+        else if (retiredScalarDoneFire) Some(retiredActiveBid)
+        else if (scalarRedirectScalarDoneFire) Some(scalarRedirectActiveBid)
         else if (in.robBlockLastValid) Some(in.robBlockLastBid)
         else None
       val stopRedirectPc =
-        if ((markerStopFire || markerBoundaryRedirectFire) && activeValid &&
-            activeTarget != 0 && activeTarget != (in.markerPc + in.markerInsnLen)) {
-          Some(activeTarget)
-        } else if ((retiredMarkerStopFire || retiredMarkerRedirectFire) && activeValid &&
-            activeTarget != 0 && activeTarget != (in.retiredMarkerPc + in.retiredMarkerInsnLen)) {
-          Some(activeTarget)
+        if ((markerStopFire || markerBoundaryRedirectFire) && markerActiveValid &&
+            markerActiveTarget != 0 && markerActiveTarget != (in.markerPc + in.markerInsnLen)) {
+          Some(markerActiveTarget)
+        } else if ((retiredMarkerStopFire || retiredMarkerRedirectFire) && retiredActiveValid &&
+            retiredActiveTarget != 0 && retiredActiveTarget != (in.retiredMarkerPc + in.retiredMarkerInsnLen)) {
+          Some(retiredActiveTarget)
         } else {
           None
         }
       val out = Output(
-        activeBid = if (activeValid) Some(activeBid) else None,
+        activeBid = if (isActive(queryLane)) Some(laneBid(queryLane)) else None,
         blockAllocOnlyValid = blockAllocOnlyValid,
         retiredMarkerReady = retiredMarkerReady,
         retiredMarkerFire = retiredMarkerFire,
@@ -140,37 +207,31 @@ object BlockMarkerLifecycleReference {
         scalarDoneBid = scalarDoneBid,
         stopRedirectPc = stopRedirectPc)
 
-      if (in.flushValid || scalarRedirectScalarDoneFire) {
-        activeValid = false
-        activeBid = 0
-        activeTarget = 0
-        activeCond = false
-        activeUnconditionalRedirect = false
+      if (in.flushValid) {
+        activeValid.indices.foreach(clear)
+      } else if (scalarRedirectScalarDoneFire) {
+        scalarRedirectLane.foreach(clear)
       } else if (markerAllocFire) {
-        activeValid = true
-        activeBid = in.markerAllocBid
-        activeTarget = in.markerTarget
-        activeCond = in.markerKind == Kind.Cond
-        activeUnconditionalRedirect = in.markerKind == Kind.Direct || in.markerKind == Kind.Call
+        markerLane.foreach(installBoundary(_, in.markerAllocBid, in.markerTarget, in.markerKind))
       } else if (retiredMarkerBoundaryFire) {
-        activeValid = true
-        activeBid = in.retiredMarkerBlockBid
-        activeTarget = in.retiredMarkerTarget
-        activeCond = in.retiredMarkerKind == Kind.Cond
-        activeUnconditionalRedirect = in.retiredMarkerKind == Kind.Direct || in.retiredMarkerKind == Kind.Call
+        retiredLane.foreach(installBoundary(_, in.retiredMarkerBlockBid, in.retiredMarkerTarget, in.retiredMarkerKind))
       } else if (in.scalarBlockStartFire) {
-        activeValid = true
-        activeBid = in.scalarBlockStartBid
-        activeTarget = 0
-        activeCond = false
-        activeUnconditionalRedirect = false
+        scalarBlockStartLane.foreach(installScalar(_, in.scalarBlockStartBid))
       } else if (markerStopFire || markerBoundaryRedirectFire || retiredMarkerStopFire ||
           retiredMarkerRedirectFire || robBlockLastClearsActive) {
-        activeValid = false
-        activeBid = 0
-        activeTarget = 0
-        activeCond = false
-        activeUnconditionalRedirect = false
+        if (markerStopFire || markerBoundaryRedirectFire) {
+          markerLane.foreach(clear)
+        }
+        if (retiredMarkerStopFire || retiredMarkerRedirectFire) {
+          retiredLane.foreach(clear)
+        }
+        if (in.robBlockLastValid) {
+          activeValid.indices.foreach { idx =>
+            if (activeValid(idx) && in.robBlockLastBid == activeBid(idx)) {
+              clear(idx)
+            }
+          }
+        }
       }
 
       out
@@ -284,6 +345,36 @@ class BlockMarkerLifecycleSpec extends AnyFunSuite {
     assert(clear.activeBid.isEmpty)
   }
 
+  test("reference keeps active marker state independent across STID lanes") {
+    val state = new State(entries = 8, stidCount = 2)
+
+    state.step(Input(
+      markerBoundary = true,
+      markerStid = 0,
+      markerAllocReady = true,
+      markerAllocBid = 0x10))
+
+    val stid1Start = state.step(Input(
+      markerBoundary = true,
+      markerStid = 1,
+      markerAllocReady = true,
+      markerAllocBid = 0x20,
+      activeQueryStid = 0))
+    assert(stid1Start.activeBid.contains(0x10))
+    assert(stid1Start.markerAllocFire)
+    assert(stid1Start.scalarDoneBid.isEmpty)
+
+    val stid1Stop = state.step(Input(
+      markerStop = true,
+      markerStid = 1,
+      activeQueryStid = 0))
+    assert(stid1Stop.activeBid.contains(0x10))
+    assert(stid1Stop.scalarDoneBid.contains(0x20))
+
+    val stid0StillActive = state.step(Input(activeQueryStid = 0))
+    assert(stid0StillActive.activeBid.contains(0x10))
+  }
+
   test("reference pre-retires active same-slot marker blocks without clearing active state") {
     val state = new State(entries = 8)
 
@@ -300,9 +391,16 @@ class BlockMarkerLifecycleSpec extends AnyFunSuite {
   }
 
   test("BlockMarkerLifecycle elaborates the active-state and lifecycle ports") {
-    val sv = ChiselStage.emitSystemVerilog(new BlockMarkerLifecycle(entries = 8, bidWidth = 64, pcWidth = 64))
+    val sv = ChiselStage.emitSystemVerilog(new BlockMarkerLifecycle(
+      entries = 8,
+      bidWidth = 64,
+      pcWidth = 64,
+      stidCount = 2))
 
     assert(sv.contains("module BlockMarkerLifecycle"))
+    assert(sv.contains("io_markerStid"))
+    assert(sv.contains("io_activeQueryStid"))
+    assert(sv.contains("io_scalarRedirectStid"))
     assert(sv.contains("io_activeValid"))
     assert(sv.contains("io_activeBid"))
     assert(sv.contains("io_blockAllocOnlyValid"))

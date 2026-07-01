@@ -601,6 +601,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.blockBranchTakenValid := blockBranchTakenValid
   path.io.blockBranchTaken := blockBranchTaken
   path.io.scalarRedirectValid := execute.io.redirectValid
+  path.io.scalarRedirectStid := execute.io.releaseStid
   path.io.deallocReady := io.deallocReady
 
   issue.io.inValid := path.io.renamedOutValid && !localIncomingBlocked

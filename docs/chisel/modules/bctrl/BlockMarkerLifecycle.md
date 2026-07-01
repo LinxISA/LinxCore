@@ -36,6 +36,11 @@ the row-owned `blockBid` captured before dispatch, and backpressure malformed
 retired boundaries that do not carry a valid block BID. The decode-time
 reduced marker-skip inputs remain separate until full marker-row admission
 replaces the bring-up skip path.
+R174 changes the active context from one global slot to an explicit
+STID-indexed array. The default instantiation still has one STID lane for the
+current reduced top, but marker consumption, retired marker consumption, scalar
+redirect cleanup, scalar-created active blocks, and diagnostic active-state
+queries now carry the STID that owns the operation.
 
 ## Interface
 
@@ -48,6 +53,7 @@ replaces the bring-up skip path.
 | Input | `markerTarget` | `UInt(pcWidth.W)` | Target carried by the current boundary marker. |
 | Input | `markerInsnLen` | `UInt(4.W)` | Current marker length in bytes. |
 | Input | `markerBoundaryKind` | `BoundaryKind` | Boundary kind used to distinguish conditional and unconditional-direct active state. |
+| Input | `markerStid` | `UInt(stidWidth.W)` | STID lane for the decode-time marker-only packet. Marker readiness is false when this STID is outside the instantiated `stidCount`. |
 | Input | `markerAllocReady` | `Bool` | BROB-only marker allocation readiness from `DispatchROBAllocator`. |
 | Input | `markerAllocBid` | `UInt(bidWidth.W)` | Full BID that would be allocated for the current marker boundary. |
 | Input | `branchTakenValid/branchTaken` | `Bool` | Reduced execute-owned conditional decision. |
@@ -55,11 +61,13 @@ replaces the bring-up skip path.
 | Input | `markerLifecycleConflict` | `Bool` | Blocks marker lifecycle when another scalar-done source owns the cycle. |
 | Input | `retirePending` | `Bool` | Prevents repeated same-slot pre-retire while the previous retire is pending. |
 | Input | `scalarRedirectValid` | `Bool` | Reduced scalar execute redirect that closes the active block context. |
-| Input | `scalarBlockStartFire/scalarBlockStartBid` | `Bool`/`UInt` | Scalar row allocated a new block while no marker block was active. |
+| Input | `scalarRedirectStid` | `UInt(stidWidth.W)` | STID lane to close for an execute-owned scalar redirect. |
+| Input | `scalarBlockStartFire/scalarBlockStartStid/scalarBlockStartBid` | mixed | Scalar row allocated a new block while no marker block was active for that STID. |
 | Input | `robBlockLastValid/robBlockLastBid` | `Bool`/`UInt` | ROB deallocation reached a block-last row. |
+| Input | `activeQueryStid` | `UInt(stidWidth.W)` | STID lane selected for `active*` diagnostic outputs and scalar-row BID reuse. |
 | Input | `retiredMarker` | `BlockMarkerRetireSource` | One serialized retired marker row from `BlockMarkerRetireSourceSerializer`, including row-owned BID, PC, length, boundary kind, and target. |
-| Output | `activeValid/activeBid/activeTarget` | mixed | Current active block context. |
-| Output | `activeCond/activeUnconditionalRedirect` | `Bool` | Internal active marker decision class, exposed for diagnostics/future owners. |
+| Output | `activeValid/activeBid/activeTarget` | mixed | Current active block context for `activeQueryStid`. |
+| Output | `activeCond/activeUnconditionalRedirect` | `Bool` | Internal active marker decision class for `activeQueryStid`, exposed for diagnostics/future owners. |
 | Output | `blockAllocOnlyValid` | `Bool` | Request a BROB-only marker allocation. |
 | Output | `markerReady` | `Bool` | Marker-only packet readiness used for `decodeReady`. |
 | Output | `markerAllocFire` | `Bool` | Marker boundary allocation fires and becomes the new active BID. |
@@ -79,15 +87,20 @@ replaces the bring-up skip path.
   active target is nonzero and scalar ROB work can still produce the decision.
 - Direct/call active blocks redirect at the next marker boundary instead of
   allocating another BROB entry.
+- Active context is stored per instantiated STID lane. Decode-time marker
+  operations use `markerStid`; retired marker operations use
+  `retiredMarker.stid`; scalar redirect cleanup uses `scalarRedirectStid`; and
+  scalar row BID reuse/diagnostics query `activeQueryStid`.
 - If marker allocation would wrap onto the active BID slot while allocation is
   not ready, `markerPreRetireFire` emits scalar done for the active BID and
   keeps active state live until the retire gap clears.
 - Scalar redirects complete and clear active context before the redirected
-  target's first scalar row can seed a fresh scalar-created active block.
+  target's first scalar row can seed a fresh scalar-created active block. Only
+  the redirecting STID lane is cleared.
 - A scalar row allocation with no active marker block seeds active context using
-  the scalar row's full BID and a zero target.
+  the scalar row's full BID, STID, and a zero target.
 - ROB block-last deallocation emits scalar done for the deallocated block BID
-  and clears active state only when the full BID matches the active context.
+  and clears any active STID lane whose full BID matches the deallocated block.
 - Serialized retired marker sources are consumed only when no decode-time
   marker, scalar redirect, backend flush, or ROB block-last owner is using the
   lifecycle for the cycle.
@@ -117,12 +130,24 @@ observe the retired row image. R172 follows that order by treating
 `BlockMarkerRetireSource.blockBid` as row-owned retirement evidence instead of
 performing another BROB allocation when the marker retires.
 
+The C++ model carries block-control context per scalar thread. `BRQ` owns
+`stashH[stid]` and `brq[stid]` and sizes both arrays from
+`scalar_smt_thread` in `BRQ::Build`. `BCtrlUnit::Build` similarly sizes
+`currentBID`, `currentBHeader`, `currentBlkCmd`, and stall state by
+`scalar_smt_thread`. `BlockROB::Build` creates per-STID `current` and `next`
+state, while `DCTop::Build` sizes `blockSplitDCTopArr[pe][stid]` and
+`lastHeader[stid]`. R174 mirrors that ownership shape in Chisel by making the
+reduced active marker state lane-indexed even though the live bring-up top
+still instantiates one lane.
+
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerLifecycle`
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerRetireSourceSerializer`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
+- `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerLifecycleSpec`
+- `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPathSpec`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r168-block-marker-lifecycle-smoke --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 30 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r172-retired-marker-lifecycle-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 
@@ -130,3 +155,12 @@ The R172 focused test adds retired-boundary and malformed-boundary reference
 cases. The live CoreMark gate captured 6000 QEMU rows, normalized 5138 QEMU/DUT
 rows, compared 5137 rows, and passed with zero mismatches and no CBSTOP
 divergence.
+R174 adds a two-STID reference case that proves a STID1 marker stop completes
+only STID1 while STID0 remains active. The R174 live CoreMark gate
+`generated/r174-stid-marker-lifecycle-6000-qemu-elf-xcheck` captured 6000 QEMU
+rows, produced 5866 expected rows, normalized 5138 QEMU/DUT rows, compared
+5137 rows, and passed with zero mismatches and no CBSTOP divergence. The
+manifest recorded dirty LinxCore `b8b94fa82e4f67d3c322b71fd92ccd11b4b36786`
+for the uncommitted packet, clean LinxCoreModel
+`3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU
+`08783bb4572df9c5f6623bed0d468641befab762`.

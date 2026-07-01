@@ -154,8 +154,8 @@ and wires allocator/decode/execute inputs, but active full-BID state, conditiona
 and direct marker decisions, same-slot pre-retire, scalar redirect cleanup,
 block-last closure, marker readiness, and scalar-done source selection now live
 under BCTRL. This is still the reduced marker-consume path; full marker-row ROB
-admission, recovery-exact cleanup, and per-STID active state remain the next
-block-control work.
+admission and recovery-exact cleanup remained the next block-control work at
+that point.
 R169 forwards decoded marker sidecars into the allocation-time ROB row image and
 exposes `robDeallocBlockMarkerRetireSource` from `ROBEntryBank` through this
 composition boundary. That vector is the first source boundary needed before
@@ -176,6 +176,14 @@ R173 wires backend recovery flush into that marker serializer. Queued marker
 sources are pruned by newest flushed suffix and compacted, matching the
 existing T/U retire-source cleanup policy instead of clearing all queued marker
 sources on every backend cleanup.
+R174 wires the backend to the per-STID active-context contract in
+`BlockMarkerLifecycle`. Decode-time marker-only packets pass `marker.threadId`
+as `markerStid`; scalar rows query active state with `selected.threadId`;
+scalar-created active blocks install with that selected STID; and execute
+redirect cleanup passes `scalarRedirectStid` so only the redirecting STID lane
+is closed. The default composition still instantiates one scalar STID lane, so
+existing STID0 live gates preserve their behavior while the interface is ready
+for multi-STID block-control work.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker
@@ -203,6 +211,8 @@ Inputs:
 - `scalarRedirectValid`: reduced execute-owned redirect pulse used to complete
   and clear active marker context after a scalar return/control row such as
   `FRET.STK`.
+- `scalarRedirectStid`: STID sideband for the scalar redirect. It selects the
+  active block lane cleared by `BlockMarkerLifecycle`.
 - `completeValid/completeRobValue`: reduced ROB completion hook.
 - `completeRowValid/completeRow`: optional execute/LSU completion payload
   used when a live owner replaces the allocation/rename placeholder row before
@@ -555,6 +565,12 @@ the serializer's hard `clear` inactive in this composition. Recovery cleanup
 therefore blocks marker-source enqueue/dequeue for the cycle, prunes only the
 newest flushed suffix, compacts surviving sources, and reports the removed
 count as `robMarkerRetireSourcePruneCount`.
+R174 keeps the serializer-to-lifecycle retired marker path unchanged but makes
+the active-state owner STID-indexed. `DecodeRenameROBPath` now drives
+`BlockMarkerLifecycle.markerStid` from the marker-only row, drives
+`activeQueryStid` and `scalarBlockStartStid` from the selected scalar row, and
+adds `scalarRedirectStid` to the backend IO so live execute redirects clear the
+matching STID lane instead of treating active block context as global.
 
 R103 uses the ROB bank's full block-last BID to drive the reduced BROB
 completion path. On a deallocation cycle that frees a block-last row,
@@ -576,8 +592,7 @@ path mirrors this at marker-consume granularity: `BSTART` allocates BROB-only,
 scalar rows reuse the active BID, `BSTOP` completes the current active BID,
 and `BSTART` while active completes the old BID before installing the new one.
 At R104 this was not a full marker ROB-retire implementation, and the current
-path still keeps active block state reduced to the current serialized lane
-rather than per-STID arrays.
+path still skipped marker rows instead of admitting them as ordinary ROB rows.
 
 R117 feeds reduced marker/block retire back into scalar rename commit
 bookkeeping. When the marker-owned block-retire pending bit is set, the path
@@ -808,6 +823,13 @@ backpressure.
 R173 covers marker retire-source recovery pruning through the backend cleanup
 flush, `robMarkerRetireSourcePruneCount` IO elaboration, and live top
 elaboration with the new serializer flush input.
+R174 covers STID-indexed `BlockMarkerLifecycle` wiring through
+`DecodeRenameROBPath`, including marker STID, scalar active-query STID,
+scalar-created block-start STID, and execute-owned `scalarRedirectStid` IO.
+The R174 live CoreMark gate
+`generated/r174-stid-marker-lifecycle-6000-qemu-elf-xcheck` captured 6000 QEMU
+rows, produced 5866 expected rows, normalized 5138 QEMU/DUT rows, compared
+5137 rows, and passed with zero mismatches and no CBSTOP divergence.
 R104 covers marker-only BROB allocation, active full-BID reuse by scalar rows,
 marker-driven scalar-done/retire for old/current active blocks, marker
 conflict gating against ROB block-last scalar-done, and top-level marker
