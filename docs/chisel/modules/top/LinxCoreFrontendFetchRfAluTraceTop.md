@@ -444,6 +444,12 @@ compared rows and zero mismatches. BFU runtime-promotion diagnostics remain
 clean at that depth: 3445 promoted runtime body-end oracle replay comparisons
 all match, with zero mismatches and zero overwrites.
 
+R161 extends the same reduced live CoreMark path to 100000 raw QEMU rows. The
+generated-RTL comparator normalizes 92423 QEMU/DUT rows and passes with 92422
+compared rows and zero mismatches. BFU runtime-promotion diagnostics remain
+clean at that depth: 7017 promoted runtime body-end oracle replay comparisons
+all match, with zero mismatches and zero overwrites.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -1312,6 +1318,7 @@ because the reduced QEMU-row selector does not yet support
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r158-coremark-next-frontier-10000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 10000 --allow-block-markers --allow-block-loop-reentry --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r159-coremark-next-frontier-20000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 20000 --allow-block-markers --allow-block-loop-reentry --max-seconds 45 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r160-coremark-next-frontier-50000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50000 --allow-block-markers --allow-block-loop-reentry --max-seconds 90 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r161-coremark-next-frontier-100000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 100000 --allow-block-markers --allow-block-loop-reentry --max-seconds 180 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedBfuLocalBodyWindow`
