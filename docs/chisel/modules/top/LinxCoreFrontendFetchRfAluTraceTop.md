@@ -516,6 +516,22 @@ BID/admission proof, not a QEMU comparator migration: the default live
 CoreMark wrapper still preserves skip-row semantics until marker rows have a
 marker-aware compare/filter policy.
 
+R180 adds that first marker-aware compare/filter policy behind an explicit
+`--marker-rows` QEMU gate. The high-level QEMU reducer still tags legal block
+markers as skip rows in the expected stream, but
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --marker-rows` now emits
+`LinxCoreFrontendFetchRfAluMarkerRowsTraceTop`, passes
+`--admit-marker-rows` to the shared generated-RTL driver, admits legal marker
+rows into the ROB, validates their marker-shaped commits, and filters those
+marker commits before comparing the scalar rows against the existing QEMU
+reference stream. The first CoreMark prefix proof admits one marker row,
+filters one marker commit, compares the following three scalar rows, and
+passes with `marker_rows_admitted=1`, `marker_commits_filtered=1`,
+`compared=3`, and `mismatches=0`. The default live top regression on the same
+prefix remains in skip mode and passes with `marker_rows_admitted=0`,
+`marker_commits_filtered=0`, `compared=3`, and `mismatches=0`. This is still a
+non-default filtered comparator path, not the final live CoreMark top switch.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |

@@ -841,15 +841,15 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Promote the R179 marker-row smoke into a marker-aware comparator path. R178
-   adds `LinxCoreFrontendFetchRfAluMarkerRowsTraceTop`, and R179 adds
-   `run_chisel_frontend_fetch_rf_alu_marker_rows_smoke.sh`, which emits that
-   wrapper and proves the first CoreMark `C.BSTART` row is admitted while the
-   following scalar row reuses its selected block BID. The next packet should
-   decide the compare policy for admitted marker rows: either include marker
-   rows in a marker-aware reference stream or explicitly filter them after
-   proving ROB admission/lifecycle side effects, then preserve that policy in a
-   generated-RTL comparator before changing the default live CoreMark top.
+1. Scale the R180 marker-row filtered comparator beyond the first CoreMark
+   prefix. R178 adds `LinxCoreFrontendFetchRfAluMarkerRowsTraceTop`, R179
+   proves the wrapper admits the first `C.BSTART` row in generated RTL, and
+   R180 adds `--marker-rows` to the QEMU/Verilator gate so legal marker rows
+   are admitted into ROB, their marker commits are validated and filtered, and
+   the remaining scalar stream still compares against QEMU with zero
+   mismatches. The next packet should extend that filtered policy across larger
+   CoreMark windows, especially `BSTOP`, loop re-entry, redirect, and cleanup
+   boundaries, before changing the default live CoreMark top.
 2. Full marker lifecycle split and live-top switch: R172 feeds serialized
    retired marker rows into `BlockMarkerLifecycle` with row-owned BID evidence,
    R173 gives the marker-source queue recovery-exact suffix pruning, R174 makes
@@ -857,10 +857,12 @@ Closeout:
    rename-update, stay off the reduced scalar ALU path, and complete internally
    through the ROB. R176 adds the decode-time context owner and R177 wires it
    into the backend path behind `useMarkerDecodeContext=true`; R178 gives that
-   mode a named top-level wrapper, and R179 proves the wrapper in generated
-   RTL. The reduced live top still uses `skipBlockMarkers=true`; remove marker
-   skipping only after the harness can compare or deliberately filter admitted
-   marker rows directly.
+   mode a named top-level wrapper, R179 proves the wrapper in generated RTL,
+   and R180 gives it a filtered QEMU comparator path for the first CoreMark
+   prefix. The reduced live top still uses `skipBlockMarkers=true`; remove
+   marker skipping only after the filtered marker-row path scales to larger
+   windows and its lifecycle side effects are checked across stops and
+   redirects.
 3. Replace the temporary replay resolved-event source with real branch/BFU
    resolver outputs. R153 has resolved cold-cut fallback and local
    header-window arming, but external QEMU metadata still provides body-end

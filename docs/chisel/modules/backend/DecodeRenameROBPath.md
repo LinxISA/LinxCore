@@ -222,6 +222,18 @@ selected full block BID, and asserts the following scalar row reuses that BID.
 This closes the elaboration-only gap for marker-row admission; it still leaves
 marker-aware QEMU/DUT comparison and the default live-top switch to later
 packets.
+R180 extends the generated-RTL QEMU comparator with an explicit marker-row
+mode. `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --marker-rows`
+emits the marker-row wrapper, asks the shared driver to admit legal marker
+rows, validates their ROB commits as marker-shaped rows, and filters those
+validated marker commits before scalar QEMU comparison. The first CoreMark
+prefix proof now shows one admitted marker row, one filtered marker commit,
+three scalar rows compared, and zero mismatches. The default top still runs the
+same prefix in skip mode with zero admitted marker rows. This proves the
+marker-row ROB lifecycle can be observed in generated RTL without changing the
+neutral scalar comparator stream yet; larger windows and stop/redirect
+lifecycle coverage are still required before the default live top can leave
+`skipBlockMarkers=true`.
 R101 adds an opt-in reduced block-marker consume path for live fetch RF/ALU
 evidence. When `skipBlockMarkers=true`, a packet containing only legal
 `BSTART`/`BSTOP` decoded markers asserts `blockMarkerSkipValid`, drives marker

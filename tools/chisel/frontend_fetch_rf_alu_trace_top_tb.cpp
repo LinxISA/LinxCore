@@ -1,4 +1,9 @@
+#if defined(LINXCORE_MARKER_ROWS_TRACE_TOP)
+#include "VLinxCoreFrontendFetchRfAluMarkerRowsTraceTop.h"
+#define VLinxCoreFrontendFetchRfAluTraceTop VLinxCoreFrontendFetchRfAluMarkerRowsTraceTop
+#else
 #include "VLinxCoreFrontendFetchRfAluTraceTop.h"
+#endif
 #include "verilated.h"
 
 #include "commit_trace_jsonl.h"
@@ -30,6 +35,7 @@ struct Args {
   std::string memory_hex;
   std::string expected_rows;
   std::uint64_t memory_base = 0x1000;
+  bool admit_marker_rows = false;
 };
 
 struct ExpectedRow {
@@ -130,7 +136,8 @@ std::map<std::uint8_t, PhysWriter> g_phys_writer_by_tag;
             << " --dut-trace <dut.jsonl> --qemu-trace <qemu.jsonl>"
             << " [--expected-rows <rows.jsonl>]"
             << " [--memory-bin <program.bin> --memory-base <addr>]"
-            << " [--memory-hex <sparse.mem>]\n";
+            << " [--memory-hex <sparse.mem>]"
+            << " [--admit-marker-rows]\n";
   std::exit(2);
 }
 
@@ -161,6 +168,8 @@ Args parse_args(int argc, char **argv) {
       args.expected_rows = argv[++i];
     } else if (arg == "--memory-base" && i + 1 < argc) {
       args.memory_base = parse_u64_arg(argv[++i], "--memory-base");
+    } else if (arg == "--admit-marker-rows") {
+      args.admit_marker_rows = true;
     } else {
       usage(argv[0]);
     }
@@ -1084,6 +1093,41 @@ bool row_redirects(const ExpectedRow &row) {
   return row.next_pc != row.pc + row.len;
 }
 
+bool is_marker_row_shape(const ObservedRow &observed, const ExpectedRow &expected) {
+  return observed.valid &&
+         observed.slot <= 1 &&
+         observed.pc == expected.pc &&
+         mask_insn(observed.insn, observed.len) == mask_insn(expected.insn, expected.len) &&
+         observed.len == expected.len &&
+         !observed.mem_valid &&
+         !observed.trap_valid &&
+         !observed.src0_valid &&
+         !observed.src1_valid &&
+         !observed.dst_valid &&
+         !observed.wb_valid;
+}
+
+void expect_marker_commit(const ObservedRow &observed, const ExpectedRow &expected) {
+  if (!is_marker_row_shape(observed, expected)) {
+    std::cerr << "frontend fetch RF ALU marker commit mismatch"
+              << " expected_pc=0x" << std::hex << expected.pc
+              << " observed_pc=0x" << observed.pc
+              << " expected_insn=0x" << mask_insn(expected.insn, expected.len)
+              << " observed_insn=0x" << mask_insn(observed.insn, observed.len)
+              << std::dec
+              << " expected_len=" << static_cast<unsigned>(expected.len)
+              << " observed_len=" << static_cast<unsigned>(observed.len)
+              << " mem=" << observed.mem_valid
+              << " trap=" << observed.trap_valid
+              << " src0=" << observed.src0_valid
+              << " src1=" << observed.src1_valid
+              << " dst=" << observed.dst_valid
+              << " wb=" << observed.wb_valid
+              << "\n";
+    std::exit(1);
+  }
+}
+
 struct BfuBodyGeometryHint {
   bool valid = false;
   std::uint64_t header_pc = 0;
@@ -1469,6 +1513,8 @@ DrainDenseRowResult drain_dense_row(
     std::uint64_t &active_block_bid,
     const FetchMemoryImage &fetch_memory,
     std::vector<ObservedRow> &pending_commits,
+    std::vector<ExpectedRow> &filtered_marker_commits,
+    bool admit_marker_rows,
     bool local_body_cut_reentry_header = false) {
   for (int cycle = 0; cycle < kDenseRowDrainCycles; ++cycle) {
     clear_inputs(dut);
@@ -1485,6 +1531,54 @@ DrainDenseRowResult drain_dense_row(
         std::exit(1);
       }
       if (row.skip) {
+        if (admit_marker_rows) {
+          if (row.block_stop && !active_block_valid) {
+            std::cerr << "frontend fetch RF ALU admitted marker stop had no active block"
+                      << " pc=0x" << std::hex << row.pc
+                      << " insn=0x" << row.insn << std::dec
+                      << "\n";
+            std::exit(1);
+          }
+          if (!dut.io_selectedValid ||
+              dut.io_blockMarkerSkipFire ||
+              dut.io_blockMarkerMixedPacket ||
+              !dut.io_decRenPushFire ||
+              !dut.io_robAllocFire) {
+            std::cerr << "frontend fetch RF ALU admitted marker dense slot mismatch"
+                      << " pc=0x" << std::hex << row.pc
+                      << " insn=0x" << row.insn << std::dec
+                      << " selectedValid=" << static_cast<unsigned>(dut.io_selectedValid)
+                      << " skipFire=" << static_cast<unsigned>(dut.io_blockMarkerSkipFire)
+                      << " mixed=" << static_cast<unsigned>(dut.io_blockMarkerMixedPacket)
+                      << " decRenPush=" << static_cast<unsigned>(dut.io_decRenPushFire)
+                      << " robAlloc=" << static_cast<unsigned>(dut.io_robAllocFire)
+                      << "\n";
+            std::exit(1);
+          }
+          if (row.block_stop && dut.io_selectedBlockBid != active_block_bid) {
+            std::cerr << "frontend fetch RF ALU admitted marker stop used wrong active block BID"
+                      << " pc=0x" << std::hex << row.pc
+                      << " expected_bid=0x" << active_block_bid
+                      << " observed_bid=0x" << dut.io_selectedBlockBid
+                      << std::dec << "\n";
+            std::exit(1);
+          }
+          const auto rob_value = static_cast<std::uint8_t>(dut.io_selectedRobValue);
+          const auto selected_block_bid = static_cast<std::uint64_t>(dut.io_selectedBlockBid);
+          filtered_marker_commits.push_back(row);
+          tick(dut);
+          if (row.block_boundary) {
+            active_block_valid = true;
+            active_block_bid = selected_block_bid;
+          } else if (row.block_stop) {
+            active_block_valid = false;
+            active_block_bid = 0;
+          }
+          DrainDenseRowResult result;
+          result.rob_value = rob_value;
+          return result;
+        }
+
         const bool expected_alloc = row.block_boundary;
         const bool redirect_boundary = row.block_boundary && row_redirects(row);
         const bool expected_done = active_block_valid && (row.block_boundary || row.block_stop);
@@ -1657,14 +1751,29 @@ void drain_empty(VLinxCoreFrontendFetchRfAluTraceTop &dut, const FetchMemoryImag
   std::exit(1);
 }
 
+void filter_pending_marker_commits(
+    std::vector<ObservedRow> &pending_commits,
+    std::vector<ExpectedRow> &filtered_marker_commits,
+    std::uint64_t &marker_commit_filter_count) {
+  while (!pending_commits.empty() && !filtered_marker_commits.empty()) {
+    expect_marker_commit(pending_commits.front(), filtered_marker_commits.front());
+    pending_commits.erase(pending_commits.begin());
+    filtered_marker_commits.erase(filtered_marker_commits.begin());
+    ++marker_commit_filter_count;
+  }
+}
+
 void commit_expected_row(
     VLinxCoreFrontendFetchRfAluTraceTop &dut,
     const ExpectedRow &expected,
     std::vector<ObservedRow> &pending_commits,
+    std::vector<ExpectedRow> &filtered_marker_commits,
+    std::uint64_t &marker_commit_filter_count,
     FetchMemoryImage &fetch_memory,
     std::ofstream &dut_out,
     std::ofstream &qemu_out) {
   for (int cycle = 0; cycle < 32; ++cycle) {
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
     if (!pending_commits.empty()) {
       const ObservedRow observed = pending_commits.front();
       pending_commits.erase(pending_commits.begin());
@@ -1693,7 +1802,9 @@ void commit_expected_row(
                 << "\n";
       std::exit(1);
     }
+    const bool observed_commit_window = dut.io_commit_rows_0_valid;
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU trace top commit");
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
     if (!pending_commits.empty()) {
       const ObservedRow observed = pending_commits.front();
       pending_commits.erase(pending_commits.begin());
@@ -1705,6 +1816,10 @@ void commit_expected_row(
       }
       tick(dut);
       return;
+    }
+    if (observed_commit_window) {
+      tick(dut);
+      continue;
     }
     expect_monitor_clean(dut, "frontend fetch RF ALU trace top wait", 0x0, 0);
     tick(dut);
@@ -1895,6 +2010,9 @@ int main(int argc, char **argv) {
   bool next_local_body_cut_reentry_header = false;
   std::uint64_t next_local_body_cut_reentry_pc = 0;
   std::vector<ObservedRow> pending_commits;
+  std::vector<ExpectedRow> filtered_marker_commits;
+  std::uint64_t marker_rows_admitted = 0;
+  std::uint64_t marker_commits_filtered = 0;
   BfuGeometryDiagnostics bfu_stats;
   for (std::size_t row_index = 0; row_index < rows.size();) {
     const std::size_t window_end = dense_window_end(rows, row_index);
@@ -1930,7 +2048,12 @@ int main(int argc, char **argv) {
             active_block_bid,
             fetch_memory,
             pending_commits,
+            filtered_marker_commits,
+            args.admit_marker_rows,
             local_body_cut_reentry_header);
+        if (args.admit_marker_rows) {
+          ++marker_rows_admitted;
+        }
         if (local_body_cut_reentry_header) {
           next_local_body_cut_reentry_header = false;
           next_local_body_cut_reentry_pc = 0;
@@ -1941,13 +2064,29 @@ int main(int argc, char **argv) {
         }
         continue;
       }
-      (void)drain_dense_row(dut, row, active_block_valid, active_block_bid, fetch_memory, pending_commits);
+      (void)drain_dense_row(
+          dut,
+          row,
+          active_block_valid,
+          active_block_bid,
+          fetch_memory,
+          pending_commits,
+          filtered_marker_commits,
+          args.admit_marker_rows);
       scalar_slots.push_back(slot_index);
     }
 
     for (const auto slot_index : scalar_slots) {
       const ExpectedRow &row = rows[slot_index];
-      commit_expected_row(dut, row, pending_commits, fetch_memory, dut_out, qemu_out);
+      commit_expected_row(
+          dut,
+          row,
+          pending_commits,
+          filtered_marker_commits,
+          marker_commits_filtered,
+          fetch_memory,
+          dut_out,
+          qemu_out);
     }
     if (replay_local_body_cut_reentry_header) {
       continue;
@@ -1975,6 +2114,13 @@ int main(int argc, char **argv) {
     }
   }
 
+  if (!filtered_marker_commits.empty()) {
+    std::cerr << "frontend fetch RF ALU trace top has unfiltered marker commits="
+              << filtered_marker_commits.size()
+              << " next_pc=0x" << std::hex << filtered_marker_commits.front().pc
+              << std::dec << "\n";
+    return 1;
+  }
   if (!pending_commits.empty()) {
     std::cerr << "frontend fetch RF ALU trace top has unconsumed commit rows="
               << pending_commits.size() << "\n";
@@ -2032,6 +2178,8 @@ int main(int argc, char **argv) {
               << bfu_stats.resolved_source_runtime_replay_match_count
               << " bfu_resolved_source_runtime_replay_mismatches="
               << bfu_stats.resolved_source_runtime_replay_mismatch_count
+              << " marker_rows_admitted=" << marker_rows_admitted
+              << " marker_commits_filtered=" << marker_commits_filtered
               << "\n";
   };
   if (captured_tail_superset) {

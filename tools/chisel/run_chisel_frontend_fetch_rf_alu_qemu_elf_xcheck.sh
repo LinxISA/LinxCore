@@ -17,6 +17,7 @@ PC_LO=""
 PC_HI=""
 ALLOW_BLOCK_MARKERS=0
 ALLOW_BLOCK_LOOP_REENTRY=0
+MARKER_ROWS=0
 
 usage() {
   cat <<USAGE
@@ -34,6 +35,9 @@ Options:
   --allow-block-markers   Preserve legal BSTART/BSTOP rows as DUT-only skip rows
   --allow-block-loop-reentry
                           Allow dynamic FALL-block re-entry rows in the QEMU reducer
+  --marker-rows           Build the non-default marker-row top and admit legal
+                          marker rows into ROB, then filter validated marker
+                          commits from the scalar comparator stream
 
 This wrapper captures a bounded QEMU commit JSONL prefix from a direct-boot ELF,
 validates that the selected rows are inside the current reduced scalar
@@ -41,6 +45,9 @@ ADD/ADDI/ADDTPC/C.MOVI/C.MOVR envelope, extracts the same ELF into sparse fetch
 memory, and then runs LinxCoreFrontendFetchRfAluTraceTop through the neutral comparator.
 With --allow-block-markers, legal BSTART/BSTOP rows are consumed by the reduced
 frontend/ROB path as skip rows and are not written to the comparator trace.
+With --marker-rows, the same reduced expected stream still marks legal markers
+as skip rows for comparator filtering, but the marker-row top must admit and
+retire those rows before the following scalar rows compare.
 USAGE
 }
 
@@ -57,6 +64,7 @@ while [[ $# -gt 0 ]]; do
     --pc-hi) PC_HI="$2"; shift 2 ;;
     --allow-block-markers) ALLOW_BLOCK_MARKERS=1; shift ;;
     --allow-block-loop-reentry) ALLOW_BLOCK_LOOP_REENTRY=1; shift ;;
+    --marker-rows) MARKER_ROWS=1; shift ;;
     --)
       shift
       QEMU_ARGS=("$@")
@@ -103,6 +111,10 @@ if [[ ! -x "${QEMU_BIN}" ]]; then
 fi
 if [[ ! "${EXPECTED_ROWS}" =~ ^[0-9]+$ ]]; then
   echo "error: --expected-rows must be a non-negative integer" >&2
+  exit 2
+fi
+if [[ "${MARKER_ROWS}" == "1" && "${ALLOW_BLOCK_MARKERS}" != "1" ]]; then
+  echo "error: --marker-rows requires --allow-block-markers" >&2
   exit 2
 fi
 if [[ -z "${CAPTURE_ROWS}" ]]; then
@@ -279,6 +291,7 @@ FETCH_QEMU_TRACE="${QEMU_TRACE}" \
 FETCH_QEMU_MAX_ROWS="${EXPECTED_ROWS}" \
 FETCH_QEMU_ALLOW_BLOCK_MARKERS="${ALLOW_BLOCK_MARKERS}" \
 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY="${ALLOW_BLOCK_LOOP_REENTRY}" \
+FETCH_MARKER_ROWS_TRACE_TOP="${MARKER_ROWS}" \
 bash "${FETCH_RUNNER}"
 
 MANIFEST="${REPORT_DIR}/crosscheck_manifest.json"

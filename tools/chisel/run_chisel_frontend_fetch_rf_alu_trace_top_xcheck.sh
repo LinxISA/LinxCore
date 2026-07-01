@@ -3,8 +3,17 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 CHISEL_DIR="${ROOT_DIR}/chisel"
-SV_DIR="${ROOT_DIR}/generated/chisel-verilog/frontend-fetch-rf-alu-trace-top"
-TOP_SV="${SV_DIR}/LinxCoreFrontendFetchRfAluTraceTop.sv"
+FETCH_MARKER_ROWS_TRACE_TOP="${FETCH_MARKER_ROWS_TRACE_TOP:-0}"
+if [[ "${FETCH_MARKER_ROWS_TRACE_TOP}" == "1" ]]; then
+  SV_DIR="${ROOT_DIR}/generated/chisel-verilog/frontend-fetch-rf-alu-marker-rows-trace-top"
+  TOP_MODULE="LinxCoreFrontendFetchRfAluMarkerRowsTraceTop"
+  EMIT_MAIN="linxcore.top.EmitLinxCoreFrontendFetchRfAluMarkerRowsTraceTop"
+else
+  SV_DIR="${ROOT_DIR}/generated/chisel-verilog/frontend-fetch-rf-alu-trace-top"
+  TOP_MODULE="LinxCoreFrontendFetchRfAluTraceTop"
+  EMIT_MAIN="linxcore.top.EmitLinxCoreFrontendFetchRfAluTraceTop"
+fi
+TOP_SV="${SV_DIR}/${TOP_MODULE}.sv"
 BUILD_DIR="${BUILD_DIR:-${ROOT_DIR}/generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck}"
 if [[ "${BUILD_DIR}" != /* ]]; then
   BUILD_DIR="${ROOT_DIR}/${BUILD_DIR}"
@@ -148,7 +157,7 @@ fi
 source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
 
 cd "${CHISEL_DIR}"
-sbt --batch --no-colors "runMain linxcore.top.EmitLinxCoreFrontendFetchRfAluTraceTop"
+sbt --batch --no-colors "runMain ${EMIT_MAIN}"
 
 if [[ ! -f "${TOP_SV}" ]]; then
   echo "error: missing emitted top: ${TOP_SV}" >&2
@@ -166,20 +175,27 @@ if [[ "${#SV_FILES[@]}" -eq 0 ]]; then
 fi
 
 rm -rf "${OBJ_DIR}"
+VERILATOR_CFLAGS="-std=c++17 -O2"
+TB_ARGS=(
+  --dut-trace "${DUT_TRACE}"
+  --qemu-trace "${QEMU_TRACE}"
+  --expected-rows "${FETCH_EXPECTED_ROWS}"
+  "${MEMORY_ARGS[@]}"
+)
+if [[ "${FETCH_MARKER_ROWS_TRACE_TOP}" == "1" ]]; then
+  VERILATOR_CFLAGS="${VERILATOR_CFLAGS} -DLINXCORE_MARKER_ROWS_TRACE_TOP"
+  TB_ARGS+=(--admit-marker-rows)
+fi
 verilator \
   --cc "${SV_FILES[@]}" \
-  --top-module LinxCoreFrontendFetchRfAluTraceTop \
+  --top-module "${TOP_MODULE}" \
   --exe "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_trace_top_tb.cpp" \
   --build \
   -Mdir "${OBJ_DIR}" \
   -o linxcore_frontend_fetch_rf_alu_trace_top_tb \
-  -CFLAGS "-std=c++17 -O2"
+  -CFLAGS "${VERILATOR_CFLAGS}"
 
-"${OBJ_DIR}/linxcore_frontend_fetch_rf_alu_trace_top_tb" \
-  --dut-trace "${DUT_TRACE}" \
-  --qemu-trace "${QEMU_TRACE}" \
-  --expected-rows "${FETCH_EXPECTED_ROWS}" \
-  "${MEMORY_ARGS[@]}"
+"${OBJ_DIR}/linxcore_frontend_fetch_rf_alu_trace_top_tb" "${TB_ARGS[@]}"
 
 bash "${ROOT_DIR}/tools/chisel/run_chisel_qemu_crosscheck.sh" \
   --qemu-trace "${QEMU_TRACE}" \
