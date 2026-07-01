@@ -28,6 +28,7 @@ class ScalarDecodeRenameBridgeIO(
   val checkpointBid = Input(new ROBID(p.robEntries))
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(p.robEntries))
+  val commitBlockBid = Input(UInt(bidWidth.W))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
 
   val inReady = Output(Bool())
@@ -147,12 +148,14 @@ class ScalarDecodeRenameBridge(
   gpr.io.renameValid := accepted && needsRename
   gpr.io.renameArchTag := Mux(needsRename, archIndex(io.in.dst(0).archTag), 0.U)
   gpr.io.renameBid := io.in.bid
+  gpr.io.renameBlockBid := Mux(io.in.blockBidValid, io.in.blockBid, 0.U)
   gpr.io.renameRid := io.in.rid
   gpr.io.renameGid := io.in.gid
   gpr.io.checkpointValid := io.checkpointValid
   gpr.io.checkpointBid := io.checkpointBid
   gpr.io.commitValid := io.commitValid
   gpr.io.commitBid := io.commitBid
+  gpr.io.commitBlockBid := io.commitBlockBid
   gpr.io.cleanup := io.cleanup
 
   io.inReady := canAccept

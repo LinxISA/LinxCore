@@ -4,16 +4,18 @@ import chisel3._
 import chisel3.util.{log2Ceil, PopCount, PriorityEncoder}
 
 import linxcore.bctrl.BID
-import linxcore.recovery.{FlushControl, RecoveryCleanupIntent}
+import linxcore.recovery.RecoveryCleanupIntent
 import linxcore.rob.ROBID
 
 class GPRRenameMapQueueEntry(
     val entries: Int,
+    val bidWidth: Int,
     val archTagWidth: Int,
     val physTagWidth: Int)
     extends Bundle {
   val valid = Bool()
   val bid = new ROBID(entries)
+  val fullBid = UInt(bidWidth.W)
   val rid = new ROBID(entries)
   val gid = new ROBID(entries)
   val archTag = UInt(archTagWidth.W)
@@ -40,6 +42,7 @@ class GPRRenameCheckpointIO(
   val renameValid = Input(Bool())
   val renameArchTag = Input(UInt(archTagWidth.W))
   val renameBid = Input(new ROBID(entries))
+  val renameBlockBid = Input(UInt(bidWidth.W))
   val renameRid = Input(new ROBID(entries))
   val renameGid = Input(new ROBID(entries))
 
@@ -48,6 +51,7 @@ class GPRRenameCheckpointIO(
 
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(entries))
+  val commitBlockBid = Input(UInt(bidWidth.W))
 
   val cleanup = Input(new RecoveryCleanupIntent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
 
@@ -110,7 +114,7 @@ class GPRRenameCheckpoint(
   val renamePtr = RegInit(0.U.asTypeOf(new ROBID(entries)))
   val freeList = RegInit(freeInit)
   val mapQ = RegInit(VecInit(Seq.fill(mapQDepth)(
-    0.U.asTypeOf(new GPRRenameMapQueueEntry(entries, archTagWidth, physTagWidth)))))
+    0.U.asTypeOf(new GPRRenameMapQueueEntry(entries, bidWidth, archTagWidth, physTagWidth)))))
 
   val mapQValidVec = VecInit(mapQ.map(_.valid))
   val mapQValidMask = mapQValidVec.asUInt
@@ -145,11 +149,12 @@ class GPRRenameCheckpoint(
     flushPruneVec(idx) :=
       e.valid && Mux(
         io.cleanup.flush.baseOnBid,
-        ROBID.lessEqual(io.cleanup.flush.req.bid, e.bid),
-        FlushControl.lessEqualBidRid(io.cleanup.flush.req.bid, io.cleanup.flush.req.rid, e.bid, e.rid))
+        io.cleanup.blockFlushBid <= e.fullBid,
+        (io.cleanup.blockFlushBid < e.fullBid) ||
+          ((io.cleanup.blockFlushBid === e.fullBid) && ROBID.lessEqual(io.cleanup.flush.req.rid, e.rid)))
     flushSameBidSurvivorVec(idx) :=
-      e.valid && !flushPruneVec(idx) && !io.cleanup.flush.baseOnBid && ROBID.equal(io.cleanup.flush.req.bid, e.bid)
-    commitHitVec(idx) := e.valid && ROBID.equal(e.bid, io.commitBid)
+      e.valid && !flushPruneVec(idx) && !io.cleanup.flush.baseOnBid && (io.cleanup.blockFlushBid === e.fullBid)
+    commitHitVec(idx) := e.valid && (e.fullBid === io.commitBlockBid)
     val laterSameArch =
       if (idx + 1 >= mapQDepth) {
         false.B
@@ -171,10 +176,12 @@ class GPRRenameCheckpoint(
   val replaySurvivorMap = Wire(Vec(archRegs, UInt(physTagWidth.W)))
   for (arch <- 0 until archRegs) {
     val bestValid = Wire(Vec(mapQDepth + 1, Bool()))
+    val bestFullBid = Wire(Vec(mapQDepth + 1, UInt(bidWidth.W)))
     val bestBid = Wire(Vec(mapQDepth + 1, new ROBID(entries)))
     val bestRid = Wire(Vec(mapQDepth + 1, new ROBID(entries)))
     val bestPhys = Wire(Vec(mapQDepth + 1, UInt(physTagWidth.W)))
     bestValid(0) := false.B
+    bestFullBid(0) := 0.U
     bestBid(0) := 0.U.asTypeOf(new ROBID(entries))
     bestRid(0) := 0.U.asTypeOf(new ROBID(entries))
     bestPhys(0) := restoreBase(arch)
@@ -182,10 +189,11 @@ class GPRRenameCheckpoint(
       val hit = flushSurvivorVec(idx) && mapQ(idx).archTag === arch.U
       val newerThanBest =
         !bestValid(idx) ||
-          ROBID.less(bestBid(idx), mapQ(idx).bid) ||
-          (ROBID.equal(bestBid(idx), mapQ(idx).bid) && ROBID.less(bestRid(idx), mapQ(idx).rid))
+          (bestFullBid(idx) < mapQ(idx).fullBid) ||
+          ((bestFullBid(idx) === mapQ(idx).fullBid) && ROBID.less(bestRid(idx), mapQ(idx).rid))
       val take = hit && newerThanBest
       bestValid(idx + 1) := bestValid(idx) || hit
+      bestFullBid(idx + 1) := Mux(take, mapQ(idx).fullBid, bestFullBid(idx))
       bestBid(idx + 1) := Mux(take, mapQ(idx).bid, bestBid(idx))
       bestRid(idx + 1) := Mux(take, mapQ(idx).rid, bestRid(idx))
       bestPhys(idx + 1) := Mux(take, mapQ(idx).physTag, bestPhys(idx))
@@ -217,7 +225,7 @@ class GPRRenameCheckpoint(
   val nextCheckpointValid = Wire(Vec(entries, Bool()))
   val nextRenamePtr = Wire(new ROBID(entries))
   val nextFreeList = Wire(Vec(physRegs, Bool()))
-  val nextMapQ = Wire(Vec(mapQDepth, new GPRRenameMapQueueEntry(entries, archTagWidth, physTagWidth)))
+  val nextMapQ = Wire(Vec(mapQDepth, new GPRRenameMapQueueEntry(entries, bidWidth, archTagWidth, physTagWidth)))
 
   nextSmap := smap
   nextCmap := cmap
@@ -274,6 +282,7 @@ class GPRRenameCheckpoint(
     nextFreeList(firstFreePhys) := false.B
     nextMapQ(firstFreeMapQ).valid := true.B
     nextMapQ(firstFreeMapQ).bid := io.renameBid
+    nextMapQ(firstFreeMapQ).fullBid := io.renameBlockBid
     nextMapQ(firstFreeMapQ).rid := io.renameRid
     nextMapQ(firstFreeMapQ).gid := io.renameGid
     nextMapQ(firstFreeMapQ).archTag := io.renameArchTag

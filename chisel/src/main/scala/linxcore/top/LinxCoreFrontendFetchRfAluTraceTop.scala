@@ -609,6 +609,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.checkpointBid := ROBID.disabled(p.robEntries)
   path.io.commitValid := false.B
   path.io.commitBid := ROBID.disabled(p.robEntries)
+  path.io.commitBlockBid := 0.U
   val pathCleanup = Wire(new RecoveryCleanupIntent(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
   pathCleanup := 0.U.asTypeOf(pathCleanup)
   pathCleanup.valid := scalarRedirectPending

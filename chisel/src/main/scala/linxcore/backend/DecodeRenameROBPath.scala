@@ -75,6 +75,7 @@ class DecodeRenameROBPathIO(
   val checkpointBid = Input(new ROBID(p.robEntries))
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(p.robEntries))
+  val commitBlockBid = Input(UInt(bidWidth.W))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
 
   val completeValid = Input(Bool())
@@ -684,6 +685,7 @@ class DecodeRenameROBPath(
   val activeTURenameStid = queuedForRename.threadId.pad(stidWidth)(stidWidth - 1, 0)
   val renameCommitValid = Wire(Bool())
   val renameCommitBid = Wire(new ROBID(p.robEntries))
+  val renameCommitBlockBid = Wire(UInt(bidWidth.W))
   rename.io.in := queuedForRename
   rename.io.activePeId := activeTURenamePeId
   rename.io.activeStid := activeTURenameStid
@@ -744,6 +746,7 @@ class DecodeRenameROBPath(
   rename.io.checkpointBid := io.checkpointBid
   rename.io.commitValid := renameCommitValid
   rename.io.commitBid := renameCommitBid
+  rename.io.commitBlockBid := renameCommitBlockBid
   rename.io.cleanup := io.cleanup
 
   decRenQ.io.popReady := rename.io.inReady
@@ -840,6 +843,7 @@ class DecodeRenameROBPath(
       bidWidth)
   renameCommitValid := io.commitValid || blockScalarDoneSeq.io.retireValid
   renameCommitBid := Mux(io.commitValid, io.commitBid, internalBlockCommitBid)
+  renameCommitBlockBid := Mux(io.commitValid, io.commitBlockBid, blockScalarDoneSeq.io.retireBid)
 
   rename.io.robSource := allocator.io.robTULinkSource
   rename.io.lsuSource := storeDispatch.io.lsuTULinkSource

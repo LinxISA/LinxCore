@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <sstream>
@@ -27,6 +28,36 @@ using linxcore::chisel::write_dut_commit_jsonl;
 using linxcore::chisel::write_qemu_commit_jsonl;
 
 constexpr int kDenseRowDrainCycles = 64;
+
+template <typename T>
+std::string hex_port(const T &value) {
+  std::ostringstream out;
+  out << std::hex << static_cast<unsigned long long>(value);
+  return out.str();
+}
+
+template <std::size_t N>
+std::string hex_port(const VlWide<N> &value) {
+  std::ostringstream out;
+  out << std::hex;
+  bool seen = false;
+  for (std::size_t remaining = N; remaining > 0; --remaining) {
+    const std::uint32_t word = value.at(remaining - 1);
+    if (!seen) {
+      if (word == 0) {
+        continue;
+      }
+      out << word;
+      seen = true;
+    } else {
+      out << std::setw(8) << std::setfill('0') << word;
+    }
+  }
+  if (!seen) {
+    out << '0';
+  }
+  return out.str();
+}
 
 struct Args {
   std::string dut_trace;
@@ -955,9 +986,9 @@ void expect_row(
       std::cerr << "frontend fetch RF ALU commit debug"
                 << " commit_mask=0x" << std::hex << static_cast<unsigned>(dut->io_commitValidMask)
                 << " dealloc_mask=0x" << static_cast<unsigned>(dut->io_deallocValidMask)
-                << " occupied=0x" << static_cast<unsigned long long>(dut->io_occupiedMask)
-                << " completed=0x" << static_cast<unsigned long long>(dut->io_completedMask)
-                << " retired=0x" << static_cast<unsigned long long>(dut->io_retiredMask)
+                << " occupied=0x" << hex_port(dut->io_occupiedMask)
+                << " completed=0x" << hex_port(dut->io_completedMask)
+                << " retired=0x" << hex_port(dut->io_retiredMask)
                 << std::dec
                 << " commit_count=" << static_cast<unsigned>(dut->io_commitCount)
                 << " dealloc_count=" << static_cast<unsigned>(dut->io_deallocCount)
@@ -1866,15 +1897,15 @@ DrainDenseRowResult drain_dense_row(
             << " issueCount=" << static_cast<unsigned>(dut.io_issueQueueCount)
             << " executeBusy=" << static_cast<unsigned>(dut.io_executeBusy)
             << " occupiedMask=0x" << std::hex
-            << static_cast<unsigned long long>(dut.io_occupiedMask)
+            << hex_port(dut.io_occupiedMask)
             << " completedMask=0x"
-            << static_cast<unsigned long long>(dut.io_completedMask)
+            << hex_port(dut.io_completedMask)
             << " blockAllocatedMask=0x"
-            << static_cast<unsigned long long>(dut.io_blockAllocatedMask)
+            << hex_port(dut.io_blockAllocatedMask)
             << " blockCompleteMask=0x"
-            << static_cast<unsigned long long>(dut.io_blockCompleteMask)
+            << hex_port(dut.io_blockCompleteMask)
             << " blockPendingMask=0x"
-            << static_cast<unsigned long long>(dut.io_blockPendingMask)
+            << hex_port(dut.io_blockPendingMask)
             << std::dec << "\n";
   std::exit(1);
 }
@@ -2266,11 +2297,11 @@ void commit_expected_row(
             << " commitHeadStatus=" << static_cast<unsigned>(dut.io_commitHeadStatus)
             << " commitHeadRobValue=" << static_cast<unsigned>(dut.io_commitHeadRobValue)
             << " occupiedMask=0x" << std::hex
-            << static_cast<unsigned long long>(dut.io_occupiedMask)
+            << hex_port(dut.io_occupiedMask)
             << " completedMask=0x" << std::hex
-            << static_cast<unsigned long long>(dut.io_completedMask)
+            << hex_port(dut.io_completedMask)
             << " retiredMask=0x"
-            << static_cast<unsigned long long>(dut.io_retiredMask)
+            << hex_port(dut.io_retiredMask)
             << std::dec
             << "\n";
   std::exit(1);

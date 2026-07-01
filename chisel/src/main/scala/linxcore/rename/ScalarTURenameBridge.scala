@@ -38,6 +38,7 @@ class ScalarTURenameBridgeIO(
   val checkpointBid = Input(new ROBID(p.robEntries))
   val commitValid = Input(Bool())
   val commitBid = Input(new ROBID(p.robEntries))
+  val commitBlockBid = Input(UInt(bidWidth.W))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
   val robSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
   val lsuSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
@@ -260,6 +261,7 @@ class ScalarTURenameBridge(
   scalar.io.checkpointBid := io.checkpointBid
   scalar.io.commitValid := io.commitValid
   scalar.io.commitBid := io.commitBid
+  scalar.io.commitBlockBid := io.commitBlockBid
   scalar.io.cleanup := io.cleanup
 
   tu.io.in := io.in
