@@ -75,7 +75,7 @@ object GPRRenameCheckpointReference {
     val live = state.smap.toSet ++ state.cmap.toSet ++ state.mapQ.collect {
       case entry if entry.valid => entry.physTag
     }
-    state.copy(free = state.free.zipWithIndex.map { case (free, phys) => free && !live.contains(phys) })
+    state.copy(free = state.free.indices.map(phys => phys >= state.smap.length && !live.contains(phys)).toVector)
   }
 
   def checkpoint(state: State, bid: ROBIDValue): State =
@@ -249,6 +249,20 @@ class GPRRenameCheckpointSpec extends AnyFunSuite {
     assert(!s2.free(28))
     assert(nextPhys != 28)
     assert(s3.smap(4) == 28)
+  }
+
+  test("commit recomputes free tags from live smap cmap and mapQ ownership") {
+    val bid1 = ROBIDValue(value = 1)
+    val base = initial(physRegs = 128, mapQDepth = 256)
+    val leakedFree = base.copy(free = base.free.updated(127, false))
+    val (renamed, allocated) = rename(leakedFree, archTag = 2, bid = bid1, rid = ROBIDValue(value = 0))
+    val (committed, _) = commit(renamed, bid1)
+
+    assert(allocated == 24)
+    assert(!committed.free(24))
+    assert(committed.free(127))
+    assert(committed.freeCount == 103)
+    assert(committed.mapQFreeCount == 256)
   }
 
   test("base-on-BID flush restores from prior checkpoint and prunes younger mapQ rows") {

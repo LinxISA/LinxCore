@@ -349,7 +349,7 @@ class GPRRenameCheckpoint(
   nextCheckpointMap := checkpointMap
   nextCheckpointValid := checkpointValid
   nextRenamePtr := renamePtr
-  nextFreeList := freeList
+  nextFreeList := VecInit(Seq.fill(physRegs)(false.B))
   nextMapQ := mapQ
   smapAfterRename := smap
   smapAfterRename(io.renameArchTag) := firstFreePhys
@@ -366,7 +366,6 @@ class GPRRenameCheckpoint(
     for (idx <- 0 until mapQDepth) {
       when(flushPruneVec(idx)) {
         nextMapQ(idx).valid := false.B
-        nextFreeList(mapQ(idx).physTag) := true.B
       }
     }
     for (idx <- 0 until mapQDepth) {
@@ -375,11 +374,6 @@ class GPRRenameCheckpoint(
       }
     }
   }.elsewhen(commitFire) {
-    for (phys <- 0 until physRegs) {
-      when(commitReleaseMask(phys)) {
-        nextFreeList(phys) := true.B
-      }
-    }
     for (idx <- 0 until mapQDepth) {
       when(commitHitVec(idx)) {
         nextMapQ(idx).valid := false.B
@@ -396,7 +390,6 @@ class GPRRenameCheckpoint(
     nextRenamePtr := io.checkpointBid
   }.elsewhen(renameAccepted) {
     nextSmap := smapAfterRename
-    nextFreeList(firstFreePhys) := false.B
     nextMapQ(firstFreeMapQ).valid := true.B
     nextMapQ(firstFreeMapQ).bid := io.renameBid
     nextMapQ(firstFreeMapQ).fullBid := io.renameBlockBid
@@ -424,9 +417,7 @@ class GPRRenameCheckpoint(
       .reduce(_ | _)
   val nextLivePhysMask = nextSmapLiveMask | nextCmapLiveMask | nextMapQLiveMask
   for (phys <- 0 until physRegs) {
-    when(nextLivePhysMask(phys)) {
-      nextFreeList(phys) := false.B
-    }
+    nextFreeList(phys) := !nextLivePhysMask(phys) && allocatablePhysMask(phys).asBool
   }
 
   smap := nextSmap
