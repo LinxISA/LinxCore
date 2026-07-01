@@ -24,11 +24,16 @@ object DecodeRenameROBPathReference {
   def accepted(attemptValid: Boolean, robReady: Boolean): Boolean =
     attemptValid && robReady
 
-  def robReservationAttemptValid(inputValid: Boolean, queueReady: Boolean): Boolean =
-    inputValid && queueReady
+  def robReservationAttemptValid(inputValid: Boolean, queueReady: Boolean, gprReservationReady: Boolean = true): Boolean =
+    inputValid && queueReady && gprReservationReady
 
-  def decodeReady(queueReady: Boolean, robReady: Boolean): Boolean =
-    queueReady && robReady
+  def decodeReady(queueReady: Boolean, robReady: Boolean, gprReservationReady: Boolean = true): Boolean =
+    queueReady && robReady && gprReservationReady
+
+  def gprReservationReady(pending: Int, selectedNeedsGpr: Boolean, freePhys: Int, freeMapQ: Int): Boolean = {
+    val needed = pending + (if (selectedNeedsGpr) 1 else 0)
+    needed <= freePhys && needed <= freeMapQ
+  }
 
   def queuePushReady(count: Int, depth: Int, popFire: Boolean, flush: Boolean = false): Boolean = {
     require(depth > 0 && (depth & (depth - 1)) == 0)
@@ -184,6 +189,15 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(decodeReady(queueReady = true, robReady = true))
     assert(!decodeReady(queueReady = true, robReady = false))
     assert(!decodeReady(queueReady = false, robReady = true))
+  }
+
+  test("reference gates ROB/BROB reservation on queued scalar GPR rename capacity") {
+    assert(gprReservationReady(pending = 0, selectedNeedsGpr = true, freePhys = 1, freeMapQ = 1))
+    assert(gprReservationReady(pending = 1, selectedNeedsGpr = false, freePhys = 1, freeMapQ = 1))
+    assert(!gprReservationReady(pending = 1, selectedNeedsGpr = true, freePhys = 1, freeMapQ = 2))
+    assert(!gprReservationReady(pending = 1, selectedNeedsGpr = true, freePhys = 2, freeMapQ = 1))
+    assert(!robReservationAttemptValid(inputValid = true, queueReady = true, gprReservationReady = false))
+    assert(!decodeReady(queueReady = true, robReady = true, gprReservationReady = false))
   }
 
   test("reference admits decode only when the dec-ren queue can accept") {

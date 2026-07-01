@@ -446,6 +446,7 @@ class DecodeRenameROBPath(
 
   private val zeroRobId = 0.U.asTypeOf(new ROBID(p.robEntries))
   private val zeroLocalSeq = 0.U.asTypeOf(new ROBID(mapQDepth))
+  private val gprReservationCountWidth = log2Ceil(decRenQueueDepth + 1)
   private def fitReg(tag: UInt): UInt =
     tag.pad(traceParams.regWidth)(traceParams.regWidth - 1, 0)
 
@@ -535,6 +536,9 @@ class DecodeRenameROBPath(
 
   val selectedIsLoad = selectedAny && VecInit(decode.io.loadMask.asBools)(selectedSlot)
   val selectedIsStore = selectedAny && VecInit(decode.io.storeMask.asBools)(selectedSlot)
+  val selectedNeedsGprReservation =
+    selectedAny && selected.dst(0).valid && (selected.dst(0).kind === DestinationKind.Gpr) &&
+      (selected.dst(0).archTag < scalarArchRegs.U)
   val markerBoundary = markerOnlyPacket && VecInit(decode.io.blockBoundaryMask.asBools)(markerSlot)
   val markerStop = markerOnlyPacket && VecInit(decode.io.blockStopMask.asBools)(markerSlot)
   val selectedStid = selected.threadId.pad(stidWidth)(stidWidth - 1, 0)
@@ -658,9 +662,18 @@ class DecodeRenameROBPath(
   selectedForQueue.blockBidValid := selectedAny
   selectedForQueue.blockBid := selectedBlockBid
 
+  val gprReservationCount = RegInit(0.U(gprReservationCountWidth.W))
+  val gprFreeBudget = Wire(UInt(log2Ceil(physRegs + 1).W))
+  val gprMapQFreeBudget = Wire(UInt(log2Ceil(gprMapQDepth + 1).W))
+  val selectedGprReservationSlots =
+    Mux(selectedNeedsGprReservation, 1.U(gprReservationCountWidth.W), 0.U(gprReservationCountWidth.W))
+  val gprReservationNeed = gprReservationCount + selectedGprReservationSlots
+  val gprReservationReady =
+    (gprReservationNeed <= gprFreeBudget) && (gprReservationNeed <= gprMapQFreeBudget)
+
   val decRenPush = Wire(new DecodedUop(p))
   decRenPush := selectedForQueue
-  decRenPush.valid := selectedAny && allocator.io.allocReady
+  decRenPush.valid := selectedAny && allocator.io.allocReady && gprReservationReady
 
   val decRenQ = Module(new DecodeRenameQueue(p, depth = decRenQueueDepth))
   decRenQ.io.push := decRenPush
@@ -670,6 +683,9 @@ class DecodeRenameROBPath(
   val queuedForRename = Wire(new DecodedUop(p))
   queuedForRename := decRenQ.io.out
   val queuedMarkerForRename = queuedForRename.valid && (queuedForRename.sob || queuedForRename.eob)
+  val queuedNeedsGprReservation =
+    queuedForRename.valid && queuedForRename.dst(0).valid && (queuedForRename.dst(0).kind === DestinationKind.Gpr) &&
+      (queuedForRename.dst(0).archTag < scalarArchRegs.U)
 
   val rename = Module(new ScalarTURenameBridge(
     p = p,
@@ -690,6 +706,8 @@ class DecodeRenameROBPath(
   val renameCommitValid = Wire(Bool())
   val renameCommitBid = Wire(new ROBID(p.robEntries))
   val renameCommitBlockBid = Wire(UInt(bidWidth.W))
+  gprFreeBudget := rename.io.gprFreeCount
+  gprMapQFreeBudget := rename.io.gprMapQFreeCount
   rename.io.in := queuedForRename
   rename.io.activePeId := activeTURenamePeId
   rename.io.activeStid := activeTURenameStid
@@ -776,7 +794,7 @@ class DecodeRenameROBPath(
   storeDispatch.io.unsplitIn := Mux(storeDispatchBypass, bypassedStorePayload, storeSplit.io.unsplit)
 
   allocator.io.flush := io.cleanup.flush
-  allocator.io.allocValid := selectedAny && decRenQ.io.pushReady
+  allocator.io.allocValid := selectedAny && decRenQ.io.pushReady && gprReservationReady
   allocator.io.allocUsesExistingBlock := selectedUsesExistingBlock
   allocator.io.allocExistingBlockBid := selectedExistingBlockBid
   allocator.io.allocRow := commitReservationRow(selectedForQueue)
@@ -914,8 +932,8 @@ class DecodeRenameROBPath(
   io.blockMarkerStopRedirectValid := markerLifecycle.io.stopRedirectValid
   io.blockMarkerStopRedirectPc := markerLifecycle.io.stopRedirectPc
   io.decodeReady := !mixedMarkerPacket &&
-    Mux(markerOnlyPacket, markerLifecycle.io.markerReady, decRenQ.io.pushReady && allocator.io.allocReady)
-  io.decRenPushReady := decRenQ.io.pushReady && allocator.io.allocReady
+    Mux(markerOnlyPacket, markerLifecycle.io.markerReady, decRenQ.io.pushReady && allocator.io.allocReady && gprReservationReady)
+  io.decRenPushReady := decRenQ.io.pushReady && allocator.io.allocReady && gprReservationReady
   io.decRenPushFire := decRenQ.io.pushFire
   io.decRenPopFire := decRenQ.io.popFire
   io.decRenValid := decRenQ.io.out.valid
@@ -1006,6 +1024,15 @@ class DecodeRenameROBPath(
   io.storeStqEmpty := storeDispatch.io.stqEmpty
   io.storeStqFull := storeDispatch.io.stqFull
   io.storeStqStall := storeDispatch.io.stqStall
+  val gprReservationPush = decRenQ.io.pushFire && selectedNeedsGprReservation
+  val gprReservationPop = decRenQ.io.popFire && queuedNeedsGprReservation
+  when(decRenFlush) {
+    gprReservationCount := 0.U
+  }.elsewhen(gprReservationPush && !gprReservationPop) {
+    gprReservationCount := gprReservationCount + 1.U
+  }.elsewhen(!gprReservationPush && gprReservationPop) {
+    gprReservationCount := gprReservationCount - 1.U
+  }
   io.accepted := rename.io.accepted
   io.robAllocAttemptValid := allocator.io.allocValid
   io.robAllocReady := allocator.io.allocReady
