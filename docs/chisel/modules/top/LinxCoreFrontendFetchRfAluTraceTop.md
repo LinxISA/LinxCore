@@ -720,6 +720,19 @@ store-data check, where it fails at `pc=0x4000550e`: expected
 repair that source-data provenance before using the opt-in path as replacement
 evidence.
 
+R243 fixes that provenance failure as redirect cleanup, not store formatting.
+LinxCoreModel expands `FENTRY` into an `SDI` that stores architectural `R[m]`;
+for the failing row, the save source was x10 written at `pc=0x40005506`. The
+default skip-marker path had restarted fetch at the preceding marker stop but
+also armed backend/rename cleanup from an invalid marker retire source, which
+restored the scalar GPR map to identity and made `FENTRY` read physical tag 10.
+The top now separates marker-only redirects from redirects that need backend
+cleanup. In default skip-marker mode, marker-only redirects restart
+fetch/F4/dense state only; execute redirects still clean backend state, and the
+marker-row top can still clean from admitted marker-retire metadata. The
+promoted reduced-store live CoreMark/QEMU gate captures 42 raw rows and passes
+with 31 compared rows and zero mismatches.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -854,9 +867,12 @@ Execute-owned scalar redirects, currently `FRET.STK`, share the reduced
 frontend restart path and also pulse `DecodeRenameROBPath.scalarRedirectValid`
 so stale active marker target state cannot leak into the return target body.
 They additionally flush backend-only reduced state, publish ROB/rename cleanup,
-and block-flush the redirected full BID. Marker redirects stay frontend-only:
-they restart fetch/F4/dense decode state but do not discard older backend
-scalar work.
+and block-flush the redirected full BID. In default skip-marker mode,
+marker-only redirects stay frontend-only: they restart fetch/F4/dense decode
+state but do not discard older backend scalar work or synthesize rename cleanup
+from a nonexistent marker retire source. In marker-row mode, admitted marker
+rows can provide real retire-source metadata, so marker redirects may drive the
+same backend cleanup path deliberately.
 This top constructs the backend path with `reducedStoreDispatchBypass` by
 default: store rows still flow through decode, rename, issue, ALU execute, ROB
 completion, and QEMU-shaped store sideband comparison, but the reduced STQ
