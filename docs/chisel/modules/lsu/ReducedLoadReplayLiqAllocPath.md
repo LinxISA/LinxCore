@@ -81,6 +81,7 @@ MDB publication remain outside this module.
 | `launchMask` | One-hot oldest selected scalar candidate. Diagnostic only in this path. |
 | `launchValid` / `launchIndex` | Selector request before parent `launchEnable` qualification. |
 | `launchCandidateCount` | Number of selector candidates. |
+| `launchSelected*` | R294 selected launch-row identity from `LoadInflightLaunchSelect`: LIQ load ID, BID/GID/RID, load LSID, PC, address, size, and 64-byte request mask. These signals remain diagnostic while `launchEnable` is low. |
 | `launchDriveValid` | Actual valid presented to `LoadInflightQueue.launchValid`; low unless `launchEnable && launchValid`. |
 | `launchReady` | Selected row is launch-ready in `LoadInflightQueue`. |
 | `launchAccepted` | Selected row entered `Repick` through `LoadInflightQueue`. |
@@ -120,6 +121,10 @@ reduced wait slot and replay queue produce the same cleared load as a
 5. `LoadInflightLaunchSelect` scans the resulting LIQ row image and exposes the
    model `pickL1` predicates: `Wait`, no wait-store block, non-tile,
    data-hit/request-complete, and oldest `(BID, loadLsId)` selection.
+   R294 carries the selector's selected-row PC, address, size, load ID,
+   BID/GID/RID, load LSID, and request-byte mask through this path so the
+   parent can wire base-data lookup and launch arbitration later without
+   re-scanning the row array.
 6. R282 adds an explicit parent-owned `launchEnable` gate. When it is high,
    the selector's `launchValid/launchIndex` drive `LoadInflightQueue`, which
    relaunches the row through `LoadForwardPipeline` using `e2Stores`,
