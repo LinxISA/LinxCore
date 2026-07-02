@@ -61,7 +61,8 @@ Outputs:
   insert stalls, and `stdBypassStaBlocked`.
 - STQ bank diagnostics: insert result, commit/free result, flush masks, row
   image, occupancy masks, resident count, outstanding-WAIT count, and
-  empty/full/stall.
+  empty/full/stall. R267 row images include the store PC sidecar used by
+  resident wait-store diagnostics.
 - LSU T/U source diagnostics: `lsuTULinkSource`,
   `lsuTULinkSourceMatched`, and `lsuTULinkSourceMultipleMatch`, forwarded from
   `STQEntryBank`.

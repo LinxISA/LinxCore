@@ -31,6 +31,7 @@ object STQEntryBankReference {
       uSeq: Id = Id(),
       tuDstValid: Boolean = false,
       tuDst: TUDst = NoTUDst,
+      pc: BigInt = 0,
       stid: Int = 0,
       peId: Int = 0,
       tid: Int = 0,
@@ -412,12 +413,14 @@ class STQEntryBankSpec extends AnyFunSuite {
       tSeq = Id(value = 6),
       uSeq = Id(value = 7),
       tuDstValid = true,
-      tuDst = TDst)
+      tuDst = TDst,
+      pc = 0x1234)
     val data = req(1, storeType = Data, bid = 2, lsId = 5).copy(
       tSeq = Id(value = 11),
       uSeq = Id(value = 12),
       tuDstValid = true,
-      tuDst = UDst)
+      tuDst = UDst,
+      pc = 0x5678)
 
     assert(stq.insert(addr).allocated)
     assert(stq.insert(data).merged)
@@ -426,6 +429,7 @@ class STQEntryBankSpec extends AnyFunSuite {
     assert(merged.req.tSeq == Id(value = 6))
     assert(merged.req.uSeq == Id(value = 7))
     assert(merged.req.tuDst == TDst)
+    assert(merged.req.pc == 0x1234)
 
     val source = stq.tuSource(STQFlushPruneReference.Flush(stid = 1, bid = Id(value = 2), rid = Id(value = 0)))
     assert(source.valid)
@@ -459,6 +463,8 @@ class STQEntryBankSpec extends AnyFunSuite {
     assert(sv.contains("STQFlushPrune"))
     assert(sv.contains("io_flushFreeMask"))
     assert(sv.contains("io_insertMerged"))
+    assert(sv.contains("io_insert_pc"))
+    assert(sv.contains("io_rows_0_pc"))
     assert(sv.contains("io_markCommitAccepted"))
     assert(sv.contains("io_commitFreeAccepted"))
     assert(sv.contains("io_commitFreeAcceptedMask"))

@@ -14,10 +14,19 @@ object ReducedStoreResidentForwardReference {
       scalar: Boolean = true,
       bid: Id = Id(),
       lsId: Id = Id(),
+      pc: BigInt = 0,
       addr: BigInt = 0x1000,
       data: BigInt = 0,
       size: Int = 8)
-  final case class Result(data: BigInt, forwardMask: BigInt, waitMask: BigInt, eligibleMask: BigInt, waitBlocked: Boolean, crosses: Boolean)
+  final case class WaitStore(index: Int, bid: Id, lsId: Id, pc: BigInt)
+  final case class Result(
+      data: BigInt,
+      forwardMask: BigInt,
+      waitMask: BigInt,
+      eligibleMask: BigInt,
+      waitBlocked: Boolean,
+      waitStore: Option[WaitStore],
+      crosses: Boolean)
 
   private val LoadBytes = 8
   private val LineBytes = 64
@@ -60,6 +69,7 @@ object ReducedStoreResidentForwardReference {
     var fmask = BigInt(0)
     var wmask = BigInt(0)
     var emask = BigInt(0)
+    var waitStore: Option[WaitStore] = None
 
     if (queryValid) {
       for (idx <- rows.indices) {
@@ -85,15 +95,20 @@ object ReducedStoreResidentForwardReference {
             ((emask >> idx) & 1) == 1 && addr >= row.addr && addr < (row.addr + row.size)
           }
           if (candidates.nonEmpty) {
-            val nearest = candidates.map(_._1).reduce { (best, row) =>
-              if (greaterBidLs(row.bid, row.lsId, best.bid, best.lsId)) row else best
+            val nearest = candidates.reduce { (best, candidate) =>
+              if (greaterBidLs(candidate._1.bid, candidate._1.lsId, best._1.bid, best._1.lsId)) candidate else best
             }
-            val storeByte = byte(nearest.data, (addr - nearest.addr).toInt)
-            if (nearest.dataReady) {
+            val (nearestRow, nearestIndex) = nearest
+            val storeByte = byte(nearestRow.data, (addr - nearestRow.addr).toInt)
+            if (nearestRow.dataReady) {
               out = (out & ~(BigInt(0xff) << (loadByte * 8))) | (BigInt(storeByte) << (loadByte * 8))
               fmask |= BigInt(1) << loadByte
             } else {
               wmask |= BigInt(1) << loadByte
+              val current = waitStore
+              if (current.isEmpty || greaterBidLs(nearestRow.bid, nearestRow.lsId, current.get.bid, current.get.lsId)) {
+                waitStore = Some(WaitStore(nearestIndex, nearestRow.bid, nearestRow.lsId, nearestRow.pc))
+              }
             }
           }
         }
@@ -101,7 +116,14 @@ object ReducedStoreResidentForwardReference {
     }
 
     val wait = queryValid && wmask != 0
-    Result(data = if (wait) baseData & Mask64 else out, forwardMask = if (wait) 0 else fmask, waitMask = wmask, eligibleMask = emask, waitBlocked = wait, crosses = enable && loadValid && crosses(loadAddr, loadSize))
+    Result(
+      data = if (wait) baseData & Mask64 else out,
+      forwardMask = if (wait) 0 else fmask,
+      waitMask = wmask,
+      eligibleMask = emask,
+      waitBlocked = wait,
+      waitStore = if (wait) waitStore else None,
+      crosses = enable && loadValid && crosses(loadAddr, loadSize))
   }
 }
 
@@ -156,9 +178,10 @@ class ReducedStoreResidentForwardSpec extends AnyFunSuite {
       loadBid = id(8),
       loadLsId = id(0),
       baseData = BigInt("8877665544332211", 16),
-      rows = Seq(Row(dataReady = false, bid = id(7), lsId = id(1), addr = 0x3000, data = BigInt("aaaa", 16), size = 2)))
+      rows = Seq(Row(dataReady = false, bid = id(7), lsId = id(1), pc = 0x44, addr = 0x3000, data = BigInt("aaaa", 16), size = 2)))
 
     assert(result.waitBlocked)
+    assert(result.waitStore.contains(WaitStore(index = 0, bid = id(7), lsId = id(1), pc = 0x44)))
     assert(result.waitMask == BigInt("03", 16))
     assert(result.forwardMask == 0)
     assert(result.data == BigInt("8877665544332211", 16))
@@ -187,6 +210,8 @@ class ReducedStoreResidentForwardSpec extends AnyFunSuite {
     assert(sv.contains("io_loadForwardMask"))
     assert(sv.contains("io_waitMask"))
     assert(sv.contains("io_eligibleStoreMask"))
+    assert(sv.contains("io_waitStore_pc"))
+    assert(sv.contains("io_waitStore_storeId_value"))
     assert(sv.contains("io_loadCrossesLine"))
   }
 }

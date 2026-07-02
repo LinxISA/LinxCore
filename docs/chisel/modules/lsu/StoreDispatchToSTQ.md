@@ -59,7 +59,8 @@ Outputs:
 - `insertValid`, `insert`: selected `STQStoreRequest`.
 - `staRequest`, `stdRequest`: per-candidate request images for readiness
   probing and observability. Their `tSeq/uSeq` and T/U destination sidecars
-  are copied from the queue-head `StoreSplitIssuePayload`.
+  are copied from the queue-head `StoreSplitIssuePayload`; their `pc` field is
+  copied from the renamed uop for later resident wait-store wakeup matching.
 - `staCandidate`, `stdCandidate`: payload plus execution-result readiness.
 - `selectedSta`, `selectedStd`: one-cycle insertion choice.
 - `blockedByStaExec`, `blockedByStdExec`: queue head waits for execution
@@ -101,7 +102,10 @@ numeric order:
 
 The request copies `bid/gid/rid` from the renamed uop, converts the 32-bit
 reduced `lsid` into the STQ ring-ID sidecar, and fills address/data/size plus
-scope fields from the execution result.
+scope fields from the execution result. R267 also preserves the renamed
+uop PC in `STQStoreRequest.pc`; this is the store PC that
+`LoadStoreForwarding.waitStore.pc` and later `LDQInfo::handleSUWakeup`-style
+logic must compare when clearing a wait-store load.
 
 The request also carries `tSeq/uSeq` and T/U destination ownership fields that
 match the model `MemReqBus` sidecars. R61 moves those fields into
@@ -169,5 +173,6 @@ bash tools/chisel/run_chisel_verilator_lint.sh
 
 Focused tests cover STA priority, STD bypass when STA cannot insert,
 execution-result versus insert backpressure diagnostics, flush suppression, IO
-widths, enum ordering, and CIRCT elaboration. R61 extends the checks to the
-sidecar-carry ports on `sta`, `std`, and `insert`.
+widths, enum ordering, PC sidecar ports, and CIRCT elaboration. R61 extends the
+checks to the T/U sidecar-carry ports on `sta`, `std`, and `insert`; R267
+extends the same request-shaping boundary to store PC.

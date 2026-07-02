@@ -147,6 +147,7 @@ class StoreDispatchToSTQ(
     req.uSeq := payload.uSeq
     req.tuDstValid := payload.tuDstValid
     req.tuDstKind := Mux(payload.tuDstValid, payload.tuDstKind, DestinationKind.None)
+    req.pc := payload.uop.pc
     req.addr := exec.addr
     req.data := exec.data
     req.size := exec.size

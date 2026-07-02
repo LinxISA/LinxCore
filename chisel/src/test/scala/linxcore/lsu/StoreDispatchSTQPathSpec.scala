@@ -139,6 +139,7 @@ class StoreDispatchSTQPathSpec extends AnyFunSuite {
     assert(io.staRequest.bid.value.getWidth == 3)
     assert(io.stdRequest.lsId.value.getWidth == 3)
     assert(io.staRequest.tSeq.value.getWidth == 5)
+    assert(io.staRequest.pc.getWidth == 64)
     assert(io.staIn.tSeq.value.getWidth == 5)
     assert(io.stdQueue.uSeq.value.getWidth == 5)
     assert(io.lsuTULinkSource.tSeq.value.getWidth == 5)
@@ -146,6 +147,7 @@ class StoreDispatchSTQPathSpec extends AnyFunSuite {
     assert(io.stqResidentCount.getWidth == 4)
     assert(io.stqOutstandingWaitCount.getWidth == 4)
     assert(io.stqRows.length == 8)
+    assert(io.stqRows.head.pc.getWidth == 64)
     assert(io.staExec.addr.getWidth == 64)
   }
 
@@ -160,6 +162,7 @@ class StoreDispatchSTQPathSpec extends AnyFunSuite {
     assert(sv.contains("STQEntryBank"))
     assert(sv.contains("io_staIn_tSeq_value"))
     assert(sv.contains("io_stdQueue_uSeq_value"))
+    assert(sv.contains("io_stqRows_0_pc"))
     assert(sv.contains("io_lsuTULinkSource_valid"))
     assert(sv.contains("io_lsuTULinkSourceMatched"))
     assert(sv.contains("io_stdBypassStaBlocked"))

@@ -58,6 +58,7 @@ the wait-store identity before this can replace the full model load pipeline.
 | `loadForwardMask` | One bit per returned byte forwarded from ready resident STQ rows. |
 | `waitMask` | One bit per returned byte whose nearest older resident store is not data-ready. |
 | `eligibleStoreMask` | STQ rows accepted by the resident-forward candidate filter. |
+| `waitStore` | Selected not-ready resident store identity from `LoadStoreForwarding`: valid bit, STQ index, BID, LSID, and PC. R267 exposes this diagnostic for later LIQ/LDQ replay wakeup wiring. |
 | `readyForward` | At least one byte was forwarded and no wait byte blocked the load. |
 | `waitBlocked` | A nearest older resident store is not data-ready for at least one requested byte. R266 top integration uses this to hold execute. |
 | `loadCrossesLine` | Load crosses a 64-byte line and is left on the base overlay path in this ready-only packet. |
@@ -89,9 +90,11 @@ with reduced-top limits:
    resident.
 5. Expand the row's 64-bit store data into a 64-byte line image at the store
    address offset.
-6. Run `LoadStoreForwarding`, then extract the load-window bytes from the
+6. Copy the row PC into each `LoadStoreForwardStore` so a selected not-ready
+   row reports model-style wait-store identity.
+7. Run `LoadStoreForwarding`, then extract the load-window bytes from the
    merged 64-byte line.
-7. If `waitMask` is nonzero, preserve `baseLoadData` and report
+8. If `waitMask` is nonzero, preserve `baseLoadData` and report
    `waitBlocked`. The R266 top consumes that diagnostic as execute
    backpressure; replay row mutation remains outside this adapter.
 
@@ -119,7 +122,6 @@ owned by `StoreDispatchSTQPath` and `STQEntryBank`.
 
 - LIQ/LDQ wait-store row mutation and replay wakeups.
 - Cross-line resident store/load forwarding.
-- Store PC sidecar propagation for model-exact wait-store diagnostics.
 - MDB conflict publication and recovery cleanup.
 
 ## Verification
@@ -135,4 +137,5 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 
 Reference tests cover ready resident forwarding over committed overlay data,
 same-BID LSID source selection, not-ready wait pass-through, cross-line
-suppression, and Chisel elaboration with diagnostics.
+suppression, selected wait-store identity including PC, and Chisel elaboration
+with diagnostics.

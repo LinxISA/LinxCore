@@ -139,6 +139,8 @@ class StoreDispatchToSTQSpec extends AnyFunSuite {
     assert(io.sta.tSeq.value.getWidth == 5)
     assert(io.std.uSeq.value.getWidth == 5)
     assert(io.sta.tuDstKind.getWidth == DestinationKind.getWidth)
+    assert(io.insert.pc.getWidth == 64)
+    assert(io.staRequest.pc.getWidth == 64)
     assert(io.insert.addr.getWidth == 64)
     assert(io.insert.data.getWidth == 64)
     assert(io.insert.size.getWidth == 4)
@@ -157,6 +159,7 @@ class StoreDispatchToSTQSpec extends AnyFunSuite {
     assert(sv.contains("io_std_uSeq_value"))
     assert(sv.contains("io_insert_tSeq_value"))
     assert(sv.contains("io_insert_tuDstValid"))
+    assert(sv.contains("io_insert_pc"))
     assert(sv.contains("io_stdBypassStaBlocked"))
   }
 }

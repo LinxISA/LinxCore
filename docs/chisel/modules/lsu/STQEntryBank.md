@@ -50,6 +50,7 @@ request type from executed store-dispatch queue heads.
 | `bid/gid/rid/lsId` | Ring identity sidecars from the model memory request. |
 | `tSeq/uSeq` | T/U local-register sequence snapshots carried by model `MemReqBus`. |
 | `tuDstValid/tuDstKind` | Destination ownership sidecar used to apply `GetPrevRegSeq` when the flushed store owns T or U. |
+| `pc` | Store PC sidecar used by resident wait-store diagnostics and later `LDQInfo::handleSUWakeup` matching. |
 | `addr/data/size` | Store address, data, and byte size sidecars. |
 | `stackValid` | Stack marker preserved across merge. |
 | `scalarIex/simtLane` | Merge scoping: scalar stores ignore SIMT lane, vector/SIMT stores require matching lane. |
@@ -149,6 +150,13 @@ model `STQueueEntryInfo::init` and `STQ::mergeStore`: merge fills missing
 address/data fields and changes the request type to `ST_ALL`, but it does not
 replace the stored request identity.
 
+R267 extends that preservation rule to the store PC. `StoreDispatchToSTQ`
+copies `StoreSplitIssuePayload.uop.pc` into `STQStoreRequest.pc`, allocation
+copies it into the row, and complementary partial-store merge keeps the first
+allocated row's PC. `ReducedStoreResidentForward` can then report the same PC
+with the selected not-ready resident store. Full LDQ replay wakeup consumption
+still belongs to a later LIQ/LDQ owner.
+
 ## Timing
 
 The bank is a single-cycle state owner. Recovery mask generation is
@@ -195,4 +203,5 @@ acceptance, full-queue allocation rejection, WAIT-to-COMMIT accounting, single
 and masked committed-row free, WAIT-only recovery free, committed-row
 preservation on flush, exact non-base T/U source selection, base-on-BID source
 suppression, sidecar preservation through partial-store merge, cleared-row
-source suppression, and Chisel elaboration with the `STQFlushPrune` child.
+source suppression, PC sidecar preservation through merge, and Chisel
+elaboration with the `STQFlushPrune` child.

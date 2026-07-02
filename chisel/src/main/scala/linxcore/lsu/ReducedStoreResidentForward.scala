@@ -15,6 +15,7 @@ class ReducedStoreResidentForwardIO(
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
+    val pcWidth: Int = 64,
     val lineBytes: Int = 64)
     extends Bundle {
   val enable = Input(Bool())
@@ -30,6 +31,7 @@ class ReducedStoreResidentForwardIO(
   val loadForwardMask = Output(UInt((dataWidth / 8).W))
   val waitMask = Output(UInt((dataWidth / 8).W))
   val eligibleStoreMask = Output(UInt(entries.W))
+  val waitStore = Output(new LoadStoreForwardWait(entries, entries, pcWidth))
   val readyForward = Output(Bool())
   val waitBlocked = Output(Bool())
   val loadCrossesLine = Output(Bool())
@@ -45,6 +47,7 @@ class ReducedStoreResidentForward(
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
     val mapQDepth: Int = 32,
+    val pcWidth: Int = 64,
     val lineBytes: Int = 64)
     extends Module {
   require(entries > 1, "resident store forwarding needs at least two STQ entries")
@@ -67,6 +70,7 @@ class ReducedStoreResidentForward(
     sizeWidth,
     simtLaneWidth,
     mapQDepth,
+    pcWidth,
     lineBytes
   ))
 
@@ -126,7 +130,7 @@ class ReducedStoreResidentForward(
   }
 
   private def zeroStore: LoadStoreForwardStore = {
-    val store = Wire(new LoadStoreForwardStore(entries, entries, addrWidth, pcWidth = 64, lineBytes))
+    val store = Wire(new LoadStoreForwardStore(entries, entries, addrWidth, pcWidth, lineBytes))
     store := 0.U.asTypeOf(store)
     store.storeId := ROBID.disabled(entries)
     store.storeLsId := ROBID.disabled(entries)
@@ -135,7 +139,7 @@ class ReducedStoreResidentForward(
 
   val loadCrosses = crossesLine(io.loadAddr, io.loadSize)
   val queryValid = io.enable && io.loadValid && (io.loadSize =/= 0.U) && !loadCrosses
-  val forward = Module(new LoadStoreForwarding(entries, entries, addrWidth, pcWidth = 64, lineBytes, sizeWidth = 7))
+  val forward = Module(new LoadStoreForwarding(entries, entries, addrWidth, pcWidth, lineBytes, sizeWidth = 7))
 
   forward.io.query.valid := queryValid
   forward.io.query.lineAddr := lineAddr(io.loadAddr)
@@ -149,7 +153,7 @@ class ReducedStoreResidentForward(
   for (idx <- 0 until entries) {
     val row = io.rows(idx)
     val storeMask = requestByteMask(row.addr, row.size)
-    val store = Wire(new LoadStoreForwardStore(entries, entries, addrWidth, pcWidth = 64, lineBytes))
+    val store = Wire(new LoadStoreForwardStore(entries, entries, addrWidth, pcWidth, lineBytes))
     store := zeroStore
     store.valid := io.enable && row.valid && (row.status === STQEntryStatus.Wait) && !crossesLine(row.addr, row.size)
     store.working := row.status === STQEntryStatus.Wait
@@ -159,6 +163,7 @@ class ReducedStoreResidentForward(
     store.storeIndex := idx.U
     store.storeId := row.bid
     store.storeLsId := row.lsId
+    store.pc := row.pc
     store.lineAddr := lineAddr(row.addr)
     store.byteMask := storeMask
     store.data := storeLineData(row.addr, row.data, storeMask)
@@ -186,6 +191,7 @@ class ReducedStoreResidentForward(
   io.loadForwardMask := Mux(queryValid && !waitBlocked, windowForwardMask, 0.U)
   io.waitMask := Mux(queryValid, windowWaitMask, 0.U)
   io.eligibleStoreMask := forward.io.eligibleStoreMask
+  io.waitStore := forward.io.waitStore
   io.readyForward := readyForward
   io.waitBlocked := waitBlocked
   io.loadCrossesLine := io.enable && io.loadValid && loadCrosses

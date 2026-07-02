@@ -20,7 +20,8 @@ class STQStoreRequest(
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
-    val mapQDepth: Int = 32)
+    val mapQDepth: Int = 32,
+    val pcWidth: Int = 64)
     extends Bundle {
   val storeType = STQStoreType()
   val peId = UInt(peIdWidth.W)
@@ -34,6 +35,7 @@ class STQStoreRequest(
   val uSeq = new ROBID(mapQDepth)
   val tuDstValid = Bool()
   val tuDstKind = DestinationKind()
+  val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val data = UInt(dataWidth.W)
   val size = UInt(sizeWidth.W)
@@ -51,7 +53,8 @@ class STQEntryBankRow(
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
     val simtLaneWidth: Int = 8,
-    val mapQDepth: Int = 32)
+    val mapQDepth: Int = 32,
+    val pcWidth: Int = 64)
     extends Bundle {
   val valid = Bool()
   val status = STQEntryStatus()
@@ -67,6 +70,7 @@ class STQEntryBankRow(
   val uSeq = new ROBID(mapQDepth)
   val tuDstValid = Bool()
   val tuDstKind = DestinationKind()
+  val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val data = UInt(dataWidth.W)
   val size = UInt(sizeWidth.W)
@@ -191,6 +195,7 @@ class STQEntryBank(
     row.uSeq := req.uSeq
     row.tuDstValid := req.tuDstValid
     row.tuDstKind := req.tuDstKind
+    row.pc := req.pc
     row.addr := req.addr
     row.data := req.data
     row.size := req.size
