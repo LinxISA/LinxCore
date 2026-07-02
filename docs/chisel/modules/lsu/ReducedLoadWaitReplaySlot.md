@@ -28,10 +28,13 @@ the resulting store-unit wakeup through the existing `LoadReplayWakeup` owner.
 
 This is still diagnostic integration. The slot proves the replay request shape
 can clear a remembered wait-store row by `(BID, LSID, PC)` and now publishes a
-one-cycle relaunch candidate carrying the remembered load identity. In the
-reduced top after R272, `ReducedLoadReplayRelaunchQueue` consumes that pulse
-into a finite pending queue. The slot itself does not drive a launch port, wake
-dependent consumers, or replace the full `LoadInflightQueue` owner.
+one-cycle relaunch candidate carrying the remembered load identity. R274
+extends that candidate to preserve the model `MemReqBus` ROB sidecars
+`BID/GID/RID` plus reduced `LSID`, matching the identity carried through the
+model LDQ insert/wait path. In the reduced top after R272,
+`ReducedLoadReplayRelaunchQueue` consumes that pulse into a finite pending
+queue. The slot itself does not drive a launch port, wake dependent consumers,
+or replace the full `LoadInflightQueue` owner.
 
 ## Interface
 
@@ -45,6 +48,8 @@ dependent consumers, or replace the full `LoadInflightQueue` owner.
 | `captureAddr` | Byte address of the waiting load. |
 | `captureSize` | Byte size of the waiting load. |
 | `captureBid` | Load allocation snapshot BID. |
+| `captureGid` | Load allocation snapshot GID sidecar. |
+| `captureRid` | Load allocation snapshot RID sidecar. |
 | `captureLsId` | Load allocation snapshot LSID in `ROBID` form. |
 | `captureWaitStore` | Selected not-ready store key from `ReducedStoreResidentForward`: STQ index, BID, LSID, and PC. |
 | `replayWakeValid` | Store-unit replay wakeup valid from `ResidentStoreReplayWakeup`. |
@@ -64,6 +69,8 @@ dependent consumers, or replace the full `LoadInflightQueue` owner.
 | `relaunch.addr` | Byte address of the remembered load. |
 | `relaunch.size` | Byte size of the remembered load. |
 | `relaunch.bid` | BID snapshot captured with the remembered load. |
+| `relaunch.gid` | GID snapshot captured with the remembered load. |
+| `relaunch.rid` | RID snapshot captured with the remembered load. |
 | `relaunch.loadLsId` | Reduced LSID captured with the remembered load. |
 | `slotPc` | PC of the remembered load row. |
 | `slotAddr` | Address of the remembered load row. |
@@ -99,8 +106,8 @@ R269 maps that sequence onto the reduced top:
 4. Clear the diagnostic slot when the wakeup matches the remembered
    wait-store key by `(storeId, storeLsId, pc)`.
 5. Publish a one-cycle relaunch candidate containing the stored load PC,
-   address, size, BID, and reduced LSID. This is the future LIQ/issue handoff
-   boundary; it does not itself relaunch the load.
+   address, size, BID, GID, RID, and reduced LSID. This is the future
+   LIQ/issue handoff boundary; it does not itself relaunch the load.
 6. In the reduced top, `ReducedLoadReplayRelaunchQueue` stores that one-cycle
    pulse as a stable pending diagnostic until a later LIQ/issue consumer
    exists.

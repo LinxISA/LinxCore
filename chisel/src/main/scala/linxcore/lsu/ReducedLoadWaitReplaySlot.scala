@@ -14,6 +14,8 @@ class ReducedLoadReplayCandidate(
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
   val bid = new ROBID(idEntries)
+  val gid = new ROBID(idEntries)
+  val rid = new ROBID(idEntries)
   val loadLsId = new ROBID(idEntries)
 }
 
@@ -33,6 +35,8 @@ class ReducedLoadWaitReplaySlotIO(
   val captureAddr = Input(UInt(addrWidth.W))
   val captureSize = Input(UInt(sizeWidth.W))
   val captureBid = Input(new ROBID(idEntries))
+  val captureGid = Input(new ROBID(idEntries))
+  val captureRid = Input(new ROBID(idEntries))
   val captureLsId = Input(new ROBID(idEntries))
   val captureWaitStore = Input(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
 
@@ -96,6 +100,8 @@ class ReducedLoadWaitReplaySlot(
     val candidate = Wire(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth))
     candidate := 0.U.asTypeOf(candidate)
     candidate.bid := ROBID.disabled(idEntries)
+    candidate.gid := ROBID.disabled(idEntries)
+    candidate.rid := ROBID.disabled(idEntries)
     candidate.loadLsId := ROBID.disabled(idEntries)
     candidate
   }
@@ -107,6 +113,8 @@ class ReducedLoadWaitReplaySlot(
     row.status := LoadInflightStatus.Wait
     row.loadId := ROBID.zero(slotEntries)
     row.bid := io.captureBid
+    row.gid := io.captureGid
+    row.rid := io.captureRid
     row.pc := io.capturePc
     row.addr := io.captureAddr
     row.size := io.captureSize
@@ -166,6 +174,8 @@ class ReducedLoadWaitReplaySlot(
     relaunch.addr := slotReg.addr
     relaunch.size := slotReg.size
     relaunch.bid := slotReg.bid
+    relaunch.gid := slotReg.gid
+    relaunch.rid := slotReg.rid
     relaunch.loadLsId := loadLsIdReg
   }
 

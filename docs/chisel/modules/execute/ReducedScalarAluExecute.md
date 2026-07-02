@@ -70,6 +70,7 @@ identity used by `LDQInfo::handleSUWakeup`.
 | output | `completeDstData` | `UInt(64.W)` by default | with `completeDstPhysValid` | ALU result for the RF/ready-table writeback owner. |
 | output | `releaseValid` | `Bool` | valid | W2-stage uop reached the reduced issue-queue release point, including unsupported reduced opcodes. |
 | output | `releaseBid` | `ROBID` | with `releaseValid` | Block identity copied from the W2 uop. |
+| output | `releaseGid` | `ROBID` | with `releaseValid` | Group identity copied from the W2 uop for reduced replay completion matching. |
 | output | `releaseRid` | `ROBID` | with `releaseValid` | ROB identity copied from the W2 uop. |
 | output | `releaseStid` | `UInt(threadIdWidth.W)` | with `releaseValid` | STID copied from the W2 uop. |
 | output | `branchConditionValid` | `Bool` | with `completeValid` | Reduced conditional-block decision is valid for a completed compare row. |
@@ -77,6 +78,7 @@ identity used by `LDQInfo::handleSUWakeup`.
 | output | `loadLookupValid` | `Bool` | E-stage valid | The current E-stage uop requests reduced read-only load data. |
 | output | `loadLookupAddr` | `UInt(64.W)` by default | with `loadLookupValid` | Byte address for the reduced read-only load lookup. |
 | output | `loadLookupPc` | `UInt(pcWidth.W)` | with `loadLookupValid` | R269 PC sideband for the reduced wait-store replay slot. |
+| output | `loadLookupBid`, `loadLookupGid`, `loadLookupRid` | `ROBID` | with `loadLookupValid` | R274 model ROB identity sidecars for reduced replay candidates. |
 | output | `fretStkSpRestoreValid` | `Bool` | with `completeValid` | The condition-false `FRET.STK` RA-load path also restores architectural `x1/sp`. |
 | output | `fretStkSpRestoreData` | `UInt(64.W)` by default | with `fretStkSpRestoreValid` | Restored SP value, `stackPointerData + in.imm`, for the owning top's scalar-SP shadow. |
 | output | `redirectValid` | `Bool` | with `completeValid` | Reduced scalar redirect request for `FRET.STK` target-taken rows or condition-false RA-load return rows. |
@@ -481,8 +483,11 @@ frontend rows to read earlier Chisel writebacks through renamed physical tags.
 `completeSrcPhysValid/Tag` are diagnostic sidebands used by the live
 CoreMark harness to correlate issue-time source physical tags with the
 writeback/rename map when debugging alias or premature-free hazards.
-`releaseValid/Bid/Rid/Stid` feed `ReducedScalarIssueQueue` so the queue
+`releaseValid/Bid/Gid/Rid/Stid` feed `ReducedScalarIssueQueue` so the queue
 removes the issued row only after this pipe reaches the reduced release point.
+The same W2 identity feeds `ReducedLoadReplayCompletionDrain` in the reduced
+top, ensuring a queued replay candidate is drained only by the exact load row
+that produced it.
 
 ## Verification
 

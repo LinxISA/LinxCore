@@ -11,9 +11,17 @@ object ReducedLoadWaitReplaySlotReference {
       storeId: Id = Id(),
       storeLsId: Id = Id(),
       pc: BigInt = 0)
-  final case class Capture(pc: BigInt, addr: BigInt, size: Int, bid: Id, lsId: Id, waitKey: Wait)
+  final case class Capture(
+      pc: BigInt,
+      addr: BigInt,
+      size: Int,
+      bid: Id,
+      lsId: Id,
+      waitKey: Wait,
+      gid: Id = Id(),
+      rid: Id = Id())
   final case class Wake(storeId: Id, storeLsId: Id, pc: BigInt)
-  final case class Relaunch(pc: BigInt, addr: BigInt, size: Int, bid: Id, lsId: Id)
+  final case class Relaunch(pc: BigInt, addr: BigInt, size: Int, bid: Id, lsId: Id, gid: Id = Id(), rid: Id = Id())
   final case class State(
       active: Boolean = false,
       pc: BigInt = 0,
@@ -21,6 +29,8 @@ object ReducedLoadWaitReplaySlotReference {
       size: Int = 0,
       bid: Id = Id(),
       lsId: Id = Id(),
+      gid: Id = Id(),
+      rid: Id = Id(),
       waitKey: Wait = Wait())
   final case class Result(
       state: State,
@@ -42,7 +52,7 @@ object ReducedLoadWaitReplaySlotReference {
     }
     val relaunch =
       if (waitStoreClear && !captureAccepted && !flush) {
-        Some(Relaunch(state.pc, state.addr, state.size, state.bid, state.lsId))
+        Some(Relaunch(state.pc, state.addr, state.size, state.bid, state.lsId, state.gid, state.rid))
       } else {
         None
       }
@@ -58,6 +68,8 @@ object ReducedLoadWaitReplaySlotReference {
           size = captured.size,
           bid = captured.bid,
           lsId = captured.lsId,
+          gid = captured.gid,
+          rid = captured.rid,
           waitKey = captured.waitKey)
       } else if (waitStoreClear) {
         State()
@@ -86,6 +98,8 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
       size = 8,
       bid = id(6),
       lsId = id(3),
+      gid = id(2),
+      rid = id(7),
       waitKey = wait(pc = 0x3450, storeId = storeId))
 
     val afterCapture = step(State(), capture = Some(captured))
@@ -96,7 +110,7 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     val afterWake =
       step(afterCapture.state, wake = Some(Wake(storeId = storeId, storeLsId = Id(), pc = 0x3450)))
     assert(afterWake.waitStoreClear)
-    assert(afterWake.relaunch.contains(Relaunch(0x4000, 0x1008, 8, id(6), id(3))))
+    assert(afterWake.relaunch.contains(Relaunch(0x4000, 0x1008, 8, id(6), id(3), id(2), id(7))))
     assert(!afterWake.state.active)
   }
 
@@ -154,6 +168,8 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     assert(sv.contains("io_waitStoreClear"))
     assert(sv.contains("io_storedWaitStore_valid"))
     assert(sv.contains("io_relaunch_valid"))
+    assert(sv.contains("io_relaunch_gid_value"))
+    assert(sv.contains("io_relaunch_rid_value"))
     assert(sv.contains("io_relaunch_loadLsId_value"))
   }
 }

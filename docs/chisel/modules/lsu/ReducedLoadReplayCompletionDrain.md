@@ -28,7 +28,10 @@ store becomes forwardable.
 This is not a full relaunch owner. It does not allocate or mutate
 `LoadInflightQueue`, issue a second load, update a ready table, or wake
 dependent consumers. It only drains the diagnostic candidate queue when the
-reduced in-place completion matches the remembered load identity.
+reduced in-place completion matches the remembered load identity. R274 expands
+that identity check to the model ROB sidecars `BID/GID/RID` plus reduced
+`LSID`, preserving the same sidecar shape carried by LinxCoreModel `MemReqBus`
+into LDQ rows.
 
 ## Interface
 
@@ -37,13 +40,15 @@ reduced in-place completion matches the remembered load identity.
 | Signal | Description |
 |---|---|
 | `candidateValid` | Queue head valid from `ReducedLoadReplayRelaunchQueue`. |
-| `candidate` | Remembered replay candidate: load PC, address, size, BID, and reduced LSID. |
+| `candidate` | Remembered replay candidate: load PC, address, size, BID, GID, RID, and reduced LSID. |
 | `completeValid` | Reduced execute completion valid. |
 | `completeMemLoad` | Completion row is a load memory side effect. |
 | `completePc` | Completion row PC. |
 | `completeAddr` | Completion row memory address. |
 | `completeSize` | Completion row memory size. |
 | `completeBid` | Completed row BID. |
+| `completeGid` | Completed row GID sidecar. |
+| `completeRid` | Completed row RID sidecar. |
 | `completeLsId` | Completed row reduced LSID. |
 
 ### Outputs
@@ -57,6 +62,8 @@ reduced in-place completion matches the remembered load identity.
 | `addrMismatch` | Address mismatch diagnostic. |
 | `sizeMismatch` | Size mismatch diagnostic. |
 | `bidMismatch` | BID mismatch diagnostic. |
+| `gidMismatch` | GID mismatch diagnostic. |
+| `ridMismatch` | RID mismatch diagnostic. |
 | `lsIdMismatch` | LSID mismatch diagnostic. |
 
 ## State
@@ -78,7 +85,7 @@ completion match:
 1. Require a valid queue head and a valid load completion.
 2. Compare candidate and completion PC.
 3. Compare load address and size from the completion memory sideband.
-4. Compare BID using valid, wrap, and value.
+4. Compare BID, GID, and RID using valid, wrap, and value.
 5. Compare reduced LSID using valid, wrap, and value.
 6. Assert `consumeReady` only when every field matches.
 

@@ -43,7 +43,7 @@ later completes with matching identity.
 |---|---|
 | `flush` | Clears the queue and suppresses enqueue/dequeue for the cycle. |
 | `enqueueValid` | Candidate-valid pulse from the reduced wait-store slot. |
-| `enqueue` | `ReducedLoadReplayCandidate` payload: remembered load PC, address, size, BID, and reduced LSID. |
+| `enqueue` | `ReducedLoadReplayCandidate` payload: remembered load PC, address, size, BID, GID, RID, and reduced LSID. |
 | `outReady` | Consumer readiness for the queue head. In the reduced top this comes from `ReducedLoadReplayCompletionDrain`; future LIQ/issue work may replace that diagnostic consumer. |
 
 ### Outputs
@@ -99,9 +99,9 @@ new candidate is written into the freed slot. Occupancy remains full.
 
 The integrated reduced top currently drives `outReady` from
 `ReducedLoadReplayCompletionDrain`, so a queued candidate is consumed only
-when the held load completes in W2 with matching PC, address, size, BID, and
-LSID. Later LIQ/issue work should replace that diagnostic drain with a real
-relaunch admission boundary.
+when the held load completes in W2 with matching PC, address, size, BID,
+GID/RID, and LSID. Later LIQ/issue work should replace that diagnostic drain
+with a real relaunch admission boundary.
 
 ## Flush/Recovery
 

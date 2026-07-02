@@ -43,6 +43,8 @@ class ReducedScalarAluExecuteIO(
   val loadLookupSize = Output(UInt(p.memSizeWidth.W))
   val loadLookupPc = Output(UInt(p.pcWidth.W))
   val loadLookupBid = Output(new ROBID(p.robEntries))
+  val loadLookupGid = Output(new ROBID(p.robEntries))
+  val loadLookupRid = Output(new ROBID(p.robEntries))
   val loadLookupLsId = Output(UInt(p.lsidWidth.W))
   val fretStkSpRestoreValid = Output(Bool())
   val fretStkSpRestoreData = Output(UInt(p.immWidth.W))
@@ -52,6 +54,7 @@ class ReducedScalarAluExecuteIO(
 
   val releaseValid = Output(Bool())
   val releaseBid = Output(new ROBID(p.robEntries))
+  val releaseGid = Output(new ROBID(p.robEntries))
   val releaseRid = Output(new ROBID(p.robEntries))
   val releaseStid = Output(UInt(p.threadIdWidth.W))
 
@@ -597,6 +600,8 @@ class ReducedScalarAluExecute(
   io.loadLookupSize := Mux(io.loadLookupValid, eLoadLookupSize, 0.U)
   io.loadLookupPc := Mux(io.loadLookupValid, eUop.pc, 0.U)
   io.loadLookupBid := Mux(io.loadLookupValid, eUop.bid, ROBID.disabled(p.robEntries))
+  io.loadLookupGid := Mux(io.loadLookupValid, eUop.gid, ROBID.disabled(p.robEntries))
+  io.loadLookupRid := Mux(io.loadLookupValid, eUop.rid, ROBID.disabled(p.robEntries))
   io.loadLookupLsId := Mux(io.loadLookupValid, eUop.lsid, 0.U)
   val eLoadWaitHold = io.loadLookupValid && io.loadLookupWaitBlocked
   val eResult = resultFor(eUop.opcode, eUop.pc, eUop.insnRaw, eSrcData, eUop.imm, io.loadLookupData, io.stackPointerData)
@@ -710,6 +715,7 @@ class ReducedScalarAluExecute(
   }
   io.releaseValid := !io.flushValid && w2Valid
   io.releaseBid := w2Uop.bid
+  io.releaseGid := w2Uop.gid
   io.releaseRid := w2Uop.rid
   io.releaseStid := w2Uop.threadId
   io.unsupported := !io.flushValid && w2Valid && !w2Supported

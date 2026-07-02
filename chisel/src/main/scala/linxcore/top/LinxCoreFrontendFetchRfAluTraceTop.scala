@@ -294,6 +294,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadWaitReplayRelaunchBidValid = Output(Bool())
   val reducedLoadWaitReplayRelaunchBidWrap = Output(Bool())
   val reducedLoadWaitReplayRelaunchBidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadWaitReplayRelaunchGidValid = Output(Bool())
+  val reducedLoadWaitReplayRelaunchGidWrap = Output(Bool())
+  val reducedLoadWaitReplayRelaunchGidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadWaitReplayRelaunchRidValid = Output(Bool())
+  val reducedLoadWaitReplayRelaunchRidWrap = Output(Bool())
+  val reducedLoadWaitReplayRelaunchRidValue = Output(UInt(ptrWidth.W))
   val reducedLoadWaitReplayRelaunchLsIdValid = Output(Bool())
   val reducedLoadWaitReplayRelaunchLsIdWrap = Output(Bool())
   val reducedLoadWaitReplayRelaunchLsIdValue = Output(UInt(ptrWidth.W))
@@ -311,6 +317,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayQueueOutBidValid = Output(Bool())
   val reducedLoadReplayQueueOutBidWrap = Output(Bool())
   val reducedLoadReplayQueueOutBidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayQueueOutGidValid = Output(Bool())
+  val reducedLoadReplayQueueOutGidWrap = Output(Bool())
+  val reducedLoadReplayQueueOutGidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayQueueOutRidValid = Output(Bool())
+  val reducedLoadReplayQueueOutRidWrap = Output(Bool())
+  val reducedLoadReplayQueueOutRidValue = Output(UInt(ptrWidth.W))
   val reducedLoadReplayQueueOutLsIdValid = Output(Bool())
   val reducedLoadReplayQueueOutLsIdWrap = Output(Bool())
   val reducedLoadReplayQueueOutLsIdValue = Output(UInt(ptrWidth.W))
@@ -321,6 +333,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayDrainAddrMismatch = Output(Bool())
   val reducedLoadReplayDrainSizeMismatch = Output(Bool())
   val reducedLoadReplayDrainBidMismatch = Output(Bool())
+  val reducedLoadReplayDrainGidMismatch = Output(Bool())
+  val reducedLoadReplayDrainRidMismatch = Output(Bool())
   val reducedLoadReplayDrainLsIdMismatch = Output(Bool())
   val reducedLoadWaitReplaySlotPc = Output(UInt(p.pcWidth.W))
   val reducedLoadWaitReplaySlotAddr = Output(UInt(p.immWidth.W))
@@ -1045,6 +1059,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadWaitReplaySlot.io.captureAddr := execute.io.loadLookupAddr
   reducedLoadWaitReplaySlot.io.captureSize := execute.io.loadLookupSize
   reducedLoadWaitReplaySlot.io.captureBid := execute.io.loadLookupBid
+  reducedLoadWaitReplaySlot.io.captureGid := execute.io.loadLookupGid
+  reducedLoadWaitReplaySlot.io.captureRid := execute.io.loadLookupRid
   reducedLoadWaitReplaySlot.io.captureLsId := reducedLoadLookupLsId
   reducedLoadWaitReplaySlot.io.captureWaitStore := reducedStoreResidentForward.io.waitStore
   reducedLoadWaitReplaySlot.io.replayWakeValid := reducedStoreResidentReplayWakeup.io.wakeValid
@@ -1066,6 +1082,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayCompletionDrain.io.completeAddr := execute.io.completeRow.mem.addr
   reducedLoadReplayCompletionDrain.io.completeSize := execute.io.completeRow.mem.size
   reducedLoadReplayCompletionDrain.io.completeBid := execute.io.releaseBid
+  reducedLoadReplayCompletionDrain.io.completeGid := execute.io.releaseGid
+  reducedLoadReplayCompletionDrain.io.completeRid := execute.io.releaseRid
   reducedLoadReplayCompletionDrain.io.completeLsId := reducedCompleteLoadLsId
   reducedLoadReplayRelaunchQueue.io.outReady := reducedLoadReplayCompletionDrain.io.consumeReady
 
@@ -1475,6 +1493,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadWaitReplayRelaunchBidValid := reducedLoadWaitReplaySlot.io.relaunch.bid.valid
   io.reducedLoadWaitReplayRelaunchBidWrap := reducedLoadWaitReplaySlot.io.relaunch.bid.wrap
   io.reducedLoadWaitReplayRelaunchBidValue := reducedLoadWaitReplaySlot.io.relaunch.bid.value
+  io.reducedLoadWaitReplayRelaunchGidValid := reducedLoadWaitReplaySlot.io.relaunch.gid.valid
+  io.reducedLoadWaitReplayRelaunchGidWrap := reducedLoadWaitReplaySlot.io.relaunch.gid.wrap
+  io.reducedLoadWaitReplayRelaunchGidValue := reducedLoadWaitReplaySlot.io.relaunch.gid.value
+  io.reducedLoadWaitReplayRelaunchRidValid := reducedLoadWaitReplaySlot.io.relaunch.rid.valid
+  io.reducedLoadWaitReplayRelaunchRidWrap := reducedLoadWaitReplaySlot.io.relaunch.rid.wrap
+  io.reducedLoadWaitReplayRelaunchRidValue := reducedLoadWaitReplaySlot.io.relaunch.rid.value
   io.reducedLoadWaitReplayRelaunchLsIdValid := reducedLoadWaitReplaySlot.io.relaunch.loadLsId.valid
   io.reducedLoadWaitReplayRelaunchLsIdWrap := reducedLoadWaitReplaySlot.io.relaunch.loadLsId.wrap
   io.reducedLoadWaitReplayRelaunchLsIdValue := reducedLoadWaitReplaySlot.io.relaunch.loadLsId.value
@@ -1492,6 +1516,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayQueueOutBidValid := reducedLoadReplayRelaunchQueue.io.out.bid.valid
   io.reducedLoadReplayQueueOutBidWrap := reducedLoadReplayRelaunchQueue.io.out.bid.wrap
   io.reducedLoadReplayQueueOutBidValue := reducedLoadReplayRelaunchQueue.io.out.bid.value
+  io.reducedLoadReplayQueueOutGidValid := reducedLoadReplayRelaunchQueue.io.out.gid.valid
+  io.reducedLoadReplayQueueOutGidWrap := reducedLoadReplayRelaunchQueue.io.out.gid.wrap
+  io.reducedLoadReplayQueueOutGidValue := reducedLoadReplayRelaunchQueue.io.out.gid.value
+  io.reducedLoadReplayQueueOutRidValid := reducedLoadReplayRelaunchQueue.io.out.rid.valid
+  io.reducedLoadReplayQueueOutRidWrap := reducedLoadReplayRelaunchQueue.io.out.rid.wrap
+  io.reducedLoadReplayQueueOutRidValue := reducedLoadReplayRelaunchQueue.io.out.rid.value
   io.reducedLoadReplayQueueOutLsIdValid := reducedLoadReplayRelaunchQueue.io.out.loadLsId.valid
   io.reducedLoadReplayQueueOutLsIdWrap := reducedLoadReplayRelaunchQueue.io.out.loadLsId.wrap
   io.reducedLoadReplayQueueOutLsIdValue := reducedLoadReplayRelaunchQueue.io.out.loadLsId.value
@@ -1502,6 +1532,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayDrainAddrMismatch := reducedLoadReplayCompletionDrain.io.addrMismatch
   io.reducedLoadReplayDrainSizeMismatch := reducedLoadReplayCompletionDrain.io.sizeMismatch
   io.reducedLoadReplayDrainBidMismatch := reducedLoadReplayCompletionDrain.io.bidMismatch
+  io.reducedLoadReplayDrainGidMismatch := reducedLoadReplayCompletionDrain.io.gidMismatch
+  io.reducedLoadReplayDrainRidMismatch := reducedLoadReplayCompletionDrain.io.ridMismatch
   io.reducedLoadReplayDrainLsIdMismatch := reducedLoadReplayCompletionDrain.io.lsIdMismatch
   io.reducedLoadWaitReplaySlotPc := reducedLoadWaitReplaySlot.io.slotPc
   io.reducedLoadWaitReplaySlotAddr := reducedLoadWaitReplaySlot.io.slotAddr
