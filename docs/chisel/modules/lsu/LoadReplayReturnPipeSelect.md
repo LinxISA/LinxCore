@@ -11,6 +11,7 @@
     - `LDQInfo::returnData`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnReadiness.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipePermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnReadiness.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-001`
@@ -24,10 +25,10 @@ source-return completion and IEX load-return pipe selection. The LinxCoreModel
 captures that pipe-availability/selection decision as a local combinational
 owner before a later packet connects it to a real IEX return-pipe producer.
 
-R301 wires the module into `LinxCoreFrontendFetchRfAluTraceTop` and feeds its
-result into `LoadReplayReturnReadiness`. The reduced top still drives an
-all-zero `pipeAvailableMask`, so launch remains disabled and this packet does
-not relaunch loads, publish LHQ rows, or wake consumers.
+R302 feeds this module from `LoadReplayReturnPipePermit` and forwards its result
+into `LoadReplayReturnReadiness`. The reduced top still drives the permit
+module's `pipeBudgetAvailable` input low, so launch remains disabled and this
+packet does not relaunch loads, publish LHQ rows, or wake consumers.
 
 ## Interface
 
@@ -38,7 +39,7 @@ not relaunch loads, publish LHQ rows, or wake consumers.
 | `enable` | Replay-LIQ wrapper is active. |
 | `launchValid` | A selected LIQ row is eligible for the launch path. |
 | `sourcesReturned` | Source-return readiness has completed the base/store/SCB predicate. |
-| `pipeAvailableMask` | One bit per future IEX load-return pipe. Current reduced top drives zero. |
+| `pipeAvailableMask` | One bit per future IEX load-return pipe from `LoadReplayReturnPipePermit`. Current reduced top drives the permit's pipe budget low. |
 
 ### Outputs
 
@@ -72,7 +73,7 @@ The model return loop:
 
 1. form `candidateValid` from `enable && launchValid`,
 2. wait for `sourcesReturned`,
-3. test whether any pipe bit is present in `pipeAvailableMask`,
+3. test whether any pipe bit is present in the permit-produced `pipeAvailableMask`,
 4. select the lowest available pipe index, and
 5. expose ordered blockers so no-pipe blocking appears only after source
    completion.
@@ -83,7 +84,7 @@ carry remain deferred.
 
 ## Deferred Owners
 
-- Real IEX return-pipe availability mask producer.
+- Real IEX return-pipe budget producer behind `LoadReplayReturnPipePermit`.
 - Multi-pipe `lastPipeID` carry and same `(BID, RID)` grouping.
 - Return-pipe arbitration across scalar/vector load returns.
 - Consumer wakeup and ready-table publication after replay return.
@@ -95,7 +96,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeSelect
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r301-replay-liq-return-pipe-select-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r302-replay-liq-return-pipe-permit-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover lowest-pipe selection, source blocking before pipe

@@ -14,6 +14,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadLookupArbiter.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayBaseDataAlign.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipePermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeSelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnReadiness.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala`
@@ -31,9 +32,10 @@ R297 factors this predicate out of the top without turning live replay launch
 on. R299 drives the SCB/source-return input from
 `LoadReplaySourceReturnReadiness`. R300 drives `returnReady` from
 `LoadReplayReturnReadiness`. R301 inserts `LoadReplayReturnPipeSelect` ahead of
-that readiness gate; the current top still drives an empty pipe mask. The
-module therefore exposes why launch remains blocked while keeping LIQ row state
-unchanged.
+that readiness gate. R302 adds `LoadReplayReturnPipePermit` as the producer of
+that selector's mask; the current top still drives its pipe-budget input low.
+The module therefore exposes why launch remains blocked while keeping LIQ row
+state unchanged.
 
 ## Interface
 
@@ -46,7 +48,7 @@ unchanged.
 | `baseLookupGranted` | `LoadLookupArbiter` granted the selected replay row on the shared sparse-memory lookup port. |
 | `baseDataReturned` | `LoadReplayBaseDataAlign` has in-line baseline load data for the selected row. |
 | `scbReturned` | Source-return owner has observed the model `scbRnt/stqRnt` equivalent for the reduced replay path. |
-| `returnReady` | `LoadReplayReturnReadiness` has observed source completion plus a selected load return/wakeup pipe from `LoadReplayReturnPipeSelect`. Current top drives the selector's pipe mask empty. |
+| `returnReady` | `LoadReplayReturnReadiness` has observed source completion plus a selected load return/wakeup pipe from `LoadReplayReturnPipeSelect`. Current top drives the upstream pipe budget low. |
 
 ### Outputs
 
@@ -86,11 +88,13 @@ The current Chisel split maps those conditions across modules:
    and wait-store blocking once launch is allowed.
 5. `LoadReplaySourceReturnReadiness` separates local resident-store snapshot
    readiness from future external SCB response readiness.
-6. `LoadReplayReturnPipeSelect` maps the future IEX return-pipe mask into a
+6. `LoadReplayReturnPipePermit` maps the future IEX return-pipe budget into a
+   single-pipe mask.
+7. `LoadReplayReturnPipeSelect` maps the future IEX return-pipe mask into a
    selected pipe index for the current row.
-7. `LoadReplayReturnReadiness` turns source return plus IEX return-pipe
+8. `LoadReplayReturnReadiness` turns source return plus IEX return-pipe
    availability into the final return-ready predicate.
-8. `LoadReplayLaunchReadiness` gates the parent launch arm on base-data
+9. `LoadReplayLaunchReadiness` gates the parent launch arm on base-data
    readiness, source return, and return readiness.
 
 The blocker outputs are not mutually exclusive across independent conditions,
@@ -101,7 +105,7 @@ later condition is only reported after the earlier source conditions are met.
 
 - External SCB response producer for replay rows.
 - Real return-pipe/consumer-wakeup readiness producer behind
-  `LoadReplayReturnPipeSelect`.
+  `LoadReplayReturnPipePermit`.
 - Cross-line replay base-data ownership.
 - Multiple load-return pipe arbitration and age grouping.
 
@@ -109,4 +113,4 @@ later condition is only reported after the earlier source conditions are met.
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadReplayLaunchReadiness`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
-- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r301-replay-liq-return-pipe-select-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r302-replay-liq-return-pipe-permit-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
