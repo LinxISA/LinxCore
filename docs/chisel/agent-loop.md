@@ -651,6 +651,7 @@ These packets remain the required base before broad module promotion:
 | R231 | Clean 24576-row admitted-marker CoreMark scale gate | `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r231-row-order-24576-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 24576 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 240 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` and `git diff --check`. The run started from clean pushed LinxCore `cb2a8731f906474c51ed6d0477080430fcbc1353`, clean LinxCoreModel `3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU `5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject remained dirty only from unrelated local state. The gate captured 24576 raw QEMU rows, extracted 24442 expected rows, admitted and filtered 2055 marker commits, normalized 22387 QEMU/DUT rows, compared 22386 rows, and passed with zero mismatches and no CBSTOP divergence. BFU diagnostics stayed clean: 4893 static/external matches, 4892 accepted body-cut arms with zero mismatches, and 1629 promoted runtime body-end oracle replay matches. Closeout: `skill-evolve: no-update (R231 extends clean marker-row evidence only; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
 | R232 | Clean 32768-row admitted-marker CoreMark scale gate | `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r232-row-order-32768-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 32768 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 420 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` and `git diff --check`. The run started from clean pushed LinxCore `9fbfd777518de7ecb673901937c712766ae6422f`, clean LinxCoreModel `3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU `5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject remained dirty only from unrelated local state. The gate captured 32768 raw QEMU rows, extracted 32634 expected rows, admitted and filtered 2640 marker commits, normalized 29994 QEMU/DUT rows, compared 29993 rows, and passed with zero mismatches and no CBSTOP divergence. BFU diagnostics stayed clean: 6648 static/external matches, 6647 accepted body-cut arms with zero mismatches, and 2214 promoted runtime body-end oracle replay matches. Closeout: `skill-evolve: no-update (R232 extends clean marker-row evidence only; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
 | R233 | Clean 49152-row admitted-marker CoreMark scale gate | `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r233-row-order-49152-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 49152 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 720 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` and `git diff --check`. The run started from clean pushed LinxCore `abe8762f936f951dacbfa8755c773398b4a5bd2f`, clean LinxCoreModel `3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU `5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject remained dirty only from unrelated local state. The first attempt reached Verilator build and failed with host `No space left on device`; deleting ignored obsolete `generated/r159-*` through `generated/r166-*` artifacts plus the failed R233 build directory restored space, and the rerun passed. The gate captured 49152 raw QEMU rows, extracted 49018 expected rows, admitted and filtered 3811 marker commits, normalized 45207 QEMU/DUT rows, compared 45206 rows, and passed with zero mismatches and no CBSTOP divergence. BFU diagnostics stayed clean: 10161 static/external matches, 10160 accepted body-cut arms with zero mismatches, and 3385 promoted runtime body-end oracle replay matches. Closeout: `skill-evolve: no-update (R233 extends clean marker-row evidence only; host generated-artifact cleanup was local maintenance, not a new LinxCore invariant, mandatory gate, or triage order change)`. |
+| R234 | Clean 65536-row admitted-marker CoreMark scale gate | `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r234-row-order-65536-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 65536 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 1200 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` and `git diff --check`. The run started from clean pushed LinxCore `54aec1403e766a99438563a0d496febe631cef9e`, clean LinxCoreModel `3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU `5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject remained dirty only from unrelated local state. The gate captured 65536 raw QEMU rows, extracted 65402 expected rows, admitted and filtered 4981 marker commits, normalized 60421 QEMU/DUT rows, compared 60420 rows, and passed with zero mismatches and no CBSTOP divergence. BFU diagnostics stayed clean: 13671 static/external matches, 13670 accepted body-cut arms with zero mismatches, and 4555 promoted runtime body-end oracle replay matches. Closeout: `skill-evolve: no-update (R234 extends clean marker-row evidence only; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -852,15 +853,15 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Scale the admitted-marker CoreMark gate beyond the R233 49152-row window.
+1. Scale the admitted-marker CoreMark gate beyond the R234 65536-row window.
    R195/R196/R198 removed the scalar GGPR mapQ capacity and Verilator
    compile-cost blockers, and R202 closed the stale source-value failure by
    restoring marker-stop cleanup from the post-block checkpoint BID. R227,
-   R228, R229, R230, R231, R232, and R233 extend the same admitted-marker path
+   R228, R229, R230, R231, R232, R233, and R234 extend the same admitted-marker path
    on clean pushed LinxCore/Model/QEMU SHAs to 6000, 8192, 12288, 16384, 24576,
-   32768, and 49152 raw QEMU rows; the latest run extracts 49018 expected rows,
-   filters 3811 marker commits, compares 45206 normalized rows, and passes
-   with zero mismatches. The next packet should grow beyond the 49152-row
+   32768, 49152, and 65536 raw QEMU rows; the latest run extracts 65402 expected
+   rows, filters 4981 marker commits, compares 60420 normalized rows, and passes
+   with zero mismatches. The next packet should grow beyond the 65536-row
    window while watching block-stop cleanup BID
    selection, post-rename checkpoint refresh, marker-only BROB retire drain,
    and loop re-entry. Reproduce the closed baselines with
@@ -870,8 +871,9 @@ Closeout:
    `generated/r229-row-order-12288-marker-qemu-elf-xcheck`,
    `generated/r230-row-order-16384-marker-qemu-elf-xcheck`,
    `generated/r231-row-order-24576-marker-qemu-elf-xcheck`,
-   `generated/r232-row-order-32768-marker-qemu-elf-xcheck`, or the latest
-   `generated/r233-row-order-49152-marker-qemu-elf-xcheck`.
+   `generated/r232-row-order-32768-marker-qemu-elf-xcheck`,
+   `generated/r233-row-order-49152-marker-qemu-elf-xcheck`, or the latest
+   `generated/r234-row-order-65536-marker-qemu-elf-xcheck`.
 2. Scale the R194 marker-row filtered comparator beyond the 512-row CoreMark
    repeated-loop window. R178 adds `LinxCoreFrontendFetchRfAluMarkerRowsTraceTop`,
    R179 proves the wrapper admits the first `C.BSTART` row in generated RTL,
