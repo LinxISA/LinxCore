@@ -33,10 +33,12 @@ this queue and exposes queue/head diagnostics. R286 adds the matching
 parent-owned delayed `clearResolved` request for that opt-in top path. That
 integration is still storage-only because replay launch remains disabled in
 the current fixture. R287 wires ROB commit memory-order retire watermarks.
-R288 adds queue-local precise `FlushBus` pruning, but the current top ties that
-input inactive until the recovery owner selects the exact load-side flush
-producer. Default/live LIQ insertion and exported conflict rows feeding the
-live MDB/recovery path remain deferred owner packets.
+R288 adds queue-local precise `FlushBus` pruning. R289 has the opt-in
+replay-LIQ top drive that port from execute-owned scalar redirect cleanup when
+the redirecting uop supplies a valid all-row LSID sidecar; marker-only cleanup
+without an LSID still uses the hard all-clear fallback. Default/live LIQ
+insertion and exported conflict rows feeding the live MDB/recovery path remain
+deferred owner packets.
 
 ## Interface
 
@@ -127,15 +129,18 @@ next-cycle image reflects retire, precise prune, and push.
 `flush` clears the whole queue. `preciseFlush` preserves older rows and removes
 only rows covered by the same `FlushBus::match` rules used by the model:
 matching STID, optional PE/thread scopes, base-on-BID coverage,
-base-on-group coverage, or non-group `(BID, LSID)` coverage. The current
-replay-LIQ top ties `preciseFlush` inactive; wiring scalar redirect/replay
-intents into this input remains a separate top/recovery packet.
+base-on-group coverage, or non-group `(BID, LSID)` coverage. In the opt-in
+replay-LIQ top, execute-owned scalar redirects build a ResolveQ-specific copy
+of the path cleanup flush and override `req.lsId` with the redirecting uop's
+reduced all-row LSID snapshot. The generic path cleanup bus still keeps its
+ROB/rename-oriented RID semantics. Marker-only cleanup without a valid LSID
+does not drive `preciseFlush` and instead keeps the previous hard-clear
+fallback.
 
 ## Deferred Owners
 
 - Default/live LIQ insertion beyond the opt-in replay-LIQ diagnostic path.
 - Clear-resolved feedback outside the opt-in replay-LIQ top path.
-- Top-level precise `FlushBus` producer wiring by recovery intent.
 - Live MDB/recovery publication using `MDBConflictDetect`.
 
 ## Verification
@@ -150,6 +155,7 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r285-replay-liq-resolveq-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r286-replay-liq-resolve-clear-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r287-replay-liq-resolve-retire-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r289-replay-liq-resolve-precise-flush-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover push/backpressure, strict retire pruning, flush clearing,

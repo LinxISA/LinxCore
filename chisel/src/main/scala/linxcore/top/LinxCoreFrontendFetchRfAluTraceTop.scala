@@ -9,7 +9,7 @@ import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandCla
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadResolveQueue, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
-import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
+import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
 class LinxCoreFrontendFetchRfAluTraceTopIO(
@@ -393,6 +393,18 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayResolveQueueRetireLsIdValid = Output(Bool())
   val reducedLoadReplayResolveQueueRetireLsIdWrap = Output(Bool())
   val reducedLoadReplayResolveQueueRetireLsIdValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayResolveQueuePreciseFlushValid = Output(Bool())
+  val reducedLoadReplayResolveQueuePreciseFlushBidValid = Output(Bool())
+  val reducedLoadReplayResolveQueuePreciseFlushBidWrap = Output(Bool())
+  val reducedLoadReplayResolveQueuePreciseFlushBidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayResolveQueuePreciseFlushRidValid = Output(Bool())
+  val reducedLoadReplayResolveQueuePreciseFlushRidWrap = Output(Bool())
+  val reducedLoadReplayResolveQueuePreciseFlushRidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayResolveQueuePreciseFlushLsIdValid = Output(Bool())
+  val reducedLoadReplayResolveQueuePreciseFlushLsIdWrap = Output(Bool())
+  val reducedLoadReplayResolveQueuePreciseFlushLsIdValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayResolveQueueFlushPruneMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayResolveQueueFlushPruneCount = Output(UInt(storeStqCountWidth.W))
   val reducedLoadReplayResolveQueueRetireMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayResolveQueueRetireCount = Output(UInt(storeStqCountWidth.W))
   val reducedLoadReplayResolveQueueValidMask = Output(UInt(p.robEntries.W))
@@ -757,6 +769,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val scalarRedirectPending = RegInit(false.B)
   val scalarRedirectBidReg = RegInit(ROBID.disabled(p.robEntries))
   val scalarRedirectRidReg = RegInit(ROBID.disabled(p.robEntries))
+  val scalarRedirectLsIdReg = RegInit(ROBID.disabled(p.robEntries))
+  val scalarRedirectResolveLsIdValidReg = RegInit(false.B)
   val scalarRedirectStidReg = RegInit(0.U(p.threadIdWidth.W))
   val scalarRedirectBlockBidReg = RegInit(0.U(p.blockBidWidth.W))
   val scalarRedirectOrderValidReg = RegInit(false.B)
@@ -929,6 +943,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     scalarRedirectPending := false.B
     scalarRedirectBidReg := ROBID.disabled(p.robEntries)
     scalarRedirectRidReg := ROBID.disabled(p.robEntries)
+    scalarRedirectLsIdReg := ROBID.disabled(p.robEntries)
+    scalarRedirectResolveLsIdValidReg := false.B
     scalarRedirectStidReg := 0.U
     scalarRedirectBlockBidReg := 0.U
     scalarRedirectOrderValidReg := false.B
@@ -947,6 +963,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
         markerRedirectNeedsBackendCleanup,
         Mux(execute.io.redirectValid, execute.io.releaseRid, markerRedirectSourceRid),
         ROBID.disabled(p.robEntries))
+    scalarRedirectLsIdReg :=
+      Mux(
+        markerRedirectNeedsBackendCleanup && execute.io.redirectValid,
+        lsidToReducedStoreId(execute.io.completeLsId),
+        ROBID.disabled(p.robEntries))
+    scalarRedirectResolveLsIdValidReg := markerRedirectNeedsBackendCleanup && execute.io.redirectValid
     scalarRedirectStidReg :=
       Mux(markerRedirectNeedsBackendCleanup, Mux(execute.io.redirectValid, execute.io.releaseStid, markerRedirectSourceStid), 0.U)
     scalarRedirectBlockBidReg :=
@@ -964,6 +986,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     scalarRedirectPending := false.B
     scalarRedirectBidReg := ROBID.disabled(p.robEntries)
     scalarRedirectRidReg := ROBID.disabled(p.robEntries)
+    scalarRedirectLsIdReg := ROBID.disabled(p.robEntries)
+    scalarRedirectResolveLsIdValidReg := false.B
     scalarRedirectStidReg := 0.U
     scalarRedirectBlockBidReg := 0.U
     scalarRedirectOrderValidReg := false.B
@@ -1198,8 +1222,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.e2ReturnReady := false.B
   reducedLoadReplayLiqAllocPath.io.clearResolvedValid := reducedLoadReplayResolveClearPending
   reducedLoadReplayLiqAllocPath.io.clearResolvedIndex := reducedLoadReplayResolveClearIndex
-  reducedLoadReplayResolveQueue.io.flush := reducedStoreFlush
-  reducedLoadReplayResolveQueue.io.preciseFlush := 0.U.asTypeOf(reducedLoadReplayResolveQueue.io.preciseFlush)
+  val reducedLoadReplayResolvePreciseFlush =
+    Wire(new FlushBus(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
+  reducedLoadReplayResolvePreciseFlush := 0.U.asTypeOf(reducedLoadReplayResolvePreciseFlush)
+  val reducedLoadReplayResolveHardFlush =
+    io.frontendFlushValid || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B ||
+      (scalarRedirectPending && !scalarRedirectResolveLsIdValidReg)
+  reducedLoadReplayResolveQueue.io.flush := reducedLoadReplayResolveHardFlush
+  reducedLoadReplayResolveQueue.io.preciseFlush := reducedLoadReplayResolvePreciseFlush
   reducedLoadReplayResolveQueue.io.pushValid :=
     reducedLoadReplayLiqAllocEnabled && reducedLoadReplayLiqAllocPath.io.lhqRecordValid
   reducedLoadReplayResolveQueue.io.pushPeId := io.peId
@@ -1288,6 +1318,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   pathCleanup.blockFlushValid := scalarRedirectPending
   pathCleanup.blockFlushBid := scalarRedirectBlockBidReg
   pathCleanup.reportQueueFlushValid := scalarRedirectPending
+  reducedLoadReplayResolvePreciseFlush := pathCleanup.flush
+  reducedLoadReplayResolvePreciseFlush.req.valid :=
+    reducedLoadReplayLiqAllocEnabled && scalarRedirectPending && scalarRedirectResolveLsIdValidReg
+  // ResolveQ is MemReq-shaped; scalar precise pruning compares BID plus LSID, not ROB RID.
+  reducedLoadReplayResolvePreciseFlush.req.lsId := scalarRedirectLsIdReg
   path.io.cleanup := pathCleanup
   path.io.scalarCleanupOrderValid := scalarRedirectOrderValidReg
   path.io.scalarCleanupOrder := scalarRedirectOrderReg
@@ -1755,6 +1790,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayResolveQueueRetireLsIdValid := reducedLoadReplayResolveRetireLsId.valid
   io.reducedLoadReplayResolveQueueRetireLsIdWrap := reducedLoadReplayResolveRetireLsId.wrap
   io.reducedLoadReplayResolveQueueRetireLsIdValue := reducedLoadReplayResolveRetireLsId.value
+  io.reducedLoadReplayResolveQueuePreciseFlushValid := reducedLoadReplayResolvePreciseFlush.req.valid
+  io.reducedLoadReplayResolveQueuePreciseFlushBidValid := reducedLoadReplayResolvePreciseFlush.req.bid.valid
+  io.reducedLoadReplayResolveQueuePreciseFlushBidWrap := reducedLoadReplayResolvePreciseFlush.req.bid.wrap
+  io.reducedLoadReplayResolveQueuePreciseFlushBidValue := reducedLoadReplayResolvePreciseFlush.req.bid.value
+  io.reducedLoadReplayResolveQueuePreciseFlushRidValid := reducedLoadReplayResolvePreciseFlush.req.rid.valid
+  io.reducedLoadReplayResolveQueuePreciseFlushRidWrap := reducedLoadReplayResolvePreciseFlush.req.rid.wrap
+  io.reducedLoadReplayResolveQueuePreciseFlushRidValue := reducedLoadReplayResolvePreciseFlush.req.rid.value
+  io.reducedLoadReplayResolveQueuePreciseFlushLsIdValid := reducedLoadReplayResolvePreciseFlush.req.lsId.valid
+  io.reducedLoadReplayResolveQueuePreciseFlushLsIdWrap := reducedLoadReplayResolvePreciseFlush.req.lsId.wrap
+  io.reducedLoadReplayResolveQueuePreciseFlushLsIdValue := reducedLoadReplayResolvePreciseFlush.req.lsId.value
+  io.reducedLoadReplayResolveQueueFlushPruneMask := reducedLoadReplayResolveQueue.io.flushPruneMask
+  io.reducedLoadReplayResolveQueueFlushPruneCount := reducedLoadReplayResolveQueue.io.flushPruneCount
   io.reducedLoadReplayResolveQueueRetireMask := reducedLoadReplayResolveQueue.io.retireMask
   io.reducedLoadReplayResolveQueueRetireCount := reducedLoadReplayResolveQueue.io.retireCount
   io.reducedLoadReplayResolveQueueValidMask := reducedLoadReplayResolveQueue.io.validMask

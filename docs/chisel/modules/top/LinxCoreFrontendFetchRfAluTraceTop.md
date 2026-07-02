@@ -942,7 +942,7 @@ store).
 | output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272-R283 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing full load identity plus forwarding snapshot, and reports accepted/drop/full state. Default mode drains only exact held-load completion matches; opt-in replay-LIQ mode consumes only when `ReducedLoadReplayLiqAllocPath` accepts allocation. |
 | output | `reducedLoadReplayDrain*` | mixed | diagnostic | R273/R274 diagnostic completion-drain match/mismatch signals used by the default reduced-store replay mode. Exact W2 load-completion matches consume the queued replay candidate; mismatches, including GID/RID sidecar mismatches, leave it pending for debug. |
 | output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282/R283 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, and R283 feeds its E2 store vector from resident STQ snapshots, but this top still ties launch disabled. |
-| output | `reducedLoadReplayResolveQueue*` | mixed | diagnostic | R285-R288 opt-in replay-LIQ ResolveQ diagnostics. `lhqRecord` from `ReducedLoadReplayLiqAllocPath` can append to `LoadResolveQueue`; the top exposes push, delayed clear, commit-window retire watermark, retire mask/count, occupancy, valid-mask, and head conflict-row sidecars. Because launch remains disabled and precise flush is tied inactive at the top, the current fixture observes storage and retire wiring only; live MDB/recovery publication is deferred. |
+| output | `reducedLoadReplayResolveQueue*` | mixed | diagnostic | R285-R289 opt-in replay-LIQ ResolveQ diagnostics. `lhqRecord` from `ReducedLoadReplayLiqAllocPath` can append to `LoadResolveQueue`; the top exposes push, delayed clear, commit-window retire watermark, scalar-redirect precise flush identity, retire/prune mask/count, occupancy, valid-mask, and head conflict-row sidecars. Because launch remains disabled, the current fixture observes storage, retire, and recovery-prune wiring only; live MDB/recovery publication is deferred. |
 | output | `executeLoadWaitHold` | `Bool` | diagnostic | R266 reduced execute hold for a load waiting on an older not-ready resident store. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
@@ -1025,11 +1025,12 @@ overlay. Most state remains in child modules:
   retire input from the youngest committed ROB memory-order sidecar in the
   current commit window, using the stored pre-increment `lsID` snapshot as the
   ResolveQ retire watermark. R288 adds the queue-local precise `FlushBus`
-  prune port but ties it inactive in this top; selecting the scalar
-  redirect/recovery producer and live MDB publication remain separate owner
-  packets. R286 also makes the top own a one-entry delayed `clearResolved`
-  request so the LIQ row is cleared only after ResolveQ accepts the resolved
-  hit record.
+  prune port. R289 drives that port from execute-owned scalar redirect cleanup
+  when the redirecting uop supplies a valid reduced LSID sidecar, while
+  LSID-less marker cleanup keeps the hard-clear fallback. R286 also makes the
+  top own a one-entry delayed `clearResolved` request so the LIQ row is cleared
+  only after ResolveQ accepts the resolved hit record. Live MDB publication
+  remains a separate owner packet.
 - `ReducedLoadReplayCompletionDrain`: optional R273/R274 diagnostic matcher that
   consumes the queued candidate when the same held load completes through W2
   with matching PC, address, size, BID, GID, RID, and reduced LSID.
@@ -1136,8 +1137,13 @@ the E4 hit has become a resident `Resolved` row. R287 selects the youngest
 valid `DecodeRenameROBPath.commitMemoryOrder` slot in the current commit window
 as a reduced retire watermark and drives `LoadResolveQueue.retireValid`,
 `retireBid`, and `retireLsId` from that source when replay-LIQ mode is enabled.
-R288 keeps the new queue-local precise-prune input tied inactive in this top;
-precise recovery producer selection and MDB conflict publication stay deferred.
+R289 builds a ResolveQ-specific copy of the scalar redirect cleanup flush,
+overrides `req.lsId` with the redirecting row's reduced all-row LSID snapshot,
+and drives `LoadResolveQueue.preciseFlush` only in replay-LIQ mode when that
+LSID is valid. The generic path cleanup bus retains its ROB/rename RID
+contract. Marker-only cleanup without an LSID still hard-clears the ResolveQ,
+matching the pre-R289 conservative behavior. MDB conflict publication stays
+deferred.
 
 The overlay clears only on
 run start/restart or when the optional reduced-store path is disabled;
