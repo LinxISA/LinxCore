@@ -372,6 +372,11 @@ The R234 gate under
 to 65536 raw QEMU rows, 65402 expected rows, 4981 filtered marker commits,
 60421 normalized QEMU/DUT rows, and 60420 compared rows with
 `summary.mismatch_count: 0` and no CBSTOP divergence.
+The R235 gate under
+`generated/r235-row-order-98304-marker-qemu-elf-xcheck/report` extends it again
+to 98304 raw QEMU rows, 98170 expected rows, 7321 filtered marker commits,
+90849 normalized QEMU/DUT rows, and 90848 compared rows with
+`summary.mismatch_count: 0` and no CBSTOP divergence.
 The QEMU trace replay bridge now has bounded live-ELF prefix evidence using
 `tests/benchmarks/build/coremark_real.elf` with explicit `-m 1280M`; the
 default 128 MiB QEMU run fails fast with an empty-trace error because the ELF

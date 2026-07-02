@@ -654,6 +654,13 @@ mismatches and no CBSTOP divergence. BFU diagnostics remain aligned:
 13671 static/external matches, 13670 accepted body-cut arms with zero arm
 mismatches, and 4555 promoted runtime body-end oracle replay matches.
 
+R235 extends the same admitted-marker baseline to a 98304-row CoreMark capture.
+The run extracts 98170 expected rows, admits and filters 7321 marker commits,
+normalizes 90849 QEMU/DUT rows, compares 90848 rows, and passes with zero
+mismatches and no CBSTOP divergence. BFU diagnostics remain aligned:
+20691 static/external matches, 20690 accepted body-cut arms with zero arm
+mismatches, and 6895 promoted runtime body-end oracle replay matches.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -1520,6 +1527,7 @@ records `status: "pass"`, `summary.compared_rows: 3`,
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r232-row-order-32768-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 32768 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 420 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r233-row-order-49152-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 49152 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 720 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r234-row-order-65536-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 65536 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 1200 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r235-row-order-98304-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 98304 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 1800 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r109-coremark-u-dst-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 12 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r110-coremark-hl-lui-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 13 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r111-coremark-sll-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 14 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
