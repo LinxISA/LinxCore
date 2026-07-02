@@ -804,6 +804,21 @@ skill-evolve: no-update (R258 adds a module-local reduced memory overlay and
 proof switch; the R253/R124 store contracts already cover the reusable
 source-order and commit-identity rules).
 
+R259 fixes the next no-harness-mutation failure by feeding committed store rows
+directly into `ReducedStoreMemoryOverlay` before the SCB-accepted lanes. The
+C++ model's `STQ::lookupForLoad` can assemble load bytes from committed
+`storeCommitQ` state before `STQ::commit` has completed SCB acceptance, while
+the R258 bridge only consumed SCB-accepted fragments. The top now creates up to
+two overlay fragments per valid store commit row, orders those bypass lanes
+before SCB lanes, and still uses SCB accepted `last` fragments as the only STQ
+free source. The 2048-row no-harness-mutation CoreMark replay passes in
+`generated/r259-reduced-store-overlay-commit-row-2048-trace-xcheck/report/crosscheck_manifest.json`
+with 1467 compared rows and zero mismatches.
+
+skill-evolve: update linx-core (reduced store-memory overlays must include
+ROB-committed/storeCommitQ-equivalent store visibility before SCB acceptance;
+SCB accepted fragments alone are not sufficient for model-aligned load data).
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -853,7 +868,7 @@ source-order and commit-identity rules).
 | output | `reducedStoreCommit*` | mixed | diagnostic | R240/R241 reduced commit owner diagnostics: store commit seen/matched/unmatched, matched STQ mask, pending mark/free masks and counts, mark command valid/index, SCB-backed free-mask valid/index compatibility signal, accepted/ignored mask results, and blocked flags. |
 | output | `reducedStoreDrain*` | mixed | diagnostic | R241 reduced `STQCommitDrain` diagnostics: mark-accepted enqueue result, duplicate detect, issue mask/count, abstract drain early-free mask, queue count, empty, and order-error. |
 | output | `reducedStoreScb*` | mixed | diagnostic | R241 reduced `SCBRowBank` diagnostics: model-batch readiness, accepted/stalled request masks, accepted-`last` commit-free mask/count, valid row mask, and entry count. |
-| output | `reducedStoreMemoryValidMask`, `reducedStoreMemoryLineCount`, `reducedStoreMemoryLoadForwardMask`, `reducedStoreMemoryStoreDroppedMask` | mixed | diagnostic | R258 reduced store-memory overlay occupancy, load-byte forward mask, and accepted-request drop diagnostics. |
+| output | `reducedStoreMemoryValidMask`, `reducedStoreMemoryLineCount`, `reducedStoreMemoryLoadForwardMask`, `reducedStoreMemoryStoreDroppedMask` | mixed | diagnostic | R258/R259 reduced store-memory overlay occupancy, load-byte forward mask, and accepted-request drop diagnostics. The drop mask covers commit-row bypass lanes plus SCB accepted lanes. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
 | output | `robAllocFire`, `robRenameUpdateFire`, `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB allocation, post-rename update, and completion acceptance events. |
@@ -902,9 +917,9 @@ overlay. Most state remains in child modules:
   request descriptor shaper around the existing `StoreDispatchSTQPath` bank.
 - `SCBRowBank`: optional R241 SCB admission owner whose accepted `last`
   fragments produce the only STQ committed-row free mask in the reduced top.
-- `ReducedStoreMemoryOverlay`: optional R258 store-memory visibility bridge
-  that records SCB-accepted committed store fragments and overlays later
-  reduced load lookup bytes.
+- `ReducedStoreMemoryOverlay`: optional R258/R259 store-memory visibility
+  bridge that records ROB-committed store fragments and SCB-accepted fragments,
+  then overlays later reduced load lookup bytes.
 
 ## Logic Design
 
@@ -964,15 +979,18 @@ from SCB accepted `last` fragments. The top asserts the drain queue flush on
 backend flush, start, restart, and while `useReducedStoreDispatchStq=false`.
 When the parameter is false, the bridge is held flushed and captures no store
 results, while the commit owner, drain, and SCB path are also held inactive.
-R258 adds `ReducedStoreMemoryOverlay` after `SCBRowBank`. Accepted SCB store
-fragments update a 64-byte-line overlay, and reduced load lookup data is formed
-by applying that overlay over the immutable sparse ELF base data. The overlay
-clears only on run start/restart or when the optional reduced-store path is
-disabled; ordinary backend redirects do not clear it because accepted SCB
-fragments are committed memory-side state. The opt-in path is still for bounded
-integration debug: it now owns STQ mark/drain/free lifecycle and committed
-store-byte visibility for scalar load lookup, but not full store forwarding,
-cache state, TSO/fence completion, or MDB conflict publication.
+R258 adds `ReducedStoreMemoryOverlay` after `SCBRowBank`, and R259 adds
+commit-row bypass lanes in front of the SCB lanes. Each valid committed store
+row can produce one or two overlay fragments depending on 64-byte-line
+crossing; the later SCB accepted fragment for the same store is byte-identical
+and idempotent. Reduced load lookup data is formed by applying the overlay over
+the immutable sparse ELF base data. The overlay clears only on run
+start/restart or when the optional reduced-store path is disabled; ordinary
+backend redirects do not clear it because committed store bytes are
+nonflushable state. The opt-in path is still for bounded integration debug: it
+now owns STQ mark/drain/free lifecycle and committed store-byte visibility for
+scalar load lookup, but not full store forwarding, cache state, TSO/fence
+completion, or MDB conflict publication.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
 packet acceptance. The P1/I1/I2 picker reads source data from
@@ -1004,8 +1022,11 @@ after a store row matched QEMU, the harness wrote that little-endian
 program-order store effect. R258 keeps that legacy mode available, but the
 stricter `--disable-store-memory-mutation` gate leaves the sparse image
 immutable and requires `ReducedStoreMemoryOverlay` to supply committed store
-bytes from RTL state. This remains a reduced committed-store visibility bridge,
-not a general LSU/STQ, cache, replay, or store-forwarding implementation.
+bytes from RTL state. R259 broadens that RTL state from SCB-accepted fragments
+to include ROB-committed/storeCommitQ-equivalent fragments because the model
+can forward committed store bytes before SCB acceptance. This remains a
+reduced committed-store visibility bridge, not a general LSU/STQ, cache,
+replay, or store-forwarding implementation.
 
 R123 also proves that live generated-RTL commit collection must accept the
 native two-slot commit window. The harness preserves slot order by collecting

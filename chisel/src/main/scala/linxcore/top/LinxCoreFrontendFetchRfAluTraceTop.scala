@@ -1,14 +1,14 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.{Fill, UIntToOH, log2Ceil}
+import chisel3.util.{Cat, Fill, UIntToOH, log2Ceil}
 
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, SCBRowBank, STQCommitDrain, StoreDispatchExecResult}
+import linxcore.lsu.{ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -36,6 +36,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   private val storeStqCountWidth = log2Ceil(p.robEntries + 1)
   private val storeCommitIssueWidth = if (p.robEntries >= 4) 2 else 1
   private val storeScbRequestCount = storeCommitIssueWidth * 2
+  private val storeMemoryCommitBypassRequestCount = traceParams.commitWidth * 2
+  private val storeMemoryRequestCount = storeScbRequestCount + storeMemoryCommitBypassRequestCount
   private val storeScbRequestCountWidth = log2Ceil(storeScbRequestCount + 1)
   private val storeMemoryLineCountWidth = log2Ceil(storeMemoryLineEntries + 1)
   private val gprFreeWidth = log2Ceil(physRegs + 1)
@@ -254,7 +256,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedStoreMemoryValidMask = Output(UInt(storeMemoryLineEntries.W))
   val reducedStoreMemoryLineCount = Output(UInt(storeMemoryLineCountWidth.W))
   val reducedStoreMemoryLoadForwardMask = Output(UInt(8.W))
-  val reducedStoreMemoryStoreDroppedMask = Output(UInt(storeScbRequestCount.W))
+  val reducedStoreMemoryStoreDroppedMask = Output(UInt(storeMemoryRequestCount.W))
   val storeDispatchReady = Output(Bool())
   val storeDispatchFire = Output(Bool())
   val storeDispatchSplit = Output(Bool())
@@ -489,6 +491,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   ))
   private val reducedStoreCommitIssueWidth = if (p.robEntries >= 4) 2 else 1
   private val reducedStoreScbRequestCount = reducedStoreCommitIssueWidth * 2
+  private val reducedStoreCommitBypassRequestCount = traceParams.commitWidth * 2
+  private val reducedStoreMemoryRequestCount = reducedStoreScbRequestCount + reducedStoreCommitBypassRequestCount
   val reducedStoreCommitDrain = Module(new STQCommitDrain(
     entries = p.robEntries,
     queueEntries = p.robEntries,
@@ -506,7 +510,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   ))
   val reducedStoreMemoryOverlay = Module(new ReducedStoreMemoryOverlay(
     stqEntries = p.robEntries,
-    requestCount = reducedStoreScbRequestCount,
+    requestCount = reducedStoreMemoryRequestCount,
     lineEntries = reducedStoreMemoryLineEntries
   ))
 
@@ -853,10 +857,70 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedStoreScb.io.rawRespWrite := false.B
   reducedStoreScb.io.rawRespUpgrade := false.B
 
+  private def zeroReducedStoreMemoryReq: STQCommitDrainRequest = {
+    val req = Wire(new STQCommitDrainRequest(p.robEntries, p.immWidth, p.immWidth, 4))
+    req := 0.U.asTypeOf(req)
+    req
+  }
+
+  val reducedStoreMemoryReqs = Wire(Vec(reducedStoreMemoryRequestCount, new STQCommitDrainRequest(p.robEntries, p.immWidth, p.immWidth, 4)))
+  val reducedStoreMemoryAcceptedVec = Wire(Vec(reducedStoreMemoryRequestCount, Bool()))
+  for (idx <- 0 until reducedStoreMemoryRequestCount) {
+    reducedStoreMemoryReqs(idx) := zeroReducedStoreMemoryReq
+    reducedStoreMemoryAcceptedVec(idx) := false.B
+  }
+
+  for (slot <- 0 until traceParams.commitWidth) {
+    val commitStoreRow = path.io.commit.rows(slot)
+    val commitStoreValid =
+      useReducedStoreDispatchStq.B && commitStoreRow.valid && commitStoreRow.mem.valid && commitStoreRow.mem.isStore
+    val commitStoreOffset = Wire(UInt(7.W))
+    val commitStoreSizeWide = Wire(UInt(7.W))
+    commitStoreOffset := commitStoreRow.mem.addr(5, 0)
+    commitStoreSizeWide := commitStoreRow.mem.size
+    val commitStoreCrosses = STQCommitDrain.crossesScalarCacheline(commitStoreRow.mem.addr, commitStoreRow.mem.size)
+    val commitStoreFirstSize = Mux(commitStoreCrosses, 64.U(7.W) - commitStoreOffset, commitStoreSizeWide)
+    val commitStoreSecondSize = commitStoreSizeWide - commitStoreFirstSize
+    val commitStoreSecondAddr = (Cat(commitStoreRow.mem.addr(p.immWidth - 1, 6), 0.U(6.W)) + 64.U)(p.immWidth - 1, 0)
+    val commitStoreAllDataBits = Fill(p.immWidth, 1.B).asUInt
+    val commitStoreFirstData = commitStoreRow.mem.wdata & (commitStoreAllDataBits >> (commitStoreSecondSize << 3))
+    val commitStoreSecondData = commitStoreRow.mem.wdata >> (commitStoreFirstSize << 3)
+
+    val firstReq = Wire(new STQCommitDrainRequest(p.robEntries, p.immWidth, p.immWidth, 4))
+    firstReq := zeroReducedStoreMemoryReq
+    firstReq.valid := commitStoreValid
+    firstReq.split := commitStoreCrosses
+    firstReq.segment := 0.U
+    firstReq.last := !commitStoreCrosses
+    firstReq.addr := commitStoreRow.mem.addr
+    firstReq.data := commitStoreFirstData
+    firstReq.size := commitStoreFirstSize(3, 0)
+
+    val secondReq = Wire(new STQCommitDrainRequest(p.robEntries, p.immWidth, p.immWidth, 4))
+    secondReq := zeroReducedStoreMemoryReq
+    secondReq.valid := commitStoreValid && commitStoreCrosses
+    secondReq.split := commitStoreCrosses
+    secondReq.segment := 1.U
+    secondReq.last := true.B
+    secondReq.addr := commitStoreSecondAddr
+    secondReq.data := commitStoreSecondData
+    secondReq.size := commitStoreSecondSize(3, 0)
+
+    val base = slot * 2
+    reducedStoreMemoryReqs(base) := firstReq
+    reducedStoreMemoryAcceptedVec(base) := commitStoreValid
+    reducedStoreMemoryReqs(base + 1) := secondReq
+    reducedStoreMemoryAcceptedVec(base + 1) := commitStoreValid && commitStoreCrosses
+  }
+  for (idx <- 0 until reducedStoreScbRequestCount) {
+    reducedStoreMemoryReqs(idx + reducedStoreCommitBypassRequestCount) := reducedStoreCommitDrain.io.memReqs(idx)
+    reducedStoreMemoryAcceptedVec(idx + reducedStoreCommitBypassRequestCount) :=
+      useReducedStoreDispatchStq.B && reducedStoreScb.io.acceptedMask(idx)
+  }
+
   reducedStoreMemoryOverlay.io.flush := io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B
-  reducedStoreMemoryOverlay.io.storeReqs := reducedStoreCommitDrain.io.memReqs
-  reducedStoreMemoryOverlay.io.storeAcceptedMask :=
-    Mux(useReducedStoreDispatchStq.B, reducedStoreScb.io.acceptedMask, 0.U)
+  reducedStoreMemoryOverlay.io.storeReqs := reducedStoreMemoryReqs
+  reducedStoreMemoryOverlay.io.storeAcceptedMask := reducedStoreMemoryAcceptedVec.asUInt
   reducedStoreMemoryOverlay.io.loadValid := useReducedStoreDispatchStq.B && execute.io.loadLookupValid
   reducedStoreMemoryOverlay.io.loadAddr := execute.io.loadLookupAddr
   reducedStoreMemoryOverlay.io.baseLoadData := io.loadLookupData
