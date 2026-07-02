@@ -328,6 +328,15 @@ row reducer plus R97 sparse ELF memory path, and passes with `status: "pass"`,
 `compared_rows: 3`, and `mismatch_count: 0` under
 `generated/chisel-frontend-fetch-rf-alu-qemu-elf-xcheck/report`.
 Dense packets and non-ALU row enrichment remain later packets.
+The admitted-marker CoreMark path has a clean 6000-row scale baseline under
+`generated/r227-row-order-6000-marker-qemu-elf-xcheck/report`. That run captures
+6000 raw QEMU rows, extracts 5866 expected rows, admits and filters 728 marker
+commits, normalizes 5138 QEMU/DUT rows, compares 5137 rows, and passes with
+`summary.mismatch_count: 0` and no CBSTOP divergence. Its manifest records clean
+LinxCore `b2684c8938b1c4cccd2638f3fcfa5363d7792104`, clean LinxCoreModel
+`3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU
+`5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject was dirty
+only from unrelated local state.
 The QEMU trace replay bridge now has bounded live-ELF prefix evidence using
 `tests/benchmarks/build/coremark_real.elf` with explicit `-m 1280M`; the
 default 128 MiB QEMU run fails fast with an empty-trace error because the ELF
