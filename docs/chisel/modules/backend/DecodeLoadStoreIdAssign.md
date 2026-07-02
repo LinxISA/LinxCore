@@ -15,9 +15,10 @@
 
 `DecodeLoadStoreIdAssign` is the first Chisel owner for decode-side scalar
 memory-order identity. It consumes one selected `DecodedUop`, the frontend
-load/store sidebands, and the downstream accept event. When a load, store, or
-DCZVA-like memory row is actually accepted, it stamps the row with the current
-32-bit `lsID` and advances the reduced STID0 counters in model order.
+load/store sidebands, and the downstream accept event. It stamps every valid
+row with the current 32-bit `lsID` snapshot before any counter increment,
+matching `Decoder::DecodeInst()`. When a load, store, or DCZVA-like memory row
+is actually accepted, it advances the reduced STID0 counters in model order.
 
 The module also exposes 64-bit `load_id` and `sid` observability matching
 `DCTop` counters, plus store-split intent matching the `SPERename` split
@@ -46,9 +47,10 @@ Inputs:
 
 Outputs:
 
-- `out`: decoded uop with `lsid` replaced by the current LSID for memory rows
-  and memory/split metadata carried into the queued row. Non-memory sidecars,
-  including `peId/threadId`, pass through unchanged.
+- `out`: decoded uop with `lsid` replaced by the current LSID snapshot for
+  every valid row and memory/split metadata carried into the queued row.
+  Non-memory rows do not advance counters, but they still preserve the model
+  retire watermark used by ROB/LDQ cleanup.
 - `memoryValid`, `loadIdValid`, `storeIdValid`, `assignFire`: allocation event
   classification and advance observability.
 - `assignedLsId`, `assignedLoadId`, `assignedStoreId`: IDs associated with the
@@ -66,12 +68,13 @@ The module owns three counters for the reduced STID0 path:
 - `nextLoadId`: 64-bit model `load_id` serial counter.
 - `nextStoreId`: 64-bit model `sid` serial counter.
 
-For a valid load, `out.lsid`, `assignedLsId`, and `assignedLoadId` reflect the
-pre-accept counter values. If the row is accepted, `nextLsId` and `nextLoadId`
-increment. For a valid store or DCZVA-like row, `out.lsid`, `assignedLsId`,
-and `assignedStoreId` reflect the pre-accept values, then `nextLsId` and
-`nextStoreId` increment on accept. Non-memory rows pass through without
-changing counters.
+For every valid row, `out.lsid` reflects the pre-accept `nextLsId` value. For a
+valid load, `assignedLsId` and `assignedLoadId` reflect the pre-accept counter
+values, then `nextLsId` and `nextLoadId` increment when the row is accepted.
+For a valid store or DCZVA-like row, `assignedLsId` and `assignedStoreId`
+reflect the pre-accept values, then `nextLsId` and `nextStoreId` increment on
+accept. Non-memory rows carry the current `lsID` snapshot without changing
+counters.
 
 `storeSplitIntent` is true only for store rows where either the decoded row
 requests splitting or stack-set handling forces it, and where
@@ -98,8 +101,9 @@ The C++ model has two related memory-order paths:
    `ST_DATA` clones when `storeSplit` or `STACK_SET` is active, except for
    load/store-pair opcodes.
 
-This Chisel owner preserves the pre-increment assignment rule and the accept
-boundary. It deliberately keeps block command start IDs, tile block split
+This Chisel owner preserves the all-row pre-increment assignment rule and the
+memory-row accept boundary. It deliberately keeps block command start IDs,
+tile block split
 counts, PCR store source rewriting, and downstream store execution/STQ
 mutation in later owners.
 R75 does not change memory-counter policy; it records that model row owner

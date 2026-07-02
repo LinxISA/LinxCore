@@ -380,6 +380,21 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayResolveQueueClearPending = Output(Bool())
   val reducedLoadReplayResolveQueueClearAccepted = Output(Bool())
   val reducedLoadReplayResolveQueueClearIndex = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayResolveQueueRetireValid = Output(Bool())
+  val reducedLoadReplayResolveQueueRetireIsLoadStore = Output(Bool())
+  val reducedLoadReplayResolveQueueRetireIsLoad = Output(Bool())
+  val reducedLoadReplayResolveQueueRetireIsStore = Output(Bool())
+  val reducedLoadReplayResolveQueueRetireBidValid = Output(Bool())
+  val reducedLoadReplayResolveQueueRetireBidWrap = Output(Bool())
+  val reducedLoadReplayResolveQueueRetireBidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayResolveQueueRetireRidValid = Output(Bool())
+  val reducedLoadReplayResolveQueueRetireRidWrap = Output(Bool())
+  val reducedLoadReplayResolveQueueRetireRidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayResolveQueueRetireLsIdValid = Output(Bool())
+  val reducedLoadReplayResolveQueueRetireLsIdWrap = Output(Bool())
+  val reducedLoadReplayResolveQueueRetireLsIdValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayResolveQueueRetireMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayResolveQueueRetireCount = Output(UInt(storeStqCountWidth.W))
   val reducedLoadReplayResolveQueueValidMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayResolveQueueCount = Output(UInt(storeStqCountWidth.W))
   val reducedLoadReplayResolveQueueEmpty = Output(Bool())
@@ -1190,9 +1205,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayResolveQueue.io.pushStid := io.threadId
   reducedLoadReplayResolveQueue.io.pushTid := io.threadId
   reducedLoadReplayResolveQueue.io.pushRecord := reducedLoadReplayLiqAllocPath.io.lhqRecord
-  reducedLoadReplayResolveQueue.io.retireValid := false.B
-  reducedLoadReplayResolveQueue.io.retireBid := ROBID.disabled(p.robEntries)
-  reducedLoadReplayResolveQueue.io.retireLsId := ROBID.disabled(p.robEntries)
+  val reducedLoadReplayResolveRetireSource = Wire(chiselTypeOf(path.io.commitMemoryOrder(0)))
+  reducedLoadReplayResolveRetireSource := 0.U.asTypeOf(reducedLoadReplayResolveRetireSource)
+  for (slot <- 0 until traceParams.commitWidth) {
+    when(path.io.commitMemoryOrder(slot).valid) {
+      reducedLoadReplayResolveRetireSource := path.io.commitMemoryOrder(slot)
+    }
+  }
+  val reducedLoadReplayResolveRetireLsId = lsidToReducedStoreId(reducedLoadReplayResolveRetireSource.lsId)
+  reducedLoadReplayResolveQueue.io.retireValid :=
+    reducedLoadReplayLiqAllocEnabled && reducedLoadReplayResolveRetireSource.valid
+  reducedLoadReplayResolveQueue.io.retireBid := reducedLoadReplayResolveRetireSource.bid
+  reducedLoadReplayResolveQueue.io.retireLsId := reducedLoadReplayResolveRetireLsId
   when(reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled) {
     reducedLoadReplayResolveClearPending := false.B
   }.otherwise {
@@ -1717,6 +1741,21 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayResolveQueueClearPending := reducedLoadReplayResolveClearPending
   io.reducedLoadReplayResolveQueueClearAccepted := reducedLoadReplayLiqAllocPath.io.clearResolvedAccepted
   io.reducedLoadReplayResolveQueueClearIndex := reducedLoadReplayResolveClearIndex
+  io.reducedLoadReplayResolveQueueRetireValid := reducedLoadReplayResolveQueue.io.retireValid
+  io.reducedLoadReplayResolveQueueRetireIsLoadStore := reducedLoadReplayResolveRetireSource.isLoadStore
+  io.reducedLoadReplayResolveQueueRetireIsLoad := reducedLoadReplayResolveRetireSource.isLoad
+  io.reducedLoadReplayResolveQueueRetireIsStore := reducedLoadReplayResolveRetireSource.isStore
+  io.reducedLoadReplayResolveQueueRetireBidValid := reducedLoadReplayResolveRetireSource.bid.valid
+  io.reducedLoadReplayResolveQueueRetireBidWrap := reducedLoadReplayResolveRetireSource.bid.wrap
+  io.reducedLoadReplayResolveQueueRetireBidValue := reducedLoadReplayResolveRetireSource.bid.value
+  io.reducedLoadReplayResolveQueueRetireRidValid := reducedLoadReplayResolveRetireSource.rid.valid
+  io.reducedLoadReplayResolveQueueRetireRidWrap := reducedLoadReplayResolveRetireSource.rid.wrap
+  io.reducedLoadReplayResolveQueueRetireRidValue := reducedLoadReplayResolveRetireSource.rid.value
+  io.reducedLoadReplayResolveQueueRetireLsIdValid := reducedLoadReplayResolveRetireLsId.valid
+  io.reducedLoadReplayResolveQueueRetireLsIdWrap := reducedLoadReplayResolveRetireLsId.wrap
+  io.reducedLoadReplayResolveQueueRetireLsIdValue := reducedLoadReplayResolveRetireLsId.value
+  io.reducedLoadReplayResolveQueueRetireMask := reducedLoadReplayResolveQueue.io.retireMask
+  io.reducedLoadReplayResolveQueueRetireCount := reducedLoadReplayResolveQueue.io.retireCount
   io.reducedLoadReplayResolveQueueValidMask := reducedLoadReplayResolveQueue.io.validMask
   io.reducedLoadReplayResolveQueueCount := reducedLoadReplayResolveQueue.io.count
   io.reducedLoadReplayResolveQueueEmpty := reducedLoadReplayResolveQueue.io.empty

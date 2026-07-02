@@ -13,12 +13,24 @@ import linxcore.common.{
 }
 import linxcore.recovery.FlushBus
 
+class ROBMemoryOrderCommit(val entries: Int, val lsidWidth: Int = 32) extends Bundle {
+  val valid = Bool()
+  val isLoadStore = Bool()
+  val isLoad = Bool()
+  val isStore = Bool()
+  val bid = new ROBID(entries)
+  val gid = new ROBID(entries)
+  val rid = new ROBID(entries)
+  val lsId = UInt(lsidWidth.W)
+}
+
 class ROBEntryBankIO(
     val entries: Int,
     val traceParams: CommitTraceParams,
     val mapQDepth: Int = 32,
     val peIdWidth: Int = 8,
-    val stidWidth: Int = 8)
+    val stidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
@@ -34,6 +46,9 @@ class ROBEntryBankIO(
   val allocGid = Input(new ROBID(entries))
   val allocPeId = Input(UInt(peIdWidth.W))
   val allocStid = Input(UInt(stidWidth.W))
+  val allocLsId = Input(UInt(lsidWidth.W))
+  val allocIsLoad = Input(Bool())
+  val allocIsStore = Input(Bool())
   val allocTSeq = Input(new ROBID(mapQDepth))
   val allocUSeq = Input(new ROBID(mapQDepth))
   val allocTUDstValid = Input(Bool())
@@ -67,6 +82,7 @@ class ROBEntryBankIO(
   val deallocReady = Input(Bool())
 
   val commit = Output(new CommitTracePort(traceParams))
+  val commitMemoryOrder = Output(Vec(traceParams.commitWidth, new ROBMemoryOrderCommit(entries, lsidWidth)))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
   val commitCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
   val commitMonitorValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -134,7 +150,8 @@ class ROBEntryBank(
     val traceParams: CommitTraceParams = CommitTraceParams(),
     val mapQDepth: Int = 32,
     val peIdWidth: Int = 8,
-    val stidWidth: Int = 8)
+    val stidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(entries > 1, "ROB entries must be greater than one")
   require((entries & (entries - 1)) == 0, "ROB entries must be a power of two")
@@ -147,7 +164,7 @@ class ROBEntryBank(
   private val sizeWidth = log2Ceil(entries + 1)
   private val sourceParams = InterfaceParams(robEntries = entries)
 
-  val io = IO(new ROBEntryBankIO(entries, traceParams, mapQDepth, peIdWidth, stidWidth))
+  val io = IO(new ROBEntryBankIO(entries, traceParams, mapQDepth, peIdWidth, stidWidth, lsidWidth))
 
   private def zeroRow: CommitTraceRow = {
     val row = Wire(new CommitTraceRow(traceParams))
@@ -180,6 +197,15 @@ class ROBEntryBank(
   private def zeroTULinkSource: TULinkFlushSequenceSource = {
     val source = Wire(new TULinkFlushSequenceSource(sourceParams, mapQDepth, stidWidth))
     source := 0.U.asTypeOf(source)
+    source
+  }
+
+  private def zeroMemoryOrderCommit: ROBMemoryOrderCommit = {
+    val source = Wire(new ROBMemoryOrderCommit(entries, lsidWidth))
+    source := 0.U.asTypeOf(source)
+    source.bid := zeroRobId
+    source.gid := zeroRobId
+    source.rid := zeroRobId
     source
   }
 
@@ -235,6 +261,9 @@ class ROBEntryBank(
   val rowRid = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(entries)))))
   val rowPeId = RegInit(VecInit(Seq.fill(entries)(0.U(peIdWidth.W))))
   val rowStid = RegInit(VecInit(Seq.fill(entries)(0.U(stidWidth.W))))
+  val rowLsId = RegInit(VecInit(Seq.fill(entries)(0.U(lsidWidth.W))))
+  val rowIsLoad = RegInit(VecInit(Seq.fill(entries)(false.B)))
+  val rowIsStore = RegInit(VecInit(Seq.fill(entries)(false.B)))
   val rowTSeq = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(mapQDepth)))))
   val rowUSeq = RegInit(VecInit(Seq.fill(entries)(0.U.asTypeOf(new ROBID(mapQDepth)))))
   val rowTUDstValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
@@ -372,6 +401,18 @@ class ROBEntryBank(
     out.valid := fires
     out.slot := slot.U
     commitPort.rows(slot) := Mux(fires, out, zeroRow)
+
+    val memoryOrder = Wire(new ROBMemoryOrderCommit(entries, lsidWidth))
+    memoryOrder := zeroMemoryOrderCommit
+    memoryOrder.valid := fires
+    memoryOrder.isLoadStore := rowIsLoad(idx) || rowIsStore(idx)
+    memoryOrder.isLoad := rowIsLoad(idx)
+    memoryOrder.isStore := rowIsStore(idx)
+    memoryOrder.bid := rowBid(idx)
+    memoryOrder.gid := rowGid(idx)
+    memoryOrder.rid := rowRid(idx)
+    memoryOrder.lsId := rowLsId(idx)
+    io.commitMemoryOrder(slot) := memoryOrder
   }
   io.commit := commitPort
 
@@ -488,6 +529,9 @@ class ROBEntryBank(
       rowRid(idx) := zeroRobId
       rowPeId(idx) := 0.U
       rowStid(idx) := 0.U
+      rowLsId(idx) := 0.U
+      rowIsLoad(idx) := false.B
+      rowIsStore(idx) := false.B
       rowTSeq(idx) := zeroLocalSeq
       rowUSeq(idx) := zeroLocalSeq
       rowTUDstValid(idx) := false.B
@@ -547,6 +591,9 @@ class ROBEntryBank(
       rowRid(idx) := zeroRobId
       rowPeId(idx) := 0.U
       rowStid(idx) := 0.U
+      rowLsId(idx) := 0.U
+      rowIsLoad(idx) := false.B
+      rowIsStore(idx) := false.B
       rowTSeq(idx) := zeroLocalSeq
       rowUSeq(idx) := zeroLocalSeq
       rowTUDstValid(idx) := false.B
@@ -573,6 +620,9 @@ class ROBEntryBank(
     rowRid(allocValue) := allocatedRid
     rowPeId(allocValue) := io.allocPeId
     rowStid(allocValue) := io.allocStid
+    rowLsId(allocValue) := io.allocLsId
+    rowIsLoad(allocValue) := io.allocIsLoad
+    rowIsStore(allocValue) := io.allocIsStore
     rowTSeq(allocValue) := io.allocTSeq
     rowUSeq(allocValue) := io.allocUSeq
     rowTUDstValid(allocValue) := io.allocTUDstValid

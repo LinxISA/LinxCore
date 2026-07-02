@@ -51,6 +51,11 @@ R169 forwards allocation-time marker row sidecars into `ROBEntryBank` and
 returns the ROB bank's width-wide `deallocBlockMarkerRetireSource` vector. The
 allocator does not consume those marker retire sources; it preserves the
 boundary between row storage and future BCTRL marker-row retirement policy.
+R287 also forwards the decode-time memory-order sidecar into `ROBEntryBank`:
+the row's pre-increment `lsID` snapshot plus load/store classification. The
+allocator returns the bank's `commitMemoryOrder` vector unchanged so LSU
+owners can build `SPEROB::getRetireID`-style retire watermarks without changing
+the commit trace schema.
 
 This is still a bring-up bridge, not full dispatch, rename, or CMT. It exists
 to remove unit-test-only `ROBEntryBank.allocBid` fixtures and to make later
@@ -73,6 +78,8 @@ dispatch agents consume a real block owner.
 | input | `allocGid` | `ROBID(entries)` | with `allocValid` | Native group ID sidecar forwarded to `ROBEntryBank` for relation-cmap grouping |
 | input | `allocTid` | `UInt` | with `allocValid` | BROB thread/STID metadata |
 | input | `allocStid` | `UInt` | with `allocValid` | ROB T/U cleanup source STID sidecar |
+| input | `allocLsId` | `UInt(lsidWidth.W)` | with `allocValid` | Decode-time pre-increment `lsID` snapshot forwarded to `ROBEntryBank` |
+| input | `allocIsLoad`, `allocIsStore` | `Bool` | with `allocValid` | Load/store classification forwarded to the ROB memory-order sidecar |
 | input | `allocTSeq` / `allocUSeq` | `ROBID(mapQDepth)` | with `allocValid` | ROB row T/U cleanup source sequence sidecars |
 | input | `allocTUDstValid` / `allocTUDstKind` | mixed | with `allocValid` | ROB row T/U destination ownership sidecar |
 | input | `allocIsLast` | `Bool` | with `allocValid` | Native block-last sidecar forwarded to relation-cmap retire-source publication |
@@ -103,6 +110,7 @@ dispatch agents consume a real block owner.
 | input | `block*Done*`, `blockRetire*`, `blockFlush*`, `blockQueryBid` | mixed | valid/query | Pass-through control and query surface for `BrobMetaTracker` |
 | output | `blockQuery*`, `block*Mask` | mixed | diagnostic | BROB query and occupancy/completion masks |
 | output | `commit*`, `dealloc*`, `flush*`, `size`, `outstandingCount`, `*Mask` | mixed | diagnostic | `ROBEntryBank` commit, recovery, and lifecycle outputs |
+| output | `commitMemoryOrder` | `Vec(commitWidth, ROBMemoryOrderCommit)` | diagnostic/source | ROB commit-window native ID plus LSID sidecars forwarded from `ROBEntryBank` |
 | output | `robTULinkSource*` | mixed | diagnostic/source | ROB row candidate for `TULinkFlushSourceSelector.robSource` |
 | output | `deallocTURetireSource` | `Vec(commitWidth, TULinkRetireSource)` | diagnostic/source | ROB deallocation-row source vector for `TULinkRetireCommandPath` |
 | output | `deallocBlockMarkerRetireSource` | `Vec(commitWidth, BlockMarkerRetireSource)` | diagnostic/source | ROB deallocation-row marker source vector for future marker-row retirement |

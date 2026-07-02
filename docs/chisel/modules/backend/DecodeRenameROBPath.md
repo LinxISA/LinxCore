@@ -39,7 +39,7 @@ the queue head is accepted by rename.
 
 The module exists to remove the next layer of fixture wiring. It is still a
 bring-up path, not the final dispatch pipe. It selects one decoded slot per
-cycle, stamps reduced memory-order identity for scalar load/store rows at the
+cycle, stamps reduced memory-order identity for every valid scalar row at the
 queue acceptance boundary, reserves BROB and ROB identity before enqueue,
 enqueues that row into a registered `dec_ren_q` owner, and leaves full SID/LID
 carry, STA/STD execution, width-wide rename, block/group commit cleanup event
@@ -92,6 +92,10 @@ adds `robRenameUpdate*` observability for the post-rename ROB update. This
 matches the model order where `DCTop::Work` calls `SPEROB::allocROB` before
 `dec_ren_q->Write`, while `SPERename::Rename` later mutates the same
 instruction object's T/U sidecars.
+R287 forwards the decode memory-order sidecar into ROB allocation and exposes
+`commitMemoryOrder` from `ROBEntryBank`. The sidecar carries the model
+pre-increment `lsID` snapshot for every committed row, plus load/store
+classification, without adding fields to `CommitTraceRow`.
 R103 connects the existing block-last deallocation boundary to BROB lifecycle:
 `ROBEntryBank` exposes the full block BID for the first deallocated block-last
 row, `DecodeRenameROBPath` pulses `blockScalarDone*` for that BID, and it
@@ -709,9 +713,11 @@ The C++ model order being preserved is:
    applicable, then writes the instruction to `dec_ren_q`.
 2. `SPEROB::allocROB()` stores an allocated row, copies `bid/gid/rid`, and
    advances `allocPtr`, `size`, and `osdSize`.
-3. `Decoder::DecodeInst()` and `DCTop::SetLoadStoreID()` assign memory-order
-   IDs before incrementing their counters. The Chisel reduced path now matches
-   that pre-increment rule for one accepted STID0 decoded memory row.
+3. `Decoder::DecodeInst()` assigns the current `lsID` snapshot to every row,
+   and `DCTop::SetLoadStoreID()` advances load/store serial counters for memory
+   rows. The Chisel reduced path now matches that pre-increment `lsID`
+   snapshot for one accepted STID0 decoded row, including non-memory rows used
+   as ROB/LDQ retire watermarks.
 4. `SPE::Xfer()` calls `dec_ren_q.Work()` to move ready written rows into the
    rename-visible queue image.
 5. `SPERename::Rename()` consumes `dec_ren_q`, maps scalar and T/U sources,

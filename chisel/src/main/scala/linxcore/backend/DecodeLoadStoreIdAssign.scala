@@ -59,7 +59,7 @@ class DecodeLoadStoreIdAssign(
       !io.isLoadStorePair && !io.cacheMaintainNoSplit
 
   io.out := io.in
-  io.out.lsid := Mux(memoryValid, nextLsId, io.in.lsid)
+  io.out.lsid := Mux(io.in.valid, nextLsId, io.in.lsid)
   io.out.isLoad := io.isLoad
   io.out.isStore := io.isStore
   io.out.storeSplitIntent := splitIntent

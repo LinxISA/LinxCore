@@ -13,7 +13,7 @@ import linxcore.common.{
   TULinkRetireSource
 }
 import linxcore.recovery.{FlushBus, FullBidRecoveryBridge}
-import linxcore.rob.{ROBEntryBank, ROBEntryStatus, ROBID}
+import linxcore.rob.{ROBEntryBank, ROBEntryStatus, ROBID, ROBMemoryOrderCommit}
 
 class DispatchROBAllocatorIO(
     val entries: Int,
@@ -24,7 +24,8 @@ class DispatchROBAllocatorIO(
     val blockTypeWidth: Int = 4,
     val trapCauseWidth: Int = 32,
     val mapQDepth: Int = 32,
-    val stidWidth: Int = 8)
+    val stidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
   private val sizeWidth = log2Ceil(entries + 1)
@@ -44,6 +45,9 @@ class DispatchROBAllocatorIO(
   val allocGid = Input(new ROBID(entries))
   val allocTid = Input(UInt(tidWidth.W))
   val allocStid = Input(UInt(stidWidth.W))
+  val allocLsId = Input(UInt(lsidWidth.W))
+  val allocIsLoad = Input(Bool())
+  val allocIsStore = Input(Bool())
   val allocTSeq = Input(new ROBID(mapQDepth))
   val allocUSeq = Input(new ROBID(mapQDepth))
   val allocTUDstValid = Input(Bool())
@@ -104,6 +108,7 @@ class DispatchROBAllocatorIO(
   val blockPendingMask = Output(UInt(entries.W))
 
   val commit = Output(new CommitTracePort(traceParams))
+  val commitMemoryOrder = Output(Vec(traceParams.commitWidth, new ROBMemoryOrderCommit(entries, lsidWidth)))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
   val commitCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
   val commitMonitorValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -170,7 +175,8 @@ class DispatchROBAllocator(
     val blockTypeWidth: Int = 4,
     val trapCauseWidth: Int = 32,
     val mapQDepth: Int = 32,
-    val stidWidth: Int = 8)
+    val stidWidth: Int = 8,
+    val lsidWidth: Int = 32)
     extends Module {
   require(entries > 1, "allocator entries must be greater than one")
   require((entries & (entries - 1)) == 0, "allocator entries must be a power of two")
@@ -190,7 +196,8 @@ class DispatchROBAllocator(
     blockTypeWidth,
     trapCauseWidth,
     mapQDepth,
-    stidWidth
+    stidWidth,
+    lsidWidth
   ))
 
   private def bidToRobId(bid: UInt): ROBID = {
@@ -217,7 +224,8 @@ class DispatchROBAllocator(
     traceParams = traceParams,
     mapQDepth = mapQDepth,
     peIdWidth = peIdWidth,
-    stidWidth = stidWidth
+    stidWidth = stidWidth,
+    lsidWidth = lsidWidth
   ))
 
   val scalarNeedsBrob = io.allocValid && !io.allocUsesExistingBlock
@@ -241,6 +249,9 @@ class DispatchROBAllocator(
   rob.io.allocGid := io.allocGid
   rob.io.allocPeId := io.allocPeId
   rob.io.allocStid := io.allocStid
+  rob.io.allocLsId := io.allocLsId
+  rob.io.allocIsLoad := io.allocIsLoad
+  rob.io.allocIsStore := io.allocIsStore
   rob.io.allocTSeq := io.allocTSeq
   rob.io.allocUSeq := io.allocUSeq
   rob.io.allocTUDstValid := io.allocTUDstValid
@@ -315,6 +326,7 @@ class DispatchROBAllocator(
   io.completeAccepted := rob.io.completeAccepted
   io.completeIgnored := rob.io.completeIgnored
   io.commit := rob.io.commit
+  io.commitMemoryOrder := rob.io.commitMemoryOrder
   io.commitValidMask := rob.io.commitValidMask
   io.commitCount := rob.io.commitCount
   io.commitMonitorValidMask := rob.io.commitMonitorValidMask

@@ -72,6 +72,11 @@ kind/target. Deallocation now exposes a width-wide
 native IDs, full block BID, PC, raw instruction, length, and boundary metadata.
 The current reduced marker-consume path still bypasses ROB marker rows; this is
 source infrastructure for the future full marker-row retirement consumer.
+R287 adds the ROB-resident memory-order commit sidecar. Allocation stores the
+pre-increment scalar `lsID` snapshot plus load/store classification for every
+row, and commit emits `commitMemoryOrder` in the same slot order as
+`CommitTracePort`. This mirrors `SPEROB::getRetireID` without widening
+`CommitTraceRow` or the JSON trace schema.
 
 `ReducedCommitROB` remains the reduced trace harness. Do not retrofit full
 deallocation or recovery semantics into that module.
@@ -89,6 +94,8 @@ deallocation or recovery semantics into that module.
 | input | `allocGid` | `ROBID(entries)` | with `allocValid` | Native group ID sidecar used by relation-cmap release grouping |
 | input | `allocPeId` | `UInt(peIdWidth.W)` | with `allocValid` | Scalar PE owner sidecar stored for T/U retire-command bank routing |
 | input | `allocStid` | `UInt(stidWidth.W)` | with `allocValid` | Thread/STID sidecar stored for exact T/U cleanup source matching |
+| input | `allocLsId` | `UInt(lsidWidth.W)` | with `allocValid` | Pre-increment decode `lsID` snapshot stored with every row for LDQ/ResolveQ retire watermarks |
+| input | `allocIsLoad`, `allocIsStore` | `Bool` | with `allocValid` | Memory-class sidecars stored beside the LSID snapshot |
 | input | `allocTSeq` / `allocUSeq` | `ROBID(mapQDepth)` | with `allocValid` | Row-owned local T/U sequence snapshots from rename |
 | input | `allocTUDstValid` / `allocTUDstKind` | mixed | with `allocValid` | Whether the row owns a T or U destination that needs previous-sequence adjustment |
 | input | `allocIsLast` | `Bool` | with `allocValid` | Whether the row is the model block-last instruction for relation-cmap release |
@@ -113,6 +120,7 @@ deallocation or recovery semantics into that module.
 | output | `completeIgnored` | `Bool` | diagnostic | High when completion targets a free, retired, fault, or need-flush row |
 | input | `deallocReady` | `Bool` | yes | Allows the deallocation walk to release retired rows this cycle |
 | output | `commit` | `CommitTracePort` | fixed-width valid rows | Contiguous completed head rows, slot-labeled and zeroed when invalid |
+| output | `commitMemoryOrder` | `Vec(commitWidth, ROBMemoryOrderCommit)` | slot `valid` | ROB retire-bus sidecar for each committed slot: native `(bid,gid,rid)`, `lsId`, and load/store classification |
 | output | `commitValidMask` | `UInt(commitWidth.W)` | diagnostic | Valid row mask for the commit window |
 | output | `commitCount` | `UInt` | diagnostic | Number of rows marked retired this cycle |
 | output | `deallocValidMask` | `UInt(commitWidth.W)` | diagnostic | Deallocated retired-row mask for the dealloc walk |
@@ -153,6 +161,9 @@ deallocation or recovery semantics into that module.
   `allocWrap`.
 - `rowPeId`: scalar PE owner sidecar per slot, sourced from allocation.
 - `rowStid`: STID sidecar per slot, sourced from allocation.
+- `rowLsId`: pre-increment scalar memory-order ID snapshot per slot.
+- `rowIsLoad` / `rowIsStore`: row memory-class sidecars used by
+  `commitMemoryOrder`.
 - `rowTSeq` / `rowUSeq`: row-owned local T/U mapQ sequence snapshots.
 - `rowTUDstValid` / `rowTUDstKind`: whether the row owns a T/U destination
   that requires previous-sequence cleanup adjustment.
@@ -180,6 +191,9 @@ pointer, stores native flush metadata in `rowBid`/`rowRid`, marks the slot
 `outstandingCount`. `rowBid` comes from the backend/BROB owner through
 `allocBid`; `rowRid` is allocated locally from the bank allocation pointer,
 matching `SPEROB::allocROB` assigning `inst->rid` from `allocPtr`.
+The same allocation stores `allocLsId`, `allocIsLoad`, and `allocIsStore` as a
+non-trace sidecar so LDQ/ResolveQ owners can observe the model retire bus later
+without overloading architectural memory trace fields.
 The bank exposes both `allocRobValue` and `allocRobWrap` so the decode/rename
 queue can stamp the exact native RID before enqueue. R111 depends on this:
 the first CoreMark `SLL` row is the ninth scalar allocation in an 8-entry
@@ -251,6 +265,9 @@ valid with status `Completed`. Fired rows are emitted through
 `CommitTracePort`, relabeled with their commit slot, marked `Retired`, and
 subtracted from `outstandingCount`. Commit stops at the first non-completed
 head.
+For each fired slot, `commitMemoryOrder(slot)` publishes the same native
+`rowBid/rowGid/rowRid` plus the stored `rowLsId` and load/store class bits.
+Invalid commit slots publish a zeroed sidecar.
 
 Deallocation scans from `deallocValue` for at most `commitWidth` slots when
 `deallocReady` is high. It frees only contiguous valid `Retired` rows and

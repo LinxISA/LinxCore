@@ -50,8 +50,8 @@ packets.
 
 | Signal | Description |
 |---|---|
-| `retireValid` | Commit identity is valid for model-style `ResolveQ::retired` pruning. |
-| `retireBid` / `retireLsId` | Commit row identity. Rows strictly older by `(BID, LSID)` are removed. |
+| `retireValid` | Commit identity is valid for model-style `ResolveQ::retired` pruning. R287 wires the opt-in replay-LIQ top from the ROB commit memory-order watermark. |
+| `retireBid` / `retireLsId` | Commit-row BID plus pre-increment LSID snapshot. Rows strictly older by `(BID, LSID)` are removed. |
 | `retireMask` | Pre-cycle queue rows retired this cycle. |
 | `retireCount` | Number of retired rows. |
 

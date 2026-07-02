@@ -12,6 +12,7 @@ object DecodeLoadStoreIdAssignReference {
       loadIdValid: Boolean,
       storeIdValid: Boolean,
       assignFire: Boolean,
+      outLsId: BigInt,
       assignedLsId: BigInt,
       assignedLoadId: BigInt,
       assignedStoreId: BigInt,
@@ -56,6 +57,7 @@ object DecodeLoadStoreIdAssignReference {
       loadIdValid = loadLike,
       storeIdValid = storeLike,
       assignFire = assignFire,
+      outLsId = if (inValid) state.lsid else 0,
       assignedLsId = if (memoryValid) state.lsid else 0,
       assignedLoadId = if (loadLike) state.loadId else 0,
       assignedStoreId = if (storeLike) state.storeId else 0,
@@ -150,6 +152,7 @@ class DecodeLoadStoreIdAssignSpec extends AnyFunSuite {
     assert(stalled.state == state)
     assert(!scalar.memoryValid)
     assert(!scalar.assignFire)
+    assert(scalar.outLsId == 7)
     assert(scalar.state == state)
   }
 

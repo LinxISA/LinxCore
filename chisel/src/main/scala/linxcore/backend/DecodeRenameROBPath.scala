@@ -21,7 +21,7 @@ import linxcore.rename.{
   StoreSplitPayload,
   TULinkRetireCommandPath
 }
-import linxcore.rob.{ROBEntryStatus, ROBID}
+import linxcore.rob.{ROBEntryStatus, ROBID, ROBMemoryOrderCommit}
 
 class DecodeRenameROBPathIO(
     val p: InterfaceParams = InterfaceParams(),
@@ -281,6 +281,7 @@ class DecodeRenameROBPathIO(
   val completeAccepted = Output(Bool())
   val completeIgnored = Output(Bool())
   val commit = Output(new CommitTracePort(traceParams))
+  val commitMemoryOrder = Output(Vec(traceParams.commitWidth, new ROBMemoryOrderCommit(p.robEntries, p.lsidWidth)))
   val commitValidMask = Output(UInt(traceParams.commitWidth.W))
   val commitCount = Output(UInt(log2Ceil(traceParams.commitWidth + 1).W))
   val commitMonitorValidMask = Output(UInt(traceParams.commitWidth.W))
@@ -596,7 +597,8 @@ class DecodeRenameROBPath(
     blockTypeWidth = blockTypeWidth,
     trapCauseWidth = trapCauseWidth,
     mapQDepth = mapQDepth,
-    stidWidth = stidWidth
+    stidWidth = stidWidth,
+    lsidWidth = p.lsidWidth
   ))
   val blockLifecycleFlush = io.cleanup.valid && (io.cleanup.backendFlushValid || io.cleanup.blockFlushValid)
   val blockScalarDoneSeq = Module(new BlockScalarDoneSequencer(bidWidth))
@@ -907,6 +909,9 @@ class DecodeRenameROBPath(
   val markerAllocBlockType = marker.boundaryKind.asUInt.pad(blockTypeWidth)(blockTypeWidth - 1, 0)
   allocator.io.allocTid := Mux(markerBoundary, markerAllocTid, selectedAllocTid)
   allocator.io.allocStid := Mux(markerBoundary, markerAllocStid, selectedAllocStid)
+  allocator.io.allocLsId := selectedForQueue.lsid
+  allocator.io.allocIsLoad := selectedForQueue.valid && selectedForQueue.isLoad
+  allocator.io.allocIsStore := selectedForQueue.valid && selectedForQueue.isStore
   allocator.io.allocTSeq := zeroLocalSeq
   allocator.io.allocUSeq := zeroLocalSeq
   allocator.io.allocTUDstValid := false.B
@@ -1229,6 +1234,7 @@ class DecodeRenameROBPath(
   io.completeAccepted := io.completeValid && allocator.io.completeAccepted
   io.completeIgnored := io.completeValid && allocator.io.completeIgnored
   io.commit := allocator.io.commit
+  io.commitMemoryOrder := allocator.io.commitMemoryOrder
   io.commitValidMask := allocator.io.commitValidMask
   io.commitCount := allocator.io.commitCount
   io.commitMonitorValidMask := allocator.io.commitMonitorValidMask
