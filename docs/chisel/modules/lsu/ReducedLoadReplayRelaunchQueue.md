@@ -13,6 +13,7 @@
     - `STQ::lookupForLoad`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadWaitReplaySlot.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayCompletionDrain.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ResidentStoreReplayWakeup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayWakeup.scala`
@@ -116,6 +117,8 @@ same reduced-store flush used by the wait slot.
 ## Deferred Owners
 
 - A real consumer that allocates or selects a `LoadInflightQueue` row.
+- Integration of `ReducedLoadReplayLiqAllocAdapter` with a resident
+  `LoadInflightQueue` instance.
 - Relaunch arbitration with newly issued loads.
 - Ready-table or dependent-consumer wakeup.
 - Multiple load wait slots feeding a shared queue.

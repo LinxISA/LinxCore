@@ -19,6 +19,7 @@ class LoadInflightAlloc(
   val bid = new ROBID(idEntries)
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
+  val loadLsId = new ROBID(idEntries)
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -44,6 +45,7 @@ class LoadInflightRow(
   val bid = new ROBID(idEntries)
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
+  val loadLsId = new ROBID(idEntries)
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -191,6 +193,13 @@ class LoadInflightQueue(
     row.status := LoadInflightStatus.Idle
     row.missKind := LoadForwardMissKind.NoMiss
     row.waitStoreInfo := zeroWait
+    row.loadId := ROBID.disabled(liqEntries)
+    row.bid := ROBID.disabled(idEntries)
+    row.gid := ROBID.disabled(idEntries)
+    row.rid := ROBID.disabled(idEntries)
+    row.loadLsId := ROBID.disabled(idEntries)
+    row.youngestStoreId := ROBID.disabled(idEntries)
+    row.youngestStoreLsId := ROBID.disabled(idEntries)
     row
   }
 
@@ -414,6 +423,7 @@ class LoadInflightQueue(
       rows(allocPtr).bid := io.alloc.bid
       rows(allocPtr).gid := io.alloc.gid
       rows(allocPtr).rid := io.alloc.rid
+      rows(allocPtr).loadLsId := io.alloc.loadLsId
       rows(allocPtr).pc := io.alloc.pc
       rows(allocPtr).addr := io.alloc.addr
       rows(allocPtr).size := io.alloc.size

@@ -20,6 +20,7 @@ object LoadInflightQueueReference {
       bid: Id = Id(),
       gid: Id = Id(),
       rid: Id = Id(),
+      loadLsId: Id = Id(),
       pc: BigInt = 0,
       addr: BigInt = 0,
       size: Int = 8,
@@ -309,6 +310,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
       bid = Id(value = n),
       gid = Id(value = 0),
       rid = Id(value = n),
+      loadLsId = Id(value = n),
       pc = 0x2000 + n,
       addr = addr,
       size = size,
@@ -324,6 +326,8 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(a0.accepted && a0.index == 0 && !a0.loadId.wrap && a0.loadId.value == 0)
     assert(a1.accepted && a1.index == 1 && !a1.loadId.wrap && a1.loadId.value == 1)
     assert(!blocked.accepted && blocked.index == 0 && blocked.loadId.wrap)
+    assert(liq.row(0).exists(_.alloc.loadLsId.value == 0))
+    assert(liq.row(1).exists(_.alloc.loadLsId.value == 1))
     assert(liq.occupiedMask == 0x3)
   }
 
@@ -497,6 +501,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("module LoadInflightQueue"))
     assert(sv.contains("LoadForwardPipeline"))
     assert(sv.contains("io_lhqRecordValid"))
+    assert(sv.contains("io_alloc_loadLsId_value"))
     assert(sv.contains("io_e4UpdateValid"))
     assert(sv.contains("io_missPending"))
     assert(sv.contains("LoadReplayWakeup"))
@@ -504,5 +509,6 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("LoadRefillWakeup"))
     assert(sv.contains("io_refillWakeMask"))
     assert(sv.contains("io_rows_0_status"))
+    assert(sv.contains("io_rows_0_loadLsId_value"))
   }
 }

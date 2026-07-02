@@ -93,6 +93,7 @@ class ReducedLoadWaitReplaySlot(
     row.bid := ROBID.disabled(idEntries)
     row.gid := ROBID.disabled(idEntries)
     row.rid := ROBID.disabled(idEntries)
+    row.loadLsId := ROBID.disabled(idEntries)
     row.youngestStoreId := ROBID.disabled(idEntries)
     row.youngestStoreLsId := ROBID.disabled(idEntries)
     row.waitStoreInfo := zeroWait
@@ -121,6 +122,7 @@ class ReducedLoadWaitReplaySlot(
     row.bid := io.captureBid
     row.gid := io.captureGid
     row.rid := io.captureRid
+    row.loadLsId := io.captureLsId
     row.pc := io.capturePc
     row.addr := io.captureAddr
     row.size := io.captureSize

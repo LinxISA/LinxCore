@@ -42,7 +42,7 @@ memory-event trace.
 | Signal | Description |
 |---|---|
 | `allocValid` | Requests allocation of one LIQ row. |
-| `alloc` | Load identity, PC, address, size, tile flag, and `(youngestStoreId, youngestStoreLsId)` snapshot. |
+| `alloc` | Load identity, load LSID, PC, address, size, tile flag, and `(youngestStoreId, youngestStoreLsId)` snapshot. |
 | `allocReady` | The allocation pointer names a free row. |
 | `allocAccepted` | The request allocated the current pointer row. |
 | `allocIndex` | Current LIQ slot. |
@@ -171,8 +171,9 @@ The C++ model provides the owner split:
 
 `LoadInflightQueue` maps those rules into the current Chisel boundary:
 
-1. Allocation writes a `Wait` row with a slot-plus-wrap `loadId` and stores the
-   `(youngestStoreId, youngestStoreLsId)` snapshot for store-forward filtering.
+1. Allocation writes a `Wait` row with a slot-plus-wrap `loadId`, preserves the
+   load's own `loadLsId`, and stores the `(youngestStoreId,
+   youngestStoreLsId)` snapshot for store-forward filtering.
 2. Launch accepts only valid `Wait` rows with no wait-store block, changes the
    row to `Repick`, and sends the row-derived query into
    `LoadForwardPipeline`.
