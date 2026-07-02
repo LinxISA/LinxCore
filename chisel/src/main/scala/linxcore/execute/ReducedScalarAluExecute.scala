@@ -41,6 +41,7 @@ class ReducedScalarAluExecuteIO(
   val loadLookupValid = Output(Bool())
   val loadLookupAddr = Output(UInt(p.immWidth.W))
   val loadLookupSize = Output(UInt(p.memSizeWidth.W))
+  val loadLookupReturnSignExtend = Output(Bool())
   val loadLookupPc = Output(UInt(p.pcWidth.W))
   val loadLookupBid = Output(new ROBID(p.robEntries))
   val loadLookupGid = Output(new ROBID(p.robEntries))
@@ -164,6 +165,19 @@ class ReducedScalarAluExecute(
       op === opcode(FrontendOpcodeDecodeTable.OP_HL_SB_PCR),
       1.U,
       Mux(op === opcode(FrontendOpcodeDecodeTable.OP_HL_SH_PCR), 2.U, Mux(op === opcode(FrontendOpcodeDecodeTable.OP_HL_SW_PCR), 4.U, 8.U)))
+
+  private def loadReturnSignExtend(op: UInt): Bool =
+    op === opcode(FrontendOpcodeDecodeTable.OP_LB) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_LBI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_LB_PCR) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_LH) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_LHI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_LHI_U) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_LH_PCR) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_LW) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_LWI) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_LWI_U) ||
+      op === opcode(FrontendOpcodeDecodeTable.OP_LW_PCR)
 
   private def sext32(value: UInt): UInt =
     Cat(Fill(p.immWidth - 32, value(31)), value(31, 0))
@@ -598,6 +612,7 @@ class ReducedScalarAluExecute(
         Mux(eLoadI, ldiAddr(eSrcData, eUop.imm), cLdiAddr(eSrcData, eUop.imm)))))
   val eLoadLookupSize = Mux(eLoadByteI, 1.U(p.memSizeWidth.W), 8.U(p.memSizeWidth.W))
   io.loadLookupSize := Mux(io.loadLookupValid, eLoadLookupSize, 0.U)
+  io.loadLookupReturnSignExtend := io.loadLookupValid && loadReturnSignExtend(eUop.opcode)
   io.loadLookupPc := Mux(io.loadLookupValid, eUop.pc, 0.U)
   io.loadLookupBid := Mux(io.loadLookupValid, eUop.bid, ROBID.disabled(p.robEntries))
   io.loadLookupGid := Mux(io.loadLookupValid, eUop.gid, ROBID.disabled(p.robEntries))

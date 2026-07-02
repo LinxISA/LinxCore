@@ -447,6 +447,13 @@ This is a reduced stand-in for `LDQInfo::waitStore`: the top can prevent wrong
 retirement on resident store-data waits before a real LIQ/LDQ replay row and
 store-unit wakeup path exists.
 
+R307 also derives `loadLookupReturnSignExtend` from the accepted load opcode.
+Signed byte, halfword, and word load classes assert the bit; unsigned and
+64-bit load classes leave it low. The reduced top captures this sideband with
+the wait-store replay candidate so later replay-return data extraction can
+choose the model `SignExtend` behavior without carrying a raw opcode through
+the current diagnostic LIQ row.
+
 ## Timing
 
 The reduced pipe captures a uop into E when `inValid && inReady`, computes the

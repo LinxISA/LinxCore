@@ -14,6 +14,7 @@ object ReducedLoadReplayLiqAllocAdapterReference {
       pc: BigInt,
       addr: BigInt,
       size: Int,
+      returnSignExtend: Boolean,
       youngestStoreId: Id,
       youngestStoreLsId: Id,
       isTile: Boolean,
@@ -56,6 +57,7 @@ object ReducedLoadReplayLiqAllocAdapterReference {
         pc = relaunch.pc,
         addr = relaunch.addr,
         size = relaunch.size,
+        returnSignExtend = relaunch.returnSignExtend,
         youngestStoreId = relaunch.youngestStoreId,
         youngestStoreLsId = relaunch.youngestStoreLsId,
         isTile = false,
@@ -91,6 +93,7 @@ class ReducedLoadReplayLiqAllocAdapterSpec extends AnyFunSuite {
     assert(alloc.pc == 0x4000)
     assert(alloc.addr == 0x1008)
     assert(alloc.size == 8)
+    assert(!alloc.returnSignExtend)
     assert(!alloc.isTile)
     assert(!alloc.specWakeup)
     assert(!alloc.stackValid)
@@ -125,6 +128,7 @@ class ReducedLoadReplayLiqAllocAdapterSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedLoadReplayLiqAllocAdapter"))
     assert(sv.contains("io_allocValid"))
     assert(sv.contains("io_alloc_loadLsId_value"))
+    assert(sv.contains("io_alloc_returnSignExtend"))
     assert(sv.contains("io_alloc_youngestStoreId_value"))
     assert(sv.contains("io_alloc_youngestStoreLsId_value"))
     assert(sv.contains("io_consumeReady"))

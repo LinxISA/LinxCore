@@ -23,6 +23,7 @@ class LoadInflightAlloc(
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
+  val returnSignExtend = Bool()
   val youngestStoreId = new ROBID(idEntries)
   val youngestStoreLsId = new ROBID(idEntries)
   val isTile = Bool()
@@ -49,6 +50,7 @@ class LoadInflightRow(
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
+  val returnSignExtend = Bool()
   val youngestStoreId = new ROBID(idEntries)
   val youngestStoreLsId = new ROBID(idEntries)
   val isTile = Bool()
@@ -432,6 +434,7 @@ class LoadInflightQueue(
       rows(allocPtr).pc := io.alloc.pc
       rows(allocPtr).addr := io.alloc.addr
       rows(allocPtr).size := io.alloc.size
+      rows(allocPtr).returnSignExtend := io.alloc.returnSignExtend
       rows(allocPtr).youngestStoreId := io.alloc.youngestStoreId
       rows(allocPtr).youngestStoreLsId := io.alloc.youngestStoreLsId
       rows(allocPtr).isTile := io.alloc.isTile

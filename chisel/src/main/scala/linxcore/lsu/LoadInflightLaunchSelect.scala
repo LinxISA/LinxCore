@@ -40,6 +40,7 @@ class LoadInflightLaunchSelectIO(
   val selectedPc = Output(UInt(pcWidth.W))
   val selectedAddr = Output(UInt(addrWidth.W))
   val selectedSize = Output(UInt(sizeWidth.W))
+  val selectedReturnSignExtend = Output(Bool())
   val selectedRequestByteMask = Output(UInt(lineBytes.W))
   val selectedSpecWakeup = Output(Bool())
   val selectedStackValid = Output(Bool())
@@ -157,6 +158,7 @@ class LoadInflightLaunchSelect(
   io.selectedPc := 0.U
   io.selectedAddr := 0.U
   io.selectedSize := 0.U
+  io.selectedReturnSignExtend := false.B
   io.selectedRequestByteMask := 0.U
   io.selectedSpecWakeup := false.B
   io.selectedStackValid := false.B
@@ -169,6 +171,7 @@ class LoadInflightLaunchSelect(
     io.selectedPc := selectedRow.pc
     io.selectedAddr := selectedRow.addr
     io.selectedSize := selectedRow.size
+    io.selectedReturnSignExtend := selectedRow.returnSignExtend
     io.selectedRequestByteMask := requestByteMasks(launchIndex)
     io.selectedSpecWakeup := selectedRow.specWakeup
     io.selectedStackValid := selectedRow.stackValid

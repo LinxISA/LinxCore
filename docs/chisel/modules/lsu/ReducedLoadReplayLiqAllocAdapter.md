@@ -32,6 +32,8 @@ The adapter preserves two identity domains:
 - load identity: `BID/GID/RID/loadLsId`, plus PC, address, and size;
 - store-order snapshot: `(youngestStoreId, youngestStoreLsId)`, captured when
   the load originally observed the blocking store relation.
+- replay-return signedness: the opcode-derived `returnSignExtend` bit that
+  later feeds scalar return-data extraction.
 
 Keeping those domains separate mirrors the model split between the load row's
 own `MemReqBus` identity and the store-forwarding eligibility snapshot used by
@@ -88,6 +90,7 @@ Mapping is direct:
 
 - `candidate.bid/gid/rid/loadLsId` -> `alloc.bid/gid/rid/loadLsId`
 - `candidate.pc/addr/size` -> `alloc.pc/addr/size`
+- `candidate.returnSignExtend` -> `alloc.returnSignExtend`
 - `candidate.youngestStoreId/youngestStoreLsId` ->
   `alloc.youngestStoreId/youngestStoreLsId`
 - reduced scalar flags are false: `isTile=false`, `specWakeup=false`,

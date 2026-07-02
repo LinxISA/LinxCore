@@ -36,11 +36,11 @@ the IEX load-return path. It mirrors the non-tile, non-cross-line portion of
    scalar result.
 
 The module is intentionally separate from `LoadForwardPipeline` integration.
-The current LIQ replay row carries address, size, `specWakeup`, and
-`stackValid`, but not the full model opcode/destination payload needed to
-derive signedness and publish a real LRET entry. This owner therefore exposes
-an explicit `signExtend` input and a standalone data-valid contract for the
-future LRET payload owner.
+R307 carries the derived `returnSignExtend` bit through the reduced replay
+candidate, queue, LIQ row, and launch selector, but the current row still does
+not carry the full model opcode/destination payload needed to publish a real
+LRET entry. This owner therefore exposes an explicit `signExtend` input and a
+standalone data-valid contract for the future LRET payload owner.
 
 ## Interface
 
@@ -109,7 +109,8 @@ That merge needs a separate stateful owner.
 
 ## Deferred Owners
 
-- Opcode-to-signedness decode carried in the replay LIQ row.
+- Connecting the carried replay-row `returnSignExtend` sideband to live
+  extraction once real LRET payload ownership exists.
 - Destination physical tag, IEX pipe, and full LRET payload formatting.
 - Real IEX load-return queue enqueue/backpressure.
 - Real mem-wakeup payload and ready-table/issue wakeup fanout.

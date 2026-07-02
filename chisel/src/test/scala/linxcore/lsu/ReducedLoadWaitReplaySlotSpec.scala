@@ -21,7 +21,8 @@ object ReducedLoadWaitReplaySlotReference {
       gid: Id = Id(),
       rid: Id = Id(),
       youngestStoreId: Option[Id] = None,
-      youngestStoreLsId: Option[Id] = None)
+      youngestStoreLsId: Option[Id] = None,
+      returnSignExtend: Boolean = false)
   final case class Wake(storeId: Id, storeLsId: Id, pc: BigInt)
   final case class Relaunch(
       pc: BigInt,
@@ -32,12 +33,14 @@ object ReducedLoadWaitReplaySlotReference {
       gid: Id = Id(),
       rid: Id = Id(),
       youngestStoreId: Id = Id(),
-      youngestStoreLsId: Id = Id())
+      youngestStoreLsId: Id = Id(),
+      returnSignExtend: Boolean = false)
   final case class State(
       active: Boolean = false,
       pc: BigInt = 0,
       addr: BigInt = 0,
       size: Int = 0,
+      returnSignExtend: Boolean = false,
       bid: Id = Id(),
       lsId: Id = Id(),
       gid: Id = Id(),
@@ -66,15 +69,16 @@ object ReducedLoadWaitReplaySlotReference {
     val relaunch =
       if (waitStoreClear && !captureAccepted && !flush) {
         Some(Relaunch(
-          state.pc,
-          state.addr,
-          state.size,
-          state.bid,
-          state.lsId,
-          state.gid,
-          state.rid,
-          state.youngestStoreId,
-          state.youngestStoreLsId))
+          pc = state.pc,
+          addr = state.addr,
+          size = state.size,
+          bid = state.bid,
+          lsId = state.lsId,
+          gid = state.gid,
+          rid = state.rid,
+          youngestStoreId = state.youngestStoreId,
+          youngestStoreLsId = state.youngestStoreLsId,
+          returnSignExtend = state.returnSignExtend))
       } else {
         None
       }
@@ -88,6 +92,7 @@ object ReducedLoadWaitReplaySlotReference {
           pc = captured.pc,
           addr = captured.addr,
           size = captured.size,
+          returnSignExtend = captured.returnSignExtend,
           bid = captured.bid,
           lsId = captured.lsId,
           gid = captured.gid,
@@ -120,6 +125,7 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
       pc = 0x4000,
       addr = 0x1008,
       size = 8,
+      returnSignExtend = true,
       bid = id(6),
       lsId = id(3),
       gid = id(2),
@@ -140,6 +146,7 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
       pc = 0x4000,
       addr = 0x1008,
       size = 8,
+      returnSignExtend = true,
       bid = id(6),
       lsId = id(3),
       gid = id(2),
@@ -184,6 +191,7 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
       pc = 0x4010,
       addr = 0x2000,
       size = 8,
+      returnSignExtend = false,
       bid = id(7),
       lsId = id(2),
       youngestStoreId = id(7),
@@ -210,6 +218,8 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     assert(sv.contains("io_waitStoreClear"))
     assert(sv.contains("io_storedWaitStore_valid"))
     assert(sv.contains("io_relaunch_valid"))
+    assert(sv.contains("io_captureReturnSignExtend"))
+    assert(sv.contains("io_relaunch_returnSignExtend"))
     assert(sv.contains("io_relaunch_gid_value"))
     assert(sv.contains("io_relaunch_rid_value"))
     assert(sv.contains("io_relaunch_loadLsId_value"))

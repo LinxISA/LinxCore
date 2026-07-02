@@ -44,7 +44,7 @@ memory-event trace.
 | Signal | Description |
 |---|---|
 | `allocValid` | Requests allocation of one LIQ row. |
-| `alloc` | Load identity, load LSID, PC, address, size, tile flag, and `(youngestStoreId, youngestStoreLsId)` snapshot. |
+| `alloc` | Load identity, load LSID, PC, address, size, replay-return signedness, tile flag, and `(youngestStoreId, youngestStoreLsId)` snapshot. |
 | `allocReady` | The allocation pointer names a free row. |
 | `allocAccepted` | The request allocated the current pointer row. |
 | `allocIndex` | Current LIQ slot. |
@@ -175,7 +175,9 @@ The C++ model provides the owner split:
 
 1. Allocation writes a `Wait` row with a slot-plus-wrap `loadId`, preserves the
    load's own `loadLsId`, and stores the `(youngestStoreId,
-   youngestStoreLsId)` snapshot for store-forward filtering.
+   youngestStoreLsId)` snapshot for store-forward filtering. R307 also stores
+   the opcode-derived `returnSignExtend` bit beside address and size for the
+   future scalar replay-return extractor.
 2. Launch accepts only valid `Wait` rows with no wait-store block, changes the
    row to `Repick`, and sends the row-derived query into
    `LoadForwardPipeline`. R280 adds `LoadInflightLaunchSelect` as a separate

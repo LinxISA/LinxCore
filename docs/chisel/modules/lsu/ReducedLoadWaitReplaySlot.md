@@ -34,7 +34,9 @@ extends that candidate to preserve the model `MemReqBus` ROB sidecars
 model LDQ insert/wait path. R275 also records the
 `LoadInflightQueue` forwarding snapshot `(youngestStoreId,
 youngestStoreLsId)` as explicit candidate sidecars, rather than leaving it
-implicit in the reduced top's current BID/LSID aliases. In the reduced top
+implicit in the reduced top's current BID/LSID aliases. R307 carries the
+derived replay-return signedness bit beside address and size, using the model
+opcode class that later feeds `SignExtend`. In the reduced top
 after R272,
 `ReducedLoadReplayRelaunchQueue` consumes that pulse into a finite pending
 queue. The slot itself does not drive a launch port, wake dependent consumers,
@@ -51,6 +53,7 @@ or replace the full `LoadInflightQueue` owner.
 | `capturePc` | PC of the waiting load. |
 | `captureAddr` | Byte address of the waiting load. |
 | `captureSize` | Byte size of the waiting load. |
+| `captureReturnSignExtend` | Derived scalar return signedness for future replay-return data extraction. |
 | `captureBid` | Load allocation snapshot BID. |
 | `captureGid` | Load allocation snapshot GID sidecar. |
 | `captureRid` | Load allocation snapshot RID sidecar. |
@@ -74,6 +77,7 @@ or replace the full `LoadInflightQueue` owner.
 | `relaunch.pc` | PC of the remembered load. |
 | `relaunch.addr` | Byte address of the remembered load. |
 | `relaunch.size` | Byte size of the remembered load. |
+| `relaunch.returnSignExtend` | Captured scalar return signedness sideband. |
 | `relaunch.bid` | BID snapshot captured with the remembered load. |
 | `relaunch.gid` | GID snapshot captured with the remembered load. |
 | `relaunch.rid` | RID snapshot captured with the remembered load. |
@@ -114,8 +118,8 @@ R269 maps that sequence onto the reduced top:
 4. Clear the diagnostic slot when the wakeup matches the remembered
    wait-store key by `(storeId, storeLsId, pc)`.
 5. Publish a one-cycle relaunch candidate containing the stored load PC,
-   address, size, BID, GID, RID, reduced LSID, and forwarding snapshot
-   `(youngestStoreId, youngestStoreLsId)`. This is the future
+   address, size, derived return signedness, BID, GID, RID, reduced LSID, and
+   forwarding snapshot `(youngestStoreId, youngestStoreLsId)`. This is the future
    LIQ/issue handoff boundary; it does not itself relaunch the load.
 6. In the reduced top, `ReducedLoadReplayRelaunchQueue` stores that one-cycle
    pulse as a stable pending diagnostic until a later LIQ/issue consumer

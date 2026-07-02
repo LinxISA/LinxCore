@@ -35,7 +35,7 @@ LHQ/ResolveQ state, or replace the reduced-store completion-drain path.
 | output | `launchMask` | One-hot selected oldest candidate. |
 | output | `launchValid`, `launchIndex` | Launch request and selected LIQ slot. |
 | output | `candidateCount` | Number of enabled launch candidates. |
-| output | `selected*` | Selected load identity, address, size, PC, requested byte mask, `specWakeup`, and `stackValid` diagnostics. |
+| output | `selected*` | Selected load identity, address, size, PC, replay-return signedness, requested byte mask, `specWakeup`, and `stackValid` diagnostics. |
 
 ## Logic Design
 
@@ -58,6 +58,9 @@ dataHit = row.l1Hit || row.storeBypass || requestComplete
 R305 also forwards the selected row's `specWakeup` and `stackValid` sidebands
 so the replay-return consumer owner can decide whether a mem wakeup is
 required after the always-required LRET write.
+R307 forwards `returnSignExtend` from the selected LIQ row so the later
+return-data owner can choose sign or zero extension without carrying the full
+model opcode at the selector boundary.
 
 This keeps freshly allocated R279 replay rows resident but not launchable until
 a replay wakeup, refill wakeup, or later LDQ data owner provides the requested

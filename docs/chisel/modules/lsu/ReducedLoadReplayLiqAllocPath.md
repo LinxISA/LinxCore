@@ -82,7 +82,7 @@ MDB publication remain outside this module.
 | `launchMask` | One-hot oldest selected scalar candidate. Diagnostic only in this path. |
 | `launchValid` / `launchIndex` | Selector request before parent `launchEnable` qualification. |
 | `launchCandidateCount` | Number of selector candidates. |
-| `launchSelected*` | R294/R305 selected launch-row identity from `LoadInflightLaunchSelect`: LIQ load ID, BID/GID/RID, load LSID, PC, address, size, 64-byte request mask, `specWakeup`, and `stackValid`. These signals remain diagnostic while `launchEnable` is low. |
+| `launchSelected*` | R294/R305/R307 selected launch-row identity from `LoadInflightLaunchSelect`: LIQ load ID, BID/GID/RID, load LSID, PC, address, size, replay-return signedness, 64-byte request mask, `specWakeup`, and `stackValid`. These signals remain diagnostic while `launchEnable` is low. |
 | `launchDriveValid` | Actual valid presented to `LoadInflightQueue.launchValid`; low unless the parent-owned `launchEnable && launchValid` predicate is true. Since R305, the reduced top drives return readiness from `LoadReplayReturnReadiness` fed by `LoadReplayReturnConsumerReady` plus the budget/permit/select split; the LRET and mem-wakeup sinks remain low, so launch stays disabled. |
 | `launchReady` | Selected row is launch-ready in `LoadInflightQueue`. |
 | `launchAccepted` | Selected row entered `Repick` through `LoadInflightQueue`. |
@@ -130,6 +130,9 @@ reduced wait slot and replay queue produce the same cleared load as a
    so `LoadReplayReturnConsumerReady` can require the model mem-wakeup sink
    only for rows that did not already get speculative wakeup and are not stack
    loads.
+   R307 extends the same surface with `returnSignExtend`, preserving the
+   opcode-derived sign/zero-extension choice needed by
+   `LoadReplayReturnDataExtract`.
    R295 has the top consume that selected row in `LoadReplayBaseDataAlign`,
    producing dormant `e2BaseData/e2BaseValidMask` inputs for the same selected
    row. R296 drives those dormant inputs only when `LoadLookupArbiter` grants

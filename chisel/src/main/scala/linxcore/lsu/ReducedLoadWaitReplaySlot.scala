@@ -13,6 +13,7 @@ class ReducedLoadReplayCandidate(
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
+  val returnSignExtend = Bool()
   val bid = new ROBID(idEntries)
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
@@ -36,6 +37,7 @@ class ReducedLoadWaitReplaySlotIO(
   val capturePc = Input(UInt(pcWidth.W))
   val captureAddr = Input(UInt(addrWidth.W))
   val captureSize = Input(UInt(sizeWidth.W))
+  val captureReturnSignExtend = Input(Bool())
   val captureBid = Input(new ROBID(idEntries))
   val captureGid = Input(new ROBID(idEntries))
   val captureRid = Input(new ROBID(idEntries))
@@ -126,6 +128,7 @@ class ReducedLoadWaitReplaySlot(
     row.pc := io.capturePc
     row.addr := io.captureAddr
     row.size := io.captureSize
+    row.returnSignExtend := io.captureReturnSignExtend
     row.youngestStoreId := io.captureYoungestStoreId
     row.youngestStoreLsId := io.captureYoungestStoreLsId
     row.waitStore := true.B
@@ -181,6 +184,7 @@ class ReducedLoadWaitReplaySlot(
     relaunch.pc := slotReg.pc
     relaunch.addr := slotReg.addr
     relaunch.size := slotReg.size
+    relaunch.returnSignExtend := slotReg.returnSignExtend
     relaunch.bid := slotReg.bid
     relaunch.gid := slotReg.gid
     relaunch.rid := slotReg.rid

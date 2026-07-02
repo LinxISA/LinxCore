@@ -323,6 +323,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayQueueOutPc = Output(UInt(p.pcWidth.W))
   val reducedLoadReplayQueueOutAddr = Output(UInt(p.immWidth.W))
   val reducedLoadReplayQueueOutSize = Output(UInt(7.W))
+  val reducedLoadReplayQueueOutReturnSignExtend = Output(Bool())
   val reducedLoadReplayQueueOutBidValid = Output(Bool())
   val reducedLoadReplayQueueOutBidWrap = Output(Bool())
   val reducedLoadReplayQueueOutBidValue = Output(UInt(ptrWidth.W))
@@ -396,6 +397,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLaunchSelectedPc = Output(UInt(p.pcWidth.W))
   val reducedLoadReplayLiqLaunchSelectedAddr = Output(UInt(p.immWidth.W))
   val reducedLoadReplayLiqLaunchSelectedSize = Output(UInt(7.W))
+  val reducedLoadReplayLiqLaunchSelectedReturnSignExtend = Output(Bool())
   val reducedLoadReplayLiqLaunchSelectedRequestByteMask = Output(UInt(64.W))
   val reducedLoadReplayLiqLaunchSelectedSpecWakeup = Output(Bool())
   val reducedLoadReplayLiqLaunchSelectedStackValid = Output(Bool())
@@ -605,6 +607,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedMdbFanoutSuWakeupIndex = Output(UInt(ptrWidth.W))
   val reducedLoadWaitReplaySlotPc = Output(UInt(p.pcWidth.W))
   val reducedLoadWaitReplaySlotAddr = Output(UInt(p.immWidth.W))
+  val reducedLoadWaitReplayRelaunchReturnSignExtend = Output(Bool())
   val storeDispatchReady = Output(Bool())
   val storeDispatchFire = Output(Bool())
   val storeDispatchSplit = Output(Bool())
@@ -1397,6 +1400,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadWaitReplaySlot.io.capturePc := execute.io.loadLookupPc
   reducedLoadWaitReplaySlot.io.captureAddr := execute.io.loadLookupAddr
   reducedLoadWaitReplaySlot.io.captureSize := execute.io.loadLookupSize
+  reducedLoadWaitReplaySlot.io.captureReturnSignExtend := execute.io.loadLookupReturnSignExtend
   reducedLoadWaitReplaySlot.io.captureBid := execute.io.loadLookupBid
   reducedLoadWaitReplaySlot.io.captureGid := execute.io.loadLookupGid
   reducedLoadWaitReplaySlot.io.captureRid := execute.io.loadLookupRid
@@ -2108,6 +2112,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadWaitReplayRelaunchPc := reducedLoadWaitReplaySlot.io.relaunch.pc
   io.reducedLoadWaitReplayRelaunchAddr := reducedLoadWaitReplaySlot.io.relaunch.addr
   io.reducedLoadWaitReplayRelaunchSize := reducedLoadWaitReplaySlot.io.relaunch.size
+  io.reducedLoadWaitReplayRelaunchReturnSignExtend := reducedLoadWaitReplaySlot.io.relaunch.returnSignExtend
   io.reducedLoadWaitReplayRelaunchBidValid := reducedLoadWaitReplaySlot.io.relaunch.bid.valid
   io.reducedLoadWaitReplayRelaunchBidWrap := reducedLoadWaitReplaySlot.io.relaunch.bid.wrap
   io.reducedLoadWaitReplayRelaunchBidValue := reducedLoadWaitReplaySlot.io.relaunch.bid.value
@@ -2137,6 +2142,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayQueueOutPc := reducedLoadReplayRelaunchQueue.io.out.pc
   io.reducedLoadReplayQueueOutAddr := reducedLoadReplayRelaunchQueue.io.out.addr
   io.reducedLoadReplayQueueOutSize := reducedLoadReplayRelaunchQueue.io.out.size
+  io.reducedLoadReplayQueueOutReturnSignExtend := reducedLoadReplayRelaunchQueue.io.out.returnSignExtend
   io.reducedLoadReplayQueueOutBidValid := reducedLoadReplayRelaunchQueue.io.out.bid.valid
   io.reducedLoadReplayQueueOutBidWrap := reducedLoadReplayRelaunchQueue.io.out.bid.wrap
   io.reducedLoadReplayQueueOutBidValue := reducedLoadReplayRelaunchQueue.io.out.bid.value
@@ -2210,6 +2216,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqLaunchSelectedPc := reducedLoadReplayLiqAllocPath.io.launchSelectedPc
   io.reducedLoadReplayLiqLaunchSelectedAddr := reducedLoadReplayLiqAllocPath.io.launchSelectedAddr
   io.reducedLoadReplayLiqLaunchSelectedSize := reducedLoadReplayLiqAllocPath.io.launchSelectedSize
+  io.reducedLoadReplayLiqLaunchSelectedReturnSignExtend := reducedLoadReplayLiqAllocPath.io.launchSelectedReturnSignExtend
   io.reducedLoadReplayLiqLaunchSelectedRequestByteMask := reducedLoadReplayLiqAllocPath.io.launchSelectedRequestByteMask
   io.reducedLoadReplayLiqLaunchSelectedSpecWakeup := reducedLoadReplayLiqAllocPath.io.launchSelectedSpecWakeup
   io.reducedLoadReplayLiqLaunchSelectedStackValid := reducedLoadReplayLiqAllocPath.io.launchSelectedStackValid

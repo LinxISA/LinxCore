@@ -23,6 +23,7 @@ object LoadInflightLaunchSelectReference {
       loadLsId: Id = Id(),
       addr: BigInt = 0,
       size: Int = 4,
+      returnSignExtend: Boolean = false,
       validMask: BigInt = 0,
       waitStore: Boolean = false,
       storeBypass: Boolean = false,
@@ -41,6 +42,7 @@ object LoadInflightLaunchSelectReference {
       launchValid: Boolean,
       launchIndex: Int,
       candidateCount: Int,
+      selectedReturnSignExtend: Boolean,
       selectedRequestByteMask: BigInt)
 
   def select(rows: Seq[Row], enable: Boolean): Result = {
@@ -75,6 +77,7 @@ object LoadInflightLaunchSelectReference {
       launchValid = launchValid,
       launchIndex = selectedIndex,
       candidateCount = candidates.count(identity),
+      selectedReturnSignExtend = launchValid && rows(selectedIndex).returnSignExtend,
       selectedRequestByteMask = if (launchValid) requestMasks(selectedIndex) else BigInt(0))
   }
 
@@ -115,7 +118,7 @@ class LoadInflightLaunchSelectSpec extends AnyFunSuite {
       Seq(
         row(bid = 2, lsId = 1, validMask = bytes(0, 4)),
         row(bid = 1, lsId = 3, validMask = bytes(0, 4)),
-        row(bid = 1, lsId = 2, validMask = bytes(0, 4))),
+        row(bid = 1, lsId = 2, validMask = bytes(0, 4)).copy(returnSignExtend = true)),
       enable = true)
 
     assert(result.launchValid)
@@ -123,6 +126,7 @@ class LoadInflightLaunchSelectSpec extends AnyFunSuite {
     assert(result.launchMask == BigInt(4))
     assert(result.launchCandidateMask == BigInt(7))
     assert(result.candidateCount == 3)
+    assert(result.selectedReturnSignExtend)
   }
 
   test("fresh allocation without row-owned requested bytes is not launchable") {
@@ -185,6 +189,7 @@ class LoadInflightLaunchSelectSpec extends AnyFunSuite {
     assert(sv.contains("io_launchCandidateMask"))
     assert(sv.contains("io_selectedLoadLsId_value"))
     assert(sv.contains("io_selectedRequestByteMask"))
+    assert(sv.contains("io_selectedReturnSignExtend"))
     assert(sv.contains("io_selectedSpecWakeup"))
     assert(sv.contains("io_selectedStackValid"))
   }

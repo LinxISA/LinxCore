@@ -68,6 +68,7 @@ class ReducedLoadReplayLiqAllocPathIO(
   val launchSelectedPc = Output(UInt(pcWidth.W))
   val launchSelectedAddr = Output(UInt(addrWidth.W))
   val launchSelectedSize = Output(UInt(sizeWidth.W))
+  val launchSelectedReturnSignExtend = Output(Bool())
   val launchSelectedRequestByteMask = Output(UInt(lineBytes.W))
   val launchSelectedSpecWakeup = Output(Bool())
   val launchSelectedStackValid = Output(Bool())
@@ -182,6 +183,7 @@ class ReducedLoadReplayLiqAllocPath(
   io.launchSelectedPc := launchSelect.io.selectedPc
   io.launchSelectedAddr := launchSelect.io.selectedAddr
   io.launchSelectedSize := launchSelect.io.selectedSize
+  io.launchSelectedReturnSignExtend := launchSelect.io.selectedReturnSignExtend
   io.launchSelectedRequestByteMask := launchSelect.io.selectedRequestByteMask
   io.launchSelectedSpecWakeup := launchSelect.io.selectedSpecWakeup
   io.launchSelectedStackValid := launchSelect.io.selectedStackValid
