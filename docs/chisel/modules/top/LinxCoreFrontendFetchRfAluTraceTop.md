@@ -941,7 +941,7 @@ store).
 | output | `reducedLoadWaitReplay*` | mixed | diagnostic | R269/R271/R274/R275 registered reduced wait-store slot diagnostics. The slot remembers the held load and wait-store key, feeds that key back to `ResidentStoreReplayWakeup`, clears through `LoadReplayWakeup`, and publishes a one-cycle relaunch candidate carrying PC, address, size, BID/GID/RID, reduced LSID, and forwarding snapshot `(youngestStoreId, youngestStoreLsId)` for future LIQ wiring; it does not drive a launch port. |
 | output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272-R283 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing full load identity plus forwarding snapshot, and reports accepted/drop/full state. Default mode drains only exact held-load completion matches; opt-in replay-LIQ mode consumes only when `ReducedLoadReplayLiqAllocPath` accepts allocation. |
 | output | `reducedLoadReplayDrain*` | mixed | diagnostic | R273/R274 diagnostic completion-drain match/mismatch signals used by the default reduced-store replay mode. Exact W2 load-completion matches consume the queued replay candidate; mismatches, including GID/RID sidecar mismatches, leave it pending for debug. |
-| output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282/R283/R294/R295/R296/R297/R298 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, R283 feeds its E2 store vector from resident STQ snapshots, R294 exposes selected launch-row PC/address/size, load ID, BID/GID/RID, load LSID, and request-byte mask, R295 shapes the selected row's scalar base-data lookup response into 64-byte line-data diagnostics, R296 adds execute-priority lookup arbitration plus replay grant/block diagnostics, R297 exposes `LoadReplayLaunchReadiness` candidate/base-data/source/return blockers, and R298 exposes launch-drive/accept, repick/miss/resolved masks, E4 outcome, and LHQ-record-valid diagnostics; launch still remains disabled because SCB/source and return-ready producers are tied low. |
+| output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282/R283/R294/R295/R296/R297/R298/R299 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, R283 feeds its E2 store vector from resident STQ snapshots, R294 exposes selected launch-row PC/address/size, load ID, BID/GID/RID, load LSID, and request-byte mask, R295 shapes the selected row's scalar base-data lookup response into 64-byte line-data diagnostics, R296 adds execute-priority lookup arbitration plus replay grant/block diagnostics, R297 exposes `LoadReplayLaunchReadiness` candidate/base-data/source/return blockers, R298 exposes launch-drive/accept, repick/miss/resolved masks, E4 outcome, and LHQ-record-valid diagnostics, and R299 exposes `LoadReplaySourceReturnReadiness` local-store-snapshot/future-SCB diagnostics; launch still remains disabled because return-ready is tied low. |
 | output | `reducedLoadReplayResolveQueue*` | mixed | diagnostic | R285-R289 opt-in replay-LIQ ResolveQ diagnostics. `lhqRecord` from `ReducedLoadReplayLiqAllocPath` can append to `LoadResolveQueue`; the top exposes push, delayed clear, commit-window retire watermark, scalar-redirect precise flush identity, retire/prune mask/count, occupancy, valid-mask, and head conflict-row sidecars. Because launch remains disabled, the current fixture observes storage, retire, and recovery-prune wiring only; live MDB/recovery publication is deferred. |
 | output | `reducedMdbConflict*` | mixed | diagnostic | R290 opt-in replay-LIQ MDB conflict diagnostics. The top feeds `MDBConflictDetect` with the accepted reduced STQ insert request, replay-LIQ resident rows, and ResolveQ conflict rows, then exposes store-valid, active/ResolveQ candidate masks, wait-store mask/count, selected source/index/ordinal, selected load/store BID and LSID identity, plus inner/nuke classification. These signals are diagnostic only; they do not yet drive recovery flush. |
 | output | `reducedMdbFanout*` | mixed | diagnostic | R291-R293 opt-in replay-LIQ MDB fanout/learning diagnostics. Selected conflict records enqueue into `MDBQueueFanout.recordIn` with model confidence `1`; resident STQ rows feed the SU wakeup scan view; replay-LIQ launch acceptance forms a dormant `lookupIn` command boundary; and R293 exposes the still-inactive delete command/decay boundary plus phase-stall diagnostics. Delete producers remain tied off. The top exposes lookup ready/accept/process, delete ready/accept/process and decay result flags, LU/SU lookup-result hit/store-BID diagnostics, record ready/accept/process, BMDB report intent, SSIT valid mask, record errors, and SU match/wakeup diagnostics without mutating recovery or load wakeup state. |
@@ -1012,8 +1012,12 @@ overlay. Most state remains in child modules:
   `LoadForwardPipeline` line-data contract.
 - `LoadReplayLaunchReadiness`: optional R297 parent launch arm predicate for
   replay-LIQ rows. It combines selector validity, replay lookup grant,
-  base-data return, SCB/source return, and return-pipe readiness. Current top
-  wiring still ties SCB/source return and return-pipe readiness low.
+  base-data return, source return, and return-pipe readiness.
+- `LoadReplaySourceReturnReadiness`: optional R299 source-return owner for
+  replay-LIQ rows. It treats the local resident-store snapshot as the current
+  reduced store source, keeps the future external SCB pending/returned boundary
+  explicit, and feeds `LoadReplayLaunchReadiness.scbReturned`. Current top
+  wiring still ties return-pipe readiness low.
 - `ReducedLoadWaitReplaySlot`: optional R269/R271/R274/R275 one-row diagnostic bridge that
   registers a resident wait-store key while execute is held, feeds the key to
   `ResidentStoreReplayWakeup` after the live forwarder stops reporting a wait,
@@ -1172,14 +1176,17 @@ from grant/data diagnostics (`reducedLoadReplayLiqBaseLookupGranted`,
 `e2BaseData/e2BaseValidMask/e2LoadDataReturned` with the replay grant.
 R297 replaces the previous hardwired replay launch disable with
 `LoadReplayLaunchReadiness`. That module now drives
-`ReducedLoadReplayLiqAllocPath.launchEnable`, but the top still ties
-SCB/source return and return-pipe readiness low, so `launchEnable` remains low
-while candidate, base-data, source-return, and return-port blockers are visible
-as diagnostics.
+`ReducedLoadReplayLiqAllocPath.launchEnable`, but that packet still tied
+SCB/source return and return-pipe readiness low. R299 inserts
+`LoadReplaySourceReturnReadiness` before the launch gate: local resident-store
+snapshot readiness becomes the current reduced source-return sideband, the
+future external SCB pending/returned boundary remains explicit, and return-pipe
+readiness stays low. `launchEnable` therefore remains low while source-return
+and return-port blockers are visible as diagnostics.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the
-current fixture because R297 still keeps `launchEnable` low.
+current fixture because return readiness still keeps `launchEnable` low.
 R286 latches the accepted LHQ load slot and drives `clearResolvedValid` on the
 following cycle, because `LoadInflightQueue` only accepts clear requests after
 the E4 hit has become a resident `Resolved` row. R287 selects the youngest
@@ -2005,6 +2012,10 @@ records `status: "pass"`, `summary.compared_rows: 3`, and
 `summary.mismatch_count: 0`.
 The R298 replay-LIQ launch/E4 observability fixture manifest at
 `generated/r298-replay-liq-launch-e4-observe-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 3`, and
+`summary.mismatch_count: 0`.
+The R299 replay-LIQ source-return readiness fixture manifest at
+`generated/r299-replay-liq-source-return-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `summary.compared_rows: 3`, and
 `summary.mismatch_count: 0`.
 

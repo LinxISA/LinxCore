@@ -72,8 +72,9 @@ The top uses `replayGranted` to gate replay-LIQ `e2BaseData`,
 sideband. `replayValid` remains observable as the raw selected-row base lookup
 request, while `replayGranted` is the proof that `loadLookupData` belongs to
 that replay row. R297 factors the launch readiness predicate into a separate
-module, but `e2ScbReturned` and `e2ReturnReady` remain inactive until later
-packets own source-return arbitration and return-pipe availability.
+module, and R299 feeds the source-return sideband from
+`LoadReplaySourceReturnReadiness`. `e2ReturnReady` remains inactive until a
+later packet owns return-pipe availability.
 
 ## Verification
 

@@ -1,0 +1,122 @@
+# LoadReplaySourceReturnReadiness
+
+## Source Mapping
+
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnReadiness.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplaySourceReturnReadinessSpec.scala`
+- Integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
+- LinxCoreModel evidence:
+  - `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`
+    - `LDQInfo::handleSCBReceive`
+    - `LDQInfo::handleSTQReceive`
+    - `LDQInfo::pickL1`
+    - `LDQInfo::returnData`
+- Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayLaunchReadiness.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ResidentStoreForwardStoreSnapshot.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadForwardPipeline.scala`
+- Contract IDs: `LC-CHISEL-LSU-REPLAY-SRC-001`
+
+## Purpose
+
+`LoadReplaySourceReturnReadiness` is the source-return sideband owner for the
+reduced replay-LIQ launch path. It separates the local resident-store snapshot
+source from a future external SCB response source, then publishes the combined
+source-return predicate consumed by `LoadReplayLaunchReadiness` and
+`LoadForwardPipeline.e2ScbReturned`.
+
+R299 keeps this owner conservative. The current reduced top has a combinational
+resident STQ snapshot and no live external SCB replay path, so it ties
+`externalScbPending` low and lets source return become true only after the
+selected row has base data and the local store snapshot is ready. The return
+pipe remains disabled in the top, so this packet does not relaunch loads.
+
+## Interface
+
+### Inputs
+
+| Signal | Description |
+|---|---|
+| `enable` | Replay-LIQ wrapper is active. |
+| `launchValid` | A selected LIQ row is eligible for the launch path. |
+| `baseDataReady` | Grant-qualified baseline load data has returned for the selected row. |
+| `storeSnapshotReady` | The local resident-store snapshot feeding E2 is available. |
+| `externalScbPending` | A future external SCB source is required for this launch. Current reduced top ties this low. |
+| `externalScbReturned` | The pending external SCB source has returned. |
+
+### Outputs
+
+| Signal | Description |
+|---|---|
+| `candidateValid` | `enable && launchValid`. |
+| `storeSourceReturned` | Candidate has grant-qualified base data and a local store snapshot. |
+| `scbSourceReturned` | No external SCB source is pending, or the pending SCB source returned. |
+| `sourceReturned` | Combined source-return predicate for replay launch and E2 sideband wiring. |
+| `blockedByDisabled` | Launch row exists while the wrapper is disabled. |
+| `blockedByNoCandidate` | Wrapper is enabled but no launch row is selected. |
+| `blockedByBaseData` | Source return is waiting on base data. |
+| `blockedByStoreSnapshot` | Source return is waiting on the local resident-store snapshot. |
+| `blockedByScb` | Source return is waiting on a pending external SCB response. |
+
+## State
+
+The module is combinational and owns no state. It only classifies the source
+availability of the selected replay row.
+
+## Logic Design
+
+The model return loop only calls `returnData` after:
+
+1. requested data bytes are complete,
+2. `(ldqRnt || l1Rnt)` has returned,
+3. `scbRnt` has returned,
+4. `stqRnt` has returned, and
+5. an IEX return pipe is available.
+
+`LoadReplaySourceReturnReadiness` covers item 3 and the reduced-top shape of
+item 4 for the replay-LIQ path:
+
+1. Form `candidateValid` from `enable && launchValid`.
+2. Require `baseDataReady` before claiming any source-return completion.
+3. Require `storeSnapshotReady` for the local resident STQ source. In the
+   R299 top this is the opt-in wrapper enable because the snapshot is
+   combinational and already wired beside the launch selector.
+4. Treat SCB as returned when no external SCB path is pending. A future SCB
+   owner must drive `externalScbPending` and `externalScbReturned` instead of
+   relying on this vacuous return.
+5. Publish blocker diagnostics in base-data, store-snapshot, then SCB order.
+
+`LoadReplayLaunchReadiness` still owns the final launch arm and return-pipe
+blocker ordering.
+
+## Timing
+
+The source-return predicate is combinational in the same cycle as selected-row
+base-data readiness. `LoadForwardPipeline` registers it into E3 through its
+existing `e2ScbReturned` input when launch is eventually enabled.
+
+## Flush/Recovery
+
+The module has no flush input. Its parent drives `enable` and `launchValid`
+from already flush-pruned replay-LIQ state.
+
+## Deferred Owners
+
+- External SCB replay response producer and pending/returned qualification.
+- Return-pipe availability and arbitration.
+- Live replay launch, LHQ publication, ready-table wakeup, and memory trace
+  rows.
+
+## Verification
+
+Focused gates:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnReadiness
+bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r299-replay-liq-source-return-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+```
+
+Reference tests cover the current no-external-SCB reduced path, base-data
+blocking, local snapshot blocking, future pending-SCB blocking, disabled/no-row
+diagnostics, and Chisel elaboration.

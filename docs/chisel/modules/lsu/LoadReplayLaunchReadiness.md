@@ -26,9 +26,10 @@ return-slot predicates required before the top may drive
 `ReducedLoadReplayLiqAllocPath.launchEnable`.
 
 R297 factors this predicate out of the top without turning live replay launch
-on. The current reduced top still ties SCB/source return and return-pipe
-readiness low, so the module exposes why launch remains blocked while keeping
-LIQ row state unchanged.
+on. R299 drives the SCB/source-return input from
+`LoadReplaySourceReturnReadiness`, while the current reduced top still ties
+return-pipe readiness low. The module therefore exposes why launch remains
+blocked while keeping LIQ row state unchanged.
 
 ## Interface
 
@@ -40,7 +41,7 @@ LIQ row state unchanged.
 | `launchValid` | `LoadInflightLaunchSelect` has a selected replay candidate. |
 | `baseLookupGranted` | `LoadLookupArbiter` granted the selected replay row on the shared sparse-memory lookup port. |
 | `baseDataReturned` | `LoadReplayBaseDataAlign` has in-line baseline load data for the selected row. |
-| `scbReturned` | Future source-return owner has observed the model `scbRnt` equivalent. Current top ties this low. |
+| `scbReturned` | Source-return owner has observed the model `scbRnt/stqRnt` equivalent for the reduced replay path. |
 | `returnReady` | Future return-pipe owner has an available load return/wakeup pipe. Current top ties this low. |
 
 ### Outputs
@@ -79,8 +80,10 @@ The current Chisel split maps those conditions across modules:
    `LoadForwardPipeline` line-data shape.
 4. `LoadStoreForwarding` inside `LoadForwardPipeline` checks resident STQ data
    and wait-store blocking once launch is allowed.
-5. `LoadReplayLaunchReadiness` now gates the parent launch arm on base-data
-   readiness, SCB/source return, and return-pipe readiness.
+5. `LoadReplaySourceReturnReadiness` separates local resident-store snapshot
+   readiness from future external SCB response readiness.
+6. `LoadReplayLaunchReadiness` gates the parent launch arm on base-data
+   readiness, source return, and return-pipe readiness.
 
 The blocker outputs are not mutually exclusive across independent conditions,
 but `blockedByBaseData`, `blockedByScb`, and `blockedByReturn` are ordered so a
@@ -88,7 +91,7 @@ later condition is only reported after the earlier source conditions are met.
 
 ## Deferred Owners
 
-- Real SCB/source-return producer for replay rows.
+- External SCB response producer for replay rows.
 - Real return-pipe/consumer-wakeup readiness producer.
 - Cross-line replay base-data ownership.
 - Multiple load-return pipe arbitration and age grouping.
@@ -97,4 +100,4 @@ later condition is only reported after the earlier source conditions are met.
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadReplayLaunchReadiness`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
-- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r297-replay-liq-launch-readiness-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r299-replay-liq-source-return-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
