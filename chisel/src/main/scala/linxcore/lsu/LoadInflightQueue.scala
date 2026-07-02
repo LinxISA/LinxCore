@@ -82,6 +82,7 @@ class LoadHitRecord(
   val bid = new ROBID(idEntries)
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
+  val loadLsId = new ROBID(idEntries)
   val addr = UInt(addrWidth.W)
   val lineAddr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -289,6 +290,7 @@ class LoadInflightQueue(
   lhqRecord.bid := rows(e4Index).bid
   lhqRecord.gid := rows(e4Index).gid
   lhqRecord.rid := rows(e4Index).rid
+  lhqRecord.loadLsId := rows(e4Index).loadLsId
   lhqRecord.addr := rows(e4Index).addr
   lhqRecord.lineAddr := lineAddr(rows(e4Index).addr)
   lhqRecord.size := rows(e4Index).size

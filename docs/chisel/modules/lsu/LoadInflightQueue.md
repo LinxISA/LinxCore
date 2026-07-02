@@ -109,7 +109,7 @@ nonzero; otherwise it uses the external `e2BaseData`/`e2BaseValidMask` inputs.
 | `e4MissKind` | Local E4 outcome from `LoadForwardPipeline`. |
 | `e4WakeupValid` | E4 can wake/return the load. |
 | `lhqRecordValid` | The E4 outcome resolved as a hit and publishes an LHQ record. |
-| `lhqRecord` | Load ID, row identity, line address, byte mask, final line data, and forwarded mask. |
+| `lhqRecord` | Load ID, row identity including load LSID, line address, byte mask, final line data, and forwarded mask. |
 
 Resolved rows remain resident until `clearResolvedValid` accepts the row. This
 matches the model split where `LDQ_RESOLVED` rows later move into `ResolveQ`

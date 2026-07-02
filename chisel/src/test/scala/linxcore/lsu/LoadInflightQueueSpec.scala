@@ -352,6 +352,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(row.sourcesReturned)
     assert(row.forwardMask == byteMask(4, 4))
     assert(result.hitRecord.exists(r => r.row.loadId.value == rowIndex && r.byteMask == byteMask(4, 4)))
+    assert(result.hitRecord.exists(_.row.alloc.loadLsId.value == 0))
     assert(liq.resolvedMask == (1 << rowIndex))
   }
 
@@ -501,6 +502,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("module LoadInflightQueue"))
     assert(sv.contains("LoadForwardPipeline"))
     assert(sv.contains("io_lhqRecordValid"))
+    assert(sv.contains("io_lhqRecord_loadLsId_value"))
     assert(sv.contains("io_alloc_loadLsId_value"))
     assert(sv.contains("io_e4UpdateValid"))
     assert(sv.contains("io_missPending"))
