@@ -45,6 +45,7 @@ FETCH_QEMU_TRACE="${FETCH_QEMU_TRACE:-}"
 FETCH_QEMU_MAX_ROWS="${FETCH_QEMU_MAX_ROWS:-0}"
 FETCH_QEMU_ALLOW_BLOCK_MARKERS="${FETCH_QEMU_ALLOW_BLOCK_MARKERS:-0}"
 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY="${FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY:-0}"
+FETCH_DISABLE_STORE_MEMORY_MUTATION="${FETCH_DISABLE_STORE_MEMORY_MUTATION:-0}"
 
 if ! command -v verilator >/dev/null 2>&1; then
   echo "error: Verilator is required for Chisel frontend fetch RF ALU trace top xcheck" >&2
@@ -196,6 +197,9 @@ if [[ "${FETCH_MARKER_ROWS_TRACE_TOP}" == "1" ]]; then
   TB_ARGS+=(--admit-marker-rows)
 elif [[ "${FETCH_REDUCED_STORE_DISPATCH_STQ}" == "1" ]]; then
   VERILATOR_CFLAGS="${VERILATOR_CFLAGS} -DLINXCORE_REDUCED_STORE_TRACE_TOP"
+fi
+if [[ "${FETCH_DISABLE_STORE_MEMORY_MUTATION}" == "1" ]]; then
+  TB_ARGS+=(--disable-store-memory-mutation)
 fi
 verilator \
   --cc "${SV_FILES[@]}" \

@@ -70,6 +70,7 @@ struct Args {
   std::string expected_rows;
   std::uint64_t memory_base = 0x1000;
   bool admit_marker_rows = false;
+  bool disable_store_memory_mutation = false;
 };
 
 struct ExpectedRow {
@@ -203,7 +204,8 @@ void trace_top_debug_pipeline(
             << " [--expected-rows <rows.jsonl>]"
             << " [--memory-bin <program.bin> --memory-base <addr>]"
             << " [--memory-hex <sparse.mem>]"
-            << " [--admit-marker-rows]\n";
+            << " [--admit-marker-rows]"
+            << " [--disable-store-memory-mutation]\n";
   std::exit(2);
 }
 
@@ -236,6 +238,8 @@ Args parse_args(int argc, char **argv) {
       args.memory_base = parse_u64_arg(argv[++i], "--memory-base");
     } else if (arg == "--admit-marker-rows") {
       args.admit_marker_rows = true;
+    } else if (arg == "--disable-store-memory-mutation") {
+      args.disable_store_memory_mutation = true;
     } else {
       usage(argv[0]);
     }
@@ -2412,7 +2416,8 @@ void commit_expected_row(
     std::uint64_t &marker_commit_filter_count,
     FetchMemoryImage &fetch_memory,
     std::ofstream &dut_out,
-    std::ofstream &qemu_out) {
+    std::ofstream &qemu_out,
+    bool disable_store_memory_mutation) {
   for (int cycle = 0; cycle < 32; ++cycle) {
     filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
     if (!pending_commits.empty()) {
@@ -2421,7 +2426,7 @@ void commit_expected_row(
       expect_row(observed, expected, &dut);
       write_dut_row(dut_out, observed);
       write_qemu_row(qemu_out, expected);
-      if (expected.mem_valid && expected.mem_is_store && expected.mem_size == 8) {
+      if (!disable_store_memory_mutation && expected.mem_valid && expected.mem_is_store && expected.mem_size == 8) {
         fetch_memory.store_u64(expected.mem_addr, expected.mem_wdata);
       }
       if (pending_commits.empty()) {
@@ -2456,7 +2461,7 @@ void commit_expected_row(
       expect_row(observed, expected, &dut);
       write_dut_row(dut_out, observed);
       write_qemu_row(qemu_out, expected);
-      if (expected.mem_valid && expected.mem_is_store && expected.mem_size == 8) {
+      if (!disable_store_memory_mutation && expected.mem_valid && expected.mem_is_store && expected.mem_size == 8) {
         fetch_memory.store_u64(expected.mem_addr, expected.mem_wdata);
       }
       tick(dut);
@@ -2585,6 +2590,12 @@ void commit_expected_row(
             << static_cast<unsigned>(dut.io_reducedStoreCommitPendingMarkCount)
             << " reducedStoreDrainQ=" << static_cast<unsigned>(dut.io_reducedStoreDrainQueueCount)
             << " reducedStoreScbEntries=" << static_cast<unsigned>(dut.io_reducedStoreScbEntryCount)
+            << " reducedStoreMemoryLines=" << static_cast<unsigned>(dut.io_reducedStoreMemoryLineCount)
+            << " reducedStoreMemoryForwardMask=0x" << std::hex
+            << static_cast<unsigned>(dut.io_reducedStoreMemoryLoadForwardMask)
+            << " reducedStoreMemoryDropped=0x"
+            << static_cast<unsigned>(dut.io_reducedStoreMemoryStoreDroppedMask)
+            << std::dec
             << " issueCount=" << static_cast<unsigned>(dut.io_issueQueueCount)
             << " issueHeadValid=" << static_cast<unsigned>(dut.io_issueQueueHeadValid)
             << " issueHeadIssued=" << static_cast<unsigned>(dut.io_issueQueueHeadIssued)
@@ -2787,7 +2798,8 @@ int main(int argc, char **argv) {
                   marker_commits_filtered,
                   fetch_memory,
                   dut_out,
-                  qemu_out);
+                  qemu_out,
+                  args.disable_store_memory_mutation);
             }
             scalar_slots.clear();
             wait_for_admitted_marker_redirect(
@@ -2833,7 +2845,8 @@ int main(int argc, char **argv) {
           marker_commits_filtered,
           fetch_memory,
           dut_out,
-          qemu_out);
+          qemu_out,
+          args.disable_store_memory_mutation);
     }
     if (replay_local_body_cut_reentry_header) {
       continue;

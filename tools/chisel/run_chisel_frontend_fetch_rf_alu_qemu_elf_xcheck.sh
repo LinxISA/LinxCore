@@ -19,6 +19,7 @@ ALLOW_BLOCK_MARKERS=0
 ALLOW_BLOCK_LOOP_REENTRY=0
 MARKER_ROWS=0
 REDUCED_STORE_DISPATCH_STQ=0
+DISABLE_STORE_MEMORY_MUTATION=0
 
 usage() {
   cat <<USAGE
@@ -42,6 +43,10 @@ Options:
   --reduced-store-dispatch-stq
                           Build the opt-in reduced-store top with store
                           dispatch routed through the reduced STQ/SCB path
+  --disable-store-memory-mutation
+                          Do not mutate the harness sparse memory image after
+                          matched store commits; reduced-store mode must supply
+                          store-visible load data from RTL overlay state
 
 This wrapper captures a bounded QEMU commit JSONL prefix from a direct-boot ELF,
 validates that the selected rows are inside the current reduced scalar
@@ -54,6 +59,8 @@ as skip rows for comparator filtering, but the marker-row top must admit and
 retire those rows before the following scalar rows compare.
 With --reduced-store-dispatch-stq, the harness uses the same comparator stream
 but emits the reduced-store top so store rows exercise the opt-in STQ lifecycle.
+With --disable-store-memory-mutation, later loads can observe committed stores
+only through the reduced-store RTL memory overlay.
 USAGE
 }
 
@@ -72,6 +79,7 @@ while [[ $# -gt 0 ]]; do
     --allow-block-loop-reentry) ALLOW_BLOCK_LOOP_REENTRY=1; shift ;;
     --marker-rows) MARKER_ROWS=1; shift ;;
     --reduced-store-dispatch-stq) REDUCED_STORE_DISPATCH_STQ=1; shift ;;
+    --disable-store-memory-mutation) DISABLE_STORE_MEMORY_MUTATION=1; shift ;;
     --)
       shift
       QEMU_ARGS=("$@")
@@ -304,6 +312,7 @@ FETCH_QEMU_ALLOW_BLOCK_MARKERS="${ALLOW_BLOCK_MARKERS}" \
 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY="${ALLOW_BLOCK_LOOP_REENTRY}" \
 FETCH_MARKER_ROWS_TRACE_TOP="${MARKER_ROWS}" \
 FETCH_REDUCED_STORE_DISPATCH_STQ="${REDUCED_STORE_DISPATCH_STQ}" \
+FETCH_DISABLE_STORE_MEMORY_MUTATION="${DISABLE_STORE_MEMORY_MUTATION}" \
 bash "${FETCH_RUNNER}"
 
 MANIFEST="${REPORT_DIR}/crosscheck_manifest.json"

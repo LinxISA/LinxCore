@@ -276,12 +276,15 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedStoreCommitFreeOwner"))
     assert(sv.contains("module STQCommitDrain"))
     assert(sv.contains("module SCBRowBank"))
+    assert(sv.contains("module ReducedStoreMemoryOverlay"))
     assert(sv.contains("io_reducedStoreDispatchEnabled"))
     assert(sv.contains("io_reducedStoreExecCaptureFire"))
     assert(sv.contains("io_reducedStoreCommitMarkValid"))
     assert(sv.contains("io_reducedStoreCommitFreeValid"))
     assert(sv.contains("io_reducedStoreDrainIssueValidMask"))
     assert(sv.contains("io_reducedStoreScbCommitFreeMask"))
+    assert(sv.contains("io_reducedStoreMemoryLineCount"))
+    assert(sv.contains("io_reducedStoreMemoryLoadForwardMask"))
     assert(sv.contains("io_storeStqInsertValid"))
   }
 
@@ -298,8 +301,10 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedStoreCommitFreeOwner"))
     assert(sv.contains("module STQCommitDrain"))
     assert(sv.contains("module SCBRowBank"))
+    assert(sv.contains("module ReducedStoreMemoryOverlay"))
     assert(sv.contains("io_reducedStoreDispatchEnabled"))
     assert(sv.contains("io_reducedStoreScbCommitFreeMask"))
+    assert(sv.contains("io_reducedStoreMemoryStoreDroppedMask"))
     assert(sv.contains("io_storeStqInsertValid"))
   }
 
