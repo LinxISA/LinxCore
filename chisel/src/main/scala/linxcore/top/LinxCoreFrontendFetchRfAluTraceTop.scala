@@ -374,6 +374,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLaunchMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqLaunchValid = Output(Bool())
   val reducedLoadReplayLiqLaunchIndex = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqLaunchDriveValid = Output(Bool())
+  val reducedLoadReplayLiqLaunchReady = Output(Bool())
+  val reducedLoadReplayLiqLaunchAccepted = Output(Bool())
   val reducedLoadReplayLiqLaunchCandidateCount = Output(UInt(storeStqCountWidth.W))
   val reducedLoadReplayLiqLaunchSelectedLoadIdValid = Output(Bool())
   val reducedLoadReplayLiqLaunchSelectedLoadIdWrap = Output(Bool())
@@ -415,6 +418,14 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLaunchReadinessBlockedByBaseData = Output(Bool())
   val reducedLoadReplayLiqLaunchReadinessBlockedByScb = Output(Bool())
   val reducedLoadReplayLiqLaunchReadinessBlockedByReturn = Output(Bool())
+  val reducedLoadReplayLiqRepickMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqMissMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqResolvedMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqE4UpdateValid = Output(Bool())
+  val reducedLoadReplayLiqE4UpdateIndex = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqE4MissKind = Output(UInt(3.W))
+  val reducedLoadReplayLiqE4WakeupValid = Output(Bool())
+  val reducedLoadReplayLiqLhqRecordValid = Output(Bool())
   val reducedLoadReplayLiqResidentCount = Output(UInt(storeStqCountWidth.W))
   val reducedLoadReplayLiqEmpty = Output(Bool())
   val reducedLoadReplayLiqFull = Output(Bool())
@@ -2080,6 +2091,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqLaunchMask := reducedLoadReplayLiqAllocPath.io.launchMask
   io.reducedLoadReplayLiqLaunchValid := reducedLoadReplayLiqAllocPath.io.launchValid
   io.reducedLoadReplayLiqLaunchIndex := reducedLoadReplayLiqAllocPath.io.launchIndex
+  io.reducedLoadReplayLiqLaunchDriveValid := reducedLoadReplayLiqAllocPath.io.launchDriveValid
+  io.reducedLoadReplayLiqLaunchReady := reducedLoadReplayLiqAllocPath.io.launchReady
+  io.reducedLoadReplayLiqLaunchAccepted := reducedLoadReplayLiqAllocPath.io.launchAccepted
   io.reducedLoadReplayLiqLaunchCandidateCount := reducedLoadReplayLiqAllocPath.io.launchCandidateCount
   io.reducedLoadReplayLiqLaunchSelectedLoadIdValid := reducedLoadReplayLiqAllocPath.io.launchSelectedLoadId.valid
   io.reducedLoadReplayLiqLaunchSelectedLoadIdWrap := reducedLoadReplayLiqAllocPath.io.launchSelectedLoadId.wrap
@@ -2128,6 +2142,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqLaunchReadiness.io.blockedByScb
   io.reducedLoadReplayLiqLaunchReadinessBlockedByReturn :=
     reducedReplayLiqLaunchReadiness.io.blockedByReturn
+  io.reducedLoadReplayLiqRepickMask := reducedLoadReplayLiqAllocPath.io.repickMask
+  io.reducedLoadReplayLiqMissMask := reducedLoadReplayLiqAllocPath.io.missMask
+  io.reducedLoadReplayLiqResolvedMask := reducedLoadReplayLiqAllocPath.io.resolvedMask
+  io.reducedLoadReplayLiqE4UpdateValid := reducedLoadReplayLiqAllocPath.io.e4UpdateValid
+  io.reducedLoadReplayLiqE4UpdateIndex := reducedLoadReplayLiqAllocPath.io.e4UpdateIndex
+  io.reducedLoadReplayLiqE4MissKind := reducedLoadReplayLiqAllocPath.io.e4MissKind.asUInt
+  io.reducedLoadReplayLiqE4WakeupValid := reducedLoadReplayLiqAllocPath.io.e4WakeupValid
+  io.reducedLoadReplayLiqLhqRecordValid := reducedLoadReplayLiqAllocPath.io.lhqRecordValid
   io.reducedLoadReplayLiqResidentCount := reducedLoadReplayLiqAllocPath.io.residentCount
   io.reducedLoadReplayLiqEmpty := reducedLoadReplayLiqAllocPath.io.empty
   io.reducedLoadReplayLiqFull := reducedLoadReplayLiqAllocPath.io.full
