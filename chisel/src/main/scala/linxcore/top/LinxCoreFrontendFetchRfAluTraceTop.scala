@@ -459,6 +459,11 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedMdbFanoutLookupReady = Output(Bool())
   val reducedMdbFanoutLookupAccepted = Output(Bool())
   val reducedMdbFanoutLookupProcessed = Output(Bool())
+  val reducedMdbFanoutDeleteValid = Output(Bool())
+  val reducedMdbFanoutDeleteReady = Output(Bool())
+  val reducedMdbFanoutDeleteAccepted = Output(Bool())
+  val reducedMdbFanoutDeleteProcessed = Output(Bool())
+  val reducedMdbFanoutPhaseStalledByFanout = Output(Bool())
   val reducedMdbFanoutLuOutValid = Output(Bool())
   val reducedMdbFanoutLuOutHit = Output(Bool())
   val reducedMdbFanoutLuOutStoreBidValid = Output(Bool())
@@ -481,6 +486,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedMdbFanoutBmdbStoreBidWrap = Output(Bool())
   val reducedMdbFanoutBmdbStoreBidValue = Output(UInt(ptrWidth.W))
   val reducedMdbFanoutBmdbStoreStid = Output(UInt(p.threadIdWidth.W))
+  val reducedMdbFanoutDeleteMatched = Output(Bool())
+  val reducedMdbFanoutDeleteReleased = Output(Bool())
+  val reducedMdbFanoutDeleteDroppedBelowStall = Output(Bool())
   val reducedMdbFanoutRecordOverflow = Output(Bool())
   val reducedMdbFanoutRecordOrderIllegal = Output(Bool())
   val reducedMdbFanoutSsitValidMask = Output(UInt(p.robEntries.W))
@@ -2088,6 +2096,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedMdbFanoutLookupReady := reducedMdbQueueFanout.io.lookupInReady
   io.reducedMdbFanoutLookupAccepted := reducedMdbQueueFanout.io.lookupInAccepted
   io.reducedMdbFanoutLookupProcessed := reducedMdbQueueFanout.io.lookupProcessed
+  io.reducedMdbFanoutDeleteValid := false.B
+  io.reducedMdbFanoutDeleteReady := reducedMdbQueueFanout.io.deleteInReady
+  io.reducedMdbFanoutDeleteAccepted := reducedMdbQueueFanout.io.deleteInAccepted
+  io.reducedMdbFanoutDeleteProcessed := reducedMdbQueueFanout.io.deleteProcessed
+  io.reducedMdbFanoutPhaseStalledByFanout := reducedMdbQueueFanout.io.phaseStalledByFanout
   io.reducedMdbFanoutLuOutValid := reducedMdbQueueFanout.io.luOutValid
   io.reducedMdbFanoutLuOutHit := reducedMdbQueueFanout.io.luOut.hit
   io.reducedMdbFanoutLuOutStoreBidValid := reducedMdbQueueFanout.io.luOut.stInfo.bid.valid
@@ -2110,6 +2123,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedMdbFanoutBmdbStoreBidWrap := reducedMdbQueueFanout.io.bmdbStoreBid.wrap
   io.reducedMdbFanoutBmdbStoreBidValue := reducedMdbQueueFanout.io.bmdbStoreBid.value
   io.reducedMdbFanoutBmdbStoreStid := reducedMdbQueueFanout.io.bmdbStoreStid
+  io.reducedMdbFanoutDeleteMatched := reducedMdbQueueFanout.io.deleteMatched
+  io.reducedMdbFanoutDeleteReleased := reducedMdbQueueFanout.io.deleteReleased
+  io.reducedMdbFanoutDeleteDroppedBelowStall := reducedMdbQueueFanout.io.deleteDroppedBelowStall
   io.reducedMdbFanoutRecordOverflow := reducedMdbQueueFanout.io.recordOverflow
   io.reducedMdbFanoutRecordOrderIllegal := reducedMdbQueueFanout.io.recordOrderIllegal
   io.reducedMdbFanoutSsitValidMask := reducedMdbQueueFanout.io.ssitValidMask
