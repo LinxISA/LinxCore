@@ -31,6 +31,9 @@ composition point. The top builds the store probe from the accepted
 `LoadResolveQueue.conflictRows`. The detector's candidate masks, selected
 record, and inner/nuke classification are exposed through top-level diagnostics,
 but no MDB fanout, ready-store wakeup, or recovery flush is emitted yet.
+R291 feeds the selected `record` into the diagnostic `MDBQueueFanout.recordIn`
+path with model confidence `1`, while lookup/delete producers, recovery flush,
+and live load/store wakeup side effects remain deferred.
 
 The module owns:
 
@@ -134,7 +137,8 @@ and only redirects when that load reaches the ROB head.
 
 `record`, candidate masks, tile-suppressed masks, and wait-store masks are
 designed for later memory/recovery trace rows. R290 exposes the same signals at
-`LinxCoreFrontendFetchRfAluTraceTop` for generated-RTL visibility, but QEMU and
+`LinxCoreFrontendFetchRfAluTraceTop` for generated-RTL visibility, and R291
+passes the selected record into `MDBQueueFanout` diagnostics, but QEMU and
 LinxCoreModel architectural rows cannot observe MDB effects directly until live
 memory or recovery events are emitted from the Chisel top.
 

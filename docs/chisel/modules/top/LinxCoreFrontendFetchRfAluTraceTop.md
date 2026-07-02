@@ -943,7 +943,8 @@ store).
 | output | `reducedLoadReplayDrain*` | mixed | diagnostic | R273/R274 diagnostic completion-drain match/mismatch signals used by the default reduced-store replay mode. Exact W2 load-completion matches consume the queued replay candidate; mismatches, including GID/RID sidecar mismatches, leave it pending for debug. |
 | output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282/R283 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, and R283 feeds its E2 store vector from resident STQ snapshots, but this top still ties launch disabled. |
 | output | `reducedLoadReplayResolveQueue*` | mixed | diagnostic | R285-R289 opt-in replay-LIQ ResolveQ diagnostics. `lhqRecord` from `ReducedLoadReplayLiqAllocPath` can append to `LoadResolveQueue`; the top exposes push, delayed clear, commit-window retire watermark, scalar-redirect precise flush identity, retire/prune mask/count, occupancy, valid-mask, and head conflict-row sidecars. Because launch remains disabled, the current fixture observes storage, retire, and recovery-prune wiring only; live MDB/recovery publication is deferred. |
-| output | `reducedMdbConflict*` | mixed | diagnostic | R290 opt-in replay-LIQ MDB conflict diagnostics. The top feeds `MDBConflictDetect` with the accepted reduced STQ insert request, replay-LIQ resident rows, and ResolveQ conflict rows, then exposes store-valid, active/ResolveQ candidate masks, wait-store mask/count, selected source/index/ordinal, selected load/store BID and LSID identity, plus inner/nuke classification. These signals are diagnostic only; they do not yet drive MDB fanout, ready-store wakeup, or recovery flush. |
+| output | `reducedMdbConflict*` | mixed | diagnostic | R290 opt-in replay-LIQ MDB conflict diagnostics. The top feeds `MDBConflictDetect` with the accepted reduced STQ insert request, replay-LIQ resident rows, and ResolveQ conflict rows, then exposes store-valid, active/ResolveQ candidate masks, wait-store mask/count, selected source/index/ordinal, selected load/store BID and LSID identity, plus inner/nuke classification. These signals are diagnostic only; they do not yet drive recovery flush. |
+| output | `reducedMdbFanout*` | mixed | diagnostic | R291 opt-in replay-LIQ MDB fanout/learning diagnostics. Selected conflict records enqueue into `MDBQueueFanout.recordIn` with model confidence `1`; resident STQ rows feed the SU wakeup scan view; lookup and delete command producers are tied off. The top exposes record ready/accept/process, BMDB report intent, SSIT valid mask, record errors, and SU match/wakeup diagnostics without mutating recovery or load wakeup state. |
 | output | `executeLoadWaitHold` | `Bool` | diagnostic | R266 reduced execute hold for a load waiting on an older not-ready resident store. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
@@ -1037,7 +1038,12 @@ overlay. Most state remains in child modules:
   the reduced STQ insert is accepted, builds active load entries from
   replay-LIQ resident rows, and feeds resolved rows from `LoadResolveQueue`.
   The detector's selected record and masks are exposed as `reducedMdbConflict*`
-  diagnostics without publishing recovery or MDB queue side effects.
+  diagnostics without publishing recovery side effects.
+- `MDBQueueFanout`: optional R291 replay-LIQ diagnostic fanout/table owner. The
+  selected conflict record becomes a bounded `recordIn` command with confidence
+  `1`, while resident STQ rows become the store-side wakeup scan view. Lookup
+  and delete commands are tied inactive until live load-issue MDB lookup and
+  failed-wait feedback producers exist.
 - `ReducedLoadReplayCompletionDrain`: optional R273/R274 diagnostic matcher that
   consumes the queued candidate when the same held load completes through W2
   with matching PC, address, size, BID, GID, RID, and reduced LSID.
@@ -1160,6 +1166,16 @@ because the current reduced LIQ row does not yet carry independent PE/STID/TID
 fields. Resolved rows come directly from `LoadResolveQueue.conflictRows`. The
 result is surfaced only as `reducedMdbConflict*` diagnostics; no ready-store
 wakeup, MDB queue fanout, or recovery flush consumes it yet.
+R291 adds `MDBQueueFanout` behind that selected conflict record. The top maps
+the load side of the conflict record to `ldInfo`, maps the store probe to
+`stInfo`, sets `conf=1` to match `getMDBBus`, and enables `recordIn` only in
+replay-LIQ mode when the detector selects a conflict. Lookup/delete queues are
+held inactive; `luDequeueReady` and `suCheckReady` are tied ready so future
+lookup results would drain without stalling this diagnostic surface. The
+resident STQ row image feeds the fanout's SU wakeup scan, but with lookup tied
+off that scan is only structurally visible. The top exposes record acceptance,
+processed records, BMDB report intent, SSIT valid mask, record error flags, and
+SU match/wakeup diagnostics.
 
 The overlay clears only on
 run start/restart or when the optional reduced-store path is disabled;
@@ -1913,6 +1929,10 @@ The R290 replay-LIQ MDB diagnostic fixture manifest at
 `generated/r290-replay-liq-mdb-detect-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `summary.compared_rows: 3`, and
 `summary.mismatch_count: 0`.
+The R291 replay-LIQ MDB fanout diagnostic fixture manifest at
+`generated/r291-replay-liq-mdb-fanout-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 3`, and
+`summary.mismatch_count: 0`.
 
 ## Verification
 
@@ -1926,6 +1946,7 @@ records `status: "pass"`, `summary.compared_rows: 3`, and
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r285-replay-liq-resolveq-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r286-replay-liq-resolve-clear-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r290-replay-liq-mdb-detect-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r291-replay-liq-mdb-fanout-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `BUILD_DIR=generated/r141-diagnostic-replay-1747-fret-target-priority FETCH_EXPECTED_ROWS=generated/r141-logical-local-1747-qemu-elf-xcheck/qemu.expected.jsonl FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`

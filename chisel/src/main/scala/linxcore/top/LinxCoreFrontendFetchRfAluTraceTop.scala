@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -455,6 +455,25 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedMdbConflictStoreLsIdValid = Output(Bool())
   val reducedMdbConflictStoreLsIdWrap = Output(Bool())
   val reducedMdbConflictStoreLsIdValue = Output(UInt(ptrWidth.W))
+  val reducedMdbFanoutRecordValid = Output(Bool())
+  val reducedMdbFanoutRecordReady = Output(Bool())
+  val reducedMdbFanoutRecordAccepted = Output(Bool())
+  val reducedMdbFanoutRecordProcessed = Output(Bool())
+  val reducedMdbFanoutBmdbReportValid = Output(Bool())
+  val reducedMdbFanoutBmdbLoadBidValid = Output(Bool())
+  val reducedMdbFanoutBmdbLoadBidWrap = Output(Bool())
+  val reducedMdbFanoutBmdbLoadBidValue = Output(UInt(ptrWidth.W))
+  val reducedMdbFanoutBmdbStoreBidValid = Output(Bool())
+  val reducedMdbFanoutBmdbStoreBidWrap = Output(Bool())
+  val reducedMdbFanoutBmdbStoreBidValue = Output(UInt(ptrWidth.W))
+  val reducedMdbFanoutBmdbStoreStid = Output(UInt(p.threadIdWidth.W))
+  val reducedMdbFanoutRecordOverflow = Output(Bool())
+  val reducedMdbFanoutRecordOrderIllegal = Output(Bool())
+  val reducedMdbFanoutSsitValidMask = Output(UInt(p.robEntries.W))
+  val reducedMdbFanoutSuMatchedStore = Output(Bool())
+  val reducedMdbFanoutSuStorePending = Output(Bool())
+  val reducedMdbFanoutSuWakeupValid = Output(Bool())
+  val reducedMdbFanoutSuWakeupIndex = Output(UInt(ptrWidth.W))
   val reducedLoadWaitReplaySlotPc = Output(UInt(p.pcWidth.W))
   val reducedLoadWaitReplaySlotAddr = Output(UInt(p.immWidth.W))
   val storeDispatchReady = Output(Bool())
@@ -768,6 +787,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth
+  ))
+  val reducedMdbQueueFanout = Module(new MDBQueueFanout(
+    entries = p.robEntries,
+    ssitEntries = p.robEntries,
+    commandQueueEntries = 4,
+    outputQueueEntries = 4,
+    storeEntries = p.robEntries,
+    addrWidth = p.immWidth,
+    pcWidth = p.pcWidth,
+    stidWidth = p.threadIdWidth
   ))
   val reducedLoadReplayCompletionDrain = Module(new ReducedLoadReplayCompletionDrain(
     idEntries = p.robEntries
@@ -1347,6 +1376,79 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedMdbConflictDetect.io.store := reducedMdbStoreProbe
   reducedMdbConflictDetect.io.activeLoads := reducedMdbActiveLoads
   reducedMdbConflictDetect.io.resolvedQueue := reducedLoadReplayResolveQueue.io.conflictRows
+  val reducedMdbZeroBus = Wire(new MDBQueueBus(
+    p.robEntries,
+    addrWidth = p.immWidth,
+    pcWidth = p.pcWidth,
+    stidWidth = p.threadIdWidth
+  ))
+  reducedMdbZeroBus := 0.U.asTypeOf(reducedMdbZeroBus)
+  reducedMdbZeroBus.ldInfo.bid := ROBID.disabled(p.robEntries)
+  reducedMdbZeroBus.ldInfo.lsId := ROBID.disabled(p.robEntries)
+  reducedMdbZeroBus.stInfo.bid := ROBID.disabled(p.robEntries)
+  reducedMdbZeroBus.stInfo.lsId := ROBID.disabled(p.robEntries)
+
+  val reducedMdbRecordBus = Wire(chiselTypeOf(reducedMdbZeroBus))
+  reducedMdbRecordBus := reducedMdbZeroBus
+  reducedMdbRecordBus.valid := reducedMdbConflictDetect.io.conflictValid
+  reducedMdbRecordBus.ldInfo.valid := reducedMdbConflictDetect.io.conflictValid
+  reducedMdbRecordBus.ldInfo.pc := reducedMdbConflictDetect.io.record.load.pc
+  reducedMdbRecordBus.ldInfo.bid := reducedMdbConflictDetect.io.record.load.bid
+  reducedMdbRecordBus.ldInfo.lsId := reducedMdbConflictDetect.io.record.load.lsId
+  reducedMdbRecordBus.ldInfo.stid := reducedMdbConflictDetect.io.record.load.stid
+  reducedMdbRecordBus.ldInfo.addr := reducedMdbConflictDetect.io.record.load.addr
+  reducedMdbRecordBus.ldInfo.size := reducedMdbConflictDetect.io.record.load.size
+  reducedMdbRecordBus.ldInfo.isTile := reducedMdbConflictDetect.io.record.load.isTile
+  reducedMdbRecordBus.stInfo.valid := reducedMdbConflictDetect.io.conflictValid
+  reducedMdbRecordBus.stInfo.pc := reducedMdbConflictDetect.io.record.store.pc
+  reducedMdbRecordBus.stInfo.bid := reducedMdbConflictDetect.io.record.store.bid
+  reducedMdbRecordBus.stInfo.lsId := reducedMdbConflictDetect.io.record.store.lsId
+  reducedMdbRecordBus.stInfo.stid := reducedMdbConflictDetect.io.record.store.stid
+  reducedMdbRecordBus.stInfo.addr := reducedMdbConflictDetect.io.record.store.addr
+  reducedMdbRecordBus.stInfo.size := reducedMdbConflictDetect.io.record.store.size
+  reducedMdbRecordBus.stInfo.isTile := reducedMdbConflictDetect.io.record.store.isTile
+  reducedMdbRecordBus.conf := 1.U
+
+  val reducedMdbFanoutStoreRows = Wire(Vec(
+    p.robEntries,
+    new MDBStoreWakeupEntry(
+      p.robEntries,
+      p.robEntries,
+      addrWidth = p.immWidth,
+      pcWidth = p.pcWidth,
+      stidWidth = p.threadIdWidth
+    )
+  ))
+  for (idx <- 0 until p.robEntries) {
+    val stqRow = path.io.storeStqRows(idx)
+    val wakeRow = Wire(chiselTypeOf(reducedMdbFanoutStoreRows(idx)))
+    wakeRow := 0.U.asTypeOf(wakeRow)
+    wakeRow.bid := ROBID.disabled(p.robEntries)
+    wakeRow.lsId := ROBID.disabled(p.robEntries)
+    wakeRow.valid := reducedLoadReplayLiqAllocEnabled && stqRow.valid
+    wakeRow.storeIndex := idx.U
+    wakeRow.pc := stqRow.pc
+    wakeRow.bid := stqRow.bid
+    wakeRow.lsId := stqRow.lsId
+    wakeRow.stid := stqRow.stid
+    wakeRow.addr := stqRow.addr
+    wakeRow.size := stqRow.size.pad(7)
+    wakeRow.addrReady := stqRow.addrReady
+    wakeRow.dataReady := stqRow.dataReady
+    wakeRow.isTile := !stqRow.scalarIex
+    reducedMdbFanoutStoreRows(idx) := wakeRow
+  }
+  reducedMdbQueueFanout.io.lookupIn := reducedMdbZeroBus
+  reducedMdbQueueFanout.io.lookupInValid := false.B
+  reducedMdbQueueFanout.io.deleteIn := reducedMdbZeroBus
+  reducedMdbQueueFanout.io.deleteInValid := false.B
+  reducedMdbQueueFanout.io.recordIn := reducedMdbRecordBus
+  val reducedMdbFanoutRecordValid =
+    reducedLoadReplayLiqAllocEnabled && reducedMdbConflictDetect.io.conflictValid
+  reducedMdbQueueFanout.io.recordInValid := reducedMdbFanoutRecordValid
+  reducedMdbQueueFanout.io.luDequeueReady := true.B
+  reducedMdbQueueFanout.io.suCheckReady := true.B
+  reducedMdbQueueFanout.io.storeRows := reducedMdbFanoutStoreRows
   when(reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled) {
     reducedLoadReplayResolveClearPending := false.B
   }.otherwise {
@@ -1951,6 +2053,25 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedMdbConflictStoreLsIdValid := reducedMdbConflictDetect.io.record.store.lsId.valid
   io.reducedMdbConflictStoreLsIdWrap := reducedMdbConflictDetect.io.record.store.lsId.wrap
   io.reducedMdbConflictStoreLsIdValue := reducedMdbConflictDetect.io.record.store.lsId.value
+  io.reducedMdbFanoutRecordValid := reducedMdbFanoutRecordValid
+  io.reducedMdbFanoutRecordReady := reducedMdbQueueFanout.io.recordInReady
+  io.reducedMdbFanoutRecordAccepted := reducedMdbQueueFanout.io.recordInAccepted
+  io.reducedMdbFanoutRecordProcessed := reducedMdbQueueFanout.io.recordProcessed
+  io.reducedMdbFanoutBmdbReportValid := reducedMdbQueueFanout.io.bmdbReportValid
+  io.reducedMdbFanoutBmdbLoadBidValid := reducedMdbQueueFanout.io.bmdbLoadBid.valid
+  io.reducedMdbFanoutBmdbLoadBidWrap := reducedMdbQueueFanout.io.bmdbLoadBid.wrap
+  io.reducedMdbFanoutBmdbLoadBidValue := reducedMdbQueueFanout.io.bmdbLoadBid.value
+  io.reducedMdbFanoutBmdbStoreBidValid := reducedMdbQueueFanout.io.bmdbStoreBid.valid
+  io.reducedMdbFanoutBmdbStoreBidWrap := reducedMdbQueueFanout.io.bmdbStoreBid.wrap
+  io.reducedMdbFanoutBmdbStoreBidValue := reducedMdbQueueFanout.io.bmdbStoreBid.value
+  io.reducedMdbFanoutBmdbStoreStid := reducedMdbQueueFanout.io.bmdbStoreStid
+  io.reducedMdbFanoutRecordOverflow := reducedMdbQueueFanout.io.recordOverflow
+  io.reducedMdbFanoutRecordOrderIllegal := reducedMdbQueueFanout.io.recordOrderIllegal
+  io.reducedMdbFanoutSsitValidMask := reducedMdbQueueFanout.io.ssitValidMask
+  io.reducedMdbFanoutSuMatchedStore := reducedMdbQueueFanout.io.suMatchedStore
+  io.reducedMdbFanoutSuStorePending := reducedMdbQueueFanout.io.suStorePending
+  io.reducedMdbFanoutSuWakeupValid := reducedMdbQueueFanout.io.suWakeup.valid
+  io.reducedMdbFanoutSuWakeupIndex := reducedMdbQueueFanout.io.suWakeup.storeIndex
   io.reducedLoadWaitReplaySlotPc := reducedLoadWaitReplaySlot.io.slotPc
   io.reducedLoadWaitReplaySlotAddr := reducedLoadWaitReplaySlot.io.slotAddr
   io.storeDispatchReady := path.io.storeDispatchReady
