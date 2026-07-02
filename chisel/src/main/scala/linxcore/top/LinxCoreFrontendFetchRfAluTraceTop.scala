@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayLaunchReadiness, LoadReplayReturnPipePermit, LoadReplayReturnPipeSelect, LoadReplayReturnReadiness, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayLaunchReadiness, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeSelect, LoadReplayReturnReadiness, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -428,6 +428,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqSourceReturnBlockedByBaseData = Output(Bool())
   val reducedLoadReplayLiqSourceReturnBlockedByStoreSnapshot = Output(Bool())
   val reducedLoadReplayLiqSourceReturnBlockedByScb = Output(Bool())
+  val reducedLoadReplayLiqReturnPipeBudgetCandidateValid = Output(Bool())
+  val reducedLoadReplayLiqReturnPipeBudgetEnable = Output(Bool())
+  val reducedLoadReplayLiqReturnPipeBudgetAvailable = Output(Bool())
+  val reducedLoadReplayLiqReturnPipeBudgetBlockedByDisabled = Output(Bool())
+  val reducedLoadReplayLiqReturnPipeBudgetBlockedByNoCandidate = Output(Bool())
+  val reducedLoadReplayLiqReturnPipeBudgetBlockedBySources = Output(Bool())
+  val reducedLoadReplayLiqReturnPipeBudgetBlockedByBudgetDisabled = Output(Bool())
   val reducedLoadReplayLiqReturnPipePermitCandidateValid = Output(Bool())
   val reducedLoadReplayLiqReturnPipePermitPipeBudgetAvailable = Output(Bool())
   val reducedLoadReplayLiqReturnPipePermitMask = Output(UInt(1.W))
@@ -865,6 +872,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     pcWidth = p.pcWidth
   ))
   val reducedReplayLiqSourceReturnReadiness = Module(new LoadReplaySourceReturnReadiness)
+  val reducedReplayLiqReturnPipeBudget = Module(new LoadReplayReturnPipeBudget)
   val reducedReplayLiqReturnPipePermit = Module(new LoadReplayReturnPipePermit(returnPipeCount = 1))
   val reducedReplayLiqReturnPipeSelect = Module(new LoadReplayReturnPipeSelect(returnPipeCount = 1))
   val reducedReplayLiqReturnReadiness = Module(new LoadReplayReturnReadiness(returnPipeCount = 1))
@@ -1412,17 +1420,21 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val reducedReplayLiqBaseDataReady =
     loadLookupArbiter.io.replayGranted && reducedReplayLiqBaseDataAlign.io.dataReturned
   val reducedReplayLiqStoreSnapshotReady = reducedLoadReplayLiqAllocEnabled
-  val reducedReplayLiqReturnPipeBudgetAvailable = false.B
+  val reducedReplayLiqReturnPipeBudgetEnable = false.B
   reducedReplayLiqSourceReturnReadiness.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqSourceReturnReadiness.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
   reducedReplayLiqSourceReturnReadiness.io.baseDataReady := reducedReplayLiqBaseDataReady
   reducedReplayLiqSourceReturnReadiness.io.storeSnapshotReady := reducedReplayLiqStoreSnapshotReady
   reducedReplayLiqSourceReturnReadiness.io.externalScbPending := false.B
   reducedReplayLiqSourceReturnReadiness.io.externalScbReturned := false.B
+  reducedReplayLiqReturnPipeBudget.io.enable := reducedLoadReplayLiqAllocEnabled
+  reducedReplayLiqReturnPipeBudget.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
+  reducedReplayLiqReturnPipeBudget.io.sourcesReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
+  reducedReplayLiqReturnPipeBudget.io.pipeBudgetEnable := reducedReplayLiqReturnPipeBudgetEnable
   reducedReplayLiqReturnPipePermit.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqReturnPipePermit.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
   reducedReplayLiqReturnPipePermit.io.sourcesReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
-  reducedReplayLiqReturnPipePermit.io.pipeBudgetAvailable := reducedReplayLiqReturnPipeBudgetAvailable
+  reducedReplayLiqReturnPipePermit.io.pipeBudgetAvailable := reducedReplayLiqReturnPipeBudget.io.pipeBudgetAvailable
   reducedReplayLiqReturnPipeSelect.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqReturnPipeSelect.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
   reducedReplayLiqReturnPipeSelect.io.sourcesReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
@@ -2220,10 +2232,24 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqSourceReturnReadiness.io.blockedByStoreSnapshot
   io.reducedLoadReplayLiqSourceReturnBlockedByScb :=
     reducedReplayLiqSourceReturnReadiness.io.blockedByScb
+  io.reducedLoadReplayLiqReturnPipeBudgetCandidateValid :=
+    reducedReplayLiqReturnPipeBudget.io.candidateValid
+  io.reducedLoadReplayLiqReturnPipeBudgetEnable :=
+    reducedReplayLiqReturnPipeBudgetEnable
+  io.reducedLoadReplayLiqReturnPipeBudgetAvailable :=
+    reducedReplayLiqReturnPipeBudget.io.pipeBudgetAvailable
+  io.reducedLoadReplayLiqReturnPipeBudgetBlockedByDisabled :=
+    reducedReplayLiqReturnPipeBudget.io.blockedByDisabled
+  io.reducedLoadReplayLiqReturnPipeBudgetBlockedByNoCandidate :=
+    reducedReplayLiqReturnPipeBudget.io.blockedByNoCandidate
+  io.reducedLoadReplayLiqReturnPipeBudgetBlockedBySources :=
+    reducedReplayLiqReturnPipeBudget.io.blockedBySources
+  io.reducedLoadReplayLiqReturnPipeBudgetBlockedByBudgetDisabled :=
+    reducedReplayLiqReturnPipeBudget.io.blockedByBudgetDisabled
   io.reducedLoadReplayLiqReturnPipePermitCandidateValid :=
     reducedReplayLiqReturnPipePermit.io.candidateValid
   io.reducedLoadReplayLiqReturnPipePermitPipeBudgetAvailable :=
-    reducedReplayLiqReturnPipeBudgetAvailable
+    reducedReplayLiqReturnPipeBudget.io.pipeBudgetAvailable
   io.reducedLoadReplayLiqReturnPipePermitMask :=
     reducedReplayLiqReturnPipePermit.io.pipeAvailableMask
   io.reducedLoadReplayLiqReturnPipePermitValid :=
