@@ -942,6 +942,7 @@ store).
 | output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272-R283 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing full load identity plus forwarding snapshot, and reports accepted/drop/full state. Default mode drains only exact held-load completion matches; opt-in replay-LIQ mode consumes only when `ReducedLoadReplayLiqAllocPath` accepts allocation. |
 | output | `reducedLoadReplayDrain*` | mixed | diagnostic | R273/R274 diagnostic completion-drain match/mismatch signals used by the default reduced-store replay mode. Exact W2 load-completion matches consume the queued replay candidate; mismatches, including GID/RID sidecar mismatches, leave it pending for debug. |
 | output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282/R283 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, and R283 feeds its E2 store vector from resident STQ snapshots, but this top still ties launch disabled. |
+| output | `reducedLoadReplayResolveQueue*` | mixed | diagnostic | R285 opt-in replay-LIQ ResolveQ diagnostics. `lhqRecord` from `ReducedLoadReplayLiqAllocPath` can append to `LoadResolveQueue`, and the top exposes push, occupancy, valid-mask, and head conflict-row sidecars. Because launch remains disabled, the current fixture observes storage wiring only; retire pruning, clear-resolved, and live MDB publication are deferred. |
 | output | `executeLoadWaitHold` | `Bool` | diagnostic | R266 reduced execute hold for a load waiting on an older not-ready resident store. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
@@ -1018,6 +1019,11 @@ overlay. Most state remains in child modules:
   also exposes its `LoadInflightLaunchSelect` diagnostics. R282 adds the child
   launch/E2/LHQ diagnostic boundary, and R283 wires a resident STQ snapshot
   into its E2 store vector while this top continues to tie `launchEnable` low.
+- `LoadResolveQueue`: optional R285 replay-LIQ ResolveQ storage boundary. It
+  accepts the path-local `lhqRecord` with top PE/STID/TID sidecars and exposes
+  packed occupancy plus head `MDBConflictLoadEntry` diagnostics. ROB retire
+  identity, precise flush pruning, LIQ clear-resolved feedback, and live MDB
+  publication remain separate owner packets.
 - `ReducedLoadReplayCompletionDrain`: optional R273/R274 diagnostic matcher that
   consumes the queued candidate when the same held load completes through W2
   with matching PC, address, size, BID, GID, RID, and reduced LSID.
@@ -1114,15 +1120,22 @@ eligibility predicates. R282 adds the path-local launch drive and E4/LHQ
 diagnostic boundary. R283 feeds the path's E2 store vector from the same
 `ResidentStoreForwardStoreSnapshot` conversion used by
 `ReducedStoreResidentForward`, but the reduced top still does not relaunch the
-load or wake dependent consumers.
+load or wake dependent consumers. R285 wires the path-local `lhqRecord` output
+into `LoadResolveQueue` and exposes queue/head diagnostics at the top. Since
+`launchEnable` is still low, this proves the storage boundary and generated IO
+without creating resolved load records in the current replay-LIQ fixture.
+ROB commit retire identity, precise recovery pruning, LIQ clear-resolved
+feedback, and MDB conflict publication stay deferred.
+
 The overlay clears only on
 run start/restart or when the optional reduced-store path is disabled;
 ordinary backend redirects do not clear it because committed store bytes are
 nonflushable state. The opt-in path is still for bounded integration debug: it
 now owns STQ mark/drain/free lifecycle, committed store-byte visibility, ready
 resident store-byte forwarding, and wait-hit execute hold for scalar load
-lookup, but not full LIQ/LDQ replay row mutation, load relaunch, dependent
-consumer wakeup, cross-line resident forwarding, cache state, TSO/fence completion, or MDB
+lookup plus diagnostic replay ResolveQ storage, but not full LIQ/LDQ replay row
+mutation, load relaunch, dependent consumer wakeup, cross-line resident
+forwarding, cache state, TSO/fence completion, or MDB
 conflict publication.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
@@ -1854,6 +1867,10 @@ The R279 replay-LIQ fixture manifest at
 `generated/r279-replay-liq-fixture-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `summary.compared_rows: 3`, and
 `summary.mismatch_count: 0`.
+The R285 replay-LIQ ResolveQ fixture manifest at
+`generated/r285-replay-liq-resolveq-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 3`, and
+`summary.mismatch_count: 0`.
 
 ## Verification
 
@@ -1864,6 +1881,7 @@ records `status: "pass"`, `summary.compared_rows: 3`, and
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r279-replay-liq-fixture-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r285-replay-liq-resolveq-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `BUILD_DIR=generated/r141-diagnostic-replay-1747-fret-target-priority FETCH_EXPECTED_ROWS=generated/r141-logical-local-1747-qemu-elf-xcheck/qemu.expected.jsonl FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`

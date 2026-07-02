@@ -25,10 +25,12 @@ retains their load identity, PC, address, size, and thread sidecars, and
 exports `MDBConflictLoadEntry` rows that `MDBConflictDetect` can scan when a
 younger store arrives.
 
-R284 keeps this queue standalone. The replay-LIQ path still only exposes its
-path-local `lhqRecord` diagnostics; a later top packet must insert those
-records into `LoadResolveQueue`, drive precise retire/flush sidebands, and feed
-the exported conflict rows into the live MDB/recovery path.
+R285 wires the opt-in replay-LIQ top path's path-local `lhqRecord` output into
+this queue and exposes queue/head diagnostics. That top integration is still
+storage-only because replay launch remains disabled in the current fixture.
+Precise retire/flush sidebands, LIQ clear-resolved feedback, default LIQ
+insertion, and exported conflict rows feeding the live MDB/recovery path remain
+deferred owner packets.
 
 ## Interface
 
@@ -107,7 +109,8 @@ flush intents.
 
 ## Deferred Owners
 
-- Top-level insertion from replay-LIQ/default LIQ `lhqRecord`.
+- Default/live LIQ insertion beyond the opt-in replay-LIQ diagnostic path.
+- LIQ clear-resolved feedback when a resolved row is accepted into ResolveQ.
 - Precise `FlushBus` pruning by recovery intent.
 - Retire sideband wiring from ROB commit identity.
 - Live MDB/recovery publication using `MDBConflictDetect`.
@@ -120,6 +123,8 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
 bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
+bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r285-replay-liq-resolveq-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover push/backpressure, strict retire pruning, flush clearing,

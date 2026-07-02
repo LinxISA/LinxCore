@@ -29,12 +29,14 @@ as the only authority for consuming the replay queue head.
 
 This module is intentionally narrower than full replay. It does not drive the
 LIQ launch port unless `launchEnable` is explicitly asserted by the parent, and
-the reduced top keeps that input disabled in R282. It also does not arbitrate
-new loads against replay loads, publish LHQ rows into a real ResolveQ, or wake
-dependent consumers. Its job is to prove that the candidate payload can become
-normal LIQ residency, expose when resident rows satisfy the model-derived
-scalar replay-pick predicate, and provide the path-local launch/E4/LHQ
-diagnostic boundary needed before the top enables live replay.
+the reduced top keeps that input disabled. It also does not arbitrate new loads
+against replay loads or wake dependent consumers. Its job is to prove that the
+candidate payload can become normal LIQ residency, expose when resident rows
+satisfy the model-derived scalar replay-pick predicate, and provide the
+path-local launch/E4/LHQ diagnostic boundary needed before the top enables live
+replay. R285 gives the path-local `lhqRecord` output a top-level
+`LoadResolveQueue` storage consumer, while retire, clear-resolved, and live MDB
+publication remain outside this module.
 
 ## Interface
 
@@ -83,7 +85,7 @@ diagnostic boundary needed before the top enables live replay.
 | `launchAccepted` | Selected row entered `Repick` through `LoadInflightQueue`. |
 | `repickMask` / `missMask` / `resolvedMask` | Pass-through LIQ state masks after any enabled relaunches. |
 | `e4UpdateValid` / `e4UpdateIndex` / `e4MissKind` / `e4WakeupValid` | Pass-through E4 outcome diagnostics from the launched-row pipeline. |
-| `lhqRecordValid` / `lhqRecord` | Path-local resolved-load hit record, including load PC after R284. Not yet inserted into a top-level ResolveQ. |
+| `lhqRecordValid` / `lhqRecord` | Path-local resolved-load hit record, including load PC after R284. R285 top wiring can append this row to `LoadResolveQueue`; this module itself does not own ResolveQ backpressure, retire, or MDB publication. |
 | `residentCount` | Resident LIQ row count. |
 | `empty` / `full` | LIQ occupancy diagnostics. |
 | `missPending` | Pass-through LIQ miss-pending diagnostic. |
@@ -128,7 +130,10 @@ Replay wakeup and refill wakeup ports remain inactive in this owner. The R283
 reduced top keeps `launchEnable` low but feeds `e2Stores` from a shared
 `ResidentStoreForwardStoreSnapshot`, so the path has model-shaped resident STQ
 store candidates available before live replay launch is armed. Base-data,
-return-readiness, and live arbitration wiring remain deferred.
+return-readiness, and live arbitration wiring remain deferred. R285 consumes the
+path-local LHQ hit-record output in the top-level `LoadResolveQueue`, but this
+path still relies on the parent to decide when a resolved row should clear LIQ
+state or become visible to MDB conflict detection.
 
 ## Timing
 
@@ -155,8 +160,8 @@ owner.
   leaves that gate disabled.
 - Row/base-data ownership, return-readiness wiring, and source arbitration for
   enabled relaunch.
-- LHQ/ResolveQ queue movement through `LoadResolveQueue` and load-store
-  conflict publication.
+- LIQ clear-resolved feedback after a top-level `LoadResolveQueue` push,
+  default/live LIQ ResolveQ insertion, and load-store conflict publication.
 - Ready-table, bypass, and dependent-consumer wakeup.
 
 ## Verification
