@@ -34,9 +34,10 @@ on. R299 drives the SCB/source-return input from
 `LoadReplaySourceReturnReadiness`. R300 drives `returnReady` from
 `LoadReplayReturnReadiness`. R301 inserts `LoadReplayReturnPipeSelect` ahead of
 that readiness gate. R302 adds `LoadReplayReturnPipePermit` as the producer of
-that selector's mask. R303 adds `LoadReplayReturnPipeBudget` before the permit;
-the current top still ties the budget arm low. The module therefore exposes why
-launch remains blocked while keeping LIQ row state unchanged.
+that selector's mask. R304 drives `LoadReplayReturnPipeBudget` from a separate
+budget arm and consumer-ready input; the current top arms the budget under the
+opt-in wrapper but keeps the consumer/wakeup sink low. The module therefore
+exposes why launch remains blocked while keeping LIQ row state unchanged.
 
 ## Interface
 
@@ -49,7 +50,7 @@ launch remains blocked while keeping LIQ row state unchanged.
 | `baseLookupGranted` | `LoadLookupArbiter` granted the selected replay row on the shared sparse-memory lookup port. |
 | `baseDataReturned` | `LoadReplayBaseDataAlign` has in-line baseline load data for the selected row. |
 | `scbReturned` | Source-return owner has observed the model `scbRnt/stqRnt` equivalent for the reduced replay path. |
-| `returnReady` | `LoadReplayReturnReadiness` has observed source completion plus a selected load return/wakeup pipe from `LoadReplayReturnPipeSelect`. Current top ties the upstream budget arm low. |
+| `returnReady` | `LoadReplayReturnReadiness` has observed source completion plus a selected load return/wakeup pipe from `LoadReplayReturnPipeSelect`. Current top leaves this low because the upstream consumer/wakeup sink is not ready. |
 
 ### Outputs
 
@@ -89,7 +90,8 @@ The current Chisel split maps those conditions across modules:
    and wait-store blocking once launch is allowed.
 5. `LoadReplaySourceReturnReadiness` separates local resident-store snapshot
    readiness from future external SCB response readiness.
-6. `LoadReplayReturnPipeBudget` exposes the future IEX return-pipe budget arm.
+6. `LoadReplayReturnPipeBudget` exposes the future IEX return-pipe budget arm
+   and downstream consumer-readiness blocker.
 7. `LoadReplayReturnPipePermit` maps that budget predicate into a
    single-pipe mask.
 8. `LoadReplayReturnPipeSelect` maps the future IEX return-pipe mask into a
@@ -115,4 +117,4 @@ later condition is only reported after the earlier source conditions are met.
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadReplayLaunchReadiness`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
-- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r303-replay-liq-return-pipe-budget-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r304-replay-liq-return-consumer-budget-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`

@@ -26,11 +26,11 @@ source-return completion and IEX load-return pipe selection. The LinxCoreModel
 captures that pipe-availability/selection decision as a local combinational
 owner before a later packet connects it to a real IEX return-pipe producer.
 
-R303 feeds this module from `LoadReplayReturnPipePermit`, which now consumes
-`LoadReplayReturnPipeBudget`, and forwards the selected result into
-`LoadReplayReturnReadiness`. The reduced top still ties the budget owner's live
-arm low, so launch remains disabled and this packet does not relaunch loads,
-publish LHQ rows, or wake consumers.
+R304 feeds this module from `LoadReplayReturnPipePermit`, which now consumes
+`LoadReplayReturnPipeBudget` with a separate downstream consumer-readiness
+input, and forwards the selected result into `LoadReplayReturnReadiness`. The
+reduced top keeps that consumer sink low, so launch remains disabled and this
+packet does not relaunch loads, publish LHQ rows, or wake consumers.
 
 ## Interface
 
@@ -41,7 +41,7 @@ publish LHQ rows, or wake consumers.
 | `enable` | Replay-LIQ wrapper is active. |
 | `launchValid` | A selected LIQ row is eligible for the launch path. |
 | `sourcesReturned` | Source-return readiness has completed the base/store/SCB predicate. |
-| `pipeAvailableMask` | One bit per future IEX load-return pipe from `LoadReplayReturnPipePermit`, itself fed by `LoadReplayReturnPipeBudget`. Current reduced top ties the budget arm low. |
+| `pipeAvailableMask` | One bit per future IEX load-return pipe from `LoadReplayReturnPipePermit`, itself fed by `LoadReplayReturnPipeBudget`. Current reduced top leaves this empty because `consumerReady` is low. |
 
 ### Outputs
 
@@ -98,7 +98,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeSelect
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r303-replay-liq-return-pipe-budget-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r304-replay-liq-return-consumer-budget-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover lowest-pipe selection, source blocking before pipe

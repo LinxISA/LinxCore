@@ -430,11 +430,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqSourceReturnBlockedByScb = Output(Bool())
   val reducedLoadReplayLiqReturnPipeBudgetCandidateValid = Output(Bool())
   val reducedLoadReplayLiqReturnPipeBudgetEnable = Output(Bool())
+  val reducedLoadReplayLiqReturnPipeBudgetConsumerReady = Output(Bool())
   val reducedLoadReplayLiqReturnPipeBudgetAvailable = Output(Bool())
   val reducedLoadReplayLiqReturnPipeBudgetBlockedByDisabled = Output(Bool())
   val reducedLoadReplayLiqReturnPipeBudgetBlockedByNoCandidate = Output(Bool())
   val reducedLoadReplayLiqReturnPipeBudgetBlockedBySources = Output(Bool())
   val reducedLoadReplayLiqReturnPipeBudgetBlockedByBudgetDisabled = Output(Bool())
+  val reducedLoadReplayLiqReturnPipeBudgetBlockedByConsumer = Output(Bool())
   val reducedLoadReplayLiqReturnPipePermitCandidateValid = Output(Bool())
   val reducedLoadReplayLiqReturnPipePermitPipeBudgetAvailable = Output(Bool())
   val reducedLoadReplayLiqReturnPipePermitMask = Output(UInt(1.W))
@@ -1420,7 +1422,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val reducedReplayLiqBaseDataReady =
     loadLookupArbiter.io.replayGranted && reducedReplayLiqBaseDataAlign.io.dataReturned
   val reducedReplayLiqStoreSnapshotReady = reducedLoadReplayLiqAllocEnabled
-  val reducedReplayLiqReturnPipeBudgetEnable = false.B
+  val reducedReplayLiqReturnPipeBudgetEnable = reducedLoadReplayLiqAllocEnabled
+  val reducedReplayLiqReturnPipeBudgetConsumerReady = false.B
   reducedReplayLiqSourceReturnReadiness.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqSourceReturnReadiness.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
   reducedReplayLiqSourceReturnReadiness.io.baseDataReady := reducedReplayLiqBaseDataReady
@@ -1431,6 +1434,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedReplayLiqReturnPipeBudget.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
   reducedReplayLiqReturnPipeBudget.io.sourcesReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
   reducedReplayLiqReturnPipeBudget.io.pipeBudgetEnable := reducedReplayLiqReturnPipeBudgetEnable
+  reducedReplayLiqReturnPipeBudget.io.consumerReady := reducedReplayLiqReturnPipeBudgetConsumerReady
   reducedReplayLiqReturnPipePermit.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqReturnPipePermit.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
   reducedReplayLiqReturnPipePermit.io.sourcesReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
@@ -2236,6 +2240,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeBudget.io.candidateValid
   io.reducedLoadReplayLiqReturnPipeBudgetEnable :=
     reducedReplayLiqReturnPipeBudgetEnable
+  io.reducedLoadReplayLiqReturnPipeBudgetConsumerReady :=
+    reducedReplayLiqReturnPipeBudgetConsumerReady
   io.reducedLoadReplayLiqReturnPipeBudgetAvailable :=
     reducedReplayLiqReturnPipeBudget.io.pipeBudgetAvailable
   io.reducedLoadReplayLiqReturnPipeBudgetBlockedByDisabled :=
@@ -2246,6 +2252,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeBudget.io.blockedBySources
   io.reducedLoadReplayLiqReturnPipeBudgetBlockedByBudgetDisabled :=
     reducedReplayLiqReturnPipeBudget.io.blockedByBudgetDisabled
+  io.reducedLoadReplayLiqReturnPipeBudgetBlockedByConsumer :=
+    reducedReplayLiqReturnPipeBudget.io.blockedByConsumer
   io.reducedLoadReplayLiqReturnPipePermitCandidateValid :=
     reducedReplayLiqReturnPipePermit.io.candidateValid
   io.reducedLoadReplayLiqReturnPipePermitPipeBudgetAvailable :=

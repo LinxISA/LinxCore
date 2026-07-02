@@ -10,22 +10,25 @@ object LoadReplayReturnPipeBudgetReference {
       blockedByDisabled: Boolean,
       blockedByNoCandidate: Boolean,
       blockedBySources: Boolean,
-      blockedByBudgetDisabled: Boolean)
+      blockedByBudgetDisabled: Boolean,
+      blockedByConsumer: Boolean)
 
   def apply(
       enable: Boolean,
       launchValid: Boolean,
       sourcesReturned: Boolean,
-      pipeBudgetEnable: Boolean): Result = {
+      pipeBudgetEnable: Boolean,
+      consumerReady: Boolean): Result = {
     val candidateValid = enable && launchValid
 
     Result(
       candidateValid = candidateValid,
-      pipeBudgetAvailable = enable && pipeBudgetEnable,
+      pipeBudgetAvailable = enable && pipeBudgetEnable && consumerReady,
       blockedByDisabled = !enable && launchValid,
       blockedByNoCandidate = enable && !launchValid,
       blockedBySources = candidateValid && !sourcesReturned,
-      blockedByBudgetDisabled = candidateValid && sourcesReturned && !pipeBudgetEnable)
+      blockedByBudgetDisabled = candidateValid && sourcesReturned && !pipeBudgetEnable,
+      blockedByConsumer = candidateValid && sourcesReturned && pipeBudgetEnable && !consumerReady)
   }
 }
 
@@ -37,7 +40,8 @@ class LoadReplayReturnPipeBudgetSpec extends AnyFunSuite {
       enable = true,
       launchValid = true,
       sourcesReturned = true,
-      pipeBudgetEnable = true)
+      pipeBudgetEnable = true,
+      consumerReady = true)
 
     assert(result.candidateValid)
     assert(result.pipeBudgetAvailable)
@@ -45,6 +49,7 @@ class LoadReplayReturnPipeBudgetSpec extends AnyFunSuite {
     assert(!result.blockedByNoCandidate)
     assert(!result.blockedBySources)
     assert(!result.blockedByBudgetDisabled)
+    assert(!result.blockedByConsumer)
   }
 
   test("does not arm the pipe budget while the replay-LIQ wrapper is disabled") {
@@ -52,12 +57,14 @@ class LoadReplayReturnPipeBudgetSpec extends AnyFunSuite {
       enable = false,
       launchValid = true,
       sourcesReturned = true,
-      pipeBudgetEnable = true)
+      pipeBudgetEnable = true,
+      consumerReady = true)
 
     assert(!result.candidateValid)
     assert(!result.pipeBudgetAvailable)
     assert(result.blockedByDisabled)
     assert(!result.blockedByBudgetDisabled)
+    assert(!result.blockedByConsumer)
   }
 
   test("reports source-return blocking before budget-disable blocking") {
@@ -65,12 +72,14 @@ class LoadReplayReturnPipeBudgetSpec extends AnyFunSuite {
       enable = true,
       launchValid = true,
       sourcesReturned = false,
-      pipeBudgetEnable = false)
+      pipeBudgetEnable = false,
+      consumerReady = false)
 
     assert(result.candidateValid)
     assert(!result.pipeBudgetAvailable)
     assert(result.blockedBySources)
     assert(!result.blockedByBudgetDisabled)
+    assert(!result.blockedByConsumer)
   }
 
   test("reports budget-disable blocking only after sources returned") {
@@ -78,12 +87,29 @@ class LoadReplayReturnPipeBudgetSpec extends AnyFunSuite {
       enable = true,
       launchValid = true,
       sourcesReturned = true,
-      pipeBudgetEnable = false)
+      pipeBudgetEnable = false,
+      consumerReady = true)
 
     assert(result.candidateValid)
     assert(!result.pipeBudgetAvailable)
     assert(!result.blockedBySources)
     assert(result.blockedByBudgetDisabled)
+    assert(!result.blockedByConsumer)
+  }
+
+  test("reports consumer blocking only after budget is armed and sources returned") {
+    val result = LoadReplayReturnPipeBudgetReference(
+      enable = true,
+      launchValid = true,
+      sourcesReturned = true,
+      pipeBudgetEnable = true,
+      consumerReady = false)
+
+    assert(result.candidateValid)
+    assert(!result.pipeBudgetAvailable)
+    assert(!result.blockedBySources)
+    assert(!result.blockedByBudgetDisabled)
+    assert(result.blockedByConsumer)
   }
 
   test("reports empty-candidate blocking without consuming the budget state") {
@@ -91,13 +117,15 @@ class LoadReplayReturnPipeBudgetSpec extends AnyFunSuite {
       enable = true,
       launchValid = false,
       sourcesReturned = true,
-      pipeBudgetEnable = true)
+      pipeBudgetEnable = true,
+      consumerReady = true)
 
     assert(!result.candidateValid)
     assert(result.pipeBudgetAvailable)
     assert(result.blockedByNoCandidate)
     assert(!result.blockedBySources)
     assert(!result.blockedByBudgetDisabled)
+    assert(!result.blockedByConsumer)
   }
 
   test("Chisel LoadReplayReturnPipeBudget elaborates budget diagnostics") {
@@ -105,8 +133,10 @@ class LoadReplayReturnPipeBudgetSpec extends AnyFunSuite {
 
     assert(sv.contains("module LoadReplayReturnPipeBudget"))
     assert(sv.contains("io_pipeBudgetEnable"))
+    assert(sv.contains("io_consumerReady"))
     assert(sv.contains("io_pipeBudgetAvailable"))
     assert(sv.contains("io_blockedBySources"))
     assert(sv.contains("io_blockedByBudgetDisabled"))
+    assert(sv.contains("io_blockedByConsumer"))
   }
 }

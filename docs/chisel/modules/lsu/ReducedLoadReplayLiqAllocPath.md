@@ -51,7 +51,7 @@ MDB publication remain outside this module.
 | `launchEnable` | Parent-owned arm bit. When low, selector diagnostics remain visible but `LoadInflightQueue.launchValid` is not driven. |
 | `e2Stores` | Abstract STQ forwarding rows for the `LoadForwardPipeline` launch path. R283 top wiring feeds a `ResidentStoreForwardStoreSnapshot` vector while keeping launch disabled. |
 | `e2BaseData` / `e2BaseValidMask` | Baseline line data and valid bytes for relaunches that do not already have row-owned data. R295 top wiring shapes the selected row's scalar sparse-memory response through `LoadReplayBaseDataAlign` while keeping launch disabled; R296 gates those inputs with `LoadLookupArbiter.replayGranted` so execute-returned sparse-memory bytes cannot feed the replay row. R297 routes the same grant-qualified data-return predicate through `LoadReplayLaunchReadiness`. |
-| `e2LoadDataReturned` / `e2ScbReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. R299 drives `e2ScbReturned` from `LoadReplaySourceReturnReadiness`. R303 drives `e2ReturnReady` from `LoadReplayReturnReadiness` fed by `LoadReplayReturnPipeBudget` through the permit/select split; the reduced top still ties the budget arm low. |
+| `e2LoadDataReturned` / `e2ScbReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. R299 drives `e2ScbReturned` from `LoadReplaySourceReturnReadiness`. R304 drives `e2ReturnReady` from `LoadReplayReturnReadiness` fed by `LoadReplayReturnPipeBudget` through the permit/select split; the reduced top arms the budget but keeps the downstream consumer/wakeup sink low. |
 | `clearResolvedValid` | Pass-through clear request for future tests or consumers that resolve rows. |
 | `clearResolvedIndex` | LIQ slot for `clearResolvedValid`. |
 
@@ -82,7 +82,7 @@ MDB publication remain outside this module.
 | `launchValid` / `launchIndex` | Selector request before parent `launchEnable` qualification. |
 | `launchCandidateCount` | Number of selector candidates. |
 | `launchSelected*` | R294 selected launch-row identity from `LoadInflightLaunchSelect`: LIQ load ID, BID/GID/RID, load LSID, PC, address, size, and 64-byte request mask. These signals remain diagnostic while `launchEnable` is low. |
-| `launchDriveValid` | Actual valid presented to `LoadInflightQueue.launchValid`; low unless the parent-owned `launchEnable && launchValid` predicate is true. Since R303, the reduced top drives return readiness from `LoadReplayReturnReadiness` fed by the budget/permit/select split; the budget arm remains low, so launch stays disabled. |
+| `launchDriveValid` | Actual valid presented to `LoadInflightQueue.launchValid`; low unless the parent-owned `launchEnable && launchValid` predicate is true. Since R304, the reduced top drives return readiness from `LoadReplayReturnReadiness` fed by the budget/permit/select split; the consumer/wakeup sink remains low, so launch stays disabled. |
 | `launchReady` | Selected row is launch-ready in `LoadInflightQueue`. |
 | `launchAccepted` | Selected row entered `Repick` through `LoadInflightQueue`. |
 | `repickMask` / `missMask` / `resolvedMask` | Pass-through LIQ state masks after any enabled relaunches. |
