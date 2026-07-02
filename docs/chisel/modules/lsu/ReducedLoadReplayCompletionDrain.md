@@ -79,7 +79,7 @@ and launch path. The reduced top does not yet own full LIQ row launch. Instead
 it keeps the load resident in execute while `ReducedStoreResidentForward`
 reports wait and completes that same load when forwarding becomes ready.
 
-R273 therefore drains the queued candidate only on an exact in-place
+R273/R274 therefore drains the queued candidate only on an exact in-place
 completion match:
 
 1. Require a valid queue head and a valid load completion.
@@ -104,7 +104,7 @@ handles flush clearing and suppresses queue output during flush.
 - A real LIQ/LDQ relaunch consumer.
 - Arbitration between replay candidates and newly issued loads.
 - Ready-table or dependent-consumer wakeup.
-- Precise replay-candidate recovery pruning by BID/LSID.
+- Precise replay-candidate recovery pruning by BID/GID/RID/LSID.
 
 ## Verification
 
@@ -121,6 +121,7 @@ bash tools/chisel/run_chisel_tests.sh --only ReducedStoreResidentForward
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 git diff --check
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r273-replay-completion-drain-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --reduced-store-dispatch-stq --disable-store-memory-mutation --max-seconds 30 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r274-replay-full-identity-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --reduced-store-dispatch-stq --disable-store-memory-mutation --max-seconds 30 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 ```
 
 Reference tests cover exact completion consumption, non-load completion
@@ -134,3 +135,13 @@ R273 live evidence:
 - `compared_rows=665`, `mismatch_count=0`
 - `cbstop_counts dut=0 qemu=0 inflation_ratio=1.0 warn=false`
 - `model/LinxCoreModel=3c0878da3aa1e06669b718e93269f094e7244066`
+
+R274 live evidence:
+
+- `generated/r274-replay-full-identity-1024-qemu-elf-xcheck/report/crosscheck_manifest.json`
+- `status=pass`, `comparator_status=0`
+- `compared_rows=665`, `mismatch_count=0`
+- `cbstop_counts dut=0 qemu=0 inflation_ratio=1.0 warn=false`
+- `rtl/LinxCore=18d8a800f59e50e4aa912e65e56cab1ae2e37f33`
+- `model/LinxCoreModel=3c0878da3aa1e06669b718e93269f094e7244066`
+- `emulator/qemu=8f6de68e091dbef19a89b977f3d18cbbc6f43b68`
