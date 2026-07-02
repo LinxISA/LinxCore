@@ -74,17 +74,19 @@ bytes valid. Store forwarding later merges resident store bytes over this
 baseline line data.
 
 R295 does not use this as replacement evidence for live replay launch. R296
-keeps replay launch disabled but gates the top-level LIQ `e2BaseData`,
-`e2BaseValidMask`, and `e2LoadDataReturned` inputs with
-`LoadLookupArbiter.replayGranted`, so execute-returned bytes cannot be
-misinterpreted as replay base data when both paths request the shared lookup
-port. Future launch enablement must still set SCB/return readiness from real
+keeps replay launch disabled but gates the top-level LIQ `e2BaseData` and
+`e2BaseValidMask` inputs with `LoadLookupArbiter.replayGranted`, so
+execute-returned bytes cannot be misinterpreted as replay base data when both
+paths request the shared lookup port. R297 routes the grant-qualified
+`dataReturned` predicate through `LoadReplayLaunchReadiness.baseDataReady`.
+Future launch enablement must still set SCB/return readiness from real
 source-return ownership.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadReplayBaseDataAlign`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadLookupArbiter`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadReplayLaunchReadiness`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r295-replay-liq-base-align-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r296-replay-liq-load-lookup-arb-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`

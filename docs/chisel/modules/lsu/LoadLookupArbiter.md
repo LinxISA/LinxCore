@@ -68,14 +68,16 @@ The arbiter is purely combinational:
 3. Else drive an idle zeroed lookup.
 
 The top uses `replayGranted` to gate replay-LIQ `e2BaseData`,
-`e2BaseValidMask`, and `e2LoadDataReturned`. `replayValid` remains observable
-as the raw selected-row base lookup request, while `replayGranted` is the proof
-that `loadLookupData` belongs to that replay row. `launchEnable`,
-`e2ScbReturned`, and `e2ReturnReady` remain inactive until a later packet owns
-source-return arbitration and full replay relaunch.
+`e2BaseValidMask`, and the R297 `LoadReplayLaunchReadiness.baseDataReady`
+sideband. `replayValid` remains observable as the raw selected-row base lookup
+request, while `replayGranted` is the proof that `loadLookupData` belongs to
+that replay row. R297 factors the launch readiness predicate into a separate
+module, but `e2ScbReturned` and `e2ReturnReady` remain inactive until later
+packets own source-return arbitration and return-pipe availability.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadLookupArbiter`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadReplayLaunchReadiness`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r296-replay-liq-load-lookup-arb-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
