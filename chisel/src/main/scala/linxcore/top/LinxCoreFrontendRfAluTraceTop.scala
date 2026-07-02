@@ -158,6 +158,8 @@ class LinxCoreFrontendRfAluTraceTop(
   path.io.commitBid := ROBID.disabled(p.robEntries)
   path.io.commitBlockBid := 0.U
   path.io.cleanup := 0.U.asTypeOf(new RecoveryCleanupIntent(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
+  path.io.scalarCleanupOrderValid := false.B
+  path.io.scalarCleanupOrder := 0.U
   path.io.completeValid := execute.io.completeValid
   path.io.completeRobValue := execute.io.completeRobValue
   path.io.completeRowValid := execute.io.completeValid

@@ -110,6 +110,8 @@ class ScalarDecodeRenameBridgeSpec extends AnyFunSuite {
     assert(io.in.peId.getWidth == 8)
     assert(io.out.peId.getWidth == 8)
     assert(io.out.threadId.getWidth == 8)
+    assert(io.in.isLastInBlock.getWidth == 1)
+    assert(io.out.isLastInBlock.getWidth == 1)
     assert(io.robAllocAttemptValid.getWidth == 1)
     assert(io.robAllocRow.identity.bid.getWidth == 32)
     assert(io.robAllocRow.pc.getWidth == 64)
@@ -119,6 +121,8 @@ class ScalarDecodeRenameBridgeSpec extends AnyFunSuite {
     assert(io.dstPhysTag.getWidth == 6)
     assert(io.gprFreeCount.getWidth == 7)
     assert(io.gprMapQFreeCount.getWidth == 6)
+    assert(io.gprCommittedMapQCount.getWidth == 6)
+    assert(io.gprReleasedPhysCount.getWidth == 7)
   }
 
   test("ScalarDecodeRenameBridge elaborates through GPRRenameCheckpoint") {

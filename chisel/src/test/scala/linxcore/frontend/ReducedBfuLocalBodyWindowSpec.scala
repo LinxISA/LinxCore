@@ -107,6 +107,7 @@ class ReducedBfuLocalBodyWindowProbe(val p: InterfaceParams = InterfaceParams())
     owner.io.f4Slots(slot).lenBytes := io.f4SlotLenBytes(slot)
     owner.io.f4Slots(slot).insnRaw := io.f4SlotInsnRaw(slot)
     owner.io.f4Slots(slot).uopUid := 0.U
+    owner.io.f4Slots(slot).isLastInBlock := false.B
   }
 
   io.geometryValid := owner.io.geometryValid

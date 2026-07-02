@@ -94,6 +94,8 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(io.tuUSeq.value.getWidth == 3)
     assert(io.tuDstValid.getWidth == 1)
     assert(io.tuSourceUnderflowMask.getWidth == 3)
+    assert(io.gprCommittedMapQCount.getWidth == 6)
+    assert(io.gprReleasedPhysCount.getWidth == 7)
     assert(io.tuRetirePeId.getWidth == 8)
     assert(io.tuRetireStid.getWidth == 8)
     assert(io.tuRetireAccepted.getWidth == 1)

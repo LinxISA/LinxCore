@@ -100,6 +100,11 @@ object DecodeRenameROBPathReference {
       nextActiveBid: Option[BigInt],
       preRetire: Boolean = false)
 
+  final case class BlockRenameCommitQueueStep(
+      nextQueue: Vector[BigInt],
+      presentedBid: Option[BigInt],
+      accepted: Boolean)
+
   def scalarStartLifecycleStep(
       activeValid: Boolean,
       activeBid: BigInt,
@@ -182,6 +187,32 @@ object DecodeRenameROBPathReference {
       nextActiveBid = nextActive,
       preRetire = preRetire
     )
+  }
+
+  def blockRenameCommitQueueStep(
+      queue: Vector[BigInt],
+      depth: Int,
+      retireValid: Boolean,
+      retireBid: BigInt,
+      externalCommitValid: Boolean,
+      cleanupActive: Boolean,
+      flush: Boolean = false): BlockRenameCommitQueueStep = {
+    require(depth > 1 && (depth & (depth - 1)) == 0)
+    if (flush) {
+      BlockRenameCommitQueueStep(Vector.empty, None, accepted = false)
+    } else {
+      val presented = queue.headOption
+      val accepted = presented.nonEmpty && !externalCommitValid && !cleanupActive
+      val afterDeq = if (accepted) queue.tail else queue
+      val afterEnq =
+        if (retireValid) {
+          require(afterDeq.size < depth, "block rename commit queue overflow")
+          afterDeq :+ retireBid
+        } else {
+          afterDeq
+        }
+      BlockRenameCommitQueueStep(afterEnq, presented, accepted)
+    }
   }
 }
 
@@ -268,6 +299,42 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
       activeUnconditionalRedirect = false,
       branchValid = true,
       branchTaken = false))
+  }
+
+  test("reference retries internal block rename commits while cleanup blocks GPR commit") {
+    val depth = 4
+    val s0 = blockRenameCommitQueueStep(
+      queue = Vector.empty,
+      depth = depth,
+      retireValid = true,
+      retireBid = 0x178,
+      externalCommitValid = false,
+      cleanupActive = true)
+    assert(s0.presentedBid.isEmpty)
+    assert(!s0.accepted)
+    assert(s0.nextQueue == Vector(BigInt(0x178)))
+
+    val s1 = blockRenameCommitQueueStep(
+      queue = s0.nextQueue,
+      depth = depth,
+      retireValid = false,
+      retireBid = 0,
+      externalCommitValid = false,
+      cleanupActive = true)
+    assert(s1.presentedBid.contains(BigInt(0x178)))
+    assert(!s1.accepted)
+    assert(s1.nextQueue == Vector(BigInt(0x178)))
+
+    val s2 = blockRenameCommitQueueStep(
+      queue = s1.nextQueue,
+      depth = depth,
+      retireValid = false,
+      retireBid = 0,
+      externalCommitValid = false,
+      cleanupActive = false)
+    assert(s2.presentedBid.contains(BigInt(0x178)))
+    assert(s2.accepted)
+    assert(s2.nextQueue.isEmpty)
   }
 
   test("reference admits decode only when the dec-ren queue can accept") {
@@ -622,6 +689,7 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     assert(io.storeSplitIntent.getWidth == 1)
     assert(io.renamedOut.peId.getWidth == 8)
     assert(io.renamedOut.threadId.getWidth == 8)
+    assert(io.renamedOut.isLastInBlock.getWidth == 1)
     assert(io.storeStaExec.valid.getWidth == 1)
     assert(io.storeStdExec.addr.getWidth == 64)
     assert(io.storeMarkCommitIndex.getWidth == 3)
@@ -781,6 +849,8 @@ class DecodeRenameROBPathSpec extends AnyFunSuite {
     val io = new DecodeRenameROBPathIO(p, trace, mapQDepth = 8, gprMapQDepth = 256)
 
     assert(io.gprMapQFreeCount.getWidth == 9)
+    assert(io.gprCommittedMapQCount.getWidth == 9)
+    assert(io.gprReleasedPhysCount.getWidth == 7)
     assert(io.tuRenameTSeq.value.getWidth == 3)
     assert(io.tuRenameUSeq.value.getWidth == 3)
   }

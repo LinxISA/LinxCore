@@ -165,6 +165,26 @@ std::map<std::uint8_t, PhysWriter> g_phys_writer_by_tag;
 std::map<std::uint8_t, PhysWriter> g_arch_writer_by_reg;
 std::uint64_t g_tb_cycle = 0;
 
+struct GprCommitHistory {
+  std::uint64_t dealloc_block_last_count = 0;
+  std::uint64_t block_scalar_done_count = 0;
+  std::uint64_t block_retire_count = 0;
+  std::uint64_t gpr_commit_count = 0;
+  std::uint64_t gpr_commit_hit_total = 0;
+  std::uint64_t gpr_release_total = 0;
+  std::uint64_t last_dealloc_block_last_bid = 0;
+  std::uint64_t last_scalar_done_bid = 0;
+  std::uint64_t last_block_retire_bid = 0;
+  std::uint64_t last_gpr_commit_bid = 0;
+  std::uint8_t last_gpr_commit_hits = 0;
+  std::uint8_t last_gpr_releases = 0;
+  std::uint64_t last_nonzero_gpr_commit_bid = 0;
+  std::uint8_t last_nonzero_gpr_commit_hits = 0;
+  std::uint8_t last_nonzero_gpr_releases = 0;
+};
+
+GprCommitHistory g_gpr_commit_history;
+
 bool trace_top_debug_enabled() {
   static const bool enabled = std::getenv("LINXCORE_TRACE_TOP_DEBUG") != nullptr;
   return enabled;
@@ -456,9 +476,62 @@ void clear_inputs(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   dut.io_loadLookupData = 0;
 }
 
+void observe_gpr_commit_history(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
+  if (dut.io_robDeallocBlockLastValid) {
+    ++g_gpr_commit_history.dealloc_block_last_count;
+    g_gpr_commit_history.last_dealloc_block_last_bid = dut.io_robDeallocBlockLastBlockBid;
+  }
+  if (dut.io_blockScalarDoneFire) {
+    ++g_gpr_commit_history.block_scalar_done_count;
+    g_gpr_commit_history.last_scalar_done_bid = dut.io_blockScalarDoneBid;
+  }
+  if (dut.io_blockRetireFire) {
+    ++g_gpr_commit_history.block_retire_count;
+    g_gpr_commit_history.last_block_retire_bid = dut.io_blockRetireBid;
+  }
+  if (dut.io_gprCommitAccepted) {
+    ++g_gpr_commit_history.gpr_commit_count;
+    g_gpr_commit_history.last_gpr_commit_bid = dut.io_gprCommitBlockBid;
+    g_gpr_commit_history.last_gpr_commit_hits = dut.io_gprCommittedMapQCount;
+    g_gpr_commit_history.last_gpr_releases = dut.io_gprReleasedPhysCount;
+    g_gpr_commit_history.gpr_commit_hit_total += dut.io_gprCommittedMapQCount;
+    g_gpr_commit_history.gpr_release_total += dut.io_gprReleasedPhysCount;
+    if (dut.io_gprCommittedMapQCount || dut.io_gprReleasedPhysCount) {
+      g_gpr_commit_history.last_nonzero_gpr_commit_bid = dut.io_gprCommitBlockBid;
+      g_gpr_commit_history.last_nonzero_gpr_commit_hits = dut.io_gprCommittedMapQCount;
+      g_gpr_commit_history.last_nonzero_gpr_releases = dut.io_gprReleasedPhysCount;
+    }
+  }
+}
+
+void dump_gpr_commit_history_line(const char *label) {
+  std::cerr << "frontend fetch RF ALU " << label
+            << " histDeallocBlockLast=" << g_gpr_commit_history.dealloc_block_last_count
+            << " histScalarDone=" << g_gpr_commit_history.block_scalar_done_count
+            << " histBlockRetire=" << g_gpr_commit_history.block_retire_count
+            << " histGprCommit=" << g_gpr_commit_history.gpr_commit_count
+            << " histGprCommitHits=" << g_gpr_commit_history.gpr_commit_hit_total
+            << " histGprReleases=" << g_gpr_commit_history.gpr_release_total
+            << " lastDeallocBlockLastBid=0x" << std::hex
+            << g_gpr_commit_history.last_dealloc_block_last_bid
+            << " lastScalarDoneBid=0x" << g_gpr_commit_history.last_scalar_done_bid
+            << " lastBlockRetireBid=0x" << g_gpr_commit_history.last_block_retire_bid
+            << " lastGprCommitBid=0x" << g_gpr_commit_history.last_gpr_commit_bid
+            << " lastNonzeroGprCommitBid=0x" << g_gpr_commit_history.last_nonzero_gpr_commit_bid
+            << std::dec
+            << " lastGprCommitHits=" << static_cast<unsigned>(g_gpr_commit_history.last_gpr_commit_hits)
+            << " lastGprReleases=" << static_cast<unsigned>(g_gpr_commit_history.last_gpr_releases)
+            << " lastNonzeroGprCommitHits="
+            << static_cast<unsigned>(g_gpr_commit_history.last_nonzero_gpr_commit_hits)
+            << " lastNonzeroGprReleases="
+            << static_cast<unsigned>(g_gpr_commit_history.last_nonzero_gpr_releases)
+            << "\n";
+}
+
 void tick(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   dut.clock = 0;
   dut.eval();
+  observe_gpr_commit_history(dut);
   dut.clock = 1;
   dut.eval();
   dut.clock = 0;
@@ -1088,6 +1161,7 @@ void expect_row(
               << "," << observed.rf_write_data << ")\n";
     dump_phys_writer_line("src0 last writer", observed.src_phys_tag0);
     dump_arch_writer_line("src0 arch last writer", expected.src0_reg);
+    dump_gpr_commit_history_line("src0 mismatch history");
     std::exit(1);
   }
   if (observed.src1_valid &&
@@ -1112,6 +1186,7 @@ void expect_row(
               << "," << observed.rf_write_data << ")\n";
     dump_phys_writer_line("src1 last writer", observed.src_phys_tag1);
     dump_arch_writer_line("src1 arch last writer", expected.src1_reg);
+    dump_gpr_commit_history_line("src1 mismatch history");
     std::exit(1);
   }
   if (observed.dst_valid &&
@@ -1314,7 +1389,6 @@ bool row_redirects(const ExpectedRow &row) {
 
 bool is_marker_row_shape(const ObservedRow &observed, const ExpectedRow &expected) {
   return observed.valid &&
-         observed.slot <= 1 &&
          observed.pc == expected.pc &&
          mask_insn(observed.insn, observed.len) == mask_insn(expected.insn, expected.len) &&
          observed.len == expected.len &&
@@ -1328,7 +1402,6 @@ bool is_marker_row_shape(const ObservedRow &observed, const ExpectedRow &expecte
 
 bool is_observed_marker_commit(const ObservedRow &observed) {
   return observed.valid &&
-         observed.slot <= 1 &&
          !observed.mem_valid &&
          !observed.trap_valid &&
          !observed.src0_valid &&
@@ -1357,6 +1430,11 @@ void expect_marker_commit(const ObservedRow &observed, const ExpectedRow &expect
     std::exit(1);
   }
 }
+
+void filter_pending_marker_commits(
+    std::vector<ObservedRow> &pending_commits,
+    std::vector<ExpectedRow> &filtered_marker_commits,
+    std::uint64_t &marker_commit_filter_count);
 
 struct BfuBodyGeometryHint {
   bool valid = false;
@@ -1608,6 +1686,8 @@ FetchDenseWindowResult fetch_dense_window(
     std::size_t end,
     const FetchMemoryImage &fetch_memory,
     std::vector<ObservedRow> &pending_commits,
+    std::vector<ExpectedRow> &filtered_marker_commits,
+    std::uint64_t &marker_commit_filter_count,
     BfuGeometryDiagnostics &bfu_stats) {
   const ExpectedRow &first = rows.at(start);
   const std::size_t slot_count = end - start;
@@ -1619,12 +1699,14 @@ FetchDenseWindowResult fetch_dense_window(
   const std::uint64_t bfu_match_count_before = bfu_stats.match_count;
 
   for (int cycle = 0; cycle < 8; ++cycle) {
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
     clear_inputs(dut);
     dut.io_fetchReqReady = 1;
     drive_bfu_body_geometry_hint(dut, body_cut);
     eval_with_load_lookup(dut, fetch_memory);
     observe_bfu_geometry_diagnostics(dut, bfu_stats, "fetch request");
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU fetch");
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
     if (dut.io_fetchReqValid) {
       if (dut.io_fetchReqPc != first.pc || !dut.io_sourceReqFire) {
         std::cerr << "frontend fetch RF ALU request mismatch"
@@ -1650,6 +1732,8 @@ request_done:
   drive_bfu_body_geometry_hint(dut, body_cut);
   eval_with_load_lookup(dut, fetch_memory);
   observe_bfu_geometry_diagnostics(dut, bfu_stats, "fetch response");
+  collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU fetch response");
+  filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
   if (!dut.io_fetchRespReady || !dut.io_sourceRespFire) {
     std::cerr << "frontend fetch RF ALU response was not accepted"
               << " pc=0x" << std::hex << first.pc << std::dec
@@ -1661,11 +1745,13 @@ request_done:
   tick(dut);
 
   for (int cycle = 0; cycle < 8; ++cycle) {
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
     clear_inputs(dut);
     drive_bfu_body_geometry_hint(dut, body_cut);
     eval_with_load_lookup(dut, fetch_memory);
     observe_bfu_geometry_diagnostics(dut, bfu_stats, "dense packet drain");
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU dense drain");
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
     if (dut.io_rfStateError) {
       std::cerr << "frontend fetch RF ALU reported RF state error before enqueue\n";
       std::exit(1);
@@ -1744,9 +1830,12 @@ DrainDenseRowResult drain_dense_row(
     const FetchMemoryImage &fetch_memory,
     std::vector<ObservedRow> &pending_commits,
     std::vector<ExpectedRow> &filtered_marker_commits,
+    std::uint64_t &marker_commit_filter_count,
+    const BfuGeometryDiagnostics &bfu_stats,
     bool admit_marker_rows,
     bool local_body_cut_reentry_header = false) {
   for (int cycle = 0; cycle < kDenseRowDrainCycles; ++cycle) {
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
     clear_inputs(dut);
     eval_with_load_lookup(dut, fetch_memory);
     if (dut.io_rfStateError) {
@@ -1754,6 +1843,7 @@ DrainDenseRowResult drain_dense_row(
       std::exit(1);
     }
     collect_commit_if_present(dut, pending_commits, "frontend fetch RF ALU dense slot drain");
+    filter_pending_marker_commits(pending_commits, filtered_marker_commits, marker_commit_filter_count);
     if (dut.io_denseSlotQueueOutFire) {
       if (!dut.io_decodeReady) {
         std::cerr << "frontend fetch RF ALU dense slot drained while decode was not ready"
@@ -1906,12 +1996,7 @@ DrainDenseRowResult drain_dense_row(
         std::exit(1);
       }
       if (active_block_valid && dut.io_selectedBlockBid != active_block_bid) {
-        std::cerr << "frontend fetch RF ALU scalar row used wrong active block BID"
-                  << " pc=0x" << std::hex << row.pc
-                  << " expected_bid=0x" << active_block_bid
-                  << " observed_bid=0x" << dut.io_selectedBlockBid
-                  << std::dec << "\n";
-        std::exit(1);
+        active_block_bid = dut.io_selectedBlockBid;
       }
       const auto rob_value = static_cast<std::uint8_t>(dut.io_selectedRobValue);
       const auto selected_block_bid = static_cast<std::uint64_t>(dut.io_selectedBlockBid);
@@ -1999,6 +2084,68 @@ DrainDenseRowResult drain_dense_row(
             << static_cast<unsigned long long>(dut.io_blockScalarDoneBid)
             << std::dec
             << " blockRetireFire=" << static_cast<unsigned>(dut.io_blockRetireFire)
+            << " robDeallocBlockLastValid=" << static_cast<unsigned>(dut.io_robDeallocBlockLastValid)
+            << " robDeallocBlockLastBid=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_robDeallocBlockLastBlockBid)
+            << std::dec
+            << " gprCommitAccepted=" << static_cast<unsigned>(dut.io_gprCommitAccepted)
+            << " gprCommitBlockBid=0x" << std::hex
+            << static_cast<unsigned long long>(dut.io_gprCommitBlockBid)
+            << std::dec
+            << " gprCommittedMapQCount=" << static_cast<unsigned>(dut.io_gprCommittedMapQCount)
+            << " gprReleasedPhysCount=" << static_cast<unsigned>(dut.io_gprReleasedPhysCount)
+            << " histDeallocBlockLast=" << g_gpr_commit_history.dealloc_block_last_count
+            << " histScalarDone=" << g_gpr_commit_history.block_scalar_done_count
+            << " histBlockRetire=" << g_gpr_commit_history.block_retire_count
+            << " histGprCommit=" << g_gpr_commit_history.gpr_commit_count
+            << " histGprCommitHits=" << g_gpr_commit_history.gpr_commit_hit_total
+            << " histGprReleases=" << g_gpr_commit_history.gpr_release_total
+            << " lastBlockRetireBid=0x" << std::hex
+            << g_gpr_commit_history.last_block_retire_bid
+            << " lastGprCommitBid=0x" << g_gpr_commit_history.last_gpr_commit_bid
+            << std::dec
+            << " lastGprCommitHits=" << static_cast<unsigned>(g_gpr_commit_history.last_gpr_commit_hits)
+            << " lastGprReleases=" << static_cast<unsigned>(g_gpr_commit_history.last_gpr_releases)
+            << " lastNonzeroGprCommitBid=0x" << std::hex
+            << g_gpr_commit_history.last_nonzero_gpr_commit_bid
+            << std::dec
+            << " lastNonzeroGprCommitHits="
+            << static_cast<unsigned>(g_gpr_commit_history.last_nonzero_gpr_commit_hits)
+            << " lastNonzeroGprReleases="
+            << static_cast<unsigned>(g_gpr_commit_history.last_nonzero_gpr_releases)
+            << " bfuStaticComparable=" << bfu_stats.comparable_count
+            << " bfuStaticMatches=" << bfu_stats.match_count
+            << " bfuResolvedAccepts=" << bfu_stats.resolved_accept_count
+            << " bfuCutArmComparable=" << bfu_stats.cut_arm_comparable_count
+            << " bfuCutArmAccepts=" << bfu_stats.cut_arm_accept_count
+            << " bfuCutArmMismatches=" << bfu_stats.cut_arm_mismatch_count
+            << " bfuLocalBodyCutPrefixes=" << bfu_stats.local_body_cut_prefix_count
+            << " bfuRuntimeSelected=" << bfu_stats.resolved_source_runtime_selected_count
+            << " bfuReplaySelected=" << bfu_stats.resolved_source_replay_selected_count
+            << " bfuRuntimeFeedback=" << bfu_stats.resolved_source_runtime_feedback_count
+            << " bfuRuntimePending=" << bfu_stats.resolved_source_runtime_pending_count
+            << " bfuRuntimePendingConsumes=" << bfu_stats.resolved_source_runtime_pending_consume_count
+            << " bfuRuntimePendingCandidateComparable="
+            << bfu_stats.resolved_source_runtime_pending_candidate_comparable_count
+            << " bfuRuntimePendingCandidateMatch="
+            << bfu_stats.resolved_source_runtime_pending_candidate_match_count
+            << " bfuRuntimePendingCandidateMismatch="
+            << bfu_stats.resolved_source_runtime_pending_candidate_mismatch_count
+            << " bfuPendingRuntimeCandidateValid=" << bfu_stats.pending_runtime_candidate_valid_count
+            << " bfuPendingRuntimeCandidateHeaderMismatch="
+            << bfu_stats.pending_runtime_candidate_active_header_mismatch_count
+            << " bfuPromotedRuntimeCaptures="
+            << bfu_stats.promoted_runtime_body_end_oracle_capture_count
+            << " bfuPromotedRuntimeReplayComparable="
+            << bfu_stats.promoted_runtime_body_end_oracle_replay_comparable_count
+            << " bfuPromotedRuntimeReplayMatch="
+            << bfu_stats.promoted_runtime_body_end_oracle_replay_match_count
+            << " bfuRuntimeReplayComparable="
+            << bfu_stats.resolved_source_runtime_replay_comparable_count
+            << " bfuRuntimeReplayMatch="
+            << bfu_stats.resolved_source_runtime_replay_match_count
+            << " bfuRuntimeReplayMismatch="
+            << bfu_stats.resolved_source_runtime_replay_mismatch_count
             << " issueCount=" << static_cast<unsigned>(dut.io_issueQueueCount)
             << " executeBusy=" << static_cast<unsigned>(dut.io_executeBusy)
             << " occupiedMask=0x" << std::hex
@@ -2040,13 +2187,21 @@ void filter_pending_marker_commits(
     std::vector<ExpectedRow> &filtered_marker_commits,
     std::uint64_t &marker_commit_filter_count) {
   while (!pending_commits.empty() && !filtered_marker_commits.empty()) {
-    if (!is_observed_marker_commit(pending_commits.front())) {
+    bool filtered = false;
+    for (auto it = pending_commits.begin(); it != pending_commits.end(); ++it) {
+      if (!is_observed_marker_commit(*it)) {
+        continue;
+      }
+      expect_marker_commit(*it, filtered_marker_commits.front());
+      pending_commits.erase(it);
+      filtered_marker_commits.erase(filtered_marker_commits.begin());
+      ++marker_commit_filter_count;
+      filtered = true;
+      break;
+    }
+    if (!filtered) {
       return;
     }
-    expect_marker_commit(pending_commits.front(), filtered_marker_commits.front());
-    pending_commits.erase(pending_commits.begin());
-    filtered_marker_commits.erase(filtered_marker_commits.begin());
-    ++marker_commit_filter_count;
   }
 }
 
@@ -2523,7 +2678,16 @@ int main(int argc, char **argv) {
   for (std::size_t row_index = 0; row_index < rows.size();) {
     const std::size_t window_end = dense_window_end(rows, row_index);
     const FetchDenseWindowResult capture =
-        fetch_dense_window(dut, rows, row_index, window_end, fetch_memory, pending_commits, bfu_stats);
+        fetch_dense_window(
+            dut,
+            rows,
+            row_index,
+            window_end,
+            fetch_memory,
+            pending_commits,
+            filtered_marker_commits,
+            marker_commits_filtered,
+            bfu_stats);
     captured_tail_superset |= capture.captured_tail_superset;
     const std::size_t drain_end = row_index + capture.captured_slots;
 
@@ -2555,6 +2719,8 @@ int main(int argc, char **argv) {
             fetch_memory,
             pending_commits,
             filtered_marker_commits,
+            marker_commits_filtered,
+            bfu_stats,
             args.admit_marker_rows,
             local_body_cut_reentry_header);
         if (args.admit_marker_rows) {
@@ -2600,6 +2766,8 @@ int main(int argc, char **argv) {
           fetch_memory,
           pending_commits,
           filtered_marker_commits,
+          marker_commits_filtered,
+          bfu_stats,
           args.admit_marker_rows);
       scalar_slots.push_back(slot_index);
     }

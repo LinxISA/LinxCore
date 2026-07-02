@@ -103,6 +103,7 @@ class FrontendDecodeStage(val p: InterfaceParams = InterfaceParams()) extends Mo
     out.cacheMaintainNoSplit := meta.cacheMaintainNoSplit
     out.sob := meta.isBlockBoundary
     out.eob := meta.isBlockStop
+    out.isLastInBlock := meta.isBlockStop || io.slots(slot).isLastInBlock
     out.boundaryKind := meta.boundaryKind
     out.boundaryTarget := Mux(hasBoundaryTarget && operandDecode.io.immValid, out.pc + operandDecode.io.imm, 0.U)
     out.predTaken := false.B

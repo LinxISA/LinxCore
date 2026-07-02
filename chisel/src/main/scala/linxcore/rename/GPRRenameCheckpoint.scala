@@ -11,13 +11,15 @@ class GPRRenameMapQueueEntry(
     val entries: Int,
     val bidWidth: Int,
     val archTagWidth: Int,
-    val physTagWidth: Int)
+    val physTagWidth: Int,
+    val orderWidth: Int)
     extends Bundle {
   val valid = Bool()
   val bid = new ROBID(entries)
   val fullBid = UInt(bidWidth.W)
   val rid = new ROBID(entries)
   val gid = new ROBID(entries)
+  val order = UInt(orderWidth.W)
   val archTag = UInt(archTagWidth.W)
   val physTag = UInt(physTagWidth.W)
 }
@@ -30,7 +32,8 @@ class GPRRenameCheckpointIO(
     val bidWidth: Int,
     val stidWidth: Int,
     val peIdWidth: Int,
-    val tidWidth: Int)
+    val tidWidth: Int,
+    val orderWidth: Int)
     extends Bundle {
   private val archTagWidth = math.max(1, log2Ceil(archRegs))
   private val physTagWidth = math.max(1, log2Ceil(physRegs))
@@ -45,6 +48,7 @@ class GPRRenameCheckpointIO(
   val renameBlockBid = Input(UInt(bidWidth.W))
   val renameRid = Input(new ROBID(entries))
   val renameGid = Input(new ROBID(entries))
+  val renameOrder = Input(UInt(orderWidth.W))
 
   val checkpointValid = Input(Bool())
   val checkpointBid = Input(new ROBID(entries))
@@ -56,6 +60,8 @@ class GPRRenameCheckpointIO(
   val commitBlockBid = Input(UInt(bidWidth.W))
 
   val cleanup = Input(new RecoveryCleanupIntent(entries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val cleanupOrderValid = Input(Bool())
+  val cleanupOrder = Input(UInt(orderWidth.W))
 
   val srcPhysTags = Output(Vec(3, UInt(physTagWidth.W)))
   val renameReady = Output(Bool())
@@ -100,7 +106,8 @@ class GPRRenameReplaySurvivorSelectIO(
     val mapQDepth: Int,
     val bidWidth: Int,
     val archTagWidth: Int,
-    val physTagWidth: Int)
+    val physTagWidth: Int,
+    val orderWidth: Int)
     extends Bundle {
   val archTag = Input(UInt(archTagWidth.W))
   val restorePhys = Input(UInt(physTagWidth.W))
@@ -108,6 +115,7 @@ class GPRRenameReplaySurvivorSelectIO(
   val mapQArchTag = Input(Vec(mapQDepth, UInt(archTagWidth.W)))
   val mapQFullBid = Input(Vec(mapQDepth, UInt(bidWidth.W)))
   val mapQRid = Input(Vec(mapQDepth, new ROBID(entries)))
+  val mapQOrder = Input(Vec(mapQDepth, UInt(orderWidth.W)))
   val mapQPhysTag = Input(Vec(mapQDepth, UInt(physTagWidth.W)))
   val physTag = Output(UInt(physTagWidth.W))
 }
@@ -117,18 +125,21 @@ class GPRRenameReplaySurvivorSelect(
     val mapQDepth: Int,
     val bidWidth: Int,
     val archTagWidth: Int,
-    val physTagWidth: Int)
+    val physTagWidth: Int,
+    val orderWidth: Int)
     extends Module {
-  val io = IO(new GPRRenameReplaySurvivorSelectIO(entries, mapQDepth, bidWidth, archTagWidth, physTagWidth))
+  val io = IO(new GPRRenameReplaySurvivorSelectIO(entries, mapQDepth, bidWidth, archTagWidth, physTagWidth, orderWidth))
 
   val bestValid = Wire(Vec(mapQDepth + 1, Bool()))
   val bestFullBid = Wire(Vec(mapQDepth + 1, UInt(bidWidth.W)))
   val bestRid = Wire(Vec(mapQDepth + 1, new ROBID(entries)))
+  val bestOrder = Wire(Vec(mapQDepth + 1, UInt(orderWidth.W)))
   val bestPhys = Wire(Vec(mapQDepth + 1, UInt(physTagWidth.W)))
 
   bestValid(0) := false.B
   bestFullBid(0) := 0.U
   bestRid(0) := 0.U.asTypeOf(new ROBID(entries))
+  bestOrder(0) := 0.U
   bestPhys(0) := io.restorePhys
 
   for (idx <- 0 until mapQDepth) {
@@ -136,11 +147,12 @@ class GPRRenameReplaySurvivorSelect(
     val newerThanBest =
       !bestValid(idx) ||
         (bestFullBid(idx) < io.mapQFullBid(idx)) ||
-        ((bestFullBid(idx) === io.mapQFullBid(idx)) && ROBID.less(bestRid(idx), io.mapQRid(idx)))
+        ((bestFullBid(idx) === io.mapQFullBid(idx)) && (bestOrder(idx) < io.mapQOrder(idx)))
     val take = hit && newerThanBest
     bestValid(idx + 1) := bestValid(idx) || hit
     bestFullBid(idx + 1) := Mux(take, io.mapQFullBid(idx), bestFullBid(idx))
     bestRid(idx + 1) := Mux(take, io.mapQRid(idx), bestRid(idx))
+    bestOrder(idx + 1) := Mux(take, io.mapQOrder(idx), bestOrder(idx))
     bestPhys(idx + 1) := Mux(take, io.mapQPhysTag(idx), bestPhys(idx))
   }
 
@@ -148,38 +160,55 @@ class GPRRenameReplaySurvivorSelect(
 }
 
 class GPRRenameCommitArchSelectIO(
+    val entries: Int,
     val mapQDepth: Int,
     val archTagWidth: Int,
-    val physTagWidth: Int)
+    val physTagWidth: Int,
+    val orderWidth: Int)
     extends Bundle {
   val archTag = Input(UInt(archTagWidth.W))
   val commitHit = Input(Vec(mapQDepth, Bool()))
   val mapQArchTag = Input(Vec(mapQDepth, UInt(archTagWidth.W)))
+  val mapQRid = Input(Vec(mapQDepth, new ROBID(entries)))
+  val mapQOrder = Input(Vec(mapQDepth, UInt(orderWidth.W)))
   val mapQPhysTag = Input(Vec(mapQDepth, UInt(physTagWidth.W)))
   val any = Output(Bool())
   val physTag = Output(UInt(physTagWidth.W))
+  val rid = Output(new ROBID(entries))
+  val order = Output(UInt(orderWidth.W))
 }
 
 class GPRRenameCommitArchSelect(
+    val entries: Int,
     val mapQDepth: Int,
     val archTagWidth: Int,
-    val physTagWidth: Int)
+    val physTagWidth: Int,
+    val orderWidth: Int)
     extends Module {
-  val io = IO(new GPRRenameCommitArchSelectIO(mapQDepth, archTagWidth, physTagWidth))
+  val io = IO(new GPRRenameCommitArchSelectIO(entries, mapQDepth, archTagWidth, physTagWidth, orderWidth))
 
   val any = Wire(Vec(mapQDepth + 1, Bool()))
   val phys = Wire(Vec(mapQDepth + 1, UInt(physTagWidth.W)))
+  val rid = Wire(Vec(mapQDepth + 1, new ROBID(entries)))
+  val order = Wire(Vec(mapQDepth + 1, UInt(orderWidth.W)))
 
   any(0) := false.B
   phys(0) := 0.U
+  rid(0) := 0.U.asTypeOf(new ROBID(entries))
+  order(0) := 0.U
   for (idx <- 0 until mapQDepth) {
     val hit = io.commitHit(idx) && (io.mapQArchTag(idx) === io.archTag)
+    val take = hit && (!any(idx) || (order(idx) < io.mapQOrder(idx)))
     any(idx + 1) := any(idx) || hit
-    phys(idx + 1) := Mux(hit, io.mapQPhysTag(idx), phys(idx))
+    phys(idx + 1) := Mux(take, io.mapQPhysTag(idx), phys(idx))
+    rid(idx + 1) := Mux(take, io.mapQRid(idx), rid(idx))
+    order(idx + 1) := Mux(take, io.mapQOrder(idx), order(idx))
   }
 
   io.any := any(mapQDepth)
   io.physTag := phys(mapQDepth)
+  io.rid := rid(mapQDepth)
+  io.order := order(mapQDepth)
 }
 
 class GPRRenameCheckpoint(
@@ -190,12 +219,14 @@ class GPRRenameCheckpoint(
     val bidWidth: Int = BID.DefaultWidth,
     val stidWidth: Int = 8,
     val peIdWidth: Int = 8,
-    val tidWidth: Int = 8)
+    val tidWidth: Int = 8,
+    val orderWidth: Int = 64)
     extends Module {
   require(entries > 1 && (entries & (entries - 1)) == 0, "rename checkpoint entries must be a power of two")
   require(archRegs == 24, "current scalar GPR rename owner follows LinxCoreModel GPR_COUNT=24")
   require(physRegs > archRegs, "GPR rename requires physical tags beyond the architectural identity tags")
   require(mapQDepth > 0, "GPR rename mapQ depth must be nonzero")
+  require(orderWidth > 0, "GPR rename row-order width must be nonzero")
 
   private val archTagWidth = math.max(1, log2Ceil(archRegs))
   private val physTagWidth = math.max(1, log2Ceil(physRegs))
@@ -204,19 +235,31 @@ class GPRRenameCheckpoint(
   private val allocatablePhysMask =
     (((BigInt(1) << physRegs) - 1) ^ ((BigInt(1) << archRegs) - 1)).U(physRegs.W)
 
-  val io = IO(new GPRRenameCheckpointIO(entries, archRegs, physRegs, mapQDepth, bidWidth, stidWidth, peIdWidth, tidWidth))
+  val io = IO(new GPRRenameCheckpointIO(
+    entries,
+    archRegs,
+    physRegs,
+    mapQDepth,
+    bidWidth,
+    stidWidth,
+    peIdWidth,
+    tidWidth,
+    orderWidth))
 
   private val identityMap = VecInit((0 until archRegs).map(_.U(physTagWidth.W)))
   private val freeInit = VecInit((0 until physRegs).map(idx => (idx >= archRegs).B))
 
   val smap = RegInit(identityMap)
   val cmap = RegInit(identityMap)
+  val cmapFullBid = RegInit(VecInit(Seq.fill(archRegs)(0.U(bidWidth.W))))
+  val cmapRid = RegInit(VecInit(Seq.fill(archRegs)(0.U.asTypeOf(new ROBID(entries)))))
+  val cmapOrder = RegInit(VecInit(Seq.fill(archRegs)(0.U(orderWidth.W))))
   val checkpointMap = RegInit(VecInit(Seq.fill(entries)(identityMap)))
   val checkpointValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
   val renamePtr = RegInit(0.U.asTypeOf(new ROBID(entries)))
   val freeList = RegInit(freeInit)
   val mapQ = RegInit(VecInit(Seq.fill(mapQDepth)(
-    0.U.asTypeOf(new GPRRenameMapQueueEntry(entries, bidWidth, archTagWidth, physTagWidth)))))
+    0.U.asTypeOf(new GPRRenameMapQueueEntry(entries, bidWidth, archTagWidth, physTagWidth, orderWidth)))))
 
   val mapQValidVec = VecInit(mapQ.map(_.valid))
   val mapQValidMask = mapQValidVec.asUInt
@@ -239,11 +282,13 @@ class GPRRenameCheckpoint(
   val mapQArchTagVec = Wire(Vec(mapQDepth, UInt(archTagWidth.W)))
   val mapQFullBidVec = Wire(Vec(mapQDepth, UInt(bidWidth.W)))
   val mapQRidVec = Wire(Vec(mapQDepth, new ROBID(entries)))
+  val mapQOrderVec = Wire(Vec(mapQDepth, UInt(orderWidth.W)))
   val mapQPhysTagVec = Wire(Vec(mapQDepth, UInt(physTagWidth.W)))
   for (idx <- 0 until mapQDepth) {
     mapQArchTagVec(idx) := mapQ(idx).archTag
     mapQFullBidVec(idx) := mapQ(idx).fullBid
     mapQRidVec(idx) := mapQ(idx).rid
+    mapQOrderVec(idx) := mapQ(idx).order
     mapQPhysTagVec(idx) := mapQ(idx).physTag
   }
 
@@ -271,22 +316,27 @@ class GPRRenameCheckpoint(
   val commitHitHasLaterSameArch = Wire(Vec(mapQDepth, Bool()))
   for (idx <- 0 until mapQDepth) {
     val e = mapQ(idx)
+    val sameBlockPrune =
+      Mux(io.cleanupOrderValid, io.cleanupOrder < e.order, ROBID.lessEqual(io.cleanup.flush.req.rid, e.rid))
     flushPruneVec(idx) :=
       e.valid && Mux(
         io.cleanup.flush.baseOnBid,
         io.cleanup.blockFlushBid <= e.fullBid,
         (io.cleanup.blockFlushBid < e.fullBid) ||
-          ((io.cleanup.blockFlushBid === e.fullBid) && ROBID.lessEqual(io.cleanup.flush.req.rid, e.rid)))
+          ((io.cleanup.blockFlushBid === e.fullBid) && sameBlockPrune))
     flushSameBidSurvivorVec(idx) :=
       e.valid && !flushPruneVec(idx) && !io.cleanup.flush.baseOnBid && (io.cleanup.blockFlushBid === e.fullBid)
     commitHitVec(idx) := e.valid && (e.fullBid === io.commitBlockBid)
   }
-  val laterCommitArchMask = Wire(Vec(mapQDepth + 1, UInt(archRegs.W)))
-  laterCommitArchMask(mapQDepth) := 0.U
-  for (idx <- (0 until mapQDepth).reverse) {
-    val archOH = UIntToOH(mapQ(idx).archTag, archRegs)
-    commitHitHasLaterSameArch(idx) := (laterCommitArchMask(idx + 1) & archOH).orR
-    laterCommitArchMask(idx) := laterCommitArchMask(idx + 1) | Mux(commitHitVec(idx), archOH, 0.U(archRegs.W))
+  for (idx <- 0 until mapQDepth) {
+    val hasNewerSameArch = (0 until mapQDepth)
+      .map { other =>
+        commitHitVec(other) &&
+          (mapQ(other).archTag === mapQ(idx).archTag) &&
+          (mapQ(idx).order < mapQ(other).order)
+      }
+      .reduce(_ || _)
+    commitHitHasLaterSameArch(idx) := commitHitVec(idx) && hasNewerSameArch
   }
 
   val committedMapQMask = commitHitVec.asUInt
@@ -303,30 +353,40 @@ class GPRRenameCheckpoint(
       mapQDepth = mapQDepth,
       bidWidth = bidWidth,
       archTagWidth = archTagWidth,
-      physTagWidth = physTagWidth))
+      physTagWidth = physTagWidth,
+      orderWidth = orderWidth))
     replaySelect.io.archTag := arch.U
     replaySelect.io.restorePhys := restoreBase(arch)
     replaySelect.io.survivorValid := flushSurvivorVec
     replaySelect.io.mapQArchTag := mapQArchTagVec
     replaySelect.io.mapQFullBid := mapQFullBidVec
     replaySelect.io.mapQRid := mapQRidVec
+    replaySelect.io.mapQOrder := mapQOrderVec
     replaySelect.io.mapQPhysTag := mapQPhysTagVec
     replaySurvivorMap(arch) := replaySelect.io.physTag
   }
 
   val commitAnyForArch = Wire(Vec(archRegs, Bool()))
   val commitPhysForArch = Wire(Vec(archRegs, UInt(physTagWidth.W)))
+  val commitRidForArch = Wire(Vec(archRegs, new ROBID(entries)))
+  val commitOrderForArch = Wire(Vec(archRegs, UInt(orderWidth.W)))
   for (arch <- 0 until archRegs) {
     val commitSelect = Module(new GPRRenameCommitArchSelect(
+      entries = entries,
       mapQDepth = mapQDepth,
       archTagWidth = archTagWidth,
-      physTagWidth = physTagWidth))
+      physTagWidth = physTagWidth,
+      orderWidth = orderWidth))
     commitSelect.io.archTag := arch.U
     commitSelect.io.commitHit := commitHitVec
     commitSelect.io.mapQArchTag := mapQArchTagVec
+    commitSelect.io.mapQRid := mapQRidVec
+    commitSelect.io.mapQOrder := mapQOrderVec
     commitSelect.io.mapQPhysTag := mapQPhysTagVec
     commitAnyForArch(arch) := commitSelect.io.any
     commitPhysForArch(arch) := commitSelect.io.physTag
+    commitRidForArch(arch) := commitSelect.io.rid
+    commitOrderForArch(arch) := commitSelect.io.order
   }
   val commitCmapReleaseMask =
     (0 until archRegs)
@@ -345,15 +405,21 @@ class GPRRenameCheckpoint(
 
   val nextSmap = Wire(Vec(archRegs, UInt(physTagWidth.W)))
   val nextCmap = Wire(Vec(archRegs, UInt(physTagWidth.W)))
+  val nextCmapFullBid = Wire(Vec(archRegs, UInt(bidWidth.W)))
+  val nextCmapRid = Wire(Vec(archRegs, new ROBID(entries)))
+  val nextCmapOrder = Wire(Vec(archRegs, UInt(orderWidth.W)))
   val nextCheckpointMap = Wire(Vec(entries, Vec(archRegs, UInt(physTagWidth.W))))
   val nextCheckpointValid = Wire(Vec(entries, Bool()))
   val nextRenamePtr = Wire(new ROBID(entries))
   val nextFreeList = Wire(Vec(physRegs, Bool()))
-  val nextMapQ = Wire(Vec(mapQDepth, new GPRRenameMapQueueEntry(entries, bidWidth, archTagWidth, physTagWidth)))
+  val nextMapQ = Wire(Vec(mapQDepth, new GPRRenameMapQueueEntry(entries, bidWidth, archTagWidth, physTagWidth, orderWidth)))
   val smapAfterRename = Wire(Vec(archRegs, UInt(physTagWidth.W)))
 
   nextSmap := smap
   nextCmap := cmap
+  nextCmapFullBid := cmapFullBid
+  nextCmapRid := cmapRid
+  nextCmapOrder := cmapOrder
   nextCheckpointMap := checkpointMap
   nextCheckpointValid := checkpointValid
   nextRenamePtr := renamePtr
@@ -376,6 +442,18 @@ class GPRRenameCheckpoint(
         nextMapQ(idx).valid := false.B
       }
     }
+    for (arch <- 0 until archRegs) {
+      val committedBeforeFlush =
+        !io.cleanup.flush.baseOnBid &&
+          ((cmapFullBid(arch) < io.cleanup.blockFlushBid) ||
+            ((cmapFullBid(arch) === io.cleanup.blockFlushBid) &&
+              Mux(io.cleanupOrderValid, cmapOrder(arch) <= io.cleanupOrder, ROBID.less(cmapRid(arch), io.cleanup.flush.req.rid))))
+      when(
+        restoreFromCheckpoint && committedBeforeFlush
+      ) {
+        nextSmap(arch) := cmap(arch)
+      }
+    }
     for (idx <- 0 until mapQDepth) {
       when(restoreFromCheckpoint && flushSameBidSurvivorVec(idx)) {
         nextSmap(mapQ(idx).archTag) := mapQ(idx).physTag
@@ -390,6 +468,9 @@ class GPRRenameCheckpoint(
     for (arch <- 0 until archRegs) {
       when(commitAnyForArch(arch)) {
         nextCmap(arch) := commitPhysForArch(arch)
+        nextCmapFullBid(arch) := io.commitBlockBid
+        nextCmapRid(arch) := commitRidForArch(arch)
+        nextCmapOrder(arch) := commitOrderForArch(arch)
       }
     }
   }.elsewhen(checkpointFire) {
@@ -403,6 +484,7 @@ class GPRRenameCheckpoint(
     nextMapQ(firstFreeMapQ).fullBid := io.renameBlockBid
     nextMapQ(firstFreeMapQ).rid := io.renameRid
     nextMapQ(firstFreeMapQ).gid := io.renameGid
+    nextMapQ(firstFreeMapQ).order := io.renameOrder
     nextMapQ(firstFreeMapQ).archTag := io.renameArchTag
     nextMapQ(firstFreeMapQ).physTag := firstFreePhys
     when(io.postRenameCheckpointValid) {
@@ -432,6 +514,9 @@ class GPRRenameCheckpoint(
 
   smap := nextSmap
   cmap := nextCmap
+  cmapFullBid := nextCmapFullBid
+  cmapRid := nextCmapRid
+  cmapOrder := nextCmapOrder
   checkpointMap := nextCheckpointMap
   checkpointValid := nextCheckpointValid
   renamePtr := nextRenamePtr

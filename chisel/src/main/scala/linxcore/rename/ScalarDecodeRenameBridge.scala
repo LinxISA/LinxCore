@@ -1,7 +1,7 @@
 package linxcore.rename
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util.{PopCount, log2Ceil}
 
 import linxcore.bctrl.BID
 import linxcore.commit.{CommitTraceParams, CommitTraceRow}
@@ -30,6 +30,8 @@ class ScalarDecodeRenameBridgeIO(
   val commitBid = Input(new ROBID(p.robEntries))
   val commitBlockBid = Input(UInt(bidWidth.W))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val cleanupOrderValid = Input(Bool())
+  val cleanupOrder = Input(UInt(p.uopUidWidth.W))
 
   val inReady = Output(Bool())
   val accepted = Output(Bool())
@@ -71,6 +73,8 @@ class ScalarDecodeRenameBridgeIO(
   val gprNextMapQLiveCount = Output(UInt(log2Ceil(physRegs + 1).W))
   val gprNextLivePhysCount = Output(UInt(log2Ceil(physRegs + 1).W))
   val gprNextFreeFromLiveCount = Output(UInt(log2Ceil(physRegs + 1).W))
+  val gprCommittedMapQCount = Output(UInt(log2Ceil(mapQDepth + 1).W))
+  val gprReleasedPhysCount = Output(UInt(log2Ceil(physRegs + 1).W))
 }
 
 class ScalarDecodeRenameBridge(
@@ -143,7 +147,8 @@ class ScalarDecodeRenameBridge(
     bidWidth = bidWidth,
     stidWidth = stidWidth,
     peIdWidth = peIdWidth,
-    tidWidth = tidWidth
+    tidWidth = tidWidth,
+    orderWidth = p.uopUidWidth
   ))
 
   for (idx <- 0 until 3) {
@@ -162,6 +167,7 @@ class ScalarDecodeRenameBridge(
   gpr.io.renameBlockBid := Mux(io.in.blockBidValid, io.in.blockBid, 0.U)
   gpr.io.renameRid := io.in.rid
   gpr.io.renameGid := io.in.gid
+  gpr.io.renameOrder := io.in.uid.uid
   gpr.io.checkpointValid := io.checkpointValid
   gpr.io.checkpointBid := io.checkpointBid
   gpr.io.postRenameCheckpointValid := accepted
@@ -170,6 +176,8 @@ class ScalarDecodeRenameBridge(
   gpr.io.commitBid := io.commitBid
   gpr.io.commitBlockBid := io.commitBlockBid
   gpr.io.cleanup := io.cleanup
+  gpr.io.cleanupOrderValid := io.cleanupOrderValid
+  gpr.io.cleanupOrder := io.cleanupOrder
 
   io.inReady := canAccept
   io.accepted := accepted
@@ -206,6 +214,8 @@ class ScalarDecodeRenameBridge(
   io.gprNextMapQLiveCount := gpr.io.nextMapQLiveCount
   io.gprNextLivePhysCount := gpr.io.nextLivePhysCount
   io.gprNextFreeFromLiveCount := gpr.io.nextFreeFromLiveCount
+  io.gprCommittedMapQCount := PopCount(gpr.io.committedMapQMask).asUInt
+  io.gprReleasedPhysCount := PopCount(gpr.io.releasedPhysMask).asUInt
 
   val renamed = Wire(new RenamedUop(p))
   renamed := 0.U.asTypeOf(renamed)
@@ -230,6 +240,7 @@ class ScalarDecodeRenameBridge(
   renamed.cacheMaintainNoSplit := io.in.cacheMaintainNoSplit
   renamed.sob := io.in.sob
   renamed.eob := io.in.eob
+  renamed.isLastInBlock := io.in.isLastInBlock
   renamed.boundaryKind := io.in.boundaryKind
   renamed.boundaryTarget := io.in.boundaryTarget
   renamed.predTaken := io.in.predTaken

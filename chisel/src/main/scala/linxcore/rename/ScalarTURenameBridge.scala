@@ -41,6 +41,8 @@ class ScalarTURenameBridgeIO(
   val commitBid = Input(new ROBID(p.robEntries))
   val commitBlockBid = Input(UInt(bidWidth.W))
   val cleanup = Input(new RecoveryCleanupIntent(p.robEntries, bidWidth, peIdWidth, stidWidth, tidWidth))
+  val cleanupOrderValid = Input(Bool())
+  val cleanupOrder = Input(UInt(p.uopUidWidth.W))
   val robSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
   val lsuSource = Input(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
 
@@ -116,6 +118,8 @@ class ScalarTURenameBridgeIO(
   val gprNextMapQLiveCount = Output(UInt(gprFreeWidth.W))
   val gprNextLivePhysCount = Output(UInt(gprFreeWidth.W))
   val gprNextFreeFromLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprCommittedMapQCount = Output(UInt(gprMapQFreeWidth.W))
+  val gprReleasedPhysCount = Output(UInt(gprFreeWidth.W))
 
   val tuReady = Output(Bool())
   val tuAccepted = Output(Bool())
@@ -277,6 +281,8 @@ class ScalarTURenameBridge(
   scalar.io.commitBid := io.commitBid
   scalar.io.commitBlockBid := io.commitBlockBid
   scalar.io.cleanup := io.cleanup
+  scalar.io.cleanupOrderValid := io.cleanupOrderValid
+  scalar.io.cleanupOrder := io.cleanupOrder
 
   tu.io.in := io.in
   tu.io.renameValid := scalar.io.accepted
@@ -342,6 +348,8 @@ class ScalarTURenameBridge(
   io.gprNextMapQLiveCount := scalar.io.gprNextMapQLiveCount
   io.gprNextLivePhysCount := scalar.io.gprNextLivePhysCount
   io.gprNextFreeFromLiveCount := scalar.io.gprNextFreeFromLiveCount
+  io.gprCommittedMapQCount := scalar.io.gprCommittedMapQCount
+  io.gprReleasedPhysCount := scalar.io.gprReleasedPhysCount
 
   io.tuReady := tu.io.ready
   io.tuAccepted := tu.io.accepted

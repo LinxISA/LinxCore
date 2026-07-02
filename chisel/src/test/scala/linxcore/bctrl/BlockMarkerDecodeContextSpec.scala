@@ -13,6 +13,7 @@ object BlockMarkerDecodeContextReference {
       decodeFire: Boolean = false,
       boundary: Boolean = false,
       stop: Boolean = false,
+      last: Boolean = false,
       stid: Int = 0,
       allocBid: BigInt = 0,
       target: BigInt = 0,
@@ -79,7 +80,7 @@ object BlockMarkerDecodeContextReference {
       val usesExisting = candidateValid && decodeActive && !in.boundary
       val startsNew =
         in.decodeFire && decodeLane.nonEmpty && (in.boundary || (decodeScalar && !decodeActive))
-      val closesActive = in.decodeFire && decodeLane.nonEmpty && decodeActive && (in.boundary || in.stop)
+      val closesActive = in.decodeFire && decodeLane.nonEmpty && decodeActive && (in.boundary || in.stop || in.last)
       val out = Output(
         activeBid = queryLane.filter(activeValid).map(activeBid),
         activeTarget = queryLane.map(activeTarget).getOrElse(BigInt(0)),
@@ -96,6 +97,8 @@ object BlockMarkerDecodeContextReference {
       } else if (in.decodeFire && in.boundary) {
         decodeLane.foreach(installBoundary(_, in.allocBid, in.target, in.kind))
       } else if (in.decodeFire && in.stop) {
+        decodeLane.foreach(clear)
+      } else if (decodeScalar && in.last) {
         decodeLane.foreach(clear)
       } else if (decodeScalar && !decodeActive) {
         decodeLane.foreach(installScalar(_, in.allocBid))
@@ -200,6 +203,23 @@ class BlockMarkerDecodeContextSpec extends AnyFunSuite {
     assert(blockLastState.step().activeBid.isEmpty)
   }
 
+  test("reference clears decode context after a scalar last row") {
+    val state = new State
+
+    state.step(Input(decodeFire = true, boundary = true, allocBid = 0x120))
+    val last = state.step(Input(decodeFire = true, last = true, allocBid = 0x130))
+    assert(last.activeBid.contains(0x120))
+    assert(last.usesExistingBlock)
+    assert(last.closesActive)
+    assert(last.decodeBlockBid == 0x120)
+
+    val continuation = state.step(Input(decodeFire = true, allocBid = 0x140))
+    assert(continuation.activeBid.isEmpty)
+    assert(!continuation.usesExistingBlock)
+    assert(continuation.startsNewBlock)
+    assert(continuation.decodeBlockBid == 0x140)
+  }
+
   test("reference reports stop markers that have no active decode context") {
     val state = new State
 
@@ -237,6 +257,7 @@ class BlockMarkerDecodeContextSpec extends AnyFunSuite {
     assert(sv.contains("module BlockMarkerDecodeContext"))
     assert(sv.contains("io_decodeValid"))
     assert(sv.contains("io_decodeFire"))
+    assert(sv.contains("io_decodeLast"))
     assert(sv.contains("io_decodeBlockBid"))
     assert(sv.contains("io_decodeUsesExistingBlock"))
     assert(sv.contains("io_decodeStartsNewBlock"))

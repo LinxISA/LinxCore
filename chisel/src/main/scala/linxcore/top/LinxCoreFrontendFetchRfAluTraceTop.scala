@@ -7,7 +7,7 @@ import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
-import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
+import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.StoreDispatchExecResult
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
@@ -266,6 +266,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val gprNextMapQLiveCount = Output(UInt(gprFreeWidth.W))
   val gprNextLivePhysCount = Output(UInt(gprFreeWidth.W))
   val gprNextFreeFromLiveCount = Output(UInt(gprFreeWidth.W))
+  val gprCommitAccepted = Output(Bool())
+  val gprCommitBlockBid = Output(UInt(p.blockBidWidth.W))
+  val gprCommittedMapQCount = Output(UInt(gprMapQFreeWidth.W))
+  val gprReleasedPhysCount = Output(UInt(gprFreeWidth.W))
   val tuRenameSourceUnderflowMask = Output(UInt(3.W))
   val tuRenameActiveBankValid = Output(Bool())
   val tuRenameBlockedByTAlloc = Output(Bool())
@@ -398,6 +402,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val scalarRedirectRidReg = RegInit(ROBID.disabled(p.robEntries))
   val scalarRedirectStidReg = RegInit(0.U(p.threadIdWidth.W))
   val scalarRedirectBlockBidReg = RegInit(0.U(p.blockBidWidth.W))
+  val scalarRedirectOrderValidReg = RegInit(false.B)
+  val scalarRedirectOrderReg = RegInit(0.U(p.uopUidWidth.W))
   val blockBranchTakenValid = RegInit(false.B)
   val blockBranchTaken = RegInit(false.B)
   val markerRedirectFire = path.io.blockMarkerStopRedirectValid || execute.io.redirectValid
@@ -541,6 +547,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val frontendValidMask = bodyCut.io.validMask
   val frontendSlotCount = bodyCut.io.slotCount
   val effectiveSourceAdvanceBytes = bodyCut.io.advanceBytes
+  val frontendSlots = Wire(Vec(p.decodeWidth, new F4Slot(p)))
+  frontendSlots := f4.io.slots
+  for (slot <- 0 until p.decodeWidth) {
+    val slotEndPc = (f4.io.slots(slot).pc + f4.io.slots(slot).lenBytes.pad(p.pcWidth))(p.pcWidth - 1, 0)
+    val reducedBodyCutLast =
+      reducedBodyCutActive && f4.io.slots(slot).valid && frontendValidMask(slot) && slotEndPc === bodyCut.io.cutPc
+    frontendSlots(slot).isLastInBlock := f4.io.slots(slot).isLastInBlock || reducedBodyCutLast
+  }
   val bodyCutRestartFire = source.io.outFire && reducedBodyCutActive
   val localBfuCutFeedbackFire = bodyCutRestartFire && localBfuBodyWindow.io.geometryValid
   localBfuBodyWindow.io.cutFire := bodyCutRestartFire
@@ -558,6 +572,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     scalarRedirectRidReg := ROBID.disabled(p.robEntries)
     scalarRedirectStidReg := 0.U
     scalarRedirectBlockBidReg := 0.U
+    scalarRedirectOrderValidReg := false.B
+    scalarRedirectOrderReg := 0.U
   }.elsewhen(markerRedirectFire) {
     markerRedirectPending := true.B
     markerRedirectPcReg := Mux(path.io.blockMarkerStopRedirectValid, path.io.blockMarkerStopRedirectPc, execute.io.redirectPc)
@@ -570,6 +586,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
         execute.io.redirectValid,
         Mux(execute.io.completeRow.blockBidValid, execute.io.completeRow.blockBid, 0.U),
         markerRedirectSourceBlockBid)
+    scalarRedirectOrderValidReg := execute.io.redirectValid
+    scalarRedirectOrderReg := Mux(execute.io.redirectValid, execute.io.redirectOrder, 0.U)
   }.elsewhen(markerRedirectPending) {
     markerRedirectPending := false.B
     scalarRedirectPending := false.B
@@ -577,6 +595,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     scalarRedirectRidReg := ROBID.disabled(p.robEntries)
     scalarRedirectStidReg := 0.U
     scalarRedirectBlockBidReg := 0.U
+    scalarRedirectOrderValidReg := false.B
+    scalarRedirectOrderReg := 0.U
   }
   when(io.frontendFlushValid || io.restartValid || io.startValid || markerRedirectFire) {
     admittedMarkerDrainBarrier := false.B
@@ -613,7 +633,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   f4.io.flushValid := frontendPipeFlush
 
   denseSlots.io.inD1 := f4.io.d1
-  denseSlots.io.inSlots := f4.io.slots
+  denseSlots.io.inSlots := frontendSlots
   denseSlots.io.inValidMask := frontendValidMask
   denseSlots.io.outReady := path.io.decodeReady && !admittedMarkerDrainBarrier
   denseSlots.io.flushValid := frontendPipeFlush
@@ -669,6 +689,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   pathCleanup.blockFlushBid := scalarRedirectBlockBidReg
   pathCleanup.reportQueueFlushValid := scalarRedirectPending
   path.io.cleanup := pathCleanup
+  path.io.scalarCleanupOrderValid := scalarRedirectOrderValidReg
+  path.io.scalarCleanupOrder := scalarRedirectOrderReg
   path.io.completeValid := execute.io.completeValid
   path.io.completeRobValue := execute.io.completeRobValue
   path.io.completeRowValid := execute.io.completeValid
@@ -1018,6 +1040,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.gprNextMapQLiveCount := path.io.gprNextMapQLiveCount
   io.gprNextLivePhysCount := path.io.gprNextLivePhysCount
   io.gprNextFreeFromLiveCount := path.io.gprNextFreeFromLiveCount
+  io.gprCommitAccepted := path.io.gprCommitAccepted
+  io.gprCommitBlockBid := path.io.gprCommitBlockBid
+  io.gprCommittedMapQCount := path.io.gprCommittedMapQCount
+  io.gprReleasedPhysCount := path.io.gprReleasedPhysCount
   io.tuRenameSourceUnderflowMask := path.io.tuRenameSourceUnderflowMask
   io.tuRenameActiveBankValid := path.io.tuRenameActiveBankValid
   io.tuRenameBlockedByTAlloc := path.io.tuRenameBlockedByTAlloc

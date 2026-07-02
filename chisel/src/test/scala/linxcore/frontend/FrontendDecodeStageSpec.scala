@@ -566,6 +566,7 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(io.d1.threadId.getWidth == 8)
     assert(io.out(0).peId.getWidth == 8)
     assert(io.out(0).threadId.getWidth == 8)
+    assert(io.out(0).isLastInBlock.getWidth == 1)
     assert(io.outValidMask.getWidth == 4)
     assert(io.invalidOpcodeMask.getWidth == 4)
     assert(io.blockBoundaryMask.getWidth == 4)

@@ -13,6 +13,7 @@ class F4Slot(val p: InterfaceParams = InterfaceParams()) extends Bundle {
   val lenBytes = UInt(4.W)
   val insnRaw = UInt(p.insnWidth.W)
   val uopUid = UInt(p.uopUidWidth.W)
+  val isLastInBlock = Bool()
 }
 
 class F4DecodeWindowIO(val p: InterfaceParams = InterfaceParams()) extends Bundle {
@@ -92,6 +93,7 @@ class F4DecodeWindow(val p: InterfaceParams = InterfaceParams()) extends Module 
     io.slots(slot).lenBytes := Mux(valids(slot), lens(slot), 0.U)
     io.slots(slot).insnRaw := Mux(valids(slot), rawInsns(slot), 0.U)
     io.slots(slot).uopUid := Mux(valids(slot), ((io.in.pktUid << 3) | slot.U)(p.uopUidWidth - 1, 0), 0.U)
+    io.slots(slot).isLastInBlock := false.B
 
     if (slot + 1 < p.decodeWidth) {
       offsets(slot + 1) := (offsets(slot) + Mux(valids(slot), lens(slot), 0.U))(3, 0)

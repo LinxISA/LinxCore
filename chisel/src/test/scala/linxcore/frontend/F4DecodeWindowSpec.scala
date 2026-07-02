@@ -214,6 +214,7 @@ class F4DecodeWindowSpec extends AnyFunSuite {
     assert(slot.lenBytes.getWidth == 4)
     assert(slot.insnRaw.getWidth == 64)
     assert(slot.uopUid.getWidth == 64)
+    assert(slot.isLastInBlock.getWidth == 1)
   }
 
   test("F4DecodeWindow elaborates through Chisel") {

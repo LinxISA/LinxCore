@@ -15,6 +15,7 @@ class BlockMarkerDecodeContextIO(
   val decodeFire = Input(Bool())
   val decodeBoundary = Input(Bool())
   val decodeStop = Input(Bool())
+  val decodeLast = Input(Bool())
   val decodeStid = Input(UInt(stidWidth.W))
   val decodeAllocBid = Input(UInt(bidWidth.W))
   val decodeTarget = Input(UInt(pcWidth.W))
@@ -123,6 +124,7 @@ class BlockMarkerDecodeContext(
   val decodeBoundaryFire = io.decodeFire && decodeStidInRange && io.decodeBoundary
   val decodeStopFire = io.decodeFire && decodeStidInRange && io.decodeStop && !io.decodeBoundary
   val decodeScalarStartFire = decodeScalarFire && decodeStidInRange && !decodeActiveValid
+  val decodeScalarLastFire = decodeScalarFire && decodeStidInRange && io.decodeLast
   val robBlockLastClearsActive =
     VecInit((0 until stidCount).map(idx =>
       io.robBlockLastValid && activeValid(idx) && io.robBlockLastBid === activeBid(idx)))
@@ -159,6 +161,12 @@ class BlockMarkerDecodeContext(
       }
     }
   }.elsewhen(decodeStopFire) {
+    for (idx <- 0 until stidCount) {
+      when(decodeStidMatch(idx)) {
+        clearLane(idx)
+      }
+    }
+  }.elsewhen(decodeScalarLastFire) {
     for (idx <- 0 until stidCount) {
       when(decodeStidMatch(idx)) {
         clearLane(idx)

@@ -148,6 +148,8 @@ class LinxCoreFrontendFetchTraceTop(
   path.io.commitBid := ROBID.disabled(p.robEntries)
   path.io.commitBlockBid := 0.U
   path.io.cleanup := 0.U.asTypeOf(new RecoveryCleanupIntent(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
+  path.io.scalarCleanupOrderValid := false.B
+  path.io.scalarCleanupOrder := 0.U
   path.io.completeValid := io.completeValid
   path.io.completeRobValue := io.completeRobValue
   path.io.completeRowValid := false.B

@@ -42,6 +42,7 @@ class ReducedScalarAluExecuteIO(
   val fretStkSpRestoreData = Output(UInt(p.immWidth.W))
   val redirectValid = Output(Bool())
   val redirectPc = Output(UInt(p.pcWidth.W))
+  val redirectOrder = Output(UInt(p.uopUidWidth.W))
 
   val releaseValid = Output(Bool())
   val releaseBid = Output(new ROBID(p.robEntries))
@@ -672,6 +673,7 @@ class ReducedScalarAluExecute(
             Mux(branchIsSetcLtui, branchSrc0 < w2Uop.imm, branchSrc0 < branchSrc1AddSub)))))
   io.redirectValid := io.completeValid && w2IsFretStk && (w2FretStkLoadReturn || w2FretStkTargetTaken)
   io.redirectPc := Mux(w2FretStkLoadReturn, w2Result(p.pcWidth - 1, 0), w2FretStkTarget)
+  io.redirectOrder := w2Uop.uid.uid
   when(io.completeValid && branchIsSetcTgt) {
     setcTargetValid := true.B
     setcTarget := branchSrc0(p.pcWidth - 1, 0)

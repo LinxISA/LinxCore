@@ -12,17 +12,22 @@ object GPRRenameCheckpointReference {
       bid: ROBIDValue,
       fullBid: BigInt,
       rid: ROBIDValue,
+      order: BigInt = 0,
       archTag: Int,
       physTag: Int)
 
   final case class State(
       smap: Vector[Int],
       cmap: Vector[Int],
+      cmapFullBid: Vector[BigInt],
+      cmapRid: Vector[ROBIDValue],
+      cmapOrder: Vector[BigInt],
       checkpoints: Vector[Vector[Int]],
       checkpointValid: Vector[Boolean],
       renamePtr: ROBIDValue,
       free: Vector[Boolean],
-      mapQ: Vector[MapQEntry]) {
+      mapQ: Vector[MapQEntry],
+      nextOrder: BigInt) {
     def freeCount: Int = free.count(identity)
     def mapQFreeCount: Int = mapQ.count(!_.valid)
   }
@@ -32,6 +37,9 @@ object GPRRenameCheckpointReference {
     State(
       smap = identity,
       cmap = identity,
+      cmapFullBid = Vector.fill(archRegs)(BigInt(0)),
+      cmapRid = Vector.fill(archRegs)(ROBIDValue()),
+      cmapOrder = Vector.fill(archRegs)(BigInt(0)),
       checkpoints = Vector.fill(entries)(identity),
       checkpointValid = Vector.fill(entries)(false),
       renamePtr = ROBIDValue(),
@@ -42,8 +50,10 @@ object GPRRenameCheckpointReference {
           bid = ROBIDValue(),
           fullBid = 0,
           rid = ROBIDValue(),
+          order = 0,
           archTag = 0,
-          physTag = 0))
+          physTag = 0)),
+      nextOrder = 0
     )
   }
 
@@ -55,18 +65,28 @@ object GPRRenameCheckpointReference {
       archTag: Int,
       bid: ROBIDValue,
       rid: ROBIDValue,
-      fullBid: BigInt = -1): (State, Int) = {
+      fullBid: BigInt = -1,
+      order: BigInt = -1): (State, Int) = {
     require(state.freeCount > 0)
     require(state.mapQFreeCount > 0)
     val storedFullBid = if (fullBid >= 0) fullBid else defaultFullBid(bid)
+    val storedOrder = if (order >= 0) order else state.nextOrder
     val phys = state.free.indexWhere(identity)
     val mapIdx = state.mapQ.indexWhere(!_.valid)
     val next = state.copy(
       smap = state.smap.updated(archTag, phys),
       free = state.free.updated(phys, false),
+      nextOrder = state.nextOrder.max(storedOrder + 1),
       mapQ = state.mapQ.updated(
         mapIdx,
-        MapQEntry(valid = true, bid = bid, fullBid = storedFullBid, rid = rid, archTag = archTag, physTag = phys))
+        MapQEntry(
+          valid = true,
+          bid = bid,
+          fullBid = storedFullBid,
+          rid = rid,
+          order = storedOrder,
+          archTag = archTag,
+          physTag = phys))
     )
     next -> phys
   }
@@ -88,21 +108,46 @@ object GPRRenameCheckpointReference {
   def commit(state: State, bid: ROBIDValue, fullBid: BigInt = -1): (State, Set[Int]) = {
     val targetFullBid = if (fullBid >= 0) fullBid else defaultFullBid(bid)
     var cmap = state.cmap
+    var cmapFullBid = state.cmapFullBid
+    var cmapRid = state.cmapRid
+    var cmapOrder = state.cmapOrder
     var free = state.free
     var mapQ = state.mapQ
     var released = Set.empty[Int]
 
-    for ((entry, idx) <- state.mapQ.zipWithIndex) {
-      if (entry.valid && entry.fullBid == targetFullBid) {
+    val hits = state.mapQ.zipWithIndex.collect {
+      case (entry, idx) if entry.valid && entry.fullBid == targetFullBid => (entry, idx)
+    }
+    val newestByArch = hits
+      .map(_._1)
+      .groupBy(_.archTag)
+      .view
+      .mapValues { entries =>
+        entries.reduce { (lhs, rhs) =>
+          if (lhs.order < rhs.order) rhs else lhs
+        }
+      }
+      .toMap
+
+    for ((entry, idx) <- hits) {
+      val newest = newestByArch(entry.archTag)
+      if (entry == newest) {
         if (cmap(entry.archTag) >= state.smap.length) {
           released += cmap(entry.archTag)
           free = free.updated(cmap(entry.archTag), true)
         }
         cmap = cmap.updated(entry.archTag, entry.physTag)
-        mapQ = mapQ.updated(idx, entry.copy(valid = false))
+        cmapFullBid = cmapFullBid.updated(entry.archTag, targetFullBid)
+        cmapRid = cmapRid.updated(entry.archTag, entry.rid)
+        cmapOrder = cmapOrder.updated(entry.archTag, entry.order)
+      } else if (entry.physTag >= state.smap.length) {
+        released += entry.physTag
+        free = free.updated(entry.physTag, true)
       }
+      mapQ = mapQ.updated(idx, entry.copy(valid = false))
     }
-    protectLive(state.copy(cmap = cmap, free = free, mapQ = mapQ)) -> released
+    protectLive(
+      state.copy(cmap = cmap, cmapFullBid = cmapFullBid, cmapRid = cmapRid, cmapOrder = cmapOrder, free = free, mapQ = mapQ)) -> released
   }
 
   def flush(
@@ -111,7 +156,8 @@ object GPRRenameCheckpointReference {
       flushRid: ROBIDValue,
       baseOnBid: Boolean,
       entries: Int,
-      flushFullBid: BigInt = -1): (State, Set[Int]) = {
+      flushFullBid: BigInt = -1,
+      flushOrder: BigInt = -1): (State, Set[Int]) = {
     val targetFullBid = if (flushFullBid >= 0) flushFullBid else defaultFullBid(flushBid, entries)
     val restoreBid = ROBIDReference.sub(flushBid, 1, entries)
     val needRestore = ROBIDReference.lessEqual(restoreBid, state.renamePtr, entries)
@@ -131,7 +177,11 @@ object GPRRenameCheckpointReference {
       if (entry.valid) {
         val prune =
           if (baseOnBid) targetFullBid <= entry.fullBid
-          else targetFullBid < entry.fullBid || (targetFullBid == entry.fullBid && ROBIDReference.lessEqual(flushRid, entry.rid, entries))
+          else
+            targetFullBid < entry.fullBid ||
+              (targetFullBid == entry.fullBid &&
+                (if (flushOrder >= 0) flushOrder < entry.order
+                 else ROBIDReference.lessEqual(flushRid, entry.rid, entries)))
         if (prune) {
           if (entry.physTag >= state.smap.length) {
             released += entry.physTag
@@ -143,6 +193,17 @@ object GPRRenameCheckpointReference {
     }
 
     if (restoreFromCheckpoint) {
+      for (arch <- state.smap.indices) {
+        val committedBeforeFlush =
+          !baseOnBid &&
+            (state.cmapFullBid(arch) < targetFullBid ||
+              (state.cmapFullBid(arch) == targetFullBid &&
+                (if (flushOrder >= 0) state.cmapOrder(arch) <= flushOrder
+                 else ROBIDReference.less(state.cmapRid(arch), flushRid))))
+        if (committedBeforeFlush) {
+          smap = smap.updated(arch, state.cmap(arch))
+        }
+      }
       for ((entry, idx) <- mapQ.zipWithIndex) {
         if (entry.valid && !baseOnBid && entry.fullBid == targetFullBid) {
           smap = smap.updated(entry.archTag, entry.physTag)
@@ -153,7 +214,7 @@ object GPRRenameCheckpointReference {
         val newest = mapQ.filter(entry => entry.valid && entry.archTag == arch).reduceOption { (lhs, rhs) =>
           val lhsOlder =
             lhs.fullBid < rhs.fullBid ||
-              (lhs.fullBid == rhs.fullBid && ROBIDReference.less(lhs.rid, rhs.rid))
+              (lhs.fullBid == rhs.fullBid && lhs.order < rhs.order)
           if (lhsOlder) rhs else lhs
         }
         newest.foreach(entry => smap = smap.updated(arch, entry.physTag))
@@ -251,6 +312,84 @@ class GPRRenameCheckpointSpec extends AnyFunSuite {
     assert(s3.smap(4) == 28)
   }
 
+  test("block commit selects newest same-arch RID independent of mapQ index order") {
+    val bid1 = ROBIDValue(value = 1)
+    val older = MapQEntry(
+      valid = true,
+      bid = bid1,
+      fullBid = 1,
+      rid = ROBIDValue(value = 1),
+      order = 10,
+      archTag = 4,
+      physTag = 24)
+    val newer = older.copy(rid = ROBIDValue(value = 3), order = 11, physTag = 25)
+    val base = initial()
+    val state = base.copy(
+      cmap = base.cmap.updated(4, 28),
+      mapQ = Vector(newer, older) ++ Vector.fill(6)(
+        MapQEntry(
+          valid = false,
+          bid = ROBIDValue(),
+          fullBid = 0,
+          rid = ROBIDValue(),
+          archTag = 0,
+          physTag = 0)))
+    val (committed, released) = commit(state, bid1)
+
+    assert(committed.cmap(4) == 25)
+    assert(committed.cmapRid(4) == ROBIDValue(value = 3))
+    assert(committed.mapQ.forall(!_.valid))
+    assert(released == Set(24, 28))
+  }
+
+  test("non-BID flush uses row order when same-block RID wraps") {
+    val blockBid = BigInt(376)
+    val flushBid = ROBIDValue(valid = true, wrap = false, value = 1)
+    val base = checkpoint(initial(), ROBIDValue(value = 0))
+    val olderSameBlockWrite = MapQEntry(
+      valid = true,
+      bid = flushBid,
+      fullBid = blockBid,
+      rid = ROBIDValue(valid = true, wrap = true, value = 4),
+      order = 100,
+      archTag = 4,
+      physTag = 38)
+    val youngerSameBlockWrite = MapQEntry(
+      valid = true,
+      bid = flushBid,
+      fullBid = blockBid,
+      rid = ROBIDValue(valid = true, wrap = false, value = 7),
+      order = 102,
+      archTag = 5,
+      physTag = 39)
+    val state = base.copy(
+      free = base.free.updated(38, false).updated(39, false),
+      mapQ = Vector(olderSameBlockWrite, youngerSameBlockWrite) ++ Vector.fill(6)(
+        MapQEntry(
+          valid = false,
+          bid = ROBIDValue(),
+          fullBid = 0,
+          rid = ROBIDValue(),
+          order = 0,
+          archTag = 0,
+          physTag = 0)))
+    val (flushed, released) =
+      flush(
+        state,
+        flushBid = flushBid,
+        flushRid = ROBIDValue(valid = true, wrap = false, value = 6),
+        baseOnBid = false,
+        entries = 8,
+        flushFullBid = blockBid,
+        flushOrder = 101)
+
+    assert(flushed.smap(4) == 38)
+    assert(flushed.smap(5) == 5)
+    assert(flushed.mapQ.exists(e => e.valid && e.archTag == 4 && e.physTag == 38))
+    assert(!flushed.mapQ.exists(e => e.valid && e.archTag == 5 && e.physTag == 39))
+    assert(released == Set(39))
+  }
+
   test("commit recomputes free tags from live smap cmap and mapQ ownership") {
     val bid1 = ROBIDValue(value = 1)
     val base = initial(physRegs = 128, mapQDepth = 256)
@@ -294,6 +433,38 @@ class GPRRenameCheckpointSpec extends AnyFunSuite {
     assert(s5.smap(3) == 3)
     assert(s5.smap(4) == 4)
     assert(s5.mapQ.count(_.valid) == 1)
+  }
+
+  test("non-BID flush keeps committed same-block older writes visible after mapQ commit") {
+    val priorBid = ROBIDValue(value = 0)
+    val bid1 = ROBIDValue(value = 1)
+    val base = checkpoint(initial(), priorBid)
+    val (s1, p24) = rename(base, archTag = 4, bid = bid1, rid = ROBIDValue(value = 4))
+    val (s2, p25) = rename(s1, archTag = 5, bid = bid1, rid = ROBIDValue(value = 6))
+    val (committed, _) = commit(s2, bid1)
+    val (flushed, _) = flush(committed, flushBid = bid1, flushRid = ROBIDValue(value = 5), baseOnBid = false, entries = 8)
+
+    assert(flushed.mapQ.forall(!_.valid))
+    assert(flushed.smap(4) == p24)
+    assert(flushed.smap(5) == 5)
+    assert(p25 == 25)
+  }
+
+  test("non-BID flush overlays older-block committed cmap over stale checkpoint") {
+    val baseBid = ROBIDValue(value = 0)
+    val committedBid = ROBIDValue(value = 1)
+    val flushBid = ROBIDValue(value = 2)
+    val base = checkpoint(initial(), baseBid)
+    val (renamed, p24) = rename(base, archTag = 4, bid = committedBid, rid = ROBIDValue(value = 3))
+    val (committed, _) = commit(renamed, committedBid)
+    val (later, _) = rename(committed, archTag = 5, bid = flushBid, rid = ROBIDValue(value = 1))
+    val (flushed, released) = flush(later, flushBid = flushBid, flushRid = ROBIDValue(value = 1), baseOnBid = false, entries = 8)
+
+    assert(p24 == 24)
+    assert(released == Set(25))
+    assert(flushed.smap(4) == p24)
+    assert(flushed.smap(5) == 5)
+    assert(flushed.mapQ.forall(!_.valid))
   }
 
   test("non-BID flush without checkpoints rebuilds smap from older surviving wrapped-BID mapQ entries") {
