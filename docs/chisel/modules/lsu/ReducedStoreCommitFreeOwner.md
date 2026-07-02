@@ -32,7 +32,9 @@ after R241 and frees rows from the SCB accepted-`last` mask instead.
 This module is intentionally narrower than the full LSU commit path. It lets
 `LinxCoreFrontendFetchRfAluTraceTop(useReducedStoreDispatchStq=true)` prove
 store-dispatch residency and ROB-to-STQ mark ownership, but it does not own
-cache update, memory mutation, MDB conflict detection, or load-store forwarding.
+cache update, MDB conflict detection, or full load-store forwarding. R258 adds
+a separate reduced store-memory overlay for accepted committed fragments; this
+owner still only marks and frees STQ rows.
 
 ## Interface
 
@@ -139,9 +141,16 @@ rows. Reusing the R254 generated testbench against fresh loop-reentry-enabled
 captures then passes at 2048, 4096, and 8192 raw rows, comparing 1467, 3369,
 and 7172 rows respectively with zero mismatches.
 
+R258 keeps this owner unchanged. It consumes the downstream SCB accepted
+fragment stream in `ReducedStoreMemoryOverlay`, so the reduced top can prove
+later load visibility without harness-side sparse memory mutation. The
+commit/free owner remains responsible only for ROB-to-STQ mark identity and
+free-source integration.
+
 ## Deferred Owners
 
-- Add store memory mutation and load lookup/store-forwarding interaction.
+- Replace the reduced store-memory overlay with full load lookup,
+  store-forwarding, wait/replay, and cache interaction.
 - Add MDB conflict publication and precise recovery cleanup for committed STQ
   rows if the full exception model requires it.
 

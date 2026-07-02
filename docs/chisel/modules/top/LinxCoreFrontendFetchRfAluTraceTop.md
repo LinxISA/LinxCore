@@ -24,6 +24,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssueQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssuePick.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreMemoryOverlay.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`
   - `model/LinxCoreModel/model/ModelCommon/bus/FetchReqBus.h`
@@ -787,6 +788,22 @@ skill-evolve: no-update (R254-R257 only scale the R253 reduced-store proof;
 loop-re-entry extraction and the reusable store invariants are already
 documented).
 
+R258 replaces harness-owned store memory mutation in the optional reduced-store
+path with `ReducedStoreMemoryOverlay`. The top records SCB-accepted committed
+store fragments in RTL, routes execute-stage load lookup data through the
+overlay, and adds `--disable-store-memory-mutation` to the shared Verilator
+harness and QEMU wrapper so later loads must see store bytes from RTL state.
+The 1024-row CoreMark/QEMU packet captured 1024 raw rows, reduced 953 expected
+rows, skipped 288 marker rows, and compared 665 rows with zero mismatches in
+`generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/report-no-harness-store/crosscheck_manifest.json`.
+This is still a reduced memory visibility bridge: accepted SCB fragments are
+treated as committed/nonflushable state, but full cache state, store-forwarding
+wait/replay, MDB publication, and TSO/fence completion remain deferred.
+
+skill-evolve: no-update (R258 adds a module-local reduced memory overlay and
+proof switch; the R253/R124 store contracts already cover the reusable
+source-order and commit-identity rules).
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -807,7 +824,7 @@ documented).
 | input | `peId`, `threadId` | `UInt` | with source packet | Packet-owned PE/STID sidecars for decode/rename. |
 | input | `fetchReqReady` | `Bool` | ready | Bounded fixture accepts a source PC request. |
 | input | `fetchRespValid`, `fetchRespWindow` | `Bool`, `UInt(windowWidth.W)` | valid | Bounded fixture returns one instruction window for the issued PC. |
-| input | `loadLookupData` | `UInt(64.W)` by default | combinational with `loadLookupValid` | Reduced read-only load data supplied by the harness from the sparse ELF memory image. |
+| input | `loadLookupData` | `UInt(64.W)` by default | combinational with `loadLookupValid` | Reduced base load data supplied by the harness from the sparse ELF memory image; in optional reduced-store mode this is overlaid by `ReducedStoreMemoryOverlay` before execute consumes it. |
 | input | `rfInitValid`, `rfInitArchTag`, `rfInitData` | mixed | pulse | Preloads identity physical RF state for architectural scalar GPRs. |
 | input | `deallocReady` | `Bool` | ready | Allows retired ROB rows to deallocate. |
 | output | `fetchReqValid`, `fetchReqPc`, `fetchRespReady` | mixed | valid/ready | Live source PC request and response handshake. |
@@ -836,6 +853,7 @@ documented).
 | output | `reducedStoreCommit*` | mixed | diagnostic | R240/R241 reduced commit owner diagnostics: store commit seen/matched/unmatched, matched STQ mask, pending mark/free masks and counts, mark command valid/index, SCB-backed free-mask valid/index compatibility signal, accepted/ignored mask results, and blocked flags. |
 | output | `reducedStoreDrain*` | mixed | diagnostic | R241 reduced `STQCommitDrain` diagnostics: mark-accepted enqueue result, duplicate detect, issue mask/count, abstract drain early-free mask, queue count, empty, and order-error. |
 | output | `reducedStoreScb*` | mixed | diagnostic | R241 reduced `SCBRowBank` diagnostics: model-batch readiness, accepted/stalled request masks, accepted-`last` commit-free mask/count, valid row mask, and entry count. |
+| output | `reducedStoreMemoryValidMask`, `reducedStoreMemoryLineCount`, `reducedStoreMemoryLoadForwardMask`, `reducedStoreMemoryStoreDroppedMask` | mixed | diagnostic | R258 reduced store-memory overlay occupancy, load-byte forward mask, and accepted-request drop diagnostics. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
 | output | `robAllocFire`, `robRenameUpdateFire`, `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB allocation, post-rename update, and completion acceptance events. |
@@ -884,6 +902,9 @@ overlay. Most state remains in child modules:
   request descriptor shaper around the existing `StoreDispatchSTQPath` bank.
 - `SCBRowBank`: optional R241 SCB admission owner whose accepted `last`
   fragments produce the only STQ committed-row free mask in the reduced top.
+- `ReducedStoreMemoryOverlay`: optional R258 store-memory visibility bridge
+  that records SCB-accepted committed store fragments and overlays later
+  reduced load lookup bytes.
 
 ## Logic Design
 
@@ -943,9 +964,15 @@ from SCB accepted `last` fragments. The top asserts the drain queue flush on
 backend flush, start, restart, and while `useReducedStoreDispatchStq=false`.
 When the parameter is false, the bridge is held flushed and captures no store
 results, while the commit owner, drain, and SCB path are also held inactive.
-The opt-in path is still for bounded integration debug: it now owns STQ
-mark/drain/free lifecycle, but not external memory mutation, load-store
-forwarding, or MDB conflict publication.
+R258 adds `ReducedStoreMemoryOverlay` after `SCBRowBank`. Accepted SCB store
+fragments update a 64-byte-line overlay, and reduced load lookup data is formed
+by applying that overlay over the immutable sparse ELF base data. The overlay
+clears only on run start/restart or when the optional reduced-store path is
+disabled; ordinary backend redirects do not clear it because accepted SCB
+fragments are committed memory-side state. The opt-in path is still for bounded
+integration debug: it now owns STQ mark/drain/free lifecycle and committed
+store-byte visibility for scalar load lookup, but not full store forwarding,
+cache state, TSO/fence completion, or MDB conflict publication.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
 packet acceptance. The P1/I1/I2 picker reads source data from
@@ -971,11 +998,14 @@ For reduced loads, the execute stage publishes a combinational lookup request
 before it captures the E-stage result. The Verilator harness evaluates the DUT,
 reads eight little-endian bytes from the sparse ELF image at `loadLookupAddr`,
 drives `loadLookupData`, and reevaluates before the clock edge. Missing bytes
-read as zero. R124/R125 add explicit committed-store mutation for compared
-8-byte store rows: after a store row matches QEMU, the harness writes that little-endian
-`mem_wdata` into the same sparse image so later reduced load lookups see the
-program-order store effect. This is still not a general LSU/STQ, cache, or
-store-forwarding implementation.
+read as zero. R124/R125 used explicit committed-store mutation in the harness:
+after a store row matched QEMU, the harness wrote that little-endian
+`mem_wdata` into the same sparse image so later reduced load lookups saw the
+program-order store effect. R258 keeps that legacy mode available, but the
+stricter `--disable-store-memory-mutation` gate leaves the sparse image
+immutable and requires `ReducedStoreMemoryOverlay` to supply committed store
+bytes from RTL state. This remains a reduced committed-store visibility bridge,
+not a general LSU/STQ, cache, replay, or store-forwarding implementation.
 
 R123 also proves that live generated-RTL commit collection must accept the
 native two-slot commit window. The harness preserves slot order by collecting
@@ -1706,6 +1736,9 @@ records `status: "pass"`, `summary.compared_rows: 3`,
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r192-marker-row-brob-retire-drain-128-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 128 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r192-default-skip-regression-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 3 --capture-rows 16 --allow-block-markers --max-seconds 10 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-1024-frontier-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreMemoryOverlay`
+- `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r258-store-memory-overlay-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --reduced-store-dispatch-stq --disable-store-memory-mutation --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `bash tools/chisel/run_chisel_qemu_crosscheck.sh --qemu-trace generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/traces/qemu.no-harness-store.jsonl --dut-trace generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/traces/dut.no-harness-store.jsonl --report-dir generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/report-no-harness-store --max-commits 665 --mode failfast`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r126-coremark-fret-scalar-redirect-1415-qemu-elf-xcheck-pass --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1415 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r127-brob-flushed-reuse-1461-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1461 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r106-coremark-addtpc-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 4 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`

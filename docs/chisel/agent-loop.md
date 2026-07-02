@@ -669,6 +669,7 @@ These packets remain the required base before broad module promotion:
 | R255 | Reduced-store 2048-row replay using the R254 generated binary | Manual bounded FIFO QEMU capture to `generated/r255-reduced-store-scale-2048-reuse-r254-bin-qemu-elf-xcheck/traces/qemu.live.raw.jsonl`, `frontend_fetch_rf_alu_qemu_rows.py --allow-block-markers --allow-block-loop-reentry`, the R254 `linxcore_frontend_fetch_rf_alu_trace_top_tb` binary, and `run_chisel_qemu_crosscheck.sh`. The first strict extraction hit the known dynamic block-loop re-entry boundary at raw row 1747; rerunning the same captured prefix with loop re-entry enabled reduced 1914 expected rows and compared 1467 rows with zero mismatches. Closeout: `skill-evolve: no-update (R255 uses an existing row-source mode and only scales the R253 proof window)`. |
 | R256 | Reduced-store 4096-row replay using the R254 generated binary | Manual bounded FIFO QEMU capture to `generated/r256-reduced-store-scale-4096-reuse-r254-bin-qemu-elf-xcheck/traces/qemu.live.raw.jsonl`, `frontend_fetch_rf_alu_qemu_rows.py --allow-block-markers --allow-block-loop-reentry`, the R254 testbench binary, and `run_chisel_qemu_crosscheck.sh`. The replay captures 4096 raw rows, reduces 3962 expected rows with 592 skip rows, normalizes 3370 QEMU/DUT rows, compares 3369 rows, and passes with zero mismatches and no CBSTOP divergence. Closeout: `skill-evolve: no-update (R256 only scales the R253 reduced-store proof; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
 | R257 | Reduced-store 8192-row replay using the R254 generated binary | Manual bounded FIFO QEMU capture to `generated/r257-reduced-store-scale-8192-reuse-r254-bin-qemu-elf-xcheck/traces/qemu.live.raw.jsonl`, `frontend_fetch_rf_alu_qemu_rows.py --allow-block-markers --allow-block-loop-reentry`, the R254 testbench binary, and `run_chisel_qemu_crosscheck.sh`. The replay captures 8192 raw rows, reduces 8058 expected rows with 885 skip rows, normalizes 7173 QEMU/DUT rows, compares 7172 rows, and passes with zero mismatches and no CBSTOP divergence. Closeout: `skill-evolve: no-update (R257 only scales the R253 reduced-store proof; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
+| R258 | Reduced-store memory overlay and no-harness-mutation proof | `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreMemoryOverlay`, `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, live QEMU wrapper capture/build with `--reduced-store-dispatch-stq --disable-store-memory-mutation`, direct rerun of `generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/obj_dir/linxcore_frontend_fetch_rf_alu_trace_top_tb --disable-store-memory-mutation`, and `bash tools/chisel/run_chisel_qemu_crosscheck.sh --qemu-trace generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/traces/qemu.no-harness-store.jsonl --dut-trace generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/traces/dut.no-harness-store.jsonl --report-dir generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/report-no-harness-store --max-commits 665 --mode failfast`. Added `ReducedStoreMemoryOverlay` to record SCB-accepted committed store fragments and overlay later reduced load lookup bytes over the immutable sparse ELF base image. The gate captures 1024 raw QEMU rows, reduces 953 expected rows with 288 marker skips, compares 665 rows, and passes with zero mismatches in `generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/report-no-harness-store/crosscheck_manifest.json`. Closeout: `skill-evolve: no-update (R258 adds a module-local reduced memory overlay and proof switch; R253/R124 already capture the reusable store source-order and commit-identity contracts)`. |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -870,15 +871,18 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add the next memory-side reduced-store boundary after R257. Read
+1. Add the next memory-side reduced-store boundary after R258. Read
    `ReducedStoreCommitFreeOwner`, `ReducedStoreExecResultBridge`,
    `STQCommitDrain`, `SCBRowBank`, `LoadStoreForwarding`, `MDBConflictDetect`,
    and LinxCoreModel `STQ::commit` first. The reduced top now has the correct
    SCB accepted-`last` free source plus R253 model-identity commit/free
-   matching, and R254-R257 scale that optional path through 8192 raw CoreMark
-   QEMU rows with zero mismatches. It still lacks external memory mutation,
-   store-to-load forwarding, and MDB conflict publication. Focused gates should
-   include `ReducedStoreCommitFreeOwnerSpec`, `STQCommitQueueSpec`,
+   matching, R254-R257 scale that optional path through 8192 raw CoreMark QEMU
+   rows with zero mismatches, and R258 proves 1024 raw rows with store-visible
+   loads supplied by RTL overlay instead of harness memory mutation. It still
+   lacks full store-to-load forwarding, load wait/replay, MDB conflict
+   publication, TSO/fence completion, and real cache/SCB memory state. Focused
+   gates should include `ReducedStoreMemoryOverlaySpec`,
+   `ReducedStoreCommitFreeOwnerSpec`, `STQCommitQueueSpec`,
    `STQCommitDrainSpec`, `STQSCBCommitPathSpec`, `DecodeRenameROBPathSpec`,
    and `LinxCoreFrontendFetchRfAluTraceTopSpec` before any optional-STQ QEMU
    live gate.
