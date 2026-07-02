@@ -4,6 +4,9 @@
 #elif defined(LINXCORE_REDUCED_STORE_TRACE_TOP)
 #include "VLinxCoreFrontendFetchRfAluReducedStoreTraceTop.h"
 #define VLinxCoreFrontendFetchRfAluTraceTop VLinxCoreFrontendFetchRfAluReducedStoreTraceTop
+#elif defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+#include "VLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop.h"
+#define VLinxCoreFrontendFetchRfAluTraceTop VLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop
 #else
 #include "VLinxCoreFrontendFetchRfAluTraceTop.h"
 #endif

@@ -225,6 +225,16 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayQueueOutYoungestStoreLsIdValid.getWidth == 1)
     assert(io.reducedLoadReplayQueueOutYoungestStoreLsIdWrap.getWidth == 1)
     assert(io.reducedLoadReplayQueueOutYoungestStoreLsIdValue.getWidth == 3)
+    assert(io.reducedLoadReplayLiqAllocEnabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqAllocConsumeReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqAllocCandidateUsable.getWidth == 1)
+    assert(io.reducedLoadReplayLiqAllocBlockedByAlloc.getWidth == 1)
+    assert(io.reducedLoadReplayLiqAllocAccepted.getWidth == 1)
+    assert(io.reducedLoadReplayLiqAllocIndex.getWidth == 3)
+    assert(io.reducedLoadReplayLiqAllocLoadIdValue.getWidth == 3)
+    assert(io.reducedLoadReplayLiqOccupiedMask.getWidth == 8)
+    assert(io.reducedLoadReplayLiqWaitMask.getWidth == 8)
+    assert(io.reducedLoadReplayLiqResidentCount.getWidth == 4)
     assert(io.reducedLoadWaitReplaySlotPc.getWidth == 64)
     assert(io.reducedLoadWaitReplaySlotAddr.getWidth == 64)
     assert(io.storeDispatchReady.getWidth == 1)
@@ -344,6 +354,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedStoreResidentForward"))
     assert(sv.contains("module ReducedLoadWaitReplaySlot"))
     assert(sv.contains("module ReducedLoadReplayRelaunchQueue"))
+    assert(sv.contains("module ReducedLoadReplayLiqAllocPath"))
     assert(sv.contains("module ReducedLoadReplayCompletionDrain"))
     assert(sv.contains("io_reducedStoreDispatchEnabled"))
     assert(sv.contains("io_reducedStoreExecCaptureFire"))
@@ -372,6 +383,9 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayDrainMatchValid"))
     assert(sv.contains("io_reducedLoadReplayDrainGidMismatch"))
     assert(sv.contains("io_reducedLoadReplayDrainLsIdMismatch"))
+    assert(sv.contains("io_reducedLoadReplayLiqAllocEnabled"))
+    assert(sv.contains("io_reducedLoadReplayLiqAllocAccepted"))
+    assert(sv.contains("io_reducedLoadReplayLiqResidentCount"))
     assert(sv.contains("io_executeLoadWaitHold"))
     assert(sv.contains("io_storeStqInsertValid"))
   }
@@ -393,6 +407,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedStoreResidentForward"))
     assert(sv.contains("module ReducedLoadWaitReplaySlot"))
     assert(sv.contains("module ReducedLoadReplayRelaunchQueue"))
+    assert(sv.contains("module ReducedLoadReplayLiqAllocPath"))
     assert(sv.contains("module ReducedLoadReplayCompletionDrain"))
     assert(sv.contains("io_reducedStoreDispatchEnabled"))
     assert(sv.contains("io_reducedStoreScbCommitFreeMask"))
@@ -411,8 +426,29 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayDrainConsumeReady"))
     assert(sv.contains("io_reducedLoadReplayDrainAddrMismatch"))
     assert(sv.contains("io_reducedLoadReplayDrainRidMismatch"))
+    assert(sv.contains("io_reducedLoadReplayLiqAllocEnabled"))
+    assert(sv.contains("io_reducedLoadReplayLiqAllocConsumeReady"))
+    assert(sv.contains("io_reducedLoadReplayLiqOccupiedMask"))
     assert(sv.contains("io_executeLoadWaitHold"))
     assert(sv.contains("io_storeStqInsertValid"))
+  }
+
+  test("reduced-store replay-LIQ wrapper elaborates allocation consumer diagnostics") {
+    val sv = ChiselStage.emitSystemVerilog(
+      new LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
+        CoreParams(robEntries = 8, commitWidth = 2),
+        mapQDepth = 8)
+    )
+
+    assert(sv.contains("module LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop"))
+    assert(sv.contains("module ReducedLoadReplayLiqAllocPath"))
+    assert(sv.contains("module ReducedLoadReplayLiqAllocAdapter"))
+    assert(sv.contains("module LoadInflightQueue"))
+    assert(sv.contains("io_reducedLoadReplayLiqAllocEnabled"))
+    assert(sv.contains("io_reducedLoadReplayLiqAllocConsumeReady"))
+    assert(sv.contains("io_reducedLoadReplayLiqAllocAccepted"))
+    assert(sv.contains("io_reducedLoadReplayLiqResidentCount"))
+    assert(sv.contains("io_reducedLoadReplayQueueOutFire"))
   }
 
   test("marker-row harness elaborates admitted markers with decode-time BID context") {

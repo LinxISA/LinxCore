@@ -109,7 +109,9 @@ owner.
 
 ## Deferred Owners
 
-- Wiring this composition into `LinxCoreFrontendFetchRfAluTraceTop`.
+- Live default `LinxCoreFrontendFetchRfAluTraceTop` replay replacement. R279
+  wires this composition only through the opt-in reduced-store replay-LIQ
+  wrapper and diagnostics.
 - Launch selection between new loads and replay loads.
 - Reusing row-owned data from replay/refill wakeups during relaunch.
 - LHQ/ResolveQ queue movement and load-store conflict publication.
@@ -123,6 +125,7 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayLiqAllocPath
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayLiqAllocAdapter
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
+bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
 Reference tests cover allocation-pointer order, preservation of load LSID and

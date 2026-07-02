@@ -5,14 +5,25 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 CHISEL_DIR="${ROOT_DIR}/chisel"
 FETCH_MARKER_ROWS_TRACE_TOP="${FETCH_MARKER_ROWS_TRACE_TOP:-0}"
 FETCH_REDUCED_STORE_DISPATCH_STQ="${FETCH_REDUCED_STORE_DISPATCH_STQ:-0}"
-if [[ "${FETCH_MARKER_ROWS_TRACE_TOP}" == "1" && "${FETCH_REDUCED_STORE_DISPATCH_STQ}" == "1" ]]; then
-  echo "error: FETCH_MARKER_ROWS_TRACE_TOP and FETCH_REDUCED_STORE_DISPATCH_STQ are mutually exclusive" >&2
+FETCH_REDUCED_STORE_REPLAY_LIQ="${FETCH_REDUCED_STORE_REPLAY_LIQ:-0}"
+selected_top_count=0
+for selected_top in "${FETCH_MARKER_ROWS_TRACE_TOP}" "${FETCH_REDUCED_STORE_DISPATCH_STQ}" "${FETCH_REDUCED_STORE_REPLAY_LIQ}"; do
+  if [[ "${selected_top}" == "1" ]]; then
+    selected_top_count=$((selected_top_count + 1))
+  fi
+done
+if (( selected_top_count > 1 )); then
+  echo "error: FETCH_MARKER_ROWS_TRACE_TOP, FETCH_REDUCED_STORE_DISPATCH_STQ, and FETCH_REDUCED_STORE_REPLAY_LIQ are mutually exclusive" >&2
   exit 2
 fi
 if [[ "${FETCH_MARKER_ROWS_TRACE_TOP}" == "1" ]]; then
   SV_DIR="${ROOT_DIR}/generated/chisel-verilog/frontend-fetch-rf-alu-marker-rows-trace-top"
   TOP_MODULE="LinxCoreFrontendFetchRfAluMarkerRowsTraceTop"
   EMIT_MAIN="linxcore.top.EmitLinxCoreFrontendFetchRfAluMarkerRowsTraceTop"
+elif [[ "${FETCH_REDUCED_STORE_REPLAY_LIQ}" == "1" ]]; then
+  SV_DIR="${ROOT_DIR}/generated/chisel-verilog/frontend-fetch-rf-alu-reduced-store-replay-liq-trace-top"
+  TOP_MODULE="LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop"
+  EMIT_MAIN="linxcore.top.EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop"
 elif [[ "${FETCH_REDUCED_STORE_DISPATCH_STQ}" == "1" ]]; then
   SV_DIR="${ROOT_DIR}/generated/chisel-verilog/frontend-fetch-rf-alu-reduced-store-trace-top"
   TOP_MODULE="LinxCoreFrontendFetchRfAluReducedStoreTraceTop"
@@ -195,6 +206,8 @@ TB_ARGS=(
 if [[ "${FETCH_MARKER_ROWS_TRACE_TOP}" == "1" ]]; then
   VERILATOR_CFLAGS="${VERILATOR_CFLAGS} -DLINXCORE_MARKER_ROWS_TRACE_TOP"
   TB_ARGS+=(--admit-marker-rows)
+elif [[ "${FETCH_REDUCED_STORE_REPLAY_LIQ}" == "1" ]]; then
+  VERILATOR_CFLAGS="${VERILATOR_CFLAGS} -DLINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP"
 elif [[ "${FETCH_REDUCED_STORE_DISPATCH_STQ}" == "1" ]]; then
   VERILATOR_CFLAGS="${VERILATOR_CFLAGS} -DLINXCORE_REDUCED_STORE_TRACE_TOP"
 fi

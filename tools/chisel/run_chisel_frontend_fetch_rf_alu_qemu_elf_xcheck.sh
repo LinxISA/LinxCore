@@ -19,6 +19,7 @@ ALLOW_BLOCK_MARKERS=0
 ALLOW_BLOCK_LOOP_REENTRY=0
 MARKER_ROWS=0
 REDUCED_STORE_DISPATCH_STQ=0
+REDUCED_STORE_REPLAY_LIQ=0
 DISABLE_STORE_MEMORY_MUTATION=0
 
 usage() {
@@ -43,6 +44,9 @@ Options:
   --reduced-store-dispatch-stq
                           Build the opt-in reduced-store top with store
                           dispatch routed through the reduced STQ/SCB path
+  --reduced-store-replay-liq
+                          Build the opt-in reduced-store replay-LIQ top where
+                          replay queue heads allocate into diagnostic LIQ state
   --disable-store-memory-mutation
                           Do not mutate the harness sparse memory image after
                           matched store commits; reduced-store mode must supply
@@ -59,6 +63,8 @@ as skip rows for comparator filtering, but the marker-row top must admit and
 retire those rows before the following scalar rows compare.
 With --reduced-store-dispatch-stq, the harness uses the same comparator stream
 but emits the reduced-store top so store rows exercise the opt-in STQ lifecycle.
+With --reduced-store-replay-liq, the harness emits the reduced-store replay-LIQ
+top so queued replay candidates are consumed only by LIQ allocation acceptance.
 With --disable-store-memory-mutation, later loads can observe committed stores
 only through the reduced-store RTL memory overlay.
 USAGE
@@ -79,6 +85,7 @@ while [[ $# -gt 0 ]]; do
     --allow-block-loop-reentry) ALLOW_BLOCK_LOOP_REENTRY=1; shift ;;
     --marker-rows) MARKER_ROWS=1; shift ;;
     --reduced-store-dispatch-stq) REDUCED_STORE_DISPATCH_STQ=1; shift ;;
+    --reduced-store-replay-liq) REDUCED_STORE_REPLAY_LIQ=1; shift ;;
     --disable-store-memory-mutation) DISABLE_STORE_MEMORY_MUTATION=1; shift ;;
     --)
       shift
@@ -132,8 +139,14 @@ if [[ "${MARKER_ROWS}" == "1" && "${ALLOW_BLOCK_MARKERS}" != "1" ]]; then
   echo "error: --marker-rows requires --allow-block-markers" >&2
   exit 2
 fi
-if [[ "${MARKER_ROWS}" == "1" && "${REDUCED_STORE_DISPATCH_STQ}" == "1" ]]; then
-  echo "error: --marker-rows and --reduced-store-dispatch-stq are mutually exclusive" >&2
+selected_top_count=0
+for selected_top in "${MARKER_ROWS}" "${REDUCED_STORE_DISPATCH_STQ}" "${REDUCED_STORE_REPLAY_LIQ}"; do
+  if [[ "${selected_top}" == "1" ]]; then
+    selected_top_count=$((selected_top_count + 1))
+  fi
+done
+if (( selected_top_count > 1 )); then
+  echo "error: --marker-rows, --reduced-store-dispatch-stq, and --reduced-store-replay-liq are mutually exclusive" >&2
   exit 2
 fi
 if [[ -z "${CAPTURE_ROWS}" ]]; then
@@ -312,6 +325,7 @@ FETCH_QEMU_ALLOW_BLOCK_MARKERS="${ALLOW_BLOCK_MARKERS}" \
 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY="${ALLOW_BLOCK_LOOP_REENTRY}" \
 FETCH_MARKER_ROWS_TRACE_TOP="${MARKER_ROWS}" \
 FETCH_REDUCED_STORE_DISPATCH_STQ="${REDUCED_STORE_DISPATCH_STQ}" \
+FETCH_REDUCED_STORE_REPLAY_LIQ="${REDUCED_STORE_REPLAY_LIQ}" \
 FETCH_DISABLE_STORE_MEMORY_MUTATION="${DISABLE_STORE_MEMORY_MUTATION}" \
 bash "${FETCH_RUNNER}"
 
