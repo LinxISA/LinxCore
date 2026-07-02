@@ -112,7 +112,9 @@ owner.
 - Live default `LinxCoreFrontendFetchRfAluTraceTop` replay replacement. R279
   wires this composition only through the opt-in reduced-store replay-LIQ
   wrapper and diagnostics.
-- Launch selection between new loads and replay loads.
+- Top-level launch selection between new loads and replay loads. R280 adds
+  `LoadInflightLaunchSelect` as a standalone selector for row-owned data-hit
+  replay rows, but this path does not drive `LoadInflightQueue.launchValid`.
 - Reusing row-owned data from replay/refill wakeups during relaunch.
 - LHQ/ResolveQ queue movement and load-store conflict publication.
 - Ready-table, bypass, and dependent-consumer wakeup.

@@ -13,6 +13,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadRefillWakeup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayWakeup.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightLaunchSelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadForwardPipeline.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala`
@@ -176,7 +177,9 @@ The C++ model provides the owner split:
    youngestStoreLsId)` snapshot for store-forward filtering.
 2. Launch accepts only valid `Wait` rows with no wait-store block, changes the
    row to `Repick`, and sends the row-derived query into
-   `LoadForwardPipeline`.
+   `LoadForwardPipeline`. R280 adds `LoadInflightLaunchSelect` as a separate
+   pre-integration selector for replay rows that require model-style data-hit
+   eligibility before driving this broader launch port.
 3. E4 hit with `NoMiss` and `e4WakeupValid` changes the row to `Resolved` and
    publishes `lhqRecord`.
 4. E4 `StoreDataNotReady` changes the row back to `Wait`, records
