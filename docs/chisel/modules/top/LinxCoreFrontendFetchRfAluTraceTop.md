@@ -747,6 +747,13 @@ no CBSTOP divergence. This remains scale evidence for the optional reduced
 STQ path; it does not change the ownership boundary for later memory mutation,
 forwarding, or MDB publication work.
 
+R246 doubles the same window again to 384 captured rows. The gate captures 384
+raw QEMU rows, reduces 378 expected rows, normalizes and compares 258 QEMU/DUT
+rows, and passes with zero mismatches and no CBSTOP divergence. The result
+keeps the reduced-store path on the R243 cleanup invariant and preserves the
+same future ownership split for memory mutation, forwarding, and MDB
+publication.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
