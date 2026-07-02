@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadReplayBaseDataAlign, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -392,6 +392,14 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLaunchSelectedAddr = Output(UInt(p.immWidth.W))
   val reducedLoadReplayLiqLaunchSelectedSize = Output(UInt(7.W))
   val reducedLoadReplayLiqLaunchSelectedRequestByteMask = Output(UInt(64.W))
+  val reducedLoadReplayLiqBaseLookupValid = Output(Bool())
+  val reducedLoadReplayLiqBaseLookupCrossesLine = Output(Bool())
+  val reducedLoadReplayLiqBaseLookupPc = Output(UInt(p.pcWidth.W))
+  val reducedLoadReplayLiqBaseLookupAddr = Output(UInt(p.immWidth.W))
+  val reducedLoadReplayLiqBaseLookupSize = Output(UInt(7.W))
+  val reducedLoadReplayLiqBaseLookupRequestByteMask = Output(UInt(64.W))
+  val reducedLoadReplayLiqBaseLineValidMask = Output(UInt(64.W))
+  val reducedLoadReplayLiqBaseDataReturned = Output(Bool())
   val reducedLoadReplayLiqResidentCount = Output(UInt(storeStqCountWidth.W))
   val reducedLoadReplayLiqEmpty = Output(Bool())
   val reducedLoadReplayLiqFull = Output(Bool())
@@ -788,6 +796,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
     mapQDepth = mapQDepth
+  ))
+  val reducedReplayLiqBaseDataAlign = Module(new LoadReplayBaseDataAlign(
+    addrWidth = p.immWidth,
+    dataWidth = p.immWidth
   ))
   val reducedStoreResidentReplayWakeup = Module(new ResidentStoreReplayWakeup(
     entries = p.robEntries,
@@ -1319,10 +1331,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.launchEnable := false.B
   reducedReplayLiqStoreSnapshot.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqStoreSnapshot.io.rows := path.io.storeStqRows
+  reducedReplayLiqBaseDataAlign.io.enable := reducedLoadReplayLiqAllocEnabled
+  reducedReplayLiqBaseDataAlign.io.loadValid := reducedLoadReplayLiqAllocPath.io.launchValid
+  reducedReplayLiqBaseDataAlign.io.loadAddr := reducedLoadReplayLiqAllocPath.io.launchSelectedAddr
+  reducedReplayLiqBaseDataAlign.io.loadSize := reducedLoadReplayLiqAllocPath.io.launchSelectedSize
+  reducedReplayLiqBaseDataAlign.io.loadData := io.loadLookupData
   reducedLoadReplayLiqAllocPath.io.e2Stores := reducedReplayLiqStoreSnapshot.io.stores
-  reducedLoadReplayLiqAllocPath.io.e2BaseData := 0.U
-  reducedLoadReplayLiqAllocPath.io.e2BaseValidMask := 0.U
-  reducedLoadReplayLiqAllocPath.io.e2LoadDataReturned := false.B
+  reducedLoadReplayLiqAllocPath.io.e2BaseData := reducedReplayLiqBaseDataAlign.io.lineData
+  reducedLoadReplayLiqAllocPath.io.e2BaseValidMask := reducedReplayLiqBaseDataAlign.io.lineValidMask
+  reducedLoadReplayLiqAllocPath.io.e2LoadDataReturned := reducedReplayLiqBaseDataAlign.io.dataReturned
   reducedLoadReplayLiqAllocPath.io.e2ScbReturned := false.B
   reducedLoadReplayLiqAllocPath.io.e2ReturnReady := false.B
   reducedLoadReplayLiqAllocPath.io.clearResolvedValid := reducedLoadReplayResolveClearPending
@@ -2047,6 +2064,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqLaunchSelectedAddr := reducedLoadReplayLiqAllocPath.io.launchSelectedAddr
   io.reducedLoadReplayLiqLaunchSelectedSize := reducedLoadReplayLiqAllocPath.io.launchSelectedSize
   io.reducedLoadReplayLiqLaunchSelectedRequestByteMask := reducedLoadReplayLiqAllocPath.io.launchSelectedRequestByteMask
+  io.reducedLoadReplayLiqBaseLookupValid := reducedReplayLiqBaseDataAlign.io.requestValid
+  io.reducedLoadReplayLiqBaseLookupCrossesLine := reducedReplayLiqBaseDataAlign.io.requestCrossesLine
+  io.reducedLoadReplayLiqBaseLookupPc := reducedLoadReplayLiqAllocPath.io.launchSelectedPc
+  io.reducedLoadReplayLiqBaseLookupAddr := reducedLoadReplayLiqAllocPath.io.launchSelectedAddr
+  io.reducedLoadReplayLiqBaseLookupSize := reducedLoadReplayLiqAllocPath.io.launchSelectedSize
+  io.reducedLoadReplayLiqBaseLookupRequestByteMask := reducedReplayLiqBaseDataAlign.io.requestByteMask
+  io.reducedLoadReplayLiqBaseLineValidMask := reducedReplayLiqBaseDataAlign.io.lineValidMask
+  io.reducedLoadReplayLiqBaseDataReturned := reducedReplayLiqBaseDataAlign.io.dataReturned
   io.reducedLoadReplayLiqResidentCount := reducedLoadReplayLiqAllocPath.io.residentCount
   io.reducedLoadReplayLiqEmpty := reducedLoadReplayLiqAllocPath.io.empty
   io.reducedLoadReplayLiqFull := reducedLoadReplayLiqAllocPath.io.full
