@@ -44,6 +44,9 @@ whose data is not ready, the owning top asserts the wait input, this module
 keeps the load resident in E, and the issue queue remains backpressured. This
 models the first visible part of the LinxCoreModel LDQ `waitStore` path without
 claiming a full LIQ/LDQ replay or wakeup implementation.
+R269 exposes the E-stage load PC alongside the existing load lookup address,
+size, BID, and LSID so the reduced top can remember the model wait-store match
+identity used by `LDQInfo::handleSUWakeup`.
 
 ## Interface
 
@@ -73,6 +76,7 @@ claiming a full LIQ/LDQ replay or wakeup implementation.
 | output | `branchConditionTaken` | `Bool` | with `branchConditionValid` | `OP_C_SETC_EQ`, `OP_C_SETC_NE`, `OP_SETC_LT`, `OP_SETC_LTU`, `OP_SETC_LTUI`, and reduced SETC target rows used by the reduced block-control owner. |
 | output | `loadLookupValid` | `Bool` | E-stage valid | The current E-stage uop requests reduced read-only load data. |
 | output | `loadLookupAddr` | `UInt(64.W)` by default | with `loadLookupValid` | Byte address for the reduced read-only load lookup. |
+| output | `loadLookupPc` | `UInt(pcWidth.W)` | with `loadLookupValid` | R269 PC sideband for the reduced wait-store replay slot. |
 | output | `fretStkSpRestoreValid` | `Bool` | with `completeValid` | The condition-false `FRET.STK` RA-load path also restores architectural `x1/sp`. |
 | output | `fretStkSpRestoreData` | `UInt(64.W)` by default | with `fretStkSpRestoreValid` | Restored SP value, `stackPointerData + in.imm`, for the owning top's scalar-SP shadow. |
 | output | `redirectValid` | `Bool` | with `completeValid` | Reduced scalar redirect request for `FRET.STK` target-taken rows or condition-false RA-load return rows. |

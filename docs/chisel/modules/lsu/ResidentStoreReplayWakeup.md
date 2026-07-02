@@ -21,13 +21,17 @@
 
 `ResidentStoreReplayWakeup` is the producer-side bridge between resident STQ
 wait-store diagnostics and the generic `LoadReplayWakeupRequest` shape. It
-observes the selected wait-store identity from `LoadStoreForwarding`, checks
-that the named resident STQ row still matches `(BID, LSID, PC)`, and emits a
-store-unit replay wakeup request only when that row has address and data ready.
+observes a selected wait-store identity, checks that the named resident STQ row
+still matches `(BID, LSID, PC)`, and emits a store-unit replay wakeup request
+only when that row has address and data ready. In the reduced top after R269,
+the identity is supplied by `ReducedLoadWaitReplaySlot`, not directly from the
+live forwarder, because the live forwarder stops reporting a wait once the
+store data becomes ready.
 
 This is intentionally not a full LIQ/LDQ integration. It does not allocate a
-load row, clear `waitStore`, relaunch a load, or wake consumers. It gives the
-reduced top a typed request boundary that later LIQ integration can consume.
+load row, relaunch a load, or wake consumers. It gives the reduced top a typed
+request boundary that the R269 reduced wait slot and later LIQ integration can
+consume.
 
 ## Interface
 
@@ -36,7 +40,7 @@ reduced top a typed request boundary that later LIQ integration can consume.
 | Signal | Description |
 |---|---|
 | `enable` | Enables the reduced resident replay-wakeup bridge. |
-| `waitStore` | Selected not-ready store identity from `LoadStoreForwarding`: valid bit, STQ index, BID, LSID, and PC. |
+| `waitStore` | Selected not-ready store identity: valid bit, STQ index, BID, LSID, and PC. In the reduced top this is the registered key from `ReducedLoadWaitReplaySlot`. |
 | `rows` | Resident STQ row image from `StoreDispatchSTQPath`. |
 
 ### Outputs
@@ -79,10 +83,10 @@ R268 covers the producer side of step 3 for the reduced top:
 
 ## Timing
 
-The bridge is purely combinational. In the reduced top, it runs next to
-`ReducedStoreResidentForward` and only publishes diagnostics. A future LIQ
-composition can register or arbitrate the generated request before consuming
-it with `LoadReplayWakeup`.
+The bridge is purely combinational. In the reduced top, `ReducedLoadWaitReplaySlot`
+registers the wait-store key and feeds it here; this module then publishes the
+typed wakeup image when the named row becomes ready. A future LIQ composition
+can arbitrate the generated request before consuming it with `LoadReplayWakeup`.
 
 ## Flush/Recovery
 

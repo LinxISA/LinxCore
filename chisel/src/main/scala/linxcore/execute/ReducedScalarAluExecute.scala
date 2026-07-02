@@ -40,6 +40,7 @@ class ReducedScalarAluExecuteIO(
   val loadLookupValid = Output(Bool())
   val loadLookupAddr = Output(UInt(p.immWidth.W))
   val loadLookupSize = Output(UInt(p.memSizeWidth.W))
+  val loadLookupPc = Output(UInt(p.pcWidth.W))
   val loadLookupBid = Output(new ROBID(p.robEntries))
   val loadLookupLsId = Output(UInt(p.lsidWidth.W))
   val fretStkSpRestoreValid = Output(Bool())
@@ -593,6 +594,7 @@ class ReducedScalarAluExecute(
         Mux(eLoadI, ldiAddr(eSrcData, eUop.imm), cLdiAddr(eSrcData, eUop.imm)))))
   val eLoadLookupSize = Mux(eLoadByteI, 1.U(p.memSizeWidth.W), 8.U(p.memSizeWidth.W))
   io.loadLookupSize := Mux(io.loadLookupValid, eLoadLookupSize, 0.U)
+  io.loadLookupPc := Mux(io.loadLookupValid, eUop.pc, 0.U)
   io.loadLookupBid := Mux(io.loadLookupValid, eUop.bid, ROBID.disabled(p.robEntries))
   io.loadLookupLsId := Mux(io.loadLookupValid, eUop.lsid, 0.U)
   val eLoadWaitHold = io.loadLookupValid && io.loadLookupWaitBlocked

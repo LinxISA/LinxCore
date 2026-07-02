@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
+import linxcore.lsu.{ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -206,6 +206,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val executeLoadWaitHold = Output(Bool())
   val loadLookupValid = Output(Bool())
   val loadLookupAddr = Output(UInt(p.immWidth.W))
+  val loadLookupPc = Output(UInt(p.pcWidth.W))
   val reducedStoreDispatchEnabled = Output(Bool())
   val reducedStoreExecCompleteStoreValid = Output(Bool())
   val reducedStoreExecCaptureFire = Output(Bool())
@@ -280,6 +281,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedStoreResidentReplayWakeCrossesLine = Output(Bool())
   val reducedStoreResidentReplayWakeLineAddr = Output(UInt(p.immWidth.W))
   val reducedStoreResidentReplayWakeByteMask = Output(UInt(64.W))
+  val reducedLoadWaitReplayActive = Output(Bool())
+  val reducedLoadWaitReplayCaptureAccepted = Output(Bool())
+  val reducedLoadWaitReplayClearValid = Output(Bool())
+  val reducedLoadWaitReplayStoredWaitValid = Output(Bool())
+  val reducedLoadWaitReplayStoredWaitPc = Output(UInt(p.pcWidth.W))
+  val reducedLoadWaitReplaySlotPc = Output(UInt(p.pcWidth.W))
+  val reducedLoadWaitReplaySlotAddr = Output(UInt(p.immWidth.W))
   val storeDispatchReady = Output(Bool())
   val storeDispatchFire = Output(Bool())
   val storeDispatchSplit = Output(Bool())
@@ -549,6 +557,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
     mapQDepth = mapQDepth
+  ))
+  val reducedLoadWaitReplaySlot = Module(new ReducedLoadWaitReplaySlot(
+    idEntries = p.robEntries,
+    storeEntries = p.robEntries
   ))
 
   val localQueueDepth = 4
@@ -978,11 +990,23 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedStoreResidentForward.io.loadAddr := execute.io.loadLookupAddr
   reducedStoreResidentForward.io.loadSize := execute.io.loadLookupSize
   reducedStoreResidentForward.io.loadBid := execute.io.loadLookupBid
-  reducedStoreResidentForward.io.loadLsId := lsidToReducedStoreId(execute.io.loadLookupLsId)
+  val reducedLoadLookupLsId = lsidToReducedStoreId(execute.io.loadLookupLsId)
+  reducedStoreResidentForward.io.loadLsId := reducedLoadLookupLsId
   reducedStoreResidentForward.io.baseLoadData := reducedStoreMemoryOverlay.io.loadData
   reducedStoreResidentForward.io.rows := path.io.storeStqRows
+  reducedLoadWaitReplaySlot.io.flush := reducedStoreFlush
+  reducedLoadWaitReplaySlot.io.captureValid :=
+    useReducedStoreDispatchStq.B && execute.io.loadLookupValid && reducedStoreResidentForward.io.waitBlocked
+  reducedLoadWaitReplaySlot.io.capturePc := execute.io.loadLookupPc
+  reducedLoadWaitReplaySlot.io.captureAddr := execute.io.loadLookupAddr
+  reducedLoadWaitReplaySlot.io.captureSize := execute.io.loadLookupSize
+  reducedLoadWaitReplaySlot.io.captureBid := execute.io.loadLookupBid
+  reducedLoadWaitReplaySlot.io.captureLsId := reducedLoadLookupLsId
+  reducedLoadWaitReplaySlot.io.captureWaitStore := reducedStoreResidentForward.io.waitStore
+  reducedLoadWaitReplaySlot.io.replayWakeValid := reducedStoreResidentReplayWakeup.io.wakeValid
+  reducedLoadWaitReplaySlot.io.replayWake := reducedStoreResidentReplayWakeup.io.wake
   reducedStoreResidentReplayWakeup.io.enable := useReducedStoreDispatchStq.B
-  reducedStoreResidentReplayWakeup.io.waitStore := reducedStoreResidentForward.io.waitStore
+  reducedStoreResidentReplayWakeup.io.waitStore := reducedLoadWaitReplaySlot.io.storedWaitStore
   reducedStoreResidentReplayWakeup.io.rows := path.io.storeStqRows
 
   path.io.storeMarkCommitValid := storeCommitOwner.io.markCommitValid
@@ -1304,6 +1328,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.executeLoadWaitHold := execute.io.loadWaitHold
   io.loadLookupValid := execute.io.loadLookupValid
   io.loadLookupAddr := execute.io.loadLookupAddr
+  io.loadLookupPc := execute.io.loadLookupPc
   io.reducedStoreDispatchEnabled := useReducedStoreDispatchStq.B
   io.reducedStoreExecCompleteStoreValid := storeExecBridge.io.completeStoreValid
   io.reducedStoreExecCaptureFire := storeExecBridge.io.captureFire
@@ -1378,6 +1403,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedStoreResidentReplayWakeCrossesLine := reducedStoreResidentReplayWakeup.io.selectedRowCrossesLine
   io.reducedStoreResidentReplayWakeLineAddr := reducedStoreResidentReplayWakeup.io.wake.lineAddr
   io.reducedStoreResidentReplayWakeByteMask := reducedStoreResidentReplayWakeup.io.wakeByteMask
+  io.reducedLoadWaitReplayActive := reducedLoadWaitReplaySlot.io.active
+  io.reducedLoadWaitReplayCaptureAccepted := reducedLoadWaitReplaySlot.io.captureAccepted
+  io.reducedLoadWaitReplayClearValid := reducedLoadWaitReplaySlot.io.waitStoreClear
+  io.reducedLoadWaitReplayStoredWaitValid := reducedLoadWaitReplaySlot.io.storedWaitStore.valid
+  io.reducedLoadWaitReplayStoredWaitPc := reducedLoadWaitReplaySlot.io.storedWaitStore.pc
+  io.reducedLoadWaitReplaySlotPc := reducedLoadWaitReplaySlot.io.slotPc
+  io.reducedLoadWaitReplaySlotAddr := reducedLoadWaitReplaySlot.io.slotAddr
   io.storeDispatchReady := path.io.storeDispatchReady
   io.storeDispatchFire := path.io.storeDispatchFire
   io.storeDispatchSplit := path.io.storeDispatchSplit
