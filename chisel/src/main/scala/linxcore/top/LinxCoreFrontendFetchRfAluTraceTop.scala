@@ -1125,6 +1125,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.candidateValid :=
     reducedLoadReplayLiqAllocEnabled && reducedLoadReplayRelaunchQueue.io.outValid
   reducedLoadReplayLiqAllocPath.io.candidate := reducedLoadReplayRelaunchQueue.io.out
+  reducedLoadReplayLiqAllocPath.io.launchEnable := false.B
+  reducedLoadReplayLiqAllocPath.io.e2Stores := 0.U.asTypeOf(reducedLoadReplayLiqAllocPath.io.e2Stores)
+  reducedLoadReplayLiqAllocPath.io.e2BaseData := 0.U
+  reducedLoadReplayLiqAllocPath.io.e2BaseValidMask := 0.U
+  reducedLoadReplayLiqAllocPath.io.e2LoadDataReturned := false.B
+  reducedLoadReplayLiqAllocPath.io.e2ScbReturned := false.B
+  reducedLoadReplayLiqAllocPath.io.e2ReturnReady := false.B
   reducedLoadReplayLiqAllocPath.io.clearResolvedValid := false.B
   reducedLoadReplayLiqAllocPath.io.clearResolvedIndex := 0.U
   val reducedCompleteLoadLsId = lsidToReducedStoreId(execute.io.completeLsId)

@@ -23,14 +23,17 @@
 `ReducedLoadReplayLiqAllocPath` is the composition boundary between queued
 reduced replay candidates and registered LIQ row state. It instantiates
 `ReducedLoadReplayLiqAllocAdapter`, `LoadInflightQueue`, and the R280
-`LoadInflightLaunchSelect` diagnostic selector. It still uses the LIQ
-allocation handshake as the only authority for consuming the replay queue head.
+`LoadInflightLaunchSelect` selector. It still uses the LIQ allocation handshake
+as the only authority for consuming the replay queue head.
 
 This module is intentionally narrower than full replay. It does not drive the
-LIQ launch port, arbitrate new loads against replay loads, publish LHQ rows
-into a real ResolveQ, or wake dependent consumers. Its job is to prove that the
-candidate payload can become normal LIQ residency and to expose when resident
-rows would satisfy the model-derived scalar replay-pick predicate.
+LIQ launch port unless `launchEnable` is explicitly asserted by the parent, and
+the reduced top keeps that input disabled in R282. It also does not arbitrate
+new loads against replay loads, publish LHQ rows into a real ResolveQ, or wake
+dependent consumers. Its job is to prove that the candidate payload can become
+normal LIQ residency, expose when resident rows satisfy the model-derived
+scalar replay-pick predicate, and provide the path-local launch/E4/LHQ
+diagnostic boundary needed before the top enables live replay.
 
 ## Interface
 
@@ -41,6 +44,10 @@ rows would satisfy the model-derived scalar replay-pick predicate.
 | `flush` | Flushes the internal LIQ and suppresses candidate consumption. |
 | `candidateValid` | Queue-head valid from `ReducedLoadReplayRelaunchQueue`. |
 | `candidate` | Queued reduced replay candidate with load identity and forwarding snapshot. |
+| `launchEnable` | Parent-owned arm bit. When low, selector diagnostics remain visible but `LoadInflightQueue.launchValid` is not driven. |
+| `e2Stores` | Abstract STQ forwarding rows for the `LoadForwardPipeline` launch path. R282 top wiring still drives zero stores. |
+| `e2BaseData` / `e2BaseValidMask` | Baseline line data and valid bytes for relaunches that do not already have row-owned data. |
+| `e2LoadDataReturned` / `e2ScbReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. |
 | `clearResolvedValid` | Pass-through clear request for future tests or consumers that resolve rows. |
 | `clearResolvedIndex` | LIQ slot for `clearResolvedValid`. |
 
@@ -68,10 +75,17 @@ rows would satisfy the model-derived scalar replay-pick predicate.
 | `launchDataHitMask` | Unblocked rows with `l1Hit`, `storeBypass`, or complete requested row-owned bytes. |
 | `launchCandidateMask` | Enabled `launchDataHitMask` candidates. |
 | `launchMask` | One-hot oldest selected scalar candidate. Diagnostic only in this path. |
-| `launchValid` / `launchIndex` | Diagnostic launch request that is not connected to `LoadInflightQueue.launchValid`. |
+| `launchValid` / `launchIndex` | Selector request before parent `launchEnable` qualification. |
 | `launchCandidateCount` | Number of selector candidates. |
+| `launchDriveValid` | Actual valid presented to `LoadInflightQueue.launchValid`; low unless `launchEnable && launchValid`. |
+| `launchReady` | Selected row is launch-ready in `LoadInflightQueue`. |
+| `launchAccepted` | Selected row entered `Repick` through `LoadInflightQueue`. |
+| `repickMask` / `missMask` / `resolvedMask` | Pass-through LIQ state masks after any enabled relaunches. |
+| `e4UpdateValid` / `e4UpdateIndex` / `e4MissKind` / `e4WakeupValid` | Pass-through E4 outcome diagnostics from the launched-row pipeline. |
+| `lhqRecordValid` / `lhqRecord` | Path-local resolved-load hit record. Not yet inserted into a top-level ResolveQ. |
 | `residentCount` | Resident LIQ row count. |
 | `empty` / `full` | LIQ occupancy diagnostics. |
+| `missPending` | Pass-through LIQ miss-pending diagnostic. |
 | `clearResolvedAccepted` | Pass-through `LoadInflightQueue` clear response. |
 
 ## State
@@ -102,11 +116,17 @@ reduced wait slot and replay queue produce the same cleared load as a
 5. `LoadInflightLaunchSelect` scans the resulting LIQ row image and exposes the
    model `pickL1` predicates: `Wait`, no wait-store block, non-tile,
    data-hit/request-complete, and oldest `(BID, loadLsId)` selection.
+6. R282 adds an explicit parent-owned `launchEnable` gate. When it is high,
+   the selector's `launchValid/launchIndex` drive `LoadInflightQueue`, which
+   relaunches the row through `LoadForwardPipeline` using `e2Stores`,
+   `e2BaseData`, `e2BaseValidMask`, and source-return sidebands. When it is
+   low, all selector diagnostics remain visible but no LIQ state is mutated by
+   launch.
 
-All launch, E2/E3/E4 forwarding, replay wakeup, refill wakeup, and return
-ports remain inactive in this owner. The selector output is diagnostic only;
-future top-level replay arbitration must decide when to drive
-`LoadInflightQueue.launchValid` from it.
+Replay wakeup and refill wakeup ports remain inactive in this owner. The R282
+reduced top also keeps `launchEnable` low and drives zero E2 store/base data,
+so generated-RTL behavior remains diagnostic-only until a later top packet
+connects resident STQ snapshots, return readiness, and live arbitration.
 
 ## Timing
 
@@ -129,8 +149,10 @@ owner.
   wrapper and diagnostics.
 - Top-level launch selection between new loads and replay loads. R281 exposes
   `LoadInflightLaunchSelect` through this path and the opt-in top diagnostics,
-  but still does not drive `LoadInflightQueue.launchValid`.
-- Reusing row-owned data from replay/refill wakeups during relaunch.
+  and R282 adds the path-local launch drive gate, but the reduced top still
+  leaves that gate disabled.
+- Resident STQ snapshot wiring into `e2Stores`, row/base-data ownership, and
+  return-readiness wiring for enabled relaunch.
 - LHQ/ResolveQ queue movement and load-store conflict publication.
 - Ready-table, bypass, and dependent-consumer wakeup.
 
@@ -149,4 +171,6 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 Reference tests cover allocation-pointer order, preservation of load LSID and
 forwarding snapshot sidecars, full-LIQ backpressure without queue consumption,
 flush clearing, and Chisel elaboration with the adapter, LIQ row owner, and
-launch selector child modules.
+launch selector child modules. R282 elaboration also locks the path-local
+`launchEnable`, E2 forwarding inputs, launch accepted/ready outputs, E4
+diagnostics, LHQ hit-record output, and miss-pending diagnostic.

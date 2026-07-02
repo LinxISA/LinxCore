@@ -21,6 +21,14 @@ class ReducedLoadReplayLiqAllocPathIO(
   val candidateValid = Input(Bool())
   val candidate = Input(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth))
 
+  val launchEnable = Input(Bool())
+  val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(idEntries, storeEntries, addrWidth, pcWidth, lineBytes)))
+  val e2BaseData = Input(UInt((lineBytes * 8).W))
+  val e2BaseValidMask = Input(UInt(lineBytes.W))
+  val e2LoadDataReturned = Input(Bool())
+  val e2ScbReturned = Input(Bool())
+  val e2ReturnReady = Input(Bool())
+
   val clearResolvedValid = Input(Bool())
   val clearResolvedIndex = Input(UInt(liqPtrWidth.W))
 
@@ -52,9 +60,22 @@ class ReducedLoadReplayLiqAllocPathIO(
   val launchValid = Output(Bool())
   val launchIndex = Output(UInt(liqPtrWidth.W))
   val launchCandidateCount = Output(UInt(countWidth.W))
+  val launchDriveValid = Output(Bool())
+  val launchReady = Output(Bool())
+  val launchAccepted = Output(Bool())
+  val repickMask = Output(UInt(liqEntries.W))
+  val missMask = Output(UInt(liqEntries.W))
+  val resolvedMask = Output(UInt(liqEntries.W))
+  val e4UpdateValid = Output(Bool())
+  val e4UpdateIndex = Output(UInt(liqPtrWidth.W))
+  val e4MissKind = Output(LoadForwardMissKind())
+  val e4WakeupValid = Output(Bool())
+  val lhqRecordValid = Output(Bool())
+  val lhqRecord = Output(new LoadHitRecord(liqEntries, idEntries, addrWidth, lineBytes, sizeWidth))
   val residentCount = Output(UInt(countWidth.W))
   val empty = Output(Bool())
   val full = Output(Bool())
+  val missPending = Output(Bool())
   val clearResolvedAccepted = Output(Bool())
 }
 
@@ -101,14 +122,14 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.allocValid := adapter.io.allocValid
   liq.io.alloc := adapter.io.alloc
 
-  liq.io.launchValid := false.B
-  liq.io.launchIndex := 0.U(liqPtrWidth.W)
-  liq.io.e2Stores := 0.U.asTypeOf(liq.io.e2Stores)
-  liq.io.e2BaseData := 0.U
-  liq.io.e2BaseValidMask := 0.U
-  liq.io.e2LoadDataReturned := false.B
-  liq.io.e2ScbReturned := false.B
-  liq.io.e2ReturnReady := false.B
+  liq.io.launchValid := io.launchEnable && launchSelect.io.launchValid
+  liq.io.launchIndex := launchSelect.io.launchIndex
+  liq.io.e2Stores := io.e2Stores
+  liq.io.e2BaseData := io.e2BaseData
+  liq.io.e2BaseValidMask := io.e2BaseValidMask
+  liq.io.e2LoadDataReturned := io.e2LoadDataReturned
+  liq.io.e2ScbReturned := io.e2ScbReturned
+  liq.io.e2ReturnReady := io.e2ReturnReady
   liq.io.replayWakeValid := false.B
   liq.io.replayWake := 0.U.asTypeOf(liq.io.replayWake)
   liq.io.refillValid := false.B
@@ -142,8 +163,21 @@ class ReducedLoadReplayLiqAllocPath(
   io.launchValid := launchSelect.io.launchValid
   io.launchIndex := launchSelect.io.launchIndex
   io.launchCandidateCount := launchSelect.io.candidateCount
+  io.launchDriveValid := io.launchEnable && launchSelect.io.launchValid
+  io.launchReady := launchSelect.io.launchValid && liq.io.launchReady
+  io.launchAccepted := liq.io.launchAccepted
+  io.repickMask := liq.io.repickMask
+  io.missMask := liq.io.missMask
+  io.resolvedMask := liq.io.resolvedMask
+  io.e4UpdateValid := liq.io.e4UpdateValid
+  io.e4UpdateIndex := liq.io.e4UpdateIndex
+  io.e4MissKind := liq.io.e4MissKind
+  io.e4WakeupValid := liq.io.e4WakeupValid
+  io.lhqRecordValid := liq.io.lhqRecordValid
+  io.lhqRecord := liq.io.lhqRecord
   io.residentCount := liq.io.residentCount
   io.empty := liq.io.empty
   io.full := liq.io.full
+  io.missPending := liq.io.missPending
   io.clearResolvedAccepted := liq.io.clearResolvedAccepted
 }
