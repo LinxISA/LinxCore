@@ -937,7 +937,7 @@ store).
 | output | `reducedStoreMemoryValidMask`, `reducedStoreMemoryLineCount`, `reducedStoreMemoryLoadForwardMask`, `reducedStoreMemoryStoreDroppedMask` | mixed | diagnostic | R258/R259 reduced store-memory overlay occupancy, load-byte forward mask, and accepted-request drop diagnostics. The drop mask covers commit-row bypass lanes plus SCB accepted lanes. |
 | output | `reducedStoreResidentForwardMask`, `reducedStoreResidentWaitMask`, `reducedStoreResidentEligibleMask`, `reducedStoreResidentReadyForward`, `reducedStoreResidentWaitBlocked`, `reducedStoreResidentWaitStore*`, `reducedStoreResidentLoadCrossesLine` | mixed | diagnostic | R265-R267 resident-STQ forwarding diagnostics after the committed-store overlay. Ready hits forward bytes; wait hits hold execute through `executeLoadWaitHold` and expose the selected not-ready store's index, BID, LSID, and PC for later replay wakeup wiring. |
 | output | `reducedStoreResidentReplayWake*` | mixed | diagnostic | R268-R269 typed store-unit replay wakeup request diagnostics derived from a registered resident wait-store identity and live STQ row readiness. |
-| output | `reducedLoadWaitReplay*` | mixed | diagnostic | R269 registered reduced wait-store slot diagnostics. The slot remembers the held load and wait-store key, feeds that key back to `ResidentStoreReplayWakeup`, and clears through `LoadReplayWakeup`; it does not relaunch the load. |
+| output | `reducedLoadWaitReplay*` | mixed | diagnostic | R269/R271 registered reduced wait-store slot diagnostics. The slot remembers the held load and wait-store key, feeds that key back to `ResidentStoreReplayWakeup`, clears through `LoadReplayWakeup`, and publishes a one-cycle relaunch candidate for future LIQ wiring; it does not drive a launch port. |
 | output | `executeLoadWaitHold` | `Bool` | diagnostic | R266 reduced execute hold for a load waiting on an older not-ready resident store. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
@@ -995,10 +995,11 @@ overlay. Most state remains in child modules:
   `StoreDispatchSTQPath` rows through `LoadStoreForwarding` and overlays ready
   resident store bytes after committed-store overlay data. It reports wait
   hits but leaves replay control to later LIQ/LDQ owner packets.
-- `ReducedLoadWaitReplaySlot`: optional R269 one-row diagnostic bridge that
+- `ReducedLoadWaitReplaySlot`: optional R269/R271 one-row diagnostic bridge that
   registers a resident wait-store key while execute is held, feeds the key to
   `ResidentStoreReplayWakeup` after the live forwarder stops reporting a wait,
-  and consumes the typed wakeup through `LoadReplayWakeup`.
+  consumes the typed wakeup through `LoadReplayWakeup`, and publishes the stored
+  load identity as a relaunch candidate when the wait clears.
 
 ## Logic Design
 
@@ -1076,7 +1077,10 @@ a registered copy of that identity plus the live resident STQ row into
 image when the selected row is still identity-matched and data-ready. The
 registration is required because the live forwarder stops reporting a wait once
 the store data becomes ready. `ReducedLoadWaitReplaySlot` then consumes that
-typed request through `LoadReplayWakeup` and clears its diagnostic wait row.
+typed request through `LoadReplayWakeup`, clears its diagnostic wait row, and
+publishes a one-cycle relaunch candidate with the remembered load PC, address,
+size, BID, and reduced LSID. That candidate is a future LIQ/issue handoff only;
+the reduced top still does not relaunch the load.
 The overlay clears only on
 run start/restart or when the optional reduced-store path is disabled;
 ordinary backend redirects do not clear it because committed store bytes are
@@ -1126,8 +1130,9 @@ resident STQ rows and exports the selected wait-store identity. R268 adds the
 producer-side store-unit replay wakeup request image for that identity. R269
 registers one reduced wait-store row, feeds the remembered key back to the
 wakeup producer, and clears the diagnostic row through `LoadReplayWakeup`.
-Replay ownership remains deferred until a real LIQ/LDQ row can remember,
-relaunch, and wake dependent consumers for the load.
+R271 adds a relaunch-candidate diagnostic from that clear point. Replay
+ownership remains deferred until a real LIQ/LDQ row can remember, consume that
+candidate, relaunch, and wake dependent consumers for the load.
 This remains a reduced memory visibility bridge, not a general LSU/STQ, cache,
 replay, or MDB implementation.
 

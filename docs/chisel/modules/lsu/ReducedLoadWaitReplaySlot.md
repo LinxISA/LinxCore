@@ -26,8 +26,9 @@ that key registered after the live forwarder stops reporting a wait, and feeds
 the resulting store-unit wakeup through the existing `LoadReplayWakeup` owner.
 
 This is still diagnostic integration. The slot proves the replay request shape
-can clear a remembered wait-store row by `(BID, LSID, PC)`, but it does not
-relaunch the load, wake dependent consumers, or replace the full
+can clear a remembered wait-store row by `(BID, LSID, PC)` and now publishes a
+one-cycle relaunch candidate carrying the remembered load identity. It does not
+drive a launch port, wake dependent consumers, or replace the full
 `LoadInflightQueue` owner.
 
 ## Interface
@@ -56,6 +57,12 @@ relaunch the load, wake dependent consumers, or replace the full
 | `waitStoreClear` | `LoadReplayWakeup` matched the remembered wait-store key and cleared the diagnostic slot. |
 | `waitStoreClearMask` | Two-entry mask from the internal `LoadReplayWakeup`; bit 0 is the real slot and bit 1 is tied to an empty row. |
 | `storedWaitStore` | Registered wait-store key. The reduced top feeds this back to `ResidentStoreReplayWakeup` so ready stores can wake a load after the live forwarder no longer reports a wait. |
+| `relaunch.valid` | One-cycle candidate pulse when the remembered wait-store key is cleared and no same-cycle capture wins the slot. |
+| `relaunch.pc` | PC of the remembered load. |
+| `relaunch.addr` | Byte address of the remembered load. |
+| `relaunch.size` | Byte size of the remembered load. |
+| `relaunch.bid` | BID snapshot captured with the remembered load. |
+| `relaunch.loadLsId` | Reduced LSID captured with the remembered load. |
 | `slotPc` | PC of the remembered load row. |
 | `slotAddr` | Address of the remembered load row. |
 
@@ -89,18 +96,22 @@ R269 maps that sequence onto the reduced top:
    `LoadReplayWakeup` module used by `LoadInflightQueue`.
 4. Clear the diagnostic slot when the wakeup matches the remembered
    wait-store key by `(storeId, storeLsId, pc)`.
+5. Publish a one-cycle relaunch candidate containing the stored load PC,
+   address, size, BID, and reduced LSID. This is the future LIQ/issue handoff
+   boundary; it does not itself relaunch the load.
 
 ## Timing
 
 Capture is registered. A newly captured wait key becomes visible to
 `ResidentStoreReplayWakeup` on the following cycle. Store wakeup consumption is
 combinational through `LoadReplayWakeup` and clears the slot on the next clock
-edge.
+edge. The relaunch candidate is valid in that clear cycle and carries the
+pre-clear registered load identity.
 
-If capture and clear are both asserted in one cycle, capture wins. In the
-integrated reduced top, the matching wakeup appears when the store is ready and
-the live wait-hit has dropped, so same-cycle capture/clear is not expected for
-the same load.
+If capture and clear are both asserted in one cycle, capture wins and the
+candidate is suppressed. In the integrated reduced top, the matching wakeup
+appears when the store is ready and the live wait-hit has dropped, so same-cycle
+capture/clear is not expected for the same load.
 
 ## Flush/Recovery
 
@@ -111,7 +122,8 @@ run start, run restart, or disabling the optional reduced-STQ path.
 ## Deferred Owners
 
 - Real `LoadInflightQueue` allocation for reduced execute-stage loads.
-- Relaunch and consumer wakeup after wait-store clear.
+- Connecting `relaunch` to a real LIQ or issue/ready-table launch boundary.
+- Consumer wakeup after wait-store clear.
 - Multiple waiting loads and wakeup arbitration.
 - Cross-line resident replay publication.
 - MDB conflict publication and precise recovery pruning.
@@ -128,5 +140,5 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
 Reference tests cover capture/clear behavior, mismatched wake suppression,
-capture overwrite, flush clearing, and Chisel elaboration through
-`LoadReplayWakeup`.
+capture overwrite, relaunch-candidate identity, flush clearing, and Chisel
+elaboration through `LoadReplayWakeup`.

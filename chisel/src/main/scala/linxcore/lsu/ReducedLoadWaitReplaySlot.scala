@@ -3,6 +3,20 @@ package linxcore.lsu
 import chisel3._
 import linxcore.rob.ROBID
 
+class ReducedLoadReplayCandidate(
+    val idEntries: Int,
+    val addrWidth: Int = 64,
+    val pcWidth: Int = 64,
+    val sizeWidth: Int = 7)
+    extends Bundle {
+  val valid = Bool()
+  val pc = UInt(pcWidth.W)
+  val addr = UInt(addrWidth.W)
+  val size = UInt(sizeWidth.W)
+  val bid = new ROBID(idEntries)
+  val loadLsId = new ROBID(idEntries)
+}
+
 class ReducedLoadWaitReplaySlotIO(
     val idEntries: Int,
     val storeEntries: Int,
@@ -30,6 +44,7 @@ class ReducedLoadWaitReplaySlotIO(
   val waitStoreClear = Output(Bool())
   val waitStoreClearMask = Output(UInt(slotEntries.W))
   val storedWaitStore = Output(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+  val relaunch = Output(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth))
   val slotPc = Output(UInt(pcWidth.W))
   val slotAddr = Output(UInt(addrWidth.W))
 }
@@ -77,6 +92,14 @@ class ReducedLoadWaitReplaySlot(
     row
   }
 
+  private def zeroCandidate: ReducedLoadReplayCandidate = {
+    val candidate = Wire(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth))
+    candidate := 0.U.asTypeOf(candidate)
+    candidate.bid := ROBID.disabled(idEntries)
+    candidate.loadLsId := ROBID.disabled(idEntries)
+    candidate
+  }
+
   private def capturedRow: LoadInflightRow = {
     val row = Wire(new LoadInflightRow(slotEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
     row := zeroRow
@@ -96,6 +119,7 @@ class ReducedLoadWaitReplaySlot(
 
   val activeReg = RegInit(false.B)
   val slotReg = RegInit(zeroRow)
+  val loadLsIdReg = RegInit(ROBID.disabled(idEntries))
   val emptyRow = zeroRow
 
   val rows = Wire(Vec(
@@ -112,16 +136,20 @@ class ReducedLoadWaitReplaySlot(
 
   val captureAccepted = io.captureValid && io.captureWaitStore.valid && !io.flush
   val waitStoreClear = activeReg && replay.io.waitStoreClearMask(0)
+  val relaunchValid = waitStoreClear && !captureAccepted
 
   when(io.flush) {
     activeReg := false.B
     slotReg := zeroRow
+    loadLsIdReg := ROBID.disabled(idEntries)
   }.elsewhen(captureAccepted) {
     activeReg := true.B
     slotReg := capturedRow
+    loadLsIdReg := io.captureLsId
   }.elsewhen(waitStoreClear) {
     activeReg := false.B
     slotReg := zeroRow
+    loadLsIdReg := ROBID.disabled(idEntries)
   }
 
   val storedWait = Wire(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
@@ -130,11 +158,23 @@ class ReducedLoadWaitReplaySlot(
     storedWait := slotReg.waitStoreInfo
   }
 
+  val relaunch = Wire(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth))
+  relaunch := zeroCandidate
+  when(relaunchValid) {
+    relaunch.valid := true.B
+    relaunch.pc := slotReg.pc
+    relaunch.addr := slotReg.addr
+    relaunch.size := slotReg.size
+    relaunch.bid := slotReg.bid
+    relaunch.loadLsId := loadLsIdReg
+  }
+
   io.active := activeReg
   io.captureAccepted := captureAccepted
   io.waitStoreClear := waitStoreClear
   io.waitStoreClearMask := replay.io.waitStoreClearMask
   io.storedWaitStore := storedWait
+  io.relaunch := relaunch
   io.slotPc := slotReg.pc
   io.slotAddr := slotReg.addr
 }

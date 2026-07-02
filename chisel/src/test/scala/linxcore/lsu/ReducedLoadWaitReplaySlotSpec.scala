@@ -13,13 +13,20 @@ object ReducedLoadWaitReplaySlotReference {
       pc: BigInt = 0)
   final case class Capture(pc: BigInt, addr: BigInt, size: Int, bid: Id, lsId: Id, waitKey: Wait)
   final case class Wake(storeId: Id, storeLsId: Id, pc: BigInt)
+  final case class Relaunch(pc: BigInt, addr: BigInt, size: Int, bid: Id, lsId: Id)
   final case class State(
       active: Boolean = false,
       pc: BigInt = 0,
       addr: BigInt = 0,
       size: Int = 0,
+      bid: Id = Id(),
+      lsId: Id = Id(),
       waitKey: Wait = Wait())
-  final case class Result(state: State, captureAccepted: Boolean, waitStoreClear: Boolean)
+  final case class Result(
+      state: State,
+      captureAccepted: Boolean,
+      waitStoreClear: Boolean,
+      relaunch: Option[Relaunch])
 
   def step(
       state: State,
@@ -33,6 +40,12 @@ object ReducedLoadWaitReplaySlotReference {
         state.waitKey.storeLsId == event.storeLsId &&
         state.waitKey.pc == event.pc
     }
+    val relaunch =
+      if (waitStoreClear && !captureAccepted && !flush) {
+        Some(Relaunch(state.pc, state.addr, state.size, state.bid, state.lsId))
+      } else {
+        None
+      }
     val next =
       if (flush) {
         State()
@@ -43,6 +56,8 @@ object ReducedLoadWaitReplaySlotReference {
           pc = captured.pc,
           addr = captured.addr,
           size = captured.size,
+          bid = captured.bid,
+          lsId = captured.lsId,
           waitKey = captured.waitKey)
       } else if (waitStoreClear) {
         State()
@@ -50,7 +65,7 @@ object ReducedLoadWaitReplaySlotReference {
         state
       }
 
-    Result(next, captureAccepted, waitStoreClear)
+    Result(next, captureAccepted, waitStoreClear, relaunch)
   }
 }
 
@@ -81,6 +96,7 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     val afterWake =
       step(afterCapture.state, wake = Some(Wake(storeId = storeId, storeLsId = Id(), pc = 0x3450)))
     assert(afterWake.waitStoreClear)
+    assert(afterWake.relaunch.contains(Relaunch(0x4000, 0x1008, 8, id(6), id(3))))
     assert(!afterWake.state.active)
   }
 
@@ -93,6 +109,7 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     val afterWrongPc =
       step(state, wake = Some(Wake(storeId = storeId, storeLsId = Id(), pc = 0x3574)))
     assert(!afterWrongPc.waitStoreClear)
+    assert(afterWrongPc.relaunch.isEmpty)
     assert(afterWrongPc.state.active)
     assert(afterWrongPc.state.waitKey.pc == 0x3570)
   }
@@ -109,10 +126,12 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
 
     val oldWake = step(second, wake = Some(Wake(storeId = firstStore, storeLsId = Id(), pc = 0x3000)))
     assert(!oldWake.waitStoreClear)
+    assert(oldWake.relaunch.isEmpty)
     assert(oldWake.state.active)
 
     val newWake = step(oldWake.state, wake = Some(Wake(storeId = secondStore, storeLsId = Id(), pc = 0x3010)))
     assert(newWake.waitStoreClear)
+    assert(newWake.relaunch.contains(Relaunch(0x4010, 0x2000, 8, id(7), id(2))))
     assert(!newWake.state.active)
   }
 
@@ -134,5 +153,7 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     assert(sv.contains("io_captureAccepted"))
     assert(sv.contains("io_waitStoreClear"))
     assert(sv.contains("io_storedWaitStore_valid"))
+    assert(sv.contains("io_relaunch_valid"))
+    assert(sv.contains("io_relaunch_loadLsId_value"))
   }
 }
