@@ -1,6 +1,9 @@
 #if defined(LINXCORE_MARKER_ROWS_TRACE_TOP)
 #include "VLinxCoreFrontendFetchRfAluMarkerRowsTraceTop.h"
 #define VLinxCoreFrontendFetchRfAluTraceTop VLinxCoreFrontendFetchRfAluMarkerRowsTraceTop
+#elif defined(LINXCORE_REDUCED_STORE_TRACE_TOP)
+#include "VLinxCoreFrontendFetchRfAluReducedStoreTraceTop.h"
+#define VLinxCoreFrontendFetchRfAluTraceTop VLinxCoreFrontendFetchRfAluReducedStoreTraceTop
 #else
 #include "VLinxCoreFrontendFetchRfAluTraceTop.h"
 #endif

@@ -707,6 +707,19 @@ The reduced top still ties the SCB environment to local-ready/write-hit values,
 so this is an STQ lifecycle and SCB-admission packet, not full store memory
 mutation, load forwarding, or MDB publication.
 
+R242 adds `LinxCoreFrontendFetchRfAluReducedStoreTraceTop`, a generated-RTL
+wrapper that sets `useReducedStoreDispatchStq=true` without changing the
+default reduced CoreMark top or the marker-row top. The low-level harness
+selects it with `FETCH_REDUCED_STORE_DISPATCH_STQ=1`, and the live QEMU ELF
+wrapper selects it with `--reduced-store-dispatch-stq`. This switch is
+intentionally mutually exclusive with marker-row mode until the reduced-store
+and admitted-marker proof surfaces are combined deliberately. The first live
+CoreMark/QEMU probe using this wrapper builds and reaches the first reduced
+store-data check, where it fails at `pc=0x4000550e`: expected
+`wdata=0x4000550a`, observed `wdata=0x0`. The next reduced-store packet should
+repair that source-data provenance before using the opt-in path as replacement
+evidence.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -1039,6 +1052,10 @@ top, builds every emitted SystemVerilog file with Verilator, and runs
   prefix, with `0` meaning all normalized input rows;
 - accepts `FETCH_QEMU_ALLOW_BLOCK_MARKERS=1` to preserve legal `BSTART`/`BSTOP`
   rows as DUT-only skip entries in `qemu.expected.jsonl`;
+- accepts `FETCH_REDUCED_STORE_DISPATCH_STQ=1` to emit
+  `LinxCoreFrontendFetchRfAluReducedStoreTraceTop` and route reduced store
+  rows through the opt-in `StoreDispatchSTQPath`/`STQCommitDrain`/`SCBRowBank`
+  lifecycle path;
 - starts the live source at the first expected row PC;
 - serves one 8-byte instruction window per source PC request by reading bytes
   from the fetch-memory image, padding only missing trailing bytes outside the
@@ -1614,6 +1631,7 @@ records `status: "pass"`, `summary.compared_rows: 3`,
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r112-coremark-sll-srl-tu-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 17 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r113-coremark-or-c-ldi-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 19 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r118-coremark-sdi-42-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 42 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
+- `FETCH_REDUCED_STORE_DISPATCH_STQ=1 BUILD_DIR=generated/r242-reduced-store-fixture-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r119-coremark-cond-bstart-50-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 50 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r192-marker-row-brob-retire-drain-128-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 128 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r192-default-skip-regression-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 3 --capture-rows 16 --allow-block-markers --max-seconds 10 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`

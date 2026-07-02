@@ -285,6 +285,24 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_storeStqInsertValid"))
   }
 
+  test("reduced-store harness wrapper elaborates the opt-in STQ path") {
+    val sv = ChiselStage.emitSystemVerilog(
+      new LinxCoreFrontendFetchRfAluReducedStoreTraceTop(
+        CoreParams(robEntries = 8, commitWidth = 2),
+        mapQDepth = 8)
+    )
+
+    assert(sv.contains("module LinxCoreFrontendFetchRfAluReducedStoreTraceTop"))
+    assert(sv.contains("module DecodeRenameROBPath"))
+    assert(sv.contains("module ReducedStoreExecResultBridge"))
+    assert(sv.contains("module ReducedStoreCommitFreeOwner"))
+    assert(sv.contains("module STQCommitDrain"))
+    assert(sv.contains("module SCBRowBank"))
+    assert(sv.contains("io_reducedStoreDispatchEnabled"))
+    assert(sv.contains("io_reducedStoreScbCommitFreeMask"))
+    assert(sv.contains("io_storeStqInsertValid"))
+  }
+
   test("marker-row harness elaborates admitted markers with decode-time BID context") {
     val sv = ChiselStage.emitSystemVerilog(
       new LinxCoreFrontendFetchRfAluMarkerRowsTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 8)

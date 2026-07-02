@@ -18,6 +18,7 @@ PC_HI=""
 ALLOW_BLOCK_MARKERS=0
 ALLOW_BLOCK_LOOP_REENTRY=0
 MARKER_ROWS=0
+REDUCED_STORE_DISPATCH_STQ=0
 
 usage() {
   cat <<USAGE
@@ -38,6 +39,9 @@ Options:
   --marker-rows           Build the non-default marker-row top and admit legal
                           marker rows into ROB, then filter validated marker
                           commits from the scalar comparator stream
+  --reduced-store-dispatch-stq
+                          Build the opt-in reduced-store top with store
+                          dispatch routed through the reduced STQ/SCB path
 
 This wrapper captures a bounded QEMU commit JSONL prefix from a direct-boot ELF,
 validates that the selected rows are inside the current reduced scalar
@@ -48,6 +52,8 @@ frontend/ROB path as skip rows and are not written to the comparator trace.
 With --marker-rows, the same reduced expected stream still marks legal markers
 as skip rows for comparator filtering, but the marker-row top must admit and
 retire those rows before the following scalar rows compare.
+With --reduced-store-dispatch-stq, the harness uses the same comparator stream
+but emits the reduced-store top so store rows exercise the opt-in STQ lifecycle.
 USAGE
 }
 
@@ -65,6 +71,7 @@ while [[ $# -gt 0 ]]; do
     --allow-block-markers) ALLOW_BLOCK_MARKERS=1; shift ;;
     --allow-block-loop-reentry) ALLOW_BLOCK_LOOP_REENTRY=1; shift ;;
     --marker-rows) MARKER_ROWS=1; shift ;;
+    --reduced-store-dispatch-stq) REDUCED_STORE_DISPATCH_STQ=1; shift ;;
     --)
       shift
       QEMU_ARGS=("$@")
@@ -115,6 +122,10 @@ if [[ ! "${EXPECTED_ROWS}" =~ ^[0-9]+$ ]]; then
 fi
 if [[ "${MARKER_ROWS}" == "1" && "${ALLOW_BLOCK_MARKERS}" != "1" ]]; then
   echo "error: --marker-rows requires --allow-block-markers" >&2
+  exit 2
+fi
+if [[ "${MARKER_ROWS}" == "1" && "${REDUCED_STORE_DISPATCH_STQ}" == "1" ]]; then
+  echo "error: --marker-rows and --reduced-store-dispatch-stq are mutually exclusive" >&2
   exit 2
 fi
 if [[ -z "${CAPTURE_ROWS}" ]]; then
@@ -292,6 +303,7 @@ FETCH_QEMU_MAX_ROWS="${EXPECTED_ROWS}" \
 FETCH_QEMU_ALLOW_BLOCK_MARKERS="${ALLOW_BLOCK_MARKERS}" \
 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY="${ALLOW_BLOCK_LOOP_REENTRY}" \
 FETCH_MARKER_ROWS_TRACE_TOP="${MARKER_ROWS}" \
+FETCH_REDUCED_STORE_DISPATCH_STQ="${REDUCED_STORE_DISPATCH_STQ}" \
 bash "${FETCH_RUNNER}"
 
 MANIFEST="${REPORT_DIR}/crosscheck_manifest.json"
