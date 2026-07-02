@@ -14,22 +14,23 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightLaunchSelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayRelaunchQueue.scala`
 - Contract IDs: `LC-CHISEL-LSU-LIQ-003`
 
 ## Purpose
 
-`ReducedLoadReplayLiqAllocPath` is the allocation-only composition boundary
-between queued reduced replay candidates and registered LIQ row state. It
-instantiates `ReducedLoadReplayLiqAllocAdapter` and `LoadInflightQueue`, then
-uses the LIQ allocation handshake as the only authority for consuming the
-replay queue head.
+`ReducedLoadReplayLiqAllocPath` is the composition boundary between queued
+reduced replay candidates and registered LIQ row state. It instantiates
+`ReducedLoadReplayLiqAllocAdapter`, `LoadInflightQueue`, and the R280
+`LoadInflightLaunchSelect` diagnostic selector. It still uses the LIQ
+allocation handshake as the only authority for consuming the replay queue head.
 
-This module is intentionally narrower than full replay. It does not launch
-loads, arbitrate new loads against replay loads, publish LHQ rows into a real
-ResolveQ, wake dependent consumers, or connect to the live reduced top. Its
-job is to prove that the candidate payload can become normal LIQ residency
-without top-level glue reconstructing identity.
+This module is intentionally narrower than full replay. It does not drive the
+LIQ launch port, arbitrate new loads against replay loads, publish LHQ rows
+into a real ResolveQ, or wake dependent consumers. Its job is to prove that the
+candidate payload can become normal LIQ residency and to expose when resident
+rows would satisfy the model-derived scalar replay-pick predicate.
 
 ## Interface
 
@@ -59,6 +60,16 @@ without top-level glue reconstructing identity.
 | `occupiedMask` | Resident LIQ rows. |
 | `waitMask` | Rows in `Wait`. |
 | `waitStoreMask` | Rows waiting on a store. This path allocates replay-ready rows, so newly allocated rows do not set it. |
+| `launchWaitMask` | `LoadInflightLaunchSelect` view of valid `Wait` rows. |
+| `launchWaitStoreBlockedMask` | `Wait` rows still blocked by wait-store state. |
+| `launchTileBlockedMask` | `Wait` rows suppressed because this selector is scalar-only. |
+| `launchUnblockedWaitMask` | Scalar `Wait` rows with no wait-store block. |
+| `launchRequestCompleteMask` | Unblocked rows whose row-owned valid bytes cover the requested load bytes. |
+| `launchDataHitMask` | Unblocked rows with `l1Hit`, `storeBypass`, or complete requested row-owned bytes. |
+| `launchCandidateMask` | Enabled `launchDataHitMask` candidates. |
+| `launchMask` | One-hot oldest selected scalar candidate. Diagnostic only in this path. |
+| `launchValid` / `launchIndex` | Diagnostic launch request that is not connected to `LoadInflightQueue.launchValid`. |
+| `launchCandidateCount` | Number of selector candidates. |
 | `residentCount` | Resident LIQ row count. |
 | `empty` / `full` | LIQ occupancy diagnostics. |
 | `clearResolvedAccepted` | Pass-through `LoadInflightQueue` clear response. |
@@ -88,10 +99,14 @@ reduced wait slot and replay queue produce the same cleared load as a
    ownership from the replay queue into LIQ row state.
 4. The allocated row stays in `Wait` with row-owned `loadLsId` plus the
    forwarding snapshot `(youngestStoreId, youngestStoreLsId)`.
+5. `LoadInflightLaunchSelect` scans the resulting LIQ row image and exposes the
+   model `pickL1` predicates: `Wait`, no wait-store block, non-tile,
+   data-hit/request-complete, and oldest `(BID, loadLsId)` selection.
 
 All launch, E2/E3/E4 forwarding, replay wakeup, refill wakeup, and return
-ports are tied inactive in this owner. Those behaviors remain in
-`LoadInflightQueue` and future top-level replay arbitration packets.
+ports remain inactive in this owner. The selector output is diagnostic only;
+future top-level replay arbitration must decide when to drive
+`LoadInflightQueue.launchValid` from it.
 
 ## Timing
 
@@ -112,9 +127,9 @@ owner.
 - Live default `LinxCoreFrontendFetchRfAluTraceTop` replay replacement. R279
   wires this composition only through the opt-in reduced-store replay-LIQ
   wrapper and diagnostics.
-- Top-level launch selection between new loads and replay loads. R280 adds
-  `LoadInflightLaunchSelect` as a standalone selector for row-owned data-hit
-  replay rows, but this path does not drive `LoadInflightQueue.launchValid`.
+- Top-level launch selection between new loads and replay loads. R281 exposes
+  `LoadInflightLaunchSelect` through this path and the opt-in top diagnostics,
+  but still does not drive `LoadInflightQueue.launchValid`.
 - Reusing row-owned data from replay/refill wakeups during relaunch.
 - LHQ/ResolveQ queue movement and load-store conflict publication.
 - Ready-table, bypass, and dependent-consumer wakeup.
@@ -127,9 +142,11 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayLiqAllocPath
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayLiqAllocAdapter
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
+bash tools/chisel/run_chisel_tests.sh --only LoadInflightLaunchSelect
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
 Reference tests cover allocation-pointer order, preservation of load LSID and
 forwarding snapshot sidecars, full-LIQ backpressure without queue consumption,
-flush clearing, and Chisel elaboration with both child modules.
+flush clearing, and Chisel elaboration with the adapter, LIQ row owner, and
+launch selector child modules.

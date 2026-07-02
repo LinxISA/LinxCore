@@ -115,9 +115,13 @@ class ReducedLoadReplayLiqAllocPathSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedLoadReplayLiqAllocPath"))
     assert(sv.contains("ReducedLoadReplayLiqAllocAdapter"))
     assert(sv.contains("LoadInflightQueue"))
+    assert(sv.contains("LoadInflightLaunchSelect"))
     assert(sv.contains("io_candidateConsumeReady"))
     assert(sv.contains("io_candidateBlockedByAlloc"))
     assert(sv.contains("io_allocAccepted"))
+    assert(sv.contains("io_launchDataHitMask"))
+    assert(sv.contains("io_launchCandidateMask"))
+    assert(sv.contains("io_launchValid"))
     assert(sv.contains("io_rows_0_loadLsId_value"))
     assert(sv.contains("io_rows_0_youngestStoreLsId_value"))
   }

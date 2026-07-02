@@ -41,6 +41,17 @@ class ReducedLoadReplayLiqAllocPathIO(
   val occupiedMask = Output(UInt(liqEntries.W))
   val waitMask = Output(UInt(liqEntries.W))
   val waitStoreMask = Output(UInt(liqEntries.W))
+  val launchWaitMask = Output(UInt(liqEntries.W))
+  val launchWaitStoreBlockedMask = Output(UInt(liqEntries.W))
+  val launchTileBlockedMask = Output(UInt(liqEntries.W))
+  val launchUnblockedWaitMask = Output(UInt(liqEntries.W))
+  val launchRequestCompleteMask = Output(UInt(liqEntries.W))
+  val launchDataHitMask = Output(UInt(liqEntries.W))
+  val launchCandidateMask = Output(UInt(liqEntries.W))
+  val launchMask = Output(UInt(liqEntries.W))
+  val launchValid = Output(Bool())
+  val launchIndex = Output(UInt(liqPtrWidth.W))
+  val launchCandidateCount = Output(UInt(countWidth.W))
   val residentCount = Output(UInt(countWidth.W))
   val empty = Output(Bool())
   val full = Output(Bool())
@@ -79,6 +90,7 @@ class ReducedLoadReplayLiqAllocPath(
 
   val adapter = Module(new ReducedLoadReplayLiqAllocAdapter(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth))
   val liq = Module(new LoadInflightQueue(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val launchSelect = Module(new LoadInflightLaunchSelect(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
 
   adapter.io.flush := io.flush
   adapter.io.candidateValid := io.candidateValid
@@ -104,6 +116,9 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.clearResolvedValid := io.clearResolvedValid
   liq.io.clearResolvedIndex := io.clearResolvedIndex
 
+  launchSelect.io.enable := !io.flush
+  launchSelect.io.rows := liq.io.rows
+
   io.candidateConsumeReady := adapter.io.consumeReady
   io.candidateUsable := adapter.io.candidateUsable
   io.candidateBlockedByAlloc := adapter.io.blockedByAlloc
@@ -116,6 +131,17 @@ class ReducedLoadReplayLiqAllocPath(
   io.occupiedMask := liq.io.occupiedMask
   io.waitMask := liq.io.waitMask
   io.waitStoreMask := liq.io.waitStoreMask
+  io.launchWaitMask := launchSelect.io.waitMask
+  io.launchWaitStoreBlockedMask := launchSelect.io.waitStoreBlockedMask
+  io.launchTileBlockedMask := launchSelect.io.tileBlockedMask
+  io.launchUnblockedWaitMask := launchSelect.io.unblockedWaitMask
+  io.launchRequestCompleteMask := launchSelect.io.requestCompleteMask
+  io.launchDataHitMask := launchSelect.io.dataHitMask
+  io.launchCandidateMask := launchSelect.io.launchCandidateMask
+  io.launchMask := launchSelect.io.launchMask
+  io.launchValid := launchSelect.io.launchValid
+  io.launchIndex := launchSelect.io.launchIndex
+  io.launchCandidateCount := launchSelect.io.candidateCount
   io.residentCount := liq.io.residentCount
   io.empty := liq.io.empty
   io.full := liq.io.full

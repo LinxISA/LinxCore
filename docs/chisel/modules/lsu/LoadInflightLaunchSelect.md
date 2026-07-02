@@ -14,9 +14,10 @@
 `LoadInflightQueue` row images, exposes model-derived eligibility masks, and
 selects the oldest launchable scalar `Wait` row by `(BID, loadLsId)` order.
 
-The selector is pre-integration in R280. It does not mutate LIQ state, drive the
-top-level launch port, return data, update ready tables, move LHQ/ResolveQ
-state, or replace the reduced-store completion-drain path.
+The selector is wired into `ReducedLoadReplayLiqAllocPath` and the opt-in
+replay-LIQ reduced top as diagnostics in R281. It does not mutate LIQ state,
+drive the top-level launch port, return data, update ready tables, move
+LHQ/ResolveQ state, or replace the reduced-store completion-drain path.
 
 ## Interface
 
@@ -67,7 +68,8 @@ tie-breaker.
 
 ## Deferred Owners
 
-- Connecting `LoadInflightLaunchSelect` to the opt-in replay-LIQ reduced top.
+- Driving the opt-in replay-LIQ reduced top's `LoadInflightQueue.launchValid`
+  from `LoadInflightLaunchSelect` after launch/new-load arbitration is owned.
 - Supplying `LoadInflightQueue.launchValid/launchIndex` and row-owned E2 base
   data from the selected replay row.
 - Clear-resolved/LHQ/ResolveQ movement after selected rows complete.
