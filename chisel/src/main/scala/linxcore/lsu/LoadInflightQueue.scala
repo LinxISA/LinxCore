@@ -76,13 +76,15 @@ class LoadHitRecord(
     val idEntries: Int,
     val addrWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val pcWidth: Int = 64)
     extends Bundle {
   val loadId = new ROBID(liqEntries)
   val bid = new ROBID(idEntries)
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
   val loadLsId = new ROBID(idEntries)
+  val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val lineAddr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -291,6 +293,7 @@ class LoadInflightQueue(
   lhqRecord.gid := rows(e4Index).gid
   lhqRecord.rid := rows(e4Index).rid
   lhqRecord.loadLsId := rows(e4Index).loadLsId
+  lhqRecord.pc := rows(e4Index).pc
   lhqRecord.addr := rows(e4Index).addr
   lhqRecord.lineAddr := lineAddr(rows(e4Index).addr)
   lhqRecord.size := rows(e4Index).size

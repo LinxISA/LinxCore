@@ -13,6 +13,7 @@
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQCommitQueue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBID.scala`
 - Contract IDs: `LC-CHISEL-LSU-MDB-CONFLICT-001`
 
@@ -49,7 +50,7 @@ IEX-local MDB learning, or final flush publication.
 | `store.bid/store.lsId` | `ROBID` | Store age identity. The store must be older than or equal to the load to conflict. |
 | `store.pc/addr/size` | `UInt` | Store PC and byte range. |
 | `activeLoads` | `Vec[MDBConflictLoadEntry]` | Active LDQ cluster rows. Rows with `resolved=1` may become flush candidates; rows with `resolved=0` may become wait-store rows for `ST_ADDR`. |
-| `resolvedQueue` | `Vec[MDBConflictLoadEntry]` | Resolved-load queue rows equivalent to `ResolveQ::entryArr`. |
+| `resolvedQueue` | `Vec[MDBConflictLoadEntry]` | Resolved-load queue rows equivalent to `ResolveQ::entryArr`, supplied by `LoadResolveQueue` once integrated. |
 
 ### Outputs
 
@@ -130,6 +131,7 @@ events are emitted from the Chisel top.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
 - `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath`

@@ -503,6 +503,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("LoadForwardPipeline"))
     assert(sv.contains("io_lhqRecordValid"))
     assert(sv.contains("io_lhqRecord_loadLsId_value"))
+    assert(sv.contains("io_lhqRecord_pc"))
     assert(sv.contains("io_alloc_loadLsId_value"))
     assert(sv.contains("io_e4UpdateValid"))
     assert(sv.contains("io_missPending"))

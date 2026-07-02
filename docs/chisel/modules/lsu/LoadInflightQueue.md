@@ -13,6 +13,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadRefillWakeup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayWakeup.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightLaunchSelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadForwardPipeline.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`
@@ -110,7 +111,7 @@ nonzero; otherwise it uses the external `e2BaseData`/`e2BaseValidMask` inputs.
 | `e4MissKind` | Local E4 outcome from `LoadForwardPipeline`. |
 | `e4WakeupValid` | E4 can wake/return the load. |
 | `lhqRecordValid` | The E4 outcome resolved as a hit and publishes an LHQ record. |
-| `lhqRecord` | Load ID, row identity including load LSID, line address, byte mask, final line data, and forwarded mask. |
+| `lhqRecord` | Load ID, row identity including load LSID and PC, line address, byte mask, final line data, and forwarded mask. |
 
 Resolved rows remain resident until `clearResolvedValid` accepts the row. This
 matches the model split where `LDQ_RESOLVED` rows later move into `ResolveQ`
@@ -181,7 +182,8 @@ The C++ model provides the owner split:
    pre-integration selector for replay rows that require model-style data-hit
    eligibility before driving this broader launch port.
 3. E4 hit with `NoMiss` and `e4WakeupValid` changes the row to `Resolved` and
-   publishes `lhqRecord`.
+   publishes `lhqRecord` with the row PC preserved for future recovery/MDB
+   reporting.
 4. E4 `StoreDataNotReady` changes the row back to `Wait`, records
    `waitStoreInfo`, and clears transient byte-valid data like model
    `LUEntryInfo::rewait`.
@@ -223,7 +225,8 @@ publication, and recovery checkpoint integration remain future packets.
 ## Trace/Observability
 
 `lhqRecord` is the first resolved-load observation surface for future
-load/store conflict checks. It is not yet a QEMU/DUT memory trace. Full
+load/store conflict checks and now carries load PC for the R284
+`LoadResolveQueue` conflict-row view. It is not yet a QEMU/DUT memory trace. Full
 replacement evidence still requires later top-level load-result trace rows and
 memory comparison against QEMU/model behavior.
 
@@ -233,6 +236,7 @@ memory comparison against QEMU/model behavior.
 - `bash tools/chisel/run_chisel_tests.sh --only LoadRefillWakeup`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob`
@@ -240,7 +244,7 @@ memory comparison against QEMU/model behavior.
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 
 Focused reference tests cover slot-plus-wrap allocation, E4 hit-to-resolved
-transition and LHQ record publication, not-ready store replay, incomplete-data
+transition and LHQ record publication including PC, not-ready store replay, incomplete-data
 miss-pending behavior, source/return-port replay, store-wakeup wait-store
 clear, store-wakeup miss completion, resolved-row clearing before wraparound
 allocation, L1 refill wakeup, row-owned refill-data relaunch, and Chisel

@@ -15,6 +15,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightLaunchSelect.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayRelaunchQueue.scala`
 - Contract IDs: `LC-CHISEL-LSU-LIQ-003`
 
@@ -82,7 +83,7 @@ diagnostic boundary needed before the top enables live replay.
 | `launchAccepted` | Selected row entered `Repick` through `LoadInflightQueue`. |
 | `repickMask` / `missMask` / `resolvedMask` | Pass-through LIQ state masks after any enabled relaunches. |
 | `e4UpdateValid` / `e4UpdateIndex` / `e4MissKind` / `e4WakeupValid` | Pass-through E4 outcome diagnostics from the launched-row pipeline. |
-| `lhqRecordValid` / `lhqRecord` | Path-local resolved-load hit record. Not yet inserted into a top-level ResolveQ. |
+| `lhqRecordValid` / `lhqRecord` | Path-local resolved-load hit record, including load PC after R284. Not yet inserted into a top-level ResolveQ. |
 | `residentCount` | Resident LIQ row count. |
 | `empty` / `full` | LIQ occupancy diagnostics. |
 | `missPending` | Pass-through LIQ miss-pending diagnostic. |
@@ -154,7 +155,8 @@ owner.
   leaves that gate disabled.
 - Row/base-data ownership, return-readiness wiring, and source arbitration for
   enabled relaunch.
-- LHQ/ResolveQ queue movement and load-store conflict publication.
+- LHQ/ResolveQ queue movement through `LoadResolveQueue` and load-store
+  conflict publication.
 - Ready-table, bypass, and dependent-consumer wakeup.
 
 ## Verification

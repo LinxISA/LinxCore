@@ -129,6 +129,7 @@ class ReducedLoadReplayLiqAllocPathSpec extends AnyFunSuite {
     assert(sv.contains("io_launchAccepted"))
     assert(sv.contains("io_e4UpdateValid"))
     assert(sv.contains("io_lhqRecordValid"))
+    assert(sv.contains("io_lhqRecord_pc"))
     assert(sv.contains("io_missPending"))
     assert(sv.contains("io_rows_0_loadLsId_value"))
     assert(sv.contains("io_rows_0_youngestStoreLsId_value"))
