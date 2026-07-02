@@ -206,3 +206,10 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh \
 The comparator passes at
 `generated/r261-reduced-store-overlay-commit-row-8192-reuse-r259-bin-xcheck/report/crosscheck_manifest.json`
 with 7172 compared rows and zero mismatches.
+
+R263 scale evidence reruns the reduced-store live QEMU wrapper with
+`--disable-store-memory-mutation`, `--reduced-store-dispatch-stq`, and a fresh
+16384-row CoreMark capture after the R262 old-to-young lane ordering change.
+The run reduces 16250 expected rows, normalizes 14780 QEMU/DUT rows, compares
+14779 rows, and passes with zero mismatches in
+`generated/r263-reduced-store-overlay-old-to-young-16384-qemu-elf-xcheck/report/crosscheck_manifest.json`.

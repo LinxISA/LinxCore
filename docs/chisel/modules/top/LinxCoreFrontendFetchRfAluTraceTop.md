@@ -850,6 +850,15 @@ must be routed old-to-young; current SCB drain lanes precede current ROB
 commit-row bypass lanes even though commit-row visibility does not wait for
 SCB acceptance).
 
+R263 scales the R262 top without source changes using a fresh live QEMU
+CoreMark capture and immutable sparse ELF memory. The optional reduced-store
+wrapper captures 16384 raw QEMU rows, reduces 16250 expected rows, normalizes
+14780 QEMU/DUT rows, compares 14779 rows, and passes with zero mismatches in
+`generated/r263-reduced-store-overlay-old-to-young-16384-qemu-elf-xcheck/report/crosscheck_manifest.json`.
+
+skill-evolve: no-update (R263 only scales the R262 reduced-store overlay proof;
+no new reusable invariant, mandatory gate, or triage order changed).
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
