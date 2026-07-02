@@ -874,14 +874,15 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add the next memory-side reduced-store boundary after R259. Read
+1. Add the next memory-side reduced-store boundary after R261. Read
    `ReducedStoreCommitFreeOwner`, `ReducedStoreExecResultBridge`,
    `STQCommitDrain`, `SCBRowBank`, `LoadStoreForwarding`, `MDBConflictDetect`,
    and LinxCoreModel `STQ::commit` plus `STQ::lookupForLoad` first. The reduced
    top now has the correct SCB accepted-`last` free source, R253 model-identity
    commit/free matching, R254-R257 scale evidence through 8192 raw CoreMark QEMU
-   rows, R258 no-harness-mutation RTL overlay evidence at 1024 raw rows, and
-   R259 commit-row/storeCommitQ-equivalent overlay visibility at 2048 raw rows.
+   rows, R258 no-harness-mutation RTL overlay evidence at 1024 raw rows, R259
+   commit-row/storeCommitQ-equivalent overlay visibility at 2048 raw rows, and
+   R260/R261 no-harness-mutation scale evidence through 8192 raw rows.
    It still lacks full store-to-load forwarding, load wait/replay, MDB conflict
    publication, TSO/fence completion, and real cache/SCB memory state. Focused
    gates should include `ReducedStoreMemoryOverlaySpec`,
