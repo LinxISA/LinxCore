@@ -203,6 +203,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val executeBusy = Output(Bool())
   val executeCompleteValid = Output(Bool())
   val executeCompleteRobValue = Output(UInt(ptrWidth.W))
+  val executeLoadWaitHold = Output(Bool())
   val loadLookupValid = Output(Bool())
   val loadLookupAddr = Output(UInt(p.immWidth.W))
   val reducedStoreDispatchEnabled = Output(Bool())
@@ -1096,6 +1097,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   execute.io.in := issue.io.issueUop
   execute.io.srcData := issue.io.issueSrcData
   execute.io.loadLookupData := reducedStoreResidentForward.io.loadData
+  execute.io.loadLookupWaitBlocked := reducedStoreResidentForward.io.waitBlocked
   execute.io.stackPointerData := scalarSpValue
   execute.io.flushValid := backendPipeFlush
   execute.io.fretStkFallbackTargetValid := path.io.blockMarkerActiveValid && path.io.blockMarkerActiveTarget =/= 0.U
@@ -1273,6 +1275,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.executeBusy := execute.io.busy
   io.executeCompleteValid := execute.io.completeValid
   io.executeCompleteRobValue := execute.io.completeRobValue
+  io.executeLoadWaitHold := execute.io.loadWaitHold
   io.loadLookupValid := execute.io.loadLookupValid
   io.loadLookupAddr := execute.io.loadLookupAddr
   io.reducedStoreDispatchEnabled := useReducedStoreDispatchStq.B

@@ -207,6 +207,7 @@ class LinxCoreFrontendRfAluTraceTop(
   execute.io.in := issue.io.issueUop
   execute.io.srcData := issue.io.issueSrcData
   execute.io.loadLookupData := 0.U
+  execute.io.loadLookupWaitBlocked := false.B
   execute.io.stackPointerData := scalarSpValue
   execute.io.flushValid := io.frontendFlushValid
   execute.io.fretStkFallbackTargetValid := false.B

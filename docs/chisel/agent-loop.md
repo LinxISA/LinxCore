@@ -677,6 +677,7 @@ These packets remain the required base before broad module promotion:
 | R263 | Reduced-store no-harness-mutation 16k live-QEMU scale gate | `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r263-reduced-store-overlay-old-to-young-16384-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 16384 --allow-block-markers --allow-block-loop-reentry --reduced-store-dispatch-stq --disable-store-memory-mutation --max-seconds 45 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`. No RTL changed after R262; this scales the old-to-young overlay integration with a fresh live QEMU capture and immutable sparse ELF memory. The wrapper captures 16384 raw QEMU rows, reduces 16250 expected rows, normalizes 14780 QEMU/DUT rows, compares 14779 rows, and passes with zero mismatches and no CBSTOP divergence in `generated/r263-reduced-store-overlay-old-to-young-16384-qemu-elf-xcheck/report/crosscheck_manifest.json`. Closeout: `skill-evolve: no-update (R263 only scales the R262 reduced-store overlay proof; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
 | R264 | Load-forwarding BID/LSID ordering owner | `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding`, `bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline`, `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue`, `bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup`, `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`, `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`, and `git diff --check`. `LoadStoreForwarding` now carries the load allocation snapshot as `(youngestStoreId, youngestStoreLsId)`, carries each candidate as `(storeId, storeLsId)`, and uses `STQCommitQueue.lessEqualBidLs` for eligibility and nearest-store selection. `LoadInflightQueue` snapshots the same tuple and `LoadReplayWakeupRequest` carries `storeLsId` so store-unit wakeups clear wait-store diagnostics by BID/LSID/PC and merge only when the waking store is no newer than the row snapshot. The direct reference suite adds same-BID/different-LSID regressions for forwarding source selection and replay wakeup eligibility so the Chisel path matches model `STQ::lookupForLoad` rather than ROBID-only ordering. This packet does not yet wire resident STQ forwarding into the reduced top. Closeout: `skill-evolve: update linx-core (load-forwarding and replay-wakeup owners must order store candidates by model BID/LSID, not ROBID/BID alone)`. |
 | R265 | Ready resident STQ forwarding in reduced top | `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreResidentForward`, `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding`, `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute`, `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreMemoryOverlay`, `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, and `git diff --check`. Added `ReducedStoreResidentForward` as the reduced-top adapter from resident `StoreDispatchSTQPath` rows to `LoadStoreForwarding`. `ReducedScalarAluExecute` now publishes load lookup size, BID, and raw LSID; the top converts LSID through the same reduced `ROBID` shape as `StoreDispatchToSTQ`, applies ready resident forwarding after the committed-store overlay, and exposes forward/wait/eligible diagnostics. Wait-hit and cross-line resident cases stay pass-through until a replay owner exists. Closeout: `skill-evolve: update linx-core (reduced resident STQ forwarding may feed execute only for ready/no-wait cases; wait-hit loads remain pass-through until LIQ/LDQ replay control is wired)`. |
+| R266 | Resident wait-hit execute hold | `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute`, `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreResidentForward`, `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, and `git diff --check`. `ReducedScalarAluExecute` now accepts `loadLookupWaitBlocked` and reports `loadWaitHold`; when the E-stage load is waiting on an older not-ready resident store, the pipe holds E and drains older W1/W2 work instead of advancing pass-through load data to completion. `LinxCoreFrontendFetchRfAluTraceTop` drives that hold from `ReducedStoreResidentForward.waitBlocked` and exports `executeLoadWaitHold`. This models the first visible `LDQInfo::waitStore` effect without allocating a LIQ/LDQ row or consuming store-unit wakeups. Closeout: `skill-evolve: update linx-core (resident wait-hit loads must hold execute; do not retire pass-through data while waiting for an older not-ready resident store)`. |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -878,7 +879,7 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add the next memory-side reduced-store boundary after R265. Read
+1. Add the next memory-side reduced-store boundary after R266. Read
    `ReducedStoreResidentForward`, `LoadForwardPipeline`, `LoadInflightQueue`,
    `LoadReplayWakeup`, `MDBConflictDetect`, and LinxCoreModel
    `STQ::lookupForLoad` plus LDQ wait/replay wakeup paths first. The reduced
@@ -890,11 +891,12 @@ Closeout:
    old-to-young same-cycle overlay lane precedence for SCB drain versus current
    commit-row bypass fragments, R263 live-QEMU no-harness-mutation scale
    evidence through 16384 raw rows, R264 `LoadStoreForwarding` plus
-   `LoadReplayWakeup` `(BID, LSID)` candidate/wakeup ordering, and R265
-   ready/no-wait resident STQ forwarding in the reduced top.
-   It still lacks wait-hit execute backpressure/replay, cross-line resident
-   forwarding, MDB conflict publication, TSO/fence completion, and real
-   cache/SCB memory state. Focused gates should include
+   `LoadReplayWakeup` `(BID, LSID)` candidate/wakeup ordering, R265
+   ready/no-wait resident STQ forwarding in the reduced top, and R266
+   wait-hit execute hold. It still lacks LIQ/LDQ replay row mutation and
+   store-unit wakeup consumption, cross-line resident forwarding, MDB conflict
+   publication, TSO/fence completion, and real cache/SCB memory state. Focused
+   gates should include
    `ReducedStoreResidentForwardSpec`, `LoadForwardPipelineSpec`,
    `LoadInflightQueueSpec`, `LoadReplayWakeupSpec`,
    `MDBConflictDetectSpec`, and `LinxCoreFrontendFetchRfAluTraceTopSpec`

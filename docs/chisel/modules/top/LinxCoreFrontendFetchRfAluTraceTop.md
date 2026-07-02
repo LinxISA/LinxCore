@@ -874,6 +874,17 @@ skill-evolve: update linx-core (reduced resident store forwarding may feed
 execute only for ready/no-wait cases; wait-hit loads must remain pass-through
 until LIQ/LDQ replay control is wired).
 
+R266 turns that wait diagnostic into reduced execute backpressure. A resident
+wait-hit now drives `ReducedScalarAluExecute.loadLookupWaitBlocked`, keeping
+the load resident in E and keeping the issue queue backpressured until the STQ
+row's data becomes ready or a flush clears the pipe. This prevents the reduced
+top from retiring committed-overlay pass-through data on wait hits while still
+deferring real LIQ/LDQ row mutation and store-unit replay wakeup consumption.
+
+skill-evolve: update linx-core (resident wait-hit loads must hold execute;
+do not retire pass-through data while waiting for an older not-ready resident
+store).
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -924,7 +935,8 @@ until LIQ/LDQ replay control is wired).
 | output | `reducedStoreDrain*` | mixed | diagnostic | R241 reduced `STQCommitDrain` diagnostics: mark-accepted enqueue result, duplicate detect, issue mask/count, abstract drain early-free mask, queue count, empty, and order-error. |
 | output | `reducedStoreScb*` | mixed | diagnostic | R241 reduced `SCBRowBank` diagnostics: model-batch readiness, accepted/stalled request masks, accepted-`last` commit-free mask/count, valid row mask, and entry count. |
 | output | `reducedStoreMemoryValidMask`, `reducedStoreMemoryLineCount`, `reducedStoreMemoryLoadForwardMask`, `reducedStoreMemoryStoreDroppedMask` | mixed | diagnostic | R258/R259 reduced store-memory overlay occupancy, load-byte forward mask, and accepted-request drop diagnostics. The drop mask covers commit-row bypass lanes plus SCB accepted lanes. |
-| output | `reducedStoreResidentForwardMask`, `reducedStoreResidentWaitMask`, `reducedStoreResidentEligibleMask`, `reducedStoreResidentReadyForward`, `reducedStoreResidentWaitBlocked`, `reducedStoreResidentLoadCrossesLine` | mixed | diagnostic | R265 ready resident-STQ forwarding diagnostics after the committed-store overlay. Wait hits are reported but do not stall or replay execute yet. |
+| output | `reducedStoreResidentForwardMask`, `reducedStoreResidentWaitMask`, `reducedStoreResidentEligibleMask`, `reducedStoreResidentReadyForward`, `reducedStoreResidentWaitBlocked`, `reducedStoreResidentLoadCrossesLine` | mixed | diagnostic | R265/R266 resident-STQ forwarding diagnostics after the committed-store overlay. Ready hits forward bytes; wait hits hold execute through `executeLoadWaitHold`. |
+| output | `executeLoadWaitHold` | `Bool` | diagnostic | R266 reduced execute hold for a load waiting on an older not-ready resident store. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
 | output | `robAllocFire`, `robRenameUpdateFire`, `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB allocation, post-rename update, and completion acceptance events. |
@@ -962,7 +974,8 @@ overlay. Most state remains in child modules:
   ALU, reduced multiply, read-only C.LDI/LDI load lookup sidebands,
   C.SETC_EQ/C.SETC_NE/SETC_LTU no-writeback rows and branch-decision
   sidebands, PCR load lookup, SETC target/FRET.STK redirect, ADDW,
-  SDI/SWI/SBI/C.SDI store sidebands, and writeback-shaped completion.
+  SDI/SWI/SBI/C.SDI store sidebands, resident-load wait hold, and
+  writeback-shaped completion.
 - `ReducedStoreExecResultBridge`: optional R239 bridge from reduced ALU store
   completion sidebands to `StoreDispatchSTQPath` STA/STD execution-result
   inputs. It owns only capture and queue-head identity matching.
@@ -1047,15 +1060,17 @@ and idempotent. Reduced load lookup data is first formed by applying the
 overlay over the immutable sparse ELF base data. R265 then feeds that result
 through `ReducedStoreResidentForward`, which uses the load's `(BID, LSID)`
 snapshot and resident STQ rows to overlay ready older store bytes. If the
-resident selector reports a wait byte, the top keeps the committed-overlay data
-unchanged and only exposes diagnostics. The overlay clears only on run
-start/restart or when the optional reduced-store path is disabled; ordinary
-backend redirects do not clear it because committed store bytes are
+resident selector reports a wait byte, the adapter still leaves data unchanged
+but the top asserts `loadLookupWaitBlocked` into execute, so the load remains
+resident in E and cannot retire pass-through data. The overlay clears only on
+run start/restart or when the optional reduced-store path is disabled;
+ordinary backend redirects do not clear it because committed store bytes are
 nonflushable state. The opt-in path is still for bounded integration debug: it
-now owns STQ mark/drain/free lifecycle, committed store-byte visibility, and
-ready resident store-byte forwarding for scalar load lookup, but not load
-wait/replay, cross-line resident forwarding, cache state, TSO/fence completion,
-or MDB conflict publication.
+now owns STQ mark/drain/free lifecycle, committed store-byte visibility, ready
+resident store-byte forwarding, and wait-hit execute hold for scalar load
+lookup, but not LIQ/LDQ replay row mutation, store-unit wakeup consumption,
+cross-line resident forwarding, cache state, TSO/fence completion, or MDB
+conflict publication.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
 packet acceptance. The P1/I1/I2 picker reads source data from
@@ -1090,8 +1105,9 @@ immutable and requires `ReducedStoreMemoryOverlay` to supply committed store
 bytes from RTL state. R259 broadens that RTL state from SCB-accepted fragments
 to include ROB-committed/storeCommitQ-equivalent fragments because the model
 can forward committed store bytes before SCB acceptance. R265 adds ready
-resident STQ forwarding after that committed overlay, but preserves pass-through
-behavior for wait hits until a replay owner can hold and relaunch the load.
+resident STQ forwarding after that committed overlay. R266 makes wait hits
+hold execute instead of retiring pass-through data; replay ownership remains
+deferred until a LIQ/LDQ row can remember and relaunch the load.
 This remains a reduced memory visibility bridge, not a general LSU/STQ, cache,
 replay, or MDB implementation.
 

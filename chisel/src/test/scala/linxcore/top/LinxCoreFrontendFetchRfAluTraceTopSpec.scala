@@ -120,6 +120,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.decodeBlockedByOutput.getWidth == 1)
     assert(io.tuRenameSourceUnderflowMask.getWidth == 3)
     assert(io.executeCompleteRobValue.getWidth == 3)
+    assert(io.executeLoadWaitHold.getWidth == 1)
     assert(io.reducedStoreDispatchEnabled.getWidth == 1)
     assert(io.reducedStoreExecCompleteStoreValid.getWidth == 1)
     assert(io.reducedStoreExecCaptureFire.getWidth == 1)
@@ -264,6 +265,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_localIncomingBlocked"))
     assert(sv.contains("io_decodeBlockedByTURename"))
     assert(sv.contains("io_executeCompleteValid"))
+    assert(sv.contains("io_executeLoadWaitHold"))
     assert(sv.contains("io_reducedStoreExecCaptureFire"))
     assert(sv.contains("io_reducedStoreCommitPendingMarkMask"))
     assert(sv.contains("io_reducedStoreScbCommitFreeMask"))
@@ -298,6 +300,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedStoreMemoryLoadForwardMask"))
     assert(sv.contains("io_reducedStoreResidentForwardMask"))
     assert(sv.contains("io_reducedStoreResidentWaitMask"))
+    assert(sv.contains("io_executeLoadWaitHold"))
     assert(sv.contains("io_storeStqInsertValid"))
   }
 
@@ -320,6 +323,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedStoreScbCommitFreeMask"))
     assert(sv.contains("io_reducedStoreMemoryStoreDroppedMask"))
     assert(sv.contains("io_reducedStoreResidentEligibleMask"))
+    assert(sv.contains("io_executeLoadWaitHold"))
     assert(sv.contains("io_storeStqInsertValid"))
   }
 

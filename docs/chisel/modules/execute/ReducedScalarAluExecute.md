@@ -16,6 +16,11 @@
   - `model/LinxCoreModel/isa/calculate/compound/Compound.cpp`
   - `model/LinxCoreModel/isa/ISACommon/OpcodeManager.h`
   - `model/LinxCoreModel/isa/ISACommon/OpcodeManager.cpp`
+  - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
+    - `STQ::lookupForLoad`
+  - `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`
+    - `LDQInfo::handleSTQReceive`
+    - `LDQInfo::waitStore`
   - `emulator/qemu/target/linx/translate.c`
 - Contract IDs: `LC-IF-CHISEL-IEX-ALU-001`, `LC-IF-CHISEL-XCHK-006`
 
@@ -33,6 +38,13 @@ R82 RF-backed top reads `srcData` from a reduced scalar physical register file.
 The full issue queue, bypass, wakeup, replay, and recovery paths remain later
 owners.
 
+R266 adds a reduced load wait-hold input for the optional resident-STQ
+forwarding path. When the current E-stage load overlaps an older resident store
+whose data is not ready, the owning top asserts the wait input, this module
+keeps the load resident in E, and the issue queue remains backpressured. This
+models the first visible part of the LinxCoreModel LDQ `waitStore` path without
+claiming a full LIQ/LDQ replay or wakeup implementation.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -43,6 +55,7 @@ owners.
 | input | `srcData` | `Vec(3, UInt(64.W))` by default | with accepted uop | Operand values supplied by the reduced top harness. |
 | input | `flushValid` | `Bool` | pulse | Clears E/W1/W2 pipeline state and suppresses same-cycle completion/redirect outputs. |
 | input | `loadLookupData` | `UInt(64.W)` by default | combinational with E-stage load lookup | Read-only reduced load data returned by the owning top for reduced load rows including `OP_C_LDI`, `OP_LDI`, `OP_LD_PCR`, `OP_HL_LD_PCR`, and the R132 `FRET.STK` RA-load path. |
+| input | `loadLookupWaitBlocked` | `Bool` | combinational with E-stage load lookup | R266 reduced LSU hold request. Asserted by the owning top when the load data path found a wait-hit against an older not-ready resident store. |
 | input | `fretStkFallbackTargetValid`, `fretStkFallbackTarget` | `Bool`, `UInt(pcWidth.W)` | combinational | Active-marker fallback target used by reduced `FRET.STK` when no explicit SETC target is live. |
 | input | `fretStkConditionValid`, `fretStkConditionTaken` | `Bool`, `Bool` | combinational | Latest reduced SETC condition. `FRET.STK` takes the latched/fallback target only when the condition is absent or taken; a valid false condition selects the RA-load return path when the restore range includes `x10`. |
 | input | `stackPointerData` | `UInt(64.W)` by default | combinational | Reduced SP shadow used by macro `FENTRY` rows and R132 `FRET.STK` RA-load address generation. |
@@ -66,6 +79,7 @@ owners.
 | output | `redirectPc` | `UInt(pcWidth.W)` | with `redirectValid` | Return target selected from the loaded RA for R132 load-return rows, otherwise from `C.SETC.TGT`/`SETC.TGT` first and active-marker fallback second. |
 | output | `accepted` | `Bool` | pulse | `inValid && inReady`. |
 | output | `busy` | `Bool` | state | Any E/W1/W2 pipe stage is occupied. |
+| output | `loadWaitHold` | `Bool` | state/diagnostic | The current E-stage load lookup is held because `loadLookupWaitBlocked` is asserted. |
 | output | `unsupported` | `Bool` | pulse | W2 uop reached execute but is outside the reduced opcode subset. |
 | output | `unsupportedOpcode` | `UInt(opcodeWidth.W)` | with `unsupported` | Unsupported opcode ID for diagnostics. |
 
@@ -418,6 +432,15 @@ rows. The reduced issue queue has already marked the row issued when execute
 accepted it; an unsupported reduced opcode must still release that resident
 queue entry so the top does not deadlock while surfacing `unsupported`.
 
+For R266 load wait-hold, the E-stage load remains resident while
+`loadLookupWaitBlocked` is asserted. Older W1/W2 work continues to drain; the
+held load does not advance to W1, does not emit completion/release, and keeps
+`inReady` low through the existing occupied-E rule. When the wait input drops,
+the load recomputes with the now-ready `loadLookupData` and advances normally.
+This is a reduced stand-in for `LDQInfo::waitStore`: the top can prevent wrong
+retirement on resident store-data waits before a real LIQ/LDQ replay row and
+store-unit wakeup path exists.
+
 ## Timing
 
 The reduced pipe captures a uop into E when `inValid && inReady`, computes the
@@ -425,6 +448,10 @@ result when E advances to W1, and emits completion and release from W2. There
 is no downstream completion backpressure yet, so the owning top must only
 connect this module to a completion consumer that can accept one completion
 when `completeValid` pulses.
+
+If `loadWaitHold` is asserted, W1/W2 still drain but E does not advance. The
+hold is cleared only by `flushValid` or by the owning top deasserting
+`loadLookupWaitBlocked` for the same resident E-stage load.
 
 ## Flush/Recovery
 
@@ -436,6 +463,8 @@ CoreMark redirect evidence, not full replay or exception recovery.
 Later execute owners must add recovery age checks, replay, bypass
 invalidation, and exception-priority behavior before this module can sit
 behind a general speculative issue queue.
+The R266 wait-hold path is not a replay mechanism: it does not allocate an
+LIQ/LDQ row, remember wait-store identity, or consume store-unit wakeups.
 
 ## Trace/Observability
 

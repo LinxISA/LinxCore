@@ -324,6 +324,8 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(sv.contains("io_loadLookupSize"))
     assert(sv.contains("io_loadLookupBid_value"))
     assert(sv.contains("io_loadLookupLsId"))
+    assert(sv.contains("io_loadLookupWaitBlocked"))
+    assert(sv.contains("io_loadWaitHold"))
     assert(sv.contains("io_unsupportedOpcode"))
   }
 }

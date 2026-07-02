@@ -11,6 +11,9 @@
     - `STQ::retire`
     - `STQ::commit`
   - `tools/LinxCoreModel/model/lsu/store_unit/stq.h`
+  - `tools/LinxCoreModel/model/lsu/load_unit/ldq.cpp`
+    - `LDQInfo::handleSTQReceive`
+    - `LDQInfo::waitStore`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
@@ -25,11 +28,12 @@ resident STQ rows feed scalar load data before the store commits. It maps
 constructs a synthetic 64-byte cacheline from the current 64-bit load window,
 and extracts the returned 64-bit load data after ready store bytes are overlaid.
 
-This is still a reduced trace-top bridge. It does not stall execute or mutate
-LIQ/LDQ state when an older store is not data-ready. Instead, a wait hit is
-reported through diagnostics and the module preserves the incoming base load
-data. A later replay owner must consume the wait-store identity before this can
-replace the full model load pipeline.
+This is still a reduced trace-top bridge. The module preserves the incoming
+base load data when an older store is not data-ready and reports the wait hit
+through diagnostics. R266 wires that diagnostic to an execute-stage hold in
+`LinxCoreFrontendFetchRfAluTraceTop`, but this module still does not mutate
+LIQ/LDQ state or consume store-unit wakeups. A later replay owner must consume
+the wait-store identity before this can replace the full model load pipeline.
 
 ## Interface
 
@@ -55,7 +59,7 @@ replace the full model load pipeline.
 | `waitMask` | One bit per returned byte whose nearest older resident store is not data-ready. |
 | `eligibleStoreMask` | STQ rows accepted by the resident-forward candidate filter. |
 | `readyForward` | At least one byte was forwarded and no wait byte blocked the load. |
-| `waitBlocked` | A nearest older resident store is not data-ready for at least one requested byte. |
+| `waitBlocked` | A nearest older resident store is not data-ready for at least one requested byte. R266 top integration uses this to hold execute. |
 | `loadCrossesLine` | Load crosses a 64-byte line and is left on the base overlay path in this ready-only packet. |
 
 ## State
@@ -88,8 +92,8 @@ with reduced-top limits:
 6. Run `LoadStoreForwarding`, then extract the load-window bytes from the
    merged 64-byte line.
 7. If `waitMask` is nonzero, preserve `baseLoadData` and report
-   `waitBlocked`. This avoids claiming replay behavior before LIQ/LDQ control
-   is wired.
+   `waitBlocked`. The R266 top consumes that diagnostic as execute
+   backpressure; replay row mutation remains outside this adapter.
 
 ## Timing
 
@@ -100,8 +104,10 @@ The final reduced load-data order is:
 2. committed-store/SCB accepted overlay data,
 3. ready resident STQ forwarding data when no wait byte is selected.
 
-This keeps the existing reduced execute pipeline unchanged. A later packet may
-move this work behind a registered LIQ/forward pipeline.
+Ready hits continue through the reduced execute pipe. Wait hits hold the
+E-stage load through the R266 execute wait input until the resident store data
+becomes ready or a flush clears the pipe. A later packet may move this work
+behind a registered LIQ/forward pipeline.
 
 ## Flush/Recovery
 
@@ -111,7 +117,6 @@ owned by `StoreDispatchSTQPath` and `STQEntryBank`.
 
 ## Deferred Owners
 
-- Execute/issue backpressure for `waitBlocked` loads.
 - LIQ/LDQ wait-store row mutation and replay wakeups.
 - Cross-line resident store/load forwarding.
 - Store PC sidecar propagation for model-exact wait-store diagnostics.

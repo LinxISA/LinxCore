@@ -19,6 +19,7 @@ class ReducedScalarAluExecuteIO(
   val in = Input(new RenamedUop(p))
   val srcData = Input(Vec(3, UInt(p.immWidth.W)))
   val loadLookupData = Input(UInt(p.immWidth.W))
+  val loadLookupWaitBlocked = Input(Bool())
   val stackPointerData = Input(UInt(p.immWidth.W))
   val flushValid = Input(Bool())
   val fretStkFallbackTargetValid = Input(Bool())
@@ -54,6 +55,7 @@ class ReducedScalarAluExecuteIO(
 
   val accepted = Output(Bool())
   val busy = Output(Bool())
+  val loadWaitHold = Output(Bool())
   val unsupported = Output(Bool())
   val unsupportedOpcode = Output(UInt(p.opcodeWidth.W))
 }
@@ -593,6 +595,7 @@ class ReducedScalarAluExecute(
   io.loadLookupSize := Mux(io.loadLookupValid, eLoadLookupSize, 0.U)
   io.loadLookupBid := Mux(io.loadLookupValid, eUop.bid, ROBID.disabled(p.robEntries))
   io.loadLookupLsId := Mux(io.loadLookupValid, eUop.lsid, 0.U)
+  val eLoadWaitHold = io.loadLookupValid && io.loadLookupWaitBlocked
   val eResult = resultFor(eUop.opcode, eUop.pc, eUop.insnRaw, eSrcData, eUop.imm, io.loadLookupData, io.stackPointerData)
   val eSupported = eValid && isSupported(eUop.opcode)
 
@@ -611,24 +614,29 @@ class ReducedScalarAluExecute(
     w2StackPointerData := w1StackPointerData
     w2FretStkLoadReturn := w1FretStkLoadReturn
 
-    w1Valid := eValid
-    w1Uop := eUop
-    w1SrcData := eSrcData
-    w1Result := eResult
-    w1Supported := eSupported
-    w1StackPointerData := io.stackPointerData
-    w1FretStkLoadReturn := eFretStkLoadReturn
+    when(eLoadWaitHold) {
+      w1Valid := false.B
+    }.otherwise {
+      w1Valid := eValid
+      w1Uop := eUop
+      w1SrcData := eSrcData
+      w1Result := eResult
+      w1Supported := eSupported
+      w1StackPointerData := io.stackPointerData
+      w1FretStkLoadReturn := eFretStkLoadReturn
 
-    eValid := accept
-    when(accept) {
-      eUop := io.in
-      eSrcData := io.srcData
+      eValid := accept
+      when(accept) {
+        eUop := io.in
+        eSrcData := io.srcData
+      }
     }
   }
 
   io.inReady := !io.flushValid && !eValid
   io.accepted := accept
   io.busy := !io.flushValid && (eValid || w1Valid || w2Valid)
+  io.loadWaitHold := !io.flushValid && eLoadWaitHold
   io.completeValid := !io.flushValid && w2Valid && w2Supported
   io.completeRobValue := w2Uop.rid.value
   val w2IsFretStk = w2Uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_FRET_STK)
