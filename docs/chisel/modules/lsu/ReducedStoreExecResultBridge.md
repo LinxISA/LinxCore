@@ -34,7 +34,8 @@ when the current STA or STD queue head has the same `(bid,rid,stid)` identity.
 
 This module does not mark stores committed, free STQ rows, issue memory
 requests, mutate memory, publish MDB conflicts, or implement load forwarding.
-Those remain separate LSU owners.
+`ReducedStoreCommitFreeOwner` now owns the temporary reduced-top mark/free
+bridge; full memory-side drain remains a separate LSU owner.
 
 ## Interface
 
@@ -104,9 +105,8 @@ retire/commit/free into ALU completion.
 
 ## Deferred Owners
 
-- A commit-index owner mapping ROB commit/store rows to STQ indices.
 - A store commit drain owner in the reduced top using `STQCommitDrain` or the
-  registered SCB path.
+  registered SCB path instead of the temporary direct-free bridge.
 - SCB/MDB integration and memory-side request acceptance.
 - Load-store forwarding and replay wakeup from resident STQ rows.
 - Stack-valid and non-scalar execution metadata beyond the current reduced

@@ -259,7 +259,8 @@ Inputs:
 - `storeStaExec`, `storeStdExec`: explicit STA address and STD data execution
   results for the current store-dispatch queue heads.
 - `storeMarkCommit*`, `storeCommitFree*`, `storeCommitFreeMask*`: reduced STQ
-  commit-mark and committed-row free hooks.
+  commit-mark and committed-row free hooks. The accepted/ignored outputs
+  report the corresponding `STQEntryBank` decision.
 - `checkpointValid/checkpointBid`, `commitValid/commitBid`, `cleanup`:
   pass-through control for the scalar GPR rename owner and ROB flush path.
 - `blockBranchTakenValid`, `blockBranchTaken`: reduced conditional-block
@@ -333,9 +334,10 @@ Outputs:
   STA/STD dispatch queue observability from `StoreDispatchSTQPath`.
 - `storeStaInsert*`, `storeStdInsert*`, `storeSelected*`,
   `storeBlockedBy*`, `storeStdBypassStaBlocked`, `storeStqInsert*`,
-  `storeStqFlush*`, `storeStq*Mask`, `storeStq*Count`, `storeStqEmpty`,
-  `storeStqFull`, and `storeStqStall`: live STQ path diagnostics from the
-  integrated `StoreDispatchSTQPath`.
+  `storeMarkCommit*`, `storeCommitFree*`, `storeStqFlush*`,
+  `storeStqRows`, `storeStq*Mask`, `storeStq*Count`, `storeStqEmpty`,
+  `storeStqFull`, and `storeStqStall`: live STQ path diagnostics and row view
+  from the integrated `StoreDispatchSTQPath`.
 - `storeLsuTULinkSource*`: live STQ-bank LSU T/U cleanup source candidate and
   match diagnostics forwarded from `STQEntryBank`.
 - `robAllocAttemptValid`, `robAllocReady`, `robAllocFire`,
@@ -545,8 +547,10 @@ this store-dispatch residency. Rename still accepts store rows, and
 payload inputs into `StoreDispatchSTQPath` are forced invalid and
 store-dispatch backpressure is suppressed. This is a bring-up escape hatch for
 tops whose ALU execute path already emits the QEMU-shaped store sideband while
-the real STA/STD execution and STQ commit/free owners are not connected. Do not
-enable it in full backend or LSU integration paths.
+the real STA/STD execution and STQ lifecycle owners are not connected. R240
+exports `storeStqRows` plus mark/free accepted diagnostics so the reduced top
+can map committed store rows back to resident STQ rows. Do not enable the
+bypass in full backend or LSU integration paths.
 
 The allocator still owns BID generation, BROB metadata allocation, ROB row
 reservation/update forwarding, completion, deallocation, commit monitoring,

@@ -131,6 +131,23 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedStoreExecBufferCount.getWidth == 3)
     assert(io.reducedStoreStaExecValid.getWidth == 1)
     assert(io.reducedStoreStdExecValid.getWidth == 1)
+    assert(io.reducedStoreCommitStoreSeen.getWidth == 1)
+    assert(io.reducedStoreCommitStoreMatched.getWidth == 1)
+    assert(io.reducedStoreCommitStoreUnmatched.getWidth == 1)
+    assert(io.reducedStoreCommitMatchMask.getWidth == 8)
+    assert(io.reducedStoreCommitPendingMarkMask.getWidth == 8)
+    assert(io.reducedStoreCommitPendingFreeMask.getWidth == 8)
+    assert(io.reducedStoreCommitPendingMarkCount.getWidth == 4)
+    assert(io.reducedStoreCommitPendingFreeCount.getWidth == 4)
+    assert(io.reducedStoreCommitMarkValid.getWidth == 1)
+    assert(io.reducedStoreCommitMarkIndex.getWidth == 3)
+    assert(io.reducedStoreCommitMarkAccepted.getWidth == 1)
+    assert(io.reducedStoreCommitMarkIgnored.getWidth == 1)
+    assert(io.reducedStoreCommitFreeValid.getWidth == 1)
+    assert(io.reducedStoreCommitFreeIndex.getWidth == 3)
+    assert(io.reducedStoreCommitFreeAccepted.getWidth == 1)
+    assert(io.reducedStoreCommitFreeAcceptedMask.getWidth == 8)
+    assert(io.reducedStoreCommitFreeCount.getWidth == 4)
     assert(io.storeDispatchReady.getWidth == 1)
     assert(io.storeDispatchFire.getWidth == 1)
     assert(io.storeDispatchSplit.getWidth == 1)
@@ -222,6 +239,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_decodeBlockedByTURename"))
     assert(sv.contains("io_executeCompleteValid"))
     assert(sv.contains("io_reducedStoreExecCaptureFire"))
+    assert(sv.contains("io_reducedStoreCommitPendingMarkMask"))
     assert(sv.contains("io_storeStqResidentCount"))
     assert(sv.contains("io_blockScalarDoneFire"))
     assert(sv.contains("io_blockRetireFire"))
@@ -229,7 +247,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_commitContractError"))
   }
 
-  test("optional reduced STQ dispatch mode elaborates the store exec bridge") {
+  test("optional reduced STQ dispatch mode elaborates store exec and commit/free owners") {
     val sv = ChiselStage.emitSystemVerilog(
       new LinxCoreFrontendFetchRfAluTraceTop(
         CoreParams(robEntries = 8, commitWidth = 2),
@@ -238,8 +256,11 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     )
 
     assert(sv.contains("module ReducedStoreExecResultBridge"))
+    assert(sv.contains("module ReducedStoreCommitFreeOwner"))
     assert(sv.contains("io_reducedStoreDispatchEnabled"))
     assert(sv.contains("io_reducedStoreExecCaptureFire"))
+    assert(sv.contains("io_reducedStoreCommitMarkValid"))
+    assert(sv.contains("io_reducedStoreCommitFreeValid"))
     assert(sv.contains("io_storeStqInsertValid"))
   }
 

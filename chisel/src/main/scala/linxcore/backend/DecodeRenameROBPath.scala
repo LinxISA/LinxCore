@@ -13,7 +13,7 @@ import linxcore.bctrl.{
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
-import linxcore.lsu.{StoreDispatchExecResult, StoreDispatchSTQPath}
+import linxcore.lsu.{STQEntryBankRow, StoreDispatchExecResult, StoreDispatchSTQPath}
 import linxcore.recovery.{FullBidRecoveryBridge, RecoveryCleanupIntent}
 import linxcore.rename.{
   ScalarTURenameBridge,
@@ -194,6 +194,13 @@ class DecodeRenameROBPathIO(
   val storeStqInsertMerged = Output(Bool())
   val storeStqInsertConflict = Output(Bool())
   val storeStqInsertIndex = Output(UInt(ptrWidth.W))
+  val storeMarkCommitAccepted = Output(Bool())
+  val storeMarkCommitIgnored = Output(Bool())
+  val storeCommitFreeAccepted = Output(Bool())
+  val storeCommitFreeIgnored = Output(Bool())
+  val storeCommitFreeAcceptedMask = Output(UInt(p.robEntries.W))
+  val storeCommitFreeIgnoredMask = Output(UInt(p.robEntries.W))
+  val storeCommitFreeCount = Output(UInt(stqCountWidth.W))
   val storeStqFlushApplied = Output(Bool())
   val storeStqFlushMatchMask = Output(UInt(p.robEntries.W))
   val storeStqFlushFreeMask = Output(UInt(p.robEntries.W))
@@ -202,6 +209,7 @@ class DecodeRenameROBPathIO(
   val storeLsuTULinkSource = Output(new TULinkFlushSequenceSource(p, mapQDepth, stidWidth))
   val storeLsuTULinkSourceMatched = Output(Bool())
   val storeLsuTULinkSourceMultipleMatch = Output(Bool())
+  val storeStqRows = Output(Vec(p.robEntries, new STQEntryBankRow(p.robEntries, 64, 64, peIdWidth, stidWidth, tidWidth, 4, 8, mapQDepth)))
   val storeStqOccupiedMask = Output(UInt(p.robEntries.W))
   val storeStqWaitMask = Output(UInt(p.robEntries.W))
   val storeStqCommitMask = Output(UInt(p.robEntries.W))
@@ -1125,6 +1133,13 @@ class DecodeRenameROBPath(
   io.storeStqInsertMerged := storeDispatch.io.insertMerged
   io.storeStqInsertConflict := storeDispatch.io.insertConflict
   io.storeStqInsertIndex := storeDispatch.io.insertIndex
+  io.storeMarkCommitAccepted := storeDispatch.io.markCommitAccepted
+  io.storeMarkCommitIgnored := storeDispatch.io.markCommitIgnored
+  io.storeCommitFreeAccepted := storeDispatch.io.commitFreeAccepted
+  io.storeCommitFreeIgnored := storeDispatch.io.commitFreeIgnored
+  io.storeCommitFreeAcceptedMask := storeDispatch.io.commitFreeAcceptedMask
+  io.storeCommitFreeIgnoredMask := storeDispatch.io.commitFreeIgnoredMask
+  io.storeCommitFreeCount := storeDispatch.io.commitFreeCount
   io.storeStqFlushApplied := storeDispatch.io.stqFlushApplied
   io.storeStqFlushMatchMask := storeDispatch.io.stqFlushMatchMask
   io.storeStqFlushFreeMask := storeDispatch.io.stqFlushFreeMask
@@ -1133,6 +1148,7 @@ class DecodeRenameROBPath(
   io.storeLsuTULinkSource := storeDispatch.io.lsuTULinkSource
   io.storeLsuTULinkSourceMatched := storeDispatch.io.lsuTULinkSourceMatched
   io.storeLsuTULinkSourceMultipleMatch := storeDispatch.io.lsuTULinkSourceMultipleMatch
+  io.storeStqRows := storeDispatch.io.stqRows
   io.storeStqOccupiedMask := storeDispatch.io.stqOccupiedMask
   io.storeStqWaitMask := storeDispatch.io.stqWaitMask
   io.storeStqCommitMask := storeDispatch.io.stqCommitMask

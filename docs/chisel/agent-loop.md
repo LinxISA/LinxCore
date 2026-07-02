@@ -657,6 +657,7 @@ These packets remain the required base before broad module promotion:
 | R237 | Clean 196608-row admitted-marker CoreMark scale gate | `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r237-row-order-196608-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 196608 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 3600 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` and `git diff --check`. The run started from clean pushed LinxCore `8cff7d4ac54b36c5409ef296cf975b84fbd8de76`, clean LinxCoreModel `3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU `5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject remained dirty from unrelated local state. The gate captured 196608 raw QEMU rows, extracted 196474 expected rows, admitted and filtered 14343 marker commits, normalized 182131 QEMU/DUT rows, compared 182130 rows, and passed with zero mismatches and no CBSTOP divergence. BFU diagnostics stayed clean: 41757 static/external matches, 41756 accepted body-cut arms with zero mismatches, and 13917 promoted runtime body-end oracle replay matches. Closeout: `skill-evolve: no-update (R237 extends clean marker-row evidence only; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
 | R238 | Clean 262144-row admitted-marker CoreMark scale gate | `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r238-row-order-262144-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 262144 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 4800 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` and `git diff --check`. The run started from clean pushed LinxCore `ded8a7079bf7deb34e84e10e47f495719172d0a4`, clean LinxCoreModel `3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU `5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject remained dirty from unrelated local state. The gate captured 262144 raw QEMU rows, extracted 262010 expected rows, admitted and filtered 19024 marker commits, normalized 242986 QEMU/DUT rows, compared 242985 rows, and passed with zero mismatches and no CBSTOP divergence. BFU diagnostics stayed clean: 55800 static/external matches, 55799 accepted body-cut arms with zero mismatches, and 18598 promoted runtime body-end oracle replay matches. Closeout: `skill-evolve: no-update (R238 extends clean marker-row evidence only; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
 | R239 | Reduced store execution-result bridge into optional STQ dispatch boundary | `sbt "testOnly linxcore.lsu.ReducedStoreExecResultBridgeSpec linxcore.top.LinxCoreFrontendFetchRfAluTraceTopSpec"`. Added `ReducedStoreExecResultBridge` to buffer ALU store completion sidebands, match STA/STD queue heads by `(bid,rid,stid)`, retain split-store results after STA consumption, release unsplit results after STA consumption, and expose reduced-top diagnostics behind `useReducedStoreDispatchStq=false` by default. This is an execution-result adapter only: STQ commit/free ownership remains tied off in the reduced top. Closeout: `skill-evolve: no-update (new module docs and top docs capture the local invariant; no cross-session skill rule needs to change until the commit/free owner is introduced)`. |
+| R240 | Reduced store commit/free owner for optional STQ dispatch | `sbt "testOnly linxcore.lsu.ReducedStoreCommitFreeOwnerSpec linxcore.lsu.ReducedStoreExecResultBridgeSpec linxcore.backend.DecodeRenameROBPathSpec linxcore.top.LinxCoreFrontendFetchRfAluTraceTopSpec linxcore.lsu.STQCommitDrainSpec linxcore.lsu.STQSCBCommitPathSpec"`. Added `ReducedStoreCommitFreeOwner` to observe committed store ROB rows, match resident STQ rows by native ROB RID wrap/value plus STID, drive `STQEntryBank.markCommit`, and later drive a single-index committed free. `DecodeRenameROBPath` now forwards STQ row images and mark/free accepted diagnostics, and the optional reduced top exposes commit/free pending masks, match masks, accepted/ignored results, and blocked diagnostics. This is a reduced top-only lifecycle bridge: it prevents optional STQ residency from filling permanently but still does not issue stores to SCB, mutate memory, implement forwarding, or replace `STQCommitDrain`/`STQSCBCommitPath`. Closeout: `skill-evolve: no-update (the reduced direct-free boundary is documented locally; no new cross-session invariant is introduced beyond the already planned mark/free packet)`. |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -858,16 +859,15 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add the reduced-top STQ commit/free owner after R239. Read
-   `ReducedStoreExecResultBridge`, `StoreDispatchSTQPath`,
-   `STQCommitDrain`, `STQSCBCommitPath`, and LinxCoreModel
-   `STQ::retire`/`STQ::commit` first. The required boundary is a
-   model-aligned mapping from committed store ROB rows to STQ indices, then a
-   memory-side drain/free path; do not enable `useReducedStoreDispatchStq` for
-   long CoreMark runs until resident STQ rows can be marked committed and
-   freed. Focused gates should include `ReducedStoreExecResultBridgeSpec`,
-   `LinxCoreFrontendFetchRfAluTraceTopSpec`, and the relevant STQ commit/drain
-   specs before any QEMU live gate.
+1. Replace the R240 reduced direct-free assumption with a memory-side
+   drain/SCB owner in the optional reduced STQ path. Read
+   `ReducedStoreCommitFreeOwner`, `STQCommitDrain`, `STQSCBCommitPath`,
+   `SCBRowBank`, and LinxCoreModel `STQ::commit` first. The required boundary
+   is that accepted SCB `last` fragments, not the reduced owner, become the
+   final STQ free source. Focused gates should include
+   `ReducedStoreCommitFreeOwnerSpec`, `STQCommitDrainSpec`,
+   `STQSCBCommitPathSpec`, `DecodeRenameROBPathSpec`, and
+   `LinxCoreFrontendFetchRfAluTraceTopSpec` before any QEMU live gate.
 2. Scale the admitted-marker CoreMark gate beyond the R238 262144-row window.
    R195/R196/R198 removed the scalar GGPR mapQ capacity and Verilator
    compile-cost blockers, and R202 closed the stale source-value failure by

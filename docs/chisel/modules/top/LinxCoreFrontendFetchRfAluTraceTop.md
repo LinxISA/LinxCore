@@ -688,9 +688,15 @@ completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
 heads by `(bid,rid,stid)`. The path is gated by
 `useReducedStoreDispatchStq=false` by default, so existing CoreMark reduced
 gates still use the proven sideband-comparison path and keep the bridge
-flushed. This packet does not add STQ commit/free ownership; enabling the STQ
-path for long live runs still requires a committed-store index owner and
-memory-side drain.
+flushed.
+
+R240 adds `ReducedStoreCommitFreeOwner` behind the same opt-in gate. It
+observes committed store rows, matches them to resident STQ rows by ROB RID
+wrap/value and STID, marks the STQ row committed, and frees it on a later
+accepted free command. This is a reduced top-only lifecycle bridge. It prevents
+the optional STQ path from filling permanently, but it does not issue stores to
+SCB, mutate memory, implement store forwarding, or replace the full
+`STQCommitDrain`/`STQSCBCommitPath` memory-side contract.
 
 ## Interface
 
@@ -738,7 +744,8 @@ memory-side drain.
 | output | `reducedStoreDispatchEnabled` | `Bool` | diagnostic | Static top parameter reflection for the optional reduced STQ dispatch path. |
 | output | `reducedStoreExec*` | mixed | diagnostic | R239 reduced store execution-result bridge diagnostics: store completion capture, duplicate/blocked capture, STA/STD queue-head matches, valid mask, and buffer count. |
 | output | `reducedStoreStaExecValid`, `reducedStoreStdExecValid` | `Bool` | diagnostic | R239 explicit STA/STD execution-result validity presented to `StoreDispatchSTQPath`. |
-| output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239 store-dispatch queue, bridge-selection, STQ insert, and resident-STQ observability from `DecodeRenameROBPath`. |
+| output | `reducedStoreCommit*` | mixed | diagnostic | R240 reduced commit/free owner diagnostics: store commit seen/matched/unmatched, matched STQ mask, pending mark/free masks and counts, mark/free command valid/index, accepted/ignored results, and blocked flags. |
+| output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239/R240 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
 | output | `robAllocFire`, `robRenameUpdateFire`, `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB allocation, post-rename update, and completion acceptance events. |
 | output | `decodeBlockedByRename`, `decodeBlockedByRob`, `decodeBlockedByOutput`, `decodeBlockedByTURename`, `tuRenameSourceUnderflowMask`, `robRenameUpdate*` | mixed | diagnostic | Reduced decode/rename/ROB backpressure and post-rename update diagnostics. |
@@ -778,8 +785,10 @@ overlay. Most state remains in child modules:
   SDI/SWI/SBI/C.SDI store sidebands, and writeback-shaped completion.
 - `ReducedStoreExecResultBridge`: optional R239 bridge from reduced ALU store
   completion sidebands to `StoreDispatchSTQPath` STA/STD execution-result
-  inputs. It owns only capture and queue-head identity matching; STQ
-  commit/free remains tied off in this top.
+  inputs. It owns only capture and queue-head identity matching.
+- `ReducedStoreCommitFreeOwner`: optional R240 bridge from committed store ROB
+  rows to STQ mark/free commands. It owns only reduced lifecycle progress; full
+  SCB admission, memory mutation, and forwarding remain deferred.
 
 ## Logic Design
 
@@ -824,14 +833,16 @@ This top constructs the backend path with `reducedStoreDispatchBypass` by
 default: store rows still flow through decode, rename, issue, ALU execute, ROB
 completion, and QEMU-shaped store sideband comparison, but the reduced STQ
 shell is not allowed to accumulate resident stores without a connected
-STA/STD execution and commit/free owner. R239 adds an opt-in
+STA/STD execution and lifecycle owner. R239 adds an opt-in
 `useReducedStoreDispatchStq` parameter and `ReducedStoreExecResultBridge`.
 When the parameter is true, ALU store completions are buffered and matched to
 the store-dispatch queue heads as explicit `StoreDispatchExecResult` inputs.
+R240 adds `ReducedStoreCommitFreeOwner`, which observes committed store ROB
+rows and drives the STQ `markCommit` and later single-row `commitFree` hooks.
 When the parameter is false, the bridge is held flushed and captures no store
-results. The commit/free hooks remain tied off, so this mode is for bounded
-integration debug only until a commit-index and memory-side drain owner are
-added.
+results, while the commit/free owner is also held inactive. The opt-in path is
+still for bounded integration debug only until a memory-side drain/SCB owner
+replaces the reduced direct-free assumption.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
 packet acceptance. The P1/I1/I2 picker reads source data from

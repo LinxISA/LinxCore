@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{ReducedStoreExecResultBridge, StoreDispatchExecResult}
+import linxcore.lsu.{ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -209,6 +209,27 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedStoreExecBufferCount = Output(UInt(storeExecBufferCountWidth.W))
   val reducedStoreStaExecValid = Output(Bool())
   val reducedStoreStdExecValid = Output(Bool())
+  val reducedStoreCommitStoreSeen = Output(Bool())
+  val reducedStoreCommitStoreMatched = Output(Bool())
+  val reducedStoreCommitStoreUnmatched = Output(Bool())
+  val reducedStoreCommitMatchMask = Output(UInt(p.robEntries.W))
+  val reducedStoreCommitPendingMarkMask = Output(UInt(p.robEntries.W))
+  val reducedStoreCommitPendingFreeMask = Output(UInt(p.robEntries.W))
+  val reducedStoreCommitPendingMarkCount = Output(UInt(storeStqCountWidth.W))
+  val reducedStoreCommitPendingFreeCount = Output(UInt(storeStqCountWidth.W))
+  val reducedStoreCommitMarkValid = Output(Bool())
+  val reducedStoreCommitMarkIndex = Output(UInt(ptrWidth.W))
+  val reducedStoreCommitMarkAccepted = Output(Bool())
+  val reducedStoreCommitMarkIgnored = Output(Bool())
+  val reducedStoreCommitMarkBlocked = Output(Bool())
+  val reducedStoreCommitFreeValid = Output(Bool())
+  val reducedStoreCommitFreeIndex = Output(UInt(ptrWidth.W))
+  val reducedStoreCommitFreeAccepted = Output(Bool())
+  val reducedStoreCommitFreeIgnored = Output(Bool())
+  val reducedStoreCommitFreeAcceptedMask = Output(UInt(p.robEntries.W))
+  val reducedStoreCommitFreeIgnoredMask = Output(UInt(p.robEntries.W))
+  val reducedStoreCommitFreeCount = Output(UInt(storeStqCountWidth.W))
+  val reducedStoreCommitFreeBlocked = Output(Bool())
   val storeDispatchReady = Output(Bool())
   val storeDispatchFire = Output(Bool())
   val storeDispatchSplit = Output(Bool())
@@ -430,6 +451,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth
+  ))
+  val storeCommitOwner = Module(new ReducedStoreCommitFreeOwner(
+    entries = p.robEntries,
+    traceParams = traceParams,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.threadIdWidth,
+    tidWidth = p.threadIdWidth,
+    mapQDepth = mapQDepth
   ))
 
   val localQueueDepth = 4
@@ -724,10 +753,22 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val zeroStoreExec = 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
   path.io.storeStaExec := Mux(useReducedStoreDispatchStq.B, storeExecBridge.io.staExec, zeroStoreExec)
   path.io.storeStdExec := Mux(useReducedStoreDispatchStq.B, storeExecBridge.io.stdExec, zeroStoreExec)
-  path.io.storeMarkCommitValid := false.B
-  path.io.storeMarkCommitIndex := 0.U
-  path.io.storeCommitFreeValid := false.B
-  path.io.storeCommitFreeIndex := 0.U
+  storeCommitOwner.io.enable := useReducedStoreDispatchStq.B
+  storeCommitOwner.io.flushValid := backendPipeFlush || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B
+  storeCommitOwner.io.activeStid := io.threadId
+  storeCommitOwner.io.commit := path.io.commit
+  storeCommitOwner.io.commitValidMask := path.io.commitValidMask
+  storeCommitOwner.io.stqRows := path.io.storeStqRows
+  storeCommitOwner.io.markCommitAccepted := path.io.storeMarkCommitAccepted
+  storeCommitOwner.io.markCommitIgnored := path.io.storeMarkCommitIgnored
+  storeCommitOwner.io.commitFreeAccepted := path.io.storeCommitFreeAccepted
+  storeCommitOwner.io.commitFreeIgnored := path.io.storeCommitFreeIgnored
+  storeCommitOwner.io.commitFreeAcceptedMask := path.io.storeCommitFreeAcceptedMask
+  storeCommitOwner.io.commitFreeIgnoredMask := path.io.storeCommitFreeIgnoredMask
+  path.io.storeMarkCommitValid := storeCommitOwner.io.markCommitValid
+  path.io.storeMarkCommitIndex := storeCommitOwner.io.markCommitIndex
+  path.io.storeCommitFreeValid := storeCommitOwner.io.commitFreeValid
+  path.io.storeCommitFreeIndex := storeCommitOwner.io.commitFreeIndex
   path.io.storeCommitFreeMaskValid := false.B
   path.io.storeCommitFreeMask := 0.U
   path.io.checkpointValid := false.B
@@ -1052,6 +1093,27 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedStoreExecBufferCount := storeExecBridge.io.bufferCount
   io.reducedStoreStaExecValid := storeExecBridge.io.staExec.valid
   io.reducedStoreStdExecValid := storeExecBridge.io.stdExec.valid
+  io.reducedStoreCommitStoreSeen := storeCommitOwner.io.commitStoreSeen
+  io.reducedStoreCommitStoreMatched := storeCommitOwner.io.commitStoreMatched
+  io.reducedStoreCommitStoreUnmatched := storeCommitOwner.io.commitStoreUnmatched
+  io.reducedStoreCommitMatchMask := storeCommitOwner.io.matchMask
+  io.reducedStoreCommitPendingMarkMask := storeCommitOwner.io.pendingMarkMask
+  io.reducedStoreCommitPendingFreeMask := storeCommitOwner.io.pendingFreeMask
+  io.reducedStoreCommitPendingMarkCount := storeCommitOwner.io.pendingMarkCount
+  io.reducedStoreCommitPendingFreeCount := storeCommitOwner.io.pendingFreeCount
+  io.reducedStoreCommitMarkValid := storeCommitOwner.io.markCommitValid
+  io.reducedStoreCommitMarkIndex := storeCommitOwner.io.markCommitIndex
+  io.reducedStoreCommitMarkAccepted := path.io.storeMarkCommitAccepted
+  io.reducedStoreCommitMarkIgnored := path.io.storeMarkCommitIgnored
+  io.reducedStoreCommitMarkBlocked := storeCommitOwner.io.markBlocked
+  io.reducedStoreCommitFreeValid := storeCommitOwner.io.commitFreeValid
+  io.reducedStoreCommitFreeIndex := storeCommitOwner.io.commitFreeIndex
+  io.reducedStoreCommitFreeAccepted := path.io.storeCommitFreeAccepted
+  io.reducedStoreCommitFreeIgnored := path.io.storeCommitFreeIgnored
+  io.reducedStoreCommitFreeAcceptedMask := path.io.storeCommitFreeAcceptedMask
+  io.reducedStoreCommitFreeIgnoredMask := path.io.storeCommitFreeIgnoredMask
+  io.reducedStoreCommitFreeCount := path.io.storeCommitFreeCount
+  io.reducedStoreCommitFreeBlocked := storeCommitOwner.io.freeBlocked
   io.storeDispatchReady := path.io.storeDispatchReady
   io.storeDispatchFire := path.io.storeDispatchFire
   io.storeDispatchSplit := path.io.storeDispatchSplit
@@ -1211,7 +1273,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.blockCompleteMask := path.io.blockCompleteMask
   io.blockPendingMask := path.io.blockPendingMask
   io.idle := path.io.empty && issue.io.empty && !execute.io.busy &&
-    !source.io.waitingResponse && !source.io.packetValid
+    !source.io.waitingResponse && !source.io.packetValid && storeCommitOwner.io.idle
 }
 
 object LinxCoreFrontendFetchRfAluTraceTop {
