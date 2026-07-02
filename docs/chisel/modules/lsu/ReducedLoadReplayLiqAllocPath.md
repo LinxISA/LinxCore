@@ -35,8 +35,9 @@ candidate payload can become normal LIQ residency, expose when resident rows
 satisfy the model-derived scalar replay-pick predicate, and provide the
 path-local launch/E4/LHQ diagnostic boundary needed before the top enables live
 replay. R285 gives the path-local `lhqRecord` output a top-level
-`LoadResolveQueue` storage consumer, while retire, clear-resolved, and live MDB
-publication remain outside this module.
+`LoadResolveQueue` storage consumer, and R286 has the top feed back a delayed
+`clearResolved` request once that consumer accepts the record. Retire and live
+MDB publication remain outside this module.
 
 ## Interface
 
@@ -85,7 +86,7 @@ publication remain outside this module.
 | `launchAccepted` | Selected row entered `Repick` through `LoadInflightQueue`. |
 | `repickMask` / `missMask` / `resolvedMask` | Pass-through LIQ state masks after any enabled relaunches. |
 | `e4UpdateValid` / `e4UpdateIndex` / `e4MissKind` / `e4WakeupValid` | Pass-through E4 outcome diagnostics from the launched-row pipeline. |
-| `lhqRecordValid` / `lhqRecord` | Path-local resolved-load hit record, including load PC after R284. R285 top wiring can append this row to `LoadResolveQueue`; this module itself does not own ResolveQ backpressure, retire, or MDB publication. |
+| `lhqRecordValid` / `lhqRecord` | Path-local resolved-load hit record, including load PC after R284. R285 top wiring can append this row to `LoadResolveQueue`; R286 top wiring clears the resolved LIQ row after that append is accepted. This module itself does not own ResolveQ backpressure, retire, or MDB publication. |
 | `residentCount` | Resident LIQ row count. |
 | `empty` / `full` | LIQ occupancy diagnostics. |
 | `missPending` | Pass-through LIQ miss-pending diagnostic. |
@@ -133,7 +134,10 @@ store candidates available before live replay launch is armed. Base-data,
 return-readiness, and live arbitration wiring remain deferred. R285 consumes the
 path-local LHQ hit-record output in the top-level `LoadResolveQueue`, but this
 path still relies on the parent to decide when a resolved row should clear LIQ
-state or become visible to MDB conflict detection.
+state or become visible to MDB conflict detection. R286 records that parent
+clear timing: the top delays `clearResolvedValid` until the cycle after
+ResolveQ accepts the LHQ record, when the source LIQ row is resident in
+`Resolved` state.
 
 ## Timing
 
@@ -160,8 +164,7 @@ owner.
   leaves that gate disabled.
 - Row/base-data ownership, return-readiness wiring, and source arbitration for
   enabled relaunch.
-- LIQ clear-resolved feedback after a top-level `LoadResolveQueue` push,
-  default/live LIQ ResolveQ insertion, and load-store conflict publication.
+- Default/live LIQ ResolveQ insertion and load-store conflict publication.
 - Ready-table, bypass, and dependent-consumer wakeup.
 
 ## Verification

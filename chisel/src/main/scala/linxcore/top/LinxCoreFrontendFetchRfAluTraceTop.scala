@@ -377,6 +377,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqFull = Output(Bool())
   val reducedLoadReplayResolveQueuePushReady = Output(Bool())
   val reducedLoadReplayResolveQueuePushAccepted = Output(Bool())
+  val reducedLoadReplayResolveQueueClearPending = Output(Bool())
+  val reducedLoadReplayResolveQueueClearAccepted = Output(Bool())
+  val reducedLoadReplayResolveQueueClearIndex = Output(UInt(ptrWidth.W))
   val reducedLoadReplayResolveQueueValidMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayResolveQueueCount = Output(UInt(storeStqCountWidth.W))
   val reducedLoadReplayResolveQueueEmpty = Output(Bool())
@@ -734,6 +737,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val markerRedirectPcReg = RegInit(0.U(p.pcWidth.W))
   val bodyCutRestartPending = RegInit(false.B)
   val bodyCutRestartPcReg = RegInit(0.U(p.pcWidth.W))
+  val reducedLoadReplayResolveClearPending = RegInit(false.B)
+  val reducedLoadReplayResolveClearIndex = RegInit(0.U(log2Ceil(p.robEntries).W))
   val scalarRedirectPending = RegInit(false.B)
   val scalarRedirectBidReg = RegInit(ROBID.disabled(p.robEntries))
   val scalarRedirectRidReg = RegInit(ROBID.disabled(p.robEntries))
@@ -1176,8 +1181,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.e2LoadDataReturned := false.B
   reducedLoadReplayLiqAllocPath.io.e2ScbReturned := false.B
   reducedLoadReplayLiqAllocPath.io.e2ReturnReady := false.B
-  reducedLoadReplayLiqAllocPath.io.clearResolvedValid := false.B
-  reducedLoadReplayLiqAllocPath.io.clearResolvedIndex := 0.U
+  reducedLoadReplayLiqAllocPath.io.clearResolvedValid := reducedLoadReplayResolveClearPending
+  reducedLoadReplayLiqAllocPath.io.clearResolvedIndex := reducedLoadReplayResolveClearIndex
   reducedLoadReplayResolveQueue.io.flush := reducedStoreFlush
   reducedLoadReplayResolveQueue.io.pushValid :=
     reducedLoadReplayLiqAllocEnabled && reducedLoadReplayLiqAllocPath.io.lhqRecordValid
@@ -1188,6 +1193,17 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayResolveQueue.io.retireValid := false.B
   reducedLoadReplayResolveQueue.io.retireBid := ROBID.disabled(p.robEntries)
   reducedLoadReplayResolveQueue.io.retireLsId := ROBID.disabled(p.robEntries)
+  when(reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled) {
+    reducedLoadReplayResolveClearPending := false.B
+  }.otherwise {
+    when(reducedLoadReplayLiqAllocPath.io.clearResolvedAccepted) {
+      reducedLoadReplayResolveClearPending := false.B
+    }
+    when(reducedLoadReplayResolveQueue.io.pushAccepted) {
+      reducedLoadReplayResolveClearPending := true.B
+      reducedLoadReplayResolveClearIndex := reducedLoadReplayLiqAllocPath.io.lhqRecord.loadId.value
+    }
+  }
   val reducedCompleteLoadLsId = lsidToReducedStoreId(execute.io.completeLsId)
   reducedLoadReplayCompletionDrain.io.candidateValid :=
     reducedLoadReplayRelaunchQueue.io.outValid && !reducedLoadReplayLiqAllocEnabled
@@ -1698,6 +1714,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqFull := reducedLoadReplayLiqAllocPath.io.full
   io.reducedLoadReplayResolveQueuePushReady := reducedLoadReplayResolveQueue.io.pushReady
   io.reducedLoadReplayResolveQueuePushAccepted := reducedLoadReplayResolveQueue.io.pushAccepted
+  io.reducedLoadReplayResolveQueueClearPending := reducedLoadReplayResolveClearPending
+  io.reducedLoadReplayResolveQueueClearAccepted := reducedLoadReplayLiqAllocPath.io.clearResolvedAccepted
+  io.reducedLoadReplayResolveQueueClearIndex := reducedLoadReplayResolveClearIndex
   io.reducedLoadReplayResolveQueueValidMask := reducedLoadReplayResolveQueue.io.validMask
   io.reducedLoadReplayResolveQueueCount := reducedLoadReplayResolveQueue.io.count
   io.reducedLoadReplayResolveQueueEmpty := reducedLoadReplayResolveQueue.io.empty
