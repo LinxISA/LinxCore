@@ -85,20 +85,6 @@ class ReducedStoreResidentForward(
     (offset +& sizeWide) > lineBytes.U
   }
 
-  private def requestByteMask(addr: UInt, size: UInt): UInt = {
-    val mask = Wire(Vec(lineBytes, Bool()))
-    val offset = Wire(UInt(7.W))
-    val sizeWide = Wire(UInt(7.W))
-    offset := addr(offsetWidth - 1, 0)
-    sizeWide := size
-    val end = offset +& sizeWide
-    for (byte <- 0 until lineBytes) {
-      val byteIdx = byte.U(7.W)
-      mask(byte) := (sizeWide =/= 0.U) && (byteIdx >= offset) && (byteIdx < end)
-    }
-    mask.asUInt
-  }
-
   private def baseLineData(loadAddr: UInt, baseLoadData: UInt): UInt = {
     val bytes = Wire(Vec(lineBytes, UInt(8.W)))
     for (byte <- 0 until lineBytes) {
@@ -117,29 +103,25 @@ class ReducedStoreResidentForward(
     Cat(bytes.reverse)
   }
 
-  private def storeLineData(storeAddr: UInt, storeData: UInt, storeMask: UInt): UInt = {
-    val bytes = Wire(Vec(lineBytes, UInt(8.W)))
-    val offset = Wire(UInt(7.W))
-    offset := storeAddr(offsetWidth - 1, 0)
-    for (byte <- 0 until lineBytes) {
-      val byteIdx = byte.U(7.W)
-      val reqByteOffset = byteIdx - offset
-      bytes(byte) := Mux(storeMask(byte), (storeData >> (reqByteOffset << 3))(7, 0), 0.U)
-    }
-    Cat(bytes.reverse)
-  }
-
-  private def zeroStore: LoadStoreForwardStore = {
-    val store = Wire(new LoadStoreForwardStore(entries, entries, addrWidth, pcWidth, lineBytes))
-    store := 0.U.asTypeOf(store)
-    store.storeId := ROBID.disabled(entries)
-    store.storeLsId := ROBID.disabled(entries)
-    store
-  }
-
   val loadCrosses = crossesLine(io.loadAddr, io.loadSize)
   val queryValid = io.enable && io.loadValid && (io.loadSize =/= 0.U) && !loadCrosses
+  val storeSnapshot = Module(new ResidentStoreForwardStoreSnapshot(
+    entries,
+    addrWidth,
+    dataWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth,
+    sizeWidth,
+    simtLaneWidth,
+    mapQDepth,
+    pcWidth,
+    lineBytes
+  ))
   val forward = Module(new LoadStoreForwarding(entries, entries, addrWidth, pcWidth, lineBytes, sizeWidth = 7))
+
+  storeSnapshot.io.enable := io.enable
+  storeSnapshot.io.rows := io.rows
 
   forward.io.query.valid := queryValid
   forward.io.query.lineAddr := lineAddr(io.loadAddr)
@@ -151,23 +133,7 @@ class ReducedStoreResidentForward(
   forward.io.cacheData := baseLineData(io.loadAddr, io.baseLoadData)
 
   for (idx <- 0 until entries) {
-    val row = io.rows(idx)
-    val storeMask = requestByteMask(row.addr, row.size)
-    val store = Wire(new LoadStoreForwardStore(entries, entries, addrWidth, pcWidth, lineBytes))
-    store := zeroStore
-    store.valid := io.enable && row.valid && (row.status === STQEntryStatus.Wait) && !crossesLine(row.addr, row.size)
-    store.working := row.status === STQEntryStatus.Wait
-    store.addrReady := row.addrReady
-    store.dataReady := row.dataReady
-    store.isTile := !row.scalarIex
-    store.storeIndex := idx.U
-    store.storeId := row.bid
-    store.storeLsId := row.lsId
-    store.pc := row.pc
-    store.lineAddr := lineAddr(row.addr)
-    store.byteMask := storeMask
-    store.data := storeLineData(row.addr, row.data, storeMask)
-    forward.io.stores(idx) := store
+    forward.io.stores(idx) := storeSnapshot.io.stores(idx)
   }
 
   val loadOffset = Wire(UInt(7.W))

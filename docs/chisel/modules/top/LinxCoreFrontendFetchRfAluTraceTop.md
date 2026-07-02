@@ -939,9 +939,9 @@ store).
 | output | `reducedStoreResidentForwardMask`, `reducedStoreResidentWaitMask`, `reducedStoreResidentEligibleMask`, `reducedStoreResidentReadyForward`, `reducedStoreResidentWaitBlocked`, `reducedStoreResidentWaitStore*`, `reducedStoreResidentLoadCrossesLine` | mixed | diagnostic | R265-R267 resident-STQ forwarding diagnostics after the committed-store overlay. Ready hits forward bytes; wait hits hold execute through `executeLoadWaitHold` and expose the selected not-ready store's index, BID, LSID, and PC for later replay wakeup wiring. |
 | output | `reducedStoreResidentReplayWake*` | mixed | diagnostic | R268-R269 typed store-unit replay wakeup request diagnostics derived from a registered resident wait-store identity and live STQ row readiness. |
 | output | `reducedLoadWaitReplay*` | mixed | diagnostic | R269/R271/R274/R275 registered reduced wait-store slot diagnostics. The slot remembers the held load and wait-store key, feeds that key back to `ResidentStoreReplayWakeup`, clears through `LoadReplayWakeup`, and publishes a one-cycle relaunch candidate carrying PC, address, size, BID/GID/RID, reduced LSID, and forwarding snapshot `(youngestStoreId, youngestStoreLsId)` for future LIQ wiring; it does not drive a launch port. |
-| output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272-R282 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing full load identity plus forwarding snapshot, and reports accepted/drop/full state. Default mode drains only exact held-load completion matches; opt-in replay-LIQ mode consumes only when `ReducedLoadReplayLiqAllocPath` accepts allocation. |
+| output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272-R283 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing full load identity plus forwarding snapshot, and reports accepted/drop/full state. Default mode drains only exact held-load completion matches; opt-in replay-LIQ mode consumes only when `ReducedLoadReplayLiqAllocPath` accepts allocation. |
 | output | `reducedLoadReplayDrain*` | mixed | diagnostic | R273/R274 diagnostic completion-drain match/mismatch signals used by the default reduced-store replay mode. Exact W2 load-completion matches consume the queued replay candidate; mismatches, including GID/RID sidecar mismatches, leave it pending for debug. |
-| output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, but this top ties it disabled. |
+| output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282/R283 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, and R283 feeds its E2 store vector from resident STQ snapshots, but this top still ties launch disabled. |
 | output | `executeLoadWaitHold` | `Bool` | diagnostic | R266 reduced execute hold for a load waiting on an older not-ready resident store. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
@@ -999,6 +999,9 @@ overlay. Most state remains in child modules:
   `StoreDispatchSTQPath` rows through `LoadStoreForwarding` and overlays ready
   resident store bytes after committed-store overlay data. It reports wait
   hits but leaves replay control to later LIQ/LDQ owner packets.
+- `ResidentStoreForwardStoreSnapshot`: optional R283 reusable row-shape bridge
+  that maps resident STQ rows into `LoadStoreForwardStore` vectors for both
+  ready resident forwarding and replay-LIQ E2 store input plumbing.
 - `ReducedLoadWaitReplaySlot`: optional R269/R271/R274/R275 one-row diagnostic bridge that
   registers a resident wait-store key while execute is held, feeds the key to
   `ResidentStoreReplayWakeup` after the live forwarder stops reporting a wait,
@@ -1013,8 +1016,8 @@ overlay. Most state remains in child modules:
   the relaunch queue head. It is enabled only by the replay-LIQ wrapper and
   consumes a queued candidate when `LoadInflightQueue` accepts allocation. R281
   also exposes its `LoadInflightLaunchSelect` diagnostics. R282 adds the child
-  launch/E2/LHQ diagnostic boundary while this top continues to tie
-  `launchEnable` low.
+  launch/E2/LHQ diagnostic boundary, and R283 wires a resident STQ snapshot
+  into its E2 store vector while this top continues to tie `launchEnable` low.
 - `ReducedLoadReplayCompletionDrain`: optional R273/R274 diagnostic matcher that
   consumes the queued candidate when the same held load completes through W2
   with matching PC, address, size, BID, GID, RID, and reduced LSID.
@@ -1108,8 +1111,10 @@ pending. In R279 replay-LIQ mode, the queue head instead feeds
 `LoadInflightQueue` accepts allocation. The allocated LIQ row is diagnostic
 residency only. R281 exposes selector diagnostics for the model `pickL1` row
 eligibility predicates. R282 adds the path-local launch drive and E4/LHQ
-diagnostic boundary, but the reduced top still does not relaunch the load or
-wake dependent consumers.
+diagnostic boundary. R283 feeds the path's E2 store vector from the same
+`ResidentStoreForwardStoreSnapshot` conversion used by
+`ReducedStoreResidentForward`, but the reduced top still does not relaunch the
+load or wake dependent consumers.
 The overlay clears only on
 run start/restart or when the optional reduced-store path is disabled;
 ordinary backend redirects do not clear it because committed store bytes are
@@ -1908,6 +1913,7 @@ records `status: "pass"`, `summary.compared_rows: 3`, and
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-1024-frontier-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreMemoryOverlay`
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreResidentForward`
+- `bash tools/chisel/run_chisel_tests.sh --only ResidentStoreForwardStoreSnapshot`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r258-store-memory-overlay-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --reduced-store-dispatch-stq --disable-store-memory-mutation --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --qemu-trace generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/traces/qemu.no-harness-store.jsonl --dut-trace generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/traces/dut.no-harness-store.jsonl --report-dir generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/report-no-harness-store --max-commits 665 --mode failfast`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r126-coremark-fret-scalar-redirect-1415-qemu-elf-xcheck-pass --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1415 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`

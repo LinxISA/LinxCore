@@ -45,7 +45,7 @@ diagnostic boundary needed before the top enables live replay.
 | `candidateValid` | Queue-head valid from `ReducedLoadReplayRelaunchQueue`. |
 | `candidate` | Queued reduced replay candidate with load identity and forwarding snapshot. |
 | `launchEnable` | Parent-owned arm bit. When low, selector diagnostics remain visible but `LoadInflightQueue.launchValid` is not driven. |
-| `e2Stores` | Abstract STQ forwarding rows for the `LoadForwardPipeline` launch path. R282 top wiring still drives zero stores. |
+| `e2Stores` | Abstract STQ forwarding rows for the `LoadForwardPipeline` launch path. R283 top wiring feeds a `ResidentStoreForwardStoreSnapshot` vector while keeping launch disabled. |
 | `e2BaseData` / `e2BaseValidMask` | Baseline line data and valid bytes for relaunches that do not already have row-owned data. |
 | `e2LoadDataReturned` / `e2ScbReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. |
 | `clearResolvedValid` | Pass-through clear request for future tests or consumers that resolve rows. |
@@ -123,10 +123,11 @@ reduced wait slot and replay queue produce the same cleared load as a
    low, all selector diagnostics remain visible but no LIQ state is mutated by
    launch.
 
-Replay wakeup and refill wakeup ports remain inactive in this owner. The R282
-reduced top also keeps `launchEnable` low and drives zero E2 store/base data,
-so generated-RTL behavior remains diagnostic-only until a later top packet
-connects resident STQ snapshots, return readiness, and live arbitration.
+Replay wakeup and refill wakeup ports remain inactive in this owner. The R283
+reduced top keeps `launchEnable` low but feeds `e2Stores` from a shared
+`ResidentStoreForwardStoreSnapshot`, so the path has model-shaped resident STQ
+store candidates available before live replay launch is armed. Base-data,
+return-readiness, and live arbitration wiring remain deferred.
 
 ## Timing
 
@@ -151,8 +152,8 @@ owner.
   `LoadInflightLaunchSelect` through this path and the opt-in top diagnostics,
   and R282 adds the path-local launch drive gate, but the reduced top still
   leaves that gate disabled.
-- Resident STQ snapshot wiring into `e2Stores`, row/base-data ownership, and
-  return-readiness wiring for enabled relaunch.
+- Row/base-data ownership, return-readiness wiring, and source arbitration for
+  enabled relaunch.
 - LHQ/ResolveQ queue movement and load-store conflict publication.
 - Ready-table, bypass, and dependent-consumer wakeup.
 

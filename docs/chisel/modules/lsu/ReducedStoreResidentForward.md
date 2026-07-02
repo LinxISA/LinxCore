@@ -16,6 +16,7 @@
     - `LDQInfo::waitStore`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ResidentStoreForwardStoreSnapshot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreMemoryOverlay.scala`
 - Contract IDs: `LC-CHISEL-LSU-STQ-FWD-002`
@@ -23,10 +24,11 @@
 ## Purpose
 
 `ReducedStoreResidentForward` is the reduced-top adapter that lets ready
-resident STQ rows feed scalar load data before the store commits. It maps
-`STQEntryBankRow` state into the generic `LoadStoreForwarding` selector,
-constructs a synthetic 64-byte cacheline from the current 64-bit load window,
-and extracts the returned 64-bit load data after ready store bytes are overlaid.
+resident STQ rows feed scalar load data before the store commits. It uses
+`ResidentStoreForwardStoreSnapshot` to map `STQEntryBankRow` state into the
+generic `LoadStoreForwarding` selector, constructs a synthetic 64-byte
+cacheline from the current 64-bit load window, and extracts the returned 64-bit
+load data after ready store bytes are overlaid.
 
 This is still a reduced trace-top bridge. The module preserves the incoming
 base load data when an older store is not data-ready and reports the wait hit
@@ -85,16 +87,12 @@ with reduced-top limits:
    The committed-store overlay still handles cross-line committed fragments.
 3. Build a synthetic 64-byte `cacheData` line by placing the eight
    `baseLoadData` bytes at the load address offset.
-4. Convert each resident STQ row into a `LoadStoreForwardStore` candidate when
-   the row is valid, in `Wait`, address-ready, scalar, non-crossing, and
-   resident.
-5. Expand the row's 64-bit store data into a 64-byte line image at the store
-   address offset.
-6. Copy the row PC into each `LoadStoreForwardStore` so a selected not-ready
-   row reports model-style wait-store identity.
-7. Run `LoadStoreForwarding`, then extract the load-window bytes from the
+4. Use `ResidentStoreForwardStoreSnapshot` to convert resident STQ rows into
+   line-addressed `LoadStoreForwardStore` candidates with model-style BID,
+   LSID, PC, byte-mask, and positioned-line-data sidecars.
+5. Run `LoadStoreForwarding`, then extract the load-window bytes from the
    merged 64-byte line.
-8. If `waitMask` is nonzero, preserve `baseLoadData` and report
+6. If `waitMask` is nonzero, preserve `baseLoadData` and report
    `waitBlocked`. The R266 top consumes that diagnostic as execute
    backpressure; replay row mutation remains outside this adapter.
 
@@ -130,6 +128,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ReducedStoreResidentForward
+bash tools/chisel/run_chisel_tests.sh --only ResidentStoreForwardStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
 bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop

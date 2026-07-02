@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
+import linxcore.lsu.{ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -642,6 +642,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     tidWidth = p.threadIdWidth,
     mapQDepth = mapQDepth
   ))
+  val reducedReplayLiqStoreSnapshot = Module(new ResidentStoreForwardStoreSnapshot(
+    entries = p.robEntries,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.threadIdWidth,
+    tidWidth = p.threadIdWidth,
+    mapQDepth = mapQDepth
+  ))
   val reducedStoreResidentReplayWakeup = Module(new ResidentStoreReplayWakeup(
     entries = p.robEntries,
     peIdWidth = p.peIdWidth,
@@ -1126,7 +1133,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayLiqAllocEnabled && reducedLoadReplayRelaunchQueue.io.outValid
   reducedLoadReplayLiqAllocPath.io.candidate := reducedLoadReplayRelaunchQueue.io.out
   reducedLoadReplayLiqAllocPath.io.launchEnable := false.B
-  reducedLoadReplayLiqAllocPath.io.e2Stores := 0.U.asTypeOf(reducedLoadReplayLiqAllocPath.io.e2Stores)
+  reducedReplayLiqStoreSnapshot.io.enable := reducedLoadReplayLiqAllocEnabled
+  reducedReplayLiqStoreSnapshot.io.rows := path.io.storeStqRows
+  reducedLoadReplayLiqAllocPath.io.e2Stores := reducedReplayLiqStoreSnapshot.io.stores
   reducedLoadReplayLiqAllocPath.io.e2BaseData := 0.U
   reducedLoadReplayLiqAllocPath.io.e2BaseValidMask := 0.U
   reducedLoadReplayLiqAllocPath.io.e2LoadDataReturned := false.B

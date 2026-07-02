@@ -207,6 +207,7 @@ class ReducedStoreResidentForwardSpec extends AnyFunSuite {
     val sv = ChiselStage.emitSystemVerilog(new ReducedStoreResidentForward(entries = 8))
 
     assert(sv.contains("module ReducedStoreResidentForward"))
+    assert(sv.contains("ResidentStoreForwardStoreSnapshot"))
     assert(sv.contains("io_loadForwardMask"))
     assert(sv.contains("io_waitMask"))
     assert(sv.contains("io_eligibleStoreMask"))
