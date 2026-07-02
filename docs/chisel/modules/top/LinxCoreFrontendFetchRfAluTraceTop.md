@@ -938,7 +938,8 @@ store).
 | output | `reducedStoreResidentForwardMask`, `reducedStoreResidentWaitMask`, `reducedStoreResidentEligibleMask`, `reducedStoreResidentReadyForward`, `reducedStoreResidentWaitBlocked`, `reducedStoreResidentWaitStore*`, `reducedStoreResidentLoadCrossesLine` | mixed | diagnostic | R265-R267 resident-STQ forwarding diagnostics after the committed-store overlay. Ready hits forward bytes; wait hits hold execute through `executeLoadWaitHold` and expose the selected not-ready store's index, BID, LSID, and PC for later replay wakeup wiring. |
 | output | `reducedStoreResidentReplayWake*` | mixed | diagnostic | R268-R269 typed store-unit replay wakeup request diagnostics derived from a registered resident wait-store identity and live STQ row readiness. |
 | output | `reducedLoadWaitReplay*` | mixed | diagnostic | R269/R271 registered reduced wait-store slot diagnostics. The slot remembers the held load and wait-store key, feeds that key back to `ResidentStoreReplayWakeup`, clears through `LoadReplayWakeup`, and publishes a one-cycle relaunch candidate for future LIQ wiring; it does not drive a launch port. |
-| output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing identity, and reports accepted/drop/full state while dequeue remains tied off until a real LIQ/issue owner exists. |
+| output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272/R273 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing identity, and reports accepted/drop/full state while a completion drain consumes only exact held-load matches. |
+| output | `reducedLoadReplayDrain*` | mixed | diagnostic | R273 diagnostic completion-drain match/mismatch signals. Exact W2 load-completion matches consume the queued replay candidate; mismatches leave it pending for debug. |
 | output | `executeLoadWaitHold` | `Bool` | diagnostic | R266 reduced execute hold for a load waiting on an older not-ready resident store. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
@@ -1005,6 +1006,9 @@ overlay. Most state remains in child modules:
   one-cycle relaunch candidate, preserves FIFO order, reports full/drop
   diagnostics, and keeps the head pending until a later LIQ/issue consumer
   drives its dequeue handshake.
+- `ReducedLoadReplayCompletionDrain`: optional R273 diagnostic matcher that
+  consumes the queued candidate when the same held load completes through W2
+  with matching PC, address, size, BID, and reduced LSID.
 
 ## Logic Design
 
@@ -1086,9 +1090,11 @@ typed request through `LoadReplayWakeup`, clears its diagnostic wait row, and
 publishes a one-cycle relaunch candidate with the remembered load PC, address,
 size, BID, and reduced LSID. R272 feeds that pulse into
 `ReducedLoadReplayRelaunchQueue`, so the reduced top owns a stable pending
-relaunch-candidate boundary while still tying dequeue low. The queued candidate
-is a future LIQ/issue handoff only; the reduced top still does not relaunch the
-load.
+relaunch-candidate boundary. R273 drains that queue only when the same held
+load completes in W2 with matching PC, address, size, BID, and reduced LSID;
+otherwise mismatch diagnostics leave the candidate pending. The queued
+candidate remains a future LIQ/issue handoff only; the reduced top still does
+not relaunch the load.
 The overlay clears only on
 run start/restart or when the optional reduced-store path is disabled;
 ordinary backend redirects do not clear it because committed store bytes are
@@ -1139,9 +1145,11 @@ producer-side store-unit replay wakeup request image for that identity. R269
 registers one reduced wait-store row, feeds the remembered key back to the
 wakeup producer, and clears the diagnostic row through `LoadReplayWakeup`.
 R271 adds a relaunch-candidate diagnostic from that clear point. R272 consumes
-that one-cycle candidate into a finite pending queue, but queue dequeue and
-relaunch remain deferred until a real LIQ/LDQ row can accept the candidate,
-relaunch, and wake dependent consumers for the load.
+that one-cycle candidate into a finite pending queue. R273 drains the queued
+candidate on the current reduced in-place completion path only when the W2 load
+completion matches the remembered identity; real relaunch, LIQ/LDQ row
+mutation, and dependent wakeup remain deferred until a real LIQ/LDQ row can
+accept the candidate.
 This remains a reduced memory visibility bridge, not a general LSU/STQ, cache,
 replay, or MDB implementation.
 

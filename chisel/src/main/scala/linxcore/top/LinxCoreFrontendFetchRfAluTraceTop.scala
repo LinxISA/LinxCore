@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
+import linxcore.lsu.{ReducedLoadReplayCompletionDrain, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -314,6 +314,14 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayQueueOutLsIdValid = Output(Bool())
   val reducedLoadReplayQueueOutLsIdWrap = Output(Bool())
   val reducedLoadReplayQueueOutLsIdValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayDrainConsumeReady = Output(Bool())
+  val reducedLoadReplayDrainMatchValid = Output(Bool())
+  val reducedLoadReplayDrainMismatch = Output(Bool())
+  val reducedLoadReplayDrainPcMismatch = Output(Bool())
+  val reducedLoadReplayDrainAddrMismatch = Output(Bool())
+  val reducedLoadReplayDrainSizeMismatch = Output(Bool())
+  val reducedLoadReplayDrainBidMismatch = Output(Bool())
+  val reducedLoadReplayDrainLsIdMismatch = Output(Bool())
   val reducedLoadWaitReplaySlotPc = Output(UInt(p.pcWidth.W))
   val reducedLoadWaitReplaySlotAddr = Output(UInt(p.immWidth.W))
   val storeDispatchReady = Output(Bool())
@@ -594,6 +602,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val reducedLoadReplayRelaunchQueue = Module(new ReducedLoadReplayRelaunchQueue(
     idEntries = p.robEntries,
     depth = reducedLoadReplayRelaunchQueueDepth
+  ))
+  val reducedLoadReplayCompletionDrain = Module(new ReducedLoadReplayCompletionDrain(
+    idEntries = p.robEntries
   ))
 
   val localQueueDepth = 4
@@ -1045,7 +1056,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayRelaunchQueue.io.enqueueValid :=
     useReducedStoreDispatchStq.B && reducedLoadWaitReplaySlot.io.relaunch.valid
   reducedLoadReplayRelaunchQueue.io.enqueue := reducedLoadWaitReplaySlot.io.relaunch
-  reducedLoadReplayRelaunchQueue.io.outReady := false.B
+  val reducedCompleteLoadLsId = lsidToReducedStoreId(execute.io.completeLsId)
+  reducedLoadReplayCompletionDrain.io.candidateValid := reducedLoadReplayRelaunchQueue.io.outValid
+  reducedLoadReplayCompletionDrain.io.candidate := reducedLoadReplayRelaunchQueue.io.out
+  reducedLoadReplayCompletionDrain.io.completeValid := useReducedStoreDispatchStq.B && execute.io.completeValid
+  reducedLoadReplayCompletionDrain.io.completeMemLoad :=
+    execute.io.completeRow.mem.valid && !execute.io.completeRow.mem.isStore
+  reducedLoadReplayCompletionDrain.io.completePc := execute.io.completeRow.pc
+  reducedLoadReplayCompletionDrain.io.completeAddr := execute.io.completeRow.mem.addr
+  reducedLoadReplayCompletionDrain.io.completeSize := execute.io.completeRow.mem.size
+  reducedLoadReplayCompletionDrain.io.completeBid := execute.io.releaseBid
+  reducedLoadReplayCompletionDrain.io.completeLsId := reducedCompleteLoadLsId
+  reducedLoadReplayRelaunchQueue.io.outReady := reducedLoadReplayCompletionDrain.io.consumeReady
 
   path.io.storeMarkCommitValid := storeCommitOwner.io.markCommitValid
   path.io.storeMarkCommitIndex := storeCommitOwner.io.markCommitIndex
@@ -1473,6 +1495,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayQueueOutLsIdValid := reducedLoadReplayRelaunchQueue.io.out.loadLsId.valid
   io.reducedLoadReplayQueueOutLsIdWrap := reducedLoadReplayRelaunchQueue.io.out.loadLsId.wrap
   io.reducedLoadReplayQueueOutLsIdValue := reducedLoadReplayRelaunchQueue.io.out.loadLsId.value
+  io.reducedLoadReplayDrainConsumeReady := reducedLoadReplayCompletionDrain.io.consumeReady
+  io.reducedLoadReplayDrainMatchValid := reducedLoadReplayCompletionDrain.io.matchValid
+  io.reducedLoadReplayDrainMismatch := reducedLoadReplayCompletionDrain.io.mismatch
+  io.reducedLoadReplayDrainPcMismatch := reducedLoadReplayCompletionDrain.io.pcMismatch
+  io.reducedLoadReplayDrainAddrMismatch := reducedLoadReplayCompletionDrain.io.addrMismatch
+  io.reducedLoadReplayDrainSizeMismatch := reducedLoadReplayCompletionDrain.io.sizeMismatch
+  io.reducedLoadReplayDrainBidMismatch := reducedLoadReplayCompletionDrain.io.bidMismatch
+  io.reducedLoadReplayDrainLsIdMismatch := reducedLoadReplayCompletionDrain.io.lsIdMismatch
   io.reducedLoadWaitReplaySlotPc := reducedLoadWaitReplaySlot.io.slotPc
   io.reducedLoadWaitReplaySlotAddr := reducedLoadWaitReplaySlot.io.slotAddr
   io.storeDispatchReady := path.io.storeDispatchReady

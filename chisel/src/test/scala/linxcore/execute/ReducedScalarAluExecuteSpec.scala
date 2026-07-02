@@ -306,6 +306,7 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(sv.contains("io_completeRobValue"))
     assert(sv.contains("io_completeRow_wb_valid"))
     assert(sv.contains("io_completeRow_dst_data"))
+    assert(sv.contains("io_completeLsId"))
     assert(sv.contains("io_completeDstPhysValid"))
     assert(sv.contains("io_completeDstPhysTag"))
     assert(sv.contains("io_completeDstData"))

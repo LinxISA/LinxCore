@@ -13,6 +13,7 @@
     - `STQ::lookupForLoad`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadWaitReplaySlot.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayCompletionDrain.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ResidentStoreReplayWakeup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayWakeup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
@@ -30,7 +31,9 @@ stable pending replay request.
 This module does not launch a load, allocate or mutate `LoadInflightQueue`
 rows, update a ready table, or wake dependent consumers. It owns only
 candidate admission, FIFO ordering, flush clearing, dequeue handshake, and
-overflow diagnostics.
+overflow diagnostics. In the reduced top after R273,
+`ReducedLoadReplayCompletionDrain` drives `outReady` only when the held load
+later completes with matching identity.
 
 ## Interface
 
@@ -41,7 +44,7 @@ overflow diagnostics.
 | `flush` | Clears the queue and suppresses enqueue/dequeue for the cycle. |
 | `enqueueValid` | Candidate-valid pulse from the reduced wait-store slot. |
 | `enqueue` | `ReducedLoadReplayCandidate` payload: remembered load PC, address, size, BID, and reduced LSID. |
-| `outReady` | Future consumer readiness for the queue head. The reduced top ties this low until a real LIQ/issue consumer exists. |
+| `outReady` | Consumer readiness for the queue head. In the reduced top this comes from `ReducedLoadReplayCompletionDrain`; future LIQ/issue work may replace that diagnostic consumer. |
 
 ### Outputs
 
@@ -94,9 +97,11 @@ current wait-slot owner.
 `enqueueValid` are both asserted while full, the old head is consumed and the
 new candidate is written into the freed slot. Occupancy remains full.
 
-The integrated reduced top currently ties `outReady=false`, so the first
-accepted candidate remains pending as diagnostic evidence. Later LIQ/issue
-work should drive `outReady` from a real relaunch admission boundary.
+The integrated reduced top currently drives `outReady` from
+`ReducedLoadReplayCompletionDrain`, so a queued candidate is consumed only
+when the held load completes in W2 with matching PC, address, size, BID, and
+LSID. Later LIQ/issue work should replace that diagnostic drain with a real
+relaunch admission boundary.
 
 ## Flush/Recovery
 
@@ -118,6 +123,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayRelaunchQueue
+bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayCompletionDrain
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadWaitReplaySlot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```

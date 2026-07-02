@@ -326,6 +326,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedStoreResidentForward"))
     assert(sv.contains("module ReducedLoadWaitReplaySlot"))
     assert(sv.contains("module ReducedLoadReplayRelaunchQueue"))
+    assert(sv.contains("module ReducedLoadReplayCompletionDrain"))
     assert(sv.contains("io_reducedStoreDispatchEnabled"))
     assert(sv.contains("io_reducedStoreExecCaptureFire"))
     assert(sv.contains("io_reducedStoreCommitMarkValid"))
@@ -342,6 +343,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadWaitReplayRelaunchValid"))
     assert(sv.contains("io_reducedLoadReplayQueueEnqueueAccepted"))
     assert(sv.contains("io_reducedLoadReplayQueueOutBidValue"))
+    assert(sv.contains("io_reducedLoadReplayDrainMatchValid"))
+    assert(sv.contains("io_reducedLoadReplayDrainLsIdMismatch"))
     assert(sv.contains("io_executeLoadWaitHold"))
     assert(sv.contains("io_storeStqInsertValid"))
   }
@@ -363,6 +366,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedStoreResidentForward"))
     assert(sv.contains("module ReducedLoadWaitReplaySlot"))
     assert(sv.contains("module ReducedLoadReplayRelaunchQueue"))
+    assert(sv.contains("module ReducedLoadReplayCompletionDrain"))
     assert(sv.contains("io_reducedStoreDispatchEnabled"))
     assert(sv.contains("io_reducedStoreScbCommitFreeMask"))
     assert(sv.contains("io_reducedStoreMemoryStoreDroppedMask"))
@@ -373,6 +377,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadWaitReplayRelaunchPc"))
     assert(sv.contains("io_reducedLoadReplayQueuePending"))
     assert(sv.contains("io_reducedLoadReplayQueueOutLsIdValue"))
+    assert(sv.contains("io_reducedLoadReplayDrainConsumeReady"))
+    assert(sv.contains("io_reducedLoadReplayDrainAddrMismatch"))
     assert(sv.contains("io_executeLoadWaitHold"))
     assert(sv.contains("io_storeStqInsertValid"))
   }
