@@ -12,6 +12,7 @@ object LoadStoreForwardingReference {
       byteOffset: Int = 0,
       size: Int = 8,
       youngestStoreId: Id = Id(),
+      youngestStoreLsId: Id = Id(),
       isTile: Boolean = false)
 
   final case class Store(
@@ -22,6 +23,7 @@ object LoadStoreForwardingReference {
       dataReady: Boolean = true,
       isTile: Boolean = false,
       storeId: Id = Id(),
+      storeLsId: Id = Id(),
       pc: BigInt = 0,
       lineAddr: BigInt = 0x1000,
       byteMask: BigInt = 0,
@@ -48,8 +50,11 @@ object LoadStoreForwardingReference {
   private def lessEqual(lhs: Id, rhs: Id): Boolean =
     less(lhs, rhs) || lhs == rhs
 
-  private def greater(lhs: Id, rhs: Id): Boolean =
-    if (lhs.wrap == rhs.wrap) lhs.value > rhs.value else lhs.value < rhs.value
+  private def lessEqualBidLs(srcBid: Id, srcLsId: Id, dstBid: Id, dstLsId: Id): Boolean =
+    less(srcBid, dstBid) || (srcBid == dstBid && lessEqual(srcLsId, dstLsId))
+
+  private def greaterBidLs(lhsBid: Id, lhsLsId: Id, rhsBid: Id, rhsLsId: Id): Boolean =
+    lessEqualBidLs(rhsBid, rhsLsId, lhsBid, lhsLsId) && !(lhsBid == rhsBid && lhsLsId == rhsLsId)
 
   private def bit(mask: BigInt, lane: Int): Boolean =
     ((mask >> lane) & BigInt(1)) == BigInt(1)
@@ -89,7 +94,7 @@ object LoadStoreForwardingReference {
         store.addrReady &&
         store.lineAddr == query.lineAddr &&
         (store.byteMask & loadMask) != 0 &&
-        lessEqual(store.storeId, query.youngestStoreId)
+        lessEqualBidLs(store.storeId, store.storeLsId, query.youngestStoreId, query.youngestStoreLsId)
 
     def eligible(store: Store): Boolean =
       baseEligible(store) && !store.isTile && !query.isTile
@@ -101,7 +106,7 @@ object LoadStoreForwardingReference {
       stores.foldLeft(Option.empty[Store]) {
         case (best, store) if eligible(store) && bit(store.byteMask, lane) =>
           best match {
-            case Some(current) if !greater(store.storeId, current.storeId) => best
+            case Some(current) if !greaterBidLs(store.storeId, store.storeLsId, current.storeId, current.storeLsId) => best
             case _ => Some(store)
           }
         case (best, _) => best
@@ -139,7 +144,7 @@ object LoadStoreForwardingReference {
     val waitStore = invalidStores.foldLeft(Option.empty[Store]) {
       case (best, store) =>
         best match {
-          case Some(current) if !greater(store.storeId, current.storeId) => best
+          case Some(current) if !greaterBidLs(store.storeId, store.storeLsId, current.storeId, current.storeLsId) => best
           case _ => Some(store)
         }
     }
@@ -259,6 +264,23 @@ class LoadStoreForwardingSpec extends AnyFunSuite {
     assert(result.forwardData == BigInt(0x20))
     assert(result.storeBypassComplete)
     assert(result.selectedStoreIndexByByte.head == 1)
+  }
+
+  test("same-BID stores use LSID to choose the nearest older byte source") {
+    val query = Query(byteOffset = 0, size = 2, youngestStoreId = id(2), youngestStoreLsId = id(3))
+    val stores = Seq(
+      Store(index = 0, storeId = id(2), storeLsId = id(1), byteMask = byteMask(0, 2), data = lineData(Map(0 -> 0x11, 1 -> 0x12))),
+      Store(index = 1, storeId = id(2), storeLsId = id(3), byteMask = byteMask(0, 2), data = lineData(Map(0 -> 0x31, 1 -> 0x32))),
+      Store(index = 2, storeId = id(2), storeLsId = id(4), byteMask = byteMask(0, 2), data = lineData(Map(0 -> 0x41, 1 -> 0x42)))
+    )
+
+    val result = forward(query, stores)
+
+    assert(result.eligibleStoreMask == 0x3)
+    assert(result.forwardMask == byteMask(0, 2))
+    assert(result.forwardData == lineData(Map(0 -> 0x31, 1 -> 0x32)))
+    assert(result.selectedStoreIndexByByte(0) == 1)
+    assert(result.selectedStoreIndexByByte(1) == 1)
   }
 
   test("Chisel LoadStoreForwarding elaborates with byte masks, merge output, and wait diagnostics") {

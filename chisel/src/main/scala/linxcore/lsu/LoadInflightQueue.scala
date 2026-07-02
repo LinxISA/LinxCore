@@ -23,6 +23,7 @@ class LoadInflightAlloc(
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
   val youngestStoreId = new ROBID(idEntries)
+  val youngestStoreLsId = new ROBID(idEntries)
   val isTile = Bool()
   val specWakeup = Bool()
   val stackValid = Bool()
@@ -47,6 +48,7 @@ class LoadInflightRow(
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
   val youngestStoreId = new ROBID(idEntries)
+  val youngestStoreLsId = new ROBID(idEntries)
   val isTile = Bool()
   val specWakeup = Bool()
   val stackValid = Bool()
@@ -234,6 +236,7 @@ class LoadInflightQueue(
   query.byteOffset := launchRow.addr(lineOffsetWidth - 1, 0)
   query.size := launchRow.size
   query.youngestStoreId := launchRow.youngestStoreId
+  query.youngestStoreLsId := launchRow.youngestStoreLsId
   query.isTile := launchRow.isTile
 
   pipeline.io.e2Valid := launchAccepted
@@ -415,6 +418,7 @@ class LoadInflightQueue(
       rows(allocPtr).addr := io.alloc.addr
       rows(allocPtr).size := io.alloc.size
       rows(allocPtr).youngestStoreId := io.alloc.youngestStoreId
+      rows(allocPtr).youngestStoreLsId := io.alloc.youngestStoreLsId
       rows(allocPtr).isTile := io.alloc.isTile
       rows(allocPtr).specWakeup := io.alloc.specWakeup
       rows(allocPtr).stackValid := io.alloc.stackValid

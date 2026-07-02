@@ -24,6 +24,7 @@ object LoadInflightQueueReference {
       addr: BigInt = 0,
       size: Int = 8,
       youngestStoreId: Id = Id(),
+      youngestStoreLsId: Id = Id(),
       isTile: Boolean = false,
       specWakeup: Boolean = false,
       stackValid: Boolean = false)
@@ -90,6 +91,7 @@ object LoadInflightQueueReference {
         byteOffset = (row.alloc.addr & 0x3f).toInt,
         size = row.alloc.size,
         youngestStoreId = row.alloc.youngestStoreId,
+        youngestStoreLsId = row.alloc.youngestStoreLsId,
         isTile = row.alloc.isTile
       )
 

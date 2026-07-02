@@ -17,6 +17,7 @@ class LoadReplayWakeupRequest(
     extends Bundle {
   val source = LoadReplayWakeSource()
   val storeId = new ROBID(idEntries)
+  val storeLsId = new ROBID(idEntries)
   val pc = UInt(pcWidth.W)
   val lineAddr = UInt(addrWidth.W)
   val validMask = UInt(lineBytes.W)
@@ -97,12 +98,14 @@ class LoadReplayWakeup(
     val completed = (requestMask =/= 0.U) && ((mergedMask & requestMask) === requestMask)
     val storeWake = io.wake.source === LoadReplayWakeSource.StoreUnit
     val scbWake = io.wake.source === LoadReplayWakeSource.StoreCoalescingBuffer
+    val wakeBeforeOrAtSnapshot =
+      STQCommitQueue.lessEqualBidLs(io.wake.storeId, io.wake.storeLsId, row.youngestStoreId, row.youngestStoreLsId)
     val storeMissEligible =
       storeWake &&
         row.valid &&
         sameLine &&
         ((row.status === LoadInflightStatus.L1DcMiss) || (row.status === LoadInflightStatus.L2Wait)) &&
-        ROBID.lessEqual(io.wake.storeId, row.youngestStoreId)
+        wakeBeforeOrAtSnapshot
     val scbEligible =
       scbWake &&
         isWorking(row) &&
@@ -116,6 +119,7 @@ class LoadReplayWakeup(
         row.waitStore &&
         row.waitStoreInfo.valid &&
         ROBID.equal(row.waitStoreInfo.storeId, io.wake.storeId) &&
+        ROBID.equal(row.waitStoreInfo.storeLsId, io.wake.storeLsId) &&
         (row.waitStoreInfo.pc === io.wake.pc)
     mergeVec(idx) := io.wakeValid && (io.wake.validMask =/= 0.U) && (storeMissEligible || scbEligible)
     completedVec(idx) := mergeVec(idx) && completed

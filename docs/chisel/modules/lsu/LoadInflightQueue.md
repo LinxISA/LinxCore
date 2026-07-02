@@ -42,7 +42,7 @@ memory-event trace.
 | Signal | Description |
 |---|---|
 | `allocValid` | Requests allocation of one LIQ row. |
-| `alloc` | Load identity, PC, address, size, tile flag, and `youngestStoreId` snapshot. |
+| `alloc` | Load identity, PC, address, size, tile flag, and `(youngestStoreId, youngestStoreLsId)` snapshot. |
 | `allocReady` | The allocation pointer names a free row. |
 | `allocAccepted` | The request allocated the current pointer row. |
 | `allocIndex` | Current LIQ slot. |
@@ -68,21 +68,21 @@ resident row, even when a later slot is free.
 | `e2ReturnReady` | Return/wakeup slot availability. |
 
 The queue derives the forwarding query from the resident row address, size,
-tile bit, and `youngestStoreId` snapshot.
+tile bit, and `(youngestStoreId, youngestStoreLsId)` snapshot.
 
 ### Replay Wakeup
 
 | Signal | Description |
 |---|---|
 | `replayWakeValid` | Qualifies one store-unit or SCB replay wakeup. |
-| `replayWake` | Source, store ID, PC, line address, byte-valid mask, and line data. |
+| `replayWake` | Source, store BID/LSID, PC, line address, byte-valid mask, and line data. |
 | `replayWakeWaitStoreClearMask` | Rows whose wait-store diagnostics were matched. |
 | `replayWakeMergeMask` | Rows selected for wakeup byte merge. |
 | `replayWakeCompletedMask` | Rows whose requested load bytes became complete. |
 
 Store-unit wakeups can clear wait-store diagnostics and can merge data into
-`L1DcMiss` or `L2Wait` rows when the store is no newer than the row's
-`youngestStoreId` snapshot. SCB wakeups can merge data into working
+`L1DcMiss` or `L2Wait` rows when `(storeId, storeLsId)` is no newer than the
+row's `(youngestStoreId, youngestStoreLsId)` snapshot. SCB wakeups can merge data into working
 non-`Repick` rows on the same line. Completed rows return to `Wait` and relaunch
 through `LoadForwardPipeline`; they do not publish an LHQ record directly.
 
@@ -172,7 +172,7 @@ The C++ model provides the owner split:
 `LoadInflightQueue` maps those rules into the current Chisel boundary:
 
 1. Allocation writes a `Wait` row with a slot-plus-wrap `loadId` and stores the
-   `youngestStoreId` snapshot for store-forward filtering.
+   `(youngestStoreId, youngestStoreLsId)` snapshot for store-forward filtering.
 2. Launch accepts only valid `Wait` rows with no wait-store block, changes the
    row to `Repick`, and sends the row-derived query into
    `LoadForwardPipeline`.
@@ -186,7 +186,7 @@ The C++ model provides the owner split:
 6. E4 source-return or return-port blocking changes the row back to `Wait`
    without publishing an LHQ record.
 7. Replay wakeups run through `LoadReplayWakeup`. Matching store-unit wakeups
-   clear `waitStore`; store-unit/SCB byte merges update row data and valid
+   clear `waitStore` by BID/LSID/PC; store-unit/SCB byte merges update row data and valid
    masks; completed rows become `Wait` with `storeBypass` set so the normal
    launch path can recheck source and return-slot readiness.
 8. Refill wakeups run through `LoadRefillWakeup`. Matching read-refill lines

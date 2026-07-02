@@ -15,6 +15,7 @@ object LoadReplayWakeupReference {
   final case class Wakeup(
       source: Source,
       storeId: Id = Id(),
+      storeLsId: Id = Id(),
       pc: BigInt = 0,
       lineAddr: BigInt = 0x1000,
       validMask: BigInt = 0,
@@ -34,6 +35,9 @@ object LoadReplayWakeupReference {
   private def lessEqual(lhs: Id, rhs: Id): Boolean =
     less(lhs, rhs) || lhs == rhs
 
+  private def lessEqualBidLs(srcBid: Id, srcLsId: Id, dstBid: Id, dstLsId: Id): Boolean =
+    less(srcBid, dstBid) || (srcBid == dstBid && lessEqual(srcLsId, dstLsId))
+
   private def bit(mask: BigInt, lane: Int): Boolean =
     ((mask >> lane) & BigInt(1)) == BigInt(1)
 
@@ -52,11 +56,11 @@ object LoadReplayWakeupReference {
     val requestMask = byteMask((row.alloc.addr & BigInt(0x3f)).toInt, row.alloc.size)
     val sameLine = (row.alloc.addr & ~BigInt(0x3f)) == wake.lineAddr
     val waitStoreClear = wake.source == StoreUnit &&
-      row.waitStore.exists(store => store.storeId == wake.storeId && store.pc == wake.pc)
+      row.waitStore.exists(store => store.storeId == wake.storeId && store.storeLsId == wake.storeLsId && store.pc == wake.pc)
     val storeMissEligible = wake.source == StoreUnit &&
       sameLine &&
       (row.status == L1DcMiss || row.status == L2Wait) &&
-      lessEqual(wake.storeId, row.alloc.youngestStoreId)
+      lessEqualBidLs(wake.storeId, wake.storeLsId, row.alloc.youngestStoreId, row.alloc.youngestStoreLsId)
     val scbEligible = wake.source == StoreCoalescingBuffer &&
       working(row) &&
       sameLine &&
@@ -77,8 +81,8 @@ object LoadReplayWakeupReference {
       mergedLineData = mergedLineData)
   }
 
-  def storeWait(pc: BigInt, storeId: Id): Store =
-    Store(index = 0, dataReady = false, pc = pc, storeId = storeId)
+  def storeWait(pc: BigInt, storeId: Id, storeLsId: Id = Id()): Store =
+    Store(index = 0, dataReady = false, pc = pc, storeId = storeId, storeLsId = storeLsId)
 
   def data(bytes: (Int, Int)*): BigInt =
     lineData(bytes.toMap)
@@ -98,12 +102,13 @@ class LoadReplayWakeupSpec extends AnyFunSuite {
       addr: BigInt = 0x1008,
       size: Int = 4,
       youngestStore: Id = id(7),
+      youngestStoreLsId: Id = Id(),
       validMask: BigInt = 0,
       lineData: BigInt = 0,
       waitStore: Option[LoadStoreForwardingReference.Store] = None): Row =
     Row(
       status = status,
-      alloc = Alloc(addr = addr, size = size, youngestStoreId = youngestStore),
+      alloc = Alloc(addr = addr, size = size, youngestStoreId = youngestStore, youngestStoreLsId = youngestStoreLsId),
       lineData = lineData,
       validMask = validMask,
       waitStore = waitStore)
@@ -148,6 +153,32 @@ class LoadReplayWakeupSpec extends AnyFunSuite {
 
     assert(!result.merge)
     assert(!result.completed)
+  }
+
+  test("store-unit wakeup uses LSID for same-BID allocation snapshots") {
+    val oldEnough = LoadReplayWakeupReference(
+      row(L1DcMiss, addr = 0x1000, size = 2, youngestStore = id(3), youngestStoreLsId = id(5)),
+      Wakeup(
+        source = StoreUnit,
+        storeId = id(3),
+        storeLsId = id(5),
+        lineAddr = 0x1000,
+        validMask = byteMask(0, 2),
+        data = data(0 -> 0x21, 1 -> 0x22)))
+    val tooYoung = LoadReplayWakeupReference(
+      row(L1DcMiss, addr = 0x1000, size = 2, youngestStore = id(3), youngestStoreLsId = id(5)),
+      Wakeup(
+        source = StoreUnit,
+        storeId = id(3),
+        storeLsId = id(6),
+        lineAddr = 0x1000,
+        validMask = byteMask(0, 2),
+        data = data(0 -> 0x31, 1 -> 0x32)))
+
+    assert(oldEnough.merge)
+    assert(oldEnough.completed)
+    assert(!tooYoung.merge)
+    assert(!tooYoung.completed)
   }
 
   test("SCB wakeup merges working non-repick rows and leaves partial rows incomplete") {

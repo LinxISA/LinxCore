@@ -92,8 +92,8 @@ The model `LDQInfo` path has three relevant rules:
 
 `LoadForwardPipeline` preserves the hardware timing form of those rules:
 
-1. E2 runs `LoadStoreForwarding` over the current query, STQ candidate view, and
-   baseline line data.
+1. E2 runs `LoadStoreForwarding` over the current query, STQ candidate view,
+   `(BID, LSID)` allocation snapshot, and baseline line data.
 2. E3 registers byte masks, merged data, source-return flags, and return-slot
    readiness.
 3. E4 computes final valid bytes as baseline-valid bytes plus ready forwarded

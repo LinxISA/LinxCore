@@ -35,8 +35,9 @@ path instead of waking consumers directly.
 |---|---|
 | `wakeValid` | Qualifies one replay wakeup request. |
 | `wake.source` | `StoreUnit` or `StoreCoalescingBuffer`. |
-| `wake.storeId` | Store identity used by store-unit ordering and wait-store clear. |
-| `wake.pc` | Store PC used with `storeId` to clear wait-store diagnostics. |
+| `wake.storeId` | Store BID used by store-unit ordering and wait-store clear. |
+| `wake.storeLsId` | Store LSID used with `storeId` for same-BID ordering. |
+| `wake.pc` | Store PC used with `(storeId, storeLsId)` to clear wait-store diagnostics. |
 | `wake.lineAddr` | 64-byte line address/tag to match resident load rows. |
 | `wake.validMask` | Byte lanes carried by `wake.data`. |
 | `wake.data` | 64-byte line data; only `validMask` lanes are merged. |
@@ -71,7 +72,7 @@ registered row image and consumes the masks on the next clock edge.
 The C++ model provides three relevant wakeup flows:
 
 1. `LDQInfo::handleSUWakeup` first clears `waitStore` when the waiting load's
-   stored BID/TPC pair matches the store-unit wakeup.
+   stored BID/LSID/TPC tuple matches the store-unit wakeup.
 2. The same store-unit wakeup can merge `bus.reqData` into rows in
    `LDQ_L1_DC_MISS` or `LDQ_L2_WAIT` when the line tag matches and the store
    is older than or equal to the load's allocation snapshot.
@@ -85,10 +86,12 @@ The Chisel mapping is:
    `LoadInflightQueue` clears transient `loadByteMask` on incomplete-data
    replay.
 2. A `StoreUnit` wakeup clears wait-store diagnostics when row
-   `waitStoreInfo.storeId` and `waitStoreInfo.pc` match the wakeup.
+   `waitStoreInfo.storeId`, `waitStoreInfo.storeLsId`, and `waitStoreInfo.pc`
+   match the wakeup.
 3. A `StoreUnit` wakeup may merge data only into `L1DcMiss` or `L2Wait` rows
-   on the same line, and only when `wake.storeId <= row.youngestStoreId` using
-   the shared wrap-aware `ROBID` ordering.
+   on the same line, and only when `(wake.storeId, wake.storeLsId)` is older
+   than or equal to the row's `(youngestStoreId, youngestStoreLsId)` snapshot
+   using `STQCommitQueue.lessEqualBidLs`.
 4. A `StoreCoalescingBuffer` wakeup may merge data into any working
    non-`Repick` row on the same line.
 5. `completedMask` is asserted when the merged valid mask covers every byte in

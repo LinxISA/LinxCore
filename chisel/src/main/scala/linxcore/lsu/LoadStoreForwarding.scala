@@ -16,6 +16,7 @@ class LoadStoreForwardQuery(
   val byteOffset = UInt(log2Ceil(lineBytes).W)
   val size = UInt(sizeWidth.W)
   val youngestStoreId = new ROBID(robEntries)
+  val youngestStoreLsId = new ROBID(robEntries)
   val isTile = Bool()
 }
 
@@ -33,6 +34,7 @@ class LoadStoreForwardStore(
   val isTile = Bool()
   val storeIndex = UInt(log2Ceil(storeEntries).W)
   val storeId = new ROBID(robEntries)
+  val storeLsId = new ROBID(robEntries)
   val pc = UInt(pcWidth.W)
   val lineAddr = UInt(addrWidth.W)
   val byteMask = UInt(lineBytes.W)
@@ -47,6 +49,7 @@ class LoadStoreForwardWait(
   val valid = Bool()
   val storeIndex = UInt(log2Ceil(storeEntries).W)
   val storeId = new ROBID(robEntries)
+  val storeLsId = new ROBID(robEntries)
   val pc = UInt(pcWidth.W)
 }
 
@@ -98,6 +101,15 @@ class LoadStoreForwarding(
   private def zeroRobId: ROBID =
     0.U.asTypeOf(new ROBID(robEntries))
 
+  private def sameStore(aBid: ROBID, aLsId: ROBID, bBid: ROBID, bLsId: ROBID): Bool =
+    ROBID.equal(aBid, bBid) && ROBID.equal(aLsId, bLsId)
+
+  private def storeBeforeOrSame(storeBid: ROBID, storeLsId: ROBID, loadBid: ROBID, loadLsId: ROBID): Bool =
+    STQCommitQueue.lessEqualBidLs(storeBid, storeLsId, loadBid, loadLsId)
+
+  private def storeAfter(aBid: ROBID, aLsId: ROBID, bBid: ROBID, bLsId: ROBID): Bool =
+    STQCommitQueue.lessEqualBidLs(bBid, bLsId, aBid, aLsId) && !sameStore(aBid, aLsId, bBid, bLsId)
+
   private def zeroWait: LoadStoreForwardWait = {
     val wait = Wire(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth))
     wait := 0.U.asTypeOf(wait)
@@ -126,7 +138,7 @@ class LoadStoreForwarding(
     val sameLine = store.lineAddr === io.query.lineAddr
     val overlapped = (store.byteMask & loadMask).orR
     val scalarEligible = !store.isTile && !io.query.isTile
-    val ordered = ROBID.lessEqual(store.storeId, io.query.youngestStoreId)
+    val ordered = storeBeforeOrSame(store.storeId, store.storeLsId, io.query.youngestStoreId, io.query.youngestStoreLsId)
     val baseEligible =
       io.query.valid && store.valid && store.working && store.addrReady && sameLine && overlapped && ordered
 
@@ -144,12 +156,13 @@ class LoadStoreForwarding(
     var selectedReady: Bool = false.B
     var selectedData: UInt = 0.U(8.W)
     var selectedStoreId: ROBID = zeroRobId
+    var selectedStoreLsId: ROBID = zeroRobId
     var selectedStoreIndex: UInt = 0.U(log2Ceil(storeEntries).W)
 
     for (storeIdx <- 0 until storeEntries) {
       val store = io.stores(storeIdx)
       val byteHit = eligibleVec(storeIdx) && store.byteMask(byte)
-      val nearerStore = !selectedValid || ROBID.greater(store.storeId, selectedStoreId)
+      val nearerStore = !selectedValid || storeAfter(store.storeId, store.storeLsId, selectedStoreId, selectedStoreLsId)
       val takeStore = byteHit && nearerStore
       val storeByte = store.data((byte * 8) + 7, byte * 8)
 
@@ -157,6 +170,7 @@ class LoadStoreForwarding(
       selectedReady = Mux(takeStore, store.dataReady, selectedReady)
       selectedData = Mux(takeStore && store.dataReady, storeByte, selectedData)
       selectedStoreId = Mux(takeStore, store.storeId, selectedStoreId)
+      selectedStoreLsId = Mux(takeStore, store.storeLsId, selectedStoreLsId)
       selectedStoreIndex = Mux(takeStore, store.storeIndex, selectedStoreIndex)
     }
 
@@ -188,14 +202,16 @@ class LoadStoreForwarding(
   var waitValid: Bool = false.B
   var waitStoreIndex: UInt = 0.U(log2Ceil(storeEntries).W)
   var waitStoreId: ROBID = zeroRobId
+  var waitStoreLsId: ROBID = zeroRobId
   var waitStorePc: UInt = 0.U(pcWidth.W)
   for (storeIdx <- 0 until storeEntries) {
     val store = io.stores(storeIdx)
-    val newerWaitStore = !waitValid || ROBID.greater(store.storeId, waitStoreId)
+    val newerWaitStore = !waitValid || storeAfter(store.storeId, store.storeLsId, waitStoreId, waitStoreLsId)
     val takeWait = selectedInvalidStoreVec(storeIdx) && newerWaitStore
 
     waitStoreIndex = Mux(takeWait, store.storeIndex, waitStoreIndex)
     waitStoreId = Mux(takeWait, store.storeId, waitStoreId)
+    waitStoreLsId = Mux(takeWait, store.storeLsId, waitStoreLsId)
     waitStorePc = Mux(takeWait, store.pc, waitStorePc)
     waitValid = waitValid || selectedInvalidStoreVec(storeIdx)
   }
@@ -205,6 +221,7 @@ class LoadStoreForwarding(
   waitInfo.valid := waitValid
   waitInfo.storeIndex := waitStoreIndex
   waitInfo.storeId := waitStoreId
+  waitInfo.storeLsId := waitStoreLsId
   waitInfo.pc := waitStorePc
 
   val coveredMask = coveredVec.asUInt & loadMask

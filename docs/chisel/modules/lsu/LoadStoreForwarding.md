@@ -40,7 +40,8 @@ MDB learning, BCTRL/IEX state, ROB recovery publication, or memory-event trace.
 | `query.lineAddr` | 64-byte cacheline tag, equivalent to model `MemReqBus::tag` for scalar loads. |
 | `query.byteOffset` | Load byte offset inside the 64-byte line. |
 | `query.size` | Load size in bytes. The module clips to the current 64-byte line. |
-| `query.youngestStoreId` | Snapshot of the youngest store visible to this load at allocation. Candidate stores must be older than or equal to this ID. |
+| `query.youngestStoreId` | Snapshot BID of the youngest store visible to this load at allocation. Candidate stores must be older than or equal to this `(BID, LSID)` pair. |
+| `query.youngestStoreLsId` | Snapshot LSID of the youngest store visible to this load at allocation. |
 | `query.isTile` | Suppresses scalar forwarding for tile load queries and reports tile suppression diagnostics. |
 
 ### Store Candidates
@@ -53,7 +54,8 @@ MDB learning, BCTRL/IEX state, ROB recovery publication, or memory-event trace.
 | `stores[*].dataReady` | Store data is available, matching `e.dataRdy`. |
 | `stores[*].isTile` | Suppresses scalar forwarding for tile stores. |
 | `stores[*].storeIndex` | STQ row index diagnostic and future row-wakeup handle. |
-| `stores[*].storeId` | Store age ID used for snapshot filtering and nearest-older selection. |
+| `stores[*].storeId` | Store BID used with `storeLsId` for snapshot filtering and nearest-older selection. |
+| `stores[*].storeLsId` | Store LSID used with `storeId` for same-BID ordering. |
 | `stores[*].pc` | Store PC diagnostic used by wait-store reporting. |
 | `stores[*].lineAddr` | Store 64-byte line tag. |
 | `stores[*].byteMask` | Store byte-valid mask clipped to the line. |
@@ -101,9 +103,9 @@ The Chisel owner expresses that rule directly:
 
 1. Build the clipped `loadByteMask` from `byteOffset` and `size`.
 2. Mark eligible scalar stores by same-line overlap and
-   `ROBID.lessEqual(storeId, youngestStoreId)`.
+   `STQCommitQueue.lessEqualBidLs(storeId, storeLsId, youngestStoreId, youngestStoreLsId)`.
 3. For each of 64 bytes, choose the eligible store with the greatest
-   wrap-aware `storeId`.
+   wrap-aware `(storeId, storeLsId)` pair.
 4. Mark the byte as forwarded when the selected store is data-ready.
 5. Mark the byte as waiting when the selected store is not data-ready.
 6. Merge forwarded bytes over `cacheData`; uncovered bytes keep the cache
@@ -149,5 +151,5 @@ rows.
 
 Focused reference tests cover ready store byte forwarding, younger-than-snapshot
 suppression, per-byte newest older selection, not-ready replay masks, tile and
-different-line suppression, wrap-aware store age ordering, and Chisel
-elaboration with mask, merge, and wait diagnostics.
+different-line suppression, wrap-aware store age ordering, same-BID LSID
+ordering, and Chisel elaboration with mask, merge, and wait diagnostics.
