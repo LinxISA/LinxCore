@@ -740,6 +740,13 @@ This confirms the R243 cleanup guard carries the reduced-store STQ path past
 the first FENTRY save; broader store memory mutation, forwarding, and MDB
 publication remain future owners.
 
+R245 doubles the same reduced-store live CoreMark/QEMU proof window to 192
+captured rows. The gate captures 192 raw QEMU rows, reduces 188 expected rows,
+normalizes and compares 131 QEMU/DUT rows, and passes with zero mismatches and
+no CBSTOP divergence. This remains scale evidence for the optional reduced
+STQ path; it does not change the ownership boundary for later memory mutation,
+forwarding, or MDB publication work.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
