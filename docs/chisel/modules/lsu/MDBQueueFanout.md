@@ -37,10 +37,12 @@ and data ready before a wakeup is published.
 R291 wires this owner into the opt-in replay-LIQ reduced top as a diagnostic
 record path. `MDBConflictDetect.record` becomes a `recordIn` command with
 model confidence `1`, and resident `StoreDispatchSTQPath` rows become the
-store-wakeup scan view. Lookup and delete producers remain tied off until live
-load-issue MDB lookup and failed-wait delete owners exist, so the top observes
-SSIT record/BMDB-intent state without changing load wakeup or recovery
-behavior.
+store-wakeup scan view. R292 adds the load-side lookup producer boundary from
+the replay-LIQ launch-accepted row; because the reduced top still ties
+`launchEnable` low, this path is structurally wired but dormant in the current
+fixture. Delete producers remain tied off until failed-wait delete owners exist,
+so the top observes SSIT record/BMDB/lookup command state without changing load
+wakeup or recovery behavior.
 
 It does not yet own LDQ row mutation, STQ row storage, byte forwarding, BCTRL
 `BMDB` table mutation, IEX-local MDB, ROB nuke retirement, or final recovery
@@ -149,7 +151,8 @@ state, BMDB report intent, and SSIT table state. QEMU and LinxCoreModel
 cross-checks cannot observe this packet directly until the Chisel top emits
 live LSU memory/recovery trace events. R291 exposes the same record/BMDB/SSIT
 diagnostics at `LinxCoreFrontendFetchRfAluTraceTop` for generated-RTL
-visibility.
+visibility, and R292 exposes lookup enqueue, fanout, and LU/SU hit identity
+diagnostics from the dormant replay-LIQ launch boundary.
 
 ## Verification
 
@@ -158,6 +161,7 @@ visibility.
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r291-replay-liq-mdb-fanout-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r292-replay-liq-mdb-lookup-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

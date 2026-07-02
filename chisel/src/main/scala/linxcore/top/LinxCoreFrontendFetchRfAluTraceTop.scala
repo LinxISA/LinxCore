@@ -455,6 +455,20 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedMdbConflictStoreLsIdValid = Output(Bool())
   val reducedMdbConflictStoreLsIdWrap = Output(Bool())
   val reducedMdbConflictStoreLsIdValue = Output(UInt(ptrWidth.W))
+  val reducedMdbFanoutLookupValid = Output(Bool())
+  val reducedMdbFanoutLookupReady = Output(Bool())
+  val reducedMdbFanoutLookupAccepted = Output(Bool())
+  val reducedMdbFanoutLookupProcessed = Output(Bool())
+  val reducedMdbFanoutLuOutValid = Output(Bool())
+  val reducedMdbFanoutLuOutHit = Output(Bool())
+  val reducedMdbFanoutLuOutStoreBidValid = Output(Bool())
+  val reducedMdbFanoutLuOutStoreBidWrap = Output(Bool())
+  val reducedMdbFanoutLuOutStoreBidValue = Output(UInt(ptrWidth.W))
+  val reducedMdbFanoutSuOutValid = Output(Bool())
+  val reducedMdbFanoutSuOutHit = Output(Bool())
+  val reducedMdbFanoutSuOutStoreBidValid = Output(Bool())
+  val reducedMdbFanoutSuOutStoreBidWrap = Output(Bool())
+  val reducedMdbFanoutSuOutStoreBidValue = Output(UInt(ptrWidth.W))
   val reducedMdbFanoutRecordValid = Output(Bool())
   val reducedMdbFanoutRecordReady = Output(Bool())
   val reducedMdbFanoutRecordAccepted = Output(Bool())
@@ -1409,6 +1423,23 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedMdbRecordBus.stInfo.isTile := reducedMdbConflictDetect.io.record.store.isTile
   reducedMdbRecordBus.conf := 1.U
 
+  val reducedMdbLookupRow =
+    reducedLoadReplayLiqAllocPath.io.rows(reducedLoadReplayLiqAllocPath.io.launchIndex)
+  val reducedMdbFanoutLookupValid =
+    reducedLoadReplayLiqAllocEnabled && reducedLoadReplayLiqAllocPath.io.launchAccepted && !reducedMdbLookupRow.isTile
+  val reducedMdbLookupBus = Wire(chiselTypeOf(reducedMdbZeroBus))
+  reducedMdbLookupBus := reducedMdbZeroBus
+  reducedMdbLookupBus.valid := reducedMdbFanoutLookupValid
+  reducedMdbLookupBus.ldInfo.valid := reducedMdbFanoutLookupValid
+  reducedMdbLookupBus.ldInfo.pc := reducedMdbLookupRow.pc
+  reducedMdbLookupBus.ldInfo.bid := reducedMdbLookupRow.bid
+  reducedMdbLookupBus.ldInfo.lsId := reducedMdbLookupRow.loadLsId
+  reducedMdbLookupBus.ldInfo.stid := io.threadId
+  reducedMdbLookupBus.ldInfo.addr := reducedMdbLookupRow.addr
+  reducedMdbLookupBus.ldInfo.size := reducedMdbLookupRow.size
+  reducedMdbLookupBus.ldInfo.isTile := reducedMdbLookupRow.isTile
+  reducedMdbLookupBus.conf := 1.U
+
   val reducedMdbFanoutStoreRows = Wire(Vec(
     p.robEntries,
     new MDBStoreWakeupEntry(
@@ -1438,8 +1469,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     wakeRow.isTile := !stqRow.scalarIex
     reducedMdbFanoutStoreRows(idx) := wakeRow
   }
-  reducedMdbQueueFanout.io.lookupIn := reducedMdbZeroBus
-  reducedMdbQueueFanout.io.lookupInValid := false.B
+  reducedMdbQueueFanout.io.lookupIn := reducedMdbLookupBus
+  reducedMdbQueueFanout.io.lookupInValid := reducedMdbFanoutLookupValid
   reducedMdbQueueFanout.io.deleteIn := reducedMdbZeroBus
   reducedMdbQueueFanout.io.deleteInValid := false.B
   reducedMdbQueueFanout.io.recordIn := reducedMdbRecordBus
@@ -2053,6 +2084,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedMdbConflictStoreLsIdValid := reducedMdbConflictDetect.io.record.store.lsId.valid
   io.reducedMdbConflictStoreLsIdWrap := reducedMdbConflictDetect.io.record.store.lsId.wrap
   io.reducedMdbConflictStoreLsIdValue := reducedMdbConflictDetect.io.record.store.lsId.value
+  io.reducedMdbFanoutLookupValid := reducedMdbFanoutLookupValid
+  io.reducedMdbFanoutLookupReady := reducedMdbQueueFanout.io.lookupInReady
+  io.reducedMdbFanoutLookupAccepted := reducedMdbQueueFanout.io.lookupInAccepted
+  io.reducedMdbFanoutLookupProcessed := reducedMdbQueueFanout.io.lookupProcessed
+  io.reducedMdbFanoutLuOutValid := reducedMdbQueueFanout.io.luOutValid
+  io.reducedMdbFanoutLuOutHit := reducedMdbQueueFanout.io.luOut.hit
+  io.reducedMdbFanoutLuOutStoreBidValid := reducedMdbQueueFanout.io.luOut.stInfo.bid.valid
+  io.reducedMdbFanoutLuOutStoreBidWrap := reducedMdbQueueFanout.io.luOut.stInfo.bid.wrap
+  io.reducedMdbFanoutLuOutStoreBidValue := reducedMdbQueueFanout.io.luOut.stInfo.bid.value
+  io.reducedMdbFanoutSuOutValid := reducedMdbQueueFanout.io.suOutValid
+  io.reducedMdbFanoutSuOutHit := reducedMdbQueueFanout.io.suOut.hit
+  io.reducedMdbFanoutSuOutStoreBidValid := reducedMdbQueueFanout.io.suOut.stInfo.bid.valid
+  io.reducedMdbFanoutSuOutStoreBidWrap := reducedMdbQueueFanout.io.suOut.stInfo.bid.wrap
+  io.reducedMdbFanoutSuOutStoreBidValue := reducedMdbQueueFanout.io.suOut.stInfo.bid.value
   io.reducedMdbFanoutRecordValid := reducedMdbFanoutRecordValid
   io.reducedMdbFanoutRecordReady := reducedMdbQueueFanout.io.recordInReady
   io.reducedMdbFanoutRecordAccepted := reducedMdbQueueFanout.io.recordInAccepted
