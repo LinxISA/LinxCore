@@ -69,6 +69,8 @@ class ReducedLoadReplayLiqAllocPathIO(
   val launchSelectedAddr = Output(UInt(addrWidth.W))
   val launchSelectedSize = Output(UInt(sizeWidth.W))
   val launchSelectedRequestByteMask = Output(UInt(lineBytes.W))
+  val launchSelectedSpecWakeup = Output(Bool())
+  val launchSelectedStackValid = Output(Bool())
   val launchDriveValid = Output(Bool())
   val launchReady = Output(Bool())
   val launchAccepted = Output(Bool())
@@ -181,6 +183,8 @@ class ReducedLoadReplayLiqAllocPath(
   io.launchSelectedAddr := launchSelect.io.selectedAddr
   io.launchSelectedSize := launchSelect.io.selectedSize
   io.launchSelectedRequestByteMask := launchSelect.io.selectedRequestByteMask
+  io.launchSelectedSpecWakeup := launchSelect.io.selectedSpecWakeup
+  io.launchSelectedStackValid := launchSelect.io.selectedStackValid
   io.launchDriveValid := io.launchEnable && launchSelect.io.launchValid
   io.launchReady := launchSelect.io.launchValid && liq.io.launchReady
   io.launchAccepted := liq.io.launchAccepted

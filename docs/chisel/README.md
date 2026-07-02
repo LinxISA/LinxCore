@@ -164,6 +164,10 @@ trace ownership to later packets.
 refill lines against unresolved scalar LIQ rows, records local `l1Hit` plus
 full-line data, and lets later relaunch use row-owned bytes through the normal
 `LoadForwardPipeline` path.
+`LoadReplayReturnConsumerReady` names the replay-return consumer split before
+live LIQ relaunch is enabled: every ordinary replay return still needs an IEX
+LRET sink, while the dependent mem-wakeup sink is only required for selected
+rows that are not speculative-wakeup rows and not stack-valid rows.
 
 The current `LinxCoreTop` is a reduced bring-up shell, not the final core. It
 forwards a monitored `ReducedCommitROB` so top-level generated RTL carries the

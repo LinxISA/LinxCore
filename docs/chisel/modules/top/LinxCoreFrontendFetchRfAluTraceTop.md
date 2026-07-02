@@ -941,7 +941,7 @@ store).
 | output | `reducedLoadWaitReplay*` | mixed | diagnostic | R269/R271/R274/R275 registered reduced wait-store slot diagnostics. The slot remembers the held load and wait-store key, feeds that key back to `ResidentStoreReplayWakeup`, clears through `LoadReplayWakeup`, and publishes a one-cycle relaunch candidate carrying PC, address, size, BID/GID/RID, reduced LSID, and forwarding snapshot `(youngestStoreId, youngestStoreLsId)` for future LIQ wiring; it does not drive a launch port. |
 | output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272-R283 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing full load identity plus forwarding snapshot, and reports accepted/drop/full state. Default mode drains only exact held-load completion matches; opt-in replay-LIQ mode consumes only when `ReducedLoadReplayLiqAllocPath` accepts allocation. |
 | output | `reducedLoadReplayDrain*` | mixed | diagnostic | R273/R274 diagnostic completion-drain match/mismatch signals used by the default reduced-store replay mode. Exact W2 load-completion matches consume the queued replay candidate; mismatches, including GID/RID sidecar mismatches, leave it pending for debug. |
-| output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282/R283/R294/R295/R296/R297/R298/R299/R300/R301/R302/R303/R304 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, R283 feeds its E2 store vector from resident STQ snapshots, R294 exposes selected launch-row PC/address/size, load ID, BID/GID/RID, load LSID, and request-byte mask, R295 shapes the selected row's scalar base-data lookup response into 64-byte line-data diagnostics, R296 adds execute-priority lookup arbitration plus replay grant/block diagnostics, R297 exposes `LoadReplayLaunchReadiness` candidate/base-data/source/return blockers, R298 exposes launch-drive/accept, repick/miss/resolved masks, E4 outcome, and LHQ-record-valid diagnostics, R299 exposes `LoadReplaySourceReturnReadiness` local-store-snapshot/future-SCB diagnostics, R300 exposes `LoadReplayReturnReadiness` source/return-pipe diagnostics, R301 exposes `LoadReplayReturnPipeSelect` mask/select diagnostics, R302 exposes `LoadReplayReturnPipePermit` pipe-budget diagnostics, R303 exposes `LoadReplayReturnPipeBudget` live-budget-arm diagnostics, and R304 splits that budget arm from consumer/wakeup readiness; launch still remains disabled because consumer readiness is low. |
+| output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282/R283/R294/R295/R296/R297/R298/R299/R300/R301/R302/R303/R304/R305 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, R283 feeds its E2 store vector from resident STQ snapshots, R294 exposes selected launch-row PC/address/size, load ID, BID/GID/RID, load LSID, and request-byte mask, R295 shapes the selected row's scalar base-data lookup response into 64-byte line-data diagnostics, R296 adds execute-priority lookup arbitration plus replay grant/block diagnostics, R297 exposes `LoadReplayLaunchReadiness` candidate/base-data/source/return blockers, R298 exposes launch-drive/accept, repick/miss/resolved masks, E4 outcome, and LHQ-record-valid diagnostics, R299 exposes `LoadReplaySourceReturnReadiness` local-store-snapshot/future-SCB diagnostics, R300 exposes `LoadReplayReturnReadiness` source/return-pipe diagnostics, R301 exposes `LoadReplayReturnPipeSelect` mask/select diagnostics, R302 exposes `LoadReplayReturnPipePermit` pipe-budget diagnostics, R303 exposes `LoadReplayReturnPipeBudget` live-budget-arm diagnostics, R304 splits that budget arm from consumer/wakeup readiness, and R305 exposes selected-row `specWakeup`/`stackValid` plus `LoadReplayReturnConsumerReady` LRET/mem-wakeup sink diagnostics; launch still remains disabled because both sinks are low. |
 | output | `reducedLoadReplayResolveQueue*` | mixed | diagnostic | R285-R289 opt-in replay-LIQ ResolveQ diagnostics. `lhqRecord` from `ReducedLoadReplayLiqAllocPath` can append to `LoadResolveQueue`; the top exposes push, delayed clear, commit-window retire watermark, scalar-redirect precise flush identity, retire/prune mask/count, occupancy, valid-mask, and head conflict-row sidecars. Because launch remains disabled, the current fixture observes storage, retire, and recovery-prune wiring only; live MDB/recovery publication is deferred. |
 | output | `reducedMdbConflict*` | mixed | diagnostic | R290 opt-in replay-LIQ MDB conflict diagnostics. The top feeds `MDBConflictDetect` with the accepted reduced STQ insert request, replay-LIQ resident rows, and ResolveQ conflict rows, then exposes store-valid, active/ResolveQ candidate masks, wait-store mask/count, selected source/index/ordinal, selected load/store BID and LSID identity, plus inner/nuke classification. These signals are diagnostic only; they do not yet drive recovery flush. |
 | output | `reducedMdbFanout*` | mixed | diagnostic | R291-R293 opt-in replay-LIQ MDB fanout/learning diagnostics. Selected conflict records enqueue into `MDBQueueFanout.recordIn` with model confidence `1`; resident STQ rows feed the SU wakeup scan view; replay-LIQ launch acceptance forms a dormant `lookupIn` command boundary; and R293 exposes the still-inactive delete command/decay boundary plus phase-stall diagnostics. Delete producers remain tied off. The top exposes lookup ready/accept/process, delete ready/accept/process and decay result flags, LU/SU lookup-result hit/store-BID diagnostics, record ready/accept/process, BMDB report intent, SSIT valid mask, record errors, and SU match/wakeup diagnostics without mutating recovery or load wakeup state. |
@@ -1017,9 +1017,13 @@ overlay. Most state remains in child modules:
   replay-LIQ rows. It treats the local resident-store snapshot as the current
   reduced store source, keeps the future external SCB pending/returned boundary
   explicit, and feeds `LoadReplayLaunchReadiness.scbReturned`.
-- `LoadReplayReturnPipeBudget`: optional R304 budget/consumer-readiness owner
-  for replay-LIQ return pipes. Current top wiring arms the budget under
-  replay-LIQ enable and keeps consumer readiness low.
+- `LoadReplayReturnConsumerReady`: optional R305 replay-return consumer owner
+  for replay-LIQ rows. It keeps the always-required IEX LRET sink separate
+  from the conditional mem-wakeup sink and feeds
+  `LoadReplayReturnPipeBudget.consumerReady`.
+- `LoadReplayReturnPipeBudget`: optional R304/R305 budget/consumer-readiness
+  owner for replay-LIQ return pipes. Current top wiring arms the budget under
+  replay-LIQ enable and keeps both consumer sinks low.
 - `LoadReplayReturnPipePermit`: optional R302 mask producer that consumes
   `LoadReplayReturnPipeBudget` and feeds `LoadReplayReturnPipeSelect`.
 - `LoadReplayReturnReadiness`: optional R300 return-pipe readiness owner for
@@ -1195,8 +1199,11 @@ readiness is separated from source return. R300 inserts
 `LoadReplayReturnPipeSelect` as the explicit pipe-mask/select owner feeding
 that readiness gate. R302 inserts `LoadReplayReturnPipePermit` as the mask
 producer. R304 splits `LoadReplayReturnPipeBudget` into a budget arm plus a
-downstream consumer-readiness input: the opt-in wrapper arms the budget, while
-consumer readiness remains low until an IEX return-data/wakeup owner exists.
+downstream consumer-readiness input. R305 inserts
+`LoadReplayReturnConsumerReady` behind that input: every selected row needs the
+future IEX LRET sink, and only rows that are not `specWakeup` and not
+`stackValid` need the future mem-wakeup sink. The opt-in wrapper arms the
+budget, while both sinks remain low until those IEX owners exist.
 `launchEnable` therefore remains low while source-return, consumer, and
 return-port blockers are visible as diagnostics.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
@@ -2055,6 +2062,10 @@ The R304 replay-LIQ return consumer-budget split fixture manifest at
 `generated/r304-replay-liq-return-consumer-budget-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `summary.compared_rows: 3`, and
 `summary.mismatch_count: 0`.
+The R305 replay-LIQ return consumer sink split fixture manifest at
+`generated/r305-replay-liq-return-consumer-ready-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 3`, and
+`summary.mismatch_count: 0`.
 
 ## Verification
 
@@ -2067,7 +2078,7 @@ records `status: "pass"`, `summary.compared_rows: 3`, and
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r279-replay-liq-fixture-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r285-replay-liq-resolveq-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r286-replay-liq-resolve-clear-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
-- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r304-replay-liq-return-consumer-budget-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r305-replay-liq-return-consumer-ready-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r290-replay-liq-mdb-detect-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r293-replay-liq-mdb-delete-boundary-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r291-replay-liq-mdb-fanout-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`

@@ -11,6 +11,7 @@
     - `LDQInfo::returnData`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnReadiness.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnConsumerReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeBudget.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipePermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeSelect.scala`
@@ -26,13 +27,14 @@ before the parent launch arm, matching the model rule that a repicked load may
 call `returnData` only when all sources have returned and a load-return pipe is
 available.
 
-R304 keeps the boundary conservative. The opt-in replay-LIQ top instantiates
-`LoadReplayReturnPipeBudget`, feeds its output into
-`LoadReplayReturnPipePermit`, then `LoadReplayReturnPipeSelect` forwards
-`pipeAvailable` and `selectedPipeIndex` into this module. The top arms the
-reduced budget when replay-LIQ is enabled but keeps the downstream
-consumer/wakeup sink low, so this exposes the missing IEX return owner without
-enabling live relaunch, LHQ publication, or wakeup.
+R305 keeps the boundary conservative. The opt-in replay-LIQ top instantiates
+`LoadReplayReturnConsumerReady`, feeds its output into
+`LoadReplayReturnPipeBudget`, then `LoadReplayReturnPipePermit` and
+`LoadReplayReturnPipeSelect` forward `pipeAvailable` and `selectedPipeIndex`
+into this module. The top arms the reduced budget when replay-LIQ is enabled
+but keeps the downstream LRET and mem-wakeup sinks low, so this exposes the
+missing IEX return owners without enabling live relaunch, LHQ publication, or
+wakeup.
 
 ## Interface
 
@@ -43,7 +45,7 @@ enabling live relaunch, LHQ publication, or wakeup.
 | `enable` | Replay-LIQ wrapper is active. |
 | `launchValid` | A selected LIQ row is eligible for the launch path. |
 | `sourcesReturned` | Source-return owner has completed the base/store/SCB source predicate. |
-| `returnPipeAvailable` | `LoadReplayReturnPipeSelect` has selected an available pipe for this row. Current reduced top leaves this low because the upstream consumer/wakeup sink is not ready. |
+| `returnPipeAvailable` | `LoadReplayReturnPipeSelect` has selected an available pipe for this row. Current reduced top leaves this low because the upstream LRET/mem-wakeup sinks are not ready. |
 | `returnPipeIndex` | Selected return-pipe index from `LoadReplayReturnPipeSelect`. |
 
 ### Outputs
@@ -87,7 +89,7 @@ The LinxCoreModel return loop computes an IEX return-pipe budget, assigns
 ## Deferred Owners
 
 - Real IEX return-pipe occupancy and budget counting behind `LoadReplayReturnPipeBudget`.
-- Real consumer/wakeup readiness behind `LoadReplayReturnPipeBudget.consumerReady`.
+- Real LRET sink and mem-wakeup readiness behind `LoadReplayReturnConsumerReady`.
 - Multi-pipe arbitration and model `lastPipeID` grouping for same `(BID, RID)`
   return rows.
 - Consumer wakeup/ready-table publication after replay return.
@@ -100,7 +102,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnReadiness
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r304-replay-liq-return-consumer-budget-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r305-replay-liq-return-consumer-ready-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover ready, source blocking before pipe blocking, return-pipe

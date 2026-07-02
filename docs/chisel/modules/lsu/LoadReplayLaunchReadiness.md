@@ -14,6 +14,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadLookupArbiter.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayBaseDataAlign.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnConsumerReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeBudget.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipePermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeSelect.scala`
@@ -35,9 +36,11 @@ on. R299 drives the SCB/source-return input from
 `LoadReplayReturnReadiness`. R301 inserts `LoadReplayReturnPipeSelect` ahead of
 that readiness gate. R302 adds `LoadReplayReturnPipePermit` as the producer of
 that selector's mask. R304 drives `LoadReplayReturnPipeBudget` from a separate
-budget arm and consumer-ready input; the current top arms the budget under the
-opt-in wrapper but keeps the consumer/wakeup sink low. The module therefore
-exposes why launch remains blocked while keeping LIQ row state unchanged.
+budget arm and consumer-ready input. R305 drives that consumer-ready input from
+`LoadReplayReturnConsumerReady`, keeping the model LRET sink separate from the
+conditional mem-wakeup sink. The current top arms the budget under the opt-in
+wrapper but keeps both sinks low. The module therefore exposes why launch
+remains blocked while keeping LIQ row state unchanged.
 
 ## Interface
 
@@ -50,7 +53,7 @@ exposes why launch remains blocked while keeping LIQ row state unchanged.
 | `baseLookupGranted` | `LoadLookupArbiter` granted the selected replay row on the shared sparse-memory lookup port. |
 | `baseDataReturned` | `LoadReplayBaseDataAlign` has in-line baseline load data for the selected row. |
 | `scbReturned` | Source-return owner has observed the model `scbRnt/stqRnt` equivalent for the reduced replay path. |
-| `returnReady` | `LoadReplayReturnReadiness` has observed source completion plus a selected load return/wakeup pipe from `LoadReplayReturnPipeSelect`. Current top leaves this low because the upstream consumer/wakeup sink is not ready. |
+| `returnReady` | `LoadReplayReturnReadiness` has observed source completion plus a selected load return pipe from `LoadReplayReturnPipeSelect`. Current top leaves this low because upstream LRET/mem-wakeup sinks are not ready. |
 
 ### Outputs
 
@@ -90,15 +93,17 @@ The current Chisel split maps those conditions across modules:
    and wait-store blocking once launch is allowed.
 5. `LoadReplaySourceReturnReadiness` separates local resident-store snapshot
    readiness from future external SCB response readiness.
-6. `LoadReplayReturnPipeBudget` exposes the future IEX return-pipe budget arm
+6. `LoadReplayReturnConsumerReady` separates the always-required LRET sink from
+   the conditional mem-wakeup sink and feeds the consumer-ready predicate.
+7. `LoadReplayReturnPipeBudget` exposes the future IEX return-pipe budget arm
    and downstream consumer-readiness blocker.
-7. `LoadReplayReturnPipePermit` maps that budget predicate into a
+8. `LoadReplayReturnPipePermit` maps that budget predicate into a
    single-pipe mask.
-8. `LoadReplayReturnPipeSelect` maps the future IEX return-pipe mask into a
+9. `LoadReplayReturnPipeSelect` maps the future IEX return-pipe mask into a
    selected pipe index for the current row.
-9. `LoadReplayReturnReadiness` turns source return plus IEX return-pipe
+10. `LoadReplayReturnReadiness` turns source return plus IEX return-pipe
    availability into the final return-ready predicate.
-10. `LoadReplayLaunchReadiness` gates the parent launch arm on base-data
+11. `LoadReplayLaunchReadiness` gates the parent launch arm on base-data
    readiness, source return, and return readiness.
 
 The blocker outputs are not mutually exclusive across independent conditions,
@@ -108,8 +113,8 @@ later condition is only reported after the earlier source conditions are met.
 ## Deferred Owners
 
 - External SCB response producer for replay rows.
-- Real return-pipe/consumer-wakeup readiness producer behind
-  `LoadReplayReturnPipeBudget`.
+- Real LRET sink, mem-wakeup sink, and ready-table publication behind
+  `LoadReplayReturnConsumerReady`.
 - Cross-line replay base-data ownership.
 - Multiple load-return pipe arbitration and age grouping.
 
@@ -117,4 +122,4 @@ later condition is only reported after the earlier source conditions are met.
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadReplayLaunchReadiness`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
-- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r304-replay-liq-return-consumer-budget-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r305-replay-liq-return-consumer-ready-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`

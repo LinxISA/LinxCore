@@ -11,6 +11,7 @@
     - `LDQInfo::returnData`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnReadiness.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnConsumerReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeBudget.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeSelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnReadiness.scala`
@@ -24,10 +25,11 @@ model `LDQInfo::pickL1` return loop computes an IEX pipe budget and requires
 `lastPipeID < iexMaxPipe` before calling `returnData`. This module captures the
 single-pipe reduced-top permit condition separately from pipe selection.
 
-R304 feeds this module from `LoadReplayReturnPipeBudget` after that budget
-owner splits the live arm from downstream consumer readiness. The top now arms
-the reduced budget when replay-LIQ is enabled, but `consumerReady` remains low,
-so this module still produces an empty mask while preserving the disabled
+R305 feeds this module from `LoadReplayReturnPipeBudget` after
+`LoadReplayReturnConsumerReady` splits the downstream consumer into an
+always-required LRET sink and a conditional mem-wakeup sink. The top now arms
+the reduced budget when replay-LIQ is enabled, but both sinks remain low, so
+this module still produces an empty mask while preserving the disabled
 live-relaunch boundary.
 
 ## Interface
@@ -39,7 +41,7 @@ live-relaunch boundary.
 | `enable` | Replay-LIQ wrapper is active. |
 | `launchValid` | A selected LIQ row is eligible for the launch path. |
 | `sourcesReturned` | Base/load, store, and SCB source readiness has completed. |
-| `pipeBudgetAvailable` | `LoadReplayReturnPipeBudget` says a future IEX return-pipe slot may be considered. Current reduced top keeps this low through the missing consumer/wakeup sink. |
+| `pipeBudgetAvailable` | `LoadReplayReturnPipeBudget` says a future IEX return-pipe slot may be considered. Current reduced top keeps this low through the missing LRET/mem-wakeup consumer sinks. |
 
 ### Outputs
 
@@ -74,7 +76,7 @@ grouping remain deferred to a later pipe-budget owner.
 ## Deferred Owners
 
 - Real IEX return-pipe occupancy and budget counting behind `LoadReplayReturnPipeBudget`.
-- Consumer wakeup/ready-table readiness behind `LoadReplayReturnPipeBudget.consumerReady`.
+- LRET and mem-wakeup readiness behind `LoadReplayReturnConsumerReady`.
 - Multi-pipe mask generation and `(BID, RID)` grouping.
 - Enabling live replay launch in generated RTL.
 
@@ -85,7 +87,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipePermit
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r304-replay-liq-return-consumer-budget-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r305-replay-liq-return-consumer-ready-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover permit-valid mask generation, source blocking before
