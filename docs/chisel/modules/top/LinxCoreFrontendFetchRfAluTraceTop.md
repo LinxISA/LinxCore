@@ -733,6 +733,13 @@ marker-row top can still clean from admitted marker-retire metadata. The
 promoted reduced-store live CoreMark/QEMU gate captures 42 raw rows and passes
 with 31 compared rows and zero mismatches.
 
+R244 scales the same opt-in reduced-store path to a 96-row CoreMark/QEMU
+prefix without further RTL changes. The gate captures 96 raw rows, reduces 92
+expected rows, compares 67 normalized rows, and passes with zero mismatches.
+This confirms the R243 cleanup guard carries the reduced-store STQ path past
+the first FENTRY save; broader store memory mutation, forwarding, and MDB
+publication remain future owners.
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
