@@ -15,6 +15,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreResidentForward.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ResidentStoreReplayWakeup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayWakeup.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayRelaunchQueue.scala`
 - Contract IDs: `LC-CHISEL-LSU-STQ-FWD-004`
 
 ## Purpose
@@ -27,9 +28,10 @@ the resulting store-unit wakeup through the existing `LoadReplayWakeup` owner.
 
 This is still diagnostic integration. The slot proves the replay request shape
 can clear a remembered wait-store row by `(BID, LSID, PC)` and now publishes a
-one-cycle relaunch candidate carrying the remembered load identity. It does not
-drive a launch port, wake dependent consumers, or replace the full
-`LoadInflightQueue` owner.
+one-cycle relaunch candidate carrying the remembered load identity. In the
+reduced top after R272, `ReducedLoadReplayRelaunchQueue` consumes that pulse
+into a finite pending queue. The slot itself does not drive a launch port, wake
+dependent consumers, or replace the full `LoadInflightQueue` owner.
 
 ## Interface
 
@@ -99,6 +101,9 @@ R269 maps that sequence onto the reduced top:
 5. Publish a one-cycle relaunch candidate containing the stored load PC,
    address, size, BID, and reduced LSID. This is the future LIQ/issue handoff
    boundary; it does not itself relaunch the load.
+6. In the reduced top, `ReducedLoadReplayRelaunchQueue` stores that one-cycle
+   pulse as a stable pending diagnostic until a later LIQ/issue consumer
+   exists.
 
 ## Timing
 
@@ -122,7 +127,8 @@ run start, run restart, or disabling the optional reduced-STQ path.
 ## Deferred Owners
 
 - Real `LoadInflightQueue` allocation for reduced execute-stage loads.
-- Connecting `relaunch` to a real LIQ or issue/ready-table launch boundary.
+- Connecting the queued relaunch candidate to a real LIQ or issue/ready-table
+  launch boundary.
 - Consumer wakeup after wait-store clear.
 - Multiple waiting loads and wakeup arbitration.
 - Cross-line resident replay publication.
@@ -134,6 +140,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadWaitReplaySlot
+bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayRelaunchQueue
 bash tools/chisel/run_chisel_tests.sh --only ResidentStoreReplayWakeup
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop

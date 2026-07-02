@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
+import linxcore.lsu.{ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -40,6 +40,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   private val storeMemoryRequestCount = storeScbRequestCount + storeMemoryCommitBypassRequestCount
   private val storeScbRequestCountWidth = log2Ceil(storeScbRequestCount + 1)
   private val storeMemoryLineCountWidth = log2Ceil(storeMemoryLineEntries + 1)
+  private val loadReplayRelaunchQueueCountWidth = log2Ceil(2 + 1)
   private val gprFreeWidth = log2Ceil(physRegs + 1)
   private val gprMapQFreeWidth = log2Ceil(gprMapQDepth + 1)
   private val tuCountWidth = log2Ceil(mapQDepth + 1)
@@ -296,6 +297,23 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadWaitReplayRelaunchLsIdValid = Output(Bool())
   val reducedLoadWaitReplayRelaunchLsIdWrap = Output(Bool())
   val reducedLoadWaitReplayRelaunchLsIdValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayQueueEnqueueReady = Output(Bool())
+  val reducedLoadReplayQueueEnqueueAccepted = Output(Bool())
+  val reducedLoadReplayQueueEnqueueDropped = Output(Bool())
+  val reducedLoadReplayQueueOutValid = Output(Bool())
+  val reducedLoadReplayQueueOutFire = Output(Bool())
+  val reducedLoadReplayQueuePending = Output(Bool())
+  val reducedLoadReplayQueueFull = Output(Bool())
+  val reducedLoadReplayQueueCount = Output(UInt(loadReplayRelaunchQueueCountWidth.W))
+  val reducedLoadReplayQueueOutPc = Output(UInt(p.pcWidth.W))
+  val reducedLoadReplayQueueOutAddr = Output(UInt(p.immWidth.W))
+  val reducedLoadReplayQueueOutSize = Output(UInt(7.W))
+  val reducedLoadReplayQueueOutBidValid = Output(Bool())
+  val reducedLoadReplayQueueOutBidWrap = Output(Bool())
+  val reducedLoadReplayQueueOutBidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayQueueOutLsIdValid = Output(Bool())
+  val reducedLoadReplayQueueOutLsIdWrap = Output(Bool())
+  val reducedLoadReplayQueueOutLsIdValue = Output(UInt(ptrWidth.W))
   val reducedLoadWaitReplaySlotPc = Output(UInt(p.pcWidth.W))
   val reducedLoadWaitReplaySlotAddr = Output(UInt(p.immWidth.W))
   val storeDispatchReady = Output(Bool())
@@ -476,6 +494,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     extends Module {
   require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
   private val reducedStoreMemoryLineEntries = 64
+  private val reducedLoadReplayRelaunchQueueDepth = 2
   private val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(
     coreParams,
     physRegWidth = log2Ceil(physRegs)
@@ -571,6 +590,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val reducedLoadWaitReplaySlot = Module(new ReducedLoadWaitReplaySlot(
     idEntries = p.robEntries,
     storeEntries = p.robEntries
+  ))
+  val reducedLoadReplayRelaunchQueue = Module(new ReducedLoadReplayRelaunchQueue(
+    idEntries = p.robEntries,
+    depth = reducedLoadReplayRelaunchQueueDepth
   ))
 
   val localQueueDepth = 4
@@ -1018,6 +1041,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedStoreResidentReplayWakeup.io.enable := useReducedStoreDispatchStq.B
   reducedStoreResidentReplayWakeup.io.waitStore := reducedLoadWaitReplaySlot.io.storedWaitStore
   reducedStoreResidentReplayWakeup.io.rows := path.io.storeStqRows
+  reducedLoadReplayRelaunchQueue.io.flush := reducedStoreFlush
+  reducedLoadReplayRelaunchQueue.io.enqueueValid :=
+    useReducedStoreDispatchStq.B && reducedLoadWaitReplaySlot.io.relaunch.valid
+  reducedLoadReplayRelaunchQueue.io.enqueue := reducedLoadWaitReplaySlot.io.relaunch
+  reducedLoadReplayRelaunchQueue.io.outReady := false.B
 
   path.io.storeMarkCommitValid := storeCommitOwner.io.markCommitValid
   path.io.storeMarkCommitIndex := storeCommitOwner.io.markCommitIndex
@@ -1428,6 +1456,23 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadWaitReplayRelaunchLsIdValid := reducedLoadWaitReplaySlot.io.relaunch.loadLsId.valid
   io.reducedLoadWaitReplayRelaunchLsIdWrap := reducedLoadWaitReplaySlot.io.relaunch.loadLsId.wrap
   io.reducedLoadWaitReplayRelaunchLsIdValue := reducedLoadWaitReplaySlot.io.relaunch.loadLsId.value
+  io.reducedLoadReplayQueueEnqueueReady := reducedLoadReplayRelaunchQueue.io.enqueueReady
+  io.reducedLoadReplayQueueEnqueueAccepted := reducedLoadReplayRelaunchQueue.io.enqueueAccepted
+  io.reducedLoadReplayQueueEnqueueDropped := reducedLoadReplayRelaunchQueue.io.enqueueDropped
+  io.reducedLoadReplayQueueOutValid := reducedLoadReplayRelaunchQueue.io.outValid
+  io.reducedLoadReplayQueueOutFire := reducedLoadReplayRelaunchQueue.io.outFire
+  io.reducedLoadReplayQueuePending := reducedLoadReplayRelaunchQueue.io.pending
+  io.reducedLoadReplayQueueFull := reducedLoadReplayRelaunchQueue.io.full
+  io.reducedLoadReplayQueueCount := reducedLoadReplayRelaunchQueue.io.count
+  io.reducedLoadReplayQueueOutPc := reducedLoadReplayRelaunchQueue.io.out.pc
+  io.reducedLoadReplayQueueOutAddr := reducedLoadReplayRelaunchQueue.io.out.addr
+  io.reducedLoadReplayQueueOutSize := reducedLoadReplayRelaunchQueue.io.out.size
+  io.reducedLoadReplayQueueOutBidValid := reducedLoadReplayRelaunchQueue.io.out.bid.valid
+  io.reducedLoadReplayQueueOutBidWrap := reducedLoadReplayRelaunchQueue.io.out.bid.wrap
+  io.reducedLoadReplayQueueOutBidValue := reducedLoadReplayRelaunchQueue.io.out.bid.value
+  io.reducedLoadReplayQueueOutLsIdValid := reducedLoadReplayRelaunchQueue.io.out.loadLsId.valid
+  io.reducedLoadReplayQueueOutLsIdWrap := reducedLoadReplayRelaunchQueue.io.out.loadLsId.wrap
+  io.reducedLoadReplayQueueOutLsIdValue := reducedLoadReplayRelaunchQueue.io.out.loadLsId.value
   io.reducedLoadWaitReplaySlotPc := reducedLoadWaitReplaySlot.io.slotPc
   io.reducedLoadWaitReplaySlotAddr := reducedLoadWaitReplaySlot.io.slotAddr
   io.storeDispatchReady := path.io.storeDispatchReady
