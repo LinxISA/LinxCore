@@ -96,6 +96,11 @@ R287 forwards the decode memory-order sidecar into ROB allocation and exposes
 `commitMemoryOrder` from `ROBEntryBank`. The sidecar carries the model
 pre-increment `lsID` snapshot for every committed row, plus load/store
 classification, without adding fields to `CommitTraceRow`.
+R290 also exports the selected `StoreDispatchSTQPath` `STQStoreRequest` payload
+beside the existing insert-valid/accepted/index diagnostics. The reduced
+replay-LIQ top consumes the accepted request as the MDB store-arrival probe,
+so the payload now forms part of the backend/top observation contract instead
+of remaining local to the STQ row owner.
 R103 connects the existing block-last deallocation boundary to BROB lifecycle:
 `ROBEntryBank` exposes the full block BID for the first deallocated block-last
 row, `DecodeRenameROBPath` pulses `blockScalarDone*` for that BID, and it
@@ -341,7 +346,9 @@ Outputs:
   `storeMarkCommit*`, `storeCommitFree*`, `storeStqFlush*`,
   `storeStqRows`, `storeStq*Mask`, `storeStq*Count`, `storeStqEmpty`,
   `storeStqFull`, and `storeStqStall`: live STQ path diagnostics and row view
-  from the integrated `StoreDispatchSTQPath`.
+  from the integrated `StoreDispatchSTQPath`. R290 exposes the full
+  `storeStqInsert` request payload so top-level MDB diagnostics can consume the
+  exact accepted STQ insert identity, PC, address, size, and scalar/tile shape.
 - `storeLsuTULinkSource*`: live STQ-bank LSU T/U cleanup source candidate and
   match diagnostics forwarded from `STQEntryBank`.
 - `robAllocAttemptValid`, `robAllocReady`, `robAllocFire`,
@@ -851,6 +858,7 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeRenameQueue
 bash tools/chisel/run_chisel_tests.sh --only ScalarTURenameBridge
 bash tools/chisel/run_chisel_tests.sh --only StoreSplitPayload
 bash tools/chisel/run_chisel_tests.sh --only StoreDispatchSTQPath
+bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
 bash tools/chisel/run_chisel_tests.sh --only TULinkLocalBankArray
 bash tools/chisel/run_chisel_tests.sh --only TULinkRecoveryCleanupPath
 bash tools/chisel/run_chisel_tests.sh --only TULinkRetireCommandPath

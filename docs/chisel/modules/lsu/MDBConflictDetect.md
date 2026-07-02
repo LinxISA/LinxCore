@@ -24,6 +24,14 @@ load/store conflict classifier. It consumes a store probe from the future STQ
 insert path, scans active LDQ rows plus the resolved-load queue, and emits the
 oldest scalar load that must be reported to MDB and recovery.
 
+R290 wires the detector into the replay-LIQ reduced top as a diagnostic
+composition point. The top builds the store probe from the accepted
+`StoreDispatchSTQPath` insert request, builds active load entries from
+`ReducedLoadReplayLiqAllocPath` resident LIQ rows, and feeds resolved rows from
+`LoadResolveQueue.conflictRows`. The detector's candidate masks, selected
+record, and inner/nuke classification are exposed through top-level diagnostics,
+but no MDB fanout, ready-store wakeup, or recovery flush is emitted yet.
+
 The module owns:
 
 - scalar address-overlap detection for store probes against load entries,
@@ -50,7 +58,7 @@ IEX-local MDB learning, or final flush publication.
 | `store.bid/store.lsId` | `ROBID` | Store age identity. The store must be older than or equal to the load to conflict. |
 | `store.pc/addr/size` | `UInt` | Store PC and byte range. |
 | `activeLoads` | `Vec[MDBConflictLoadEntry]` | Active LDQ cluster rows. Rows with `resolved=1` may become flush candidates; rows with `resolved=0` may become wait-store rows for `ST_ADDR`. |
-| `resolvedQueue` | `Vec[MDBConflictLoadEntry]` | Resolved-load queue rows equivalent to `ResolveQ::entryArr`, supplied by `LoadResolveQueue` once integrated. |
+| `resolvedQueue` | `Vec[MDBConflictLoadEntry]` | Resolved-load queue rows equivalent to `ResolveQ::entryArr`, supplied by `LoadResolveQueue` in the replay-LIQ top integration. |
 
 ### Outputs
 
@@ -71,8 +79,9 @@ IEX-local MDB learning, or final flush publication.
 
 ## State
 
-`MDBConflictDetect` is stateless. It is intended to sit between future STQ/LDQ
-state owners and later MDB/recovery publication owners.
+`MDBConflictDetect` is stateless. In R290 it sits between the reduced top's
+accepted STQ insert request, replay-LIQ resident rows, ResolveQ rows, and later
+MDB/recovery publication owners.
 
 ## Logic Design
 
@@ -124,14 +133,18 @@ and only redirects when that load reaches the ROB head.
 ## Trace/Observability
 
 `record`, candidate masks, tile-suppressed masks, and wait-store masks are
-designed for later memory/recovery trace rows. QEMU and LinxCoreModel
-cross-checks cannot observe this packet directly until live memory or recovery
-events are emitted from the Chisel top.
+designed for later memory/recovery trace rows. R290 exposes the same signals at
+`LinxCoreFrontendFetchRfAluTraceTop` for generated-RTL visibility, but QEMU and
+LinxCoreModel architectural rows cannot observe MDB effects directly until live
+memory or recovery events are emitted from the Chisel top.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueue`
+- `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
+- `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r290-replay-liq-mdb-detect-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only STQEntryBank`
 - `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath`

@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadResolveQueue, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -41,6 +41,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   private val storeScbRequestCountWidth = log2Ceil(storeScbRequestCount + 1)
   private val storeMemoryLineCountWidth = log2Ceil(storeMemoryLineEntries + 1)
   private val loadReplayRelaunchQueueCountWidth = log2Ceil(2 + 1)
+  private val mdbConflictOrdinalWidth = log2Ceil(p.robEntries * 2)
   private val gprFreeWidth = log2Ceil(physRegs + 1)
   private val gprMapQFreeWidth = log2Ceil(gprMapQDepth + 1)
   private val tuCountWidth = log2Ceil(mapQDepth + 1)
@@ -430,6 +431,30 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayResolveQueueHeadLsIdValid = Output(Bool())
   val reducedLoadReplayResolveQueueHeadLsIdWrap = Output(Bool())
   val reducedLoadReplayResolveQueueHeadLsIdValue = Output(UInt(ptrWidth.W))
+  val reducedMdbConflictStoreValid = Output(Bool())
+  val reducedMdbConflictActiveCandidateMask = Output(UInt(p.robEntries.W))
+  val reducedMdbConflictResolveCandidateMask = Output(UInt(p.robEntries.W))
+  val reducedMdbConflictWaitStoreMask = Output(UInt(p.robEntries.W))
+  val reducedMdbConflictWaitStoreCount = Output(UInt(storeStqCountWidth.W))
+  val reducedMdbConflictValid = Output(Bool())
+  val reducedMdbConflictFromResolveQueue = Output(Bool())
+  val reducedMdbConflictActiveIndex = Output(UInt(ptrWidth.W))
+  val reducedMdbConflictResolveIndex = Output(UInt(ptrWidth.W))
+  val reducedMdbConflictOrdinal = Output(UInt(mdbConflictOrdinalWidth.W))
+  val reducedMdbConflictInnerFlush = Output(Bool())
+  val reducedMdbConflictNukeFlush = Output(Bool())
+  val reducedMdbConflictLoadBidValid = Output(Bool())
+  val reducedMdbConflictLoadBidWrap = Output(Bool())
+  val reducedMdbConflictLoadBidValue = Output(UInt(ptrWidth.W))
+  val reducedMdbConflictLoadLsIdValid = Output(Bool())
+  val reducedMdbConflictLoadLsIdWrap = Output(Bool())
+  val reducedMdbConflictLoadLsIdValue = Output(UInt(ptrWidth.W))
+  val reducedMdbConflictStoreBidValid = Output(Bool())
+  val reducedMdbConflictStoreBidWrap = Output(Bool())
+  val reducedMdbConflictStoreBidValue = Output(UInt(ptrWidth.W))
+  val reducedMdbConflictStoreLsIdValid = Output(Bool())
+  val reducedMdbConflictStoreLsIdWrap = Output(Bool())
+  val reducedMdbConflictStoreLsIdValue = Output(UInt(ptrWidth.W))
   val reducedLoadWaitReplaySlotPc = Output(UInt(p.pcWidth.W))
   val reducedLoadWaitReplaySlotAddr = Output(UInt(p.immWidth.W))
   val storeDispatchReady = Output(Bool())
@@ -728,6 +753,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     queueEntries = p.robEntries,
     liqEntries = p.robEntries,
     idEntries = p.robEntries,
+    addrWidth = p.immWidth,
+    pcWidth = p.pcWidth,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.threadIdWidth,
+    tidWidth = p.threadIdWidth
+  ))
+  val reducedMdbConflictDetect = Module(new MDBConflictDetect(
+    entries = p.robEntries,
+    loadEntries = p.robEntries,
+    resolveEntries = p.robEntries,
     addrWidth = p.immWidth,
     pcWidth = p.pcWidth,
     peIdWidth = p.peIdWidth,
@@ -1248,6 +1283,70 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayLiqAllocEnabled && reducedLoadReplayResolveRetireSource.valid
   reducedLoadReplayResolveQueue.io.retireBid := reducedLoadReplayResolveRetireSource.bid
   reducedLoadReplayResolveQueue.io.retireLsId := reducedLoadReplayResolveRetireLsId
+  val reducedMdbStoreProbe = Wire(new MDBConflictStoreProbe(
+    p.robEntries,
+    addrWidth = p.immWidth,
+    pcWidth = p.pcWidth,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.threadIdWidth,
+    tidWidth = p.threadIdWidth
+  ))
+  reducedMdbStoreProbe := 0.U.asTypeOf(reducedMdbStoreProbe)
+  reducedMdbStoreProbe.bid := ROBID.disabled(p.robEntries)
+  reducedMdbStoreProbe.gid := ROBID.disabled(p.robEntries)
+  reducedMdbStoreProbe.rid := ROBID.disabled(p.robEntries)
+  reducedMdbStoreProbe.lsId := ROBID.disabled(p.robEntries)
+  reducedMdbStoreProbe.valid := reducedLoadReplayLiqAllocEnabled && path.io.storeStqInsertAccepted
+  reducedMdbStoreProbe.addrOnly := path.io.storeStqInsert.storeType === STQStoreType.Addr
+  reducedMdbStoreProbe.isTile := !path.io.storeStqInsert.scalarIex
+  reducedMdbStoreProbe.peId := path.io.storeStqInsert.peId
+  reducedMdbStoreProbe.stid := path.io.storeStqInsert.stid
+  reducedMdbStoreProbe.tid := path.io.storeStqInsert.tid
+  reducedMdbStoreProbe.bid := path.io.storeStqInsert.bid
+  reducedMdbStoreProbe.gid := path.io.storeStqInsert.gid
+  reducedMdbStoreProbe.rid := path.io.storeStqInsert.rid
+  reducedMdbStoreProbe.lsId := path.io.storeStqInsert.lsId
+  reducedMdbStoreProbe.pc := path.io.storeStqInsert.pc
+  reducedMdbStoreProbe.addr := path.io.storeStqInsert.addr
+  reducedMdbStoreProbe.size := path.io.storeStqInsert.size.pad(7)
+
+  val reducedMdbActiveLoads = Wire(Vec(
+    p.robEntries,
+    new MDBConflictLoadEntry(
+      p.robEntries,
+      addrWidth = p.immWidth,
+      pcWidth = p.pcWidth,
+      peIdWidth = p.peIdWidth,
+      stidWidth = p.threadIdWidth,
+      tidWidth = p.threadIdWidth
+    )
+  ))
+  for (idx <- 0 until p.robEntries) {
+    val liqRow = reducedLoadReplayLiqAllocPath.io.rows(idx)
+    val active = Wire(chiselTypeOf(reducedMdbActiveLoads(idx)))
+    active := 0.U.asTypeOf(active)
+    active.bid := ROBID.disabled(p.robEntries)
+    active.gid := ROBID.disabled(p.robEntries)
+    active.rid := ROBID.disabled(p.robEntries)
+    active.lsId := ROBID.disabled(p.robEntries)
+    active.valid := reducedLoadReplayLiqAllocEnabled && liqRow.valid
+    active.resolved := liqRow.status === LoadInflightStatus.Resolved
+    active.isTile := liqRow.isTile
+    active.peId := io.peId
+    active.stid := io.threadId
+    active.tid := io.threadId
+    active.bid := liqRow.bid
+    active.gid := liqRow.gid
+    active.rid := liqRow.rid
+    active.lsId := liqRow.loadLsId
+    active.pc := liqRow.pc
+    active.addr := liqRow.addr
+    active.size := liqRow.size
+    reducedMdbActiveLoads(idx) := active
+  }
+  reducedMdbConflictDetect.io.store := reducedMdbStoreProbe
+  reducedMdbConflictDetect.io.activeLoads := reducedMdbActiveLoads
+  reducedMdbConflictDetect.io.resolvedQueue := reducedLoadReplayResolveQueue.io.conflictRows
   when(reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled) {
     reducedLoadReplayResolveClearPending := false.B
   }.otherwise {
@@ -1828,6 +1927,30 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayResolveQueueHeadLsIdValid := reducedLoadReplayResolveQueueHead.lsId.valid
   io.reducedLoadReplayResolveQueueHeadLsIdWrap := reducedLoadReplayResolveQueueHead.lsId.wrap
   io.reducedLoadReplayResolveQueueHeadLsIdValue := reducedLoadReplayResolveQueueHead.lsId.value
+  io.reducedMdbConflictStoreValid := reducedMdbStoreProbe.valid
+  io.reducedMdbConflictActiveCandidateMask := reducedMdbConflictDetect.io.activeCandidateMask
+  io.reducedMdbConflictResolveCandidateMask := reducedMdbConflictDetect.io.resolveCandidateMask
+  io.reducedMdbConflictWaitStoreMask := reducedMdbConflictDetect.io.waitStoreMask
+  io.reducedMdbConflictWaitStoreCount := reducedMdbConflictDetect.io.waitStoreCount
+  io.reducedMdbConflictValid := reducedMdbConflictDetect.io.conflictValid
+  io.reducedMdbConflictFromResolveQueue := reducedMdbConflictDetect.io.conflictFromResolveQueue
+  io.reducedMdbConflictActiveIndex := reducedMdbConflictDetect.io.conflictActiveIndex
+  io.reducedMdbConflictResolveIndex := reducedMdbConflictDetect.io.conflictResolveIndex
+  io.reducedMdbConflictOrdinal := reducedMdbConflictDetect.io.conflictOrdinal
+  io.reducedMdbConflictInnerFlush := reducedMdbConflictDetect.io.innerFlush
+  io.reducedMdbConflictNukeFlush := reducedMdbConflictDetect.io.nukeFlush
+  io.reducedMdbConflictLoadBidValid := reducedMdbConflictDetect.io.record.load.bid.valid
+  io.reducedMdbConflictLoadBidWrap := reducedMdbConflictDetect.io.record.load.bid.wrap
+  io.reducedMdbConflictLoadBidValue := reducedMdbConflictDetect.io.record.load.bid.value
+  io.reducedMdbConflictLoadLsIdValid := reducedMdbConflictDetect.io.record.load.lsId.valid
+  io.reducedMdbConflictLoadLsIdWrap := reducedMdbConflictDetect.io.record.load.lsId.wrap
+  io.reducedMdbConflictLoadLsIdValue := reducedMdbConflictDetect.io.record.load.lsId.value
+  io.reducedMdbConflictStoreBidValid := reducedMdbConflictDetect.io.record.store.bid.valid
+  io.reducedMdbConflictStoreBidWrap := reducedMdbConflictDetect.io.record.store.bid.wrap
+  io.reducedMdbConflictStoreBidValue := reducedMdbConflictDetect.io.record.store.bid.value
+  io.reducedMdbConflictStoreLsIdValid := reducedMdbConflictDetect.io.record.store.lsId.valid
+  io.reducedMdbConflictStoreLsIdWrap := reducedMdbConflictDetect.io.record.store.lsId.wrap
+  io.reducedMdbConflictStoreLsIdValue := reducedMdbConflictDetect.io.record.store.lsId.value
   io.reducedLoadWaitReplaySlotPc := reducedLoadWaitReplaySlot.io.slotPc
   io.reducedLoadWaitReplaySlotAddr := reducedLoadWaitReplaySlot.io.slotAddr
   io.storeDispatchReady := path.io.storeDispatchReady

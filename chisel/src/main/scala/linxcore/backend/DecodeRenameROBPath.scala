@@ -13,7 +13,7 @@ import linxcore.bctrl.{
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.common._
 import linxcore.frontend.{F4Slot, FrontendDecodeStage}
-import linxcore.lsu.{STQEntryBankRow, StoreDispatchExecResult, StoreDispatchSTQPath}
+import linxcore.lsu.{STQEntryBankRow, STQStoreRequest, StoreDispatchExecResult, StoreDispatchSTQPath}
 import linxcore.recovery.{FullBidRecoveryBridge, RecoveryCleanupIntent}
 import linxcore.rename.{
   ScalarTURenameBridge,
@@ -189,6 +189,7 @@ class DecodeRenameROBPathIO(
   val storeBlockedByStdInsert = Output(Bool())
   val storeStdBypassStaBlocked = Output(Bool())
   val storeStqInsertValid = Output(Bool())
+  val storeStqInsert = Output(new STQStoreRequest(p.robEntries, 64, 64, peIdWidth, stidWidth, tidWidth, 4, 8, mapQDepth))
   val storeStqInsertAccepted = Output(Bool())
   val storeStqInsertAllocated = Output(Bool())
   val storeStqInsertMerged = Output(Bool())
@@ -1133,6 +1134,7 @@ class DecodeRenameROBPath(
   io.storeBlockedByStdInsert := storeDispatch.io.blockedByStdInsert
   io.storeStdBypassStaBlocked := storeDispatch.io.stdBypassStaBlocked
   io.storeStqInsertValid := storeDispatch.io.insertValid
+  io.storeStqInsert := storeDispatch.io.insert
   io.storeStqInsertAccepted := storeDispatch.io.insertAccepted
   io.storeStqInsertAllocated := storeDispatch.io.insertAllocated
   io.storeStqInsertMerged := storeDispatch.io.insertMerged
