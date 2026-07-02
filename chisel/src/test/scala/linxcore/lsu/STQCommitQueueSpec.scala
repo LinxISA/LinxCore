@@ -33,7 +33,20 @@ object STQCommitQueueReference {
     private def lessEqualBidLs(srcBid: Id, srcLsId: Id, dstBid: Id, dstLsId: Id): Boolean =
       less(srcBid, dstBid) || (srcBid == dstBid && lessEqual(srcLsId, dstLsId))
 
-    def step(enqueue: Option[Entry] = None, readyRows: Set[Int] = Set.empty, issueEnable: Boolean = true): StepResult = {
+    def step(
+        enqueue: Option[Entry] = None,
+        readyRows: Set[Int] = Set.empty,
+        issueEnable: Boolean = true,
+        flush: Boolean = false): StepResult = {
+      if (flush) {
+        queue = Vector.empty
+        return StepResult(
+          issued = Vector.empty,
+          enqueueAccepted = false,
+          enqueueDuplicate = false,
+          enqueueInsertPosition = None)
+      }
+
       val issued =
         if (issueEnable) queue.filter(entry => readyRows.contains(entry.stqIndex)).take(issueWidth)
         else Vector.empty
@@ -134,11 +147,24 @@ class STQCommitQueueSpec extends AnyFunSuite {
     assert(queue.entries.map(_.stqIndex) == Seq(0, 1))
   }
 
+  test("flush clears queued committed rows and suppresses same-cycle enqueue") {
+    val queue = new Model(depth = 4, issueWidth = 2)
+    queue.step(enqueue = Some(entry(0, bid = 1, lsId = 0)))
+    queue.step(enqueue = Some(entry(1, bid = 1, lsId = 1)))
+
+    val flushed = queue.step(enqueue = Some(entry(2, bid = 1, lsId = 2)), readyRows = Set(0, 1), flush = true)
+
+    assert(flushed.issued.isEmpty)
+    assert(!flushed.enqueueAccepted)
+    assert(queue.empty)
+  }
+
   test("Chisel STQCommitQueue elaborates with commit-order and issue-selection IO") {
     val sv = ChiselStage.emitSystemVerilog(new STQCommitQueue(robEntries = 8, stqEntries = 8, queueEntries = 8, issueWidth = 2))
 
     assert(sv.contains("module STQCommitQueue"))
     assert(sv.contains("io_enqueueReady"))
+    assert(sv.contains("io_flushValid"))
     assert(sv.contains("io_issueValidMask"))
     assert(sv.contains("io_queueCount"))
     assert(sv.contains("io_orderError"))

@@ -219,6 +219,7 @@ class STQSCBCommitPath(
   drain.io.enqueueIndex := io.markCommitIndex
   drain.io.enqueueBid := stq.io.rows(io.markCommitIndex).bid
   drain.io.enqueueLsId := stq.io.rows(io.markCommitIndex).lsId
+  drain.io.flushValid := stq.io.flushApplied
   drain.io.rows := stq.io.rows
 
   val scbReadyForDrain = scb.io.modelBatchReady && !stq.io.flushApplied

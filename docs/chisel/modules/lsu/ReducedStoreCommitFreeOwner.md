@@ -22,14 +22,15 @@
 `ReducedStoreCommitFreeOwner` is the reduced-top lifecycle owner that connects
 ROB commit rows to the optional queue-backed STQ path. It observes committed
 store rows from `DecodeRenameROBPath`, matches them to resident STQ rows by
-native ROB RID wrap/value plus STID, marks the matched STQ row committed, and
-then issues a later single-index committed-row free.
+native ROB RID wrap/value plus STID, and marks the matched STQ row committed.
+It can also run in a legacy direct-free mode that issues a later single-index
+committed-row free, but `LinxCoreFrontendFetchRfAluTraceTop` disables that mode
+after R241 and frees rows from the SCB accepted-`last` mask instead.
 
 This module is intentionally narrower than the full LSU commit path. It lets
 `LinxCoreFrontendFetchRfAluTraceTop(useReducedStoreDispatchStq=true)` prove
-store-dispatch residency without permanently filling the STQ, but it does not
-replace `STQCommitDrain`, `STQSCBCommitPath`, SCB admission, cache update,
-memory mutation, MDB conflict detection, or load-store forwarding.
+store-dispatch residency and ROB-to-STQ mark ownership, but it does not own
+cache update, memory mutation, MDB conflict detection, or load-store forwarding.
 
 ## Interface
 
@@ -37,6 +38,9 @@ Inputs:
 
 - `enable`: activates the reduced owner. When low, the owner clears pending
   state and drives no mark/free commands.
+- `directFreeEnable`: enables the legacy direct-free queue. The reduced top
+  drives this low so accepted marks feed `STQCommitDrain` and `SCBRowBank`
+  rather than this owner.
 - `flushValid`: clears pending mark/free state. The reduced top asserts this
   on backend flush, start, restart, and while the optional STQ path is disabled.
 - `activeStid`: STID used to match committed rows against resident STQ rows.
@@ -46,14 +50,16 @@ Inputs:
 - `markCommitAccepted`, `markCommitIgnored`: result of the mark command after
   `STQEntryBank` checks row state.
 - `commitFreeAccepted`, `commitFreeIgnored`,
-  `commitFreeAcceptedMask`, `commitFreeIgnoredMask`: result of the single-row
-  committed free command.
+  `commitFreeAcceptedMask`, `commitFreeIgnoredMask`: result feedback for the
+  legacy single-row committed free command. With `directFreeEnable=0`, these
+  inputs are diagnostic only.
 
 Outputs:
 
 - `markCommitValid`, `markCommitIndex`: one pending STQ row to move from
   `Wait` to `Commit`.
-- `commitFreeValid`, `commitFreeIndex`: one previously marked row to free.
+- `commitFreeValid`, `commitFreeIndex`: one previously marked row to free when
+  `directFreeEnable=1`; tied inactive by the reduced top after R241.
 - `commitStoreSeen`, `commitStoreMatched`, `commitStoreUnmatched`: current
   commit-window diagnostics.
 - `matchMask`: STQ rows matched by current committed store rows.
@@ -79,14 +85,16 @@ wrap/value. A committed store row matches an STQ row when:
 
 Matched rows set bits in `pendingMarkMask`. The owner presents the lowest
 pending mark bit as a single `markCommitValid` command. When `STQEntryBank`
-accepts that command, the bit leaves `pendingMarkMask` and enters
-`pendingFreeMask`. On a later cycle, the owner presents the lowest pending free
-bit as a single `commitFreeValid` command. Accepted free clears the bit.
+accepts that command, the bit leaves `pendingMarkMask`. If `directFreeEnable`
+is asserted, the bit also enters `pendingFreeMask`; on a later cycle the owner
+presents the lowest pending free bit as a single `commitFreeValid` command and
+accepted free clears the bit. If `directFreeEnable` is deasserted,
+`pendingFreeMask` is held empty and another owner must free the committed row.
 
 The register boundary matters. Commit-window observation only sets pending mark
-bits for a later cycle, and accepted marks only create pending free bits for a
-later cycle. This preserves the model's visible `Wait -> Commit -> Free`
-sequence instead of trying to free a row in the same cycle it is marked.
+bits for a later cycle. In direct-free mode, accepted marks create pending free
+bits for a later cycle. In the reduced top's R241 mode, accepted marks enqueue
+`STQCommitDrain` and SCB accepted `last` fragments become the free source.
 
 ## Model Alignment
 
@@ -98,18 +106,15 @@ The C++ model separates store lifecycle into two phases:
   requests to SCB, and calls `free(i)` only after the downstream request is
   accepted.
 
-This reduced owner preserves the two observable row-state transitions but uses
-a top-only debug free assumption: once `STQEntryBank` accepts the commit mark,
-the owner later frees the row directly. That is sufficient to keep the optional
-reduced STQ dispatch path finite during bring-up. It is not sufficient for
-program-order memory effects or for load/store interaction.
+This reduced owner preserves the ROB-to-STQ `Wait -> Commit` transition. The
+R240 direct-free mode preserved `Commit -> Free` with a top-only debug
+assumption. R241 disables that mode in the reduced top and wires the accepted
+mark into `STQCommitDrain`, with `SCBRowBank.commitFreeMask` as the only STQ
+free source. Program-order memory effects, external memory mutation, and
+load/store interaction are still outside this owner.
 
 ## Deferred Owners
 
-- Replace the reduced direct-free assumption with `STQCommitDrain` or
-  `STQSCBCommitPath` in the live reduced top.
-- Carry SCB capacity feedback and accepted `last` fragments back to the STQ
-  bank as the only full-composition free source.
 - Add store memory mutation and load lookup/store-forwarding interaction.
 - Add MDB conflict publication and precise recovery cleanup for committed STQ
   rows if the full exception model requires it.
@@ -122,12 +127,13 @@ Focused gate:
 sbt "testOnly linxcore.lsu.ReducedStoreCommitFreeOwnerSpec"
 ```
 
-Integrated gate used for R240:
+Integrated gate used for R241:
 
 ```bash
-sbt "testOnly linxcore.lsu.ReducedStoreCommitFreeOwnerSpec linxcore.lsu.ReducedStoreExecResultBridgeSpec linxcore.backend.DecodeRenameROBPathSpec linxcore.top.LinxCoreFrontendFetchRfAluTraceTopSpec linxcore.lsu.STQCommitDrainSpec linxcore.lsu.STQSCBCommitPathSpec"
+sbt "testOnly linxcore.lsu.STQCommitQueueSpec linxcore.lsu.STQCommitDrainSpec linxcore.lsu.STQSCBCommitPathSpec linxcore.lsu.ReducedStoreCommitFreeOwnerSpec linxcore.lsu.ReducedStoreExecResultBridgeSpec linxcore.backend.DecodeRenameROBPathSpec linxcore.top.LinxCoreFrontendFetchRfAluTraceTopSpec"
 ```
 
 The tests cover commit-row-to-STQ matching, pending mark/free progression,
-unmatched store diagnostics, non-ready row rejection, and top/backend
-elaboration of the new diagnostics.
+direct-free disable behavior, unmatched store diagnostics, non-ready row
+rejection, drain flush clearing, and top/backend elaboration of the SCB-backed
+free diagnostics.

@@ -26,13 +26,14 @@ object STQCommitDrainReference {
         rows: Seq[Row] = Seq.empty,
         primaryReady: Set[Int] = Set.empty,
         secondaryReady: Set[Int] = Set.empty,
-        issueEnable: Boolean = true): StepResult = {
+        issueEnable: Boolean = true,
+        flush: Boolean = false): StepResult = {
       val rowByIndex = rows.map(row => row.index -> row).toMap
       val readyRows = rowByIndex.collect {
         case (idx, row) if row.committed && primaryReady.contains(idx) && (!crosses(row.addr, row.size) || secondaryReady.contains(idx)) => idx
       }.toSet
 
-      val queueResult = queue.step(enqueue = enqueue, readyRows = readyRows, issueEnable = issueEnable)
+      val queueResult = queue.step(enqueue = enqueue, readyRows = readyRows, issueEnable = issueEnable, flush = flush)
       val requests = queueResult.issued.flatMap(entry => requestsFor(rowByIndex(entry.stqIndex)))
       val freeMask = queueResult.issued.foldLeft(BigInt(0)) { case (mask, entry) => mask | (BigInt(1) << entry.stqIndex) }
 
@@ -151,11 +152,28 @@ class STQCommitDrainSpec extends AnyFunSuite {
     assert(result.queue.map(_.stqIndex) == Seq(0))
   }
 
+  test("flush clears queued rows before issue or enqueue") {
+    val drain = new Model(depth = 4, issueWidth = 2)
+    val rows = Seq(Row(index = 0, addr = 0x3000, data = 0x55, size = 1))
+
+    drain.step(enqueue = Some(entry(0, bid = 1, lsId = 0)))
+    val result = drain.step(
+      enqueue = Some(entry(1, bid = 1, lsId = 1)),
+      rows = rows,
+      primaryReady = Set(0),
+      flush = true)
+
+    assert(result.issued.isEmpty)
+    assert(!result.enqueueAccepted)
+    assert(result.queue.isEmpty)
+  }
+
   test("Chisel STQCommitDrain elaborates with memory request and bank free boundary IO") {
     val sv = ChiselStage.emitSystemVerilog(new STQCommitDrain(entries = 8, queueEntries = 8, issueWidth = 2))
 
     assert(sv.contains("module STQCommitDrain"))
     assert(sv.contains("STQCommitQueue"))
+    assert(sv.contains("io_flushValid"))
     assert(sv.contains("io_memReqs_0_valid"))
     assert(sv.contains("io_commitFreeMask"))
     assert(sv.contains("io_readyMask"))

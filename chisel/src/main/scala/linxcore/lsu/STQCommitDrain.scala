@@ -44,6 +44,7 @@ class STQCommitDrainIO(
   val enqueueIndex = Input(UInt(ptrWidth.W))
   val enqueueBid = Input(new ROBID(entries))
   val enqueueLsId = Input(new ROBID(entries))
+  val flushValid = Input(Bool())
   val enqueueReady = Output(Bool())
   val enqueueAccepted = Output(Bool())
   val enqueueDuplicate = Output(Bool())
@@ -122,6 +123,7 @@ class STQCommitDrain(
   queue.io.enqueueIndex := io.enqueueIndex
   queue.io.enqueueBid := io.enqueueBid
   queue.io.enqueueLsId := io.enqueueLsId
+  queue.io.flushValid := io.flushValid
   queue.io.issueEnable := io.issueEnable
 
   val commitEligibleVec = Wire(Vec(entries, Bool()))

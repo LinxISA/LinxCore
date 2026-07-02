@@ -41,6 +41,7 @@ the final `STQEntryBank.commitFree` command.
 | `enqueueValid` | `Bool` | A committed STQ row should be appended into commit order. |
 | `enqueueIndex` | STQ row index | Row index from `STQEntryBank.markCommitAccepted`. |
 | `enqueueBid/enqueueLsId` | `ROBID` | Ordering identity copied from the committed STQ row. |
+| `flushValid` | `Bool` | Clears the ordered queue and suppresses same-cycle issue/enqueue. |
 | `issueEnable` | `Bool` | Enables a commit/drain scan for this cycle. |
 | `readyMask` | `UInt(stqEntries.W)` | Downstream-ready mask by STQ row index. Future SCB/cacheline split owners drive this. |
 
@@ -94,13 +95,16 @@ cycle.
 
 ## Flush/Recovery
 
+`flushValid` is a local queue clear. It does not interpret `FlushBus`; the
+parent must assert it only when the parent has decided that all resident commit
+queue entries are invalid. While asserted, the queue issues nothing, accepts no
+enqueue, clears all entries, and sets `count` to zero.
+
 The queue contains rows already moved out of `STQ_WAIT`. The current
 `STQFlushPrune` packet frees only WAIT rows, while committed rows are
-preserved. Therefore this module does not interpret `FlushBus`.
-
-Future integrated LSU work may add an explicit drop path if a later precise
-exception owner invalidates committed STQ rows before memory-side issue. That
-must be a separate model-backed packet.
+preserved. Future integrated LSU work that invalidates committed STQ rows
+before memory-side issue must drive this clear/drop boundary from the same
+model-backed recovery decision.
 
 ## Trace/Observability
 
@@ -118,4 +122,4 @@ module does not emit architectural commit trace rows directly.
 
 Focused reference tests cover sorted enqueue, `ROBID` wrap ordering, skipped
 downstream stalls, same-cycle issue plus enqueue, duplicate/full rejection,
-issue gating, and Chisel elaboration.
+issue gating, flush clearing, and Chisel elaboration.

@@ -31,6 +31,7 @@ class STQCommitQueueIO(
   val enqueueIndex = Input(UInt(log2Ceil(stqEntries).W))
   val enqueueBid = Input(new ROBID(robEntries))
   val enqueueLsId = Input(new ROBID(robEntries))
+  val flushValid = Input(Bool())
   val enqueueReady = Output(Bool())
   val enqueueAccepted = Output(Bool())
   val enqueueDuplicate = Output(Bool())
@@ -95,7 +96,8 @@ class STQCommitQueue(
     entry
   }
 
-  val queue = RegInit(VecInit(Seq.fill(queueEntries)(zeroEntry)))
+  val emptyQueue = VecInit(Seq.fill(queueEntries)(zeroEntry))
+  val queue = RegInit(emptyQueue)
   val count = RegInit(0.U(countWidth.W))
 
   val readyVec = Wire(Vec(queueEntries, Bool()))
@@ -103,7 +105,7 @@ class STQCommitQueue(
   val issueSelected = Wire(Vec(queueEntries, Bool()))
 
   for (slot <- 0 until queueEntries) {
-    readyVec(slot) := queue(slot).valid && io.issueEnable && io.readyMask(queue(slot).stqIndex)
+    readyVec(slot) := queue(slot).valid && io.issueEnable && !io.flushValid && io.readyMask(queue(slot).stqIndex)
     if (slot == 0) {
       readyRank(slot) := 0.U
     } else {
@@ -147,9 +149,10 @@ class STQCommitQueue(
   }
 
   val keptCount = count - io.issueCount
-  val duplicateVec = VecInit((0 until queueEntries).map(slot => compacted(slot).valid && (compacted(slot).stqIndex === io.enqueueIndex)))
-  io.enqueueDuplicate := io.enqueueValid && duplicateVec.asUInt.orR
-  io.enqueueReady := !io.enqueueDuplicate && (keptCount < queueEntries.U)
+  val duplicateVec =
+    VecInit((0 until queueEntries).map(slot => compacted(slot).valid && (compacted(slot).stqIndex === io.enqueueIndex)))
+  io.enqueueDuplicate := io.enqueueValid && !io.flushValid && duplicateVec.asUInt.orR
+  io.enqueueReady := !io.flushValid && !io.enqueueDuplicate && (keptCount < queueEntries.U)
   io.enqueueAccepted := io.enqueueValid && io.enqueueReady
 
   val insertBeforeVec = VecInit((0 until queueEntries).map { slot =>
@@ -187,8 +190,13 @@ class STQCommitQueue(
     }
   }
 
-  queue := nextQueue
-  count := keptCount + io.enqueueAccepted.asUInt
+  when(io.flushValid) {
+    queue := emptyQueue
+    count := 0.U
+  }.otherwise {
+    queue := nextQueue
+    count := keptCount + io.enqueueAccepted.asUInt
+  }
 
   val queuedValidVec = VecInit(queue.map(_.valid))
   val packedError = Wire(Vec(queueEntries, Bool()))

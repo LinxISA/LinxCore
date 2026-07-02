@@ -96,9 +96,9 @@ The Chisel composition maps that behavior into registered owner boundaries:
 2. `SCBRowBank.modelBatchReady` gates the drain issue path. If the row bank has
    fewer free rows than the worst-case split request batch, the drain queue does
    not issue or compact.
-3. `STQEntryBank.flushApplied` also suppresses drain issue so a flush-prune
-   cycle cannot allow SCB insertion while the bank intentionally ignores free
-   commands.
+3. `STQEntryBank.flushApplied` clears the drain queue and suppresses drain
+   issue so a flush-prune cycle cannot allow stale SCB insertion while the
+   bank intentionally ignores free commands.
 4. `STQCommitDrain` shapes selected committed rows into one or two
    `STQCommitDrainRequest` fragments.
 5. `SCBRowBank` accepts those fragments, coalesces them into line entries, and

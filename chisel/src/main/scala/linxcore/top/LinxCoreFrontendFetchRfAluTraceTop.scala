@@ -1,14 +1,14 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.{UIntToOH, log2Ceil}
+import chisel3.util.{Fill, UIntToOH, log2Ceil}
 
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, StoreDispatchExecResult}
+import linxcore.lsu.{ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, SCBRowBank, STQCommitDrain, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -33,6 +33,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
   private val storeExecBufferCountWidth = log2Ceil(storeExecBufferEntries + 1)
   private val storeStqCountWidth = log2Ceil(p.robEntries + 1)
+  private val storeCommitIssueWidth = if (p.robEntries >= 4) 2 else 1
+  private val storeScbRequestCount = storeCommitIssueWidth * 2
+  private val storeScbRequestCountWidth = log2Ceil(storeScbRequestCount + 1)
   private val gprFreeWidth = log2Ceil(physRegs + 1)
   private val gprMapQFreeWidth = log2Ceil(gprMapQDepth + 1)
   private val tuCountWidth = log2Ceil(mapQDepth + 1)
@@ -230,6 +233,22 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedStoreCommitFreeIgnoredMask = Output(UInt(p.robEntries.W))
   val reducedStoreCommitFreeCount = Output(UInt(storeStqCountWidth.W))
   val reducedStoreCommitFreeBlocked = Output(Bool())
+  val reducedStoreDrainEnqueueAccepted = Output(Bool())
+  val reducedStoreDrainEnqueueDuplicate = Output(Bool())
+  val reducedStoreDrainIssueValidMask = Output(UInt(storeCommitIssueWidth.W))
+  val reducedStoreDrainIssueCount = Output(UInt(log2Ceil(storeCommitIssueWidth + 1).W))
+  val reducedStoreDrainEarlyFreeMask = Output(UInt(p.robEntries.W))
+  val reducedStoreDrainQueueCount = Output(UInt(storeStqCountWidth.W))
+  val reducedStoreDrainEmpty = Output(Bool())
+  val reducedStoreDrainOrderError = Output(Bool())
+  val reducedStoreScbReadyForDrain = Output(Bool())
+  val reducedStoreScbAcceptedMask = Output(UInt(storeScbRequestCount.W))
+  val reducedStoreScbStalledMask = Output(UInt(storeScbRequestCount.W))
+  val reducedStoreScbCommitFreeMaskValid = Output(Bool())
+  val reducedStoreScbCommitFreeMask = Output(UInt(p.robEntries.W))
+  val reducedStoreScbCommitFreeCount = Output(UInt(storeScbRequestCountWidth.W))
+  val reducedStoreScbValidMask = Output(UInt(p.robEntries.W))
+  val reducedStoreScbEntryCount = Output(UInt(storeStqCountWidth.W))
   val storeDispatchReady = Output(Bool())
   val storeDispatchFire = Output(Bool())
   val storeDispatchSplit = Output(Bool())
@@ -459,6 +478,23 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
     mapQDepth = mapQDepth
+  ))
+  private val reducedStoreCommitIssueWidth = if (p.robEntries >= 4) 2 else 1
+  private val reducedStoreScbRequestCount = reducedStoreCommitIssueWidth * 2
+  val reducedStoreCommitDrain = Module(new STQCommitDrain(
+    entries = p.robEntries,
+    queueEntries = p.robEntries,
+    issueWidth = reducedStoreCommitIssueWidth,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.threadIdWidth,
+    tidWidth = p.threadIdWidth,
+    mapQDepth = mapQDepth
+  ))
+  val reducedStoreScb = Module(new SCBRowBank(
+    stqEntries = p.robEntries,
+    scbEntries = p.robEntries,
+    requestCount = reducedStoreScbRequestCount,
+    responseBufferDepth = 4
   ))
 
   val localQueueDepth = 4
@@ -738,7 +774,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val localIncomingBlocked =
     localIncomingUsesLocal && ((localTPendingCount =/= 0.U) || (localUPendingCount =/= 0.U))
   path.io.renamedOutReady := issue.io.inReady && !localIncomingBlocked
-  storeExecBridge.io.flushValid := backendPipeFlush || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B
+  val reducedStoreFlush = backendPipeFlush || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B
+  storeExecBridge.io.flushValid := reducedStoreFlush
   storeExecBridge.io.completeValid := execute.io.completeValid && useReducedStoreDispatchStq.B
   storeExecBridge.io.completeRow := execute.io.completeRow
   storeExecBridge.io.completeBid := execute.io.releaseBid
@@ -754,7 +791,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.storeStaExec := Mux(useReducedStoreDispatchStq.B, storeExecBridge.io.staExec, zeroStoreExec)
   path.io.storeStdExec := Mux(useReducedStoreDispatchStq.B, storeExecBridge.io.stdExec, zeroStoreExec)
   storeCommitOwner.io.enable := useReducedStoreDispatchStq.B
-  storeCommitOwner.io.flushValid := backendPipeFlush || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B
+  storeCommitOwner.io.directFreeEnable := false.B
+  storeCommitOwner.io.flushValid := reducedStoreFlush
   storeCommitOwner.io.activeStid := io.threadId
   storeCommitOwner.io.commit := path.io.commit
   storeCommitOwner.io.commitValidMask := path.io.commitValidMask
@@ -765,12 +803,35 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   storeCommitOwner.io.commitFreeIgnored := path.io.storeCommitFreeIgnored
   storeCommitOwner.io.commitFreeAcceptedMask := path.io.storeCommitFreeAcceptedMask
   storeCommitOwner.io.commitFreeIgnoredMask := path.io.storeCommitFreeIgnoredMask
+
+  val reducedStoreScbReadyForDrain = useReducedStoreDispatchStq.B && reducedStoreScb.io.modelBatchReady && !reducedStoreFlush
+  reducedStoreCommitDrain.io.enqueueValid := useReducedStoreDispatchStq.B && path.io.storeMarkCommitAccepted
+  reducedStoreCommitDrain.io.enqueueIndex := storeCommitOwner.io.markCommitIndex
+  reducedStoreCommitDrain.io.enqueueBid := path.io.storeStqRows(storeCommitOwner.io.markCommitIndex).bid
+  reducedStoreCommitDrain.io.enqueueLsId := path.io.storeStqRows(storeCommitOwner.io.markCommitIndex).lsId
+  reducedStoreCommitDrain.io.flushValid := reducedStoreFlush
+  reducedStoreCommitDrain.io.issueEnable := reducedStoreScbReadyForDrain
+  reducedStoreCommitDrain.io.primaryReadyMask := Fill(p.robEntries, reducedStoreScbReadyForDrain)
+  reducedStoreCommitDrain.io.secondaryReadyMask := Fill(p.robEntries, reducedStoreScbReadyForDrain)
+  reducedStoreCommitDrain.io.rows := path.io.storeStqRows
+
+  reducedStoreScb.io.reqs := reducedStoreCommitDrain.io.memReqs
+  reducedStoreScb.io.evictEnable := useReducedStoreDispatchStq.B
+  reducedStoreScb.io.dcacheReady := true.B
+  reducedStoreScb.io.dcacheWriteHit := true.B
+  reducedStoreScb.io.dcacheTagHit := true.B
+  reducedStoreScb.io.l2RequestReady := true.B
+  reducedStoreScb.io.rawRespValid := false.B
+  reducedStoreScb.io.rawRespTxnId := 0.U
+  reducedStoreScb.io.rawRespWrite := false.B
+  reducedStoreScb.io.rawRespUpgrade := false.B
+
   path.io.storeMarkCommitValid := storeCommitOwner.io.markCommitValid
   path.io.storeMarkCommitIndex := storeCommitOwner.io.markCommitIndex
-  path.io.storeCommitFreeValid := storeCommitOwner.io.commitFreeValid
-  path.io.storeCommitFreeIndex := storeCommitOwner.io.commitFreeIndex
-  path.io.storeCommitFreeMaskValid := false.B
-  path.io.storeCommitFreeMask := 0.U
+  path.io.storeCommitFreeValid := false.B
+  path.io.storeCommitFreeIndex := 0.U
+  path.io.storeCommitFreeMaskValid := useReducedStoreDispatchStq.B && reducedStoreScb.io.commitFreeMaskValid
+  path.io.storeCommitFreeMask := Mux(useReducedStoreDispatchStq.B, reducedStoreScb.io.commitFreeMask, 0.U)
   path.io.checkpointValid := false.B
   path.io.checkpointBid := ROBID.disabled(p.robEntries)
   path.io.commitValid := false.B
@@ -1106,14 +1167,30 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedStoreCommitMarkAccepted := path.io.storeMarkCommitAccepted
   io.reducedStoreCommitMarkIgnored := path.io.storeMarkCommitIgnored
   io.reducedStoreCommitMarkBlocked := storeCommitOwner.io.markBlocked
-  io.reducedStoreCommitFreeValid := storeCommitOwner.io.commitFreeValid
-  io.reducedStoreCommitFreeIndex := storeCommitOwner.io.commitFreeIndex
-  io.reducedStoreCommitFreeAccepted := path.io.storeCommitFreeAccepted
-  io.reducedStoreCommitFreeIgnored := path.io.storeCommitFreeIgnored
+  io.reducedStoreCommitFreeValid := path.io.storeCommitFreeMaskValid
+  io.reducedStoreCommitFreeIndex := 0.U
+  io.reducedStoreCommitFreeAccepted := path.io.storeCommitFreeAcceptedMask.orR
+  io.reducedStoreCommitFreeIgnored := path.io.storeCommitFreeIgnoredMask.orR
   io.reducedStoreCommitFreeAcceptedMask := path.io.storeCommitFreeAcceptedMask
   io.reducedStoreCommitFreeIgnoredMask := path.io.storeCommitFreeIgnoredMask
   io.reducedStoreCommitFreeCount := path.io.storeCommitFreeCount
   io.reducedStoreCommitFreeBlocked := storeCommitOwner.io.freeBlocked
+  io.reducedStoreDrainEnqueueAccepted := reducedStoreCommitDrain.io.enqueueAccepted
+  io.reducedStoreDrainEnqueueDuplicate := reducedStoreCommitDrain.io.enqueueDuplicate
+  io.reducedStoreDrainIssueValidMask := reducedStoreCommitDrain.io.issueValidMask
+  io.reducedStoreDrainIssueCount := reducedStoreCommitDrain.io.issueCount
+  io.reducedStoreDrainEarlyFreeMask := reducedStoreCommitDrain.io.commitFreeMask
+  io.reducedStoreDrainQueueCount := reducedStoreCommitDrain.io.queueCount
+  io.reducedStoreDrainEmpty := reducedStoreCommitDrain.io.empty
+  io.reducedStoreDrainOrderError := reducedStoreCommitDrain.io.orderError
+  io.reducedStoreScbReadyForDrain := reducedStoreScbReadyForDrain
+  io.reducedStoreScbAcceptedMask := reducedStoreScb.io.acceptedMask
+  io.reducedStoreScbStalledMask := reducedStoreScb.io.stalledMask
+  io.reducedStoreScbCommitFreeMaskValid := reducedStoreScb.io.commitFreeMaskValid
+  io.reducedStoreScbCommitFreeMask := reducedStoreScb.io.commitFreeMask
+  io.reducedStoreScbCommitFreeCount := reducedStoreScb.io.commitFreeCount
+  io.reducedStoreScbValidMask := reducedStoreScb.io.validMask
+  io.reducedStoreScbEntryCount := reducedStoreScb.io.entryCount
   io.storeDispatchReady := path.io.storeDispatchReady
   io.storeDispatchFire := path.io.storeDispatchFire
   io.storeDispatchSplit := path.io.storeDispatchSplit
@@ -1273,7 +1350,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.blockCompleteMask := path.io.blockCompleteMask
   io.blockPendingMask := path.io.blockPendingMask
   io.idle := path.io.empty && issue.io.empty && !execute.io.busy &&
-    !source.io.waitingResponse && !source.io.packetValid && storeCommitOwner.io.idle
+    !source.io.waitingResponse && !source.io.packetValid && storeCommitOwner.io.idle &&
+    ((!useReducedStoreDispatchStq).B || reducedStoreCommitDrain.io.empty)
 }
 
 object LinxCoreFrontendFetchRfAluTraceTop {

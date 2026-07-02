@@ -44,6 +44,7 @@ global LSU arbitration. Those remain future LSU owner packets.
 | `enqueueValid` | `Bool` | A committed STQ row should enter the ordered commit queue. |
 | `enqueueIndex` | STQ row index | Row index from `STQEntryBank.markCommitAccepted`. |
 | `enqueueBid/enqueueLsId` | `ROBID` | Ordering identity copied from the committed row. |
+| `flushValid` | `Bool` | Clears the child commit queue and suppresses same-cycle issue/enqueue. |
 | `issueEnable` | `Bool` | Enables a commit drain scan for this cycle. |
 | `primaryReadyMask` | `UInt(entries.W)` | Per-row acceptance for the first or only memory segment. |
 | `secondaryReadyMask` | `UInt(entries.W)` | Per-row acceptance for the second memory segment of a split store. |
@@ -111,10 +112,16 @@ next compacted queue.
 
 ## Flush/Recovery
 
+`flushValid` clears the child `STQCommitQueue` and suppresses same-cycle issue
+and enqueue. `STQSCBCommitPath` drives it from `STQEntryBank.flushApplied`.
+The reduced top also asserts it on backend flush, start, restart, and while the
+optional STQ path is disabled so stale queued committed rows cannot survive
+after their STQ rows are cleared.
+
 Committed rows are not freed by `STQFlushPrune`, which only clears valid
-`STQ_WAIT` rows. This module therefore has no flush input. A future precise
-exception owner that invalidates committed stores before memory issue must add
-a separate model-backed queue drop path.
+`STQ_WAIT` rows. Any future precise exception owner that invalidates committed
+stores before memory issue must keep this queue clear/drop policy aligned with
+the model-backed STQ row invalidation policy.
 
 ## Trace/Observability
 
@@ -136,4 +143,5 @@ QEMU-vs-DUT trace compare.
 
 Focused reference tests cover single-line issue/free, split stores requiring
 both segment targets, younger-row progress around an older split-stalled row,
-issue gating, and Chisel elaboration of the memory/free boundary.
+issue gating, flush clearing, and Chisel elaboration of the memory/free
+boundary.

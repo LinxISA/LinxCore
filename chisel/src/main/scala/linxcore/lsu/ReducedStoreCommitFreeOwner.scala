@@ -22,6 +22,7 @@ class ReducedStoreCommitFreeOwnerIO(
   private val countWidth = log2Ceil(entries + 1)
 
   val enable = Input(Bool())
+  val directFreeEnable = Input(Bool())
   val flushValid = Input(Bool())
   val activeStid = Input(UInt(stidWidth.W))
 
@@ -136,7 +137,7 @@ class ReducedStoreCommitFreeOwner(
   val markOH = Mux(markValid, UIntToOH(markIndex, entries), 0.U(entries.W))
 
   val freeIndex = PriorityEncoder(pendingFree)
-  val freeValid = io.enable && !io.flushValid && pendingFree.orR
+  val freeValid = io.enable && io.directFreeEnable && !io.flushValid && pendingFree.orR
   val freeOH = Mux(freeValid, UIntToOH(freeIndex, entries), 0.U(entries.W))
 
   io.markCommitValid := markValid
@@ -152,7 +153,10 @@ class ReducedStoreCommitFreeOwner(
     pendingFree := 0.U
   }.otherwise {
     val nextMark = (pendingMark | matchMask) & ~Mux(markAccepted, markOH, 0.U(entries.W))
-    val nextFree = (pendingFree | Mux(markAccepted, markOH, 0.U(entries.W))) & ~Mux(freeAccepted, freeOH, 0.U(entries.W))
+    val nextFree = Mux(
+      io.directFreeEnable,
+      (pendingFree | Mux(markAccepted, markOH, 0.U(entries.W))) & ~Mux(freeAccepted, freeOH, 0.U(entries.W)),
+      0.U(entries.W))
     pendingMark := nextMark
     pendingFree := nextFree
   }
@@ -168,5 +172,5 @@ class ReducedStoreCommitFreeOwner(
   io.pendingFreeCount := PopCount(pendingFree)
   io.markBlocked := markValid && !io.markCommitAccepted
   io.freeBlocked := freeValid && !io.commitFreeAccepted
-  io.idle := !pendingMark.orR && !pendingFree.orR
+  io.idle := !pendingMark.orR && (!io.directFreeEnable || !pendingFree.orR)
 }

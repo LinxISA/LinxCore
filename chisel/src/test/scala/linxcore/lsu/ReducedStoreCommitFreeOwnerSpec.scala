@@ -49,11 +49,12 @@ object ReducedStoreCommitFreeOwnerReference {
         markAccepted: Boolean = false,
         freeAccepted: Boolean = false,
         enable: Boolean = true,
-        flush: Boolean = false): StepResult = {
+        flush: Boolean = false,
+        directFreeEnable: Boolean = true): StepResult = {
       val markValid = enable && !flush && pendingMark != 0
       val markIndex = first(pendingMark)
       val markOh = markIndex.map(1 << _).getOrElse(0)
-      val freeValid = enable && !flush && pendingFree != 0
+      val freeValid = enable && directFreeEnable && !flush && pendingFree != 0
       val freeIndex = first(pendingFree)
       val freeOh = freeIndex.map(1 << _).getOrElse(0)
 
@@ -73,7 +74,9 @@ object ReducedStoreCommitFreeOwnerReference {
         val freeAdd = if (markAccepted) markOh else 0
         val freeClear = if (freeAccepted) freeOh else 0
         pendingMark = (pendingMark | matchMask) & ~markClear
-        pendingFree = (pendingFree | freeAdd) & ~freeClear
+        pendingFree =
+          if (directFreeEnable) (pendingFree | freeAdd) & ~freeClear
+          else 0
       }
 
       StepResult(
@@ -130,6 +133,19 @@ class ReducedStoreCommitFreeOwnerSpec extends AnyFunSuite {
     assert(cleared.pendingFree == 0)
   }
 
+  test("reference can disable direct free tracking after mark acceptance") {
+    val model = new Model(entries = 8)
+    val rows = Seq(Row(index = 2, rid = Id(value = 2), stid = 0))
+
+    model.step(rows = rows, commits = Seq(CommitRow(Id(value = 2))))
+    val marked = model.step(rows = rows, markAccepted = true, directFreeEnable = false)
+
+    assert(marked.markValid)
+    assert(marked.pendingMark == 0)
+    assert(marked.pendingFree == 0)
+    assert(!model.step(rows = rows, directFreeEnable = false).freeValid)
+  }
+
   test("reference reports unmatched store commits and ignores non-ready rows") {
     val model = new Model(entries = 4)
     val rows = Seq(Row(index = 1, rid = Id(value = 1), dataReady = false))
@@ -151,6 +167,7 @@ class ReducedStoreCommitFreeOwnerSpec extends AnyFunSuite {
     )
 
     assert(sv.contains("module ReducedStoreCommitFreeOwner"))
+    assert(sv.contains("io_directFreeEnable"))
     assert(sv.contains("io_markCommitValid"))
     assert(sv.contains("io_commitFreeValid"))
     assert(sv.contains("io_commitStoreMatched"))
