@@ -41,6 +41,11 @@ candidate, queue, LIQ row, and launch selector, but the current row still does
 not carry the full model opcode/destination payload needed to publish a real
 LRET entry. This owner therefore exposes an explicit `signExtend` input and a
 standalone data-valid contract for the future LRET payload owner.
+R308 wires this owner into the opt-in replay-LIQ top as a dormant diagnostic:
+the selected replay row supplies address, size, and `returnSignExtend`, while
+the grant-gated replay base-data aligner supplies line data and valid bytes.
+The extracted data is exposed only on `reducedLoadReplayLiqReturnData*`
+diagnostics; it does not enqueue LRET, drive mem wakeup, or arm replay launch.
 
 ## Interface
 
@@ -125,6 +130,7 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnDataExtract
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r306-replay-return-data-extract-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r308-replay-return-data-diagnostic-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover little-endian byte extraction, byte/halfword/word
