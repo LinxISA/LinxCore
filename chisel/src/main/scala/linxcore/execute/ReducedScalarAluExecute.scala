@@ -38,6 +38,9 @@ class ReducedScalarAluExecuteIO(
   val branchConditionTaken = Output(Bool())
   val loadLookupValid = Output(Bool())
   val loadLookupAddr = Output(UInt(p.immWidth.W))
+  val loadLookupSize = Output(UInt(p.memSizeWidth.W))
+  val loadLookupBid = Output(new ROBID(p.robEntries))
+  val loadLookupLsId = Output(UInt(p.lsidWidth.W))
   val fretStkSpRestoreValid = Output(Bool())
   val fretStkSpRestoreData = Output(UInt(p.immWidth.W))
   val redirectValid = Output(Bool())
@@ -586,6 +589,10 @@ class ReducedScalarAluExecute(
         eLoadByteI,
         loadByteImmAddr(eSrcData, eUop.imm),
         Mux(eLoadI, ldiAddr(eSrcData, eUop.imm), cLdiAddr(eSrcData, eUop.imm)))))
+  val eLoadLookupSize = Mux(eLoadByteI, 1.U(p.memSizeWidth.W), 8.U(p.memSizeWidth.W))
+  io.loadLookupSize := Mux(io.loadLookupValid, eLoadLookupSize, 0.U)
+  io.loadLookupBid := Mux(io.loadLookupValid, eUop.bid, ROBID.disabled(p.robEntries))
+  io.loadLookupLsId := Mux(io.loadLookupValid, eUop.lsid, 0.U)
   val eResult = resultFor(eUop.opcode, eUop.pc, eUop.insnRaw, eSrcData, eUop.imm, io.loadLookupData, io.stackPointerData)
   val eSupported = eValid && isSupported(eUop.opcode)
 

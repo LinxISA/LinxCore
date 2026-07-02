@@ -676,6 +676,7 @@ These packets remain the required base before broad module promotion:
 | R262 | Reduced-store overlay old-to-young lane precedence | `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreMemoryOverlay`, `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreCommitFreeOwner`, `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`, `bash tools/chisel/run_chisel_tests.sh --only STQCommitDrain`, `bash tools/chisel/run_chisel_tests.sh --only STQSCBCommitPath`, `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`, `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreExecResultBridge`, and `FETCH_REDUCED_STORE_DISPATCH_STQ=1 FETCH_DISABLE_STORE_MEMORY_MUTATION=1 FETCH_EXPECTED_ROWS=generated/r259-reduced-store-overlay-commit-bypass-2048-qemu-elf-xcheck/qemu.expected.jsonl FETCH_ELF=tests/benchmarks/build/coremark_real.elf BUILD_DIR=generated/r262-reduced-store-overlay-old-to-young-2048-qemu-elf-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`. `ReducedStoreMemoryOverlay` applies same-cycle accepted request lanes in order, so later lanes overwrite overlapping bytes. Because `STQCommitDrain` selects from the registered commit queue, current SCB accepted fragments are older than current ROB commit-row bypass fragments. The reduced top now routes SCB accepted lanes before current commit-row lanes while preserving the R259 rule that committed ROB stores feed load data before SCB acceptance. The replay normalizes 1468 QEMU/DUT rows, compares 1467 rows, and passes with zero mismatches in `generated/r262-reduced-store-overlay-old-to-young-2048-qemu-elf-xcheck/report/crosscheck_manifest.json`. Closeout: `skill-evolve: update linx-core (same-cycle reduced store-memory overlay request lanes must be old-to-young; current SCB drain lanes precede current ROB commit-row lanes)`. |
 | R263 | Reduced-store no-harness-mutation 16k live-QEMU scale gate | `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r263-reduced-store-overlay-old-to-young-16384-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 16384 --allow-block-markers --allow-block-loop-reentry --reduced-store-dispatch-stq --disable-store-memory-mutation --max-seconds 45 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`. No RTL changed after R262; this scales the old-to-young overlay integration with a fresh live QEMU capture and immutable sparse ELF memory. The wrapper captures 16384 raw QEMU rows, reduces 16250 expected rows, normalizes 14780 QEMU/DUT rows, compares 14779 rows, and passes with zero mismatches and no CBSTOP divergence in `generated/r263-reduced-store-overlay-old-to-young-16384-qemu-elf-xcheck/report/crosscheck_manifest.json`. Closeout: `skill-evolve: no-update (R263 only scales the R262 reduced-store overlay proof; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
 | R264 | Load-forwarding BID/LSID ordering owner | `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding`, `bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline`, `bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue`, `bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup`, `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`, `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`, and `git diff --check`. `LoadStoreForwarding` now carries the load allocation snapshot as `(youngestStoreId, youngestStoreLsId)`, carries each candidate as `(storeId, storeLsId)`, and uses `STQCommitQueue.lessEqualBidLs` for eligibility and nearest-store selection. `LoadInflightQueue` snapshots the same tuple and `LoadReplayWakeupRequest` carries `storeLsId` so store-unit wakeups clear wait-store diagnostics by BID/LSID/PC and merge only when the waking store is no newer than the row snapshot. The direct reference suite adds same-BID/different-LSID regressions for forwarding source selection and replay wakeup eligibility so the Chisel path matches model `STQ::lookupForLoad` rather than ROBID-only ordering. This packet does not yet wire resident STQ forwarding into the reduced top. Closeout: `skill-evolve: update linx-core (load-forwarding and replay-wakeup owners must order store candidates by model BID/LSID, not ROBID/BID alone)`. |
+| R265 | Ready resident STQ forwarding in reduced top | `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreResidentForward`, `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding`, `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute`, `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreMemoryOverlay`, `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`, and `git diff --check`. Added `ReducedStoreResidentForward` as the reduced-top adapter from resident `StoreDispatchSTQPath` rows to `LoadStoreForwarding`. `ReducedScalarAluExecute` now publishes load lookup size, BID, and raw LSID; the top converts LSID through the same reduced `ROBID` shape as `StoreDispatchToSTQ`, applies ready resident forwarding after the committed-store overlay, and exposes forward/wait/eligible diagnostics. Wait-hit and cross-line resident cases stay pass-through until a replay owner exists. Closeout: `skill-evolve: update linx-core (reduced resident STQ forwarding may feed execute only for ready/no-wait cases; wait-hit loads remain pass-through until LIQ/LDQ replay control is wired)`. |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -877,10 +878,10 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add the next memory-side reduced-store boundary after R264. Read
-   `ReducedStoreCommitFreeOwner`, `ReducedStoreExecResultBridge`,
-   `STQCommitDrain`, `SCBRowBank`, `LoadStoreForwarding`, `MDBConflictDetect`,
-   and LinxCoreModel `STQ::commit` plus `STQ::lookupForLoad` first. The reduced
+1. Add the next memory-side reduced-store boundary after R265. Read
+   `ReducedStoreResidentForward`, `LoadForwardPipeline`, `LoadInflightQueue`,
+   `LoadReplayWakeup`, `MDBConflictDetect`, and LinxCoreModel
+   `STQ::lookupForLoad` plus LDQ wait/replay wakeup paths first. The reduced
    top now has the correct SCB accepted-`last` free source, R253 model-identity
    commit/free matching, R254-R257 scale evidence through 8192 raw CoreMark QEMU
    rows, R258 no-harness-mutation RTL overlay evidence at 1024 raw rows, R259
@@ -888,15 +889,16 @@ Closeout:
    R260/R261 no-harness-mutation scale evidence through 8192 raw rows, R262
    old-to-young same-cycle overlay lane precedence for SCB drain versus current
    commit-row bypass fragments, R263 live-QEMU no-harness-mutation scale
-   evidence through 16384 raw rows, and R264 `LoadStoreForwarding` plus
-   `LoadReplayWakeup` `(BID, LSID)` candidate/wakeup ordering.
-   It still lacks full store-to-load forwarding, load wait/replay, MDB conflict
-   publication, TSO/fence completion, and real cache/SCB memory state. Focused
-   gates should include `ReducedStoreMemoryOverlaySpec`,
-   `ReducedStoreCommitFreeOwnerSpec`, `STQCommitQueueSpec`,
-   `STQCommitDrainSpec`, `STQSCBCommitPathSpec`, `DecodeRenameROBPathSpec`,
-   and `LinxCoreFrontendFetchRfAluTraceTopSpec` before any optional-STQ QEMU
-   live gate.
+   evidence through 16384 raw rows, R264 `LoadStoreForwarding` plus
+   `LoadReplayWakeup` `(BID, LSID)` candidate/wakeup ordering, and R265
+   ready/no-wait resident STQ forwarding in the reduced top.
+   It still lacks wait-hit execute backpressure/replay, cross-line resident
+   forwarding, MDB conflict publication, TSO/fence completion, and real
+   cache/SCB memory state. Focused gates should include
+   `ReducedStoreResidentForwardSpec`, `LoadForwardPipelineSpec`,
+   `LoadInflightQueueSpec`, `LoadReplayWakeupSpec`,
+   `MDBConflictDetectSpec`, and `LinxCoreFrontendFetchRfAluTraceTopSpec`
+   before any optional-STQ QEMU live gate.
 2. Scale the admitted-marker CoreMark gate beyond the R238 262144-row window.
    R195/R196/R198 removed the scalar GGPR mapQ capacity and Verilator
    compile-cost blockers, and R202 closed the stale source-value failure by

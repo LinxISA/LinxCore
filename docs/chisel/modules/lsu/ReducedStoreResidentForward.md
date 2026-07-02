@@ -1,0 +1,133 @@
+# ReducedStoreResidentForward
+
+## Source Mapping
+
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreResidentForward.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedStoreResidentForwardSpec.scala`
+- Integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
+- LinxCoreModel evidence:
+  - `tools/LinxCoreModel/model/lsu/store_unit/stq.cpp`
+    - `STQ::lookupForLoad`
+    - `STQ::retire`
+    - `STQ::commit`
+  - `tools/LinxCoreModel/model/lsu/store_unit/stq.h`
+- Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreMemoryOverlay.scala`
+- Contract IDs: `LC-CHISEL-LSU-STQ-FWD-002`
+
+## Purpose
+
+`ReducedStoreResidentForward` is the reduced-top adapter that lets ready
+resident STQ rows feed scalar load data before the store commits. It maps
+`STQEntryBankRow` state into the generic `LoadStoreForwarding` selector,
+constructs a synthetic 64-byte cacheline from the current 64-bit load window,
+and extracts the returned 64-bit load data after ready store bytes are overlaid.
+
+This is still a reduced trace-top bridge. It does not stall execute or mutate
+LIQ/LDQ state when an older store is not data-ready. Instead, a wait hit is
+reported through diagnostics and the module preserves the incoming base load
+data. A later replay owner must consume the wait-store identity before this can
+replace the full model load pipeline.
+
+## Interface
+
+### Load Query
+
+| Signal | Description |
+|---|---|
+| `enable` | Enables the reduced resident-forward path. Disabled mode passes through `baseLoadData`. |
+| `loadValid` | Execute-stage scalar load lookup is active. |
+| `loadAddr` | Byte address of the 64-bit reduced load window. |
+| `loadSize` | Load size in bytes. The R265 integration uses 1-byte `LBUI` and 8-byte scalar load forms. |
+| `loadBid` | Load BID used as the youngest visible store snapshot. |
+| `loadLsId` | Load LSID, converted to the same reduced `ROBID` shape used by STQ rows. |
+| `baseLoadData` | 64-bit load data after the committed-store memory overlay. |
+| `rows` | Resident STQ row image from `StoreDispatchSTQPath`. |
+
+### Outputs
+
+| Signal | Description |
+|---|---|
+| `loadData` | Final 64-bit load data. Ready resident store bytes are included only when no wait byte is selected. |
+| `loadForwardMask` | One bit per returned byte forwarded from ready resident STQ rows. |
+| `waitMask` | One bit per returned byte whose nearest older resident store is not data-ready. |
+| `eligibleStoreMask` | STQ rows accepted by the resident-forward candidate filter. |
+| `readyForward` | At least one byte was forwarded and no wait byte blocked the load. |
+| `waitBlocked` | A nearest older resident store is not data-ready for at least one requested byte. |
+| `loadCrossesLine` | Load crosses a 64-byte line and is left on the base overlay path in this ready-only packet. |
+
+## State
+
+The module is combinational. It owns no STQ, LDQ, SCB, cache, or replay state.
+`LinxCoreFrontendFetchRfAluTraceTop` wires it after `ReducedStoreMemoryOverlay`
+and before `ReducedScalarAluExecute.loadLookupData`.
+
+## Logic Design
+
+The model `STQ::lookupForLoad` first scans working resident STQ rows whose
+address is ready, whose byte range overlaps the load, and whose `(bid, lsID)`
+is older than or equal to the load's `(bid, lsID)`. Ready stores provide bytes.
+Not-ready stores set wait bits. The nearest older store wins per byte.
+
+The Chisel adapter preserves that selector rule through `LoadStoreForwarding`
+with reduced-top limits:
+
+1. Convert the execute load's raw LSID into the same reduced `ROBID` shape used
+   by `StoreDispatchToSTQ`.
+2. Suppress cross-line load queries and cross-line resident store candidates.
+   The committed-store overlay still handles cross-line committed fragments.
+3. Build a synthetic 64-byte `cacheData` line by placing the eight
+   `baseLoadData` bytes at the load address offset.
+4. Convert each resident STQ row into a `LoadStoreForwardStore` candidate when
+   the row is valid, in `Wait`, address-ready, scalar, non-crossing, and
+   resident.
+5. Expand the row's 64-bit store data into a 64-byte line image at the store
+   address offset.
+6. Run `LoadStoreForwarding`, then extract the load-window bytes from the
+   merged 64-byte line.
+7. If `waitMask` is nonzero, preserve `baseLoadData` and report
+   `waitBlocked`. This avoids claiming replay behavior before LIQ/LDQ control
+   is wired.
+
+## Timing
+
+R265 wires the adapter combinationally after `ReducedStoreMemoryOverlay`.
+The final reduced load-data order is:
+
+1. harness sparse ELF base data,
+2. committed-store/SCB accepted overlay data,
+3. ready resident STQ forwarding data when no wait byte is selected.
+
+This keeps the existing reduced execute pipeline unchanged. A later packet may
+move this work behind a registered LIQ/forward pipeline.
+
+## Flush/Recovery
+
+The module has no flush input. The top disables it when
+`useReducedStoreDispatchStq=false`; STQ row validity and flush pruning are
+owned by `StoreDispatchSTQPath` and `STQEntryBank`.
+
+## Deferred Owners
+
+- Execute/issue backpressure for `waitBlocked` loads.
+- LIQ/LDQ wait-store row mutation and replay wakeups.
+- Cross-line resident store/load forwarding.
+- Store PC sidecar propagation for model-exact wait-store diagnostics.
+- MDB conflict publication and recovery cleanup.
+
+## Verification
+
+Focused gates:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only ReducedStoreResidentForward
+bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
+bash tools/chisel/run_chisel_tests.sh --only ReducedScalarAluExecute
+bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
+```
+
+Reference tests cover ready resident forwarding over committed overlay data,
+same-BID LSID source selection, not-ready wait pass-through, cross-line
+suppression, and Chisel elaboration with diagnostics.

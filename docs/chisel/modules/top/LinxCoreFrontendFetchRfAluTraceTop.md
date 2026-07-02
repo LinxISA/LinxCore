@@ -25,6 +25,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarIssuePick.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/execute/ReducedScalarAluExecute.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreMemoryOverlay.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreResidentForward.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`
   - `model/LinxCoreModel/model/ModelCommon/bus/FetchReqBus.h`
@@ -859,6 +860,20 @@ wrapper captures 16384 raw QEMU rows, reduces 16250 expected rows, normalizes
 skill-evolve: no-update (R263 only scales the R262 reduced-store overlay proof;
 no new reusable invariant, mandatory gate, or triage order changed).
 
+R265 wires ready resident STQ forwarding after the committed-store overlay.
+`ReducedScalarAluExecute` now publishes load lookup size, BID, and raw LSID
+sidebands. The top converts the raw LSID into the same reduced `ROBID` shape
+used by `StoreDispatchToSTQ`, feeds resident `StoreDispatchSTQPath` rows into
+`ReducedStoreResidentForward`, and then supplies execute with the adapter's
+load data. The adapter forwards only ready, scalar, non-cross-line resident
+store bytes selected by model `(BID, LSID)` ordering. If the nearest older
+resident store is not data-ready, the adapter reports wait diagnostics and
+passes through the committed-overlay load data until a real replay owner exists.
+
+skill-evolve: update linx-core (reduced resident store forwarding may feed
+execute only for ready/no-wait cases; wait-hit loads must remain pass-through
+until LIQ/LDQ replay control is wired).
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |
@@ -879,7 +894,7 @@ no new reusable invariant, mandatory gate, or triage order changed).
 | input | `peId`, `threadId` | `UInt` | with source packet | Packet-owned PE/STID sidecars for decode/rename. |
 | input | `fetchReqReady` | `Bool` | ready | Bounded fixture accepts a source PC request. |
 | input | `fetchRespValid`, `fetchRespWindow` | `Bool`, `UInt(windowWidth.W)` | valid | Bounded fixture returns one instruction window for the issued PC. |
-| input | `loadLookupData` | `UInt(64.W)` by default | combinational with `loadLookupValid` | Reduced base load data supplied by the harness from the sparse ELF memory image; in optional reduced-store mode this is overlaid by `ReducedStoreMemoryOverlay` before execute consumes it. |
+| input | `loadLookupData` | `UInt(64.W)` by default | combinational with `loadLookupValid` | Reduced base load data supplied by the harness from the sparse ELF memory image. In optional reduced-store mode this first passes through `ReducedStoreMemoryOverlay`, then through ready-only `ReducedStoreResidentForward`, before execute consumes it. |
 | input | `rfInitValid`, `rfInitArchTag`, `rfInitData` | mixed | pulse | Preloads identity physical RF state for architectural scalar GPRs. |
 | input | `deallocReady` | `Bool` | ready | Allows retired ROB rows to deallocate. |
 | output | `fetchReqValid`, `fetchReqPc`, `fetchRespReady` | mixed | valid/ready | Live source PC request and response handshake. |
@@ -909,6 +924,7 @@ no new reusable invariant, mandatory gate, or triage order changed).
 | output | `reducedStoreDrain*` | mixed | diagnostic | R241 reduced `STQCommitDrain` diagnostics: mark-accepted enqueue result, duplicate detect, issue mask/count, abstract drain early-free mask, queue count, empty, and order-error. |
 | output | `reducedStoreScb*` | mixed | diagnostic | R241 reduced `SCBRowBank` diagnostics: model-batch readiness, accepted/stalled request masks, accepted-`last` commit-free mask/count, valid row mask, and entry count. |
 | output | `reducedStoreMemoryValidMask`, `reducedStoreMemoryLineCount`, `reducedStoreMemoryLoadForwardMask`, `reducedStoreMemoryStoreDroppedMask` | mixed | diagnostic | R258/R259 reduced store-memory overlay occupancy, load-byte forward mask, and accepted-request drop diagnostics. The drop mask covers commit-row bypass lanes plus SCB accepted lanes. |
+| output | `reducedStoreResidentForwardMask`, `reducedStoreResidentWaitMask`, `reducedStoreResidentEligibleMask`, `reducedStoreResidentReadyForward`, `reducedStoreResidentWaitBlocked`, `reducedStoreResidentLoadCrossesLine` | mixed | diagnostic | R265 ready resident-STQ forwarding diagnostics after the committed-store overlay. Wait hits are reported but do not stall or replay execute yet. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
 | output | `robAllocFire`, `robRenameUpdateFire`, `completeAccepted`, `completeIgnored` | `Bool` | pulse | ROB allocation, post-rename update, and completion acceptance events. |
@@ -960,6 +976,10 @@ overlay. Most state remains in child modules:
 - `ReducedStoreMemoryOverlay`: optional R258/R259 store-memory visibility
   bridge that records ROB-committed store fragments and SCB-accepted fragments,
   then overlays later reduced load lookup bytes.
+- `ReducedStoreResidentForward`: optional R265 bridge that maps resident
+  `StoreDispatchSTQPath` rows through `LoadStoreForwarding` and overlays ready
+  resident store bytes after committed-store overlay data. It reports wait
+  hits but leaves replay control to later LIQ/LDQ owner packets.
 
 ## Logic Design
 
@@ -1023,14 +1043,19 @@ R258 adds `ReducedStoreMemoryOverlay` after `SCBRowBank`, and R259 adds
 commit-row bypass lanes in front of the SCB lanes. Each valid committed store
 row can produce one or two overlay fragments depending on 64-byte-line
 crossing; the later SCB accepted fragment for the same store is byte-identical
-and idempotent. Reduced load lookup data is formed by applying the overlay over
-the immutable sparse ELF base data. The overlay clears only on run
+and idempotent. Reduced load lookup data is first formed by applying the
+overlay over the immutable sparse ELF base data. R265 then feeds that result
+through `ReducedStoreResidentForward`, which uses the load's `(BID, LSID)`
+snapshot and resident STQ rows to overlay ready older store bytes. If the
+resident selector reports a wait byte, the top keeps the committed-overlay data
+unchanged and only exposes diagnostics. The overlay clears only on run
 start/restart or when the optional reduced-store path is disabled; ordinary
 backend redirects do not clear it because committed store bytes are
 nonflushable state. The opt-in path is still for bounded integration debug: it
-now owns STQ mark/drain/free lifecycle and committed store-byte visibility for
-scalar load lookup, but not full store forwarding, cache state, TSO/fence
-completion, or MDB conflict publication.
+now owns STQ mark/drain/free lifecycle, committed store-byte visibility, and
+ready resident store-byte forwarding for scalar load lookup, but not load
+wait/replay, cross-line resident forwarding, cache state, TSO/fence completion,
+or MDB conflict publication.
 Rename acceptance remains queue-capacity driven. RF physical source readiness
 is sampled by the issue queue and gates issue from resident rows, not frontend
 packet acceptance. The P1/I1/I2 picker reads source data from
@@ -1064,9 +1089,11 @@ stricter `--disable-store-memory-mutation` gate leaves the sparse image
 immutable and requires `ReducedStoreMemoryOverlay` to supply committed store
 bytes from RTL state. R259 broadens that RTL state from SCB-accepted fragments
 to include ROB-committed/storeCommitQ-equivalent fragments because the model
-can forward committed store bytes before SCB acceptance. This remains a
-reduced committed-store visibility bridge, not a general LSU/STQ, cache,
-replay, or store-forwarding implementation.
+can forward committed store bytes before SCB acceptance. R265 adds ready
+resident STQ forwarding after that committed overlay, but preserves pass-through
+behavior for wait hits until a replay owner can hold and relaunch the load.
+This remains a reduced memory visibility bridge, not a general LSU/STQ, cache,
+replay, or MDB implementation.
 
 R123 also proves that live generated-RTL commit collection must accept the
 native two-slot commit window. The harness preserves slot order by collecting
@@ -1798,6 +1825,7 @@ records `status: "pass"`, `summary.compared_rows: 3`,
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r192-default-skip-regression-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 3 --capture-rows 16 --allow-block-markers --max-seconds 10 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r125-coremark-1024-frontier-probe-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreMemoryOverlay`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreResidentForward`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r258-store-memory-overlay-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --reduced-store-dispatch-stq --disable-store-memory-mutation --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --qemu-trace generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/traces/qemu.no-harness-store.jsonl --dut-trace generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/traces/dut.no-harness-store.jsonl --report-dir generated/r258-store-memory-overlay-1024-qemu-elf-xcheck/report-no-harness-store --max-commits 665 --mode failfast`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r126-coremark-fret-scalar-redirect-1415-qemu-elf-xcheck-pass --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1415 --allow-block-markers --max-seconds 8 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`

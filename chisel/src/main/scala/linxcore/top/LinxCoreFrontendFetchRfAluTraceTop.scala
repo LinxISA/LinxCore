@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
+import linxcore.lsu.{ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -257,6 +257,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedStoreMemoryLineCount = Output(UInt(storeMemoryLineCountWidth.W))
   val reducedStoreMemoryLoadForwardMask = Output(UInt(8.W))
   val reducedStoreMemoryStoreDroppedMask = Output(UInt(storeMemoryRequestCount.W))
+  val reducedStoreResidentForwardMask = Output(UInt(8.W))
+  val reducedStoreResidentWaitMask = Output(UInt(8.W))
+  val reducedStoreResidentEligibleMask = Output(UInt(p.robEntries.W))
+  val reducedStoreResidentReadyForward = Output(Bool())
+  val reducedStoreResidentWaitBlocked = Output(Bool())
+  val reducedStoreResidentLoadCrossesLine = Output(Bool())
   val storeDispatchReady = Output(Bool())
   val storeDispatchFire = Output(Bool())
   val storeDispatchSplit = Output(Bool())
@@ -512,6 +518,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     stqEntries = p.robEntries,
     requestCount = reducedStoreMemoryRequestCount,
     lineEntries = reducedStoreMemoryLineEntries
+  ))
+  val reducedStoreResidentForward = Module(new ReducedStoreResidentForward(
+    entries = p.robEntries,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.threadIdWidth,
+    tidWidth = p.threadIdWidth,
+    mapQDepth = mapQDepth
   ))
 
   val localQueueDepth = 4
@@ -863,6 +876,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     req
   }
 
+  private def lsidToReducedStoreId(lsid: UInt): ROBID = {
+    val out = Wire(new ROBID(p.robEntries))
+    val idWidth = log2Ceil(p.robEntries)
+    val wrapBit = if (p.lsidWidth > idWidth) lsid(idWidth) else false.B
+    out.valid := true.B
+    out.wrap := wrapBit
+    out.value := lsid(idWidth - 1, 0)
+    out
+  }
+
   val reducedStoreMemoryReqs = Wire(Vec(reducedStoreMemoryRequestCount, new STQCommitDrainRequest(p.robEntries, p.immWidth, p.immWidth, 4)))
   val reducedStoreMemoryAcceptedVec = Wire(Vec(reducedStoreMemoryRequestCount, Bool()))
   for (idx <- 0 until reducedStoreMemoryRequestCount) {
@@ -925,6 +948,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedStoreMemoryOverlay.io.loadValid := useReducedStoreDispatchStq.B && execute.io.loadLookupValid
   reducedStoreMemoryOverlay.io.loadAddr := execute.io.loadLookupAddr
   reducedStoreMemoryOverlay.io.baseLoadData := io.loadLookupData
+
+  reducedStoreResidentForward.io.enable := useReducedStoreDispatchStq.B
+  reducedStoreResidentForward.io.loadValid := useReducedStoreDispatchStq.B && execute.io.loadLookupValid
+  reducedStoreResidentForward.io.loadAddr := execute.io.loadLookupAddr
+  reducedStoreResidentForward.io.loadSize := execute.io.loadLookupSize
+  reducedStoreResidentForward.io.loadBid := execute.io.loadLookupBid
+  reducedStoreResidentForward.io.loadLsId := lsidToReducedStoreId(execute.io.loadLookupLsId)
+  reducedStoreResidentForward.io.baseLoadData := reducedStoreMemoryOverlay.io.loadData
+  reducedStoreResidentForward.io.rows := path.io.storeStqRows
 
   path.io.storeMarkCommitValid := storeCommitOwner.io.markCommitValid
   path.io.storeMarkCommitIndex := storeCommitOwner.io.markCommitIndex
@@ -1063,7 +1095,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   execute.io.inValid := issue.io.issueValid
   execute.io.in := issue.io.issueUop
   execute.io.srcData := issue.io.issueSrcData
-  execute.io.loadLookupData := reducedStoreMemoryOverlay.io.loadData
+  execute.io.loadLookupData := reducedStoreResidentForward.io.loadData
   execute.io.stackPointerData := scalarSpValue
   execute.io.flushValid := backendPipeFlush
   execute.io.fretStkFallbackTargetValid := path.io.blockMarkerActiveValid && path.io.blockMarkerActiveTarget =/= 0.U
@@ -1295,6 +1327,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedStoreMemoryLineCount := reducedStoreMemoryOverlay.io.lineCount
   io.reducedStoreMemoryLoadForwardMask := reducedStoreMemoryOverlay.io.loadForwardMask
   io.reducedStoreMemoryStoreDroppedMask := reducedStoreMemoryOverlay.io.storeDroppedMask
+  io.reducedStoreResidentForwardMask := reducedStoreResidentForward.io.loadForwardMask
+  io.reducedStoreResidentWaitMask := reducedStoreResidentForward.io.waitMask
+  io.reducedStoreResidentEligibleMask := reducedStoreResidentForward.io.eligibleStoreMask
+  io.reducedStoreResidentReadyForward := reducedStoreResidentForward.io.readyForward
+  io.reducedStoreResidentWaitBlocked := reducedStoreResidentForward.io.waitBlocked
+  io.reducedStoreResidentLoadCrossesLine := reducedStoreResidentForward.io.loadCrossesLine
   io.storeDispatchReady := path.io.storeDispatchReady
   io.storeDispatchFire := path.io.storeDispatchFire
   io.storeDispatchSplit := path.io.storeDispatchSplit

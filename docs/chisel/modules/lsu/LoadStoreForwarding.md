@@ -12,6 +12,7 @@
   - `model/LinxCoreModel/model/ModelCommon/LSUUtils.cpp`
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreResidentForward.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQEntryBank.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/STQSCBCommitPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBQueueFanout.scala`
@@ -124,6 +125,11 @@ or LDQ response-merge boundary. Later integration may pipeline the store CAM,
 bank the data array, or split E2/E3/E4 stages, but it must preserve the visible
 per-byte nearest-store result and wait-store replay mask.
 
+R265 integrates the selector through `ReducedStoreResidentForward` in the
+optional reduced-store trace top. That adapter maps resident `STQEntryBankRow`
+state into this module, forwards only ready/no-wait bytes after the committed
+store overlay, and leaves wait-hit replay control to later LIQ/LDQ packets.
+
 ## Flush/Recovery
 
 `LoadStoreForwarding` has no flush input. Recovery and row validity are
@@ -141,6 +147,7 @@ rows.
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreResidentForward`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBSSIT`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`

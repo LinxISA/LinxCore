@@ -34,8 +34,9 @@ store rows.
 The module is intentionally a reduced trace-top bridge, not a replacement for
 the full LSU memory system. It does not own cache state, TSO/fence completion,
 load replay, MDB conflict publication, or the complete model `lookupForLoad`
-wait/conflict policy. It only makes committed store bytes visible to the
-reduced scalar load lookup path.
+wait/conflict policy. It makes committed store bytes visible to the reduced
+scalar load lookup path; R265 then applies ready resident STQ forwarding after
+this committed overlay.
 
 ## Interface
 
@@ -112,7 +113,8 @@ coherence.
 
 ## Deferred Owners
 
-- Replace the overlay with the full load/store forwarding and replay owner.
+- Replace the overlay plus ready-only resident forwarding with the full
+  load/store forwarding and replay owner.
 - Publish MDB conflicts and recovery cleanup for precise exceptions.
 - Connect real cache/SCB memory state instead of a trace-top sparse-image base.
 - Add capacity or eviction policy if a longer reduced-store proof exceeds the
@@ -124,6 +126,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ReducedStoreMemoryOverlay
+bash tools/chisel/run_chisel_tests.sh --only ReducedStoreResidentForward
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
