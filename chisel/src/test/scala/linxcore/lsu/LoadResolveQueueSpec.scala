@@ -41,6 +41,7 @@ object LoadResolveQueueReference {
 
   final case class PushResult(accepted: Boolean, insertIndex: Int)
   final case class RetireResult(mask: Int, count: Int)
+  final case class FlushPruneResult(mask: Int, count: Int)
 
   private def less(lhs: Id, rhs: Id): Boolean =
     if (lhs.wrap == rhs.wrap) lhs.value < rhs.value else lhs.value > rhs.value
@@ -72,6 +73,28 @@ object LoadResolveQueueReference {
       }
       entries = entries.zip(retireBits).collect { case (entry, false) => entry }
       RetireResult(mask, retireBits.count(identity))
+    }
+
+    def preciseFlush(flush: STQFlushPruneReference.Flush): FlushPruneResult = {
+      val pruneBits = entries.map { entry =>
+        STQFlushPruneReference.matches(
+          flush,
+          STQFlushPruneReference.Row(
+            valid = true,
+            stid = entry.stid,
+            peId = entry.peId,
+            tid = entry.tid,
+            bid = entry.record.bid,
+            gid = entry.record.gid,
+            lsId = entry.record.loadLsId
+          )
+        )
+      }
+      val mask = pruneBits.zipWithIndex.foldLeft(0) { case (acc, (bit, idx)) =>
+        if (bit) acc | (1 << idx) else acc
+      }
+      entries = entries.zip(pruneBits).collect { case (entry, false) => entry }
+      FlushPruneResult(mask, pruneBits.count(identity))
     }
 
     def flush(): Unit =
@@ -168,6 +191,31 @@ class LoadResolveQueueSpec extends AnyFunSuite {
     assert(queue.conflictRows.isEmpty)
   }
 
+  test("precise flush prunes matching entries and compacts survivors") {
+    val queue = new Model(capacity = 4)
+    queue.push(Entry(stid = 2, peId = 1, tid = 3, record = record(0).copy(bid = id(1), loadLsId = id(1))))
+    queue.push(Entry(stid = 2, peId = 1, tid = 3, record = record(1).copy(bid = id(1), loadLsId = id(2))))
+    queue.push(Entry(stid = 2, peId = 1, tid = 3, record = record(2).copy(bid = id(2), loadLsId = id(0))))
+    queue.push(Entry(stid = 1, peId = 1, tid = 3, record = record(3).copy(bid = id(3), loadLsId = id(0))))
+
+    val pruned = queue.preciseFlush(
+      STQFlushPruneReference.Flush(
+        stid = 2,
+        peId = 1,
+        tid = 3,
+        bid = id(1),
+        lsId = id(2),
+        baseOnPE = true,
+        baseOnThread = true
+      )
+    )
+
+    assert(pruned == FlushPruneResult(mask = 0x6, count = 2))
+    assert(queue.count == 2)
+    assert(queue.conflictRows.map(_.lsId) == Seq(id(1), id(0)))
+    assert(queue.conflictRows.map(_.stid) == Seq(2, 1))
+  }
+
   test("Chisel LoadResolveQueue elaborates push, retire, and conflict-row ports") {
     val sv = ChiselStage.emitSystemVerilog(new LoadResolveQueue(queueEntries = 4, liqEntries = 4, idEntries = 8))
 
@@ -175,6 +223,8 @@ class LoadResolveQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_pushRecord_pc"))
     assert(sv.contains("io_pushAccepted"))
     assert(sv.contains("io_retireMask"))
+    assert(sv.contains("io_preciseFlush_req_valid"))
+    assert(sv.contains("io_flushPruneMask"))
     assert(sv.contains("io_conflictRows_0_pc"))
     assert(sv.contains("io_conflictRows_0_lsId_value"))
     assert(sv.contains("io_entries_0_record_loadLsId_value"))

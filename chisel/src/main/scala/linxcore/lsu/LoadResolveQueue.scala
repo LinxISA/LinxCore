@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.{log2Ceil, PopCount}
 
+import linxcore.recovery.{FlushBus, FlushControl}
 import linxcore.rob.ROBID
 
 class LoadResolveQueueEntry(
@@ -38,6 +39,9 @@ class LoadResolveQueueIO(
   private val countWidth = log2Ceil(queueEntries + 1)
 
   val flush = Input(Bool())
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
+  val flushPruneMask = Output(UInt(queueEntries.W))
+  val flushPruneCount = Output(UInt(countWidth.W))
 
   val pushValid = Input(Bool())
   val pushPeId = Input(UInt(peIdWidth.W))
@@ -170,6 +174,30 @@ class LoadResolveQueue(
   private def lessBidLs(srcBid: ROBID, srcLsId: ROBID, dstBid: ROBID, dstLsId: ROBID): Bool =
     ROBID.less(srcBid, dstBid) || (ROBID.equal(srcBid, dstBid) && ROBID.less(srcLsId, dstLsId))
 
+  private def flushMatchesEntry(signal: FlushBus, entry: LoadResolveQueueEntry): Bool = {
+    val sameStid = signal.req.stid === entry.stid
+    val samePe = !signal.baseOnPE || (signal.req.peId === entry.peId)
+    val sameThread = !signal.baseOnThread || (signal.req.tid === entry.tid)
+    val idMatch = Mux(
+      signal.baseOnBid,
+      ROBID.lessEqual(signal.req.bid, entry.record.bid),
+      Mux(
+        signal.baseOnGroup,
+        ROBID.lessEqual(signal.req.bid, entry.record.bid) ||
+          STQFlushPrune.lessEqualBidGroupLs(
+            signal.req.bid,
+            signal.req.gid,
+            signal.req.lsId,
+            entry.record.bid,
+            entry.record.gid,
+            entry.record.loadLsId),
+        FlushControl.lessEqualBidRid(signal.req.bid, signal.req.lsId, entry.record.bid, entry.record.loadLsId)
+      )
+    )
+
+    signal.req.valid && entry.valid && sameStid && samePe && sameThread && idMatch
+  }
+
   private def toConflict(entry: LoadResolveQueueEntry): MDBConflictLoadEntry = {
     val row = Wire(new MDBConflictLoadEntry(idEntries, addrWidth, pcWidth, peIdWidth, stidWidth, tidWidth, sizeWidth))
     row := zeroConflict
@@ -193,6 +221,8 @@ class LoadResolveQueue(
   val count = RegInit(0.U(countWidth.W))
 
   val retireVec = Wire(Vec(queueEntries, Bool()))
+  val flushPruneVec = Wire(Vec(queueEntries, Bool()))
+  val removeVec = Wire(Vec(queueEntries, Bool()))
   val keptVec = Wire(Vec(queueEntries, Bool()))
   val keptRank = Wire(Vec(queueEntries, UInt(countWidth.W)))
   val compacted = Wire(Vec(queueEntries, new LoadResolveQueueEntry(
@@ -211,7 +241,9 @@ class LoadResolveQueue(
     retireVec(slot) :=
       queue(slot).valid && io.retireValid &&
         lessBidLs(queue(slot).record.bid, queue(slot).record.loadLsId, io.retireBid, io.retireLsId)
-    keptVec(slot) := queue(slot).valid && !retireVec(slot)
+    flushPruneVec(slot) := flushMatchesEntry(io.preciseFlush, queue(slot))
+    removeVec(slot) := retireVec(slot) || flushPruneVec(slot)
+    keptVec(slot) := queue(slot).valid && !removeVec(slot)
     if (slot == 0) {
       keptRank(slot) := 0.U
     } else {
@@ -229,7 +261,9 @@ class LoadResolveQueue(
   }
 
   val retireCount = PopCount(retireVec)
-  val keptCount = count - retireCount
+  val flushPruneCount = PopCount(flushPruneVec)
+  val removeCount = PopCount(removeVec)
+  val keptCount = count - removeCount
   val pushReady = !io.flush && (keptCount < queueEntries.U)
   val pushAccepted = io.pushValid && pushReady
 
@@ -271,6 +305,8 @@ class LoadResolveQueue(
   io.pushInsertIndex := keptCount
   io.retireMask := retireVec.asUInt
   io.retireCount := retireCount
+  io.flushPruneMask := flushPruneVec.asUInt
+  io.flushPruneCount := flushPruneCount
   io.validMask := validVec.asUInt
   io.count := count
   io.empty := count === 0.U

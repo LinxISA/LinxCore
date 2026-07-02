@@ -1199,6 +1199,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.clearResolvedValid := reducedLoadReplayResolveClearPending
   reducedLoadReplayLiqAllocPath.io.clearResolvedIndex := reducedLoadReplayResolveClearIndex
   reducedLoadReplayResolveQueue.io.flush := reducedStoreFlush
+  reducedLoadReplayResolveQueue.io.preciseFlush := 0.U.asTypeOf(reducedLoadReplayResolveQueue.io.preciseFlush)
   reducedLoadReplayResolveQueue.io.pushValid :=
     reducedLoadReplayLiqAllocEnabled && reducedLoadReplayLiqAllocPath.io.lhqRecordValid
   reducedLoadReplayResolveQueue.io.pushPeId := io.peId

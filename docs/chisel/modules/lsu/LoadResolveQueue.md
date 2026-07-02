@@ -9,8 +9,11 @@
     - `ResolveQ::insert`
     - `ResolveQ::retired`
     - `ResolveQ::detect`
+    - `ResolveQ::flush`
     - `LDQInfo::CheckMovRslvQ`
     - `LDQInfo::handleDetect`
+  - `model/LinxCoreModel/model/ModelCommon/bus/FlushBus.h`
+    - `FlushBus::match`
   - `model/LinxCoreModel/model/lsu/load_unit/ldq.h`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
@@ -28,10 +31,12 @@ younger store arrives.
 R285 wires the opt-in replay-LIQ top path's path-local `lhqRecord` output into
 this queue and exposes queue/head diagnostics. R286 adds the matching
 parent-owned delayed `clearResolved` request for that opt-in top path. That
-integration is still storage-only because replay launch remains disabled in the
-current fixture. Precise retire/flush sidebands, default/live LIQ insertion, and
-exported conflict rows feeding the live MDB/recovery path remain deferred owner
-packets.
+integration is still storage-only because replay launch remains disabled in
+the current fixture. R287 wires ROB commit memory-order retire watermarks.
+R288 adds queue-local precise `FlushBus` pruning, but the current top ties that
+input inactive until the recovery owner selects the exact load-side flush
+producer. Default/live LIQ insertion and exported conflict rows feeding the
+live MDB/recovery path remain deferred owner packets.
 
 ## Interface
 
@@ -55,6 +60,15 @@ packets.
 | `retireMask` | Pre-cycle queue rows retired this cycle. |
 | `retireCount` | Number of retired rows. |
 
+### Precise Flush
+
+| Signal | Description |
+|---|---|
+| `flush` | Hard all-clear used by reset/restart and current reduced-store top flushing. |
+| `preciseFlush` | Model-shaped `FlushBus` for row-selective pruning. It matches STID first, optional PE/thread scopes, then either base-on-BID, base-on-group, or `(BID, LSID)` ordering. |
+| `flushPruneMask` | Pre-cycle queue rows matched by `preciseFlush`. |
+| `flushPruneCount` | Number of precise-pruned rows. |
+
 ### Outputs
 
 | Signal | Description |
@@ -68,7 +82,8 @@ packets.
 
 The module owns a packed register queue of resolved scalar load records and an
 occupancy count. It does not own active LIQ rows, store probes, MDB records,
-ROB nuke state, precise flush pruning, or final recovery publication.
+ROB nuke state, final recovery publication, or the top-level choice of which
+recovery intent should drive `preciseFlush`.
 
 ## Logic Design
 
@@ -79,7 +94,8 @@ The C++ model has a simple owner split:
 2. `ResolveQ::insert` appends the resolved `MemReqBus`.
 3. `ResolveQ::retired` removes queue rows strictly older than the commit
    identity.
-4. `ResolveQ::detect` scans remaining rows with the same address-overlap and
+4. `ResolveQ::flush` removes rows matched by `FlushBus::match`.
+5. `ResolveQ::detect` scans remaining rows with the same address-overlap and
    `(BID, LSID)` age predicate used for active LDQ rows.
 
 The Chisel queue implements the storage half of those rules:
@@ -87,9 +103,12 @@ The Chisel queue implements the storage half of those rules:
 1. Build a queue entry from `pushRecord` and explicit thread sidecars.
 2. On each cycle, mark rows for retire when
    `row.(BID, loadLsId) < retire.(BID, LSID)`.
-3. Compact non-retired rows in order.
-4. Append one accepted push after the compacted tail.
-5. Convert every valid entry into an `MDBConflictLoadEntry` with the preserved
+3. Mark rows for precise prune when `preciseFlush` is valid, STID and optional
+   PE/thread scopes match, and the model BID/group/LSID comparison covers the
+   row.
+4. Compact rows not removed by retire or precise prune in order.
+5. Append one accepted push after the compacted tail.
+6. Convert every valid entry into an `MDBConflictLoadEntry` with the preserved
    load PC, address, size, BID/GID/RID, and load LSID.
 
 The strict retire comparison intentionally does not remove a row with exactly
@@ -97,23 +116,26 @@ the same `(BID, LSID)` as the commit identity, matching `ResolveQ::retired`.
 
 ## Timing
 
-Push and retire can occur in the same cycle. Retire compaction happens before
-push capacity and insertion-index calculation, so a full queue can accept a
-new record when at least one older row retires in the same cycle. Outputs show
-the pre-cycle queue image; the next-cycle image reflects retire and push.
+Push, retire, and precise prune can occur in the same cycle. Removal
+compaction happens before push capacity and insertion-index calculation, so a
+full queue can accept a new record when at least one older or flushed row is
+removed in the same cycle. Outputs show the pre-cycle queue image; the
+next-cycle image reflects retire, precise prune, and push.
 
 ## Flush/Recovery
 
-`flush` currently clears the whole queue. Precise model `FlushBus` matching is
-deferred until the top-level load/recovery owner can provide exact BID/GID/RID
-flush intents.
+`flush` clears the whole queue. `preciseFlush` preserves older rows and removes
+only rows covered by the same `FlushBus::match` rules used by the model:
+matching STID, optional PE/thread scopes, base-on-BID coverage,
+base-on-group coverage, or non-group `(BID, LSID)` coverage. The current
+replay-LIQ top ties `preciseFlush` inactive; wiring scalar redirect/replay
+intents into this input remains a separate top/recovery packet.
 
 ## Deferred Owners
 
 - Default/live LIQ insertion beyond the opt-in replay-LIQ diagnostic path.
 - Clear-resolved feedback outside the opt-in replay-LIQ top path.
-- Precise `FlushBus` pruning by recovery intent.
-- Retire sideband wiring from ROB commit identity.
+- Top-level precise `FlushBus` producer wiring by recovery intent.
 - Live MDB/recovery publication using `MDBConflictDetect`.
 
 ## Verification
@@ -127,8 +149,10 @@ bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r285-replay-liq-resolveq-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r286-replay-liq-resolve-clear-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r287-replay-liq-resolve-retire-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover push/backpressure, strict retire pruning, flush clearing,
-conflict-row sidecar preservation, and Chisel elaboration with push, retire,
-entry, and conflict-row ports.
+precise `FlushBus` pruning and compaction, conflict-row sidecar preservation,
+and Chisel elaboration with push, retire, precise flush, entry, and
+conflict-row ports.
