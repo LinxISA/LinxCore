@@ -928,7 +928,7 @@ store).
 | output | `localTReadyMask`, `localUReadyMask`, `localTPendingCount`, `localUPendingCount`, `localIncomingUsesLocal`, `localIncomingBlocked` | mixed | diagnostic | Reduced local T/U overlay readiness, whether the dec/ren head actually needs local operands, and producer-pending gate visible to issue selection and live-stall diagnostics. |
 | output | `issueQueue*` | mixed | diagnostic | Reduced queue enqueue, pick, I1/I2, issue, cancel, release, occupancy, head row fields, source lane shape, and block-cause signals. |
 | output | `executeAccepted`, `executeBusy`, `executeCompleteValid`, `executeCompleteRobValue` | mixed | diagnostic | Reduced ALU handoff and completion. |
-| output | `loadLookupValid`, `loadLookupAddr`, `loadLookupPc` | mixed | diagnostic | Reduced E-stage load lookup request and PC identity sideband for `OP_C_LDI`/`OP_LDI` and the resident wait-store replay slot. The replay path also carries the row's BID/GID/RID internally. |
+| output | `loadLookupValid`, `loadLookupAddr`, `loadLookupPc`, `loadLookupExecuteGranted`, `loadLookupReplayGranted` | mixed | diagnostic | Arbiter-selected reduced sparse-memory load lookup request. Execute has priority for `OP_C_LDI`/`OP_LDI` and resident wait-store replay-slot loads; replay-LIQ base lookup may drive the port only when execute is idle. The replay path also carries the row's BID/GID/RID internally. |
 | output | `reducedStoreDispatchEnabled` | `Bool` | diagnostic | Static top parameter reflection for the optional reduced STQ dispatch path. |
 | output | `reducedStoreExec*` | mixed | diagnostic | R239 reduced store execution-result bridge diagnostics: store completion capture, duplicate/blocked capture, STA/STD queue-head matches, valid mask, and buffer count. |
 | output | `reducedStoreStaExecValid`, `reducedStoreStdExecValid` | `Bool` | diagnostic | R239 explicit STA/STD execution-result validity presented to `StoreDispatchSTQPath`. |
@@ -941,7 +941,7 @@ store).
 | output | `reducedLoadWaitReplay*` | mixed | diagnostic | R269/R271/R274/R275 registered reduced wait-store slot diagnostics. The slot remembers the held load and wait-store key, feeds that key back to `ResidentStoreReplayWakeup`, clears through `LoadReplayWakeup`, and publishes a one-cycle relaunch candidate carrying PC, address, size, BID/GID/RID, reduced LSID, and forwarding snapshot `(youngestStoreId, youngestStoreLsId)` for future LIQ wiring; it does not drive a launch port. |
 | output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272-R283 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing full load identity plus forwarding snapshot, and reports accepted/drop/full state. Default mode drains only exact held-load completion matches; opt-in replay-LIQ mode consumes only when `ReducedLoadReplayLiqAllocPath` accepts allocation. |
 | output | `reducedLoadReplayDrain*` | mixed | diagnostic | R273/R274 diagnostic completion-drain match/mismatch signals used by the default reduced-store replay mode. Exact W2 load-completion matches consume the queued replay candidate; mismatches, including GID/RID sidecar mismatches, leave it pending for debug. |
-| output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282/R283/R294/R295 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, R283 feeds its E2 store vector from resident STQ snapshots, R294 exposes selected launch-row PC/address/size, load ID, BID/GID/RID, load LSID, and request-byte mask, and R295 shapes the selected row's scalar base-data lookup response into 64-byte line-data diagnostics; this top still ties launch disabled. |
+| output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282/R283/R294/R295/R296 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, R283 feeds its E2 store vector from resident STQ snapshots, R294 exposes selected launch-row PC/address/size, load ID, BID/GID/RID, load LSID, and request-byte mask, R295 shapes the selected row's scalar base-data lookup response into 64-byte line-data diagnostics, and R296 adds execute-priority lookup arbitration plus replay grant/block diagnostics; this top still ties launch disabled. |
 | output | `reducedLoadReplayResolveQueue*` | mixed | diagnostic | R285-R289 opt-in replay-LIQ ResolveQ diagnostics. `lhqRecord` from `ReducedLoadReplayLiqAllocPath` can append to `LoadResolveQueue`; the top exposes push, delayed clear, commit-window retire watermark, scalar-redirect precise flush identity, retire/prune mask/count, occupancy, valid-mask, and head conflict-row sidecars. Because launch remains disabled, the current fixture observes storage, retire, and recovery-prune wiring only; live MDB/recovery publication is deferred. |
 | output | `reducedMdbConflict*` | mixed | diagnostic | R290 opt-in replay-LIQ MDB conflict diagnostics. The top feeds `MDBConflictDetect` with the accepted reduced STQ insert request, replay-LIQ resident rows, and ResolveQ conflict rows, then exposes store-valid, active/ResolveQ candidate masks, wait-store mask/count, selected source/index/ordinal, selected load/store BID and LSID identity, plus inner/nuke classification. These signals are diagnostic only; they do not yet drive recovery flush. |
 | output | `reducedMdbFanout*` | mixed | diagnostic | R291-R293 opt-in replay-LIQ MDB fanout/learning diagnostics. Selected conflict records enqueue into `MDBQueueFanout.recordIn` with model confidence `1`; resident STQ rows feed the SU wakeup scan view; replay-LIQ launch acceptance forms a dormant `lookupIn` command boundary; and R293 exposes the still-inactive delete command/decay boundary plus phase-stall diagnostics. Delete producers remain tied off. The top exposes lookup ready/accept/process, delete ready/accept/process and decay result flags, LU/SU lookup-result hit/store-BID diagnostics, record ready/accept/process, BMDB report intent, SSIT valid mask, record errors, and SU match/wakeup diagnostics without mutating recovery or load wakeup state. |
@@ -1150,9 +1150,17 @@ top boundary so later base-data lookup and arbitration packets can consume the
 same row that `LoadInflightLaunchSelect` selected.
 R295 instantiates `LoadReplayBaseDataAlign` for that selected row, converting
 the shared 64-bit sparse-memory response shape into dormant
-`e2BaseData/e2BaseValidMask` inputs plus base lookup diagnostics. The top still
-does not arbitrate replay against execute on the external load lookup port, and
-keeps `launchEnable`, `e2ScbReturned`, and `e2ReturnReady` inactive.
+`e2BaseData/e2BaseValidMask` inputs plus base lookup diagnostics. That packet
+kept `launchEnable`, `e2ScbReturned`, and `e2ReturnReady` inactive and did not
+arbitrate replay against execute on the external load lookup port.
+R296 inserts `LoadLookupArbiter` between execute and the replay base-data
+request. Execute keeps priority on the shared sparse-memory lookup pins, while
+replay-LIQ may drive those pins only when execute is idle. The top keeps raw
+replay base-request diagnostics (`reducedLoadReplayLiqBaseLookupValid`) separate
+from grant/data diagnostics (`reducedLoadReplayLiqBaseLookupGranted`,
+`reducedLoadReplayLiqBaseLookupBlockedByExecute`, and
+`reducedLoadReplayLiqBaseDataReturned`), and gates dormant
+`e2BaseData/e2BaseValidMask/e2LoadDataReturned` with the replay grant.
 R286 latches the accepted LHQ load slot and drives `clearResolvedValid` on the
 following cycle, because `LoadInflightQueue` only accepts clear requests after
 the E4 hit has become a resident `Resolved` row. R287 selects the youngest
@@ -1228,7 +1236,10 @@ For reduced loads, the execute stage publishes a combinational lookup request
 before it captures the E-stage result. The Verilator harness evaluates the DUT,
 reads eight little-endian bytes from the sparse ELF image at `loadLookupAddr`,
 drives `loadLookupData`, and reevaluates before the clock edge. Missing bytes
-read as zero. R124/R125 used explicit committed-store mutation in the harness:
+read as zero. R296 keeps execute as the priority lookup source and lets the
+opt-in replay-LIQ base-data request use the same harness lookup only when
+execute is idle; replay-LIQ base data is accepted only on the replay grant.
+R124/R125 used explicit committed-store mutation in the harness:
 after a store row matched QEMU, the harness wrote that little-endian
 `mem_wdata` into the same sparse image so later reduced load lookups saw the
 program-order store effect. R258 keeps that legacy mode available, but the
@@ -1965,6 +1976,10 @@ The R295 replay-LIQ base-data align diagnostic fixture manifest at
 `generated/r295-replay-liq-base-align-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `summary.compared_rows: 3`, and
 `summary.mismatch_count: 0`.
+The R296 replay-LIQ load-lookup arbiter diagnostic fixture manifest at
+`generated/r296-replay-liq-load-lookup-arb-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 3`, and
+`summary.mismatch_count: 0`.
 
 ## Verification
 
@@ -1983,6 +1998,7 @@ records `status: "pass"`, `summary.compared_rows: 3`, and
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r292-replay-liq-mdb-lookup-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r294-replay-liq-launch-row-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r295-replay-liq-base-align-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r296-replay-liq-load-lookup-arb-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `BUILD_DIR=generated/r141-diagnostic-replay-1747-fret-target-priority FETCH_EXPECTED_ROWS=generated/r141-logical-local-1747-qemu-elf-xcheck/qemu.expected.jsonl FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`

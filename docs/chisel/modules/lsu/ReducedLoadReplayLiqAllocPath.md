@@ -50,7 +50,7 @@ MDB publication remain outside this module.
 | `candidate` | Queued reduced replay candidate with load identity and forwarding snapshot. |
 | `launchEnable` | Parent-owned arm bit. When low, selector diagnostics remain visible but `LoadInflightQueue.launchValid` is not driven. |
 | `e2Stores` | Abstract STQ forwarding rows for the `LoadForwardPipeline` launch path. R283 top wiring feeds a `ResidentStoreForwardStoreSnapshot` vector while keeping launch disabled. |
-| `e2BaseData` / `e2BaseValidMask` | Baseline line data and valid bytes for relaunches that do not already have row-owned data. R295 top wiring shapes the selected row's scalar sparse-memory response through `LoadReplayBaseDataAlign` while keeping launch disabled. |
+| `e2BaseData` / `e2BaseValidMask` | Baseline line data and valid bytes for relaunches that do not already have row-owned data. R295 top wiring shapes the selected row's scalar sparse-memory response through `LoadReplayBaseDataAlign` while keeping launch disabled; R296 gates those inputs with `LoadLookupArbiter.replayGranted` so execute-returned sparse-memory bytes cannot feed the replay row. |
 | `e2LoadDataReturned` / `e2ScbReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. |
 | `clearResolvedValid` | Pass-through clear request for future tests or consumers that resolve rows. |
 | `clearResolvedIndex` | LIQ slot for `clearResolvedValid`. |
@@ -127,7 +127,8 @@ reduced wait slot and replay queue produce the same cleared load as a
    re-scanning the row array.
    R295 has the top consume that selected row in `LoadReplayBaseDataAlign`,
    producing dormant `e2BaseData/e2BaseValidMask` inputs for the same selected
-   row. The path still does not arbitrate sparse-memory lookup ownership.
+   row. R296 drives those dormant inputs only when `LoadLookupArbiter` grants
+   the selected replay row on the shared sparse-memory lookup port.
 6. R282 adds an explicit parent-owned `launchEnable` gate. When it is high,
    the selector's `launchValid/launchIndex` drive `LoadInflightQueue`, which
    relaunches the row through `LoadForwardPipeline` using `e2Stores`,
