@@ -21,6 +21,8 @@ The implementation is grounded in:
 - `model/LinxCoreModel/isa/ISACommon/GPR.h`
 - `model/LinxCoreModel/isa/ISACommon/DecodeUtiles.h`
 - `model/LinxCoreModel/isa/MInst.cpp`
+- `model/LinxCoreModel/isa/codec/decodefiles/block32.decode`
+- `model/LinxCoreModel/isa/calculate/store/Store.cpp`
 - `model/LinxCoreModel/isa/codec/decodefiles/block16.decode`
 
 ## Interface
@@ -116,7 +118,12 @@ Explicit pyCircuit/model overrides currently cover:
   rows do not allocate an unwritten RA physical register;
 - `BTEXT` source plus 25-bit immediate;
 - `BLOAD`/`BSTORE` register fields;
-- `MADD`, `MADDW`, `CSEL`, `BIOR`, and indexed stores that carry `srcp32`;
+- `MADD`, `MADDW`, `CSEL`, and `BIOR`, which carry `srcp32`;
+- indexed register stores `SB`/`SH`/`SW`/`SD`, which follow the model store
+  source order `src0=SrcD` from `srcp32`, `src1=SrcL` from `rs1`, and
+  `src2=SrcR` from `rs2`. Execute owns the store-size scaling and data/address
+  sidebands, but decode must preserve this order so `Store::CalcStoreAddr`
+  sees base plus index and store data remains source 0;
 - R115 `SLLI`/`SRLI`/`SRAI` immediate extraction, where LinxCoreModel
   `@shift_i` uses `src1=%shamt_20_25` even though the generated Chisel opcode
   table still marks those opcodes as `ImmNONE`.
@@ -176,7 +183,7 @@ The `FrontendDecodeStageSpec` reference cases cover:
 - 32-bit unsigned immediate (`ADDI`)
 - 32-bit signed immediate (`ANDI`)
 - shift-immediate shamt extraction (`SLLI`)
-- indexed store `srcp` (`SD`)
+- indexed store `SD`, with `src0=SrcD`, `src1=SrcL`, and `src2=SrcR`
 - direct block-start byte offset (`BSTART.DIRECT`)
 - fixed-destination compressed ALU (`C.ADD`)
 - compressed signed immediate (`C.MOVI`)

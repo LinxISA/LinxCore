@@ -21,8 +21,10 @@
 
 `ReducedStoreCommitFreeOwner` is the reduced-top lifecycle owner that connects
 ROB commit rows to the optional queue-backed STQ path. It observes committed
-store rows from `DecodeRenameROBPath`, matches them to resident STQ rows by
-native ROB RID wrap/value plus STID, and marks the matched STQ row committed.
+store rows from `DecodeRenameROBPath`, matches them to resident STQ rows by the
+model `CommitTrace.identity` tuple plus STID, and marks the matched STQ row
+committed. It also buffers committed-store identities when ROB commit becomes
+visible before the matching reduced STQ row is resident and markable.
 It can also run in a legacy direct-free mode that issues a later single-index
 committed-row free, but `LinxCoreFrontendFetchRfAluTraceTop` disables that mode
 after R241 and frees rows from the SCB accepted-`last` mask instead.
@@ -63,6 +65,8 @@ Outputs:
 - `commitStoreSeen`, `commitStoreMatched`, `commitStoreUnmatched`: current
   commit-window diagnostics.
 - `matchMask`: STQ rows matched by current committed store rows.
+- `pendingCommitIdentityMask`: buffered committed-store identities that are
+  waiting for a future resident STQ row with the same model identity.
 - `pendingMarkMask`, `pendingFreeMask`,
   `pendingMarkCount`, `pendingFreeCount`: registered owner state.
 - `markBlocked`, `freeBlocked`: command was issued but the STQ bank did not
@@ -72,24 +76,32 @@ Outputs:
 ## Logic Design
 
 The owner does not maintain a parallel insertion map. `StoreDispatchToSTQ`
-already stamps each STQ row with the renamed uop's `rid`, `bid`, `lsId`, and
-STID sidecars. The ROB commit row already exposes the native `rob` RID with
-wrap/value. A committed store row matches an STQ row when:
+already stamps each STQ row with the renamed uop's model `bid/gid/rid`,
+`lsId`, and STID sidecars. The ROB commit row exposes the same model identity
+through `CommitTraceRow.identity`. A committed store row matches an STQ row
+when:
 
 1. the commit slot is valid,
 2. the commit row is a store memory row,
-3. the commit row has a valid native ROB RID,
+3. the commit row has a model `CommitTrace.identity` value,
 4. the STQ row is valid, `Wait`, `ST_ALL`, address-ready, and data-ready,
-5. the STQ row RID equals the commit row RID using wrap/value comparison,
+5. the STQ row model `bid/gid/rid` equals the commit identity,
 6. the STQ row STID equals `activeStid`.
 
-Matched rows set bits in `pendingMarkMask`. The owner presents the lowest
-pending mark bit as a single `markCommitValid` command. When `STQEntryBank`
-accepts that command, the bit leaves `pendingMarkMask`. If `directFreeEnable`
-is asserted, the bit also enters `pendingFreeMask`; on a later cycle the owner
-presents the lowest pending free bit as a single `commitFreeValid` command and
-accepted free clears the bit. If `directFreeEnable` is deasserted,
-`pendingFreeMask` is held empty and another owner must free the committed row.
+Matched rows set bits in `pendingMarkMask`. If a committed store identity does
+not match a currently markable STQ row, the owner records that identity in a
+small pending-commit buffer. Later cycles compare resident STQ rows against
+both the current commit window and buffered identities, then clear the buffered
+identity once a matching row becomes markable. This covers the reduced top case
+where ROB commit observation can race ahead of store queue residency.
+
+The owner presents the lowest pending mark bit as a single `markCommitValid`
+command. When `STQEntryBank` accepts that command, the bit leaves
+`pendingMarkMask`. If `directFreeEnable` is asserted, the bit also enters
+`pendingFreeMask`; on a later cycle the owner presents the lowest pending free
+bit as a single `commitFreeValid` command and accepted free clears the bit. If
+`directFreeEnable` is deasserted, `pendingFreeMask` is held empty and another
+owner must free the committed row.
 
 The register boundary matters. Commit-window observation only sets pending mark
 bits for a later cycle. In direct-free mode, accepted marks create pending free
@@ -113,6 +125,14 @@ mark into `STQCommitDrain`, with `SCBRowBank.commitFreeMask` as the only STQ
 free source. Program-order memory effects, external memory mutation, and
 load/store interaction are still outside this owner.
 
+R253 corrects the reduced owner matching contract: commit rows must match STQ
+rows through model `bid/gid/rid`, not the physical ROB sideband, and unmatched
+committed-store identities must be retained until the split-store path has
+inserted a ready `ST_ALL` row. The focused owner gate passes, the 240-row
+live-QEMU reduced-store wrapper compares 162 rows with zero mismatches, and a
+direct replay over the 726-row R252 expected stream compares 495 architectural
+rows with zero mismatches.
+
 ## Deferred Owners
 
 - Add store memory mutation and load lookup/store-forwarding interaction.
@@ -133,7 +153,7 @@ Integrated gate used for R241:
 sbt "testOnly linxcore.lsu.STQCommitQueueSpec linxcore.lsu.STQCommitDrainSpec linxcore.lsu.STQSCBCommitPathSpec linxcore.lsu.ReducedStoreCommitFreeOwnerSpec linxcore.lsu.ReducedStoreExecResultBridgeSpec linxcore.backend.DecodeRenameROBPathSpec linxcore.top.LinxCoreFrontendFetchRfAluTraceTopSpec"
 ```
 
-The tests cover commit-row-to-STQ matching, pending mark/free progression,
-direct-free disable behavior, unmatched store diagnostics, non-ready row
-rejection, drain flush clearing, and top/backend elaboration of the SCB-backed
-free diagnostics.
+The tests cover commit-identity-to-STQ matching, pending commit identity
+buffering, pending mark/free progression, direct-free disable behavior,
+unmatched store diagnostics, non-ready row rejection, drain flush clearing, and
+top/backend elaboration of the SCB-backed free diagnostics.

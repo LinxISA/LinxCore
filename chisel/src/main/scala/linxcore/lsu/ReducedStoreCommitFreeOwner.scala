@@ -1,7 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.{log2Ceil, PopCount, PriorityEncoder, UIntToOH}
+import chisel3.util.{log2Ceil, PopCount, PriorityEncoder, PriorityEncoderOH, UIntToOH}
 
 import linxcore.commit.{CommitTraceParams, CommitTracePort, CommitTraceRow}
 import linxcore.rob.ROBID
@@ -94,15 +94,20 @@ class ReducedStoreCommitFreeOwner(
     io.enable &&
       io.commitValidMask(slot) &&
       row.valid &&
-      row.rob.valid &&
       row.mem.valid &&
       row.mem.isStore
   }
 
-  private def sameRobRow(commitRow: CommitTraceRow, stqRow: STQEntryBankRow): Bool =
-    stqRow.rid.valid &&
-      commitRow.rob.wrap === stqRow.rid.wrap &&
-      resize(commitRow.rob.value, ptrWidth) === stqRow.rid.value
+  private def stqRowIdentityValid(stqRow: STQEntryBankRow): Bool =
+    stqRow.bid.valid &&
+      stqRow.gid.valid &&
+      stqRow.rid.valid
+
+  private def sameCommitIdentity(commitRow: CommitTraceRow, stqRow: STQEntryBankRow): Bool =
+    stqRowIdentityValid(stqRow) &&
+      resize(commitRow.identity.bid, ptrWidth) === stqRow.bid.value &&
+      resize(commitRow.identity.gid, ptrWidth) === stqRow.gid.value &&
+      resize(commitRow.identity.rid, ptrWidth) === stqRow.rid.value
 
   private def markable(row: STQEntryBankRow): Bool =
     row.valid &&
@@ -115,22 +120,56 @@ class ReducedStoreCommitFreeOwner(
 
   val pendingMark = RegInit(0.U(entries.W))
   val pendingFree = RegInit(0.U(entries.W))
+  val pendingCommitValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
+  val pendingCommitBid = Reg(Vec(entries, UInt(ptrWidth.W)))
+  val pendingCommitGid = Reg(Vec(entries, UInt(ptrWidth.W)))
+  val pendingCommitRid = Reg(Vec(entries, UInt(ptrWidth.W)))
+
+  private def samePendingIdentity(idx: Int, row: STQEntryBankRow): Bool =
+    pendingCommitValid(idx) &&
+      stqRowIdentityValid(row) &&
+      pendingCommitBid(idx) === row.bid.value &&
+      pendingCommitGid(idx) === row.gid.value &&
+      pendingCommitRid(idx) === row.rid.value
+
+  private def samePendingCommit(idx: Int, commitRow: CommitTraceRow): Bool =
+    pendingCommitValid(idx) &&
+      pendingCommitBid(idx) === resize(commitRow.identity.bid, ptrWidth) &&
+      pendingCommitGid(idx) === resize(commitRow.identity.gid, ptrWidth) &&
+      pendingCommitRid(idx) === resize(commitRow.identity.rid, ptrWidth)
 
   val commitStoreVec = VecInit((0 until traceParams.commitWidth).map(commitStore))
   val slotMatchVec = Wire(Vec(traceParams.commitWidth, Bool()))
   for (slot <- 0 until traceParams.commitWidth) {
     slotMatchVec(slot) :=
       commitStoreVec(slot) &&
-        VecInit((0 until entries).map(idx => markable(io.stqRows(idx)) && sameRobRow(io.commit.rows(slot), io.stqRows(idx)))).asUInt.orR
+        VecInit((0 until entries).map(idx => markable(io.stqRows(idx)) && sameCommitIdentity(io.commit.rows(slot), io.stqRows(idx)))).asUInt.orR
   }
 
   val matchVec = Wire(Vec(entries, Bool()))
   for (idx <- 0 until entries) {
     matchVec(idx) :=
       markable(io.stqRows(idx)) &&
-        VecInit((0 until traceParams.commitWidth).map(slot => commitStoreVec(slot) && sameRobRow(io.commit.rows(slot), io.stqRows(idx)))).asUInt.orR
+        (VecInit((0 until traceParams.commitWidth).map(slot => commitStoreVec(slot) && sameCommitIdentity(io.commit.rows(slot), io.stqRows(idx)))).asUInt.orR ||
+          VecInit((0 until entries).map(pendingIdx => samePendingIdentity(pendingIdx, io.stqRows(idx)))).asUInt.orR)
   }
   val matchMask = matchVec.asUInt
+
+  val pendingMatchedVec = Wire(Vec(entries, Bool()))
+  for (pendingIdx <- 0 until entries) {
+    pendingMatchedVec(pendingIdx) :=
+      pendingCommitValid(pendingIdx) &&
+        VecInit((0 until entries).map(rowIdx => markable(io.stqRows(rowIdx)) && samePendingIdentity(pendingIdx, io.stqRows(rowIdx)))).asUInt.orR
+  }
+  val bufferStoreVec = Wire(Vec(traceParams.commitWidth, Bool()))
+  for (slot <- 0 until traceParams.commitWidth) {
+    val alreadyPending =
+      VecInit((0 until entries).map(idx => samePendingCommit(idx, io.commit.rows(slot)))).asUInt.orR
+    bufferStoreVec(slot) := commitStoreVec(slot) && !slotMatchVec(slot) && !alreadyPending
+  }
+  val bufferStoreMask = bufferStoreVec.asUInt
+  val bufferStoreValid = bufferStoreMask.orR
+  val bufferStoreSlot = PriorityEncoder(bufferStoreMask)
 
   val markIndex = PriorityEncoder(pendingMark)
   val markValid = io.enable && !io.flushValid && pendingMark.orR
@@ -151,6 +190,9 @@ class ReducedStoreCommitFreeOwner(
   when(!io.enable || io.flushValid) {
     pendingMark := 0.U
     pendingFree := 0.U
+    for (idx <- 0 until entries) {
+      pendingCommitValid(idx) := false.B
+    }
   }.otherwise {
     val nextMark = (pendingMark | matchMask) & ~Mux(markAccepted, markOH, 0.U(entries.W))
     val nextFree = Mux(
@@ -159,6 +201,36 @@ class ReducedStoreCommitFreeOwner(
       0.U(entries.W))
     pendingMark := nextMark
     pendingFree := nextFree
+
+    val basePendingValid = Wire(Vec(entries, Bool()))
+    val nextPendingValid = Wire(Vec(entries, Bool()))
+    val nextPendingBid = Wire(Vec(entries, UInt(ptrWidth.W)))
+    val nextPendingGid = Wire(Vec(entries, UInt(ptrWidth.W)))
+    val nextPendingRid = Wire(Vec(entries, UInt(ptrWidth.W)))
+    for (idx <- 0 until entries) {
+      basePendingValid(idx) := pendingCommitValid(idx) && !pendingMatchedVec(idx)
+      nextPendingValid(idx) := basePendingValid(idx)
+      nextPendingBid(idx) := pendingCommitBid(idx)
+      nextPendingGid(idx) := pendingCommitGid(idx)
+      nextPendingRid(idx) := pendingCommitRid(idx)
+    }
+    val pendingIdentityFreeMask = VecInit((0 until entries).map(idx => !basePendingValid(idx))).asUInt
+    val pendingIdentityFreeOH = PriorityEncoderOH(pendingIdentityFreeMask)
+    val bufferRow = io.commit.rows(bufferStoreSlot)
+    for (idx <- 0 until entries) {
+      when(bufferStoreValid && pendingIdentityFreeOH(idx)) {
+        nextPendingValid(idx) := true.B
+        nextPendingBid(idx) := resize(bufferRow.identity.bid, ptrWidth)
+        nextPendingGid(idx) := resize(bufferRow.identity.gid, ptrWidth)
+        nextPendingRid(idx) := resize(bufferRow.identity.rid, ptrWidth)
+      }
+    }
+    for (idx <- 0 until entries) {
+      pendingCommitValid(idx) := nextPendingValid(idx)
+      pendingCommitBid(idx) := nextPendingBid(idx)
+      pendingCommitGid(idx) := nextPendingGid(idx)
+      pendingCommitRid(idx) := nextPendingRid(idx)
+    }
   }
 
   val unmatchedSlotVec = VecInit((0 until traceParams.commitWidth).map(slot => commitStoreVec(slot) && !slotMatchVec(slot)))

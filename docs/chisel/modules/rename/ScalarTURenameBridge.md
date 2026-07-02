@@ -110,6 +110,14 @@ The wrapper sanitizes the input before presenting it to
 - valid T/U destinations are hidden from scalar GPR rename and allocated by
   the T/U rename owner.
 
+For split-store rows entering the reduced store path, the bridge preserves
+local T/U source sidecars on the emitted `RenamedUop` but suppresses those
+local sources only at the live `TULinkLocalBankArray` lookup input. This keeps
+`SPERename::InsertToStoreIEX`-style store payload/source ordering visible to
+later store split and STQ owners while avoiding a false local sequence
+underflow when an STA/STD split carries a T/U payload or base that the reduced
+store path is not yet ready to consume through the normal scalar issue path.
+
 Acceptance is atomic. The scalar bridge can accept only when downstream output
 is ready, ROB allocation is ready, scalar GPR rename can proceed, and
 `TULinkLocalBankArray.ready` is true for the selected bank group.
@@ -222,7 +230,8 @@ bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 The current tests cover the atomic scalar/T/U accept reference rule, scalar
 input sanitization for T/U operands, local block-commit maintenance
 backpressure including STID mismatch, explicit active-bank selector validity,
-retire-command PE/STID selector validity, IO shape, and elaboration through
+split-store T/U source lookup bypass, retire-command PE/STID selector
+validity, IO shape, and elaboration through
 `ScalarDecodeRenameBridge`, `TULinkLocalBankArray`,
 `TULinkRecoveryCleanupPath`, `TULinkLocalBlockCommitFanout`, and
 `TULinkRename`.

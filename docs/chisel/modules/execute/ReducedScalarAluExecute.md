@@ -168,7 +168,7 @@ The Chisel module implements the first reduced subset:
 | `OP_SETC_LTU` | `0`, with branch sideband taken when unsigned `srcData(0) < srcData(1)` |
 | `OP_SETC_LTUI` | `0`, with branch sideband taken when unsigned `srcData(0) < in.imm` |
 | `OP_ADDW` | sign-extended low-32-bit `srcData(0) + srcData(1)` |
-| `OP_SD` | `0`, with a reduced 8-byte indexed store sideband at `srcData(0) + (srcData(1) << 3)` and store data `srcData(2)` |
+| `OP_SD` | `0`, with a reduced 8-byte indexed store sideband at `srcData(1) + (srcData(2) << 3)` and store data `srcData(0)` |
 | `OP_SDI` | `0`, with a reduced 8-byte store sideband at `srcData(1) + (in.imm << 3)` and store data `srcData(0)` |
 | `OP_SWI` | `0`, with a reduced 4-byte store sideband at `srcData(1) + (in.imm << 2)` and store data `srcData(0)` |
 | `OP_MUL` | low 64 bits of `srcData(0) * srcData(1)` |
@@ -300,11 +300,13 @@ R124 admits the indexed 64-bit store `OP_SD` at `pc=0x400055f2`. The model
 and QEMU decode use `SrcL` (`rs1`) as the base, `SrcR` (`rs2`) as the index,
 and `SrcD` (`bits[31:27]`) as the store payload. The reduced execute owner
 therefore emits a no-writeback 8-byte store sideband with
-`addr = srcData(0) + (srcData(1) << 3)` and `wdata = srcData(2)`. The current
-CoreMark row has a local T0 base, visible scalar `x2` index, and local U0
-payload, so the QEMU-shaped source fields expose only `src1=x2` while local
-source values remain internal. This is still a reduced sideband owner, not a
-general LSU/STQ path or a scalar-src2 commit-trace schema.
+`addr = srcData(1) + (srcData(2) << 3)` and `wdata = srcData(0)`.
+`FrontendOperandDecode` supplies that model order as
+`src0=SrcD`, `src1=SrcL`, and `src2=SrcR`. The current CoreMark row has a
+local T0 base, visible scalar `x2` index, and local U0 payload, so the
+QEMU-shaped completion row projects the visible base/index as source 0/1 while
+keeping the local payload internal. This is still a reduced sideband owner,
+not a general LSU/STQ path or a scalar-src2 commit-trace schema.
 R125 extends the reduced live CoreMark envelope with `OP_SUBI`, compressed
 local `OP_C_AND`, a local/scalar `OP_ADD` row, and compressed store-immediate
 `OP_C_SDI`. The reducer validates `SUBI` as `src0 - uimm12`, lets 32-bit `ADD`
@@ -404,8 +406,9 @@ For reduced `OP_SWI`, the completion row has the same no-writeback store
 shape, but the address is `srcData(1) + (uop.imm << 2)`, the store payload is
 `srcData(0)`, and `mem.size=4`.
 For reduced `OP_SD`, the completion row has the same no-writeback store shape,
-but the address comes from base plus scaled index and the store payload comes
-from `srcData(2)`.
+but the address comes from `srcData(1) + (srcData(2) << 3)`, the store payload
+comes from `srcData(0)`, and the QEMU-shaped visible source projection exposes
+base/index rather than the internal payload-first source order.
 For reduced `OP_C_SDI`, the completion row uses the same no-writeback store
 shape, with address from the compressed base plus scaled immediate and payload
 from the decoded T0 source carried on `srcData(1)`.

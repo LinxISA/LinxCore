@@ -239,6 +239,20 @@ class ScalarTURenameBridge(
       scalarInput.src(idx).relTag := 0.U
     }
   }
+
+  val splitStoreInput =
+    io.in.valid && io.in.isStore && io.in.storeSplitIntent &&
+      !io.in.isLoadStorePair && !io.in.cacheMaintainNoSplit
+  val tuInput = Wire(new DecodedUop(p))
+  tuInput := io.in
+  for (idx <- 0 until 3) {
+    when(splitStoreInput && localSrcIsTU(idx)) {
+      tuInput.src(idx).valid := false.B
+      tuInput.src(idx).operandClass := OperandClass.Invalid
+      tuInput.src(idx).archTag := 0.U
+      tuInput.src(idx).relTag := 0.U
+    }
+  }
   when(io.in.dst(0).valid && (io.in.dst(0).kind =/= DestinationKind.Gpr)) {
     scalarInput.dst(0).valid := false.B
     scalarInput.dst(0).kind := DestinationKind.None
@@ -272,8 +286,10 @@ class ScalarTURenameBridge(
 
   tu.io.activePeId := io.activePeId
   tu.io.activeStid := io.activeStid
+  val tuReadyForScalar = tu.io.ready || splitStoreInput
+
   scalar.io.in := scalarInput
-  scalar.io.outReady := io.outReady && tu.io.ready && !localUnsupported
+  scalar.io.outReady := io.outReady && tuReadyForScalar && !localUnsupported
   scalar.io.robAllocReady := io.robAllocReady
   scalar.io.checkpointValid := io.checkpointValid
   scalar.io.checkpointBid := io.checkpointBid
@@ -284,7 +300,7 @@ class ScalarTURenameBridge(
   scalar.io.cleanupOrderValid := io.cleanupOrderValid
   scalar.io.cleanupOrder := io.cleanupOrder
 
-  tu.io.in := io.in
+  tu.io.in := tuInput
   tu.io.renameValid := scalar.io.accepted
   tu.io.retireValid := io.tuRetireValid
   tu.io.retireKind := io.tuRetireKind

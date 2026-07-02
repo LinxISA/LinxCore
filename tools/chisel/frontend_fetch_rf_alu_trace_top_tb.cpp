@@ -2537,6 +2537,54 @@ void commit_expected_row(
             << " localUPending=" << static_cast<unsigned>(dut.io_localUPendingCount)
             << " localIncomingUsesLocal=" << static_cast<unsigned>(dut.io_localIncomingUsesLocal)
             << " localIncomingBlocked=" << static_cast<unsigned>(dut.io_localIncomingBlocked)
+            << " storeDispatchReady=" << static_cast<unsigned>(dut.io_storeDispatchReady)
+            << " storeDispatchFire=" << static_cast<unsigned>(dut.io_storeDispatchFire)
+            << " storeDispatchSplit=" << static_cast<unsigned>(dut.io_storeDispatchSplit)
+            << " storeStaQ=" << static_cast<unsigned>(dut.io_storeStaQueueCount)
+            << " storeStdQ=" << static_cast<unsigned>(dut.io_storeStdQueueCount)
+            << " storeStaExecValid=" << static_cast<unsigned>(dut.io_reducedStoreStaExecValid)
+            << " storeStdExecValid=" << static_cast<unsigned>(dut.io_reducedStoreStdExecValid)
+            << " storeBlockedStaExec=" << static_cast<unsigned>(dut.io_storeBlockedByStaExec)
+            << " storeBlockedStdExec=" << static_cast<unsigned>(dut.io_storeBlockedByStdExec)
+            << " storeStaInsertReady=" << static_cast<unsigned>(dut.io_storeStaInsertReady)
+            << " storeStdInsertReady=" << static_cast<unsigned>(dut.io_storeStdInsertReady)
+            << " storeSelectedSta=" << static_cast<unsigned>(dut.io_storeSelectedSta)
+            << " storeSelectedStd=" << static_cast<unsigned>(dut.io_storeSelectedStd)
+            << " storeStqInsertValid=" << static_cast<unsigned>(dut.io_storeStqInsertValid)
+            << " storeStqInsertAccepted=" << static_cast<unsigned>(dut.io_storeStqInsertAccepted)
+            << " storeStqInsertAllocated=" << static_cast<unsigned>(dut.io_storeStqInsertAllocated)
+            << " storeStqInsertMerged=" << static_cast<unsigned>(dut.io_storeStqInsertMerged)
+            << " storeStqInsertConflict=" << static_cast<unsigned>(dut.io_storeStqInsertConflict)
+            << " storeStqWait=0x" << std::hex << hex_port(dut.io_storeStqWaitMask)
+            << " storeStqCommit=0x" << hex_port(dut.io_storeStqCommitMask)
+            << std::dec
+            << " storeStqResident=" << static_cast<unsigned>(dut.io_storeStqResidentCount)
+            << " storeStqOutstandingWait=" << static_cast<unsigned>(dut.io_storeStqOutstandingWaitCount)
+            << " storeStqFull=" << static_cast<unsigned>(dut.io_storeStqFull)
+            << " reducedStoreExecBuf=" << static_cast<unsigned>(dut.io_reducedStoreExecBufferCount)
+            << " reducedStoreExecMask=0x" << std::hex
+            << static_cast<unsigned>(dut.io_reducedStoreExecValidMask)
+            << std::dec
+            << " reducedStoreCommitSeen=" << static_cast<unsigned>(dut.io_reducedStoreCommitStoreSeen)
+            << " reducedStoreCommitMatched=" << static_cast<unsigned>(dut.io_reducedStoreCommitStoreMatched)
+            << " reducedStoreCommitUnmatched=" << static_cast<unsigned>(dut.io_reducedStoreCommitStoreUnmatched)
+            << " reducedStoreCommitMatchMask=0x" << std::hex
+            << static_cast<unsigned>(dut.io_reducedStoreCommitMatchMask)
+            << " reducedStoreCommitPendingMarkMask=0x"
+            << static_cast<unsigned>(dut.io_reducedStoreCommitPendingMarkMask)
+            << " reducedStoreCommitPendingFreeMask=0x"
+            << static_cast<unsigned>(dut.io_reducedStoreCommitPendingFreeMask)
+            << std::dec
+            << " reducedStoreCommitMarkValid="
+            << static_cast<unsigned>(dut.io_reducedStoreCommitMarkValid)
+            << " reducedStoreCommitMarkAccepted="
+            << static_cast<unsigned>(dut.io_reducedStoreCommitMarkAccepted)
+            << " reducedStoreCommitMarkBlocked="
+            << static_cast<unsigned>(dut.io_reducedStoreCommitMarkBlocked)
+            << " reducedStoreCommitMarkPending="
+            << static_cast<unsigned>(dut.io_reducedStoreCommitPendingMarkCount)
+            << " reducedStoreDrainQ=" << static_cast<unsigned>(dut.io_reducedStoreDrainQueueCount)
+            << " reducedStoreScbEntries=" << static_cast<unsigned>(dut.io_reducedStoreScbEntryCount)
             << " issueCount=" << static_cast<unsigned>(dut.io_issueQueueCount)
             << " issueHeadValid=" << static_cast<unsigned>(dut.io_issueQueueHeadValid)
             << " issueHeadIssued=" << static_cast<unsigned>(dut.io_issueQueueHeadIssued)

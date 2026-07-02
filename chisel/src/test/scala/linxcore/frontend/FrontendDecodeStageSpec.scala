@@ -138,6 +138,15 @@ object FrontendDecodeStageReference {
       FrontendOpcodeDecodeTable.OP_SD)) {
       src(2) = Some(srcp32)
     }
+    if (opcodeIs(rule,
+      FrontendOpcodeDecodeTable.OP_SB,
+      FrontendOpcodeDecodeTable.OP_SH,
+      FrontendOpcodeDecodeTable.OP_SW,
+      FrontendOpcodeDecodeTable.OP_SD)) {
+      src(0) = Some(srcp32)
+      src(1) = Some(rs1_32)
+      src(2) = Some(rs2_32)
+    }
 
     rule.immKind match {
       case FrontendOpcodeDecodeTable.ImmUIMM12 => imm = Some(bitRange(word, 31, 20))
@@ -446,9 +455,9 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(cLdiScaled.imm.contains(BigInt("fffffffffffffff0", 16)))
 
     val sd = operands(0x00003049L | (9L << 15) | (10L << 20) | (11L << 27), lenBytes = 4).get
-    assert(sd.src(0).contains(9))
-    assert(sd.src(1).contains(10))
-    assert(sd.src(2).contains(11))
+    assert(sd.src(0).contains(11))
+    assert(sd.src(1).contains(9))
+    assert(sd.src(2).contains(10))
     assert(sd.dst.isEmpty)
 
     val bstart = operands(0x00002001L | (1L << 15), lenBytes = 4).get

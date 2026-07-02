@@ -244,6 +244,16 @@ class FrontendOperandDecode(val p: InterfaceParams = InterfaceParams()) extends 
       setSrc(2, srcp32)
     }
 
+    when(opcodeIs(
+      FrontendOpcodeDecodeTable.OP_SB,
+      FrontendOpcodeDecodeTable.OP_SH,
+      FrontendOpcodeDecodeTable.OP_SW,
+      FrontendOpcodeDecodeTable.OP_SD)) {
+      setSrc(0, srcp32)
+      setSrc(1, rs1_32)
+      setSrc(2, rs2_32)
+    }
+
     when(io.meta.immKind === FrontendOpcodeDecodeTable.ImmUIMM12.U) {
       setImm(imm12U)
     }

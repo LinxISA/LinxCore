@@ -733,6 +733,23 @@ marker-row top can still clean from admitted marker-retire metadata. The
 promoted reduced-store live CoreMark/QEMU gate captures 42 raw rows and passes
 with 31 compared rows and zero mismatches.
 
+R253 advances the same opt-in reduced-store path through the SDI store-pressure
+frontier. The packet fixes indexed `OP_SD` operand order to match
+LinxCoreModel (`SrcD`, `SrcL`, `SrcR`), projects OP_SD base/index into the
+two-source QEMU row shape, bypasses reduced split-store T/U source sequence
+lookup while preserving the sidecars for store/STQ owners, and changes
+`ReducedStoreCommitFreeOwner` to match STQ rows by model `bid/gid/rid`
+identity with a pending committed-store identity buffer. The live QEMU wrapper
+`generated/r253-reduced-store-pending-commit-sdi-240-qemu-elf-xcheck` captures
+240 raw rows and compares 162 normalized rows with zero mismatches. Reusing
+the same generated RTL against the prior 726-row R252 expected stream consumes
+231 marker skips, emits 495 architectural rows, and the neutral comparator
+reports 495 compared rows with zero mismatches in
+`generated/r253-reduced-store-pending-commit-sdi-240-qemu-elf-xcheck/report-768-direct`.
+
+skill-evolve: update linx-core (OP_SD model-order source mapping plus reduced
+store commit identity/pending-buffer triage are reusable LinxCore contracts).
+
 R244 scales the same opt-in reduced-store path to a 96-row CoreMark/QEMU
 prefix without further RTL changes. The gate captures 96 raw rows, reduces 92
 expected rows, compares 67 normalized rows, and passes with zero mismatches.

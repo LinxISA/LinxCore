@@ -223,7 +223,7 @@ class ReducedScalarAluExecute(
     stackPointerData + imm - 8.U
 
   private def sdIndexedAddr(srcData: Vec[UInt]): UInt =
-    srcData(0) + ((srcData(1) << 3)(p.immWidth - 1, 0))
+    srcData(1) + ((srcData(2) << 3)(p.immWidth - 1, 0))
 
   private def storeByteImmAddr(srcData: Vec[UInt], imm: UInt): UInt =
     srcData(1) + imm
@@ -399,6 +399,14 @@ class ReducedScalarAluExecute(
     row.src1.valid := valid && uop.src(1).valid && (uop.src(1).operandClass === OperandClass.P)
     row.src1.reg := fitReg(uop.src(1).archTag)
     row.src1.data := srcData(1)
+    when(uop.opcode === opcode(FrontendOpcodeDecodeTable.OP_SD)) {
+      row.src0.valid := valid && uop.src(1).valid && (uop.src(1).operandClass === OperandClass.P)
+      row.src0.reg := fitReg(uop.src(1).archTag)
+      row.src0.data := srcData(1)
+      row.src1.valid := valid && uop.src(2).valid && (uop.src(2).operandClass === OperandClass.P)
+      row.src1.reg := fitReg(uop.src(2).archTag)
+      row.src1.data := srcData(2)
+    }
     row.dst.valid := valid && uop.dst(0).valid
     row.dst.reg := fitReg(uop.dst(0).archTag)
     row.dst.data := result
@@ -522,7 +530,7 @@ class ReducedScalarAluExecute(
       row.mem.valid := valid
       row.mem.isStore := true.B
       row.mem.addr := sdIndexedAddr(srcData)
-      row.mem.wdata := srcData(2)
+      row.mem.wdata := srcData(0)
       row.mem.rdata := 0.U
       row.mem.size := 8.U
     }
@@ -831,6 +839,12 @@ object ReducedScalarAluExecute {
 
   def referenceCsel(srcL: BigInt, srcR: BigInt, srcP: BigInt): BigInt =
     if ((srcP & Mask64) != 0) srcL & Mask64 else srcR & Mask64
+
+  def referenceSdIndexedAddress(srcL: BigInt, srcR: BigInt): BigInt =
+    (srcL + ((srcR & Mask64) << 3)) & Mask64
+
+  def referenceSdIndexedData(srcD: BigInt): BigInt =
+    srcD & Mask64
 
   def referenceResult(opcode: Int, pc: BigInt, src0: BigInt, src1: BigInt, imm: BigInt): Option[BigInt] =
     opcode match {

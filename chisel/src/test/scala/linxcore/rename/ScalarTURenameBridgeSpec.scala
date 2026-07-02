@@ -12,14 +12,24 @@ object ScalarTURenameBridgeReference {
       tuReady: Boolean,
       robReady: Boolean,
       outReady: Boolean,
-      localUnsupported: Boolean): Boolean =
-    inputValid && scalarReady && tuReady && robReady && outReady && !localUnsupported
+      localUnsupported: Boolean,
+      splitStoreTuBypass: Boolean = false): Boolean =
+    inputValid && scalarReady && (tuReady || splitStoreTuBypass) && robReady && outReady && !localUnsupported
 
   def scalarSourcePresentedToGpr(operandClass: String): Boolean =
     operandClass == "P"
 
   def preservesTUSource(operandClass: String): Boolean =
     operandClass == "T" || operandClass == "U"
+
+  def tuSourcePresentedForSequenceLookup(
+      operandClass: String,
+      isStore: Boolean,
+      storeSplitIntent: Boolean,
+      isLoadStorePair: Boolean = false,
+      cacheMaintainNoSplit: Boolean = false): Boolean =
+    preservesTUSource(operandClass) &&
+      !(isStore && storeSplitIntent && !isLoadStorePair && !cacheMaintainNoSplit)
 
   def localBlockCommitReady(
       externalCommitValid: Boolean,
@@ -41,6 +51,7 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
   test("reference accepts scalar and T/U rename atomically") {
     assert(accepts(inputValid = true, scalarReady = true, tuReady = true, robReady = true, outReady = true, localUnsupported = false))
     assert(!accepts(inputValid = true, scalarReady = true, tuReady = false, robReady = true, outReady = true, localUnsupported = false))
+    assert(accepts(inputValid = true, scalarReady = true, tuReady = false, robReady = true, outReady = true, localUnsupported = false, splitStoreTuBypass = true))
     assert(!accepts(inputValid = true, scalarReady = true, tuReady = true, robReady = false, outReady = true, localUnsupported = false))
     assert(!accepts(inputValid = true, scalarReady = true, tuReady = true, robReady = true, outReady = false, localUnsupported = false))
     assert(!accepts(inputValid = true, scalarReady = true, tuReady = true, robReady = true, outReady = true, localUnsupported = true))
@@ -53,6 +64,15 @@ class ScalarTURenameBridgeSpec extends AnyFunSuite {
     assert(preservesTUSource("T"))
     assert(preservesTUSource("U"))
     assert(!preservesTUSource("CArg"))
+  }
+
+  test("reference bypasses split-store local sources only for T/U sequence lookup") {
+    assert(tuSourcePresentedForSequenceLookup("T", isStore = false, storeSplitIntent = false))
+    assert(!tuSourcePresentedForSequenceLookup("T", isStore = true, storeSplitIntent = true))
+    assert(!tuSourcePresentedForSequenceLookup("U", isStore = true, storeSplitIntent = true))
+    assert(tuSourcePresentedForSequenceLookup("T", isStore = true, storeSplitIntent = false))
+    assert(tuSourcePresentedForSequenceLookup("T", isStore = true, storeSplitIntent = true, isLoadStorePair = true))
+    assert(tuSourcePresentedForSequenceLookup("T", isStore = true, storeSplitIntent = true, cacheMaintainNoSplit = true))
   }
 
   test("reference keeps local block commit behind external maintenance") {

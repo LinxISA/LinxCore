@@ -248,7 +248,9 @@ class ReducedScalarAluExecuteSpec extends AnyFunSuite {
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SETC_TGT, 0x4000574cL, 0, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceBranchCondition(FrontendOpcodeDecodeTable.OP_SETC_TGT, 0x4000574cL, 0).contains(true))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SBI, 0, 0x4fff0038L, 0).contains(0))
-    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SD, 0x4ffefdc0L, 21, 0).contains(0))
+    assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SD, 0, 0x4fff0040L, 21).contains(0))
+    assert(ReducedScalarAluExecute.referenceSdIndexedAddress(0x4fff0040L, 21).equals(BigInt("4fff00e8", 16)))
+    assert(ReducedScalarAluExecute.referenceSdIndexedData(0x400055f2L).equals(BigInt("400055f2", 16)))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_SDI, 0, 0x4fff0128L, 0).contains(0))
     assert(ReducedScalarAluExecute.referenceResult(FrontendOpcodeDecodeTable.OP_MULW, 6, 7, 0).contains(42))
     assert(ReducedScalarAluExecute.referenceResult(
