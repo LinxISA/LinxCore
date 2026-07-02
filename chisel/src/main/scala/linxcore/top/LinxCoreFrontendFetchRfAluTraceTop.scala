@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
+import linxcore.lsu.{ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -273,6 +273,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedStoreResidentWaitStoreLsIdValue = Output(UInt(ptrWidth.W))
   val reducedStoreResidentWaitStorePc = Output(UInt(p.pcWidth.W))
   val reducedStoreResidentLoadCrossesLine = Output(Bool())
+  val reducedStoreResidentReplayWakeValid = Output(Bool())
+  val reducedStoreResidentReplayWakeSelected = Output(Bool())
+  val reducedStoreResidentReplayWakeIdentityMatch = Output(Bool())
+  val reducedStoreResidentReplayWakeReady = Output(Bool())
+  val reducedStoreResidentReplayWakeCrossesLine = Output(Bool())
+  val reducedStoreResidentReplayWakeLineAddr = Output(UInt(p.immWidth.W))
+  val reducedStoreResidentReplayWakeByteMask = Output(UInt(64.W))
   val storeDispatchReady = Output(Bool())
   val storeDispatchFire = Output(Bool())
   val storeDispatchSplit = Output(Bool())
@@ -530,6 +537,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     lineEntries = reducedStoreMemoryLineEntries
   ))
   val reducedStoreResidentForward = Module(new ReducedStoreResidentForward(
+    entries = p.robEntries,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.threadIdWidth,
+    tidWidth = p.threadIdWidth,
+    mapQDepth = mapQDepth
+  ))
+  val reducedStoreResidentReplayWakeup = Module(new ResidentStoreReplayWakeup(
     entries = p.robEntries,
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
@@ -967,6 +981,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedStoreResidentForward.io.loadLsId := lsidToReducedStoreId(execute.io.loadLookupLsId)
   reducedStoreResidentForward.io.baseLoadData := reducedStoreMemoryOverlay.io.loadData
   reducedStoreResidentForward.io.rows := path.io.storeStqRows
+  reducedStoreResidentReplayWakeup.io.enable := useReducedStoreDispatchStq.B
+  reducedStoreResidentReplayWakeup.io.waitStore := reducedStoreResidentForward.io.waitStore
+  reducedStoreResidentReplayWakeup.io.rows := path.io.storeStqRows
 
   path.io.storeMarkCommitValid := storeCommitOwner.io.markCommitValid
   path.io.storeMarkCommitIndex := storeCommitOwner.io.markCommitIndex
@@ -1354,6 +1371,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedStoreResidentWaitStoreLsIdValue := reducedStoreResidentForward.io.waitStore.storeLsId.value
   io.reducedStoreResidentWaitStorePc := reducedStoreResidentForward.io.waitStore.pc
   io.reducedStoreResidentLoadCrossesLine := reducedStoreResidentForward.io.loadCrossesLine
+  io.reducedStoreResidentReplayWakeValid := reducedStoreResidentReplayWakeup.io.wakeValid
+  io.reducedStoreResidentReplayWakeSelected := reducedStoreResidentReplayWakeup.io.selectedRowValid
+  io.reducedStoreResidentReplayWakeIdentityMatch := reducedStoreResidentReplayWakeup.io.identityMatch
+  io.reducedStoreResidentReplayWakeReady := reducedStoreResidentReplayWakeup.io.selectedRowReady
+  io.reducedStoreResidentReplayWakeCrossesLine := reducedStoreResidentReplayWakeup.io.selectedRowCrossesLine
+  io.reducedStoreResidentReplayWakeLineAddr := reducedStoreResidentReplayWakeup.io.wake.lineAddr
+  io.reducedStoreResidentReplayWakeByteMask := reducedStoreResidentReplayWakeup.io.wakeByteMask
   io.storeDispatchReady := path.io.storeDispatchReady
   io.storeDispatchFire := path.io.storeDispatchFire
   io.storeDispatchSplit := path.io.storeDispatchSplit

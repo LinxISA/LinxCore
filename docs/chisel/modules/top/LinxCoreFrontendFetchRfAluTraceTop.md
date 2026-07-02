@@ -936,6 +936,7 @@ store).
 | output | `reducedStoreScb*` | mixed | diagnostic | R241 reduced `SCBRowBank` diagnostics: model-batch readiness, accepted/stalled request masks, accepted-`last` commit-free mask/count, valid row mask, and entry count. |
 | output | `reducedStoreMemoryValidMask`, `reducedStoreMemoryLineCount`, `reducedStoreMemoryLoadForwardMask`, `reducedStoreMemoryStoreDroppedMask` | mixed | diagnostic | R258/R259 reduced store-memory overlay occupancy, load-byte forward mask, and accepted-request drop diagnostics. The drop mask covers commit-row bypass lanes plus SCB accepted lanes. |
 | output | `reducedStoreResidentForwardMask`, `reducedStoreResidentWaitMask`, `reducedStoreResidentEligibleMask`, `reducedStoreResidentReadyForward`, `reducedStoreResidentWaitBlocked`, `reducedStoreResidentWaitStore*`, `reducedStoreResidentLoadCrossesLine` | mixed | diagnostic | R265-R267 resident-STQ forwarding diagnostics after the committed-store overlay. Ready hits forward bytes; wait hits hold execute through `executeLoadWaitHold` and expose the selected not-ready store's index, BID, LSID, and PC for later replay wakeup wiring. |
+| output | `reducedStoreResidentReplayWake*` | mixed | diagnostic | R268 typed store-unit replay wakeup request diagnostics derived from the selected resident wait-store identity and live STQ row readiness. This is producer-side infrastructure only; the reduced top does not yet consume the request into LIQ state. |
 | output | `executeLoadWaitHold` | `Bool` | diagnostic | R266 reduced execute hold for a load waiting on an older not-ready resident store. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
@@ -1064,7 +1065,10 @@ resident selector reports a wait byte, the adapter still leaves data unchanged
 but the top asserts `loadLookupWaitBlocked` into execute, so the load remains
 resident in E and cannot retire pass-through data. R267 also exports the
 selected not-ready resident store identity, including the STQ row index,
-`(BID, LSID)`, and store PC copied from the renamed store uop. The overlay clears only on
+`(BID, LSID)`, and store PC copied from the renamed store uop. R268 feeds that
+identity plus the live resident STQ row into `ResidentStoreReplayWakeup`, which
+publishes a typed `LoadReplayWakeupRequest` image when the selected row is
+still identity-matched and data-ready. The overlay clears only on
 run start/restart or when the optional reduced-store path is disabled;
 ordinary backend redirects do not clear it because committed store bytes are
 nonflushable state. The opt-in path is still for bounded integration debug: it
@@ -1109,9 +1113,10 @@ to include ROB-committed/storeCommitQ-equivalent fragments because the model
 can forward committed store bytes before SCB acceptance. R265 adds ready
 resident STQ forwarding after that committed overlay. R266 makes wait hits
 hold execute instead of retiring pass-through data. R267 preserves store PC in
-resident STQ rows and exports the selected wait-store identity; replay
-ownership remains deferred until a LIQ/LDQ row can remember and relaunch the
-load.
+resident STQ rows and exports the selected wait-store identity. R268 adds the
+producer-side store-unit replay wakeup request image for that identity, but
+replay ownership remains deferred until a LIQ/LDQ row can remember and
+relaunch the load.
 This remains a reduced memory visibility bridge, not a general LSU/STQ, cache,
 replay, or MDB implementation.
 
