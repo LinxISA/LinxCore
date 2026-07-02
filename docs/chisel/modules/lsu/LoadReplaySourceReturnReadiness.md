@@ -13,6 +13,7 @@
     - `LDQInfo::returnData`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayLaunchReadiness.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnReadiness.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ResidentStoreForwardStoreSnapshot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadForwardPipeline.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-SRC-001`
@@ -29,7 +30,9 @@ R299 keeps this owner conservative. The current reduced top has a combinational
 resident STQ snapshot and no live external SCB replay path, so it ties
 `externalScbPending` low and lets source return become true only after the
 selected row has base data and the local store snapshot is ready. The return
-pipe remains disabled in the top, so this packet does not relaunch loads.
+pipe now has an explicit `LoadReplayReturnReadiness` boundary, but the reduced
+top keeps that boundary's pipe availability input disabled, so this packet does
+not relaunch loads.
 
 ## Interface
 
@@ -86,8 +89,8 @@ item 4 for the replay-LIQ path:
    relying on this vacuous return.
 5. Publish blocker diagnostics in base-data, store-snapshot, then SCB order.
 
-`LoadReplayLaunchReadiness` still owns the final launch arm and return-pipe
-blocker ordering.
+`LoadReplayReturnReadiness` owns the return-pipe blocker after source return.
+`LoadReplayLaunchReadiness` still owns the final launch arm.
 
 ## Timing
 
@@ -103,7 +106,8 @@ from already flush-pruned replay-LIQ state.
 ## Deferred Owners
 
 - External SCB replay response producer and pending/returned qualification.
-- Return-pipe availability and arbitration.
+- Return-pipe availability producer and arbitration behind
+  `LoadReplayReturnReadiness`.
 - Live replay launch, LHQ publication, ready-table wakeup, and memory trace
   rows.
 

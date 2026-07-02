@@ -51,7 +51,7 @@ MDB publication remain outside this module.
 | `launchEnable` | Parent-owned arm bit. When low, selector diagnostics remain visible but `LoadInflightQueue.launchValid` is not driven. |
 | `e2Stores` | Abstract STQ forwarding rows for the `LoadForwardPipeline` launch path. R283 top wiring feeds a `ResidentStoreForwardStoreSnapshot` vector while keeping launch disabled. |
 | `e2BaseData` / `e2BaseValidMask` | Baseline line data and valid bytes for relaunches that do not already have row-owned data. R295 top wiring shapes the selected row's scalar sparse-memory response through `LoadReplayBaseDataAlign` while keeping launch disabled; R296 gates those inputs with `LoadLookupArbiter.replayGranted` so execute-returned sparse-memory bytes cannot feed the replay row. R297 routes the same grant-qualified data-return predicate through `LoadReplayLaunchReadiness`. |
-| `e2LoadDataReturned` / `e2ScbReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. R299 drives `e2ScbReturned` from `LoadReplaySourceReturnReadiness`, while `e2ReturnReady` remains inactive in the reduced top. |
+| `e2LoadDataReturned` / `e2ScbReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. R299 drives `e2ScbReturned` from `LoadReplaySourceReturnReadiness`. R300 drives `e2ReturnReady` from `LoadReplayReturnReadiness`, whose pipe-availability input remains inactive in the reduced top. |
 | `clearResolvedValid` | Pass-through clear request for future tests or consumers that resolve rows. |
 | `clearResolvedIndex` | LIQ slot for `clearResolvedValid`. |
 
@@ -82,7 +82,7 @@ MDB publication remain outside this module.
 | `launchValid` / `launchIndex` | Selector request before parent `launchEnable` qualification. |
 | `launchCandidateCount` | Number of selector candidates. |
 | `launchSelected*` | R294 selected launch-row identity from `LoadInflightLaunchSelect`: LIQ load ID, BID/GID/RID, load LSID, PC, address, size, and 64-byte request mask. These signals remain diagnostic while `launchEnable` is low. |
-| `launchDriveValid` | Actual valid presented to `LoadInflightQueue.launchValid`; low unless the parent-owned `launchEnable && launchValid` predicate is true. Since R299, the reduced top drives the source-return input from `LoadReplaySourceReturnReadiness`; return readiness remains tied low, so launch stays disabled. |
+| `launchDriveValid` | Actual valid presented to `LoadInflightQueue.launchValid`; low unless the parent-owned `launchEnable && launchValid` predicate is true. Since R300, the reduced top drives return readiness from `LoadReplayReturnReadiness`; the return-pipe availability input remains tied low, so launch stays disabled. |
 | `launchReady` | Selected row is launch-ready in `LoadInflightQueue`. |
 | `launchAccepted` | Selected row entered `Repick` through `LoadInflightQueue`. |
 | `repickMask` / `missMask` / `resolvedMask` | Pass-through LIQ state masks after any enabled relaunches. |
@@ -129,9 +129,10 @@ reduced wait slot and replay queue produce the same cleared load as a
    producing dormant `e2BaseData/e2BaseValidMask` inputs for the same selected
    row. R296 drives those dormant inputs only when `LoadLookupArbiter` grants
    the selected replay row on the shared sparse-memory lookup port. R297 adds
-   `LoadReplayLaunchReadiness` as the parent launch arm predicate; R299 feeds
-   its source-return input from `LoadReplaySourceReturnReadiness`. Launch
-   stays disabled until return-pipe readiness is real.
+   `LoadReplayLaunchReadiness` as the parent launch arm predicate, R299 feeds
+   its source-return input from `LoadReplaySourceReturnReadiness`, and R300
+   feeds its return-ready input from `LoadReplayReturnReadiness`. Launch stays
+   disabled until return-pipe availability is real.
 6. R282 adds an explicit parent-owned `launchEnable` gate. When it is high,
    the selector's `launchValid/launchIndex` drive `LoadInflightQueue`, which
    relaunches the row through `LoadForwardPipeline` using `e2Stores`,
@@ -142,8 +143,9 @@ reduced wait slot and replay queue produce the same cleared load as a
 Replay wakeup and refill wakeup ports remain inactive in this owner. The R283
 reduced top keeps `launchEnable` low but feeds `e2Stores` from a shared
 `ResidentStoreForwardStoreSnapshot`, so the path has model-shaped resident STQ
-store candidates available before live replay launch is armed. Base-data,
-return-readiness, and live arbitration wiring remain deferred. R285 consumes the
+store candidates available before live replay launch is armed. Base-data and
+return-readiness boundaries are wired but disabled where required; live
+arbitration wiring remains deferred. R285 consumes the
 path-local LHQ hit-record output in the top-level `LoadResolveQueue`, but this
 path still relies on the parent to decide when a resolved row should clear LIQ
 state or become visible to MDB conflict detection. R286 records that parent
@@ -174,7 +176,7 @@ owner.
   `LoadInflightLaunchSelect` through this path and the opt-in top diagnostics,
   and R282 adds the path-local launch drive gate, but the reduced top still
   leaves that gate disabled.
-- External SCB replay response ownership and return-readiness wiring for
+- External SCB replay response ownership and return-pipe availability for
   enabled relaunch.
 - Default/live LIQ ResolveQ insertion and load-store conflict publication.
 - Ready-table, bypass, and dependent-consumer wakeup.
