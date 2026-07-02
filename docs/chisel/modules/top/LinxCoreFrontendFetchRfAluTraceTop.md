@@ -828,6 +828,15 @@ with `--disable-store-memory-mutation` normalizes 3370 QEMU/DUT rows, compares
 skill-evolve: no-update (R260 only scales the R259 commit-row overlay proof;
 no new reusable invariant, mandatory gate, or triage order changed).
 
+R261 reuses the same R259 generated testbench against the existing 8192-row
+loop-reentry expected stream with `--disable-store-memory-mutation`. The common
+comparator normalizes 7173 QEMU/DUT rows, compares 7172 rows, and passes with
+zero mismatches in
+`generated/r261-reduced-store-overlay-commit-row-8192-reuse-r259-bin-xcheck/report/crosscheck_manifest.json`.
+
+skill-evolve: no-update (R261 only scales the R259/R260 commit-row overlay
+proof; no new reusable invariant, mandatory gate, or triage order changed).
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |

@@ -179,3 +179,24 @@ bash tools/chisel/run_chisel_qemu_crosscheck.sh \
 The comparator passes at
 `generated/r260-reduced-store-overlay-commit-row-4096-reuse-r259-bin-xcheck/report/crosscheck_manifest.json`
 with 3369 compared rows and zero mismatches.
+
+R261 repeats the same no-harness-mutation direct replay pattern at the existing
+8192-row expected-stream depth:
+
+```bash
+generated/r259-reduced-store-overlay-commit-row-2048-trace-xcheck/obj_dir/linxcore_frontend_fetch_rf_alu_trace_top_tb \
+  --dut-trace generated/r261-reduced-store-overlay-commit-row-8192-reuse-r259-bin-xcheck/traces/dut.no-harness-store.jsonl \
+  --qemu-trace generated/r261-reduced-store-overlay-commit-row-8192-reuse-r259-bin-xcheck/traces/qemu.no-harness-store.jsonl \
+  --expected-rows generated/r257-reduced-store-scale-8192-reuse-r254-bin-qemu-elf-xcheck/qemu.expected.loop-reentry.jsonl \
+  --memory-hex generated/r259-reduced-store-overlay-commit-row-2048-trace-xcheck/elf.fetch.mem \
+  --disable-store-memory-mutation
+bash tools/chisel/run_chisel_qemu_crosscheck.sh \
+  --qemu-trace generated/r261-reduced-store-overlay-commit-row-8192-reuse-r259-bin-xcheck/traces/qemu.no-harness-store.jsonl \
+  --dut-trace generated/r261-reduced-store-overlay-commit-row-8192-reuse-r259-bin-xcheck/traces/dut.no-harness-store.jsonl \
+  --report-dir generated/r261-reduced-store-overlay-commit-row-8192-reuse-r259-bin-xcheck/report \
+  --max-commits 7173 --mode failfast
+```
+
+The comparator passes at
+`generated/r261-reduced-store-overlay-commit-row-8192-reuse-r259-bin-xcheck/report/crosscheck_manifest.json`
+with 7172 compared rows and zero mismatches.
