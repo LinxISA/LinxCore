@@ -156,4 +156,9 @@ R274 live evidence:
 R275 live evidence:
 
 - `generated/r275-replay-forwarding-snapshot-1024-qemu-elf-xcheck/report/crosscheck_manifest.json`
-- Expected after gate: status pass, zero mismatches, and no CBSTOP divergence.
+- `status=pass`, `comparator_status=0`
+- `compared_rows=665`, `mismatch_count=0`
+- `cbstop_counts dut=0 qemu=0 inflation_ratio=1.0 warn=false`
+- `rtl/LinxCore=49ed3f993750cb61ec1e829a424154b5d249d8b2`
+- `model/LinxCoreModel=793722e85c62eade9ab4e8481c9577dc5b9c98f7`
+- `emulator/qemu=ea87f8ca51381e2d0d42424974fe13364a5e074e`
