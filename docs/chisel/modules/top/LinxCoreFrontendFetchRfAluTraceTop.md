@@ -937,8 +937,8 @@ store).
 | output | `reducedStoreMemoryValidMask`, `reducedStoreMemoryLineCount`, `reducedStoreMemoryLoadForwardMask`, `reducedStoreMemoryStoreDroppedMask` | mixed | diagnostic | R258/R259 reduced store-memory overlay occupancy, load-byte forward mask, and accepted-request drop diagnostics. The drop mask covers commit-row bypass lanes plus SCB accepted lanes. |
 | output | `reducedStoreResidentForwardMask`, `reducedStoreResidentWaitMask`, `reducedStoreResidentEligibleMask`, `reducedStoreResidentReadyForward`, `reducedStoreResidentWaitBlocked`, `reducedStoreResidentWaitStore*`, `reducedStoreResidentLoadCrossesLine` | mixed | diagnostic | R265-R267 resident-STQ forwarding diagnostics after the committed-store overlay. Ready hits forward bytes; wait hits hold execute through `executeLoadWaitHold` and expose the selected not-ready store's index, BID, LSID, and PC for later replay wakeup wiring. |
 | output | `reducedStoreResidentReplayWake*` | mixed | diagnostic | R268-R269 typed store-unit replay wakeup request diagnostics derived from a registered resident wait-store identity and live STQ row readiness. |
-| output | `reducedLoadWaitReplay*` | mixed | diagnostic | R269/R271/R274 registered reduced wait-store slot diagnostics. The slot remembers the held load and wait-store key, feeds that key back to `ResidentStoreReplayWakeup`, clears through `LoadReplayWakeup`, and publishes a one-cycle relaunch candidate carrying PC, address, size, BID/GID/RID, and reduced LSID for future LIQ wiring; it does not drive a launch port. |
-| output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272-R274 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing full load identity, and reports accepted/drop/full state while a completion drain consumes only exact held-load matches. |
+| output | `reducedLoadWaitReplay*` | mixed | diagnostic | R269/R271/R274/R275 registered reduced wait-store slot diagnostics. The slot remembers the held load and wait-store key, feeds that key back to `ResidentStoreReplayWakeup`, clears through `LoadReplayWakeup`, and publishes a one-cycle relaunch candidate carrying PC, address, size, BID/GID/RID, reduced LSID, and forwarding snapshot `(youngestStoreId, youngestStoreLsId)` for future LIQ wiring; it does not drive a launch port. |
+| output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272-R275 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing full load identity plus forwarding snapshot, and reports accepted/drop/full state while a completion drain consumes only exact held-load matches. |
 | output | `reducedLoadReplayDrain*` | mixed | diagnostic | R273/R274 diagnostic completion-drain match/mismatch signals. Exact W2 load-completion matches consume the queued replay candidate; mismatches, including GID/RID sidecar mismatches, leave it pending for debug. |
 | output | `executeLoadWaitHold` | `Bool` | diagnostic | R266 reduced execute hold for a load waiting on an older not-ready resident store. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
@@ -997,12 +997,12 @@ overlay. Most state remains in child modules:
   `StoreDispatchSTQPath` rows through `LoadStoreForwarding` and overlays ready
   resident store bytes after committed-store overlay data. It reports wait
   hits but leaves replay control to later LIQ/LDQ owner packets.
-- `ReducedLoadWaitReplaySlot`: optional R269/R271/R274 one-row diagnostic bridge that
+- `ReducedLoadWaitReplaySlot`: optional R269/R271/R274/R275 one-row diagnostic bridge that
   registers a resident wait-store key while execute is held, feeds the key to
   `ResidentStoreReplayWakeup` after the live forwarder stops reporting a wait,
   consumes the typed wakeup through `LoadReplayWakeup`, and publishes the stored
-  load PC/address/size plus BID/GID/RID/LSID identity as a relaunch candidate
-  when the wait clears.
+  load PC/address/size plus BID/GID/RID/LSID identity and forwarding snapshot
+  as a relaunch candidate when the wait clears.
 - `ReducedLoadReplayRelaunchQueue`: optional R272 finite FIFO that consumes the
   one-cycle relaunch candidate, preserves FIFO order, reports full/drop
   diagnostics, and keeps the head pending until a later LIQ/issue consumer
@@ -1089,7 +1089,8 @@ registration is required because the live forwarder stops reporting a wait once
 the store data becomes ready. `ReducedLoadWaitReplaySlot` then consumes that
 typed request through `LoadReplayWakeup`, clears its diagnostic wait row, and
 publishes a one-cycle relaunch candidate with the remembered load PC, address,
-size, BID, GID, RID, and reduced LSID. R272 feeds that pulse into
+size, BID, GID, RID, reduced LSID, and forwarding snapshot
+`(youngestStoreId, youngestStoreLsId)`. R272 feeds that pulse into
 `ReducedLoadReplayRelaunchQueue`, so the reduced top owns a stable pending
 relaunch-candidate boundary. R273/R274 drains that queue only when the same
 held load completes in W2 with matching PC, address, size, BID, GID, RID, and
@@ -1150,9 +1151,11 @@ that one-cycle candidate into a finite pending queue. R273 drains the queued
 candidate on the current reduced in-place completion path only when the W2 load
 completion matches the remembered identity. R274 expands that remembered
 identity to the full model replay sidecar tuple: PC, address, size, BID, GID,
-RID, and reduced LSID. Real relaunch, LIQ/LDQ row
-mutation, and dependent wakeup remain deferred until a real LIQ/LDQ row can
-accept the candidate.
+RID, and reduced LSID. R275 carries the forwarding snapshot
+`(youngestStoreId, youngestStoreLsId)` explicitly in that candidate so a real
+LIQ/LDQ row can be allocated later without deriving the snapshot from reduced
+top aliases. Real relaunch, LIQ/LDQ row mutation, and dependent wakeup remain
+deferred until a real LIQ/LDQ row can accept the candidate.
 This remains a reduced memory visibility bridge, not a general LSU/STQ, cache,
 replay, or MDB implementation.
 

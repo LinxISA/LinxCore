@@ -31,7 +31,11 @@ can clear a remembered wait-store row by `(BID, LSID, PC)` and now publishes a
 one-cycle relaunch candidate carrying the remembered load identity. R274
 extends that candidate to preserve the model `MemReqBus` ROB sidecars
 `BID/GID/RID` plus reduced `LSID`, matching the identity carried through the
-model LDQ insert/wait path. In the reduced top after R272,
+model LDQ insert/wait path. R275 also records the
+`LoadInflightQueue` forwarding snapshot `(youngestStoreId,
+youngestStoreLsId)` as explicit candidate sidecars, rather than leaving it
+implicit in the reduced top's current BID/LSID aliases. In the reduced top
+after R272,
 `ReducedLoadReplayRelaunchQueue` consumes that pulse into a finite pending
 queue. The slot itself does not drive a launch port, wake dependent consumers,
 or replace the full `LoadInflightQueue` owner.
@@ -51,6 +55,8 @@ or replace the full `LoadInflightQueue` owner.
 | `captureGid` | Load allocation snapshot GID sidecar. |
 | `captureRid` | Load allocation snapshot RID sidecar. |
 | `captureLsId` | Load allocation snapshot LSID in `ROBID` form. |
+| `captureYoungestStoreId` | Forwarding snapshot BID used by the later LIQ/forwarding handoff. In the current reduced top this aliases `captureBid`. |
+| `captureYoungestStoreLsId` | Forwarding snapshot LSID used by the later LIQ/forwarding handoff. In the current reduced top this aliases `captureLsId`. |
 | `captureWaitStore` | Selected not-ready store key from `ReducedStoreResidentForward`: STQ index, BID, LSID, and PC. |
 | `replayWakeValid` | Store-unit replay wakeup valid from `ResidentStoreReplayWakeup`. |
 | `replayWake` | Typed `LoadReplayWakeupRequest` consumed by `LoadReplayWakeup`. |
@@ -72,6 +78,8 @@ or replace the full `LoadInflightQueue` owner.
 | `relaunch.gid` | GID snapshot captured with the remembered load. |
 | `relaunch.rid` | RID snapshot captured with the remembered load. |
 | `relaunch.loadLsId` | Reduced LSID captured with the remembered load. |
+| `relaunch.youngestStoreId` | Forwarding snapshot BID captured with the remembered load. |
+| `relaunch.youngestStoreLsId` | Forwarding snapshot LSID captured with the remembered load. |
 | `slotPc` | PC of the remembered load row. |
 | `slotAddr` | Address of the remembered load row. |
 
@@ -106,7 +114,8 @@ R269 maps that sequence onto the reduced top:
 4. Clear the diagnostic slot when the wakeup matches the remembered
    wait-store key by `(storeId, storeLsId, pc)`.
 5. Publish a one-cycle relaunch candidate containing the stored load PC,
-   address, size, BID, GID, RID, and reduced LSID. This is the future
+   address, size, BID, GID, RID, reduced LSID, and forwarding snapshot
+   `(youngestStoreId, youngestStoreLsId)`. This is the future
    LIQ/issue handoff boundary; it does not itself relaunch the load.
 6. In the reduced top, `ReducedLoadReplayRelaunchQueue` stores that one-cycle
    pulse as a stable pending diagnostic until a later LIQ/issue consumer
@@ -151,6 +160,7 @@ bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayRelaunchQueue
 bash tools/chisel/run_chisel_tests.sh --only ResidentStoreReplayWakeup
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
+git diff --check
 ```
 
 Reference tests cover capture/clear behavior, mismatched wake suppression,

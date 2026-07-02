@@ -52,7 +52,11 @@ class ReducedLoadReplayRelaunchQueue(
     val candidate = Wire(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth))
     candidate := 0.U.asTypeOf(candidate)
     candidate.bid := ROBID.disabled(idEntries)
+    candidate.gid := ROBID.disabled(idEntries)
+    candidate.rid := ROBID.disabled(idEntries)
     candidate.loadLsId := ROBID.disabled(idEntries)
+    candidate.youngestStoreId := ROBID.disabled(idEntries)
+    candidate.youngestStoreLsId := ROBID.disabled(idEntries)
     candidate
   }
 

@@ -59,7 +59,16 @@ object ReducedLoadReplayRelaunchQueueReference {
     Id(valid = true, wrap = wrap, value = value)
 
   def relaunch(pc: BigInt, addr: BigInt, lsId: Int): Relaunch =
-    Relaunch(pc = pc, addr = addr, size = 8, bid = id(6), lsId = id(lsId), gid = id(2), rid = id(7))
+    Relaunch(
+      pc = pc,
+      addr = addr,
+      size = 8,
+      bid = id(6),
+      lsId = id(lsId),
+      gid = id(2),
+      rid = id(7),
+      youngestStoreId = id(6),
+      youngestStoreLsId = id(lsId))
 }
 
 class ReducedLoadReplayRelaunchQueueSpec extends AnyFunSuite {
@@ -150,6 +159,8 @@ class ReducedLoadReplayRelaunchQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_out_gid_value"))
     assert(sv.contains("io_out_rid_value"))
     assert(sv.contains("io_out_loadLsId_value"))
+    assert(sv.contains("io_out_youngestStoreId_value"))
+    assert(sv.contains("io_out_youngestStoreLsId_value"))
     assert(sv.contains("io_count"))
   }
 }

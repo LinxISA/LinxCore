@@ -19,9 +19,20 @@ object ReducedLoadWaitReplaySlotReference {
       lsId: Id,
       waitKey: Wait,
       gid: Id = Id(),
-      rid: Id = Id())
+      rid: Id = Id(),
+      youngestStoreId: Option[Id] = None,
+      youngestStoreLsId: Option[Id] = None)
   final case class Wake(storeId: Id, storeLsId: Id, pc: BigInt)
-  final case class Relaunch(pc: BigInt, addr: BigInt, size: Int, bid: Id, lsId: Id, gid: Id = Id(), rid: Id = Id())
+  final case class Relaunch(
+      pc: BigInt,
+      addr: BigInt,
+      size: Int,
+      bid: Id,
+      lsId: Id,
+      gid: Id = Id(),
+      rid: Id = Id(),
+      youngestStoreId: Id = Id(),
+      youngestStoreLsId: Id = Id())
   final case class State(
       active: Boolean = false,
       pc: BigInt = 0,
@@ -31,6 +42,8 @@ object ReducedLoadWaitReplaySlotReference {
       lsId: Id = Id(),
       gid: Id = Id(),
       rid: Id = Id(),
+      youngestStoreId: Id = Id(),
+      youngestStoreLsId: Id = Id(),
       waitKey: Wait = Wait())
   final case class Result(
       state: State,
@@ -52,7 +65,16 @@ object ReducedLoadWaitReplaySlotReference {
     }
     val relaunch =
       if (waitStoreClear && !captureAccepted && !flush) {
-        Some(Relaunch(state.pc, state.addr, state.size, state.bid, state.lsId, state.gid, state.rid))
+        Some(Relaunch(
+          state.pc,
+          state.addr,
+          state.size,
+          state.bid,
+          state.lsId,
+          state.gid,
+          state.rid,
+          state.youngestStoreId,
+          state.youngestStoreLsId))
       } else {
         None
       }
@@ -70,6 +92,8 @@ object ReducedLoadWaitReplaySlotReference {
           lsId = captured.lsId,
           gid = captured.gid,
           rid = captured.rid,
+          youngestStoreId = captured.youngestStoreId.getOrElse(captured.bid),
+          youngestStoreLsId = captured.youngestStoreLsId.getOrElse(captured.lsId),
           waitKey = captured.waitKey)
       } else if (waitStoreClear) {
         State()
@@ -100,6 +124,8 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
       lsId = id(3),
       gid = id(2),
       rid = id(7),
+      youngestStoreId = Some(id(5)),
+      youngestStoreLsId = Some(id(4)),
       waitKey = wait(pc = 0x3450, storeId = storeId))
 
     val afterCapture = step(State(), capture = Some(captured))
@@ -110,7 +136,16 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     val afterWake =
       step(afterCapture.state, wake = Some(Wake(storeId = storeId, storeLsId = Id(), pc = 0x3450)))
     assert(afterWake.waitStoreClear)
-    assert(afterWake.relaunch.contains(Relaunch(0x4000, 0x1008, 8, id(6), id(3), id(2), id(7))))
+    assert(afterWake.relaunch.contains(Relaunch(
+      pc = 0x4000,
+      addr = 0x1008,
+      size = 8,
+      bid = id(6),
+      lsId = id(3),
+      gid = id(2),
+      rid = id(7),
+      youngestStoreId = id(5),
+      youngestStoreLsId = id(4))))
     assert(!afterWake.state.active)
   }
 
@@ -145,7 +180,14 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
 
     val newWake = step(oldWake.state, wake = Some(Wake(storeId = secondStore, storeLsId = Id(), pc = 0x3010)))
     assert(newWake.waitStoreClear)
-    assert(newWake.relaunch.contains(Relaunch(0x4010, 0x2000, 8, id(7), id(2))))
+    assert(newWake.relaunch.contains(Relaunch(
+      pc = 0x4010,
+      addr = 0x2000,
+      size = 8,
+      bid = id(7),
+      lsId = id(2),
+      youngestStoreId = id(7),
+      youngestStoreLsId = id(2))))
     assert(!newWake.state.active)
   }
 
@@ -171,5 +213,7 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     assert(sv.contains("io_relaunch_gid_value"))
     assert(sv.contains("io_relaunch_rid_value"))
     assert(sv.contains("io_relaunch_loadLsId_value"))
+    assert(sv.contains("io_relaunch_youngestStoreId_value"))
+    assert(sv.contains("io_relaunch_youngestStoreLsId_value"))
   }
 }

@@ -56,7 +56,16 @@ object ReducedLoadReplayCompletionDrainReference {
     Id(valid = true, wrap = wrap, value = value)
 
   def candidate: Relaunch =
-    Relaunch(pc = 0x4000, addr = 0x1008, size = 8, bid = id(6), lsId = id(3), gid = id(2), rid = id(7))
+    Relaunch(
+      pc = 0x4000,
+      addr = 0x1008,
+      size = 8,
+      bid = id(6),
+      lsId = id(3),
+      gid = id(2),
+      rid = id(7),
+      youngestStoreId = id(6),
+      youngestStoreLsId = id(3))
 
   def completion: Completion =
     Completion(pc = 0x4000, addr = 0x1008, size = 8, bid = id(6), gid = id(2), rid = id(7), lsId = id(3))

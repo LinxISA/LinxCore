@@ -31,7 +31,11 @@ dependent consumers. It only drains the diagnostic candidate queue when the
 reduced in-place completion matches the remembered load identity. R274 expands
 that identity check to the model ROB sidecars `BID/GID/RID` plus reduced
 `LSID`, preserving the same sidecar shape carried by LinxCoreModel `MemReqBus`
-into LDQ rows.
+into LDQ rows. R275 leaves matching on that load-completion identity unchanged
+but preserves the candidate's forwarding snapshot
+`(youngestStoreId, youngestStoreLsId)` through the queue so a later real
+`LoadInflightQueue` handoff does not have to recover it from implicit reduced
+top aliases.
 
 ## Interface
 
@@ -40,7 +44,7 @@ into LDQ rows.
 | Signal | Description |
 |---|---|
 | `candidateValid` | Queue head valid from `ReducedLoadReplayRelaunchQueue`. |
-| `candidate` | Remembered replay candidate: load PC, address, size, BID, GID, RID, and reduced LSID. |
+| `candidate` | Remembered replay candidate: load PC, address, size, BID, GID, RID, reduced LSID, and forwarding snapshot `(youngestStoreId, youngestStoreLsId)`. |
 | `completeValid` | Reduced execute completion valid. |
 | `completeMemLoad` | Completion row is a load memory side effect. |
 | `completePc` | Completion row PC. |
@@ -87,7 +91,9 @@ completion match:
 3. Compare load address and size from the completion memory sideband.
 4. Compare BID, GID, and RID using valid, wrap, and value.
 5. Compare reduced LSID using valid, wrap, and value.
-6. Assert `consumeReady` only when every field matches.
+6. Assert `consumeReady` only when every compared completion-identity field
+   matches. The forwarding snapshot is carried through this module's candidate
+   port but is not part of the current in-place W2 completion comparison.
 
 If a candidate is pending and a different load completion appears, the module
 reports mismatch diagnostics but leaves the candidate queued. That preserves
@@ -122,6 +128,7 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 git diff --check
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r273-replay-completion-drain-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --reduced-store-dispatch-stq --disable-store-memory-mutation --max-seconds 30 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r274-replay-full-identity-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --reduced-store-dispatch-stq --disable-store-memory-mutation --max-seconds 30 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r275-replay-forwarding-snapshot-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --reduced-store-dispatch-stq --disable-store-memory-mutation --max-seconds 30 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 ```
 
 Reference tests cover exact completion consumption, non-load completion
@@ -145,3 +152,8 @@ R274 live evidence:
 - `rtl/LinxCore=18d8a800f59e50e4aa912e65e56cab1ae2e37f33`
 - `model/LinxCoreModel=3c0878da3aa1e06669b718e93269f094e7244066`
 - `emulator/qemu=8f6de68e091dbef19a89b977f3d18cbbc6f43b68`
+
+R275 live evidence:
+
+- `generated/r275-replay-forwarding-snapshot-1024-qemu-elf-xcheck/report/crosscheck_manifest.json`
+- Expected after gate: status pass, zero mismatches, and no CBSTOP divergence.
