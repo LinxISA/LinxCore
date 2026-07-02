@@ -14,6 +14,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadWaitReplaySlot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayRelaunchQueue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayWakeup.scala`
 - Contract IDs: `LC-CHISEL-LSU-LIQ-002`
@@ -108,7 +109,7 @@ future LIQ/LDQ owner.
 
 ## Deferred Owners
 
-- Wiring the adapter into `LinxCoreFrontendFetchRfAluTraceTop`.
+- Wiring `ReducedLoadReplayLiqAllocPath` into `LinxCoreFrontendFetchRfAluTraceTop`.
 - Full LIQ allocation/relaunch arbitration with newly issued loads.
 - Load-store conflict recovery and LHQ/ResolveQ movement.
 - Ready-table and dependent-consumer wakeup after relaunch.
