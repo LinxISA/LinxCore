@@ -337,6 +337,11 @@ LinxCore `b2684c8938b1c4cccd2638f3fcfa5363d7792104`, clean LinxCoreModel
 `3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU
 `5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject was dirty
 only from unrelated local state.
+The follow-on R228 gate under
+`generated/r228-row-order-8192-marker-qemu-elf-xcheck/report` extends that
+baseline to 8192 raw QEMU rows, 8058 expected rows, 885 filtered marker commits,
+7173 normalized QEMU/DUT rows, and 7172 compared rows with
+`summary.mismatch_count: 0` and no CBSTOP divergence.
 The QEMU trace replay bridge now has bounded live-ELF prefix evidence using
 `tests/benchmarks/build/coremark_real.elf` with explicit `-m 1280M`; the
 default 128 MiB QEMU run fails fast with an empty-trace error because the ELF
