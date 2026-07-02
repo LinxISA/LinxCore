@@ -104,6 +104,18 @@ class ReducedStoreMemoryOverlaySpec extends AnyFunSuite {
     assert(load.data == BigInt("8877665544332211", 16))
   }
 
+  test("same-cycle overlapping requests rely on parent old-to-young lane order") {
+    val overlay = new Model(entries = 2)
+    overlay.step(Seq(
+      Request(valid = true, accepted = true, addr = 0x2800, data = BigInt("1122", 16), size = 2),
+      Request(valid = true, accepted = true, addr = 0x2800, data = BigInt("3344", 16), size = 2)
+    ))
+    val load = overlay.load(addr = 0x2800, baseData = BigInt(0))
+
+    assert(load.forwardMask == BigInt("03", 16))
+    assert((load.data & BigInt("ffff", 16)) == BigInt("3344", 16))
+  }
+
   test("cross-line load merges bytes from adjacent accepted store fragments") {
     val overlay = new Model(entries = 4)
     overlay.step(Seq(

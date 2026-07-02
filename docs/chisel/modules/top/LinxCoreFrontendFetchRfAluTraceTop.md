@@ -805,13 +805,13 @@ proof switch; the R253/R124 store contracts already cover the reusable
 source-order and commit-identity rules).
 
 R259 fixes the next no-harness-mutation failure by feeding committed store rows
-directly into `ReducedStoreMemoryOverlay` before the SCB-accepted lanes. The
+directly into `ReducedStoreMemoryOverlay` without waiting for SCB acceptance. The
 C++ model's `STQ::lookupForLoad` can assemble load bytes from committed
 `storeCommitQ` state before `STQ::commit` has completed SCB acceptance, while
 the R258 bridge only consumed SCB-accepted fragments. The top now creates up to
-two overlay fragments per valid store commit row, orders those bypass lanes
-before SCB lanes, and still uses SCB accepted `last` fragments as the only STQ
-free source. The 2048-row no-harness-mutation CoreMark replay passes in
+two overlay fragments per valid store commit row and still uses SCB accepted
+`last` fragments as the only STQ free source. The 2048-row
+no-harness-mutation CoreMark replay passes in
 `generated/r259-reduced-store-overlay-commit-row-2048-trace-xcheck/report/crosscheck_manifest.json`
 with 1467 compared rows and zero mismatches.
 
@@ -836,6 +836,19 @@ zero mismatches in
 
 skill-evolve: no-update (R261 only scales the R259/R260 commit-row overlay
 proof; no new reusable invariant, mandatory gate, or triage order changed).
+
+R262 tightens the same overlay integration contract. The overlay helper applies
+accepted request lanes in lane order, with later lanes overwriting overlapping
+bytes. `STQCommitDrain` issues from the registered commit queue, so current
+SCB accepted fragments are older than current ROB commit-row bypass fragments.
+The reduced top therefore routes SCB accepted lanes before current commit-row
+lanes while preserving R259's visibility rule that committed ROB stores can
+feed load data before SCB acceptance.
+
+skill-evolve: update linx-core (same-cycle reduced store-memory overlay lanes
+must be routed old-to-young; current SCB drain lanes precede current ROB
+commit-row bypass lanes even though commit-row visibility does not wait for
+SCB acceptance).
 
 ## Interface
 

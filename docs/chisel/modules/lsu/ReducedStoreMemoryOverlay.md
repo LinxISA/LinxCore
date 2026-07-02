@@ -45,10 +45,10 @@ Inputs:
   restart, or when the optional reduced-store STQ path is disabled. It is not
   tied to ordinary backend redirects because accepted SCB fragments are already
   committed memory-side state.
-- `storeReqs`: `STQCommitDrainRequest` lanes produced by the reduced top. R259
-  orders ROB commit-row bypass fragments before `STQCommitDrain`/`SCBRowBank`
-  fragments. Each lane carries valid, address, size, data, and `last`
-  sidecars.
+- `storeReqs`: `STQCommitDrainRequest` lanes produced by the reduced top. Each
+  lane carries valid, address, size, data, and `last` sidecars. The parent must
+  present same-cycle accepted lanes in old-to-young program order because later
+  lanes overwrite overlapping bytes in the overlay line image.
 - `storeAcceptedMask`: one bit per request lane. Commit-row bypass lanes are
   accepted when the monitored commit row is a valid store; SCB lanes are
   accepted from `SCBRowBank.acceptedMask`. Only valid requests whose lane bit
@@ -78,9 +78,11 @@ state is unchanged.
 For an accepted update, the module builds a byte mask from the request address
 low bits and request size, then merges the little-endian request data into the
 target line. Multiple accepted lanes are applied in lane order through a
-combinational ingress chain before the line registers update. In the current
-top, commit-row bypass lanes are ordered before SCB-accepted lanes; the later
-SCB update for the same committed store is byte-identical and idempotent.
+combinational ingress chain before the line registers update. The parent must
+therefore route older store fragments first and younger fragments later. In the
+current reduced top, `STQCommitDrain`/`SCBRowBank` accepted lanes are older
+resident `storeCommitQ` work selected from the registered commit queue, so they
+are applied before current ROB commit-row bypass lanes.
 
 For a load lookup, each of the eight returned bytes independently checks the
 registered overlay lines by the byte's 64-byte line address and byte offset.
@@ -100,9 +102,13 @@ fragments as an idempotent downstream memory-side data source.
 The model `STQ::lookupForLoad` can see committed store state before SCB accepts
 the drain request: it checks resident older/equal stores and the `storeCommitQ`
 when assembling load bytes. R259 therefore feeds ROB committed store rows into
-the overlay before the SCB lanes. `ReducedStoreMemoryOverlay` implements only
-that committed-byte visibility subset. It does not model load wait/replay,
-younger-store conflicts, MDB recovery publication, or cache coherence.
+the overlay without waiting for SCB acceptance. R262 preserves that visibility
+while ordering same-cycle overlay updates old-to-young: current SCB accepted
+fragments from the registered commit queue are older than current ROB commit
+rows and must not overwrite a younger commit-row byte. `ReducedStoreMemoryOverlay`
+implements only that committed-byte visibility subset. It does not model load
+wait/replay, younger-store conflicts, MDB recovery publication, or cache
+coherence.
 
 ## Deferred Owners
 

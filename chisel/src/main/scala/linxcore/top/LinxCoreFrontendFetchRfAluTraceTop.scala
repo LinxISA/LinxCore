@@ -870,6 +870,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedStoreMemoryAcceptedVec(idx) := false.B
   }
 
+  for (idx <- 0 until reducedStoreScbRequestCount) {
+    reducedStoreMemoryReqs(idx) := reducedStoreCommitDrain.io.memReqs(idx)
+    reducedStoreMemoryAcceptedVec(idx) :=
+      useReducedStoreDispatchStq.B && reducedStoreScb.io.acceptedMask(idx)
+  }
+
   for (slot <- 0 until traceParams.commitWidth) {
     val commitStoreRow = path.io.commit.rows(slot)
     val commitStoreValid =
@@ -906,16 +912,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     secondReq.data := commitStoreSecondData
     secondReq.size := commitStoreSecondSize(3, 0)
 
-    val base = slot * 2
+    val base = reducedStoreScbRequestCount + slot * 2
     reducedStoreMemoryReqs(base) := firstReq
     reducedStoreMemoryAcceptedVec(base) := commitStoreValid
     reducedStoreMemoryReqs(base + 1) := secondReq
     reducedStoreMemoryAcceptedVec(base + 1) := commitStoreValid && commitStoreCrosses
-  }
-  for (idx <- 0 until reducedStoreScbRequestCount) {
-    reducedStoreMemoryReqs(idx + reducedStoreCommitBypassRequestCount) := reducedStoreCommitDrain.io.memReqs(idx)
-    reducedStoreMemoryAcceptedVec(idx + reducedStoreCommitBypassRequestCount) :=
-      useReducedStoreDispatchStq.B && reducedStoreScb.io.acceptedMask(idx)
   }
 
   reducedStoreMemoryOverlay.io.flush := io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B
