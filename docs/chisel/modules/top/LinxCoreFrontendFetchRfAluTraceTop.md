@@ -819,6 +819,15 @@ skill-evolve: update linx-core (reduced store-memory overlays must include
 ROB-committed/storeCommitQ-equivalent store visibility before SCB acceptance;
 SCB accepted fragments alone are not sufficient for model-aligned load data).
 
+R260 scales the same R259 RTL without source changes. Reusing the R259
+generated testbench against the existing 4096-row loop-reentry expected stream
+with `--disable-store-memory-mutation` normalizes 3370 QEMU/DUT rows, compares
+3369 rows, and passes with zero mismatches in
+`generated/r260-reduced-store-overlay-commit-row-4096-reuse-r259-bin-xcheck/report/crosscheck_manifest.json`.
+
+skill-evolve: no-update (R260 only scales the R259 commit-row overlay proof;
+no new reusable invariant, mandatory gate, or triage order changed).
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |

@@ -157,3 +157,25 @@ load from a committed store that had not yet reached SCB acceptance. The R259
 commit-row bypass feed passes at
 `generated/r259-reduced-store-overlay-commit-row-2048-trace-xcheck/report/crosscheck_manifest.json`
 with 1467 compared rows and zero mismatches.
+
+R260 scale evidence reuses the R259 generated binary against the R256 4096-row
+loop-reentry expected stream with `--disable-store-memory-mutation`, then runs
+the common comparator:
+
+```bash
+generated/r259-reduced-store-overlay-commit-row-2048-trace-xcheck/obj_dir/linxcore_frontend_fetch_rf_alu_trace_top_tb \
+  --dut-trace generated/r260-reduced-store-overlay-commit-row-4096-reuse-r259-bin-xcheck/traces/dut.no-harness-store.jsonl \
+  --qemu-trace generated/r260-reduced-store-overlay-commit-row-4096-reuse-r259-bin-xcheck/traces/qemu.no-harness-store.jsonl \
+  --expected-rows generated/r256-reduced-store-scale-4096-reuse-r254-bin-qemu-elf-xcheck/qemu.expected.loop-reentry.jsonl \
+  --memory-hex generated/r259-reduced-store-overlay-commit-row-2048-trace-xcheck/elf.fetch.mem \
+  --disable-store-memory-mutation
+bash tools/chisel/run_chisel_qemu_crosscheck.sh \
+  --qemu-trace generated/r260-reduced-store-overlay-commit-row-4096-reuse-r259-bin-xcheck/traces/qemu.no-harness-store.jsonl \
+  --dut-trace generated/r260-reduced-store-overlay-commit-row-4096-reuse-r259-bin-xcheck/traces/dut.no-harness-store.jsonl \
+  --report-dir generated/r260-reduced-store-overlay-commit-row-4096-reuse-r259-bin-xcheck/report \
+  --max-commits 3370 --mode failfast
+```
+
+The comparator passes at
+`generated/r260-reduced-store-overlay-commit-row-4096-reuse-r259-bin-xcheck/report/crosscheck_manifest.json`
+with 3369 compared rows and zero mismatches.
