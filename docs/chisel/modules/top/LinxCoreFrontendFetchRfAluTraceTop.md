@@ -771,6 +771,22 @@ keeps the reduced-store path on the R243 cleanup invariant and preserves the
 same future ownership split for memory mutation, forwarding, and MDB
 publication.
 
+R254-R257 resume from the R253 model-identity fix and scale the optional
+reduced-store path without further RTL changes. R254 uses the live wrapper and
+captures 1024 raw QEMU rows, reduces 953 expected rows, compares 665
+normalized rows, and passes with zero mismatches. R255 reuses the R254
+generated testbench against a fresh 2048-row bounded FIFO capture; strict
+extraction reaches the known loop-re-entry boundary at raw row 1747, and the
+existing `--allow-block-loop-reentry` mode then compares 1467 rows with zero
+mismatches. R256 and R257 use the same reuse flow at 4096 and 8192 raw rows,
+compare 3369 and 7172 rows, and pass with zero mismatches and no CBSTOP
+divergence. These runs are scale evidence only; external memory mutation,
+store-to-load forwarding, and MDB publication remain deferred owners.
+
+skill-evolve: no-update (R254-R257 only scale the R253 reduced-store proof;
+loop-re-entry extraction and the reusable store invariants are already
+documented).
+
 ## Interface
 
 | Direction | Signal | Type | Valid/ready | Description |

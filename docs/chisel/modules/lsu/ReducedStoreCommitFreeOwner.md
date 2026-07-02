@@ -133,6 +133,12 @@ live-QEMU reduced-store wrapper compares 162 rows with zero mismatches, and a
 direct replay over the 726-row R252 expected stream compares 495 architectural
 rows with zero mismatches.
 
+R254-R257 leave the owner logic unchanged and scale the same reduced-store
+proof. The live wrapper passes at 1024 raw CoreMark/QEMU rows with 665 compared
+rows. Reusing the R254 generated testbench against fresh loop-reentry-enabled
+captures then passes at 2048, 4096, and 8192 raw rows, comparing 1467, 3369,
+and 7172 rows respectively with zero mismatches.
+
 ## Deferred Owners
 
 - Add store memory mutation and load lookup/store-forwarding interaction.
