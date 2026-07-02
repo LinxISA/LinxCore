@@ -46,6 +46,7 @@
 | `StoreDispatchToSTQ` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchToSTQ.md` | Unit-green R61 bridge from executed store-dispatch queue heads to typed STQ insert requests while preserving payload T/U source sidecars |
 | `STQInsertProbe` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQInsertProbe.md` | Unit-green R58 read-only STQ insert readiness probe over expanded STQ request/row bundles |
 | `StoreDispatchSTQPath` | `linxcore.lsu` | `docs/chisel/modules/lsu/StoreDispatchSTQPath.md` | Unit-green R61 queue-backed store dispatch to STQ composition with independent STA/STD readiness probes, T/U sidecar-capable payloads, and forwarded LSU T/U source diagnostics |
+| `ReducedStoreExecResultBridge` | `linxcore.lsu` | `docs/chisel/modules/lsu/ReducedStoreExecResultBridge.md` | Unit-green R239 reduced-top adapter from ALU store completion sidebands to matched STA/STD execution-result inputs |
 | `STQFlushPrune` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQFlushPrune.md` | Unit-green first LSU/STQ cleanup consumer; emits model-derived free masks for valid `STQ_WAIT` rows |
 | `STQEntryBank` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQEntryBank.md` | Unit-green R58 STQ state owner with model MemReqBus T/U sidecars and exact non-base LSU source publication |
 | `STQCommitQueue` | `linxcore.lsu` | `docs/chisel/modules/lsu/STQCommitQueue.md` | Unit-green R16 store-commit ordering owner; sorted enqueue and downstream-ready issue selection |

@@ -656,6 +656,7 @@ These packets remain the required base before broad module promotion:
 | R236 | Clean 131072-row admitted-marker CoreMark scale gate | `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r236-row-order-131072-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 131072 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 2400 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` and `git diff --check`. The run started from clean pushed LinxCore `1bab2f8111487ee999d6ccfeec45de57dfd9ab38`, clean LinxCoreModel `3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU `5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject remained dirty from unrelated local state while an unrelated SPEC train QEMU job ran concurrently. The gate captured 131072 raw QEMU rows, extracted 130938 expected rows, admitted and filtered 9662 marker commits, normalized 121276 QEMU/DUT rows, compared 121275 rows, and passed with zero mismatches and no CBSTOP divergence. BFU diagnostics stayed clean: 27714 static/external matches, 27713 accepted body-cut arms with zero mismatches, and 9236 promoted runtime body-end oracle replay matches. Closeout: `skill-evolve: no-update (R236 extends clean marker-row evidence only; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
 | R237 | Clean 196608-row admitted-marker CoreMark scale gate | `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r237-row-order-196608-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 196608 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 3600 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` and `git diff --check`. The run started from clean pushed LinxCore `8cff7d4ac54b36c5409ef296cf975b84fbd8de76`, clean LinxCoreModel `3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU `5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject remained dirty from unrelated local state. The gate captured 196608 raw QEMU rows, extracted 196474 expected rows, admitted and filtered 14343 marker commits, normalized 182131 QEMU/DUT rows, compared 182130 rows, and passed with zero mismatches and no CBSTOP divergence. BFU diagnostics stayed clean: 41757 static/external matches, 41756 accepted body-cut arms with zero mismatches, and 13917 promoted runtime body-end oracle replay matches. Closeout: `skill-evolve: no-update (R237 extends clean marker-row evidence only; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
 | R238 | Clean 262144-row admitted-marker CoreMark scale gate | `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r238-row-order-262144-marker-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 262144 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 4800 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` and `git diff --check`. The run started from clean pushed LinxCore `ded8a7079bf7deb34e84e10e47f495719172d0a4`, clean LinxCoreModel `3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU `5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject remained dirty from unrelated local state. The gate captured 262144 raw QEMU rows, extracted 262010 expected rows, admitted and filtered 19024 marker commits, normalized 242986 QEMU/DUT rows, compared 242985 rows, and passed with zero mismatches and no CBSTOP divergence. BFU diagnostics stayed clean: 55800 static/external matches, 55799 accepted body-cut arms with zero mismatches, and 18598 promoted runtime body-end oracle replay matches. Closeout: `skill-evolve: no-update (R238 extends clean marker-row evidence only; no new reusable invariant, mandatory gate, or triage order change was discovered)`. |
+| R239 | Reduced store execution-result bridge into optional STQ dispatch boundary | `sbt "testOnly linxcore.lsu.ReducedStoreExecResultBridgeSpec linxcore.top.LinxCoreFrontendFetchRfAluTraceTopSpec"`. Added `ReducedStoreExecResultBridge` to buffer ALU store completion sidebands, match STA/STD queue heads by `(bid,rid,stid)`, retain split-store results after STA consumption, release unsplit results after STA consumption, and expose reduced-top diagnostics behind `useReducedStoreDispatchStq=false` by default. This is an execution-result adapter only: STQ commit/free ownership remains tied off in the reduced top. Closeout: `skill-evolve: no-update (new module docs and top docs capture the local invariant; no cross-session skill rule needs to change until the commit/free owner is introduced)`. |
 
 New frontend/backend modules may be implemented after this base, but they do
 not become replacement evidence until their rows are visible through monitored
@@ -857,7 +858,17 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Scale the admitted-marker CoreMark gate beyond the R238 262144-row window.
+1. Add the reduced-top STQ commit/free owner after R239. Read
+   `ReducedStoreExecResultBridge`, `StoreDispatchSTQPath`,
+   `STQCommitDrain`, `STQSCBCommitPath`, and LinxCoreModel
+   `STQ::retire`/`STQ::commit` first. The required boundary is a
+   model-aligned mapping from committed store ROB rows to STQ indices, then a
+   memory-side drain/free path; do not enable `useReducedStoreDispatchStq` for
+   long CoreMark runs until resident STQ rows can be marked committed and
+   freed. Focused gates should include `ReducedStoreExecResultBridgeSpec`,
+   `LinxCoreFrontendFetchRfAluTraceTopSpec`, and the relevant STQ commit/drain
+   specs before any QEMU live gate.
+2. Scale the admitted-marker CoreMark gate beyond the R238 262144-row window.
    R195/R196/R198 removed the scalar GGPR mapQ capacity and Verilator
    compile-cost blockers, and R202 closed the stale source-value failure by
    restoring marker-stop cleanup from the post-block checkpoint BID. R227,
@@ -882,7 +893,7 @@ Closeout:
    `generated/r236-row-order-131072-marker-qemu-elf-xcheck`,
    `generated/r237-row-order-196608-marker-qemu-elf-xcheck`, or the latest
    `generated/r238-row-order-262144-marker-qemu-elf-xcheck`.
-2. Scale the R194 marker-row filtered comparator beyond the 512-row CoreMark
+3. Scale the R194 marker-row filtered comparator beyond the 512-row CoreMark
    repeated-loop window. R178 adds `LinxCoreFrontendFetchRfAluMarkerRowsTraceTop`,
    R179 proves the wrapper admits the first `C.BSTART` row in generated RTL,
    R180 adds `--marker-rows` to the QEMU/Verilator gate, and R192 proves
@@ -895,7 +906,7 @@ Closeout:
    filtered policy while watching marker-only BROB retire drain, loop re-entry,
    stop/redirect boundaries, and default skip-mode parity before changing the
    default live CoreMark top.
-3. Full marker lifecycle split and live-top switch: R172 feeds serialized
+4. Full marker lifecycle split and live-top switch: R172 feeds serialized
    retired marker rows into `BlockMarkerLifecycle` with row-owned BID evidence,
    R173 gives the marker-source queue recovery-exact suffix pruning, R174 makes
    active marker state STID-indexed, and R175 lets unskipped marker rows
@@ -911,27 +922,27 @@ Closeout:
    `skipBlockMarkers=true`; remove marker skipping only after the filtered
    marker-row path scales beyond the R194 window and its lifecycle side effects
    are checked across broader stops and redirects.
-4. Replace the temporary replay resolved-event source with real branch/BFU
+5. Replace the temporary replay resolved-event source with real branch/BFU
    resolver outputs. R153 has resolved cold-cut fallback and local
    header-window arming, but external QEMU metadata still provides body-end
    eligibility; the next packet should derive that from decoded/execute branch
    outcome and close skipped-marker lifecycle without replay-side help.
-5. Full issue scheduler timing: add explicit wakeup ports, alternate model
+6. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.
-6. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
+7. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
    event stream from commit-only rows toward trap, memory, recovery, and block
    sidebands.
-7. QEMU full-compare harness: scale the reduced live CoreMark window beyond
+8. QEMU full-compare harness: scale the reduced live CoreMark window beyond
    the R166 3.2M-row pass, or feed a bounded direct-boot window into the same
    comparator path once frontend/decode/execute/LSU can retire it from the
    full DUT stream.
-8. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+9. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
-9. Multi-PE packet production and bank instantiation: teach the upstream
+10. Multi-PE packet production and bank instantiation: teach the upstream
    frontend/top owner to set nonzero `FrontendDecodePacket.peId` and instantiate
    matching `ScalarTURenameBridge`/`TULinkLocalBankArray` PE banks.
-10. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+11. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

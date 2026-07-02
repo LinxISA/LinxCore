@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.StoreDispatchExecResult
+import linxcore.lsu.{ReducedStoreExecResultBridge, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -18,6 +18,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
     val decRenQueueDepth: Int = 4,
     val issueQueueDepth: Int = 4,
     val denseSlotQueueDepth: Int = 8,
+    val storeDispatchQueueDepth: Int = 4,
+    val storeExecBufferEntries: Int = 4,
     val mapQDepth: Int = 32,
     val gprMapQDepth: Int = 32,
     val physRegs: Int = 64)
@@ -28,6 +30,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   private val issueCountWidth = log2Ceil(issueQueueDepth + 1)
   private val denseSlotQueueCountWidth = log2Ceil(denseSlotQueueDepth + 1)
   private val denseSlotQueueSlotWidth = math.max(1, log2Ceil(p.decodeWidth))
+  private val storeDispatchCountWidth = log2Ceil(storeDispatchQueueDepth + 1)
+  private val storeExecBufferCountWidth = log2Ceil(storeExecBufferEntries + 1)
+  private val storeStqCountWidth = log2Ceil(p.robEntries + 1)
   private val gprFreeWidth = log2Ceil(physRegs + 1)
   private val gprMapQFreeWidth = log2Ceil(gprMapQDepth + 1)
   private val tuCountWidth = log2Ceil(mapQDepth + 1)
@@ -193,6 +198,49 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val executeCompleteRobValue = Output(UInt(ptrWidth.W))
   val loadLookupValid = Output(Bool())
   val loadLookupAddr = Output(UInt(p.immWidth.W))
+  val reducedStoreDispatchEnabled = Output(Bool())
+  val reducedStoreExecCompleteStoreValid = Output(Bool())
+  val reducedStoreExecCaptureFire = Output(Bool())
+  val reducedStoreExecCaptureBlocked = Output(Bool())
+  val reducedStoreExecCaptureDuplicate = Output(Bool())
+  val reducedStoreExecStaMatch = Output(Bool())
+  val reducedStoreExecStdMatch = Output(Bool())
+  val reducedStoreExecValidMask = Output(UInt(storeExecBufferEntries.W))
+  val reducedStoreExecBufferCount = Output(UInt(storeExecBufferCountWidth.W))
+  val reducedStoreStaExecValid = Output(Bool())
+  val reducedStoreStdExecValid = Output(Bool())
+  val storeDispatchReady = Output(Bool())
+  val storeDispatchFire = Output(Bool())
+  val storeDispatchSplit = Output(Bool())
+  val storeStaQueueValid = Output(Bool())
+  val storeStdQueueValid = Output(Bool())
+  val storeStaEnqueueFire = Output(Bool())
+  val storeStdEnqueueFire = Output(Bool())
+  val storeStaDequeueFire = Output(Bool())
+  val storeStdDequeueFire = Output(Bool())
+  val storeDispatchInputProtocolError = Output(Bool())
+  val storeStaQueueCount = Output(UInt(storeDispatchCountWidth.W))
+  val storeStdQueueCount = Output(UInt(storeDispatchCountWidth.W))
+  val storeStaInsertReady = Output(Bool())
+  val storeStdInsertReady = Output(Bool())
+  val storeSelectedSta = Output(Bool())
+  val storeSelectedStd = Output(Bool())
+  val storeBlockedByStaExec = Output(Bool())
+  val storeBlockedByStdExec = Output(Bool())
+  val storeStqInsertValid = Output(Bool())
+  val storeStqInsertAccepted = Output(Bool())
+  val storeStqInsertAllocated = Output(Bool())
+  val storeStqInsertMerged = Output(Bool())
+  val storeStqInsertConflict = Output(Bool())
+  val storeStqInsertIndex = Output(UInt(ptrWidth.W))
+  val storeStqOccupiedMask = Output(UInt(p.robEntries.W))
+  val storeStqWaitMask = Output(UInt(p.robEntries.W))
+  val storeStqCommitMask = Output(UInt(p.robEntries.W))
+  val storeStqResidentCount = Output(UInt(storeStqCountWidth.W))
+  val storeStqOutstandingWaitCount = Output(UInt(storeStqCountWidth.W))
+  val storeStqEmpty = Output(Bool())
+  val storeStqFull = Output(Bool())
+  val storeStqStall = Output(Bool())
   val executeUnsupported = Output(Bool())
   val executeUnsupportedOpcode = Output(UInt(p.opcodeWidth.W))
   val robAllocFire = Output(Bool())
@@ -328,12 +376,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val issueQueueDepth: Int = 4,
     val denseSlotQueueDepth: Int = 8,
     val storeDispatchQueueDepth: Int = 4,
+    val storeExecBufferEntries: Int = 4,
     val mapQDepth: Int = 32,
     val gprMapQDepth: Int = 32,
     val archRegs: Int = 24,
     val physRegs: Int = 64,
     val skipBlockMarkers: Boolean = true,
-    val useMarkerDecodeContext: Boolean = false)
+    val useMarkerDecodeContext: Boolean = false,
+    val useReducedStoreDispatchStq: Boolean = false)
     extends Module {
   require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
   private val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(
@@ -347,6 +397,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     decRenQueueDepth = decRenQueueDepth,
     issueQueueDepth = issueQueueDepth,
     denseSlotQueueDepth = denseSlotQueueDepth,
+    storeDispatchQueueDepth = storeDispatchQueueDepth,
+    storeExecBufferEntries = storeExecBufferEntries,
     mapQDepth = mapQDepth,
     gprMapQDepth = gprMapQDepth,
     physRegs = physRegs
@@ -365,11 +417,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     gprMapQDepth = gprMapQDepth,
     useMarkerDecodeContext = useMarkerDecodeContext,
     skipBlockMarkers = skipBlockMarkers,
-    reducedStoreDispatchBypass = true
+    reducedStoreDispatchBypass = !useReducedStoreDispatchStq
   ))
   val rf = Module(new ReducedScalarRegisterFile(p, archRegs = archRegs, physRegs = physRegs))
   val issue = Module(new ReducedScalarIssueQueue(p, depth = issueQueueDepth))
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
+  val storeExecBridge = Module(new ReducedStoreExecResultBridge(
+    p = p,
+    traceParams = traceParams,
+    bufferEntries = storeExecBufferEntries,
+    mapQDepth = mapQDepth,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.threadIdWidth,
+    tidWidth = p.threadIdWidth
+  ))
 
   val localQueueDepth = 4
   val localTData = RegInit(VecInit(Seq.fill(localQueueDepth)(0.U(p.immWidth.W))))
@@ -648,8 +709,21 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val localIncomingBlocked =
     localIncomingUsesLocal && ((localTPendingCount =/= 0.U) || (localUPendingCount =/= 0.U))
   path.io.renamedOutReady := issue.io.inReady && !localIncomingBlocked
-  path.io.storeStaExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
-  path.io.storeStdExec := 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
+  storeExecBridge.io.flushValid := backendPipeFlush || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B
+  storeExecBridge.io.completeValid := execute.io.completeValid && useReducedStoreDispatchStq.B
+  storeExecBridge.io.completeRow := execute.io.completeRow
+  storeExecBridge.io.completeBid := execute.io.releaseBid
+  storeExecBridge.io.completeRid := execute.io.releaseRid
+  storeExecBridge.io.completeStid := execute.io.releaseStid
+  storeExecBridge.io.staQueueValid := path.io.storeStaQueueValid
+  storeExecBridge.io.staQueue := path.io.storeStaQueue
+  storeExecBridge.io.stdQueueValid := path.io.storeStdQueueValid
+  storeExecBridge.io.stdQueue := path.io.storeStdQueue
+  storeExecBridge.io.staConsumed := path.io.storeSelectedSta
+  storeExecBridge.io.stdConsumed := path.io.storeSelectedStd
+  val zeroStoreExec = 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
+  path.io.storeStaExec := Mux(useReducedStoreDispatchStq.B, storeExecBridge.io.staExec, zeroStoreExec)
+  path.io.storeStdExec := Mux(useReducedStoreDispatchStq.B, storeExecBridge.io.stdExec, zeroStoreExec)
   path.io.storeMarkCommitValid := false.B
   path.io.storeMarkCommitIndex := 0.U
   path.io.storeCommitFreeValid := false.B
@@ -967,6 +1041,49 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.executeCompleteRobValue := execute.io.completeRobValue
   io.loadLookupValid := execute.io.loadLookupValid
   io.loadLookupAddr := execute.io.loadLookupAddr
+  io.reducedStoreDispatchEnabled := useReducedStoreDispatchStq.B
+  io.reducedStoreExecCompleteStoreValid := storeExecBridge.io.completeStoreValid
+  io.reducedStoreExecCaptureFire := storeExecBridge.io.captureFire
+  io.reducedStoreExecCaptureBlocked := storeExecBridge.io.captureBlocked
+  io.reducedStoreExecCaptureDuplicate := storeExecBridge.io.captureDuplicate
+  io.reducedStoreExecStaMatch := storeExecBridge.io.staMatch
+  io.reducedStoreExecStdMatch := storeExecBridge.io.stdMatch
+  io.reducedStoreExecValidMask := storeExecBridge.io.validMask
+  io.reducedStoreExecBufferCount := storeExecBridge.io.bufferCount
+  io.reducedStoreStaExecValid := storeExecBridge.io.staExec.valid
+  io.reducedStoreStdExecValid := storeExecBridge.io.stdExec.valid
+  io.storeDispatchReady := path.io.storeDispatchReady
+  io.storeDispatchFire := path.io.storeDispatchFire
+  io.storeDispatchSplit := path.io.storeDispatchSplit
+  io.storeStaQueueValid := path.io.storeStaQueueValid
+  io.storeStdQueueValid := path.io.storeStdQueueValid
+  io.storeStaEnqueueFire := path.io.storeStaEnqueueFire
+  io.storeStdEnqueueFire := path.io.storeStdEnqueueFire
+  io.storeStaDequeueFire := path.io.storeStaDequeueFire
+  io.storeStdDequeueFire := path.io.storeStdDequeueFire
+  io.storeDispatchInputProtocolError := path.io.storeDispatchInputProtocolError
+  io.storeStaQueueCount := path.io.storeStaQueueCount
+  io.storeStdQueueCount := path.io.storeStdQueueCount
+  io.storeStaInsertReady := path.io.storeStaInsertReady
+  io.storeStdInsertReady := path.io.storeStdInsertReady
+  io.storeSelectedSta := path.io.storeSelectedSta
+  io.storeSelectedStd := path.io.storeSelectedStd
+  io.storeBlockedByStaExec := path.io.storeBlockedByStaExec
+  io.storeBlockedByStdExec := path.io.storeBlockedByStdExec
+  io.storeStqInsertValid := path.io.storeStqInsertValid
+  io.storeStqInsertAccepted := path.io.storeStqInsertAccepted
+  io.storeStqInsertAllocated := path.io.storeStqInsertAllocated
+  io.storeStqInsertMerged := path.io.storeStqInsertMerged
+  io.storeStqInsertConflict := path.io.storeStqInsertConflict
+  io.storeStqInsertIndex := path.io.storeStqInsertIndex
+  io.storeStqOccupiedMask := path.io.storeStqOccupiedMask
+  io.storeStqWaitMask := path.io.storeStqWaitMask
+  io.storeStqCommitMask := path.io.storeStqCommitMask
+  io.storeStqResidentCount := path.io.storeStqResidentCount
+  io.storeStqOutstandingWaitCount := path.io.storeStqOutstandingWaitCount
+  io.storeStqEmpty := path.io.storeStqEmpty
+  io.storeStqFull := path.io.storeStqFull
+  io.storeStqStall := path.io.storeStqStall
   io.executeUnsupported := execute.io.unsupported
   io.executeUnsupportedOpcode := execute.io.unsupportedOpcode
   io.robAllocFire := path.io.robAllocFire

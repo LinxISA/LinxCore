@@ -63,9 +63,12 @@ and STD merge-bypass progress without computing address/data itself.
 `STQInsertProbe` now factors the live-row insert readiness predicate used by
 `STQEntryBank`, and `StoreDispatchSTQPath` composes the queues, bridge,
 per-candidate probes, and STQ bank so a mergeable STD can bypass an
-allocation-blocked STA. The lane still keeps enqueue-time ROB reservation,
-full SID/LID payload carry, real STA/STD execution, ready-table, and live top
-integration in later owners. The first integrated ROB/CMT
+allocation-blocked STA. `ReducedStoreExecResultBridge` is the reduced-top
+adapter from ALU store completion sidebands to matched STA/STD execution
+results; STQ commit/free ownership is still a later owner before the path can
+run long CoreMark windows. The lane still keeps enqueue-time ROB reservation,
+full SID/LID payload carry, ready-table, and full live top integration in
+later owners. The first integrated ROB/CMT
 preparation slices preserve the LinxCoreModel `PROBStatus` lifecycle, add a
 status-backed entry bank with separate commit and deallocation walks, and expose
 the model-derived flush-prune selection rule. The entry bank now consumes that

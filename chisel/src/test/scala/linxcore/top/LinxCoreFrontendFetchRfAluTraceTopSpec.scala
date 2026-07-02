@@ -120,6 +120,27 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.decodeBlockedByOutput.getWidth == 1)
     assert(io.tuRenameSourceUnderflowMask.getWidth == 3)
     assert(io.executeCompleteRobValue.getWidth == 3)
+    assert(io.reducedStoreDispatchEnabled.getWidth == 1)
+    assert(io.reducedStoreExecCompleteStoreValid.getWidth == 1)
+    assert(io.reducedStoreExecCaptureFire.getWidth == 1)
+    assert(io.reducedStoreExecCaptureBlocked.getWidth == 1)
+    assert(io.reducedStoreExecCaptureDuplicate.getWidth == 1)
+    assert(io.reducedStoreExecStaMatch.getWidth == 1)
+    assert(io.reducedStoreExecStdMatch.getWidth == 1)
+    assert(io.reducedStoreExecValidMask.getWidth == 4)
+    assert(io.reducedStoreExecBufferCount.getWidth == 3)
+    assert(io.reducedStoreStaExecValid.getWidth == 1)
+    assert(io.reducedStoreStdExecValid.getWidth == 1)
+    assert(io.storeDispatchReady.getWidth == 1)
+    assert(io.storeDispatchFire.getWidth == 1)
+    assert(io.storeDispatchSplit.getWidth == 1)
+    assert(io.storeStaQueueValid.getWidth == 1)
+    assert(io.storeStdQueueValid.getWidth == 1)
+    assert(io.storeStaQueueCount.getWidth == 3)
+    assert(io.storeStdQueueCount.getWidth == 3)
+    assert(io.storeStqInsertIndex.getWidth == 3)
+    assert(io.storeStqOccupiedMask.getWidth == 8)
+    assert(io.storeStqResidentCount.getWidth == 4)
     assert(io.commit.rows.length == 2)
     assert(io.robDeallocBlockLastValid.getWidth == 1)
     assert(io.robDeallocBlockLastBlockBid.getWidth == 64)
@@ -200,10 +221,26 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_localIncomingBlocked"))
     assert(sv.contains("io_decodeBlockedByTURename"))
     assert(sv.contains("io_executeCompleteValid"))
+    assert(sv.contains("io_reducedStoreExecCaptureFire"))
+    assert(sv.contains("io_storeStqResidentCount"))
     assert(sv.contains("io_blockScalarDoneFire"))
     assert(sv.contains("io_blockRetireFire"))
     assert(sv.contains("io_blockAllocatedMask"))
     assert(sv.contains("io_commitContractError"))
+  }
+
+  test("optional reduced STQ dispatch mode elaborates the store exec bridge") {
+    val sv = ChiselStage.emitSystemVerilog(
+      new LinxCoreFrontendFetchRfAluTraceTop(
+        CoreParams(robEntries = 8, commitWidth = 2),
+        mapQDepth = 8,
+        useReducedStoreDispatchStq = true)
+    )
+
+    assert(sv.contains("module ReducedStoreExecResultBridge"))
+    assert(sv.contains("io_reducedStoreDispatchEnabled"))
+    assert(sv.contains("io_reducedStoreExecCaptureFire"))
+    assert(sv.contains("io_storeStqInsertValid"))
   }
 
   test("marker-row harness elaborates admitted markers with decode-time BID context") {
