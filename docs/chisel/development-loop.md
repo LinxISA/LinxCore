@@ -5,8 +5,10 @@ Date: 2026-06-30
 ## Purpose
 
 This document is the concise execution plan for future LinxCore Chisel agents.
-Use it with `docs/chisel/agent-loop.md`, which remains the detailed packet
-ledger and gate history.
+Start with `docs/chisel/integrated-development-flow.md` for the optimized
+compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
+`docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
+history.
 
 The current priority is ROB and cross-check infrastructure. Wider frontend,
 issue, LSU, and engine work should build on a real retirement, recovery, and
