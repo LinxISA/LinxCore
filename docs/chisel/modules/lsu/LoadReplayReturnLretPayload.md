@@ -20,6 +20,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnDataExtract.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPublishReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnConsumerReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnWritebackCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-LRET-001`, `LC-CHISEL-LSU-REPLAY-DST-001`
 
 ## Purpose
@@ -107,6 +108,8 @@ extraction is blocked.
 
 - Real IEX LRET queue entry type and enqueue.
 - Real mem-wakeup publication and ready-table/issue wakeup fanout.
+- Real RF writeback arbitration; R312 exposes only a diagnostic GPR writeback
+  candidate.
 - Multi-destination load-pair/vector/tile payloads.
 - Cross-line merged payload publication.
 - Backpressure from LRET and wakeup queues into replay launch.
