@@ -13,6 +13,7 @@
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnRobResolveDataCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTloadCompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-LANE-COMPLETION-001`
 
@@ -50,7 +51,7 @@ with real load-pair, vector, MEM-IEX, and lane-count state.
 | output | `retLaneAfterResolve` | `retLaneBefore + returnedLaneCount` when a candidate is valid. |
 | output | `requiresAllLanes` | Candidate is a scalar load-pair or vector/MEM multi-lane row. |
 | output | `completeValid` | Candidate has returned at least one lane and has satisfied any required all-lane count. |
-| output | `readyForPipeInsert` | Alias for `completeValid`; feeds the R322 E4 insert-shaped diagnostic. |
+| output | `readyForPipeInsert` | Alias for `completeValid`; feeds the R325 TLOAD completion diagnostic. |
 | output | `blockedBy*` | Disabled, flush, no-resolve, zero-lane, invalid `realReqCnt`, scalar-pair incomplete, and vector/MEM incomplete diagnostics. |
 
 ## Logic Design
@@ -76,7 +77,7 @@ returns, this module blocks until the diagnostic post-resolve lane count reaches
 
 `LinxCoreFrontendFetchRfAluTraceTop` wires R324 between
 `LoadReplayReturnRobResolveDataCandidate` and
-`LoadReplayReturnIexPipeInsertCandidate`:
+`LoadReplayReturnTloadCompletionCandidate`:
 
 - `resolveValid` comes from R323 `readyForPipeInsert`;
 - `returnedLaneCount` is `1` when R323 reports `retLaneIncrement`;
@@ -84,7 +85,7 @@ returns, this module blocks until the diagnostic post-resolve lane count reaches
 - `realReqCnt` is tied to one in the current reduced scalar subset;
 - `scalarLoadPair` and `vectorOrMemMultiLane` are tied false until those row
   classifiers and lane counters exist;
-- R322 consumes R324 `readyForPipeInsert`.
+- R325 consumes R324 `readyForPipeInsert`.
 
 This preserves the model order:
 
@@ -92,6 +93,7 @@ This preserves the model order:
 setMemData admission
   -> ROB resolve-data intent
   -> lane-completion permit
+  -> TLOAD sub-instruction completion permit
   -> IEX E4 insert-shaped candidate
 ```
 
@@ -104,7 +106,7 @@ or clear replay-LIQ rows.
 - Real per-ROB-row `retLane` storage and update.
 - Scalar load-pair opcode classification and per-lane destination data writes.
 - Vector/MEM-IEX `inst->lanes` qualification and `realReqCnt` sideband carry.
-- TLOAD sub-instruction completion and tile-SCB request side effects.
+- Real TLOAD sub-instruction completion state and tile-SCB request side effects.
 - Real E4 pipe residency, replay-row lifecycle, ready-table update, issue
   wakeup, and RF writeback after completion.
 
@@ -114,6 +116,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLaneCompletionCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTloadCompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnRobResolveDataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
