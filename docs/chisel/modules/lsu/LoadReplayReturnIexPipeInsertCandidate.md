@@ -14,6 +14,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDrainPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDataCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnRobResolveDataCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-IEX-PIPE-INSERT-001`
 
@@ -27,9 +28,10 @@ then skips invalid or need-flush ROB rows, resolves returned data into the ROB
 instruction, clones the instruction as a load-return, marks `isLoadReturn`,
 and inserts that clone into the first free LDA or AGU E4 pipe.
 
-R322 names only the final insert-shaped diagnostic payload. It consumes the
-R320/R321 `setMemDataValid` result plus the R319 IEX pipe selection and emits
-an `insertValid` candidate with:
+R322 names only the final insert-shaped diagnostic payload. After R323, the
+integrated path consumes the ROB resolve-data boundary's `readyForPipeInsert`
+result, still derived from the R320/R321 `setMemDataValid` admission checks,
+plus the R319 IEX pipe selection and emits an `insertValid` candidate with:
 
 - the chosen IEX E4 insertion pipe index;
 - the original MemReqBus load-to-use pipe sideband as a separate index;
@@ -40,6 +42,12 @@ an `insertValid` candidate with:
 This module does not write an IEX pipe, mutate the ROB, update RF state,
 publish ready-table state, wake issue queues, clear replay rows, or drive the
 LRET FIFO drain.
+
+R323 inserts `LoadReplayReturnRobResolveDataCandidate` before this module.
+The integrated top now feeds this module from that boundary's
+`readyForPipeInsert` diagnostic, matching the model order where
+`ROBState::resolveData` runs before the cloned load-return instruction is
+inserted into E4.
 
 ## Interface
 
@@ -82,9 +90,10 @@ module intentionally keeps two pipe identifiers distinct:
 ## Integration
 
 `LinxCoreFrontendFetchRfAluTraceTop` wires R322 behind
-`LoadReplayReturnIexDataCandidate`:
+`LoadReplayReturnRobResolveDataCandidate`:
 
-- `setMemDataValid` and the returned-load payload come from
+- `setMemDataValid` is driven by the R323 `readyForPipeInsert` diagnostic;
+- returned-load payload fields still come from
   `LoadReplayReturnIexDataCandidate`;
 - `pipeInsertReady` and `pipeInsertIndex` come from
   `LoadReplayReturnIexDrainPermit`;

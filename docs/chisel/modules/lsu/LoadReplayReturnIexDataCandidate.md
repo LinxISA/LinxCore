@@ -18,6 +18,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretSink.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDrainPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBRowStatusLookup.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnRobResolveDataCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-IEX-DATA-001`
 
@@ -96,6 +97,10 @@ diagnostics only. No output feeds ROB, RF, ready-table, issue queue, replay-LIQ
 row lifecycle, or return-pipe state. R322 consumes these diagnostics to form a
 separate E4 insert-shaped candidate, but that module is also diagnostic-only
 and does not feed live pipe residency.
+R323 inserts `LoadReplayReturnRobResolveDataCandidate` as the immediate
+consumer of `setMemDataValid` before the R322 E4 insert-shaped diagnostic. It
+names the future `ROBState::resolveData` request shape but still leaves this
+module side-effect-free and keeps FIFO drain disabled.
 
 ## Deferred Owners
 
