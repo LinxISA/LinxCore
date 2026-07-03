@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeSelect, LoadReplayReturnPublishReady, LoadReplayReturnReadiness, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeSelect, LoadReplayReturnPublishReady, LoadReplayReturnReadiness, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -495,6 +495,31 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqReturnPublishBlockedByNoCandidate = Output(Bool())
   val reducedLoadReplayLiqReturnPublishBlockedByData = Output(Bool())
   val reducedLoadReplayLiqReturnPublishBlockedByConsumer = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadCandidateValid = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadValid = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadBidValid = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadBidWrap = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadBidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqLretPayloadGidValid = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadGidWrap = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadGidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqLretPayloadRidValid = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadRidWrap = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadRidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqLretPayloadLoadLsIdValid = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadLoadLsIdWrap = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadLoadLsIdValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqLretPayloadPc = Output(UInt(p.pcWidth.W))
+  val reducedLoadReplayLiqLretPayloadAddr = Output(UInt(p.immWidth.W))
+  val reducedLoadReplayLiqLretPayloadSize = Output(UInt(7.W))
+  val reducedLoadReplayLiqLretPayloadData = Output(UInt(p.immWidth.W))
+  val reducedLoadReplayLiqLretPayloadPipeIndex = Output(UInt(1.W))
+  val reducedLoadReplayLiqLretPayloadSpecWakeup = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadStackValid = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadWakeupRequired = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadBlockedByDisabled = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadBlockedByNoCandidate = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadBlockedByData = Output(Bool())
   val reducedLoadReplayLiqRepickMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqMissMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqResolvedMask = Output(UInt(p.robEntries.W))
@@ -920,6 +945,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     dataWidth = p.immWidth
   ))
   val reducedReplayLiqReturnPublishReady = Module(new LoadReplayReturnPublishReady)
+  val reducedReplayLiqReturnLretPayload = Module(new LoadReplayReturnLretPayload(
+    idEntries = p.robEntries,
+    addrWidth = p.immWidth,
+    pcWidth = p.pcWidth,
+    dataWidth = p.immWidth,
+    returnPipeCount = 1
+  ))
   val reducedReplayLiqLaunchReadiness = Module(new LoadReplayLaunchReadiness)
   val reducedStoreResidentReplayWakeup = Module(new ResidentStoreReplayWakeup(
     entries = p.robEntries,
@@ -1514,6 +1546,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedReplayLiqReturnPublishReady.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
   reducedReplayLiqReturnPublishReady.io.dataValid := reducedReplayLiqReturnDataExtract.io.dataValid
   reducedReplayLiqReturnPublishReady.io.consumerReady := reducedReplayLiqReturnConsumerReady.io.consumerReady
+  reducedReplayLiqReturnLretPayload.io.enable := reducedLoadReplayLiqAllocEnabled
+  reducedReplayLiqReturnLretPayload.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
+  reducedReplayLiqReturnLretPayload.io.dataValid := reducedReplayLiqReturnDataExtract.io.dataValid
+  reducedReplayLiqReturnLretPayload.io.selectedBid := reducedLoadReplayLiqAllocPath.io.launchSelectedBid
+  reducedReplayLiqReturnLretPayload.io.selectedGid := reducedLoadReplayLiqAllocPath.io.launchSelectedGid
+  reducedReplayLiqReturnLretPayload.io.selectedRid := reducedLoadReplayLiqAllocPath.io.launchSelectedRid
+  reducedReplayLiqReturnLretPayload.io.selectedLoadLsId := reducedLoadReplayLiqAllocPath.io.launchSelectedLoadLsId
+  reducedReplayLiqReturnLretPayload.io.selectedPc := reducedLoadReplayLiqAllocPath.io.launchSelectedPc
+  reducedReplayLiqReturnLretPayload.io.selectedAddr := reducedLoadReplayLiqAllocPath.io.launchSelectedAddr
+  reducedReplayLiqReturnLretPayload.io.selectedSize := reducedLoadReplayLiqAllocPath.io.launchSelectedSize
+  reducedReplayLiqReturnLretPayload.io.returnData := reducedReplayLiqReturnDataExtract.io.data
+  reducedReplayLiqReturnLretPayload.io.returnPipeIndex := reducedReplayLiqReturnReadiness.io.selectedPipeIndex
+  reducedReplayLiqReturnLretPayload.io.specWakeup := reducedLoadReplayLiqAllocPath.io.launchSelectedSpecWakeup
+  reducedReplayLiqReturnLretPayload.io.stackValid := reducedLoadReplayLiqAllocPath.io.launchSelectedStackValid
   reducedReplayLiqLaunchReadiness.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqLaunchReadiness.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
   reducedReplayLiqLaunchReadiness.io.baseLookupGranted := loadLookupArbiter.io.replayGranted
@@ -2423,6 +2469,56 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPublishReady.io.blockedByData
   io.reducedLoadReplayLiqReturnPublishBlockedByConsumer :=
     reducedReplayLiqReturnPublishReady.io.blockedByConsumer
+  io.reducedLoadReplayLiqLretPayloadCandidateValid :=
+    reducedReplayLiqReturnLretPayload.io.candidateValid
+  io.reducedLoadReplayLiqLretPayloadValid :=
+    reducedReplayLiqReturnLretPayload.io.payloadValid
+  io.reducedLoadReplayLiqLretPayloadBidValid :=
+    reducedReplayLiqReturnLretPayload.io.payloadBid.valid
+  io.reducedLoadReplayLiqLretPayloadBidWrap :=
+    reducedReplayLiqReturnLretPayload.io.payloadBid.wrap
+  io.reducedLoadReplayLiqLretPayloadBidValue :=
+    reducedReplayLiqReturnLretPayload.io.payloadBid.value
+  io.reducedLoadReplayLiqLretPayloadGidValid :=
+    reducedReplayLiqReturnLretPayload.io.payloadGid.valid
+  io.reducedLoadReplayLiqLretPayloadGidWrap :=
+    reducedReplayLiqReturnLretPayload.io.payloadGid.wrap
+  io.reducedLoadReplayLiqLretPayloadGidValue :=
+    reducedReplayLiqReturnLretPayload.io.payloadGid.value
+  io.reducedLoadReplayLiqLretPayloadRidValid :=
+    reducedReplayLiqReturnLretPayload.io.payloadRid.valid
+  io.reducedLoadReplayLiqLretPayloadRidWrap :=
+    reducedReplayLiqReturnLretPayload.io.payloadRid.wrap
+  io.reducedLoadReplayLiqLretPayloadRidValue :=
+    reducedReplayLiqReturnLretPayload.io.payloadRid.value
+  io.reducedLoadReplayLiqLretPayloadLoadLsIdValid :=
+    reducedReplayLiqReturnLretPayload.io.payloadLoadLsId.valid
+  io.reducedLoadReplayLiqLretPayloadLoadLsIdWrap :=
+    reducedReplayLiqReturnLretPayload.io.payloadLoadLsId.wrap
+  io.reducedLoadReplayLiqLretPayloadLoadLsIdValue :=
+    reducedReplayLiqReturnLretPayload.io.payloadLoadLsId.value
+  io.reducedLoadReplayLiqLretPayloadPc :=
+    reducedReplayLiqReturnLretPayload.io.payloadPc
+  io.reducedLoadReplayLiqLretPayloadAddr :=
+    reducedReplayLiqReturnLretPayload.io.payloadAddr
+  io.reducedLoadReplayLiqLretPayloadSize :=
+    reducedReplayLiqReturnLretPayload.io.payloadSize
+  io.reducedLoadReplayLiqLretPayloadData :=
+    reducedReplayLiqReturnLretPayload.io.payloadData
+  io.reducedLoadReplayLiqLretPayloadPipeIndex :=
+    reducedReplayLiqReturnLretPayload.io.payloadPipeIndex
+  io.reducedLoadReplayLiqLretPayloadSpecWakeup :=
+    reducedReplayLiqReturnLretPayload.io.payloadSpecWakeup
+  io.reducedLoadReplayLiqLretPayloadStackValid :=
+    reducedReplayLiqReturnLretPayload.io.payloadStackValid
+  io.reducedLoadReplayLiqLretPayloadWakeupRequired :=
+    reducedReplayLiqReturnLretPayload.io.wakeupRequired
+  io.reducedLoadReplayLiqLretPayloadBlockedByDisabled :=
+    reducedReplayLiqReturnLretPayload.io.blockedByDisabled
+  io.reducedLoadReplayLiqLretPayloadBlockedByNoCandidate :=
+    reducedReplayLiqReturnLretPayload.io.blockedByNoCandidate
+  io.reducedLoadReplayLiqLretPayloadBlockedByData :=
+    reducedReplayLiqReturnLretPayload.io.blockedByData
   io.reducedLoadReplayLiqRepickMask := reducedLoadReplayLiqAllocPath.io.repickMask
   io.reducedLoadReplayLiqMissMask := reducedLoadReplayLiqAllocPath.io.missMask
   io.reducedLoadReplayLiqResolvedMask := reducedLoadReplayLiqAllocPath.io.resolvedMask
