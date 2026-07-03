@@ -45,7 +45,7 @@ packet.
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Suppresses W2 wakeup readiness during replay flush. |
-| input | `liveEnable` | Future live W2 ready-table and issue-wakeup mutation enable. Current top ties this low. |
+| input | `liveEnable` | Future live W2 ready-table and issue-wakeup mutation enable. R357 drives this from `LoadReplayReturnPipeW2SideEffectLiveControl`, whose request is tied low in the current top. |
 | input | `wakeupRequired` | W2 completion classifier says the current legal W2 entry requires a wakeup side effect. |
 | input | `sinkReady` | Abstract ready-table/issue-wakeup sink capacity. Current top ties this high so the only R338 block is live-disabled. |
 | output | `candidateValid` | Enabled, not flushing, and W2 wakeup is required. |
@@ -67,8 +67,8 @@ wakeupSinkReady = wakeupArmed && liveEnable
 
 `blockedBySink` is reported before live-disabled blocking because an unready
 wakeup sink cannot arm a request. With `sinkReady=true` and
-`liveEnable=false`, the current top can show that W2 wakeup would be otherwise
-acceptable while still preventing W2 completion.
+the R357 live-control request disabled, the current top can show that W2
+wakeup would be otherwise acceptable while still preventing W2 completion.
 
 ## Integration
 
@@ -77,7 +77,8 @@ acceptable while still preventing W2 completion.
 
 - `wakeupRequired` comes from the W2 completion classifier;
 - `sinkReady` is tied high as an abstract one-entry diagnostic sink;
-- `liveEnable` is tied low, so `wakeupSinkReady` remains false;
+- `liveEnable` comes from R357 `LoadReplayReturnPipeW2SideEffectLiveControl`,
+  whose request input is tied low, so `wakeupSinkReady` remains false;
 - `LoadReplayReturnPipeW2SideEffectReady.wakeupSinkReady` now consumes this
   module output instead of a literal `false.B`;
 - top-level diagnostics expose wakeup-sink candidate, armed, ready, and

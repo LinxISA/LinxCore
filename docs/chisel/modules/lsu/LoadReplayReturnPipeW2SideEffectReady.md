@@ -15,6 +15,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupSinkReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectCompletionPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnSideEffectReady.scala`
@@ -34,8 +35,9 @@ R335 makes that missing readiness contract explicit. The module reports when a
 legal W2 completion candidate could retire if every required side-effect sink
 were ready. R336 names the resolve sink but keeps it live-disabled, while
 R337 names the writeback sink and keeps it live-disabled. R338 names the
-wakeup sink and keeps it live-disabled, so W2 completion and W2-slot clear
-remain dormant.
+wakeup sink and keeps it live-disabled. R357 drives the three sink
+`liveEnable` inputs from one live-control owner whose request remains false,
+so W2 completion and W2-slot clear remain dormant.
 
 ## Interface
 
@@ -90,11 +92,14 @@ completion.
 - `writebackRequired` and `wakeupRequired` come from the W2 completion
   classifier;
 - resolve readiness comes from the R336
-  `LoadReplayReturnPipeW2ResolveSinkReady` live-disabled boundary;
+  `LoadReplayReturnPipeW2ResolveSinkReady` boundary, whose live enable is
+  now driven by R357 `LoadReplayReturnPipeW2SideEffectLiveControl`;
 - writeback readiness comes from the R337
-  `LoadReplayReturnPipeW2WritebackSinkReady` live-disabled boundary;
+  `LoadReplayReturnPipeW2WritebackSinkReady` boundary, whose live enable is
+  now driven by R357 live control;
 - wakeup readiness comes from the R338
-  `LoadReplayReturnPipeW2WakeupSinkReady` live-disabled boundary;
+  `LoadReplayReturnPipeW2WakeupSinkReady` boundary, whose live enable is now
+  driven by R357 live control;
 - W2 completion consumes `sideEffectsReady` from this module rather than a
   literal `false.B`;
 - top-level diagnostics expose candidate, per-sink readiness, final readiness,
@@ -126,6 +131,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectReady
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectLiveControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectCompletionPermit
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveSinkReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackSinkReady
