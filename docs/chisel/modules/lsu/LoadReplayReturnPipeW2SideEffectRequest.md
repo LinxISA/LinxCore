@@ -16,6 +16,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupSinkReady.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SIDE-EFFECT-REQUEST-001`
 
@@ -90,6 +91,10 @@ surface without enabling W2 slot clear or any live side effect.
 R340 consumes `resolveRequest` in `LoadReplayReturnPipeW2ResolveRequest` to
 shape the future W2 `PEResolveBus` payload. That payload remains dormant until
 the live W2 resolve sink becomes enabled.
+R341 consumes `writebackRequest` in
+`LoadReplayReturnPipeW2WritebackRequest` to shape the future reduced scalar RF
+writeback payload. That payload remains dormant until the live W2 writeback
+sink becomes enabled.
 
 ## Deferred Owners
 
