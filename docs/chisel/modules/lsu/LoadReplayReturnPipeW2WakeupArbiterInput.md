@@ -34,9 +34,10 @@ input only behind a separate live gate.
 
 The current reduced top drives `liveEnable` from
 `LoadReplayReturnPipeW2SideEffectLiveControl.wakeupLiveEnable`. That shared
-owner still has `liveRequested=false`, so this owner is diagnostic-only. It
-cannot mutate ready-table state, cannot wake issue queues, and cannot advance
-replay-row lifecycle.
+live-control request now comes from R363
+`LoadReplayReturnPipeW2AtomicLiveRequestControl`, whose `requestEnable` remains
+false, so this owner is diagnostic-only. It cannot mutate ready-table state,
+cannot wake issue queues, and cannot advance replay-row lifecycle.
 
 ## Interface
 
@@ -82,7 +83,7 @@ live ready-table or issue-wakeup side effect.
 - `flush` follows the reduced store/replay flush path;
 - `liveEnable` comes from R357/R361
   `LoadReplayReturnPipeW2SideEffectLiveControl.wakeupLiveEnable`, whose
-  request remains false until replay wakeup mutation, RF writeback, ROB/PE
+  R363 request remains false until replay wakeup mutation, RF writeback, ROB/PE
   resolve, W2 clear, and replay-row lifecycle can be promoted atomically.
 
 Top-level diagnostics are exposed under

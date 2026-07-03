@@ -11,6 +11,7 @@
   - `model/LinxCoreModel/model/iex/pipe/agu_pipe.cpp`
     - `AGUPipe::runW2`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AtomicLiveRequestControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
@@ -29,10 +30,11 @@ occur before the pipe stage can be consumed.
 
 R357 replaces the previous three sink-local `false.B` ties with one module that
 computes the required sink mask and the live-enable mask. R361 extends the same
-live-enable outputs to the R358/R359/R360 pre-arbiter input boundaries. The
-reduced top still ties `liveRequested` false, so resolve, writeback, and
-wakeup sinks and arbiter inputs stay dormant and no architectural state
-changes.
+live-enable outputs to the R358/R359/R360 pre-arbiter input boundaries. R363
+feeds `liveRequested` from `LoadReplayReturnPipeW2AtomicLiveRequestControl`
+instead of a helper-local constant. That owner still ties its `requestEnable`
+false, so resolve, writeback, and wakeup sinks and arbiter inputs stay dormant
+and no architectural state changes.
 
 ## Interface
 
@@ -40,7 +42,7 @@ changes.
 |---|---|---|
 | input | `enable` | Replay-LIQ returned-load pipe wrapper is active. |
 | input | `flush` | Suppresses live W2 side effects during reduced-store flush. |
-| input | `liveRequested` | External request to arm live W2 side-effect sinks. Current top ties this false. |
+| input | `liveRequested` | Request to arm live W2 side-effect sinks. Current top drives this from R363 atomic live-request control, whose request gate is false. |
 | input | `sideEffectCandidateValid` | The resident W2 entry is a legal side-effect candidate. Current top feeds R334 `resolveRequired`. |
 | input | `resolveRequired` | Resident W2 entry must publish resolve state. |
 | input | `writebackRequired` | Resident W2 entry must publish a reduced scalar RF writeback. |
@@ -79,7 +81,8 @@ vector diagnostics.
 `LinxCoreFrontendFetchRfAluTraceTop` wires this module in the W2 request
 payload helper:
 
-- `liveRequested` is tied false in R357;
+- `liveRequested` comes from R363 atomic live-request control, whose
+  `requestEnable` remains false;
 - `requiredMask` is derived from `LoadReplayReturnPipeW2CompletionCandidate`;
 - `resolveLiveEnable`, `writebackLiveEnable`, and `wakeupLiveEnable` drive
   the R336/R337/R338 sink owners and the R358/R359/R360 pre-arbiter input
@@ -87,15 +90,15 @@ payload helper:
 - compact diagnostics are exposed under
   `reducedLoadReplayLiqLretPipeW2SideEffectLiveControl*`.
 
-Because the request remains false, R335 side-effect readiness still blocks
-completion, the R358/R359/R360 arbiter-input valid outputs remain false, R334
-does not clear the W2 slot, and R351/R356 promotion remains dormant.
+Because the atomic request remains false, R335 side-effect readiness still
+blocks completion, the R358/R359/R360 arbiter-input valid outputs remain false,
+R334 does not clear the W2 slot, and R351/R356 promotion remains dormant.
 
 ## Deferred Owners
 
-- Replace the current false `liveRequested` tie-off only after ROB/PE resolve,
-  replay RF writeback, ready-table/issue wakeup, W2 clear, and replay-row
-  lifecycle mutation can commit the same resident W2 entry atomically.
+- Replace the R363 atomic request control's false `requestEnable` only after
+  ROB/PE resolve, replay RF writeback, ready-table/issue wakeup, W2 clear, and
+  replay-row lifecycle mutation can commit the same resident W2 entry atomically.
 - Extend the single reduced-pipe live request into per-return-pipe policy when
   multiple returned-load pipes are instantiated.
 - Feed real sink capacity and backpressure into the live-control request owner
@@ -107,6 +110,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectLiveControl
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicLiveRequestControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveSinkReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackSinkReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WakeupSinkReady

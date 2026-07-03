@@ -36,8 +36,8 @@ legal W2 completion candidate could retire if every required side-effect sink
 were ready. R336 names the resolve sink but keeps it live-disabled, while
 R337 names the writeback sink and keeps it live-disabled. R338 names the
 wakeup sink and keeps it live-disabled. R357 drives the three sink
-`liveEnable` inputs from one live-control owner whose request remains false,
-so W2 completion and W2-slot clear remain dormant.
+`liveEnable` inputs from one live-control owner whose R363 request remains
+false, so W2 completion and W2-slot clear remain dormant.
 
 ## Interface
 
@@ -46,11 +46,11 @@ so W2 completion and W2-slot clear remain dormant.
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `candidateValid` | W2 completion has a legal side-effect candidate. Current top feeds this from `LoadReplayReturnPipeW2CompletionCandidate.resolveRequired`. |
 | input | `resolveRequired` | Current candidate must publish resolve state. Legal W2 completions require this side effect. |
-| input | `resolveSinkReady` | Future resolve/ROB sink can accept the W2 completion. R336 feeds this from `LoadReplayReturnPipeW2ResolveSinkReady`, whose live enable is still tied low. |
+| input | `resolveSinkReady` | Future resolve/ROB sink can accept the W2 completion. R336 feeds this from `LoadReplayReturnPipeW2ResolveSinkReady`, whose R363 live request remains disabled. |
 | input | `writebackRequired` | Current candidate has a GPR destination writeback. |
-| input | `writebackSinkReady` | Future replay RF writeback sink can accept the W2 data. R337 feeds this from `LoadReplayReturnPipeW2WritebackSinkReady`, whose live enable is still tied low. |
+| input | `writebackSinkReady` | Future replay RF writeback sink can accept the W2 data. R337 feeds this from `LoadReplayReturnPipeW2WritebackSinkReady`, whose R363 live request remains disabled. |
 | input | `wakeupRequired` | Current candidate requires scalar/local wakeup. |
-| input | `wakeupSinkReady` | Future ready-table/issue-wakeup sink can accept the wakeup. R338 feeds this from `LoadReplayReturnPipeW2WakeupSinkReady`, whose live enable is still tied low. |
+| input | `wakeupSinkReady` | Future ready-table/issue-wakeup sink can accept the wakeup. R338 feeds this from `LoadReplayReturnPipeW2WakeupSinkReady`, whose R363 live request remains disabled. |
 | output | `readyCandidateValid` | Candidate is present while replay-LIQ mode is enabled. |
 | output | `resolveReady` | Candidate exists and resolve is either not required or sink-ready. |
 | output | `writebackReady` | Candidate exists and writeback is either not required or sink-ready. |

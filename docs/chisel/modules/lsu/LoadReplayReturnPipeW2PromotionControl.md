@@ -15,6 +15,7 @@
     - `AGUPipe::runW2`
     - `AGUPipe::move`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AtomicLiveRequestControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearIntent.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RefillReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SlotReplacePlan.scala`
@@ -32,13 +33,18 @@ R356 adds that mode owner but keeps the top-level request disabled. The packet
 therefore preserves the current empty-only advance behavior while making the
 future enable point explicit for later live W2 clear/refill work.
 
+R363 drives `promotionRequested` from
+`LoadReplayReturnPipeW2AtomicLiveRequestControl` instead of a helper-local
+constant. That owner still ties `requestEnable=false`, so promotion remains
+dormant while sharing one authority with W2 side-effect live control.
+
 ## Interface
 
 | Direction | Signal | Description |
 |---|---|---|
 | input | `enable` | Replay-LIQ returned-load pipe wrapper is active. |
 | input | `flush` | Suppresses promotion during reduced-store flush. |
-| input | `promotionRequested` | External request to use the live W2 promotion mode. Current top ties this false. |
+| input | `promotionRequested` | Request to use the live W2 promotion mode. Current top drives this from R363 atomic live-request control, whose request gate is false. |
 | input | `slotOccupied` | W2 currently holds a resident returned-load entry. |
 | input | `clearIntent` | R351 clear-intent proof for the resident W2 entry. |
 | input | `writeCandidateValid` | W1-to-W2 write candidate before the selected advance gate. |
@@ -75,7 +81,8 @@ R355 `livePromotionEnable` without creating a combinational loop.
 
 `LinxCoreFrontendFetchRfAluTraceTop` wires this module after R351:
 
-- `promotionRequested` is tied false in R356;
+- `promotionRequested` comes from R363 atomic live-request control, whose
+  `requestEnable` remains false;
 - `liveClearEnable` feeds `LoadReplayReturnPipeW2ClearIntent`;
 - `advanceLivePromotionEnable` feeds
   `LoadReplayReturnPipeW2AdvanceControl.livePromotionEnable`;
@@ -88,7 +95,7 @@ write the replay RF path, mutate ready-table state, or wake the issue queue.
 
 ## Deferred Owners
 
-- Turn `promotionRequested` on only after the W2 side-effect sinks and
+- Turn R363 atomic request control on only after the W2 side-effect sinks and
   replay-row lifecycle can commit the same resident instruction.
 - Replace the current W2 slot clear path with the live clear intent after the
   side-effect sinks mutate real state.
@@ -103,6 +110,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionControl
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicLiveRequestControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ClearIntent
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RefillReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SlotReplacePlan

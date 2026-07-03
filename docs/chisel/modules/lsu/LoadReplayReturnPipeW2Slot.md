@@ -116,7 +116,7 @@ AGU W2 pipe target.
   `!W2Slot.occupied`;
 - `replaceOnClear` is driven by R355
   `LoadReplayReturnPipeW2AdvanceControl`, whose live-promotion input comes
-  from R356 `LoadReplayReturnPipeW2PromotionControl` with the request tied
+  from R356 `LoadReplayReturnPipeW2PromotionControl` with the R363 request gate
   false;
 - `clear` comes from `LoadReplayReturnPipeW2CompletionCandidate.clearSlot`,
   which remains false while the R335/R336/R337/R338 W2 side-effect readiness path

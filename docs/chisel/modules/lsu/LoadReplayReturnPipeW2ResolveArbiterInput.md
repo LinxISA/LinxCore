@@ -31,9 +31,11 @@ inactive, and it becomes a real resolve input only behind a separate live gate.
 
 The current reduced top drives `liveEnable` from
 `LoadReplayReturnPipeW2SideEffectLiveControl.resolveLiveEnable`. That shared
-owner still has `liveRequested=false`, so this owner is diagnostic-only. It
-cannot mutate ROB/PE resolve state, cannot publish branch or recovery side
-effects, and cannot advance replay-row lifecycle.
+live-control request now comes from R363
+`LoadReplayReturnPipeW2AtomicLiveRequestControl`, whose `requestEnable` remains
+false, so this owner is diagnostic-only. It cannot mutate ROB/PE resolve state,
+cannot publish branch or recovery side effects, and cannot advance replay-row
+lifecycle.
 
 ## Interface
 
@@ -78,7 +80,7 @@ live ROB/PE side effect.
 - `flush` follows the reduced store/replay flush path;
 - `liveEnable` comes from R357/R361
   `LoadReplayReturnPipeW2SideEffectLiveControl.resolveLiveEnable`, whose
-  request remains false until replay resolve mutation, RF writeback,
+  R363 request remains false until replay resolve mutation, RF writeback,
   ready-table wakeup, W2 clear, and replay-row lifecycle can be promoted
   atomically.
 

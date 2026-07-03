@@ -39,7 +39,7 @@ real W2 side effects and replay-row lifecycle mutation disabled. This module
 only exposes the point where a future live owner can require pre-clear permit,
 post-fire completeness, and an explicit live-clear enable to agree.
 R356 routes that explicit enable through `LoadReplayReturnPipeW2PromotionControl`;
-the top still keeps its external promotion request false.
+R363 still keeps the shared live request false.
 
 ## Interface
 
@@ -51,7 +51,7 @@ the top still keeps its external promotion request false.
 | input | `completionClearSlot` | R334 pre-clear slot clear pulse. |
 | input | `completionPermitted` | R345 pre-completion permit mirror. |
 | input | `fireComplete` | R350 post-fire completeness predicate. |
-| input | `liveClearEnable` | Explicit future live-clear arm from R356 `LoadReplayReturnPipeW2PromotionControl`. Current top keeps the promotion request disabled. |
+| input | `liveClearEnable` | Explicit future live-clear arm from R356 `LoadReplayReturnPipeW2PromotionControl`. R363 keeps the shared request gate false. |
 | output | `candidateValid` | Enabled, not flushed, and a resident W2 slot is visible. |
 | output | `preClearEligible` | Candidate plus R334 clear evidence. |
 | output | `permitEligible` | Candidate plus R345 permit evidence. |

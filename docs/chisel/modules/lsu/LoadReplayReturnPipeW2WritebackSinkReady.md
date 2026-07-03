@@ -40,7 +40,7 @@ asserted by a future packet.
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Suppresses W2 writeback readiness during replay flush. |
-| input | `liveEnable` | Future live W2 replay writeback enable. R357 drives this from `LoadReplayReturnPipeW2SideEffectLiveControl`, whose request is tied low in the current top. |
+| input | `liveEnable` | Future live W2 replay writeback enable. R357 drives this from `LoadReplayReturnPipeW2SideEffectLiveControl`, whose R363 request gate remains false in the current top. |
 | input | `writebackRequired` | W2 completion classifier says the legal W2 entry requires GPR writeback. |
 | input | `sinkReady` | Abstract scalar RF writeback sink availability. Current top derives this from the reduced execute-priority writeback arbiter's execute-port selection. |
 | output | `candidateValid` | Enabled, not flushing, and W2 writeback is required. |
@@ -61,8 +61,8 @@ writebackSinkReady = writebackArmed && liveEnable
 ```
 
 `blockedBySink` is reported before live-disabled blocking because an unready
-RF write port cannot arm a writeback request. With the R357 live-control
-request disabled, the
+RF write port cannot arm a writeback request. With the R363 atomic live-request
+gate disabled, the
 current top can expose abstract writeback readiness without allowing W2
 completion or clearing the W2 slot.
 
@@ -75,7 +75,7 @@ completion or clearing the W2 slot.
 - `sinkReady` is the abstract scalar RF write-port availability derived from
   `ReducedScalarWritebackArbiter` execute-port selection;
 - `liveEnable` comes from R357 `LoadReplayReturnPipeW2SideEffectLiveControl`,
-  whose request input is tied low, so `writebackSinkReady` remains false;
+  whose R363 request gate is false, so `writebackSinkReady` remains false;
 - `LoadReplayReturnPipeW2SideEffectReady.writebackSinkReady` now consumes this
   module output instead of a literal `false.B`;
 - top-level diagnostics expose writeback-sink candidate, armed, ready, and

@@ -33,7 +33,7 @@ and reports where a future model-compatible storage owner would accept a write
 from W1 because W2 is either empty or being live-cleared in the same cycle.
 R355 consumes the acyclic future acceptance outputs from this plan in
 `LoadReplayReturnPipeW2AdvanceControl`; R356 owns the shared live-promotion
-enable, but the top keeps its external promotion request disabled.
+enable, but R363 keeps the shared live request disabled.
 
 ## Interface
 
@@ -45,7 +45,7 @@ enable, but the top keeps its external promotion request disabled.
 | input | `writeValid` | W1-to-W2 write candidate from `LoadReplayReturnPipeW1AdvanceCandidate`. |
 | input | `writeTargetIsAgu` / `writeTargetIsLda` | Mutually exclusive target bits for the incoming W1 payload. |
 | input | `clearIntent` | R351 future clear intent for the resident W2 entry. |
-| input | `liveClear` | R351 live clear pulse gated by R356 `LoadReplayReturnPipeW2PromotionControl`. Current top keeps the promotion request disabled. |
+| input | `liveClear` | R351 live clear pulse gated by R356 `LoadReplayReturnPipeW2PromotionControl`. R363 keeps the shared request gate false. |
 | input | `futureAdvanceReady` | R352 future W1-to-W2 readiness, `empty || sameCycleLiveClear`. |
 | input | `currentSlotAccepted` | Current `LoadReplayReturnPipeW2Slot.accepted` output. |
 | input | `currentSlotBlockedByClear` | Current W2 slot clear-priority blocker. |
@@ -100,8 +100,8 @@ W2 slot `clear`, W2 registered storage, W2 side effects, replay-row lifecycle,
 or ROB/RF/ready-table mutation directly. R355 is the sole owner that now
 routes future readiness toward W1 advance and `replaceOnClear`; its
 `livePromotionEnable` input comes from R356
-`LoadReplayReturnPipeW2PromotionControl`, whose request input is tied false in
-the current top.
+`LoadReplayReturnPipeW2PromotionControl`, whose R363 request gate remains false
+in the current top.
 
 ## Deferred Owners
 

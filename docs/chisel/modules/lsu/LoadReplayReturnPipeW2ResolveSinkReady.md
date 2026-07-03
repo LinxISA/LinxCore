@@ -39,7 +39,7 @@ resolve can become `resolveArmed`, but `resolveSinkReady` remains low until
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Suppresses W2 resolve readiness during replay flush. |
-| input | `liveEnable` | Future live W2 resolve mutation enable. R357 drives this from `LoadReplayReturnPipeW2SideEffectLiveControl`, whose request is tied low in the current top. |
+| input | `liveEnable` | Future live W2 resolve mutation enable. R357 drives this from `LoadReplayReturnPipeW2SideEffectLiveControl`, whose R363 request gate remains false in the current top. |
 | input | `resolveRequired` | W2 completion classifier says the current legal W2 entry requires resolve. |
 | input | `sinkReady` | Abstract resolve sink capacity/readiness. Current top ties this high so the only R336 block is live-disabled. |
 | output | `candidateValid` | Enabled, not flushing, and W2 resolve is required. |
@@ -61,7 +61,7 @@ resolveSinkReady = resolveArmed && liveEnable
 
 `blockedBySink` is reported before live-disabled blocking because an unready
 abstract sink cannot arm a resolve request. With `sinkReady=true` and
-With the R357 live-control request disabled, the current top can show that W2
+the R363 atomic live-request gate disabled, the current top can show that W2
 resolve would be otherwise acceptable while still preventing W2 completion.
 
 ## Integration
@@ -72,7 +72,7 @@ resolve would be otherwise acceptable while still preventing W2 completion.
 - `resolveRequired` comes from the W2 completion classifier;
 - `sinkReady` is tied high as an abstract one-entry diagnostic sink;
 - `liveEnable` comes from R357 `LoadReplayReturnPipeW2SideEffectLiveControl`,
-  whose request input is tied low, so `resolveSinkReady` remains false;
+  whose R363 request gate is false, so `resolveSinkReady` remains false;
 - `LoadReplayReturnPipeW2SideEffectReady.resolveSinkReady` now consumes this
   module output instead of a literal `false.B`;
 - top-level diagnostics expose resolve-sink candidate, armed, ready, and

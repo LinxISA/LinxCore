@@ -45,6 +45,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectLiveControl.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AtomicLiveRequestControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectCompletionPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
@@ -1017,9 +1018,13 @@ remains disabled.
 R357 adds `reducedLoadReplayLiqLretPipeW2SideEffectLiveControl*`
 diagnostics under the same namespace. This owner computes the required
 side-effect sink mask and drives the R336/R337/R338 sink live-enable inputs
-plus the R358/R359/R360 pre-arbiter live-enable inputs, but the top-level live
+plus the R358/R359/R360 pre-arbiter live-enable inputs, but the R363 atomic live
 request remains tied false, so all W2 sinks and arbiter inputs stay
 live-disabled.
+R363 adds `reducedLoadReplayLiqLretPipeW2AtomicLiveRequest*` diagnostics under
+the same namespace. This owner drives both the R357 side-effect live request and
+the R356 promotion request from one top-level request gate, which remains tied
+false in the current top.
 R362 routes the reduced RF writeback arbiter's replay side from the R358 W2
 writeback-arbiter input. The arbiter's replay enable is the same disabled W2
 writeback live-control output, so replay RF writes still cannot select the
@@ -1089,7 +1094,7 @@ clear or replay-row lifecycle.
 R356 adds `reducedLoadReplayLiqLretPipeW2PromotionControl*` diagnostics under
 the same namespace. This owner feeds the live-clear enable for R351 and the
 live-promotion enable for R355 from one top-level request bit, which remains
-tied false in the current top.
+tied false through the R363 atomic live-request owner in the current top.
 R352 adds `reducedLoadReplayLiqLretPipeW2RefillReady*` diagnostics under the
 same namespace. These signals compare the current empty-only W1-to-W2 advance
 gate with the future model-compatible empty-or-live-clear predicate, but remain
@@ -1104,8 +1109,8 @@ R355 adds `reducedLoadReplayLiqLretPipeW2AdvanceControl*` diagnostics under
 the same namespace. The control owner now drives the W1 advance enable and W2
 slot `replaceOnClear` inputs. R356 adds
 `reducedLoadReplayLiqLretPipeW2PromotionControl*` diagnostics and feeds R351
-live clear plus R355 live advance promotion from one disabled request, so the
-top still selects the current empty-only advance gate.
+live clear plus R355 live advance promotion from the R363 atomic live request,
+so the top still selects the current empty-only advance gate.
 
 | output | `reducedLoadReplayResolveQueue*` | mixed | diagnostic | R285-R289 opt-in replay-LIQ ResolveQ diagnostics. `lhqRecord` from `ReducedLoadReplayLiqAllocPath` can append to `LoadResolveQueue`; the top exposes push, delayed clear, commit-window retire watermark, scalar-redirect precise flush identity, retire/prune mask/count, occupancy, valid-mask, and head conflict-row sidecars. Because launch remains disabled, the current fixture observes storage, retire, and recovery-prune wiring only; live MDB/recovery publication is deferred. |
 | output | `reducedMdbConflict*` | mixed | diagnostic | R290 opt-in replay-LIQ MDB conflict diagnostics. The top feeds `MDBConflictDetect` with the accepted reduced STQ insert request, replay-LIQ resident rows, and ResolveQ conflict rows, then exposes store-valid, active/ResolveQ candidate masks, wait-store mask/count, selected source/index/ordinal, selected load/store BID and LSID identity, plus inner/nuke classification. These signals are diagnostic only; they do not yet drive recovery flush. |
@@ -1296,7 +1301,11 @@ overlay. Most state remains in child modules:
 - `LoadReplayReturnPipeW2SideEffectLiveControl`: optional R357 dormant W2
   side-effect live-control owner. It computes the required mask and drives
   the R336/R337/R338 sink and R358/R359/R360 pre-arbiter `liveEnable` inputs
-  from one disabled request.
+  from the R363 disabled atomic request.
+- `LoadReplayReturnPipeW2AtomicLiveRequestControl`: optional R363 dormant W2
+  live-request owner. It drives both R357 side-effect live request and R356
+  promotion request from one disabled gate while exposing W2 side-effect, clear,
+  and refill evidence diagnostics.
 - `LoadReplayReturnPipeW2ResolveSinkReady`: optional R336 dormant W2
   resolve-sink readiness owner. It arms abstract resolve capacity but holds the
   actual ready output low until live W2 resolve mutation exists.
@@ -1378,7 +1387,7 @@ overlay. Most state remains in child modules:
   R356 live-disabled promotion mode.
 - `LoadReplayReturnPipeW2PromotionControl`: optional R356 dormant W2
   promotion switch. It drives R351 live clear and R355 live advance promotion
-  from one disabled top-level request.
+  from the R363 disabled atomic request.
 - `LoadReplayReturnPublishReady`: optional R309 diagnostic join point between
   extracted data-valid and LRET/mem-wakeup consumer readiness. It does not feed
   launch, LRET, or wakeup sinks.
@@ -1741,8 +1750,9 @@ issue-queue state.
 R357 inserts `LoadReplayReturnPipeW2SideEffectLiveControl` behind the W2
 completion classifier and feeds its live-enable outputs into the R336/R337/R338
 sink owners and the R358/R359/R360 pre-arbiter input owners. The top keeps
-`liveRequested=false`, so the owner preserves the same not-ready/dormant
-behavior while making the future live side-effect request point explicit.
+R363's atomic live-request owner disabled, so this owner preserves the same
+not-ready/dormant behavior while making the future live side-effect request
+point explicit.
 R339 inserts `LoadReplayReturnPipeW2SideEffectRequest` behind the W2
 completion classifier and exposes the post-completion request vector. Because
 R336-R338 still keep every live W2 sink disabled, the request outputs remain
@@ -1820,15 +1830,16 @@ R355 inserts `LoadReplayReturnPipeW2AdvanceControl` after R352/R353 and routes
 both `LoadReplayReturnPipeW1AdvanceCandidate.advanceEnable` and
 `LoadReplayReturnPipeW2Slot.replaceOnClear` through it. R356 inserts
 `LoadReplayReturnPipeW2PromotionControl` before R351/R355 and routes live clear
-plus live advance promotion through one request gate. The top ties
-`promotionRequested=false`, so the selected advance rule remains
+plus live advance promotion through one request gate. R363 inserts
+`LoadReplayReturnPipeW2AtomicLiveRequestControl` as the shared disabled request
+owner for both R356 `promotionRequested` and R357 `liveRequested`. The top ties
+R363 `requestEnable=false`, so the selected advance rule remains
 `!W2Slot.occupied`, live clear remains disabled, and replacement remains
-disabled until live W2 clear and replay-row lifecycle mutation are promoted
-together. R357 then replaces the direct false ties on the R336/R337/R338 sink
-`liveEnable` inputs with `LoadReplayReturnPipeW2SideEffectLiveControl`, and
-R361 routes the R358/R359/R360 pre-arbiter `liveEnable` inputs through the same
-owner. Its own `liveRequested` input is still tied false until those same
-side-effect sinks and replay-row lifecycle can commit atomically.
+disabled until live W2 side effects, clear/refill, and replay-row lifecycle
+mutation are promoted together. R357 replaces the direct false ties on the
+R336/R337/R338 sink `liveEnable` inputs with
+`LoadReplayReturnPipeW2SideEffectLiveControl`, and R361 routes the
+R358/R359/R360 pre-arbiter `liveEnable` inputs through the same owner.
 R362 uses the same disabled writeback live-control output as the RF arbiter
 `replayEnable`, while the R358 candidate feeds `replayValid` and its live-gated
 payload feeds `replayTag`/`replayData`.

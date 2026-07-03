@@ -24,9 +24,10 @@ a real write only behind a separate live gate.
 The current reduced top drives `liveEnable` from
 `LoadReplayReturnPipeW2SideEffectLiveControl.writebackLiveEnable`. R362 also
 feeds this boundary into the replay side of `ReducedScalarWritebackArbiter`.
-That shared live-control owner still has `liveRequested=false`, so the RF
-arbiter cannot select replay writeback, cannot contend with execute writeback,
-and cannot advance replay-row lifecycle.
+That shared live-control request now comes from R363
+`LoadReplayReturnPipeW2AtomicLiveRequestControl`, whose `requestEnable` remains
+false, so the RF arbiter cannot select replay writeback, cannot contend with
+execute writeback, and cannot advance replay-row lifecycle.
 
 ## Interface
 
@@ -68,7 +69,7 @@ stale payload can be mistaken for a future arbiter request.
 - `flush` follows the reduced store/replay flush path;
 - `liveEnable` comes from R357/R361
   `LoadReplayReturnPipeW2SideEffectLiveControl.writebackLiveEnable`, whose
-  request remains false until replay RF writeback, ready-table wakeup, W2
+  R363 request remains false until replay RF writeback, ready-table wakeup, W2
   clear, and replay-row lifecycle can be promoted atomically;
 - R362 connects `candidateValid`, `writeTag`, and `writeData` to the replay
   side of `ReducedScalarWritebackArbiter`, with that arbiter's `replayEnable`

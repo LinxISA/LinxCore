@@ -46,7 +46,7 @@ disabled, the actual W1 advance input remains empty-only.
 | input | `slotOccupied` | R333 W2 slot currently contains a resident entry. |
 | input | `currentAdvanceReady` | Current top gate feeding W1-to-W2 advance, `!slotOccupied`. |
 | input | `clearIntent` | R351 future clear intent for the resident W2 entry. |
-| input | `liveClear` | R351 live clear pulse gated by R356 `LoadReplayReturnPipeW2PromotionControl`. Current top keeps the promotion request disabled. |
+| input | `liveClear` | R351 live clear pulse gated by R356 `LoadReplayReturnPipeW2PromotionControl`. R363 keeps the shared request gate false. |
 | output | `active` | Enabled and not flushed. |
 | output | `emptyReady` | Active and W2 slot is empty. This is the current safe advance condition. |
 | output | `sameCycleRefillEligible` | Active, W2 occupied, and clear intent exists. |
@@ -83,7 +83,7 @@ refilled by W1.
   `reducedLoadReplayLiqLretPipeW2RefillReady*`.
 
 The integration feeds R355 `LoadReplayReturnPipeW2AdvanceControl` as dormant
-future-readiness evidence. Because R356 keeps the promotion request disabled
+future-readiness evidence. Because R363 keeps the shared live request disabled
 in the top, this module still does not change
 `LoadReplayReturnPipeW1AdvanceCandidate.advanceEnable`, W2 slot clear, W2 side
 effects, replay-row lifecycle, or ROB/RF/ready-table mutation.
