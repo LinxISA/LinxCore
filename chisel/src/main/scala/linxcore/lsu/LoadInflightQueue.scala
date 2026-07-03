@@ -14,7 +14,9 @@ class LoadInflightAlloc(
     val idEntries: Int,
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val archRegWidth: Int = 6,
+    val physRegWidth: Int = 6)
     extends Bundle {
   val bid = new ROBID(idEntries)
   val gid = new ROBID(idEntries)
@@ -24,6 +26,7 @@ class LoadInflightAlloc(
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
   val returnSignExtend = Bool()
+  val dst = new LoadReplayDestination(archRegWidth, physRegWidth)
   val youngestStoreId = new ROBID(idEntries)
   val youngestStoreLsId = new ROBID(idEntries)
   val isTile = Bool()
@@ -38,7 +41,9 @@ class LoadInflightRow(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val archRegWidth: Int = 6,
+    val physRegWidth: Int = 6)
     extends Bundle {
   val valid = Bool()
   val status = LoadInflightStatus()
@@ -51,6 +56,7 @@ class LoadInflightRow(
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
   val returnSignExtend = Bool()
+  val dst = new LoadReplayDestination(archRegWidth, physRegWidth)
   val youngestStoreId = new ROBID(idEntries)
   val youngestStoreLsId = new ROBID(idEntries)
   val isTile = Bool()
@@ -102,7 +108,9 @@ class LoadInflightQueueIO(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val archRegWidth: Int = 6,
+    val physRegWidth: Int = 6)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val countWidth = log2Ceil(liqEntries + 1)
@@ -110,7 +118,15 @@ class LoadInflightQueueIO(
   val flush = Input(Bool())
 
   val allocValid = Input(Bool())
-  val alloc = Input(new LoadInflightAlloc(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth))
+  val alloc = Input(new LoadInflightAlloc(
+    liqEntries,
+    idEntries,
+    addrWidth,
+    pcWidth,
+    sizeWidth,
+    archRegWidth,
+    physRegWidth
+  ))
   val allocReady = Output(Bool())
   val allocAccepted = Output(Bool())
   val allocIndex = Output(UInt(liqPtrWidth.W))
@@ -151,7 +167,20 @@ class LoadInflightQueueIO(
   val lhqRecordValid = Output(Bool())
   val lhqRecord = Output(new LoadHitRecord(liqEntries, idEntries, addrWidth, lineBytes, sizeWidth))
 
-  val rows = Output(Vec(liqEntries, new LoadInflightRow(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth)))
+  val rows = Output(Vec(
+    liqEntries,
+    new LoadInflightRow(
+      liqEntries,
+      idEntries,
+      storeEntries,
+      addrWidth,
+      pcWidth,
+      lineBytes,
+      sizeWidth,
+      archRegWidth,
+      physRegWidth
+    )
+  ))
   val occupiedMask = Output(UInt(liqEntries.W))
   val waitMask = Output(UInt(liqEntries.W))
   val repickMask = Output(UInt(liqEntries.W))
@@ -171,7 +200,9 @@ class LoadInflightQueue(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val archRegWidth: Int = 6,
+    val physRegWidth: Int = 6)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -187,18 +218,39 @@ class LoadInflightQueue(
   private val countWidth = log2Ceil(liqEntries + 1)
   private val lineOffsetWidth = log2Ceil(lineBytes)
 
-  val io = IO(new LoadInflightQueueIO(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val io = IO(new LoadInflightQueueIO(
+    liqEntries,
+    idEntries,
+    storeEntries,
+    addrWidth,
+    pcWidth,
+    lineBytes,
+    sizeWidth,
+    archRegWidth,
+    physRegWidth
+  ))
 
   private def zeroWait: LoadStoreForwardWait =
     0.U.asTypeOf(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
 
   private def zeroRow: LoadInflightRow = {
-    val row = Wire(new LoadInflightRow(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+    val row = Wire(new LoadInflightRow(
+      liqEntries,
+      idEntries,
+      storeEntries,
+      addrWidth,
+      pcWidth,
+      lineBytes,
+      sizeWidth,
+      archRegWidth,
+      physRegWidth
+    ))
     row := 0.U.asTypeOf(row)
     row.status := LoadInflightStatus.Idle
     row.missKind := LoadForwardMissKind.NoMiss
     row.waitStoreInfo := zeroWait
     row.loadId := ROBID.disabled(liqEntries)
+    row.dst := LoadReplayDestination.none(archRegWidth, physRegWidth)
     row.bid := ROBID.disabled(idEntries)
     row.gid := ROBID.disabled(idEntries)
     row.rid := ROBID.disabled(idEntries)
@@ -435,6 +487,7 @@ class LoadInflightQueue(
       rows(allocPtr).addr := io.alloc.addr
       rows(allocPtr).size := io.alloc.size
       rows(allocPtr).returnSignExtend := io.alloc.returnSignExtend
+      rows(allocPtr).dst := io.alloc.dst
       rows(allocPtr).youngestStoreId := io.alloc.youngestStoreId
       rows(allocPtr).youngestStoreLsId := io.alloc.youngestStoreLsId
       rows(allocPtr).isTile := io.alloc.isTile

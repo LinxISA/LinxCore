@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeSelect, LoadReplayReturnPublishReady, LoadReplayReturnReadiness, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeSelect, LoadReplayReturnPublishReady, LoadReplayReturnReadiness, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -209,6 +209,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val loadLookupValid = Output(Bool())
   val loadLookupAddr = Output(UInt(p.immWidth.W))
   val loadLookupPc = Output(UInt(p.pcWidth.W))
+  val loadLookupDstValid = Output(Bool())
+  val loadLookupDstKind = Output(UInt(2.W))
+  val loadLookupDstArchTag = Output(UInt(p.archRegWidth.W))
+  val loadLookupDstRelTag = Output(UInt(p.archRegWidth.W))
+  val loadLookupDstPhysTag = Output(UInt(p.physRegWidth.W))
+  val loadLookupDstOldPhysTag = Output(UInt(p.physRegWidth.W))
   val loadLookupExecuteGranted = Output(Bool())
   val loadLookupReplayGranted = Output(Bool())
   val reducedStoreDispatchEnabled = Output(Bool())
@@ -294,6 +300,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadWaitReplayRelaunchPc = Output(UInt(p.pcWidth.W))
   val reducedLoadWaitReplayRelaunchAddr = Output(UInt(p.immWidth.W))
   val reducedLoadWaitReplayRelaunchSize = Output(UInt(7.W))
+  val reducedLoadWaitReplayRelaunchDstValid = Output(Bool())
+  val reducedLoadWaitReplayRelaunchDstKind = Output(UInt(2.W))
+  val reducedLoadWaitReplayRelaunchDstArchTag = Output(UInt(p.archRegWidth.W))
+  val reducedLoadWaitReplayRelaunchDstRelTag = Output(UInt(p.archRegWidth.W))
+  val reducedLoadWaitReplayRelaunchDstPhysTag = Output(UInt(p.physRegWidth.W))
+  val reducedLoadWaitReplayRelaunchDstOldPhysTag = Output(UInt(p.physRegWidth.W))
   val reducedLoadWaitReplayRelaunchBidValid = Output(Bool())
   val reducedLoadWaitReplayRelaunchBidWrap = Output(Bool())
   val reducedLoadWaitReplayRelaunchBidValue = Output(UInt(ptrWidth.W))
@@ -324,6 +336,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayQueueOutAddr = Output(UInt(p.immWidth.W))
   val reducedLoadReplayQueueOutSize = Output(UInt(7.W))
   val reducedLoadReplayQueueOutReturnSignExtend = Output(Bool())
+  val reducedLoadReplayQueueOutDstValid = Output(Bool())
+  val reducedLoadReplayQueueOutDstKind = Output(UInt(2.W))
+  val reducedLoadReplayQueueOutDstArchTag = Output(UInt(p.archRegWidth.W))
+  val reducedLoadReplayQueueOutDstRelTag = Output(UInt(p.archRegWidth.W))
+  val reducedLoadReplayQueueOutDstPhysTag = Output(UInt(p.physRegWidth.W))
+  val reducedLoadReplayQueueOutDstOldPhysTag = Output(UInt(p.physRegWidth.W))
   val reducedLoadReplayQueueOutBidValid = Output(Bool())
   val reducedLoadReplayQueueOutBidWrap = Output(Bool())
   val reducedLoadReplayQueueOutBidValue = Output(UInt(ptrWidth.W))
@@ -398,6 +416,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLaunchSelectedAddr = Output(UInt(p.immWidth.W))
   val reducedLoadReplayLiqLaunchSelectedSize = Output(UInt(7.W))
   val reducedLoadReplayLiqLaunchSelectedReturnSignExtend = Output(Bool())
+  val reducedLoadReplayLiqLaunchSelectedDstValid = Output(Bool())
+  val reducedLoadReplayLiqLaunchSelectedDstKind = Output(UInt(2.W))
+  val reducedLoadReplayLiqLaunchSelectedDstArchTag = Output(UInt(p.archRegWidth.W))
+  val reducedLoadReplayLiqLaunchSelectedDstRelTag = Output(UInt(p.archRegWidth.W))
+  val reducedLoadReplayLiqLaunchSelectedDstPhysTag = Output(UInt(p.physRegWidth.W))
+  val reducedLoadReplayLiqLaunchSelectedDstOldPhysTag = Output(UInt(p.physRegWidth.W))
   val reducedLoadReplayLiqLaunchSelectedRequestByteMask = Output(UInt(64.W))
   val reducedLoadReplayLiqLaunchSelectedSpecWakeup = Output(Bool())
   val reducedLoadReplayLiqLaunchSelectedStackValid = Output(Bool())
@@ -512,6 +536,12 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPayloadPc = Output(UInt(p.pcWidth.W))
   val reducedLoadReplayLiqLretPayloadAddr = Output(UInt(p.immWidth.W))
   val reducedLoadReplayLiqLretPayloadSize = Output(UInt(7.W))
+  val reducedLoadReplayLiqLretPayloadDstValid = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadDstKind = Output(UInt(2.W))
+  val reducedLoadReplayLiqLretPayloadDstArchTag = Output(UInt(p.archRegWidth.W))
+  val reducedLoadReplayLiqLretPayloadDstRelTag = Output(UInt(p.archRegWidth.W))
+  val reducedLoadReplayLiqLretPayloadDstPhysTag = Output(UInt(p.physRegWidth.W))
+  val reducedLoadReplayLiqLretPayloadDstOldPhysTag = Output(UInt(p.physRegWidth.W))
   val reducedLoadReplayLiqLretPayloadData = Output(UInt(p.immWidth.W))
   val reducedLoadReplayLiqLretPayloadPipeIndex = Output(UInt(1.W))
   val reducedLoadReplayLiqLretPayloadSpecWakeup = Output(Bool())
@@ -950,7 +980,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     addrWidth = p.immWidth,
     pcWidth = p.pcWidth,
     dataWidth = p.immWidth,
-    returnPipeCount = 1
+    returnPipeCount = 1,
+    archRegWidth = p.archRegWidth,
+    physRegWidth = p.physRegWidth
   ))
   val reducedReplayLiqLaunchReadiness = Module(new LoadReplayLaunchReadiness)
   val reducedStoreResidentReplayWakeup = Module(new ResidentStoreReplayWakeup(
@@ -962,16 +994,22 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   ))
   val reducedLoadWaitReplaySlot = Module(new ReducedLoadWaitReplaySlot(
     idEntries = p.robEntries,
-    storeEntries = p.robEntries
+    storeEntries = p.robEntries,
+    archRegWidth = p.archRegWidth,
+    physRegWidth = p.physRegWidth
   ))
   val reducedLoadReplayRelaunchQueue = Module(new ReducedLoadReplayRelaunchQueue(
     idEntries = p.robEntries,
-    depth = reducedLoadReplayRelaunchQueueDepth
+    depth = reducedLoadReplayRelaunchQueueDepth,
+    archRegWidth = p.archRegWidth,
+    physRegWidth = p.physRegWidth
   ))
   val reducedLoadReplayLiqAllocPath = Module(new ReducedLoadReplayLiqAllocPath(
     liqEntries = p.robEntries,
     idEntries = p.robEntries,
-    storeEntries = p.robEntries
+    storeEntries = p.robEntries,
+    archRegWidth = p.archRegWidth,
+    physRegWidth = p.physRegWidth
   ))
   val reducedLoadReplayResolveQueue = Module(new LoadResolveQueue(
     queueEntries = p.robEntries,
@@ -1452,6 +1490,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedStoreResidentForward.io.loadLsId := reducedLoadLookupLsId
   reducedStoreResidentForward.io.baseLoadData := reducedStoreMemoryOverlay.io.loadData
   reducedStoreResidentForward.io.rows := path.io.storeStqRows
+
+  val executeLoadLookupDst = Wire(new LoadReplayDestination(p.archRegWidth, p.physRegWidth))
+  executeLoadLookupDst.valid := execute.io.loadLookupDst.valid
+  executeLoadLookupDst.kind := execute.io.loadLookupDst.kind
+  executeLoadLookupDst.archTag := execute.io.loadLookupDst.archTag
+  executeLoadLookupDst.relTag := execute.io.loadLookupDst.relTag
+  executeLoadLookupDst.physTag := execute.io.loadLookupDst.physTag
+  executeLoadLookupDst.oldPhysTag := execute.io.loadLookupDst.oldPhysTag
+
   reducedLoadWaitReplaySlot.io.flush := reducedStoreFlush
   reducedLoadWaitReplaySlot.io.captureValid :=
     useReducedStoreDispatchStq.B && execute.io.loadLookupValid && reducedStoreResidentForward.io.waitBlocked
@@ -1459,6 +1506,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadWaitReplaySlot.io.captureAddr := execute.io.loadLookupAddr
   reducedLoadWaitReplaySlot.io.captureSize := execute.io.loadLookupSize
   reducedLoadWaitReplaySlot.io.captureReturnSignExtend := execute.io.loadLookupReturnSignExtend
+  reducedLoadWaitReplaySlot.io.captureDst := executeLoadLookupDst
   reducedLoadWaitReplaySlot.io.captureBid := execute.io.loadLookupBid
   reducedLoadWaitReplaySlot.io.captureGid := execute.io.loadLookupGid
   reducedLoadWaitReplaySlot.io.captureRid := execute.io.loadLookupRid
@@ -1556,6 +1604,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedReplayLiqReturnLretPayload.io.selectedPc := reducedLoadReplayLiqAllocPath.io.launchSelectedPc
   reducedReplayLiqReturnLretPayload.io.selectedAddr := reducedLoadReplayLiqAllocPath.io.launchSelectedAddr
   reducedReplayLiqReturnLretPayload.io.selectedSize := reducedLoadReplayLiqAllocPath.io.launchSelectedSize
+  reducedReplayLiqReturnLretPayload.io.selectedDst := reducedLoadReplayLiqAllocPath.io.launchSelectedDst
   reducedReplayLiqReturnLretPayload.io.returnData := reducedReplayLiqReturnDataExtract.io.data
   reducedReplayLiqReturnLretPayload.io.returnPipeIndex := reducedReplayLiqReturnReadiness.io.selectedPipeIndex
   reducedReplayLiqReturnLretPayload.io.specWakeup := reducedLoadReplayLiqAllocPath.io.launchSelectedSpecWakeup
@@ -2112,6 +2161,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.loadLookupValid := loadLookupArbiter.io.lookupValid
   io.loadLookupAddr := loadLookupArbiter.io.lookupAddr
   io.loadLookupPc := loadLookupArbiter.io.lookupPc
+  io.loadLookupDstValid := executeLoadLookupDst.valid
+  io.loadLookupDstKind := executeLoadLookupDst.kind.asUInt
+  io.loadLookupDstArchTag := executeLoadLookupDst.archTag
+  io.loadLookupDstRelTag := executeLoadLookupDst.relTag
+  io.loadLookupDstPhysTag := executeLoadLookupDst.physTag
+  io.loadLookupDstOldPhysTag := executeLoadLookupDst.oldPhysTag
   io.loadLookupExecuteGranted := loadLookupArbiter.io.executeGranted
   io.loadLookupReplayGranted := loadLookupArbiter.io.replayGranted
   io.reducedStoreDispatchEnabled := useReducedStoreDispatchStq.B
@@ -2198,6 +2253,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadWaitReplayRelaunchAddr := reducedLoadWaitReplaySlot.io.relaunch.addr
   io.reducedLoadWaitReplayRelaunchSize := reducedLoadWaitReplaySlot.io.relaunch.size
   io.reducedLoadWaitReplayRelaunchReturnSignExtend := reducedLoadWaitReplaySlot.io.relaunch.returnSignExtend
+  io.reducedLoadWaitReplayRelaunchDstValid := reducedLoadWaitReplaySlot.io.relaunch.dst.valid
+  io.reducedLoadWaitReplayRelaunchDstKind := reducedLoadWaitReplaySlot.io.relaunch.dst.kind.asUInt
+  io.reducedLoadWaitReplayRelaunchDstArchTag := reducedLoadWaitReplaySlot.io.relaunch.dst.archTag
+  io.reducedLoadWaitReplayRelaunchDstRelTag := reducedLoadWaitReplaySlot.io.relaunch.dst.relTag
+  io.reducedLoadWaitReplayRelaunchDstPhysTag := reducedLoadWaitReplaySlot.io.relaunch.dst.physTag
+  io.reducedLoadWaitReplayRelaunchDstOldPhysTag := reducedLoadWaitReplaySlot.io.relaunch.dst.oldPhysTag
   io.reducedLoadWaitReplayRelaunchBidValid := reducedLoadWaitReplaySlot.io.relaunch.bid.valid
   io.reducedLoadWaitReplayRelaunchBidWrap := reducedLoadWaitReplaySlot.io.relaunch.bid.wrap
   io.reducedLoadWaitReplayRelaunchBidValue := reducedLoadWaitReplaySlot.io.relaunch.bid.value
@@ -2228,6 +2289,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayQueueOutAddr := reducedLoadReplayRelaunchQueue.io.out.addr
   io.reducedLoadReplayQueueOutSize := reducedLoadReplayRelaunchQueue.io.out.size
   io.reducedLoadReplayQueueOutReturnSignExtend := reducedLoadReplayRelaunchQueue.io.out.returnSignExtend
+  io.reducedLoadReplayQueueOutDstValid := reducedLoadReplayRelaunchQueue.io.out.dst.valid
+  io.reducedLoadReplayQueueOutDstKind := reducedLoadReplayRelaunchQueue.io.out.dst.kind.asUInt
+  io.reducedLoadReplayQueueOutDstArchTag := reducedLoadReplayRelaunchQueue.io.out.dst.archTag
+  io.reducedLoadReplayQueueOutDstRelTag := reducedLoadReplayRelaunchQueue.io.out.dst.relTag
+  io.reducedLoadReplayQueueOutDstPhysTag := reducedLoadReplayRelaunchQueue.io.out.dst.physTag
+  io.reducedLoadReplayQueueOutDstOldPhysTag := reducedLoadReplayRelaunchQueue.io.out.dst.oldPhysTag
   io.reducedLoadReplayQueueOutBidValid := reducedLoadReplayRelaunchQueue.io.out.bid.valid
   io.reducedLoadReplayQueueOutBidWrap := reducedLoadReplayRelaunchQueue.io.out.bid.wrap
   io.reducedLoadReplayQueueOutBidValue := reducedLoadReplayRelaunchQueue.io.out.bid.value
@@ -2302,6 +2369,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqLaunchSelectedAddr := reducedLoadReplayLiqAllocPath.io.launchSelectedAddr
   io.reducedLoadReplayLiqLaunchSelectedSize := reducedLoadReplayLiqAllocPath.io.launchSelectedSize
   io.reducedLoadReplayLiqLaunchSelectedReturnSignExtend := reducedLoadReplayLiqAllocPath.io.launchSelectedReturnSignExtend
+  io.reducedLoadReplayLiqLaunchSelectedDstValid := reducedLoadReplayLiqAllocPath.io.launchSelectedDst.valid
+  io.reducedLoadReplayLiqLaunchSelectedDstKind := reducedLoadReplayLiqAllocPath.io.launchSelectedDst.kind.asUInt
+  io.reducedLoadReplayLiqLaunchSelectedDstArchTag := reducedLoadReplayLiqAllocPath.io.launchSelectedDst.archTag
+  io.reducedLoadReplayLiqLaunchSelectedDstRelTag := reducedLoadReplayLiqAllocPath.io.launchSelectedDst.relTag
+  io.reducedLoadReplayLiqLaunchSelectedDstPhysTag := reducedLoadReplayLiqAllocPath.io.launchSelectedDst.physTag
+  io.reducedLoadReplayLiqLaunchSelectedDstOldPhysTag := reducedLoadReplayLiqAllocPath.io.launchSelectedDst.oldPhysTag
   io.reducedLoadReplayLiqLaunchSelectedRequestByteMask := reducedLoadReplayLiqAllocPath.io.launchSelectedRequestByteMask
   io.reducedLoadReplayLiqLaunchSelectedSpecWakeup := reducedLoadReplayLiqAllocPath.io.launchSelectedSpecWakeup
   io.reducedLoadReplayLiqLaunchSelectedStackValid := reducedLoadReplayLiqAllocPath.io.launchSelectedStackValid
@@ -2503,6 +2576,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnLretPayload.io.payloadAddr
   io.reducedLoadReplayLiqLretPayloadSize :=
     reducedReplayLiqReturnLretPayload.io.payloadSize
+  io.reducedLoadReplayLiqLretPayloadDstValid :=
+    reducedReplayLiqReturnLretPayload.io.payloadDst.valid
+  io.reducedLoadReplayLiqLretPayloadDstKind :=
+    reducedReplayLiqReturnLretPayload.io.payloadDst.kind.asUInt
+  io.reducedLoadReplayLiqLretPayloadDstArchTag :=
+    reducedReplayLiqReturnLretPayload.io.payloadDst.archTag
+  io.reducedLoadReplayLiqLretPayloadDstRelTag :=
+    reducedReplayLiqReturnLretPayload.io.payloadDst.relTag
+  io.reducedLoadReplayLiqLretPayloadDstPhysTag :=
+    reducedReplayLiqReturnLretPayload.io.payloadDst.physTag
+  io.reducedLoadReplayLiqLretPayloadDstOldPhysTag :=
+    reducedReplayLiqReturnLretPayload.io.payloadDst.oldPhysTag
   io.reducedLoadReplayLiqLretPayloadData :=
     reducedReplayLiqReturnLretPayload.io.payloadData
   io.reducedLoadReplayLiqLretPayloadPipeIndex :=

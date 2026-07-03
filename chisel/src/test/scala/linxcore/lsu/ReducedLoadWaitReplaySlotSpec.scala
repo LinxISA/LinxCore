@@ -5,6 +5,13 @@ import org.scalatest.funsuite.AnyFunSuite
 
 object ReducedLoadWaitReplaySlotReference {
   final case class Id(valid: Boolean = false, wrap: Boolean = false, value: Int = 0)
+  final case class Dst(
+      valid: Boolean = false,
+      kind: Int = 0,
+      archTag: Int = 0,
+      relTag: Int = 0,
+      physTag: Int = 0,
+      oldPhysTag: Int = 0)
   final case class Wait(
       valid: Boolean = false,
       index: Int = 0,
@@ -22,7 +29,8 @@ object ReducedLoadWaitReplaySlotReference {
       rid: Id = Id(),
       youngestStoreId: Option[Id] = None,
       youngestStoreLsId: Option[Id] = None,
-      returnSignExtend: Boolean = false)
+      returnSignExtend: Boolean = false,
+      dst: Dst = Dst())
   final case class Wake(storeId: Id, storeLsId: Id, pc: BigInt)
   final case class Relaunch(
       pc: BigInt,
@@ -30,6 +38,7 @@ object ReducedLoadWaitReplaySlotReference {
       size: Int,
       bid: Id,
       lsId: Id,
+      dst: Dst = Dst(),
       gid: Id = Id(),
       rid: Id = Id(),
       youngestStoreId: Id = Id(),
@@ -45,6 +54,7 @@ object ReducedLoadWaitReplaySlotReference {
       lsId: Id = Id(),
       gid: Id = Id(),
       rid: Id = Id(),
+      dst: Dst = Dst(),
       youngestStoreId: Id = Id(),
       youngestStoreLsId: Id = Id(),
       waitKey: Wait = Wait())
@@ -74,6 +84,7 @@ object ReducedLoadWaitReplaySlotReference {
           size = state.size,
           bid = state.bid,
           lsId = state.lsId,
+          dst = state.dst,
           gid = state.gid,
           rid = state.rid,
           youngestStoreId = state.youngestStoreId,
@@ -97,6 +108,7 @@ object ReducedLoadWaitReplaySlotReference {
           lsId = captured.lsId,
           gid = captured.gid,
           rid = captured.rid,
+          dst = captured.dst,
           youngestStoreId = captured.youngestStoreId.getOrElse(captured.bid),
           youngestStoreLsId = captured.youngestStoreLsId.getOrElse(captured.lsId),
           waitKey = captured.waitKey)
@@ -132,6 +144,7 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
       rid = id(7),
       youngestStoreId = Some(id(5)),
       youngestStoreLsId = Some(id(4)),
+      dst = Dst(valid = true, kind = 1, archTag = 10, relTag = 10, physTag = 42, oldPhysTag = 10),
       waitKey = wait(pc = 0x3450, storeId = storeId))
 
     val afterCapture = step(State(), capture = Some(captured))
@@ -149,6 +162,7 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
       returnSignExtend = true,
       bid = id(6),
       lsId = id(3),
+      dst = Dst(valid = true, kind = 1, archTag = 10, relTag = 10, physTag = 42, oldPhysTag = 10),
       gid = id(2),
       rid = id(7),
       youngestStoreId = id(5),
@@ -219,7 +233,9 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     assert(sv.contains("io_storedWaitStore_valid"))
     assert(sv.contains("io_relaunch_valid"))
     assert(sv.contains("io_captureReturnSignExtend"))
+    assert(sv.contains("io_captureDst_physTag"))
     assert(sv.contains("io_relaunch_returnSignExtend"))
+    assert(sv.contains("io_relaunch_dst_physTag"))
     assert(sv.contains("io_relaunch_gid_value"))
     assert(sv.contains("io_relaunch_rid_value"))
     assert(sv.contains("io_relaunch_loadLsId_value"))

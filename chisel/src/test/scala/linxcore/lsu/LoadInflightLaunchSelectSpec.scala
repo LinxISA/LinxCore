@@ -188,6 +188,7 @@ class LoadInflightLaunchSelectSpec extends AnyFunSuite {
     assert(sv.contains("io_dataHitMask"))
     assert(sv.contains("io_launchCandidateMask"))
     assert(sv.contains("io_selectedLoadLsId_value"))
+    assert(sv.contains("io_selectedDst_physTag"))
     assert(sv.contains("io_selectedRequestByteMask"))
     assert(sv.contains("io_selectedReturnSignExtend"))
     assert(sv.contains("io_selectedSpecWakeup"))

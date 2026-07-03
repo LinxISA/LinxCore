@@ -8,6 +8,7 @@
   - `model/LinxCoreModel/model/bctrl/spe/SPERename.cpp`
   - `model/LinxCoreModel/model/iex/pipe/alu_pipe.cpp`
   - `model/LinxCoreModel/model/iex/rtable.cpp`
+  - `model/LinxCoreModel/model/iex/iex.cpp`
   - `model/LinxCoreModel/model/ModelCommon/SimInstInfo.cpp`
   - `model/LinxCoreModel/isa/calculate/arithmetic/Arithmetic.cpp`
   - `model/LinxCoreModel/isa/calculate/others/Others.cpp`
@@ -47,6 +48,9 @@ claiming a full LIQ/LDQ replay or wakeup implementation.
 R269 exposes the E-stage load PC alongside the existing load lookup address,
 size, BID, and LSID so the reduced top can remember the model wait-store match
 identity used by `LDQInfo::handleSUWakeup`.
+R311 also exposes the E-stage load's first renamed destination as
+`loadLookupDst`, matching the model return path where `IEX::setMemWakeup` and
+`IEX::setMemData` recover destination ownership from the ROB instruction.
 
 ## Interface
 
@@ -79,6 +83,7 @@ identity used by `LDQInfo::handleSUWakeup`.
 | output | `loadLookupAddr` | `UInt(64.W)` by default | with `loadLookupValid` | Byte address for the reduced read-only load lookup. |
 | output | `loadLookupPc` | `UInt(pcWidth.W)` | with `loadLookupValid` | R269 PC sideband for the reduced wait-store replay slot. |
 | output | `loadLookupBid`, `loadLookupGid`, `loadLookupRid` | `ROBID` | with `loadLookupValid` | R274 model ROB identity sidecars for reduced replay candidates. |
+| output | `loadLookupDst` | `RenamedDestination` | with `loadLookupValid` | R311 first destination sideband captured with the load lookup for future replay LRET/writeback/wakeup ownership. |
 | output | `fretStkSpRestoreValid` | `Bool` | with `completeValid` | The condition-false `FRET.STK` RA-load path also restores architectural `x1/sp`. |
 | output | `fretStkSpRestoreData` | `UInt(64.W)` by default | with `fretStkSpRestoreValid` | Restored SP value, `stackPointerData + in.imm`, for the owning top's scalar-SP shadow. |
 | output | `redirectValid` | `Bool` | with `completeValid` | Reduced scalar redirect request for `FRET.STK` target-taken rows or condition-false RA-load return rows. |
@@ -453,6 +458,12 @@ Signed byte, halfword, and word load classes assert the bit; unsigned and
 the wait-store replay candidate so later replay-return data extraction can
 choose the model `SignExtend` behavior without carrying a raw opcode through
 the current diagnostic LIQ row.
+
+R311 derives `loadLookupDst` from `eUop.dst(0)` only while the E-stage load
+lookup is valid. The output is disabled as `DestinationKind.None` otherwise.
+The sideband is intentionally limited to one destination because the current
+reduced scalar load subset returns one GPR result; multi-destination pair,
+vector, and tile loads remain future return-payload owners.
 
 ## Timing
 

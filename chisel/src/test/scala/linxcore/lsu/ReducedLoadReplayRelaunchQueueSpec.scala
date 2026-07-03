@@ -4,7 +4,7 @@ import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
 object ReducedLoadReplayRelaunchQueueReference {
-  import ReducedLoadWaitReplaySlotReference.{Id, Relaunch}
+  import ReducedLoadWaitReplaySlotReference.{Dst, Id, Relaunch}
 
   final case class Step(
       enqueueReady: Boolean,
@@ -66,6 +66,7 @@ object ReducedLoadReplayRelaunchQueueReference {
       returnSignExtend = lsId == 1,
       bid = id(6),
       lsId = id(lsId),
+      dst = Dst(valid = true, kind = 1, archTag = 10 + lsId, relTag = 10 + lsId, physTag = 40 + lsId, oldPhysTag = 10 + lsId),
       gid = id(2),
       rid = id(7),
       youngestStoreId = id(6),
@@ -94,6 +95,7 @@ class ReducedLoadReplayRelaunchQueueSpec extends AnyFunSuite {
     assert(popFirst.outFire)
     assert(popFirst.out.contains(first))
     assert(popFirst.out.exists(_.returnSignExtend))
+    assert(popFirst.out.exists(_.dst.physTag == 41))
     assert(popFirst.count == 1)
 
     val popSecond = model.step(outReady = true)
@@ -160,6 +162,7 @@ class ReducedLoadReplayRelaunchQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_enqueueDropped"))
     assert(sv.contains("io_out_valid"))
     assert(sv.contains("io_out_returnSignExtend"))
+    assert(sv.contains("io_out_dst_physTag"))
     assert(sv.contains("io_out_gid_value"))
     assert(sv.contains("io_out_rid_value"))
     assert(sv.contains("io_out_loadLsId_value"))

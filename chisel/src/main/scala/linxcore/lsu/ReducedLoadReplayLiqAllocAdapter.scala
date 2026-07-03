@@ -9,15 +9,17 @@ class ReducedLoadReplayLiqAllocAdapterIO(
     val idEntries: Int,
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val archRegWidth: Int = 6,
+    val physRegWidth: Int = 6)
     extends Bundle {
   val flush = Input(Bool())
   val candidateValid = Input(Bool())
-  val candidate = Input(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth))
+  val candidate = Input(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
   val allocReady = Input(Bool())
 
   val allocValid = Output(Bool())
-  val alloc = Output(new LoadInflightAlloc(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth))
+  val alloc = Output(new LoadInflightAlloc(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
   val consumeReady = Output(Bool())
   val blockedByAlloc = Output(Bool())
   val candidateUsable = Output(Bool())
@@ -28,7 +30,9 @@ class ReducedLoadReplayLiqAllocAdapter(
     val idEntries: Int = 16,
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val archRegWidth: Int = 6,
+    val physRegWidth: Int = 6)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -36,11 +40,20 @@ class ReducedLoadReplayLiqAllocAdapter(
   require((idEntries & (idEntries - 1)) == 0, "ID entries must be a power of two")
   require(sizeWidth >= 7, "sizeWidth must cover 64-byte scalar lines")
 
-  val io = IO(new ReducedLoadReplayLiqAllocAdapterIO(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth))
+  val io = IO(new ReducedLoadReplayLiqAllocAdapterIO(
+    liqEntries,
+    idEntries,
+    addrWidth,
+    pcWidth,
+    sizeWidth,
+    archRegWidth,
+    physRegWidth
+  ))
 
   private def zeroAlloc: LoadInflightAlloc = {
-    val alloc = Wire(new LoadInflightAlloc(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth))
+    val alloc = Wire(new LoadInflightAlloc(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
     alloc := 0.U.asTypeOf(alloc)
+    alloc.dst := LoadReplayDestination.none(archRegWidth, physRegWidth)
     alloc.bid := ROBID.disabled(idEntries)
     alloc.gid := ROBID.disabled(idEntries)
     alloc.rid := ROBID.disabled(idEntries)
@@ -51,10 +64,11 @@ class ReducedLoadReplayLiqAllocAdapter(
   }
 
   val candidateUsable = io.candidateValid && io.candidate.valid && !io.flush
-  val alloc = Wire(new LoadInflightAlloc(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth))
+  val alloc = Wire(new LoadInflightAlloc(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
   alloc := zeroAlloc
 
   when(candidateUsable) {
+    alloc.dst := io.candidate.dst
     alloc.bid := io.candidate.bid
     alloc.gid := io.candidate.gid
     alloc.rid := io.candidate.rid

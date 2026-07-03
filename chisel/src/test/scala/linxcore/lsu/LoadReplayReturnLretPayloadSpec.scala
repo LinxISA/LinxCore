@@ -5,6 +5,13 @@ import org.scalatest.funsuite.AnyFunSuite
 
 object LoadReplayReturnLretPayloadReference {
   final case class Id(valid: Boolean, wrap: Boolean, value: Int)
+  final case class Dst(
+      valid: Boolean = false,
+      kind: Int = 0,
+      archTag: Int = 0,
+      relTag: Int = 0,
+      physTag: Int = 0,
+      oldPhysTag: Int = 0)
 
   final case class Result(
       candidateValid: Boolean,
@@ -16,6 +23,7 @@ object LoadReplayReturnLretPayloadReference {
       payloadPc: BigInt,
       payloadAddr: BigInt,
       payloadSize: Int,
+      payloadDst: Dst,
       payloadData: BigInt,
       payloadPipeIndex: Int,
       payloadSpecWakeup: Boolean,
@@ -26,6 +34,7 @@ object LoadReplayReturnLretPayloadReference {
       blockedByData: Boolean)
 
   private val DisabledId = Id(valid = false, wrap = false, value = 0)
+  private val NoDst = Dst()
 
   def apply(
       enable: Boolean,
@@ -38,6 +47,7 @@ object LoadReplayReturnLretPayloadReference {
       selectedPc: BigInt,
       selectedAddr: BigInt,
       selectedSize: Int,
+      selectedDst: Dst = NoDst,
       returnData: BigInt,
       returnPipeIndex: Int,
       specWakeup: Boolean,
@@ -55,6 +65,7 @@ object LoadReplayReturnLretPayloadReference {
       payloadPc = if (payloadValid) selectedPc else BigInt(0),
       payloadAddr = if (payloadValid) selectedAddr else BigInt(0),
       payloadSize = if (payloadValid) selectedSize else 0,
+      payloadDst = if (payloadValid) selectedDst else NoDst,
       payloadData = if (payloadValid) returnData else BigInt(0),
       payloadPipeIndex = if (payloadValid) returnPipeIndex else 0,
       payloadSpecWakeup = payloadValid && specWakeup,
@@ -81,6 +92,7 @@ class LoadReplayReturnLretPayloadSpec extends AnyFunSuite {
       selectedPc = BigInt("1008", 16),
       selectedAddr = BigInt("2000", 16),
       selectedSize = 8,
+      selectedDst = Dst(valid = true, kind = 1, archTag = 10, relTag = 10, physTag = 42, oldPhysTag = 10),
       returnData = BigInt("8877665544332211", 16),
       returnPipeIndex = 1,
       specWakeup = false,
@@ -95,6 +107,7 @@ class LoadReplayReturnLretPayloadSpec extends AnyFunSuite {
     assert(result.payloadPc == BigInt("1008", 16))
     assert(result.payloadAddr == BigInt("2000", 16))
     assert(result.payloadSize == 8)
+    assert(result.payloadDst.physTag == 42)
     assert(result.payloadData == BigInt("8877665544332211", 16))
     assert(result.payloadPipeIndex == 1)
     assert(result.wakeupRequired)
@@ -175,6 +188,7 @@ class LoadReplayReturnLretPayloadSpec extends AnyFunSuite {
     assert(!dataBlocked.payloadValid)
     assert(dataBlocked.blockedByData)
     assert(!dataBlocked.payloadBid.valid)
+    assert(!dataBlocked.payloadDst.valid)
     assert(dataBlocked.payloadData == 0)
     assert(!empty.payloadValid)
     assert(empty.blockedByNoCandidate)
@@ -186,6 +200,7 @@ class LoadReplayReturnLretPayloadSpec extends AnyFunSuite {
     assert(sv.contains("module LoadReplayReturnLretPayload"))
     assert(sv.contains("io_payloadValid"))
     assert(sv.contains("io_payloadData"))
+    assert(sv.contains("io_payloadDst_physTag"))
     assert(sv.contains("io_payloadPipeIndex"))
     assert(sv.contains("io_wakeupRequired"))
     assert(sv.contains("io_blockedByData"))

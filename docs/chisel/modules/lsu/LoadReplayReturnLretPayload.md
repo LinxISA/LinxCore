@@ -20,7 +20,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnDataExtract.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPublishReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnConsumerReady.scala`
-- Contract IDs: `LC-CHISEL-LSU-REPLAY-LRET-001`
+- Contract IDs: `LC-CHISEL-LSU-REPLAY-LRET-001`, `LC-CHISEL-LSU-REPLAY-DST-001`
 
 ## Purpose
 
@@ -36,12 +36,14 @@ named boundary:
 
 - BID/GID/RID and load LSID,
 - PC, address, size, scalar return data,
+- one renamed destination sideband,
 - selected return-pipe index,
 - `specWakeup`/`stackValid` and derived wakeup-required predicate.
 
-Destination physical-tag payload ownership is still deferred because the
-current reduced replay-LIQ row does not carry the model `dst1`/`pdsts_`
-payload needed by the real IEX wakeup path.
+R311 carries the reduced one-destination payload from the load uop captured by
+`ReducedLoadWaitReplaySlot`, through the replay FIFO and LIQ row, and into this
+diagnostic formatter. The real IEX LRET enqueue and mem-wakeup fanout remain
+deferred.
 
 ## Interface
 
@@ -55,6 +57,7 @@ payload needed by the real IEX wakeup path.
 | `selectedBid`/`selectedGid`/`selectedRid` | Selected row identity. |
 | `selectedLoadLsId` | Selected row load sequence identity. |
 | `selectedPc`/`selectedAddr`/`selectedSize` | Request PC, address, and size. |
+| `selectedDst` | Selected row destination sideband captured from the renamed load uop. |
 | `returnData` | Sign/zero-extended scalar return data. |
 | `returnPipeIndex` | Selected future IEX return-pipe index. |
 | `specWakeup` | Model row suppresses regular dependent wakeup. |
@@ -65,8 +68,8 @@ payload needed by the real IEX wakeup path.
 | Signal | Description |
 |---|---|
 | `candidateValid` | `enable && launchValid`. |
-| `payloadValid` | Candidate has valid extracted data. Diagnostic-only in R310. |
-| `payload*` | Selected identity, request, data, pipe, and sideband fields, zeroed when invalid. |
+| `payloadValid` | Candidate has valid extracted data. Diagnostic-only in R311. |
+| `payload*` | Selected identity, request, destination, data, pipe, and sideband fields, zeroed when invalid. |
 | `wakeupRequired` | `payloadValid && !specWakeup && !stackValid`. |
 | `blockedByDisabled` | A selected row exists while replay-LIQ mode is disabled. |
 | `blockedByNoCandidate` | Replay-LIQ mode is enabled but no row is selected. |
@@ -103,8 +106,8 @@ extraction is blocked.
 ## Deferred Owners
 
 - Real IEX LRET queue entry type and enqueue.
-- Destination physical-tag payload and per-destination wakeup information.
 - Real mem-wakeup publication and ready-table/issue wakeup fanout.
+- Multi-destination load-pair/vector/tile payloads.
 - Cross-line merged payload publication.
 - Backpressure from LRET and wakeup queues into replay launch.
 
@@ -115,9 +118,9 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLretPayload
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r310-replay-return-lret-payload-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r311-replay-destination-sideband-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover selected-row identity/data forwarding, speculative and
-stack wakeup suppression, invalid-data blocking, stale-field suppression, and
-Chisel elaboration.
+stack wakeup suppression, invalid-data blocking, destination forwarding,
+stale-field suppression, and Chisel elaboration.

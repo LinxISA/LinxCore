@@ -4,7 +4,7 @@ import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
 object ReducedLoadReplayLiqAllocAdapterReference {
-  import ReducedLoadWaitReplaySlotReference.{Id, Relaunch}
+  import ReducedLoadWaitReplaySlotReference.{Dst, Id, Relaunch}
 
   final case class Alloc(
       bid: Id,
@@ -15,6 +15,7 @@ object ReducedLoadReplayLiqAllocAdapterReference {
       addr: BigInt,
       size: Int,
       returnSignExtend: Boolean,
+      dst: Dst,
       youngestStoreId: Id,
       youngestStoreLsId: Id,
       isTile: Boolean,
@@ -40,6 +41,7 @@ object ReducedLoadReplayLiqAllocAdapterReference {
       lsId = id(3),
       gid = id(2),
       rid = id(7),
+      dst = Dst(valid = true, kind = 1, archTag = 10, relTag = 10, physTag = 42, oldPhysTag = 10),
       youngestStoreId = id(4),
       youngestStoreLsId = id(1))
 
@@ -58,6 +60,7 @@ object ReducedLoadReplayLiqAllocAdapterReference {
         addr = relaunch.addr,
         size = relaunch.size,
         returnSignExtend = relaunch.returnSignExtend,
+        dst = relaunch.dst,
         youngestStoreId = relaunch.youngestStoreId,
         youngestStoreLsId = relaunch.youngestStoreLsId,
         isTile = false,
@@ -94,6 +97,8 @@ class ReducedLoadReplayLiqAllocAdapterSpec extends AnyFunSuite {
     assert(alloc.addr == 0x1008)
     assert(alloc.size == 8)
     assert(!alloc.returnSignExtend)
+    assert(alloc.dst.valid)
+    assert(alloc.dst.physTag == 42)
     assert(!alloc.isTile)
     assert(!alloc.specWakeup)
     assert(!alloc.stackValid)
@@ -129,6 +134,7 @@ class ReducedLoadReplayLiqAllocAdapterSpec extends AnyFunSuite {
     assert(sv.contains("io_allocValid"))
     assert(sv.contains("io_alloc_loadLsId_value"))
     assert(sv.contains("io_alloc_returnSignExtend"))
+    assert(sv.contains("io_alloc_dst_physTag"))
     assert(sv.contains("io_alloc_youngestStoreId_value"))
     assert(sv.contains("io_alloc_youngestStoreLsId_value"))
     assert(sv.contains("io_consumeReady"))

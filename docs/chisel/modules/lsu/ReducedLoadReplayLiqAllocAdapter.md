@@ -27,13 +27,15 @@ converts a stable `ReducedLoadReplayCandidate` into `LoadInflightAlloc` without
 launching the load, mutating LIQ rows directly, waking consumers, or consuming
 the queue head until the downstream allocation boundary is ready.
 
-The adapter preserves two identity domains:
+The adapter preserves four identity domains:
 
 - load identity: `BID/GID/RID/loadLsId`, plus PC, address, and size;
 - store-order snapshot: `(youngestStoreId, youngestStoreLsId)`, captured when
   the load originally observed the blocking store relation.
 - replay-return signedness: the opcode-derived `returnSignExtend` bit that
   later feeds scalar return-data extraction.
+- replay destination: the compact renamed destination sideband captured with
+  the original load lookup for later LRET/writeback/wakeup ownership.
 
 Keeping those domains separate mirrors the model split between the load row's
 own `MemReqBus` identity and the store-forwarding eligibility snapshot used by
@@ -47,7 +49,7 @@ own `MemReqBus` identity and the store-forwarding eligibility snapshot used by
 |---|---|
 | `flush` | Suppresses allocation and queue consumption for the cycle. |
 | `candidateValid` | Queue-head valid from `ReducedLoadReplayRelaunchQueue`. |
-| `candidate` | `ReducedLoadReplayCandidate` payload containing load identity and forwarding snapshot. |
+| `candidate` | `ReducedLoadReplayCandidate` payload containing load identity, destination, return signedness, and forwarding snapshot. |
 | `allocReady` | Downstream `LoadInflightQueue.allocReady` or equivalent allocation credit. |
 
 ### Outputs
@@ -91,6 +93,7 @@ Mapping is direct:
 - `candidate.bid/gid/rid/loadLsId` -> `alloc.bid/gid/rid/loadLsId`
 - `candidate.pc/addr/size` -> `alloc.pc/addr/size`
 - `candidate.returnSignExtend` -> `alloc.returnSignExtend`
+- `candidate.dst` -> `alloc.dst`
 - `candidate.youngestStoreId/youngestStoreLsId` ->
   `alloc.youngestStoreId/youngestStoreLsId`
 - reduced scalar flags are false: `isTile=false`, `specWakeup=false`,
@@ -128,6 +131,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadWaitReplaySlot
 ```
 
-Reference tests cover identity/snapshot mapping, allocation backpressure,
-flush/absent-candidate suppression, and Chisel elaboration of the allocation
-handshake plus `loadLsId` and forwarding snapshot fields.
+Reference tests cover identity/snapshot/destination mapping, allocation
+backpressure, flush/absent-candidate suppression, and Chisel elaboration of the
+allocation handshake plus `loadLsId`, destination, and forwarding snapshot
+fields.

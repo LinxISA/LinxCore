@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{Cat, Fill, is, log2Ceil, switch}
 
 import linxcore.commit.{CommitTraceParams, CommitTraceRow}
-import linxcore.common.{DestinationKind, InterfaceParams, OperandClass, RenamedUop}
+import linxcore.common.{DestinationKind, InterfaceParams, OperandClass, RenamedDestination, RenamedUop}
 import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.rob.ROBID
 
@@ -47,6 +47,7 @@ class ReducedScalarAluExecuteIO(
   val loadLookupGid = Output(new ROBID(p.robEntries))
   val loadLookupRid = Output(new ROBID(p.robEntries))
   val loadLookupLsId = Output(UInt(p.lsidWidth.W))
+  val loadLookupDst = Output(new RenamedDestination(p))
   val fretStkSpRestoreValid = Output(Bool())
   val fretStkSpRestoreData = Output(UInt(p.immWidth.W))
   val redirectValid = Output(Bool())
@@ -618,6 +619,10 @@ class ReducedScalarAluExecute(
   io.loadLookupGid := Mux(io.loadLookupValid, eUop.gid, ROBID.disabled(p.robEntries))
   io.loadLookupRid := Mux(io.loadLookupValid, eUop.rid, ROBID.disabled(p.robEntries))
   io.loadLookupLsId := Mux(io.loadLookupValid, eUop.lsid, 0.U)
+  val noLoadLookupDst = Wire(new RenamedDestination(p))
+  noLoadLookupDst := 0.U.asTypeOf(noLoadLookupDst)
+  noLoadLookupDst.kind := DestinationKind.None
+  io.loadLookupDst := Mux(io.loadLookupValid, eUop.dst(0), noLoadLookupDst)
   val eLoadWaitHold = io.loadLookupValid && io.loadLookupWaitBlocked
   val eResult = resultFor(eUop.opcode, eUop.pc, eUop.insnRaw, eSrcData, eUop.imm, io.loadLookupData, io.stackPointerData)
   val eSupported = eValid && isSupported(eUop.opcode)

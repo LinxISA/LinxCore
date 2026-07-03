@@ -26,7 +26,9 @@
 reduced replay candidates and registered LIQ row state. It instantiates
 `ReducedLoadReplayLiqAllocAdapter`, `LoadInflightQueue`, and the R280
 `LoadInflightLaunchSelect` selector. It still uses the LIQ allocation handshake
-as the only authority for consuming the replay queue head.
+as the only authority for consuming the replay queue head, and R311 carries the
+candidate's compact replay destination sideband through allocation, residency,
+selected-row diagnostics, and the LRET-payload diagnostic boundary.
 
 This module is intentionally narrower than full replay. It does not drive the
 LIQ launch port unless `launchEnable` is explicitly asserted by the parent, and
@@ -48,7 +50,7 @@ MDB publication remain outside this module.
 |---|---|
 | `flush` | Flushes the internal LIQ and suppresses candidate consumption. |
 | `candidateValid` | Queue-head valid from `ReducedLoadReplayRelaunchQueue`. |
-| `candidate` | Queued reduced replay candidate with load identity and forwarding snapshot. |
+| `candidate` | Queued reduced replay candidate with load identity, destination, return signedness, and forwarding snapshot. |
 | `launchEnable` | Parent-owned arm bit. When low, selector diagnostics remain visible but `LoadInflightQueue.launchValid` is not driven. |
 | `e2Stores` | Abstract STQ forwarding rows for the `LoadForwardPipeline` launch path. R283 top wiring feeds a `ResidentStoreForwardStoreSnapshot` vector while keeping launch disabled. |
 | `e2BaseData` / `e2BaseValidMask` | Baseline line data and valid bytes for relaunches that do not already have row-owned data. R295 top wiring shapes the selected row's scalar sparse-memory response through `LoadReplayBaseDataAlign` while keeping launch disabled; R296 gates those inputs with `LoadLookupArbiter.replayGranted` so execute-returned sparse-memory bytes cannot feed the replay row. R297 routes the same grant-qualified data-return predicate through `LoadReplayLaunchReadiness`. |
@@ -82,7 +84,7 @@ MDB publication remain outside this module.
 | `launchMask` | One-hot oldest selected scalar candidate. Diagnostic only in this path. |
 | `launchValid` / `launchIndex` | Selector request before parent `launchEnable` qualification. |
 | `launchCandidateCount` | Number of selector candidates. |
-| `launchSelected*` | R294/R305/R307 selected launch-row identity from `LoadInflightLaunchSelect`: LIQ load ID, BID/GID/RID, load LSID, PC, address, size, replay-return signedness, 64-byte request mask, `specWakeup`, and `stackValid`. These signals remain diagnostic while `launchEnable` is low. |
+| `launchSelected*` | R294/R305/R307/R311 selected launch-row identity from `LoadInflightLaunchSelect`: LIQ load ID, BID/GID/RID, load LSID, PC, address, size, replay-return signedness, replay destination, 64-byte request mask, `specWakeup`, and `stackValid`. These signals remain diagnostic while `launchEnable` is low. |
 | `launchDriveValid` | Actual valid presented to `LoadInflightQueue.launchValid`; low unless the parent-owned `launchEnable && launchValid` predicate is true. Since R305, the reduced top drives return readiness from `LoadReplayReturnReadiness` fed by `LoadReplayReturnConsumerReady` plus the budget/permit/select split; the LRET and mem-wakeup sinks remain low, so launch stays disabled. |
 | `launchReady` | Selected row is launch-ready in `LoadInflightQueue`. |
 | `launchAccepted` | Selected row entered `Repick` through `LoadInflightQueue`. |
@@ -132,7 +134,10 @@ reduced wait slot and replay queue produce the same cleared load as a
    loads.
    R307 extends the same surface with `returnSignExtend`, preserving the
    opcode-derived sign/zero-extension choice needed by
-   `LoadReplayReturnDataExtract`.
+   `LoadReplayReturnDataExtract`. R311 extends the same surface with the
+   compact replay destination sideband so later return-payload and wakeup
+   owners do not need to reconstruct the renamed destination from top-level
+   context.
    R295 has the top consume that selected row in `LoadReplayBaseDataAlign`,
    producing dormant `e2BaseData/e2BaseValidMask` inputs for the same selected
    row. R296 drives those dormant inputs only when `LoadLookupArbiter` grants
@@ -203,9 +208,9 @@ bash tools/chisel/run_chisel_tests.sh --only LoadInflightLaunchSelect
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
-Reference tests cover allocation-pointer order, preservation of load LSID and
-forwarding snapshot sidecars, full-LIQ backpressure without queue consumption,
-flush clearing, and Chisel elaboration with the adapter, LIQ row owner, and
-launch selector child modules. R282 elaboration also locks the path-local
+Reference tests cover allocation-pointer order, preservation of load LSID,
+destination, and forwarding snapshot sidecars, full-LIQ backpressure without
+queue consumption, flush clearing, and Chisel elaboration with the adapter, LIQ
+row owner, and launch selector child modules. R282 elaboration also locks the path-local
 `launchEnable`, E2 forwarding inputs, launch accepted/ready outputs, E4
 diagnostics, LHQ hit-record output, and miss-pending diagnostic.

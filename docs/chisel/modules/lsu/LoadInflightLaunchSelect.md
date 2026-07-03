@@ -15,9 +15,11 @@
 selects the oldest launchable scalar `Wait` row by `(BID, loadLsId)` order.
 
 The selector is wired into `ReducedLoadReplayLiqAllocPath` and the opt-in
-replay-LIQ reduced top as diagnostics in R281. It does not mutate LIQ state,
-drive the top-level launch port, return data, update ready tables, move
-LHQ/ResolveQ state, or replace the reduced-store completion-drain path.
+replay-LIQ reduced top as diagnostics in R281. R311 also republishes the
+selected row's replay destination sideband for the future LRET/writeback owner.
+It does not mutate LIQ state, drive the top-level launch port, return data,
+update ready tables, move LHQ/ResolveQ state, or replace the reduced-store
+completion-drain path.
 
 ## Interface
 
@@ -35,7 +37,7 @@ LHQ/ResolveQ state, or replace the reduced-store completion-drain path.
 | output | `launchMask` | One-hot selected oldest candidate. |
 | output | `launchValid`, `launchIndex` | Launch request and selected LIQ slot. |
 | output | `candidateCount` | Number of enabled launch candidates. |
-| output | `selected*` | Selected load identity, address, size, PC, replay-return signedness, requested byte mask, `specWakeup`, and `stackValid` diagnostics. |
+| output | `selected*` | Selected load identity, address, size, PC, replay-return signedness, requested byte mask, destination, `specWakeup`, and `stackValid` diagnostics. |
 
 ## Logic Design
 
@@ -61,6 +63,9 @@ required after the always-required LRET write.
 R307 forwards `returnSignExtend` from the selected LIQ row so the later
 return-data owner can choose sign or zero extension without carrying the full
 model opcode at the selector boundary.
+R311 forwards the selected row's compact destination sideband so the future
+return-payload and wakeup owner can use the same destination captured with the
+load instead of reconstructing it at replay time.
 
 This keeps freshly allocated R279 replay rows resident but not launchable until
 a replay wakeup, refill wakeup, or later LDQ data owner provides the requested
@@ -93,4 +98,5 @@ bash tools/chisel/run_chisel_tests.sh --only LoadInflightLaunchSelect
 
 Reference tests cover oldest scalar order, suppression of freshly allocated rows
 without requested bytes, store-bypass and refill-hit candidate handling,
-wait-store/tile blocking diagnostics, enable gating, and Chisel elaboration.
+wait-store/tile blocking diagnostics, enable gating, selected destination
+elaboration, and Chisel elaboration.

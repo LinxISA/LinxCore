@@ -12,13 +12,28 @@ class LoadInflightLaunchSelectIO(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val archRegWidth: Int = 6,
+    val physRegWidth: Int = 6)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val countWidth = log2Ceil(liqEntries + 1)
 
   val enable = Input(Bool())
-  val rows = Input(Vec(liqEntries, new LoadInflightRow(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth)))
+  val rows = Input(Vec(
+    liqEntries,
+    new LoadInflightRow(
+      liqEntries,
+      idEntries,
+      storeEntries,
+      addrWidth,
+      pcWidth,
+      lineBytes,
+      sizeWidth,
+      archRegWidth,
+      physRegWidth
+    )
+  ))
 
   val waitMask = Output(UInt(liqEntries.W))
   val waitStoreBlockedMask = Output(UInt(liqEntries.W))
@@ -41,6 +56,7 @@ class LoadInflightLaunchSelectIO(
   val selectedAddr = Output(UInt(addrWidth.W))
   val selectedSize = Output(UInt(sizeWidth.W))
   val selectedReturnSignExtend = Output(Bool())
+  val selectedDst = Output(new LoadReplayDestination(archRegWidth, physRegWidth))
   val selectedRequestByteMask = Output(UInt(lineBytes.W))
   val selectedSpecWakeup = Output(Bool())
   val selectedStackValid = Output(Bool())
@@ -53,7 +69,9 @@ class LoadInflightLaunchSelect(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val archRegWidth: Int = 6,
+    val physRegWidth: Int = 6)
     extends Module {
   require(liqEntries > 1, "LIQ launch selector entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ launch selector entries must be a power of two")
@@ -68,7 +86,17 @@ class LoadInflightLaunchSelect(
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val lineOffsetWidth = log2Ceil(lineBytes)
 
-  val io = IO(new LoadInflightLaunchSelectIO(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val io = IO(new LoadInflightLaunchSelectIO(
+    liqEntries,
+    idEntries,
+    storeEntries,
+    addrWidth,
+    pcWidth,
+    lineBytes,
+    sizeWidth,
+    archRegWidth,
+    physRegWidth
+  ))
 
   private def zeroId(entries: Int): ROBID =
     ROBID.disabled(entries)
@@ -159,6 +187,7 @@ class LoadInflightLaunchSelect(
   io.selectedAddr := 0.U
   io.selectedSize := 0.U
   io.selectedReturnSignExtend := false.B
+  io.selectedDst := LoadReplayDestination.none(archRegWidth, physRegWidth)
   io.selectedRequestByteMask := 0.U
   io.selectedSpecWakeup := false.B
   io.selectedStackValid := false.B
@@ -172,6 +201,7 @@ class LoadInflightLaunchSelect(
     io.selectedAddr := selectedRow.addr
     io.selectedSize := selectedRow.size
     io.selectedReturnSignExtend := selectedRow.returnSignExtend
+    io.selectedDst := selectedRow.dst
     io.selectedRequestByteMask := requestByteMasks(launchIndex)
     io.selectedSpecWakeup := selectedRow.specWakeup
     io.selectedStackValid := selectedRow.stackValid

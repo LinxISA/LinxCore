@@ -42,6 +42,8 @@ sidecars in addition to BID/GID/RID/reduced-LSID load identity.
 R307 also preserves the replay-return signedness sideband derived from the
 original load opcode, so the queued request can later drive the standalone
 return-data extractor without recovering opcode class from top-level wires.
+R311 preserves the captured renamed destination sideband for the later
+LRET/wakeup payload owner.
 
 ## Interface
 
@@ -51,7 +53,7 @@ return-data extractor without recovering opcode class from top-level wires.
 |---|---|
 | `flush` | Clears the queue and suppresses enqueue/dequeue for the cycle. |
 | `enqueueValid` | Candidate-valid pulse from the reduced wait-store slot. |
-| `enqueue` | `ReducedLoadReplayCandidate` payload: remembered load PC, address, size, return signedness, BID, GID, RID, reduced LSID, and forwarding snapshot `(youngestStoreId, youngestStoreLsId)`. |
+| `enqueue` | `ReducedLoadReplayCandidate` payload: remembered load PC, address, size, return signedness, destination, BID, GID, RID, reduced LSID, and forwarding snapshot `(youngestStoreId, youngestStoreLsId)`. |
 | `outReady` | Consumer readiness for the queue head. In the reduced top this comes from `ReducedLoadReplayCompletionDrain`; future LIQ/issue work may replace that diagnostic consumer. |
 
 ### Outputs
@@ -75,8 +77,9 @@ The module owns a small circular FIFO of `ReducedLoadReplayCandidate` entries,
 with registered head pointer, tail pointer, and occupancy count. Stored
 payloads force `valid=true` on admission so the output valid handshake remains
 the authority for queue residency. Empty payloads explicitly disable every
-ROBID-shaped sidecar, including GID/RID and the forwarding snapshot; the scalar
-return signedness sideband clears with the empty payload.
+ROBID-shaped sidecar, including GID/RID and the forwarding snapshot; the
+destination and scalar return signedness sidebands clear with the empty
+payload.
 
 ## Logic Design
 

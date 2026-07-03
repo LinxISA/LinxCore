@@ -23,8 +23,9 @@
 ## Purpose
 
 `LoadInflightQueue` is the first registered LIQ/LHQ row-state owner in the
-Chisel LSU lane. It allocates load-inflight rows with slot-plus-wrap load IDs,
-launches selected WAIT rows through `LoadForwardPipeline`, applies E4
+Chisel LSU lane. It allocates load-inflight rows with slot-plus-wrap load IDs
+and the compact replay destination sideband, launches selected WAIT rows
+through `LoadForwardPipeline`, applies E4
 hit/miss/replay outcomes back to the row image, and publishes an LHQ-style
 resolved-load record when E4 can wake and return the load. It also consumes
 `LoadReplayWakeup` masks to clear store-unit wait-store blockers and to merge
@@ -44,7 +45,7 @@ memory-event trace.
 | Signal | Description |
 |---|---|
 | `allocValid` | Requests allocation of one LIQ row. |
-| `alloc` | Load identity, load LSID, PC, address, size, replay-return signedness, tile flag, and `(youngestStoreId, youngestStoreLsId)` snapshot. |
+| `alloc` | Load identity, load LSID, PC, address, size, replay-return signedness, destination, tile flag, and `(youngestStoreId, youngestStoreLsId)` snapshot. |
 | `allocReady` | The allocation pointer names a free row. |
 | `allocAccepted` | The request allocated the current pointer row. |
 | `allocIndex` | Current LIQ slot. |
@@ -138,7 +139,7 @@ The module owns:
 - a ring allocation pointer and wrap bit,
 - a resident-count register,
 - LIQ row records with `Wait`, `Repick`, `L1DcMiss`, `L2Wait`, and `Resolved`
-  states,
+  states, including replay-return signedness and replay destination sidebands,
 - E3/E4 row-index sideband registers aligned to `LoadForwardPipeline`,
 - a combinational `LoadReplayWakeup` sidecar for store-unit/SCB replay masks,
 - a combinational `LoadRefillWakeup` sidecar for read-refill row wake masks,
@@ -174,10 +175,10 @@ The C++ model provides the owner split:
 `LoadInflightQueue` maps those rules into the current Chisel boundary:
 
 1. Allocation writes a `Wait` row with a slot-plus-wrap `loadId`, preserves the
-   load's own `loadLsId`, and stores the `(youngestStoreId,
-   youngestStoreLsId)` snapshot for store-forward filtering. R307 also stores
-   the opcode-derived `returnSignExtend` bit beside address and size for the
-   future scalar replay-return extractor.
+   load's own `loadLsId`, stores the compact replay destination sideband, and
+   stores the `(youngestStoreId, youngestStoreLsId)` snapshot for store-forward
+   filtering. R307 also stores the opcode-derived `returnSignExtend` bit beside
+   address and size for the future scalar replay-return extractor.
 2. Launch accepts only valid `Wait` rows with no wait-store block, changes the
    row to `Repick`, and sends the row-derived query into
    `LoadForwardPipeline`. R280 adds `LoadInflightLaunchSelect` as a separate
@@ -238,6 +239,9 @@ memory comparison against QEMU/model behavior.
 - `bash tools/chisel/run_chisel_tests.sh --only LoadRefillWakeup`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline`
+
+The R311 elaboration gate locks the destination sideband on the allocation and
+row-observation surfaces.
 - `bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`

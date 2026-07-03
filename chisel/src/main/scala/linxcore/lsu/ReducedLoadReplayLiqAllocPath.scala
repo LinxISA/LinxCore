@@ -12,14 +12,16 @@ class ReducedLoadReplayLiqAllocPathIO(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val archRegWidth: Int = 6,
+    val physRegWidth: Int = 6)
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val countWidth = log2Ceil(liqEntries + 1)
 
   val flush = Input(Bool())
   val candidateValid = Input(Bool())
-  val candidate = Input(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth))
+  val candidate = Input(new ReducedLoadReplayCandidate(idEntries, addrWidth, pcWidth, sizeWidth, archRegWidth, physRegWidth))
 
   val launchEnable = Input(Bool())
   val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(idEntries, storeEntries, addrWidth, pcWidth, lineBytes)))
@@ -44,7 +46,17 @@ class ReducedLoadReplayLiqAllocPathIO(
 
   val rows = Output(Vec(
     liqEntries,
-    new LoadInflightRow(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth)
+    new LoadInflightRow(
+      liqEntries,
+      idEntries,
+      storeEntries,
+      addrWidth,
+      pcWidth,
+      lineBytes,
+      sizeWidth,
+      archRegWidth,
+      physRegWidth
+    )
   ))
   val occupiedMask = Output(UInt(liqEntries.W))
   val waitMask = Output(UInt(liqEntries.W))
@@ -69,6 +81,7 @@ class ReducedLoadReplayLiqAllocPathIO(
   val launchSelectedAddr = Output(UInt(addrWidth.W))
   val launchSelectedSize = Output(UInt(sizeWidth.W))
   val launchSelectedReturnSignExtend = Output(Bool())
+  val launchSelectedDst = Output(new LoadReplayDestination(archRegWidth, physRegWidth))
   val launchSelectedRequestByteMask = Output(UInt(lineBytes.W))
   val launchSelectedSpecWakeup = Output(Bool())
   val launchSelectedStackValid = Output(Bool())
@@ -98,7 +111,9 @@ class ReducedLoadReplayLiqAllocPath(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val archRegWidth: Int = 6,
+    val physRegWidth: Int = 6)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -118,12 +133,42 @@ class ReducedLoadReplayLiqAllocPath(
     addrWidth,
     pcWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    archRegWidth,
+    physRegWidth
   ))
 
-  val adapter = Module(new ReducedLoadReplayLiqAllocAdapter(liqEntries, idEntries, addrWidth, pcWidth, sizeWidth))
-  val liq = Module(new LoadInflightQueue(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
-  val launchSelect = Module(new LoadInflightLaunchSelect(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val adapter = Module(new ReducedLoadReplayLiqAllocAdapter(
+    liqEntries,
+    idEntries,
+    addrWidth,
+    pcWidth,
+    sizeWidth,
+    archRegWidth,
+    physRegWidth
+  ))
+  val liq = Module(new LoadInflightQueue(
+    liqEntries,
+    idEntries,
+    storeEntries,
+    addrWidth,
+    pcWidth,
+    lineBytes,
+    sizeWidth,
+    archRegWidth,
+    physRegWidth
+  ))
+  val launchSelect = Module(new LoadInflightLaunchSelect(
+    liqEntries,
+    idEntries,
+    storeEntries,
+    addrWidth,
+    pcWidth,
+    lineBytes,
+    sizeWidth,
+    archRegWidth,
+    physRegWidth
+  ))
 
   adapter.io.flush := io.flush
   adapter.io.candidateValid := io.candidateValid
@@ -184,6 +229,7 @@ class ReducedLoadReplayLiqAllocPath(
   io.launchSelectedAddr := launchSelect.io.selectedAddr
   io.launchSelectedSize := launchSelect.io.selectedSize
   io.launchSelectedReturnSignExtend := launchSelect.io.selectedReturnSignExtend
+  io.launchSelectedDst := launchSelect.io.selectedDst
   io.launchSelectedRequestByteMask := launchSelect.io.selectedRequestByteMask
   io.launchSelectedSpecWakeup := launchSelect.io.selectedSpecWakeup
   io.launchSelectedStackValid := launchSelect.io.selectedStackValid

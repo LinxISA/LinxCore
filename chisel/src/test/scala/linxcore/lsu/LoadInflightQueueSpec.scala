@@ -505,6 +505,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_lhqRecord_loadLsId_value"))
     assert(sv.contains("io_lhqRecord_pc"))
     assert(sv.contains("io_alloc_loadLsId_value"))
+    assert(sv.contains("io_alloc_dst_physTag"))
     assert(sv.contains("io_e4UpdateValid"))
     assert(sv.contains("io_missPending"))
     assert(sv.contains("LoadReplayWakeup"))
@@ -513,5 +514,6 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_refillWakeMask"))
     assert(sv.contains("io_rows_0_status"))
     assert(sv.contains("io_rows_0_loadLsId_value"))
+    assert(sv.contains("io_rows_0_dst_physTag"))
   }
 }
