@@ -12,6 +12,7 @@
   - `model/LinxCoreModel/model/iex/iex.cpp`: `IEX::setMemData`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CommitRowTraceSource.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RobCompleteSource.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RowFillEnableControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/ReducedRobCompletionArbiter.scala`
@@ -27,10 +28,11 @@ load data before the replay ROB-complete source may replace the ROB row image.
 R366 kept the integrated top dormant by wiring resident W2 slot fields while
 tying instruction metadata, source trace, and `rowFillEnable` false. R367
 replaces the literal row-fill tie-off with
-`LoadReplayReturnPipeW2RowFillEnableControl`, but that control still keeps
-`rowFillEnable=false` because the atomic live request and replay-row lifecycle
-readiness remain absent. This exposes the missing row-fill owners without
-allowing replay completion to replace allocation/rename row contents.
+`LoadReplayReturnPipeW2RowFillEnableControl`, and R372 replaces the metadata
+and source-trace tie-offs with `LoadReplayReturnPipeW2CommitRowTraceSource`.
+The trace source still ties its future providers absent, so `rowFillEnable`
+remains false and replay completion cannot replace allocation/rename row
+contents.
 
 ## Interface
 
@@ -77,7 +79,8 @@ R366 wires the candidate in `LinxCoreFrontendFetchRfAluTraceTop` before
 `LoadReplayReturnPipeW2RobCompleteSource`:
 
 - resident W2 slot fields feed the candidate;
-- instruction metadata and source trace are tied absent;
+- instruction metadata and source trace come from the R372 trace-source owner,
+  whose providers are currently tied absent;
 - R367 `LoadReplayReturnPipeW2RowFillEnableControl` drives `rowFillEnable`;
 - `completeRowValid` and `completeRow` feed the row-fill inlet on
   `LoadReplayReturnPipeW2RobCompleteSource`;
@@ -90,9 +93,8 @@ still receives no replay row replacement payload.
 
 ## Deferred Owners
 
-- A ROB-row or replay-row metadata lookup that supplies instruction raw/length
-  for the resident replay W2 row.
-- Source operand trace reconstruction for load commit rows.
+- Provider wiring into `LoadReplayReturnPipeW2CommitRowTraceSource` for
+  instruction raw/length and source operand traces.
 - Replay-row lifecycle readiness and final live request promotion through the
   R367 row-fill enable owner.
 - Non-GPR destination commit-row policy if replay loads to local T/U state must
