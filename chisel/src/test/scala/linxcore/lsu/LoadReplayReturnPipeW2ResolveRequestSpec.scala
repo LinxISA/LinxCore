@@ -157,12 +157,27 @@ class LoadReplayReturnPipeW2ResolveRequestSpec extends AnyFunSuite {
       slotAddr = 0x20,
       slotSize = 4,
       slotData = 0x55)
-    val noTarget = bothTargets.copy(blockedByInvalidTarget = true)
+    val noTarget = LoadReplayReturnPipeW2ResolveRequestReference(
+      resolveRequest = true,
+      slotOccupied = true,
+      slotTargetIsAgu = false,
+      slotTargetIsLda = false,
+      slotBid = Id(value = 1),
+      slotGid = Id(value = 2),
+      slotRid = Id(value = 3),
+      slotLoadLsId = Id(value = 4),
+      slotPc = 0x10,
+      slotAddr = 0x20,
+      slotSize = 4,
+      slotData = 0x55)
 
     assert(bothTargets.candidateValid)
     assert(!bothTargets.targetValid)
     assert(!bothTargets.resolveValid)
     assert(bothTargets.blockedByInvalidTarget)
+    assert(noTarget.candidateValid)
+    assert(!noTarget.targetValid)
+    assert(!noTarget.resolveValid)
     assert(noTarget.blockedByInvalidTarget)
   }
 
