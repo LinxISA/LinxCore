@@ -21,6 +21,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RefillReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SlotReplacePlan.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2PromotionControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-ADVANCE-CONTROL-001`
 
 ## Purpose
@@ -33,11 +34,11 @@ therefore needs one control point that can switch from the current safe
 empty-only advance rule to the future model-compatible same-cycle
 clear/refill rule.
 
-R355 adds that control point but keeps the live promotion disabled in the top.
-The current top still advances W1 only when W2 is empty and still keeps
-`LoadReplayReturnPipeW2Slot.replaceOnClear` false through this module. The
-packet changes ownership and observability, not fixture-visible replay
-behavior.
+R355 adds that control point and R356 feeds its live-promotion input from the
+shared W2 promotion-control owner. The current top still keeps the external
+promotion request disabled, so W1 advances only when W2 is empty and
+`LoadReplayReturnPipeW2Slot.replaceOnClear` remains false. These packets change
+ownership and observability, not fixture-visible replay behavior.
 
 ## Interface
 
@@ -45,7 +46,7 @@ behavior.
 |---|---|---|
 | input | `enable` | Replay-LIQ return-pipe wrapper is active. |
 | input | `flush` | Suppresses live promotion and reports flush blocking. |
-| input | `livePromotionEnable` | Enables future model-compatible same-cycle W2 clear/refill promotion. Current top ties this false. |
+| input | `livePromotionEnable` | Enables future model-compatible same-cycle W2 clear/refill promotion. R356 drives this from `LoadReplayReturnPipeW2PromotionControl`; the current top keeps the external promotion request false. |
 | input | `currentAdvanceReady` | Current empty-only advance readiness, normally `!W2Slot.occupied`. |
 | input | `futureAdvanceReady` | R352 future readiness, `empty || sameCycleLiveClear`. |
 | input | `sameCycleReplaceReady` | R353 same-cycle replacement readiness. |
@@ -91,7 +92,8 @@ back through current storage acceptance.
 - replacement evidence comes from `LoadReplayReturnPipeW2SlotReplacePlan`;
 - `advanceEnable` now drives `LoadReplayReturnPipeW1AdvanceCandidate`;
 - `replaceOnClear` now drives `LoadReplayReturnPipeW2Slot`;
-- `livePromotionEnable` is tied false in R355.
+- `livePromotionEnable` comes from R356
+  `LoadReplayReturnPipeW2PromotionControl.advanceLivePromotionEnable`.
 
 Top-level diagnostics are exposed under
 `reducedLoadReplayLiqLretPipeW2AdvanceControl*`. The module does not drive W2
@@ -100,8 +102,9 @@ replay RF writeback, ready-table mutation, or issue wakeup.
 
 ## Deferred Owners
 
-- Promote `livePromotionEnable` after W2 side effects, clear intent, storage
-  replacement, and replay-row lifecycle can all accept the same model cycle.
+- Enable the R356 promotion request after W2 side effects, clear intent,
+  storage replacement, and replay-row lifecycle can all accept the same model
+  cycle.
 - Tie W2 clear to the live side-effect completion owner instead of the current
   dormant completion path.
 - Retire or update the consumed replay-row lifecycle when W2 side effects
@@ -116,6 +119,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AdvanceControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SlotReplacePlan
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RefillReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandidate

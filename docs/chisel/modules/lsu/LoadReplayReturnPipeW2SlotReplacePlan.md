@@ -14,6 +14,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearIntent.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RefillReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2PromotionControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AdvanceControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SLOT-REPLACE-PLAN-001`
 
@@ -31,8 +32,8 @@ module does not change that storage. It observes the current slot acceptance
 and reports where a future model-compatible storage owner would accept a write
 from W1 because W2 is either empty or being live-cleared in the same cycle.
 R355 consumes the acyclic future acceptance outputs from this plan in
-`LoadReplayReturnPipeW2AdvanceControl`, but the top keeps live promotion
-disabled.
+`LoadReplayReturnPipeW2AdvanceControl`; R356 owns the shared live-promotion
+enable, but the top keeps its external promotion request disabled.
 
 ## Interface
 
@@ -44,7 +45,7 @@ disabled.
 | input | `writeValid` | W1-to-W2 write candidate from `LoadReplayReturnPipeW1AdvanceCandidate`. |
 | input | `writeTargetIsAgu` / `writeTargetIsLda` | Mutually exclusive target bits for the incoming W1 payload. |
 | input | `clearIntent` | R351 future clear intent for the resident W2 entry. |
-| input | `liveClear` | R351 live clear pulse. Current top keeps this low. |
+| input | `liveClear` | R351 live clear pulse gated by R356 `LoadReplayReturnPipeW2PromotionControl`. Current top keeps the promotion request disabled. |
 | input | `futureAdvanceReady` | R352 future W1-to-W2 readiness, `empty || sameCycleLiveClear`. |
 | input | `currentSlotAccepted` | Current `LoadReplayReturnPipeW2Slot.accepted` output. |
 | input | `currentSlotBlockedByClear` | Current W2 slot clear-priority blocker. |
@@ -98,13 +99,15 @@ The integration remains observational. It does not feed
 W2 slot `clear`, W2 registered storage, W2 side effects, replay-row lifecycle,
 or ROB/RF/ready-table mutation directly. R355 is the sole owner that now
 routes future readiness toward W1 advance and `replaceOnClear`; its
-`livePromotionEnable` input is tied false in the current top.
+`livePromotionEnable` input comes from R356
+`LoadReplayReturnPipeW2PromotionControl`, whose request input is tied false in
+the current top.
 
 ## Deferred Owners
 
-- Promote R355 `livePromotionEnable` so
-  `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future readiness
-  and drives `LoadReplayReturnPipeW2Slot.replaceOnClear`.
+- Enable the R356 promotion request so `LoadReplayReturnPipeW2AdvanceControl`
+  selects R352/R353 future readiness and drives
+  `LoadReplayReturnPipeW2Slot.replaceOnClear`.
 - Tie replay-row lifecycle retirement to the consumed W2 entry.
 
 ## Verification
@@ -115,6 +118,7 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SlotReplacePlan
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RefillReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ClearIntent
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop

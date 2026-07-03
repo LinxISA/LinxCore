@@ -14,6 +14,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1AdvanceCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearIntent.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2PromotionControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AdvanceControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-REFILL-READY-001`
 
@@ -31,9 +32,10 @@ live clear retires the old entry.
 This module is diagnostic evidence for R355
 `LoadReplayReturnPipeW2AdvanceControl`. It compares the current empty-only
 advance gate with the future `empty or same-cycle live clear` predicate and
-exposes the same-cycle refill eligibility created by R351 clear intent. R355
-now receives `futureAdvanceReady`, but the top keeps live promotion disabled,
-so the actual W1 advance input remains empty-only.
+exposes the same-cycle refill eligibility created by R351 clear intent. R356
+now owns the disabled live-clear enable, and R355 receives
+`futureAdvanceReady`; because the top keeps the R356 promotion request
+disabled, the actual W1 advance input remains empty-only.
 
 ## Interface
 
@@ -44,7 +46,7 @@ so the actual W1 advance input remains empty-only.
 | input | `slotOccupied` | R333 W2 slot currently contains a resident entry. |
 | input | `currentAdvanceReady` | Current top gate feeding W1-to-W2 advance, `!slotOccupied`. |
 | input | `clearIntent` | R351 future clear intent for the resident W2 entry. |
-| input | `liveClear` | R351 live clear pulse. Current top keeps this low. |
+| input | `liveClear` | R351 live clear pulse gated by R356 `LoadReplayReturnPipeW2PromotionControl`. Current top keeps the promotion request disabled. |
 | output | `active` | Enabled and not flushed. |
 | output | `emptyReady` | Active and W2 slot is empty. This is the current safe advance condition. |
 | output | `sameCycleRefillEligible` | Active, W2 occupied, and clear intent exists. |
@@ -76,19 +78,20 @@ refilled by W1.
 - `slotOccupied` comes from `LoadReplayReturnPipeW2Slot`;
 - `currentAdvanceReady` is the current `!slotOccupied` W1-to-W2 advance gate;
 - `clearIntent` and `liveClear` come from `LoadReplayReturnPipeW2ClearIntent`;
+  `liveClear` is gated by R356 `LoadReplayReturnPipeW2PromotionControl`;
 - compact diagnostics are exposed under
   `reducedLoadReplayLiqLretPipeW2RefillReady*`.
 
 The integration feeds R355 `LoadReplayReturnPipeW2AdvanceControl` as dormant
-future-readiness evidence. Because R355 ties `livePromotionEnable=false` in
-the top, this module still does not change
+future-readiness evidence. Because R356 keeps the promotion request disabled
+in the top, this module still does not change
 `LoadReplayReturnPipeW1AdvanceCandidate.advanceEnable`, W2 slot clear, W2 side
 effects, replay-row lifecycle, or ROB/RF/ready-table mutation.
 
 ## Deferred Owners
 
-- Promote R355 `livePromotionEnable` after live W2 clear is implemented and
-  verified so `futureAdvanceReady` selects the W1-to-W2 advance gate.
+- Enable the R356 promotion request after live W2 clear is implemented and
+  verified so `futureAdvanceReady` can select the W1-to-W2 advance gate.
 - Update W2 slot storage so a same-cycle clear/refill can replace the old W2
   entry with W1 payload, matching LinxCoreModel `move()`.
 - Replay-row lifecycle retirement tied to the same consumed W2 entry.
@@ -100,6 +103,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RefillReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ClearIntent
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop

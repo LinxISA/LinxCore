@@ -15,6 +15,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectCompletionPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectFireComplete.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2PromotionControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RefillReady.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-CLEAR-INTENT-001`
 
@@ -37,6 +38,8 @@ side effects are consumed before the pipe advances. The Chisel top still keeps
 real W2 side effects and replay-row lifecycle mutation disabled. This module
 only exposes the point where a future live owner can require pre-clear permit,
 post-fire completeness, and an explicit live-clear enable to agree.
+R356 routes that explicit enable through `LoadReplayReturnPipeW2PromotionControl`;
+the top still keeps its external promotion request false.
 
 ## Interface
 
@@ -48,7 +51,7 @@ post-fire completeness, and an explicit live-clear enable to agree.
 | input | `completionClearSlot` | R334 pre-clear slot clear pulse. |
 | input | `completionPermitted` | R345 pre-completion permit mirror. |
 | input | `fireComplete` | R350 post-fire completeness predicate. |
-| input | `liveClearEnable` | Explicit future live-clear arm. Current top ties it low. |
+| input | `liveClearEnable` | Explicit future live-clear arm from R356 `LoadReplayReturnPipeW2PromotionControl`. Current top keeps the promotion request disabled. |
 | output | `candidateValid` | Enabled, not flushed, and a resident W2 slot is visible. |
 | output | `preClearEligible` | Candidate plus R334 clear evidence. |
 | output | `permitEligible` | Candidate plus R345 permit evidence. |
@@ -87,7 +90,9 @@ complete checker:
   `LoadReplayReturnPipeW2SideEffectCompletionPermit`;
 - `fireComplete` comes from
   `LoadReplayReturnPipeW2SideEffectFireComplete.futureClearEligible`;
-- `liveClearEnable` is tied low.
+- `liveClearEnable` comes from
+  `LoadReplayReturnPipeW2PromotionControl.liveClearEnable`, whose external
+  promotion request is tied false in R356.
 
 The integration exposes compact diagnostics under
 `reducedLoadReplayLiqLretPipeW2ClearIntent*`. It does not feed the W2 slot
@@ -96,7 +101,8 @@ mutation, issue wakeup, or replay-row lifecycle.
 
 ## Deferred Owners
 
-- Live W2 clear enable after side-effect sinks mutate real state.
+- Enable the R356 W2 promotion request after side-effect sinks mutate real
+  state.
 - Replay-row lifecycle retirement after the same resident W2 instruction
   completes live side effects.
 - Replacement of the current observational post-fire path with a live sink
@@ -113,6 +119,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ClearIntent
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectFireComplete
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectCompletionPermit
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r351-replay-pipe-w2-clear-intent-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
