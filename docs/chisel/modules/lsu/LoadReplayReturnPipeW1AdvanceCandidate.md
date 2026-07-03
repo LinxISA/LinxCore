@@ -18,6 +18,7 @@
     - `AGUPipe::flush`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1Slot.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyAdvanceCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencySlot.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W1-ADVANCE-001`
@@ -30,9 +31,10 @@ and `AGUPipe::move`, the W-stage transfer is ordered as `w2_inst = w1_inst`
 before `w1_inst = e4_inst`; `runW1()` only stamps the W1 cycle, while `runW2()`
 performs RF writeback, resolve publication, and wakeup side effects.
 
-R332 adds the W1 advance diagnostic without creating W2 storage or live side
-effects. The current top wires the R331 W1 slot into this candidate but keeps
-`advanceEnable` false, so no W1 entry can clear through this path yet.
+R332 added the W1 advance diagnostic before W2 storage existed. R333 wires
+`advanceEnable` from the dormant W2 slot's empty state, so a future resident W1
+entry can clear only when W2 can accept it. Upstream E4-to-W1 advance remains
+disabled, so no fixture-visible W1 clear can occur yet.
 
 ## Interface
 
@@ -40,7 +42,7 @@ effects. The current top wires the R331 W1 slot into this candidate but keeps
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Suppresses candidate formation during replay-pipe flush. |
-| input | `advanceEnable` | Future W2 owner readiness. Current top ties this false. |
+| input | `advanceEnable` | Future W2 owner readiness. Current top drives this from `!W2Slot.occupied`. |
 | input | `slotOccupied` | R331 W1 slot contains a returned-load payload. |
 | input | `slotTargetIsAgu` / `slotTargetIsLda` | Mutually exclusive W1 pipe-family target. |
 | input | `slotPipeIndex` | Selected return-pipe index carried by the W1 slot. |
@@ -72,21 +74,22 @@ where the W1 payload is consumed only when it becomes the W2 payload.
 
 - `slotOccupied`, target-domain bits, and pipe index come from the W1 slot;
 - `clearSlot` drives the W1 slot `clear` input;
-- `advanceEnable` is tied false until the W2 storage owner is implemented;
+- `advanceEnable` comes from `!LoadReplayReturnPipeW2Slot.occupied`;
 - top-level diagnostics expose candidate, advance, clear, target, pipe-index,
   and blocker signals.
 
-Because R328 still live-disables E4 residency writes and R330/R332 advance
-enables are tied false, this packet does not change fixture-visible replay
-behavior. It only creates the named handoff that a later W2 slot must consume.
+Because R328 still live-disables E4 residency writes and R330 still
+live-disables E4-to-W1 advance, the W2-empty readiness connection does not
+change fixture-visible replay behavior. It only completes the named handoff
+that the W2 slot consumes.
 
 ## Deferred Owners
 
-- W2 returned-load pipe stage storage and payload capture.
-- Live enable for W1-to-W2 advance once the W2 stage has capacity.
+- Live enable for upstream E4-to-W1 advance.
 - Pipe-cycle timestamp storage for W1/W2.
 - RF writeback, resolve publication, ready-table update, issue wakeup, and
   replay-row retirement after W2 completion.
+- W2 clear after all live side effects are accepted.
 - Precise pipe-stage flush by ROB/LSID identity rather than top-level replay
   flush only.
 
@@ -96,11 +99,12 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1Slot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyAdvanceCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencySlot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r332-replay-pipe-w1-advance-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r333-replay-pipe-w2-slot-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover scalar LDA advance, vector AGU live-disabled residency,
