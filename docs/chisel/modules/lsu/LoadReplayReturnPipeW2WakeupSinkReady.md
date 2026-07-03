@@ -19,6 +19,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnWakeupCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-WAKEUP-SINK-READY-001`
 
@@ -85,6 +86,9 @@ acceptable while still preventing W2 completion.
 Because `wakeupSinkReady` is still false, R338 does not let W2 completion fire
 or clear the W2 slot. It only names the third W2 side-effect sink owner needed
 before live `runW2` retirement.
+R342 consumes the corresponding post-completion request bit in
+`LoadReplayReturnPipeW2WakeupRequest` to shape the future wakeup payload. That
+payload remains dormant until this sink's live enable is asserted.
 
 ## Deferred Owners
 
@@ -100,6 +104,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WakeupSinkReady
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WakeupRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot

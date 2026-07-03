@@ -18,6 +18,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupSinkReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupRequest.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SIDE-EFFECT-REQUEST-001`
 
 ## Purpose
@@ -95,6 +96,9 @@ R341 consumes `writebackRequest` in
 `LoadReplayReturnPipeW2WritebackRequest` to shape the future reduced scalar RF
 writeback payload. That payload remains dormant until the live W2 writeback
 sink becomes enabled.
+R342 consumes `wakeupRequest` in `LoadReplayReturnPipeW2WakeupRequest` to
+shape the future ready-table/issue-wakeup payload. That payload remains
+dormant until the live W2 wakeup sink becomes enabled.
 
 ## Deferred Owners
 
@@ -111,6 +115,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveRequest
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WakeupRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectReady
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
