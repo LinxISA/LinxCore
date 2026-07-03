@@ -37,10 +37,10 @@ local scalar wakeup.
 R333 adds the W2 payload state boundary without enabling downstream W2 side
 effects. R334 wires clear from `LoadReplayReturnPipeW2CompletionCandidate`,
 and R335 feeds that completion from `LoadReplayReturnPipeW2SideEffectReady`
-while R336 names the resolve sink and R337 names the writeback sink; both stay
-live-disabled. The reduced top wires W1 advance readiness from W2 emptiness,
-so a future live W1 entry can move into W2 exactly once and then remain
-resident until W2 side-effect sinks can accept it.
+while R336 names the resolve sink, R337 names the writeback sink, and R338
+names the wakeup sink; all stay live-disabled. The reduced top wires W1 advance
+readiness from W2 emptiness, so a future live W1 entry can move into W2 exactly
+once and then remain resident until W2 side-effect sinks can accept it.
 
 ## Interface
 
@@ -48,7 +48,7 @@ resident until W2 side-effect sinks can accept it.
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Clears the W2 slot and suppresses same-cycle writes. |
-| input | `clear` | Explicit lifecycle clear for a consumed W2 entry. Current top drives this from R334 W2 completion through the R335 W2 side-effect readiness join; R336 keeps resolve live-disabled, R337 keeps writeback live-disabled, and wakeup remains not-ready. |
+| input | `clear` | Explicit lifecycle clear for a consumed W2 entry. Current top drives this from R334 W2 completion through the R335 W2 side-effect readiness join; R336 keeps resolve live-disabled, R337 keeps writeback live-disabled, and R338 keeps wakeup live-disabled. |
 | input | `writeValid` | W1-to-W2 advance pulse from `LoadReplayReturnPipeW1AdvanceCandidate`. |
 | input | `writeTargetIsAgu` / `writeTargetIsLda` | Mutually exclusive W2 pipe-family target. |
 | input | `writePipeIndex` | Selected return-pipe index carried from the W1 slot. |
@@ -93,7 +93,7 @@ returned load belongs to exactly one LDA or AGU W2 pipe target.
 - payload sidebands come from the R331 W1 slot entry outputs;
 - W1 advance `advanceEnable` is driven by `!W2Slot.occupied`;
 - `clear` comes from `LoadReplayReturnPipeW2CompletionCandidate.clearSlot`,
-  which remains false while the R335/R336/R337 W2 side-effect readiness path
+  which remains false while the R335/R336/R337/R338 W2 side-effect readiness path
   keeps at least one required sink not-ready;
 - top-level diagnostics expose accepted, occupied, target, pipe-index, and
   blocker signals.
