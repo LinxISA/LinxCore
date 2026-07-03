@@ -13,6 +13,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
@@ -99,7 +100,10 @@ slot until that readiness join is true.
 - the W2 slot `clear` input now comes from this completion candidate instead
   of a literal false;
 - top-level diagnostics expose candidate, completion, resolve, writeback,
-  wakeup, clear, and blocker signals.
+  wakeup, clear, and blocker signals;
+- R339 observes the completion-time resolve/writeback/wakeup valid bits in
+  `LoadReplayReturnPipeW2SideEffectRequest`, but that request vector remains
+  diagnostic while R336-R338 keep completion blocked.
 
 Because upstream E4-to-W1 advance is still disabled and the W2 side-effect
 readiness join still keeps at least one required sink not-ready, this path
@@ -122,6 +126,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveSinkReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackSinkReady
