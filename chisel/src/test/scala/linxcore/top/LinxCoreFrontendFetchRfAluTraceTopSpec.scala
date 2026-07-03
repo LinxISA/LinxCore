@@ -750,6 +750,25 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2RowFillEnableControlBlockedByNoReplayRowLifecycle.getWidth == 1)
   }
 
+  test("R368 replay W2 replay-row lifecycle diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCandidateValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleSlotIdentityValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleResolvedRowMatch.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleMatchCount.getWidth == 4)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRowClearIndex.getWidth == 3)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRowClearReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlocked.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByNoResolvedRow.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByMultipleResolvedRows.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByLifecycleClearDisabled.getWidth == 1)
+  }
+
   test("LinxCoreFrontendFetchRfAluTraceTop elaborates source, frontend, rename, RF, issue, ROB, and ALU execute") {
     val sv = ChiselStage.emitSystemVerilog(
       new LinxCoreFrontendFetchRfAluTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 8)
@@ -767,6 +786,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedScalarAluExecute"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ClearCommitGuardCommitClearReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateCompleteRowValid"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlRowFillEnable"))
     assert(sv.contains("module CommitTraceMonitor"))
     assert(sv.contains("module ReducedBfuBodyCutPredictor"))
