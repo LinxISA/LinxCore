@@ -14,6 +14,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupSinkReady.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SIDE-EFFECT-REQUEST-001`
@@ -86,6 +87,10 @@ Because R336-R338 keep all live W2 sinks disabled, `completeValid` remains low
 in the current reduced top. R339 therefore names the post-completion request
 surface without enabling W2 slot clear or any live side effect.
 
+R340 consumes `resolveRequest` in `LoadReplayReturnPipeW2ResolveRequest` to
+shape the future W2 `PEResolveBus` payload. That payload remains dormant until
+the live W2 resolve sink becomes enabled.
+
 ## Deferred Owners
 
 - Real ROB resolve mutation driven by `resolveRequest`.
@@ -100,6 +105,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectRequest
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectReady
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
