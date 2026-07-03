@@ -15,6 +15,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectCompletionPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectFireComplete.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RefillReady.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-CLEAR-INTENT-001`
 
 ## Purpose
@@ -100,6 +101,8 @@ mutation, issue wakeup, or replay-row lifecycle.
   completes live side effects.
 - Replacement of the current observational post-fire path with a live sink
   accept path.
+- Same-cycle W2 clear/refill storage semantics; R352 observes the future
+  readiness predicate but does not feed W1-to-W2 advance.
 
 ## Verification
 
