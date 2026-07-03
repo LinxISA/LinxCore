@@ -15,6 +15,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowLifecycleReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RowFillEnableControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-W2-ROW-CLEAR-REQ-001`
 
@@ -28,10 +29,13 @@ mutating LIQ until row-fill commit enable is also true.
 
 R370 drives `lifecycleClearRequestEnable` from
 `LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl`, whose upstream
-atomic live request remains disabled in the integrated top. Therefore this
-selector still does not enable replay-row lifecycle mutation, replay ROB row
-fill, W2 clear/refill promotion, RF writeback, ROB/PE resolve mutation,
-ready-table wakeup, or issue wakeup.
+atomic live request remains disabled in the integrated top. R371 drives
+`lifecycleClearCommitEnable` from
+`LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit`, which requires the
+selected lifecycle arm plus R367 row-fill enable. Therefore this selector still
+does not enable replay-row lifecycle mutation, replay ROB row fill, W2
+clear/refill promotion, RF writeback, ROB/PE resolve mutation, ready-table
+wakeup, or issue wakeup.
 
 ## Interface
 
@@ -42,7 +46,7 @@ ready-table wakeup, or issue wakeup.
 | input | `existingClearValid` | Existing ResolveQ delayed clear request. |
 | input | `existingClearIndex` | LIQ row selected by the existing clear request. |
 | input | `lifecycleClearRequestEnable` | Future live arm for replay-W2 lifecycle clear. R370 now owns this request and keeps it dormant through the disabled atomic live request. |
-| input | `lifecycleClearCommitEnable` | Row-fill owner commit gate. Lifecycle clear can only drive LIQ when this is true. |
+| input | `lifecycleClearCommitEnable` | R371 lifecycle commit permit. Lifecycle clear can only drive LIQ when this is true. |
 | input | `lifecycleRowClearReady` | R368 proof that exactly one resolved LIQ row matches the resident W2 slot. |
 | input | `lifecycleRowClearIndex` | R368 resolved LIQ row index. |
 | input | `clearResolvedAccepted` | Response from `LoadInflightQueue` after the selected request is driven. |
@@ -73,8 +77,8 @@ readiness and mutation:
 - `lifecycleClearEnable` can satisfy the R368 lifecycle prerequisite for row
   fill once a future live request is armed;
 - `clearResolvedValid` for the lifecycle arm still waits for
-  `lifecycleClearCommitEnable`, which is driven from row-fill commit enable in
-  the top.
+  `lifecycleClearCommitEnable`, which R371 derives from the selected lifecycle
+  arm and R367 row-fill enable.
 
 This avoids clearing a resolved LIQ row merely because the row identity matched
 while another atomic W2 prerequisite is still blocked.
@@ -86,6 +90,9 @@ while another atomic W2 prerequisite is still blocked.
 The old `reducedLoadReplayResolveClearPending` register now clears from
 `existingClearAccepted`, so a future lifecycle clear cannot accidentally
 consume the ResolveQ delayed-clear pending bit.
+The lifecycle arm's commit input comes from
+`LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit`; this keeps request
+selection and final commit permission as separate top-visible diagnostics.
 
 ## Deferred Owners
 
@@ -100,6 +107,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ReplayRowClearRequest
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ReplayRowLifecycleReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RowFillEnableControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop

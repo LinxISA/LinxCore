@@ -37,15 +37,17 @@ blockers, but the final `lifecycleReady` output remains gated by an explicit
 `lifecycleClearEnable` input. R369 drives that input from
 `LoadReplayReturnPipeW2ReplayRowClearRequest`; R370 now drives that selector's
 request arm from `LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl`.
-The integrated top still keeps the upstream atomic live request false, so
-replay-row lifecycle mutation and row-fill remain disabled.
+R371 gates the selected lifecycle clear with the R367 row-fill enable before
+R369 may drive LIQ mutation. The integrated top still keeps the upstream
+atomic live request false, so replay-row lifecycle mutation and row-fill
+remain disabled.
 
 ## Interface
 
 | Direction | Signal | Description |
 |---|---|---|
 | input | `enable` / `flush` | Replay-LIQ integration arm and flush suppression. |
-| input | `lifecycleClearEnable` | Future live arm that allows the matched resolved LIQ row to be consumed or cleared. R369 derives it from the clear-request owner, whose live lifecycle request now comes from R370 and remains dormant through the disabled atomic live request. |
+| input | `lifecycleClearEnable` | Future live arm that allows the matched resolved LIQ row to become row-fill-ready. R369 derives it from the clear-request owner, whose live lifecycle request now comes from R370 and whose final commit permit comes from R371. |
 | input | `slotOccupied` | Resident W2 replay-return slot contains a returned load. |
 | input | `slotBid` / `slotGid` / `slotRid` / `slotLoadLsId` | W2 slot identity for the returned load. |
 | input | `rows` | Current `LoadInflightQueue` row image. |
@@ -91,6 +93,8 @@ R368 wires this owner in `LinxCoreFrontendFetchRfAluTraceTop`:
 - `lifecycleClearEnable` comes from
   `LoadReplayReturnPipeW2ReplayRowClearRequest.lifecycleClearEnable`;
 - that clear-request owner consumes the R370 lifecycle request-control output;
+- R371 consumes the selected lifecycle clear and R367 row-fill enable before
+  R369 can commit LIQ clear;
 - `lifecycleReady` feeds
   `LoadReplayReturnPipeW2RowFillEnableControl.replayRowLifecycleReady`.
 

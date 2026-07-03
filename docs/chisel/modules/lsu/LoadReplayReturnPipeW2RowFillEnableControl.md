@@ -45,7 +45,9 @@ The integrated top now feeds `replayRowLifecycleReady` from
 `LoadReplayReturnPipeW2ReplayRowLifecycleReady`, whose live lifecycle-clear arm
 comes from the R369 `LoadReplayReturnPipeW2ReplayRowClearRequest` owner. R370
 names the lifecycle request arm that feeds that selector, but the R363 atomic
-live request remains disabled upstream, so `rowFillEnable` remains false.
+live request remains disabled upstream. R371 names the final lifecycle commit
+permit fed by `rowFillEnable`, so `rowFillEnable` remains false and no LIQ
+lifecycle clear can commit.
 
 ## Interface
 
@@ -60,7 +62,7 @@ live request remains disabled upstream, so `rowFillEnable` remains false.
 | input | `replayRowLifecycleReady` | R368 consumed-row lifecycle guard after the R369 clear-request owner arms lifecycle clear readiness from the R370 request-control output. Current top keeps the R363 atomic live request false. |
 | output | `candidateValid` | Enabled, not flushed, and a row-fill candidate exists. |
 | output | `atomicPrerequisitesReady` | All prerequisites except the explicit request are present. |
-| output | `rowFillEnable` | Final live row-fill arm for `LoadReplayReturnPipeW2CommitRowCandidate`. |
+| output | `rowFillEnable` | Final live row-fill arm for `LoadReplayReturnPipeW2CommitRowCandidate` and the R371 lifecycle clear commit permit. |
 | output | blocker signals | Disabled, flush, request-disabled, missing candidate, missing side-effect completion, missing clear/commit, live-clear-disabled, and missing replay-row-lifecycle diagnostics. |
 
 ## Logic Design
@@ -97,8 +99,8 @@ R367 wires this owner in `LinxCoreFrontendFetchRfAluTraceTop`:
 - clear evidence comes from `LoadReplayReturnPipeW2ClearCommitGuard`;
 - `replayRowLifecycleReady` comes from
   `LoadReplayReturnPipeW2ReplayRowLifecycleReady.lifecycleReady`;
-- `rowFillEnable` feeds the R369 lifecycle clear commit gate so a future
-  lifecycle clear cannot mutate LIQ before row fill commits;
+- `rowFillEnable` feeds the R371 lifecycle commit permit so a future lifecycle
+  clear cannot mutate LIQ before row fill commits;
 - R370 derives that lifecycle request from `rowFillCandidateValid` plus the
   disabled R363 atomic request, keeping the live path named but dormant;
 - `rowFillEnable` now feeds the R366 commit-row candidate instead of a literal

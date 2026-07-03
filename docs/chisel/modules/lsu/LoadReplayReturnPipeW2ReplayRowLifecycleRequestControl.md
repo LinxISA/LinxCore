@@ -16,6 +16,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AtomicLiveRequestControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CommitRowCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowLifecycleReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowClearRequest.scala`
 - Contract IDs: `LC-CHISEL-LSU-LRET-W2-370`
 
@@ -65,8 +66,8 @@ boundary. This keeps request ownership separate from clear-port arbitration.
 - R370 drives `LoadReplayReturnPipeW2ReplayRowClearRequest.lifecycleClearRequestEnable`.
 - R369 still gives the existing ResolveQ delayed clear priority over lifecycle
   clear.
-- R369 still gates any lifecycle `clearResolvedValid` by the R367
-  `rowFillEnable`, so this module alone cannot clear a row.
+- R371 gates any lifecycle `clearResolvedValid` by the R367 `rowFillEnable`,
+  so this module alone cannot clear a row.
 - R363 keeps `atomicRequestActive` false in the integrated top, so the entire
   lifecycle-clear path remains dormant.
 
@@ -83,6 +84,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ReplayRowClearRequest
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
