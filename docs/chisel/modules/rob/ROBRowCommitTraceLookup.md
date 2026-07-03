@@ -33,6 +33,12 @@ from the resident W2 slot RID and feeds instruction raw/length into
 `LoadReplayReturnPipeW2CommitRowTraceSource`. Source traces remain disabled
 with `sourceTraceEnable=false`, so row fill still cannot become live.
 
+R374 tightens the future source-trace contract: ROB-row source traces are
+completion-only. The allocation/rename row carries source register tags but not
+proven source data, so `sourceTraceEnable` cannot expose `src0/src1` until the
+matched row status is `Completed`. Instruction metadata remains available
+before completion because the allocation row owns `insn` and `len`.
+
 ## Interface
 
 | Direction | Signal | Description |
@@ -45,7 +51,7 @@ with `sourceTraceEnable=false`, so row fill still cannot become live.
 | output | `result.row` | Zeroed unless the RID matches a resident row. |
 | output | `instructionProviderValid` / `instructionRaw` / `instructionLen` | Instruction metadata provider for the W2 trace-source owner. |
 | output | `sourceTraceProviderValid` / `source0` / `source1` | Optional source trace provider, held disabled in R373 top wiring. |
-| output | blocker signals | Invalid RID, free slot, stale RID, NeedFlush, missing instruction, and source-trace-disabled diagnostics. |
+| output | blocker signals | Invalid RID, free slot, stale RID, NeedFlush, missing instruction, source-trace-disabled, and source-trace-before-completion diagnostics. |
 
 ## Logic Design
 
@@ -56,13 +62,17 @@ rowValid = queryValid && queryRid.valid && slotRidMatch
 needFlush = rowValid && rowStatus[index] == NeedFlush
 liveRow = rowValid && rows[index].valid && !needFlush
 instructionProviderValid = liveRow && rows[index].len != 0
-sourceTraceProviderValid = liveRow && sourceTraceEnable
+sourceTraceProviderValid = liveRow && sourceTraceEnable &&
+  rowStatus[index] == Completed
 ```
 
 The lookup does not mutate ROB state, status, row payloads, RF state, ready
 tables, or replay-LIQ rows. `NeedFlush` suppresses both provider paths. A
 resident row with zero instruction length or an invalid row payload reports
 `blockedByMissingInstruction` instead of forwarding stale row contents.
+`blockedBySourceTraceBeforeCompletion` reports attempts to use ROB-row
+`src0/src1` before completion has replaced the allocation row with a
+source-data-bearing completion row.
 
 ## Integration
 
@@ -75,6 +85,8 @@ interpretation.
 - `instructionProviderValid/raw/len` feed `LoadReplayReturnPipeW2CommitRowTraceSource`;
 - `sourceTraceEnable` is tied false because source data still needs a real
   source-trace owner;
+- even if enabled in a future packet, ROB-row source traces are blocked until
+  the row is `Completed`;
 - W2 row fill remains disabled by missing source trace and the existing R367
   row-fill enable control;
 - replay ROB completion, RF writeback, ROB/PE resolve mutation, wakeup, W2
@@ -103,4 +115,4 @@ FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r373x bash tools/chisel/run
 
 Reference tests cover live matched-row metadata, disabled source trace,
 invalid RID, free slot, stale RID, NeedFlush suppression, missing instruction
-metadata, and Chisel elaboration.
+metadata, pre-completion source-trace blocking, and Chisel elaboration.

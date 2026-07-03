@@ -35,7 +35,8 @@ object ROBRowCommitTraceLookupReference {
       blockedByStaleRid: Boolean,
       blockedByNeedFlush: Boolean,
       blockedByMissingInstruction: Boolean,
-      blockedBySourceTraceDisabled: Boolean)
+      blockedBySourceTraceDisabled: Boolean,
+      blockedBySourceTraceBeforeCompletion: Boolean)
 
   private def equal(lhs: Id, rhs: Id): Boolean =
     lhs.wrap == rhs.wrap && lhs.value == rhs.value
@@ -47,8 +48,9 @@ object ROBRowCommitTraceLookupReference {
     val status = if (rowValid) selected.status else "Free"
     val needFlush = rowValid && status == "NeedFlush"
     val liveRow = rowValid && selected.rowValid && !needFlush
+    val rowCompleted = rowValid && status == "Completed"
     val instructionReady = liveRow && selected.len != 0
-    val sourceTraceReady = liveRow && sourceTraceEnable
+    val sourceTraceReady = liveRow && sourceTraceEnable && rowCompleted
 
     Result(
       queryValid = queryValid,
@@ -69,7 +71,8 @@ object ROBRowCommitTraceLookupReference {
       blockedByStaleRid = queryValid && queryRid.valid && selected.occupied && !slotRidMatch,
       blockedByNeedFlush = needFlush,
       blockedByMissingInstruction = rowValid && !needFlush && (!selected.rowValid || selected.len == 0),
-      blockedBySourceTraceDisabled = liveRow && !sourceTraceEnable)
+      blockedBySourceTraceDisabled = liveRow && !sourceTraceEnable,
+      blockedBySourceTraceBeforeCompletion = liveRow && sourceTraceEnable && !rowCompleted)
   }
 }
 
@@ -133,6 +136,35 @@ class ROBRowCommitTraceLookupSpec extends AnyFunSuite {
     assert(!result.source0Valid)
     assert(result.source0Reg == 0)
     assert(result.blockedBySourceTraceDisabled)
+  }
+
+  test("blocks ROB row source traces before completion while preserving instruction metadata") {
+    val rows = emptyRows.updated(1, Row(
+      occupied = true,
+      rid = Id(value = 1),
+      status = "Renamed",
+      rowValid = true,
+      insn = 0x1234,
+      len = 4,
+      src0Valid = true,
+      src0Reg = 3,
+      src1Valid = true,
+      src1Reg = 4))
+
+    val result = ROBRowCommitTraceLookupReference(
+      queryValid = true,
+      queryRid = Id(value = 1),
+      rows = rows,
+      sourceTraceEnable = true)
+
+    assert(result.rowValid)
+    assert(result.instructionProviderValid)
+    assert(result.instructionRaw == 0x1234)
+    assert(!result.sourceTraceProviderValid)
+    assert(!result.source0Valid)
+    assert(!result.source1Valid)
+    assert(result.blockedBySourceTraceBeforeCompletion)
+    assert(!result.blockedBySourceTraceDisabled)
   }
 
   test("blocks invalid free and stale RID queries") {
@@ -234,5 +266,6 @@ class ROBRowCommitTraceLookupSpec extends AnyFunSuite {
     assert(sv.contains("io_result_sourceTraceProviderValid"))
     assert(sv.contains("io_result_blockedByNeedFlush"))
     assert(sv.contains("io_result_blockedByMissingInstruction"))
+    assert(sv.contains("io_result_blockedBySourceTraceBeforeCompletion"))
   }
 }

@@ -72,7 +72,9 @@ R372 wires the module immediately before
 
 - resident W2 slot occupancy gates provider evidence;
 - R373 feeds instruction metadata from `ROBRowCommitTraceLookup`;
-- source trace providers are currently tied absent;
+- R374 keeps ROB-row source traces completion-only because allocation rows have
+  register tags but no proven source data;
+- source trace providers are currently tied absent in the top;
 - gated outputs feed the R366 commit-row candidate;
 - compact top-level diagnostics expose trace readiness and missing-provider
   blockers;
@@ -81,8 +83,6 @@ R372 wires the module immediately before
 
 ## Deferred Owners
 
-- ROB-row or replay-row metadata lookup that supplies instruction raw/length
-  for the resident replay W2 row.
 - Source operand trace reconstruction from the original RF-read/rename row.
 - Live promotion of row fill after W2 side effects, clear/refill, replay-row
   lifecycle clear, and ROB completion-row replacement can commit atomically.

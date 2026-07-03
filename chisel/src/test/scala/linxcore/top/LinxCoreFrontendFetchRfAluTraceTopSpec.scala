@@ -741,6 +741,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedByNeedFlush.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedByMissingInstruction.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceBeforeCompletion.getWidth == 1)
   }
 
   test("R367 replay W2 row-fill enable diagnostics have stable widths") {
@@ -849,6 +850,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ClearCommitGuardCommitClearReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupInstructionValid"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceBeforeCompletion"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateCompleteRowValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))

@@ -961,6 +961,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedByNeedFlush = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedByMissingInstruction = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceDisabled = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceBeforeCompletion = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RowFillEnableControlCandidateValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RowFillEnableControlPrerequisitesReady = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RowFillEnableControlRowFillEnable = Output(Bool())
@@ -5931,6 +5932,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2CommitRowTraceSourceWiring {
       robTraceLookup.blockedByMissingInstruction
     io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceDisabled :=
       robTraceLookup.blockedBySourceTraceDisabled
+    io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceBeforeCompletion :=
+      robTraceLookup.blockedBySourceTraceBeforeCompletion
   }
 }
 

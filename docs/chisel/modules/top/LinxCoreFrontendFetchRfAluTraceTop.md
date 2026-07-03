@@ -1094,7 +1094,8 @@ R372 adds `reducedLoadReplayLiqLretPipeW2CommitRowTraceSource*` diagnostics.
 These signals name the deferred instruction metadata and source-trace provider
 boundary feeding the R366 candidate. R373 adds a read-only ROB row commit-trace
 lookup and feeds instruction raw/length into this boundary; source traces
-remain tied absent, so row replacement remains disabled.
+remain tied absent, and R374 blocks any ROB-row source trace before row
+completion because allocation rows do not prove source operand data.
 R367 adds `reducedLoadReplayLiqLretPipeW2RowFillEnableControl*` diagnostics.
 These signals replace the literal row-fill tie-off with a dormant owner that
 requires the row candidate, side-effect fire completion, clear/commit identity,
@@ -1391,7 +1392,8 @@ overlay. Most state remains in child modules:
   W2 slot data, but instruction metadata and source trace remain absent.
 - `LoadReplayReturnPipeW2CommitRowTraceSource`: optional R372 dormant
   instruction/source trace provider boundary. R373 feeds its instruction
-  metadata from `ROBRowCommitTraceLookup`; source traces remain absent.
+  metadata from `ROBRowCommitTraceLookup`; R374 keeps ROB-row source traces
+  completion-only and absent in this top.
 - `LoadReplayReturnPipeW2RowFillEnableControl`: optional R367 dormant row-fill
   enable owner. It joins the shaped row candidate with side-effect fire,
   clear/commit identity, live-clear, and replay-row lifecycle prerequisites
@@ -1882,7 +1884,8 @@ load commit row shape from W2 identity, PC, address, size, destination, and
 returned data. R372 inserts `LoadReplayReturnPipeW2CommitRowTraceSource` as
 the candidate's instruction/source-trace owner. R373 feeds instruction
 metadata from a read-only ROB row commit-trace lookup, while source traces
-remain disabled, so the candidate still cannot become row-fill valid. R367
+remain disabled and pre-completion ROB-row source traces are explicitly
+blocked, so the candidate still cannot become row-fill valid. R367
 inserts `LoadReplayReturnPipeW2RowFillEnableControl` as the candidate's
 `rowFillEnable` owner. The control requires the R366/R372 row candidate, R350
 side-effect fire completion, R365 clear/commit identity, live-clear readiness,

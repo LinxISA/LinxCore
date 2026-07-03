@@ -30,6 +30,7 @@ class ROBRowCommitTraceLookupResult(
   val blockedByNeedFlush = Bool()
   val blockedByMissingInstruction = Bool()
   val blockedBySourceTraceDisabled = Bool()
+  val blockedBySourceTraceBeforeCompletion = Bool()
 }
 
 class ROBRowCommitTraceLookupIO(
@@ -70,8 +71,9 @@ class ROBRowCommitTraceLookup(
   selectedRow := Mux(rowValid, io.rows(index), 0.U.asTypeOf(new CommitTraceRow(traceParams)))
   val needFlush = rowValid && selectedStatus === ROBEntryStatus.NeedFlush
   val liveRow = rowValid && selectedRow.valid && !needFlush
+  val rowCompleted = rowValid && selectedStatus === ROBEntryStatus.Completed
   val instructionReady = liveRow && (selectedRow.len =/= 0.U)
-  val sourceTraceReady = liveRow && io.sourceTraceEnable
+  val sourceTraceReady = liveRow && io.sourceTraceEnable && rowCompleted
 
   io.result.queryValid := io.queryValid
   io.result.rowValid := rowValid
@@ -95,4 +97,5 @@ class ROBRowCommitTraceLookup(
   io.result.blockedByNeedFlush := needFlush
   io.result.blockedByMissingInstruction := rowValid && !needFlush && (!selectedRow.valid || selectedRow.len === 0.U)
   io.result.blockedBySourceTraceDisabled := liveRow && !io.sourceTraceEnable
+  io.result.blockedBySourceTraceBeforeCompletion := liveRow && io.sourceTraceEnable && !rowCompleted
 }
