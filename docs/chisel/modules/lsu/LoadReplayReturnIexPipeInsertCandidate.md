@@ -15,6 +15,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDrainPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDataCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnRobResolveDataCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLaneCompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-IEX-PIPE-INSERT-001`
 
@@ -28,10 +29,11 @@ then skips invalid or need-flush ROB rows, resolves returned data into the ROB
 instruction, clones the instruction as a load-return, marks `isLoadReturn`,
 and inserts that clone into the first free LDA or AGU E4 pipe.
 
-R322 names only the final insert-shaped diagnostic payload. After R323, the
-integrated path consumes the ROB resolve-data boundary's `readyForPipeInsert`
-result, still derived from the R320/R321 `setMemDataValid` admission checks,
-plus the R319 IEX pipe selection and emits an `insertValid` candidate with:
+R322 names only the final insert-shaped diagnostic payload. After R324, the
+integrated path consumes the lane-completion boundary's `readyForPipeInsert`
+result, still derived from the R320/R321 `setMemDataValid` admission checks
+and R323 ROB resolve-data diagnostic, plus the R319 IEX pipe selection, and
+emits an `insertValid` candidate with:
 
 - the chosen IEX E4 insertion pipe index;
 - the original MemReqBus load-to-use pipe sideband as a separate index;
@@ -43,11 +45,12 @@ This module does not write an IEX pipe, mutate the ROB, update RF state,
 publish ready-table state, wake issue queues, clear replay rows, or drive the
 LRET FIFO drain.
 
-R323 inserts `LoadReplayReturnRobResolveDataCandidate` before this module.
-The integrated top now feeds this module from that boundary's
-`readyForPipeInsert` diagnostic, matching the model order where
-`ROBState::resolveData` runs before the cloned load-return instruction is
-inserted into E4.
+R323 inserts `LoadReplayReturnRobResolveDataCandidate` before this module, and
+R324 inserts `LoadReplayReturnLaneCompletionCandidate` between R323 and this
+insert-shaped diagnostic. The integrated top now feeds this module from R324
+`readyForPipeInsert`, matching the model order where `ROBState::resolveData`
+runs and scalar load-pair/vector/MEM lane completion is checked before the
+cloned load-return instruction is inserted into E4.
 
 ## Interface
 
@@ -90,9 +93,9 @@ module intentionally keeps two pipe identifiers distinct:
 ## Integration
 
 `LinxCoreFrontendFetchRfAluTraceTop` wires R322 behind
-`LoadReplayReturnRobResolveDataCandidate`:
+`LoadReplayReturnLaneCompletionCandidate`:
 
-- `setMemDataValid` is driven by the R323 `readyForPipeInsert` diagnostic;
+- `setMemDataValid` is driven by the R324 `readyForPipeInsert` diagnostic;
 - returned-load payload fields still come from
   `LoadReplayReturnIexDataCandidate`;
 - `pipeInsertReady` and `pipeInsertIndex` come from
@@ -108,7 +111,7 @@ diagnostic insert boundary only.
 
 - Real IEX LDA/AGU E4 pipe residency mutation.
 - `rob_next.resolveData` and ROB destination data-valid mutation.
-- Scalar load-pair lane completion and vector/MEM_IEX request-count handling.
+- Real scalar load-pair lane writes and vector/MEM_IEX request-count state.
 - TLOAD tile-SCB side effects and load-branch resolve.
 - LRET FIFO drain enable and replay-row lifecycle retirement.
 
@@ -118,6 +121,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLaneCompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDrainPermit
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop

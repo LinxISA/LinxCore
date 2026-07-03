@@ -13,6 +13,7 @@
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDataCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLaneCompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-ROB-RESOLVE-DATA-001`
@@ -86,13 +87,13 @@ visibility signal from asserting.
 
 `LinxCoreFrontendFetchRfAluTraceTop` wires R323 between
 `LoadReplayReturnIexDataCandidate` and
-`LoadReplayReturnIexPipeInsertCandidate`:
+`LoadReplayReturnLaneCompletionCandidate`:
 
 - `setMemDataValid`, `memRid`, `memDst`, and `memData` come from
   `LoadReplayReturnIexDataCandidate`;
 - `reducedSingleLane` is tied true for the current scalar replay subset;
-- `readyForPipeInsert` feeds the R322 insert-shaped candidate's
-  `setMemDataValid` input.
+- `readyForPipeInsert` feeds the R324 lane-completion permit before the R322
+  insert-shaped diagnostic.
 
 This makes the integrated diagnostic order match the model:
 
@@ -100,6 +101,7 @@ This makes the integrated diagnostic order match the model:
 LRET drain permit
   -> setMemData admission and ROB status check
   -> ROB resolve-data request
+  -> lane-completion permit
   -> IEX E4 insert-shaped candidate
 ```
 
@@ -110,7 +112,7 @@ FIFO entry or mutate ROB, RF, ready-table, issue, replay-row, or E4 pipe state.
 ## Deferred Owners
 
 - Real `ROBState::resolveData` mutation of ROB instruction destination state.
-- Scalar load-pair lane completion and `retLane` count comparison.
+- Real scalar load-pair lane completion and `retLane` count storage.
 - Vector lane writes under `simtMask` and MEM/IEX `realReqCnt` accounting.
 - RF/writeback, ready-table, and issue-wakeup side effects after returned data.
 - Real LRET FIFO drain, replay-row lifecycle, and IEX E4 residency mutation.
@@ -121,6 +123,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnRobResolveDataCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLaneCompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
