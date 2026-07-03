@@ -17,6 +17,8 @@ class LoadReplayReturnPipeW2RobCompleteSourceIO(
   val resolveValid = Input(Bool())
   val resolveRid = Input(new ROBID(idEntries))
   val executeCompleteValid = Input(Bool())
+  val completeRowInputValid = Input(Bool())
+  val completeRowInput = Input(new CommitTraceRow(traceParams))
 
   val sinkReady = Output(Bool())
   val active = Output(Bool())
@@ -48,14 +50,15 @@ class LoadReplayReturnPipeW2RobCompleteSource(
   val legalCandidate = candidateValid && io.resolveRid.valid
   val sinkReady = !io.executeCompleteValid
   val completeValid = legalCandidate && sinkReady
+  val completeRowValid = completeValid && io.completeRowInputValid
 
   io.sinkReady := sinkReady
   io.active := active
   io.candidateValid := candidateValid
   io.completeValid := completeValid
   io.completeRobValue := Mux(completeValid, io.resolveRid.value, 0.U(ptrWidth.W))
-  io.completeRowValid := false.B
-  io.completeRow := 0.U.asTypeOf(new CommitTraceRow(traceParams))
+  io.completeRowValid := completeRowValid
+  io.completeRow := Mux(completeRowValid, io.completeRowInput, 0.U.asTypeOf(new CommitTraceRow(traceParams)))
   io.blockedByDisabled := !io.enable && io.resolveValid
   io.blockedByFlush := io.enable && io.flush && io.resolveValid
   io.blockedByNoResolve := active && !io.resolveValid

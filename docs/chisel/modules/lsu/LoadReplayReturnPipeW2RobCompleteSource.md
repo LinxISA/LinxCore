@@ -13,6 +13,7 @@
   - `model/LinxCoreModel/model/iex/iex_iq.cpp`: `IssueQueue::WakeupIQTag`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveArbiterInput.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CommitRowCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/ReducedRobCompletionArbiter.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-ROB-COMPLETE-SOURCE-001`
@@ -40,12 +41,13 @@ not enable the live replay request by itself.
 | input | `resolveValid` | Live-gated W2 resolve arbiter input is valid. |
 | input | `resolveRid` | Native ROB RID to complete. |
 | input | `executeCompleteValid` | Ordinary execute completion owns the ROB completion port this cycle. |
+| input | `completeRowInputValid` / `completeRowInput` | Optional replay load row replacement payload from R366. |
 | output | `sinkReady` | Structural readiness for the W2 resolve sink; false when execute uses the completion port. |
 | output | `active` | `enable && !flush`. |
 | output | `candidateValid` | Active live resolve candidate is present. |
 | output | `completeValid` | Replay ROB completion can issue this cycle. |
 | output | `completeRobValue` | RID value for the completion port when `completeValid` is true. |
-| output | `completeRowValid` / `completeRow` | Always false/zero in this packet; load commit-row data fill is deferred. |
+| output | `completeRowValid` / `completeRow` | Selected row replacement payload when both completion and row-fill input are valid. |
 | output | blocker signals | Disabled, flush, no-resolve, invalid-RID, and execute-port pressure diagnostics. |
 
 ## Logic Design
@@ -57,7 +59,7 @@ legalCandidate = candidateValid && resolveRid.valid
 sinkReady = !executeCompleteValid
 completeValid = legalCandidate && sinkReady
 completeRobValue = completeValid ? resolveRid.value : 0
-completeRowValid = false
+completeRowValid = completeValid && completeRowInputValid
 ```
 
 `sinkReady` intentionally depends only on the structural ROB completion-port
@@ -65,10 +67,11 @@ conflict with execute. It feeds `LoadReplayReturnPipeW2ResolveSinkReady`, so a
 future live replay W2 request cannot fire resolve side effects when the execute
 completion port is already occupied.
 
-`completeRowValid` remains false. `ROBEntryBank` preserves the row written by
-allocation/rename-update when completion arrives with no replacement row. A
-later packet must add the replay load commit-row fill before the live request is
-promoted beyond diagnostics.
+`completeRowValid` only passes through when a replay completion is actually
+emitted. In R366 the integrated top feeds this inlet from
+`LoadReplayReturnPipeW2CommitRowCandidate`, but that candidate still ties
+metadata/source/fill enables false, so `ROBEntryBank` preserves the row written
+by allocation/rename-update.
 
 ## Integration
 
@@ -78,6 +81,7 @@ R364 wires the source after
 
 - `resolveValid` and `resolveRid` come from the live-gated W2 resolve arbiter
   input;
+- `completeRowInput*` comes from the R366 replay W2 commit-row candidate;
 - `sinkReady` drives the structural `sinkReady` input of
   `LoadReplayReturnPipeW2ResolveSinkReady`;
 - `complete*` drives the replay side of `ReducedRobCompletionArbiter`;
@@ -90,7 +94,8 @@ complete a replay row yet.
 
 ## Deferred Owners
 
-- Replay load commit-row fill with load address, size, destination, and data.
+- Live replay load commit-row fill after instruction metadata and source trace
+  providers are wired.
 - Live replay-row lifecycle mutation after resolve, RF writeback, wakeup, and
   W2 clear all succeed.
 - PE/thread resolve-array publication beyond the reduced ROB completion port.
@@ -108,5 +113,5 @@ FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r364-replay-w2-rob-complete
 ```
 
 Reference tests cover idle-port completion, execute-port blocking,
-disabled/flush suppression, invalid RID suppression, active no-resolve
-diagnostics, and Chisel elaboration.
+row-fill input pass-through, disabled/flush suppression, invalid RID
+suppression, active no-resolve diagnostics, and Chisel elaboration.

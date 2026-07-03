@@ -25,7 +25,8 @@ object LoadReplayReturnPipeW2RobCompleteSourceReference {
       flush: Boolean,
       resolveValid: Boolean,
       resolveRid: Id,
-      executeCompleteValid: Boolean): Result = {
+      executeCompleteValid: Boolean,
+      completeRowInputValid: Boolean = false): Result = {
     val active = enable && !flush
     val candidateValid = active && resolveValid
     val legalCandidate = candidateValid && resolveRid.valid
@@ -38,7 +39,7 @@ object LoadReplayReturnPipeW2RobCompleteSourceReference {
       candidateValid = candidateValid,
       completeValid = completeValid,
       completeRobValue = if (completeValid) resolveRid.value else 0,
-      completeRowValid = false,
+      completeRowValid = completeValid && completeRowInputValid,
       blockedByDisabled = !enable && resolveValid,
       blockedByFlush = enable && flush && resolveValid,
       blockedByNoResolve = active && !resolveValid,
@@ -80,6 +81,28 @@ class LoadReplayReturnPipeW2RobCompleteSourceSpec extends AnyFunSuite {
     assert(!result.completeValid)
     assert(result.completeRobValue == 0)
     assert(result.blockedByExecute)
+  }
+
+  test("passes a row-fill input only with an emitted replay completion") {
+    val emitted = LoadReplayReturnPipeW2RobCompleteSourceReference(
+      enable = true,
+      flush = false,
+      resolveValid = true,
+      resolveRid = Id(valid = true, value = 4),
+      executeCompleteValid = false,
+      completeRowInputValid = true)
+    val blocked = LoadReplayReturnPipeW2RobCompleteSourceReference(
+      enable = true,
+      flush = false,
+      resolveValid = true,
+      resolveRid = Id(valid = true, value = 4),
+      executeCompleteValid = true,
+      completeRowInputValid = true)
+
+    assert(emitted.completeValid)
+    assert(emitted.completeRowValid)
+    assert(!blocked.completeValid)
+    assert(!blocked.completeRowValid)
   }
 
   test("suppresses disabled, flushed, and invalid-RID candidates") {
@@ -134,6 +157,7 @@ class LoadReplayReturnPipeW2RobCompleteSourceSpec extends AnyFunSuite {
     assert(sv.contains("module LoadReplayReturnPipeW2RobCompleteSource"))
     assert(sv.contains("io_resolveValid"))
     assert(sv.contains("io_executeCompleteValid"))
+    assert(sv.contains("io_completeRowInputValid"))
     assert(sv.contains("io_completeValid"))
     assert(sv.contains("io_completeRobValue"))
     assert(sv.contains("io_blockedByExecute"))
