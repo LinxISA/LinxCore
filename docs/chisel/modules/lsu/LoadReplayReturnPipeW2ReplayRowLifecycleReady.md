@@ -14,6 +14,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowClearRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RowFillEnableControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-ROW-LIFECYCLE-001`
@@ -32,15 +33,17 @@ R368 names the Chisel precondition for that row lifecycle: a resident replay W2
 slot must match exactly one valid `Resolved` LIQ row by
 `(bid,gid,rid,loadLsId)`. The module exposes the matching row index and
 blockers, but the final `lifecycleReady` output remains gated by an explicit
-`lifecycleClearEnable` input. The integrated top ties that input false, so
-replay-row lifecycle mutation and row-fill remain disabled.
+`lifecycleClearEnable` input. R369 drives that input from
+`LoadReplayReturnPipeW2ReplayRowClearRequest`; the integrated top still ties
+the clear-request owner's live lifecycle request false, so replay-row lifecycle
+mutation and row-fill remain disabled.
 
 ## Interface
 
 | Direction | Signal | Description |
 |---|---|---|
 | input | `enable` / `flush` | Replay-LIQ integration arm and flush suppression. |
-| input | `lifecycleClearEnable` | Future live arm that allows the matched resolved LIQ row to be consumed or cleared. Current top ties it false. |
+| input | `lifecycleClearEnable` | Future live arm that allows the matched resolved LIQ row to be consumed or cleared. R369 derives it from the clear-request owner, whose live lifecycle request is currently tied false. |
 | input | `slotOccupied` | Resident W2 replay-return slot contains a returned load. |
 | input | `slotBid` / `slotGid` / `slotRid` / `slotLoadLsId` | W2 slot identity for the returned load. |
 | input | `rows` | Current `LoadInflightQueue` row image. |
@@ -72,10 +75,10 @@ lifecycleReady = rowClearReady && lifecycleClearEnable
 ```
 
 Duplicate matches are treated as a blocker because the model lifecycle consumes
-one concrete LDQ row before `ResolveQ` publication or retirement. A future live
-owner may feed `rowClearReady` and `rowClearIndex` into `LoadInflightQueue`
-`clearResolvedValid/index`, but this module intentionally does not mutate LIQ
-state.
+one concrete LDQ row before `ResolveQ` publication or retirement. R369 feeds
+`rowClearReady` and `rowClearIndex` into
+`LoadReplayReturnPipeW2ReplayRowClearRequest`, but this module intentionally
+does not mutate LIQ state.
 
 ## Integration
 
@@ -83,7 +86,8 @@ R368 wires this owner in `LinxCoreFrontendFetchRfAluTraceTop`:
 
 - W2 slot identity comes from `LoadReplayReturnPipeW2Slot`;
 - LIQ rows come from `ReducedLoadReplayLiqAllocPath`;
-- `lifecycleClearEnable` is tied false;
+- `lifecycleClearEnable` comes from
+  `LoadReplayReturnPipeW2ReplayRowClearRequest.lifecycleClearEnable`;
 - `lifecycleReady` feeds
   `LoadReplayReturnPipeW2RowFillEnableControl.replayRowLifecycleReady`.
 

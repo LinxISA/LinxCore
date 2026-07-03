@@ -64,6 +64,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CommitRowCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RowFillEnableControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowLifecycleReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowClearRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearCommitGuard.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackFirePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackArbiterInput.scala`
@@ -1095,8 +1096,12 @@ can be armed.
 R368 adds `reducedLoadReplayLiqLretPipeW2ReplayRowLifecycle*` diagnostics.
 These signals match the resident W2 slot identity against the current resolved
 LIQ row image, expose the selected row-clear index when exactly one row matches,
-and keep final lifecycle readiness disabled behind a tied-off lifecycle-clear
-arm.
+and take final lifecycle readiness from the R369 clear-request owner.
+R369 adds `reducedLoadReplayLiqLretPipeW2ReplayRowClearRequest*` diagnostics.
+These signals route the existing ResolveQ delayed LIQ clear request through a
+named owner, keep it priority over a future W2 lifecycle clear request, and
+leave the lifecycle request arm disabled so `clearResolvedValid` remains the
+existing ResolveQ clear path.
 R348 adds `reducedLoadReplayLiqLretPipeW2WritebackFirePayload*` diagnostics
 under the same namespace. These signals join the R346 writeback fire pulse
 with the R341 writeback request payload before future replay RF mutation, but
@@ -1375,7 +1380,11 @@ overlay. Most state remains in child modules:
 - `LoadReplayReturnPipeW2ReplayRowLifecycleReady`: optional R368 dormant
   replay-row lifecycle guard. It matches the W2 slot `(bid,gid,rid,loadLsId)`
   to exactly one resolved LIQ row and exposes row-clear diagnostics while the
-  current top keeps the lifecycle-clear arm disabled.
+  current top keeps the lifecycle-clear request arm disabled.
+- `LoadReplayReturnPipeW2ReplayRowClearRequest`: optional R369 dormant
+  clear-request selector. It preserves existing ResolveQ delayed clear
+  priority, exports lifecycle clear readiness to the R368 guard, and waits for
+  row-fill commit enable before a future lifecycle clear can drive LIQ.
 - `LoadReplayReturnPipeW2ClearCommitGuard`: optional R365 dormant W2
   clear/commit identity guard. It checks resident slot RID, resolve-fire RID,
   and replay ROB-completion value agree before a future live clear can be
@@ -1852,10 +1861,15 @@ side-effect fire completion, R365 clear/commit identity, live-clear readiness,
 and replay-row lifecycle readiness. R368 inserts
 `LoadReplayReturnPipeW2ReplayRowLifecycleReady` as that lifecycle owner. It
 matches the resident W2 slot against resolved LIQ rows by
-`(bid,gid,rid,loadLsId)`, but its live lifecycle-clear arm is tied false and
-R363 keeps the atomic live request disabled. The candidate output is still
-wired into the ROB completion source, proving the ownership boundary while
-preserving `completeRowValid=false` in integrated generated RTL.
+`(bid,gid,rid,loadLsId)`. R369 inserts
+`LoadReplayReturnPipeW2ReplayRowClearRequest` between the existing ResolveQ
+delayed clear and `ReducedLoadReplayLiqAllocPath.clearResolved*`; it gives the
+existing clear priority, exports lifecycle clear readiness to R368, and gates
+future lifecycle LIQ mutation with row-fill commit enable. Its live lifecycle
+request arm remains false and R363 keeps the atomic live request disabled. The
+candidate output is still wired into the ROB completion source, proving the
+ownership boundary while preserving `completeRowValid=false` in integrated
+generated RTL.
 R358 inserts `LoadReplayReturnPipeW2WritebackArbiterInput` behind the R348
 writeback fire payload. It names the future replay side of the scalar RF
 writeback arbiter, reports disabled/flush/no-payload/live-disabled blockers,

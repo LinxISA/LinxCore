@@ -18,6 +18,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearCommitGuard.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AtomicLiveRequestControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowLifecycleReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowClearRequest.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-ROW-FILL-ENABLE-001`
 
 ## Purpose
@@ -41,8 +42,9 @@ keeps row fill behind one atomic enable that requires:
 
 The integrated top now feeds `replayRowLifecycleReady` from
 `LoadReplayReturnPipeW2ReplayRowLifecycleReady`, whose live lifecycle-clear arm
-is still tied false. The R363 atomic live request also remains disabled, so
-`rowFillEnable` remains false.
+comes from the R369 `LoadReplayReturnPipeW2ReplayRowClearRequest` owner. The
+R369 live lifecycle request and the R363 atomic live request both remain
+disabled, so `rowFillEnable` remains false.
 
 ## Interface
 
@@ -54,7 +56,7 @@ is still tied false. The R363 atomic live request also remains disabled, so
 | input | `sideEffectFireComplete` | R350 post-fire side-effect completeness evidence. |
 | input | `clearCommitReady` | R365 resident slot / resolve / ROB completion identity coherence. |
 | input | `liveClearReady` | R365 commit-clear evidence plus the future live-clear arm. |
-| input | `replayRowLifecycleReady` | R368 consumed-row lifecycle guard. Current top keeps the guard's live-clear arm false. |
+| input | `replayRowLifecycleReady` | R368 consumed-row lifecycle guard after the R369 clear-request owner arms lifecycle clear readiness. Current top keeps the R369 live lifecycle request false. |
 | output | `candidateValid` | Enabled, not flushed, and a row-fill candidate exists. |
 | output | `atomicPrerequisitesReady` | All prerequisites except the explicit request are present. |
 | output | `rowFillEnable` | Final live row-fill arm for `LoadReplayReturnPipeW2CommitRowCandidate`. |
@@ -94,6 +96,8 @@ R367 wires this owner in `LinxCoreFrontendFetchRfAluTraceTop`:
 - clear evidence comes from `LoadReplayReturnPipeW2ClearCommitGuard`;
 - `replayRowLifecycleReady` comes from
   `LoadReplayReturnPipeW2ReplayRowLifecycleReady.lifecycleReady`;
+- `rowFillEnable` feeds the R369 lifecycle clear commit gate so a future
+  lifecycle clear cannot mutate LIQ before row fill commits;
 - `rowFillEnable` now feeds the R366 commit-row candidate instead of a literal
   false.
 

@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicLiveRequestControl, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWritebackCandidate, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicLiveRequestControl, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWritebackCandidate, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -971,6 +971,19 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByNoResolvedRow = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByMultipleResolvedRows = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByLifecycleClearDisabled = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestExistingCandidate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleCandidate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleClearEnable = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleSelected = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestClearResolvedValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestClearResolvedIndex = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestExistingAccepted = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleAccepted = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlocked = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByExistingClear = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByLifecycleRequestDisabled = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByNoLifecycleRow = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByLifecycleCommitDisabled = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ClearCommitGuardCandidateValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ClearCommitGuardCommitClearReady = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ClearCommitGuardLiveClearReady = Output(Bool())
@@ -1750,6 +1763,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       archRegWidth = p.archRegWidth,
       physRegWidth = p.physRegWidth
     ))
+  val reducedReplayLiqReturnPipeW2ReplayRowClearRequest =
+    Module(new LoadReplayReturnPipeW2ReplayRowClearRequest(
+      liqEntries = p.robEntries
+    ))
   val reducedReplayLiqReturnPipeW2RowFillEnableControl =
     Module(new LoadReplayReturnPipeW2RowFillEnableControl)
   val reducedReplayLiqReturnPipeW2WritebackFirePayload =
@@ -2447,8 +2464,6 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.e2LoadDataReturned := reducedReplayLiqBaseDataReady
   reducedLoadReplayLiqAllocPath.io.e2ScbReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
   reducedLoadReplayLiqAllocPath.io.e2ReturnReady := reducedReplayLiqReturnReadiness.io.returnReady
-  reducedLoadReplayLiqAllocPath.io.clearResolvedValid := reducedLoadReplayResolveClearPending
-  reducedLoadReplayLiqAllocPath.io.clearResolvedIndex := reducedLoadReplayResolveClearIndex
   val reducedLoadReplayResolvePreciseFlush =
     Wire(new FlushBus(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
   reducedLoadReplayResolvePreciseFlush := 0.U.asTypeOf(reducedLoadReplayResolvePreciseFlush)
@@ -2632,7 +2647,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   when(reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled) {
     reducedLoadReplayResolveClearPending := false.B
   }.otherwise {
-    when(reducedLoadReplayLiqAllocPath.io.clearResolvedAccepted) {
+    when(reducedReplayLiqReturnPipeW2ReplayRowClearRequest.io.existingClearAccepted) {
       reducedLoadReplayResolveClearPending := false.B
     }
     when(reducedLoadReplayResolveQueue.io.pushAccepted) {
@@ -3132,6 +3147,17 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2ReplayRowLifecycleReady,
     reducedReplayLiqReturnPipeW2Slot,
     reducedLoadReplayLiqAllocPath,
+    reducedLoadReplayLiqAllocEnabled,
+    reducedStoreFlush
+  )
+  LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowClearRequestWiring.connect(
+    io,
+    reducedReplayLiqReturnPipeW2ReplayRowClearRequest,
+    reducedReplayLiqReturnPipeW2ReplayRowLifecycleReady,
+    reducedLoadReplayLiqAllocPath,
+    reducedReplayLiqReturnPipeW2RowFillEnableControl,
+    reducedLoadReplayResolveClearPending,
+    reducedLoadReplayResolveClearIndex,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -6016,7 +6042,6 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowLifecycleReadyWiring
       flush: Bool): Unit = {
     lifecycle.io.enable := enable
     lifecycle.io.flush := flush
-    lifecycle.io.lifecycleClearEnable := false.B
     lifecycle.io.slotOccupied := slot.io.occupied
     lifecycle.io.slotBid := slot.io.entryBid
     lifecycle.io.slotGid := slot.io.entryGid
@@ -6053,6 +6078,66 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowLifecycleReadyWiring
       lifecycle.io.blockedByMultipleResolvedRows
     io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByLifecycleClearDisabled :=
       lifecycle.io.blockedByLifecycleClearDisabled
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowClearRequestWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      clearRequest: LoadReplayReturnPipeW2ReplayRowClearRequest,
+      lifecycle: LoadReplayReturnPipeW2ReplayRowLifecycleReady,
+      liq: ReducedLoadReplayLiqAllocPath,
+      rowFill: LoadReplayReturnPipeW2RowFillEnableControl,
+      existingClearValid: Bool,
+      existingClearIndex: UInt,
+      enable: Bool,
+      flush: Bool): Unit = {
+    clearRequest.io.enable := enable
+    clearRequest.io.flush := flush
+    clearRequest.io.existingClearValid := existingClearValid
+    clearRequest.io.existingClearIndex := existingClearIndex
+    clearRequest.io.lifecycleClearRequestEnable := false.B
+    clearRequest.io.lifecycleClearCommitEnable := rowFill.io.rowFillEnable
+    clearRequest.io.lifecycleRowClearReady := lifecycle.io.rowClearReady
+    clearRequest.io.lifecycleRowClearIndex := lifecycle.io.rowClearIndex
+    clearRequest.io.clearResolvedAccepted := liq.io.clearResolvedAccepted
+
+    liq.io.clearResolvedValid := clearRequest.io.clearResolvedValid
+    liq.io.clearResolvedIndex := clearRequest.io.clearResolvedIndex
+    lifecycle.io.lifecycleClearEnable := clearRequest.io.lifecycleClearEnable
+
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestExistingCandidate :=
+      clearRequest.io.existingClearCandidate
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleCandidate :=
+      clearRequest.io.lifecycleClearCandidate
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleClearEnable :=
+      clearRequest.io.lifecycleClearEnable
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleSelected :=
+      clearRequest.io.lifecycleClearSelected
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestClearResolvedValid :=
+      clearRequest.io.clearResolvedValid
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestClearResolvedIndex :=
+      clearRequest.io.clearResolvedIndex
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestExistingAccepted :=
+      clearRequest.io.existingClearAccepted
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleAccepted :=
+      clearRequest.io.lifecycleClearAccepted
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlocked :=
+      clearRequest.io.blockedByDisabled ||
+        clearRequest.io.blockedByFlush ||
+        clearRequest.io.blockedByExistingClear ||
+        clearRequest.io.blockedByLifecycleRequestDisabled ||
+        clearRequest.io.blockedByNoLifecycleRow ||
+        clearRequest.io.blockedByLifecycleCommitDisabled ||
+        clearRequest.io.invalidLifecycleCommitWithoutSelection
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByExistingClear :=
+      clearRequest.io.blockedByExistingClear
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByLifecycleRequestDisabled :=
+      clearRequest.io.blockedByLifecycleRequestDisabled
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByNoLifecycleRow :=
+      clearRequest.io.blockedByNoLifecycleRow
+    io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByLifecycleCommitDisabled :=
+      clearRequest.io.blockedByLifecycleCommitDisabled
   }
 }
 

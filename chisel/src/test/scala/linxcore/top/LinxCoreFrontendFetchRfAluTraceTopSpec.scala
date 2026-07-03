@@ -769,6 +769,27 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByLifecycleClearDisabled.getWidth == 1)
   }
 
+  test("R369 replay W2 replay-row clear-request diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestExistingCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleClearEnable.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleSelected.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestClearResolvedValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestClearResolvedIndex.getWidth == 3)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestExistingAccepted.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestLifecycleAccepted.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlocked.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByExistingClear.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByLifecycleRequestDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByNoLifecycleRow.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestBlockedByLifecycleCommitDisabled.getWidth == 1)
+  }
+
   test("LinxCoreFrontendFetchRfAluTraceTop elaborates source, frontend, rename, RF, issue, ROB, and ALU execute") {
     val sv = ChiselStage.emitSystemVerilog(
       new LinxCoreFrontendFetchRfAluTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 8)
@@ -787,6 +808,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ClearCommitGuardCommitClearReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateCompleteRowValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestClearResolvedValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlRowFillEnable"))
     assert(sv.contains("module CommitTraceMonitor"))
     assert(sv.contains("module ReducedBfuBodyCutPredictor"))
