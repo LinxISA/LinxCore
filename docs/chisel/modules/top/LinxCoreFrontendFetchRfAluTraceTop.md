@@ -62,6 +62,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RobCompleteSource.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/ReducedRobCompletionArbiter.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CommitRowCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RowFillEnableControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearCommitGuard.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackFirePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackArbiterInput.scala`
@@ -1085,6 +1086,11 @@ These signals shape the future replay load `CommitTraceRow` replacement from
 resident W2 slot data plus deferred instruction/source metadata, feed its
 currently false row-valid output into the replay ROB-complete source, and keep
 row replacement disabled in the reduced top.
+R367 adds `reducedLoadReplayLiqLretPipeW2RowFillEnableControl*` diagnostics.
+These signals replace the literal row-fill tie-off with a dormant owner that
+requires the row candidate, side-effect fire completion, clear/commit identity,
+live-clear readiness, and replay-row lifecycle readiness before row replacement
+can be armed.
 R348 adds `reducedLoadReplayLiqLretPipeW2WritebackFirePayload*` diagnostics
 under the same namespace. These signals join the R346 writeback fire pulse
 with the R341 writeback request payload before future replay RF mutation, but
@@ -1355,8 +1361,11 @@ overlay. Most state remains in child modules:
   source before the path's marker-completion arbitration.
 - `LoadReplayReturnPipeW2CommitRowCandidate`: optional R366 dormant replay load
   commit-row fill candidate. It shapes a future row replacement from resident
-  W2 slot data, but the top ties instruction metadata, source trace, and
-  row-fill enable absent.
+  W2 slot data, but instruction metadata and source trace remain absent.
+- `LoadReplayReturnPipeW2RowFillEnableControl`: optional R367 dormant row-fill
+  enable owner. It joins the shaped row candidate with side-effect fire,
+  clear/commit identity, live-clear, and replay-row lifecycle prerequisites
+  before allowing ROB row replacement; the current top keeps it disabled.
 - `LoadReplayReturnPipeW2ClearCommitGuard`: optional R365 dormant W2
   clear/commit identity guard. It checks resident slot RID, resolve-fire RID,
   and replay ROB-completion value agree before a future live clear can be
@@ -1826,10 +1835,14 @@ wakeup, resolve, ROB completion, or replay-row lifecycle.
 R366 inserts `LoadReplayReturnPipeW2CommitRowCandidate` between the resident W2
 slot and `LoadReplayReturnPipeW2RobCompleteSource`. It builds the future replay
 load commit row shape from W2 identity, PC, address, size, destination, and
-returned data, but the top ties instruction metadata, source trace, and
-`rowFillEnable` false. The candidate output is still wired into the ROB
-completion source, proving the ownership boundary while preserving
-`completeRowValid=false` in integrated generated RTL.
+returned data, but instruction metadata and source trace remain absent. R367
+inserts `LoadReplayReturnPipeW2RowFillEnableControl` as the candidate's
+`rowFillEnable` owner. The control requires the R366 row candidate, R350
+side-effect fire completion, R365 clear/commit identity, live-clear readiness,
+and a future replay-row lifecycle owner; the current top ties lifecycle
+readiness false and R363 keeps the atomic live request disabled. The candidate
+output is still wired into the ROB completion source, proving the ownership
+boundary while preserving `completeRowValid=false` in integrated generated RTL.
 R358 inserts `LoadReplayReturnPipeW2WritebackArbiterInput` behind the R348
 writeback fire payload. It names the future replay side of the scalar RF
 writeback arbiter, reports disabled/flush/no-payload/live-disabled blockers,

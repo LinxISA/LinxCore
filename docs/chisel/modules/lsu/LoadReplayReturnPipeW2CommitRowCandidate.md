@@ -13,6 +13,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RobCompleteSource.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RowFillEnableControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/ReducedRobCompletionArbiter.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-COMMIT-ROW-CANDIDATE-001`
 
@@ -23,10 +24,13 @@ replacement boundary for the W2 return pipe. It shapes a `CommitTraceRow` from
 resident W2 slot evidence, instruction metadata, source trace data, and returned
 load data before the replay ROB-complete source may replace the ROB row image.
 
-R366 keeps the integrated top dormant. The reduced top wires resident W2 slot
-fields, but ties instruction metadata, source trace, and `rowFillEnable` false.
-This exposes the missing row-fill owners without allowing replay completion to
-replace allocation/rename row contents.
+R366 kept the integrated top dormant by wiring resident W2 slot fields while
+tying instruction metadata, source trace, and `rowFillEnable` false. R367
+replaces the literal row-fill tie-off with
+`LoadReplayReturnPipeW2RowFillEnableControl`, but that control still keeps
+`rowFillEnable=false` because the atomic live request and replay-row lifecycle
+readiness remain absent. This exposes the missing row-fill owners without
+allowing replay completion to replace allocation/rename row contents.
 
 ## Interface
 
@@ -74,22 +78,23 @@ R366 wires the candidate in `LinxCoreFrontendFetchRfAluTraceTop` before
 
 - resident W2 slot fields feed the candidate;
 - instruction metadata and source trace are tied absent;
-- `rowFillEnable` is tied false;
+- R367 `LoadReplayReturnPipeW2RowFillEnableControl` drives `rowFillEnable`;
 - `completeRowValid` and `completeRow` feed the row-fill inlet on
   `LoadReplayReturnPipeW2RobCompleteSource`;
 - diagnostics are exposed as
   `reducedLoadReplayLiqLretPipeW2CommitRowCandidate*`.
 
-Because the candidate cannot assert `completeRowValid` in the integrated top,
-`ReducedRobCompletionArbiter` still receives no replay row replacement payload.
+Because the R367 control cannot assert `rowFillEnable` in the integrated top,
+the candidate cannot assert `completeRowValid` and `ReducedRobCompletionArbiter`
+still receives no replay row replacement payload.
 
 ## Deferred Owners
 
 - A ROB-row or replay-row metadata lookup that supplies instruction raw/length
   for the resident replay W2 row.
 - Source operand trace reconstruction for load commit rows.
-- A live `rowFillEnable` owner that promotes with replay RF writeback,
-  ROB/PE resolve, ready-table wakeup, W2 clear/refill, and replay-row lifecycle.
+- Replay-row lifecycle readiness and final live request promotion through the
+  R367 row-fill enable owner.
 - Non-GPR destination commit-row policy if replay loads to local T/U state must
   become visible in the monitored commit stream.
 
