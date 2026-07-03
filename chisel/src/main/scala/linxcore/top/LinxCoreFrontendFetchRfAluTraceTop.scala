@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnIexDrainPermit, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeSelect, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnSideEffectReady, LoadReplayReturnWakeupCandidate, LoadReplayReturnWritebackCandidate, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeSelect, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnSideEffectReady, LoadReplayReturnWakeupCandidate, LoadReplayReturnWritebackCandidate, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -574,6 +574,19 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretDrainPermitBlockedByFlush = Output(Bool())
   val reducedLoadReplayLiqLretDrainPermitBlockedByNoEntry = Output(Bool())
   val reducedLoadReplayLiqLretDrainPermitBlockedByPipeFull = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataEnable = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataRobRowValid = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataRobRowNeedFlush = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataCandidateValid = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataWouldDrain = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataSetMemDataValid = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataBlockedByDisabled = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataBlockedByFlush = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataBlockedByNoEntry = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataBlockedByInvalidEntry = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataBlockedByDrain = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataBlockedByRobMissing = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataBlockedByNeedFlush = Output(Bool())
   val reducedLoadReplayLiqWritebackCandidateValid = Output(Bool())
   val reducedLoadReplayLiqWritebackValid = Output(Bool())
   val reducedLoadReplayLiqWritebackTag = Output(UInt(p.physRegWidth.W))
@@ -1071,6 +1084,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     physRegWidth = p.physRegWidth
   ))
   val reducedReplayLiqReturnIexDrainPermit = Module(new LoadReplayReturnIexDrainPermit(returnPipeCount = 1))
+  val reducedReplayLiqReturnIexDataCandidate = Module(new LoadReplayReturnIexDataCandidate(
+    idEntries = p.robEntries,
+    addrWidth = p.immWidth,
+    pcWidth = p.pcWidth,
+    dataWidth = p.immWidth,
+    returnPipeCount = 1,
+    archRegWidth = p.archRegWidth,
+    physRegWidth = p.physRegWidth
+  ))
   val reducedReplayLiqReturnWritebackCandidate = Module(new LoadReplayReturnWritebackCandidate(
     dataWidth = p.immWidth,
     archRegWidth = p.archRegWidth,
@@ -2089,6 +2111,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedReplayLiqReturnIexDrainPermit.io.flush := reducedStoreFlush
   reducedReplayLiqReturnIexDrainPermit.io.sinkValid := reducedReplayLiqReturnLretSink.io.drainValid
   reducedReplayLiqReturnIexDrainPermit.io.pipeOccupiedMask := reducedReplayLiqReturnIexPipeOccupiedMask
+  val reducedReplayLiqReturnIexDataRobRowValid = false.B
+  val reducedReplayLiqReturnIexDataRobRowNeedFlush = false.B
+  reducedReplayLiqReturnIexDataCandidate.io.enable := reducedLoadReplayLiqAllocEnabled
+  reducedReplayLiqReturnIexDataCandidate.io.flush := reducedStoreFlush
+  reducedReplayLiqReturnIexDataCandidate.io.sinkValid := reducedReplayLiqReturnLretSink.io.drainValid
+  reducedReplayLiqReturnIexDataCandidate.io.drainReady := reducedReplayLiqReturnIexDrainPermit.io.drainReady
+  reducedReplayLiqReturnIexDataCandidate.io.entry := reducedReplayLiqReturnLretSink.io.drain
+  reducedReplayLiqReturnIexDataCandidate.io.robRowValid := reducedReplayLiqReturnIexDataRobRowValid
+  reducedReplayLiqReturnIexDataCandidate.io.robRowNeedFlush := reducedReplayLiqReturnIexDataRobRowNeedFlush
   rf.io.writeValid := rfWritebackArbiter.io.writeValid
   rf.io.writeTag := rfWritebackArbiter.io.writeTag
   rf.io.writeData := rfWritebackArbiter.io.writeData
@@ -2813,6 +2844,32 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnIexDrainPermit.io.blockedByNoEntry
   io.reducedLoadReplayLiqLretDrainPermitBlockedByPipeFull :=
     reducedReplayLiqReturnIexDrainPermit.io.blockedByPipeFull
+  io.reducedLoadReplayLiqLretIexDataEnable :=
+    reducedReplayLiqReturnIexDataCandidate.io.enable
+  io.reducedLoadReplayLiqLretIexDataRobRowValid :=
+    reducedReplayLiqReturnIexDataRobRowValid
+  io.reducedLoadReplayLiqLretIexDataRobRowNeedFlush :=
+    reducedReplayLiqReturnIexDataRobRowNeedFlush
+  io.reducedLoadReplayLiqLretIexDataCandidateValid :=
+    reducedReplayLiqReturnIexDataCandidate.io.candidateValid
+  io.reducedLoadReplayLiqLretIexDataWouldDrain :=
+    reducedReplayLiqReturnIexDataCandidate.io.wouldDrain
+  io.reducedLoadReplayLiqLretIexDataSetMemDataValid :=
+    reducedReplayLiqReturnIexDataCandidate.io.setMemDataValid
+  io.reducedLoadReplayLiqLretIexDataBlockedByDisabled :=
+    reducedReplayLiqReturnIexDataCandidate.io.blockedByDisabled
+  io.reducedLoadReplayLiqLretIexDataBlockedByFlush :=
+    reducedReplayLiqReturnIexDataCandidate.io.blockedByFlush
+  io.reducedLoadReplayLiqLretIexDataBlockedByNoEntry :=
+    reducedReplayLiqReturnIexDataCandidate.io.blockedByNoEntry
+  io.reducedLoadReplayLiqLretIexDataBlockedByInvalidEntry :=
+    reducedReplayLiqReturnIexDataCandidate.io.blockedByInvalidEntry
+  io.reducedLoadReplayLiqLretIexDataBlockedByDrain :=
+    reducedReplayLiqReturnIexDataCandidate.io.blockedByDrain
+  io.reducedLoadReplayLiqLretIexDataBlockedByRobMissing :=
+    reducedReplayLiqReturnIexDataCandidate.io.blockedByRobMissing
+  io.reducedLoadReplayLiqLretIexDataBlockedByNeedFlush :=
+    reducedReplayLiqReturnIexDataCandidate.io.blockedByNeedFlush
   io.reducedLoadReplayLiqWritebackCandidateValid :=
     reducedReplayLiqReturnWritebackCandidate.io.candidateValid
   io.reducedLoadReplayLiqWritebackValid :=
