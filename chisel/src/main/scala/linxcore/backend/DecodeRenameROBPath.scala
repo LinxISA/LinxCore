@@ -21,7 +21,7 @@ import linxcore.rename.{
   StoreSplitPayload,
   TULinkRetireCommandPath
 }
-import linxcore.rob.{ROBEntryStatus, ROBID, ROBMemoryOrderCommit}
+import linxcore.rob.{ROBEntryStatus, ROBID, ROBMemoryOrderCommit, ROBRowStatusLookupResult}
 
 class DecodeRenameROBPathIO(
     val p: InterfaceParams = InterfaceParams(),
@@ -424,6 +424,9 @@ class DecodeRenameROBPathIO(
   val commitHeadValid = Output(Bool())
   val commitHeadStatus = Output(ROBEntryStatus())
   val commitHeadRobValue = Output(UInt(ptrWidth.W))
+  val robStatusLookupValid = Input(Bool())
+  val robStatusLookupRid = Input(new ROBID(p.robEntries))
+  val robStatusLookup = Output(new ROBRowStatusLookupResult(p.robEntries))
   val occupiedMask = Output(UInt(p.robEntries.W))
   val completedMask = Output(UInt(p.robEntries.W))
   val retiredMask = Output(UInt(p.robEntries.W))
@@ -943,6 +946,8 @@ class DecodeRenameROBPath(
       tuRetirePath.io.sourceWindowReady &&
       markerRetireSerializer.io.sourceWindowReady &&
       !tuRetirePath.io.cleanupActive
+  allocator.io.statusLookupValid := io.robStatusLookupValid
+  allocator.io.statusLookupRid := io.robStatusLookupRid
   val decodeContextScalarDoneFire =
     (allocator.io.allocFire && decodeContextMarkerCloseIntent && decodeContextCloseSafe) ||
       selectedClosesActiveRedirect
@@ -1358,6 +1363,7 @@ class DecodeRenameROBPath(
   io.commitHeadValid := allocator.io.commitHeadValid
   io.commitHeadStatus := allocator.io.commitHeadStatus
   io.commitHeadRobValue := allocator.io.commitHeadRobValue
+  io.robStatusLookup := allocator.io.statusLookup
   io.occupiedMask := allocator.io.occupiedMask
   io.completedMask := allocator.io.completedMask
   io.retiredMask := allocator.io.retiredMask

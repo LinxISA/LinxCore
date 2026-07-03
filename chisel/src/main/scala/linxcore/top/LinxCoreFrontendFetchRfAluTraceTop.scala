@@ -2111,8 +2111,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedReplayLiqReturnIexDrainPermit.io.flush := reducedStoreFlush
   reducedReplayLiqReturnIexDrainPermit.io.sinkValid := reducedReplayLiqReturnLretSink.io.drainValid
   reducedReplayLiqReturnIexDrainPermit.io.pipeOccupiedMask := reducedReplayLiqReturnIexPipeOccupiedMask
-  val reducedReplayLiqReturnIexDataRobRowValid = false.B
-  val reducedReplayLiqReturnIexDataRobRowNeedFlush = false.B
+  path.io.robStatusLookupValid :=
+    reducedLoadReplayLiqAllocEnabled && !reducedStoreFlush &&
+      reducedReplayLiqReturnLretSink.io.drainValid && reducedReplayLiqReturnLretSink.io.drain.valid
+  path.io.robStatusLookupRid := reducedReplayLiqReturnLretSink.io.drain.rid
+  val reducedReplayLiqReturnIexDataRobRowValid = path.io.robStatusLookup.rowValid
+  val reducedReplayLiqReturnIexDataRobRowNeedFlush = path.io.robStatusLookup.needFlush
   reducedReplayLiqReturnIexDataCandidate.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqReturnIexDataCandidate.io.flush := reducedStoreFlush
   reducedReplayLiqReturnIexDataCandidate.io.sinkValid := reducedReplayLiqReturnLretSink.io.drainValid

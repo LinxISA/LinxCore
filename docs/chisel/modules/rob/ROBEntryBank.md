@@ -77,6 +77,11 @@ pre-increment scalar `lsID` snapshot plus load/store classification for every
 row, and commit emits `commitMemoryOrder` in the same slot order as
 `CommitTracePort`. This mirrors `SPEROB::getRetireID` without widening
 `CommitTraceRow` or the JSON trace schema.
+R321 adds a read-only current-row status lookup. The bank feeds
+`ROBRowStatusLookup` with its pre-cycle occupied mask, stored native RIDs, and
+status vector so downstream LSU/IEX owners can observe whether a returned-load
+RID names a live row and whether that row is `NeedFlush`, without mutating ROB
+state or exposing the full row arrays as a writeable interface.
 
 `ReducedCommitROB` remains the reduced trace harness. Do not retrofit full
 deallocation or recovery semantics into that module.
@@ -148,6 +153,8 @@ deallocation or recovery semantics into that module.
 | output | `robTULinkSourceMultipleMatch` | `Bool` | diagnostic | More than one live row matched the exact T/U source predicate |
 | output | `commitHead*` | mixed | diagnostic | Commit-pointer row status and slot |
 | output | `deallocHead*` | mixed | diagnostic | Dealloc-pointer row status and slot |
+| input | `statusLookupValid`, `statusLookupRid` | mixed | valid | Read-only current-row status lookup request. |
+| output | `statusLookup` | `ROBRowStatusLookupResult` | diagnostic/source | Row-present/status/need-flush result plus invalid/free/stale RID blockers. |
 | output | `occupiedMask` | `UInt(entries.W)` | diagnostic | Non-free slot mask |
 | output | `completedMask` | `UInt(entries.W)` | diagnostic | Completed slot mask |
 | output | `retiredMask` | `UInt(entries.W)` | diagnostic | Retired slot mask |
@@ -180,6 +187,8 @@ deallocation or recovery semantics into that module.
   retirement.
 - `ROBFlushPrune`: combinational child helper that observes pre-cycle row
   metadata and produces flush masks/counts.
+- `ROBRowStatusLookup`: combinational child helper that observes pre-cycle row
+  residency, RID epochs, and statuses for side-effect-free row status queries.
 
 ## Logic Design
 

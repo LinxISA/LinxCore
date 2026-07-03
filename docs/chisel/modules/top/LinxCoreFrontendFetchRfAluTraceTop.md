@@ -1070,9 +1070,9 @@ overlay. Most state remains in child modules:
   occupancy full and does not feed the permit into the FIFO drain input.
 - `LoadReplayReturnIexDataCandidate`: optional R320 diagnostic pre-mutation
   `IEX::setMemData` admission owner. It consumes the LRET sink head and drain
-  permit, then requires a future ROB row image that is not need-flush before it
-  copies returned-load fields into setMemData-shaped diagnostics. The current
-  top ties ROB row presence false and leaves the FIFO drain input low.
+  permit, then requires a ROB current-row status lookup that is present and not
+  need-flush before it copies returned-load fields into setMemData-shaped
+  diagnostics. The current top still leaves the FIFO drain input low.
 - `LoadReplayReturnPublishReady`: optional R309 diagnostic join point between
   extracted data-valid and LRET/mem-wakeup consumer readiness. It does not feed
   launch, LRET, or wakeup sinks.
@@ -1335,11 +1335,12 @@ keeps `LoadReplayReturnLretSink.drainReady` low, so this packet exposes the
 future pipe-full blocker without draining or discarding returned payloads.
 R320 adds `LoadReplayReturnIexDataCandidate` behind the R319 permit. It names
 the first `IEX::setMemData` admission checks after a future LRET drain:
-payload validity, ROB row presence, and ROB row not-need-flush. The reduced top
-ties the ROB row image absent and still leaves the FIFO drain input low, so the
-new outputs are diagnostic-only and cannot update ROB destination data, RF
-state, ready tables, issue wakeups, replay-row lifecycle, or IEX E4 return-pipe
-residency.
+payload validity, ROB row presence, and ROB row not-need-flush. R321 replaces
+the former false ROB-row tieoff with the read-only `ROBRowStatusLookup` result
+forwarded through `DecodeRenameROBPath`; the reduced top still leaves the FIFO
+drain input low, so the outputs remain diagnostic-only and cannot update ROB
+destination data, RF state, ready tables, issue wakeups, replay-row lifecycle,
+or IEX E4 return-pipe residency.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

@@ -96,6 +96,10 @@ R287 forwards the decode memory-order sidecar into ROB allocation and exposes
 `commitMemoryOrder` from `ROBEntryBank`. The sidecar carries the model
 pre-increment `lsID` snapshot for every committed row, plus load/store
 classification, without adding fields to `CommitTraceRow`.
+R321 adds a read-only ROB current-row status query. The path forwards
+`robStatusLookupValid/Rid` through `DispatchROBAllocator` to `ROBEntryBank` and
+returns the lookup result without changing decode, rename, ROB allocation,
+completion, commit, or deallocation behavior.
 R290 also exports the selected `StoreDispatchSTQPath` `STQStoreRequest` payload
 beside the existing insert-valid/accepted/index diagnostics. The reduced
 replay-LIQ top consumes the accepted request as the MDB store-arrival probe,
@@ -264,6 +268,8 @@ Inputs:
 
 - `d1`, `slots`, `validMask`, `flushValid`: D1/F4 decode inputs consumed by
   `FrontendDecodeStage`.
+- `robStatusLookupValid`, `robStatusLookupRid`: read-only native RID status
+  query forwarded to the ROB row owner.
 - `renamedOutReady`: downstream renamed-uop consumer readiness.
 - `storeStaExec`, `storeStdExec`: explicit STA address and STD data execution
   results for the current store-dispatch queue heads.
@@ -323,6 +329,8 @@ Outputs:
 - `decRenHeadPc`, `decRenHeadRidValid`, `decRenHeadRidValue`: queued-head
   diagnostics used by live CoreMark gates to localize reservation/update
   stalls.
+- `robStatusLookup`: current-row status lookup result with row-present,
+  need-flush, and invalid/free/stale RID blockers.
 - `selectedIsLoad`, `selectedIsStore`, `selectedMemoryValid`,
   `lsidAssignFire`, `selectedLsId`, `selectedLoadId`, `selectedStoreId`,
   `nextLsId`, `nextLoadId`, `nextStoreId`, `storeSplitIntent`: reduced

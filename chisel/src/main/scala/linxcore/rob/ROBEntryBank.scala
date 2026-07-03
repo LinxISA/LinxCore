@@ -140,6 +140,10 @@ class ROBEntryBankIO(
   val deallocHeadStatus = Output(ROBEntryStatus())
   val deallocHeadRobValue = Output(UInt(ptrWidth.W))
 
+  val statusLookupValid = Input(Bool())
+  val statusLookupRid = Input(new ROBID(entries))
+  val statusLookup = Output(new ROBRowStatusLookupResult(entries))
+
   val occupiedMask = Output(UInt(entries.W))
   val completedMask = Output(UInt(entries.W))
   val retiredMask = Output(UInt(entries.W))
@@ -520,6 +524,14 @@ class ROBEntryBank(
   io.deallocHeadValid := rows(deallocValue).valid && ROBEntryStatus.occupiesRob(status(deallocValue))
   io.deallocHeadStatus := status(deallocValue)
   io.deallocHeadRobValue := deallocValue
+
+  val statusLookup = Module(new ROBRowStatusLookup(entries))
+  statusLookup.io.queryValid := io.statusLookupValid
+  statusLookup.io.queryRid := io.statusLookupRid
+  statusLookup.io.rowValidMask := occupiedVec.asUInt
+  statusLookup.io.rowRid := rowRid
+  statusLookup.io.rowStatus := status
+  io.statusLookup := statusLookup.io.result
 
   for (idx <- 0 until entries) {
     when(flushPrune.io.pruneMask(idx)) {

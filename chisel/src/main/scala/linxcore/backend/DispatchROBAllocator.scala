@@ -13,7 +13,7 @@ import linxcore.common.{
   TULinkRetireSource
 }
 import linxcore.recovery.{FlushBus, FullBidRecoveryBridge}
-import linxcore.rob.{ROBEntryBank, ROBEntryStatus, ROBID, ROBMemoryOrderCommit}
+import linxcore.rob.{ROBEntryBank, ROBEntryStatus, ROBID, ROBMemoryOrderCommit, ROBRowStatusLookupResult}
 
 class DispatchROBAllocatorIO(
     val entries: Int,
@@ -161,6 +161,11 @@ class DispatchROBAllocatorIO(
   val deallocHeadValid = Output(Bool())
   val deallocHeadStatus = Output(ROBEntryStatus())
   val deallocHeadRobValue = Output(UInt(ptrWidth.W))
+
+  val statusLookupValid = Input(Bool())
+  val statusLookupRid = Input(new ROBID(entries))
+  val statusLookup = Output(new ROBRowStatusLookupResult(entries))
+
   val occupiedMask = Output(UInt(entries.W))
   val completedMask = Output(UInt(entries.W))
   val retiredMask = Output(UInt(entries.W))
@@ -273,6 +278,8 @@ class DispatchROBAllocator(
   rob.io.completeRowValid := io.completeRowValid
   rob.io.completeRow := io.completeRow
   rob.io.deallocReady := io.deallocReady
+  rob.io.statusLookupValid := io.statusLookupValid
+  rob.io.statusLookupRid := io.statusLookupRid
 
   brob.io.allocValid := scalarBrobAllocFire || blockAllocOnlyFire
   brob.io.allocBid := nextBlockBid
@@ -366,6 +373,7 @@ class DispatchROBAllocator(
   io.deallocHeadValid := rob.io.deallocHeadValid
   io.deallocHeadStatus := rob.io.deallocHeadStatus
   io.deallocHeadRobValue := rob.io.deallocHeadRobValue
+  io.statusLookup := rob.io.statusLookup
   io.occupiedMask := rob.io.occupiedMask
   io.completedMask := rob.io.completedMask
   io.retiredMask := rob.io.retiredMask

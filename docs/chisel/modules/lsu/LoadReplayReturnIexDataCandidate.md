@@ -17,6 +17,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretSink.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDrainPermit.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBRowStatusLookup.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-IEX-DATA-001`
 
 ## Purpose
@@ -38,10 +39,12 @@ when all of these are true:
 - the ROB row image is present;
 - the ROB row is not marked need-flush.
 
-The current reduced top ties `robRowValid` low and keeps
-`LoadReplayReturnLretSink.drainReady` tied low. Therefore this packet cannot
-drain LRET, mutate ROB/RF/local state, publish ready-table wakeup, or insert a
-load-return instruction into an IEX return pipe.
+R321 feeds `robRowValid` and `robRowNeedFlush` from the read-only
+`ROBRowStatusLookup` path through `DecodeRenameROBPath`. The current reduced
+top still keeps `LoadReplayReturnLretSink.drainReady` tied low and the IEX
+return-pipe permit blocked. Therefore this packet cannot drain LRET, mutate
+ROB/RF/local state, publish ready-table wakeup, or insert a load-return
+instruction into an IEX return pipe.
 
 ## Interface
 
@@ -83,8 +86,8 @@ R320 wires the module behind `LoadReplayReturnLretSink` and
 
 - `sinkValid` and `entry` come from the LRET sink head;
 - `drainReady` comes from the R319 permit;
-- `robRowValid` is tied `false`;
-- `robRowNeedFlush` is tied `false`;
+- `robRowValid` comes from the R321 ROB row status query;
+- `robRowNeedFlush` comes from the R321 ROB row status query;
 - `LoadReplayReturnLretSink.drainReady` remains `false`.
 
 The top exposes candidate, would-drain, setMemData, ROB-row, and blocker
@@ -93,7 +96,6 @@ row lifecycle, or return-pipe state.
 
 ## Deferred Owners
 
-- ROB row-image lookup for returned-load RID and status.
 - Driving the LRET sink's real `drainReady`.
 - `IEX::setMemData` data resolution into ROB instruction destinations.
 - Scalar load-pair lane completion and vector/MEM_IEX `realReqCnt` accounting.
@@ -106,8 +108,9 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDataCandidate
+bash tools/chisel/run_chisel_tests.sh --only ROBRowStatusLookup
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r320-replay-iex-data-candidate-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r321-replay-rob-row-status-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover successful pre-mutation admission, missing ROB-row

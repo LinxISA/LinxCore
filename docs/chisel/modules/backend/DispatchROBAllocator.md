@@ -56,6 +56,10 @@ the row's pre-increment `lsID` snapshot plus load/store classification. The
 allocator returns the bank's `commitMemoryOrder` vector unchanged so LSU
 owners can build `SPEROB::getRetireID`-style retire watermarks without changing
 the commit trace schema.
+R321 forwards the read-only ROB row status lookup request and result between
+the backend path and `ROBEntryBank`. The allocator does not interpret the
+result; it only preserves the current ROB row image boundary for downstream
+LSU/IEX admission logic.
 
 This is still a bring-up bridge, not full dispatch, rename, or CMT. It exists
 to remove unit-test-only `ROBEntryBank.allocBid` fixtures and to make later
@@ -107,6 +111,8 @@ dispatch agents consume a real block owner.
 | input | `completeValid` / `completeRobValue` | mixed | valid | ROB completion path forwarded to `ROBEntryBank` |
 | input | `completeRowValid` / `completeRow` | mixed | with accepted completion | Optional execute/LSU completion payload forwarded to `ROBEntryBank`; when invalid, completion preserves the row stored by allocation/rename update |
 | input | `deallocReady` | `Bool` | ready | ROB deallocation-ready path forwarded to `ROBEntryBank` |
+| input | `statusLookupValid`, `statusLookupRid` | mixed | valid | Read-only native RID status query forwarded to `ROBEntryBank`. |
+| output | `statusLookup` | `ROBRowStatusLookupResult` | diagnostic/source | Current-row status lookup result forwarded without interpretation. |
 | input | `block*Done*`, `blockRetire*`, `blockFlush*`, `blockQueryBid` | mixed | valid/query | Pass-through control and query surface for `BrobMetaTracker` |
 | output | `blockQuery*`, `block*Mask` | mixed | diagnostic | BROB query and occupancy/completion masks |
 | output | `commit*`, `dealloc*`, `flush*`, `size`, `outstandingCount`, `*Mask` | mixed | diagnostic | `ROBEntryBank` commit, recovery, and lifecycle outputs |
