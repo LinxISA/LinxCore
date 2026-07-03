@@ -17,10 +17,11 @@
 choice between ordinary execute completion and the future replay-return GPR
 writeback path.
 
-The current top wires replay-return candidates into this arbiter but holds
-`replayEnable` low. That preserves the existing execute-only RF mutation while
-making the arbitration boundary and replay blockers visible before live replay
-LRET enqueue, ready-table update, and issue wakeup sinks are connected.
+The current top wires the replay side from the W2
+`LoadReplayReturnPipeW2WritebackArbiterInput` boundary. R362 drives
+`replayEnable` from the shared W2 side-effect live-control owner; that owner's
+request remains false, so the arbiter still preserves execute-only RF mutation
+while proving the final replay writeback handoff path.
 
 ## Interface
 
@@ -60,6 +61,13 @@ The arbiter is combinational:
 - blocked same-cycle replay candidates are reported when execute owns the port;
 - stale output tag/data fields are zero when no source is selected.
 
+In `LinxCoreFrontendFetchRfAluTraceTop`, `replayValid` is the W2 writeback
+arbiter-input candidate valid, and `replayTag`/`replayData` are the same W2
+boundary's live-gated write fields. Because `replayEnable` remains false
+through the shared W2 live-control owner, candidate rows cannot select the RF
+port until W2 writeback, resolve, wakeup, clear/refill, and replay-row
+lifecycle mutation are promoted together.
+
 ## Timing
 
 No state is stored in the arbiter. The selected output feeds
@@ -77,3 +85,4 @@ diagnostics under `reducedLoadReplayLiqWritebackArbiter*`.
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedScalarWritebackArbiter`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r314-replay-writeback-arbiter-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r362-replay-pipe-w2-writeback-rf-arbiter-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`

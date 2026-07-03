@@ -2662,10 +2662,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   rfWritebackArbiter.io.executeValid := execute.io.completeDstPhysValid
   rfWritebackArbiter.io.executeTag := execute.io.completeDstPhysTag
   rfWritebackArbiter.io.executeData := execute.io.completeDstData
-  rfWritebackArbiter.io.replayEnable := false.B
-  rfWritebackArbiter.io.replayValid := reducedReplayLiqReturnWritebackCandidate.io.writeValid
-  rfWritebackArbiter.io.replayTag := reducedReplayLiqReturnWritebackCandidate.io.writeTag
-  rfWritebackArbiter.io.replayData := reducedReplayLiqReturnWritebackCandidate.io.writeData
+  rfWritebackArbiter.io.replayEnable :=
+    reducedReplayLiqReturnPipeW2SideEffectLiveControl.io.writebackLiveEnable
+  rfWritebackArbiter.io.replayValid :=
+    reducedReplayLiqReturnPipeW2WritebackArbiterInput.io.candidateValid
+  rfWritebackArbiter.io.replayTag :=
+    reducedReplayLiqReturnPipeW2WritebackArbiterInput.io.writeTag
+  rfWritebackArbiter.io.replayData :=
+    reducedReplayLiqReturnPipeW2WritebackArbiterInput.io.writeData
   val reducedReplayLiqRfWritebackSinkReady =
     rfWritebackArbiter.io.replayEnable && !rfWritebackArbiter.io.replayBlockedByExecute
   reducedReplayLiqReturnSideEffectReady.io.enable := reducedLoadReplayLiqAllocEnabled

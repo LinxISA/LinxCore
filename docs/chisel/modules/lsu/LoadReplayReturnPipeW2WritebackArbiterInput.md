@@ -22,9 +22,10 @@ candidate only when replay-LIQ is enabled and flush is inactive, and it becomes
 a real write only behind a separate live gate.
 
 The current reduced top drives `liveEnable` from
-`LoadReplayReturnPipeW2SideEffectLiveControl.writebackLiveEnable`. That shared
-owner still has `liveRequested=false`, so this owner is diagnostic-only. It
-cannot mutate scalar RF state, cannot contend with the execute writeback port,
+`LoadReplayReturnPipeW2SideEffectLiveControl.writebackLiveEnable`. R362 also
+feeds this boundary into the replay side of `ReducedScalarWritebackArbiter`.
+That shared live-control owner still has `liveRequested=false`, so the RF
+arbiter cannot select replay writeback, cannot contend with execute writeback,
 and cannot advance replay-row lifecycle.
 
 ## Interface
@@ -68,15 +69,21 @@ stale payload can be mistaken for a future arbiter request.
 - `liveEnable` comes from R357/R361
   `LoadReplayReturnPipeW2SideEffectLiveControl.writebackLiveEnable`, whose
   request remains false until replay RF writeback, ready-table wakeup, W2
-  clear, and replay-row lifecycle can be promoted atomically.
+  clear, and replay-row lifecycle can be promoted atomically;
+- R362 connects `candidateValid`, `writeTag`, and `writeData` to the replay
+  side of `ReducedScalarWritebackArbiter`, with that arbiter's `replayEnable`
+  driven by the same shared live-control output.
 
 Top-level diagnostics are exposed under
-`reducedLoadReplayLiqLretPipeW2WritebackArbiterInput*`.
+`reducedLoadReplayLiqLretPipeW2WritebackArbiterInput*`, while the final
+single-port RF arbitration diagnostics remain under
+`reducedLoadReplayLiqWritebackArbiter*`.
 
 ## Deferred Owners
 
-- Connecting replay write candidates to `ReducedScalarWritebackArbiter`.
-- Arbitration with execute writes and ready-table updates in the same cycle.
+- Enabling replay write candidates in `ReducedScalarWritebackArbiter`.
+- Coordinating RF writeback selection with ready-table updates in the same
+  cycle.
 - Promotion of live replay RF writes alongside W2 clear and replay-row
   lifecycle mutation.
 
@@ -86,8 +93,9 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackArbiterInput
+bash tools/chisel/run_chisel_tests.sh --only ReducedScalarWritebackArbiter
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r358-replay-pipe-w2-writeback-arbiter-input-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r362-replay-pipe-w2-writeback-rf-arbiter-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover live-disabled candidate hold, live-enabled payload copy,

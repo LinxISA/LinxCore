@@ -985,6 +985,11 @@ store).
 | output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272-R283/R307/R311 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing full load identity plus destination, replay-return signedness, and forwarding snapshot, and reports accepted/drop/full state. Default mode drains only exact held-load completion matches; opt-in replay-LIQ mode consumes only when `ReducedLoadReplayLiqAllocPath` accepts allocation. |
 | output | `reducedLoadReplayDrain*` | mixed | diagnostic | R273/R274 diagnostic completion-drain match/mismatch signals used by the default reduced-store replay mode. Exact W2 load-completion matches consume the queued replay candidate; mismatches, including GID/RID sidecar mismatches, leave it pending for debug. |
 | output | `reducedLoadReplayLiq*` | mixed | diagnostic | R279/R281/R282/R283/R294/R295/R296/R297/R298/R299/R300/R301/R302/R303/R304/R305/R307/R308/R309/R310/R311/R312/R313/R314/R315/R316/R317/R318/R319/R320/R321/R322/R323/R324/R325/R326/R327/R328/R329/R330/R331/R332/R333/R334/R335/R336/R337/R338/R339/R340/R341/R342/R343/R344/R345/R346/R347/R348/R349/R350/R351/R352/R353/R354/R355/R356/R357/R358/R359/R360 opt-in replay-LIQ allocation and launch-selector diagnostics. When the replay-LIQ wrapper is selected, the queue head feeds `ReducedLoadReplayLiqAllocPath`, queue dequeue is driven only by LIQ allocation acceptance, and `reducedLoadReplayLiqLaunch*` reports which resident rows would satisfy the model `pickL1` data-hit predicate. R282 adds a path-local launch drive gate, R283 feeds its E2 store vector from resident STQ snapshots, R294 exposes selected launch-row PC/address/size, load ID, BID/GID/RID, load LSID, and request-byte mask, R295 shapes the selected row's scalar base-data lookup response into 64-byte line-data diagnostics, R296 adds execute-priority lookup arbitration plus replay grant/block diagnostics, R297 exposes `LoadReplayLaunchReadiness` candidate/base-data/source/return blockers, R298 exposes launch-drive/accept, repick/miss/resolved masks, E4 outcome, and LHQ-record-valid diagnostics, R299 exposes `LoadReplaySourceReturnReadiness` local-store-snapshot/future-SCB diagnostics, R300 exposes `LoadReplayReturnReadiness` source/return-pipe diagnostics, R301 exposes `LoadReplayReturnPipeSelect` mask/select diagnostics, R302 exposes `LoadReplayReturnPipePermit` pipe-budget diagnostics, R303 exposes `LoadReplayReturnPipeBudget` live-budget-arm diagnostics, R304 splits that budget arm from consumer/wakeup readiness, R305 exposes selected-row `specWakeup`/`stackValid` plus `LoadReplayReturnConsumerReady` LRET/mem-wakeup sink diagnostics, R307 exposes selected-row `returnSignExtend`, R308 exposes `LoadReplayReturnDataExtract` data/blocker diagnostics fed by selected-row address/size/sign plus grant-gated line data, R309 exposes `LoadReplayReturnPublishReady` data-plus-consumer join diagnostics, R310 exposes `LoadReplayReturnLretPayload` identity/data/pipe/wakeup-required diagnostics, R311 carries one renamed destination sideband from execute capture through the replay queue, LIQ row, selected launch diagnostics, and LRET-payload diagnostics, R312 exposes a diagnostic GPR writeback candidate, R313 exposes a diagnostic ready-table/issue-wakeup candidate from that payload, R314 exposes the execute-priority reduced RF writeback arbiter while replay writes remain disabled, R315 exposes a side-effect readiness join for LRET/writeback/wakeup sinks, R316 exposes the explicit live-disabled publish-control fire point, R317 exposes the post-fire LRET/writeback/wakeup request vector, R318 exposes dormant LRET sink FIFO capacity/occupancy/blocker diagnostics behind that request vector, R319 exposes future IEX-side drain-permit diagnostics while keeping real FIFO drain tied low, R320/R321 expose pre-mutation `IEX::setMemData` admission diagnostics using the read-only ROB row-status lookup, R322 exposes the diagnostic E4 insert-shaped payload, R323 inserts a reduced scalar ROB resolve-data request boundary before that pipe-insert payload, R324 inserts the post-resolve lane-completion permit before pipe insert, R325 inserts the MEM-IEX TLOAD sub-instruction completion permit before pipe insert, R326 inserts the final load-return metadata boundary before pipe insert, R327 inserts timing/stat sideband intent before pipe insert, R328 exposes scalar LDA/vector AGU E4 residency intent after pipe insert, R329 adds a dormant one-entry E4 residency slot fed only by live unblocked R328 writes, R330 adds a dormant E4-to-W1 advance/clear diagnostic that observes the slot but keeps advance disabled, R331 adds a dormant W1 stage slot fed by future advance, R332 adds a dormant W1-to-W2 advance/clear diagnostic, R333 adds a dormant W2 stage slot, R334 adds a dormant W2 completion/clear owner, R335 adds the dormant W2 resolve/writeback/wakeup readiness join, R336 adds a live-disabled W2 resolve-sink readiness boundary, R337 adds a live-disabled W2 writeback-sink readiness boundary, R338 adds a live-disabled W2 wakeup-sink readiness boundary, R339 adds the post-completion W2 side-effect request vector, R340 adds the dormant W2 resolve payload request, R341 adds the dormant W2 reduced GPR writeback payload request, R342 adds the dormant W2 wakeup payload request, R343 adds the dormant W2 side-effect payload-plan mask checker, R344 adds the dormant post-plan side-effect issue permit, R345 adds the dormant pre-completion side-effect completion permit/equivalence diagnostic, R346 adds the dormant per-sink side-effect fire vector, R347 adds the dormant resolve-fire payload boundary, R348 adds the dormant writeback-fire payload boundary, R349 adds the dormant wakeup-fire payload boundary, R350 adds the dormant post-fire completeness checker, R351 adds the dormant W2 clear-intent join, R352 adds the dormant W2 refill-readiness comparison, R353 adds the dormant W2 slot-replacement plan, R354 adds a disabled W2 same-cycle clear/refill storage mode, R355 routes W1 advance and W2 `replaceOnClear` through the advance-control owner, R356 adds the shared live-promotion request owner, R357 replaces the three direct W2 sink live-enable tie-offs with one shared live-control owner, R358 adds a dormant writeback-arbiter input boundary, R359 adds a dormant resolve-arbiter input boundary, and R360 adds a dormant wakeup-arbiter input boundary while FIFO drain, ROB mutation, branch-recovery side effects, tile-SCB requests, pipe-cycle/stat storage, W2 side effects, W2 live clear/refill, live W2 same-cycle storage replacement, live RF replay writeback, live ROB/PE replay resolve, live ready-table/issue wakeup, and live pipe residency remain disabled; launch remains disabled because those sinks and the live publish gate are inactive. |
+R361/R362 continue the same replay-LIQ diagnostic namespace by routing
+pre-arbiter live enables through the shared W2 live-control owner and feeding
+the reduced RF writeback arbiter's replay side from the W2 writeback boundary.
+The shared live request remains false, so these additions do not enable live
+RF replay writeback.
 R334 adds `reducedLoadReplayLiqLretPipeW2Completion*` diagnostics under the
 same replay-LIQ namespace. These signals observe the R333 W2 slot, classify
 resolve/writeback/wakeup requirements, and report the dormant W2 clear point;
@@ -1015,6 +1020,10 @@ side-effect sink mask and drives the R336/R337/R338 sink live-enable inputs
 plus the R358/R359/R360 pre-arbiter live-enable inputs, but the top-level live
 request remains tied false, so all W2 sinks and arbiter inputs stay
 live-disabled.
+R362 routes the reduced RF writeback arbiter's replay side from the R358 W2
+writeback-arbiter input. The arbiter's replay enable is the same disabled W2
+writeback live-control output, so replay RF writes still cannot select the
+single RF write port.
 R339 adds `reducedLoadReplayLiqLretPipeW2SideEffectRequest*` diagnostics under
 the same namespace. These signals expose the post-completion
 resolve/writeback/wakeup request vector and invalid-shape blockers while
@@ -1193,10 +1202,11 @@ overlay. Most state remains in child modules:
   into a future reduced RF write port shape without mutating the RF or ready
   table.
 - `ReducedScalarWritebackArbiter`: R314 reduced RF write-port arbitration owner.
-  Execute writeback has priority on the single reduced RF port. The replay
-  writeback candidate is wired as the secondary source, but replay selection is
-  explicitly disabled until LRET enqueue, wakeup, ready-table, and RF side
-  effects have real sinks.
+  Execute writeback has priority on the single reduced RF port. R362 wires the
+  replay side from the W2 writeback-arbiter input, but replay selection remains
+  disabled by the shared W2 side-effect live-control request until writeback,
+  resolve, wakeup, clear/refill, and replay-row lifecycle mutation are promoted
+  together.
 - `LoadReplayReturnWakeupCandidate`: optional R313 diagnostic ready-table and
   issue-wakeup candidate owner. It converts valid LRET payload
   wakeup-required plus one destination into future wakeup kind/tag diagnostics
@@ -1596,6 +1606,10 @@ fed from `LoadReplayReturnWritebackCandidate` while `replayEnable` is tied low.
 The arbiter's selected-source and replay-blocker diagnostics prove the
 single-port owner without allowing replay returns to mutate RF state ahead of
 live LRET/wakeup/ready-table sinks.
+R362 retargets the replay side of that same arbiter to the R358
+`LoadReplayReturnPipeW2WritebackArbiterInput`. The RF arbiter now sees the W2
+writeback candidate and live-gated data fields, while `replayEnable` comes from
+the disabled R357/R361 writeback live-control output.
 R315 adds `LoadReplayReturnSideEffectReady` after the LRET payload,
 writeback-candidate, and wakeup-candidate boundaries. It names the future
 publish predicate: the LRET sink must be ready for every payload, the replay RF
@@ -1756,6 +1770,10 @@ writeback fire payload. It names the future replay side of the scalar RF
 writeback arbiter, reports disabled/flush/no-payload/live-disabled blockers,
 and keeps `liveEnable` driven by the disabled R357 live-control request so no
 replay load can write RF state or contend with execute writeback.
+R362 connects that R358 boundary into `ReducedScalarWritebackArbiter`, replacing
+the older LRET-payload diagnostic writeback candidate as the arbiter's replay
+source. Because the shared live-control request remains false, this source
+switch is still observational.
 R360 inserts `LoadReplayReturnPipeW2WakeupArbiterInput` behind the R349 wakeup
 fire payload. It names the future replay side of the ready-table/issue-wakeup
 owner, reports disabled/flush/no-payload/live-disabled blockers, and keeps
@@ -1811,6 +1829,9 @@ together. R357 then replaces the direct false ties on the R336/R337/R338 sink
 R361 routes the R358/R359/R360 pre-arbiter `liveEnable` inputs through the same
 owner. Its own `liveRequested` input is still tied false until those same
 side-effect sinks and replay-row lifecycle can commit atomically.
+R362 uses the same disabled writeback live-control output as the RF arbiter
+`replayEnable`, while the R358 candidate feeds `replayValid` and its live-gated
+payload feeds `replayTag`/`replayData`.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the
@@ -2685,6 +2706,10 @@ records `status: "pass"`, `summary.compared_rows: 3`, and
 `summary.mismatch_count: 0`.
 The R314 replay-LIQ writeback-arbiter fixture manifest at
 `generated/r314-replay-writeback-arbiter-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 3`, and
+`summary.mismatch_count: 0`.
+The R362 replay-LIQ W2 writeback-to-RF-arbiter fixture manifest at
+`generated/r362-replay-pipe-w2-writeback-rf-arbiter-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `summary.compared_rows: 3`, and
 `summary.mismatch_count: 0`.
 The R315 replay-LIQ side-effect readiness fixture manifest at
