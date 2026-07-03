@@ -18,6 +18,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretSink.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDrainPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/rob/ROBRowStatusLookup.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-IEX-DATA-001`
 
 ## Purpose
@@ -92,7 +93,9 @@ R320 wires the module behind `LoadReplayReturnLretSink` and
 
 The top exposes candidate, would-drain, setMemData, ROB-row, and blocker
 diagnostics only. No output feeds ROB, RF, ready-table, issue queue, replay-LIQ
-row lifecycle, or return-pipe state.
+row lifecycle, or return-pipe state. R322 consumes these diagnostics to form a
+separate E4 insert-shaped candidate, but that module is also diagnostic-only
+and does not feed live pipe residency.
 
 ## Deferred Owners
 
@@ -100,7 +103,8 @@ row lifecycle, or return-pipe state.
 - `IEX::setMemData` data resolution into ROB instruction destinations.
 - Scalar load-pair lane completion and vector/MEM_IEX `realReqCnt` accounting.
 - TLOAD tile-SCB side effects and load-branch resolve.
-- Return-pipe E4 residency and subsequent commit/wakeup behavior.
+- Return-pipe E4 residency and subsequent commit/wakeup behavior behind the
+  R322 insert candidate.
 
 ## Verification
 
