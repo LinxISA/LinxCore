@@ -99,6 +99,8 @@ vector:
 The R349 integration remains observational. It does not feed W2 readiness, W2
 slot clear, ready-table mutation, issue wakeup, RF writeback, ROB/PE resolve,
 or replay-row lifecycle.
+R360 now consumes this fire payload into `LoadReplayReturnPipeW2WakeupArbiterInput`,
+but that pre-arbiter boundary keeps `liveEnable=false` in the reduced top.
 
 ## Deferred Owners
 
