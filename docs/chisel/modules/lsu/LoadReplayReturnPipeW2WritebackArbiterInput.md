@@ -83,7 +83,10 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackArbiterInput
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r358-replay-pipe-w2-writeback-arbiter-input-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover live-disabled candidate hold, live-enabled payload copy,
 disabled/flush blockers, active no-payload diagnostics, and Chisel elaboration.
+The R358 generated-RTL/QEMU fixture manifest passed with three compared rows,
+zero mismatches, and no CBSTOP inflation.
