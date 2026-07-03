@@ -18,6 +18,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectPayloadPlan.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveFirePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnRobResolveDataCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-RESOLVE-REQUEST-001`
@@ -92,6 +93,9 @@ the current reduced fixture.
 R343 consumes `resolveValid` as the resolve payload bit in
 `LoadReplayReturnPipeW2SideEffectPayloadPlan`; the plan remains observational
 until future live W2 sinks are enabled.
+R347 also consumes the validated resolve payload behind the R346 resolve-fire
+pulse in `LoadReplayReturnPipeW2ResolveFirePayload`, keeping the future
+ROB/PE resolve mutation boundary fire-qualified and still observational.
 
 ## Deferred Owners
 

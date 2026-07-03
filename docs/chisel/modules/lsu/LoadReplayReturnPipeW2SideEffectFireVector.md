@@ -22,6 +22,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectPayloadPlan.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectCompletionPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveRequest.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveFirePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupRequest.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SIDE-EFFECT-FIRE-VECTOR-001`
@@ -94,6 +95,10 @@ The R346 output remains observational. It does not feed
 `LoadReplayReturnPipeW2CompletionCandidate.sideEffectsReady`, W2 slot clear,
 post-completion request generation, ROB resolve, replay RF writeback,
 ready-table mutation, issue wakeup, or replay-row lifecycle.
+
+R347 consumes only `resolveFire` with the R340 resolve payload in
+`LoadReplayReturnPipeW2ResolveFirePayload`. That downstream boundary is also
+observational and still does not feed ROB/PE resolve mutation or W2 clear.
 
 ## Deferred Owners
 
