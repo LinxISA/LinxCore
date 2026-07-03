@@ -95,9 +95,12 @@ vector:
 - compact diagnostics are exposed under
   `reducedLoadReplayLiqLretPipeW2WritebackFirePayload*`.
 
-The R348 integration remains observational. It does not feed W2 readiness, W2
-slot clear, the reduced scalar RF writeback arbiter, RF state mutation,
-ready-table mutation, issue wakeup, ROB/PE resolve, or replay-row lifecycle.
+The R348 integration remains observational. R358 now consumes this fire payload
+into `LoadReplayReturnPipeW2WritebackArbiterInput`, but that pre-arbiter
+boundary keeps its live RF write gate disabled. The fire payload therefore does
+not feed W2 readiness, W2 slot clear, the live reduced scalar RF writeback
+arbiter, RF state mutation, ready-table mutation, issue wakeup, ROB/PE resolve,
+or replay-row lifecycle.
 
 ## Deferred Owners
 
