@@ -26,6 +26,8 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackFirePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupRequest.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupFirePayload.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectFireComplete.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SIDE-EFFECT-FIRE-VECTOR-001`
 
 ## Purpose
@@ -108,6 +110,9 @@ R349 consumes only `wakeupFire` with the R342 wakeup payload in
 `LoadReplayReturnPipeW2WakeupFirePayload`. That downstream boundary is also
 observational and still does not feed ready-table mutation, issue wakeup, or
 W2 clear.
+R350 consumes the final `fireMask` with R347/R348/R349 fire-payload valids in
+`LoadReplayReturnPipeW2SideEffectFireComplete`. That downstream boundary is
+also observational and still does not feed W2 clear or replay-row lifecycle.
 
 ## Deferred Owners
 
