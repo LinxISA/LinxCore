@@ -6,7 +6,7 @@ import chisel3.util.{Cat, Fill, UIntToOH, log2Ceil}
 import linxcore.backend.DecodeRenameROBPath
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
-import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile}
+import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeSelect, LoadReplayReturnPublishReady, LoadReplayReturnReadiness, LoadReplayReturnWakeupCandidate, LoadReplayReturnWritebackCandidate, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
@@ -557,6 +557,11 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqWritebackIgnoredNoDestination = Output(Bool())
   val reducedLoadReplayLiqWritebackIgnoredNonGprDestination = Output(Bool())
   val reducedLoadReplayLiqWritebackBlockedByDisabled = Output(Bool())
+  val reducedLoadReplayLiqWritebackArbiterReplayEnabled = Output(Bool())
+  val reducedLoadReplayLiqWritebackArbiterSelectedExecute = Output(Bool())
+  val reducedLoadReplayLiqWritebackArbiterSelectedReplay = Output(Bool())
+  val reducedLoadReplayLiqWritebackArbiterReplayBlockedByDisabled = Output(Bool())
+  val reducedLoadReplayLiqWritebackArbiterReplayBlockedByExecute = Output(Bool())
   val reducedLoadReplayLiqWakeupCandidateValid = Output(Bool())
   val reducedLoadReplayLiqWakeupRequired = Output(Bool())
   val reducedLoadReplayLiqWakeupValid = Output(Bool())
@@ -916,6 +921,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedStoreDispatchBypass = !useReducedStoreDispatchStq
   ))
   val rf = Module(new ReducedScalarRegisterFile(p, archRegs = archRegs, physRegs = physRegs))
+  val rfWritebackArbiter = Module(new ReducedScalarWritebackArbiter(
+    dataWidth = p.immWidth,
+    physRegWidth = p.physRegWidth
+  ))
   val issue = Module(new ReducedScalarIssueQueue(p, depth = issueQueueDepth))
   val execute = Module(new ReducedScalarAluExecute(p, traceParams))
   val storeExecBridge = Module(new ReducedStoreExecResultBridge(
@@ -1960,9 +1969,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   }
   rf.io.clearValid := issue.io.enqueueDstValid
   rf.io.clearTag := issue.io.enqueueDstTag
-  rf.io.writeValid := execute.io.completeDstPhysValid
-  rf.io.writeTag := execute.io.completeDstPhysTag
-  rf.io.writeData := execute.io.completeDstData
+  rfWritebackArbiter.io.executeValid := execute.io.completeDstPhysValid
+  rfWritebackArbiter.io.executeTag := execute.io.completeDstPhysTag
+  rfWritebackArbiter.io.executeData := execute.io.completeDstData
+  rfWritebackArbiter.io.replayEnable := false.B
+  rfWritebackArbiter.io.replayValid := reducedReplayLiqReturnWritebackCandidate.io.writeValid
+  rfWritebackArbiter.io.replayTag := reducedReplayLiqReturnWritebackCandidate.io.writeTag
+  rfWritebackArbiter.io.replayData := reducedReplayLiqReturnWritebackCandidate.io.writeData
+  rf.io.writeValid := rfWritebackArbiter.io.writeValid
+  rf.io.writeTag := rfWritebackArbiter.io.writeTag
+  rf.io.writeData := rfWritebackArbiter.io.writeData
   val scalarSpWriteback =
     execute.io.completeValid && execute.io.completeRow.wb.valid && execute.io.completeRow.wb.reg === 1.U
   when(io.rfInitValid && io.rfInitArchTag === 1.U) {
@@ -2652,6 +2668,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnWritebackCandidate.io.ignoredNonGprDestination
   io.reducedLoadReplayLiqWritebackBlockedByDisabled :=
     reducedReplayLiqReturnWritebackCandidate.io.blockedByDisabled
+  io.reducedLoadReplayLiqWritebackArbiterReplayEnabled :=
+    rfWritebackArbiter.io.replayEnable
+  io.reducedLoadReplayLiqWritebackArbiterSelectedExecute :=
+    rfWritebackArbiter.io.selectedExecute
+  io.reducedLoadReplayLiqWritebackArbiterSelectedReplay :=
+    rfWritebackArbiter.io.selectedReplay
+  io.reducedLoadReplayLiqWritebackArbiterReplayBlockedByDisabled :=
+    rfWritebackArbiter.io.replayBlockedByDisabled
+  io.reducedLoadReplayLiqWritebackArbiterReplayBlockedByExecute :=
+    rfWritebackArbiter.io.replayBlockedByExecute
   io.reducedLoadReplayLiqWakeupCandidateValid :=
     reducedReplayLiqReturnWakeupCandidate.io.candidateValid
   io.reducedLoadReplayLiqWakeupRequired :=
