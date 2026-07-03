@@ -10,7 +10,7 @@ import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, Reduc
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicLiveRequestControl, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWritebackCandidate, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
-import linxcore.rob.{ROBEntryStatus, ROBID}
+import linxcore.rob.{ROBEntryStatus, ROBID, ROBRowCommitTraceLookupResult}
 
 class LinxCoreFrontendFetchRfAluTraceTopIO(
     val p: InterfaceParams,
@@ -956,6 +956,11 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceBlocked = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceBlockedByNoMetadata = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceBlockedByNoSourceTrace = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupRowValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupInstructionValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedByNeedFlush = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedByMissingInstruction = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceDisabled = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RowFillEnableControlCandidateValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RowFillEnableControlPrerequisitesReady = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RowFillEnableControlRowFillEnable = Output(Bool())
@@ -3096,6 +3101,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW1Slot.io.entryData
   reducedReplayLiqReturnPipeW2Slot.io.writeWakeupRequired :=
     reducedReplayLiqReturnPipeW1Slot.io.entryWakeupRequired
+  path.io.robCommitTraceLookupValid :=
+    reducedLoadReplayLiqAllocEnabled && !reducedStoreFlush &&
+      reducedReplayLiqReturnPipeW2Slot.io.occupied
+  path.io.robCommitTraceLookupRid := reducedReplayLiqReturnPipeW2Slot.io.entryRid
+  path.io.robCommitTraceLookupSourceTraceEnable := false.B
   LinxCoreFrontendFetchRfAluTraceTopW2RequestPayloadWiring.connect(
     reducedReplayLiqReturnPipeW2CompletionCandidate,
     reducedReplayLiqReturnPipeW2Slot,
@@ -3163,6 +3173,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   LinxCoreFrontendFetchRfAluTraceTopW2CommitRowTraceSourceWiring.connect(
     io,
     reducedReplayLiqReturnPipeW2CommitRowTraceSource,
+    path.io.robCommitTraceLookup,
     reducedReplayLiqReturnPipeW2Slot,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
@@ -5880,15 +5891,16 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2CommitRowTraceSourceWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
       traceSource: LoadReplayReturnPipeW2CommitRowTraceSource,
+      robTraceLookup: ROBRowCommitTraceLookupResult,
       slot: LoadReplayReturnPipeW2Slot,
       enable: Bool,
       flush: Bool): Unit = {
     traceSource.io.enable := enable
     traceSource.io.flush := flush
     traceSource.io.slotOccupied := slot.io.occupied
-    traceSource.io.instructionProviderValid := false.B
-    traceSource.io.instructionProviderRaw := 0.U
-    traceSource.io.instructionProviderLen := 0.U
+    traceSource.io.instructionProviderValid := robTraceLookup.instructionProviderValid
+    traceSource.io.instructionProviderRaw := robTraceLookup.instructionRaw
+    traceSource.io.instructionProviderLen := robTraceLookup.instructionLen
     traceSource.io.sourceTraceProviderValid := false.B
     traceSource.io.source0Provider := 0.U.asTypeOf(traceSource.io.source0Provider)
     traceSource.io.source1Provider := 0.U.asTypeOf(traceSource.io.source1Provider)
@@ -5909,6 +5921,16 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2CommitRowTraceSourceWiring {
       traceSource.io.blockedByNoInstructionMetadata
     io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceBlockedByNoSourceTrace :=
       traceSource.io.blockedByNoSourceTrace
+    io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupRowValid :=
+      robTraceLookup.rowValid
+    io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupInstructionValid :=
+      robTraceLookup.instructionProviderValid
+    io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedByNeedFlush :=
+      robTraceLookup.blockedByNeedFlush
+    io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedByMissingInstruction :=
+      robTraceLookup.blockedByMissingInstruction
+    io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceDisabled :=
+      robTraceLookup.blockedBySourceTraceDisabled
   }
 }
 

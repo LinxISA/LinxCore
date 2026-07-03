@@ -71,7 +71,8 @@ R372 wires the module immediately before
 `LinxCoreFrontendFetchRfAluTraceTop`:
 
 - resident W2 slot occupancy gates provider evidence;
-- instruction and source providers are currently tied absent;
+- R373 feeds instruction metadata from `ROBRowCommitTraceLookup`;
+- source trace providers are currently tied absent;
 - gated outputs feed the R366 commit-row candidate;
 - compact top-level diagnostics expose trace readiness and missing-provider
   blockers;

@@ -128,6 +128,11 @@ class LinxCoreFrontendAluTraceTop(
   path.io.scalarRedirectValid := false.B
   path.io.scalarRedirectStid := 0.U
   path.io.deallocReady := io.deallocReady
+  path.io.robStatusLookupValid := false.B
+  path.io.robStatusLookupRid := ROBID.disabled(p.robEntries)
+  path.io.robCommitTraceLookupValid := false.B
+  path.io.robCommitTraceLookupRid := ROBID.disabled(p.robEntries)
+  path.io.robCommitTraceLookupSourceTraceEnable := false.B
 
   execute.io.inValid := path.io.renamedOutValid
   execute.io.in := path.io.renamedOut

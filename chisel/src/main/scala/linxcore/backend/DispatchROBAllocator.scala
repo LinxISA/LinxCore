@@ -13,7 +13,7 @@ import linxcore.common.{
   TULinkRetireSource
 }
 import linxcore.recovery.{FlushBus, FullBidRecoveryBridge}
-import linxcore.rob.{ROBEntryBank, ROBEntryStatus, ROBID, ROBMemoryOrderCommit, ROBRowStatusLookupResult}
+import linxcore.rob.{ROBEntryBank, ROBEntryStatus, ROBID, ROBMemoryOrderCommit, ROBRowCommitTraceLookupResult, ROBRowStatusLookupResult}
 
 class DispatchROBAllocatorIO(
     val entries: Int,
@@ -165,6 +165,10 @@ class DispatchROBAllocatorIO(
   val statusLookupValid = Input(Bool())
   val statusLookupRid = Input(new ROBID(entries))
   val statusLookup = Output(new ROBRowStatusLookupResult(entries))
+  val commitTraceLookupValid = Input(Bool())
+  val commitTraceLookupRid = Input(new ROBID(entries))
+  val commitTraceLookupSourceTraceEnable = Input(Bool())
+  val commitTraceLookup = Output(new ROBRowCommitTraceLookupResult(entries, traceParams))
 
   val occupiedMask = Output(UInt(entries.W))
   val completedMask = Output(UInt(entries.W))
@@ -280,6 +284,9 @@ class DispatchROBAllocator(
   rob.io.deallocReady := io.deallocReady
   rob.io.statusLookupValid := io.statusLookupValid
   rob.io.statusLookupRid := io.statusLookupRid
+  rob.io.commitTraceLookupValid := io.commitTraceLookupValid
+  rob.io.commitTraceLookupRid := io.commitTraceLookupRid
+  rob.io.commitTraceLookupSourceTraceEnable := io.commitTraceLookupSourceTraceEnable
 
   brob.io.allocValid := scalarBrobAllocFire || blockAllocOnlyFire
   brob.io.allocBid := nextBlockBid
@@ -374,6 +381,7 @@ class DispatchROBAllocator(
   io.deallocHeadStatus := rob.io.deallocHeadStatus
   io.deallocHeadRobValue := rob.io.deallocHeadRobValue
   io.statusLookup := rob.io.statusLookup
+  io.commitTraceLookup := rob.io.commitTraceLookup
   io.occupiedMask := rob.io.occupiedMask
   io.completedMask := rob.io.completedMask
   io.retiredMask := rob.io.retiredMask

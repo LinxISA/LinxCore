@@ -82,6 +82,12 @@ R321 adds a read-only current-row status lookup. The bank feeds
 status vector so downstream LSU/IEX owners can observe whether a returned-load
 RID names a live row and whether that row is `NeedFlush`, without mutating ROB
 state or exposing the full row arrays as a writeable interface.
+R373 adds a second read-only lookup, `ROBRowCommitTraceLookup`, that exposes
+provider-shaped instruction metadata and optionally source operand traces from
+the matched resident `CommitTraceRow`. It uses the same native RID/epoch match
+discipline as the status lookup, suppresses providers for `NeedFlush` rows,
+and is forwarded through the backend path for replay-W2 commit-row trace
+source wiring.
 
 `ReducedCommitROB` remains the reduced trace harness. Do not retrofit full
 deallocation or recovery semantics into that module.
@@ -155,6 +161,8 @@ deallocation or recovery semantics into that module.
 | output | `deallocHead*` | mixed | diagnostic | Dealloc-pointer row status and slot |
 | input | `statusLookupValid`, `statusLookupRid` | mixed | valid | Read-only current-row status lookup request. |
 | output | `statusLookup` | `ROBRowStatusLookupResult` | diagnostic/source | Row-present/status/need-flush result plus invalid/free/stale RID blockers. |
+| input | `commitTraceLookupValid`, `commitTraceLookupRid`, `commitTraceLookupSourceTraceEnable` | mixed | valid/policy | Read-only current-row commit trace lookup request and source-trace exposure gate. |
+| output | `commitTraceLookup` | `ROBRowCommitTraceLookupResult` | diagnostic/source | Row payload, instruction provider, optional source-trace provider, and lookup blockers. |
 | output | `occupiedMask` | `UInt(entries.W)` | diagnostic | Non-free slot mask |
 | output | `completedMask` | `UInt(entries.W)` | diagnostic | Completed slot mask |
 | output | `retiredMask` | `UInt(entries.W)` | diagnostic | Retired slot mask |

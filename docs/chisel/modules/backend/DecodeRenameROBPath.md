@@ -100,6 +100,11 @@ R321 adds a read-only ROB current-row status query. The path forwards
 `robStatusLookupValid/Rid` through `DispatchROBAllocator` to `ROBEntryBank` and
 returns the lookup result without changing decode, rename, ROB allocation,
 completion, commit, or deallocation behavior.
+R373 adds the parallel read-only commit-trace row lookup. The path forwards
+`robCommitTraceLookupValid/Rid/sourceTraceEnable` through
+`DispatchROBAllocator` to `ROBEntryBank` and returns provider-shaped row
+metadata without changing decode, rename, ROB allocation, completion, commit,
+or deallocation behavior.
 R290 also exports the selected `StoreDispatchSTQPath` `STQStoreRequest` payload
 beside the existing insert-valid/accepted/index diagnostics. The reduced
 replay-LIQ top consumes the accepted request as the MDB store-arrival probe,

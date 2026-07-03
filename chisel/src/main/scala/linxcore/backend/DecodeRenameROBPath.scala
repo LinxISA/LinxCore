@@ -21,7 +21,7 @@ import linxcore.rename.{
   StoreSplitPayload,
   TULinkRetireCommandPath
 }
-import linxcore.rob.{ROBEntryStatus, ROBID, ROBMemoryOrderCommit, ROBRowStatusLookupResult}
+import linxcore.rob.{ROBEntryStatus, ROBID, ROBMemoryOrderCommit, ROBRowCommitTraceLookupResult, ROBRowStatusLookupResult}
 
 class DecodeRenameROBPathIO(
     val p: InterfaceParams = InterfaceParams(),
@@ -427,6 +427,10 @@ class DecodeRenameROBPathIO(
   val robStatusLookupValid = Input(Bool())
   val robStatusLookupRid = Input(new ROBID(p.robEntries))
   val robStatusLookup = Output(new ROBRowStatusLookupResult(p.robEntries))
+  val robCommitTraceLookupValid = Input(Bool())
+  val robCommitTraceLookupRid = Input(new ROBID(p.robEntries))
+  val robCommitTraceLookupSourceTraceEnable = Input(Bool())
+  val robCommitTraceLookup = Output(new ROBRowCommitTraceLookupResult(p.robEntries, traceParams))
   val occupiedMask = Output(UInt(p.robEntries.W))
   val completedMask = Output(UInt(p.robEntries.W))
   val retiredMask = Output(UInt(p.robEntries.W))
@@ -948,6 +952,9 @@ class DecodeRenameROBPath(
       !tuRetirePath.io.cleanupActive
   allocator.io.statusLookupValid := io.robStatusLookupValid
   allocator.io.statusLookupRid := io.robStatusLookupRid
+  allocator.io.commitTraceLookupValid := io.robCommitTraceLookupValid
+  allocator.io.commitTraceLookupRid := io.robCommitTraceLookupRid
+  allocator.io.commitTraceLookupSourceTraceEnable := io.robCommitTraceLookupSourceTraceEnable
   val decodeContextScalarDoneFire =
     (allocator.io.allocFire && decodeContextMarkerCloseIntent && decodeContextCloseSafe) ||
       selectedClosesActiveRedirect
@@ -1364,6 +1371,7 @@ class DecodeRenameROBPath(
   io.commitHeadStatus := allocator.io.commitHeadStatus
   io.commitHeadRobValue := allocator.io.commitHeadRobValue
   io.robStatusLookup := allocator.io.statusLookup
+  io.robCommitTraceLookup := allocator.io.commitTraceLookup
   io.occupiedMask := allocator.io.occupiedMask
   io.completedMask := allocator.io.completedMask
   io.retiredMask := allocator.io.retiredMask

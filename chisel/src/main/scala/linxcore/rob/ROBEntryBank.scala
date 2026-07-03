@@ -143,6 +143,10 @@ class ROBEntryBankIO(
   val statusLookupValid = Input(Bool())
   val statusLookupRid = Input(new ROBID(entries))
   val statusLookup = Output(new ROBRowStatusLookupResult(entries))
+  val commitTraceLookupValid = Input(Bool())
+  val commitTraceLookupRid = Input(new ROBID(entries))
+  val commitTraceLookupSourceTraceEnable = Input(Bool())
+  val commitTraceLookup = Output(new ROBRowCommitTraceLookupResult(entries, traceParams))
 
   val occupiedMask = Output(UInt(entries.W))
   val completedMask = Output(UInt(entries.W))
@@ -532,6 +536,16 @@ class ROBEntryBank(
   statusLookup.io.rowRid := rowRid
   statusLookup.io.rowStatus := status
   io.statusLookup := statusLookup.io.result
+
+  val commitTraceLookup = Module(new ROBRowCommitTraceLookup(entries, traceParams))
+  commitTraceLookup.io.queryValid := io.commitTraceLookupValid
+  commitTraceLookup.io.queryRid := io.commitTraceLookupRid
+  commitTraceLookup.io.rowValidMask := occupiedVec.asUInt
+  commitTraceLookup.io.rowRid := rowRid
+  commitTraceLookup.io.rowStatus := status
+  commitTraceLookup.io.rows := rows
+  commitTraceLookup.io.sourceTraceEnable := io.commitTraceLookupSourceTraceEnable
+  io.commitTraceLookup := commitTraceLookup.io.result
 
   for (idx <- 0 until entries) {
     when(flushPrune.io.pruneMask(idx)) {

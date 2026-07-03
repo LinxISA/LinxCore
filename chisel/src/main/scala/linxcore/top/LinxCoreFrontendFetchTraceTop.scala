@@ -159,6 +159,11 @@ class LinxCoreFrontendFetchTraceTop(
   path.io.scalarRedirectValid := false.B
   path.io.scalarRedirectStid := 0.U
   path.io.deallocReady := io.deallocReady
+  path.io.robStatusLookupValid := false.B
+  path.io.robStatusLookupRid := ROBID.disabled(p.robEntries)
+  path.io.robCommitTraceLookupValid := false.B
+  path.io.robCommitTraceLookupRid := ROBID.disabled(p.robEntries)
+  path.io.robCommitTraceLookupSourceTraceEnable := false.B
 
   io.fetchReqValid := source.io.reqValid
   io.fetchReqPc := source.io.reqPc

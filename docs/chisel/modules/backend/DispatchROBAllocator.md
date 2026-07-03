@@ -113,6 +113,8 @@ dispatch agents consume a real block owner.
 | input | `deallocReady` | `Bool` | ready | ROB deallocation-ready path forwarded to `ROBEntryBank` |
 | input | `statusLookupValid`, `statusLookupRid` | mixed | valid | Read-only native RID status query forwarded to `ROBEntryBank`. |
 | output | `statusLookup` | `ROBRowStatusLookupResult` | diagnostic/source | Current-row status lookup result forwarded without interpretation. |
+| input | `commitTraceLookupValid`, `commitTraceLookupRid`, `commitTraceLookupSourceTraceEnable` | mixed | valid/policy | Read-only native RID row-payload query forwarded to `ROBEntryBank`. |
+| output | `commitTraceLookup` | `ROBRowCommitTraceLookupResult` | diagnostic/source | Current-row commit-trace provider result forwarded without interpretation. |
 | input | `block*Done*`, `blockRetire*`, `blockFlush*`, `blockQueryBid` | mixed | valid/query | Pass-through control and query surface for `BrobMetaTracker` |
 | output | `blockQuery*`, `block*Mask` | mixed | diagnostic | BROB query and occupancy/completion masks |
 | output | `commit*`, `dealloc*`, `flush*`, `size`, `outstandingCount`, `*Mask` | mixed | diagnostic | `ROBEntryBank` commit, recovery, and lifecycle outputs |
