@@ -21,6 +21,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectPayloadPlan.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackFirePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-WRITEBACK-REQUEST-001`
 
@@ -101,6 +102,9 @@ in the current reduced fixture.
 R343 consumes `writebackValid` as the writeback payload bit in
 `LoadReplayReturnPipeW2SideEffectPayloadPlan`; the plan remains observational
 until future live W2 sinks are enabled.
+R348 consumes the R341 payload and the R346 writeback fire pulse in
+`LoadReplayReturnPipeW2WritebackFirePayload`. That boundary remains
+observational and does not feed the scalar RF writeback arbiter or RF state.
 
 ## Deferred Owners
 
