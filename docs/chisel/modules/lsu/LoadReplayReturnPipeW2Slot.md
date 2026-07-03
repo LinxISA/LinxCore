@@ -19,6 +19,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1AdvanceCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SLOT-001`
 
@@ -31,9 +32,11 @@ assigns `w2_inst = w1_inst`; `runW1()` only stamps the W1 cycle, while
 local scalar wakeup.
 
 R333 adds the W2 payload state boundary without enabling downstream W2 side
-effects. The reduced top wires W1 advance readiness from W2 emptiness, so a
-future live W1 entry can move into W2 exactly once and then remain resident
-until a later W2 completion/clear owner exists.
+effects. R334 wires clear from `LoadReplayReturnPipeW2CompletionCandidate`,
+which currently holds completion dormant because the reduced top ties W2
+side-effect readiness low. The reduced top wires W1 advance readiness from W2
+emptiness, so a future live W1 entry can move into W2 exactly once and then
+remain resident until W2 side-effect sinks can accept it.
 
 ## Interface
 
@@ -41,7 +44,7 @@ until a later W2 completion/clear owner exists.
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Clears the W2 slot and suppresses same-cycle writes. |
-| input | `clear` | Explicit lifecycle clear for a consumed W2 entry. Current top ties this false until W2 side effects exist. |
+| input | `clear` | Explicit lifecycle clear for a consumed W2 entry. Current top drives this from R334 W2 completion, whose side-effect readiness is still held low. |
 | input | `writeValid` | W1-to-W2 advance pulse from `LoadReplayReturnPipeW1AdvanceCandidate`. |
 | input | `writeTargetIsAgu` / `writeTargetIsLda` | Mutually exclusive W2 pipe-family target. |
 | input | `writePipeIndex` | Selected return-pipe index carried from the W1 slot. |
@@ -85,7 +88,8 @@ returned load belongs to exactly one LDA or AGU W2 pipe target.
 - target-domain and selected pipe index come from the W1 advance candidate;
 - payload sidebands come from the R331 W1 slot entry outputs;
 - W1 advance `advanceEnable` is driven by `!W2Slot.occupied`;
-- `clear` is tied false until W2 writeback/resolve/wakeup completion exists;
+- `clear` comes from `LoadReplayReturnPipeW2CompletionCandidate.clearSlot`,
+  which remains false until future W2 side-effect readiness is live;
 - top-level diagnostics expose accepted, occupied, target, pipe-index, and
   blocker signals.
 
@@ -111,6 +115,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1Slot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
