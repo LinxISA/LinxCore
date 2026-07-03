@@ -696,6 +696,25 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.robCompleteArbiterReplayBlockedByExecute.getWidth == 1)
   }
 
+  test("R365 replay W2 clear commit guard diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqLretPipeW2ClearCommitGuardCandidateValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ClearCommitGuardCommitClearReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ClearCommitGuardLiveClearReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ClearCommitGuardResolveMatchesSlot.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ClearCommitGuardRobMatchesSlot.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ClearCommitGuardRobMatchesResolve.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ClearCommitGuardBlocked.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ClearCommitGuardBlockedByNoRobComplete.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ClearCommitGuardBlockedByResolveSlotMismatch.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ClearCommitGuardBlockedByRobSlotMismatch.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ClearCommitGuardBlockedByRobResolveMismatch.getWidth == 1)
+  }
+
   test("LinxCoreFrontendFetchRfAluTraceTop elaborates source, frontend, rename, RF, issue, ROB, and ALU execute") {
     val sv = ChiselStage.emitSystemVerilog(
       new LinxCoreFrontendFetchRfAluTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 8)
@@ -711,6 +730,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedScalarIssueQueue"))
     assert(sv.contains("module ReducedScalarIssuePick"))
     assert(sv.contains("module ReducedScalarAluExecute"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ClearCommitGuardCommitClearReady"))
     assert(sv.contains("module CommitTraceMonitor"))
     assert(sv.contains("module ReducedBfuBodyCutPredictor"))
     assert(sv.contains("module ReducedBfuBodyCutArm"))

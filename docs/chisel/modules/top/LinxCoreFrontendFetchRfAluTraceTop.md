@@ -61,6 +61,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveArbiterInput.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RobCompleteSource.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/ReducedRobCompletionArbiter.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearCommitGuard.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackFirePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackArbiterInput.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupFirePayload.scala`
@@ -1074,6 +1075,10 @@ ROB completion-port source, feed its structural port readiness back to the W2
 resolve sink, and merge execute/replay completion before `DecodeRenameROBPath`
 with execute priority. Because R363 still ties the atomic live request off,
 the replay source cannot complete a row in the integrated top.
+R365 adds `reducedLoadReplayLiqLretPipeW2ClearCommitGuard*` diagnostics. These
+signals check that the resident W2 slot RID, resolve-fire RID, and replay ROB
+completion value agree before a future live clear can be treated as
+commit-backed; they do not feed W2 clear or replay-row lifecycle.
 R348 adds `reducedLoadReplayLiqLretPipeW2WritebackFirePayload*` diagnostics
 under the same namespace. These signals join the R346 writeback fire pulse
 with the R341 writeback request payload before future replay RF mutation, but
@@ -1342,6 +1347,10 @@ overlay. Most state remains in child modules:
 - `ReducedRobCompletionArbiter`: R364 execute-priority completion-port arbiter.
   It merges ordinary execute completion with the dormant replay-W2 completion
   source before the path's marker-completion arbitration.
+- `LoadReplayReturnPipeW2ClearCommitGuard`: optional R365 dormant W2
+  clear/commit identity guard. It checks resident slot RID, resolve-fire RID,
+  and replay ROB-completion value agree before a future live clear can be
+  treated as commit-backed.
 - `LoadReplayReturnPipeW2WritebackRequest`: optional R341 dormant W2 reduced
   RF writeback payload owner. It validates W2 target, BID/GID/RID identity,
   and scalar GPR destination before future replay RF mutation.
@@ -1798,6 +1807,12 @@ completion RID only from a live-gated resolve. `completeRowValid` is false, so
 the ROB row image remains the allocation/rename-update row until a later replay
 load commit-row fill owner is added. With R363 `requestEnable=false`, this path
 is still dormant in generated RTL/QEMU gates.
+R365 inserts `LoadReplayReturnPipeW2ClearCommitGuard` after R351/R364 evidence
+is available. It checks that the resident W2 slot RID, the R347 resolve-fire
+RID, and the R364 replay ROB-completion value agree before reporting
+`commitClearReady` or `liveClearReady`. The guard is diagnostic-only: it does
+not feed the current W2 slot `clear`, W2 advance/refill, replay RF writeback,
+wakeup, resolve, ROB completion, or replay-row lifecycle.
 R358 inserts `LoadReplayReturnPipeW2WritebackArbiterInput` behind the R348
 writeback fire payload. It names the future replay side of the scalar RF
 writeback arbiter, reports disabled/flush/no-payload/live-disabled blockers,
