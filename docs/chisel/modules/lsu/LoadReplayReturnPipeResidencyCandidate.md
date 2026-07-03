@@ -11,6 +11,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDrainPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencySlot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTimingStatsCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-RESIDENCY-001`
 
@@ -36,6 +37,11 @@ blockers:
 The current reduced scalar top ties `liveEnable` low and `isVectorMachine` low,
 so this packet exposes LDA residency intent and full-pipe diagnostics while
 keeping actual pipe state disabled.
+
+R329 consumes `residencyWriteValid`, target-domain, and selected-pipe outputs
+in `LoadReplayReturnPipeResidencySlot`, a dormant one-entry state owner that
+captures the R322 payload only when a future integration enables live residency
+writes.
 
 ## Interface
 
@@ -89,9 +95,15 @@ the current integrated top because live E4 pipe state is not owned yet.
 The top exposes candidate, armed, write-valid, target-domain, pipe-index, and
 blocker diagnostics.
 
+R329 additionally feeds `residencyWriteValid`, target-domain, and pipe-index
+diagnostics into `LoadReplayReturnPipeResidencySlot`. Since `liveEnable` remains
+false in this top, the slot observes no writes and only reports dormant
+occupancy/no-write state.
+
 ## Deferred Owners
 
-- Real LDA/AGU E4 pipe residency storage and lifecycle.
+- Live enable of the dormant one-entry LDA/AGU E4 pipe residency slot.
+- Multi-entry LDA/AGU E4 pipe residency storage and lifecycle.
 - Multi-pipe AGU/LDA first-free scan state beyond the current diagnostic
   selected index.
 - Vector IEX machine classification in the reduced top.
@@ -104,6 +116,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencySlot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTimingStatsCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop

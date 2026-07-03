@@ -20,6 +20,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnFinalMetadataCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTimingStatsCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencySlot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-IEX-PIPE-INSERT-001`
 
@@ -62,7 +63,9 @@ sub-instruction completion is checked, final load-return metadata is stamped,
 and timing/stat sideband intent is emitted before the cloned instruction is
 inserted into E4. R328 consumes this module's insert diagnostics in
 `LoadReplayReturnPipeResidencyCandidate` to expose the following LDA/AGU E4
-residency intent while keeping real pipe state disabled.
+residency intent while keeping real pipe state disabled. R329 then feeds this
+module's insert payload into `LoadReplayReturnPipeResidencySlot`, which captures
+it only behind a live unblocked R328 residency write.
 
 ## Interface
 
@@ -120,12 +123,14 @@ ties the current IEX return-pipe occupied mask full. Therefore R322 remains a
 diagnostic insert boundary only.
 R328 observes this module's candidate and insert-valid outputs, reports the
 scalar LDA or vector AGU residency target, and keeps `liveEnable` false in the
-current reduced top.
+current reduced top. R329 wires this module's payload outputs into a dormant
+one-entry residency slot, so payload capture has a state owner ready once live
+E4 pipe writes are enabled.
 
 ## Deferred Owners
 
-- Real IEX LDA/AGU E4 pipe residency mutation.
-- Real residency owner behind the R328 diagnostic boundary.
+- Live IEX LDA/AGU E4 pipe residency mutation.
+- Live enable and lifecycle ownership for the dormant R329 residency slot.
 - `rob_next.resolveData` and ROB destination data-valid mutation.
 - Real scalar load-pair lane writes and vector/MEM_IEX request-count state.
 - Real TLOAD tile-SCB side effects and load-branch resolve.
@@ -140,6 +145,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencySlot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTimingStatsCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnFinalMetadataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTloadCompletionCandidate
