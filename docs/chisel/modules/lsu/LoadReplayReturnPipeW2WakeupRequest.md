@@ -108,6 +108,9 @@ state, ROB row, or W2 slot lifecycle state is mutated by this module.
 R343 consumes `wakeupValid` as the wakeup payload bit in
 `LoadReplayReturnPipeW2SideEffectPayloadPlan`; the plan remains observational
 until future live W2 sinks are enabled.
+R349 consumes `wakeupValid` plus the copied destination payload behind the R346
+`wakeupFire` pulse in `LoadReplayReturnPipeW2WakeupFirePayload`; that boundary
+is also observational until the ready-table and issue-wakeup owners are live.
 
 ## Deferred Owners
 

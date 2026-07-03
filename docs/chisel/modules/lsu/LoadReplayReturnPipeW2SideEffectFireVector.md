@@ -104,6 +104,10 @@ R348 consumes only `writebackFire` with the R341 writeback payload in
 `LoadReplayReturnPipeW2WritebackFirePayload`. That downstream boundary is also
 observational and still does not feed RF writeback mutation, writeback
 arbitration, or W2 clear.
+R349 consumes only `wakeupFire` with the R342 wakeup payload in
+`LoadReplayReturnPipeW2WakeupFirePayload`. That downstream boundary is also
+observational and still does not feed ready-table mutation, issue wakeup, or
+W2 clear.
 
 ## Deferred Owners
 
