@@ -39,7 +39,10 @@ object LoadReplayReturnPipeResidencySlotReference {
       blockedByClear: Boolean,
       blockedByNoWrite: Boolean,
       blockedByInvalidTarget: Boolean,
-      blockedByOccupied: Boolean)
+      blockedByOccupied: Boolean,
+      acceptedEmpty: Boolean,
+      replacedOnClear: Boolean,
+      blockedByReplaceDisabled: Boolean)
 
   final case class Write(
       valid: Boolean,
@@ -63,11 +66,16 @@ object LoadReplayReturnPipeResidencySlotReference {
       enable: Boolean,
       flush: Boolean,
       clear: Boolean,
-      write: Write): Result = {
+      write: Write,
+      replaceOnClear: Boolean = false): Result = {
     val targetValid = write.targetIsAgu ^ write.targetIsLda
-    val accepted = enable && !flush && !clear && write.valid && targetValid && !state.occupied
+    val active = enable && !flush
+    val writeCandidate = active && write.valid && targetValid
+    val acceptedEmpty = writeCandidate && !clear && !state.occupied
+    val replacedOnClear = writeCandidate && clear && replaceOnClear && state.occupied
+    val accepted = acceptedEmpty || replacedOnClear
     val next =
-      if (flush || clear) {
+      if (flush) {
         State()
       } else if (accepted) {
         State(
@@ -87,6 +95,8 @@ object LoadReplayReturnPipeResidencySlotReference {
             dst = write.dst,
             data = write.data,
             wakeupRequired = write.wakeupRequired))
+      } else if (clear) {
+        State()
       } else {
         state
       }
@@ -96,10 +106,14 @@ object LoadReplayReturnPipeResidencySlotReference {
       next = next,
       blockedByDisabled = !enable && write.valid,
       blockedByFlush = enable && flush && write.valid,
-      blockedByClear = enable && !flush && clear && write.valid,
+      blockedByClear = active && clear && write.valid && !replacedOnClear,
       blockedByNoWrite = enable && !flush && !clear && !write.valid,
       blockedByInvalidTarget = enable && !flush && !clear && write.valid && !targetValid,
-      blockedByOccupied = enable && !flush && !clear && write.valid && targetValid && state.occupied)
+      blockedByOccupied = enable && !flush && !clear && write.valid && targetValid && state.occupied,
+      acceptedEmpty = acceptedEmpty,
+      replacedOnClear = replacedOnClear,
+      blockedByReplaceDisabled =
+        active && clear && write.valid && targetValid && state.occupied && !replaceOnClear)
   }
 }
 

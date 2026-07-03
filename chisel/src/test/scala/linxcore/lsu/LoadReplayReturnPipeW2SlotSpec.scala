@@ -76,6 +76,87 @@ class LoadReplayReturnPipeW2SlotSpec extends AnyFunSuite {
     assert(!cleared.next.occupied)
   }
 
+  test("same-cycle clear and write can replace a resident W2 payload when enabled") {
+    val full = step(
+      State(),
+      enable = true,
+      flush = false,
+      clear = false,
+      Write(valid = true, targetIsAgu = false, targetIsLda = true, data = 0x44))
+    assert(full.next.occupied)
+
+    val replaced = step(
+      full.next,
+      enable = true,
+      flush = false,
+      clear = true,
+      Write(valid = true, targetIsAgu = true, targetIsLda = false, pipeIndex = 0, data = 0x99),
+      replaceOnClear = true)
+    assert(replaced.accepted)
+    assert(!replaced.acceptedEmpty)
+    assert(replaced.replacedOnClear)
+    assert(!replaced.blockedByClear)
+    assert(!replaced.blockedByReplaceDisabled)
+    assert(replaced.next.occupied)
+    assert(replaced.next.entry.targetIsAgu)
+    assert(!replaced.next.entry.targetIsLda)
+    assert(replaced.next.entry.data == 0x99)
+  }
+
+  test("replace-on-clear preserves flush priority and target validation") {
+    val full = step(
+      State(),
+      enable = true,
+      flush = false,
+      clear = false,
+      Write(valid = true, targetIsAgu = false, targetIsLda = true, data = 0x44))
+
+    val flushed = step(
+      full.next,
+      enable = true,
+      flush = true,
+      clear = true,
+      Write(valid = true, targetIsAgu = true, targetIsLda = false, data = 0x99),
+      replaceOnClear = true)
+    assert(!flushed.accepted)
+    assert(!flushed.replacedOnClear)
+    assert(flushed.blockedByFlush)
+    assert(!flushed.next.occupied)
+
+    val invalid = step(
+      full.next,
+      enable = true,
+      flush = false,
+      clear = true,
+      Write(valid = true, targetIsAgu = true, targetIsLda = true, data = 0x99),
+      replaceOnClear = true)
+    assert(!invalid.accepted)
+    assert(!invalid.replacedOnClear)
+    assert(invalid.blockedByClear)
+    assert(!invalid.next.occupied)
+  }
+
+  test("clear with replace disabled reports the future replacement blocker") {
+    val full = step(
+      State(),
+      enable = true,
+      flush = false,
+      clear = false,
+      Write(valid = true, targetIsAgu = false, targetIsLda = true, data = 0x44))
+
+    val blocked = step(
+      full.next,
+      enable = true,
+      flush = false,
+      clear = true,
+      Write(valid = true, targetIsAgu = true, targetIsLda = false, data = 0x99))
+    assert(!blocked.accepted)
+    assert(!blocked.replacedOnClear)
+    assert(blocked.blockedByClear)
+    assert(blocked.blockedByReplaceDisabled)
+    assert(!blocked.next.occupied)
+  }
+
   test("reports disabled no-write and invalid-target W2 blockers") {
     val disabled = step(
       State(),
@@ -123,5 +204,7 @@ class LoadReplayReturnPipeW2SlotSpec extends AnyFunSuite {
     assert(sv.contains("io_entryWakeupRequired"))
     assert(sv.contains("io_blockedByInvalidTarget"))
     assert(sv.contains("io_blockedByOccupied"))
+    assert(sv.contains("io_replaceOnClear"))
+    assert(sv.contains("io_replacedOnClear"))
   }
 }

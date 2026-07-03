@@ -96,8 +96,8 @@ or ROB/RF/ready-table mutation.
 
 ## Deferred Owners
 
-- Change `LoadReplayReturnPipeW2Slot` storage semantics so live clear and a
-  valid write can replace W2 in one cycle.
+- Promote `LoadReplayReturnPipeW2Slot.replaceOnClear` from the current false
+  top-level tie-off to the R351/R352/R353 live clear/refill predicate.
 - Promote R352 `futureAdvanceReady` into the W1-to-W2 advance gate only after
   the storage owner can accept same-cycle replacement.
 - Tie replay-row lifecycle retirement to the consumed W2 entry.

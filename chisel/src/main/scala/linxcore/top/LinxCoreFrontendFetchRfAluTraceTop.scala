@@ -2827,6 +2827,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedReplayLiqReturnPipeW2Slot.io.flush := reducedStoreFlush
   reducedReplayLiqReturnPipeW2Slot.io.clear :=
     reducedReplayLiqReturnPipeW2CompletionCandidate.io.clearSlot
+  reducedReplayLiqReturnPipeW2Slot.io.replaceOnClear := false.B
   reducedReplayLiqReturnPipeW2Slot.io.writeValid :=
     reducedReplayLiqReturnPipeW1AdvanceCandidate.io.advanceValid
   reducedReplayLiqReturnPipeW2Slot.io.writeTargetIsAgu :=

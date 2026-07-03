@@ -20,6 +20,7 @@ class LoadReplayReturnPipeW2SlotIO(
   val enable = Input(Bool())
   val flush = Input(Bool())
   val clear = Input(Bool())
+  val replaceOnClear = Input(Bool())
   val writeValid = Input(Bool())
   val writeTargetIsAgu = Input(Bool())
   val writeTargetIsLda = Input(Bool())
@@ -59,6 +60,9 @@ class LoadReplayReturnPipeW2SlotIO(
   val blockedByNoWrite = Output(Bool())
   val blockedByInvalidTarget = Output(Bool())
   val blockedByOccupied = Output(Bool())
+  val acceptedEmpty = Output(Bool())
+  val replacedOnClear = Output(Bool())
+  val blockedByReplaceDisabled = Output(Bool())
 }
 
 class LoadReplayReturnPipeW2Slot(
@@ -110,10 +114,14 @@ class LoadReplayReturnPipeW2Slot(
   val dataReg = RegInit(0.U(dataWidth.W))
   val wakeupRequiredReg = RegInit(false.B)
 
+  val active = io.enable && !io.flush
   val targetValid = io.writeTargetIsAgu ^ io.writeTargetIsLda
-  val accepted = io.enable && !io.flush && !io.clear && io.writeValid && targetValid && !occupiedReg
+  val writeCandidate = active && io.writeValid && targetValid
+  val acceptedEmpty = writeCandidate && !io.clear && !occupiedReg
+  val replacedOnClear = writeCandidate && io.clear && io.replaceOnClear && occupiedReg
+  val accepted = acceptedEmpty || replacedOnClear
 
-  when(io.flush || io.clear) {
+  when(io.flush) {
     occupiedReg := false.B
     targetIsAguReg := false.B
     targetIsLdaReg := false.B
@@ -145,6 +153,22 @@ class LoadReplayReturnPipeW2Slot(
     dstReg := io.writeDst
     dataReg := io.writeData
     wakeupRequiredReg := io.writeWakeupRequired
+  }.elsewhen(io.clear) {
+    occupiedReg := false.B
+    targetIsAguReg := false.B
+    targetIsLdaReg := false.B
+    pipeIndexReg := 0.U
+    loadToUsePipeIndexReg := 0.U
+    bidReg := ROBID.disabled(idEntries)
+    gidReg := ROBID.disabled(idEntries)
+    ridReg := ROBID.disabled(idEntries)
+    loadLsIdReg := ROBID.disabled(idEntries)
+    pcReg := 0.U
+    addrReg := 0.U
+    sizeReg := 0.U
+    dstReg := LoadReplayDestination.none(archRegWidth, physRegWidth)
+    dataReg := 0.U
+    wakeupRequiredReg := false.B
   }
 
   io.accepted := accepted
@@ -166,8 +190,12 @@ class LoadReplayReturnPipeW2Slot(
   io.entryWakeupRequired := wakeupRequiredReg
   io.blockedByDisabled := !io.enable && io.writeValid
   io.blockedByFlush := io.enable && io.flush && io.writeValid
-  io.blockedByClear := io.enable && !io.flush && io.clear && io.writeValid
-  io.blockedByNoWrite := io.enable && !io.flush && !io.clear && !io.writeValid
-  io.blockedByInvalidTarget := io.enable && !io.flush && !io.clear && io.writeValid && !targetValid
-  io.blockedByOccupied := io.enable && !io.flush && !io.clear && io.writeValid && targetValid && occupiedReg
+  io.blockedByClear := active && io.clear && io.writeValid && !replacedOnClear
+  io.blockedByNoWrite := active && !io.clear && !io.writeValid
+  io.blockedByInvalidTarget := active && !io.clear && io.writeValid && !targetValid
+  io.blockedByOccupied := active && !io.clear && io.writeValid && targetValid && occupiedReg
+  io.acceptedEmpty := acceptedEmpty
+  io.replacedOnClear := replacedOnClear
+  io.blockedByReplaceDisabled :=
+    active && io.clear && io.writeValid && targetValid && occupiedReg && !io.replaceOnClear
 }

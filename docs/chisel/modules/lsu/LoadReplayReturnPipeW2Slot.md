@@ -38,9 +38,11 @@ R333 adds the W2 payload state boundary without enabling downstream W2 side
 effects. R334 wires clear from `LoadReplayReturnPipeW2CompletionCandidate`,
 and R335 feeds that completion from `LoadReplayReturnPipeW2SideEffectReady`
 while R336 names the resolve sink, R337 names the writeback sink, and R338
-names the wakeup sink; all stay live-disabled. The reduced top wires W1 advance
-readiness from W2 emptiness, so a future live W1 entry can move into W2 exactly
-once and then remain resident until W2 side-effect sinks can accept it.
+names the wakeup sink; all stay live-disabled. R354 adds an explicit
+`replaceOnClear` storage mode for the later model-compatible cycle where W2
+side effects clear the old entry and W1 refills W2 in the same cycle. The
+reduced top keeps that mode tied false, so W1 advance readiness still comes
+from W2 emptiness and fixture-visible replay behavior stays unchanged.
 
 ## Interface
 
@@ -49,6 +51,7 @@ once and then remain resident until W2 side-effect sinks can accept it.
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Clears the W2 slot and suppresses same-cycle writes. |
 | input | `clear` | Explicit lifecycle clear for a consumed W2 entry. Current top drives this from R334 W2 completion through the R335 W2 side-effect readiness join; R336 keeps resolve live-disabled, R337 keeps writeback live-disabled, and R338 keeps wakeup live-disabled. |
+| input | `replaceOnClear` | Enables the future same-cycle clear/refill storage mode. Current top ties this false. |
 | input | `writeValid` | W1-to-W2 advance pulse from `LoadReplayReturnPipeW1AdvanceCandidate`. |
 | input | `writeTargetIsAgu` / `writeTargetIsLda` | Mutually exclusive W2 pipe-family target. |
 | input | `writePipeIndex` | Selected return-pipe index carried from the W1 slot. |
@@ -57,32 +60,45 @@ once and then remain resident until W2 side-effect sinks can accept it.
 | input | `writePc` / `writeAddr` / `writeSize` / `writeData` | Returned-load scalar request/data fields. |
 | input | `writeDst` | Reduced destination sideband. |
 | input | `writeWakeupRequired` | Future issue-wakeup sideband. |
-| output | `accepted` | W2 slot is enabled, not flushing or clearing, has a valid exclusive target, and is empty. |
+| output | `accepted` | W2 slot accepted the incoming write, either as an empty-slot write or as a gated clear/refill replacement. |
 | output | `occupied` / `entryValid` | Registered W2 entry is resident. |
 | output | `entry*` | Registered target, pipe index, identity, request, destination, data, and wakeup sidebands. |
-| output | `blockedBy*` | Disabled, flush, clear, no-write, invalid-target, and occupied-slot blockers. |
+| output | `acceptedEmpty` | Write accepted into an empty slot with no same-cycle clear. |
+| output | `replacedOnClear` | Write accepted while `clear` consumes the previous resident slot. |
+| output | `blockedBy*` | Disabled, flush, clear, no-write, invalid-target, occupied-slot, and replace-disabled blockers. |
 
 ## Logic Design
 
 The W2 slot is a one-entry registered stage:
 
 ```text
+active = enable && !flush
 targetValid = writeTargetIsAgu XOR writeTargetIsLda
-accepted = enable && !flush && !clear && writeValid && targetValid && !occupied
+writeCandidate = active && writeValid && targetValid
 
-if flush || clear:
+acceptedEmpty = writeCandidate && !clear && !occupied
+replacedOnClear = writeCandidate && clear && replaceOnClear && occupied
+accepted = acceptedEmpty || replacedOnClear
+
+if flush:
   occupied = false
   entry = disabled payload
 else if accepted:
   occupied = true
   entry = write payload
+else if clear:
+  occupied = false
+  entry = disabled payload
 else:
   entry holds state
 ```
 
-Flush and clear have priority over same-cycle writes. A write with neither or
-both target bits asserted is rejected, preserving the invariant that each
-returned load belongs to exactly one LDA or AGU W2 pipe target.
+Flush has priority over same-cycle writes. Clear also has priority while
+`replaceOnClear=false`; when it is true, a clear plus valid resident slot and
+valid exclusive write target replaces the old W2 payload with the incoming W1
+payload. A write with neither or both target bits asserted is rejected,
+preserving the invariant that each returned load belongs to exactly one LDA or
+AGU W2 pipe target.
 
 ## Integration
 
@@ -92,6 +108,7 @@ returned load belongs to exactly one LDA or AGU W2 pipe target.
 - target-domain and selected pipe index come from the W1 advance candidate;
 - payload sidebands come from the R331 W1 slot entry outputs;
 - W1 advance `advanceEnable` is driven by `!W2Slot.occupied`;
+- `replaceOnClear` is tied false for R354;
 - `clear` comes from `LoadReplayReturnPipeW2CompletionCandidate.clearSlot`,
   which remains false while the R335/R336/R337/R338 W2 side-effect readiness path
   keeps at least one required sink not-ready;
@@ -108,7 +125,9 @@ issue-wakeup, or replay-row lifecycle side effects can consume returned loads.
 - W2 pipe-cycle timestamp storage.
 - W2 writeback, resolve publication, ready-table update, issue wakeup, and
   replay-row retirement.
-- W2 clear after all live side effects are accepted.
+- Live W2 clear after all side effects are accepted.
+- Promotion of `replaceOnClear` from false to the R351/R352/R353 live
+  clear/refill predicate.
 - Live enable for upstream E4-to-W1 advance.
 - Per-pipe first-free/multi-pipe W-stage occupancy.
 - Precise pipe-stage flush by ROB/LSID identity rather than top-level replay
@@ -124,9 +143,11 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCan
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1Slot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r333-replay-pipe-w2-slot-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r354-replay-pipe-w2-slot-replace-mode-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover scalar LDA capture, vector AGU capture, occupied-slot
 blocking, flush and clear priority, disabled/no-write/invalid-target blockers,
-payload preservation, and Chisel elaboration.
+payload preservation, disabled replacement, same-cycle replacement when
+`replaceOnClear` is enabled, flush priority over replacement, and Chisel
+elaboration.
