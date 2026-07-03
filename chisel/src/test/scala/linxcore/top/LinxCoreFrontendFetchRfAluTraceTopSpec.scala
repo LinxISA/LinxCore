@@ -677,6 +677,25 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.blockPendingMask.getWidth == 8)
   }
 
+  test("R364 replay W2 ROB completion diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqLretPipeW2ResolveArbiterInputCandidateValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ResolveArbiterInputResolveValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ResolveArbiterInputRidValue.getWidth == 3)
+    assert(io.reducedLoadReplayLiqLretPipeW2RobCompleteSourceSinkReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RobCompleteSourceCandidateValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RobCompleteSourceCompleteValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RobCompleteSourceCompleteRobValue.getWidth == 3)
+    assert(io.reducedLoadReplayLiqLretPipeW2RobCompleteSourceBlockedByExecute.getWidth == 1)
+    assert(io.robCompleteArbiterSelectedExecute.getWidth == 1)
+    assert(io.robCompleteArbiterSelectedReplay.getWidth == 1)
+    assert(io.robCompleteArbiterReplayBlockedByExecute.getWidth == 1)
+  }
+
   test("LinxCoreFrontendFetchRfAluTraceTop elaborates source, frontend, rename, RF, issue, ROB, and ALU execute") {
     val sv = ChiselStage.emitSystemVerilog(
       new LinxCoreFrontendFetchRfAluTraceTop(CoreParams(robEntries = 8, commitWidth = 2), mapQDepth = 8)
@@ -986,6 +1005,10 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ResolveFirePayloadFireValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ResolveFirePayloadBidValue"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ResolveFirePayloadInvalidPayloadWithoutFire"))
+    assert(sv.contains("module LoadReplayReturnPipeW2RobCompleteSource"))
+    assert(sv.contains("module ReducedRobCompletionArbiter"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RobCompleteSourceCompleteValid"))
+    assert(sv.contains("io_robCompleteArbiterSelectedReplay"))
     assert(sv.contains("module LoadReplayReturnPipeW2WritebackFirePayload"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2WritebackFirePayloadFireValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2WritebackFirePayloadDstPhysTag"))

@@ -59,6 +59,8 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectFireVector.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveFirePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveArbiterInput.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RobCompleteSource.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/backend/ReducedRobCompletionArbiter.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackFirePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackArbiterInput.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupFirePayload.scala`
@@ -1066,6 +1068,12 @@ under the same namespace. These signals observe the R347 fire payload at the
 future ROB/PE resolve-arbiter boundary, but `liveEnable` comes from the R357
 live-control owner whose request remains false, so no replay load can publish
 a live resolve side effect.
+R364 adds `reducedLoadReplayLiqLretPipeW2RobCompleteSource*` diagnostics and
+`robCompleteArbiter*` diagnostics. These signals name the dormant replay W2
+ROB completion-port source, feed its structural port readiness back to the W2
+resolve sink, and merge execute/replay completion before `DecodeRenameROBPath`
+with execute priority. Because R363 still ties the atomic live request off,
+the replay source cannot complete a row in the integrated top.
 R348 adds `reducedLoadReplayLiqLretPipeW2WritebackFirePayload*` diagnostics
 under the same namespace. These signals join the R346 writeback fire pulse
 with the R341 writeback request payload before future replay RF mutation, but
@@ -1327,6 +1335,13 @@ overlay. Most state remains in child modules:
   resolve-arbiter input boundary. It observes the R347 fire payload and keeps
   the future ROB/PE resolve side effect gated off behind the shared R357 live
   enable.
+- `LoadReplayReturnPipeW2RobCompleteSource`: optional R364 dormant W2 ROB
+  completion source. It turns the live-gated resolve RID into a replay
+  completion-port request, reports execute-port pressure, and leaves
+  `completeRowValid` false until a replay load commit-row fill owner exists.
+- `ReducedRobCompletionArbiter`: R364 execute-priority completion-port arbiter.
+  It merges ordinary execute completion with the dormant replay-W2 completion
+  source before the path's marker-completion arbitration.
 - `LoadReplayReturnPipeW2WritebackRequest`: optional R341 dormant W2 reduced
   RF writeback payload owner. It validates W2 target, BID/GID/RID identity,
   and scalar GPR destination before future replay RF mutation.
@@ -1775,6 +1790,14 @@ resolve fire payload. It names the future replay side of the ROB/PE resolve
 owner, reports disabled/flush/no-payload/live-disabled blockers, and keeps
 `liveEnable` driven by the disabled R357 live-control request so no replay load
 can mutate resolve state or publish branch/recovery side effects.
+R364 inserts `LoadReplayReturnPipeW2RobCompleteSource` behind that resolve
+arbiter input and inserts `ReducedRobCompletionArbiter` before
+`DecodeRenameROBPath.complete*`. The replay source feeds the resolve sink's
+structural `sinkReady` from execute completion-port availability and produces a
+completion RID only from a live-gated resolve. `completeRowValid` is false, so
+the ROB row image remains the allocation/rename-update row until a later replay
+load commit-row fill owner is added. With R363 `requestEnable=false`, this path
+is still dormant in generated RTL/QEMU gates.
 R358 inserts `LoadReplayReturnPipeW2WritebackArbiterInput` behind the R348
 writeback fire payload. It names the future replay side of the scalar RF
 writeback arbiter, reports disabled/flush/no-payload/live-disabled blockers,
