@@ -12,6 +12,7 @@
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTloadCompletionCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTimingStatsCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-FINAL-METADATA-001`
 
@@ -42,7 +43,7 @@ support without inventing recovery side effects today.
 | output | `loadBranchResolveCalled` | Diagnostic call-point marker for `IEX::loadBranchResolve(inst)`. |
 | output | `loadBranchResolveSideEffectValid` | Always false for the current model because `loadBranchResolve` is a no-op. |
 | output | `pipeCycleSidebandValid` | Timing/stat sidebands would be copied for this returned clone. |
-| output | `readyForPipeInsert` | Alias for `candidateValid`; feeds the R322 E4 insert-shaped diagnostic. |
+| output | `readyForPipeInsert` | Alias for `candidateValid`; feeds the R327 timing/stat sideband diagnostic. |
 | output | `blockedBy*` | Disabled, flush, and missing post-TLOAD completion diagnostics. |
 
 ## Logic Design
@@ -64,10 +65,10 @@ or write an E4 pipe.
 
 `LinxCoreFrontendFetchRfAluTraceTop` wires R326 between
 `LoadReplayReturnTloadCompletionCandidate` and
-`LoadReplayReturnIexPipeInsertCandidate`:
+`LoadReplayReturnTimingStatsCandidate`:
 
 - `tloadCompletionValid` comes from R325 `readyForPipeInsert`;
-- R322 consumes R326 `readyForPipeInsert`;
+- R327 consumes R326 `readyForPipeInsert`;
 - top-level diagnostics expose the load-return marker, branch-resolve call
   point, no-op side-effect flag, pipe-cycle sideband validity, and blockers.
 
@@ -79,6 +80,7 @@ setMemData admission
   -> lane-completion permit
   -> TLOAD sub-instruction completion permit
   -> final load-return metadata
+  -> timing/stat sideband intent
   -> IEX E4 insert-shaped candidate
 ```
 
@@ -98,6 +100,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnFinalMetadataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTloadCompletionCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTimingStatsCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r326-replay-final-metadata-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
