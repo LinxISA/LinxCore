@@ -14,6 +14,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1AdvanceCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearIntent.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AdvanceControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-REFILL-READY-001`
 
 ## Purpose
@@ -27,10 +28,12 @@ empty. That is safe while W2 live clear is disabled, but LinxCoreModel
 future readiness predicate that can admit W1 into W2 on the same cycle that W2
 live clear retires the old entry.
 
-This module is diagnostic only. It compares the current empty-only advance
-gate with the future `empty or same-cycle live clear` predicate, exposes the
-same-cycle refill eligibility created by R351 clear intent, and keeps the
-actual W1 advance input unchanged.
+This module is diagnostic evidence for R355
+`LoadReplayReturnPipeW2AdvanceControl`. It compares the current empty-only
+advance gate with the future `empty or same-cycle live clear` predicate and
+exposes the same-cycle refill eligibility created by R351 clear intent. R355
+now receives `futureAdvanceReady`, but the top keeps live promotion disabled,
+so the actual W1 advance input remains empty-only.
 
 ## Interface
 
@@ -76,14 +79,16 @@ refilled by W1.
 - compact diagnostics are exposed under
   `reducedLoadReplayLiqLretPipeW2RefillReady*`.
 
-The integration remains observational. It does not feed
+The integration feeds R355 `LoadReplayReturnPipeW2AdvanceControl` as dormant
+future-readiness evidence. Because R355 ties `livePromotionEnable=false` in
+the top, this module still does not change
 `LoadReplayReturnPipeW1AdvanceCandidate.advanceEnable`, W2 slot clear, W2 side
 effects, replay-row lifecycle, or ROB/RF/ready-table mutation.
 
 ## Deferred Owners
 
-- Promote `futureAdvanceReady` into the W1-to-W2 advance gate after live W2
-  clear is implemented and verified.
+- Promote R355 `livePromotionEnable` after live W2 clear is implemented and
+  verified so `futureAdvanceReady` selects the W1-to-W2 advance gate.
 - Update W2 slot storage so a same-cycle clear/refill can replace the old W2
   entry with W1 payload, matching LinxCoreModel `move()`.
 - Replay-row lifecycle retirement tied to the same consumed W2 entry.

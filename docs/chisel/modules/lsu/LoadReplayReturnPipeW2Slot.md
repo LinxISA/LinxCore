@@ -41,8 +41,10 @@ while R336 names the resolve sink, R337 names the writeback sink, and R338
 names the wakeup sink; all stay live-disabled. R354 adds an explicit
 `replaceOnClear` storage mode for the later model-compatible cycle where W2
 side effects clear the old entry and W1 refills W2 in the same cycle. The
-reduced top keeps that mode tied false, so W1 advance readiness still comes
-from W2 emptiness and fixture-visible replay behavior stays unchanged.
+reduced top now drives that mode through R355
+`LoadReplayReturnPipeW2AdvanceControl`, whose live-promotion input remains
+tied false. W1 advance readiness still comes from W2 emptiness and
+fixture-visible replay behavior stays unchanged.
 
 ## Interface
 
@@ -51,7 +53,7 @@ from W2 emptiness and fixture-visible replay behavior stays unchanged.
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Clears the W2 slot and suppresses same-cycle writes. |
 | input | `clear` | Explicit lifecycle clear for a consumed W2 entry. Current top drives this from R334 W2 completion through the R335 W2 side-effect readiness join; R336 keeps resolve live-disabled, R337 keeps writeback live-disabled, and R338 keeps wakeup live-disabled. |
-| input | `replaceOnClear` | Enables the future same-cycle clear/refill storage mode. Current top ties this false. |
+| input | `replaceOnClear` | Enables the future same-cycle clear/refill storage mode. Current top drives this from R355 `LoadReplayReturnPipeW2AdvanceControl`, whose live-promotion input keeps it false. |
 | input | `writeValid` | W1-to-W2 advance pulse from `LoadReplayReturnPipeW1AdvanceCandidate`. |
 | input | `writeTargetIsAgu` / `writeTargetIsLda` | Mutually exclusive W2 pipe-family target. |
 | input | `writePipeIndex` | Selected return-pipe index carried from the W1 slot. |
@@ -107,8 +109,12 @@ AGU W2 pipe target.
 - `writeValid` comes from W1 advance `advanceValid`;
 - target-domain and selected pipe index come from the W1 advance candidate;
 - payload sidebands come from the R331 W1 slot entry outputs;
-- W1 advance `advanceEnable` is driven by `!W2Slot.occupied`;
-- `replaceOnClear` is tied false for R354;
+- W1 advance `advanceEnable` is driven by R355
+  `LoadReplayReturnPipeW2AdvanceControl`, which currently selects
+  `!W2Slot.occupied`;
+- `replaceOnClear` is driven by R355
+  `LoadReplayReturnPipeW2AdvanceControl`, whose live-promotion input is tied
+  false;
 - `clear` comes from `LoadReplayReturnPipeW2CompletionCandidate.clearSlot`,
   which remains false while the R335/R336/R337/R338 W2 side-effect readiness path
   keeps at least one required sink not-ready;
@@ -126,8 +132,8 @@ issue-wakeup, or replay-row lifecycle side effects can consume returned loads.
 - W2 writeback, resolve publication, ready-table update, issue wakeup, and
   replay-row retirement.
 - Live W2 clear after all side effects are accepted.
-- Promotion of `replaceOnClear` from false to the R351/R352/R353 live
-  clear/refill predicate.
+- Promotion of R355 `livePromotionEnable` from false so `replaceOnClear` can
+  consume the R351/R352/R353 live clear/refill predicate.
 - Live enable for upstream E4-to-W1 advance.
 - Per-pipe first-free/multi-pipe W-stage occupancy.
 - Precise pipe-stage flush by ROB/LSID identity rather than top-level replay

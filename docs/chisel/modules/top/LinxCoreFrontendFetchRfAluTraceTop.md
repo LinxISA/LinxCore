@@ -62,6 +62,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearIntent.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RefillReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SlotReplacePlan.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AdvanceControl.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`
   - `model/LinxCoreModel/model/ModelCommon/bus/FetchReqBus.h`
@@ -1065,6 +1066,10 @@ future empty-or-live-clear write-accept predicate, but remain observational and
 do not feed W1 advance, W2 clear, or W2 slot storage. R354 adds the W2 slot's
 explicit `replaceOnClear` storage mode but ties it false in the top until live
 W2 clear/refill promotion is ready.
+R355 adds `reducedLoadReplayLiqLretPipeW2AdvanceControl*` diagnostics under
+the same namespace. The control owner now drives the W1 advance enable and W2
+slot `replaceOnClear` inputs, but its top-level `livePromotionEnable` input is
+tied false, so it still selects the current empty-only advance gate.
 
 | output | `reducedLoadReplayResolveQueue*` | mixed | diagnostic | R285-R289 opt-in replay-LIQ ResolveQ diagnostics. `lhqRecord` from `ReducedLoadReplayLiqAllocPath` can append to `LoadResolveQueue`; the top exposes push, delayed clear, commit-window retire watermark, scalar-redirect precise flush identity, retire/prune mask/count, occupancy, valid-mask, and head conflict-row sidecars. Because launch remains disabled, the current fixture observes storage, retire, and recovery-prune wiring only; live MDB/recovery publication is deferred. |
 | output | `reducedMdbConflict*` | mixed | diagnostic | R290 opt-in replay-LIQ MDB conflict diagnostics. The top feeds `MDBConflictDetect` with the accepted reduced STQ insert request, replay-LIQ resident rows, and ResolveQ conflict rows, then exposes store-valid, active/ResolveQ candidate masks, wait-store mask/count, selected source/index/ordinal, selected load/store BID and LSID identity, plus inner/nuke classification. These signals are diagnostic only; they do not yet drive recovery flush. |
@@ -1314,6 +1319,10 @@ overlay. Most state remains in child modules:
   slot-replacement plan. It observes the W1 write candidate, R351 clear
   intent, R352 future readiness, and current W2 slot acceptance before future
   same-cycle clear/refill storage mutation.
+- `LoadReplayReturnPipeW2AdvanceControl`: optional R355 W2 promotion-control
+  owner. It selects current empty-only W1 advance versus future R352/R353
+  same-cycle clear/refill readiness and drives W2 `replaceOnClear`, while the
+  top keeps live promotion disabled.
 - `LoadReplayReturnPublishReady`: optional R309 diagnostic join point between
   extracted data-valid and LRET/mem-wakeup consumer readiness. It does not feed
   launch, LRET, or wakeup sinks.
@@ -1722,6 +1731,12 @@ R354 updates `LoadReplayReturnPipeW2Slot` with an explicit same-cycle
 clear/refill storage mode and keeps `replaceOnClear=false` in the top, so the
 new storage behavior is verified in module tests but cannot change live
 top-level replay behavior yet.
+R355 inserts `LoadReplayReturnPipeW2AdvanceControl` after R352/R353 and routes
+both `LoadReplayReturnPipeW1AdvanceCandidate.advanceEnable` and
+`LoadReplayReturnPipeW2Slot.replaceOnClear` through it. The top ties
+`livePromotionEnable=false`, so the selected advance rule remains
+`!W2Slot.occupied` and replacement remains disabled until live W2 clear and
+replay-row lifecycle mutation are promoted together.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

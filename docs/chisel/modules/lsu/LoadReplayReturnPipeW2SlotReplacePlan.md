@@ -14,6 +14,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearIntent.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RefillReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AdvanceControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SLOT-REPLACE-PLAN-001`
 
 ## Purpose
@@ -29,6 +30,9 @@ over same-cycle writes and accepts writes only when W2 was already empty. This
 module does not change that storage. It observes the current slot acceptance
 and reports where a future model-compatible storage owner would accept a write
 from W1 because W2 is either empty or being live-cleared in the same cycle.
+R355 consumes the acyclic future acceptance outputs from this plan in
+`LoadReplayReturnPipeW2AdvanceControl`, but the top keeps live promotion
+disabled.
 
 ## Interface
 
@@ -92,14 +96,15 @@ replacement.
 The integration remains observational. It does not feed
 `LoadReplayReturnPipeW1AdvanceCandidate.advanceEnable`, W2 slot `writeValid`,
 W2 slot `clear`, W2 registered storage, W2 side effects, replay-row lifecycle,
-or ROB/RF/ready-table mutation.
+or ROB/RF/ready-table mutation directly. R355 is the sole owner that now
+routes future readiness toward W1 advance and `replaceOnClear`; its
+`livePromotionEnable` input is tied false in the current top.
 
 ## Deferred Owners
 
-- Promote `LoadReplayReturnPipeW2Slot.replaceOnClear` from the current false
-  top-level tie-off to the R351/R352/R353 live clear/refill predicate.
-- Promote R352 `futureAdvanceReady` into the W1-to-W2 advance gate only after
-  the storage owner can accept same-cycle replacement.
+- Promote R355 `livePromotionEnable` so
+  `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future readiness
+  and drives `LoadReplayReturnPipeW2Slot.replaceOnClear`.
 - Tie replay-row lifecycle retirement to the consumed W2 entry.
 
 ## Verification
