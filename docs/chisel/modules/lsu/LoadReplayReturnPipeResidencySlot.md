@@ -14,6 +14,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyAdvanceCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-RESIDENCY-SLOT-001`
 
@@ -37,7 +38,7 @@ false, so this slot remains dormant in the generated cross-check fixture.
 R330 consumes this slot's occupancy, target, and pipe-index diagnostics in
 `LoadReplayReturnPipeResidencyAdvanceCandidate`. That candidate now owns the
 slot `clear` input, but the current top keeps its `advanceEnable` false until a
-W1/W2 pipe-stage owner exists.
+later packet enables the R331 W1 slot and its downstream W2 clear path.
 
 ## Interface
 
@@ -92,6 +93,8 @@ model contract that `setMemData` chooses exactly one pipe family before writing
   `LoadReplayReturnIexPipeInsertCandidate`;
 - `clear` comes from R330 `LoadReplayReturnPipeResidencyAdvanceCandidate`,
   which is currently tied live-disabled;
+- R331 wires the slot entry payload into `LoadReplayReturnPipeW1Slot` for the
+  future E4-to-W1 handoff;
 - the top exposes accepted, occupied, target, pipe-index, and blocker
   diagnostics only.
 
@@ -102,7 +105,7 @@ state owner that later packets can connect to an LDA/AGU pipe pipeline.
 ## Deferred Owners
 
 - Multi-entry and first-free AGU/LDA pipe-family residency state.
-- Live E4-to-W1-to-W2 pipe storage and advance lifecycle.
+- Live E4-to-W1 enable and W1-to-W2 pipe storage/advance lifecycle.
 - Real vector machine classification in the reduced top.
 - RF/writeback, ready-table update, issue wakeup, LRET FIFO drain, and replay
   row retirement after pipe residency.
@@ -116,6 +119,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencySlot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyAdvanceCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1Slot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop

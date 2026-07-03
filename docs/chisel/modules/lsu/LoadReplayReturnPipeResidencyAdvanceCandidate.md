@@ -14,6 +14,7 @@
     - `AGUPipe::flush`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencySlot.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-RESIDENCY-ADVANCE-001`
 
@@ -29,7 +30,7 @@ residency slot. It observes whether the slot is occupied, checks that the slot
 has exactly one target pipe family, and emits a future `clearSlot` request only
 when an explicit `advanceEnable` input is true. The integrated reduced top ties
 `advanceEnable` false, so the slot cannot be cleared through this path until a
-later W1 pipe lifecycle owner exists.
+later packet enables the R331 W1 owner and gives it a downstream W2 clear path.
 
 ## Interface
 
@@ -57,9 +58,9 @@ advanceValid = candidateValid && targetValid && advanceEnable
 clearSlot = advanceValid
 ```
 
-The module intentionally does not model W1/W2 pipe storage yet. It only creates
-the clear point that later W1 ownership can enable after it has a place to
-receive the resident E4 payload.
+The module intentionally does not model W-stage storage itself. It creates the
+clear point that R331's W1 slot can consume once a later packet enables live
+advance and provides a downstream W2 clear owner.
 
 ## Integration
 
@@ -68,6 +69,7 @@ receive the resident E4 payload.
 
 - `slotOccupied`, target-domain, and pipe-index inputs come from the R329 slot;
 - `clearSlot` feeds the R329 slot's `clear` input;
+- `advanceValid`, target, and pipe-index outputs feed the dormant R331 W1 slot;
 - `advanceEnable` is tied false in the current reduced top;
 - top-level diagnostics expose candidate, advance, clear, target, pipe-index,
   and blockers.
@@ -77,7 +79,7 @@ the generated fixture observes the same replay behavior as before this packet.
 
 ## Deferred Owners
 
-- W1/W2 returned-load pipe stage storage.
+- Live W1-to-W2 returned-load pipe stage advance/storage.
 - Live enable for E4-to-W1 advance.
 - Pipe-stage flush by precise ROB/LSID identity rather than top-level replay
   flush only.
