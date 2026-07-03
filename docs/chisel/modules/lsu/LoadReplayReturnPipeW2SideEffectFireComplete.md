@@ -56,7 +56,7 @@ post-fire completeness predicate needed before a later live clear path.
 | output | `unexpectedPayloadFireMask` | Downstream payloads that validated without a fired sink. |
 | output | `payloadMatchesFire` | Payload-valid mask exactly equals the fire mask. |
 | output | `fireComplete` | Candidate has at least one fired sink and payload mask equals fire mask. |
-| output | `futureClearEligible` | Alias of `fireComplete` for the future clear owner. Current top does not consume it. |
+| output | `futureClearEligible` | Alias of `fireComplete` for the future clear owner. R351 consumes it only as diagnostic evidence. |
 | output | blocker signals | Disabled, flush, missing fire vector, empty fire mask, and payload mismatch diagnostics. |
 | output | `invalidFireWithoutPayload` | At least one fired sink lacks a validated fire payload. |
 | output | `invalidPayloadWithoutFire` | At least one fire payload validated without the corresponding fired sink or without any fire vector. |
@@ -73,10 +73,10 @@ payloadMatchesFire = payloadFireMask == fireMask
 fireComplete = candidateValid && fireMask.nonEmpty && payloadMatchesFire
 ```
 
-`futureClearEligible` intentionally mirrors `fireComplete` but remains a
-diagnostic. A later live owner must still decide how this post-fire predicate
-combines with W2 slot state, pre-completion sink readiness, and replay-row
-lifecycle retirement.
+`futureClearEligible` intentionally mirrors `fireComplete` and remains
+diagnostic. R351 combines it with W2 slot state and pre-completion sink
+readiness in `LoadReplayReturnPipeW2ClearIntent`, but that owner still keeps
+live W2 clear and replay-row lifecycle retirement disabled.
 
 ## Integration
 
@@ -90,6 +90,8 @@ fire-payload modules:
   `LoadReplayReturnPipeW2WakeupFirePayload`;
 - compact diagnostics are exposed under
   `reducedLoadReplayLiqLretPipeW2SideEffectFireComplete*`.
+- R351 observes `futureClearEligible` through
+  `LoadReplayReturnPipeW2ClearIntent` but keeps that path live-disabled.
 
 The integration remains observational. It does not feed W2 readiness, W2 slot
 clear, ROB/PE resolve, replay RF writeback, ready-table mutation, issue wakeup,
