@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2Slot, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWritebackCandidate, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2Slot, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWritebackCandidate, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -760,6 +760,14 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2SideEffectBlockedByResolve = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SideEffectBlockedByWriteback = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SideEffectBlockedByWakeup = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ResolveSinkCandidateValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ResolveSinkArmed = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ResolveSinkReady = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ResolveSinkBlockedByDisabled = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ResolveSinkBlockedByFlush = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ResolveSinkBlockedByNoResolve = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ResolveSinkBlockedBySink = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2ResolveSinkBlockedByLiveDisabled = Output(Bool())
   val reducedLoadReplayLiqWritebackCandidateValid = Output(Bool())
   val reducedLoadReplayLiqWritebackValid = Output(Bool())
   val reducedLoadReplayLiqWritebackTag = Output(UInt(p.physRegWidth.W))
@@ -1334,6 +1342,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     ))
   val reducedReplayLiqReturnPipeW2SideEffectReady =
     Module(new LoadReplayReturnPipeW2SideEffectReady)
+  val reducedReplayLiqReturnPipeW2ResolveSinkReady =
+    Module(new LoadReplayReturnPipeW2ResolveSinkReady)
   val reducedReplayLiqReturnWritebackCandidate = Module(new LoadReplayReturnWritebackCandidate(
     dataWidth = p.immWidth,
     archRegWidth = p.archRegWidth,
@@ -2602,13 +2612,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2CompletionCandidate.io.resolveRequired
   reducedReplayLiqReturnPipeW2SideEffectReady.io.resolveRequired :=
     reducedReplayLiqReturnPipeW2CompletionCandidate.io.resolveRequired
-  reducedReplayLiqReturnPipeW2SideEffectReady.io.resolveSinkReady := false.B
+  reducedReplayLiqReturnPipeW2SideEffectReady.io.resolveSinkReady :=
+    reducedReplayLiqReturnPipeW2ResolveSinkReady.io.resolveSinkReady
   reducedReplayLiqReturnPipeW2SideEffectReady.io.writebackRequired :=
     reducedReplayLiqReturnPipeW2CompletionCandidate.io.writebackRequired
   reducedReplayLiqReturnPipeW2SideEffectReady.io.writebackSinkReady := false.B
   reducedReplayLiqReturnPipeW2SideEffectReady.io.wakeupRequired :=
     reducedReplayLiqReturnPipeW2CompletionCandidate.io.wakeupRequired
   reducedReplayLiqReturnPipeW2SideEffectReady.io.wakeupSinkReady := false.B
+  reducedReplayLiqReturnPipeW2ResolveSinkReady.io.enable := reducedLoadReplayLiqAllocEnabled
+  reducedReplayLiqReturnPipeW2ResolveSinkReady.io.flush := reducedStoreFlush
+  reducedReplayLiqReturnPipeW2ResolveSinkReady.io.liveEnable := false.B
+  reducedReplayLiqReturnPipeW2ResolveSinkReady.io.resolveRequired :=
+    reducedReplayLiqReturnPipeW2CompletionCandidate.io.resolveRequired
+  reducedReplayLiqReturnPipeW2ResolveSinkReady.io.sinkReady := true.B
   rf.io.writeValid := rfWritebackArbiter.io.writeValid
   rf.io.writeTag := rfWritebackArbiter.io.writeTag
   rf.io.writeData := rfWritebackArbiter.io.writeData
@@ -3705,6 +3722,22 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2SideEffectReady.io.blockedByWriteback
   io.reducedLoadReplayLiqLretPipeW2SideEffectBlockedByWakeup :=
     reducedReplayLiqReturnPipeW2SideEffectReady.io.blockedByWakeup
+  io.reducedLoadReplayLiqLretPipeW2ResolveSinkCandidateValid :=
+    reducedReplayLiqReturnPipeW2ResolveSinkReady.io.candidateValid
+  io.reducedLoadReplayLiqLretPipeW2ResolveSinkArmed :=
+    reducedReplayLiqReturnPipeW2ResolveSinkReady.io.resolveArmed
+  io.reducedLoadReplayLiqLretPipeW2ResolveSinkReady :=
+    reducedReplayLiqReturnPipeW2ResolveSinkReady.io.resolveSinkReady
+  io.reducedLoadReplayLiqLretPipeW2ResolveSinkBlockedByDisabled :=
+    reducedReplayLiqReturnPipeW2ResolveSinkReady.io.blockedByDisabled
+  io.reducedLoadReplayLiqLretPipeW2ResolveSinkBlockedByFlush :=
+    reducedReplayLiqReturnPipeW2ResolveSinkReady.io.blockedByFlush
+  io.reducedLoadReplayLiqLretPipeW2ResolveSinkBlockedByNoResolve :=
+    reducedReplayLiqReturnPipeW2ResolveSinkReady.io.blockedByNoResolve
+  io.reducedLoadReplayLiqLretPipeW2ResolveSinkBlockedBySink :=
+    reducedReplayLiqReturnPipeW2ResolveSinkReady.io.blockedBySink
+  io.reducedLoadReplayLiqLretPipeW2ResolveSinkBlockedByLiveDisabled :=
+    reducedReplayLiqReturnPipeW2ResolveSinkReady.io.blockedByLiveDisabled
   io.reducedLoadReplayLiqWritebackCandidateValid :=
     reducedReplayLiqReturnWritebackCandidate.io.candidateValid
   io.reducedLoadReplayLiqWritebackValid :=

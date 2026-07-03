@@ -21,6 +21,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1AdvanceCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SLOT-001`
 
@@ -35,9 +36,10 @@ local scalar wakeup.
 R333 adds the W2 payload state boundary without enabling downstream W2 side
 effects. R334 wires clear from `LoadReplayReturnPipeW2CompletionCandidate`,
 and R335 feeds that completion from `LoadReplayReturnPipeW2SideEffectReady`
-with all W2 sinks still held not-ready. The reduced top wires W1 advance
-readiness from W2 emptiness, so a future live W1 entry can move into W2 exactly
-once and then remain resident until W2 side-effect sinks can accept it.
+while R336 names the resolve sink and keeps it live-disabled. The reduced top
+wires W1 advance readiness from W2 emptiness, so a future live W1 entry can
+move into W2 exactly once and then remain resident until W2 side-effect sinks
+can accept it.
 
 ## Interface
 
@@ -45,7 +47,7 @@ once and then remain resident until W2 side-effect sinks can accept it.
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Clears the W2 slot and suppresses same-cycle writes. |
-| input | `clear` | Explicit lifecycle clear for a consumed W2 entry. Current top drives this from R334 W2 completion through the R335 W2 side-effect readiness join, whose sinks are still held not-ready. |
+| input | `clear` | Explicit lifecycle clear for a consumed W2 entry. Current top drives this from R334 W2 completion through the R335 W2 side-effect readiness join; R336 keeps resolve live-disabled and writeback/wakeup remain not-ready. |
 | input | `writeValid` | W1-to-W2 advance pulse from `LoadReplayReturnPipeW1AdvanceCandidate`. |
 | input | `writeTargetIsAgu` / `writeTargetIsLda` | Mutually exclusive W2 pipe-family target. |
 | input | `writePipeIndex` | Selected return-pipe index carried from the W1 slot. |
@@ -90,8 +92,8 @@ returned load belongs to exactly one LDA or AGU W2 pipe target.
 - payload sidebands come from the R331 W1 slot entry outputs;
 - W1 advance `advanceEnable` is driven by `!W2Slot.occupied`;
 - `clear` comes from `LoadReplayReturnPipeW2CompletionCandidate.clearSlot`,
-  which remains false while the R335 W2 side-effect readiness join keeps
-  resolve/writeback/wakeup sinks not-ready;
+  which remains false while the R335/R336 W2 side-effect readiness path keeps
+  at least one required sink not-ready;
 - top-level diagnostics expose accepted, occupied, target, pipe-index, and
   blocker signals.
 
