@@ -14,6 +14,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnSideEffectReady.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-COMPLETE-001`
@@ -38,7 +39,7 @@ the W2 slot clear pulse only on that completion.
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Suppresses completion diagnostics during a replay flush; the W2 slot owns registered flush clearing. |
-| input | `sideEffectsReady` | Future join of W2 resolve, RF writeback, and wakeup sink readiness. Current top feeds this from `LoadReplayReturnPipeW2SideEffectReady`; R336 names the resolve sink but keeps it live-disabled while writeback and wakeup remain tied low. |
+| input | `sideEffectsReady` | Future join of W2 resolve, RF writeback, and wakeup sink readiness. Current top feeds this from `LoadReplayReturnPipeW2SideEffectReady`; R336 names the resolve sink and R337 names the writeback sink, but both remain live-disabled while wakeup remains tied low. |
 | input | `slotOccupied` | Registered W2 slot contains an entry. |
 | input | `slotTargetIsAgu` / `slotTargetIsLda` | Mutually exclusive AGU/LDA W2 target carried by the slot. |
 | input | `slotPipeIndex` | Return-pipe index associated with the W2 entry. |
@@ -90,8 +91,10 @@ slot until that readiness join is true.
 - `sideEffectsReady` comes from `LoadReplayReturnPipeW2SideEffectReady` in
   R335. R336 feeds the resolve input from
   `LoadReplayReturnPipeW2ResolveSinkReady`, but that sink remains
-  live-disabled while writeback and wakeup are still tied low, so completion and
-  clear remain dormant;
+  live-disabled. R337 feeds the writeback input from
+  `LoadReplayReturnPipeW2WritebackSinkReady`, but that sink also remains
+  live-disabled while wakeup is still tied low, so completion and clear remain
+  dormant;
 - the W2 slot `clear` input now comes from this completion candidate instead
   of a literal false;
 - top-level diagnostics expose candidate, completion, resolve, writeback,
@@ -120,6 +123,7 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveSinkReady
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackSinkReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop

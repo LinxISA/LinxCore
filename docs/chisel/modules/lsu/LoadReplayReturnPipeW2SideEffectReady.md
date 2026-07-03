@@ -13,6 +13,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnSideEffectReady.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SIDE-EFFECT-READY-001`
@@ -30,8 +31,8 @@ not live yet.
 R335 makes that missing readiness contract explicit. The module reports when a
 legal W2 completion candidate could retire if every required side-effect sink
 were ready. R336 names the resolve sink but keeps it live-disabled, while
-writeback and wakeup readiness remain tied low, so W2 completion and W2-slot
-clear remain dormant.
+R337 names the writeback sink and keeps it live-disabled. Wakeup readiness
+remains tied low, so W2 completion and W2-slot clear remain dormant.
 
 ## Interface
 
@@ -42,7 +43,7 @@ clear remain dormant.
 | input | `resolveRequired` | Current candidate must publish resolve state. Legal W2 completions require this side effect. |
 | input | `resolveSinkReady` | Future resolve/ROB sink can accept the W2 completion. R336 feeds this from `LoadReplayReturnPipeW2ResolveSinkReady`, whose live enable is still tied low. |
 | input | `writebackRequired` | Current candidate has a GPR destination writeback. |
-| input | `writebackSinkReady` | Future replay RF writeback sink can accept the W2 data. Current top ties this low. |
+| input | `writebackSinkReady` | Future replay RF writeback sink can accept the W2 data. R337 feeds this from `LoadReplayReturnPipeW2WritebackSinkReady`, whose live enable is still tied low. |
 | input | `wakeupRequired` | Current candidate requires scalar/local wakeup. |
 | input | `wakeupSinkReady` | Future ready-table/issue-wakeup sink can accept the wakeup. Current top ties this low. |
 | output | `readyCandidateValid` | Candidate is present while replay-LIQ mode is enabled. |
@@ -87,7 +88,9 @@ completion.
   classifier;
 - resolve readiness comes from the R336
   `LoadReplayReturnPipeW2ResolveSinkReady` live-disabled boundary;
-- writeback and wakeup sink readiness are still tied low;
+- writeback readiness comes from the R337
+  `LoadReplayReturnPipeW2WritebackSinkReady` live-disabled boundary;
+- wakeup sink readiness is still tied low;
 - W2 completion consumes `sideEffectsReady` from this module rather than a
   literal `false.B`;
 - top-level diagnostics expose candidate, per-sink readiness, final readiness,
@@ -100,8 +103,8 @@ clear.
 
 ## Deferred Owners
 
-- Real resolve/ROB sink readiness and mutation.
-- Replay-side RF writeback sink readiness.
+- Real resolve/ROB sink mutation.
+- Replay-side RF writeback mutation.
 - Ready-table and issue-queue wakeup sink readiness.
 - Multi-destination and non-GPR W2 side-effect routing beyond the reduced
   classifier already exposed by `LoadReplayReturnPipeW2CompletionCandidate`.
@@ -115,6 +118,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveSinkReady
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackSinkReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
