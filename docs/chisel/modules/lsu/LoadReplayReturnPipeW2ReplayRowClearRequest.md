@@ -26,10 +26,12 @@ the existing ResolveQ delayed clear path as the priority request, exposes a
 future replay-W2 lifecycle clear arm, and prevents that lifecycle arm from
 mutating LIQ until row-fill commit enable is also true.
 
-The integrated top still ties `lifecycleClearRequestEnable` false. Therefore
-R369 does not enable replay-row lifecycle mutation, replay ROB row fill, W2
-clear/refill promotion, RF writeback, ROB/PE resolve mutation, ready-table
-wakeup, or issue wakeup.
+R370 drives `lifecycleClearRequestEnable` from
+`LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl`, whose upstream
+atomic live request remains disabled in the integrated top. Therefore this
+selector still does not enable replay-row lifecycle mutation, replay ROB row
+fill, W2 clear/refill promotion, RF writeback, ROB/PE resolve mutation,
+ready-table wakeup, or issue wakeup.
 
 ## Interface
 
@@ -39,7 +41,7 @@ wakeup, or issue wakeup.
 | input | `flush` | Suppresses all clear candidates. |
 | input | `existingClearValid` | Existing ResolveQ delayed clear request. |
 | input | `existingClearIndex` | LIQ row selected by the existing clear request. |
-| input | `lifecycleClearRequestEnable` | Future live arm for replay-W2 lifecycle clear. Current top ties it false. |
+| input | `lifecycleClearRequestEnable` | Future live arm for replay-W2 lifecycle clear. R370 now owns this request and keeps it dormant through the disabled atomic live request. |
 | input | `lifecycleClearCommitEnable` | Row-fill owner commit gate. Lifecycle clear can only drive LIQ when this is true. |
 | input | `lifecycleRowClearReady` | R368 proof that exactly one resolved LIQ row matches the resident W2 slot. |
 | input | `lifecycleRowClearIndex` | R368 resolved LIQ row index. |
@@ -87,7 +89,8 @@ consume the ResolveQ delayed-clear pending bit.
 
 ## Deferred Owners
 
-- Live `lifecycleClearRequestEnable` promotion.
+- Live `LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl` promotion
+  through the R363 atomic live-request arm.
 - Atomic live replay RF writeback, ROB/PE resolve, wakeup, row fill, LIQ
   lifecycle clear, and W2 clear/refill mutation in one W2 operation.
 

@@ -14,6 +14,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowClearRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RowFillEnableControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
@@ -34,16 +35,17 @@ slot must match exactly one valid `Resolved` LIQ row by
 `(bid,gid,rid,loadLsId)`. The module exposes the matching row index and
 blockers, but the final `lifecycleReady` output remains gated by an explicit
 `lifecycleClearEnable` input. R369 drives that input from
-`LoadReplayReturnPipeW2ReplayRowClearRequest`; the integrated top still ties
-the clear-request owner's live lifecycle request false, so replay-row lifecycle
-mutation and row-fill remain disabled.
+`LoadReplayReturnPipeW2ReplayRowClearRequest`; R370 now drives that selector's
+request arm from `LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl`.
+The integrated top still keeps the upstream atomic live request false, so
+replay-row lifecycle mutation and row-fill remain disabled.
 
 ## Interface
 
 | Direction | Signal | Description |
 |---|---|---|
 | input | `enable` / `flush` | Replay-LIQ integration arm and flush suppression. |
-| input | `lifecycleClearEnable` | Future live arm that allows the matched resolved LIQ row to be consumed or cleared. R369 derives it from the clear-request owner, whose live lifecycle request is currently tied false. |
+| input | `lifecycleClearEnable` | Future live arm that allows the matched resolved LIQ row to be consumed or cleared. R369 derives it from the clear-request owner, whose live lifecycle request now comes from R370 and remains dormant through the disabled atomic live request. |
 | input | `slotOccupied` | Resident W2 replay-return slot contains a returned load. |
 | input | `slotBid` / `slotGid` / `slotRid` / `slotLoadLsId` | W2 slot identity for the returned load. |
 | input | `rows` | Current `LoadInflightQueue` row image. |
@@ -88,6 +90,7 @@ R368 wires this owner in `LinxCoreFrontendFetchRfAluTraceTop`:
 - LIQ rows come from `ReducedLoadReplayLiqAllocPath`;
 - `lifecycleClearEnable` comes from
   `LoadReplayReturnPipeW2ReplayRowClearRequest.lifecycleClearEnable`;
+- that clear-request owner consumes the R370 lifecycle request-control output;
 - `lifecycleReady` feeds
   `LoadReplayReturnPipeW2RowFillEnableControl.replayRowLifecycleReady`.
 

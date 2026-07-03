@@ -769,6 +769,21 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByLifecycleClearDisabled.getWidth == 1)
   }
 
+  test("R370 replay W2 replay-row lifecycle request diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlBlocked.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlBlockedByRequestInactive.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlBlockedByNoRowFillCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlBlockedByNoLifecycleRow.getWidth == 1)
+  }
+
   test("R369 replay W2 replay-row clear-request diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -808,6 +823,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ClearCommitGuardCommitClearReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateCompleteRowValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestClearResolvedValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlRowFillEnable"))
     assert(sv.contains("module CommitTraceMonitor"))

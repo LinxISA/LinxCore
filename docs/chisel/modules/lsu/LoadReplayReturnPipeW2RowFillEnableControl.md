@@ -18,6 +18,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearCommitGuard.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AtomicLiveRequestControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowLifecycleReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowClearRequest.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-ROW-FILL-ENABLE-001`
 
@@ -42,9 +43,9 @@ keeps row fill behind one atomic enable that requires:
 
 The integrated top now feeds `replayRowLifecycleReady` from
 `LoadReplayReturnPipeW2ReplayRowLifecycleReady`, whose live lifecycle-clear arm
-comes from the R369 `LoadReplayReturnPipeW2ReplayRowClearRequest` owner. The
-R369 live lifecycle request and the R363 atomic live request both remain
-disabled, so `rowFillEnable` remains false.
+comes from the R369 `LoadReplayReturnPipeW2ReplayRowClearRequest` owner. R370
+names the lifecycle request arm that feeds that selector, but the R363 atomic
+live request remains disabled upstream, so `rowFillEnable` remains false.
 
 ## Interface
 
@@ -56,7 +57,7 @@ disabled, so `rowFillEnable` remains false.
 | input | `sideEffectFireComplete` | R350 post-fire side-effect completeness evidence. |
 | input | `clearCommitReady` | R365 resident slot / resolve / ROB completion identity coherence. |
 | input | `liveClearReady` | R365 commit-clear evidence plus the future live-clear arm. |
-| input | `replayRowLifecycleReady` | R368 consumed-row lifecycle guard after the R369 clear-request owner arms lifecycle clear readiness. Current top keeps the R369 live lifecycle request false. |
+| input | `replayRowLifecycleReady` | R368 consumed-row lifecycle guard after the R369 clear-request owner arms lifecycle clear readiness from the R370 request-control output. Current top keeps the R363 atomic live request false. |
 | output | `candidateValid` | Enabled, not flushed, and a row-fill candidate exists. |
 | output | `atomicPrerequisitesReady` | All prerequisites except the explicit request are present. |
 | output | `rowFillEnable` | Final live row-fill arm for `LoadReplayReturnPipeW2CommitRowCandidate`. |
@@ -98,6 +99,8 @@ R367 wires this owner in `LinxCoreFrontendFetchRfAluTraceTop`:
   `LoadReplayReturnPipeW2ReplayRowLifecycleReady.lifecycleReady`;
 - `rowFillEnable` feeds the R369 lifecycle clear commit gate so a future
   lifecycle clear cannot mutate LIQ before row fill commits;
+- R370 derives that lifecycle request from `rowFillCandidateValid` plus the
+  disabled R363 atomic request, keeping the live path named but dormant;
 - `rowFillEnable` now feeds the R366 commit-row candidate instead of a literal
   false.
 
