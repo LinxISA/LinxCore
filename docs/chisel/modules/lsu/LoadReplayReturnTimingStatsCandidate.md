@@ -12,6 +12,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnFinalMetadataCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-TIMING-STATS-001`
 
 ## Purpose
@@ -94,6 +95,7 @@ setMemData admission
   -> final load-return metadata
   -> timing/stat sideband intent
   -> IEX E4 insert-shaped candidate
+  -> LDA/AGU pipe-residency intent
 ```
 
 ## Deferred Owners
@@ -102,8 +104,9 @@ setMemData admission
 - Real `iq_name` payload storage.
 - Real load statistics counters.
 - A live cycle source and MemReqBus timing sidecars in the reduced replay path.
-- Real E4 pipe residency, replay-row lifecycle, ready-table update, issue
-  wakeup, and RF writeback after insertion.
+- R328 names diagnostic LDA/AGU E4 pipe-residency intent after insertion, but
+  real E4 pipe residency, replay-row lifecycle, ready-table update, issue
+  wakeup, and RF writeback after insertion remain deferred.
 
 ## Verification
 
@@ -113,6 +116,7 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTimingStatsCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnFinalMetadataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r327-replay-timing-stats-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```

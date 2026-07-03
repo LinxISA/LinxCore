@@ -19,6 +19,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTloadCompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnFinalMetadataCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTimingStatsCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-IEX-PIPE-INSERT-001`
 
@@ -59,7 +60,9 @@ metadata point. The integrated top now feeds this module from R327
 runs, scalar load-pair/vector/MEM lane completion is checked, MEM-IEX TLOAD
 sub-instruction completion is checked, final load-return metadata is stamped,
 and timing/stat sideband intent is emitted before the cloned instruction is
-inserted into E4.
+inserted into E4. R328 consumes this module's insert diagnostics in
+`LoadReplayReturnPipeResidencyCandidate` to expose the following LDA/AGU E4
+residency intent while keeping real pipe state disabled.
 
 ## Interface
 
@@ -115,10 +118,14 @@ module intentionally keeps two pipe identifiers distinct:
 The integrated top still ties `LoadReplayReturnLretSink.drainReady` low and
 ties the current IEX return-pipe occupied mask full. Therefore R322 remains a
 diagnostic insert boundary only.
+R328 observes this module's candidate and insert-valid outputs, reports the
+scalar LDA or vector AGU residency target, and keeps `liveEnable` false in the
+current reduced top.
 
 ## Deferred Owners
 
 - Real IEX LDA/AGU E4 pipe residency mutation.
+- Real residency owner behind the R328 diagnostic boundary.
 - `rob_next.resolveData` and ROB destination data-valid mutation.
 - Real scalar load-pair lane writes and vector/MEM_IEX request-count state.
 - Real TLOAD tile-SCB side effects and load-branch resolve.
@@ -132,6 +139,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTimingStatsCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnFinalMetadataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTloadCompletionCandidate
