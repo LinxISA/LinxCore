@@ -54,6 +54,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectPayloadPlan.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectIssuePermit.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectFireVector.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`
   - `model/LinxCoreModel/model/ModelCommon/bus/FetchReqBus.h`
@@ -1237,6 +1238,10 @@ overlay. Most state remains in child modules:
   live-gated resolve, writeback, and wakeup sink readiness, but remains
   observational to avoid feeding a post-completion payload path back into W2
   clear.
+- `LoadReplayReturnPipeW2SideEffectFireVector`: optional R346 dormant W2
+  per-sink fire-vector diagnostic. It converts the accepted issue mask into
+  resolve/writeback/wakeup fire pulses only when request and payload masks
+  still match, but remains observational and does not feed W2 clear.
 - `LoadReplayReturnPublishReady`: optional R309 diagnostic join point between
   extracted data-valid and LRET/mem-wakeup consumer readiness. It does not feed
   launch, LRET, or wakeup sinks.
@@ -1620,6 +1625,11 @@ R335 readiness join and feeds it from the W2 completion classifier plus
 R336/R337/R338 sink-ready owners. It names the pre-clear permit as masks and a
 join-equivalence diagnostic, but leaves the existing R335-to-R334 readiness
 path unchanged.
+R346 inserts `LoadReplayReturnPipeW2SideEffectFireVector` behind the R344
+issue permit and R343 payload plan. It exposes resolve/writeback/wakeup fire
+pulses from the accepted issue mask only when request and payload masks match,
+but does not feed W2 completion, live sink readiness, W2 slot clear, or any
+live sink mutation.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

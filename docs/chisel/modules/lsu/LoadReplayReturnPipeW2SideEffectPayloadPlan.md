@@ -26,6 +26,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectIssuePermit.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectFireVector.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SIDE-EFFECT-PAYLOAD-PLAN-001`
 
 ## Purpose
@@ -105,6 +106,9 @@ payload modules:
 - R344 consumes `issueValid` and `requiredMask` in
   `LoadReplayReturnPipeW2SideEffectIssuePermit`, but that downstream module is
   still observational and does not feed W2 completion or slot clear.
+- R346 consumes the request and payload-valid masks in
+  `LoadReplayReturnPipeW2SideEffectFireVector` only after R344 accepts the
+  plan, and remains observational.
 
 The R343 output remains observational. It does not feed
 `LoadReplayReturnPipeW2SideEffectReady`, W2 slot clear, ROB resolve mutation,
@@ -129,6 +133,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveReques
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WakeupRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectIssuePermit
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectFireVector
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r343-replay-pipe-w2-side-effect-payload-plan-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```

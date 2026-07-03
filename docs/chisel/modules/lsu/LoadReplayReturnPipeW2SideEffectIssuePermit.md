@@ -24,6 +24,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupSinkReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectFireVector.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SIDE-EFFECT-ISSUE-PERMIT-001`
 
 ## Purpose
@@ -99,6 +100,10 @@ The R344 output remains observational. It must not feed
 `LoadReplayReturnPipeW2CompletionCandidate.sideEffectsReady`, W2 slot clear, or
 any live sink mutation, because the current request/payload path is
 post-completion and feeding it back would create a side-effect readiness loop.
+R346 consumes `issueAccepted` and `acceptedMask` in
+`LoadReplayReturnPipeW2SideEffectFireVector` to expose downstream
+resolve/writeback/wakeup fire pulses. That fire vector is also observational
+and does not feed W2 clear.
 
 ## Deferred Owners
 
@@ -115,6 +120,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectIssuePermit
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectFireVector
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectPayloadPlan
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveSinkReady
