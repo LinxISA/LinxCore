@@ -29,9 +29,11 @@ payload. R359 keeps the next handoff explicit: a valid resolve fire payload
 becomes an arbiter candidate only when replay-LIQ is enabled and flush is
 inactive, and it becomes a real resolve input only behind a separate live gate.
 
-The current reduced top ties `liveEnable=false`, so this owner is
-diagnostic-only. It cannot mutate ROB/PE resolve state, cannot publish branch
-or recovery side effects, and cannot advance replay-row lifecycle.
+The current reduced top drives `liveEnable` from
+`LoadReplayReturnPipeW2SideEffectLiveControl.resolveLiveEnable`. That shared
+owner still has `liveRequested=false`, so this owner is diagnostic-only. It
+cannot mutate ROB/PE resolve state, cannot publish branch or recovery side
+effects, and cannot advance replay-row lifecycle.
 
 ## Interface
 
@@ -74,7 +76,9 @@ live ROB/PE side effect.
   `LoadReplayReturnPipeW2ResolveFirePayload`;
 - `enable` follows the reduced replay-LIQ allocation enable;
 - `flush` follows the reduced store/replay flush path;
-- `liveEnable` is tied false until replay resolve mutation, RF writeback,
+- `liveEnable` comes from R357/R361
+  `LoadReplayReturnPipeW2SideEffectLiveControl.resolveLiveEnable`, whose
+  request remains false until replay resolve mutation, RF writeback,
   ready-table wakeup, W2 clear, and replay-row lifecycle can be promoted
   atomically.
 

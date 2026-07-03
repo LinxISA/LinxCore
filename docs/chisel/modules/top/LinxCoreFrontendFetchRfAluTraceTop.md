@@ -1011,8 +1011,9 @@ but keep the W2 wakeup ready output false because live W2 wakeup mutation
 remains disabled.
 R357 adds `reducedLoadReplayLiqLretPipeW2SideEffectLiveControl*`
 diagnostics under the same namespace. This owner computes the required
-side-effect sink mask and drives the R336/R337/R338 live-enable inputs, but
-the top-level live request remains tied false, so all W2 sinks stay
+side-effect sink mask and drives the R336/R337/R338 sink live-enable inputs
+plus the R358/R359/R360 pre-arbiter live-enable inputs, but the top-level live
+request remains tied false, so all W2 sinks and arbiter inputs stay
 live-disabled.
 R339 adds `reducedLoadReplayLiqLretPipeW2SideEffectRequest*` diagnostics under
 the same namespace. These signals expose the post-completion
@@ -1048,8 +1049,9 @@ the R340 resolve request payload before future ROB/PE resolve mutation, but
 remain observational and do not feed W2 clear or live side effects.
 R359 adds `reducedLoadReplayLiqLretPipeW2ResolveArbiterInput*` diagnostics
 under the same namespace. These signals observe the R347 fire payload at the
-future ROB/PE resolve-arbiter boundary, but the integrated top keeps
-`liveEnable=false`, so no replay load can publish a live resolve side effect.
+future ROB/PE resolve-arbiter boundary, but `liveEnable` comes from the R357
+live-control owner whose request remains false, so no replay load can publish
+a live resolve side effect.
 R348 adds `reducedLoadReplayLiqLretPipeW2WritebackFirePayload*` diagnostics
 under the same namespace. These signals join the R346 writeback fire pulse
 with the R341 writeback request payload before future replay RF mutation, but
@@ -1062,9 +1064,9 @@ but remain observational and do not feed wakeup mutation, W2 clear, or live
 side effects.
 R360 adds `reducedLoadReplayLiqLretPipeW2WakeupArbiterInput*` diagnostics
 under the same namespace. These signals observe the R349 fire payload at the
-future ready-table/issue-wakeup boundary, but the integrated top keeps
-`liveEnable=false`, so no replay load can wake issue queues or mutate
-ready-table state.
+future ready-table/issue-wakeup boundary, but `liveEnable` comes from the R357
+live-control owner whose request remains false, so no replay load can wake
+issue queues or mutate ready-table state.
 R350 adds `reducedLoadReplayLiqLretPipeW2SideEffectFireComplete*`
 diagnostics under the same namespace. These signals compare the R346 fire mask
 with R347/R348/R349 fire-payload valids before future W2 clear and replay-row
@@ -1283,7 +1285,8 @@ overlay. Most state remains in child modules:
   join as masks and a join-equivalence check without feeding W2 clear.
 - `LoadReplayReturnPipeW2SideEffectLiveControl`: optional R357 dormant W2
   side-effect live-control owner. It computes the required mask and drives
-  the R336/R337/R338 sink `liveEnable` inputs from one disabled request.
+  the R336/R337/R338 sink and R358/R359/R360 pre-arbiter `liveEnable` inputs
+  from one disabled request.
 - `LoadReplayReturnPipeW2ResolveSinkReady`: optional R336 dormant W2
   resolve-sink readiness owner. It arms abstract resolve capacity but holds the
   actual ready output low until live W2 resolve mutation exists.
@@ -1303,7 +1306,7 @@ overlay. Most state remains in child modules:
   ROB/PE resolve mutation.
 - `LoadReplayReturnPipeW2ResolveArbiterInput`: optional R359 dormant W2
   resolve-arbiter input boundary. It observes the R347 fire payload and keeps
-  the future ROB/PE resolve side effect gated off behind an explicit live
+  the future ROB/PE resolve side effect gated off behind the shared R357 live
   enable.
 - `LoadReplayReturnPipeW2WritebackRequest`: optional R341 dormant W2 reduced
   RF writeback payload owner. It validates W2 target, BID/GID/RID identity,
@@ -1313,7 +1316,8 @@ overlay. Most state remains in child modules:
   the R341 writeback request payload before future replay RF mutation.
 - `LoadReplayReturnPipeW2WritebackArbiterInput`: optional R358 dormant W2
   writeback-arbiter input boundary. It observes the R348 fire payload and keeps
-  the future replay RF arbiter write gated off behind an explicit live enable.
+  the future replay RF arbiter write gated off behind the shared R357 live
+  enable.
 - `LoadReplayReturnPipeW2WakeupRequest`: optional R342 dormant W2 wakeup
   payload owner. It validates W2 target, BID/GID/RID identity,
   wakeup-required state, and destination payload before future ready-table or
@@ -1341,8 +1345,8 @@ overlay. Most state remains in child modules:
   R342 wakeup request payload before future ready-table/issue-wakeup mutation.
 - `LoadReplayReturnPipeW2WakeupArbiterInput`: optional R360 dormant W2
   wakeup-arbiter input boundary. It observes the R349 fire payload and keeps
-  the future ready-table/issue-wakeup side effect gated off behind an explicit
-  live enable.
+  the future ready-table/issue-wakeup side effect gated off behind the shared
+  R357 live enable.
 - `LoadReplayReturnPipeW2SideEffectFireComplete`: optional R350 dormant W2
   post-fire completeness checker. It joins R346 fire mask with R347/R348/R349
   fire-payload valids before future W2 clear and replay-row lifecycle.
@@ -1722,9 +1726,9 @@ false, so W2 wakeup still blocks completion without mutating ready-table or
 issue-queue state.
 R357 inserts `LoadReplayReturnPipeW2SideEffectLiveControl` behind the W2
 completion classifier and feeds its live-enable outputs into the R336/R337/R338
-sink owners. The top keeps `liveRequested=false`, so the new owner preserves
-the same not-ready sink behavior while making the future live side-effect
-request point explicit.
+sink owners and the R358/R359/R360 pre-arbiter input owners. The top keeps
+`liveRequested=false`, so the owner preserves the same not-ready/dormant
+behavior while making the future live side-effect request point explicit.
 R339 inserts `LoadReplayReturnPipeW2SideEffectRequest` behind the W2
 completion classifier and exposes the post-completion request vector. Because
 R336-R338 still keep every live W2 sink disabled, the request outputs remain
@@ -1745,18 +1749,18 @@ arbitration, RF state, or W2 clear.
 R359 inserts `LoadReplayReturnPipeW2ResolveArbiterInput` behind the R347
 resolve fire payload. It names the future replay side of the ROB/PE resolve
 owner, reports disabled/flush/no-payload/live-disabled blockers, and keeps
-`liveEnable=false` in the integrated top so no replay load can mutate resolve
-state or publish branch/recovery side effects.
+`liveEnable` driven by the disabled R357 live-control request so no replay load
+can mutate resolve state or publish branch/recovery side effects.
 R358 inserts `LoadReplayReturnPipeW2WritebackArbiterInput` behind the R348
 writeback fire payload. It names the future replay side of the scalar RF
 writeback arbiter, reports disabled/flush/no-payload/live-disabled blockers,
-and keeps `liveEnable=false` in the integrated top so no replay load can write
-RF state or contend with execute writeback.
+and keeps `liveEnable` driven by the disabled R357 live-control request so no
+replay load can write RF state or contend with execute writeback.
 R360 inserts `LoadReplayReturnPipeW2WakeupArbiterInput` behind the R349 wakeup
 fire payload. It names the future replay side of the ready-table/issue-wakeup
 owner, reports disabled/flush/no-payload/live-disabled blockers, and keeps
-`liveEnable=false` in the integrated top so no replay load can wake issue
-queues or mutate ready-table state.
+`liveEnable` driven by the disabled R357 live-control request so no replay load
+can wake issue queues or mutate ready-table state.
 R342 inserts `LoadReplayReturnPipeW2WakeupRequest` behind the R339 wakeup
 request bit and feeds it from the resident W2 slot. Because R339 wakeup
 request remains low, the shaped wakeup payload is diagnostic-only and does not
@@ -1803,9 +1807,10 @@ plus live advance promotion through one request gate. The top ties
 `!W2Slot.occupied`, live clear remains disabled, and replacement remains
 disabled until live W2 clear and replay-row lifecycle mutation are promoted
 together. R357 then replaces the direct false ties on the R336/R337/R338 sink
-`liveEnable` inputs with `LoadReplayReturnPipeW2SideEffectLiveControl`; its
-own `liveRequested` input is still tied false until those same side-effect
-sinks and replay-row lifecycle can commit atomically.
+`liveEnable` inputs with `LoadReplayReturnPipeW2SideEffectLiveControl`, and
+R361 routes the R358/R359/R360 pre-arbiter `liveEnable` inputs through the same
+owner. Its own `liveRequested` input is still tied false until those same
+side-effect sinks and replay-row lifecycle can commit atomically.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

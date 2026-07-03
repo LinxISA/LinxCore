@@ -32,9 +32,11 @@ handoff explicit: a valid wakeup fire payload becomes an arbiter candidate only
 when replay-LIQ is enabled and flush is inactive, and it becomes a real wakeup
 input only behind a separate live gate.
 
-The current reduced top ties `liveEnable=false`, so this owner is
-diagnostic-only. It cannot mutate ready-table state, cannot wake issue queues,
-and cannot advance replay-row lifecycle.
+The current reduced top drives `liveEnable` from
+`LoadReplayReturnPipeW2SideEffectLiveControl.wakeupLiveEnable`. That shared
+owner still has `liveRequested=false`, so this owner is diagnostic-only. It
+cannot mutate ready-table state, cannot wake issue queues, and cannot advance
+replay-row lifecycle.
 
 ## Interface
 
@@ -78,9 +80,10 @@ live ready-table or issue-wakeup side effect.
   `LoadReplayReturnPipeW2WakeupFirePayload`;
 - `enable` follows the reduced replay-LIQ allocation enable;
 - `flush` follows the reduced store/replay flush path;
-- `liveEnable` is tied false until replay wakeup mutation, RF writeback,
-  ROB/PE resolve, W2 clear, and replay-row lifecycle can be promoted
-  atomically.
+- `liveEnable` comes from R357/R361
+  `LoadReplayReturnPipeW2SideEffectLiveControl.wakeupLiveEnable`, whose
+  request remains false until replay wakeup mutation, RF writeback, ROB/PE
+  resolve, W2 clear, and replay-row lifecycle can be promoted atomically.
 
 Top-level diagnostics are exposed under
 `reducedLoadReplayLiqLretPipeW2WakeupArbiterInput*`.

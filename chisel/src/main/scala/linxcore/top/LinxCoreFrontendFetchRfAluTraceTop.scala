@@ -3002,6 +3002,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     io,
     reducedReplayLiqReturnPipeW2ResolveArbiterInput,
     reducedReplayLiqReturnPipeW2ResolveFirePayload,
+    reducedReplayLiqReturnPipeW2SideEffectLiveControl.io.resolveLiveEnable,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -3017,6 +3018,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     io,
     reducedReplayLiqReturnPipeW2WritebackArbiterInput,
     reducedReplayLiqReturnPipeW2WritebackFirePayload,
+    reducedReplayLiqReturnPipeW2SideEffectLiveControl.io.writebackLiveEnable,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -3032,6 +3034,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     io,
     reducedReplayLiqReturnPipeW2WakeupArbiterInput,
     reducedReplayLiqReturnPipeW2WakeupFirePayload,
+    reducedReplayLiqReturnPipeW2SideEffectLiveControl.io.wakeupLiveEnable,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -5183,11 +5186,12 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2ResolveArbiterInputWiring {
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
       arbiterInput: LoadReplayReturnPipeW2ResolveArbiterInput,
       firePayload: LoadReplayReturnPipeW2ResolveFirePayload,
+      liveEnable: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     arbiterInput.io.enable := enable
     arbiterInput.io.flush := flush
-    arbiterInput.io.liveEnable := false.B
+    arbiterInput.io.liveEnable := liveEnable
     arbiterInput.io.firePayloadValid := firePayload.io.fireValid
     arbiterInput.io.fireTargetIsAgu := firePayload.io.targetIsAgu
     arbiterInput.io.fireTargetIsLda := firePayload.io.targetIsLda
@@ -5324,11 +5328,12 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2WritebackArbiterInputWiring {
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
       arbiterInput: LoadReplayReturnPipeW2WritebackArbiterInput,
       firePayload: LoadReplayReturnPipeW2WritebackFirePayload,
+      liveEnable: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     arbiterInput.io.enable := enable
     arbiterInput.io.flush := flush
-    arbiterInput.io.liveEnable := false.B
+    arbiterInput.io.liveEnable := liveEnable
     arbiterInput.io.firePayloadValid := firePayload.io.fireValid
     arbiterInput.io.firePhysTag := firePayload.io.firePhysTag
     arbiterInput.io.fireData := firePayload.io.fireData
@@ -5447,11 +5452,12 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2WakeupArbiterInputWiring {
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
       arbiterInput: LoadReplayReturnPipeW2WakeupArbiterInput,
       firePayload: LoadReplayReturnPipeW2WakeupFirePayload,
+      liveEnable: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     arbiterInput.io.enable := enable
     arbiterInput.io.flush := flush
-    arbiterInput.io.liveEnable := false.B
+    arbiterInput.io.liveEnable := liveEnable
     arbiterInput.io.firePayloadValid := firePayload.io.fireValid
     arbiterInput.io.fireReducedGprWakeup := firePayload.io.reducedGprWakeup
     arbiterInput.io.fireNonGprWakeup := firePayload.io.nonGprWakeup

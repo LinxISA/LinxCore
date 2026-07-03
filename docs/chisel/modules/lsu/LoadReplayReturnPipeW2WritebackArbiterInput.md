@@ -21,9 +21,11 @@ R358 keeps the next handoff explicit: a valid fire payload becomes an arbiter
 candidate only when replay-LIQ is enabled and flush is inactive, and it becomes
 a real write only behind a separate live gate.
 
-The current reduced top ties `liveEnable=false`, so this owner is
-diagnostic-only. It cannot mutate scalar RF state, cannot contend with the
-execute writeback port, and cannot advance replay-row lifecycle.
+The current reduced top drives `liveEnable` from
+`LoadReplayReturnPipeW2SideEffectLiveControl.writebackLiveEnable`. That shared
+owner still has `liveRequested=false`, so this owner is diagnostic-only. It
+cannot mutate scalar RF state, cannot contend with the execute writeback port,
+and cannot advance replay-row lifecycle.
 
 ## Interface
 
@@ -63,7 +65,9 @@ stale payload can be mistaken for a future arbiter request.
   `LoadReplayReturnPipeW2WritebackFirePayload`;
 - `enable` follows the reduced replay-LIQ allocation enable;
 - `flush` follows the reduced store/replay flush path;
-- `liveEnable` is tied false until replay RF writeback, ready-table wakeup, W2
+- `liveEnable` comes from R357/R361
+  `LoadReplayReturnPipeW2SideEffectLiveControl.writebackLiveEnable`, whose
+  request remains false until replay RF writeback, ready-table wakeup, W2
   clear, and replay-row lifecycle can be promoted atomically.
 
 Top-level diagnostics are exposed under
