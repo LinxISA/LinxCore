@@ -102,3 +102,7 @@ FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r359-replay-pipe-w2-resolve
 
 Reference tests cover live-disabled candidate hold, live-enabled payload copy,
 disabled/flush blockers, active no-payload diagnostics, and Chisel elaboration.
+The R359 generated-RTL/QEMU cross-check manifest at
+`generated/r359-replay-pipe-w2-resolve-arbiter-input-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `comparator_status: 0`, `summary.compared_rows: 3`,
+`summary.mismatch_count: 0`, and zero QEMU/DUT CBSTOP rows.
