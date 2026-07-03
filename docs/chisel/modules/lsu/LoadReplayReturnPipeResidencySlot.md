@@ -13,6 +13,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyAdvanceCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-RESIDENCY-SLOT-001`
 
@@ -33,13 +34,18 @@ drive the real IEX pipe pipeline, RF/writeback, ready table, issue wakeup, or
 replay-row lifecycle. The current reduced top still ties R328 `liveEnable`
 false, so this slot remains dormant in the generated cross-check fixture.
 
+R330 consumes this slot's occupancy, target, and pipe-index diagnostics in
+`LoadReplayReturnPipeResidencyAdvanceCandidate`. That candidate now owns the
+slot `clear` input, but the current top keeps its `advanceEnable` false until a
+W1/W2 pipe-stage owner exists.
+
 ## Interface
 
 | Direction | Signal | Description |
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Clears the slot and suppresses same-cycle writes. |
-| input | `clear` | Explicit lifecycle clear for a consumed entry. Current top ties this false. |
+| input | `clear` | Explicit lifecycle clear for a consumed entry. Current top drives this from the live-disabled R330 advance candidate. |
 | input | `writeValid` | Live residency write request from `LoadReplayReturnPipeResidencyCandidate`. |
 | input | `writeTargetIsAgu` / `writeTargetIsLda` | Mutually exclusive E4 pipe-family target. |
 | input | `writePipeIndex` | Selected E4 pipe index. |
@@ -84,8 +90,8 @@ model contract that `setMemData` chooses exactly one pipe family before writing
 - `writeTargetIsAgu`, `writeTargetIsLda`, and `writePipeIndex` come from R328;
 - payload and wakeup sidebands come from R322
   `LoadReplayReturnIexPipeInsertCandidate`;
-- `clear` is tied false until a later pipe-stage lifecycle owner consumes the
-  slot;
+- `clear` comes from R330 `LoadReplayReturnPipeResidencyAdvanceCandidate`,
+  which is currently tied live-disabled;
 - the top exposes accepted, occupied, target, pipe-index, and blocker
   diagnostics only.
 
@@ -96,7 +102,7 @@ state owner that later packets can connect to an LDA/AGU pipe pipeline.
 ## Deferred Owners
 
 - Multi-entry and first-free AGU/LDA pipe-family residency state.
-- E4-to-W1-to-W2 pipe advance and clear lifecycle.
+- Live E4-to-W1-to-W2 pipe storage and advance lifecycle.
 - Real vector machine classification in the reduced top.
 - RF/writeback, ready-table update, issue wakeup, LRET FIFO drain, and replay
   row retirement after pipe residency.
@@ -109,6 +115,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencySlot
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyAdvanceCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
