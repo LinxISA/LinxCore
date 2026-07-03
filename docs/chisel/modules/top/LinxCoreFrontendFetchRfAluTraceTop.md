@@ -1316,8 +1316,8 @@ overlay. Most state remains in child modules:
   fire-payload valids before future W2 clear and replay-row lifecycle.
 - `LoadReplayReturnPipeW2ClearIntent`: optional R351 dormant W2 clear-intent
   owner. It joins R334 pre-clear, R345 pre-completion permit, and R350
-  post-fire completeness evidence behind a live-disabled clear enable without
-  feeding the W2 slot clear input.
+  post-fire completeness evidence behind the R356 live-disabled promotion
+  control without feeding the W2 slot clear input.
 - `LoadReplayReturnPipeW2RefillReady`: optional R352 dormant W2 refill-ready
   diagnostic. It compares the current empty-only W1-to-W2 advance gate with
   the future empty-or-live-clear predicate needed for same-cycle W2 clear and
@@ -1326,13 +1326,13 @@ overlay. Most state remains in child modules:
   slot-replacement plan. It observes the W1 write candidate, R351 clear
   intent, R352 future readiness, and current W2 slot acceptance before future
   same-cycle clear/refill storage mutation.
-- `LoadReplayReturnPipeW2AdvanceControl`: optional R355 W2 promotion-control
+- `LoadReplayReturnPipeW2AdvanceControl`: optional R355 W2 advance-control
   owner. It selects current empty-only W1 advance versus future R352/R353
-  same-cycle clear/refill readiness and drives W2 `replaceOnClear`, while the
-  top keeps live promotion disabled.
-- `LoadReplayReturnPipeW2PromotionControl`: optional R356 promotion request
-  gate. It drives R351 live clear and R355 live advance promotion from one
-  disabled top-level request.
+  same-cycle clear/refill readiness and drives W2 `replaceOnClear` from the
+  R356 live-disabled promotion mode.
+- `LoadReplayReturnPipeW2PromotionControl`: optional R356 dormant W2
+  promotion switch. It drives R351 live clear and R355 live advance promotion
+  from one disabled top-level request.
 - `LoadReplayReturnPublishReady`: optional R309 diagnostic join point between
   extracted data-valid and LRET/mem-wakeup consumer readiness. It does not feed
   launch, LRET, or wakeup sinks.
@@ -1728,8 +1728,8 @@ but does not feed W2 completion, live sink readiness, W2 slot clear, or any
 live sink mutation.
 R351 inserts `LoadReplayReturnPipeW2ClearIntent` after the R350 post-fire
 checker. It observes the existing R334 W2 clear pulse, the R345 permit mirror,
-and the R350 future-clear predicate, but ties live clear disabled and does not
-feed the W2 slot clear input or replay-row lifecycle.
+and the R350 future-clear predicate, but does not feed the W2 slot clear input
+or replay-row lifecycle.
 R352 inserts `LoadReplayReturnPipeW2RefillReady` after R351. It observes the
 current W1-to-W2 advance gate and the future live-clear predicate required by
 the model `move()` order, but does not feed W1 advance or W2 storage.
