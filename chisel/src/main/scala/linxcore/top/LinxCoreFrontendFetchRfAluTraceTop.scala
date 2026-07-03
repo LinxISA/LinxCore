@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeSelect, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnReadiness, LoadReplayReturnSideEffectReady, LoadReplayReturnWakeupCandidate, LoadReplayReturnWritebackCandidate, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnLretPayload, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeSelect, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnSideEffectReady, LoadReplayReturnWakeupCandidate, LoadReplayReturnWritebackCandidate, LoadReplaySourceReturnReadiness, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID}
 
@@ -581,6 +581,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqPublishControlBlockedByPublish = Output(Bool())
   val reducedLoadReplayLiqPublishControlBlockedBySideEffects = Output(Bool())
   val reducedLoadReplayLiqPublishControlBlockedByLiveDisabled = Output(Bool())
+  val reducedLoadReplayLiqPublishRequestValid = Output(Bool())
+  val reducedLoadReplayLiqPublishRequestLret = Output(Bool())
+  val reducedLoadReplayLiqPublishRequestWriteback = Output(Bool())
+  val reducedLoadReplayLiqPublishRequestWakeup = Output(Bool())
+  val reducedLoadReplayLiqPublishRequestMask = Output(UInt(3.W))
+  val reducedLoadReplayLiqPublishRequestBlockedByNoFire = Output(Bool())
+  val reducedLoadReplayLiqPublishRequestInvalidFireWithoutPayload = Output(Bool())
   val reducedLoadReplayLiqWakeupCandidateValid = Output(Bool())
   val reducedLoadReplayLiqWakeupRequired = Output(Bool())
   val reducedLoadReplayLiqWakeupValid = Output(Bool())
@@ -1040,6 +1047,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   ))
   val reducedReplayLiqReturnSideEffectReady = Module(new LoadReplayReturnSideEffectReady)
   val reducedReplayLiqReturnPublishControl = Module(new LoadReplayReturnPublishControl)
+  val reducedReplayLiqReturnPublishRequest = Module(new LoadReplayReturnPublishRequest)
   val reducedReplayLiqLaunchReadiness = Module(new LoadReplayLaunchReadiness)
   val reducedStoreResidentReplayWakeup = Module(new ResidentStoreReplayWakeup(
     entries = p.robEntries,
@@ -2011,6 +2019,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedReplayLiqReturnPublishControl.io.payloadValid := reducedReplayLiqReturnLretPayload.io.payloadValid
   reducedReplayLiqReturnPublishControl.io.publishReady := reducedReplayLiqReturnPublishReady.io.publishReady
   reducedReplayLiqReturnPublishControl.io.sideEffectsReady := reducedReplayLiqReturnSideEffectReady.io.sideEffectsReady
+  reducedReplayLiqReturnPublishRequest.io.publishFire := reducedReplayLiqReturnPublishControl.io.publishFire
+  reducedReplayLiqReturnPublishRequest.io.payloadValid := reducedReplayLiqReturnLretPayload.io.payloadValid
+  reducedReplayLiqReturnPublishRequest.io.writebackRequired := reducedReplayLiqReturnWritebackCandidate.io.writeValid
+  reducedReplayLiqReturnPublishRequest.io.wakeupRequired := reducedReplayLiqReturnWakeupCandidate.io.wakeupRequired
   rf.io.writeValid := rfWritebackArbiter.io.writeValid
   rf.io.writeTag := rfWritebackArbiter.io.writeTag
   rf.io.writeData := rfWritebackArbiter.io.writeData
@@ -2751,6 +2763,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPublishControl.io.blockedBySideEffects
   io.reducedLoadReplayLiqPublishControlBlockedByLiveDisabled :=
     reducedReplayLiqReturnPublishControl.io.blockedByLiveDisabled
+  io.reducedLoadReplayLiqPublishRequestValid :=
+    reducedReplayLiqReturnPublishRequest.io.requestValid
+  io.reducedLoadReplayLiqPublishRequestLret :=
+    reducedReplayLiqReturnPublishRequest.io.lretRequest
+  io.reducedLoadReplayLiqPublishRequestWriteback :=
+    reducedReplayLiqReturnPublishRequest.io.writebackRequest
+  io.reducedLoadReplayLiqPublishRequestWakeup :=
+    reducedReplayLiqReturnPublishRequest.io.wakeupRequest
+  io.reducedLoadReplayLiqPublishRequestMask :=
+    reducedReplayLiqReturnPublishRequest.io.requestMask
+  io.reducedLoadReplayLiqPublishRequestBlockedByNoFire :=
+    reducedReplayLiqReturnPublishRequest.io.blockedByNoFire
+  io.reducedLoadReplayLiqPublishRequestInvalidFireWithoutPayload :=
+    reducedReplayLiqReturnPublishRequest.io.invalidFireWithoutPayload
   io.reducedLoadReplayLiqWakeupCandidateValid :=
     reducedReplayLiqReturnWakeupCandidate.io.candidateValid
   io.reducedLoadReplayLiqWakeupRequired :=
