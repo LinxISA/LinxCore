@@ -17,6 +17,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ResolveSinkReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectPayloadPlan.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnRobResolveDataCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-RESOLVE-REQUEST-001`
@@ -88,6 +89,9 @@ pipe-resident instruction.
 Because R336-R338 keep live W2 sinks disabled, R334 completion remains low,
 R339 `resolveRequest` remains low, and R340 request outputs remain dormant in
 the current reduced fixture.
+R343 consumes `resolveValid` as the resolve payload bit in
+`LoadReplayReturnPipeW2SideEffectPayloadPlan`; the plan remains observational
+until future live W2 sinks are enabled.
 
 ## Deferred Owners
 

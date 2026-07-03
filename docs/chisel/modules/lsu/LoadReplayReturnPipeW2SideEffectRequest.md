@@ -19,6 +19,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupRequest.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectPayloadPlan.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-SIDE-EFFECT-REQUEST-001`
 
 ## Purpose
@@ -99,6 +100,10 @@ sink becomes enabled.
 R342 consumes `wakeupRequest` in `LoadReplayReturnPipeW2WakeupRequest` to
 shape the future ready-table/issue-wakeup payload. That payload remains
 dormant until the live W2 wakeup sink becomes enabled.
+R343 consumes the request mask plus the three payload-valid bits in
+`LoadReplayReturnPipeW2SideEffectPayloadPlan` to prove the required,
+requested, and shaped side-effect masks match before any future live sink can
+clear W2.
 
 ## Deferred Owners
 

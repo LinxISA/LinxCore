@@ -20,6 +20,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WakeupSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectPayloadPlan.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-WAKEUP-REQUEST-001`
 
@@ -104,6 +105,9 @@ Because R336-R338 keep live W2 sinks disabled, R334 completion remains low,
 R339 `wakeupRequest` remains low, and R342 request outputs remain dormant in
 the current reduced fixture. No ready-table state, issue-queue entry, RF
 state, ROB row, or W2 slot lifecycle state is mutated by this module.
+R343 consumes `wakeupValid` as the wakeup payload bit in
+`LoadReplayReturnPipeW2SideEffectPayloadPlan`; the plan remains observational
+until future live W2 sinks are enabled.
 
 ## Deferred Owners
 

@@ -20,6 +20,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2WritebackSinkReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SideEffectPayloadPlan.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-WRITEBACK-REQUEST-001`
 
@@ -97,6 +98,9 @@ destination operands.
 Because R336-R338 keep live W2 sinks disabled, R334 completion remains low,
 R339 `writebackRequest` remains low, and R341 request outputs remain dormant
 in the current reduced fixture.
+R343 consumes `writebackValid` as the writeback payload bit in
+`LoadReplayReturnPipeW2SideEffectPayloadPlan`; the plan remains observational
+until future live W2 sinks are enabled.
 
 ## Deferred Owners
 
