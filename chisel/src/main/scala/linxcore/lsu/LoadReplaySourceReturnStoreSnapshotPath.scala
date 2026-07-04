@@ -81,6 +81,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   ))
 
   val queryIssue = Module(new LoadReplaySourceReturnStoreSnapshotQueryIssue)
+  val requestControl = Module(new LoadReplaySourceReturnStoreSnapshotRequestControl)
   val selectedIdentity = Module(new LoadReplaySourceReturnStoreSnapshotSelectedIdentity(
     liqEntries = liqEntries,
     clusterIdWidth = clusterIdWidth,
@@ -109,11 +110,18 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   val evidence = Module(new LoadReplaySourceReturnStoreSnapshotEvidence)
   val control = Module(new LoadReplaySourceReturnStoreSnapshotReadyControl)
 
+  requestControl.io.enable := io.enable
+  requestControl.io.flush := io.flush
+  requestControl.io.requestEnable := io.requestEnable
+  requestControl.io.launchValid := io.launchValid
+  requestControl.io.rawSinkReady := io.sinkReady
+  requestControl.io.tokenCanAccept := acceptedToken.io.tokenCanAccept
+
   queryIssue.io.enable := io.enable
   queryIssue.io.flush := io.flush
-  queryIssue.io.requestEnable := io.requestEnable
+  queryIssue.io.requestEnable := requestControl.io.queryRequestEnable
   queryIssue.io.launchValid := io.launchValid
-  queryIssue.io.sinkReady := io.sinkReady && acceptedToken.io.tokenCanAccept
+  queryIssue.io.sinkReady := requestControl.io.querySinkReady
 
   selectedIdentity.io.enable := io.enable && io.selectedIdentityEnable
   selectedIdentity.io.flush := io.flush
@@ -189,7 +197,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
 
   control.io.enable := io.enable
   control.io.flush := io.flush
-  control.io.requestEnable := io.requestEnable
+  control.io.requestEnable := requestControl.io.queryRequestEnable
   control.io.legacySnapshotReady := io.legacySnapshotReady
   control.io.snapshotRequired := evidence.io.snapshotRequired
   control.io.snapshotValid := evidence.io.snapshotValid

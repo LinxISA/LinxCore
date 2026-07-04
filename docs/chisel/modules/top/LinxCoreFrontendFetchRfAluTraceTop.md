@@ -1085,6 +1085,10 @@ R400 adds `LoadReplaySourceReturnStoreSnapshotResponseHeadState` inside the
 composite. The path can now prove reduced single-cluster stale heads from the
 current `repickMask`, but the top still ties raw response inputs false, so this
 remains a dormant row-state boundary.
+R401 adds `LoadReplaySourceReturnStoreSnapshotRequestControl` inside the
+composite. Future raw STQ lookup sink readiness is now gated with path
+activity, live request enable, and accepted-token capacity before query issue;
+the top helper still ties live request and raw sink readiness false.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1350,11 +1354,16 @@ overlay. Most state remains in child modules:
   reduced store source, keeps the future external SCB pending/returned boundary
   explicit, and feeds `LoadReplayLaunchReadiness.scbReturned`.
 - `LoadReplaySourceReturnStoreSnapshotPath`: optional R395 composite local STQ
-  snapshot source-return path. It contains the R392 query issue, R396
-  selected-identity projection, R397 accepted-query token, R398 response
-  queue, R400 response-head state proof, R399 response drain, R394 identity
-  match, R393 response match, R391 evidence, and R390 ready-control owners
-  under one top child instance.
+  snapshot source-return path. It contains the R401 request control, R392
+  query issue, R396 selected-identity projection, R397 accepted-query token,
+  R398 response queue, R400 response-head state proof, R399 response drain,
+  R394 identity match, R393 response match, R391 evidence, and R390
+  ready-control owners under one top child instance.
+- `LoadReplaySourceReturnStoreSnapshotRequestControl`: optional R401
+  request/sink gate inside `LoadReplaySourceReturnStoreSnapshotPath`. It gates
+  future raw STQ lookup sink readiness with path activity, live request enable,
+  and accepted-token capacity while the current reduced top ties request and
+  sink inputs disabled.
 - `LoadReplaySourceReturnStoreSnapshotReadyControl`: optional R390 local STQ
   snapshot readiness request owner before `LoadReplaySourceReturnReadiness`.
 - `LoadReplaySourceReturnStoreSnapshotEvidence`: optional R391 selected-row
@@ -1881,7 +1890,10 @@ the FIFO pop decision is separated from token clear, while stale-head evidence
 is still tied false at the top. R400 inserts
 `LoadReplaySourceReturnStoreSnapshotResponseHeadState` before that drain so the
 reduced path can prove model non-repick heads from `repickMask` once raw
-responses are enabled. R300 inserts
+responses are enabled. R401 inserts
+`LoadReplaySourceReturnStoreSnapshotRequestControl` before query issue so raw
+STQ lookup sink readiness and accepted-token capacity are a named gate before
+future live request promotion. R300 inserts
 `LoadReplayReturnReadiness` after that source-return boundary. R301 inserts
 `LoadReplayReturnPipeSelect` as the explicit pipe-mask/select owner feeding
 that readiness gate. R302 inserts `LoadReplayReturnPipePermit` as the mask

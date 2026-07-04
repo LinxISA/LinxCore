@@ -16,6 +16,7 @@
   - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
     - `STQ::lookupForLoad`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
@@ -42,6 +43,11 @@ R392 adds only the request-issue boundary. The reduced top keeps
 `requestEnable=false` and `sinkReady=false`, so `queryIssued` remains false
 and the R391 evidence owner continues to report the missing live query instead
 of changing source-return readiness.
+
+R401 feeds `sinkReady` from
+`LoadReplaySourceReturnStoreSnapshotRequestControl` inside the composite path.
+That owner gates the future raw STQ lookup sink with accepted-token capacity
+before this module can emit `queryIssued`.
 
 ## Interface
 
@@ -87,13 +93,14 @@ queryValid     = requestActive && launchValid
 queryIssued    = queryValid && sinkReady
 ```
 
-`queryIssued` feeds `LoadReplaySourceReturnStoreSnapshotEvidence.queryIssued`
-and the R393 `LoadReplaySourceReturnStoreSnapshotResponseMatch` owner through
-the R395 composite path. The same path also instantiates the R394
-identity-match consumer. In the current integration, `requestEnable`,
-`sinkReady`, selected-row identity, and raw response inputs remain tied false
-at the path boundary, so the evidence path still observes an unissued query
-and no response evidence.
+`queryIssued` feeds the R397 accepted-token owner, which then supplies
+`LoadReplaySourceReturnStoreSnapshotEvidence.queryIssued` and the R393
+`LoadReplaySourceReturnStoreSnapshotResponseMatch` owner through the R395
+composite path. The same path also instantiates the R394 identity-match
+consumer and the R401 request-control owner. In the current integration,
+`requestEnable`, raw `sinkReady`, selected-row identity, and raw response
+inputs remain tied false at the path boundary, so the evidence path still
+observes an unissued query and no response evidence.
 
 ## Timing
 
@@ -120,6 +127,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
