@@ -457,6 +457,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqSourceReturnBlockedByBaseData = Output(Bool())
   val reducedLoadReplayLiqSourceReturnBlockedByStoreSnapshot = Output(Bool())
   val reducedLoadReplayLiqSourceReturnBlockedByScb = Output(Bool())
+  val reducedLoadReplayLiqLaunchSelectedSourceTraceValid = Output(Bool())
+  val reducedLoadReplayLiqLaunchSelectedSource0Valid = Output(Bool())
+  val reducedLoadReplayLiqLaunchSelectedSource0Reg = Output(UInt(traceParams.regWidth.W))
+  val reducedLoadReplayLiqLaunchSelectedSource0Data = Output(UInt(traceParams.dataWidth.W))
+  val reducedLoadReplayLiqLaunchSelectedSource1Valid = Output(Bool())
+  val reducedLoadReplayLiqLaunchSelectedSource1Reg = Output(UInt(traceParams.regWidth.W))
+  val reducedLoadReplayLiqLaunchSelectedSource1Data = Output(UInt(traceParams.dataWidth.W))
   val reducedLoadReplayLiqReturnConsumerCandidateValid = Output(Bool())
   val reducedLoadReplayLiqReturnConsumerLretSinkReady = Output(Bool())
   val reducedLoadReplayLiqReturnConsumerWakeupSinkReady = Output(Bool())
@@ -2373,6 +2380,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadWaitReplaySlot.io.captureSize := execute.io.loadLookupSize
   reducedLoadWaitReplaySlot.io.captureReturnSignExtend := execute.io.loadLookupReturnSignExtend
   reducedLoadWaitReplaySlot.io.captureDst := executeLoadLookupDst
+  reducedLoadWaitReplaySlot.io.captureSourceTraceValid := execute.io.loadLookupSourceTraceValid
+  reducedLoadWaitReplaySlot.io.captureSource0 := execute.io.loadLookupSource0
+  reducedLoadWaitReplaySlot.io.captureSource1 := execute.io.loadLookupSource1
   reducedLoadWaitReplaySlot.io.captureBid := execute.io.loadLookupBid
   reducedLoadWaitReplaySlot.io.captureGid := execute.io.loadLookupGid
   reducedLoadWaitReplaySlot.io.captureRid := execute.io.loadLookupRid
@@ -2475,6 +2485,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedReplayLiqReturnLretPayload.io.returnPipeIndex := reducedReplayLiqReturnReadiness.io.selectedPipeIndex
   reducedReplayLiqReturnLretPayload.io.specWakeup := reducedLoadReplayLiqAllocPath.io.launchSelectedSpecWakeup
   reducedReplayLiqReturnLretPayload.io.stackValid := reducedLoadReplayLiqAllocPath.io.launchSelectedStackValid
+  io.reducedLoadReplayLiqLaunchSelectedSourceTraceValid :=
+    reducedLoadReplayLiqAllocPath.io.launchSelectedSourceTraceValid
+  io.reducedLoadReplayLiqLaunchSelectedSource0Valid :=
+    reducedLoadReplayLiqAllocPath.io.launchSelectedSource0.valid
+  io.reducedLoadReplayLiqLaunchSelectedSource0Reg :=
+    reducedLoadReplayLiqAllocPath.io.launchSelectedSource0.reg
+  io.reducedLoadReplayLiqLaunchSelectedSource0Data :=
+    reducedLoadReplayLiqAllocPath.io.launchSelectedSource0.data
+  io.reducedLoadReplayLiqLaunchSelectedSource1Valid :=
+    reducedLoadReplayLiqAllocPath.io.launchSelectedSource1.valid
+  io.reducedLoadReplayLiqLaunchSelectedSource1Reg :=
+    reducedLoadReplayLiqAllocPath.io.launchSelectedSource1.reg
+  io.reducedLoadReplayLiqLaunchSelectedSource1Data :=
+    reducedLoadReplayLiqAllocPath.io.launchSelectedSource1.data
   reducedReplayLiqReturnWritebackCandidate.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqReturnWritebackCandidate.io.payloadValid := reducedReplayLiqReturnLretPayload.io.payloadValid
   reducedReplayLiqReturnWritebackCandidate.io.payloadDst := reducedReplayLiqReturnLretPayload.io.payloadDst

@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.{Cat, OHToUInt, PopCount, log2Ceil}
 
+import linxcore.commit.{CommitOperandTrace, CommitTraceParams}
 import linxcore.rob.ROBID
 
 class LoadInflightLaunchSelectIO(
@@ -18,6 +19,8 @@ class LoadInflightLaunchSelectIO(
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val countWidth = log2Ceil(liqEntries + 1)
+  private val sourceTraceParams =
+    CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
 
   val enable = Input(Bool())
   val rows = Input(Vec(
@@ -57,6 +60,9 @@ class LoadInflightLaunchSelectIO(
   val selectedSize = Output(UInt(sizeWidth.W))
   val selectedReturnSignExtend = Output(Bool())
   val selectedDst = Output(new LoadReplayDestination(archRegWidth, physRegWidth))
+  val selectedSourceTraceValid = Output(Bool())
+  val selectedSource0 = Output(new CommitOperandTrace(sourceTraceParams))
+  val selectedSource1 = Output(new CommitOperandTrace(sourceTraceParams))
   val selectedRequestByteMask = Output(UInt(lineBytes.W))
   val selectedSpecWakeup = Output(Bool())
   val selectedStackValid = Output(Bool())
@@ -188,6 +194,9 @@ class LoadInflightLaunchSelect(
   io.selectedSize := 0.U
   io.selectedReturnSignExtend := false.B
   io.selectedDst := LoadReplayDestination.none(archRegWidth, physRegWidth)
+  io.selectedSourceTraceValid := false.B
+  io.selectedSource0 := 0.U.asTypeOf(io.selectedSource0)
+  io.selectedSource1 := 0.U.asTypeOf(io.selectedSource1)
   io.selectedRequestByteMask := 0.U
   io.selectedSpecWakeup := false.B
   io.selectedStackValid := false.B
@@ -202,6 +211,9 @@ class LoadInflightLaunchSelect(
     io.selectedSize := selectedRow.size
     io.selectedReturnSignExtend := selectedRow.returnSignExtend
     io.selectedDst := selectedRow.dst
+    io.selectedSourceTraceValid := selectedRow.sourceTraceValid
+    io.selectedSource0 := selectedRow.source0
+    io.selectedSource1 := selectedRow.source1
     io.selectedRequestByteMask := requestByteMasks(launchIndex)
     io.selectedSpecWakeup := selectedRow.specWakeup
     io.selectedStackValid := selectedRow.stackValid

@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util._
 
+import linxcore.commit.{CommitOperandTrace, CommitTraceParams}
 import linxcore.rob.ROBID
 
 object LoadInflightStatus extends ChiselEnum {
@@ -18,6 +19,9 @@ class LoadInflightAlloc(
     val archRegWidth: Int = 6,
     val physRegWidth: Int = 6)
     extends Bundle {
+  private val sourceTraceParams =
+    CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
+
   val bid = new ROBID(idEntries)
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
@@ -27,6 +31,9 @@ class LoadInflightAlloc(
   val size = UInt(sizeWidth.W)
   val returnSignExtend = Bool()
   val dst = new LoadReplayDestination(archRegWidth, physRegWidth)
+  val sourceTraceValid = Bool()
+  val source0 = new CommitOperandTrace(sourceTraceParams)
+  val source1 = new CommitOperandTrace(sourceTraceParams)
   val youngestStoreId = new ROBID(idEntries)
   val youngestStoreLsId = new ROBID(idEntries)
   val isTile = Bool()
@@ -45,6 +52,9 @@ class LoadInflightRow(
     val archRegWidth: Int = 6,
     val physRegWidth: Int = 6)
     extends Bundle {
+  private val sourceTraceParams =
+    CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
+
   val valid = Bool()
   val status = LoadInflightStatus()
   val loadId = new ROBID(liqEntries)
@@ -57,6 +67,9 @@ class LoadInflightRow(
   val size = UInt(sizeWidth.W)
   val returnSignExtend = Bool()
   val dst = new LoadReplayDestination(archRegWidth, physRegWidth)
+  val sourceTraceValid = Bool()
+  val source0 = new CommitOperandTrace(sourceTraceParams)
+  val source1 = new CommitOperandTrace(sourceTraceParams)
   val youngestStoreId = new ROBID(idEntries)
   val youngestStoreLsId = new ROBID(idEntries)
   val isTile = Bool()
@@ -488,6 +501,9 @@ class LoadInflightQueue(
       rows(allocPtr).size := io.alloc.size
       rows(allocPtr).returnSignExtend := io.alloc.returnSignExtend
       rows(allocPtr).dst := io.alloc.dst
+      rows(allocPtr).sourceTraceValid := io.alloc.sourceTraceValid
+      rows(allocPtr).source0 := io.alloc.source0
+      rows(allocPtr).source1 := io.alloc.source1
       rows(allocPtr).youngestStoreId := io.alloc.youngestStoreId
       rows(allocPtr).youngestStoreLsId := io.alloc.youngestStoreLsId
       rows(allocPtr).isTile := io.alloc.isTile

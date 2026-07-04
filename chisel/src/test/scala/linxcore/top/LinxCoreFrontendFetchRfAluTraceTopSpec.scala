@@ -744,6 +744,21 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceBeforeCompletion.getWidth == 1)
   }
 
+  test("R375 replay-LIQ launch source trace diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqLaunchSelectedSourceTraceValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLaunchSelectedSource0Valid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLaunchSelectedSource0Reg.getWidth == 8)
+    assert(io.reducedLoadReplayLiqLaunchSelectedSource0Data.getWidth == 64)
+    assert(io.reducedLoadReplayLiqLaunchSelectedSource1Valid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLaunchSelectedSource1Reg.getWidth == 8)
+    assert(io.reducedLoadReplayLiqLaunchSelectedSource1Data.getWidth == 64)
+  }
+
   test("R367 replay W2 row-fill enable diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -966,6 +981,9 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayQueueOutRidValue"))
     assert(sv.contains("io_reducedLoadReplayQueueOutYoungestStoreIdValue"))
     assert(sv.contains("io_reducedLoadReplayQueueOutYoungestStoreLsIdValue"))
+    assert(sv.contains("io_reducedLoadReplayLiqLaunchSelectedSourceTraceValid"))
+    assert(sv.contains("io_reducedLoadReplayLiqLaunchSelectedSource0Data"))
+    assert(sv.contains("io_reducedLoadReplayLiqLaunchSelectedSource1Data"))
     assert(sv.contains("io_reducedLoadReplayDrainMatchValid"))
     assert(sv.contains("io_reducedLoadReplayDrainGidMismatch"))
     assert(sv.contains("io_reducedLoadReplayDrainLsIdMismatch"))

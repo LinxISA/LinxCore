@@ -3,7 +3,7 @@ package linxcore.execute
 import chisel3._
 import chisel3.util.{Cat, Fill, is, log2Ceil, switch}
 
-import linxcore.commit.{CommitTraceParams, CommitTraceRow}
+import linxcore.commit.{CommitOperandTrace, CommitTraceParams, CommitTraceRow}
 import linxcore.common.{DestinationKind, InterfaceParams, OperandClass, RenamedDestination, RenamedUop}
 import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.rob.ROBID
@@ -48,6 +48,9 @@ class ReducedScalarAluExecuteIO(
   val loadLookupRid = Output(new ROBID(p.robEntries))
   val loadLookupLsId = Output(UInt(p.lsidWidth.W))
   val loadLookupDst = Output(new RenamedDestination(p))
+  val loadLookupSourceTraceValid = Output(Bool())
+  val loadLookupSource0 = Output(new CommitOperandTrace(traceParams))
+  val loadLookupSource1 = Output(new CommitOperandTrace(traceParams))
   val fretStkSpRestoreValid = Output(Bool())
   val fretStkSpRestoreData = Output(UInt(p.immWidth.W))
   val redirectValid = Output(Bool())
@@ -623,6 +626,18 @@ class ReducedScalarAluExecute(
   noLoadLookupDst := 0.U.asTypeOf(noLoadLookupDst)
   noLoadLookupDst.kind := DestinationKind.None
   io.loadLookupDst := Mux(io.loadLookupValid, eUop.dst(0), noLoadLookupDst)
+  val loadLookupSourceTraceValid = io.loadLookupValid && !eFretStkLoadReturn
+  io.loadLookupSourceTraceValid := loadLookupSourceTraceValid
+  io.loadLookupSource0 := 0.U.asTypeOf(io.loadLookupSource0)
+  io.loadLookupSource1 := 0.U.asTypeOf(io.loadLookupSource1)
+  when(loadLookupSourceTraceValid) {
+    io.loadLookupSource0.valid := eUop.src(0).valid && (eUop.src(0).operandClass === OperandClass.P)
+    io.loadLookupSource0.reg := fitReg(eUop.src(0).archTag)
+    io.loadLookupSource0.data := eSrcData(0)
+    io.loadLookupSource1.valid := eUop.src(1).valid && (eUop.src(1).operandClass === OperandClass.P)
+    io.loadLookupSource1.reg := fitReg(eUop.src(1).archTag)
+    io.loadLookupSource1.data := eSrcData(1)
+  }
   val eLoadWaitHold = io.loadLookupValid && io.loadLookupWaitBlocked
   val eResult = resultFor(eUop.opcode, eUop.pc, eUop.insnRaw, eSrcData, eUop.imm, io.loadLookupData, io.stackPointerData)
   val eSupported = eValid && isSupported(eUop.opcode)

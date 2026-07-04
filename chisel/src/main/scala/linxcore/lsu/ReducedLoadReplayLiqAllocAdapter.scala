@@ -77,6 +77,9 @@ class ReducedLoadReplayLiqAllocAdapter(
     alloc.addr := io.candidate.addr
     alloc.size := io.candidate.size
     alloc.returnSignExtend := io.candidate.returnSignExtend
+    alloc.sourceTraceValid := io.candidate.sourceTraceValid
+    alloc.source0 := io.candidate.source0
+    alloc.source1 := io.candidate.source1
     alloc.youngestStoreId := io.candidate.youngestStoreId
     alloc.youngestStoreLsId := io.candidate.youngestStoreLsId
     alloc.isTile := false.B

@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.log2Ceil
 
+import linxcore.commit.{CommitOperandTrace, CommitTraceParams}
 import linxcore.rob.ROBID
 
 class ReducedLoadReplayLiqAllocPathIO(
@@ -18,6 +19,8 @@ class ReducedLoadReplayLiqAllocPathIO(
     extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val countWidth = log2Ceil(liqEntries + 1)
+  private val sourceTraceParams =
+    CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
 
   val flush = Input(Bool())
   val candidateValid = Input(Bool())
@@ -82,6 +85,9 @@ class ReducedLoadReplayLiqAllocPathIO(
   val launchSelectedSize = Output(UInt(sizeWidth.W))
   val launchSelectedReturnSignExtend = Output(Bool())
   val launchSelectedDst = Output(new LoadReplayDestination(archRegWidth, physRegWidth))
+  val launchSelectedSourceTraceValid = Output(Bool())
+  val launchSelectedSource0 = Output(new CommitOperandTrace(sourceTraceParams))
+  val launchSelectedSource1 = Output(new CommitOperandTrace(sourceTraceParams))
   val launchSelectedRequestByteMask = Output(UInt(lineBytes.W))
   val launchSelectedSpecWakeup = Output(Bool())
   val launchSelectedStackValid = Output(Bool())
@@ -230,6 +236,9 @@ class ReducedLoadReplayLiqAllocPath(
   io.launchSelectedSize := launchSelect.io.selectedSize
   io.launchSelectedReturnSignExtend := launchSelect.io.selectedReturnSignExtend
   io.launchSelectedDst := launchSelect.io.selectedDst
+  io.launchSelectedSourceTraceValid := launchSelect.io.selectedSourceTraceValid
+  io.launchSelectedSource0 := launchSelect.io.selectedSource0
+  io.launchSelectedSource1 := launchSelect.io.selectedSource1
   io.launchSelectedRequestByteMask := launchSelect.io.selectedRequestByteMask
   io.launchSelectedSpecWakeup := launchSelect.io.selectedSpecWakeup
   io.launchSelectedStackValid := launchSelect.io.selectedStackValid

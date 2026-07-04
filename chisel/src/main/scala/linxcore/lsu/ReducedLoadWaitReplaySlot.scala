@@ -1,6 +1,7 @@
 package linxcore.lsu
 
 import chisel3._
+import linxcore.commit.{CommitOperandTrace, CommitTraceParams}
 import linxcore.rob.ROBID
 
 class ReducedLoadReplayCandidate(
@@ -11,12 +12,18 @@ class ReducedLoadReplayCandidate(
     val archRegWidth: Int = 6,
     val physRegWidth: Int = 6)
     extends Bundle {
+  private val sourceTraceParams =
+    CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)
+
   val valid = Bool()
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
   val returnSignExtend = Bool()
   val dst = new LoadReplayDestination(archRegWidth, physRegWidth)
+  val sourceTraceValid = Bool()
+  val source0 = new CommitOperandTrace(sourceTraceParams)
+  val source1 = new CommitOperandTrace(sourceTraceParams)
   val bid = new ROBID(idEntries)
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
@@ -44,6 +51,9 @@ class ReducedLoadWaitReplaySlotIO(
   val captureSize = Input(UInt(sizeWidth.W))
   val captureReturnSignExtend = Input(Bool())
   val captureDst = Input(new LoadReplayDestination(archRegWidth, physRegWidth))
+  val captureSourceTraceValid = Input(Bool())
+  val captureSource0 = Input(new CommitOperandTrace(CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)))
+  val captureSource1 = Input(new CommitOperandTrace(CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = addrWidth)))
   val captureBid = Input(new ROBID(idEntries))
   val captureGid = Input(new ROBID(idEntries))
   val captureRid = Input(new ROBID(idEntries))
@@ -171,6 +181,9 @@ class ReducedLoadWaitReplaySlot(
     row.returnSignExtend := io.captureReturnSignExtend
     row.youngestStoreId := io.captureYoungestStoreId
     row.youngestStoreLsId := io.captureYoungestStoreLsId
+    row.sourceTraceValid := io.captureSourceTraceValid
+    row.source0 := io.captureSource0
+    row.source1 := io.captureSource1
     row.waitStore := true.B
     row.waitStoreInfo := io.captureWaitStore
     row
@@ -236,6 +249,9 @@ class ReducedLoadWaitReplaySlot(
     relaunch.size := slotReg.size
     relaunch.returnSignExtend := slotReg.returnSignExtend
     relaunch.dst := slotReg.dst
+    relaunch.sourceTraceValid := slotReg.sourceTraceValid
+    relaunch.source0 := slotReg.source0
+    relaunch.source1 := slotReg.source1
     relaunch.bid := slotReg.bid
     relaunch.gid := slotReg.gid
     relaunch.rid := slotReg.rid

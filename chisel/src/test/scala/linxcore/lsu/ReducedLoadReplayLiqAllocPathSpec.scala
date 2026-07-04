@@ -129,6 +129,9 @@ class ReducedLoadReplayLiqAllocPathSpec extends AnyFunSuite {
     assert(sv.contains("io_launchSelectedPc"))
     assert(sv.contains("io_launchSelectedAddr"))
     assert(sv.contains("io_launchSelectedDst_physTag"))
+    assert(sv.contains("io_launchSelectedSourceTraceValid"))
+    assert(sv.contains("io_launchSelectedSource0_data"))
+    assert(sv.contains("io_launchSelectedSource1_data"))
     assert(sv.contains("io_launchSelectedRequestByteMask"))
     assert(sv.contains("io_launchSelectedSpecWakeup"))
     assert(sv.contains("io_launchSelectedStackValid"))
@@ -141,6 +144,8 @@ class ReducedLoadReplayLiqAllocPathSpec extends AnyFunSuite {
     assert(sv.contains("io_missPending"))
     assert(sv.contains("io_rows_0_loadLsId_value"))
     assert(sv.contains("io_rows_0_dst_physTag"))
+    assert(sv.contains("io_rows_0_sourceTraceValid"))
+    assert(sv.contains("io_rows_0_source0_data"))
     assert(sv.contains("io_rows_0_youngestStoreLsId_value"))
   }
 }

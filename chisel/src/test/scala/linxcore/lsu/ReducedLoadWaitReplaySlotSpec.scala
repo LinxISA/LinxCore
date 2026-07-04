@@ -12,6 +12,7 @@ object ReducedLoadWaitReplaySlotReference {
       relTag: Int = 0,
       physTag: Int = 0,
       oldPhysTag: Int = 0)
+  final case class Source(valid: Boolean = false, reg: Int = 0, data: BigInt = 0)
   final case class Wait(
       valid: Boolean = false,
       index: Int = 0,
@@ -30,7 +31,10 @@ object ReducedLoadWaitReplaySlotReference {
       youngestStoreId: Option[Id] = None,
       youngestStoreLsId: Option[Id] = None,
       returnSignExtend: Boolean = false,
-      dst: Dst = Dst())
+      dst: Dst = Dst(),
+      sourceTraceValid: Boolean = false,
+      source0: Source = Source(),
+      source1: Source = Source())
   final case class Wake(storeId: Id, storeLsId: Id, pc: BigInt)
   final case class Relaunch(
       pc: BigInt,
@@ -43,7 +47,10 @@ object ReducedLoadWaitReplaySlotReference {
       rid: Id = Id(),
       youngestStoreId: Id = Id(),
       youngestStoreLsId: Id = Id(),
-      returnSignExtend: Boolean = false)
+      returnSignExtend: Boolean = false,
+      sourceTraceValid: Boolean = false,
+      source0: Source = Source(),
+      source1: Source = Source())
   final case class State(
       active: Boolean = false,
       pc: BigInt = 0,
@@ -55,6 +62,9 @@ object ReducedLoadWaitReplaySlotReference {
       gid: Id = Id(),
       rid: Id = Id(),
       dst: Dst = Dst(),
+      sourceTraceValid: Boolean = false,
+      source0: Source = Source(),
+      source1: Source = Source(),
       youngestStoreId: Id = Id(),
       youngestStoreLsId: Id = Id(),
       waitKey: Wait = Wait())
@@ -89,7 +99,10 @@ object ReducedLoadWaitReplaySlotReference {
           rid = state.rid,
           youngestStoreId = state.youngestStoreId,
           youngestStoreLsId = state.youngestStoreLsId,
-          returnSignExtend = state.returnSignExtend))
+          returnSignExtend = state.returnSignExtend,
+          sourceTraceValid = state.sourceTraceValid,
+          source0 = state.source0,
+          source1 = state.source1))
       } else {
         None
       }
@@ -109,6 +122,9 @@ object ReducedLoadWaitReplaySlotReference {
           gid = captured.gid,
           rid = captured.rid,
           dst = captured.dst,
+          sourceTraceValid = captured.sourceTraceValid,
+          source0 = captured.source0,
+          source1 = captured.source1,
           youngestStoreId = captured.youngestStoreId.getOrElse(captured.bid),
           youngestStoreLsId = captured.youngestStoreLsId.getOrElse(captured.lsId),
           waitKey = captured.waitKey)
@@ -145,6 +161,9 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
       youngestStoreId = Some(id(5)),
       youngestStoreLsId = Some(id(4)),
       dst = Dst(valid = true, kind = 1, archTag = 10, relTag = 10, physTag = 42, oldPhysTag = 10),
+      sourceTraceValid = true,
+      source0 = Source(valid = true, reg = 2, data = 0x1122),
+      source1 = Source(valid = true, reg = 3, data = 0x3344),
       waitKey = wait(pc = 0x3450, storeId = storeId))
 
     val afterCapture = step(State(), capture = Some(captured))
@@ -166,7 +185,10 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
       gid = id(2),
       rid = id(7),
       youngestStoreId = id(5),
-      youngestStoreLsId = id(4))))
+      youngestStoreLsId = id(4),
+      sourceTraceValid = true,
+      source0 = Source(valid = true, reg = 2, data = 0x1122),
+      source1 = Source(valid = true, reg = 3, data = 0x3344))))
     assert(!afterWake.state.active)
   }
 
@@ -234,8 +256,12 @@ class ReducedLoadWaitReplaySlotSpec extends AnyFunSuite {
     assert(sv.contains("io_relaunch_valid"))
     assert(sv.contains("io_captureReturnSignExtend"))
     assert(sv.contains("io_captureDst_physTag"))
+    assert(sv.contains("io_captureSourceTraceValid"))
+    assert(sv.contains("io_captureSource0_data"))
     assert(sv.contains("io_relaunch_returnSignExtend"))
     assert(sv.contains("io_relaunch_dst_physTag"))
+    assert(sv.contains("io_relaunch_sourceTraceValid"))
+    assert(sv.contains("io_relaunch_source1_data"))
     assert(sv.contains("io_relaunch_gid_value"))
     assert(sv.contains("io_relaunch_rid_value"))
     assert(sv.contains("io_relaunch_loadLsId_value"))
