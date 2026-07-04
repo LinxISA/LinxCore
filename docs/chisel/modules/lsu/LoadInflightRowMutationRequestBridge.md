@@ -8,6 +8,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowMutationRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationApply.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationWriteControl.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/mtccore/lsu/load_unit/ldq_cluster.cpp`
@@ -32,8 +33,9 @@ LIQ row stores `LoadStoreForwardWait(idEntries, storeEntries, pcWidth)`. This
 bridge checks that the source store index fits the native LIQ store-entry
 domain before narrowing and forwarding the request.
 
-R413 is still standalone. It does not wire registered row mutation into
-`LoadInflightQueue`, does not enable
+R415 now consumes this bridge in the standalone
+`LoadInflightRowMutationPath` composition. The bridge still does not wire
+registered row mutation into `LoadInflightQueue`, does not enable
 `LoadReplaySourceReturnStoreSnapshotRowMutationRequest.liveEnable`, and does
 not change generated-top behavior.
 
@@ -87,8 +89,8 @@ The other payload guards mirror the adjacent R410/R412 contracts:
 
 ## Deferred Owners
 
-- Registered `LoadInflightQueue` row mutation using this bridge plus the R412
-  `LoadInflightRowMutationApply` preview and R414 write-control admission.
+- Registered `LoadInflightQueue` row mutation using the R415
+  `LoadInflightRowMutationPath` composition.
 - Live promotion control for
   `LoadReplaySourceReturnStoreSnapshotRowMutationRequest.liveEnable`.
 - Replacement of coarse `sourcesReturned` readiness with row-owned split-bit

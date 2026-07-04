@@ -7,6 +7,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationRequestBridge.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationApply.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/mtccore/lsu/load_unit/ldq.cpp`
@@ -31,8 +32,10 @@ allocation. R414 keeps the precedence policy explicit by permitting a future
 mutation write only when the target row evidence is valid and none of those
 same-cycle writers is targeting the same row.
 
-R414 is standalone. It does not write `LoadInflightQueue` storage and does not
-enable `LoadReplaySourceReturnStoreSnapshotRowMutationRequest.liveEnable`.
+R415 now consumes this control in the standalone
+`LoadInflightRowMutationPath` composition. The control still does not write
+`LoadInflightQueue` storage and does not enable
+`LoadReplaySourceReturnStoreSnapshotRowMutationRequest.liveEnable`.
 
 ## Interface
 
@@ -74,9 +77,8 @@ precedence boundary independently.
 
 ## Deferred Owners
 
-- Composition with `LoadInflightRowMutationRequestBridge` and
-  `LoadInflightRowMutationApply`.
-- Registered `LoadInflightQueue` row mutation using `writeEnable`.
+- Registered `LoadInflightQueue` row mutation using the R415
+  `LoadInflightRowMutationPath` composition and its `writeEnable`.
 - Live promotion control for
   `LoadReplaySourceReturnStoreSnapshotRowMutationRequest.liveEnable`.
 

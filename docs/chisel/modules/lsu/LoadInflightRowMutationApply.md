@@ -9,6 +9,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowMutationRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationRequestBridge.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationWriteControl.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationPath.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/mtccore/lsu/load_unit/ldq_cluster.cpp`
     - `MTCLUEntryInfo::rewait`
@@ -21,10 +22,11 @@
 ## Purpose
 
 `LoadInflightRowMutationApply` is the concrete LIQ row-image apply preview for
-the native row-mutation request shape produced by the R413 bridge. It does not own registered
-`LoadInflightQueue` storage. Instead, it consumes one current `LoadInflightRow`
-image plus one future mutation request and returns the row image that a later
-registered writer may commit.
+the native row-mutation request shape produced by the R413 bridge and now
+composed by the R415 path. It does not own registered `LoadInflightQueue`
+storage. Instead, it consumes one current `LoadInflightRow` image plus one
+future mutation request and returns the row image that a later registered writer
+may commit.
 
 This keeps the row-write semantics testable before wiring live STQ response
 application into the stateful LIQ owner.
@@ -69,8 +71,8 @@ The payload guards mirror the model constraints already captured by R410:
 
 ## Deferred Owners
 
-- Registered `LoadInflightQueue` row mutation using this preview behind the
-  R414 write-control admission boundary.
+- Registered `LoadInflightQueue` row mutation using the R415
+  `LoadInflightRowMutationPath` composition.
 - Live promotion control for `LoadReplaySourceReturnStoreSnapshotPath`
   `rowMutationRequest.liveEnable`.
 - Replacement of coarse `sourcesReturned` readiness with row-owned split-bit
