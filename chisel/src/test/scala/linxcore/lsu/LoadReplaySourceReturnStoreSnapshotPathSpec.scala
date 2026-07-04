@@ -74,6 +74,25 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestPayloadBlockedByNoIssue: Boolean,
       requestPayloadBlockedByNoSelected: Boolean,
       requestPayloadBlockedByStaleRow: Boolean,
+      responseHeadStateActive: Boolean,
+      responseHeadStateHeadStale: Boolean,
+      responseHeadStateExternalHeadStaleUsed: Boolean,
+      responseHeadStateReducedHeadTargetsRow: Boolean,
+      responseHeadStateReducedHeadRepick: Boolean,
+      responseHeadStateReducedHeadRowValid: Boolean,
+      responseHeadStateReducedHeadScbReturned: Boolean,
+      responseHeadStateReducedHeadApplyEligible: Boolean,
+      responseHeadStateReducedHeadStale: Boolean,
+      responseHeadStateReducedHeadOneHot: Int,
+      responseHeadStateBlockedByNoHead: Boolean,
+      responseHeadStateBlockedByReducedDisabled: Boolean,
+      responseHeadStateBlockedByUnsupportedCluster: Boolean,
+      responseHeadStateBlockedByEntryOutOfRange: Boolean,
+      responseHeadStateBlockedByInvalidRow: Boolean,
+      responseHeadStateBlockedByScbNotReturned: Boolean,
+      responseHeadStateBlockedByStillRepick: Boolean,
+      responseHeadStateBlockedByDisabled: Boolean,
+      responseHeadStateBlockedByFlush: Boolean,
       responseHeadReducedScbReturned: Boolean,
       rowStatePlanValid: Boolean,
       rowStatePlanNextScbReturned: Boolean,
@@ -565,6 +584,25 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestPayloadBlockedByNoIssue = requestPayload.blockedByNoIssue,
       requestPayloadBlockedByNoSelected = requestPayload.blockedByNoSelected,
       requestPayloadBlockedByStaleRow = requestPayload.blockedByStaleRow,
+      responseHeadStateActive = responseHeadState.active,
+      responseHeadStateHeadStale = responseHeadState.headStale,
+      responseHeadStateExternalHeadStaleUsed = responseHeadState.externalHeadStaleUsed,
+      responseHeadStateReducedHeadTargetsRow = responseHeadState.reducedHeadTargetsRow,
+      responseHeadStateReducedHeadRepick = responseHeadState.reducedHeadRepick,
+      responseHeadStateReducedHeadRowValid = responseHeadState.reducedHeadRowValid,
+      responseHeadStateReducedHeadScbReturned = responseHeadState.reducedHeadScbReturned,
+      responseHeadStateReducedHeadApplyEligible = responseHeadState.reducedHeadApplyEligible,
+      responseHeadStateReducedHeadStale = responseHeadState.reducedHeadStale,
+      responseHeadStateReducedHeadOneHot = responseHeadState.reducedHeadOneHot,
+      responseHeadStateBlockedByNoHead = responseHeadState.blockedByNoHead,
+      responseHeadStateBlockedByReducedDisabled = responseHeadState.blockedByReducedDisabled,
+      responseHeadStateBlockedByUnsupportedCluster = responseHeadState.blockedByUnsupportedCluster,
+      responseHeadStateBlockedByEntryOutOfRange = responseHeadState.blockedByEntryOutOfRange,
+      responseHeadStateBlockedByInvalidRow = responseHeadState.blockedByInvalidRow,
+      responseHeadStateBlockedByScbNotReturned = responseHeadState.blockedByScbNotReturned,
+      responseHeadStateBlockedByStillRepick = responseHeadState.blockedByStillRepick,
+      responseHeadStateBlockedByDisabled = responseHeadState.blockedByDisabled,
+      responseHeadStateBlockedByFlush = responseHeadState.blockedByFlush,
       responseHeadReducedScbReturned = responseHeadState.reducedHeadScbReturned,
       rowStatePlanValid = rowStatePlan.planValid,
       rowStatePlanNextScbReturned = rowStatePlan.nextScbReturned,
@@ -1068,11 +1106,63 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.evidenceResponseAccepted)
     assert(result.identityMatchResponseMatchesSelected)
     assert(result.responseMatchOrdered)
+    assert(result.responseHeadStateActive)
+    assert(!result.responseHeadStateHeadStale)
+    assert(result.responseHeadStateReducedHeadTargetsRow)
+    assert(result.responseHeadStateReducedHeadRepick)
+    assert(result.responseHeadStateReducedHeadRowValid)
+    assert(result.responseHeadStateReducedHeadScbReturned)
+    assert(result.responseHeadStateReducedHeadApplyEligible)
+    assert(!result.responseHeadStateReducedHeadStale)
+    assert(result.responseHeadStateReducedHeadOneHot == 0x4)
+    assert(result.responseHeadStateBlockedByStillRepick)
+    assert(!result.responseHeadStateBlockedByScbNotReturned)
     assert(result.responseHeadReducedScbReturned)
     assert(result.rowStatePlanValid)
     assert(result.rowStatePlanNextScbReturned)
     assert(result.rowStatePlanNextStoreSourceReturned)
     assert(!result.rowStatePlanInvalidStqApplyWithoutScb)
+  }
+
+  test("path-local response head-state diagnostics hold ordered response until SCB returns") {
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      requestEnable = true,
+      sinkReady = true,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4,
+      selectedRowValidMask = 0x4,
+      selectedRowScbReturnedMask = 0,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPeId = 2,
+      selectedStid = 3,
+      selectedTid = 4,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16),
+      selectedValidMask = BigInt("ff", 16))
+
+    assert(result.identityMatchResponseMatchesSelected)
+    assert(result.responseHeadStateReducedHeadTargetsRow)
+    assert(result.responseHeadStateReducedHeadRepick)
+    assert(result.responseHeadStateReducedHeadRowValid)
+    assert(!result.responseHeadStateReducedHeadScbReturned)
+    assert(!result.responseHeadStateReducedHeadApplyEligible)
+    assert(!result.responseHeadStateHeadStale)
+    assert(result.responseHeadStateBlockedByScbNotReturned)
+    assert(result.responseMatchBlockedByScbOrder)
+    assert(!result.responseMatchOrdered)
+    assert(result.responseDrainBlockedByNoAction)
+    assert(!result.responseDrainDequeueReady)
   }
 
   test("raw response priority keeps request head resident when the response enqueue port is occupied") {
@@ -1218,20 +1308,32 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       requestGid = 1,
       requestRid = 7,
       requestLoadLsId = 9)
+    val residentToken = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token(
+      valid = true,
+      repick = true,
+      clusterId = 0,
+      entryId = 2)
     val result = LoadReplaySourceReturnStoreSnapshotPathReference(
       enable = true,
       flush = false,
       launchValid = false,
       legacySnapshotReady = false,
       responseHeadStale = true,
-      responseQueueState = Vector(staleHead))
+      responseQueueState = Vector(staleHead),
+      acceptedTokenState = residentToken)
 
     assert(result.responseQueueHeadValid)
+    assert(result.responseHeadStateHeadStale)
+    assert(result.responseHeadStateExternalHeadStaleUsed)
+    assert(!result.responseHeadStateReducedHeadStale)
     assert(result.responseDrainDequeueReady)
     assert(result.responseDrainStaleDropped)
     assert(result.responseQueueHeadConsumed)
     assert(result.responseQueueEmpty)
     assert(result.responseQueueCount == 0)
+    assert(result.acceptedTokenValid)
+    assert(result.acceptedTokenResidentValid)
+    assert(!result.acceptedTokenClearAccepted)
     assert(!result.responseDrainOrderedConsumed)
     assert(!result.responseDrainInvalidStaleWithOrdered)
   }
@@ -1518,6 +1620,12 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_responseMatchOrdered"))
     assert(sv.contains("io_responseMatchBlockedByScbOrder"))
     assert(sv.contains("io_responseMatchInvalidDataWithWaitStore"))
+    assert(sv.contains("io_responseHeadStateHeadStale"))
+    assert(sv.contains("io_responseHeadStateExternalHeadStaleUsed"))
+    assert(sv.contains("io_responseHeadStateReducedHeadApplyEligible"))
+    assert(sv.contains("io_responseHeadStateReducedHeadOneHot"))
+    assert(sv.contains("io_responseHeadStateBlockedByScbNotReturned"))
+    assert(sv.contains("io_responseHeadStateBlockedByEntryOutOfRange"))
     assert(sv.contains("tokenLineDataReg"))
     assert(sv.contains("io_responseApplyValid"))
     assert(sv.contains("io_responseApplyWaitStoreRid_value"))

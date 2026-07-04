@@ -223,6 +223,12 @@ ordered STQ responses can be classified as wait-store rewait, data merge,
 data-no-merge, not-repick, malformed payload, or missing-SCB-order evidence,
 while the top still ties `rowMutationLiveEnable=false`.
 
+R441 keeps the next proof module-local and exposes the existing
+`ResponseHeadState` classification at the composite path boundary. Future row
+mutation can now observe whether a response head is externally stale,
+reduced-row stale, still-repick, invalid, waiting for SCB return, or
+apply-eligible without growing `LinxCoreFrontendFetchRfAluTraceTop` IO.
+
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
 drops stale heads from the model-equivalent not-repick proof, but response
@@ -358,6 +364,7 @@ boundary and can later be promoted without another direct top child instance.
 | `rawResponseSource*` | R421 raw-response source diagnostics: active/candidate/live-valid, disabled/flush/live-disabled blockers, and malformed payload checks. |
 | `identityMatch*` | R432 path-local identity matcher diagnostics: candidate, selected-ready, cluster/entry match, final selected response match, no-query/no-selected/stale/mismatch blockers, and invalid response-without-query detection. |
 | `responseMatch*` | R432 path-local response matcher diagnostics: candidate, matched, ordered, valid, wait-store/data evidence, disabled/flush/no-query/no-match/SCB-order blockers, and malformed ordered payload detection. |
+| `responseHeadState*` | R441 path-local response-head diagnostics from the R400/R419 head-state owner: active/head-stale, external-stale use, reduced-row target/repick/row-valid/SCB-returned/apply-eligible/stale/one-hot, and no-head/reduced-disabled/unsupported/out-of-range/invalid-row/SCB-not-returned/still-repick/disabled/flush blockers. |
 | `queryIssue*` | Selected-row query issue diagnostics from the query owner. |
 | `requestControlBlockedByToken` | R430 query-capacity blocker from `RequestControl`: a selected live query has request FIFO capacity but the accepted-query token is still occupied. |
 | `acceptedToken*` | R430/R431 accepted-query owner diagnostics: capacity, visible/resident token, capture/clear/precise-prune pulses, precise-flush/outstanding-token blockers, and visible token `cID/eID`. |
@@ -483,6 +490,9 @@ head-state owner. The not-repick proof still drives stale drain, while
 targeted row. This mirrors `ASSERT(entry.scbRnt)` in
 `MtcLDQInfo::handleSTQReceive` without enabling raw response inputs in the
 current top. R427 also feeds that proof into `RowStatePlan.priorScbReturned`,
+and R441 exposes the same classification through the composite path IO. Stale
+head drops pop the response FIFO but do not clear the accepted-query token;
+only ordered response consumption clears that token.
 so response consumption and row-state planning share the same SCB-before-STQ
 evidence.
 
@@ -712,8 +722,8 @@ behavior, future live accepted-token response completion, flush handling,
 disabled behavior, request-queue storage while the future raw sink is stalled,
 raw-response priority over sink-generated response, path-local identity and
 response blocker diagnostics, request-sink blocker diagnostics,
-response FIFO/drain diagnostics, policy-selected effective-control completion,
-and Chisel
+response FIFO/head-state/drain diagnostics, policy-selected effective-control
+completion, and Chisel
 elaboration with the selected-identity, request-control, request-payload,
 request-queue, request-sink, accepted-token, payload-bearing response-queue,
 response-head-state, response-drain, response-apply, row-state-plan,

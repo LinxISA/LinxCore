@@ -163,6 +163,26 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val responseMatchInvalidResponseWithoutQuery = Output(Bool())
   val responseMatchInvalidDataWithWaitStore = Output(Bool())
 
+  val responseHeadStateActive = Output(Bool())
+  val responseHeadStateHeadStale = Output(Bool())
+  val responseHeadStateExternalHeadStaleUsed = Output(Bool())
+  val responseHeadStateReducedHeadTargetsRow = Output(Bool())
+  val responseHeadStateReducedHeadRepick = Output(Bool())
+  val responseHeadStateReducedHeadRowValid = Output(Bool())
+  val responseHeadStateReducedHeadScbReturned = Output(Bool())
+  val responseHeadStateReducedHeadApplyEligible = Output(Bool())
+  val responseHeadStateReducedHeadStale = Output(Bool())
+  val responseHeadStateReducedHeadOneHot = Output(UInt(liqEntries.W))
+  val responseHeadStateBlockedByNoHead = Output(Bool())
+  val responseHeadStateBlockedByReducedDisabled = Output(Bool())
+  val responseHeadStateBlockedByUnsupportedCluster = Output(Bool())
+  val responseHeadStateBlockedByEntryOutOfRange = Output(Bool())
+  val responseHeadStateBlockedByInvalidRow = Output(Bool())
+  val responseHeadStateBlockedByScbNotReturned = Output(Bool())
+  val responseHeadStateBlockedByStillRepick = Output(Bool())
+  val responseHeadStateBlockedByDisabled = Output(Bool())
+  val responseHeadStateBlockedByFlush = Output(Bool())
+
   val responseApplyActive = Output(Bool())
   val responseApplyCandidate = Output(Bool())
   val responseApplyValid = Output(Bool())
@@ -881,6 +901,26 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.responseMatchBlockedByScbOrder := responseMatch.io.blockedByScbOrder
   io.responseMatchInvalidResponseWithoutQuery := responseMatch.io.invalidResponseWithoutQuery
   io.responseMatchInvalidDataWithWaitStore := responseMatch.io.invalidDataWithWaitStore
+
+  io.responseHeadStateActive := responseHeadState.io.active
+  io.responseHeadStateHeadStale := responseHeadState.io.headStale
+  io.responseHeadStateExternalHeadStaleUsed := responseHeadState.io.externalHeadStaleUsed
+  io.responseHeadStateReducedHeadTargetsRow := responseHeadState.io.reducedHeadTargetsRow
+  io.responseHeadStateReducedHeadRepick := responseHeadState.io.reducedHeadRepick
+  io.responseHeadStateReducedHeadRowValid := responseHeadState.io.reducedHeadRowValid
+  io.responseHeadStateReducedHeadScbReturned := responseHeadState.io.reducedHeadScbReturned
+  io.responseHeadStateReducedHeadApplyEligible := responseHeadState.io.reducedHeadApplyEligible
+  io.responseHeadStateReducedHeadStale := responseHeadState.io.reducedHeadStale
+  io.responseHeadStateReducedHeadOneHot := responseHeadState.io.reducedHeadOneHot
+  io.responseHeadStateBlockedByNoHead := responseHeadState.io.blockedByNoHead
+  io.responseHeadStateBlockedByReducedDisabled := responseHeadState.io.blockedByReducedDisabled
+  io.responseHeadStateBlockedByUnsupportedCluster := responseHeadState.io.blockedByUnsupportedCluster
+  io.responseHeadStateBlockedByEntryOutOfRange := responseHeadState.io.blockedByEntryOutOfRange
+  io.responseHeadStateBlockedByInvalidRow := responseHeadState.io.blockedByInvalidRow
+  io.responseHeadStateBlockedByScbNotReturned := responseHeadState.io.blockedByScbNotReturned
+  io.responseHeadStateBlockedByStillRepick := responseHeadState.io.blockedByStillRepick
+  io.responseHeadStateBlockedByDisabled := responseHeadState.io.blockedByDisabled
+  io.responseHeadStateBlockedByFlush := responseHeadState.io.blockedByFlush
 
   io.responseApplyActive := responseApply.io.active
   io.responseApplyCandidate := responseApply.io.applyCandidate
