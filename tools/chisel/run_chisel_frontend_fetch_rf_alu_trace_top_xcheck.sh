@@ -227,6 +227,67 @@ verilator \
 
 "${OBJ_DIR}/linxcore_frontend_fetch_rf_alu_trace_top_tb" "${TB_ARGS[@]}"
 
+python3 - "${SIDEBAND_STATS}" "${FETCH_REDUCED_STORE_REPLAY_LIQ}" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+expect_replay_liq = sys.argv[2] == "1"
+required_replay_liq_keys = [
+    "cycles_sampled",
+    "source_row_mutation_candidate_valid",
+    "source_row_mutation_live_permit",
+    "source_row_mutation_request_valid",
+    "source_row_mutation_blocked_by_head_proof",
+    "source_row_mutation_blocked_by_live_disabled",
+    "liq_row_mutation_bridge_valid",
+    "liq_row_mutation_write_enable",
+    "liq_row_mutation_apply_valid",
+    "liq_row_mutation_blocked_by_bridge",
+    "liq_row_mutation_blocked_by_control",
+]
+
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        stats = json.load(f)
+except OSError as exc:
+    print(f"error: failed to read sideband stats {path}: {exc}", file=sys.stderr)
+    sys.exit(2)
+except json.JSONDecodeError as exc:
+    print(f"error: malformed sideband stats {path}: {exc}", file=sys.stderr)
+    sys.exit(2)
+
+schema = stats.get("schema")
+if schema != "linxcore.frontend_fetch_rf_alu.sideband_stats.v1":
+    print(f"error: unexpected sideband stats schema {schema!r}", file=sys.stderr)
+    sys.exit(2)
+
+if stats.get("reduced_store_replay_liq_top") is not expect_replay_liq:
+    print(
+        "error: sideband stats reduced_store_replay_liq_top does not match "
+        f"FETCH_REDUCED_STORE_REPLAY_LIQ={int(expect_replay_liq)}",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+replay_liq = stats.get("replay_liq")
+if not isinstance(replay_liq, dict):
+    print("error: sideband stats missing replay_liq object", file=sys.stderr)
+    sys.exit(2)
+
+for key in required_replay_liq_keys:
+    value = replay_liq.get(key)
+    if not isinstance(value, int) or value < 0:
+        print(f"error: replay_liq.{key} must be a nonnegative integer", file=sys.stderr)
+        sys.exit(2)
+
+if replay_liq["cycles_sampled"] <= 0:
+    print("error: replay_liq.cycles_sampled must be positive", file=sys.stderr)
+    sys.exit(2)
+
+print(f"sideband_stats_json={path}")
+PY
+
 bash "${ROOT_DIR}/tools/chisel/run_chisel_qemu_crosscheck.sh" \
   --qemu-trace "${QEMU_TRACE}" \
   --dut-trace "${DUT_TRACE}" \
