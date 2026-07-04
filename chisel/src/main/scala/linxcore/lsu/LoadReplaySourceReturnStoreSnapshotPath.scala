@@ -29,6 +29,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val flush = Input(Bool())
   val requestEnable = Input(Bool())
   val rowMutationLiveEnable = Input(Bool())
+  val rawResponseLiveEnable = Input(Bool())
   val launchValid = Input(Bool())
   val sinkReady = Input(Bool())
   val selectedIdentityEnable = Input(Bool())
@@ -103,6 +104,17 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val evidenceBlockedByWaitStore = Output(Bool())
   val evidenceInvalidResponseWithoutQuery = Output(Bool())
   val evidenceInvalidDataWithWaitStore = Output(Bool())
+
+  val rawResponseSourceActive = Output(Bool())
+  val rawResponseSourceCandidate = Output(Bool())
+  val rawResponseSourceValid = Output(Bool())
+  val rawResponseSourceBlockedByDisabled = Output(Bool())
+  val rawResponseSourceBlockedByFlush = Output(Bool())
+  val rawResponseSourceBlockedByLiveDisabled = Output(Bool())
+  val rawResponseSourceInvalidDataWithWaitStore = Output(Bool())
+  val rawResponseSourceInvalidDataValidWithoutRawData = Output(Bool())
+  val rawResponseSourceInvalidSuppressedDataWithoutWait = Output(Bool())
+  val rawResponseSourceInvalidSuppressedDataWithoutRawData = Output(Bool())
 
   val responseApplyActive = Output(Bool())
   val responseApplyCandidate = Output(Bool())
@@ -366,6 +378,13 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     pcWidth = pcWidth,
     lineBytes = lineBytes
   ))
+  val rawResponseSource = Module(new LoadReplaySourceReturnStoreSnapshotRawResponseSource(
+    idEntries = idEntries,
+    clusterIdWidth = clusterIdWidth,
+    entryIdWidth = entryIdWidth,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes
+  ))
   val identityMatch = Module(new LoadReplaySourceReturnStoreSnapshotIdentityMatch(
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth
@@ -463,7 +482,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   requestSink.io.requestValid := requestQueue.io.headValid
   requestSink.io.request := requestQueue.io.head
   requestSink.io.rawSinkReady := io.sinkReady
-  requestSink.io.responseReady := !responseQueue.io.full && !io.responseValidIn
+  requestSink.io.responseReady := !responseQueue.io.full && !rawResponseSource.io.responseValid
   requestSink.io.lookupWaitStore := lookup.io.waitStoreValid
   requestSink.io.lookupWaitStoreInfo := lookup.io.waitStore
   requestSink.io.lookupWaitStoreRid := lookupWaitStoreRid
@@ -485,32 +504,29 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   acceptedToken.io.selectedRequestByteMask := io.selectedRequestByteMask
   acceptedToken.io.responseConsumed := responseDrain.io.orderedConsumed
 
+  rawResponseSource.io.enable := io.enable
+  rawResponseSource.io.flush := io.flush
+  rawResponseSource.io.liveEnable := io.rawResponseLiveEnable
+  rawResponseSource.io.rawValid := io.responseValidIn
+  rawResponseSource.io.clusterId := io.responseClusterId
+  rawResponseSource.io.entryId := io.responseEntryId
+  rawResponseSource.io.waitStore := io.waitStoreIn
+  rawResponseSource.io.dataValid := io.dataValidIn
+  rawResponseSource.io.rawDataValid := io.rawDataValidIn
+  rawResponseSource.io.dataSuppressedByWait := io.dataSuppressedByWaitIn
+  rawResponseSource.io.waitStoreIndex := io.responseWaitStoreIndex
+  rawResponseSource.io.waitStoreBid := io.responseWaitStoreBid
+  rawResponseSource.io.waitStoreRid := io.responseWaitStoreRid
+  rawResponseSource.io.waitStoreLsId := io.responseWaitStoreLsId
+  rawResponseSource.io.waitStorePc := io.responseWaitStorePc
+  rawResponseSource.io.dataMask := io.responseDataMask
+  rawResponseSource.io.data := io.responseData
+
   responseQueue.io.enable := io.enable
   responseQueue.io.flush := io.flush
-  val enqueueSinkResponse = !io.responseValidIn && requestSink.io.responseValid
-  responseQueue.io.enqueueValid := io.responseValidIn || enqueueSinkResponse
-  val rawResponse = WireDefault(0.U.asTypeOf(new LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle(
-    idEntries,
-    clusterIdWidth,
-    entryIdWidth,
-    pcWidth,
-    lineBytes
-  )))
-  rawResponse.valid := io.responseValidIn
-  rawResponse.clusterId := io.responseClusterId
-  rawResponse.entryId := io.responseEntryId
-  rawResponse.waitStore := io.waitStoreIn
-  rawResponse.dataValid := io.dataValidIn
-  rawResponse.rawDataValid := io.rawDataValidIn
-  rawResponse.dataSuppressedByWait := io.dataSuppressedByWaitIn
-  rawResponse.waitStoreIndex := io.responseWaitStoreIndex
-  rawResponse.waitStoreBid := io.responseWaitStoreBid
-  rawResponse.waitStoreRid := io.responseWaitStoreRid
-  rawResponse.waitStoreLsId := io.responseWaitStoreLsId
-  rawResponse.waitStorePc := io.responseWaitStorePc
-  rawResponse.dataMask := io.responseDataMask
-  rawResponse.data := io.responseData
-  responseQueue.io.enqueue := Mux(io.responseValidIn, rawResponse, requestSink.io.response)
+  val enqueueSinkResponse = !rawResponseSource.io.responseValid && requestSink.io.responseValid
+  responseQueue.io.enqueueValid := rawResponseSource.io.responseValid || enqueueSinkResponse
+  responseQueue.io.enqueue := Mux(rawResponseSource.io.responseValid, rawResponseSource.io.response, requestSink.io.response)
   responseQueue.io.dequeueReady := responseDrain.io.dequeueReady
 
   identityMatch.io.enable := io.enable
@@ -640,6 +656,17 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.evidenceBlockedByWaitStore := evidence.io.blockedByWaitStore
   io.evidenceInvalidResponseWithoutQuery := evidence.io.invalidResponseWithoutQuery
   io.evidenceInvalidDataWithWaitStore := evidence.io.invalidDataWithWaitStore
+
+  io.rawResponseSourceActive := rawResponseSource.io.active
+  io.rawResponseSourceCandidate := rawResponseSource.io.candidate
+  io.rawResponseSourceValid := rawResponseSource.io.responseValid
+  io.rawResponseSourceBlockedByDisabled := rawResponseSource.io.blockedByDisabled
+  io.rawResponseSourceBlockedByFlush := rawResponseSource.io.blockedByFlush
+  io.rawResponseSourceBlockedByLiveDisabled := rawResponseSource.io.blockedByLiveDisabled
+  io.rawResponseSourceInvalidDataWithWaitStore := rawResponseSource.io.invalidDataWithWaitStore
+  io.rawResponseSourceInvalidDataValidWithoutRawData := rawResponseSource.io.invalidDataValidWithoutRawData
+  io.rawResponseSourceInvalidSuppressedDataWithoutWait := rawResponseSource.io.invalidSuppressedDataWithoutWait
+  io.rawResponseSourceInvalidSuppressedDataWithoutRawData := rawResponseSource.io.invalidSuppressedDataWithoutRawData
 
   io.responseApplyActive := responseApply.io.active
   io.responseApplyCandidate := responseApply.io.applyCandidate

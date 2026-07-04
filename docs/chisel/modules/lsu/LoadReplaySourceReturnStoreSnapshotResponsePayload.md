@@ -8,6 +8,7 @@
   - `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseQueueSpec.scala`
 - Integrated users:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotPath.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRawResponseSource.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestSink.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseApply.scala`
@@ -44,6 +45,11 @@ response boundary. The current reduced top still ties those raw inputs inactive,
 but the path no longer fabricates placeholder raw-data and wait-store fields
 when a future `lookup_su_lu_q` source presents a response.
 
+R421 moves the raw external response shaping into
+`LoadReplaySourceReturnStoreSnapshotRawResponseSource`. That owner copies the
+full payload only after the explicit raw-response live gate is enabled, while
+the current reduced top keeps that gate false.
+
 ## Interface
 
 | Field | Description |
@@ -65,8 +71,8 @@ when a future `lookup_su_lu_q` source presents a response.
 
 The bundle has no logic. `LoadReplaySourceReturnStoreSnapshotRequestSink`
 constructs it from the accepted request identity plus R405 lookup sidebands,
-and `LoadReplaySourceReturnStoreSnapshotPath` constructs the same shape from
-raw external response inputs. `LoadReplaySourceReturnStoreSnapshotResponseQueue`
+and `LoadReplaySourceReturnStoreSnapshotRawResponseSource` constructs the same
+shape from raw external response inputs. `LoadReplaySourceReturnStoreSnapshotResponseQueue`
 preserves the full record in FIFO order while existing response matching still
 consumes only `cID/eID`, `waitStore`, and `dataValid`.
 
@@ -83,7 +89,7 @@ wait-store and data-merge intent without mutating LIQ rows yet.
 
 - Registered LIQ/LDQ wait-store row mutation using the R407 apply intent.
 - Registered LIQ/LDQ data merge using the R407 apply intent.
-- Live raw external `lookup_su_lu_q` source wiring.
+- Live external `lookup_su_lu_q` producer wiring behind the R421 raw-response source.
 - Precise queued response pruning.
 
 ## Verification
@@ -92,6 +98,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestSink
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRawResponseSource
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop

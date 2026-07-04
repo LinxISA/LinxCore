@@ -26,6 +26,9 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       evidenceBlockedByWaitStore: Boolean,
       evidenceInvalidResponseWithoutQuery: Boolean,
       evidenceInvalidDataWithWaitStore: Boolean,
+      rawResponseSourceCandidate: Boolean,
+      rawResponseSourceValid: Boolean,
+      rawResponseSourceBlockedByLiveDisabled: Boolean,
       queryIssueActive: Boolean,
       queryIssueRequestActive: Boolean,
       queryIssueCandidate: Boolean,
@@ -57,6 +60,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       launchValid: Boolean,
       legacySnapshotReady: Boolean,
       requestEnable: Boolean = false,
+      rawResponseLiveEnable: Boolean = false,
       sinkReady: Boolean = false,
       selectedIdentityEnable: Boolean = false,
       selectedLaunchIndex: Int = 0,
@@ -72,6 +76,8 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       scbReturned: Boolean = false,
       waitStoreIn: Boolean = false,
       dataValidIn: Boolean = false,
+      rawDataValidIn: Boolean = false,
+      dataSuppressedByWaitIn: Boolean = false,
       selectedLoadId: Int = 0,
       selectedBid: Int = 0,
       selectedGid: Int = 0,
@@ -88,7 +94,18 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       enable = enable,
       flush = flush,
       dequeueReady = false)
-    val sinkResponseReady = enable && !flush && !responseQueueCapacity.full && !responseValidIn
+    val rawResponseSource = LoadReplaySourceReturnStoreSnapshotRawResponseSourceReference(
+      enable = enable,
+      flush = flush,
+      liveEnable = rawResponseLiveEnable,
+      rawValid = responseValidIn,
+      clusterId = responseClusterId,
+      entryId = responseEntryId,
+      waitStore = waitStoreIn,
+      dataValid = dataValidIn,
+      rawDataValid = rawDataValidIn,
+      dataSuppressedByWait = dataSuppressedByWaitIn)
+    val sinkResponseReady = enable && !flush && !responseQueueCapacity.full && !rawResponseSource.responseValid
     val initialRequestQueueHead = requestQueueState.headOption
     val requestSinkPreview = LoadReplaySourceReturnStoreSnapshotRequestSinkReference(
       enable = enable,
@@ -171,7 +188,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedEntryId = selectedEntryIdResolved,
       responseConsumed = false)
     val sinkResponse =
-      if (!responseValidIn && requestSink.responseValid) {
+      if (!rawResponseSource.responseValid && requestSink.responseValid) {
         Some(LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
           clusterId = requestSink.responseClusterId,
           entryId = requestSink.responseEntryId,
@@ -180,16 +197,21 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       } else {
         None
       }
-    val rawResponse =
-      if (responseValidIn) {
-        Some(LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
-          clusterId = responseClusterId,
-          entryId = responseEntryId,
-          waitStore = waitStoreIn,
-          dataValid = dataValidIn))
-      } else {
-        None
-      }
+    val rawResponse = rawResponseSource.response.map(response =>
+      LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
+        clusterId = response.clusterId,
+        entryId = response.entryId,
+        waitStore = response.waitStore,
+        dataValid = response.dataValid,
+        rawDataValid = response.rawDataValid,
+        dataSuppressedByWait = response.dataSuppressedByWait,
+        waitStoreIndex = response.waitStoreIndex,
+        waitStoreBid = response.waitStoreBid,
+        waitStoreRid = response.waitStoreRid,
+        waitStoreLsId = response.waitStoreLsId,
+        waitStorePc = response.waitStorePc,
+        dataMask = response.dataMask,
+        data = response.data))
     val responseQueue = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
       state = Vector.empty,
       depth = 2,
@@ -255,6 +277,9 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       evidenceBlockedByWaitStore = evidence.blockedByWaitStore,
       evidenceInvalidResponseWithoutQuery = evidence.invalidResponseWithoutQuery,
       evidenceInvalidDataWithWaitStore = evidence.invalidDataWithWaitStore,
+      rawResponseSourceCandidate = rawResponseSource.candidate,
+      rawResponseSourceValid = rawResponseSource.responseValid,
+      rawResponseSourceBlockedByLiveDisabled = rawResponseSource.blockedByLiveDisabled,
       queryIssueActive = queryIssue.active,
       queryIssueRequestActive = queryIssue.requestActive,
       queryIssueCandidate = queryIssue.queryCandidate,
@@ -375,6 +400,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       selectedIdentityEnable = true,
       selectedLaunchIndex = 2,
       selectedRepickMask = 0x4,
+      rawResponseLiveEnable = true,
       responseValidIn = true,
       responseClusterId = 0,
       responseEntryId = 2,
@@ -394,6 +420,40 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.requestQueueEnqueueAccepted)
     assert(!result.requestQueueHeadConsumed)
     assert(result.requestQueuePending)
+    assert(result.evidenceResponseAccepted)
+    assert(result.storeSnapshotReady)
+  }
+
+  test("live-disabled raw response source does not occupy the response enqueue port") {
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      requestEnable = true,
+      rawResponseLiveEnable = false,
+      sinkReady = true,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4,
+      responseValidIn = true,
+      responseClusterId = 0,
+      responseEntryId = 2,
+      scbReturned = true,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16) << 8)
+
+    assert(result.rawResponseSourceCandidate)
+    assert(!result.rawResponseSourceValid)
+    assert(result.rawResponseSourceBlockedByLiveDisabled)
+    assert(result.requestQueueHeadConsumed)
     assert(result.evidenceResponseAccepted)
     assert(result.storeSnapshotReady)
   }
@@ -467,6 +527,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
 
     assert(sv.contains("module LoadReplaySourceReturnStoreSnapshotPath"))
     assert(sv.contains("io_rowMutationLiveEnable"))
+    assert(sv.contains("io_rawResponseLiveEnable"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestControl"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestPayload"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestQueue"))
@@ -475,6 +536,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotSelectedIdentity"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotAcceptedToken"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseQueue"))
+    assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRawResponseSource"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseHeadState"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseDrain"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseApply"))
@@ -493,6 +555,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_rawDataValidIn"))
     assert(sv.contains("io_responseWaitStoreRid_value"))
     assert(sv.contains("io_responseDataMask"))
+    assert(sv.contains("io_rawResponseSourceBlockedByLiveDisabled"))
     assert(sv.contains("tokenLineDataReg"))
     assert(sv.contains("io_responseApplyValid"))
     assert(sv.contains("io_responseApplyWaitStoreRid_value"))

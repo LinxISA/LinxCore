@@ -27,6 +27,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestSink.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotLookup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponsePayload.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRawResponseSource.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotSelectedIdentity.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotAcceptedToken.scala`
@@ -171,10 +172,18 @@ queue payload used by the request-sink generated response. The current top
 still ties all raw response inputs inactive, so this is a structural promotion
 for future `lookup_su_lu_q` wiring rather than a live behavior change.
 
+R421 inserts `LoadReplaySourceReturnStoreSnapshotRawResponseSource` between
+those raw response inputs and the response queue. The new owner copies the full
+payload only when `rawResponseLiveEnable` is asserted; otherwise it reports the
+candidate as live-disabled and leaves the response enqueue port available to
+the local request-sink generated response. The current top ties
+`rawResponseLiveEnable=false`.
+
 The current top keeps the path response side live-disabled. It ties
-`requestEnable`, `rowMutationLiveEnable`, `sinkReady`, raw STQ response, SCB
-return, wait-store, data-valid, raw-data, wait-store identity, and data-payload
-inputs false or zero, and it ties external stale-head evidence false, so
+`requestEnable`, `rowMutationLiveEnable`, `rawResponseLiveEnable`, `sinkReady`,
+raw STQ response, SCB return, wait-store, data-valid, raw-data, wait-store
+identity, and data-payload inputs false or zero, and it ties external
+stale-head evidence false, so
 `storeSnapshotReady` still forwards the legacy resident-store snapshot
 readiness. The reduced `selectedRepickMask`, `selectedRowValidMask`, and
 `selectedRowScbReturnedMask` now feed head-state proof inside the path, but no
@@ -193,6 +202,7 @@ child instance.
 | `flush` | Store/replay flush suppresses live source-return evidence. |
 | `requestEnable` | Future live arm for issuing and consuming selected-row STQ snapshot evidence. Current top ties this false. |
 | `rowMutationLiveEnable` | Future live arm for allowing a row-state plan to become a LIQ row-mutation request. R417 exposes this path input; the current top ties it false. |
+| `rawResponseLiveEnable` | Future live arm for allowing raw external STQ response candidates to enter the response queue. R421 exposes this path input; the current top ties it false. |
 | `launchValid` | A selected replay row would need local STQ source-return qualification. |
 | `sinkReady` | Future raw store-unit request sink readiness for the R404 request sink. Current top ties this false. |
 | `selectedIdentityEnable` | Selects the reduced LIQ launch-index projection instead of the raw selected-row identity inputs. |
@@ -237,6 +247,7 @@ child instance.
 | `storeSnapshotReady` | Final readiness bit feeding `LoadReplaySourceReturnReadiness.storeSnapshotReady`. |
 | `control*` | Ready-control active/request/evidence/legacy/live/blocker diagnostics. |
 | `evidence*` | Selected-row local STQ evidence diagnostics from the evidence classifier. |
+| `rawResponseSource*` | R421 raw-response source diagnostics: active/candidate/live-valid, disabled/flush/live-disabled blockers, and malformed payload checks. |
 | `queryIssue*` | Selected-row query issue diagnostics from the query owner. |
 | `requestPayload*` | R402 selected-row request payload and diagnostics for the future local STQ lookup queue. |
 | `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, and blocker diagnostics. |
@@ -268,8 +279,10 @@ after response apply. R410 adds a combinational row-mutation request owner with
 its live request arm forced off. R419 widens the response-head proof inputs
 with row-valid and row-SCB-returned masks; it adds no state. R420 widens raw
 external response inputs to the already registered response-queue payload
-shape; it adds no state. The path still owns no LDQ/LIQ mutation, full
-multi-cluster row fsm source, wait-store state mutation, or data merge state.
+shape; it adds no state. R421 adds a combinational raw-response source gate in
+front of that response queue and adds no state. The path still owns no LDQ/LIQ
+mutation, full multi-cluster row fsm source, wait-store state mutation, or data
+merge state.
 
 ## Logic Design
 
@@ -283,6 +296,7 @@ RequestControl.querySinkReady
   -> RequestQueue.headValid/head request
   -> Lookup.waitStoreValid/responseDataValid
   -> RequestSink.responseValid/response payload
+  -> RawResponseSource.responseValid/response payload
   -> AcceptedToken.tokenValid/tokenRepick/cID/eID
   -> ResponseQueue.headValid/head response payload
   -> IdentityMatch.responseMatchesSelected
@@ -344,6 +358,14 @@ payload. The request-sink generated response and a future raw `lookup_su_lu_q`
 response now share the same wait-store/data sideband shape before identity
 matching, response application, row-state planning, and row-mutation request
 generation.
+
+R421 makes that raw mapping live-gated. `RawResponseSource.responseValid`
+arbitrates the single response-queue enqueue port against
+`RequestSink.responseValid`; a raw candidate with `rawResponseLiveEnable=false`
+is diagnosed but does not block the request-sink generated response. This keeps
+the structural payload boundary in place while preventing accidental raw
+response admission before stale-row, SCB-return, and row-mutation promotion
+policy is complete.
 
 The R401 request-control owner gates future STQ lookup request acceptance with
 `requestEnable`, path activity, R397 accepted-token capacity, and R403 request
@@ -409,15 +431,17 @@ requires exactly one target before a request can be ready. The composite wires
 
 The current top tie-offs keep `queryIssued=false`, `responseValid=false`,
 `requestAccepted=false`, `requestEnable=false`, and row-mutation
-`liveEnable=false`, so the live chain does not affect replay launch or LIQ row
-state. The same signals remain visible inside the path for future promotion.
+`liveEnable=false`; they also keep `rawResponseLiveEnable=false`, so raw
+external response candidates cannot affect replay launch or LIQ row state. The
+same signals remain visible inside the path for future promotion.
 
 ## Timing
 
 The path is a same-cycle diagnostic boundary in front of
 `LoadReplaySourceReturnReadiness`. Live query valid/ready, raw response
-sourcing, selected-row identity storage, and row mutation must be added before
-`requestEnable` or row-mutation `liveEnable` can be asserted.
+sourcing behind `rawResponseLiveEnable`, selected-row identity storage, and row
+mutation must be added before `requestEnable`, `rawResponseLiveEnable`, or
+row-mutation `liveEnable` can be asserted.
 
 ## Flush/Recovery
 
@@ -427,10 +451,10 @@ behavior.
 
 ## Deferred Owners
 
-- Live raw STQ response payload source and precise queued-response flush pruning.
+- Live external `lookup_su_lu_q` producer wiring into the R421 raw-response source.
+- Precise queued-response flush pruning.
 - Precise queued-request flush pruning beyond all-clear flush.
 - Full multi-cluster row-state evidence into `responseHeadStale`.
-- Live raw STQ response source before reduced stale drops become observable.
 - Full selected replay-row identity storage from replay-LIQ residency beyond
   the reduced launch-index projection.
 - Live SCB return evidence source.

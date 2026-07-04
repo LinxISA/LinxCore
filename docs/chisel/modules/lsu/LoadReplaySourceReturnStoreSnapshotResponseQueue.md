@@ -25,6 +25,7 @@
     - `MemReqBus::mtc_reqData`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponsePayload.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRawResponseSource.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-RESPONSE-QUEUE-001`
 
 ## Purpose
@@ -53,6 +54,11 @@ R406 widens the queue entry to
 matching still consumes `headClusterId`, `headEntryId`, `headWaitStore`, and
 `headDataValid`, while the FIFO now also preserves wait-store identity and
 store-data mask/data for the later LIQ row-mutation owner.
+
+R421 adds `LoadReplaySourceReturnStoreSnapshotRawResponseSource` before this
+queue inside the composite path. Raw external candidates now require an
+explicit live gate before they can drive `enqueueValid`; request-sink generated
+responses continue to use the same FIFO payload shape.
 
 ## Interface
 
@@ -152,7 +158,7 @@ identity and precise queued-response pruning are promoted.
 
 ## Deferred Owners
 
-- Live raw STQ response source into the path boundary.
+- Live external `lookup_su_lu_q` producer wiring into the R421 raw-response source.
 - Full multi-cluster stale-row proof beyond the R400 reduced `repickMask`
   owner.
 - Multi-token or multi-row response ownership beyond the current one-token
@@ -165,6 +171,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseQueue
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRawResponseSource
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 ```
 
