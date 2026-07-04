@@ -1315,12 +1315,13 @@ overlay. Most state remains in child modules:
   current top keeps `publishFire` disabled.
 - `LoadReplayReturnLretSink`: optional R318 diagnostic LRET FIFO owner. It
   stores the typed LRET payload when a future post-fire LRET request is valid,
-  exposes capacity and drain blockers, and keeps the drain side tied off until
-  the IEX return-pipe consumer is implemented.
+  exposes capacity and drain blockers, and now consumes the IEX drain-permit
+  output while the tied-full pipe mask keeps the permit false.
 - `LoadReplayReturnIexDrainPermit`: optional R319 diagnostic IEX-side drain
   permit owner. It models the `receiveFromLSU`/`BackToPipe` predicate over
-  FIFO-head validity and return-pipe occupancy, but the current top ties pipe
-  occupancy full and does not feed the permit into the FIFO drain input.
+  FIFO-head validity and return-pipe occupancy. R382 feeds the permit into the
+  FIFO drain input, but the current top ties pipe occupancy full so no drain
+  fires.
 - `LoadReplayReturnIexDataCandidate`: optional R320 diagnostic pre-mutation
   `IEX::setMemData` admission owner. It consumes the LRET sink head and drain
   permit, then requires a ROB current-row status lookup that is present and not
@@ -1771,19 +1772,21 @@ diagnostic-only and cannot drive side-effect sinks or replay-row lifecycle
 state.
 R318 adds `LoadReplayReturnLretSink` behind the R317 LRET request. It formats
 the current `LoadReplayReturnLretPayload` outputs into a typed FIFO entry and
-connects enqueue to the post-fire LRET request, while drain remains tied low
-because the IEX return-pipe consumer is not yet owned. R378 feeds upstream
-readiness from the FIFO `enqueueReady` capacity signal instead of the old
-tied-low LRET sink flag. This is still capacity-only: `publishFire`,
-`lretRequest`, and `drainReady` remain disabled, so the storage owner cannot
-enqueue, drain, or enable replay launch before RF writeback, ready-table
-update, issue wakeup, and replay-row lifecycle owners are live.
+connects enqueue to the post-fire LRET request. R378 feeds upstream readiness
+from the FIFO `enqueueReady` capacity signal instead of the old tied-low LRET
+sink flag. R382 feeds `drainReady` from the named IEX drain permit, but the
+permit still remains false because the current pipe-occupied mask is tied full.
+This is still capacity-only: `publishFire`, `lretRequest`, and effective
+`drainReady` remain disabled, so the storage owner cannot enqueue, drain, or
+enable replay launch before RF writeback, ready-table update, issue wakeup, and
+replay-row lifecycle owners are live.
 R319 adds `LoadReplayReturnIexDrainPermit` behind the R318 sink diagnostics.
 It names the model `IEX::receiveFromLSU` drain predicate: a sink entry can move
 only when replay-LIQ is enabled, flush is inactive, and at least one IEX return
-pipe is free. The reduced top ties the current pipe-occupied mask full and
-keeps `LoadReplayReturnLretSink.drainReady` low, so this packet exposes the
-future pipe-full blocker without draining or discarding returned payloads.
+pipe is free. The reduced top ties the current pipe-occupied mask full and now
+drives `LoadReplayReturnLretSink.drainReady` from this permit, so the same
+future pipe-full blocker is exposed without draining or discarding returned
+payloads.
 R320 adds `LoadReplayReturnIexDataCandidate` behind the R319 permit. It names
 the first `IEX::setMemData` admission checks after a future LRET drain:
 payload validity, ROB row presence, and ROB row not-need-flush. R321 replaces

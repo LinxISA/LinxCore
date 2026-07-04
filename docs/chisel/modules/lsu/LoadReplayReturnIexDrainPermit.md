@@ -24,12 +24,11 @@ the model LRET handoff. In LinxCoreModel, `IEX::receiveFromLSU` loops over
 when at least one return pipe is not occupied by an E4 instruction. The popped
 payload is then passed to `IEX::setMemData`.
 
-R319 does not drain the Chisel FIFO. The reduced top instantiates this permit
-module behind `LoadReplayReturnLretSink`, exposes its pipe-free and blocker
-diagnostics, ties current IEX return-pipe occupancy to full, and keeps the
-sink's real `drainReady` input tied low. This names the downstream readiness
-predicate without discarding payloads before the real IEX data-mutation owner
-exists.
+R382 wires this permit to the Chisel FIFO's real `drainReady` input while still
+tying current IEX return-pipe occupancy to full. The permit therefore remains
+false in the reduced top, exposes the pipe-full blocker, and names the
+downstream readiness predicate without discarding payloads before the real IEX
+data-mutation owner exists.
 
 ## Interface
 
@@ -69,14 +68,15 @@ The R319 top wiring uses:
 - replay-LIQ wrapper enable as `enable`;
 - a tied-full one-bit `pipeOccupiedMask`.
 
-The tied-full mask preserves the disabled-live-replay contract. Even if a
-future packet enables publication, this packet alone cannot drain or discard an
-LRET payload because `LoadReplayReturnLretSink.drainReady` remains `false`.
+R382 drives `LoadReplayReturnLretSink.drainReady` from this permit's
+`drainReady` output. The tied-full mask preserves the disabled-live-replay
+contract, so the permit remains false and this packet alone cannot drain or
+discard an LRET payload.
 
 ## Deferred Owners
 
 - Real IEX return-pipe occupancy from scalar/vector return-pipe state.
-- Driving the sink `drainReady` input from this permit.
+- Allowing the tied-full permit to observe real free pipe capacity.
 - `IEX::setMemData` effects on ROB rows, destination payload data, load-pair
   lane counts, TLOAD side effects, and load branch resolution.
 - Multi-thread and multi-return-pipe queue arbitration beyond lowest-free-pipe
@@ -88,8 +88,9 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDrainPermit
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLretSink
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r319-replay-lret-drain-permit-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r382x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover pipe-free mask formation, lowest-free-pipe selection,

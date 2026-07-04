@@ -31,10 +31,13 @@ drains that queue only while the target return pipe has capacity, then calls
 The current reduced top keeps replay-return publication disabled through
 `LoadReplayReturnPublishControl.liveEnable`, so the sink is dormant in
 generated-RTL fixtures. R378 feeds the upstream LRET readiness predicate from
-the FIFO `enqueueReady` capacity signal, but the post-fire enqueue request and
-IEX drain remain disabled. This lets return-readiness diagnostics observe the
-real sink capacity without making LRET publication, RF writeback, ready-table
-mutation, wakeup, or row lifecycle state live.
+the FIFO `enqueueReady` capacity signal. R382 drives `drainReady` from the
+named `LoadReplayReturnIexDrainPermit` owner, but the reduced top still ties
+IEX return-pipe occupancy full, so the permit remains false and IEX drain
+remains disabled. This lets return-readiness and drain-permit diagnostics
+observe the real FIFO and pipe-capacity predicates without making LRET
+publication, RF writeback, ready-table mutation, wakeup, or row lifecycle state
+live.
 
 R376 extends `LoadReplayReturnLretEntry` with the row-owned source trace pair
 from the LRET payload. The FIFO stores and drains these fields as ordinary
@@ -86,21 +89,25 @@ R318 wires the sink in `LinxCoreFrontendFetchRfAluTraceTop` from:
 - `LoadReplayReturnLretPayload` for the typed entry fields;
 - `LoadReplayReturnPublishRequest.lretRequest` for `enqueueValid`;
 - reduced-store flush for `flush`;
-- tied-low `drainReady` because the IEX return-pipe consumer is not owned yet.
+- `LoadReplayReturnIexDrainPermit.drainReady` for the future IEX consumer
+  readiness.
 
 R378 replaces the old upstream `lretSinkReady` literal with
 `LoadReplayReturnLretSink.enqueueReady`. This is still a capacity-only
 promotion: `LoadReplayReturnPublishControl.liveEnable` remains false, so
-`LoadReplayReturnPublishRequest.lretRequest` cannot enqueue an entry, and
-`drainReady` remains false until the IEX return-pipe consumer is owned. The
-storage owner can now contribute real LRET-capacity blockers without enabling
-replay launch side effects before RF writeback, ready-table update, issue
-wakeup, and replay-row lifecycle owners exist.
+`LoadReplayReturnPublishRequest.lretRequest` cannot enqueue an entry.
+
+R382 replaces the previous direct false `drainReady` tie with the drain permit
+output. The current return-pipe occupied mask remains tied full, so `drainReady`
+is still false until real IEX return-pipe occupancy is owned. The storage owner
+can now contribute real LRET-capacity blockers and named drain-permit blockers
+without enabling replay launch side effects before RF writeback, ready-table
+update, issue wakeup, and replay-row lifecycle owners exist.
 
 ## Deferred Owners
 
 - Live LRET enqueue fire from replay-return publication.
-- Live IEX return-pipe drain readiness and `IEX::setMemData` mutation.
+- Real IEX return-pipe free-capacity input and `IEX::setMemData` mutation.
 - Feeding accepted LRET enqueue back into replay-row clear/return lifecycle.
 - Multi-pipe LRET queue fanout and arbitration.
 - Ready-table and issue-wakeup side effects after LRET enqueue.
@@ -112,8 +119,9 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLretSink
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDrainPermit
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r318-replay-lret-sink-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r382x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover FIFO order, full-state backpressure, same-cycle
