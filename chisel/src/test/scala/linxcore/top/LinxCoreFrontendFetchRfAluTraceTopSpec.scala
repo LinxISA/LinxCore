@@ -797,6 +797,22 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqReturnWakeupSinkBlockedByLiveDisabled.getWidth == 1)
   }
 
+  test("R380 replay-LIQ return writeback sink diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqReturnWritebackSinkCandidateValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWritebackSinkArmed.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWritebackSinkReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWritebackSinkBlockedByDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWritebackSinkBlockedByFlush.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWritebackSinkBlockedByNoWriteback.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWritebackSinkBlockedBySink.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWritebackSinkBlockedByLiveDisabled.getWidth == 1)
+  }
+
   test("R367 replay W2 row-fill enable diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -1194,6 +1210,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqReturnConsumerReady"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnConsumerBlockedByLretSink"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnConsumerBlockedByWakeupSink"))
+    assert(sv.contains("io_reducedLoadReplayLiqReturnWritebackSinkCandidateValid"))
+    assert(sv.contains("io_reducedLoadReplayLiqReturnWritebackSinkBlockedByLiveDisabled"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnWakeupSinkCandidateValid"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnWakeupSinkBlockedByLiveDisabled"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnPipeBudgetEnable"))
