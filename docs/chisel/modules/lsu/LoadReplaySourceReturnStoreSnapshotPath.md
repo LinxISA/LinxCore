@@ -197,6 +197,10 @@ visibility, raw-sink availability, response FIFO fullness, raw-response
 priority, and the row-mutation live safety gate, but its `requestEnable` and
 `sinkReady` outputs do not drive the existing path controls yet. The reduced
 top ties `liveArmPolicyEnable=false` and `liveArmRawSinkAvailable=false`.
+R437 refines the policy's request FIFO capacity input to use current resident
+fullness (`!requestQueue.full`) rather than dequeue-dependent `enqueueReady`.
+This keeps the policy diagnostic loop-free before a later packet can mux policy
+outputs into live `requestEnable` or `sinkReady` control.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
@@ -534,6 +538,13 @@ request visibility, raw sink availability, response FIFO fullness, and
 raw-response priority. `RequestControl.io.requestEnable` still comes from the
 path input `requestEnable`, and `RequestSink.io.rawSinkReady` still comes from
 the path input `sinkReady`.
+
+R437 deliberately feeds that policy from `!requestQueue.full` instead of
+`requestQueue.enqueueReady`. `enqueueReady` can become true because a same-cycle
+request-sink drain opens a slot, and a future policy-driven sink arm would feed
+that drain path. Using resident fullness keeps the request arm a pre-cycle
+capacity decision and avoids creating a policy request/sink/dequeue/queue-ready
+loop during later promotion.
 
 The R402 request-payload owner publishes the selected row's reduced LIQ slot,
 accepted local `cID/eID`, BID/GID/RID identity, load LSID, PC, address, size,

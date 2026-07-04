@@ -699,7 +699,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   liveArmPolicy.io.policyEnable := io.liveArmPolicyEnable
   liveArmPolicy.io.rowMutationLiveEnable := io.rowMutationLiveEnable
   liveArmPolicy.io.launchValid := io.launchValid
-  liveArmPolicy.io.requestQueueCanAccept := requestQueue.io.enqueueReady
+  liveArmPolicy.io.requestQueueCanAccept := !requestQueue.io.full
   liveArmPolicy.io.acceptedTokenCanAccept := acceptedToken.io.tokenCanAccept
   liveArmPolicy.io.requestHeadValid := requestQueue.io.headValid
   liveArmPolicy.io.rawSinkAvailable := io.liveArmRawSinkAvailable

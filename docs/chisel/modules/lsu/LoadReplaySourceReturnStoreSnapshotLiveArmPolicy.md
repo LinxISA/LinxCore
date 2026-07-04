@@ -22,6 +22,9 @@ R436 wires the policy into `LoadReplaySourceReturnStoreSnapshotPath` as
 path-local diagnostics. The path exposes the policy outputs, but it still drives
 `RequestControl.io.requestEnable` from the existing path `requestEnable` input
 and `RequestSink.io.rawSinkReady` from the existing path `sinkReady` input.
+R437 feeds `requestQueueCanAccept` from current resident FIFO fullness in the
+path, not from same-cycle enqueue-ready. Callers that eventually use policy
+outputs for live control must keep this input loop-free.
 
 R435 keeps `rowMutationLiveEnable` as a hard safety gate. The source-return
 path must not issue a local STQ request or let a request sink generate a

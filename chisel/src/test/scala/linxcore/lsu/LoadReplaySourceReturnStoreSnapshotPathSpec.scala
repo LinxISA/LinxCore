@@ -418,7 +418,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       policyEnable = liveArmPolicyEnable,
       rowMutationLiveEnable = rowMutationLiveEnable,
       launchValid = launchValid,
-      requestQueueCanAccept = requestQueueCapacity.enqueueReady,
+      requestQueueCanAccept = requestQueueState.size < 2,
       acceptedTokenCanAccept = acceptedToken.tokenCanAccept,
       requestHeadValid = requestQueue.headValid,
       rawSinkAvailable = liveArmRawSinkAvailable,
@@ -727,6 +727,60 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.liveArmPolicySinkCandidate)
     assert(!result.liveArmPolicySinkReady)
     assert(result.liveArmPolicySinkBlockedByRowMutationDisabled)
+  }
+
+  test("path-local live-arm policy request arm uses resident queue fullness") {
+    val first = LoadReplaySourceReturnStoreSnapshotRequestPayloadReference.Payload(
+      valid = true,
+      clusterId = 0,
+      entryId = 0,
+      loadId = 0,
+      bid = 4,
+      gid = 1,
+      rid = 5,
+      loadLsId = 6,
+      peId = 2,
+      stid = 3,
+      tid = 4,
+      pc = BigInt("400055e0", 16),
+      addr = BigInt("40012000", 16),
+      size = 8,
+      requestByteMask = BigInt("ff", 16))
+    val second = LoadReplaySourceReturnStoreSnapshotRequestPayloadReference.Payload(
+      valid = true,
+      clusterId = 0,
+      entryId = 1,
+      loadId = 1,
+      bid = 5,
+      gid = 1,
+      rid = 6,
+      loadLsId = 7,
+      peId = 2,
+      stid = 3,
+      tid = 4,
+      pc = BigInt("400055e8", 16),
+      addr = BigInt("40012020", 16),
+      size = 8,
+      requestByteMask = BigInt("ff", 16))
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      sinkReady = true,
+      liveArmPolicyEnable = true,
+      rowMutationLiveEnable = true,
+      liveArmRawSinkAvailable = true,
+      requestQueueState = Vector(first, second))
+
+    assert(result.requestQueueEnqueueReady)
+    assert(result.requestSinkAccepted)
+    assert(result.liveArmPolicyRequestCandidate)
+    assert(!result.liveArmPolicyRequestEnable)
+    assert(result.liveArmPolicyRequestBlockedByRequestQueue)
+    assert(!result.liveArmPolicyRequestBlockedByAcceptedToken)
+    assert(result.liveArmPolicySinkCandidate)
+    assert(result.liveArmPolicySinkReady)
   }
 
   test("path-local live-arm policy reports resident response-port blockers") {
