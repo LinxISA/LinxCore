@@ -478,6 +478,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseDrain"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseApply"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRowStatePlan"))
+    assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRowMutationRequest"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotIdentityMatch"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseMatch"))
     assert(sv.contains("io_storeSnapshotReady"))
@@ -491,6 +492,8 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_responseApplyWaitStoreRid_value"))
     assert(sv.contains("io_rowStatePlanNextStqReturned"))
     assert(sv.contains("io_rowStatePlanInvalidStqApplyWithoutScb"))
+    assert(sv.contains("io_rowMutationCandidateTargetMask"))
+    assert(sv.contains("io_rowMutationBlockedByLiveDisabled"))
     assert(sv.contains("io_queryIssueCandidate"))
   }
 }

@@ -37,6 +37,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseDrain.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseApply.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowStatePlan.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowMutationRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-PATH-001`
@@ -145,6 +146,13 @@ records wait-store identity, while data/no-data responses keep the row repick
 and produce split `scbRnt/stqRnt` diagnostics. This is still a diagnostic
 plan; no registered LIQ row mutation is enabled.
 
+R410 adds `LoadReplaySourceReturnStoreSnapshotRowMutationRequest` after the
+row-state plan. The request owner joins the plan with the R407 target mask,
+requires exactly one LIQ row target, and shapes the status, return-state,
+line-data, and wait-store write enables for the future registered row writer.
+The composite still ties the request owner's `liveEnable` false, so only
+candidate and blocker diagnostics can assert in the current generated top.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `sinkReady`, raw STQ response, SCB return, wait-store, and
 data-valid inputs false, and it ties external stale-head evidence false, so
@@ -204,6 +212,7 @@ without another direct top child instance.
 | `lookup*` | R405 resident-STQ lookup diagnostics: query validity, row masks, eligible store mask, forward/wait masks, wait-store, raw data evidence, and response-visible data evidence. |
 | `responseApply*` | R407/R408 ordered-response apply intent: STQ-returned, wait-store identity, accepted-context data merge mask/data, completion diagnostic, and malformed-payload blockers. |
 | `rowStatePlan*` | R409 future row-state write plan: wait-store rewait clearing, data/no-data repick preservation, next line image, next split SCB/STQ bits, and invalid response-class diagnostics. |
+| `rowMutation*` | R410 future LIQ row mutation request: candidate one-hot target diagnostics, live-disabled request payload, future row write enables, next row image, and invalid target/payload diagnostics. |
 
 The top consumes the existing `control*`, `evidence*`, and `queryIssue*`
 diagnostics through unchanged top IO names. Response-match and identity-match
@@ -224,7 +233,8 @@ R401 adds a combinational request/capacity gate, R402 adds a combinational
 request-payload shaper, R404 adds a combinational request sink, and R405 adds
 a combinational resident-STQ lookup owner. R407 adds a combinational
 response-apply intent owner. R409 adds a combinational row-state plan owner
-after response apply. The path still owns no LDQ/LIQ mutation, full
+after response apply. R410 adds a combinational row-mutation request owner with
+its live request arm forced off. The path still owns no LDQ/LIQ mutation, full
 multi-cluster row fsm source, wait-store state mutation, or data merge state.
 
 ## Logic Design
@@ -247,6 +257,7 @@ RequestControl.querySinkReady
   -> ResponseDrain.orderedConsumed/staleDropped/dequeueReady
   -> ResponseApply.stqReturned/waitStoreApply/dataMergeApply
   -> RowStatePlan.rewaitApply/dataMergePlan/nextStqReturned
+  -> RowMutationRequest.candidateTargetMask/requestValid
   -> Evidence.snapshotRequired/snapshotValid
   -> ReadyControl.storeSnapshotReady
 ```
@@ -343,17 +354,23 @@ SCB/STQ return bits and the row data image because the model immediately calls
 `rewait`; data/no-data responses keep the row in repick state and set final
 `stqRnt`.
 
+The R410 row-mutation request owner is the first named boundary for applying
+that plan to a concrete LIQ row. It consumes `ResponseApply.targetMask` and
+requires exactly one target before a request can be ready. The composite wires
+`liveEnable=false`, so the request payload remains zero and
+`blockedByLiveDisabled` identifies the intentional promotion gate.
+
 The current top tie-offs keep `queryIssued=false`, `responseValid=false`,
-`requestAccepted=false`, and `requestEnable=false`, so the live chain does not
-affect replay launch. The same signals remain visible inside the path for
-future promotion.
+`requestAccepted=false`, `requestEnable=false`, and row-mutation
+`liveEnable=false`, so the live chain does not affect replay launch or LIQ row
+state. The same signals remain visible inside the path for future promotion.
 
 ## Timing
 
 The path is a same-cycle diagnostic boundary in front of
 `LoadReplaySourceReturnReadiness`. Live query valid/ready, raw response
 sourcing, selected-row identity storage, and row mutation must be added before
-`requestEnable` can be asserted.
+`requestEnable` or row-mutation `liveEnable` can be asserted.
 
 ## Flush/Recovery
 
@@ -370,8 +387,10 @@ behavior.
 - Full selected replay-row identity storage from replay-LIQ residency beyond
   the reduced launch-index projection.
 - Live SCB return evidence source.
-- Stateful wait-store replay mutation and returned-data merge from the R407
-  response apply intent.
+- Stateful wait-store replay mutation and returned-data merge from the R410
+  row-mutation request.
+- Live row-mutation promotion control after row-carried `scbRnt/stqRnt` and
+  stale-response policy are explicit.
 - Live promotion of `requestEnable` after query, response, and row-state owners
   are stable.
 
@@ -390,6 +409,8 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseHeadState
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseDrain
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseApply
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRowStatePlan
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRowMutationRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotAcceptedToken
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotSelectedIdentity
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotIdentityMatch
@@ -400,7 +421,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only ResidentStoreForwardStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r406x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r410x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover legacy readiness preservation, dormant query/response
@@ -409,5 +430,5 @@ disabled behavior, request-queue storage while the future raw sink is stalled,
 raw-response priority over sink-generated response, and Chisel elaboration with
 the selected-identity, request-control, request-payload, request-queue,
 request-sink, accepted-token, payload-bearing response-queue, response-head-state,
-response-drain, lookup, identity, response, and evidence child owners present
-in the composite module.
+response-drain, response-apply, row-state-plan, row-mutation-request, lookup,
+identity, response, and evidence child owners present in the composite module.
