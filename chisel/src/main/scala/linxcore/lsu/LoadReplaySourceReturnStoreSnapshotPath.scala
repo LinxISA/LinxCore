@@ -592,6 +592,9 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     pcWidth = pcWidth,
     lineBytes = lineBytes
   ))
+  val rowMutationLivePermit = Module(new LoadReplaySourceReturnStoreSnapshotRowMutationLivePermit(
+    liqEntries = liqEntries
+  ))
   val evidence = Module(new LoadReplaySourceReturnStoreSnapshotEvidence)
   val control = Module(new LoadReplaySourceReturnStoreSnapshotReadyControl)
   val requestQueueResidentCanAccept = !requestQueue.io.full
@@ -810,16 +813,9 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   rowStatePlan.io.mergedValidMask := responseApply.io.mergedValidMask
   rowStatePlan.io.mergedRequestComplete := responseApply.io.mergedRequestComplete
 
-  val rowMutationHeadProofTargetMask = responseHeadState.io.reducedHeadOneHot
-  val rowMutationHeadProofReady =
-    responseHeadState.io.reducedHeadApplyEligible &&
-      responseApply.io.targetMask.orR &&
-      (responseApply.io.targetMask === rowMutationHeadProofTargetMask)
-  val rowMutationLivePermit = io.rowMutationLiveEnable && rowMutationHeadProofReady
-
   rowMutationRequest.io.enable := io.enable
   rowMutationRequest.io.flush := io.flush
-  rowMutationRequest.io.liveEnable := rowMutationLivePermit
+  rowMutationRequest.io.liveEnable := rowMutationLivePermit.io.livePermit
   rowMutationRequest.io.planValid := rowStatePlan.io.rowWriteValid
   rowMutationRequest.io.targetMask := responseApply.io.targetMask
   rowMutationRequest.io.setWaitStatus := rowStatePlan.io.setWaitStatus
@@ -836,6 +832,18 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   rowMutationRequest.io.nextScbReturned := rowStatePlan.io.nextScbReturned
   rowMutationRequest.io.nextStqReturned := rowStatePlan.io.nextStqReturned
   rowMutationRequest.io.nextStoreSourceReturned := rowStatePlan.io.nextStoreSourceReturned
+
+  rowMutationLivePermit.io.enable := io.enable
+  rowMutationLivePermit.io.flush := io.flush
+  rowMutationLivePermit.io.liveEnable := io.rowMutationLiveEnable
+  rowMutationLivePermit.io.targetReady := rowMutationRequest.io.targetReady
+  rowMutationLivePermit.io.targetMask := responseApply.io.targetMask
+  rowMutationLivePermit.io.headTargetsRow := responseHeadState.io.reducedHeadTargetsRow
+  rowMutationLivePermit.io.headRepick := responseHeadState.io.reducedHeadRepick
+  rowMutationLivePermit.io.headApplyEligible := responseHeadState.io.reducedHeadApplyEligible
+  rowMutationLivePermit.io.headProofTargetMask := responseHeadState.io.reducedHeadOneHot
+  rowMutationLivePermit.io.headBlockedByInvalidRow := responseHeadState.io.blockedByInvalidRow
+  rowMutationLivePermit.io.headBlockedByScbNotReturned := responseHeadState.io.blockedByScbNotReturned
 
   evidence.io.enable := io.enable
   evidence.io.flush := io.flush
@@ -1006,21 +1014,14 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.rowMutationNextScbReturned := rowMutationRequest.io.nextScbReturnedOut
   io.rowMutationNextStqReturned := rowMutationRequest.io.nextStqReturnedOut
   io.rowMutationNextStoreSourceReturned := rowMutationRequest.io.nextStoreSourceReturnedOut
-  io.rowMutationHeadProofReady := rowMutationHeadProofReady
-  io.rowMutationHeadProofTargetMask := rowMutationHeadProofTargetMask
-  io.rowMutationLivePermit := rowMutationLivePermit
-  io.rowMutationBlockedByHeadProof :=
-    io.rowMutationLiveEnable && rowMutationRequest.io.targetReady && !rowMutationHeadProofReady
-  io.rowMutationBlockedByHeadInvalidRow :=
-    io.rowMutationLiveEnable && rowMutationRequest.io.targetReady && responseHeadState.io.blockedByInvalidRow
-  io.rowMutationBlockedByHeadScbNotReturned :=
-    io.rowMutationLiveEnable && rowMutationRequest.io.targetReady && responseHeadState.io.blockedByScbNotReturned
-  io.rowMutationBlockedByHeadNotRepick :=
-    io.rowMutationLiveEnable && rowMutationRequest.io.targetReady && responseHeadState.io.reducedHeadTargetsRow &&
-      !responseHeadState.io.reducedHeadRepick
-  io.rowMutationBlockedByHeadTargetMismatch :=
-    io.rowMutationLiveEnable && rowMutationRequest.io.targetReady && responseHeadState.io.reducedHeadApplyEligible &&
-      (responseApply.io.targetMask =/= rowMutationHeadProofTargetMask)
+  io.rowMutationHeadProofReady := rowMutationLivePermit.io.headProofReady
+  io.rowMutationHeadProofTargetMask := rowMutationLivePermit.io.headProofTargetMaskOut
+  io.rowMutationLivePermit := rowMutationLivePermit.io.livePermit
+  io.rowMutationBlockedByHeadProof := rowMutationLivePermit.io.blockedByHeadProof
+  io.rowMutationBlockedByHeadInvalidRow := rowMutationLivePermit.io.blockedByHeadInvalidRow
+  io.rowMutationBlockedByHeadScbNotReturned := rowMutationLivePermit.io.blockedByHeadScbNotReturned
+  io.rowMutationBlockedByHeadNotRepick := rowMutationLivePermit.io.blockedByHeadNotRepick
+  io.rowMutationBlockedByHeadTargetMismatch := rowMutationLivePermit.io.blockedByHeadTargetMismatch
   io.rowMutationBlockedByNoPlan := rowMutationRequest.io.blockedByNoPlan
   io.rowMutationBlockedByNoTarget := rowMutationRequest.io.blockedByNoTarget
   io.rowMutationBlockedByLiveDisabled := rowMutationRequest.io.blockedByLiveDisabled

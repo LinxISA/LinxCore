@@ -39,6 +39,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseApply.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowStatePlan.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowMutationRequest.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowMutationLivePermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotLiveArmPolicy.scala`
@@ -238,6 +239,14 @@ response is only applied to a still-repick row after SCB has returned for that
 same row. The guard exports `rowMutationHeadProof*`, `rowMutationLivePermit`,
 and head-proof blocker diagnostics at the path boundary only; the reduced top
 still ties `rowMutationLiveEnable=false` and receives no new IO.
+
+R443 extracts the R442 guard into
+`LoadReplaySourceReturnStoreSnapshotRowMutationLivePermit`, giving the
+same-row repick/SCB-return live gate a standalone owner and focused unit spec.
+The composite path now wires `ResponseHeadState`, `ResponseApply`, and
+`RowMutationRequest.targetReady` through that owner before driving the request
+owner's `liveEnable`. This is behavior-preserving relative to R442 and keeps
+future promotion packets from editing the composite for guard policy details.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
