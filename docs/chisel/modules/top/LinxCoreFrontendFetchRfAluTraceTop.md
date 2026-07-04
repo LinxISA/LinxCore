@@ -2396,6 +2396,13 @@ only after the live-permit same-row head proof passes, and the child LIQ still
 applies its valid/Repick/SCB-return plus same-row writer conflict guards before
 writing the row. Raw external STQ responses, replay relaunch, publish, wakeup,
 writeback, and ROB mutation remain disabled.
+R446 adds a harness-side sideband stats file for this replay-LIQ boundary. The
+generated RF/ALU xcheck now writes
+`frontend_fetch_rf_alu_sideband_stats.json` under the report directory with
+replay-LIQ source row-mutation candidate/live-permit/request counters and
+downstream bridge/write/apply/blocker counters. The counters sample existing
+top IO only when the reduced-store replay-LIQ top is selected, so no new RTL
+ports or compare rows are added.
 R418 splits the replay-LIQ source-return launch sideband: local STQ/store
 snapshot readiness now feeds the reduced LIQ `e2StqReturned` input, while SCB
 readiness feeds `e2ScbReturned`. The combined launch/return behavior remains
@@ -3225,6 +3232,16 @@ The R327 replay-LIQ timing/stat sideband fixture manifest at
 `generated/r327-replay-timing-stats-xcheck/report/crosscheck_manifest.json`
 records `status: "pass"`, `summary.compared_rows: 3`, and
 `summary.mismatch_count: 0`.
+The R445 guarded row-mutation live-arm fixture manifest at
+`generated/r445-row-mutation-live-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `summary.compared_rows: 3`, and
+`summary.mismatch_count: 0`. R446 adds the companion sideband stats artifact at
+`generated/r446-replay-liq-sideband-stats-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json`
+so the same reduced-top gate preserves source row-mutation and downstream LIQ
+row-mutation pulse counts separately from architectural commit comparison. The
+R446 fixture samples 37 cycles and records zero row-mutation candidate,
+live-permit, request, bridge, write, apply, and blocker pulses, so it proves the
+reporting surface rather than a nonzero replay event.
 
 ## Verification
 
@@ -3259,6 +3276,7 @@ records `status: "pass"`, `summary.compared_rows: 3`, and
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r301-replay-liq-return-pipe-select-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r302-replay-liq-return-pipe-permit-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r303-replay-liq-return-pipe-budget-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r446-replay-liq-sideband-stats-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `BUILD_DIR=generated/r141-diagnostic-replay-1747-fret-target-priority FETCH_EXPECTED_ROWS=generated/r141-logical-local-1747-qemu-elf-xcheck/qemu.expected.jsonl FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`

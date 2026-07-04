@@ -71,6 +71,7 @@ struct Args {
   std::string memory_bin;
   std::string memory_hex;
   std::string expected_rows;
+  std::string sideband_stats;
   std::uint64_t memory_base = 0x1000;
   bool admit_marker_rows = false;
   bool disable_store_memory_mutation = false;
@@ -192,6 +193,103 @@ struct GprCommitHistory {
 
 GprCommitHistory g_gpr_commit_history;
 
+struct ReplayLiqSidebandStats {
+  std::uint64_t cycles_sampled = 0;
+  std::uint64_t source_row_mutation_candidate_valid = 0;
+  std::uint64_t source_row_mutation_live_permit = 0;
+  std::uint64_t source_row_mutation_request_valid = 0;
+  std::uint64_t source_row_mutation_blocked_by_head_proof = 0;
+  std::uint64_t source_row_mutation_blocked_by_live_disabled = 0;
+  std::uint64_t liq_row_mutation_bridge_valid = 0;
+  std::uint64_t liq_row_mutation_write_enable = 0;
+  std::uint64_t liq_row_mutation_apply_valid = 0;
+  std::uint64_t liq_row_mutation_blocked_by_bridge = 0;
+  std::uint64_t liq_row_mutation_blocked_by_control = 0;
+};
+
+ReplayLiqSidebandStats g_replay_liq_sideband_stats;
+
+void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
+  ++g_replay_liq_sideband_stats.cycles_sampled;
+#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+  if (dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationCandidateValid) {
+    ++g_replay_liq_sideband_stats.source_row_mutation_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationLivePermit) {
+    ++g_replay_liq_sideband_stats.source_row_mutation_live_permit;
+  }
+  if (dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationRequestValid) {
+    ++g_replay_liq_sideband_stats.source_row_mutation_request_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadProof) {
+    ++g_replay_liq_sideband_stats.source_row_mutation_blocked_by_head_proof;
+  }
+  if (dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByLiveDisabled) {
+    ++g_replay_liq_sideband_stats.source_row_mutation_blocked_by_live_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqRowMutationBridgeValid) {
+    ++g_replay_liq_sideband_stats.liq_row_mutation_bridge_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqRowMutationWriteEnable) {
+    ++g_replay_liq_sideband_stats.liq_row_mutation_write_enable;
+  }
+  if (dut.io_reducedLoadReplayLiqRowMutationApplyValid) {
+    ++g_replay_liq_sideband_stats.liq_row_mutation_apply_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqRowMutationBlockedByBridge) {
+    ++g_replay_liq_sideband_stats.liq_row_mutation_blocked_by_bridge;
+  }
+  if (dut.io_reducedLoadReplayLiqRowMutationBlockedByControl) {
+    ++g_replay_liq_sideband_stats.liq_row_mutation_blocked_by_control;
+  }
+#else
+  (void)dut;
+#endif
+}
+
+bool write_replay_liq_sideband_stats(const std::string &path) {
+  if (path.empty()) {
+    return true;
+  }
+  std::ofstream out(path);
+  if (!out) {
+    std::cerr << "failed to open sideband stats path: " << path << "\n";
+    return false;
+  }
+  out << "{\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v1\",\n"
+#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+      << "  \"reduced_store_replay_liq_top\": true,\n"
+#else
+      << "  \"reduced_store_replay_liq_top\": false,\n"
+#endif
+      << "  \"replay_liq\": {\n"
+      << "    \"cycles_sampled\": " << g_replay_liq_sideband_stats.cycles_sampled << ",\n"
+      << "    \"source_row_mutation_candidate_valid\": "
+      << g_replay_liq_sideband_stats.source_row_mutation_candidate_valid << ",\n"
+      << "    \"source_row_mutation_live_permit\": "
+      << g_replay_liq_sideband_stats.source_row_mutation_live_permit << ",\n"
+      << "    \"source_row_mutation_request_valid\": "
+      << g_replay_liq_sideband_stats.source_row_mutation_request_valid << ",\n"
+      << "    \"source_row_mutation_blocked_by_head_proof\": "
+      << g_replay_liq_sideband_stats.source_row_mutation_blocked_by_head_proof << ",\n"
+      << "    \"source_row_mutation_blocked_by_live_disabled\": "
+      << g_replay_liq_sideband_stats.source_row_mutation_blocked_by_live_disabled << ",\n"
+      << "    \"liq_row_mutation_bridge_valid\": "
+      << g_replay_liq_sideband_stats.liq_row_mutation_bridge_valid << ",\n"
+      << "    \"liq_row_mutation_write_enable\": "
+      << g_replay_liq_sideband_stats.liq_row_mutation_write_enable << ",\n"
+      << "    \"liq_row_mutation_apply_valid\": "
+      << g_replay_liq_sideband_stats.liq_row_mutation_apply_valid << ",\n"
+      << "    \"liq_row_mutation_blocked_by_bridge\": "
+      << g_replay_liq_sideband_stats.liq_row_mutation_blocked_by_bridge << ",\n"
+      << "    \"liq_row_mutation_blocked_by_control\": "
+      << g_replay_liq_sideband_stats.liq_row_mutation_blocked_by_control << "\n"
+      << "  }\n"
+      << "}\n";
+  return true;
+}
+
 bool trace_top_debug_enabled() {
   static const bool enabled = std::getenv("LINXCORE_TRACE_TOP_DEBUG") != nullptr;
   return enabled;
@@ -207,6 +305,7 @@ void trace_top_debug_pipeline(
             << " [--expected-rows <rows.jsonl>]"
             << " [--memory-bin <program.bin> --memory-base <addr>]"
             << " [--memory-hex <sparse.mem>]"
+            << " [--sideband-stats <stats.json>]"
             << " [--admit-marker-rows]"
             << " [--disable-store-memory-mutation]\n";
   std::exit(2);
@@ -237,6 +336,8 @@ Args parse_args(int argc, char **argv) {
       args.memory_hex = argv[++i];
     } else if (arg == "--expected-rows" && i + 1 < argc) {
       args.expected_rows = argv[++i];
+    } else if (arg == "--sideband-stats" && i + 1 < argc) {
+      args.sideband_stats = argv[++i];
     } else if (arg == "--memory-base" && i + 1 < argc) {
       args.memory_base = parse_u64_arg(argv[++i], "--memory-base");
     } else if (arg == "--admit-marker-rows") {
@@ -547,6 +648,7 @@ void tick(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   dut.clock = 0;
   dut.eval();
   ++g_tb_cycle;
+  observe_replay_liq_sideband(dut);
 }
 
 void reset(VLinxCoreFrontendFetchRfAluTraceTop &dut) {
@@ -2955,6 +3057,10 @@ int main(int argc, char **argv) {
   };
   if (captured_tail_superset) {
     print_bfu_stats();
+    if (!write_replay_liq_sideband_stats(args.sideband_stats)) {
+      dut.final();
+      return 2;
+    }
     dut.final();
     return 0;
   }
@@ -2971,6 +3077,10 @@ int main(int argc, char **argv) {
   expect_monitor_clean(dut, "post-drain idle window", 0x0, 0);
 
   print_bfu_stats();
+  if (!write_replay_liq_sideband_stats(args.sideband_stats)) {
+    dut.final();
+    return 2;
+  }
   dut.final();
   return 0;
 }

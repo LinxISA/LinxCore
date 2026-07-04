@@ -43,6 +43,7 @@ TRACE_DIR="${BUILD_DIR}/traces"
 REPORT_DIR="${BUILD_DIR}/report"
 DUT_TRACE="${TRACE_DIR}/dut.chisel.jsonl"
 QEMU_TRACE="${TRACE_DIR}/qemu.reference.jsonl"
+SIDEBAND_STATS="${REPORT_DIR}/frontend_fetch_rf_alu_sideband_stats.json"
 DEFAULT_FETCH_MEMORY_BIN="${BUILD_DIR}/fixture.fetch.bin"
 DEFAULT_FETCH_MEMORY_HEX="${BUILD_DIR}/elf.fetch.mem"
 DEFAULT_EXPECTED_ROWS="${BUILD_DIR}/fixture.expected.jsonl"
@@ -201,6 +202,7 @@ TB_ARGS=(
   --dut-trace "${DUT_TRACE}"
   --qemu-trace "${QEMU_TRACE}"
   --expected-rows "${FETCH_EXPECTED_ROWS}"
+  --sideband-stats "${SIDEBAND_STATS}"
   "${MEMORY_ARGS[@]}"
 )
 if [[ "${FETCH_MARKER_ROWS_TRACE_TOP}" == "1" ]]; then
