@@ -17,6 +17,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretPayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPublishRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnSideEffectReady.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeOccupancy.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-LRET-SINK-001`
 
 ## Purpose
@@ -32,12 +33,13 @@ The current reduced top keeps replay-return publication disabled through
 `LoadReplayReturnPublishControl.liveEnable`, so the sink is dormant in
 generated-RTL fixtures. R378 feeds the upstream LRET readiness predicate from
 the FIFO `enqueueReady` capacity signal. R382 drives `drainReady` from the
-named `LoadReplayReturnIexDrainPermit` owner, but the reduced top still ties
-IEX return-pipe occupancy full, so the permit remains false and IEX drain
-remains disabled. This lets return-readiness and drain-permit diagnostics
-observe the real FIFO and pipe-capacity predicates without making LRET
-publication, RF writeback, ready-table mutation, wakeup, or row lifecycle state
-live.
+named `LoadReplayReturnIexDrainPermit` owner. R383 replaces the raw tied-full
+return-pipe occupancy literal with `LoadReplayReturnIexPipeOccupancy`, whose
+live-disabled policy still forces the single reduced return pipe occupied. The
+permit remains false and IEX drain remains disabled. This lets
+return-readiness, drain-permit, and pipe-occupancy diagnostics observe named
+predicates without making LRET publication, RF writeback, ready-table mutation,
+wakeup, or row lifecycle state live.
 
 R376 extends `LoadReplayReturnLretEntry` with the row-owned source trace pair
 from the LRET payload. The FIFO stores and drains these fields as ordinary
@@ -98,11 +100,12 @@ promotion: `LoadReplayReturnPublishControl.liveEnable` remains false, so
 `LoadReplayReturnPublishRequest.lretRequest` cannot enqueue an entry.
 
 R382 replaces the previous direct false `drainReady` tie with the drain permit
-output. The current return-pipe occupied mask remains tied full, so `drainReady`
-is still false until real IEX return-pipe occupancy is owned. The storage owner
-can now contribute real LRET-capacity blockers and named drain-permit blockers
-without enabling replay launch side effects before RF writeback, ready-table
-update, issue wakeup, and replay-row lifecycle owners exist.
+output. R383 feeds that permit from `LoadReplayReturnIexPipeOccupancy` rather
+than a raw literal. The current owner still forces all pipes occupied, so
+`drainReady` is false until real IEX return-pipe occupancy is live. The storage
+owner can now contribute real LRET-capacity blockers and named drain/occupancy
+blockers without enabling replay launch side effects before RF writeback,
+ready-table update, issue wakeup, and replay-row lifecycle owners exist.
 
 ## Deferred Owners
 
@@ -119,9 +122,10 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLretSink
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeOccupancy
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDrainPermit
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r382x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r383x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover FIFO order, full-state backpressure, same-cycle
