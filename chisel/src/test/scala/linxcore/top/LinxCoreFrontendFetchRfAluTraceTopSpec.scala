@@ -709,6 +709,26 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedBySnapshot.getWidth == 1)
   }
 
+  test("R391 replay-LIQ source-return store snapshot evidence diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceActive.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceRequestValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceQueryActive.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceResponseAccepted.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceSnapshotRequired.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceSnapshotValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceWaitStoreReplay.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceBlockedByNoQuery.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceBlockedByNoResponse.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceBlockedByWaitStore.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceInvalidResponseWithoutQuery.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceInvalidDataWithWaitStore.getWidth == 1)
+  }
+
   test("R364 replay W2 ROB completion diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)

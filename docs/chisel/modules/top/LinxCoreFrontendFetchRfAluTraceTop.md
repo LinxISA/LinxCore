@@ -1041,6 +1041,11 @@ R390 extends the same source-return namespace with
 legacy/live-readiness owner, but the live request and snapshot evidence remain
 disabled, so the current combinational resident-store snapshot readiness is
 preserved.
+R391 adds `LoadReplaySourceReturnStoreSnapshotEvidence` before that readiness
+owner. The selected replay row now produces dormant local-STQ
+`snapshotRequired` diagnostics, while STQ query/response, wait-store, and data
+evidence inputs remain disabled and the ready-control request gate still
+forwards legacy readiness.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1307,8 +1312,11 @@ overlay. Most state remains in child modules:
   explicit, and feeds `LoadReplayLaunchReadiness.scbReturned`.
 - `LoadReplaySourceReturnStoreSnapshotReadyControl`: optional R390 local STQ
   snapshot readiness request owner before `LoadReplaySourceReturnReadiness`.
-  The current reduced top ties its live request and evidence inputs low, so
-  the legacy combinational snapshot-ready behavior is preserved.
+- `LoadReplaySourceReturnStoreSnapshotEvidence`: optional R391 selected-row
+  local STQ evidence classifier feeding
+  `LoadReplaySourceReturnStoreSnapshotReadyControl`. The current reduced top
+  still leaves STQ query/response evidence disabled and preserves legacy
+  combinational snapshot-ready behavior.
 - `LoadReplaySourceReturnScbLiveControl`: optional R389 external-SCB live
   request owner before `LoadReplaySourceReturnReadiness`. The current reduced
   top ties its request and evidence inputs low, so source readiness keeps the
@@ -1767,7 +1775,10 @@ readiness is separated from source return. R389 feeds that external-SCB
 boundary from `LoadReplaySourceReturnScbLiveControl` while keeping the live
 request disabled. R390 feeds the local snapshot side from
 `LoadReplaySourceReturnStoreSnapshotReadyControl` while keeping live snapshot
-evidence disabled and forwarding the legacy combinational readiness. R300
+evidence disabled and forwarding the legacy combinational readiness. R391 feeds
+that control's evidence inputs from
+`LoadReplaySourceReturnStoreSnapshotEvidence`, but the top still leaves
+selected-row STQ query/response evidence disabled. R300
 inserts
 `LoadReplayReturnReadiness` after that source-return boundary. R301 inserts
 `LoadReplayReturnPipeSelect` as the explicit pipe-mask/select owner feeding

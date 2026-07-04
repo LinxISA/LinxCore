@@ -12,6 +12,7 @@
     - `LDQInfo::waitStore`
     - `LDQInfo::handleMerge`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnReadiness.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnScbLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ResidentStoreForwardStoreSnapshot.scala`
@@ -27,8 +28,10 @@ resident-store snapshot readiness boundary before
 R390 keeps the integrated reduced top behavior unchanged. The current top uses
 a combinational `ResidentStoreForwardStoreSnapshot`, so the control runs with
 `requestEnable=false` and forwards the legacy snapshot-ready input exactly.
-Future live mode can instead require selected replay-row snapshot evidence
-before source-return readiness treats the STQ source as returned.
+R391 feeds `snapshotRequired` and `snapshotValid` from
+`LoadReplaySourceReturnStoreSnapshotEvidence`, but leaves the live request gate
+disabled. Future live mode can enable this control only after selected-row STQ
+request/response matching is stable.
 
 ## Interface
 
@@ -40,8 +43,8 @@ before source-return readiness treats the STQ source as returned.
 | `flush` | Store/replay flush suppresses live snapshot request outputs. |
 | `requestEnable` | Future mode gate for consuming live selected-row snapshot evidence. Current top ties this false. |
 | `legacySnapshotReady` | Current reduced-top readiness bit. It preserves the pre-R390 combinational snapshot behavior. |
-| `snapshotRequired` | Future selected replay row requires a local resident-store snapshot source. |
-| `snapshotValid` | Future selected replay row has the needed snapshot evidence. |
+| `snapshotRequired` | Selected replay row requires a local STQ source-return response. R391 feeds this from `LoadReplaySourceReturnStoreSnapshotEvidence`. |
+| `snapshotValid` | Selected replay row has completed local STQ evidence. R391 feeds this from `LoadReplaySourceReturnStoreSnapshotEvidence`. |
 
 ### Outputs
 
@@ -76,8 +79,8 @@ This Chisel owner controls the local STQ snapshot side of that predicate:
 
 1. Form `active = enable && !flush`.
 2. Form `requestActive = active && requestEnable`.
-3. Report snapshot evidence when either `snapshotRequired` or `snapshotValid`
-   is present in an active cycle.
+3. Report snapshot evidence when either R391 `snapshotRequired` or
+   `snapshotValid` is present in an active cycle.
 4. In legacy mode, forward `legacySnapshotReady` directly to preserve the
    current reduced top behavior.
 5. In live mode, require `requestActive` and either no required snapshot or a
@@ -91,8 +94,10 @@ This module only produces its `storeSnapshotReady` input.
 ## Timing
 
 The control is same-cycle combinational logic in front of
-`LoadReplaySourceReturnReadiness`. It does not latch resident snapshot state; a
-future selected-row snapshot owner must provide stable evidence.
+`LoadReplaySourceReturnReadiness`. It does not latch resident snapshot state;
+R391 provides the current combinational evidence classifier, and a future
+selected-row STQ owner must provide stable query/response inputs to that
+classifier.
 
 ## Flush/Recovery
 
@@ -102,7 +107,7 @@ behavior.
 
 ## Deferred Owners
 
-- Live selected-row STQ snapshot evidence.
+- Live selected-row STQ request/response matching.
 - Stateful STQ/source return tracking across replay-row repick cycles.
 - Full LIQ/LDQ relaunch, LHQ publication, ready-table wakeup, and memory trace
   rows.
@@ -113,6 +118,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnReadiness
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayLaunchReadiness
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
