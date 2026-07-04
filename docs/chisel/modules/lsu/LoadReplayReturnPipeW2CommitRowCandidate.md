@@ -28,11 +28,13 @@ load data before the replay ROB-complete source may replace the ROB row image.
 R366 kept the integrated top dormant by wiring resident W2 slot fields while
 tying instruction metadata, source trace, and `rowFillEnable` false. R367
 replaces the literal row-fill tie-off with
-`LoadReplayReturnPipeW2RowFillEnableControl`, and R372 replaces the metadata
-and source-trace tie-offs with `LoadReplayReturnPipeW2CommitRowTraceSource`.
-The trace source still ties its future providers absent, so `rowFillEnable`
-remains false and replay completion cannot replace allocation/rename row
-contents.
+`LoadReplayReturnPipeW2RowFillEnableControl`, R372 replaces the metadata and
+source-trace tie-offs with `LoadReplayReturnPipeW2CommitRowTraceSource`, and
+R373 feeds instruction metadata from the read-only ROB row commit-trace lookup.
+R377 feeds source traces from the resident W2 slot payload that R376 carried
+through the return pipe. Replay completion still cannot replace
+allocation/rename row contents because `completeRowValid` remains gated by the
+R367 row-fill enable control.
 
 ## Interface
 
@@ -79,8 +81,8 @@ R366 wires the candidate in `LinxCoreFrontendFetchRfAluTraceTop` before
 `LoadReplayReturnPipeW2RobCompleteSource`:
 
 - resident W2 slot fields feed the candidate;
-- instruction metadata and source trace come from the R372 trace-source owner,
-  whose providers are currently tied absent;
+- instruction metadata comes from the R372/R373 trace-source owner and source
+  trace comes from the resident W2 slot source payload joined in R377;
 - R367 `LoadReplayReturnPipeW2RowFillEnableControl` drives `rowFillEnable`;
 - `completeRowValid` and `completeRow` feed the row-fill inlet on
   `LoadReplayReturnPipeW2RobCompleteSource`;
@@ -88,13 +90,12 @@ R366 wires the candidate in `LinxCoreFrontendFetchRfAluTraceTop` before
   `reducedLoadReplayLiqLretPipeW2CommitRowCandidate*`.
 
 Because the R367 control cannot assert `rowFillEnable` in the integrated top,
-the candidate cannot assert `completeRowValid` and `ReducedRobCompletionArbiter`
-still receives no replay row replacement payload.
+the candidate can expose coherent row-fill evidence only as a diagnostic and
+cannot assert `completeRowValid`; `ReducedRobCompletionArbiter` still receives
+no replay row replacement payload.
 
 ## Deferred Owners
 
-- Provider wiring into `LoadReplayReturnPipeW2CommitRowTraceSource` for
-  instruction raw/length and source operand traces.
 - Replay-row lifecycle readiness and final live request promotion through the
   R367 row-fill enable owner.
 - Non-GPR destination commit-row policy if replay loads to local T/U state must

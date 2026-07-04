@@ -6003,9 +6003,9 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2CommitRowTraceSourceWiring {
     traceSource.io.instructionProviderValid := robTraceLookup.instructionProviderValid
     traceSource.io.instructionProviderRaw := robTraceLookup.instructionRaw
     traceSource.io.instructionProviderLen := robTraceLookup.instructionLen
-    traceSource.io.sourceTraceProviderValid := false.B
-    traceSource.io.source0Provider := 0.U.asTypeOf(traceSource.io.source0Provider)
-    traceSource.io.source1Provider := 0.U.asTypeOf(traceSource.io.source1Provider)
+    traceSource.io.sourceTraceProviderValid := slot.io.entrySourceTraceValid
+    traceSource.io.source0Provider := slot.io.entrySource0
+    traceSource.io.source1Provider := slot.io.entrySource1
 
     io.reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceReady :=
       traceSource.io.traceReady

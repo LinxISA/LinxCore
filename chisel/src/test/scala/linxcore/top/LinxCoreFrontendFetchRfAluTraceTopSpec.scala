@@ -886,6 +886,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module ReducedScalarAluExecute"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ClearCommitGuardCommitClearReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceReady"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceSourceReady"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceBlockedByNoSourceTrace"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupInstructionValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceBeforeCompletion"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateCompleteRowValid"))

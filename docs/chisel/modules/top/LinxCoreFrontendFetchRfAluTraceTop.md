@@ -1005,10 +1005,10 @@ the LRET sink entry, `LoadReplayReturnIexDataCandidate`,
 `LoadReplayReturnIexPipeInsertCandidate`, the E4 residency slot, W1 slot, and
 W2 slot, then exposes
 `reducedLoadReplayLiqLretPayloadSourceTrace*` and
-`reducedLoadReplayLiqLretPipeW2SlotSourceTrace*` diagnostics. The W2
-commit-row trace source still sees `sourceTraceProviderValid=false` until a
-later packet connects this resident W2 source payload to the row-fill provider
-with identity and lifecycle guards.
+`reducedLoadReplayLiqLretPipeW2SlotSourceTrace*` diagnostics. R377 connects
+that resident W2 source payload to the W2 commit-row trace-source provider
+while leaving ROB-row source trace lookup disabled and row replacement gated by
+the existing row-fill, identity, and lifecycle controls.
 R361/R362 continue the same replay-LIQ diagnostic namespace by routing
 pre-arbiter live enables through the shared W2 live-control owner and feeding
 the reduced RF writeback arbiter's replay side from the W2 writeback boundary.
@@ -1107,12 +1107,13 @@ row replacement disabled in the reduced top.
 R372 adds `reducedLoadReplayLiqLretPipeW2CommitRowTraceSource*` diagnostics.
 These signals name the deferred instruction metadata and source-trace provider
 boundary feeding the R366 candidate. R373 adds a read-only ROB row commit-trace
-lookup and feeds instruction raw/length into this boundary; source traces
-remain tied absent, and R374 blocks any ROB-row source trace before row
-completion because allocation rows do not prove source operand data. R375
-creates the row-owned replay-LIQ launch source-trace diagnostics, but does not
-connect them to this W2 provider until the source payload is carried through
-the replay-return pipe slot.
+lookup and feeds instruction raw/length into this boundary; R374 keeps optional
+ROB-row source traces blocked before row completion because allocation rows do
+not prove source operand data. R375 creates the row-owned replay-LIQ launch
+source-trace diagnostics, R376 carries them through the replay-return pipe, and
+R377 joins them from the resident W2 slot into this provider. Trace-source
+`sourceReady` can now reflect row-owned RF-derived source provenance without
+enabling ROB-row source-trace lookup.
 R367 adds `reducedLoadReplayLiqLretPipeW2RowFillEnableControl*` diagnostics.
 These signals replace the literal row-fill tie-off with a dormant owner that
 requires the row candidate, side-effect fire completion, clear/commit identity,
@@ -1902,11 +1903,14 @@ load commit row shape from W2 identity, PC, address, size, destination, and
 returned data. R372 inserts `LoadReplayReturnPipeW2CommitRowTraceSource` as
 the candidate's instruction/source-trace owner. R373 feeds instruction
 metadata from a read-only ROB row commit-trace lookup, while source traces
-remain disabled and pre-completion ROB-row source traces are explicitly
-blocked. R375 carries RF-derived source traces through replay-LIQ launch
+from the ROB lookup remain disabled and pre-completion ROB-row source traces
+are explicitly blocked. R375 carries RF-derived source traces through
+replay-LIQ launch
 diagnostics, and R376 carries those traces through LRET, IEX insert, E4
-residency, W1, and W2 slot state. The W2 source provider remains disabled, so
-the candidate still cannot become row-fill valid. R367
+residency, W1, and W2 slot state. R377 feeds that W2 slot source payload into
+the trace-source provider while keeping `robCommitTraceLookupSourceTraceEnable`
+false. The candidate can now observe complete source provenance from the W2
+resident slot, but still cannot publish a replacement row until R367
 inserts `LoadReplayReturnPipeW2RowFillEnableControl` as the candidate's
 `rowFillEnable` owner. The control requires the R366/R372 row candidate, R350
 side-effect fire completion, R365 clear/commit identity, live-clear readiness,

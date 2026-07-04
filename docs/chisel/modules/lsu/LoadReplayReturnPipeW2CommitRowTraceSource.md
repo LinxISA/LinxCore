@@ -29,10 +29,12 @@ the resident `SimInstInfo`; the C++ model does not build a separate monitored
 payload that reconstructs instruction raw/length and source operand traces
 before `LoadReplayReturnPipeW2CommitRowCandidate` can shape a complete row.
 
-R372 keeps the integrated top dormant by tying the future providers absent.
-The module still replaces local literal false feeds with named outputs and
-blockers, so the missing trace boundary is independently testable before live
-row fill is promoted.
+R372 kept the integrated top dormant by tying the source-trace provider absent,
+and R373 wired instruction metadata from the read-only ROB row commit-trace
+lookup. R377 connects the source-trace provider to the resident W2 slot payload
+that R376 carried from the RF-derived replay-LIQ source provenance path. The
+module remains independently testable before live row fill is promoted because
+the R367 row-fill enable control still keeps replacement disabled.
 
 ## Interface
 
@@ -41,7 +43,7 @@ row fill is promoted.
 | input | `enable` / `flush` | Replay-LIQ integration arm and flush suppression. |
 | input | `slotOccupied` | Resident W2 slot evidence. |
 | input | `instructionProviderValid` / `instructionProviderRaw` / `instructionProviderLen` | Future provider for committed instruction raw bits and byte length. |
-| input | `sourceTraceProviderValid` / `source0Provider` / `source1Provider` | Future provider for source operand trace rows. |
+| input | `sourceTraceProviderValid` / `source0Provider` / `source1Provider` | Source operand trace provider. In the integrated top this now comes from the resident W2 slot's registered RF-derived source-trace sideband. |
 | output | `instructionValid` / `instructionRaw` / `instructionLen` | Gated instruction metadata fed to the commit-row candidate. |
 | output | `sourceTraceValid` / `source0` / `source1` | Gated source trace fed to the commit-row candidate. |
 | output | `traceReady` | Instruction metadata and source trace are both present for the resident slot. |
@@ -73,11 +75,12 @@ R372 wires the module immediately before
 - resident W2 slot occupancy gates provider evidence;
 - R373 feeds instruction metadata from `ROBRowCommitTraceLookup`;
 - R374 keeps ROB-row source traces completion-only because allocation rows have
-  register tags but no proven source data;
-- R375 carries RF-derived source traces through execute wait/replay capture,
-  the relaunch queue, LIQ row residency, and launch selection diagnostics, but
-  does not connect those diagnostics to this W2 provider yet;
-- source trace providers are currently tied absent in the top;
+  register tags but no proven source data, and the top leaves ROB source-trace
+  lookup disabled;
+- R375/R376 carry RF-derived source traces through execute wait/replay capture,
+  the relaunch queue, LIQ row residency, launch selection diagnostics, LRET,
+  IEX pipe-insert, E4 residency, W1, and W2 slot state;
+- R377 connects the resident W2 slot source-trace payload to this provider;
 - gated outputs feed the R366 commit-row candidate;
 - compact top-level diagnostics expose trace readiness and missing-provider
   blockers;
@@ -86,9 +89,6 @@ R372 wires the module immediately before
 
 ## Deferred Owners
 
-- Carrying the R375 replay-LIQ launch source-trace payload through the
-  LRET/W2 slot boundary and connecting it to `sourceTraceProviderValid` only
-  after the resident W2 slot and source payload are identity-matched.
 - Live promotion of row fill after W2 side effects, clear/refill, replay-row
   lifecycle clear, and ROB completion-row replacement can commit atomically.
 
