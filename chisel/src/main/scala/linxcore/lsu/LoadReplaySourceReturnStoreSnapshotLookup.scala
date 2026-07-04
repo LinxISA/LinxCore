@@ -66,6 +66,7 @@ class LoadReplaySourceReturnStoreSnapshotLookupIO(
   val responseDataValid = Output(Bool())
   val dataSuppressedByWait = Output(Bool())
   val storeBypassComplete = Output(Bool())
+  val forwardData = Output(UInt((lineBytes * 8).W))
   val mergedData = Output(UInt((lineBytes * 8).W))
 }
 
@@ -192,5 +193,6 @@ class LoadReplaySourceReturnStoreSnapshotLookup(
   io.responseDataValid := responseDataValid
   io.dataSuppressedByWait := rawDataValid && waitStoreValid
   io.storeBypassComplete := queryValid && forward.io.storeBypassComplete
+  io.forwardData := forward.io.forwardData
   io.mergedData := forward.io.mergedData
 }

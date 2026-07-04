@@ -26,6 +26,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestSink.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotLookup.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponsePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotSelectedIdentity.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotAcceptedToken.scala`
@@ -116,6 +117,13 @@ top passes the existing reduced STQ rows into the composite but still keeps
 `requestEnable=false` and `sinkReady=false`, so no live request is consumed in
 generated-RTL fixtures.
 
+R406 widens the sink-to-response-queue boundary with
+`LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle`. The composite now
+preserves wait-store BID/RID/LSID/PC plus raw store-data mask/data from the
+resident lookup through the ordered response FIFO. Response matching and
+evidence still consume only `cID/eID`, `waitStore`, and response-visible
+`dataValid`; LIQ/LDQ row mutation remains deferred.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `sinkReady`, raw STQ response, SCB return, wait-store, and
 data-valid inputs false, and it ties external stale-head evidence false, so
@@ -203,9 +211,9 @@ RequestControl.querySinkReady
   -> RequestPayload.requestValid/request
   -> RequestQueue.headValid/head request
   -> Lookup.waitStoreValid/responseDataValid
-  -> RequestSink.responseValid/response cID/eID
+  -> RequestSink.responseValid/response payload
   -> AcceptedToken.tokenValid/tokenRepick/cID/eID
-  -> ResponseQueue.headValid/head cID/eID/waitStore/dataValid
+  -> ResponseQueue.headValid/head response payload
   -> IdentityMatch.responseMatchesSelected
   -> ResponseMatch.responseValid/waitStore/dataValid
   -> ResponseHeadState.headStale
@@ -284,6 +292,16 @@ ready-byte evidence as `rawDataValid`, and sends response-visible data only
 when wait-store is clear. This matches the model control flow where
 `handleSTQReceive` rewaits before any returned-data merge.
 
+The R406 response payload carries the data and wait-store identity that a later
+mutation owner will need after response matching:
+
+- `waitStoreBid`, `waitStoreRid`, and `waitStorePc` mirror model
+  `wait_bid`, `wait_rid`, and `wait_tpc`.
+- `waitStoreLsId` is retained for existing store-wakeup matching.
+- `rawDataValid`, `dataMask`, and `data` preserve returned store bytes even if
+  `waitStore` suppresses immediate merge.
+- `dataValid` remains the response-visible merge gate used by evidence.
+
 The current top tie-offs keep `queryIssued=false`, `responseValid=false`,
 `requestAccepted=false`, and `requestEnable=false`, so the live chain does not
 affect replay launch. The same signals remain visible inside the path for
@@ -304,14 +322,15 @@ behavior.
 
 ## Deferred Owners
 
-- Live raw STQ response source and precise queued-response flush pruning.
+- Live raw STQ response payload source and precise queued-response flush pruning.
 - Precise queued-request flush pruning beyond all-clear flush.
 - Full multi-cluster row-state evidence into `responseHeadStale`.
 - Live raw STQ response source before reduced stale drops become observable.
 - Full selected replay-row identity storage from replay-LIQ residency beyond
   the reduced launch-index projection.
 - Live SCB return evidence source.
-- Stateful wait-store replay mutation and returned-data merge.
+- Stateful wait-store replay mutation and returned-data merge from the R406
+  response payload.
 - Live promotion of `requestEnable` after query, response, and row-state owners
   are stable.
 
@@ -326,9 +345,9 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestSink
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotLookup
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseHeadState
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseDrain
-bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotAcceptedToken
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotSelectedIdentity
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotIdentityMatch
@@ -339,7 +358,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only ResidentStoreForwardStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r405x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r406x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover legacy readiness preservation, dormant query/response
@@ -347,6 +366,6 @@ behavior, future live accepted-token response completion, flush handling,
 disabled behavior, request-queue storage while the future raw sink is stalled,
 raw-response priority over sink-generated response, and Chisel elaboration with
 the selected-identity, request-control, request-payload, request-queue,
-request-sink, accepted-token, response-queue, response-head-state,
+request-sink, accepted-token, payload-bearing response-queue, response-head-state,
 response-drain, lookup, identity, response, and evidence child owners present
 in the composite module.

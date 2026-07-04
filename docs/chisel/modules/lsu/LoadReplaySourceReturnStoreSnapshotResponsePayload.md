@@ -1,0 +1,89 @@
+# LoadReplaySourceReturnStoreSnapshotResponsePayload
+
+## Source Mapping
+
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponsePayload.scala`
+- Tests:
+  - `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestSinkSpec.scala`
+  - `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseQueueSpec.scala`
+- Integrated users:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestSink.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseQueue.scala`
+- LinxCoreModel evidence:
+  - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
+    - `MemReqBus::cID`
+    - `MemReqBus::eID`
+    - `MemReqBus::wait_store`
+    - `MemReqBus::wait_bid`
+    - `MemReqBus::wait_rid`
+    - `MemReqBus::wait_tpc`
+    - `MemReqBus::mtc_reqData`
+  - `model/LinxCoreModel/model/mtccore/lsu/store_unit/stq.cpp`
+    - `MtcSTQ::lookupForLoad`
+  - `model/LinxCoreModel/model/mtccore/lsu/load_unit/ldq.cpp`
+    - `MtcLDQInfo::handleSTQReceive`
+    - `MtcLDQInfo::waitStore`
+    - `MtcLDQInfo::handleMerge`
+- Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-RESPONSE-PAYLOAD-001`
+
+## Purpose
+
+`LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle` is the typed Chisel
+shape for the store-unit response returned to replay-LIQ local STQ snapshot
+matching.
+
+R406 keeps the existing response-valid, wait-store, and data-valid booleans,
+then adds the model sidebands that a later LIQ row-mutation owner needs:
+wait-store identity, raw data evidence, response-visible data evidence, a
+64-byte byte-valid mask, and 64-byte store data.
+
+## Interface
+
+| Field | Description |
+|---|---|
+| `valid` | Payload record is meaningful. |
+| `clusterId` / `entryId` | Returned `MemReqBus.cID/eID` identity. |
+| `waitStore` | Store lookup found an older not-ready store for at least one requested byte. |
+| `dataValid` | Store data may be merged by `handleSTQReceive`; this is suppressed when `waitStore` is true. |
+| `rawDataValid` | Store lookup found at least one ready resident-store byte, even if wait-store control wins. |
+| `dataSuppressedByWait` | Diagnostic for raw data that is ignored because `waitStore` takes priority. |
+| `waitStoreIndex` | Local STQ row index for the selected not-ready store. |
+| `waitStoreBid` / `waitStoreRid` | Model wait-store BID/RID identity. |
+| `waitStoreLsId` | Store LSID, retained for existing wait-store wakeup matching. |
+| `waitStorePc` | Model wait-store `tpc`/store PC. |
+| `dataMask` | Valid store-data bytes in `data`. |
+| `data` | 64-byte line-positioned store data. |
+
+## Logic Design
+
+The bundle has no logic. `LoadReplaySourceReturnStoreSnapshotRequestSink`
+constructs it from the accepted request identity plus R405 lookup sidebands.
+`LoadReplaySourceReturnStoreSnapshotResponseQueue` preserves the full record
+in FIFO order while existing response matching still consumes only `cID/eID`,
+`waitStore`, and `dataValid`.
+
+The payload intentionally carries both `rawDataValid` and `dataValid`. The C++
+STQ lookup can discover ready bytes and a later not-ready store in the same
+response, but `MtcLDQInfo::handleSTQReceive` handles `wait_store` first and
+returns before data merge.
+
+## Deferred Owners
+
+- LIQ/LDQ wait-store row mutation using `waitStore*`.
+- LIQ/LDQ data merge using `dataMask` and `data`.
+- Raw external `lookup_su_lu_q` data payload inputs.
+- Precise queued response pruning.
+
+## Verification
+
+Focused gates:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestSink
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseQueue
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
+```
+
+Reference tests cover payload production from wait-store/data lookup
+sidebands, FIFO preservation of wait identity and data mask/data, empty-queue
+bypass, full-queue pop/push, disabled/flush behavior, and Chisel elaboration.

@@ -266,9 +266,12 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     entryIdWidth = entryIdWidth
   ))
   val responseQueue = Module(new LoadReplaySourceReturnStoreSnapshotResponseQueue(
+    idEntries = idEntries,
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth,
-    depth = responseQueueDepth
+    depth = responseQueueDepth,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes
   ))
   val identityMatch = Module(new LoadReplaySourceReturnStoreSnapshotIdentityMatch(
     clusterIdWidth = clusterIdWidth,
@@ -338,6 +341,11 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   lookup.io.rows := io.stqRows
   lookup.io.cacheData := 0.U
 
+  val lookupWaitStoreRid = WireDefault(0.U.asTypeOf(new ROBID(idEntries)))
+  when(lookup.io.waitStoreValid) {
+    lookupWaitStoreRid := io.stqRows(lookup.io.waitStore.storeIndex).rid
+  }
+
   requestSink.io.enable := io.enable
   requestSink.io.flush := io.flush
   requestSink.io.requestValid := requestQueue.io.headValid
@@ -345,7 +353,13 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   requestSink.io.rawSinkReady := io.sinkReady
   requestSink.io.responseReady := !responseQueue.io.full && !io.responseValidIn
   requestSink.io.lookupWaitStore := lookup.io.waitStoreValid
+  requestSink.io.lookupWaitStoreInfo := lookup.io.waitStore
+  requestSink.io.lookupWaitStoreRid := lookupWaitStoreRid
+  requestSink.io.lookupRawDataValid := lookup.io.rawDataValid
   requestSink.io.lookupDataValid := lookup.io.responseDataValid
+  requestSink.io.lookupDataSuppressedByWait := lookup.io.dataSuppressedByWait
+  requestSink.io.lookupDataMask := lookup.io.forwardMask
+  requestSink.io.lookupData := lookup.io.forwardData
 
   acceptedToken.io.enable := io.enable
   acceptedToken.io.flush := io.flush
@@ -360,10 +374,21 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   responseQueue.io.flush := io.flush
   val enqueueSinkResponse = !io.responseValidIn && requestSink.io.responseValid
   responseQueue.io.enqueueValid := io.responseValidIn || enqueueSinkResponse
-  responseQueue.io.enqueueClusterId := Mux(io.responseValidIn, io.responseClusterId, requestSink.io.responseClusterId)
-  responseQueue.io.enqueueEntryId := Mux(io.responseValidIn, io.responseEntryId, requestSink.io.responseEntryId)
-  responseQueue.io.enqueueWaitStore := Mux(io.responseValidIn, io.waitStoreIn, requestSink.io.responseWaitStore)
-  responseQueue.io.enqueueDataValid := Mux(io.responseValidIn, io.dataValidIn, requestSink.io.responseDataValid)
+  val rawResponse = WireDefault(0.U.asTypeOf(new LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle(
+    idEntries,
+    clusterIdWidth,
+    entryIdWidth,
+    pcWidth,
+    lineBytes
+  )))
+  rawResponse.valid := io.responseValidIn
+  rawResponse.clusterId := io.responseClusterId
+  rawResponse.entryId := io.responseEntryId
+  rawResponse.waitStore := io.waitStoreIn
+  rawResponse.dataValid := io.dataValidIn
+  rawResponse.rawDataValid := io.dataValidIn
+  rawResponse.dataSuppressedByWait := io.waitStoreIn && io.dataValidIn
+  responseQueue.io.enqueue := Mux(io.responseValidIn, rawResponse, requestSink.io.response)
   responseQueue.io.dequeueReady := responseDrain.io.dequeueReady
 
   identityMatch.io.enable := io.enable

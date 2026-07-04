@@ -16,6 +16,15 @@ object LoadReplaySourceReturnStoreSnapshotRequestSinkReference {
       responseEntryId: Int,
       responseWaitStore: Boolean,
       responseDataValid: Boolean,
+      responseRawDataValid: Boolean,
+      responseDataSuppressedByWait: Boolean,
+      responseWaitStoreIndex: Int,
+      responseWaitStoreBid: Int,
+      responseWaitStoreRid: Int,
+      responseWaitStoreLsId: Int,
+      responseWaitStorePc: BigInt,
+      responseDataMask: BigInt,
+      responseData: BigInt,
       blockedByDisabled: Boolean,
       blockedByFlush: Boolean,
       blockedByNoRequest: Boolean,
@@ -30,13 +39,22 @@ object LoadReplaySourceReturnStoreSnapshotRequestSinkReference {
       rawSinkReady: Boolean = false,
       responseReady: Boolean = false,
       lookupWaitStore: Boolean = false,
-      lookupDataValid: Boolean = false): Result = {
+      lookupWaitStoreIndex: Int = 0,
+      lookupWaitStoreBid: Int = 0,
+      lookupWaitStoreRid: Int = 0,
+      lookupWaitStoreLsId: Int = 0,
+      lookupWaitStorePc: BigInt = 0,
+      lookupRawDataValid: Boolean = false,
+      lookupDataValid: Boolean = false,
+      lookupDataSuppressedByWait: Boolean = false,
+      lookupDataMask: BigInt = 0,
+      lookupData: BigInt = 0): Result = {
     val active = enable && !flush
     val hasRequest = request.exists(_.valid)
     val requestCandidate = active && hasRequest
     val requestReady = active && rawSinkReady && responseReady
     val requestAccepted = requestCandidate && requestReady
-    val rawRequest = hasRequest || lookupWaitStore || lookupDataValid
+    val rawRequest = hasRequest || lookupWaitStore || lookupRawDataValid || lookupDataValid
 
     Result(
       active = active,
@@ -48,6 +66,15 @@ object LoadReplaySourceReturnStoreSnapshotRequestSinkReference {
       responseEntryId = if (requestAccepted) request.get.entryId else 0,
       responseWaitStore = requestAccepted && lookupWaitStore,
       responseDataValid = requestAccepted && lookupDataValid,
+      responseRawDataValid = requestAccepted && lookupRawDataValid,
+      responseDataSuppressedByWait = requestAccepted && lookupDataSuppressedByWait,
+      responseWaitStoreIndex = if (requestAccepted) lookupWaitStoreIndex else 0,
+      responseWaitStoreBid = if (requestAccepted) lookupWaitStoreBid else 0,
+      responseWaitStoreRid = if (requestAccepted) lookupWaitStoreRid else 0,
+      responseWaitStoreLsId = if (requestAccepted) lookupWaitStoreLsId else 0,
+      responseWaitStorePc = if (requestAccepted) lookupWaitStorePc else 0,
+      responseDataMask = if (requestAccepted && lookupRawDataValid) lookupDataMask else 0,
+      responseData = if (requestAccepted && lookupRawDataValid) lookupData else 0,
       blockedByDisabled = !enable && rawRequest,
       blockedByFlush = enable && flush && rawRequest,
       blockedByNoRequest = active && request.isEmpty && (rawSinkReady || responseReady),
@@ -135,6 +162,12 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkSpec extends AnyFunSuite {
       rawSinkReady = true,
       responseReady = true,
       lookupWaitStore = true,
+      lookupWaitStoreIndex = 1,
+      lookupWaitStoreBid = 5,
+      lookupWaitStoreRid = 9,
+      lookupWaitStoreLsId = 2,
+      lookupWaitStorePc = BigInt("40005700", 16),
+      lookupRawDataValid = true,
       lookupDataValid = false)
     val invalid = LoadReplaySourceReturnStoreSnapshotRequestSinkReference(
       enable = true,
@@ -143,11 +176,18 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkSpec extends AnyFunSuite {
       rawSinkReady = true,
       responseReady = true,
       lookupWaitStore = true,
+      lookupRawDataValid = true,
       lookupDataValid = true)
 
     assert(wait.responseValid)
     assert(wait.responseWaitStore)
     assert(!wait.responseDataValid)
+    assert(wait.responseRawDataValid)
+    assert(wait.responseWaitStoreIndex == 1)
+    assert(wait.responseWaitStoreBid == 5)
+    assert(wait.responseWaitStoreRid == 9)
+    assert(wait.responseWaitStoreLsId == 2)
+    assert(wait.responseWaitStorePc == BigInt("40005700", 16))
     assert(!wait.invalidDataWithWaitStore)
     assert(invalid.responseValid)
     assert(invalid.responseWaitStore)
@@ -184,6 +224,8 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkSpec extends AnyFunSuite {
     assert(sv.contains("io_requestReady"))
     assert(sv.contains("io_requestAccepted"))
     assert(sv.contains("io_responseValid"))
+    assert(sv.contains("io_responseWaitStoreRid"))
+    assert(sv.contains("io_responseDataMask"))
     assert(sv.contains("io_blockedByResponse"))
   }
 }

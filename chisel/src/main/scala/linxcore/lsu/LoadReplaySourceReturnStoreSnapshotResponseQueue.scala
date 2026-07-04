@@ -3,40 +3,76 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.log2Ceil
 
+import linxcore.rob.ROBID
+
 class LoadReplaySourceReturnStoreSnapshotResponseQueueEntry(
+    idEntries: Int,
     clusterIdWidth: Int,
-    entryIdWidth: Int)
+    entryIdWidth: Int,
+    pcWidth: Int,
+    lineBytes: Int)
     extends Bundle {
   val clusterId = UInt(clusterIdWidth.W)
   val entryId = UInt(entryIdWidth.W)
   val waitStore = Bool()
   val dataValid = Bool()
+  val rawDataValid = Bool()
+  val dataSuppressedByWait = Bool()
+  val waitStoreIndex = UInt(log2Ceil(idEntries).W)
+  val waitStoreBid = new ROBID(idEntries)
+  val waitStoreRid = new ROBID(idEntries)
+  val waitStoreLsId = new ROBID(idEntries)
+  val waitStorePc = UInt(pcWidth.W)
+  val dataMask = UInt(lineBytes.W)
+  val data = UInt((lineBytes * 8).W)
 }
 
 class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
+    idEntries: Int,
     clusterIdWidth: Int,
     entryIdWidth: Int,
-    depth: Int)
+    depth: Int,
+    pcWidth: Int,
+    lineBytes: Int)
     extends Bundle {
   private val countWidth = log2Ceil(depth + 1)
 
   val enable = Input(Bool())
   val flush = Input(Bool())
   val enqueueValid = Input(Bool())
-  val enqueueClusterId = Input(UInt(clusterIdWidth.W))
-  val enqueueEntryId = Input(UInt(entryIdWidth.W))
-  val enqueueWaitStore = Input(Bool())
-  val enqueueDataValid = Input(Bool())
+  val enqueue = Input(new LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle(
+    idEntries,
+    clusterIdWidth,
+    entryIdWidth,
+    pcWidth,
+    lineBytes
+  ))
   val dequeueReady = Input(Bool())
 
   val enqueueReady = Output(Bool())
   val enqueueAccepted = Output(Bool())
   val enqueueDropped = Output(Bool())
   val headValid = Output(Bool())
+  val head = Output(new LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle(
+    idEntries,
+    clusterIdWidth,
+    entryIdWidth,
+    pcWidth,
+    lineBytes
+  ))
   val headClusterId = Output(UInt(clusterIdWidth.W))
   val headEntryId = Output(UInt(entryIdWidth.W))
   val headWaitStore = Output(Bool())
   val headDataValid = Output(Bool())
+  val headRawDataValid = Output(Bool())
+  val headDataSuppressedByWait = Output(Bool())
+  val headWaitStoreIndex = Output(UInt(log2Ceil(idEntries).W))
+  val headWaitStoreBid = Output(new ROBID(idEntries))
+  val headWaitStoreRid = Output(new ROBID(idEntries))
+  val headWaitStoreLsId = Output(new ROBID(idEntries))
+  val headWaitStorePc = Output(UInt(pcWidth.W))
+  val headDataMask = Output(UInt(lineBytes.W))
+  val headData = Output(UInt((lineBytes * 8).W))
   val headConsumed = Output(Bool())
   val pending = Output(Bool())
   val full = Output(Bool())
@@ -48,27 +84,40 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
 }
 
 class LoadReplaySourceReturnStoreSnapshotResponseQueue(
+    val idEntries: Int = 16,
     val clusterIdWidth: Int = 2,
     val entryIdWidth: Int = 4,
-    val depth: Int = 2)
+    val depth: Int = 2,
+    val pcWidth: Int = 64,
+    val lineBytes: Int = 64)
     extends Module {
+  require(idEntries > 1, "idEntries must be greater than one")
+  require((idEntries & (idEntries - 1)) == 0, "idEntries must be a power of two")
   require(clusterIdWidth > 0, "clusterIdWidth must be positive")
   require(entryIdWidth > 0, "entryIdWidth must be positive")
   require(depth > 0, "response queue depth must be nonzero")
+  require(pcWidth > 0, "pcWidth must be positive")
+  require(lineBytes == 64, "response queue currently carries 64-byte scalar line data")
 
   private val ptrWidth = math.max(1, log2Ceil(depth))
   private val countWidth = log2Ceil(depth + 1)
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
+    idEntries = idEntries,
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth,
-    depth = depth
+    depth = depth,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes
   ))
 
   private def zeroEntry: LoadReplaySourceReturnStoreSnapshotResponseQueueEntry = {
     val entry = Wire(new LoadReplaySourceReturnStoreSnapshotResponseQueueEntry(
+      idEntries = idEntries,
       clusterIdWidth = clusterIdWidth,
-      entryIdWidth = entryIdWidth
+      entryIdWidth = entryIdWidth,
+      pcWidth = pcWidth,
+      lineBytes = lineBytes
     ))
     entry := 0.U.asTypeOf(entry)
     entry
@@ -76,13 +125,25 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
 
   private def enqueueEntry: LoadReplaySourceReturnStoreSnapshotResponseQueueEntry = {
     val entry = Wire(new LoadReplaySourceReturnStoreSnapshotResponseQueueEntry(
+      idEntries = idEntries,
       clusterIdWidth = clusterIdWidth,
-      entryIdWidth = entryIdWidth
+      entryIdWidth = entryIdWidth,
+      pcWidth = pcWidth,
+      lineBytes = lineBytes
     ))
-    entry.clusterId := io.enqueueClusterId
-    entry.entryId := io.enqueueEntryId
-    entry.waitStore := io.enqueueWaitStore
-    entry.dataValid := io.enqueueDataValid
+    entry.clusterId := io.enqueue.clusterId
+    entry.entryId := io.enqueue.entryId
+    entry.waitStore := io.enqueue.waitStore
+    entry.dataValid := io.enqueue.dataValid
+    entry.rawDataValid := io.enqueue.rawDataValid
+    entry.dataSuppressedByWait := io.enqueue.dataSuppressedByWait
+    entry.waitStoreIndex := io.enqueue.waitStoreIndex
+    entry.waitStoreBid := io.enqueue.waitStoreBid
+    entry.waitStoreRid := io.enqueue.waitStoreRid
+    entry.waitStoreLsId := io.enqueue.waitStoreLsId
+    entry.waitStorePc := io.enqueue.waitStorePc
+    entry.dataMask := io.enqueue.dataMask
+    entry.data := io.enqueue.data
     entry
   }
 
@@ -103,6 +164,29 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
   val bypassHead = active && !residentHeadValid && io.enqueueValid && hasOpenSlot
   val headValid = active && (residentHeadValid || bypassHead)
   val headEntry = Mux(residentHeadValid, entries(headPtr), enqueueEntry)
+  val headPayload = WireDefault(0.U.asTypeOf(new LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle(
+    idEntries,
+    clusterIdWidth,
+    entryIdWidth,
+    pcWidth,
+    lineBytes
+  )))
+  when(headValid) {
+    headPayload.valid := true.B
+    headPayload.clusterId := headEntry.clusterId
+    headPayload.entryId := headEntry.entryId
+    headPayload.waitStore := headEntry.waitStore
+    headPayload.dataValid := headEntry.dataValid
+    headPayload.rawDataValid := headEntry.rawDataValid
+    headPayload.dataSuppressedByWait := headEntry.dataSuppressedByWait
+    headPayload.waitStoreIndex := headEntry.waitStoreIndex
+    headPayload.waitStoreBid := headEntry.waitStoreBid
+    headPayload.waitStoreRid := headEntry.waitStoreRid
+    headPayload.waitStoreLsId := headEntry.waitStoreLsId
+    headPayload.waitStorePc := headEntry.waitStorePc
+    headPayload.dataMask := headEntry.dataMask
+    headPayload.data := headEntry.data
+  }
   val headConsumed = headValid && io.dequeueReady
   val storeEnqueue = enqueueAccepted && !(bypassHead && io.dequeueReady)
 
@@ -133,10 +217,20 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
   io.enqueueAccepted := enqueueAccepted
   io.enqueueDropped := io.enqueueValid && !io.flush && !enqueueReady
   io.headValid := headValid
-  io.headClusterId := Mux(headValid, headEntry.clusterId, 0.U)
-  io.headEntryId := Mux(headValid, headEntry.entryId, 0.U)
-  io.headWaitStore := headValid && headEntry.waitStore
-  io.headDataValid := headValid && headEntry.dataValid
+  io.head := headPayload
+  io.headClusterId := headPayload.clusterId
+  io.headEntryId := headPayload.entryId
+  io.headWaitStore := headPayload.waitStore
+  io.headDataValid := headPayload.dataValid
+  io.headRawDataValid := headPayload.rawDataValid
+  io.headDataSuppressedByWait := headPayload.dataSuppressedByWait
+  io.headWaitStoreIndex := headPayload.waitStoreIndex
+  io.headWaitStoreBid := headPayload.waitStoreBid
+  io.headWaitStoreRid := headPayload.waitStoreRid
+  io.headWaitStoreLsId := headPayload.waitStoreLsId
+  io.headWaitStorePc := headPayload.waitStorePc
+  io.headDataMask := headPayload.dataMask
+  io.headData := headPayload.data
   io.headConsumed := headConsumed
   io.pending := count =/= 0.U
   io.full := count === depth.U

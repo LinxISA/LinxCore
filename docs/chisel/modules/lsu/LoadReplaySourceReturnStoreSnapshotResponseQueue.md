@@ -18,6 +18,13 @@
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
     - `MemReqBus::cID`
     - `MemReqBus::eID`
+    - `MemReqBus::wait_store`
+    - `MemReqBus::wait_bid`
+    - `MemReqBus::wait_rid`
+    - `MemReqBus::wait_tpc`
+    - `MemReqBus::mtc_reqData`
+- Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponsePayload.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-RESPONSE-QUEUE-001`
 
 ## Purpose
@@ -41,6 +48,12 @@ R399 moves the pop decision into
 `LoadReplaySourceReturnStoreSnapshotResponseDrain`. The queue remains only the
 raw FIFO/bypass owner; it does not decide whether a head is ordered or stale.
 
+R406 widens the queue entry to
+`LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle`. Existing response
+matching still consumes `headClusterId`, `headEntryId`, `headWaitStore`, and
+`headDataValid`, while the FIFO now also preserves wait-store identity and
+store-data mask/data for the later LIQ row-mutation owner.
+
 ## Interface
 
 ### Inputs
@@ -50,10 +63,7 @@ raw FIFO/bypass owner; it does not decide whether a head is ordered or stale.
 | `enable` | Replay-LIQ wrapper is active. |
 | `flush` | Clears resident raw STQ responses and suppresses admission. |
 | `enqueueValid` | A raw STQ response `MemReqBus` is visible. |
-| `enqueueClusterId` | Response target cluster ID from `MemReqBus.cID`. |
-| `enqueueEntryId` | Response target entry ID from `MemReqBus.eID`. |
-| `enqueueWaitStore` | Response asks the load row to wait on an older store. |
-| `enqueueDataValid` | Response carries mergeable store data. |
+| `enqueue` | Full response payload carrying `cID/eID`, wait-store identity, raw data evidence, and store data mask/data. |
 | `dequeueReady` | Downstream drain owner consumed or explicitly dropped the current head. |
 
 ### Outputs
@@ -64,10 +74,14 @@ raw FIFO/bypass owner; it does not decide whether a head is ordered or stale.
 | `enqueueAccepted` | Raw response was accepted into the FIFO or empty-slot bypass. |
 | `enqueueDropped` | One-cycle raw response arrived without space or while disabled. |
 | `headValid` | Resident or empty-slot bypass response is visible to identity matching. |
+| `head` | Full R406 response payload at the FIFO head. |
 | `headClusterId` | Head response `cID`. |
 | `headEntryId` | Head response `eID`. |
 | `headWaitStore` | Head wait-store sideband. |
 | `headDataValid` | Head data-valid sideband. |
+| `headRawDataValid` / `headDataSuppressedByWait` | Raw-data diagnostics preserved across FIFO storage. |
+| `headWaitStore*` | Head wait-store index, BID, RID, LSID, and PC. |
+| `headDataMask` / `headData` | Head store-data valid mask and 64-byte line data. |
 | `headConsumed` | Visible head was consumed this cycle. |
 | `pending` | A resident response remains after this cycle. |
 | `full` | Resident queue occupancy is at depth. |
@@ -86,6 +100,15 @@ clusterId
 entryId
 waitStore
 dataValid
+rawDataValid
+dataSuppressedByWait
+waitStoreIndex
+waitStoreBid
+waitStoreRid
+waitStoreLsId
+waitStorePc
+dataMask
+data
 ```
 
 It does not own selected-row token identity, SCB-before-STQ ordering,
@@ -147,4 +170,5 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 
 Reference tests cover FIFO order, empty-queue bypass plus same-cycle consume,
 full-queue simultaneous pop/push, full-queue drop diagnostics, flush clearing,
-disabled-response diagnostics, and Chisel elaboration.
+disabled-response diagnostics, preservation of wait-store identity and data
+mask/data sidebands, and Chisel elaboration.

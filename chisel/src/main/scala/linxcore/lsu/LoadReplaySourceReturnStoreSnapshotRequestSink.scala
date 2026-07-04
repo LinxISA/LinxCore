@@ -1,6 +1,9 @@
 package linxcore.lsu
 
 import chisel3._
+import chisel3.util.log2Ceil
+
+import linxcore.rob.ROBID
 
 class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
     val liqEntries: Int,
@@ -28,17 +31,39 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
   val rawSinkReady = Input(Bool())
   val responseReady = Input(Bool())
   val lookupWaitStore = Input(Bool())
+  val lookupWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val lookupWaitStoreRid = Input(new ROBID(idEntries))
+  val lookupRawDataValid = Input(Bool())
   val lookupDataValid = Input(Bool())
+  val lookupDataSuppressedByWait = Input(Bool())
+  val lookupDataMask = Input(UInt(lineBytes.W))
+  val lookupData = Input(UInt((lineBytes * 8).W))
 
   val active = Output(Bool())
   val requestCandidate = Output(Bool())
   val requestReady = Output(Bool())
   val requestAccepted = Output(Bool())
+  val response = Output(new LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle(
+    idEntries,
+    clusterIdWidth,
+    entryIdWidth,
+    pcWidth,
+    lineBytes
+  ))
   val responseValid = Output(Bool())
   val responseClusterId = Output(UInt(clusterIdWidth.W))
   val responseEntryId = Output(UInt(entryIdWidth.W))
   val responseWaitStore = Output(Bool())
   val responseDataValid = Output(Bool())
+  val responseRawDataValid = Output(Bool())
+  val responseDataSuppressedByWait = Output(Bool())
+  val responseWaitStoreIndex = Output(UInt(log2Ceil(idEntries).W))
+  val responseWaitStoreBid = Output(new ROBID(idEntries))
+  val responseWaitStoreRid = Output(new ROBID(idEntries))
+  val responseWaitStoreLsId = Output(new ROBID(idEntries))
+  val responseWaitStorePc = Output(UInt(pcWidth.W))
+  val responseDataMask = Output(UInt(lineBytes.W))
+  val responseData = Output(UInt((lineBytes * 8).W))
   val blockedByDisabled = Output(Bool())
   val blockedByFlush = Output(Bool())
   val blockedByNoRequest = Output(Bool())
@@ -79,20 +104,55 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
   ))
 
   val active = io.enable && !io.flush
-  val rawRequest = io.requestValid || io.request.valid || io.lookupWaitStore || io.lookupDataValid
+  val rawRequest =
+    io.requestValid || io.request.valid || io.lookupWaitStore || io.lookupRawDataValid || io.lookupDataValid
   val requestCandidate = active && io.requestValid && io.request.valid
   val requestReady = active && io.rawSinkReady && io.responseReady
   val requestAccepted = requestCandidate && requestReady
+  val response = WireDefault(0.U.asTypeOf(new LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle(
+    idEntries,
+    clusterIdWidth,
+    entryIdWidth,
+    pcWidth,
+    lineBytes
+  )))
+
+  when(requestAccepted) {
+    response.valid := true.B
+    response.clusterId := io.request.clusterId
+    response.entryId := io.request.entryId
+    response.waitStore := io.lookupWaitStore
+    response.dataValid := io.lookupDataValid
+    response.rawDataValid := io.lookupRawDataValid
+    response.dataSuppressedByWait := io.lookupDataSuppressedByWait
+    response.waitStoreIndex := io.lookupWaitStoreInfo.storeIndex
+    response.waitStoreBid := io.lookupWaitStoreInfo.storeId
+    response.waitStoreRid := io.lookupWaitStoreRid
+    response.waitStoreLsId := io.lookupWaitStoreInfo.storeLsId
+    response.waitStorePc := io.lookupWaitStoreInfo.pc
+    response.dataMask := Mux(io.lookupRawDataValid, io.lookupDataMask, 0.U)
+    response.data := Mux(io.lookupRawDataValid, io.lookupData, 0.U)
+  }
 
   io.active := active
   io.requestCandidate := requestCandidate
   io.requestReady := requestReady
   io.requestAccepted := requestAccepted
-  io.responseValid := requestAccepted
-  io.responseClusterId := Mux(requestAccepted, io.request.clusterId, 0.U)
-  io.responseEntryId := Mux(requestAccepted, io.request.entryId, 0.U)
-  io.responseWaitStore := requestAccepted && io.lookupWaitStore
-  io.responseDataValid := requestAccepted && io.lookupDataValid
+  io.response := response
+  io.responseValid := response.valid
+  io.responseClusterId := response.clusterId
+  io.responseEntryId := response.entryId
+  io.responseWaitStore := response.waitStore
+  io.responseDataValid := response.dataValid
+  io.responseRawDataValid := response.rawDataValid
+  io.responseDataSuppressedByWait := response.dataSuppressedByWait
+  io.responseWaitStoreIndex := response.waitStoreIndex
+  io.responseWaitStoreBid := response.waitStoreBid
+  io.responseWaitStoreRid := response.waitStoreRid
+  io.responseWaitStoreLsId := response.waitStoreLsId
+  io.responseWaitStorePc := response.waitStorePc
+  io.responseDataMask := response.dataMask
+  io.responseData := response.data
   io.blockedByDisabled := !io.enable && rawRequest
   io.blockedByFlush := io.enable && io.flush && rawRequest
   io.blockedByNoRequest := active && !io.requestValid && (io.rawSinkReady || io.responseReady)

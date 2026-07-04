@@ -221,6 +221,7 @@ class LoadReplaySourceReturnStoreSnapshotLookupSpec extends AnyFunSuite {
     assert(sv.contains("ResidentStoreForwardStoreSnapshot"))
     assert(sv.contains("LoadStoreForwarding"))
     assert(sv.contains("io_waitStoreValid"))
+    assert(sv.contains("io_forwardData"))
     assert(sv.contains("io_responseDataValid"))
     assert(sv.contains("io_dataSuppressedByWait"))
   }

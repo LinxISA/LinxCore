@@ -8,7 +8,16 @@ object LoadReplaySourceReturnStoreSnapshotResponseQueueReference {
       clusterId: Int = 0,
       entryId: Int = 0,
       waitStore: Boolean = false,
-      dataValid: Boolean = false)
+      dataValid: Boolean = false,
+      rawDataValid: Boolean = false,
+      dataSuppressedByWait: Boolean = false,
+      waitStoreIndex: Int = 0,
+      waitStoreBid: Int = 0,
+      waitStoreRid: Int = 0,
+      waitStoreLsId: Int = 0,
+      waitStorePc: BigInt = 0,
+      dataMask: BigInt = 0,
+      data: BigInt = 0)
 
   final case class Result(
       enqueueReady: Boolean,
@@ -77,8 +86,26 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
   import LoadReplaySourceReturnStoreSnapshotResponseQueueReference._
 
   test("stores raw STQ responses in FIFO order") {
-    val first = Response(clusterId = 0, entryId = 1, dataValid = true)
-    val second = Response(clusterId = 0, entryId = 2, waitStore = true)
+    val first = Response(
+      clusterId = 0,
+      entryId = 1,
+      dataValid = true,
+      rawDataValid = true,
+      dataMask = BigInt("ff", 16),
+      data = BigInt("ddccbbaa", 16))
+    val second = Response(
+      clusterId = 0,
+      entryId = 2,
+      waitStore = true,
+      rawDataValid = true,
+      dataSuppressedByWait = true,
+      waitStoreIndex = 1,
+      waitStoreBid = 5,
+      waitStoreRid = 9,
+      waitStoreLsId = 2,
+      waitStorePc = BigInt("40005700", 16),
+      dataMask = BigInt("0f", 16),
+      data = BigInt("44332211", 16))
 
     val enqueueFirst = step(Vector.empty, depth = 2, enable = true, flush = false, enqueue = Some(first))
     assert(enqueueFirst.enqueueAccepted)
@@ -93,11 +120,14 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
     val popFirst = step(enqueueSecond.next, depth = 2, enable = true, flush = false, dequeueReady = true)
     assert(popFirst.headConsumed)
     assert(popFirst.head.contains(first))
+    assert(popFirst.head.exists(_.dataMask == BigInt("ff", 16)))
     assert(popFirst.count == 1)
 
     val popSecond = step(popFirst.next, depth = 2, enable = true, flush = false, dequeueReady = true)
     assert(popSecond.headConsumed)
     assert(popSecond.head.contains(second))
+    assert(popSecond.head.exists(_.waitStoreRid == 9))
+    assert(popSecond.head.exists(_.dataSuppressedByWait))
     assert(popSecond.empty)
   }
 
@@ -197,6 +227,7 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
   test("Chisel LoadReplaySourceReturnStoreSnapshotResponseQueue elaborates FIFO state") {
     val sv = ChiselStage.emitSystemVerilog(
       new LoadReplaySourceReturnStoreSnapshotResponseQueue(
+        idEntries = 16,
         clusterIdWidth = 2,
         entryIdWidth = 4,
         depth = 2
@@ -206,6 +237,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_enqueueAccepted"))
     assert(sv.contains("io_headValid"))
     assert(sv.contains("io_headConsumed"))
+    assert(sv.contains("io_headWaitStoreRid"))
+    assert(sv.contains("io_headDataMask"))
     assert(sv.contains("io_blockedByFull"))
   }
 }

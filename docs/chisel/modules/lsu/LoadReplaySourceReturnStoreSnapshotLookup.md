@@ -63,6 +63,7 @@ wait-store wakeup state.
 | `responseDataValid` | Data evidence allowed onto the replay response. It is suppressed when `waitStoreValid` is set because `handleSTQReceive` rewaits before merging data. |
 | `dataSuppressedByWait` | Diagnostic for the model-visible case where ready bytes exist but wait-store control wins. |
 | `storeBypassComplete` | All requested bytes are covered by ready resident-store data. |
+| `forwardData` | Store-only 64-byte line data for ready forwarded bytes. R406 feeds this into the typed response payload with `forwardMask` as the valid mask. |
 | `mergedData` | Baseline line with ready store bytes overlaid; reserved for the later data-merge owner. |
 
 ## State
@@ -91,12 +92,16 @@ The Chisel owner reuses the existing reduced store-forwarding primitives:
 4. Run `LoadStoreForwarding` over the current resident store vector.
 5. Publish wait-store evidence directly from the selected not-ready store.
 6. Publish `rawDataValid` from any ready forwarded byte.
-7. Publish `responseDataValid` only when no wait-store rewait is required.
+7. Publish raw store-only `forwardData` and `forwardMask` for the R406 response
+   payload.
+8. Publish `responseDataValid` only when no wait-store rewait is required.
 
 The `rawDataValid` / `responseDataValid` split is intentional. The C++ model
 can leave `data_vld` set when a later wait-store check also sets
 `wait_store`, but `MtcLDQInfo::handleSTQReceive` handles the wait-store path
-first and returns before data merge.
+first and returns before data merge. R406 preserves the raw data mask/data in
+the typed response payload while leaving response-visible `dataValid` false
+for later mutation.
 
 ## Flush/Recovery
 
@@ -106,8 +111,10 @@ lookup.
 
 ## Deferred Owners
 
-- Store-data merge into the replay row line image.
-- Wait-store row mutation and dependent replay wakeup.
+- Store-data merge into the replay row line image using the R406 response
+  payload.
+- Wait-store row mutation and dependent replay wakeup using the R406 response
+  payload.
 - Cross-line replay source-return lookup.
 - Live promotion of `requestEnable` and request sink readiness in the top.
 
@@ -127,4 +134,4 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 Reference tests cover ready resident-store data, nearest not-ready wait-store
 selection, younger-store suppression, disabled/flush/cross-line suppression,
 request-mask mismatch diagnostics, and Chisel elaboration with both reused
-forwarding children.
+forwarding children plus the raw forward-data output.
