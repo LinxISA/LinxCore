@@ -34,13 +34,18 @@ generated-RTL fixtures. Its capacity and blockers are exposed as diagnostics,
 but upstream replay launch still treats the LRET sink as unavailable until the
 remaining RF writeback, ready-table, wakeup, and row-lifecycle owners are live.
 
+R376 extends `LoadReplayReturnLretEntry` with the row-owned source trace pair
+from the LRET payload. The FIFO stores and drains these fields as ordinary
+payload state; flush and reset use the bundle zero image so stale source
+operands cannot survive an invalid entry.
+
 ## Interface
 
 | Direction | Signal | Description |
 |---|---|---|
 | input | `flush` | Clears all queued LRET entries and suppresses same-cycle enqueue/drain. |
 | input | `enqueueValid` | Post-fire LRET request from `LoadReplayReturnPublishRequest`. |
-| input | `enqueue` | Typed LRET entry carrying payload validity, BID/GID/RID, load LSID, PC, address, size, destination, data, pipe index, `specWakeup`, and `stackValid`. |
+| input | `enqueue` | Typed LRET entry carrying payload validity, BID/GID/RID, load LSID, PC, address, size, destination, source traces, data, pipe index, `specWakeup`, and `stackValid`. |
 | input | `drainReady` | Future IEX return-pipe consumer readiness. |
 | output | `enqueueReady` | Sink has capacity, including same-cycle drain capacity. |
 | output | `enqueueAccepted` | Valid entry accepted into the FIFO. |

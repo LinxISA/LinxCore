@@ -48,6 +48,11 @@ the R356 promotion-control owner. R356 still ties the external promotion
 request false, so W1 advance readiness comes from W2 emptiness and
 fixture-visible replay behavior stays unchanged.
 
+R376 carries the registered W1 source-trace sideband into the W2 slot image.
+This gives the future replay-load commit-row fill path a resident source-data
+payload to consume without reconstructing operands from ROB allocation-time
+metadata. The top still leaves the W2 commit-row trace-source provider disabled.
+
 ## Interface
 
 | Direction | Signal | Description |
@@ -63,10 +68,11 @@ fixture-visible replay behavior stays unchanged.
 | input | `writeBid` / `writeGid` / `writeRid` / `writeLoadLsId` | Returned-load identity copied from the W1 slot. |
 | input | `writePc` / `writeAddr` / `writeSize` / `writeData` | Returned-load scalar request/data fields. |
 | input | `writeDst` | Reduced destination sideband. |
+| input | `writeSourceTraceValid` / `writeSource0` / `writeSource1` | R376 source operand trace sideband from the W1 slot. |
 | input | `writeWakeupRequired` | Future issue-wakeup sideband. |
 | output | `accepted` | W2 slot accepted the incoming write, either as an empty-slot write or as a gated clear/refill replacement. |
 | output | `occupied` / `entryValid` | Registered W2 entry is resident. |
-| output | `entry*` | Registered target, pipe index, identity, request, destination, data, and wakeup sidebands. |
+| output | `entry*` | Registered target, pipe index, identity, request, destination, source trace, data, and wakeup sidebands. |
 | output | `acceptedEmpty` | Write accepted into an empty slot with no same-cycle clear. |
 | output | `replacedOnClear` | Write accepted while `clear` consumes the previous resident slot. |
 | output | `blockedBy*` | Disabled, flush, clear, no-write, invalid-target, occupied-slot, and replace-disabled blockers. |

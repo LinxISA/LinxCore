@@ -40,6 +40,10 @@ R330 consumes this slot's occupancy, target, and pipe-index diagnostics in
 slot `clear` input, but the current top keeps its `advanceEnable` false until a
 later packet enables the R331 W1 slot and its downstream W2 clear path.
 
+R376 adds registered source-trace sidebands to the E4 residency image. Accepted
+writes store the insert payload's source trace pair; flush and clear reset the
+registered trace fields with the rest of the slot image.
+
 ## Interface
 
 | Direction | Signal | Description |
@@ -54,10 +58,11 @@ later packet enables the R331 W1 slot and its downstream W2 clear path.
 | input | `writeBid` / `writeGid` / `writeRid` / `writeLoadLsId` | Returned-load identity copied from the insert-shaped payload. |
 | input | `writePc` / `writeAddr` / `writeSize` / `writeData` | Returned-load scalar request/data fields. |
 | input | `writeDst` | Reduced destination sideband. |
+| input | `writeSourceTraceValid` / `writeSource0` / `writeSource1` | R376 source operand trace sideband from the insert payload. |
 | input | `writeWakeupRequired` | Future issue-wakeup sideband from the insert-shaped payload. |
 | output | `accepted` | Slot is enabled, not flushing or clearing, has a valid exclusive target, and is empty. |
 | output | `occupied` / `entryValid` | Registered entry is resident. |
-| output | `entry*` | Registered target, pipe index, identity, request, destination, data, and wakeup sidebands. |
+| output | `entry*` | Registered target, pipe index, identity, request, destination, source trace, data, and wakeup sidebands. |
 | output | `blockedBy*` | Disabled, flush, clear, no-write, invalid-target, and occupied-slot blockers. |
 
 ## Logic Design

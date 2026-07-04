@@ -1000,9 +1000,15 @@ R375 extends the same replay-LIQ namespace with
 RF-derived load `src0/src1` operand traces, the reduced wait slot and relaunch
 queue carry them as candidate fields, LIQ allocation stores them in row state,
 and `LoadInflightLaunchSelect` republishes the selected row's source trace.
-The W2 commit-row trace source still sees `sourceTraceProviderValid=false`
-until that payload is carried through the LRET/W2 slot boundary with an
-identity match.
+R376 carries that source-trace payload through `LoadReplayReturnLretPayload`,
+the LRET sink entry, `LoadReplayReturnIexDataCandidate`,
+`LoadReplayReturnIexPipeInsertCandidate`, the E4 residency slot, W1 slot, and
+W2 slot, then exposes
+`reducedLoadReplayLiqLretPayloadSourceTrace*` and
+`reducedLoadReplayLiqLretPipeW2SlotSourceTrace*` diagnostics. The W2
+commit-row trace source still sees `sourceTraceProviderValid=false` until a
+later packet connects this resident W2 source payload to the row-fill provider
+with identity and lifecycle guards.
 R361/R362 continue the same replay-LIQ diagnostic namespace by routing
 pre-arbiter live enables through the shared W2 live-control owner and feeding
 the reduced RF writeback arbiter's replay side from the W2 writeback boundary.
@@ -1898,8 +1904,9 @@ the candidate's instruction/source-trace owner. R373 feeds instruction
 metadata from a read-only ROB row commit-trace lookup, while source traces
 remain disabled and pre-completion ROB-row source traces are explicitly
 blocked. R375 carries RF-derived source traces through replay-LIQ launch
-diagnostics, but the W2 source provider remains disabled, so the candidate
-still cannot become row-fill valid. R367
+diagnostics, and R376 carries those traces through LRET, IEX insert, E4
+residency, W1, and W2 slot state. The W2 source provider remains disabled, so
+the candidate still cannot become row-fill valid. R367
 inserts `LoadReplayReturnPipeW2RowFillEnableControl` as the candidate's
 `rowFillEnable` owner. The control requires the R366/R372 row candidate, R350
 side-effect fire completion, R365 clear/commit identity, live-clear readiness,

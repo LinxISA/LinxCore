@@ -67,6 +67,10 @@ residency intent while keeping real pipe state disabled. R329 then feeds this
 module's insert payload into `LoadReplayReturnPipeResidencySlot`, which captures
 it only behind a live unblocked R328 residency write.
 
+R376 threads the admitted source-trace pair through the insert-shaped payload
+so the later residency/W1/W2 slots can diagnose the operands used by the
+returned replay load. The fields are copied only with `insertValid`.
+
 ## Interface
 
 | Direction | Signal | Description |
@@ -78,6 +82,7 @@ it only behind a live unblocked R328 residency write.
 | input | `pipeInsertIndex` | Chosen IEX E4 insertion pipe. |
 | input | `memBid` / `memGid` / `memRid` / `memLoadLsId` | Returned-load identity copied from the admitted LRET payload. |
 | input | `memPc` / `memAddr` / `memSize` / `memData` / `memDst` | Returned-load payload and reduced destination sideband. |
+| input | `memSourceTraceValid` / `memSource0` / `memSource1` | R376 source operand trace sideband from the admitted `setMemData` diagnostic. |
 | input | `memLoadToUsePipeIndex` | Original MemReqBus `pipeID`/load-to-use sideband, kept separate from `pipeInsertIndex`. |
 | input | `memSpecWakeup` / `memStackValid` | Wakeup suppression sidebands. |
 | output | `candidateValid` | Enabled, not flushing, and admitted to the reduced `setMemData` boundary. |
@@ -86,6 +91,7 @@ it only behind a live unblocked R328 residency write.
 | output | `insertPipeIndex` | Chosen IEX E4 insertion pipe when valid. |
 | output | `insertLoadToUsePipeIndex` | Original load-to-use sideband when valid. |
 | output | `insert*` payload fields | Copied identity, request, destination, and data fields when valid. |
+| output | `insertSourceTraceValid` / `insertSource0` / `insertSource1` | R376 source operand trace sideband copied only when `insertValid` is true. |
 | output | `insertWakeupRequired` | `insertValid && !memSpecWakeup && !memStackValid`. |
 | output | `blockedBy*` | Disabled, flush, no-setMemData, no-pipe, and invalid-RID blockers. |
 

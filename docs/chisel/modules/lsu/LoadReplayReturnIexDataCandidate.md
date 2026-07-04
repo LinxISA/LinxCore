@@ -48,6 +48,10 @@ return-pipe permit blocked. Therefore this packet cannot drain LRET, mutate
 ROB/RF/local state, publish ready-table wakeup, or insert a load-return
 instruction into an IEX return pipe.
 
+R376 also copies the LRET entry source-trace pair into the admitted
+`setMemData` diagnostic payload. The source sideband is valid only when
+`setMemDataValid` is true, matching the identity/data copy guard.
+
 ## Interface
 
 | Direction | Signal | Description |
@@ -64,6 +68,7 @@ instruction into an IEX return pipe.
 | output | `setMemDataValid` | Future safe admission to `setMemData` after ROB row checks. |
 | output | `memBid` / `memGid` / `memRid` / `memLoadLsId` | Copied identity only when `setMemDataValid` is true. |
 | output | `memPc` / `memAddr` / `memSize` / `memData` / `memDst` | Copied returned-load payload only when admitted. |
+| output | `memSourceTraceValid` / `memSource0` / `memSource1` | R376 source operand trace sideband copied from the drained LRET entry only when admitted. |
 | output | `memPipeIndex` / `memSpecWakeup` / `memStackValid` | Copied return-pipe and wakeup sidebands only when admitted. |
 | output | `blockedBy*` | Disabled, flush, no-entry, invalid-entry, drain, ROB-missing, and need-flush blockers. |
 

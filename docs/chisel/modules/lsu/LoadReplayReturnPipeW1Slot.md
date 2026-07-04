@@ -40,6 +40,10 @@ no writes in the generated fixture. It exists so the later W2/writeback
 ownership chain has a typed W1 producer before any RF, ROB, ready-table,
 issue-wakeup, or replay-row lifecycle side effects are enabled.
 
+R376 carries the registered E4 source-trace sideband into the W1 slot image.
+Accepted writes preserve the source pair; flush and clear disable it with the
+rest of the W1 payload.
+
 ## Interface
 
 | Direction | Signal | Description |
@@ -54,10 +58,11 @@ issue-wakeup, or replay-row lifecycle side effects are enabled.
 | input | `writeBid` / `writeGid` / `writeRid` / `writeLoadLsId` | Returned-load identity copied from the E4 slot. |
 | input | `writePc` / `writeAddr` / `writeSize` / `writeData` | Returned-load scalar request/data fields. |
 | input | `writeDst` | Reduced destination sideband. |
+| input | `writeSourceTraceValid` / `writeSource0` / `writeSource1` | R376 source operand trace sideband from the E4 residency slot. |
 | input | `writeWakeupRequired` | Future issue-wakeup sideband. |
 | output | `accepted` | W1 slot is enabled, not flushing or clearing, has a valid exclusive target, and is empty. |
 | output | `occupied` / `entryValid` | Registered W1 entry is resident. |
-| output | `entry*` | Registered target, pipe index, identity, request, destination, data, and wakeup sidebands. |
+| output | `entry*` | Registered target, pipe index, identity, request, destination, source trace, data, and wakeup sidebands. |
 | output | `blockedBy*` | Disabled, flush, clear, no-write, invalid-target, and occupied-slot blockers. |
 
 ## Logic Design

@@ -47,6 +47,11 @@ R311 carries the reduced one-destination payload from the load uop captured by
 diagnostic formatter. The real IEX LRET enqueue and mem-wakeup fanout remain
 deferred.
 
+R376 carries the RF-derived `CommitOperandTrace` pair from the selected
+replay-LIQ launch row into this LRET payload. The sideband is copied only when
+`payloadValid` is true, so blocked or invalid return-data cycles expose a
+disabled source trace instead of stale launch operands.
+
 ## Interface
 
 ### Inputs
@@ -60,6 +65,7 @@ deferred.
 | `selectedLoadLsId` | Selected row load sequence identity. |
 | `selectedPc`/`selectedAddr`/`selectedSize` | Request PC, address, and size. |
 | `selectedDst` | Selected row destination sideband captured from the renamed load uop. |
+| `selectedSourceTraceValid` / `selectedSource0` / `selectedSource1` | R376 source operand trace sideband captured at reduced RF load execution and preserved through the replay-LIQ row. |
 | `returnData` | Sign/zero-extended scalar return data. |
 | `returnPipeIndex` | Selected future IEX return-pipe index. |
 | `specWakeup` | Model row suppresses regular dependent wakeup. |
@@ -72,6 +78,7 @@ deferred.
 | `candidateValid` | `enable && launchValid`. |
 | `payloadValid` | Candidate has valid extracted data. Diagnostic-only in R311. |
 | `payload*` | Selected identity, request, destination, data, pipe, and sideband fields, zeroed when invalid. |
+| `payloadSourceTraceValid` / `payloadSource0` / `payloadSource1` | R376 source operand trace sideband, copied from the selected replay-LIQ row only while `payloadValid` is true. |
 | `wakeupRequired` | `payloadValid && !specWakeup && !stackValid`. |
 | `blockedByDisabled` | A selected row exists while replay-LIQ mode is disabled. |
 | `blockedByNoCandidate` | Replay-LIQ mode is enabled but no row is selected. |
@@ -103,7 +110,7 @@ wakeupRequired = payloadValid && !specWakeup && !stackValid
 
 The payload fields are forwarded only while `payloadValid` is true. This avoids
 stale identity/data diagnostics when the selected row is absent or data
-extraction is blocked.
+extraction is blocked. R376 applies the same guard to source-trace fields.
 
 ## Deferred Owners
 
