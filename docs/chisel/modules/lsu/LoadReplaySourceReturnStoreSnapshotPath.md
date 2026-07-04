@@ -41,6 +41,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowMutationRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotLiveArmPolicy.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-PATH-001`
 
 ## Purpose
@@ -189,6 +190,13 @@ R434 exposes the existing request-sink candidate, ready, accept, response-valid,
 and blocker diagnostics through the path boundary. This keeps raw store-unit
 sink stalls and response-FIFO/raw-response arbitration stalls visible before
 `requestEnable` or `sinkReady` are promoted in the reduced top.
+R436 wires the standalone `LoadReplaySourceReturnStoreSnapshotLiveArmPolicy`
+into this composite as path-local diagnostics. The policy observes launch
+intent, request FIFO capacity, accepted-token capacity, resident request-head
+visibility, raw-sink availability, response FIFO fullness, raw-response
+priority, and the row-mutation live safety gate, but its `requestEnable` and
+`sinkReady` outputs do not drive the existing path controls yet. The reduced
+top ties `liveArmPolicyEnable=false` and `liveArmRawSinkAvailable=false`.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
@@ -273,6 +281,8 @@ boundary and can later be promoted without another direct top child instance.
 | `requestEnable` | Future live arm for issuing and consuming selected-row STQ snapshot evidence. Current top ties this false. |
 | `rowMutationLiveEnable` | Future live arm for allowing a row-state plan to become a LIQ row-mutation request. R417 exposes this path input; the current top ties it false. |
 | `rawResponseLiveEnable` | Future live arm for allowing raw external STQ response candidates to enter the response queue. R421 exposes this path input; the current top ties it false. |
+| `liveArmPolicyEnable` | R436 path-local policy intent for computing future `requestEnable` and `sinkReady` candidates. The current top ties this false. |
+| `liveArmRawSinkAvailable` | R436 raw/local store-unit sink availability input observed only by the policy diagnostics. The current top ties this false. |
 | `launchValid` | A selected replay row would need local STQ source-return qualification. |
 | `sinkReady` | Future raw store-unit request sink readiness for the R404 request sink. Current top ties this false. |
 | `selectedIdentityEnable` | Selects the reduced LIQ launch-index projection instead of the raw selected-row identity inputs. |
@@ -329,6 +339,7 @@ boundary and can later be promoted without another direct top child instance.
 | `requestPayload*` | R402 selected-row request payload and diagnostics for the future local STQ lookup queue. |
 | `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, blocker diagnostics, and R426 precise-prune mask/count visibility. |
 | `requestSink*` | R434 request-sink diagnostics: active/candidate/ready/accepted, generated response-valid, raw-sink blocker, response-port blocker, disabled/flush/no-request blockers, and invalid wait-store-with-data detection. |
+| `liveArmPolicy*` | R436 path-local future-arm diagnostics: policy-active request/sink candidates, future `requestEnable`/`sinkReady`, response-port blockers, and disabled/flush/policy/queue/token/raw-sink/row-mutation blocker reasons. |
 | `responseQueue*` | R426/R433 response FIFO enqueue, head-consume, occupancy, full/disabled/flush blockers, and precise-prune mask/count diagnostics. |
 | `responseDrain*` | R433 response-head drain diagnostics: ordered consumption, stale-head drop, no-head/no-action blockers, and invalid stale-with-ordered evidence. |
 | `lookup*` | R405 resident-STQ lookup diagnostics: query validity, row masks, eligible store mask, forward/wait masks, wait-store, raw data evidence, and response-visible data evidence. |
@@ -369,6 +380,8 @@ load request BID/GID/LSID plus PE/STID/TID context so the token can share the
 same `FlushBus` predicate as the queues.
 R434 adds no state; it only forwards the existing combinational request-sink
 diagnostics through the path boundary.
+R436 adds no state; it instantiates the combinational live-arm policy inside
+the path and exposes its outputs as diagnostics only.
 
 ## Logic Design
 
@@ -512,6 +525,15 @@ the raw store-unit sink is ready and the response FIFO port is not already
 occupied by a live raw response or a full resident FIFO. These diagnostics make
 that final local request arm visible without adding reduced-top IO or changing
 the dormant top tie-offs.
+
+R436 keeps behavior unchanged and connects `LoadReplaySourceReturnStoreSnapshotLiveArmPolicy`
+beside those request/sink owners. The policy is a readiness classifier only:
+it computes what a future live `requestEnable` and `sinkReady` would be from
+row-mutation safety, request FIFO capacity, accepted-token capacity, resident
+request visibility, raw sink availability, response FIFO fullness, and
+raw-response priority. `RequestControl.io.requestEnable` still comes from the
+path input `requestEnable`, and `RequestSink.io.rawSinkReady` still comes from
+the path input `sinkReady`.
 
 The R402 request-payload owner publishes the selected row's reduced LIQ slot,
 accepted local `cID/eID`, BID/GID/RID identity, load LSID, PC, address, size,

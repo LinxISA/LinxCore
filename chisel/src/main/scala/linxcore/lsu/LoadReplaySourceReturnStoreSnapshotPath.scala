@@ -34,6 +34,8 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val requestEnable = Input(Bool())
   val rowMutationLiveEnable = Input(Bool())
   val rawResponseLiveEnable = Input(Bool())
+  val liveArmPolicyEnable = Input(Bool())
+  val liveArmRawSinkAvailable = Input(Bool())
   val launchValid = Input(Bool())
   val sinkReady = Input(Bool())
   val selectedIdentityEnable = Input(Bool())
@@ -320,6 +322,24 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val requestSinkBlockedByRawSink = Output(Bool())
   val requestSinkBlockedByResponse = Output(Bool())
   val requestSinkInvalidDataWithWaitStore = Output(Bool())
+  val liveArmPolicyActive = Output(Bool())
+  val liveArmPolicyRequestCandidate = Output(Bool())
+  val liveArmPolicyRequestEnable = Output(Bool())
+  val liveArmPolicySinkCandidate = Output(Bool())
+  val liveArmPolicySinkReady = Output(Bool())
+  val liveArmPolicyResponsePortBlocked = Output(Bool())
+  val liveArmPolicyBlockedByDisabled = Output(Bool())
+  val liveArmPolicyBlockedByFlush = Output(Bool())
+  val liveArmPolicyBlockedByPolicyDisabled = Output(Bool())
+  val liveArmPolicyRequestBlockedByNoLaunch = Output(Bool())
+  val liveArmPolicyRequestBlockedByRowMutationDisabled = Output(Bool())
+  val liveArmPolicyRequestBlockedByRequestQueue = Output(Bool())
+  val liveArmPolicyRequestBlockedByAcceptedToken = Output(Bool())
+  val liveArmPolicySinkBlockedByNoRequest = Output(Bool())
+  val liveArmPolicySinkBlockedByRowMutationDisabled = Output(Bool())
+  val liveArmPolicySinkBlockedByRawSink = Output(Bool())
+  val liveArmPolicyResponseBlockedByQueueFull = Output(Bool())
+  val liveArmPolicyResponseBlockedByRawResponse = Output(Bool())
   val responseQueueEnqueueReady = Output(Bool())
   val responseQueueEnqueueAccepted = Output(Bool())
   val responseQueueEnqueueDropped = Output(Bool())
@@ -507,6 +527,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     stidWidth = stidWidth,
     tidWidth = tidWidth
   ))
+  val liveArmPolicy = Module(new LoadReplaySourceReturnStoreSnapshotLiveArmPolicy)
   val identityMatch = Module(new LoadReplaySourceReturnStoreSnapshotIdentityMatch(
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth
@@ -672,6 +693,18 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   responseQueue.io.enqueueValid := rawResponseSource.io.responseValid || enqueueSinkResponse
   responseQueue.io.enqueue := Mux(rawResponseSource.io.responseValid, rawResponseSource.io.response, requestSink.io.response)
   responseQueue.io.dequeueReady := responseDrain.io.dequeueReady
+
+  liveArmPolicy.io.enable := io.enable
+  liveArmPolicy.io.flush := io.flush
+  liveArmPolicy.io.policyEnable := io.liveArmPolicyEnable
+  liveArmPolicy.io.rowMutationLiveEnable := io.rowMutationLiveEnable
+  liveArmPolicy.io.launchValid := io.launchValid
+  liveArmPolicy.io.requestQueueCanAccept := requestQueue.io.enqueueReady
+  liveArmPolicy.io.acceptedTokenCanAccept := acceptedToken.io.tokenCanAccept
+  liveArmPolicy.io.requestHeadValid := requestQueue.io.headValid
+  liveArmPolicy.io.rawSinkAvailable := io.liveArmRawSinkAvailable
+  liveArmPolicy.io.responseQueueFull := responseQueue.io.full
+  liveArmPolicy.io.rawResponseValid := rawResponseSource.io.responseValid
 
   identityMatch.io.enable := io.enable
   identityMatch.io.flush := io.flush
@@ -978,6 +1011,24 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.requestSinkBlockedByRawSink := requestSink.io.blockedByRawSink
   io.requestSinkBlockedByResponse := requestSink.io.blockedByResponse
   io.requestSinkInvalidDataWithWaitStore := requestSink.io.invalidDataWithWaitStore
+  io.liveArmPolicyActive := liveArmPolicy.io.active
+  io.liveArmPolicyRequestCandidate := liveArmPolicy.io.requestCandidate
+  io.liveArmPolicyRequestEnable := liveArmPolicy.io.requestEnable
+  io.liveArmPolicySinkCandidate := liveArmPolicy.io.sinkCandidate
+  io.liveArmPolicySinkReady := liveArmPolicy.io.sinkReady
+  io.liveArmPolicyResponsePortBlocked := liveArmPolicy.io.responsePortBlocked
+  io.liveArmPolicyBlockedByDisabled := liveArmPolicy.io.blockedByDisabled
+  io.liveArmPolicyBlockedByFlush := liveArmPolicy.io.blockedByFlush
+  io.liveArmPolicyBlockedByPolicyDisabled := liveArmPolicy.io.blockedByPolicyDisabled
+  io.liveArmPolicyRequestBlockedByNoLaunch := liveArmPolicy.io.requestBlockedByNoLaunch
+  io.liveArmPolicyRequestBlockedByRowMutationDisabled := liveArmPolicy.io.requestBlockedByRowMutationDisabled
+  io.liveArmPolicyRequestBlockedByRequestQueue := liveArmPolicy.io.requestBlockedByRequestQueue
+  io.liveArmPolicyRequestBlockedByAcceptedToken := liveArmPolicy.io.requestBlockedByAcceptedToken
+  io.liveArmPolicySinkBlockedByNoRequest := liveArmPolicy.io.sinkBlockedByNoRequest
+  io.liveArmPolicySinkBlockedByRowMutationDisabled := liveArmPolicy.io.sinkBlockedByRowMutationDisabled
+  io.liveArmPolicySinkBlockedByRawSink := liveArmPolicy.io.sinkBlockedByRawSink
+  io.liveArmPolicyResponseBlockedByQueueFull := liveArmPolicy.io.responseBlockedByQueueFull
+  io.liveArmPolicyResponseBlockedByRawResponse := liveArmPolicy.io.responseBlockedByRawResponse
   io.responseQueueEnqueueReady := responseQueue.io.enqueueReady
   io.responseQueueEnqueueAccepted := responseQueue.io.enqueueAccepted
   io.responseQueueEnqueueDropped := responseQueue.io.enqueueDropped

@@ -5564,6 +5564,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.requestEnable := false.B
     path.io.rowMutationLiveEnable := rowMutationLiveEnable
     path.io.rawResponseLiveEnable := false.B
+    path.io.liveArmPolicyEnable := false.B
+    path.io.liveArmRawSinkAvailable := false.B
     path.io.launchValid := launchValid
     path.io.sinkReady := false.B
     path.io.selectedIdentityEnable := true.B

@@ -18,10 +18,10 @@
 owner for promoting the replay-LIQ local STQ snapshot path from dormant
 diagnostics toward live request and sink arms.
 
-The policy is not wired into `LoadReplaySourceReturnStoreSnapshotPath` yet. It
-exists as a standalone, tested owner so later packets can connect it without
-embedding ad hoc boolean policy in the already-large reduced top or in the
-request/response data-path owners.
+R436 wires the policy into `LoadReplaySourceReturnStoreSnapshotPath` as
+path-local diagnostics. The path exposes the policy outputs, but it still drives
+`RequestControl.io.requestEnable` from the existing path `requestEnable` input
+and `RequestSink.io.rawSinkReady` from the existing path `sinkReady` input.
 
 R435 keeps `rowMutationLiveEnable` as a hard safety gate. The source-return
 path must not issue a local STQ request or let a request sink generate a
@@ -86,7 +86,6 @@ the selected LDQ row only after identity and SCB-order proof.
 
 ## Deferred Owners
 
-- Wiring this policy into `LoadReplaySourceReturnStoreSnapshotPath`.
 - Driving the reduced top's dormant `requestEnable` and `sinkReady` inputs from
   policy outputs.
 - Promoting `rowMutationLiveEnable` after row-state and native LIQ write-control
