@@ -2516,6 +2516,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   loadLookupArbiter.io.replayPc := reducedLoadReplayLiqAllocPath.io.launchSelectedPc
   val reducedReplayLiqBaseDataReady =
     loadLookupArbiter.io.replayGranted && reducedReplayLiqBaseDataAlign.io.dataReturned
+  val reducedReplayLiqSelectedRowForStoreSnapshot =
+    reducedLoadReplayLiqAllocPath.io.rows(reducedLoadReplayLiqAllocPath.io.launchIndex)
   val reducedReplayLiqStoreSnapshotReady =
     LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring.connectInputs(
       path = reducedReplayLiqSourceReturnStoreSnapshotPath,
@@ -2533,6 +2535,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       selectedAddr = reducedLoadReplayLiqAllocPath.io.launchSelectedAddr,
       selectedSize = reducedLoadReplayLiqAllocPath.io.launchSelectedSize,
       selectedRequestByteMask = reducedLoadReplayLiqAllocPath.io.launchSelectedRequestByteMask,
+      selectedLineData = reducedReplayLiqSelectedRowForStoreSnapshot.lineData,
+      selectedValidMask = reducedReplayLiqSelectedRowForStoreSnapshot.validMask,
       legacySnapshotReady = reducedLoadReplayLiqAllocEnabled
     )
   val reducedReplayLiqReturnPipeBudgetEnable = reducedLoadReplayLiqAllocEnabled
@@ -5472,6 +5476,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       selectedAddr: UInt,
       selectedSize: UInt,
       selectedRequestByteMask: UInt,
+      selectedLineData: UInt,
+      selectedValidMask: UInt,
       legacySnapshotReady: Bool): Bool = {
     path.io.enable := enable
     path.io.flush := flush
@@ -5495,6 +5501,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.selectedAddr := selectedAddr
     path.io.selectedSize := selectedSize
     path.io.selectedRequestByteMask := selectedRequestByteMask
+    path.io.selectedLineData := selectedLineData
+    path.io.selectedValidMask := selectedValidMask
     path.io.responseClusterId := 0.U
     path.io.responseEntryId := 0.U
     path.io.responseHeadStale := false.B

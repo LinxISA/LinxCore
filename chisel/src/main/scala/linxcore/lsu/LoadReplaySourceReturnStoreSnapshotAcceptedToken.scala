@@ -4,7 +4,8 @@ import chisel3._
 
 class LoadReplaySourceReturnStoreSnapshotAcceptedTokenIO(
     clusterIdWidth: Int,
-    entryIdWidth: Int)
+    entryIdWidth: Int,
+    lineBytes: Int)
     extends Bundle {
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -13,6 +14,9 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedTokenIO(
   val selectedRepick = Input(Bool())
   val selectedClusterId = Input(UInt(clusterIdWidth.W))
   val selectedEntryId = Input(UInt(entryIdWidth.W))
+  val selectedLineData = Input(UInt((lineBytes * 8).W))
+  val selectedValidMask = Input(UInt(lineBytes.W))
+  val selectedRequestByteMask = Input(UInt(lineBytes.W))
   val responseConsumed = Input(Bool())
 
   val active = Output(Bool())
@@ -21,6 +25,9 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedTokenIO(
   val tokenRepick = Output(Bool())
   val tokenClusterId = Output(UInt(clusterIdWidth.W))
   val tokenEntryId = Output(UInt(entryIdWidth.W))
+  val tokenLineData = Output(UInt((lineBytes * 8).W))
+  val tokenValidMask = Output(UInt(lineBytes.W))
+  val tokenRequestByteMask = Output(UInt(lineBytes.W))
   val residentTokenValid = Output(Bool())
   val captureCandidate = Output(Bool())
   val captureAccepted = Output(Bool())
@@ -35,20 +42,26 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedTokenIO(
 
 class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
     clusterIdWidth: Int = 2,
-    entryIdWidth: Int = 4)
+    entryIdWidth: Int = 4,
+    lineBytes: Int = 64)
     extends Module {
   require(clusterIdWidth > 0, "clusterIdWidth must be positive")
   require(entryIdWidth > 0, "entryIdWidth must be positive")
+  require(lineBytes == 64, "accepted token currently carries 64-byte scalar line context")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotAcceptedTokenIO(
     clusterIdWidth = clusterIdWidth,
-    entryIdWidth = entryIdWidth
+    entryIdWidth = entryIdWidth,
+    lineBytes = lineBytes
   ))
 
   val tokenValidReg = RegInit(false.B)
   val tokenRepickReg = RegInit(false.B)
   val tokenClusterIdReg = RegInit(0.U(clusterIdWidth.W))
   val tokenEntryIdReg = RegInit(0.U(entryIdWidth.W))
+  val tokenLineDataReg = RegInit(0.U((lineBytes * 8).W))
+  val tokenValidMaskReg = RegInit(0.U(lineBytes.W))
+  val tokenRequestByteMaskReg = RegInit(0.U(lineBytes.W))
 
   val active = io.enable && !io.flush
   val tokenCanAccept = active && !tokenValidReg
@@ -65,17 +78,26 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
     tokenRepickReg := false.B
     tokenClusterIdReg := 0.U
     tokenEntryIdReg := 0.U
+    tokenLineDataReg := 0.U
+    tokenValidMaskReg := 0.U
+    tokenRequestByteMaskReg := 0.U
   }.elsewhen(active) {
     when(clearAccepted) {
       tokenValidReg := false.B
       tokenRepickReg := false.B
       tokenClusterIdReg := 0.U
       tokenEntryIdReg := 0.U
+      tokenLineDataReg := 0.U
+      tokenValidMaskReg := 0.U
+      tokenRequestByteMaskReg := 0.U
     }.elsewhen(captureAccepted) {
       tokenValidReg := true.B
       tokenRepickReg := io.selectedRepick
       tokenClusterIdReg := io.selectedClusterId
       tokenEntryIdReg := io.selectedEntryId
+      tokenLineDataReg := io.selectedLineData
+      tokenValidMaskReg := io.selectedValidMask
+      tokenRequestByteMaskReg := io.selectedRequestByteMask
     }
   }
 
@@ -85,6 +107,9 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedToken(
   io.tokenRepick := Mux(tokenValidReg, tokenRepickReg, captureReady)
   io.tokenClusterId := Mux(tokenValidReg, tokenClusterIdReg, io.selectedClusterId)
   io.tokenEntryId := Mux(tokenValidReg, tokenEntryIdReg, io.selectedEntryId)
+  io.tokenLineData := Mux(tokenValidReg, tokenLineDataReg, io.selectedLineData)
+  io.tokenValidMask := Mux(tokenValidReg, tokenValidMaskReg, io.selectedValidMask)
+  io.tokenRequestByteMask := Mux(tokenValidReg, tokenRequestByteMaskReg, io.selectedRequestByteMask)
   io.residentTokenValid := tokenValidReg
   io.captureCandidate := captureCandidate
   io.captureAccepted := captureAccepted

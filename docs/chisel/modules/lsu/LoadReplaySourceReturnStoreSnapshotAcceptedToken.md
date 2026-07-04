@@ -39,6 +39,11 @@ R399 clears the token from `LoadReplaySourceReturnStoreSnapshotResponseDrain`
 drop can therefore drain the raw queue without destroying the accepted query
 identity.
 
+R408 extends the token from identity-only storage to accepted-row context
+storage. The token now captures the selected row line image, valid byte mask,
+and request byte mask at query issue so the later ordered response apply owner
+uses delayed row context instead of the current launch selector.
+
 ## Interface
 
 ### Inputs
@@ -52,6 +57,9 @@ identity.
 | `selectedRepick` | Selected row is still in model-equivalent `LDQ_REPICK` state. |
 | `selectedClusterId` | Selected replay-row cluster ID. |
 | `selectedEntryId` | Selected replay-row entry ID. |
+| `selectedLineData` | Selected row's current 64-byte line image at query issue. |
+| `selectedValidMask` | Selected row's byte-valid mask at query issue. |
+| `selectedRequestByteMask` | Selected row's original load request byte mask. |
 | `responseConsumed` | Downstream drain owner accepted the matching ordered response. |
 
 ### Outputs
@@ -64,6 +72,9 @@ identity.
 | `tokenRepick` | Token row is still in the accepted repick state. |
 | `tokenClusterId` | Token cluster ID. |
 | `tokenEntryId` | Token entry ID. |
+| `tokenLineData` | Stored or same-cycle bypass row line image. |
+| `tokenValidMask` | Stored or same-cycle bypass row valid byte mask. |
+| `tokenRequestByteMask` | Stored or same-cycle bypass row request byte mask. |
 | `residentTokenValid` | A token was resident before this cycle. |
 | `captureCandidate` | Active accepted-query pulse is visible. |
 | `captureAccepted` | Query pulse captured a selected, repick token into the empty token slot. |
@@ -84,6 +95,9 @@ valid
 repick
 clusterId
 entryId
+lineData
+validMask
+requestByteMask
 ```
 
 It does not own raw STQ response queueing, SCB-order evidence, wait-store row
@@ -104,6 +118,11 @@ When the token slot is empty, a captured token also bypasses to the current
 cycle so a same-cycle response can match it. If an older token is resident,
 the older token remains the response-match authority and a new query is
 diagnosed as `blockedByOutstandingToken`.
+
+R408 applies the same resident-or-bypass rule to the captured row context:
+`tokenLineData`, `tokenValidMask`, and `tokenRequestByteMask` come from the
+resident token when one exists, otherwise from the selected row context. These
+outputs are meaningful only when `tokenValid` is true.
 
 `responseConsumed` clears the currently visible token only for ordered response
 consumption. Flush has priority over capture and clear.
@@ -126,7 +145,8 @@ visible during flush reports `blockedByFlush`.
 - Live stale-row proof into the R399 response drain.
 - Multi-cluster LDQ identity storage beyond the reduced launch-index
   projection.
-- Live wait-store replay mutation and returned-data merge.
+- Registered wait-store replay mutation and returned-data merge from the R407
+  apply intent using this delayed row context.
 - Replacement or queueing policy for multiple outstanding local snapshot
   queries.
 - Live promotion of `requestEnable` once response and row-mutation owners are
@@ -141,9 +161,10 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotIdentityMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r397x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r408x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover accepted-token capture, same-cycle bypass plus consume,
 resident-token preservation, response consumption, disabled/flush/stale
-diagnostics, outstanding-token blocking, and Chisel elaboration.
+diagnostics, outstanding-token blocking, row-context capture/clear, and Chisel
+elaboration.

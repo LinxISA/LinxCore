@@ -484,6 +484,8 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_requestPayload_requestByteMask"))
     assert(sv.contains("io_requestQueueHead_requestByteMask"))
     assert(sv.contains("io_lookupResponseDataValid"))
+    assert(sv.contains("io_selectedLineData"))
+    assert(sv.contains("tokenLineDataReg"))
     assert(sv.contains("io_responseApplyValid"))
     assert(sv.contains("io_responseApplyWaitStoreRid_value"))
     assert(sv.contains("io_queryIssueCandidate"))

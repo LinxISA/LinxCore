@@ -47,6 +47,8 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val selectedAddr = Input(UInt(addrWidth.W))
   val selectedSize = Input(UInt(sizeWidth.W))
   val selectedRequestByteMask = Input(UInt(lineBytes.W))
+  val selectedLineData = Input(UInt((lineBytes * 8).W))
+  val selectedValidMask = Input(UInt(lineBytes.W))
   val responseClusterId = Input(UInt(clusterIdWidth.W))
   val responseEntryId = Input(UInt(entryIdWidth.W))
   val responseHeadStale = Input(Bool())
@@ -285,7 +287,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   ))
   val acceptedToken = Module(new LoadReplaySourceReturnStoreSnapshotAcceptedToken(
     clusterIdWidth = clusterIdWidth,
-    entryIdWidth = entryIdWidth
+    entryIdWidth = entryIdWidth,
+    lineBytes = lineBytes
   ))
   val responseQueue = Module(new LoadReplaySourceReturnStoreSnapshotResponseQueue(
     idEntries = idEntries,
@@ -398,6 +401,9 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   acceptedToken.io.selectedRepick := selectedRepick
   acceptedToken.io.selectedClusterId := selectedClusterId
   acceptedToken.io.selectedEntryId := selectedEntryId
+  acceptedToken.io.selectedLineData := io.selectedLineData
+  acceptedToken.io.selectedValidMask := io.selectedValidMask
+  acceptedToken.io.selectedRequestByteMask := io.selectedRequestByteMask
   acceptedToken.io.responseConsumed := responseDrain.io.orderedConsumed
 
   responseQueue.io.enable := io.enable
@@ -462,9 +468,9 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   responseApply.io.targetRepick := responseHeadState.io.reducedHeadRepick
   responseApply.io.targetOneHot := responseHeadState.io.reducedHeadOneHot
   responseApply.io.response := responseQueue.io.head
-  responseApply.io.rowLineData := 0.U
-  responseApply.io.rowValidMask := 0.U
-  responseApply.io.rowRequestMask := io.selectedRequestByteMask
+  responseApply.io.rowLineData := acceptedToken.io.tokenLineData
+  responseApply.io.rowValidMask := acceptedToken.io.tokenValidMask
+  responseApply.io.rowRequestMask := acceptedToken.io.tokenRequestByteMask
 
   evidence.io.enable := io.enable
   evidence.io.flush := io.flush

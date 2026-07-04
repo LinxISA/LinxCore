@@ -132,6 +132,11 @@ reduced repick row, then emits the model-equivalent apply intent:
 exports these as diagnostics only; it does not write `LoadInflightQueue` row
 state yet.
 
+R408 widens the R397 accepted-query token with the selected row line image,
+valid byte mask, and request byte mask. `ResponseApply` now computes merge
+intent from that accepted-token context, not from a zero placeholder or the
+current launch selector.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `sinkReady`, raw STQ response, SCB return, wait-store, and
 data-valid inputs false, and it ties external stale-head evidence false, so
@@ -167,6 +172,8 @@ without another direct top child instance.
 | `selectedPc` | Selected row PC for diagnostics and wait-store identity. |
 | `selectedAddr` / `selectedSize` | Selected row load address window. |
 | `selectedRequestByteMask` | Selected row 64-byte request mask from `LoadInflightLaunchSelect`. |
+| `selectedLineData` | Selected row line image captured into the accepted-token context. |
+| `selectedValidMask` | Selected row valid byte mask captured into the accepted-token context. |
 | `responseClusterId` | Future STQ response cluster ID from `MemReqBus.cID`. |
 | `responseEntryId` | Future STQ response entry ID from `MemReqBus.eID`. |
 | `responseHeadStale` | Future external row-state evidence proving the raw queue head targets a row that is no longer repick. Current top ties this false while the R400 reduced proof uses `selectedRepickMask`. |
@@ -187,7 +194,7 @@ without another direct top child instance.
 | `requestPayload*` | R402 selected-row request payload and diagnostics for the future local STQ lookup queue. |
 | `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, and blocker diagnostics. |
 | `lookup*` | R405 resident-STQ lookup diagnostics: query validity, row masks, eligible store mask, forward/wait masks, wait-store, raw data evidence, and response-visible data evidence. |
-| `responseApply*` | R407 ordered-response apply intent: STQ-returned, wait-store identity, data merge mask/data, completion diagnostic, and malformed-payload blockers. |
+| `responseApply*` | R407/R408 ordered-response apply intent: STQ-returned, wait-store identity, accepted-context data merge mask/data, completion diagnostic, and malformed-payload blockers. |
 
 The top consumes the existing `control*`, `evidence*`, and `queryIssue*`
 diagnostics through unchanged top IO names. Response-match and identity-match
@@ -197,8 +204,9 @@ top is split further.
 ## State
 
 The module is mostly combinational, but R397 adds one accepted-query token
-register inside `LoadReplaySourceReturnStoreSnapshotAcceptedToken`, R398 adds
-one raw-response FIFO inside
+register inside `LoadReplaySourceReturnStoreSnapshotAcceptedToken`; R408
+widens that token to carry row line data, valid mask, and request mask. R398
+adds one raw-response FIFO inside
 `LoadReplaySourceReturnStoreSnapshotResponseQueue`, and R403 adds one
 selected-request FIFO inside
 `LoadReplaySourceReturnStoreSnapshotRequestQueue`. R399 adds a combinational
@@ -314,10 +322,9 @@ mutation owner will need after response matching:
 
 The R407 apply owner is the first LIQ-side interpretation of that payload. In
 the path composition it is connected to the ordered-consumed queue head and the
-R400 reduced repick proof. Its current row image inputs are tied to zero except
-for `selectedRequestByteMask`; a later accepted-token or row-state packet must
-carry the exact delayed row mask/data before these diagnostics become mutation
-inputs.
+R400 reduced repick proof. R408 feeds its row image inputs from the accepted
+query token, so the merge diagnostic uses the line data, valid mask, and
+request mask captured with the query that produced the response.
 
 The current top tie-offs keep `queryIssued=false`, `responseValid=false`,
 `requestAccepted=false`, and `requestEnable=false`, so the live chain does not
@@ -348,8 +355,6 @@ behavior.
 - Live SCB return evidence source.
 - Stateful wait-store replay mutation and returned-data merge from the R407
   response apply intent.
-- Accepted-token or row-state carry of the exact request mask and resident row
-  line data into delayed response application.
 - Live promotion of `requestEnable` after query, response, and row-state owners
   are stable.
 

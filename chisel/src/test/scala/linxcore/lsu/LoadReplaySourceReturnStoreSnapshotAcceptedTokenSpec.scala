@@ -8,7 +8,10 @@ object LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference {
       valid: Boolean = false,
       repick: Boolean = false,
       clusterId: Int = 0,
-      entryId: Int = 0)
+      entryId: Int = 0,
+      lineData: BigInt = 0,
+      validMask: BigInt = 0,
+      requestByteMask: BigInt = 0)
 
   final case class Result(
       active: Boolean,
@@ -35,7 +38,10 @@ object LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference {
       selectedRepick: Boolean,
       selectedClusterId: Int,
       selectedEntryId: Int,
-      responseConsumed: Boolean): Result = {
+      responseConsumed: Boolean,
+      selectedLineData: BigInt = 0,
+      selectedValidMask: BigInt = 0,
+      selectedRequestByteMask: BigInt = 0): Result = {
     val active = enable && !flush
     val tokenCanAccept = active && !state.valid
     val captureCandidate = active && queryIssued
@@ -47,7 +53,14 @@ object LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference {
       if (state.valid) {
         state
       } else if (captureBypass) {
-        Token(valid = true, repick = true, clusterId = selectedClusterId, entryId = selectedEntryId)
+        Token(
+          valid = true,
+          repick = true,
+          clusterId = selectedClusterId,
+          entryId = selectedEntryId,
+          lineData = selectedLineData,
+          validMask = selectedValidMask,
+          requestByteMask = selectedRequestByteMask)
       } else {
         Token()
       }
@@ -56,7 +69,14 @@ object LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference {
       if (flush || clearAccepted) {
         Token()
       } else if (captureAccepted) {
-        Token(valid = true, repick = selectedRepick, clusterId = selectedClusterId, entryId = selectedEntryId)
+        Token(
+          valid = true,
+          repick = selectedRepick,
+          clusterId = selectedClusterId,
+          entryId = selectedEntryId,
+          lineData = selectedLineData,
+          validMask = selectedValidMask,
+          requestByteMask = selectedRequestByteMask)
       } else {
         state
       }
@@ -92,15 +112,24 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedTokenSpec extends AnyFunSuite {
       selectedRepick = true,
       selectedClusterId = 0,
       selectedEntryId = 2,
-      responseConsumed = false)
+      responseConsumed = false,
+      selectedLineData = BigInt("1122334455667788", 16),
+      selectedValidMask = BigInt("0f", 16),
+      selectedRequestByteMask = BigInt("ff", 16))
 
     assert(result.tokenCanAccept)
     assert(result.captureAccepted)
     assert(result.captureBypass)
     assert(result.token.valid)
     assert(result.token.entryId == 2)
+    assert(result.token.lineData == BigInt("1122334455667788", 16))
+    assert(result.token.validMask == BigInt("0f", 16))
+    assert(result.token.requestByteMask == BigInt("ff", 16))
     assert(result.next.valid)
     assert(result.next.entryId == 2)
+    assert(result.next.lineData == BigInt("1122334455667788", 16))
+    assert(result.next.validMask == BigInt("0f", 16))
+    assert(result.next.requestByteMask == BigInt("ff", 16))
   }
 
   test("bypassed token can be consumed in the same cycle without becoming resident") {
@@ -113,17 +142,33 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedTokenSpec extends AnyFunSuite {
       selectedRepick = true,
       selectedClusterId = 0,
       selectedEntryId = 1,
-      responseConsumed = true)
+      responseConsumed = true,
+      selectedLineData = BigInt("aabbccdd", 16),
+      selectedValidMask = BigInt("33", 16),
+      selectedRequestByteMask = BigInt("3f", 16))
 
     assert(result.captureAccepted)
     assert(result.captureBypass)
     assert(result.clearAccepted)
     assert(result.token.valid)
+    assert(result.token.lineData == BigInt("aabbccdd", 16))
+    assert(result.token.validMask == BigInt("33", 16))
+    assert(result.token.requestByteMask == BigInt("3f", 16))
     assert(!result.next.valid)
+    assert(result.next.lineData == 0)
+    assert(result.next.validMask == 0)
+    assert(result.next.requestByteMask == 0)
   }
 
   test("resident token blocks replacement until a response consumes it") {
-    val state = Token(valid = true, repick = true, clusterId = 0, entryId = 1)
+    val state = Token(
+      valid = true,
+      repick = true,
+      clusterId = 0,
+      entryId = 1,
+      lineData = BigInt("12345678", 16),
+      validMask = BigInt("0f", 16),
+      requestByteMask = BigInt("ff", 16))
     val result = step(
       state = state,
       enable = true,
@@ -139,12 +184,23 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedTokenSpec extends AnyFunSuite {
     assert(!result.captureAccepted)
     assert(result.blockedByOutstandingToken)
     assert(result.token.entryId == 1)
+    assert(result.token.lineData == BigInt("12345678", 16))
+    assert(result.token.validMask == BigInt("0f", 16))
+    assert(result.token.requestByteMask == BigInt("ff", 16))
     assert(result.next.entryId == 1)
+    assert(result.next.lineData == BigInt("12345678", 16))
   }
 
   test("response consumption clears a resident token") {
     val result = step(
-      state = Token(valid = true, repick = true, clusterId = 0, entryId = 3),
+      state = Token(
+        valid = true,
+        repick = true,
+        clusterId = 0,
+        entryId = 3,
+        lineData = BigInt("feedface", 16),
+        validMask = BigInt("f0", 16),
+        requestByteMask = BigInt("ff", 16)),
       enable = true,
       flush = false,
       queryIssued = false,
@@ -158,7 +214,11 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedTokenSpec extends AnyFunSuite {
     assert(result.clearAccepted)
     assert(result.token.valid)
     assert(result.token.entryId == 3)
+    assert(result.token.lineData == BigInt("feedface", 16))
     assert(!result.next.valid)
+    assert(result.next.lineData == 0)
+    assert(result.next.validMask == 0)
+    assert(result.next.requestByteMask == 0)
   }
 
   test("disabled, flushed, missing-selected, and stale-row captures are diagnosed") {
@@ -186,7 +246,9 @@ class LoadReplaySourceReturnStoreSnapshotAcceptedTokenSpec extends AnyFunSuite {
 
     assert(sv.contains("module LoadReplaySourceReturnStoreSnapshotAcceptedToken"))
     assert(sv.contains("tokenValidReg"))
+    assert(sv.contains("tokenLineDataReg"))
     assert(sv.contains("io_tokenCanAccept"))
+    assert(sv.contains("io_tokenRequestByteMask"))
     assert(sv.contains("io_blockedByOutstandingToken"))
   }
 }

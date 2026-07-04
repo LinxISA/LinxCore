@@ -34,6 +34,11 @@ R407 maps that branch structure into a combinational Chisel intent surface.
 The later LIQ row-mutation packet will consume this intent to update row
 status, wait-store fields, valid masks, and line data.
 
+R408 wires the row-image inputs from
+`LoadReplaySourceReturnStoreSnapshotAcceptedToken`, so `rowLineData`,
+`rowValidMask`, and `rowRequestMask` are delayed with the accepted local STQ
+query instead of sampled from the current launch selector.
+
 ## Interface
 
 | Signal | Description |
@@ -79,8 +84,6 @@ controlled by `dataValid` after the wait-store priority rule.
 ## Deferred Owners
 
 - Registered LIQ row mutation from apply intent.
-- Accepted-token or row-state carry of the exact request mask into delayed
-  response application.
 - Separate `stqRnt` and `scbRnt` row state instead of coarse
   `sourcesReturned`.
 - Full raw external STQ response data payload wiring.
