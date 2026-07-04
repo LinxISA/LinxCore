@@ -74,6 +74,9 @@ R372 wires the module immediately before
 - R373 feeds instruction metadata from `ROBRowCommitTraceLookup`;
 - R374 keeps ROB-row source traces completion-only because allocation rows have
   register tags but no proven source data;
+- R375 carries RF-derived source traces through execute wait/replay capture,
+  the relaunch queue, LIQ row residency, and launch selection diagnostics, but
+  does not connect those diagnostics to this W2 provider yet;
 - source trace providers are currently tied absent in the top;
 - gated outputs feed the R366 commit-row candidate;
 - compact top-level diagnostics expose trace readiness and missing-provider
@@ -83,7 +86,9 @@ R372 wires the module immediately before
 
 ## Deferred Owners
 
-- Source operand trace reconstruction from the original RF-read/rename row.
+- Carrying the R375 replay-LIQ launch source-trace payload through the
+  LRET/W2 slot boundary and connecting it to `sourceTraceProviderValid` only
+  after the resident W2 slot and source payload are identity-matched.
 - Live promotion of row fill after W2 side effects, clear/refill, replay-row
   lifecycle clear, and ROB completion-row replacement can commit atomically.
 

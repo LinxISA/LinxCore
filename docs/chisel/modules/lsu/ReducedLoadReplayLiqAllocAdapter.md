@@ -36,6 +36,10 @@ The adapter preserves four identity domains:
   later feeds scalar return-data extraction.
 - replay destination: the compact renamed destination sideband captured with
   the original load lookup for later LRET/writeback/wakeup ownership.
+- replay source trace: the R375 RF-derived `sourceTraceValid/source0/source1`
+  operands captured with the original execute lookup. These fields carry real
+  source data and must not be replaced by ROB allocation source-register
+  metadata.
 
 Keeping those domains separate mirrors the model split between the load row's
 own `MemReqBus` identity and the store-forwarding eligibility snapshot used by
@@ -49,7 +53,7 @@ own `MemReqBus` identity and the store-forwarding eligibility snapshot used by
 |---|---|
 | `flush` | Suppresses allocation and queue consumption for the cycle. |
 | `candidateValid` | Queue-head valid from `ReducedLoadReplayRelaunchQueue`. |
-| `candidate` | `ReducedLoadReplayCandidate` payload containing load identity, destination, return signedness, and forwarding snapshot. |
+| `candidate` | `ReducedLoadReplayCandidate` payload containing load identity, destination, source traces, return signedness, and forwarding snapshot. |
 | `allocReady` | Downstream `LoadInflightQueue.allocReady` or equivalent allocation credit. |
 
 ### Outputs
@@ -94,6 +98,8 @@ Mapping is direct:
 - `candidate.pc/addr/size` -> `alloc.pc/addr/size`
 - `candidate.returnSignExtend` -> `alloc.returnSignExtend`
 - `candidate.dst` -> `alloc.dst`
+- `candidate.sourceTraceValid/source0/source1` ->
+  `alloc.sourceTraceValid/source0/source1`
 - `candidate.youngestStoreId/youngestStoreLsId` ->
   `alloc.youngestStoreId/youngestStoreLsId`
 - reduced scalar flags are false: `isTile=false`, `specWakeup=false`,

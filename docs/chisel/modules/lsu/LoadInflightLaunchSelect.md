@@ -17,6 +17,8 @@ selects the oldest launchable scalar `Wait` row by `(BID, loadLsId)` order.
 The selector is wired into `ReducedLoadReplayLiqAllocPath` and the opt-in
 replay-LIQ reduced top as diagnostics in R281. R311 also republishes the
 selected row's replay destination sideband for the future LRET/writeback owner.
+R375 republishes the selected row's RF-derived source-trace sideband for the
+future replay W2 commit-row source provider.
 It does not mutate LIQ state, drive the top-level launch port, return data,
 update ready tables, move LHQ/ResolveQ state, or replace the reduced-store
 completion-drain path.
@@ -37,7 +39,7 @@ completion-drain path.
 | output | `launchMask` | One-hot selected oldest candidate. |
 | output | `launchValid`, `launchIndex` | Launch request and selected LIQ slot. |
 | output | `candidateCount` | Number of enabled launch candidates. |
-| output | `selected*` | Selected load identity, address, size, PC, replay-return signedness, requested byte mask, destination, `specWakeup`, and `stackValid` diagnostics. |
+| output | `selected*` | Selected load identity, address, size, PC, replay-return signedness, requested byte mask, destination, source trace, `specWakeup`, and `stackValid` diagnostics. |
 
 ## Logic Design
 
@@ -66,6 +68,9 @@ model opcode at the selector boundary.
 R311 forwards the selected row's compact destination sideband so the future
 return-payload and wakeup owner can use the same destination captured with the
 load instead of reconstructing it at replay time.
+R375 forwards `selectedSourceTraceValid/source0/source1` from the selected row.
+These fields are pass-through provenance from the original RF-read path; the
+selector does not inspect source data when deciding `dataHit` or launch order.
 
 This keeps freshly allocated R279 replay rows resident but not launchable until
 a replay wakeup, refill wakeup, or later LDQ data owner provides the requested

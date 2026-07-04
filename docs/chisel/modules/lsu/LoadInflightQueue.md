@@ -33,6 +33,11 @@ store-unit/SCB replay bytes into resident rows. It consumes
 `LoadRefillWakeup` masks to return refilled miss rows to `Wait` with a local
 `l1Hit` sideband and row-owned cacheline data.
 
+R375 adds row-owned source-trace fields to allocation and residency. These
+fields preserve original RF-returned load source operands through replay
+residency for later W2 commit-row reconstruction; they are not used for
+forwarding, hit/miss classification, or returned-load data extraction.
+
 This packet turns the standalone forwarding pipeline into reusable row state
 without taking ownership of full LDQ/LIQ recovery, miss-queue ownership,
 ready-table update, issue wakeup fanout, L2/CHI response queues, or
@@ -45,7 +50,7 @@ memory-event trace.
 | Signal | Description |
 |---|---|
 | `allocValid` | Requests allocation of one LIQ row. |
-| `alloc` | Load identity, load LSID, PC, address, size, replay-return signedness, destination, tile flag, and `(youngestStoreId, youngestStoreLsId)` snapshot. |
+| `alloc` | Load identity, load LSID, PC, address, size, replay-return signedness, destination, source traces, tile flag, and `(youngestStoreId, youngestStoreLsId)` snapshot. |
 | `allocReady` | The allocation pointer names a free row. |
 | `allocAccepted` | The request allocated the current pointer row. |
 | `allocIndex` | Current LIQ slot. |
@@ -139,7 +144,8 @@ The module owns:
 - a ring allocation pointer and wrap bit,
 - a resident-count register,
 - LIQ row records with `Wait`, `Repick`, `L1DcMiss`, `L2Wait`, and `Resolved`
-  states, including replay-return signedness and replay destination sidebands,
+  states, including replay-return signedness, replay destination, and R375
+  source-trace sidebands,
 - E3/E4 row-index sideband registers aligned to `LoadForwardPipeline`,
 - a combinational `LoadReplayWakeup` sidecar for store-unit/SCB replay masks,
 - a combinational `LoadRefillWakeup` sidecar for read-refill row wake masks,
@@ -178,7 +184,10 @@ The C++ model provides the owner split:
    load's own `loadLsId`, stores the compact replay destination sideband, and
    stores the `(youngestStoreId, youngestStoreLsId)` snapshot for store-forward
    filtering. R307 also stores the opcode-derived `returnSignExtend` bit beside
-   address and size for the future scalar replay-return extractor.
+   address and size for the future scalar replay-return extractor. R375 stores
+   the RF-derived `sourceTraceValid/source0/source1` sideband beside that
+   identity; the queue carries it as provenance only and does not synthesize
+   source data from row metadata.
 2. Launch accepts only valid `Wait` rows with no wait-store block, changes the
    row to `Repick`, and sends the row-derived query into
    `LoadForwardPipeline`. R280 adds `LoadInflightLaunchSelect` as a separate
@@ -232,6 +241,9 @@ load/store conflict checks and now carries load PC for the R284
 `LoadResolveQueue` conflict-row view. It is not yet a QEMU/DUT memory trace. Full
 replacement evidence still requires later top-level load-result trace rows and
 memory comparison against QEMU/model behavior.
+The R375 source-trace fields are visible in `rows` and through the launch
+selector, but are deliberately not a replay W2 source provider until the W2
+slot/LRET payload carries them to `LoadReplayReturnPipeW2CommitRowTraceSource`.
 
 ## Verification
 
