@@ -17,6 +17,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightLaunchSelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadForwardPipeline.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationWriteControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala`
 - Contract IDs: `LC-CHISEL-LSU-LIQ-001`
@@ -44,11 +45,12 @@ R411 adds row-carried split source-return diagnostics `scbReturned` and
 row-mutation writer, but `sourcesReturned` remains the active launch/return
 summary bit until row-owned STQ response application is enabled.
 
-R414 adds a standalone admission control for that future row-mutation writer.
-It records the policy that a replay-STQ mutation may write only a valid,
-repick, SCB-returned row and must not share the target row with existing E4,
-clear-resolved, replay wakeup, refill, launch, or allocation writers in the
-same cycle. The control is not wired into this queue yet.
+R416 adds a native row-mutation storage boundary inside the queue. It uses the
+R415 `LoadInflightRowMutationPath` composition with the queue's native
+`storeEntries` wait-store shape, computes same-row conflicts against the
+registered LIQ writers, and writes the previewed `nextRow` only when the path
+admits the mutation. The reduced replay top still ties this port off, so the
+source-shaped R410 request owner is not live-connected yet.
 
 This packet turns the standalone forwarding pipeline into reusable row state
 without taking ownership of full LDQ/LIQ recovery, miss-queue ownership,
@@ -120,6 +122,29 @@ that already have `l1Hit`, and store the full refill line plus full valid mask
 in the LIQ row. The next launch uses row-owned data when `validMask` is
 nonzero; otherwise it uses the external `e2BaseData`/`e2BaseValidMask` inputs.
 
+### Row Mutation
+
+| Signal | Description |
+|---|---|
+| `rowMutationValid` | Native replay-STQ row mutation request. |
+| `rowMutationTargetIndex` | LIQ slot selected by the future request owner. |
+| `rowMutationSetWaitStatus` / `rowMutationKeepRepickStatus` | Status intent for wait-store rewait or continued repick. |
+| `rowMutationClearReturnState` | Clears coarse and split source-return state for wait-store rewait. |
+| `rowMutationLineWrite` / `rowMutationWaitStoreWrite` | Enables line-image and wait-store updates in the row-image apply path. |
+| `rowMutationNextWaitStore` / `rowMutationNextWaitStoreInfo` | Native LIQ wait-store payload. |
+| `rowMutationNextLineData` / `rowMutationNextValidMask` / `rowMutationNextDataComplete` | Future row line image and completion state. |
+| `rowMutationNextScbReturned` / `rowMutationNextStqReturned` / `rowMutationNextStoreSourceReturned` | Split and coarse source-return state for data-merge or no-data return. |
+| `rowMutationBridgeValid` | Request survived the queue-internal native bridge. |
+| `rowMutationTargetEvidenceValid` | Target row is valid, `Repick`, and SCB-returned. |
+| `rowMutationWriteConflict` | Same-row E4, clear-resolved, replay wakeup, refill, launch, or allocation conflict. |
+| `rowMutationWriteEnable` / `rowMutationApplyValid` | The queue will write the previewed next row this cycle. |
+| `rowMutationBlockedBy*` | Stage-level and per-conflict diagnostics from the R415 path. |
+
+The port is native to `LoadInflightQueue`: `rowMutationNextWaitStoreInfo`
+already uses the queue's `storeEntries` domain. The R410 source-shaped request
+owner still needs an upstream bridge/live-enable packet before the reduced top
+can drive this port.
+
 ### E4 Update And LHQ Record
 
 | Signal | Description |
@@ -161,6 +186,8 @@ The module owns:
 - E3/E4 row-index sideband registers aligned to `LoadForwardPipeline`,
 - a combinational `LoadReplayWakeup` sidecar for store-unit/SCB replay masks,
 - a combinational `LoadRefillWakeup` sidecar for read-refill row wake masks,
+- a combinational `LoadInflightRowMutationPath` sidecar for native replay-STQ
+  row mutation admission and next-row preview,
 - a combinational LHQ hit-record output for E4 hits.
 
 It does not own a separate LHQ queue, load-store conflict recovery, precise
@@ -189,9 +216,9 @@ The C++ model provides the owner split:
    scalar rows to `LDQ_WAIT` with `l1Hit=true`.
 8. `CheckMovRslvQ` later moves `LDQ_RESOLVED` rows into `ResolveQ` and resets
    the active row.
-9. Future replay-STQ response mutation will use the R414 admission control to
-   avoid same-cycle ambiguity with the current registered row writers before
-   applying the R412 row-image update.
+9. Replay-STQ response mutation uses the R415 path to avoid same-cycle
+   ambiguity with the current registered row writers before applying the R412
+   row-image update.
 
 `LoadInflightQueue` maps those rules into the current Chisel boundary:
 
@@ -231,6 +258,11 @@ The C++ model provides the owner split:
 8. Refill wakeups run through `LoadRefillWakeup`. Matching read-refill lines
    return rows to `Wait`, set `l1Hit`, store full-line data, and clear
    `missPending` by leaving the miss states.
+9. Native row mutations run through `LoadInflightRowMutationPath`. The queue
+   synthesizes the target one-hot mask from `rowMutationTargetIndex`, feeds the
+   current row image into the path, computes conflicts against E4,
+   clear-resolved, replay wakeup, refill, launch, and allocation writers, and
+   writes `nextRow` only when `rowMutationWriteEnable` is true.
 
 ## Timing
 
@@ -244,6 +276,10 @@ The C++ model provides the owner split:
 - Refill wakeups are consumed after replay wakeups and before new
   launch/allocation state updates. A refilled row is not launched until the
   next cycle.
+- Native row mutation writes after launch/allocation scheduling in the
+  sequential block, but only when conflict checks prove no same-row E4,
+  clear-resolved, replay wakeup, refill, launch, or allocation writer fired.
+  The write does not change `residentCount`.
 
 The module accepts at most one launch per cycle. Later owners may add internal
 pick arbitration, multiple load pipes, and true response queues.
@@ -272,6 +308,7 @@ slot/LRET payload carries them to `LoadReplayReturnPipeW2CommitRowTraceSource`.
 - `bash tools/chisel/run_chisel_tests.sh --only LoadRefillWakeup`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadForwardPipeline`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadInflightRowMutationPath`
 
 The R311 elaboration gate locks the destination sideband on the allocation and
 row-observation surfaces.
@@ -286,6 +323,7 @@ Focused reference tests cover slot-plus-wrap allocation, E4 hit-to-resolved
 transition and LHQ record publication including PC, not-ready store replay, incomplete-data
 miss-pending behavior, source/return-port replay, store-wakeup wait-store
 clear, store-wakeup miss completion, resolved-row clearing before wraparound
-allocation, L1 refill wakeup, row-owned refill-data relaunch, and Chisel
-elaboration with the child `LoadForwardPipeline`, `LoadReplayWakeup`, and
-`LoadRefillWakeup`.
+allocation, L1 refill wakeup, row-owned refill-data relaunch, native
+row-mutation writes and blockers, and Chisel elaboration with the child
+`LoadForwardPipeline`, `LoadReplayWakeup`, `LoadRefillWakeup`, and
+`LoadInflightRowMutationPath`.

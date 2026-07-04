@@ -45,6 +45,11 @@ replay. R285 gives the path-local `lhqRecord` output a top-level
 `clearResolved` request once that consumer accepts the record. Retire and live
 MDB publication remain outside this module.
 
+R416 ties off the new native row-mutation port on `LoadInflightQueue`. The LIQ
+can now apply an admitted native replay-STQ row mutation in isolation, but this
+composition still does not drive that port from the R410 source-shaped replay
+snapshot request owner.
+
 ## Interface
 
 ### Inputs
@@ -172,6 +177,9 @@ state or become visible to MDB conflict detection. R286 records that parent
 clear timing: the top delays `clearResolvedValid` until the cycle after
 ResolveQ accepts the LHQ record, when the source LIQ row is resident in
 `Resolved` state.
+R416 also keeps the child LIQ native row-mutation port inactive in this
+composition; the port exists for the next live-connect packet, not for current
+reduced-top behavior.
 
 ## Timing
 
@@ -198,6 +206,8 @@ owner.
   leaves that gate disabled.
 - External SCB replay response ownership and real LRET/mem-wakeup sink
   readiness for enabled relaunch.
+- Live connection from `LoadReplaySourceReturnStoreSnapshotRowMutationRequest`
+  through the native `LoadInflightQueue` row-mutation port.
 - Default/live LIQ ResolveQ insertion and load-store conflict publication.
 - Ready-table, bypass, and dependent-consumer wakeup.
 

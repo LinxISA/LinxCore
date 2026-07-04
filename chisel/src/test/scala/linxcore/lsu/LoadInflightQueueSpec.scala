@@ -84,6 +84,34 @@ object LoadInflightQueueReference {
     def waitStoreMask: Int = mask(rows.map(_.exists(_.waitStore.nonEmpty)).toSeq)
     def missPending: Boolean = rows.exists(_.exists(r => r.status == L1DcMiss || r.status == L2Wait))
 
+    def installRow(index: Int, row: Row): Unit = {
+      rows(index) = Some(row)
+    }
+
+    def rowMutation(
+        targetIndex: Int,
+        request: LoadInflightRowMutationRequestBridgeReference.Request,
+        storeEntries: Int = 4,
+        conflicts: LoadInflightRowMutationWriteControlReference.Conflicts =
+          LoadInflightRowMutationWriteControlReference.Conflicts()): LoadInflightRowMutationPathReference.Result = {
+      val rowValid = rows(targetIndex).isDefined
+      val current = rows(targetIndex).getOrElse(Row())
+      val result = LoadInflightRowMutationPathReference(
+        sourceStoreEntries = storeEntries,
+        storeEntries = storeEntries,
+        enable = true,
+        flush = false,
+        requestValid = true,
+        rowValid = rowValid,
+        row = current,
+        request = request,
+        conflicts = conflicts)
+      if (result.applyResult.applyValid) {
+        rows(targetIndex) = Some(result.applyResult.nextRow)
+      }
+      result
+    }
+
     private def mask(bits: Seq[Boolean]): Int =
       bits.zipWithIndex.foldLeft(0) { case (acc, (bit, index)) => if (bit) acc | (1 << index) else acc }
 
@@ -314,6 +342,8 @@ object LoadInflightQueueReference {
 class LoadInflightQueueSpec extends AnyFunSuite {
   import LoadForwardPipelineReference.{AwaitingSources, DataNotComplete, ReturnPortBlocked}
   import LoadInflightQueueReference._
+  import LoadInflightRowMutationRequestBridgeReference.{Request => RowMutationRequest}
+  import LoadInflightRowMutationWriteControlReference.Conflicts
   import LoadRefillWakeupReference.Refill
   import LoadReplayWakeupReference.{StoreUnit, Wakeup}
   import LoadStoreForwardingReference.{Store, byteMask, lineData}
@@ -519,6 +549,90 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(wrapped.loadId.value == 0)
   }
 
+  test("native row mutation writes an admitted repick row image") {
+    val liq = new Model(entries = 4)
+    val rowIndex = 1
+    val row = Row(
+      status = Repick,
+      loadId = Id(valid = true, value = rowIndex),
+      alloc = alloc(4, addr = 0x1008, size = 2),
+      lineData = lineData(Map(8 -> 0x11)),
+      validMask = byteMask(8, 1),
+      loadByteMask = byteMask(8, 2),
+      dataComplete = true,
+      sourcesReturned = true,
+      scbReturned = true,
+      stqReturned = false)
+    liq.installRow(rowIndex, row)
+
+    val result = liq.rowMutation(
+      targetIndex = rowIndex,
+      request = RowMutationRequest(
+        targetMask = 1 << rowIndex,
+        targetIndex = rowIndex,
+        setWaitStatus = true,
+        clearReturnState = true,
+        lineWrite = true,
+        waitStoreWrite = true,
+        nextWaitStore = true,
+        sourceStoreIndex = 2,
+        nextLineData = 0,
+        nextValidMask = 0))
+    val next = liq.row(rowIndex).get
+
+    assert(result.bridge.bridgeValid)
+    assert(result.control.writeEnable)
+    assert(result.applyResult.applyValid)
+    assert(next.status == Wait)
+    assert(next.waitStore.exists(_.index == 2))
+    assert(!next.sourcesReturned)
+    assert(!next.scbReturned)
+    assert(!next.stqReturned)
+    assert(!next.dataComplete)
+    assert(next.loadId == row.loadId)
+    assert(next.alloc.pc == row.alloc.pc)
+  }
+
+  test("native row mutation blocks SCB-missing rows and same-row writer conflicts") {
+    val noScb = new Model(entries = 4)
+    val rowIndex = 1
+    val repickWithoutScb = Row(
+      status = Repick,
+      loadId = Id(valid = true, value = rowIndex),
+      alloc = alloc(5, addr = 0x1040),
+      scbReturned = false)
+    noScb.installRow(rowIndex, repickWithoutScb)
+    val request = RowMutationRequest(
+      targetMask = 1 << rowIndex,
+      targetIndex = rowIndex,
+      keepRepickStatus = true,
+      lineWrite = true,
+      nextLineData = lineData(Map(0 -> 0xaa)),
+      nextValidMask = byteMask(0, 1),
+      nextDataComplete = true,
+      nextScbReturned = true,
+      nextStqReturned = true,
+      nextStoreSourceReturned = true)
+
+    val blockedByScb = noScb.rowMutation(rowIndex, request)
+    assert(blockedByScb.control.blockedByScbNotReturned)
+    assert(!blockedByScb.applyResult.applyValid)
+    assert(noScb.row(rowIndex).contains(repickWithoutScb))
+
+    val conflict = new Model(entries = 4)
+    val repickWithScb = repickWithoutScb.copy(scbReturned = true)
+    conflict.installRow(rowIndex, repickWithScb)
+    val blockedByWriter = conflict.rowMutation(
+      targetIndex = rowIndex,
+      request = request,
+      conflicts = Conflicts(e4Update = true))
+
+    assert(blockedByWriter.control.blockedByE4UpdateConflict)
+    assert(blockedByWriter.control.writeConflict)
+    assert(!blockedByWriter.applyResult.applyValid)
+    assert(conflict.row(rowIndex).contains(repickWithScb))
+  }
+
   test("Chisel LoadInflightQueue elaborates with pipeline, row, and LHQ outputs") {
     val sv = ChiselStage.emitSystemVerilog(new LoadInflightQueue(liqEntries = 4, idEntries = 8, storeEntries = 4))
 
@@ -535,6 +649,9 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_replayWakeCompletedMask"))
     assert(sv.contains("LoadRefillWakeup"))
     assert(sv.contains("io_refillWakeMask"))
+    assert(sv.contains("LoadInflightRowMutationPath"))
+    assert(sv.contains("io_rowMutationWriteEnable"))
+    assert(sv.contains("io_rowMutationControlBlockedByE4UpdateConflict"))
     assert(sv.contains("io_rows_0_status"))
     assert(sv.contains("io_rows_0_loadLsId_value"))
     assert(sv.contains("io_rows_0_dst_physTag"))

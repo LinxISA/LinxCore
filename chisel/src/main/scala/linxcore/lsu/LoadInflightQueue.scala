@@ -174,6 +174,39 @@ class LoadInflightQueueIO(
   val clearResolvedIndex = Input(UInt(liqPtrWidth.W))
   val clearResolvedAccepted = Output(Bool())
 
+  val rowMutationValid = Input(Bool())
+  val rowMutationTargetIndex = Input(UInt(liqPtrWidth.W))
+  val rowMutationSetWaitStatus = Input(Bool())
+  val rowMutationKeepRepickStatus = Input(Bool())
+  val rowMutationClearReturnState = Input(Bool())
+  val rowMutationLineWrite = Input(Bool())
+  val rowMutationWaitStoreWrite = Input(Bool())
+  val rowMutationNextWaitStore = Input(Bool())
+  val rowMutationNextWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
+  val rowMutationNextLineData = Input(UInt((lineBytes * 8).W))
+  val rowMutationNextValidMask = Input(UInt(lineBytes.W))
+  val rowMutationNextDataComplete = Input(Bool())
+  val rowMutationNextScbReturned = Input(Bool())
+  val rowMutationNextStqReturned = Input(Bool())
+  val rowMutationNextStoreSourceReturned = Input(Bool())
+  val rowMutationBridgeValid = Output(Bool())
+  val rowMutationTargetEvidenceValid = Output(Bool())
+  val rowMutationWriteConflict = Output(Bool())
+  val rowMutationWriteEnable = Output(Bool())
+  val rowMutationApplyValid = Output(Bool())
+  val rowMutationBlockedByBridge = Output(Bool())
+  val rowMutationBlockedByControl = Output(Bool())
+  val rowMutationBlockedByApply = Output(Bool())
+  val rowMutationControlBlockedByInvalidRow = Output(Bool())
+  val rowMutationControlBlockedByNotRepick = Output(Bool())
+  val rowMutationControlBlockedByScbNotReturned = Output(Bool())
+  val rowMutationControlBlockedByE4UpdateConflict = Output(Bool())
+  val rowMutationControlBlockedByClearResolvedConflict = Output(Bool())
+  val rowMutationControlBlockedByReplayWakeConflict = Output(Bool())
+  val rowMutationControlBlockedByRefillConflict = Output(Bool())
+  val rowMutationControlBlockedByLaunchConflict = Output(Bool())
+  val rowMutationControlBlockedByAllocationConflict = Output(Bool())
+
   val e4UpdateValid = Output(Bool())
   val e4UpdateIndex = Output(UInt(liqPtrWidth.W))
   val e4MissKind = Output(LoadForwardMissKind())
@@ -370,6 +403,48 @@ class LoadInflightQueue(
   lhqRecord.data := pipeline.io.e4LineData
   lhqRecord.forwardedMask := pipeline.io.e4ForwardMask
 
+  val rowMutationPath = Module(new LoadInflightRowMutationPath(
+    liqEntries = liqEntries,
+    idEntries = idEntries,
+    sourceStoreEntries = storeEntries,
+    storeEntries = storeEntries,
+    addrWidth = addrWidth,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes,
+    sizeWidth = sizeWidth,
+    archRegWidth = archRegWidth,
+    physRegWidth = physRegWidth
+  ))
+  val rowMutationReplayConflictMask = replayWakeup.io.waitStoreClearMask | replayWakeup.io.mergeMask
+  val rowMutationTargetMask = UIntToOH(io.rowMutationTargetIndex, liqEntries)
+  val rowMutationReplayConflictVec = VecInit((0 until liqEntries).map(idx => rowMutationReplayConflictMask(idx)))
+  val rowMutationRefillConflictVec = VecInit((0 until liqEntries).map(idx => refillWakeup.io.wakeMask(idx)))
+  rowMutationPath.io.enable := true.B
+  rowMutationPath.io.flush := io.flush
+  rowMutationPath.io.requestValid := io.rowMutationValid
+  rowMutationPath.io.requestTargetMask := rowMutationTargetMask
+  rowMutationPath.io.requestTargetIndex := io.rowMutationTargetIndex
+  rowMutationPath.io.row := rows(io.rowMutationTargetIndex)
+  rowMutationPath.io.setWaitStatus := io.rowMutationSetWaitStatus
+  rowMutationPath.io.keepRepickStatus := io.rowMutationKeepRepickStatus
+  rowMutationPath.io.clearReturnState := io.rowMutationClearReturnState
+  rowMutationPath.io.lineWrite := io.rowMutationLineWrite
+  rowMutationPath.io.waitStoreWrite := io.rowMutationWaitStoreWrite
+  rowMutationPath.io.nextWaitStore := io.rowMutationNextWaitStore
+  rowMutationPath.io.nextWaitStoreInfo := io.rowMutationNextWaitStoreInfo
+  rowMutationPath.io.nextLineData := io.rowMutationNextLineData
+  rowMutationPath.io.nextValidMask := io.rowMutationNextValidMask
+  rowMutationPath.io.nextDataComplete := io.rowMutationNextDataComplete
+  rowMutationPath.io.nextScbReturned := io.rowMutationNextScbReturned
+  rowMutationPath.io.nextStqReturned := io.rowMutationNextStqReturned
+  rowMutationPath.io.nextStoreSourceReturned := io.rowMutationNextStoreSourceReturned
+  rowMutationPath.io.e4UpdateConflict := e4UpdateValid && (e4Index === io.rowMutationTargetIndex)
+  rowMutationPath.io.clearResolvedConflict := clearResolvedAccepted && (io.clearResolvedIndex === io.rowMutationTargetIndex)
+  rowMutationPath.io.replayWakeConflict := io.replayWakeValid && rowMutationReplayConflictVec(io.rowMutationTargetIndex)
+  rowMutationPath.io.refillConflict := io.refillValid && rowMutationRefillConflictVec(io.rowMutationTargetIndex)
+  rowMutationPath.io.launchConflict := launchAccepted && (io.launchIndex === io.rowMutationTargetIndex)
+  rowMutationPath.io.allocationConflict := allocAccepted && (allocPtr === io.rowMutationTargetIndex)
+
   when(io.flush) {
     for (idx <- 0 until liqEntries) {
       rows(idx) := zeroRow
@@ -536,6 +611,10 @@ class LoadInflightQueue(
       }
     }
 
+    when(rowMutationPath.io.writeEnable) {
+      rows(io.rowMutationTargetIndex) := rowMutationPath.io.nextRow
+    }
+
     residentCount := residentCount + allocAccepted.asUInt - clearResolvedAccepted.asUInt
   }
 
@@ -563,6 +642,23 @@ class LoadInflightQueue(
   io.launchReady := launchReady
   io.launchAccepted := launchAccepted
   io.clearResolvedAccepted := clearResolvedAccepted
+  io.rowMutationBridgeValid := rowMutationPath.io.bridgeValid
+  io.rowMutationTargetEvidenceValid := rowMutationPath.io.targetEvidenceValid
+  io.rowMutationWriteConflict := rowMutationPath.io.writeConflict
+  io.rowMutationWriteEnable := rowMutationPath.io.writeEnable
+  io.rowMutationApplyValid := rowMutationPath.io.applyValid
+  io.rowMutationBlockedByBridge := rowMutationPath.io.blockedByBridge
+  io.rowMutationBlockedByControl := rowMutationPath.io.blockedByControl
+  io.rowMutationBlockedByApply := rowMutationPath.io.blockedByApply
+  io.rowMutationControlBlockedByInvalidRow := rowMutationPath.io.controlBlockedByInvalidRow
+  io.rowMutationControlBlockedByNotRepick := rowMutationPath.io.controlBlockedByNotRepick
+  io.rowMutationControlBlockedByScbNotReturned := rowMutationPath.io.controlBlockedByScbNotReturned
+  io.rowMutationControlBlockedByE4UpdateConflict := rowMutationPath.io.controlBlockedByE4UpdateConflict
+  io.rowMutationControlBlockedByClearResolvedConflict := rowMutationPath.io.controlBlockedByClearResolvedConflict
+  io.rowMutationControlBlockedByReplayWakeConflict := rowMutationPath.io.controlBlockedByReplayWakeConflict
+  io.rowMutationControlBlockedByRefillConflict := rowMutationPath.io.controlBlockedByRefillConflict
+  io.rowMutationControlBlockedByLaunchConflict := rowMutationPath.io.controlBlockedByLaunchConflict
+  io.rowMutationControlBlockedByAllocationConflict := rowMutationPath.io.controlBlockedByAllocationConflict
   io.replayWakeWaitStoreClearMask := replayWakeup.io.waitStoreClearMask
   io.replayWakeMergeMask := replayWakeup.io.mergeMask
   io.replayWakeCompletedMask := replayWakeup.io.completedMask

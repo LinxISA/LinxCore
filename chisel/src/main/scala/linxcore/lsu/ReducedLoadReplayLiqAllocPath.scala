@@ -199,6 +199,21 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.refill := 0.U.asTypeOf(liq.io.refill)
   liq.io.clearResolvedValid := io.clearResolvedValid
   liq.io.clearResolvedIndex := io.clearResolvedIndex
+  liq.io.rowMutationValid := false.B
+  liq.io.rowMutationTargetIndex := 0.U
+  liq.io.rowMutationSetWaitStatus := false.B
+  liq.io.rowMutationKeepRepickStatus := false.B
+  liq.io.rowMutationClearReturnState := false.B
+  liq.io.rowMutationLineWrite := false.B
+  liq.io.rowMutationWaitStoreWrite := false.B
+  liq.io.rowMutationNextWaitStore := false.B
+  liq.io.rowMutationNextWaitStoreInfo := 0.U.asTypeOf(liq.io.rowMutationNextWaitStoreInfo)
+  liq.io.rowMutationNextLineData := 0.U
+  liq.io.rowMutationNextValidMask := 0.U
+  liq.io.rowMutationNextDataComplete := false.B
+  liq.io.rowMutationNextScbReturned := false.B
+  liq.io.rowMutationNextStqReturned := false.B
+  liq.io.rowMutationNextStoreSourceReturned := false.B
 
   launchSelect.io.enable := !io.flush
   launchSelect.io.rows := liq.io.rows

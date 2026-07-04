@@ -32,10 +32,11 @@ owners built in R412-R414:
   conflicts.
 - `LoadInflightRowMutationApply` previews the next LIQ row image.
 
-R415 is still a standalone combinational boundary. It does not write
-`LoadInflightQueue` storage, does not enable
-`LoadReplaySourceReturnStoreSnapshotRowMutationRequest.liveEnable`, and does
-not change generated-top replay behavior.
+R415 introduced this as a standalone combinational boundary. R416 also
+instantiates it inside `LoadInflightQueue` with `sourceStoreEntries` equal to
+the queue's native `storeEntries` shape so the queue can own the registered
+write. The source-shaped R410 replay snapshot request is still not
+live-connected, and generated-top replay behavior remains unchanged.
 
 ## Interface
 
@@ -90,8 +91,9 @@ writers that are not represented as separate callbacks in the C++ model.
 
 ## Deferred Owners
 
-- Registered `LoadInflightQueue` row mutation that consumes `writeEnable` and
-  `nextRow`.
+- Live source-shaped connection from
+  `LoadReplaySourceReturnStoreSnapshotRowMutationRequest` into the native
+  `LoadInflightQueue` row-mutation port.
 - Live promotion control for
   `LoadReplaySourceReturnStoreSnapshotRowMutationRequest.liveEnable`.
 - Replacement of coarse `sourcesReturned` launch readiness with row-owned split
