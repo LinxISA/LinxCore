@@ -252,6 +252,14 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val rowMutationNextScbReturned = Output(Bool())
   val rowMutationNextStqReturned = Output(Bool())
   val rowMutationNextStoreSourceReturned = Output(Bool())
+  val rowMutationHeadProofReady = Output(Bool())
+  val rowMutationHeadProofTargetMask = Output(UInt(liqEntries.W))
+  val rowMutationLivePermit = Output(Bool())
+  val rowMutationBlockedByHeadProof = Output(Bool())
+  val rowMutationBlockedByHeadInvalidRow = Output(Bool())
+  val rowMutationBlockedByHeadScbNotReturned = Output(Bool())
+  val rowMutationBlockedByHeadNotRepick = Output(Bool())
+  val rowMutationBlockedByHeadTargetMismatch = Output(Bool())
   val rowMutationBlockedByNoPlan = Output(Bool())
   val rowMutationBlockedByNoTarget = Output(Bool())
   val rowMutationBlockedByLiveDisabled = Output(Bool())
@@ -802,9 +810,16 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   rowStatePlan.io.mergedValidMask := responseApply.io.mergedValidMask
   rowStatePlan.io.mergedRequestComplete := responseApply.io.mergedRequestComplete
 
+  val rowMutationHeadProofTargetMask = responseHeadState.io.reducedHeadOneHot
+  val rowMutationHeadProofReady =
+    responseHeadState.io.reducedHeadApplyEligible &&
+      responseApply.io.targetMask.orR &&
+      (responseApply.io.targetMask === rowMutationHeadProofTargetMask)
+  val rowMutationLivePermit = io.rowMutationLiveEnable && rowMutationHeadProofReady
+
   rowMutationRequest.io.enable := io.enable
   rowMutationRequest.io.flush := io.flush
-  rowMutationRequest.io.liveEnable := io.rowMutationLiveEnable
+  rowMutationRequest.io.liveEnable := rowMutationLivePermit
   rowMutationRequest.io.planValid := rowStatePlan.io.rowWriteValid
   rowMutationRequest.io.targetMask := responseApply.io.targetMask
   rowMutationRequest.io.setWaitStatus := rowStatePlan.io.setWaitStatus
@@ -991,6 +1006,21 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.rowMutationNextScbReturned := rowMutationRequest.io.nextScbReturnedOut
   io.rowMutationNextStqReturned := rowMutationRequest.io.nextStqReturnedOut
   io.rowMutationNextStoreSourceReturned := rowMutationRequest.io.nextStoreSourceReturnedOut
+  io.rowMutationHeadProofReady := rowMutationHeadProofReady
+  io.rowMutationHeadProofTargetMask := rowMutationHeadProofTargetMask
+  io.rowMutationLivePermit := rowMutationLivePermit
+  io.rowMutationBlockedByHeadProof :=
+    io.rowMutationLiveEnable && rowMutationRequest.io.targetReady && !rowMutationHeadProofReady
+  io.rowMutationBlockedByHeadInvalidRow :=
+    io.rowMutationLiveEnable && rowMutationRequest.io.targetReady && responseHeadState.io.blockedByInvalidRow
+  io.rowMutationBlockedByHeadScbNotReturned :=
+    io.rowMutationLiveEnable && rowMutationRequest.io.targetReady && responseHeadState.io.blockedByScbNotReturned
+  io.rowMutationBlockedByHeadNotRepick :=
+    io.rowMutationLiveEnable && rowMutationRequest.io.targetReady && responseHeadState.io.reducedHeadTargetsRow &&
+      !responseHeadState.io.reducedHeadRepick
+  io.rowMutationBlockedByHeadTargetMismatch :=
+    io.rowMutationLiveEnable && rowMutationRequest.io.targetReady && responseHeadState.io.reducedHeadApplyEligible &&
+      (responseApply.io.targetMask =/= rowMutationHeadProofTargetMask)
   io.rowMutationBlockedByNoPlan := rowMutationRequest.io.blockedByNoPlan
   io.rowMutationBlockedByNoTarget := rowMutationRequest.io.blockedByNoTarget
   io.rowMutationBlockedByLiveDisabled := rowMutationRequest.io.blockedByLiveDisabled

@@ -229,6 +229,16 @@ mutation can now observe whether a response head is externally stale,
 reduced-row stale, still-repick, invalid, waiting for SCB return, or
 apply-eligible without growing `LinxCoreFrontendFetchRfAluTraceTop` IO.
 
+R442 adds a path-local row-mutation live permit between `RowStatePlan` and
+`RowMutationRequest`. A row-state plan may still form from an externally
+ordered response, but the source request only sees `liveEnable` when the
+reduced response-head proof is apply-eligible and its one-hot target matches the
+response-apply target. This matches `LDQInfo::handleSTQReceive`: the store
+response is only applied to a still-repick row after SCB has returned for that
+same row. The guard exports `rowMutationHeadProof*`, `rowMutationLivePermit`,
+and head-proof blocker diagnostics at the path boundary only; the reduced top
+still ties `rowMutationLiveEnable=false` and receives no new IO.
+
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
 drops stale heads from the model-equivalent not-repick proof, but response

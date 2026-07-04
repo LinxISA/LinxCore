@@ -98,6 +98,18 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       rowStatePlanNextScbReturned: Boolean,
       rowStatePlanNextStoreSourceReturned: Boolean,
       rowStatePlanInvalidStqApplyWithoutScb: Boolean,
+      rowMutationHeadProofReady: Boolean,
+      rowMutationHeadProofTargetMask: Int,
+      rowMutationLivePermit: Boolean,
+      rowMutationBlockedByHeadProof: Boolean,
+      rowMutationBlockedByHeadInvalidRow: Boolean,
+      rowMutationBlockedByHeadScbNotReturned: Boolean,
+      rowMutationBlockedByHeadNotRepick: Boolean,
+      rowMutationBlockedByHeadTargetMismatch: Boolean,
+      rowMutationCandidateValid: Boolean,
+      rowMutationTargetReady: Boolean,
+      rowMutationRequestValid: Boolean,
+      rowMutationBlockedByLiveDisabled: Boolean,
       requestQueueEnqueueReady: Boolean,
       requestQueueEnqueueAccepted: Boolean,
       requestQueueEnqueueDropped: Boolean,
@@ -498,6 +510,30 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       mergedLineData = responseApply.mergedLineData,
       mergedValidMask = responseApply.mergedValidMask,
       mergedRequestComplete = responseApply.mergedRequestComplete)
+    val rowMutationHeadProofTargetMask = responseHeadState.reducedHeadOneHot
+    val rowMutationHeadProofReady =
+      responseHeadState.reducedHeadApplyEligible &&
+        responseApply.targetMask != 0 &&
+        responseApply.targetMask == rowMutationHeadProofTargetMask
+    val rowMutationLivePermit = rowMutationLiveEnable && rowMutationHeadProofReady
+    val rowMutationRequest = LoadReplaySourceReturnStoreSnapshotRowMutationRequestReference(
+      enable = enable,
+      flush = flush,
+      liveEnable = rowMutationLivePermit,
+      planValid = rowStatePlan.planValid,
+      targetMask = responseApply.targetMask,
+      setWaitStatus = rowStatePlan.setWaitStatus,
+      keepRepickStatus = rowStatePlan.keepRepickStatus,
+      clearReturnState = rowStatePlan.clearReturnState,
+      lineWrite = rowStatePlan.lineWrite,
+      waitStoreWrite = rowStatePlan.waitStoreWrite,
+      nextWaitStore = rowStatePlan.nextWaitStore,
+      nextLineData = rowStatePlan.nextLineData,
+      nextValidMask = rowStatePlan.nextValidMask,
+      nextDataComplete = rowStatePlan.nextDataComplete,
+      nextScbReturned = rowStatePlan.nextScbReturned,
+      nextStqReturned = rowStatePlan.nextStqReturned,
+      nextStoreSourceReturned = rowStatePlan.nextStoreSourceReturned)
     val evidence = LoadReplaySourceReturnStoreSnapshotEvidenceReference(
       enable = enable,
       flush = flush,
@@ -608,6 +644,25 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       rowStatePlanNextScbReturned = rowStatePlan.nextScbReturned,
       rowStatePlanNextStoreSourceReturned = rowStatePlan.nextStoreSourceReturned,
       rowStatePlanInvalidStqApplyWithoutScb = rowStatePlan.invalidStqApplyWithoutScb,
+      rowMutationHeadProofReady = rowMutationHeadProofReady,
+      rowMutationHeadProofTargetMask = rowMutationHeadProofTargetMask,
+      rowMutationLivePermit = rowMutationLivePermit,
+      rowMutationBlockedByHeadProof =
+        rowMutationLiveEnable && rowMutationRequest.targetReady && !rowMutationHeadProofReady,
+      rowMutationBlockedByHeadInvalidRow =
+        rowMutationLiveEnable && rowMutationRequest.targetReady && responseHeadState.blockedByInvalidRow,
+      rowMutationBlockedByHeadScbNotReturned =
+        rowMutationLiveEnable && rowMutationRequest.targetReady && responseHeadState.blockedByScbNotReturned,
+      rowMutationBlockedByHeadNotRepick =
+        rowMutationLiveEnable && rowMutationRequest.targetReady && responseHeadState.reducedHeadTargetsRow &&
+          !responseHeadState.reducedHeadRepick,
+      rowMutationBlockedByHeadTargetMismatch =
+        rowMutationLiveEnable && rowMutationRequest.targetReady && responseHeadState.reducedHeadApplyEligible &&
+          responseApply.targetMask != rowMutationHeadProofTargetMask,
+      rowMutationCandidateValid = rowMutationRequest.candidateValid,
+      rowMutationTargetReady = rowMutationRequest.targetReady,
+      rowMutationRequestValid = rowMutationRequest.requestValid,
+      rowMutationBlockedByLiveDisabled = rowMutationRequest.blockedByLiveDisabled,
       requestQueueEnqueueReady = requestQueue.enqueueReady,
       requestQueueEnqueueAccepted = requestQueue.enqueueAccepted,
       requestQueueEnqueueDropped = requestQueue.enqueueDropped,
@@ -1083,6 +1138,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       launchValid = true,
       legacySnapshotReady = false,
       requestEnable = true,
+      rowMutationLiveEnable = true,
       sinkReady = true,
       selectedIdentityEnable = true,
       selectedLaunchIndex = 2,
@@ -1122,6 +1178,56 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.rowStatePlanNextScbReturned)
     assert(result.rowStatePlanNextStoreSourceReturned)
     assert(!result.rowStatePlanInvalidStqApplyWithoutScb)
+    assert(result.rowMutationHeadProofReady)
+    assert(result.rowMutationHeadProofTargetMask == 0x4)
+    assert(result.rowMutationLivePermit)
+    assert(result.rowMutationCandidateValid)
+    assert(result.rowMutationTargetReady)
+    assert(result.rowMutationRequestValid)
+    assert(!result.rowMutationBlockedByHeadProof)
+    assert(!result.rowMutationBlockedByLiveDisabled)
+  }
+
+  test("row mutation live permit requires reduced row proof, not only external SCB order") {
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      requestEnable = true,
+      rowMutationLiveEnable = true,
+      sinkReady = true,
+      scbReturned = true,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4,
+      selectedRowValidMask = 0,
+      selectedRowScbReturnedMask = 0,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPeId = 2,
+      selectedStid = 3,
+      selectedTid = 4,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16),
+      selectedValidMask = BigInt("ff", 16))
+
+    assert(result.responseMatchOrdered)
+    assert(result.rowStatePlanValid)
+    assert(result.rowMutationCandidateValid)
+    assert(result.rowMutationTargetReady)
+    assert(!result.rowMutationHeadProofReady)
+    assert(!result.rowMutationLivePermit)
+    assert(result.rowMutationBlockedByHeadProof)
+    assert(result.rowMutationBlockedByHeadInvalidRow)
+    assert(result.rowMutationBlockedByHeadScbNotReturned)
+    assert(!result.rowMutationRequestValid)
+    assert(result.rowMutationBlockedByLiveDisabled)
   }
 
   test("path-local response head-state diagnostics hold ordered response until SCB returns") {
@@ -1632,6 +1738,10 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_rowStatePlanNextStqReturned"))
     assert(sv.contains("io_rowStatePlanInvalidStqApplyWithoutScb"))
     assert(sv.contains("io_rowMutationCandidateTargetMask"))
+    assert(sv.contains("io_rowMutationHeadProofReady"))
+    assert(sv.contains("io_rowMutationLivePermit"))
+    assert(sv.contains("io_rowMutationBlockedByHeadProof"))
+    assert(sv.contains("io_rowMutationBlockedByHeadScbNotReturned"))
     assert(sv.contains("io_rowMutationBlockedByLiveDisabled"))
     assert(sv.contains("io_queryIssueCandidate"))
     assert(sv.contains("io_requestControlBlockedByToken"))
