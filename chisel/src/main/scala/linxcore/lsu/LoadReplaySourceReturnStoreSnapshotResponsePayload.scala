@@ -10,7 +10,10 @@ class LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle(
     val clusterIdWidth: Int,
     val entryIdWidth: Int,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Bundle {
   val valid = Bool()
   val clusterId = UInt(clusterIdWidth.W)
@@ -19,6 +22,9 @@ class LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle(
   val requestGid = new ROBID(idEntries)
   val requestRid = new ROBID(idEntries)
   val requestLoadLsId = new ROBID(idEntries)
+  val requestPeId = UInt(peIdWidth.W)
+  val requestStid = UInt(stidWidth.W)
+  val requestTid = UInt(tidWidth.W)
   val waitStore = Bool()
   val dataValid = Bool()
   val rawDataValid = Bool()

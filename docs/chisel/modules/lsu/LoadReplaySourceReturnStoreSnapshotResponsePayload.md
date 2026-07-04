@@ -18,6 +18,9 @@
     - `MemReqBus::gid`
     - `MemReqBus::rid`
     - `MemReqBus::lsID`
+    - `MemReqBus::peID`
+    - `MemReqBus::stid`
+    - `MemReqBus::tid`
     - `MemReqBus::cID`
     - `MemReqBus::eID`
     - `MemReqBus::wait_store`
@@ -31,6 +34,8 @@
     - `MtcLDQInfo::handleSTQReceive`
     - `MtcLDQInfo::waitStore`
     - `MtcLDQInfo::handleMerge`
+  - `model/LinxCoreModel/model/ModelCommon/bus/FlushBus.h`
+    - `FlushBus::match(MemReqBus)`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-RESPONSE-PAYLOAD-001`
 
 ## Purpose
@@ -59,6 +64,12 @@ payload. LinxCoreModel flushes `lookup_su_lu_q` by matching the original load
 `MemReqBus`, not the wait-store sideband, so queued response pruning needs the
 load identity preserved before a precise prune owner can be added.
 
+R423 adds the returned load request context (`peId/stid/tid`). The model
+`FlushBus::match(MemReqBus)` rejects different STIDs before applying optional
+PE/thread filters and BID/LSID ordering, so the response payload must carry the
+same context as the returned `MemReqBus` before precise queued-response pruning
+can be implemented.
+
 ## Interface
 
 | Field | Description |
@@ -66,6 +77,7 @@ load identity preserved before a precise prune owner can be added.
 | `valid` | Payload record is meaningful. |
 | `clusterId` / `entryId` | Returned `MemReqBus.cID/eID` identity. |
 | `requestBid` / `requestGid` / `requestRid` / `requestLoadLsId` | Original load request identity carried by the returned `MemReqBus`; future precise response pruning must use these fields rather than wait-store identity. |
+| `requestPeId` / `requestStid` / `requestTid` | Original load request PE, scalar-thread, and thread context carried for later `FlushBus::match(MemReqBus)` pruning. |
 | `waitStore` | Store lookup found an older not-ready store for at least one requested byte. |
 | `dataValid` | Store data may be merged by `handleSTQReceive`; this is suppressed when `waitStore` is true. |
 | `rawDataValid` | Store lookup found at least one ready resident-store byte, even if wait-store control wins. |
@@ -91,9 +103,9 @@ STQ lookup can discover ready bytes and a later not-ready store in the same
 response, but `MtcLDQInfo::handleSTQReceive` handles `wait_store` first and
 returns before data merge.
 
-The request identity and wait-store identity are intentionally separate:
-`request*` fields describe the load response itself, while `waitStore*` fields
-describe the older store that may block that load.
+The request identity/context and wait-store identity are intentionally
+separate: `request*` fields describe the load response itself, while
+`waitStore*` fields describe the older store that may block that load.
 
 R407 adds `LoadReplaySourceReturnStoreSnapshotResponseApply` as the first
 consumer of the full payload. It converts ordered queue-head payloads into
@@ -104,8 +116,9 @@ wait-store and data-merge intent without mutating LIQ rows yet.
 - Registered LIQ/LDQ wait-store row mutation using the R407 apply intent.
 - Registered LIQ/LDQ data merge using the R407 apply intent.
 - Live external `lookup_su_lu_q` producer wiring behind the R421 raw-response source.
-- Precise queued response pruning after the path also carries the required
-  flush context, including STID and any PE/thread filter.
+- Precise queued response pruning after a `FlushBus`-shaped matcher owner is
+  added. R423 provides the response-side request context but does not perform
+  the match.
 
 ## Verification
 

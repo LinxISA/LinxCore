@@ -18,6 +18,9 @@ object LoadReplaySourceReturnStoreSnapshotRequestSinkReference {
       responseRequestGid: Int,
       responseRequestRid: Int,
       responseRequestLoadLsId: Int,
+      responseRequestPeId: Int,
+      responseRequestStid: Int,
+      responseRequestTid: Int,
       responseWaitStore: Boolean,
       responseDataValid: Boolean,
       responseRawDataValid: Boolean,
@@ -72,6 +75,9 @@ object LoadReplaySourceReturnStoreSnapshotRequestSinkReference {
       responseRequestGid = if (requestAccepted) request.get.gid else 0,
       responseRequestRid = if (requestAccepted) request.get.rid else 0,
       responseRequestLoadLsId = if (requestAccepted) request.get.loadLsId else 0,
+      responseRequestPeId = if (requestAccepted) request.get.peId else 0,
+      responseRequestStid = if (requestAccepted) request.get.stid else 0,
+      responseRequestTid = if (requestAccepted) request.get.tid else 0,
       responseWaitStore = requestAccepted && lookupWaitStore,
       responseDataValid = requestAccepted && lookupDataValid,
       responseRawDataValid = requestAccepted && lookupRawDataValid,
@@ -106,6 +112,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkSpec extends AnyFunSuite {
       gid = 1,
       rid = 8 + idx,
       loadLsId = 16 + idx,
+      peId = 2,
+      stid = 3,
+      tid = 4,
       pc = BigInt("400055f0", 16) + (idx * 4),
       addr = BigInt("40012000", 16) + (idx * 8),
       size = 8,
@@ -130,6 +139,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkSpec extends AnyFunSuite {
     assert(result.responseRequestGid == 1)
     assert(result.responseRequestRid == 10)
     assert(result.responseRequestLoadLsId == 18)
+    assert(result.responseRequestPeId == 2)
+    assert(result.responseRequestStid == 3)
+    assert(result.responseRequestTid == 4)
     assert(!result.responseWaitStore)
     assert(!result.responseDataValid)
   }
@@ -194,6 +206,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkSpec extends AnyFunSuite {
     assert(wait.responseValid)
     assert(wait.responseRequestBid == 7)
     assert(wait.responseRequestLoadLsId == 19)
+    assert(wait.responseRequestPeId == 2)
+    assert(wait.responseRequestStid == 3)
+    assert(wait.responseRequestTid == 4)
     assert(wait.responseWaitStore)
     assert(!wait.responseDataValid)
     assert(wait.responseRawDataValid)
@@ -240,6 +255,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkSpec extends AnyFunSuite {
     assert(sv.contains("io_responseValid"))
     assert(sv.contains("io_responseRequestBid"))
     assert(sv.contains("io_responseRequestLoadLsId"))
+    assert(sv.contains("io_responseRequestPeId"))
+    assert(sv.contains("io_responseRequestStid"))
+    assert(sv.contains("io_responseRequestTid"))
     assert(sv.contains("io_responseWaitStoreRid"))
     assert(sv.contains("io_responseDataMask"))
     assert(sv.contains("io_blockedByResponse"))

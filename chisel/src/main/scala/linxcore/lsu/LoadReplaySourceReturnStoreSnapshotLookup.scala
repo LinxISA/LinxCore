@@ -31,7 +31,10 @@ class LoadReplaySourceReturnStoreSnapshotLookupIO(
     addrWidth,
     pcWidth,
     lineBytes,
-    requestSizeWidth
+    requestSizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val rows = Input(Vec(idEntries, new STQEntryBankRow(
     idEntries,

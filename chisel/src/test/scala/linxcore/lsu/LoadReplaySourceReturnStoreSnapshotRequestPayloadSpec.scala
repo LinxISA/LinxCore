@@ -13,6 +13,9 @@ object LoadReplaySourceReturnStoreSnapshotRequestPayloadReference {
       gid: Int = 0,
       rid: Int = 0,
       loadLsId: Int = 0,
+      peId: Int = 0,
+      stid: Int = 0,
+      tid: Int = 0,
       pc: BigInt = 0,
       addr: BigInt = 0,
       size: Int = 0,
@@ -41,6 +44,9 @@ object LoadReplaySourceReturnStoreSnapshotRequestPayloadReference {
       selectedGid: Int = 0,
       selectedRid: Int = 0,
       selectedLoadLsId: Int = 0,
+      selectedPeId: Int = 0,
+      selectedStid: Int = 0,
+      selectedTid: Int = 0,
       selectedPc: BigInt = 0,
       selectedAddr: BigInt = 0,
       selectedSize: Int = 0,
@@ -59,6 +65,9 @@ object LoadReplaySourceReturnStoreSnapshotRequestPayloadReference {
           gid = selectedGid,
           rid = selectedRid,
           loadLsId = selectedLoadLsId,
+          peId = selectedPeId,
+          stid = selectedStid,
+          tid = selectedTid,
           pc = selectedPc,
           addr = selectedAddr,
           size = selectedSize,
@@ -96,6 +105,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadSpec extends AnyFunSuite 
       selectedGid = 1,
       selectedRid = 7,
       selectedLoadLsId = 9,
+      selectedPeId = 2,
+      selectedStid = 3,
+      selectedTid = 4,
       selectedPc = BigInt("400055f2", 16),
       selectedAddr = BigInt("40012040", 16),
       selectedSize = 8,
@@ -108,6 +120,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadSpec extends AnyFunSuite 
     assert(result.payload.loadId == 2)
     assert(result.payload.bid == 6)
     assert(result.payload.loadLsId == 9)
+    assert(result.payload.peId == 2)
+    assert(result.payload.stid == 3)
+    assert(result.payload.tid == 4)
     assert(result.payload.pc == BigInt("400055f2", 16))
     assert(result.payload.addr == BigInt("40012040", 16))
     assert(result.payload.size == 8)
@@ -170,6 +185,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadSpec extends AnyFunSuite 
     val sv = ChiselStage.emitSystemVerilog(new LoadReplaySourceReturnStoreSnapshotRequestPayload)
 
     assert(sv.contains("module LoadReplaySourceReturnStoreSnapshotRequestPayload"))
+    assert(sv.contains("io_request_peId"))
+    assert(sv.contains("io_request_stid"))
+    assert(sv.contains("io_request_tid"))
     assert(sv.contains("io_request_addr"))
     assert(sv.contains("io_request_requestByteMask"))
     assert(sv.contains("io_blockedByStaleRow"))

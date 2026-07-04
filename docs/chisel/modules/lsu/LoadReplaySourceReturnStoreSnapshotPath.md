@@ -187,11 +187,18 @@ identity. The packet deliberately does not implement selective pruning yet,
 because the current path still lacks a full `FlushBus` context such as STID
 and optional PE/thread filters.
 
+R423 adds the missing returned-load context fields (`peId/stid/tid`) to the
+selected request payload, raw response boundary, sink-generated response, and
+response FIFO. The reduced top drives selected context from its single
+`io.peId/io.threadId` inputs and keeps dormant raw response context tied to
+zero while `rawResponseLiveEnable=false`. Selective request/response pruning
+still remains deferred to a separate `FlushBus` matcher owner.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `rowMutationLiveEnable`, `rawResponseLiveEnable`, `sinkReady`,
 raw STQ response, SCB return, wait-store, data-valid, raw-data, wait-store
-identity, response request identity, and data-payload inputs false or zero, and
-it ties external stale-head evidence false, so
+identity, response request identity/context, and data-payload inputs false or
+zero, and it ties external stale-head evidence false, so
 `storeSnapshotReady` still forwards the legacy resident-store snapshot
 readiness. The reduced `selectedRepickMask`, `selectedRowValidMask`, and
 `selectedRowScbReturnedMask` now feed head-state proof inside the path, but no
@@ -226,6 +233,7 @@ child instance.
 | `selectedLoadId` | Reduced LIQ slot identity for the selected replay row. |
 | `selectedBid` / `selectedGid` / `selectedRid` | Selected row ROB identity sidecars. |
 | `selectedLoadLsId` | Selected row load/store ordering ID for future STQ older-store filtering. |
+| `selectedPeId` / `selectedStid` / `selectedTid` | Selected row `MemReqBus` PE, scalar-thread, and thread context copied into the request payload for later `FlushBus` matching. |
 | `selectedPc` | Selected row PC for diagnostics and wait-store identity. |
 | `selectedAddr` / `selectedSize` | Selected row load address window. |
 | `selectedRequestByteMask` | Selected row 64-byte request mask from `LoadInflightLaunchSelect`. |
@@ -236,6 +244,7 @@ child instance.
 | `responseHeadStale` | Future external row-state evidence proving the raw queue head targets a row that is no longer repick. Current top ties this false while the R400 reduced proof uses `selectedRepickMask`. |
 | `scbReturned` | Future SCB source-return evidence arrived before STQ response acceptance. |
 | `responseRequestBid` / `responseRequestGid` / `responseRequestRid` / `responseRequestLoadLsId` | Future raw response's original load request identity; this is separate from wait-store identity and is the basis for later precise response flush pruning. |
+| `responseRequestPeId` / `responseRequestStid` / `responseRequestTid` | Future raw response's original load request context for later `FlushBus::match(MemReqBus)` pruning. |
 | `waitStoreIn` | Future raw response asks the row to wait on a store. |
 | `dataValidIn` | Future raw response carries mergeable store data. |
 | `rawDataValidIn` | Future raw response contains resident-store data bytes, even if wait-store suppresses merge. |

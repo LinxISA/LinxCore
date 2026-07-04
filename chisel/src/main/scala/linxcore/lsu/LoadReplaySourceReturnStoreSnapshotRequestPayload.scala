@@ -12,7 +12,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Bundle {
   val valid = Bool()
   val clusterId = UInt(clusterIdWidth.W)
@@ -22,6 +25,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle(
   val gid = new ROBID(idEntries)
   val rid = new ROBID(idEntries)
   val loadLsId = new ROBID(idEntries)
+  val peId = UInt(peIdWidth.W)
+  val stid = UInt(stidWidth.W)
+  val tid = UInt(tidWidth.W)
   val pc = UInt(pcWidth.W)
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
@@ -36,7 +42,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadIO(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Bundle {
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -50,6 +59,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadIO(
   val selectedGid = Input(new ROBID(idEntries))
   val selectedRid = Input(new ROBID(idEntries))
   val selectedLoadLsId = Input(new ROBID(idEntries))
+  val selectedPeId = Input(UInt(peIdWidth.W))
+  val selectedStid = Input(UInt(stidWidth.W))
+  val selectedTid = Input(UInt(tidWidth.W))
   val selectedPc = Input(UInt(pcWidth.W))
   val selectedAddr = Input(UInt(addrWidth.W))
   val selectedSize = Input(UInt(sizeWidth.W))
@@ -66,7 +78,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayloadIO(
     addrWidth,
     pcWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val blockedByDisabled = Output(Bool())
   val blockedByFlush = Output(Bool())
@@ -83,7 +98,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayload(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -94,6 +112,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayload(
   require(addrWidth >= 7, "request payload needs 64-byte line addresses")
   require(lineBytes == 64, "request payload currently models 64-byte scalar cachelines")
   require(sizeWidth >= 7, "sizeWidth must cover 64-byte scalar lines")
+  require(peIdWidth > 0, "peIdWidth must be positive")
+  require(stidWidth > 0, "stidWidth must be positive")
+  require(tidWidth > 0, "tidWidth must be positive")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotRequestPayloadIO(
     liqEntries,
@@ -103,7 +124,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayload(
     addrWidth,
     pcWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
 
   val active = io.enable && !io.flush
@@ -118,7 +142,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayload(
     addrWidth,
     pcWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   )))
 
   when(requestValid) {
@@ -130,6 +157,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestPayload(
     request.gid := io.selectedGid
     request.rid := io.selectedRid
     request.loadLsId := io.selectedLoadLsId
+    request.peId := io.selectedPeId
+    request.stid := io.selectedStid
+    request.tid := io.selectedTid
     request.pc := io.selectedPc
     request.addr := io.selectedAddr
     request.size := io.selectedSize

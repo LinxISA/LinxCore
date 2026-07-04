@@ -83,6 +83,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueSpec extends AnyFunSuite {
       gid = 1,
       rid = 8 + idx,
       loadLsId = 16 + idx,
+      peId = 2,
+      stid = 3,
+      tid = 4,
       pc = BigInt("400055f0", 16) + (idx * 4),
       addr = BigInt("40012000", 16) + (idx * 8),
       size = 8,
@@ -105,6 +108,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueSpec extends AnyFunSuite {
     val popFirst = step(enqueueSecond.next, depth = 2, enable = true, flush = false, dequeueReady = true)
     assert(popFirst.headConsumed)
     assert(popFirst.head.contains(first))
+    assert(popFirst.head.exists(_.peId == 2))
+    assert(popFirst.head.exists(_.stid == 3))
+    assert(popFirst.head.exists(_.tid == 4))
     assert(popFirst.count == 1)
 
     val popSecond = step(popFirst.next, depth = 2, enable = true, flush = false, dequeueReady = true)
@@ -205,6 +211,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueSpec extends AnyFunSuite {
 
     assert(sv.contains("module LoadReplaySourceReturnStoreSnapshotRequestQueue"))
     assert(sv.contains("io_enqueueAccepted"))
+    assert(sv.contains("io_head_peId"))
+    assert(sv.contains("io_head_stid"))
+    assert(sv.contains("io_head_tid"))
     assert(sv.contains("io_head_valid"))
     assert(sv.contains("io_headConsumed"))
     assert(sv.contains("io_blockedByFull"))

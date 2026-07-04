@@ -11,6 +11,9 @@
     - `MemReqBus::gid`
     - `MemReqBus::rid`
     - `MemReqBus::lsID`
+    - `MemReqBus::peID`
+    - `MemReqBus::stid`
+    - `MemReqBus::tid`
     - `MemReqBus::cID`
     - `MemReqBus::eID`
     - `MemReqBus::wait_store`
@@ -29,6 +32,8 @@
     - `MtcLDQInfo::handleSTQReceive`
     - `MtcLDQInfo::waitStore`
     - `MtcLDQInfo::handleMerge`
+  - `model/LinxCoreModel/model/ModelCommon/bus/FlushBus.h`
+    - `FlushBus::match(MemReqBus)`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponsePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseQueue.scala`
@@ -59,6 +64,11 @@ the raw response boundary must carry both the load identity
 (`requestBid/requestGid/requestRid/requestLoadLsId`) and any wait-store
 sideband.
 
+R423 widens that raw candidate with the original load PE/STID/TID context. The
+same returned `MemReqBus` is what the model flush matcher prunes from
+`lookup_su_lu_q`, and that matcher uses STID plus optional PE/thread filters
+before ordering comparisons.
+
 ## Interface
 
 ### Inputs
@@ -71,6 +81,7 @@ sideband.
 | `rawValid` | A raw store-unit response candidate is visible. |
 | `clusterId` / `entryId` | Returned `MemReqBus.cID/eID` identity. |
 | `requestBid` / `requestGid` / `requestRid` / `requestLoadLsId` | Original load request identity from the returned `MemReqBus`; this is the future queued-response flush identity. |
+| `requestPeId` / `requestStid` / `requestTid` | Original load request PE, scalar-thread, and thread context from the returned `MemReqBus`. |
 | `waitStore` | Raw response asks the target row to rewait on a not-ready store. |
 | `dataValid` | Raw response has model-visible merge data. |
 | `rawDataValid` | Raw response found resident-store bytes before wait-store suppression. |
@@ -117,9 +128,10 @@ When `responseValid` is true, the module copies the full raw sideband set into
 the emitted payload is zero and the path can still admit a request-sink
 generated response into the queue.
 
-The raw sideband set keeps load request identity separate from wait-store
-identity. `FlushBus::match(MemReqBus)` applies to the returned load request
-fields; wait-store fields are consumed later by row mutation and wakeup logic.
+The raw sideband set keeps load request identity/context separate from
+wait-store identity. `FlushBus::match(MemReqBus)` applies to the returned load
+request fields; wait-store fields are consumed later by row mutation and
+wakeup logic.
 
 The consistency diagnostics are candidates, not admission blockers. They
 remain visible while `liveEnable=false` so future wiring can be checked before
@@ -139,7 +151,8 @@ visible during flush is reported through `blockedByFlush`.
 ## Deferred Owners
 
 - Live external `lookup_su_lu_q` producer wiring into this source owner.
-- Precise queued-response pruning after a raw response has entered the FIFO.
+- Precise queued-response pruning after a raw response has entered the FIFO and
+  a `FlushBus` matcher owner exists.
 - Full multi-cluster stale-row evidence and multi-token response ownership.
 - Registered LIQ/LDQ wait-store mutation and returned-data merge.
 

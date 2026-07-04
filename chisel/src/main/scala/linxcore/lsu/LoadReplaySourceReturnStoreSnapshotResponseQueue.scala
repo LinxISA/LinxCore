@@ -10,7 +10,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueEntry(
     clusterIdWidth: Int,
     entryIdWidth: Int,
     pcWidth: Int,
-    lineBytes: Int)
+    lineBytes: Int,
+    peIdWidth: Int,
+    stidWidth: Int,
+    tidWidth: Int)
     extends Bundle {
   val clusterId = UInt(clusterIdWidth.W)
   val entryId = UInt(entryIdWidth.W)
@@ -18,6 +21,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueEntry(
   val requestGid = new ROBID(idEntries)
   val requestRid = new ROBID(idEntries)
   val requestLoadLsId = new ROBID(idEntries)
+  val requestPeId = UInt(peIdWidth.W)
+  val requestStid = UInt(stidWidth.W)
+  val requestTid = UInt(tidWidth.W)
   val waitStore = Bool()
   val dataValid = Bool()
   val rawDataValid = Bool()
@@ -37,7 +43,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
     entryIdWidth: Int,
     depth: Int,
     pcWidth: Int,
-    lineBytes: Int)
+    lineBytes: Int,
+    peIdWidth: Int,
+    stidWidth: Int,
+    tidWidth: Int)
     extends Bundle {
   private val countWidth = log2Ceil(depth + 1)
 
@@ -49,7 +58,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
     clusterIdWidth,
     entryIdWidth,
     pcWidth,
-    lineBytes
+    lineBytes,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val dequeueReady = Input(Bool())
 
@@ -62,7 +74,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
     clusterIdWidth,
     entryIdWidth,
     pcWidth,
-    lineBytes
+    lineBytes,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val headClusterId = Output(UInt(clusterIdWidth.W))
   val headEntryId = Output(UInt(entryIdWidth.W))
@@ -70,6 +85,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
   val headRequestGid = Output(new ROBID(idEntries))
   val headRequestRid = Output(new ROBID(idEntries))
   val headRequestLoadLsId = Output(new ROBID(idEntries))
+  val headRequestPeId = Output(UInt(peIdWidth.W))
+  val headRequestStid = Output(UInt(stidWidth.W))
+  val headRequestTid = Output(UInt(tidWidth.W))
   val headWaitStore = Output(Bool())
   val headDataValid = Output(Bool())
   val headRawDataValid = Output(Bool())
@@ -97,7 +115,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     val entryIdWidth: Int = 4,
     val depth: Int = 2,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Module {
   require(idEntries > 1, "idEntries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "idEntries must be a power of two")
@@ -106,6 +127,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
   require(depth > 0, "response queue depth must be nonzero")
   require(pcWidth > 0, "pcWidth must be positive")
   require(lineBytes == 64, "response queue currently carries 64-byte scalar line data")
+  require(peIdWidth > 0, "peIdWidth must be positive")
+  require(stidWidth > 0, "stidWidth must be positive")
+  require(tidWidth > 0, "tidWidth must be positive")
 
   private val ptrWidth = math.max(1, log2Ceil(depth))
   private val countWidth = log2Ceil(depth + 1)
@@ -116,7 +140,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     entryIdWidth = entryIdWidth,
     depth = depth,
     pcWidth = pcWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth
   ))
 
   private def zeroEntry: LoadReplaySourceReturnStoreSnapshotResponseQueueEntry = {
@@ -125,7 +152,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
       clusterIdWidth = clusterIdWidth,
       entryIdWidth = entryIdWidth,
       pcWidth = pcWidth,
-      lineBytes = lineBytes
+      lineBytes = lineBytes,
+      peIdWidth = peIdWidth,
+      stidWidth = stidWidth,
+      tidWidth = tidWidth
     ))
     entry := 0.U.asTypeOf(entry)
     entry
@@ -137,7 +167,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
       clusterIdWidth = clusterIdWidth,
       entryIdWidth = entryIdWidth,
       pcWidth = pcWidth,
-      lineBytes = lineBytes
+      lineBytes = lineBytes,
+      peIdWidth = peIdWidth,
+      stidWidth = stidWidth,
+      tidWidth = tidWidth
     ))
     entry.clusterId := io.enqueue.clusterId
     entry.entryId := io.enqueue.entryId
@@ -145,6 +178,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     entry.requestGid := io.enqueue.requestGid
     entry.requestRid := io.enqueue.requestRid
     entry.requestLoadLsId := io.enqueue.requestLoadLsId
+    entry.requestPeId := io.enqueue.requestPeId
+    entry.requestStid := io.enqueue.requestStid
+    entry.requestTid := io.enqueue.requestTid
     entry.waitStore := io.enqueue.waitStore
     entry.dataValid := io.enqueue.dataValid
     entry.rawDataValid := io.enqueue.rawDataValid
@@ -181,7 +217,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     clusterIdWidth,
     entryIdWidth,
     pcWidth,
-    lineBytes
+    lineBytes,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   )))
   when(headValid) {
     headPayload.valid := true.B
@@ -191,6 +230,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     headPayload.requestGid := headEntry.requestGid
     headPayload.requestRid := headEntry.requestRid
     headPayload.requestLoadLsId := headEntry.requestLoadLsId
+    headPayload.requestPeId := headEntry.requestPeId
+    headPayload.requestStid := headEntry.requestStid
+    headPayload.requestTid := headEntry.requestTid
     headPayload.waitStore := headEntry.waitStore
     headPayload.dataValid := headEntry.dataValid
     headPayload.rawDataValid := headEntry.rawDataValid
@@ -240,6 +282,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
   io.headRequestGid := headPayload.requestGid
   io.headRequestRid := headPayload.requestRid
   io.headRequestLoadLsId := headPayload.requestLoadLsId
+  io.headRequestPeId := headPayload.requestPeId
+  io.headRequestStid := headPayload.requestStid
+  io.headRequestTid := headPayload.requestTid
   io.headWaitStore := headPayload.waitStore
   io.headDataValid := headPayload.dataValid
   io.headRawDataValid := headPayload.rawDataValid

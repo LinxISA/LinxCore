@@ -13,7 +13,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Bundle {
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -26,7 +29,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
     addrWidth,
     pcWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val rawSinkReady = Input(Bool())
   val responseReady = Input(Bool())
@@ -48,7 +54,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
     clusterIdWidth,
     entryIdWidth,
     pcWidth,
-    lineBytes
+    lineBytes,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val responseValid = Output(Bool())
   val responseClusterId = Output(UInt(clusterIdWidth.W))
@@ -57,6 +66,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
   val responseRequestGid = Output(new ROBID(idEntries))
   val responseRequestRid = Output(new ROBID(idEntries))
   val responseRequestLoadLsId = Output(new ROBID(idEntries))
+  val responseRequestPeId = Output(UInt(peIdWidth.W))
+  val responseRequestStid = Output(UInt(stidWidth.W))
+  val responseRequestTid = Output(UInt(tidWidth.W))
   val responseWaitStore = Output(Bool())
   val responseDataValid = Output(Bool())
   val responseRawDataValid = Output(Bool())
@@ -84,7 +96,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     val addrWidth: Int = 64,
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
-    val sizeWidth: Int = 7)
+    val sizeWidth: Int = 7,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -95,6 +110,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
   require(addrWidth >= 7, "request sink needs 64-byte line addresses")
   require(lineBytes == 64, "request sink currently models 64-byte scalar cachelines")
   require(sizeWidth >= 7, "sizeWidth must cover 64-byte scalar lines")
+  require(peIdWidth > 0, "peIdWidth must be positive")
+  require(stidWidth > 0, "stidWidth must be positive")
+  require(tidWidth > 0, "tidWidth must be positive")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
     liqEntries,
@@ -104,7 +122,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     addrWidth,
     pcWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
 
   val active = io.enable && !io.flush
@@ -118,7 +139,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     clusterIdWidth,
     entryIdWidth,
     pcWidth,
-    lineBytes
+    lineBytes,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   )))
 
   when(requestAccepted) {
@@ -129,6 +153,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     response.requestGid := io.request.gid
     response.requestRid := io.request.rid
     response.requestLoadLsId := io.request.loadLsId
+    response.requestPeId := io.request.peId
+    response.requestStid := io.request.stid
+    response.requestTid := io.request.tid
     response.waitStore := io.lookupWaitStore
     response.dataValid := io.lookupDataValid
     response.rawDataValid := io.lookupRawDataValid
@@ -154,6 +181,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
   io.responseRequestGid := response.requestGid
   io.responseRequestRid := response.requestRid
   io.responseRequestLoadLsId := response.requestLoadLsId
+  io.responseRequestPeId := response.requestPeId
+  io.responseRequestStid := response.requestStid
+  io.responseRequestTid := response.requestTid
   io.responseWaitStore := response.waitStore
   io.responseDataValid := response.dataValid
   io.responseRawDataValid := response.rawDataValid

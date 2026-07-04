@@ -12,7 +12,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueIO(
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
-    val depth: Int)
+    val depth: Int,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Bundle {
   private val countWidth = log2Ceil(depth + 1)
 
@@ -27,7 +30,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueIO(
     addrWidth,
     pcWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val dequeueReady = Input(Bool())
 
@@ -43,7 +49,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueIO(
     addrWidth,
     pcWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val headConsumed = Output(Bool())
   val pending = Output(Bool())
@@ -64,7 +73,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
     val pcWidth: Int = 64,
     val lineBytes: Int = 64,
     val sizeWidth: Int = 7,
-    val depth: Int = 2)
+    val depth: Int = 2,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -76,6 +88,9 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
   require(lineBytes == 64, "request queue currently models 64-byte scalar cachelines")
   require(sizeWidth >= 7, "sizeWidth must cover 64-byte scalar lines")
   require(depth > 0, "request queue depth must be nonzero")
+  require(peIdWidth > 0, "peIdWidth must be positive")
+  require(stidWidth > 0, "stidWidth must be positive")
+  require(tidWidth > 0, "tidWidth must be positive")
 
   private val ptrWidth = math.max(1, log2Ceil(depth))
   private val countWidth = log2Ceil(depth + 1)
@@ -89,7 +104,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
     pcWidth,
     lineBytes,
     sizeWidth,
-    depth
+    depth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
 
   private def zeroRequest: LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle = {
@@ -101,7 +119,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
       addrWidth,
       pcWidth,
       lineBytes,
-      sizeWidth
+      sizeWidth,
+      peIdWidth,
+      stidWidth,
+      tidWidth
     ))
     request := 0.U.asTypeOf(request)
     request

@@ -11,6 +11,9 @@ object LoadReplaySourceReturnStoreSnapshotResponseQueueReference {
       requestGid: Int = 0,
       requestRid: Int = 0,
       requestLoadLsId: Int = 0,
+      requestPeId: Int = 0,
+      requestStid: Int = 0,
+      requestTid: Int = 0,
       waitStore: Boolean = false,
       dataValid: Boolean = false,
       rawDataValid: Boolean = false,
@@ -97,6 +100,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
       requestGid = 1,
       requestRid = 6,
       requestLoadLsId = 8,
+      requestPeId = 2,
+      requestStid = 3,
+      requestTid = 4,
       dataValid = true,
       rawDataValid = true,
       dataMask = BigInt("ff", 16),
@@ -108,6 +114,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
       requestGid = 1,
       requestRid = 7,
       requestLoadLsId = 9,
+      requestPeId = 5,
+      requestStid = 6,
+      requestTid = 7,
       waitStore = true,
       rawDataValid = true,
       dataSuppressedByWait = true,
@@ -134,6 +143,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
     assert(popFirst.head.contains(first))
     assert(popFirst.head.exists(_.requestBid == 4))
     assert(popFirst.head.exists(_.requestLoadLsId == 8))
+    assert(popFirst.head.exists(_.requestPeId == 2))
+    assert(popFirst.head.exists(_.requestStid == 3))
+    assert(popFirst.head.exists(_.requestTid == 4))
     assert(popFirst.head.exists(_.dataMask == BigInt("ff", 16)))
     assert(popFirst.count == 1)
 
@@ -141,6 +153,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
     assert(popSecond.headConsumed)
     assert(popSecond.head.contains(second))
     assert(popSecond.head.exists(_.requestRid == 7))
+    assert(popSecond.head.exists(_.requestPeId == 5))
+    assert(popSecond.head.exists(_.requestStid == 6))
+    assert(popSecond.head.exists(_.requestTid == 7))
     assert(popSecond.head.exists(_.waitStoreRid == 9))
     assert(popSecond.head.exists(_.dataSuppressedByWait))
     assert(popSecond.empty)
@@ -254,6 +269,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_headConsumed"))
     assert(sv.contains("io_headRequestBid"))
     assert(sv.contains("io_headRequestLoadLsId"))
+    assert(sv.contains("io_headRequestPeId"))
+    assert(sv.contains("io_headRequestStid"))
+    assert(sv.contains("io_headRequestTid"))
     assert(sv.contains("io_headWaitStoreRid"))
     assert(sv.contains("io_headDataMask"))
     assert(sv.contains("io_blockedByFull"))

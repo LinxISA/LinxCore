@@ -15,6 +15,12 @@
     - `MtcStoreUnit::handleLoadReq`
   - `model/LinxCoreModel/model/mtccore/lsu/store_unit/stq.cpp`
     - `MtcSTQ::lookupForLoad`
+  - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
+    - `MemReqBus::peID`
+    - `MemReqBus::stid`
+    - `MemReqBus::tid`
+  - `model/LinxCoreModel/model/ModelCommon/bus/FlushBus.h`
+    - `FlushBus::match(MemReqBus)`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotAcceptedToken.scala`
@@ -44,6 +50,13 @@ sink, raw response source, or LIQ row mutation. R403 adds the adjacent request
 queue that consumes this payload, while the current top still ties live request
 enable false.
 
+R423 adds the model replay context sidecars `peId`, `stid`, and `tid` to the
+accepted request payload. LinxCoreModel returns the same `MemReqBus` through
+`lookup_su_lu_q`, and `FlushBus::match(MemReqBus)` checks STID first plus
+optional PE/thread filters before BID/LSID age comparisons. The reduced top
+currently sources these fields from its single active `peId/threadId` inputs;
+LIQ row residency remains unchanged in this packet.
+
 ## Interface
 
 ### Inputs
@@ -59,6 +72,7 @@ enable false.
 | `selectedLoadId` | Reduced LIQ slot identity. |
 | `selectedBid` / `selectedGid` / `selectedRid` | ROB identity carried with the request. |
 | `selectedLoadLsId` | Model load/store ordering ID used by STQ older-store filtering. |
+| `selectedPeId` / `selectedStid` / `selectedTid` | Model `MemReqBus` PE, scalar-thread, and thread context carried for later precise request/response pruning. |
 | `selectedPc` | Load PC for diagnostics and wait-store identity. |
 | `selectedAddr` / `selectedSize` | Load address window consumed by STQ overlap checks. |
 | `selectedRequestByteMask` | 64-byte request mask already shaped by `LoadInflightLaunchSelect`. |
@@ -91,8 +105,8 @@ requestValid     = captureCandidate && selectedValid && selectedRepick
 ```
 
 When `requestValid` is true, the module copies the selected row identity,
-ordering IDs, PC, address, size, and byte mask into `request`. Otherwise the
-payload is zero and invalid. This mirrors the model handoff where
+ordering IDs, PE/STID/TID context, PC, address, size, and byte mask into
+`request`. Otherwise the payload is zero and invalid. This mirrors the model handoff where
 `handleL1Lookup` pushes the selected row's `MemReqBus` into `lookup_lu_su_q`,
 but keeps the actual queue and store-unit data lookup as later owners.
 
@@ -112,7 +126,8 @@ request queue owner.
 
 - Raw store-unit request sink and STQ data lookup behind the R403 request queue.
 - Raw `lookup_su_lu_q` response source.
-- Precise queued-request and queued-response flush pruning.
+- Precise queued-request and queued-response flush pruning from the carried
+  MemReq context plus a full `FlushBus` owner.
 - Wait-store row mutation and returned-data merge.
 
 ## Verification

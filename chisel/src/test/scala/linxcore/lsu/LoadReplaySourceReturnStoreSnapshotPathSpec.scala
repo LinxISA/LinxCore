@@ -76,6 +76,9 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       responseRequestGid: Int = 0,
       responseRequestRid: Int = 0,
       responseRequestLoadLsId: Int = 0,
+      responseRequestPeId: Int = 0,
+      responseRequestStid: Int = 0,
+      responseRequestTid: Int = 0,
       responseHeadStale: Boolean = false,
       scbReturned: Boolean = false,
       waitStoreIn: Boolean = false,
@@ -87,6 +90,9 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedGid: Int = 0,
       selectedRid: Int = 0,
       selectedLoadLsId: Int = 0,
+      selectedPeId: Int = 0,
+      selectedStid: Int = 0,
+      selectedTid: Int = 0,
       selectedPc: BigInt = 0,
       selectedAddr: BigInt = 0,
       selectedSize: Int = 0,
@@ -109,6 +115,9 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestGid = responseRequestGid,
       requestRid = responseRequestRid,
       requestLoadLsId = responseRequestLoadLsId,
+      requestPeId = responseRequestPeId,
+      requestStid = responseRequestStid,
+      requestTid = responseRequestTid,
       waitStore = waitStoreIn,
       dataValid = dataValidIn,
       rawDataValid = rawDataValidIn,
@@ -168,6 +177,9 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedGid = selectedGid,
       selectedRid = selectedRid,
       selectedLoadLsId = selectedLoadLsId,
+      selectedPeId = selectedPeId,
+      selectedStid = selectedStid,
+      selectedTid = selectedTid,
       selectedPc = selectedPc,
       selectedAddr = selectedAddr,
       selectedSize = selectedSize,
@@ -204,6 +216,9 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
           requestGid = requestSink.responseRequestGid,
           requestRid = requestSink.responseRequestRid,
           requestLoadLsId = requestSink.responseRequestLoadLsId,
+          requestPeId = requestSink.responseRequestPeId,
+          requestStid = requestSink.responseRequestStid,
+          requestTid = requestSink.responseRequestTid,
           waitStore = requestSink.responseWaitStore,
           dataValid = requestSink.responseDataValid))
       } else {
@@ -217,6 +232,9 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
         requestGid = response.requestGid,
         requestRid = response.requestRid,
         requestLoadLsId = response.requestLoadLsId,
+        requestPeId = response.requestPeId,
+        requestStid = response.requestStid,
+        requestTid = response.requestTid,
         waitStore = response.waitStore,
         dataValid = response.dataValid,
         rawDataValid = response.rawDataValid,
@@ -424,12 +442,18 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       responseRequestGid = 1,
       responseRequestRid = 7,
       responseRequestLoadLsId = 9,
+      responseRequestPeId = 2,
+      responseRequestStid = 3,
+      responseRequestTid = 4,
       scbReturned = true,
       selectedLoadId = 2,
       selectedBid = 6,
       selectedGid = 1,
       selectedRid = 7,
       selectedLoadLsId = 9,
+      selectedPeId = 2,
+      selectedStid = 3,
+      selectedTid = 4,
       selectedPc = BigInt("400055f2", 16),
       selectedAddr = BigInt("40012040", 16),
       selectedSize = 8,
@@ -465,6 +489,9 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       selectedGid = 1,
       selectedRid = 7,
       selectedLoadLsId = 9,
+      selectedPeId = 2,
+      selectedStid = 3,
+      selectedTid = 4,
       selectedPc = BigInt("400055f2", 16),
       selectedAddr = BigInt("40012040", 16),
       selectedSize = 8,
@@ -494,6 +521,9 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       selectedGid = 1,
       selectedRid = 6,
       selectedLoadLsId = 7,
+      selectedPeId = 2,
+      selectedStid = 3,
+      selectedTid = 4,
       selectedPc = BigInt("400055e8", 16),
       selectedAddr = BigInt("40012020", 16),
       selectedSize = 8,
@@ -569,12 +599,21 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_selectedRowValidMask"))
     assert(sv.contains("io_selectedRowScbReturnedMask"))
     assert(sv.contains("io_requestPayload_requestByteMask"))
+    assert(sv.contains("io_requestPayload_peId"))
+    assert(sv.contains("io_requestPayload_stid"))
+    assert(sv.contains("io_requestPayload_tid"))
     assert(sv.contains("io_requestQueueHead_requestByteMask"))
+    assert(sv.contains("io_requestQueueHead_peId"))
+    assert(sv.contains("io_requestQueueHead_stid"))
+    assert(sv.contains("io_requestQueueHead_tid"))
     assert(sv.contains("io_lookupResponseDataValid"))
     assert(sv.contains("io_selectedLineData"))
     assert(sv.contains("io_rawDataValidIn"))
     assert(sv.contains("io_responseRequestBid_value"))
     assert(sv.contains("io_responseRequestLoadLsId_value"))
+    assert(sv.contains("io_responseRequestPeId"))
+    assert(sv.contains("io_responseRequestStid"))
+    assert(sv.contains("io_responseRequestTid"))
     assert(sv.contains("io_responseWaitStoreRid_value"))
     assert(sv.contains("io_responseDataMask"))
     assert(sv.contains("io_rawResponseSourceBlockedByLiveDisabled"))

@@ -47,6 +47,9 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val selectedGid = Input(new ROBID(idEntries))
   val selectedRid = Input(new ROBID(idEntries))
   val selectedLoadLsId = Input(new ROBID(idEntries))
+  val selectedPeId = Input(UInt(peIdWidth.W))
+  val selectedStid = Input(UInt(stidWidth.W))
+  val selectedTid = Input(UInt(tidWidth.W))
   val selectedPc = Input(UInt(pcWidth.W))
   val selectedAddr = Input(UInt(addrWidth.W))
   val selectedSize = Input(UInt(sizeWidth.W))
@@ -61,6 +64,9 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val responseRequestGid = Input(new ROBID(idEntries))
   val responseRequestRid = Input(new ROBID(idEntries))
   val responseRequestLoadLsId = Input(new ROBID(idEntries))
+  val responseRequestPeId = Input(UInt(peIdWidth.W))
+  val responseRequestStid = Input(UInt(stidWidth.W))
+  val responseRequestTid = Input(UInt(tidWidth.W))
   val waitStoreIn = Input(Bool())
   val dataValidIn = Input(Bool())
   val rawDataValidIn = Input(Bool())
@@ -218,7 +224,10 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
     addrWidth,
     pcWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val requestPayloadBlockedByNoIssue = Output(Bool())
   val requestPayloadBlockedByNoSelected = Output(Bool())
@@ -236,7 +245,10 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
     addrWidth,
     pcWidth,
     lineBytes,
-    sizeWidth
+    sizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val requestQueueHeadConsumed = Output(Bool())
   val requestQueuePending = Output(Bool())
@@ -324,7 +336,10 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     addrWidth = addrWidth,
     pcWidth = pcWidth,
     lineBytes = lineBytes,
-    sizeWidth = sizeWidth
+    sizeWidth = sizeWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth
   ))
   val requestQueue = Module(new LoadReplaySourceReturnStoreSnapshotRequestQueue(
     liqEntries = liqEntries,
@@ -335,7 +350,10 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     pcWidth = pcWidth,
     lineBytes = lineBytes,
     sizeWidth = sizeWidth,
-    depth = requestQueueDepth
+    depth = requestQueueDepth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth
   ))
   val requestSink = Module(new LoadReplaySourceReturnStoreSnapshotRequestSink(
     liqEntries = liqEntries,
@@ -345,7 +363,10 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     addrWidth = addrWidth,
     pcWidth = pcWidth,
     lineBytes = lineBytes,
-    sizeWidth = sizeWidth
+    sizeWidth = sizeWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth
   ))
   val lookup = Module(new LoadReplaySourceReturnStoreSnapshotLookup(
     liqEntries = liqEntries,
@@ -380,14 +401,20 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     entryIdWidth = entryIdWidth,
     depth = responseQueueDepth,
     pcWidth = pcWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth
   ))
   val rawResponseSource = Module(new LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     idEntries = idEntries,
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth,
     pcWidth = pcWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth
   ))
   val identityMatch = Module(new LoadReplaySourceReturnStoreSnapshotIdentityMatch(
     clusterIdWidth = clusterIdWidth,
@@ -406,7 +433,10 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth,
     pcWidth = pcWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth
   ))
   val rowStatePlan = Module(new LoadReplaySourceReturnStoreSnapshotRowStatePlan(
     idEntries = idEntries,
@@ -458,6 +488,9 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   requestPayload.io.selectedGid := io.selectedGid
   requestPayload.io.selectedRid := io.selectedRid
   requestPayload.io.selectedLoadLsId := io.selectedLoadLsId
+  requestPayload.io.selectedPeId := io.selectedPeId
+  requestPayload.io.selectedStid := io.selectedStid
+  requestPayload.io.selectedTid := io.selectedTid
   requestPayload.io.selectedPc := io.selectedPc
   requestPayload.io.selectedAddr := io.selectedAddr
   requestPayload.io.selectedSize := io.selectedSize
@@ -518,6 +551,9 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   rawResponseSource.io.requestGid := io.responseRequestGid
   rawResponseSource.io.requestRid := io.responseRequestRid
   rawResponseSource.io.requestLoadLsId := io.responseRequestLoadLsId
+  rawResponseSource.io.requestPeId := io.responseRequestPeId
+  rawResponseSource.io.requestStid := io.responseRequestStid
+  rawResponseSource.io.requestTid := io.responseRequestTid
   rawResponseSource.io.waitStore := io.waitStoreIn
   rawResponseSource.io.dataValid := io.dataValidIn
   rawResponseSource.io.rawDataValid := io.rawDataValidIn

@@ -11,6 +11,9 @@ object LoadReplaySourceReturnStoreSnapshotRawResponseSourceReference {
       requestGid: Int = 0,
       requestRid: Int = 0,
       requestLoadLsId: Int = 0,
+      requestPeId: Int = 0,
+      requestStid: Int = 0,
+      requestTid: Int = 0,
       waitStore: Boolean = false,
       dataValid: Boolean = false,
       rawDataValid: Boolean = false,
@@ -47,6 +50,9 @@ object LoadReplaySourceReturnStoreSnapshotRawResponseSourceReference {
       requestGid: Int = 0,
       requestRid: Int = 0,
       requestLoadLsId: Int = 0,
+      requestPeId: Int = 0,
+      requestStid: Int = 0,
+      requestTid: Int = 0,
       waitStore: Boolean = false,
       dataValid: Boolean = false,
       rawDataValid: Boolean = false,
@@ -70,6 +76,9 @@ object LoadReplaySourceReturnStoreSnapshotRawResponseSourceReference {
           requestGid = requestGid,
           requestRid = requestRid,
           requestLoadLsId = requestLoadLsId,
+          requestPeId = requestPeId,
+          requestStid = requestStid,
+          requestTid = requestTid,
           waitStore = waitStore,
           dataValid = dataValid,
           rawDataValid = rawDataValid,
@@ -115,6 +124,9 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceSpec extends AnyFunSui
       requestGid = 1,
       requestRid = 7,
       requestLoadLsId = 9,
+      requestPeId = 2,
+      requestStid = 3,
+      requestTid = 4,
       waitStore = true,
       dataValid = false,
       rawDataValid = true,
@@ -134,6 +146,9 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceSpec extends AnyFunSui
     assert(result.response.exists(_.requestGid == 1))
     assert(result.response.exists(_.requestRid == 7))
     assert(result.response.exists(_.requestLoadLsId == 9))
+    assert(result.response.exists(_.requestPeId == 2))
+    assert(result.response.exists(_.requestStid == 3))
+    assert(result.response.exists(_.requestTid == 4))
     assert(result.response.exists(_.waitStoreRid == 7))
     assert(result.response.exists(_.dataSuppressedByWait))
     assert(result.response.exists(_.dataMask == BigInt("00ff", 16)))
@@ -198,6 +213,9 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceSpec extends AnyFunSui
     assert(sv.contains("io_liveEnable"))
     assert(sv.contains("io_requestBid_value"))
     assert(sv.contains("io_response_requestLoadLsId_value"))
+    assert(sv.contains("io_response_requestPeId"))
+    assert(sv.contains("io_response_requestStid"))
+    assert(sv.contains("io_response_requestTid"))
     assert(sv.contains("io_response_waitStoreRid_value"))
     assert(sv.contains("io_blockedByLiveDisabled"))
     assert(sv.contains("io_invalidDataValidWithoutRawData"))

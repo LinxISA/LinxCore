@@ -43,6 +43,11 @@ into the response payload. These fields are the identity that LinxCoreModel's
 `FlushBus::match(MemReqBus)` uses for queued `lookup_su_lu_q` responses; the
 wait-store BID/RID/LSID fields are not a substitute for response pruning.
 
+R423 additionally copies the accepted request's `peId/stid/tid` into the
+response payload. The model flush matcher first checks STID, then optional
+PE/thread filters, so preserving these fields is required before a future
+selective response-prune owner can match queued responses precisely.
+
 ## Interface
 
 ### Inputs
@@ -72,6 +77,7 @@ wait-store BID/RID/LSID fields are not a substitute for response pruning.
 | `responseValid` | A response record should enqueue into the response queue. |
 | `responseClusterId` / `responseEntryId` | Returned row identity copied from the consumed request. |
 | `responseRequestBid` / `responseRequestGid` / `responseRequestRid` / `responseRequestLoadLsId` | Original load request identity copied from the consumed request for future precise response pruning. |
+| `responseRequestPeId` / `responseRequestStid` / `responseRequestTid` | Original load request PE, scalar-thread, and thread context copied from the consumed request. |
 | `responseWaitStore` / `responseDataValid` | Returned STQ lookup sidebands. |
 | `responseRawDataValid` / `responseDataSuppressedByWait` | Raw-data diagnostics preserved for future row mutation/debug. |
 | `responseWaitStore*` | Wait-store index, BID, RID, LSID, and PC copied into the response payload. |
@@ -98,10 +104,11 @@ On acceptance, the response identity is copied from the request `clusterId` and
 `entryId`, matching the model's mutation of the same `MemReqBus` between
 `lookup_lu_su_q` and `lookup_su_lu_q`.
 
-R422 also copies the request `bid/gid/rid/loadLsId` sidecars into the response
-record. Future queued-response flush pruning must compare those load fields to
-the flush request; it must not compare against `waitStoreBid` or
-`waitStoreLsId`, which identify a different store instruction.
+R422/R423 also copy the request `bid/gid/rid/loadLsId/peId/stid/tid` sidecars
+into the response record. Future queued-response flush pruning must compare
+those load fields to the flush request; it must not compare against
+`waitStoreBid` or `waitStoreLsId`, which identify a different store
+instruction.
 
 R406 also copies the model-equivalent return sidebands:
 
@@ -137,7 +144,8 @@ the visible request head.
 
 - Wait-store row mutation from the R406 response payload.
 - Store-data merge into replay row line data from the R406 response payload.
-- Precise queued-request flush pruning beyond all-clear flush.
+- Precise queued-request/response flush pruning from the carried MemReq context
+  plus a future `FlushBus` matcher.
 - Live promotion of `requestEnable` and raw `sinkReady`.
 
 ## Verification

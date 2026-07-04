@@ -10,7 +10,10 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
     clusterIdWidth: Int,
     entryIdWidth: Int,
     pcWidth: Int,
-    lineBytes: Int)
+    lineBytes: Int,
+    peIdWidth: Int,
+    stidWidth: Int,
+    tidWidth: Int)
     extends Bundle {
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -22,6 +25,9 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
   val requestGid = Input(new ROBID(idEntries))
   val requestRid = Input(new ROBID(idEntries))
   val requestLoadLsId = Input(new ROBID(idEntries))
+  val requestPeId = Input(UInt(peIdWidth.W))
+  val requestStid = Input(UInt(stidWidth.W))
+  val requestTid = Input(UInt(tidWidth.W))
   val waitStore = Input(Bool())
   val dataValid = Input(Bool())
   val rawDataValid = Input(Bool())
@@ -42,7 +48,10 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
     clusterIdWidth,
     entryIdWidth,
     pcWidth,
-    lineBytes
+    lineBytes,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val blockedByDisabled = Output(Bool())
   val blockedByFlush = Output(Bool())
@@ -58,7 +67,10 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     val clusterIdWidth: Int = 2,
     val entryIdWidth: Int = 4,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Module {
   require(idEntries > 1, "idEntries must be greater than one")
   require((idEntries & (idEntries - 1)) == 0, "idEntries must be a power of two")
@@ -66,13 +78,19 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
   require(entryIdWidth > 0, "entryIdWidth must be positive")
   require(pcWidth > 0, "pcWidth must be positive")
   require(lineBytes == 64, "raw response source currently carries 64-byte scalar line data")
+  require(peIdWidth > 0, "peIdWidth must be positive")
+  require(stidWidth > 0, "stidWidth must be positive")
+  require(tidWidth > 0, "tidWidth must be positive")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
     idEntries = idEntries,
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth,
     pcWidth = pcWidth,
-    lineBytes = lineBytes
+    lineBytes = lineBytes,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth
   ))
 
   val active = io.enable && !io.flush
@@ -84,7 +102,10 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     clusterIdWidth,
     entryIdWidth,
     pcWidth,
-    lineBytes
+    lineBytes,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   )))
   when(responseValid) {
     response.valid := true.B
@@ -94,6 +115,9 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     response.requestGid := io.requestGid
     response.requestRid := io.requestRid
     response.requestLoadLsId := io.requestLoadLsId
+    response.requestPeId := io.requestPeId
+    response.requestStid := io.requestStid
+    response.requestTid := io.requestTid
     response.waitStore := io.waitStore
     response.dataValid := io.dataValid
     response.rawDataValid := io.rawDataValid

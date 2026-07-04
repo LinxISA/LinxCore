@@ -41,6 +41,11 @@ The queue still owns only FIFO residency: the sink decides whether the visible
 head can be consumed based on raw store-unit sink readiness and response-queue
 capacity.
 
+R423 widens the queued request payload with `peId`, `stid`, and `tid`. The
+queue preserves these fields as part of the `MemReqBus` request context but
+still performs only FIFO/all-clear flush behavior; selective pruning remains a
+later `FlushBus`-shaped owner.
+
 ## Interface
 
 ### Inputs
@@ -50,7 +55,7 @@ capacity.
 | `enable` | Composite source-return path is active. |
 | `flush` | Clears resident queued requests and suppresses admission. |
 | `enqueueValid` | R402 request payload is valid after query issue. |
-| `enqueueRequest` | Typed selected-row request payload. |
+| `enqueueRequest` | Typed selected-row request payload, including load BID/GID/RID/LSID plus PE/STID/TID context. |
 | `dequeueReady` | R404 request sink can consume the head. |
 
 ### Outputs
@@ -60,7 +65,7 @@ capacity.
 | `enqueueReady` | Queue has capacity, including same-cycle head drain from a full queue. |
 | `enqueueAccepted` | Input payload entered the queue or bypassed to a consuming sink. |
 | `enqueueDropped` | Payload was visible while disabled, flushed, or full. |
-| `headValid` / `head` | Visible FIFO head or empty-queue bypass payload. |
+| `headValid` / `head` | Visible FIFO head or empty-queue bypass payload with the full request context preserved. |
 | `headConsumed` | Visible head was accepted by `dequeueReady`. |
 | `pending` / `full` / `empty` / `count` | Queue occupancy diagnostics. |
 | `blockedByDisabled` / `blockedByFlush` / `blockedByFull` | Admission blockers. |
@@ -94,7 +99,8 @@ multi-token request path exists.
 
 - Resident STQ data lookup behind the request sink.
 - Raw `lookup_su_lu_q` response source.
-- Precise queued-request pruning beyond all-clear flush.
+- Precise queued-request pruning beyond all-clear flush, using the carried
+  MemReq identity/context plus a future `FlushBus` owner.
 - Multi-token accepted-query queueing.
 - Live promotion of `requestEnable`.
 

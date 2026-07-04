@@ -16,6 +16,13 @@
     - `MtcLDQInfo::handleSTQReceive`
     - `MtcLDQInfo::flush`
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
+    - `MemReqBus::bid`
+    - `MemReqBus::gid`
+    - `MemReqBus::rid`
+    - `MemReqBus::lsID`
+    - `MemReqBus::peID`
+    - `MemReqBus::stid`
+    - `MemReqBus::tid`
     - `MemReqBus::cID`
     - `MemReqBus::eID`
     - `MemReqBus::wait_store`
@@ -23,6 +30,8 @@
     - `MemReqBus::wait_rid`
     - `MemReqBus::wait_tpc`
     - `MemReqBus::mtc_reqData`
+  - `model/LinxCoreModel/model/ModelCommon/bus/FlushBus.h`
+    - `FlushBus::match(MemReqBus)`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponsePayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRawResponseSource.scala`
@@ -66,6 +75,11 @@ queued `lookup_su_lu_q` responses by matching the load `MemReqBus`; this queue
 now preserves that identity, while the actual selective prune owner remains a
 later packet.
 
+R423 widens the FIFO record with original load request context
+(`requestPeId/requestStid/requestTid`). `FlushBus::match(MemReqBus)` rejects
+different STIDs and then applies optional PE/thread filters before BID/LSID
+ordering, so these fields must remain resident with the queued response.
+
 ## Interface
 
 ### Inputs
@@ -75,7 +89,7 @@ later packet.
 | `enable` | Replay-LIQ wrapper is active. |
 | `flush` | Clears resident raw STQ responses and suppresses admission. |
 | `enqueueValid` | A raw STQ response `MemReqBus` is visible. |
-| `enqueue` | Full response payload carrying `cID/eID`, load request identity, wait-store identity, raw data evidence, and store data mask/data. |
+| `enqueue` | Full response payload carrying `cID/eID`, load request identity/context, wait-store identity, raw data evidence, and store data mask/data. |
 | `dequeueReady` | Downstream drain owner consumed or explicitly dropped the current head. |
 
 ### Outputs
@@ -89,7 +103,7 @@ later packet.
 | `head` | Full R406 response payload at the FIFO head. |
 | `headClusterId` | Head response `cID`. |
 | `headEntryId` | Head response `eID`. |
-| `headRequest*` | Original load request BID/GID/RID/LSID sidecars preserved for future precise queued-response pruning. |
+| `headRequest*` | Original load request BID/GID/RID/LSID plus PE/STID/TID sidecars preserved for future precise queued-response pruning. |
 | `headWaitStore` | Head wait-store sideband. |
 | `headDataValid` | Head data-valid sideband. |
 | `headRawDataValid` / `headDataSuppressedByWait` | Raw-data diagnostics preserved across FIFO storage. |
@@ -115,6 +129,9 @@ requestBid
 requestGid
 requestRid
 requestLoadLsId
+requestPeId
+requestStid
+requestTid
 waitStore
 dataValid
 rawDataValid
@@ -164,16 +181,16 @@ resident head is consumed in the same cycle.
 
 Flush clears all resident entries, hides the head, and suppresses admission.
 The model has a more selective `FlushBus` match over queued `MemReqBus`
-records. R422 preserves the load request identity needed for that comparison,
-but this reduced packet still uses the existing path-level all-clear flush
-until the path carries the remaining `FlushBus` context, including STID and
-optional PE/thread filters.
+records. R422 preserves the load request identity and R423 preserves the
+request context needed for that comparison, but this reduced packet still uses
+the existing path-level all-clear flush until a separate matcher owner applies
+those fields.
 
 ## Deferred Owners
 
 - Live external `lookup_su_lu_q` producer wiring into the R421 raw-response source.
-- `FlushBus`-shaped precise response-prune owner using the R422 request
-  identity plus STID/PE/thread context.
+- `FlushBus`-shaped precise response-prune owner using the carried request
+  identity and PE/STID/TID context.
 - Full multi-cluster stale-row proof beyond the R400 reduced `repickMask`
   owner.
 - Multi-token or multi-row response ownership beyond the current one-token

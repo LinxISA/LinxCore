@@ -11,7 +11,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseApplyIO(
     val clusterIdWidth: Int,
     val entryIdWidth: Int,
     val pcWidth: Int,
-    val lineBytes: Int)
+    val lineBytes: Int,
+    val peIdWidth: Int,
+    val stidWidth: Int,
+    val tidWidth: Int)
     extends Bundle {
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -23,7 +26,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseApplyIO(
     clusterIdWidth,
     entryIdWidth,
     pcWidth,
-    lineBytes
+    lineBytes,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
   val rowLineData = Input(UInt((lineBytes * 8).W))
   val rowValidMask = Input(UInt(lineBytes.W))
@@ -60,7 +66,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseApply(
     val clusterIdWidth: Int = 2,
     val entryIdWidth: Int = 4,
     val pcWidth: Int = 64,
-    val lineBytes: Int = 64)
+    val lineBytes: Int = 64,
+    val peIdWidth: Int = 8,
+    val stidWidth: Int = 8,
+    val tidWidth: Int = 8)
     extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -70,6 +79,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseApply(
   require(entryIdWidth > 0, "entryIdWidth must be positive")
   require(pcWidth > 0, "pcWidth must be positive")
   require(lineBytes == 64, "response apply currently carries 64-byte scalar line data")
+  require(peIdWidth > 0, "peIdWidth must be positive")
+  require(stidWidth > 0, "stidWidth must be positive")
+  require(tidWidth > 0, "tidWidth must be positive")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotResponseApplyIO(
     liqEntries,
@@ -77,7 +89,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseApply(
     clusterIdWidth,
     entryIdWidth,
     pcWidth,
-    lineBytes
+    lineBytes,
+    peIdWidth,
+    stidWidth,
+    tidWidth
   ))
 
   private def zeroWait: LoadStoreForwardWait =

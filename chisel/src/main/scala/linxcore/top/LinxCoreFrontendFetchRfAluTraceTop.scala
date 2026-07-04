@@ -2541,6 +2541,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       selectedGid = reducedLoadReplayLiqAllocPath.io.launchSelectedGid,
       selectedRid = reducedLoadReplayLiqAllocPath.io.launchSelectedRid,
       selectedLoadLsId = reducedLoadReplayLiqAllocPath.io.launchSelectedLoadLsId,
+      selectedPeId = io.peId,
+      selectedStid = io.threadId,
+      selectedTid = io.threadId,
       selectedPc = reducedLoadReplayLiqAllocPath.io.launchSelectedPc,
       selectedAddr = reducedLoadReplayLiqAllocPath.io.launchSelectedAddr,
       selectedSize = reducedLoadReplayLiqAllocPath.io.launchSelectedSize,
@@ -5483,6 +5486,9 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       selectedGid: ROBID,
       selectedRid: ROBID,
       selectedLoadLsId: ROBID,
+      selectedPeId: UInt,
+      selectedStid: UInt,
+      selectedTid: UInt,
       selectedPc: UInt,
       selectedAddr: UInt,
       selectedSize: UInt,
@@ -5512,6 +5518,9 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.selectedGid := selectedGid
     path.io.selectedRid := selectedRid
     path.io.selectedLoadLsId := selectedLoadLsId
+    path.io.selectedPeId := selectedPeId
+    path.io.selectedStid := selectedStid
+    path.io.selectedTid := selectedTid
     path.io.selectedPc := selectedPc
     path.io.selectedAddr := selectedAddr
     path.io.selectedSize := selectedSize
@@ -5526,6 +5535,9 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.responseRequestGid := 0.U.asTypeOf(path.io.responseRequestGid)
     path.io.responseRequestRid := 0.U.asTypeOf(path.io.responseRequestRid)
     path.io.responseRequestLoadLsId := 0.U.asTypeOf(path.io.responseRequestLoadLsId)
+    path.io.responseRequestPeId := 0.U
+    path.io.responseRequestStid := 0.U
+    path.io.responseRequestTid := 0.U
     path.io.waitStoreIn := false.B
     path.io.dataValidIn := false.B
     path.io.rawDataValidIn := false.B
