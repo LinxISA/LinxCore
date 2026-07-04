@@ -3,10 +3,17 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.log2Ceil
 
+import linxcore.rob.ROBID
+
 class LoadReplaySourceReturnStoreSnapshotPathIO(
     liqEntries: Int,
+    idEntries: Int,
     clusterIdWidth: Int,
-    entryIdWidth: Int) extends Bundle {
+    entryIdWidth: Int,
+    addrWidth: Int,
+    pcWidth: Int,
+    lineBytes: Int,
+    sizeWidth: Int) extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
 
   val enable = Input(Bool())
@@ -22,6 +29,15 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val responseValidIn = Input(Bool())
   val selectedClusterId = Input(UInt(clusterIdWidth.W))
   val selectedEntryId = Input(UInt(entryIdWidth.W))
+  val selectedLoadId = Input(new ROBID(liqEntries))
+  val selectedBid = Input(new ROBID(idEntries))
+  val selectedGid = Input(new ROBID(idEntries))
+  val selectedRid = Input(new ROBID(idEntries))
+  val selectedLoadLsId = Input(new ROBID(idEntries))
+  val selectedPc = Input(UInt(pcWidth.W))
+  val selectedAddr = Input(UInt(addrWidth.W))
+  val selectedSize = Input(UInt(sizeWidth.W))
+  val selectedRequestByteMask = Input(UInt(lineBytes.W))
   val responseClusterId = Input(UInt(clusterIdWidth.W))
   val responseEntryId = Input(UInt(entryIdWidth.W))
   val responseHeadStale = Input(Bool())
@@ -61,27 +77,69 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val queryIssueBlockedByRequestDisabled = Output(Bool())
   val queryIssueBlockedByNoLaunch = Output(Bool())
   val queryIssueBlockedBySink = Output(Bool())
+
+  val requestPayloadActive = Output(Bool())
+  val requestPayloadCaptureCandidate = Output(Bool())
+  val requestPayloadValid = Output(Bool())
+  val requestPayload = Output(new LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle(
+    liqEntries,
+    idEntries,
+    clusterIdWidth,
+    entryIdWidth,
+    addrWidth,
+    pcWidth,
+    lineBytes,
+    sizeWidth
+  ))
+  val requestPayloadBlockedByNoIssue = Output(Bool())
+  val requestPayloadBlockedByNoSelected = Output(Bool())
+  val requestPayloadBlockedByStaleRow = Output(Bool())
 }
 
 class LoadReplaySourceReturnStoreSnapshotPath(
     liqEntries: Int = 4,
+    idEntries: Int = 16,
     clusterIdWidth: Int = 2,
     entryIdWidth: Int = 4,
+    addrWidth: Int = 64,
+    pcWidth: Int = 64,
+    lineBytes: Int = 64,
+    sizeWidth: Int = 7,
     responseQueueDepth: Int = 2) extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
+  require(idEntries > 1, "ID entries must be greater than one")
+  require((idEntries & (idEntries - 1)) == 0, "ID entries must be a power of two")
   require(clusterIdWidth > 0, "clusterIdWidth must be positive")
   require(entryIdWidth >= log2Ceil(liqEntries), "entryIdWidth must cover the reduced LIQ slot index")
+  require(addrWidth >= 7, "LoadReplaySourceReturnStoreSnapshotPath needs 64-byte line addresses")
+  require(lineBytes == 64, "LoadReplaySourceReturnStoreSnapshotPath currently models 64-byte scalar cachelines")
+  require(sizeWidth >= 7, "sizeWidth must cover 64-byte scalar lines")
   require(responseQueueDepth > 0, "responseQueueDepth must be nonzero")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotPathIO(
     liqEntries = liqEntries,
+    idEntries = idEntries,
     clusterIdWidth = clusterIdWidth,
-    entryIdWidth = entryIdWidth
+    entryIdWidth = entryIdWidth,
+    addrWidth = addrWidth,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes,
+    sizeWidth = sizeWidth
   ))
 
   val queryIssue = Module(new LoadReplaySourceReturnStoreSnapshotQueryIssue)
   val requestControl = Module(new LoadReplaySourceReturnStoreSnapshotRequestControl)
+  val requestPayload = Module(new LoadReplaySourceReturnStoreSnapshotRequestPayload(
+    liqEntries = liqEntries,
+    idEntries = idEntries,
+    clusterIdWidth = clusterIdWidth,
+    entryIdWidth = entryIdWidth,
+    addrWidth = addrWidth,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes,
+    sizeWidth = sizeWidth
+  ))
   val selectedIdentity = Module(new LoadReplaySourceReturnStoreSnapshotSelectedIdentity(
     liqEntries = liqEntries,
     clusterIdWidth = clusterIdWidth,
@@ -133,6 +191,23 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   val selectedRepick = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedRepick, io.selectedRepick)
   val selectedClusterId = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedClusterId, io.selectedClusterId)
   val selectedEntryId = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedEntryId, io.selectedEntryId)
+
+  requestPayload.io.enable := io.enable
+  requestPayload.io.flush := io.flush
+  requestPayload.io.queryIssued := queryIssue.io.queryIssued
+  requestPayload.io.selectedValid := selectedValid
+  requestPayload.io.selectedRepick := selectedRepick
+  requestPayload.io.selectedClusterId := selectedClusterId
+  requestPayload.io.selectedEntryId := selectedEntryId
+  requestPayload.io.selectedLoadId := io.selectedLoadId
+  requestPayload.io.selectedBid := io.selectedBid
+  requestPayload.io.selectedGid := io.selectedGid
+  requestPayload.io.selectedRid := io.selectedRid
+  requestPayload.io.selectedLoadLsId := io.selectedLoadLsId
+  requestPayload.io.selectedPc := io.selectedPc
+  requestPayload.io.selectedAddr := io.selectedAddr
+  requestPayload.io.selectedSize := io.selectedSize
+  requestPayload.io.selectedRequestByteMask := io.selectedRequestByteMask
 
   acceptedToken.io.enable := io.enable
   acceptedToken.io.flush := io.flush
@@ -233,4 +308,12 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.queryIssueBlockedByRequestDisabled := queryIssue.io.blockedByRequestDisabled
   io.queryIssueBlockedByNoLaunch := queryIssue.io.blockedByNoLaunch
   io.queryIssueBlockedBySink := queryIssue.io.blockedBySink
+
+  io.requestPayloadActive := requestPayload.io.active
+  io.requestPayloadCaptureCandidate := requestPayload.io.captureCandidate
+  io.requestPayloadValid := requestPayload.io.requestValid
+  io.requestPayload := requestPayload.io.request
+  io.requestPayloadBlockedByNoIssue := requestPayload.io.blockedByNoIssue
+  io.requestPayloadBlockedByNoSelected := requestPayload.io.blockedByNoSelected
+  io.requestPayloadBlockedByStaleRow := requestPayload.io.blockedByStaleRow
 }

@@ -33,7 +33,11 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       queryIssueIssued: Boolean,
       queryIssueBlockedByRequestDisabled: Boolean,
       queryIssueBlockedByNoLaunch: Boolean,
-      queryIssueBlockedBySink: Boolean)
+      queryIssueBlockedBySink: Boolean,
+      requestPayloadValid: Boolean,
+      requestPayloadBlockedByNoIssue: Boolean,
+      requestPayloadBlockedByNoSelected: Boolean,
+      requestPayloadBlockedByStaleRow: Boolean)
 
   def apply(
       enable: Boolean,
@@ -55,13 +59,29 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       responseHeadStale: Boolean = false,
       scbReturned: Boolean = false,
       waitStoreIn: Boolean = false,
-      dataValidIn: Boolean = false): Result = {
-    val queryIssue = LoadReplaySourceReturnStoreSnapshotQueryIssueReference(
+      dataValidIn: Boolean = false,
+      selectedLoadId: Int = 0,
+      selectedBid: Int = 0,
+      selectedGid: Int = 0,
+      selectedRid: Int = 0,
+      selectedLoadLsId: Int = 0,
+      selectedPc: BigInt = 0,
+      selectedAddr: BigInt = 0,
+      selectedSize: Int = 0,
+      selectedRequestByteMask: BigInt = 0): Result = {
+    val requestControl = LoadReplaySourceReturnStoreSnapshotRequestControlReference(
       enable = enable,
       flush = flush,
       requestEnable = requestEnable,
       launchValid = launchValid,
-      sinkReady = sinkReady)
+      rawSinkReady = sinkReady,
+      tokenCanAccept = true)
+    val queryIssue = LoadReplaySourceReturnStoreSnapshotQueryIssueReference(
+      enable = enable,
+      flush = flush,
+      requestEnable = requestControl.queryRequestEnable,
+      launchValid = launchValid,
+      sinkReady = requestControl.querySinkReady)
     val projectedSelectedIdentity = LoadReplaySourceReturnStoreSnapshotSelectedIdentityReference(
       liqEntries = 4,
       enable = enable && selectedIdentityEnable,
@@ -69,15 +89,40 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       launchValid = launchValid,
       launchIndex = selectedLaunchIndex,
       repickMask = selectedRepickMask)
+    val selectedValidResolved =
+      if (selectedIdentityEnable) projectedSelectedIdentity.selectedValid else selectedValid
+    val selectedRepickResolved =
+      if (selectedIdentityEnable) projectedSelectedIdentity.selectedRepick else selectedRepick
+    val selectedClusterIdResolved =
+      if (selectedIdentityEnable) projectedSelectedIdentity.selectedClusterId else selectedClusterId
+    val selectedEntryIdResolved =
+      if (selectedIdentityEnable) projectedSelectedIdentity.selectedEntryId else selectedEntryId
+    val requestPayload = LoadReplaySourceReturnStoreSnapshotRequestPayloadReference(
+      enable = enable,
+      flush = flush,
+      queryIssued = queryIssue.queryIssued,
+      selectedValid = selectedValidResolved,
+      selectedRepick = selectedRepickResolved,
+      selectedClusterId = selectedClusterIdResolved,
+      selectedEntryId = selectedEntryIdResolved,
+      selectedLoadId = selectedLoadId,
+      selectedBid = selectedBid,
+      selectedGid = selectedGid,
+      selectedRid = selectedRid,
+      selectedLoadLsId = selectedLoadLsId,
+      selectedPc = selectedPc,
+      selectedAddr = selectedAddr,
+      selectedSize = selectedSize,
+      selectedRequestByteMask = selectedRequestByteMask)
     val acceptedToken = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.step(
       state = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token(),
       enable = enable,
       flush = flush,
       queryIssued = queryIssue.queryIssued,
-      selectedValid = if (selectedIdentityEnable) projectedSelectedIdentity.selectedValid else selectedValid,
-      selectedRepick = if (selectedIdentityEnable) projectedSelectedIdentity.selectedRepick else selectedRepick,
-      selectedClusterId = if (selectedIdentityEnable) projectedSelectedIdentity.selectedClusterId else selectedClusterId,
-      selectedEntryId = if (selectedIdentityEnable) projectedSelectedIdentity.selectedEntryId else selectedEntryId,
+      selectedValid = selectedValidResolved,
+      selectedRepick = selectedRepickResolved,
+      selectedClusterId = selectedClusterIdResolved,
+      selectedEntryId = selectedEntryIdResolved,
       responseConsumed = false)
     val responseQueue = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
       state = Vector.empty,
@@ -160,7 +205,11 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       queryIssueIssued = queryIssue.queryIssued,
       queryIssueBlockedByRequestDisabled = queryIssue.blockedByRequestDisabled,
       queryIssueBlockedByNoLaunch = queryIssue.blockedByNoLaunch,
-      queryIssueBlockedBySink = queryIssue.blockedBySink)
+      queryIssueBlockedBySink = queryIssue.blockedBySink,
+      requestPayloadValid = requestPayload.payload.valid,
+      requestPayloadBlockedByNoIssue = requestPayload.blockedByNoIssue,
+      requestPayloadBlockedByNoSelected = requestPayload.blockedByNoSelected,
+      requestPayloadBlockedByStaleRow = requestPayload.blockedByStaleRow)
   }
 }
 
@@ -207,6 +256,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(!result.evidenceSnapshotValid)
     assert(!result.evidenceWaitStoreReplay)
     assert(!result.controlLiveReady)
+    assert(!result.requestPayloadValid)
   }
 
   test("projected selected identity can complete a future live STQ snapshot") {
@@ -225,9 +275,19 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       responseEntryId = 2,
       scbReturned = true,
       waitStoreIn = false,
-      dataValidIn = true)
+      dataValidIn = true,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16) << 8)
 
     assert(result.queryIssueIssued)
+    assert(result.requestPayloadValid)
     assert(result.evidenceResponseAccepted)
     assert(result.evidenceSnapshotRequired)
     assert(result.evidenceSnapshotValid)
@@ -271,6 +331,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
 
     assert(sv.contains("module LoadReplaySourceReturnStoreSnapshotPath"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestControl"))
+    assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestPayload"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotSelectedIdentity"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotAcceptedToken"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseQueue"))
@@ -280,6 +341,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseMatch"))
     assert(sv.contains("io_storeSnapshotReady"))
     assert(sv.contains("io_selectedLaunchIndex"))
+    assert(sv.contains("io_requestPayload_requestByteMask"))
     assert(sv.contains("io_queryIssueCandidate"))
   }
 }

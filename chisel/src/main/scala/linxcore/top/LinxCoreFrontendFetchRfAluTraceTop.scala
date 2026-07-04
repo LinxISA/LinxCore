@@ -2517,6 +2517,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       launchValid = reducedLoadReplayLiqAllocPath.io.launchValid,
       selectedLaunchIndex = reducedLoadReplayLiqAllocPath.io.launchIndex,
       selectedRepickMask = reducedLoadReplayLiqAllocPath.io.repickMask,
+      selectedLoadId = reducedLoadReplayLiqAllocPath.io.launchSelectedLoadId,
+      selectedBid = reducedLoadReplayLiqAllocPath.io.launchSelectedBid,
+      selectedGid = reducedLoadReplayLiqAllocPath.io.launchSelectedGid,
+      selectedRid = reducedLoadReplayLiqAllocPath.io.launchSelectedRid,
+      selectedLoadLsId = reducedLoadReplayLiqAllocPath.io.launchSelectedLoadLsId,
+      selectedPc = reducedLoadReplayLiqAllocPath.io.launchSelectedPc,
+      selectedAddr = reducedLoadReplayLiqAllocPath.io.launchSelectedAddr,
+      selectedSize = reducedLoadReplayLiqAllocPath.io.launchSelectedSize,
+      selectedRequestByteMask = reducedLoadReplayLiqAllocPath.io.launchSelectedRequestByteMask,
       legacySnapshotReady = reducedLoadReplayLiqAllocEnabled
     )
   val reducedReplayLiqReturnPipeBudgetEnable = reducedLoadReplayLiqAllocEnabled
@@ -5447,6 +5456,15 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       launchValid: Bool,
       selectedLaunchIndex: UInt,
       selectedRepickMask: UInt,
+      selectedLoadId: ROBID,
+      selectedBid: ROBID,
+      selectedGid: ROBID,
+      selectedRid: ROBID,
+      selectedLoadLsId: ROBID,
+      selectedPc: UInt,
+      selectedAddr: UInt,
+      selectedSize: UInt,
+      selectedRequestByteMask: UInt,
       legacySnapshotReady: Bool): Bool = {
     path.io.enable := enable
     path.io.flush := flush
@@ -5461,6 +5479,15 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.responseValidIn := false.B
     path.io.selectedClusterId := 0.U
     path.io.selectedEntryId := 0.U
+    path.io.selectedLoadId := selectedLoadId
+    path.io.selectedBid := selectedBid
+    path.io.selectedGid := selectedGid
+    path.io.selectedRid := selectedRid
+    path.io.selectedLoadLsId := selectedLoadLsId
+    path.io.selectedPc := selectedPc
+    path.io.selectedAddr := selectedAddr
+    path.io.selectedSize := selectedSize
+    path.io.selectedRequestByteMask := selectedRequestByteMask
     path.io.responseClusterId := 0.U
     path.io.responseEntryId := 0.U
     path.io.responseHeadStale := false.B
