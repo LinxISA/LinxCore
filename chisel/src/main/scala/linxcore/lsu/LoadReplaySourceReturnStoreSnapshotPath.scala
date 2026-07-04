@@ -65,11 +65,13 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
 class LoadReplaySourceReturnStoreSnapshotPath(
     liqEntries: Int = 4,
     clusterIdWidth: Int = 2,
-    entryIdWidth: Int = 4) extends Module {
+    entryIdWidth: Int = 4,
+    responseQueueDepth: Int = 2) extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
   require(clusterIdWidth > 0, "clusterIdWidth must be positive")
   require(entryIdWidth >= log2Ceil(liqEntries), "entryIdWidth must cover the reduced LIQ slot index")
+  require(responseQueueDepth > 0, "responseQueueDepth must be nonzero")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotPathIO(
     liqEntries = liqEntries,
@@ -86,6 +88,11 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   val acceptedToken = Module(new LoadReplaySourceReturnStoreSnapshotAcceptedToken(
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth
+  ))
+  val responseQueue = Module(new LoadReplaySourceReturnStoreSnapshotResponseQueue(
+    clusterIdWidth = clusterIdWidth,
+    entryIdWidth = entryIdWidth,
+    depth = responseQueueDepth
   ))
   val identityMatch = Module(new LoadReplaySourceReturnStoreSnapshotIdentityMatch(
     clusterIdWidth = clusterIdWidth,
@@ -121,25 +128,34 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   acceptedToken.io.selectedEntryId := selectedEntryId
   acceptedToken.io.responseConsumed := responseMatch.io.responseValid
 
+  responseQueue.io.enable := io.enable
+  responseQueue.io.flush := io.flush
+  responseQueue.io.enqueueValid := io.responseValidIn
+  responseQueue.io.enqueueClusterId := io.responseClusterId
+  responseQueue.io.enqueueEntryId := io.responseEntryId
+  responseQueue.io.enqueueWaitStore := io.waitStoreIn
+  responseQueue.io.enqueueDataValid := io.dataValidIn
+  responseQueue.io.dequeueReady := responseMatch.io.responseValid
+
   identityMatch.io.enable := io.enable
   identityMatch.io.flush := io.flush
   identityMatch.io.queryIssued := acceptedToken.io.tokenValid
   identityMatch.io.selectedValid := acceptedToken.io.tokenValid
   identityMatch.io.selectedRepick := acceptedToken.io.tokenRepick
-  identityMatch.io.responseValid := io.responseValidIn
+  identityMatch.io.responseValid := responseQueue.io.headValid
   identityMatch.io.selectedClusterId := acceptedToken.io.tokenClusterId
   identityMatch.io.selectedEntryId := acceptedToken.io.tokenEntryId
-  identityMatch.io.responseClusterId := io.responseClusterId
-  identityMatch.io.responseEntryId := io.responseEntryId
+  identityMatch.io.responseClusterId := responseQueue.io.headClusterId
+  identityMatch.io.responseEntryId := responseQueue.io.headEntryId
 
   responseMatch.io.enable := io.enable
   responseMatch.io.flush := io.flush
   responseMatch.io.queryIssued := acceptedToken.io.tokenValid
-  responseMatch.io.responseValidIn := io.responseValidIn
+  responseMatch.io.responseValidIn := responseQueue.io.headValid
   responseMatch.io.responseMatchesSelected := identityMatch.io.responseMatchesSelected
   responseMatch.io.scbReturned := io.scbReturned
-  responseMatch.io.waitStoreIn := io.waitStoreIn
-  responseMatch.io.dataValidIn := io.dataValidIn
+  responseMatch.io.waitStoreIn := responseQueue.io.headWaitStore
+  responseMatch.io.dataValidIn := responseQueue.io.headDataValid
 
   evidence.io.enable := io.enable
   evidence.io.flush := io.flush

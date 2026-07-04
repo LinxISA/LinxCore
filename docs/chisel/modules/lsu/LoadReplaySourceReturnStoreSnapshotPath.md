@@ -24,6 +24,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotSelectedIdentity.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotAcceptedToken.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
@@ -54,6 +55,12 @@ floating same-cycle selected identity. The current top still keeps live request
 and sink readiness disabled, so this remains an internal future-promotable
 boundary.
 
+R398 adds `LoadReplaySourceReturnStoreSnapshotResponseQueue` between the raw
+STQ response inputs and identity/response matching. The queue preserves model
+`lookup_su_lu_q` FIFO order, supports empty-slot same-cycle bypass so the R397
+same-cycle path remains valid, and only drains when the downstream ordered
+response is consumed. The current top still ties raw response inputs false.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `sinkReady`, raw STQ response, SCB return, wait-store, and
 data-valid inputs false, so `storeSnapshotReady` still forwards the legacy
@@ -78,7 +85,7 @@ child instance.
 | `selectedRepickMask` | Reduced LIQ rows already resident in `Repick`; used to reject pre-repick or stale selected rows. |
 | `selectedValid` | Future raw selected replay-row identity is valid when `selectedIdentityEnable=false`. |
 | `selectedRepick` | Future raw selected row is still in the model-equivalent `LDQ_REPICK` state. |
-| `responseValidIn` | Future raw STQ response is visible. |
+| `responseValidIn` | Future raw STQ response is visible to the R398 queue. |
 | `selectedClusterId` | Future selected replay-row cluster ID. |
 | `selectedEntryId` | Future selected replay-row entry ID. |
 | `responseClusterId` | Future STQ response cluster ID from `MemReqBus.cID`. |
@@ -105,9 +112,10 @@ top is split further.
 ## State
 
 The module is mostly combinational, but R397 adds one accepted-query token
-register inside `LoadReplaySourceReturnStoreSnapshotAcceptedToken`. The path
-still owns no raw STQ response queue, LDQ/LIQ mutation, wait-store state, or
-data merge state.
+register inside `LoadReplaySourceReturnStoreSnapshotAcceptedToken` and R398
+adds one raw-response FIFO inside
+`LoadReplaySourceReturnStoreSnapshotResponseQueue`. The path still owns no
+LDQ/LIQ mutation, stale-row discard, wait-store state, or data merge state.
 
 ## Logic Design
 
@@ -117,6 +125,7 @@ The path preserves the model ordering as a chain of small owners:
 QueryIssue.queryIssued
   -> SelectedIdentity.selectedValid/selectedRepick/cID/eID
   -> AcceptedToken.tokenValid/tokenRepick/cID/eID
+  -> ResponseQueue.headValid/head cID/eID/waitStore/dataValid
   -> IdentityMatch.responseMatchesSelected
   -> ResponseMatch.responseValid/waitStore/dataValid
   -> Evidence.snapshotRequired/snapshotValid
@@ -141,15 +150,22 @@ when `ResponseMatch.responseValid` accepts the ordered response. This preserves
 one outstanding local STQ snapshot query without feeding response acceptance
 back into query validity.
 
+The R398 response queue stores raw STQ responses in FIFO order before identity
+matching. An empty queue can bypass an accepted response to the matcher in the
+same cycle, but resident queue occupancy drains only after
+`ResponseMatch.responseValid`. Head visibility is independent of downstream
+ready so the path does not form a response-valid/dequeue-ready combinational
+cycle.
+
 The current top tie-offs keep `queryIssued=false`, `responseValid=false`, and
 `requestEnable=false`, so the live chain does not affect replay launch. The
 same signals remain visible inside the path for future promotion.
 
 ## Timing
 
-The path is a same-cycle combinational diagnostic boundary in front of
-`LoadReplaySourceReturnReadiness`. Live query valid/ready, response queueing,
-selected-row identity storage, and row mutation must be added before
+The path is a same-cycle diagnostic boundary in front of
+`LoadReplaySourceReturnReadiness`. Live query valid/ready, raw response
+sourcing, selected-row identity storage, and row mutation must be added before
 `requestEnable` can be asserted.
 
 ## Flush/Recovery
@@ -160,7 +176,8 @@ behavior.
 
 ## Deferred Owners
 
-- Raw STQ response queue and valid/ready boundary.
+- Live raw STQ response source and precise queued-response flush pruning.
+- Stale-row/nonmatching-head dequeue policy tied to replay row state.
 - Full selected replay-row identity storage from replay-LIQ residency beyond
   the reduced launch-index projection.
 - Live SCB return evidence source.
@@ -174,6 +191,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotAcceptedToken
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotSelectedIdentity
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotIdentityMatch
@@ -182,11 +200,11 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r397x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r398x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover legacy readiness preservation, dormant query/response
 behavior, future live accepted-token response completion, flush handling,
 disabled behavior, and Chisel elaboration with the selected-identity,
-accepted-token, identity, and response child owners present in the composite
-module.
+accepted-token, response-queue, identity, and response child owners present in
+the composite module.

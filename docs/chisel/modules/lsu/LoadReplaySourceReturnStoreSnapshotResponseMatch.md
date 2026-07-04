@@ -51,6 +51,9 @@ false at
 R397 feeds this module's `queryIssued` input from the accepted-query token
 inside the composite path, so response ordering is tied to an outstanding
 accepted snapshot request rather than the raw same-cycle query pulse.
+R398 feeds `responseValidIn`, response identity, and wait/data sidebands from
+the head of `LoadReplaySourceReturnStoreSnapshotResponseQueue`, preserving the
+model `lookup_su_lu_q` FIFO boundary before this matcher.
 
 ## Interface
 
@@ -88,12 +91,11 @@ accepted snapshot request rather than the raw same-cycle query pulse.
 
 ## State
 
-The module is combinational. It does not store selected-row identity or mutate
-LIQ/LDQ state. R397 stores accepted selected-row identity in
+The module is combinational. It does not store selected-row identity, queue raw
+responses, or mutate LIQ/LDQ state. R397 stores accepted selected-row identity in
 `LoadReplaySourceReturnStoreSnapshotAcceptedToken`, and R395 feeds
 `responseMatchesSelected` from the R394 identity matcher inside the composite
-path. Future live integration must still supply a raw STQ response queue owner
-before this top can consume it.
+path. R398 supplies the raw STQ response queue owner before this matcher.
 
 ## Logic Design
 
@@ -115,8 +117,8 @@ no-query, stale/unmatched, and SCB-order blockers.
 ## Timing
 
 The current reduced top uses this module as a dormant same-cycle diagnostic
-owner. Live response queueing, selected-row identity storage, and replay-row
-mutation remain future owners.
+owner. Live raw response sourcing, selected-row identity storage, stale-head
+dequeue, and replay-row mutation remain future owners.
 
 ## Flush/Recovery
 
@@ -125,7 +127,8 @@ Response evidence visible during flush is reported through `blockedByFlush`.
 
 ## Deferred Owners
 
-- Raw STQ response queue and valid/ready boundary.
+- Live raw STQ response source into the R398 queue and precise stale-head
+  dequeue policy.
 - Selected replay-row identity storage and live `cID/eID` response source into
   R394 identity matching.
 - Live SCB-return evidence into the response-ordering input.
@@ -143,7 +146,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r397x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r398x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover disabled/flush suppression, no-query blocking, unmatched

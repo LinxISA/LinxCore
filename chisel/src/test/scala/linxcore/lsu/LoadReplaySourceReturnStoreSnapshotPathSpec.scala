@@ -78,26 +78,42 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedClusterId = if (selectedIdentityEnable) projectedSelectedIdentity.selectedClusterId else selectedClusterId,
       selectedEntryId = if (selectedIdentityEnable) projectedSelectedIdentity.selectedEntryId else selectedEntryId,
       responseConsumed = false)
+    val responseQueue = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
+      state = Vector.empty,
+      depth = 2,
+      enable = enable,
+      flush = flush,
+      enqueue =
+        if (responseValidIn) {
+          Some(LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
+            clusterId = responseClusterId,
+            entryId = responseEntryId,
+            waitStore = waitStoreIn,
+            dataValid = dataValidIn))
+        } else {
+          None
+        },
+      dequeueReady = false)
     val identityMatch = LoadReplaySourceReturnStoreSnapshotIdentityMatchReference(
       enable = enable,
       flush = flush,
       queryIssued = acceptedToken.token.valid,
       selectedValid = acceptedToken.token.valid,
       selectedRepick = acceptedToken.token.repick,
-      responseValid = responseValidIn,
+      responseValid = responseQueue.headValid,
       selectedClusterId = acceptedToken.token.clusterId,
       selectedEntryId = acceptedToken.token.entryId,
-      responseClusterId = responseClusterId,
-      responseEntryId = responseEntryId)
+      responseClusterId = responseQueue.head.map(_.clusterId).getOrElse(0),
+      responseEntryId = responseQueue.head.map(_.entryId).getOrElse(0))
     val responseMatch = LoadReplaySourceReturnStoreSnapshotResponseMatchReference(
       enable = enable,
       flush = flush,
       queryIssued = acceptedToken.token.valid,
-      responseValidIn = responseValidIn,
+      responseValidIn = responseQueue.headValid,
       responseMatchesSelected = identityMatch.responseMatchesSelected,
       scbReturned = scbReturned,
-      waitStoreIn = waitStoreIn,
-      dataValidIn = dataValidIn)
+      waitStoreIn = responseQueue.head.exists(_.waitStore),
+      dataValidIn = responseQueue.head.exists(_.dataValid))
     val evidence = LoadReplaySourceReturnStoreSnapshotEvidenceReference(
       enable = enable,
       flush = flush,
@@ -255,6 +271,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("module LoadReplaySourceReturnStoreSnapshotPath"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotSelectedIdentity"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotAcceptedToken"))
+    assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseQueue"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotIdentityMatch"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseMatch"))
     assert(sv.contains("io_storeSnapshotReady"))
