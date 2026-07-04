@@ -100,6 +100,11 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     entryIdWidth = entryIdWidth
   ))
   val responseMatch = Module(new LoadReplaySourceReturnStoreSnapshotResponseMatch)
+  val responseHeadState = Module(new LoadReplaySourceReturnStoreSnapshotResponseHeadState(
+    liqEntries = liqEntries,
+    clusterIdWidth = clusterIdWidth,
+    entryIdWidth = entryIdWidth
+  ))
   val responseDrain = Module(new LoadReplaySourceReturnStoreSnapshotResponseDrain)
   val evidence = Module(new LoadReplaySourceReturnStoreSnapshotEvidence)
   val control = Module(new LoadReplaySourceReturnStoreSnapshotReadyControl)
@@ -159,11 +164,20 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   responseMatch.io.waitStoreIn := responseQueue.io.headWaitStore
   responseMatch.io.dataValidIn := responseQueue.io.headDataValid
 
+  responseHeadState.io.enable := io.enable
+  responseHeadState.io.flush := io.flush
+  responseHeadState.io.reducedEnable := io.selectedIdentityEnable
+  responseHeadState.io.headValid := responseQueue.io.headValid
+  responseHeadState.io.responseClusterId := responseQueue.io.headClusterId
+  responseHeadState.io.responseEntryId := responseQueue.io.headEntryId
+  responseHeadState.io.repickMask := io.selectedRepickMask
+  responseHeadState.io.externalHeadStale := io.responseHeadStale
+
   responseDrain.io.enable := io.enable
   responseDrain.io.flush := io.flush
   responseDrain.io.headValid := responseQueue.io.headValid
   responseDrain.io.orderedResponse := responseMatch.io.responseValid
-  responseDrain.io.headStale := io.responseHeadStale
+  responseDrain.io.headStale := responseHeadState.io.headStale
 
   evidence.io.enable := io.enable
   evidence.io.flush := io.flush

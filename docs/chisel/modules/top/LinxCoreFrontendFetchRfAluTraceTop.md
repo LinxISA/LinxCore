@@ -1081,6 +1081,10 @@ R399 adds `LoadReplaySourceReturnStoreSnapshotResponseDrain` inside the
 composite. The raw FIFO now pops only when the response is ordered or when a
 future row-state owner proves the head stale. The top ties stale-head evidence
 false, so no stale drop is live yet.
+R400 adds `LoadReplaySourceReturnStoreSnapshotResponseHeadState` inside the
+composite. The path can now prove reduced single-cluster stale heads from the
+current `repickMask`, but the top still ties raw response inputs false, so this
+remains a dormant row-state boundary.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1348,8 +1352,9 @@ overlay. Most state remains in child modules:
 - `LoadReplaySourceReturnStoreSnapshotPath`: optional R395 composite local STQ
   snapshot source-return path. It contains the R392 query issue, R396
   selected-identity projection, R397 accepted-query token, R398 response
-  queue, R399 response drain, R394 identity match, R393 response match, R391
-  evidence, and R390 ready-control owners under one top child instance.
+  queue, R400 response-head state proof, R399 response drain, R394 identity
+  match, R393 response match, R391 evidence, and R390 ready-control owners
+  under one top child instance.
 - `LoadReplaySourceReturnStoreSnapshotReadyControl`: optional R390 local STQ
   snapshot readiness request owner before `LoadReplaySourceReturnReadiness`.
 - `LoadReplaySourceReturnStoreSnapshotEvidence`: optional R391 selected-row
@@ -1376,6 +1381,11 @@ overlay. Most state remains in child modules:
   response FIFO inside `LoadReplaySourceReturnStoreSnapshotPath`. It preserves
   model `lookup_su_lu_q` ordering and empty-slot bypass before response
   matching while the current reduced top keeps raw response inputs disabled.
+- `LoadReplaySourceReturnStoreSnapshotResponseHeadState`: optional R400
+  reduced row-state proof inside
+  `LoadReplaySourceReturnStoreSnapshotPath`. It classifies only cluster-0,
+  in-range heads against the current `repickMask` and leaves unsupported
+  identities held.
 - `LoadReplaySourceReturnStoreSnapshotResponseDrain`: optional R399 raw STQ
   response head consume/drop owner inside
   `LoadReplaySourceReturnStoreSnapshotPath`. The current reduced top ties
@@ -1868,7 +1878,10 @@ future raw STQ responses have a FIFO boundary matching `lookup_su_lu_q`, while
 the top still ties raw response inputs false. R399 inserts
 `LoadReplaySourceReturnStoreSnapshotResponseDrain` after response matching so
 the FIFO pop decision is separated from token clear, while stale-head evidence
-is still tied false at the top. R300 inserts
+is still tied false at the top. R400 inserts
+`LoadReplaySourceReturnStoreSnapshotResponseHeadState` before that drain so the
+reduced path can prove model non-repick heads from `repickMask` once raw
+responses are enabled. R300 inserts
 `LoadReplayReturnReadiness` after that source-return boundary. R301 inserts
 `LoadReplayReturnPipeSelect` as the explicit pipe-mask/select owner feeding
 that readiness gate. R302 inserts `LoadReplayReturnPipePermit` as the mask

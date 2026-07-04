@@ -130,7 +130,8 @@ identity and precise queued-response pruning are promoted.
 ## Deferred Owners
 
 - Live raw STQ response source into the path boundary.
-- Live stale-row proof into the R399 response-drain owner.
+- Full multi-cluster stale-row proof beyond the R400 reduced `repickMask`
+  owner.
 - Multi-token or multi-row response ownership beyond the current one-token
   accepted-query path.
 - Wait-store row mutation and returned-data merge.

@@ -273,6 +273,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotSelectedIdentity"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotAcceptedToken"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseQueue"))
+    assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseHeadState"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseDrain"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotIdentityMatch"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseMatch"))

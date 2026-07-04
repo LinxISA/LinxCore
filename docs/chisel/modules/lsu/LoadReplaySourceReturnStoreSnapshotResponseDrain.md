@@ -33,10 +33,10 @@ reasons:
 - the response targets a row that has become stale, so the raw queue can drop
   the head without clearing the currently accepted token.
 
-R399 adds this owner inside `LoadReplaySourceReturnStoreSnapshotPath`. The
-current reduced top ties the stale-head evidence false, so this packet does
-not yet drop nonmatching heads in live top behavior. It does reserve the
-model-accurate boundary where the future row-state owner will prove staleness.
+R399 adds this owner inside `LoadReplaySourceReturnStoreSnapshotPath`. R400
+feeds its stale input from a reduced single-cluster row-state proof based on
+the current `repickMask`; the current top still ties raw response inputs false,
+so stale drops are not yet observable in live top behavior.
 
 ## Interface
 
@@ -48,7 +48,7 @@ model-accurate boundary where the future row-state owner will prove staleness.
 | `flush` | Suppresses all dequeue decisions. |
 | `headValid` | The raw response queue exposes a resident or bypass head. |
 | `orderedResponse` | Downstream response-match owner accepted the head as ordered for the accepted token. |
-| `headStale` | Future row-state owner proves the head targets a row that is no longer repick. |
+| `headStale` | Row-state owner proves the head targets a row that is no longer repick. |
 
 ### Outputs
 
@@ -104,7 +104,7 @@ remains a later queue/row-identity owner.
 
 ## Deferred Owners
 
-- Live row-state stale evidence into `headStale`.
+- Full multi-cluster row-state stale evidence into `headStale`.
 - Multi-token response ownership for non-head or out-of-order responses.
 - Wait-store row mutation and returned-data merge after ordered consumption.
 - Precise queued-response flush pruning.
