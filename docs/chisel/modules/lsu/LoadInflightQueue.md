@@ -38,6 +38,11 @@ fields preserve original RF-returned load source operands through replay
 residency for later W2 commit-row reconstruction; they are not used for
 forwarding, hit/miss classification, or returned-load data extraction.
 
+R411 adds row-carried split source-return diagnostics `scbReturned` and
+`stqReturned`. They are visible in `rows` for the future local STQ
+row-mutation writer, but `sourcesReturned` remains the active launch/return
+summary bit until row-owned STQ response application is enabled.
+
 This packet turns the standalone forwarding pipeline into reusable row state
 without taking ownership of full LDQ/LIQ recovery, miss-queue ownership,
 ready-table update, issue wakeup fanout, L2/CHI response queues, or
@@ -145,7 +150,7 @@ The module owns:
 - a resident-count register,
 - LIQ row records with `Wait`, `Repick`, `L1DcMiss`, `L2Wait`, and `Resolved`
   states, including replay-return signedness, replay destination, and R375
-  source-trace sidebands,
+  source-trace sidebands plus R411 split SCB/STQ return diagnostics,
 - E3/E4 row-index sideband registers aligned to `LoadForwardPipeline`,
 - a combinational `LoadReplayWakeup` sidecar for store-unit/SCB replay masks,
 - a combinational `LoadRefillWakeup` sidecar for read-refill row wake masks,
@@ -195,10 +200,13 @@ The C++ model provides the owner split:
    eligibility before driving this broader launch port.
 3. E4 hit with `NoMiss` and `e4WakeupValid` changes the row to `Resolved` and
    publishes `lhqRecord` with the row PC preserved for future recovery/MDB
-   reporting.
+   reporting. R411 stores the delayed pipeline SCB return bit in
+   `scbReturned`; `stqReturned` remains false because the local STQ response
+   row-mutation owner is still dormant.
 4. E4 `StoreDataNotReady` changes the row back to `Wait`, records
    `waitStoreInfo`, and clears transient byte-valid data like model
-   `LUEntryInfo::rewait`.
+   `LUEntryInfo::rewait`. R411 also clears split return diagnostics on this
+   rewait path.
 5. E4 `DataNotComplete` changes the row to `L1DcMiss`, marks `l1Miss`, and
    asserts `missPending`.
 6. E4 source-return or return-port blocking changes the row back to `Wait`
@@ -206,7 +214,10 @@ The C++ model provides the owner split:
 7. Replay wakeups run through `LoadReplayWakeup`. Matching store-unit wakeups
    clear `waitStore` by BID/LSID/PC; store-unit/SCB byte merges update row data and valid
    masks; completed rows become `Wait` with `storeBypass` set so the normal
-   launch path can recheck source and return-slot readiness.
+   launch path can recheck source and return-slot readiness. R411 records
+   source-specific diagnostic completion in `stqReturned` for store-unit
+   wakeups and `scbReturned` for SCB wakeups without changing the coarse
+   `sourcesReturned` behavior.
 8. Refill wakeups run through `LoadRefillWakeup`. Matching read-refill lines
    return rows to `Wait`, set `l1Hit`, store full-line data, and clear
    `missPending` by leaving the miss states.

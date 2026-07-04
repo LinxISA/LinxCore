@@ -87,6 +87,8 @@ class LoadInflightRow(
   val storeBypass = Bool()
   val dataComplete = Bool()
   val sourcesReturned = Bool()
+  val scbReturned = Bool()
+  val stqReturned = Bool()
   val l1Hit = Bool()
   val l1Miss = Bool()
   val missKind = LoadForwardMissKind()
@@ -391,6 +393,8 @@ class LoadInflightQueue(
       rows(e4Index).waitMask := pipeline.io.e4WaitMask
       rows(e4Index).dataComplete := pipeline.io.e4DataComplete
       rows(e4Index).sourcesReturned := pipeline.io.e4SourcesReturned
+      rows(e4Index).scbReturned := pipeline.io.e4ScbReturned
+      rows(e4Index).stqReturned := false.B
       rows(e4Index).missKind := pipeline.io.e4MissKind
       rows(e4Index).storeBypass := pipeline.io.e4ForwardMask.orR
 
@@ -410,6 +414,8 @@ class LoadInflightQueue(
         rows(e4Index).waitMask := 0.U
         rows(e4Index).dataComplete := false.B
         rows(e4Index).sourcesReturned := false.B
+        rows(e4Index).scbReturned := false.B
+        rows(e4Index).stqReturned := false.B
         rows(e4Index).l1Hit := false.B
       }.elsewhen(e4DataMiss) {
         rows(e4Index).status := LoadInflightStatus.L1DcMiss
@@ -421,6 +427,8 @@ class LoadInflightQueue(
         rows(e4Index).waitMask := 0.U
         rows(e4Index).dataComplete := false.B
         rows(e4Index).sourcesReturned := false.B
+        rows(e4Index).scbReturned := false.B
+        rows(e4Index).stqReturned := false.B
         rows(e4Index).l1Hit := false.B
         rows(e4Index).l1Miss := true.B
       }.elsewhen(e4ReplayWait) {
@@ -433,6 +441,8 @@ class LoadInflightQueue(
         rows(e4Index).waitMask := 0.U
         rows(e4Index).dataComplete := false.B
         rows(e4Index).sourcesReturned := false.B
+        rows(e4Index).scbReturned := false.B
+        rows(e4Index).stqReturned := false.B
         rows(e4Index).l1Hit := false.B
       }
     }
@@ -457,6 +467,12 @@ class LoadInflightQueue(
             rows(idx).storeBypass := true.B
             rows(idx).dataComplete := true.B
             rows(idx).sourcesReturned := true.B
+            when(io.replayWake.source === LoadReplayWakeSource.StoreUnit) {
+              rows(idx).stqReturned := true.B
+            }
+            when(io.replayWake.source === LoadReplayWakeSource.StoreCoalescingBuffer) {
+              rows(idx).scbReturned := true.B
+            }
             rows(idx).missKind := LoadForwardMissKind.NoMiss
           }
         }
@@ -476,6 +492,8 @@ class LoadInflightQueue(
           rows(idx).l1Hit := true.B
           rows(idx).dataComplete := false.B
           rows(idx).sourcesReturned := false.B
+          rows(idx).scbReturned := false.B
+          rows(idx).stqReturned := false.B
           rows(idx).missKind := LoadForwardMissKind.NoMiss
         }
       }

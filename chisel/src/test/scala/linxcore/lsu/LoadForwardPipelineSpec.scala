@@ -40,6 +40,8 @@ object LoadForwardPipelineReference {
       forwardMask: BigInt,
       waitMask: BigInt,
       dataComplete: Boolean,
+      loadDataReturned: Boolean,
+      scbReturned: Boolean,
       sourcesReturned: Boolean,
       wakeupValid: Boolean,
       waitStore: Option[Store],
@@ -85,6 +87,8 @@ object LoadForwardPipelineReference {
         forwardMask = stage.forwardMask,
         waitMask = stage.waitMask,
         dataComplete = dataComplete,
+        loadDataReturned = stage.loadDataReturned,
+        scbReturned = stage.scbReturned,
         sourcesReturned = sourcesReturned,
         wakeupValid = wakeup,
         waitStore = stage.waitStore,
@@ -129,6 +133,8 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
     assert(model.step().e4.exists { out =>
       out.wakeupValid &&
       out.dataComplete &&
+      out.loadDataReturned &&
+      out.scbReturned &&
       out.sourcesReturned &&
       out.missKind == NoMiss &&
       out.lineData == lineData(Map(4 -> 0xaa, 5 -> 0xbb, 6 -> 0xcc, 7 -> 0xdd))
@@ -173,7 +179,7 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
     val missingScb = new Model
     val query = Query(byteOffset = 0, size = 4, youngestStoreId = id(4))
     missingScb.step(Some(Input(query = query, baseValidMask = byteMask(0, 4), scbReturned = false)))
-    assert(missingScb.step().e4.exists(out => !out.wakeupValid && out.missKind == AwaitingSources))
+    assert(missingScb.step().e4.exists(out => !out.wakeupValid && !out.scbReturned && out.missKind == AwaitingSources))
 
     val blockedReturn = new Model
     blockedReturn.step(Some(Input(query = query, baseValidMask = byteMask(0, 4), returnReady = false)))
@@ -196,6 +202,8 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
     assert(sv.contains("LoadStoreForwarding"))
     assert(sv.contains("io_e3ForwardMask"))
     assert(sv.contains("io_e4WakeupValid"))
+    assert(sv.contains("io_e4LoadDataReturned"))
+    assert(sv.contains("io_e4ScbReturned"))
     assert(sv.contains("io_e4MissKind"))
     assert(sv.contains("io_e4WaitStore_valid"))
   }

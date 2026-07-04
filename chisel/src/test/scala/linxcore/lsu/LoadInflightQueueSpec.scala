@@ -43,6 +43,8 @@ object LoadInflightQueueReference {
       storeBypass: Boolean = false,
       dataComplete: Boolean = false,
       sourcesReturned: Boolean = false,
+      scbReturned: Boolean = false,
+      stqReturned: Boolean = false,
       l1Hit: Boolean = false,
       l1Miss: Boolean = false,
       missKind: MissKind = NoMiss)
@@ -152,6 +154,8 @@ object LoadInflightQueueReference {
             storeBypass = e4.forwardMask != 0,
             dataComplete = e4.dataComplete,
             sourcesReturned = e4.sourcesReturned,
+            scbReturned = e4.scbReturned,
+            stqReturned = false,
             missKind = e4.missKind
           )
 
@@ -171,6 +175,8 @@ object LoadInflightQueueReference {
                 waitStore = e4.waitStore,
                 dataComplete = false,
                 sourcesReturned = false,
+                scbReturned = false,
+                stqReturned = false,
                 l1Hit = false
               ))
               CycleResult(Some(index))
@@ -184,6 +190,8 @@ object LoadInflightQueueReference {
                 waitStore = None,
                 dataComplete = false,
                 sourcesReturned = false,
+                scbReturned = false,
+                stqReturned = false,
                 l1Hit = false,
                 l1Miss = true
               ))
@@ -198,6 +206,8 @@ object LoadInflightQueueReference {
                 waitStore = None,
                 dataComplete = false,
                 sourcesReturned = false,
+                scbReturned = false,
+                stqReturned = false,
                 l1Hit = false
               ))
               CycleResult(Some(index))
@@ -246,6 +256,8 @@ object LoadInflightQueueReference {
                   storeBypass = true,
                   dataComplete = true,
                   sourcesReturned = true,
+                  scbReturned = next.scbReturned || wakeup.source == LoadReplayWakeupReference.StoreCoalescingBuffer,
+                  stqReturned = next.stqReturned || wakeup.source == LoadReplayWakeupReference.StoreUnit,
                   missKind = NoMiss)
               }
             }
@@ -276,6 +288,8 @@ object LoadInflightQueueReference {
                 l1Hit = true,
                 dataComplete = false,
                 sourcesReturned = false,
+                scbReturned = false,
+                stqReturned = false,
                 missKind = NoMiss))
             }
           case None =>
@@ -350,6 +364,8 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(row.status == Resolved)
     assert(row.dataComplete)
     assert(row.sourcesReturned)
+    assert(row.scbReturned)
+    assert(!row.stqReturned)
     assert(row.forwardMask == byteMask(4, 4))
     assert(result.hitRecord.exists(r => r.row.loadId.value == rowIndex && r.byteMask == byteMask(4, 4)))
     assert(result.hitRecord.exists(_.row.alloc.loadLsId.value == 0))
@@ -376,6 +392,8 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(row.waitStore.exists(_.pc == 0x3450))
     assert(liq.waitStoreMask == (1 << rowIndex))
     assert(row.validMask == 0)
+    assert(!row.scbReturned)
+    assert(!row.stqReturned)
   }
 
   test("incomplete E4 data marks L1/DC miss and asserts miss pending") {
@@ -398,6 +416,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(missingScb.launch(scbIndex, LaunchInput(baseValidMask = byteMask(0, 4), scbReturned = false)))
     val scbResult = missingScb.cycle()
     assert(missingScb.row(scbIndex).exists(row => row.status == Wait && row.missKind == AwaitingSources))
+    assert(missingScb.row(scbIndex).exists(row => !row.scbReturned && !row.stqReturned))
     assert(scbResult.hitRecord.isEmpty)
 
     val blockedReturn = new Model(entries = 4)
@@ -445,6 +464,8 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(row.status == Wait)
     assert(row.storeBypass)
     assert(row.dataComplete)
+    assert(!row.scbReturned)
+    assert(row.stqReturned)
     assert(!missLiq.missPending)
   }
 
@@ -467,6 +488,8 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(refill.wakeMask == (1 << rowIndex))
     assert(woken.status == Wait)
     assert(woken.l1Hit)
+    assert(!woken.scbReturned)
+    assert(!woken.stqReturned)
     assert(woken.validMask == ((BigInt(1) << 64) - 1))
     assert(!liq.missPending)
 
@@ -515,5 +538,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_rows_0_status"))
     assert(sv.contains("io_rows_0_loadLsId_value"))
     assert(sv.contains("io_rows_0_dst_physTag"))
+    assert(sv.contains("io_rows_0_scbReturned"))
+    assert(sv.contains("io_rows_0_stqReturned"))
   }
 }

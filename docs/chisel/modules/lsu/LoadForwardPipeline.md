@@ -66,6 +66,8 @@ fanout, L1/SCB response queues, and memory-event trace.
 | `e4ForwardMask` | Forwarded bytes contributing to E4. |
 | `e4WaitMask` | Not-ready selected store bytes contributing to replay. |
 | `e4DataComplete` | All requested bytes are position-valid. |
+| `e4LoadDataReturned` | Delayed model `(ldqRnt || l1Rnt)` equivalent for row-carried diagnostics. |
+| `e4ScbReturned` | Delayed model `scbRnt` equivalent for row-carried diagnostics. |
 | `e4SourcesReturned` | Load-data source and SCB source have both returned. |
 | `e4WakeupValid` | E4 can wake/return this load result. |
 | `e4WaitStore` | Blocking not-ready store diagnostic from `LoadStoreForwarding`. |
@@ -98,7 +100,8 @@ The model `LDQInfo` path has three relevant rules:
    readiness.
 3. E4 computes final valid bytes as baseline-valid bytes plus ready forwarded
    bytes.
-4. E4 asserts `e4WakeupValid` only when no wait-store bytes exist, all requested
+4. E4 republishes delayed load-data and SCB source-return bits separately, then
+   asserts `e4WakeupValid` only when no wait-store bytes exist, all requested
    bytes are valid, load-data and SCB sources have returned, and the return
    slot is available.
 5. E4 classifies the local block reason in priority order:
