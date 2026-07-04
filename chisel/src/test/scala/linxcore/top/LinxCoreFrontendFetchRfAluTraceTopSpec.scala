@@ -781,6 +781,22 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2SlotSource1Data.getWidth == 64)
   }
 
+  test("R379 replay-LIQ return wakeup sink diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqReturnWakeupSinkCandidateValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWakeupSinkArmed.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWakeupSinkReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWakeupSinkBlockedByDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWakeupSinkBlockedByFlush.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWakeupSinkBlockedByNoWakeup.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWakeupSinkBlockedBySink.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnWakeupSinkBlockedByLiveDisabled.getWidth == 1)
+  }
+
   test("R367 replay W2 row-fill enable diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -1178,6 +1194,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqReturnConsumerReady"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnConsumerBlockedByLretSink"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnConsumerBlockedByWakeupSink"))
+    assert(sv.contains("io_reducedLoadReplayLiqReturnWakeupSinkCandidateValid"))
+    assert(sv.contains("io_reducedLoadReplayLiqReturnWakeupSinkBlockedByLiveDisabled"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnPipeBudgetEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnPipeBudgetConsumerReady"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnPipeBudgetBlockedBySources"))

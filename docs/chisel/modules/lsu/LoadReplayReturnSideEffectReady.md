@@ -86,13 +86,14 @@ In `LinxCoreFrontendFetchRfAluTraceTop`, R315 wires:
   remains disabled;
 - `wakeupRequired` from `LoadReplayReturnWakeupCandidate.wakeupRequired`;
 - R378 LRET sink readiness from `LoadReplayReturnLretSink.enqueueReady`;
-- wakeup sink readiness to the current tied-low reduced-top sink.
+- R379 wakeup sink readiness from `LoadReplayReturnWakeupSinkReady`, which
+  remains live-disabled in the current top.
 
 ## Deferred Owners
 
 - Live LRET queue enqueue fire and return-pipe drain backpressure.
 - Replay-side RF writeback enable after LRET and wakeup sinks are live.
-- Ready-table and issue-queue wakeup mutation.
+- Live ready-table and issue-queue wakeup mutation.
 - Multi-destination return publication and non-GPR destination sinks.
 - Feeding `sideEffectsReady` back into replay launch/publish control.
 

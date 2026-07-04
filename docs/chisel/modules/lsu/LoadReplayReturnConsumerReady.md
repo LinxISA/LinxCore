@@ -33,10 +33,12 @@ This module keeps that split explicit:
 - the LRET sink is required for every selected replay return;
 - the mem-wakeup sink is required only for selected rows that are neither
   speculative-wakeup rows nor stack-valid rows;
-- R378 feeds LRET readiness from `LoadReplayReturnLretSink.enqueueReady`, while
-  the current reduced top still keeps the conditional mem-wakeup sink not-ready.
-  Live relaunch therefore remains disabled for rows that require regular memory
-  wakeup, and capacity diagnostics now identify only the missing owner.
+- R378 feeds LRET readiness from `LoadReplayReturnLretSink.enqueueReady`;
+- R379 feeds the conditional mem-wakeup sink from
+  `LoadReplayReturnWakeupSinkReady`, whose abstract capacity can arm but whose
+  live output remains false while ready-table and issue-wakeup mutation are
+  disabled. Live relaunch therefore remains disabled for rows that require
+  regular memory wakeup.
 
 ## Interface
 
@@ -50,7 +52,7 @@ This module keeps that split explicit:
 | `specWakeup` | Selected row has already produced the model speculative load wakeup. |
 | `stackValid` | Selected row is a stack-valid load. |
 | `lretSinkReady` | IEX load-return queue capacity can accept the data result. R378 feeds this from `LoadReplayReturnLretSink.enqueueReady`; live enqueue is still blocked by publish control. |
-| `wakeupSinkReady` | Future IEX mem-wakeup path can accept the dependent wakeup. Current top ties this low. |
+| `wakeupSinkReady` | Future IEX mem-wakeup path can accept the dependent wakeup. R379 feeds this from a live-disabled readiness owner rather than a raw false tie-off. |
 
 ### Outputs
 
@@ -95,7 +97,7 @@ blocking because model data return cannot skip the load-return queue.
 ## Deferred Owners
 
 - Live IEX load-return queue enqueue fire from replay-return publication.
-- Real IEX mem-wakeup payload, ready-table mutation, and issue wakeup fanout.
+- Live IEX mem-wakeup payload, ready-table mutation, and issue wakeup fanout.
 - IEX drain-side backpressure once the reduced top exposes real return-pipe capacity.
 - Tile-transfer return data and cross-line return splitting.
 
