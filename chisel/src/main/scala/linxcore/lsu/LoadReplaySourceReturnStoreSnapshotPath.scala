@@ -340,6 +340,9 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val liveArmPolicySinkBlockedByRawSink = Output(Bool())
   val liveArmPolicyResponseBlockedByQueueFull = Output(Bool())
   val liveArmPolicyResponseBlockedByRawResponse = Output(Bool())
+  val effectiveRequestEnable = Output(Bool())
+  val effectiveRequestQueueCanAccept = Output(Bool())
+  val effectiveSinkReady = Output(Bool())
   val responseQueueEnqueueReady = Output(Bool())
   val responseQueueEnqueueAccepted = Output(Bool())
   val responseQueueEnqueueDropped = Output(Bool())
@@ -563,12 +566,15 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   ))
   val evidence = Module(new LoadReplaySourceReturnStoreSnapshotEvidence)
   val control = Module(new LoadReplaySourceReturnStoreSnapshotReadyControl)
+  val requestQueueResidentCanAccept = !requestQueue.io.full
+  val effectiveRequestEnable = Mux(io.liveArmPolicyEnable, liveArmPolicy.io.requestEnable, io.requestEnable)
+  val effectiveSinkReady = Mux(io.liveArmPolicyEnable, liveArmPolicy.io.sinkReady, io.sinkReady)
 
   requestControl.io.enable := io.enable
   requestControl.io.flush := io.flush
-  requestControl.io.requestEnable := io.requestEnable
+  requestControl.io.requestEnable := effectiveRequestEnable
   requestControl.io.launchValid := io.launchValid
-  requestControl.io.rawSinkReady := requestQueue.io.enqueueReady
+  requestControl.io.rawSinkReady := requestQueueResidentCanAccept
   requestControl.io.tokenCanAccept := acceptedToken.io.tokenCanAccept
 
   queryIssue.io.enable := io.enable
@@ -631,7 +637,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   requestSink.io.flush := io.flush
   requestSink.io.requestValid := requestQueue.io.headValid
   requestSink.io.request := requestQueue.io.head
-  requestSink.io.rawSinkReady := io.sinkReady
+  requestSink.io.rawSinkReady := effectiveSinkReady
   requestSink.io.responseReady := !responseQueue.io.full && !rawResponseSource.io.responseValid
   requestSink.io.lookupWaitStore := lookup.io.waitStoreValid
   requestSink.io.lookupWaitStoreInfo := lookup.io.waitStore
@@ -699,7 +705,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   liveArmPolicy.io.policyEnable := io.liveArmPolicyEnable
   liveArmPolicy.io.rowMutationLiveEnable := io.rowMutationLiveEnable
   liveArmPolicy.io.launchValid := io.launchValid
-  liveArmPolicy.io.requestQueueCanAccept := !requestQueue.io.full
+  liveArmPolicy.io.requestQueueCanAccept := requestQueueResidentCanAccept
   liveArmPolicy.io.acceptedTokenCanAccept := acceptedToken.io.tokenCanAccept
   liveArmPolicy.io.requestHeadValid := requestQueue.io.headValid
   liveArmPolicy.io.rawSinkAvailable := io.liveArmRawSinkAvailable
@@ -1029,6 +1035,9 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.liveArmPolicySinkBlockedByRawSink := liveArmPolicy.io.sinkBlockedByRawSink
   io.liveArmPolicyResponseBlockedByQueueFull := liveArmPolicy.io.responseBlockedByQueueFull
   io.liveArmPolicyResponseBlockedByRawResponse := liveArmPolicy.io.responseBlockedByRawResponse
+  io.effectiveRequestEnable := effectiveRequestEnable
+  io.effectiveRequestQueueCanAccept := requestQueueResidentCanAccept
+  io.effectiveSinkReady := effectiveSinkReady
   io.responseQueueEnqueueReady := responseQueue.io.enqueueReady
   io.responseQueueEnqueueAccepted := responseQueue.io.enqueueAccepted
   io.responseQueueEnqueueDropped := responseQueue.io.enqueueDropped

@@ -120,6 +120,9 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       liveArmPolicySinkBlockedByRawSink: Boolean,
       liveArmPolicyResponseBlockedByQueueFull: Boolean,
       liveArmPolicyResponseBlockedByRawResponse: Boolean,
+      effectiveRequestEnable: Boolean,
+      effectiveRequestQueueCanAccept: Boolean,
+      effectiveSinkReady: Boolean,
       responseQueueEnqueueReady: Boolean,
       responseQueueEnqueueAccepted: Boolean,
       responseQueueEnqueueDropped: Boolean,
@@ -222,26 +225,29 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       dataSuppressedByWait = dataSuppressedByWaitIn)
     val sinkResponseReady = enable && !flush && !responseQueueCapacity.full && !rawResponseSource.responseValid
     val initialRequestQueueHead = requestQueueState.headOption
-    val requestSinkPreview = LoadReplaySourceReturnStoreSnapshotRequestSinkReference(
+    val residentRequestQueueCanAccept = requestQueueState.size < 2
+    val tokenCanAccept = enable && !flush && !precisePruneActive && !acceptedTokenState.valid
+    val policyForRequest = LoadReplaySourceReturnStoreSnapshotLiveArmPolicyReference(
       enable = enable,
       flush = flush,
-      request = initialRequestQueueHead,
-      rawSinkReady = sinkReady,
-      responseReady = sinkResponseReady)
-    val requestQueueCapacity = LoadReplaySourceReturnStoreSnapshotRequestQueueReference.step(
-      state = requestQueueState,
-      depth = 2,
-      enable = enable,
-      flush = flush,
-      preciseFlush = preciseFlush,
-      dequeueReady = requestSinkPreview.requestReady)
+      policyEnable = liveArmPolicyEnable,
+      rowMutationLiveEnable = rowMutationLiveEnable,
+      launchValid = launchValid,
+      requestQueueCanAccept = residentRequestQueueCanAccept,
+      acceptedTokenCanAccept = tokenCanAccept,
+      requestHeadValid = initialRequestQueueHead.exists(_.valid),
+      rawSinkAvailable = liveArmRawSinkAvailable,
+      responseQueueFull = responseQueueState.size >= 2,
+      rawResponseValid = rawResponseSource.responseValid)
+    val effectiveRequestEnable =
+      if (liveArmPolicyEnable) policyForRequest.requestEnable else requestEnable
     val requestControl = LoadReplaySourceReturnStoreSnapshotRequestControlReference(
       enable = enable,
       flush = flush,
-      requestEnable = requestEnable,
+      requestEnable = effectiveRequestEnable,
       launchValid = launchValid,
-      rawSinkReady = requestQueueCapacity.enqueueReady,
-      tokenCanAccept = enable && !flush && !precisePruneActive && !acceptedTokenState.valid)
+      rawSinkReady = residentRequestQueueCanAccept,
+      tokenCanAccept = tokenCanAccept)
     val queryIssue = LoadReplaySourceReturnStoreSnapshotQueryIssueReference(
       enable = enable,
       flush = flush,
@@ -283,6 +289,24 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedAddr = selectedAddr,
       selectedSize = selectedSize,
       selectedRequestByteMask = selectedRequestByteMask)
+    val prospectiveRequestHeadValid =
+      enable && !flush && !precisePruneActive &&
+        (initialRequestQueueHead.exists(_.valid) || (requestPayload.payload.valid && requestQueueState.size < 2))
+    val liveArmPolicy = LoadReplaySourceReturnStoreSnapshotLiveArmPolicyReference(
+      enable = enable,
+      flush = flush,
+      policyEnable = liveArmPolicyEnable,
+      rowMutationLiveEnable = rowMutationLiveEnable,
+      launchValid = launchValid,
+      requestQueueCanAccept = residentRequestQueueCanAccept,
+      acceptedTokenCanAccept = tokenCanAccept,
+      requestHeadValid = prospectiveRequestHeadValid,
+      rawSinkAvailable = liveArmRawSinkAvailable,
+      responseQueueFull = responseQueueState.size >= 2,
+      rawResponseValid = rawResponseSource.responseValid)
+    val effectiveSinkReady =
+      if (liveArmPolicyEnable) liveArmPolicy.sinkReady else sinkReady
+    val requestDequeueReady = enable && !flush && effectiveSinkReady && sinkResponseReady
     val requestQueue = LoadReplaySourceReturnStoreSnapshotRequestQueueReference.step(
       state = requestQueueState,
       depth = 2,
@@ -290,12 +314,12 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       flush = flush,
       preciseFlush = preciseFlush,
       enqueue = if (requestPayload.payload.valid) Some(requestPayload.payload) else None,
-      dequeueReady = requestSinkPreview.requestReady)
+      dequeueReady = requestDequeueReady)
     val requestSink = LoadReplaySourceReturnStoreSnapshotRequestSinkReference(
       enable = enable,
       flush = flush,
       request = requestQueue.head,
-      rawSinkReady = sinkReady,
+      rawSinkReady = effectiveSinkReady,
       responseReady = sinkResponseReady)
     val acceptedToken = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.step(
       state = acceptedTokenState,
@@ -412,18 +436,6 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       preciseFlush = preciseFlush,
       enqueue = responseEnqueue,
       dequeueReady = responseDrain.dequeueReady)
-    val liveArmPolicy = LoadReplaySourceReturnStoreSnapshotLiveArmPolicyReference(
-      enable = enable,
-      flush = flush,
-      policyEnable = liveArmPolicyEnable,
-      rowMutationLiveEnable = rowMutationLiveEnable,
-      launchValid = launchValid,
-      requestQueueCanAccept = requestQueueState.size < 2,
-      acceptedTokenCanAccept = acceptedToken.tokenCanAccept,
-      requestHeadValid = requestQueue.headValid,
-      rawSinkAvailable = liveArmRawSinkAvailable,
-      responseQueueFull = responseQueueState.size >= 2,
-      rawResponseValid = rawResponseSource.responseValid)
     val responseApply = LoadReplaySourceReturnStoreSnapshotResponseApplyReference(
       liqEntries = 4,
       enable = enable,
@@ -478,7 +490,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
     val control = LoadReplaySourceReturnStoreSnapshotReadyControlReference(
       enable = enable,
       flush = flush,
-      requestEnable = requestEnable,
+      requestEnable = requestControl.queryRequestEnable,
       legacySnapshotReady = legacySnapshotReady,
       snapshotRequired = evidence.snapshotRequired,
       snapshotValid = evidence.snapshotValid)
@@ -599,6 +611,9 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       liveArmPolicySinkBlockedByRawSink = liveArmPolicy.sinkBlockedByRawSink,
       liveArmPolicyResponseBlockedByQueueFull = liveArmPolicy.responseBlockedByQueueFull,
       liveArmPolicyResponseBlockedByRawResponse = liveArmPolicy.responseBlockedByRawResponse,
+      effectiveRequestEnable = effectiveRequestEnable,
+      effectiveRequestQueueCanAccept = residentRequestQueueCanAccept,
+      effectiveSinkReady = effectiveSinkReady,
       responseQueueEnqueueReady = responseQueue.enqueueReady,
       responseQueueEnqueueAccepted = responseQueue.enqueueAccepted,
       responseQueueEnqueueDropped = responseQueue.enqueueDropped,
@@ -670,7 +685,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(!result.requestPayloadValid)
   }
 
-  test("path-local live-arm policy diagnostics do not drive dormant request controls") {
+  test("path-local live-arm policy drives selected request and sink controls") {
     val result = LoadReplaySourceReturnStoreSnapshotPathReference(
       enable = true,
       flush = false,
@@ -678,7 +693,20 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       legacySnapshotReady = false,
       rowMutationLiveEnable = true,
       liveArmPolicyEnable = true,
-      liveArmRawSinkAvailable = true)
+      liveArmRawSinkAvailable = true,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4,
+      scbReturned = true,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16) << 8)
 
     assert(result.liveArmPolicyActive)
     assert(result.liveArmPolicyRequestCandidate)
@@ -686,12 +714,19 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.liveArmPolicySinkCandidate)
     assert(result.liveArmPolicySinkReady)
     assert(!result.liveArmPolicyResponsePortBlocked)
-    assert(!result.queryIssueIssued)
-    assert(result.queryIssueBlockedByRequestDisabled)
-    assert(!result.requestPayloadValid)
-    assert(!result.requestQueueEnqueueAccepted)
-    assert(!result.requestSinkAccepted)
-    assert(!result.storeSnapshotReady)
+    assert(result.effectiveRequestEnable)
+    assert(result.effectiveRequestQueueCanAccept)
+    assert(result.effectiveSinkReady)
+    assert(result.queryIssueIssued)
+    assert(result.acceptedTokenCaptureAccepted)
+    assert(result.requestPayloadValid)
+    assert(result.requestQueueEnqueueAccepted)
+    assert(result.requestQueueHeadConsumed)
+    assert(result.requestSinkAccepted)
+    assert(result.requestSinkResponseValid)
+    assert(result.evidenceResponseAccepted)
+    assert(result.controlLiveReady)
+    assert(result.storeSnapshotReady)
   }
 
   test("path-local live-arm policy reports row-mutation safety blockers") {
@@ -727,6 +762,8 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.liveArmPolicySinkCandidate)
     assert(!result.liveArmPolicySinkReady)
     assert(result.liveArmPolicySinkBlockedByRowMutationDisabled)
+    assert(!result.effectiveRequestEnable)
+    assert(!result.effectiveSinkReady)
   }
 
   test("path-local live-arm policy request arm uses resident queue fullness") {
@@ -781,6 +818,9 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(!result.liveArmPolicyRequestBlockedByAcceptedToken)
     assert(result.liveArmPolicySinkCandidate)
     assert(result.liveArmPolicySinkReady)
+    assert(!result.effectiveRequestEnable)
+    assert(!result.effectiveRequestQueueCanAccept)
+    assert(result.effectiveSinkReady)
   }
 
   test("path-local live-arm policy reports resident response-port blockers") {
@@ -827,6 +867,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.liveArmPolicyResponsePortBlocked)
     assert(result.liveArmPolicyResponseBlockedByQueueFull)
     assert(result.liveArmPolicyResponseBlockedByRawResponse)
+    assert(result.effectiveSinkReady)
   }
 
   test("projected selected identity can complete a future live STQ snapshot") {
@@ -853,6 +894,8 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       selectedRequestByteMask = BigInt("ff", 16) << 8)
 
     assert(result.queryIssueIssued)
+    assert(result.effectiveRequestEnable)
+    assert(result.effectiveSinkReady)
     assert(result.acceptedTokenCanAccept)
     assert(result.acceptedTokenValid)
     assert(result.acceptedTokenCaptureAccepted)
@@ -1449,6 +1492,9 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_liveArmPolicyResponsePortBlocked"))
     assert(sv.contains("io_liveArmPolicyRequestBlockedByRowMutationDisabled"))
     assert(sv.contains("io_liveArmPolicyResponseBlockedByRawResponse"))
+    assert(sv.contains("io_effectiveRequestEnable"))
+    assert(sv.contains("io_effectiveRequestQueueCanAccept"))
+    assert(sv.contains("io_effectiveSinkReady"))
     assert(sv.contains("io_responseQueueEnqueueAccepted"))
     assert(sv.contains("io_responseQueueHeadConsumed"))
     assert(sv.contains("io_responseQueueBlockedByFull"))

@@ -201,6 +201,15 @@ R437 refines the policy's request FIFO capacity input to use current resident
 fullness (`!requestQueue.full`) rather than dequeue-dependent `enqueueReady`.
 This keeps the policy diagnostic loop-free before a later packet can mux policy
 outputs into live `requestEnable` or `sinkReady` control.
+R438 promotes that mux inside the composite path. When
+`liveArmPolicyEnable=true`, `RequestControl.requestEnable` uses the policy's
+`requestEnable` output and `RequestSink.rawSinkReady` uses the policy's
+`sinkReady` output; otherwise they use the raw path inputs. The reduced top
+still ties `liveArmPolicyEnable=false`, `requestEnable=false`, and
+`sinkReady=false`, so top-visible replay behavior remains dormant. The path
+also feeds `RequestControl.rawSinkReady` from resident request FIFO fullness
+instead of dequeue-sensitive `enqueueReady`, so selecting the policy sink arm
+cannot feed a request-capacity combinational loop through queue drain.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
@@ -282,13 +291,13 @@ boundary and can later be promoted without another direct top child instance.
 | `enable` | Replay-LIQ wrapper is active. |
 | `flush` | Hard source-return path clear for frontend flush, start/restart, feature-disable, and marker-only backend cleanup. |
 | `preciseFlush` | Model-shaped `FlushBus` forwarded to the request and response queues for selective resident pruning. The reduced top drives scalar redirect cleanup here only when a valid reduced load LSID is available. |
-| `requestEnable` | Future live arm for issuing and consuming selected-row STQ snapshot evidence. Current top ties this false. |
+| `requestEnable` | Raw future live arm for issuing and consuming selected-row STQ snapshot evidence. The path selects this input only when `liveArmPolicyEnable=false`; the current top ties it false. |
 | `rowMutationLiveEnable` | Future live arm for allowing a row-state plan to become a LIQ row-mutation request. R417 exposes this path input; the current top ties it false. |
 | `rawResponseLiveEnable` | Future live arm for allowing raw external STQ response candidates to enter the response queue. R421 exposes this path input; the current top ties it false. |
-| `liveArmPolicyEnable` | R436 path-local policy intent for computing future `requestEnable` and `sinkReady` candidates. The current top ties this false. |
+| `liveArmPolicyEnable` | R436/R438 path-local policy selector for computing and optionally selecting future `requestEnable` and `sinkReady` candidates. The current top ties this false. |
 | `liveArmRawSinkAvailable` | R436 raw/local store-unit sink availability input observed only by the policy diagnostics. The current top ties this false. |
 | `launchValid` | A selected replay row would need local STQ source-return qualification. |
-| `sinkReady` | Future raw store-unit request sink readiness for the R404 request sink. Current top ties this false. |
+| `sinkReady` | Raw future store-unit request sink readiness for the R404 request sink. The path selects this input only when `liveArmPolicyEnable=false`; the current top ties it false. |
 | `selectedIdentityEnable` | Selects the reduced LIQ launch-index projection instead of the raw selected-row identity inputs. |
 | `selectedLaunchIndex` | Reduced LIQ selected launch slot used by `LoadReplaySourceReturnStoreSnapshotSelectedIdentity`. |
 | `selectedRepickMask` | Reduced LIQ rows already resident in `Repick`; used to reject pre-repick or stale selected rows. |
@@ -344,6 +353,7 @@ boundary and can later be promoted without another direct top child instance.
 | `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, blocker diagnostics, and R426 precise-prune mask/count visibility. |
 | `requestSink*` | R434 request-sink diagnostics: active/candidate/ready/accepted, generated response-valid, raw-sink blocker, response-port blocker, disabled/flush/no-request blockers, and invalid wait-store-with-data detection. |
 | `liveArmPolicy*` | R436 path-local future-arm diagnostics: policy-active request/sink candidates, future `requestEnable`/`sinkReady`, response-port blockers, and disabled/flush/policy/queue/token/raw-sink/row-mutation blocker reasons. |
+| `effectiveRequestEnable` / `effectiveRequestQueueCanAccept` / `effectiveSinkReady` | R438 selected control diagnostics after the internal policy/raw mux. Request queue capacity is resident pre-cycle fullness, not same-cycle dequeue-sensitive `enqueueReady`. |
 | `responseQueue*` | R426/R433 response FIFO enqueue, head-consume, occupancy, full/disabled/flush blockers, and precise-prune mask/count diagnostics. |
 | `responseDrain*` | R433 response-head drain diagnostics: ordered consumption, stale-head drop, no-head/no-action blockers, and invalid stale-with-ordered evidence. |
 | `lookup*` | R405 resident-STQ lookup diagnostics: query validity, row masks, eligible store mask, forward/wait masks, wait-store, raw data evidence, and response-visible data evidence. |
@@ -386,13 +396,18 @@ R434 adds no state; it only forwards the existing combinational request-sink
 diagnostics through the path boundary.
 R436 adds no state; it instantiates the combinational live-arm policy inside
 the path and exposes its outputs as diagnostics only.
+R438 adds no state; it only selects the live-arm policy outputs through
+combinational internal control muxes and exposes the selected controls as
+diagnostics.
 
 ## Logic Design
 
 The path preserves the model ordering as a chain of small owners:
 
 ```text
-RequestControl.querySinkReady
+LiveArmPolicy.requestEnable/sinkReady or raw request/sink inputs
+  -> Effective request/sink controls
+  -> RequestControl.querySinkReady
   -> QueryIssue.queryIssued
   -> SelectedIdentity.selectedValid/selectedRepick/cID/eID
   -> RequestPayload.requestValid/request
@@ -546,6 +561,13 @@ that drain path. Using resident fullness keeps the request arm a pre-cycle
 capacity decision and avoids creating a policy request/sink/dequeue/queue-ready
 loop during later promotion.
 
+R438 applies the same acyclic capacity rule at the `RequestControl` boundary
+itself. `RequestControl.rawSinkReady` is now the resident request FIFO capacity
+proof, while the request queue still supports same-cycle drain for payloads
+that have already been issued. This keeps selected request issue independent
+from selected sink/dequeue readiness even though the policy output can now
+drive `RequestSink.rawSinkReady` internally.
+
 The R402 request-payload owner publishes the selected row's reduced LIQ slot,
 accepted local `cID/eID`, BID/GID/RID identity, load LSID, PC, address, size,
 and request byte mask only when query issue fires for a selected repick row.
@@ -639,8 +661,8 @@ keeps LSID-less marker cleanup on the hard-clear path.
   row-mutation request.
 - Live row-mutation promotion control after row-carried `scbRnt/stqRnt` and
   stale-response policy are explicit.
-- Live promotion of `requestEnable` after query, response, and row-state owners
-  are stable.
+- Reduced-top promotion of `liveArmPolicyEnable`, raw sink availability, and
+  row mutation after query, response, and row-state owners are stable.
 
 ## Verification
 
@@ -677,7 +699,8 @@ behavior, future live accepted-token response completion, flush handling,
 disabled behavior, request-queue storage while the future raw sink is stalled,
 raw-response priority over sink-generated response, path-local identity and
 response blocker diagnostics, request-sink blocker diagnostics,
-response FIFO/drain diagnostics, and Chisel
+response FIFO/drain diagnostics, policy-selected effective-control completion,
+and Chisel
 elaboration with the selected-identity, request-control, request-payload,
 request-queue, request-sink, accepted-token, payload-bearing response-queue,
 response-head-state, response-drain, response-apply, row-state-plan,
