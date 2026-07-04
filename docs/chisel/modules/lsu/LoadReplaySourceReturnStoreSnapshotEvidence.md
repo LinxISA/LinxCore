@@ -44,9 +44,10 @@ replay-row launch-valid signal. R392 drives `queryIssued` from
 `requestEnable` and `sinkReady` false, so `queryIssued` remains false. R393
 drives `responseValid`, `waitStore`, and `dataValid` from
 `LoadReplaySourceReturnStoreSnapshotResponseMatch`, while raw response,
-selected-row match, and SCB-order evidence remain false. R394 names the future
-selected-row identity matcher as a standalone unit; this top does not
-instantiate it until the constructor method-size limit is relieved. Its
+selected-row match, and SCB-order evidence remain false. R395 composes the
+query, R394 identity, response, evidence, and ready-control owners inside
+`LoadReplaySourceReturnStoreSnapshotPath`; the top ties the path's raw identity
+and response inputs false instead of instantiating each owner directly. Its
 `snapshotRequired` and `snapshotValid` outputs feed
 `LoadReplaySourceReturnStoreSnapshotReadyControl`; that control still has
 `requestEnable=false`, so the integrated readiness path continues to forward
@@ -92,9 +93,9 @@ the legacy combinational resident-store snapshot readiness.
 ## State
 
 The module is combinational. It does not store selected-row identity or merge
-data. R392 names the request-issue side of `queryIssued`, R393 names the
-response-order side, and R394 names a standalone future identity-match source
-for the still-tied selected-row match input.
+data. R392 names the request-issue side of `queryIssued`, R394 names the
+identity-match source, and R393 names the response-order side; R395 composes
+those owners with this evidence classifier under one top child instance.
 
 ## Logic Design
 
@@ -134,7 +135,7 @@ snapshot completion. Evidence visible during flush is reported through
 
 ## Deferred Owners
 
-- Raw STQ response queue and live selected-row identity into R394 matching.
+- Raw STQ response queue and live selected-row identity into the R395 path.
 - Stateful wait-store replay row mutation.
 - Store-data merge into replay row line data.
 - Live promotion of `LoadReplaySourceReturnStoreSnapshotReadyControl.requestEnable`.
@@ -145,12 +146,13 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnReadiness
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r393x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r395x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover idle/no-row behavior, selected-row query requirement,

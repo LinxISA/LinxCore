@@ -4,9 +4,10 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatchSpec.scala`
-- Intended integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
-  - R394 top integration is deferred because a dormant instance tripped the
-    oversized top constructor `Method too large` limit.
+- Integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotPath.scala`
+  - `LinxCoreFrontendFetchRfAluTraceTop` instantiates the R395 path rather than
+    this owner directly, avoiding another child in the oversized top
+    constructor.
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`
     - `LDQInfo::handleSTQReceive`
@@ -32,11 +33,12 @@ The model response path indexes the LDQ row from `MemReqBus.cID/eID` in
 wait-store, and data-merge handling. R394 captures that identity/stale-row
 boundary before the R393 response-order owner.
 
-The reduced top does not instantiate this module yet. Its R393 response-match
-owner still ties `responseMatchesSelected=false`; this standalone R394 module
-documents and tests the identity/stale-row boundary that will replace that
-tie-off after the top is split or the response owner absorbs the logic without
-growing the top constructor.
+R395 integrates this module inside
+`LoadReplaySourceReturnStoreSnapshotPath`. The reduced top still ties raw
+selected-row identity and response inputs false at the path boundary, so
+`responseMatchesSelected` remains false in the current live-disabled mode. The
+identity/stale-row boundary is nevertheless now part of the composed path
+instead of a separate direct top child.
 
 ## Interface
 
@@ -100,10 +102,10 @@ SCB-before-STQ ordering remains in that downstream owner.
 
 ## Timing
 
-The current reduced top does not instantiate this module. Future live
-integration must source stable selected-row identity from replay-LIQ state and
-raw response identity from an STQ response queue, while preserving the top
-compile-budget constraint.
+The current reduced top instantiates this module through the R395 composite
+path. Future live integration must source stable selected-row identity from
+replay-LIQ state and raw response identity from an STQ response queue, while
+preserving the top compile-budget constraint.
 
 ## Flush/Recovery
 
@@ -124,11 +126,12 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotIdentityMatch
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r394x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r395x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover disabled/flush suppression, no-query blocking,

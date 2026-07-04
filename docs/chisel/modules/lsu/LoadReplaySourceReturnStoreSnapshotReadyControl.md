@@ -34,9 +34,12 @@ R391 feeds `snapshotRequired` and `snapshotValid` from
 `LoadReplaySourceReturnStoreSnapshotEvidence`, but leaves the live request gate
 disabled. R392 names the selected-row STQ query-issue boundary but leaves that
 request disabled too. R393 names selected-row STQ response matching and
-SCB-before-STQ ordering, while raw response evidence remains inactive. Future
-live mode can enable this control only after selected-row STQ query issue and
-response matching are both stable.
+SCB-before-STQ ordering, while raw response evidence remains inactive. R395
+composes the query, R394 identity, response, evidence, and ready-control owners
+inside `LoadReplaySourceReturnStoreSnapshotPath`, so the top sees one child
+instance for this local STQ snapshot path. Future live mode can enable this
+control only after selected-row STQ query issue, identity matching, and
+response matching are all stable.
 
 ## Interface
 
@@ -102,8 +105,9 @@ The control is same-cycle combinational logic in front of
 `LoadReplaySourceReturnReadiness`. It does not latch resident snapshot state;
 R391 provides the current combinational evidence classifier and R392 provides a
 disabled query-issue owner. R393 provides the disabled response-match/order
-owner. Future raw STQ response and selected-row identity inputs must be stable
-before live request mode is enabled.
+owner, and R394 identity matching is now inside the R395 composite path.
+Future raw STQ response and selected-row identity inputs must be stable before
+live request mode is enabled.
 
 ## Flush/Recovery
 
@@ -113,7 +117,8 @@ behavior.
 
 ## Deferred Owners
 
-- Live raw STQ response source and selected-row identity match inputs.
+- Live raw STQ response source and selected-row identity match inputs through
+  the R395 path.
 - Stateful STQ/source return tracking across replay-row repick cycles.
 - Full LIQ/LDQ relaunch, LHQ publication, ready-table wakeup, and memory trace
   rows.
@@ -124,13 +129,14 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnReadiness
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayLaunchReadiness
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r393x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r395x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover legacy snapshot readiness preservation, optional live

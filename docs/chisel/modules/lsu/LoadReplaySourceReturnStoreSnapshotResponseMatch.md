@@ -40,11 +40,12 @@ The model path is:
 4. A `wait_store` response calls `LDQInfo::waitStore`; otherwise `data_vld`
    controls whether `LDQInfo::handleMerge` merges returned store bytes.
 
-R393 adds only the response-match and ordering boundary. R394 names the future
-identity source for `responseMatchesSelected` in standalone form, but the
-reduced top still ties raw STQ response inputs, selected-row match, and
-SCB-return evidence false, so `responseValid`, `waitStore`, and `dataValid`
-remain false at
+R393 adds only the response-match and ordering boundary. R394 names the
+identity source for `responseMatchesSelected`, and R395 composes both owners
+inside `LoadReplaySourceReturnStoreSnapshotPath`. The reduced top still ties
+raw STQ response inputs, selected-row identity, and SCB-return evidence false
+at the path boundary, so `responseValid`, `waitStore`, and `dataValid` remain
+false at
 `LoadReplaySourceReturnStoreSnapshotEvidence`.
 
 ## Interface
@@ -84,9 +85,10 @@ remain false at
 ## State
 
 The module is combinational. It does not store selected-row identity or mutate
-LIQ/LDQ state. R394 names a standalone selected-row identity comparator;
-future live integration must still supply selected-row identity state and a raw
-STQ response queue owner before this top can consume it.
+LIQ/LDQ state. R395 feeds `responseMatchesSelected` from the R394 identity
+matcher inside the composite path; future live integration must still supply
+selected-row identity state and a raw STQ response queue owner before this top
+can consume it.
 
 ## Logic Design
 
@@ -131,11 +133,12 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r393x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r395x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover disabled/flush suppression, no-query blocking, unmatched

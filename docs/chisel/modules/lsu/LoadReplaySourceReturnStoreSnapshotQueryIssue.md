@@ -88,12 +88,12 @@ queryIssued    = queryValid && sinkReady
 ```
 
 `queryIssued` feeds `LoadReplaySourceReturnStoreSnapshotEvidence.queryIssued`
-and the R393 `LoadReplaySourceReturnStoreSnapshotResponseMatch` owner in the
-top. R394 names the future identity-match consumer of that query in standalone
-form, but it is not instantiated in the oversized fetch/RF/ALU top yet. In the
-current integration, `requestEnable`, `sinkReady`, selected-row match, and raw
-response inputs remain tied false, so the evidence path still observes an
-unissued query and no response evidence.
+and the R393 `LoadReplaySourceReturnStoreSnapshotResponseMatch` owner through
+the R395 composite path. The same path also instantiates the R394
+identity-match consumer. In the current integration, `requestEnable`,
+`sinkReady`, selected-row identity, and raw response inputs remain tied false
+at the path boundary, so the evidence path still observes an unissued query
+and no response evidence.
 
 ## Timing
 
@@ -110,7 +110,7 @@ Flush clears `active`, `requestActive`, `queryCandidate`, `queryValid`, and
 ## Deferred Owners
 
 - Selected-row request payload and STQ lookup sink valid/ready connection.
-- Raw STQ response queue and selected-row identity source into R394 matching.
+- Raw STQ response queue and selected-row identity source into the R395 path.
 - Wait-store row mutation and data merge.
 - Live promotion of `LoadReplaySourceReturnStoreSnapshotReadyControl.requestEnable`.
 
@@ -120,11 +120,12 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r393x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r395x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover disabled/flush suppression, disabled live request with a

@@ -1054,12 +1054,15 @@ R393 adds `LoadReplaySourceReturnStoreSnapshotResponseMatch` between query
 issue and evidence. The reduced top now routes `responseValid`, `waitStore`,
 and `dataValid` through a named response-match/order owner while raw response,
 selected-row match, and SCB-return evidence remain disabled.
-R394 adds standalone `LoadReplaySourceReturnStoreSnapshotIdentityMatch` as the
-future `cID/eID` and stale-row identity owner for that response-match input.
-It is not instantiated in this top yet: the first dormant integration attempt
-hit the top constructor `Method too large` limit, so the top keeps the R393
-false tie-off until the replay-LIQ source-return cluster is split or an
-existing owner absorbs the identity logic.
+R394 adds `LoadReplaySourceReturnStoreSnapshotIdentityMatch` as the `cID/eID`
+and stale-row identity owner for that response-match input. The first direct
+dormant top integration attempt hit the top constructor `Method too large`
+limit. R395 relieves that pressure by replacing the separate R390-R393 top
+children with one `LoadReplaySourceReturnStoreSnapshotPath` child. The path
+contains query issue, identity match, response match, evidence, and
+ready-control; the top helper ties the path's live request, sink, selected-row
+identity, raw response, SCB, wait-store, and data inputs false while preserving
+all existing top diagnostics.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1324,24 +1327,27 @@ overlay. Most state remains in child modules:
   replay-LIQ rows. It treats the local resident-store snapshot as the current
   reduced store source, keeps the future external SCB pending/returned boundary
   explicit, and feeds `LoadReplayLaunchReadiness.scbReturned`.
+- `LoadReplaySourceReturnStoreSnapshotPath`: optional R395 composite local STQ
+  snapshot source-return path. It contains the R392 query issue, R394 identity
+  match, R393 response match, R391 evidence, and R390 ready-control owners
+  under one top child instance.
 - `LoadReplaySourceReturnStoreSnapshotReadyControl`: optional R390 local STQ
   snapshot readiness request owner before `LoadReplaySourceReturnReadiness`.
 - `LoadReplaySourceReturnStoreSnapshotEvidence`: optional R391 selected-row
   local STQ evidence classifier feeding
   `LoadReplaySourceReturnStoreSnapshotReadyControl`. The current reduced top
-  feeds `queryIssued` through the R392 query-issue owner while keeping request
-  issue and response evidence disabled and preserving legacy combinational
-  snapshot-ready behavior.
+  reaches this owner through the R395 path while keeping request issue and
+  response evidence disabled and preserving legacy combinational snapshot-ready
+  behavior.
 - `LoadReplaySourceReturnStoreSnapshotQueryIssue`: optional R392 selected-row
   local STQ snapshot query-issue owner before
   `LoadReplaySourceReturnStoreSnapshotEvidence`. The current reduced top ties
   request issue and downstream sink readiness low.
 - `LoadReplaySourceReturnStoreSnapshotResponseMatch`: optional R393 selected-row
   local STQ snapshot response-match owner before
-  `LoadReplaySourceReturnStoreSnapshotEvidence`. The current reduced top ties
-  raw response, selected-row match, and SCB-return evidence low. R394's
-  standalone identity owner is deferred from this top until the constructor
-  method-size limit is relieved.
+  `LoadReplaySourceReturnStoreSnapshotEvidence`. The current reduced top
+  reaches this owner through the R395 path and ties raw response, selected-row
+  identity, and SCB-return evidence low at the path boundary.
 - `LoadReplaySourceReturnScbLiveControl`: optional R389 external-SCB live
   request owner before `LoadReplaySourceReturnReadiness`. The current reduced
   top ties its request and evidence inputs low, so source readiness keeps the
@@ -1808,10 +1814,11 @@ query-issued literal with `LoadReplaySourceReturnStoreSnapshotQueryIssue`,
 while keeping live request issue and sink readiness disabled. R393 replaces the
 local response evidence literals with
 `LoadReplaySourceReturnStoreSnapshotResponseMatch`, while keeping raw response,
-selected-row match, and SCB-return evidence disabled. R394 adds the standalone
-identity owner for that selected-row match input, but its top integration is
-deferred because the dormant instance alone exceeded the top constructor
-method-size limit. R300
+selected-row match, and SCB-return evidence disabled. R394 adds the identity
+owner for that selected-row match input. R395 replaces the separate
+store-snapshot top children with `LoadReplaySourceReturnStoreSnapshotPath`, so
+the identity owner is integrated inside the composite path without new top IO
+or another direct top child instance. R300
 inserts
 `LoadReplayReturnReadiness` after that source-return boundary. R301 inserts
 `LoadReplayReturnPipeSelect` as the explicit pipe-mask/select owner feeding
