@@ -2373,6 +2373,10 @@ RID, and reduced LSID. R275 carries the forwarding snapshot
 LIQ/LDQ row can be allocated later without deriving the snapshot from reduced
 top aliases. Real relaunch, LIQ/LDQ row mutation, and dependent wakeup remain
 deferred until a real LIQ/LDQ row can accept the candidate.
+R417 structurally routes the source-shaped local-STQ snapshot row-mutation
+payload into the reduced LIQ bridge and native queue row-mutation port, but
+the source path still ties `rowMutationLiveEnable=false` in the top, so no
+live row mutation is introduced by this wiring packet.
 This remains a reduced memory visibility bridge, not a general LSU/STQ, cache,
 replay, or MDB implementation.
 
