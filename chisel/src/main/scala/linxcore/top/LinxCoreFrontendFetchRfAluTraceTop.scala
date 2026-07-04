@@ -510,6 +510,40 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedByRequestDisabled = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedByNoLaunch = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedBySink = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyActive = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyCandidate = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyTargetMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyWaitStore = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyDataMerge = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyDataNoMerge = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyMergedRequestComplete = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNoOrderedResponse = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNotRepick = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByWaitStore = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNoData = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyInvalidOrderedWithoutPayload = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyInvalidDataWithWaitStore = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyInvalidDataValidWithoutRawData = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyInvalidSuppressedDataWithoutWait = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanActive = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanRewait = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanDataMerge = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanDataNoMerge = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanSetWaitStatus = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanKeepRepickStatus = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanClearReturnState = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanLineWrite = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanWaitStoreWrite = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanNextDataComplete = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanNextScbReturned = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanNextStqReturned = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanNextStoreSourceReturned = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanBlockedByNoApply = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanInvalidApplyWithoutStqReturned = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanInvalidStqReturnedWithoutApply = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanInvalidStqApplyWithoutScb = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationCandidateValid = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationCandidateTargetMask =
     Output(UInt(p.robEntries.W))
@@ -5757,6 +5791,74 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       path.io.queryIssueBlockedByNoLaunch
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedBySink :=
       path.io.queryIssueBlockedBySink
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyActive :=
+      path.io.responseApplyActive
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyCandidate :=
+      path.io.responseApplyCandidate
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyValid :=
+      path.io.responseApplyValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyTargetMask :=
+      path.io.responseApplyTargetMask
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyWaitStore :=
+      path.io.responseApplyWaitStore
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyDataMerge :=
+      path.io.responseApplyDataMerge
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyDataNoMerge :=
+      path.io.responseApplyDataNoMerge
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyMergedRequestComplete :=
+      path.io.responseApplyMergedRequestComplete
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNoOrderedResponse :=
+      path.io.responseApplyBlockedByNoOrderedResponse
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNotRepick :=
+      path.io.responseApplyBlockedByNotRepick
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByWaitStore :=
+      path.io.responseApplyBlockedByWaitStore
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNoData :=
+      path.io.responseApplyBlockedByNoData
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyInvalidOrderedWithoutPayload :=
+      path.io.responseApplyInvalidOrderedWithoutPayload
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyInvalidDataWithWaitStore :=
+      path.io.responseApplyInvalidDataWithWaitStore
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyInvalidDataValidWithoutRawData :=
+      path.io.responseApplyInvalidDataValidWithoutRawData
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyInvalidSuppressedDataWithoutWait :=
+      path.io.responseApplyInvalidSuppressedDataWithoutWait
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanActive :=
+      path.io.rowStatePlanActive
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanValid :=
+      path.io.rowStatePlanValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanRewait :=
+      path.io.rowStatePlanRewait
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanDataMerge :=
+      path.io.rowStatePlanDataMerge
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanDataNoMerge :=
+      path.io.rowStatePlanDataNoMerge
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanSetWaitStatus :=
+      path.io.rowStatePlanSetWaitStatus
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanKeepRepickStatus :=
+      path.io.rowStatePlanKeepRepickStatus
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanClearReturnState :=
+      path.io.rowStatePlanClearReturnState
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanLineWrite :=
+      path.io.rowStatePlanLineWrite
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanWaitStoreWrite :=
+      path.io.rowStatePlanWaitStoreWrite
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanNextDataComplete :=
+      path.io.rowStatePlanNextDataComplete
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanNextScbReturned :=
+      path.io.rowStatePlanNextScbReturned
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanNextStqReturned :=
+      path.io.rowStatePlanNextStqReturned
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanNextStoreSourceReturned :=
+      path.io.rowStatePlanNextStoreSourceReturned
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanBlockedByNoApply :=
+      path.io.rowStatePlanBlockedByNoApply
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanInvalidApplyWithoutStqReturned :=
+      path.io.rowStatePlanInvalidApplyWithoutStqReturned
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanInvalidStqReturnedWithoutApply :=
+      path.io.rowStatePlanInvalidStqReturnedWithoutApply
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanInvalidStqApplyWithoutScb :=
+      path.io.rowStatePlanInvalidStqApplyWithoutScb
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationCandidateValid :=
       path.io.rowMutationCandidateValid
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationCandidateTargetMask :=

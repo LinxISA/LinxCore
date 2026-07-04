@@ -217,6 +217,11 @@ ties `rowMutationLiveEnable=false`, raw `requestEnable=false`, and raw
 `sinkReady=false`, so the selected policy arm can report launch intent and
 row-mutation blockers without issuing a live local-STQ request or consuming a
 request head.
+R440 exposes compact `ResponseApply` and `RowStatePlan` diagnostics through the
+reduced top. This makes the future row-write branch visible before mutation:
+ordered STQ responses can be classified as wait-store rewait, data merge,
+data-no-merge, not-repick, malformed payload, or missing-SCB-order evidence,
+while the top still ties `rowMutationLiveEnable=false`.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
@@ -364,15 +369,16 @@ boundary and can later be promoted without another direct top child instance.
 | `responseQueue*` | R426/R433 response FIFO enqueue, head-consume, occupancy, full/disabled/flush blockers, and precise-prune mask/count diagnostics. |
 | `responseDrain*` | R433 response-head drain diagnostics: ordered consumption, stale-head drop, no-head/no-action blockers, and invalid stale-with-ordered evidence. |
 | `lookup*` | R405 resident-STQ lookup diagnostics: query validity, row masks, eligible store mask, forward/wait masks, wait-store, raw data evidence, and response-visible data evidence. |
-| `responseApply*` | R407/R408 ordered-response apply intent: STQ-returned, wait-store identity, accepted-context data merge mask/data, completion diagnostic, and malformed-payload blockers. |
-| `rowStatePlan*` | R409 future row-state write plan: wait-store rewait clearing, data/no-data repick preservation, next line image, next split SCB/STQ bits, and invalid response-class diagnostics. |
+| `responseApply*` | R407/R408 ordered-response apply intent: STQ-returned, wait-store identity, accepted-context data merge mask/data, completion diagnostic, and malformed-payload blockers. R440 exposes compact apply diagnostics through the reduced top. |
+| `rowStatePlan*` | R409 future row-state write plan: wait-store rewait clearing, data/no-data repick preservation, next line image, next split SCB/STQ bits, and invalid response-class diagnostics. R440 exposes compact row-state plan diagnostics through the reduced top. |
 | `rowMutation*` | R410 future LIQ row mutation request: candidate one-hot target diagnostics, live-disabled request payload, future row write enables, next row image, and invalid target/payload diagnostics. |
 
 The top consumes the existing `control*`, `evidence*`, `queryIssue*`,
-R439 `liveArmPolicy*`/`effective*`, and selected `rowMutation*` diagnostics
-through top IO names. Response-match and identity-match diagnostics are now
-visible at the path boundary for module and future wrapper evidence, but they
-remain off the reduced top IO to avoid constructor growth.
+R439 `liveArmPolicy*`/`effective*`, R440 `responseApply*`/`rowStatePlan*`,
+and selected `rowMutation*` diagnostics through top IO names. Response-match
+and identity-match diagnostics are now visible at the path boundary for module
+and future wrapper evidence, but they remain off the reduced top IO to avoid
+constructor growth.
 
 ## State
 
@@ -667,7 +673,7 @@ keeps LSID-less marker cleanup on the hard-clear path.
 - Stateful wait-store replay mutation and returned-data merge from the R410
   row-mutation request.
 - Live row-mutation promotion control after row-carried `scbRnt/stqRnt` and
-  stale-response policy are explicit.
+  stale-response policy are explicit enough for a write-enable proof.
 - Reduced-top row-mutation live promotion after row-carried `scbRnt/stqRnt`,
   stale-response policy, and downstream LIQ write conflicts are explicit.
 
