@@ -8,6 +8,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowMutationRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationRequestBridge.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationWriteControl.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/mtccore/lsu/load_unit/ldq_cluster.cpp`
     - `MTCLUEntryInfo::rewait`
@@ -68,7 +69,8 @@ The payload guards mirror the model constraints already captured by R410:
 
 ## Deferred Owners
 
-- Registered `LoadInflightQueue` row mutation using this preview.
+- Registered `LoadInflightQueue` row mutation using this preview behind the
+  R414 write-control admission boundary.
 - Live promotion control for `LoadReplaySourceReturnStoreSnapshotPath`
   `rowMutationRequest.liveEnable`.
 - Replacement of coarse `sourcesReturned` readiness with row-owned split-bit

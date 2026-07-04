@@ -17,6 +17,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightLaunchSelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadForwardPipeline.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadStoreForwarding.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationWriteControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBConflictDetect.scala`
 - Contract IDs: `LC-CHISEL-LSU-LIQ-001`
 
@@ -42,6 +43,12 @@ R411 adds row-carried split source-return diagnostics `scbReturned` and
 `stqReturned`. They are visible in `rows` for the future local STQ
 row-mutation writer, but `sourcesReturned` remains the active launch/return
 summary bit until row-owned STQ response application is enabled.
+
+R414 adds a standalone admission control for that future row-mutation writer.
+It records the policy that a replay-STQ mutation may write only a valid,
+repick, SCB-returned row and must not share the target row with existing E4,
+clear-resolved, replay wakeup, refill, launch, or allocation writers in the
+same cycle. The control is not wired into this queue yet.
 
 This packet turns the standalone forwarding pipeline into reusable row state
 without taking ownership of full LDQ/LIQ recovery, miss-queue ownership,
@@ -182,6 +189,9 @@ The C++ model provides the owner split:
    scalar rows to `LDQ_WAIT` with `l1Hit=true`.
 8. `CheckMovRslvQ` later moves `LDQ_RESOLVED` rows into `ResolveQ` and resets
    the active row.
+9. Future replay-STQ response mutation will use the R414 admission control to
+   avoid same-cycle ambiguity with the current registered row writers before
+   applying the R412 row-image update.
 
 `LoadInflightQueue` maps those rules into the current Chisel boundary:
 

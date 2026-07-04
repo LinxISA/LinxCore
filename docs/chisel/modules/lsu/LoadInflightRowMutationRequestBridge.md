@@ -7,6 +7,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowMutationRequest.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationApply.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationWriteControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/mtccore/lsu/load_unit/ldq_cluster.cpp`
@@ -87,7 +88,7 @@ The other payload guards mirror the adjacent R410/R412 contracts:
 ## Deferred Owners
 
 - Registered `LoadInflightQueue` row mutation using this bridge plus the R412
-  `LoadInflightRowMutationApply` preview.
+  `LoadInflightRowMutationApply` preview and R414 write-control admission.
 - Live promotion control for
   `LoadReplaySourceReturnStoreSnapshotRowMutationRequest.liveEnable`.
 - Replacement of coarse `sourcesReturned` readiness with row-owned split-bit
