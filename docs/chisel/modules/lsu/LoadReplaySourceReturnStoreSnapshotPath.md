@@ -184,8 +184,8 @@ payloads. This follows LinxCoreModel's `lookup_su_lu_q` lifetime: the store
 unit returns the same load `MemReqBus` after STQ lookup, and
 `MtcLDQInfo::flush` removes queued responses by `FlushBus::match` on that load
 identity. The packet deliberately does not implement selective pruning yet,
-because the current path still lacks a full `FlushBus` context such as STID
-and optional PE/thread filters.
+because the response path still needed the remaining request context sidecars
+before a `FlushBus` matcher owner could apply the model predicate.
 
 R423 adds the missing returned-load context fields (`peId/stid/tid`) to the
 selected request payload, raw response boundary, sink-generated response, and
@@ -387,8 +387,9 @@ response admission before stale-row, SCB-return, and row-mutation promotion
 policy is complete.
 
 R422 carries the response load request `bid/gid/rid/loadLsId` through both
-sources into the same FIFO payload. Future `lookup_su_lu_q` pruning must use
-these request fields, not the wait-store fields, when comparing to
+sources into the same FIFO payload, and R423 adds the `peId/stid/tid` request
+context beside that identity. Future `lookup_su_lu_q` pruning must use those
+request fields, not the wait-store fields, when comparing to
 `FlushBus::match`.
 
 The R401 request-control owner gates future STQ lookup request acceptance with
@@ -476,8 +477,8 @@ behavior.
 ## Deferred Owners
 
 - Live external `lookup_su_lu_q` producer wiring into the R421 raw-response source.
-- Precise queued-response flush pruning after the response path carries the
-  remaining `FlushBus` context, especially STID and optional PE/thread filters.
+- Precise queued-response flush pruning using the carried load-request identity
+  and `FlushBus` PE/STID/thread context.
 - Precise queued-request flush pruning beyond all-clear flush.
 - Full multi-cluster row-state evidence into `responseHeadStale`.
 - Full selected replay-row identity storage from replay-LIQ residency beyond
