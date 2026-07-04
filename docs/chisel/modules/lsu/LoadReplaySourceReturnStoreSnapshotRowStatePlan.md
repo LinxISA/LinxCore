@@ -37,6 +37,11 @@ class:
 R409 captures that branch structure as a combinational plan only. It does not
 mutate `LoadInflightQueue` rows.
 
+R427 wires the path-level `priorScbReturned` input from the reduced response
+head's row mask proof as well as the external SCB-return input. That keeps this
+plan aligned with the same `scbRnt` evidence that allowed the response matcher
+to consume the ordered STQ response.
+
 ## Interface
 
 | Signal | Description |
@@ -76,7 +81,8 @@ image or preserves the accepted image.
 `invalidStqApplyWithoutScb` is asserted when a plan is formed without the SCB
 return bit. This mirrors the model `ASSERT(entry.scbRnt)` in
 `handleSTQReceive`; it is diagnostic-only until the registered row writer owns
-the assertion policy.
+the assertion policy. In the reduced composite, R427 sources this bit from the
+targeted row's `rowScbReturnedMask` proof when available.
 
 ## Deferred Owners
 

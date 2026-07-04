@@ -41,6 +41,11 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestPayloadBlockedByNoIssue: Boolean,
       requestPayloadBlockedByNoSelected: Boolean,
       requestPayloadBlockedByStaleRow: Boolean,
+      responseHeadReducedScbReturned: Boolean,
+      rowStatePlanValid: Boolean,
+      rowStatePlanNextScbReturned: Boolean,
+      rowStatePlanNextStoreSourceReturned: Boolean,
+      rowStatePlanInvalidStqApplyWithoutScb: Boolean,
       requestQueueEnqueueReady: Boolean,
       requestQueueEnqueueAccepted: Boolean,
       requestQueueEnqueueDropped: Boolean,
@@ -97,6 +102,10 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedAddr: BigInt = 0,
       selectedSize: Int = 0,
       selectedRequestByteMask: BigInt = 0,
+      selectedLineData: BigInt = 0,
+      selectedValidMask: BigInt = 0,
+      selectedRowValidMask: Int = 0,
+      selectedRowScbReturnedMask: Int = 0,
       requestQueueState: Vector[LoadReplaySourceReturnStoreSnapshotRequestPayloadReference.Payload] = Vector.empty): Result = {
     val responseQueueCapacity = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
       state = Vector.empty,
@@ -206,7 +215,10 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedRepick = selectedRepickResolved,
       selectedClusterId = selectedClusterIdResolved,
       selectedEntryId = selectedEntryIdResolved,
-      responseConsumed = false)
+      responseConsumed = false,
+      selectedLineData = selectedLineData,
+      selectedValidMask = selectedValidMask,
+      selectedRequestByteMask = selectedRequestByteMask)
     val sinkResponse =
       if (!rawResponseSource.responseValid && requestSink.responseValid) {
         Some(LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
@@ -253,6 +265,19 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       flush = flush,
       enqueue = rawResponse.orElse(sinkResponse),
       dequeueReady = false)
+    val responseHeadState = LoadReplaySourceReturnStoreSnapshotResponseHeadStateReference(
+      liqEntries = 4,
+      enable = enable,
+      flush = flush,
+      reducedEnable = selectedIdentityEnable,
+      headValid = responseQueue.headValid,
+      responseClusterId = responseQueue.head.map(_.clusterId).getOrElse(0),
+      responseEntryId = responseQueue.head.map(_.entryId).getOrElse(0),
+      repickMask = selectedRepickMask,
+      rowProofEnable = selectedIdentityEnable,
+      rowValidMask = selectedRowValidMask,
+      rowScbReturnedMask = selectedRowScbReturnedMask,
+      externalHeadStale = responseHeadStale)
     val identityMatch = LoadReplaySourceReturnStoreSnapshotIdentityMatchReference(
       enable = enable,
       flush = flush,
@@ -270,9 +295,58 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       queryIssued = acceptedToken.token.valid,
       responseValidIn = responseQueue.headValid,
       responseMatchesSelected = identityMatch.responseMatchesSelected,
-      scbReturned = scbReturned,
+      scbReturned = scbReturned || responseHeadState.reducedHeadScbReturned,
       waitStoreIn = responseQueue.head.exists(_.waitStore),
       dataValidIn = responseQueue.head.exists(_.dataValid))
+    val responseDrain = LoadReplaySourceReturnStoreSnapshotResponseDrainReference(
+      enable = enable,
+      flush = flush,
+      headValid = responseQueue.headValid,
+      orderedResponse = responseMatch.responseValid,
+      headStale = responseHeadState.headStale)
+    val responseApply = LoadReplaySourceReturnStoreSnapshotResponseApplyReference(
+      liqEntries = 4,
+      enable = enable,
+      flush = flush,
+      orderedConsumed = responseDrain.orderedConsumed,
+      targetRepick = responseHeadState.reducedHeadRepick,
+      targetOneHot = responseHeadState.reducedHeadOneHot,
+      response = responseQueue.head.map(response =>
+        LoadReplaySourceReturnStoreSnapshotResponseApplyReference.Response(
+          valid = true,
+          waitStore = response.waitStore,
+          dataValid = response.dataValid,
+          rawDataValid = response.rawDataValid,
+          dataSuppressedByWait = response.dataSuppressedByWait,
+          waitStoreIndex = response.waitStoreIndex,
+          waitStoreBid = response.waitStoreBid,
+          waitStoreRid = response.waitStoreRid,
+          waitStoreLsId = response.waitStoreLsId,
+          waitStorePc = response.waitStorePc,
+          dataMask = response.dataMask,
+          data = response.data)).getOrElse(LoadReplaySourceReturnStoreSnapshotResponseApplyReference.Response()),
+      rowLineData = acceptedToken.token.lineData,
+      rowValidMask = acceptedToken.token.validMask,
+      rowRequestMask = acceptedToken.token.requestByteMask)
+    val acceptedContextComplete =
+      acceptedToken.token.requestByteMask != 0 &&
+        ((acceptedToken.token.validMask & acceptedToken.token.requestByteMask) == acceptedToken.token.requestByteMask)
+    val rowStatePlan = LoadReplaySourceReturnStoreSnapshotRowStatePlanReference(
+      enable = enable,
+      flush = flush,
+      applyValid = responseApply.applyValid,
+      applyStqReturned = responseApply.stqReturned,
+      waitStoreApply = responseApply.waitStoreApply,
+      dataMergeApply = responseApply.dataMergeApply,
+      dataNoMerge = responseApply.dataNoMerge,
+      priorScbReturned = scbReturned || responseHeadState.reducedHeadScbReturned,
+      priorStqReturned = false,
+      priorLineData = acceptedToken.token.lineData,
+      priorValidMask = acceptedToken.token.validMask,
+      priorRequestComplete = acceptedContextComplete,
+      mergedLineData = responseApply.mergedLineData,
+      mergedValidMask = responseApply.mergedValidMask,
+      mergedRequestComplete = responseApply.mergedRequestComplete)
     val evidence = LoadReplaySourceReturnStoreSnapshotEvidenceReference(
       enable = enable,
       flush = flush,
@@ -326,6 +400,11 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestPayloadBlockedByNoIssue = requestPayload.blockedByNoIssue,
       requestPayloadBlockedByNoSelected = requestPayload.blockedByNoSelected,
       requestPayloadBlockedByStaleRow = requestPayload.blockedByStaleRow,
+      responseHeadReducedScbReturned = responseHeadState.reducedHeadScbReturned,
+      rowStatePlanValid = rowStatePlan.planValid,
+      rowStatePlanNextScbReturned = rowStatePlan.nextScbReturned,
+      rowStatePlanNextStoreSourceReturned = rowStatePlan.nextStoreSourceReturned,
+      rowStatePlanInvalidStqApplyWithoutScb = rowStatePlan.invalidStqApplyWithoutScb,
       requestQueueEnqueueReady = requestQueue.enqueueReady,
       requestQueueEnqueueAccepted = requestQueue.enqueueAccepted,
       requestQueueEnqueueDropped = requestQueue.enqueueDropped,
@@ -421,6 +500,41 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.controlLiveReady)
     assert(result.storeSnapshotReady)
     assert(!result.controlBlockedBySnapshot)
+  }
+
+  test("reduced row SCB proof feeds the row-state plan") {
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      requestEnable = true,
+      sinkReady = true,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4,
+      selectedRowValidMask = 0x4,
+      selectedRowScbReturnedMask = 0x4,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPeId = 2,
+      selectedStid = 3,
+      selectedTid = 4,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16),
+      selectedValidMask = BigInt("ff", 16))
+
+    assert(result.evidenceResponseAccepted)
+    assert(result.responseHeadReducedScbReturned)
+    assert(result.rowStatePlanValid)
+    assert(result.rowStatePlanNextScbReturned)
+    assert(result.rowStatePlanNextStoreSourceReturned)
+    assert(!result.rowStatePlanInvalidStqApplyWithoutScb)
   }
 
   test("raw response priority keeps request head resident when the response enqueue port is occupied") {

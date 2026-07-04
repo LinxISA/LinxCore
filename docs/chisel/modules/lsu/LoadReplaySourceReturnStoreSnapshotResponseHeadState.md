@@ -43,7 +43,9 @@ assertion before response matching treats the head as ordered.
 The current top still ties raw response inputs false, so this owner does not
 make replay launch live. It feeds the R399 response drain and the response
 matcher's SCB-order proof so a future raw head can be dropped or consumed only
-from explicit row-state evidence.
+from explicit row-state evidence. R427 also feeds the same reduced SCB-order
+proof into the row-state plan so the future LIQ row mutation sees the same
+model `scbRnt` prerequisite that allowed ordered response consumption.
 
 ## Interface
 

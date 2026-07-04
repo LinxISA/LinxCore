@@ -647,7 +647,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   rowStatePlan.io.waitStoreRid := responseApply.io.waitStoreRid
   rowStatePlan.io.dataMergeApply := responseApply.io.dataMergeApply
   rowStatePlan.io.dataNoMerge := responseApply.io.dataNoMerge
-  rowStatePlan.io.priorScbReturned := io.scbReturned
+  rowStatePlan.io.priorScbReturned := io.scbReturned || responseHeadState.io.reducedHeadScbReturned
   rowStatePlan.io.priorStqReturned := false.B
   rowStatePlan.io.priorLineData := acceptedToken.io.tokenLineData
   rowStatePlan.io.priorValidMask := acceptedToken.io.tokenValidMask

@@ -210,6 +210,12 @@ and enqueue-blocked diagnostics through the path and reduced-top diagnostic
 bundles. This does not change queue behavior; it makes the R425 live cleanup
 observable before request or raw-response live arms are promoted.
 
+R427 routes the same reduced row SCB-return proof used by `ResponseMatch` into
+`LoadReplaySourceReturnStoreSnapshotRowStatePlan`. This keeps the model
+`ASSERT(entry.scbRnt)` prerequisite visible at the future row-mutation plan
+boundary instead of reporting a false missing-SCB diagnostic when the reduced
+row mask already proves `scbRnt`.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `rowMutationLiveEnable`, `rawResponseLiveEnable`, `sinkReady`,
 raw STQ response, SCB return, wait-store, data-valid, raw-data, wait-store
@@ -387,7 +393,9 @@ head-state owner. The not-repick proof still drives stale drain, while
 `reducedHeadScbReturned` can satisfy `ResponseMatch.scbReturned` for the
 targeted row. This mirrors `ASSERT(entry.scbRnt)` in
 `MtcLDQInfo::handleSTQReceive` without enabling raw response inputs in the
-current top.
+current top. R427 also feeds that proof into `RowStatePlan.priorScbReturned`,
+so response consumption and row-state planning share the same SCB-before-STQ
+evidence.
 
 R420 maps raw external response inputs directly into the R398 response queue
 payload. The request-sink generated response and a future raw `lookup_su_lu_q`
@@ -416,7 +424,9 @@ records and compacts survivors. This keeps queue-local recovery deterministic
 until the backend cleanup path drives the bus live.
 
 R426 keeps that behavior unchanged and only forwards the queue-local precise
-prune diagnostics to the composite boundary and reduced top.
+prune diagnostics to the composite boundary and reduced top. R427 keeps
+request/response behavior unchanged and only corrects the downstream row-state
+plan's SCB-return prerequisite source.
 
 The R401 request-control owner gates future STQ lookup request acceptance with
 `requestEnable`, path activity, R397 accepted-token capacity, and R403 request
