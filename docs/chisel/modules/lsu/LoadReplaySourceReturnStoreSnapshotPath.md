@@ -164,16 +164,24 @@ SCB-before-STQ ordering proof when the response head targets a valid reduced
 row. The top also instantiates this composite with the same LIQ depth as the
 reduced allocator so row masks are not truncated at the response-head boundary.
 
+R420 widens the raw external response input boundary to the full
+`LoadReplaySourceReturnStoreSnapshotResponsePayloadBundle` shape: raw data
+validity, wait-store identity, data mask, and data now enter the same response
+queue payload used by the request-sink generated response. The current top
+still ties all raw response inputs inactive, so this is a structural promotion
+for future `lookup_su_lu_q` wiring rather than a live behavior change.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `rowMutationLiveEnable`, `sinkReady`, raw STQ response, SCB
-return, wait-store, and data-valid inputs false, and it ties external
-stale-head evidence false, so `storeSnapshotReady` still forwards the legacy
-resident-store snapshot readiness. The reduced `selectedRepickMask`,
-`selectedRowValidMask`, and `selectedRowScbReturnedMask` now feed head-state
-proof inside the path, but no raw response is visible in the top. Those raw
-inputs live at the path boundary instead of inside the module so the identity
-and response child owners remain a real composite boundary and can later be
-promoted without another direct top child instance.
+return, wait-store, data-valid, raw-data, wait-store identity, and data-payload
+inputs false or zero, and it ties external stale-head evidence false, so
+`storeSnapshotReady` still forwards the legacy resident-store snapshot
+readiness. The reduced `selectedRepickMask`, `selectedRowValidMask`, and
+`selectedRowScbReturnedMask` now feed head-state proof inside the path, but no
+raw response is visible in the top. Those raw inputs live at the path boundary
+instead of inside the module so the identity and response child owners remain a
+real composite boundary and can later be promoted without another direct top
+child instance.
 
 ## Interface
 
@@ -211,6 +219,14 @@ promoted without another direct top child instance.
 | `scbReturned` | Future SCB source-return evidence arrived before STQ response acceptance. |
 | `waitStoreIn` | Future raw response asks the row to wait on a store. |
 | `dataValidIn` | Future raw response carries mergeable store data. |
+| `rawDataValidIn` | Future raw response contains resident-store data bytes, even if wait-store suppresses merge. |
+| `dataSuppressedByWaitIn` | Future raw response found data but must ignore it because wait-store control wins. |
+| `responseWaitStoreIndex` | Future raw response STQ row index for the selected not-ready store. |
+| `responseWaitStoreBid` / `responseWaitStoreRid` | Future raw response wait-store BID/RID identity. |
+| `responseWaitStoreLsId` | Future raw response wait-store LSID for wakeup matching. |
+| `responseWaitStorePc` | Future raw response wait-store PC. |
+| `responseDataMask` | Future raw response 64-byte data-valid mask. |
+| `responseData` | Future raw response 64-byte line-positioned store data. |
 | `legacySnapshotReady` | Current reduced-top readiness bit preserved from the resident-store snapshot path. |
 | `stqRows` | Current resident STQ row image consumed by the R405 lookup owner. The top wires this from the existing reduced store-dispatch path rows. |
 
@@ -250,9 +266,10 @@ a combinational resident-STQ lookup owner. R407 adds a combinational
 response-apply intent owner. R409 adds a combinational row-state plan owner
 after response apply. R410 adds a combinational row-mutation request owner with
 its live request arm forced off. R419 widens the response-head proof inputs
-with row-valid and row-SCB-returned masks; it adds no state. The path still
-owns no LDQ/LIQ mutation, full multi-cluster row fsm source, wait-store state
-mutation, or data merge state.
+with row-valid and row-SCB-returned masks; it adds no state. R420 widens raw
+external response inputs to the already registered response-queue payload
+shape; it adds no state. The path still owns no LDQ/LIQ mutation, full
+multi-cluster row fsm source, wait-store state mutation, or data merge state.
 
 ## Logic Design
 
@@ -321,6 +338,12 @@ head-state owner. The not-repick proof still drives stale drain, while
 targeted row. This mirrors `ASSERT(entry.scbRnt)` in
 `MtcLDQInfo::handleSTQReceive` without enabling raw response inputs in the
 current top.
+
+R420 maps raw external response inputs directly into the R398 response queue
+payload. The request-sink generated response and a future raw `lookup_su_lu_q`
+response now share the same wait-store/data sideband shape before identity
+matching, response application, row-state planning, and row-mutation request
+generation.
 
 The R401 request-control owner gates future STQ lookup request acceptance with
 `requestEnable`, path activity, R397 accepted-token capacity, and R403 request

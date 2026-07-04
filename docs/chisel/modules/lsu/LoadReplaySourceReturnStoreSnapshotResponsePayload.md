@@ -7,6 +7,7 @@
   - `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestSinkSpec.scala`
   - `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseQueueSpec.scala`
 - Integrated users:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotPath.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestSink.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseApply.scala`
@@ -38,6 +39,11 @@ then adds the model sidebands that a later LIQ row-mutation owner needs:
 wait-store identity, raw data evidence, response-visible data evidence, a
 64-byte byte-valid mask, and 64-byte store data.
 
+R420 wires the same full payload shape to the composite path's raw external
+response boundary. The current reduced top still ties those raw inputs inactive,
+but the path no longer fabricates placeholder raw-data and wait-store fields
+when a future `lookup_su_lu_q` source presents a response.
+
 ## Interface
 
 | Field | Description |
@@ -58,10 +64,11 @@ wait-store identity, raw data evidence, response-visible data evidence, a
 ## Logic Design
 
 The bundle has no logic. `LoadReplaySourceReturnStoreSnapshotRequestSink`
-constructs it from the accepted request identity plus R405 lookup sidebands.
-`LoadReplaySourceReturnStoreSnapshotResponseQueue` preserves the full record
-in FIFO order while existing response matching still consumes only `cID/eID`,
-`waitStore`, and `dataValid`.
+constructs it from the accepted request identity plus R405 lookup sidebands,
+and `LoadReplaySourceReturnStoreSnapshotPath` constructs the same shape from
+raw external response inputs. `LoadReplaySourceReturnStoreSnapshotResponseQueue`
+preserves the full record in FIFO order while existing response matching still
+consumes only `cID/eID`, `waitStore`, and `dataValid`.
 
 The payload intentionally carries both `rawDataValid` and `dataValid`. The C++
 STQ lookup can discover ready bytes and a later not-ready store in the same
@@ -76,7 +83,7 @@ wait-store and data-merge intent without mutating LIQ rows yet.
 
 - Registered LIQ/LDQ wait-store row mutation using the R407 apply intent.
 - Registered LIQ/LDQ data merge using the R407 apply intent.
-- Raw external `lookup_su_lu_q` data payload inputs.
+- Live raw external `lookup_su_lu_q` source wiring.
 - Precise queued response pruning.
 
 ## Verification
@@ -87,6 +94,7 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestSink
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
+bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
 Reference tests cover payload production from wait-store/data lookup

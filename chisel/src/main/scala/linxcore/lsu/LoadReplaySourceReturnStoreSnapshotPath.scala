@@ -58,6 +58,15 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val scbReturned = Input(Bool())
   val waitStoreIn = Input(Bool())
   val dataValidIn = Input(Bool())
+  val rawDataValidIn = Input(Bool())
+  val dataSuppressedByWaitIn = Input(Bool())
+  val responseWaitStoreIndex = Input(UInt(log2Ceil(idEntries).W))
+  val responseWaitStoreBid = Input(new ROBID(idEntries))
+  val responseWaitStoreRid = Input(new ROBID(idEntries))
+  val responseWaitStoreLsId = Input(new ROBID(idEntries))
+  val responseWaitStorePc = Input(UInt(pcWidth.W))
+  val responseDataMask = Input(UInt(lineBytes.W))
+  val responseData = Input(UInt((lineBytes * 8).W))
   val legacySnapshotReady = Input(Bool())
   val stqRows = Input(Vec(idEntries, new STQEntryBankRow(
     idEntries,
@@ -492,8 +501,15 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   rawResponse.entryId := io.responseEntryId
   rawResponse.waitStore := io.waitStoreIn
   rawResponse.dataValid := io.dataValidIn
-  rawResponse.rawDataValid := io.dataValidIn
-  rawResponse.dataSuppressedByWait := io.waitStoreIn && io.dataValidIn
+  rawResponse.rawDataValid := io.rawDataValidIn
+  rawResponse.dataSuppressedByWait := io.dataSuppressedByWaitIn
+  rawResponse.waitStoreIndex := io.responseWaitStoreIndex
+  rawResponse.waitStoreBid := io.responseWaitStoreBid
+  rawResponse.waitStoreRid := io.responseWaitStoreRid
+  rawResponse.waitStoreLsId := io.responseWaitStoreLsId
+  rawResponse.waitStorePc := io.responseWaitStorePc
+  rawResponse.dataMask := io.responseDataMask
+  rawResponse.data := io.responseData
   responseQueue.io.enqueue := Mux(io.responseValidIn, rawResponse, requestSink.io.response)
   responseQueue.io.dequeueReady := responseDrain.io.dequeueReady
 
