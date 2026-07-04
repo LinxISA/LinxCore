@@ -130,6 +130,37 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val rawResponseSourceInvalidSuppressedDataWithoutWait = Output(Bool())
   val rawResponseSourceInvalidSuppressedDataWithoutRawData = Output(Bool())
 
+  val identityMatchActive = Output(Bool())
+  val identityMatchCandidate = Output(Bool())
+  val identityMatchSelectedReady = Output(Bool())
+  val identityMatchClusterMatches = Output(Bool())
+  val identityMatchEntryMatches = Output(Bool())
+  val identityMatchIdentityMatches = Output(Bool())
+  val identityMatchResponseMatchesSelected = Output(Bool())
+  val identityMatchBlockedByDisabled = Output(Bool())
+  val identityMatchBlockedByFlush = Output(Bool())
+  val identityMatchBlockedByNoQuery = Output(Bool())
+  val identityMatchBlockedByNoSelected = Output(Bool())
+  val identityMatchBlockedByStaleRow = Output(Bool())
+  val identityMatchBlockedByClusterMismatch = Output(Bool())
+  val identityMatchBlockedByEntryMismatch = Output(Bool())
+  val identityMatchInvalidResponseWithoutQuery = Output(Bool())
+
+  val responseMatchActive = Output(Bool())
+  val responseMatchCandidate = Output(Bool())
+  val responseMatchMatched = Output(Bool())
+  val responseMatchOrdered = Output(Bool())
+  val responseMatchValid = Output(Bool())
+  val responseMatchWaitStore = Output(Bool())
+  val responseMatchDataValid = Output(Bool())
+  val responseMatchBlockedByDisabled = Output(Bool())
+  val responseMatchBlockedByFlush = Output(Bool())
+  val responseMatchBlockedByNoQuery = Output(Bool())
+  val responseMatchBlockedByNoMatch = Output(Bool())
+  val responseMatchBlockedByScbOrder = Output(Bool())
+  val responseMatchInvalidResponseWithoutQuery = Output(Bool())
+  val responseMatchInvalidDataWithWaitStore = Output(Bool())
+
   val responseApplyActive = Output(Bool())
   val responseApplyCandidate = Output(Bool())
   val responseApplyValid = Output(Bool())
@@ -748,6 +779,37 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.rawResponseSourceInvalidDataValidWithoutRawData := rawResponseSource.io.invalidDataValidWithoutRawData
   io.rawResponseSourceInvalidSuppressedDataWithoutWait := rawResponseSource.io.invalidSuppressedDataWithoutWait
   io.rawResponseSourceInvalidSuppressedDataWithoutRawData := rawResponseSource.io.invalidSuppressedDataWithoutRawData
+
+  io.identityMatchActive := identityMatch.io.active
+  io.identityMatchCandidate := identityMatch.io.matchCandidate
+  io.identityMatchSelectedReady := identityMatch.io.selectedReady
+  io.identityMatchClusterMatches := identityMatch.io.clusterMatches
+  io.identityMatchEntryMatches := identityMatch.io.entryMatches
+  io.identityMatchIdentityMatches := identityMatch.io.identityMatches
+  io.identityMatchResponseMatchesSelected := identityMatch.io.responseMatchesSelected
+  io.identityMatchBlockedByDisabled := identityMatch.io.blockedByDisabled
+  io.identityMatchBlockedByFlush := identityMatch.io.blockedByFlush
+  io.identityMatchBlockedByNoQuery := identityMatch.io.blockedByNoQuery
+  io.identityMatchBlockedByNoSelected := identityMatch.io.blockedByNoSelected
+  io.identityMatchBlockedByStaleRow := identityMatch.io.blockedByStaleRow
+  io.identityMatchBlockedByClusterMismatch := identityMatch.io.blockedByClusterMismatch
+  io.identityMatchBlockedByEntryMismatch := identityMatch.io.blockedByEntryMismatch
+  io.identityMatchInvalidResponseWithoutQuery := identityMatch.io.invalidResponseWithoutQuery
+
+  io.responseMatchActive := responseMatch.io.active
+  io.responseMatchCandidate := responseMatch.io.responseCandidate
+  io.responseMatchMatched := responseMatch.io.responseMatched
+  io.responseMatchOrdered := responseMatch.io.responseOrdered
+  io.responseMatchValid := responseMatch.io.responseValid
+  io.responseMatchWaitStore := responseMatch.io.waitStore
+  io.responseMatchDataValid := responseMatch.io.dataValid
+  io.responseMatchBlockedByDisabled := responseMatch.io.blockedByDisabled
+  io.responseMatchBlockedByFlush := responseMatch.io.blockedByFlush
+  io.responseMatchBlockedByNoQuery := responseMatch.io.blockedByNoQuery
+  io.responseMatchBlockedByNoMatch := responseMatch.io.blockedByNoMatch
+  io.responseMatchBlockedByScbOrder := responseMatch.io.blockedByScbOrder
+  io.responseMatchInvalidResponseWithoutQuery := responseMatch.io.invalidResponseWithoutQuery
+  io.responseMatchInvalidDataWithWaitStore := responseMatch.io.invalidDataWithWaitStore
 
   io.responseApplyActive := responseApply.io.active
   io.responseApplyCandidate := responseApply.io.applyCandidate

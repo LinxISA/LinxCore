@@ -29,6 +29,27 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       rawResponseSourceCandidate: Boolean,
       rawResponseSourceValid: Boolean,
       rawResponseSourceBlockedByLiveDisabled: Boolean,
+      identityMatchCandidate: Boolean,
+      identityMatchSelectedReady: Boolean,
+      identityMatchIdentityMatches: Boolean,
+      identityMatchResponseMatchesSelected: Boolean,
+      identityMatchBlockedByNoQuery: Boolean,
+      identityMatchBlockedByNoSelected: Boolean,
+      identityMatchBlockedByStaleRow: Boolean,
+      identityMatchBlockedByClusterMismatch: Boolean,
+      identityMatchBlockedByEntryMismatch: Boolean,
+      identityMatchInvalidResponseWithoutQuery: Boolean,
+      responseMatchCandidate: Boolean,
+      responseMatchMatched: Boolean,
+      responseMatchOrdered: Boolean,
+      responseMatchValid: Boolean,
+      responseMatchWaitStore: Boolean,
+      responseMatchDataValid: Boolean,
+      responseMatchBlockedByNoQuery: Boolean,
+      responseMatchBlockedByNoMatch: Boolean,
+      responseMatchBlockedByScbOrder: Boolean,
+      responseMatchInvalidResponseWithoutQuery: Boolean,
+      responseMatchInvalidDataWithWaitStore: Boolean,
       queryIssueActive: Boolean,
       queryIssueRequestActive: Boolean,
       queryIssueCandidate: Boolean,
@@ -415,6 +436,27 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       rawResponseSourceCandidate = rawResponseSource.candidate,
       rawResponseSourceValid = rawResponseSource.responseValid,
       rawResponseSourceBlockedByLiveDisabled = rawResponseSource.blockedByLiveDisabled,
+      identityMatchCandidate = identityMatch.matchCandidate,
+      identityMatchSelectedReady = identityMatch.selectedReady,
+      identityMatchIdentityMatches = identityMatch.identityMatches,
+      identityMatchResponseMatchesSelected = identityMatch.responseMatchesSelected,
+      identityMatchBlockedByNoQuery = identityMatch.blockedByNoQuery,
+      identityMatchBlockedByNoSelected = identityMatch.blockedByNoSelected,
+      identityMatchBlockedByStaleRow = identityMatch.blockedByStaleRow,
+      identityMatchBlockedByClusterMismatch = identityMatch.blockedByClusterMismatch,
+      identityMatchBlockedByEntryMismatch = identityMatch.blockedByEntryMismatch,
+      identityMatchInvalidResponseWithoutQuery = identityMatch.invalidResponseWithoutQuery,
+      responseMatchCandidate = responseMatch.responseCandidate,
+      responseMatchMatched = responseMatch.responseMatched,
+      responseMatchOrdered = responseMatch.responseOrdered,
+      responseMatchValid = responseMatch.responseValid,
+      responseMatchWaitStore = responseMatch.waitStore,
+      responseMatchDataValid = responseMatch.dataValid,
+      responseMatchBlockedByNoQuery = responseMatch.blockedByNoQuery,
+      responseMatchBlockedByNoMatch = responseMatch.blockedByNoMatch,
+      responseMatchBlockedByScbOrder = responseMatch.blockedByScbOrder,
+      responseMatchInvalidResponseWithoutQuery = responseMatch.invalidResponseWithoutQuery,
+      responseMatchInvalidDataWithWaitStore = responseMatch.invalidDataWithWaitStore,
       queryIssueActive = queryIssue.active,
       queryIssueRequestActive = queryIssue.requestActive,
       queryIssueCandidate = queryIssue.queryCandidate,
@@ -545,6 +587,14 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.evidenceSnapshotValid)
     assert(result.controlLiveReady)
     assert(result.storeSnapshotReady)
+    assert(result.identityMatchCandidate)
+    assert(result.identityMatchSelectedReady)
+    assert(result.identityMatchIdentityMatches)
+    assert(result.identityMatchResponseMatchesSelected)
+    assert(result.responseMatchCandidate)
+    assert(result.responseMatchMatched)
+    assert(result.responseMatchOrdered)
+    assert(result.responseMatchValid)
     assert(!result.controlBlockedBySnapshot)
   }
 
@@ -686,6 +736,8 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       selectedValidMask = BigInt("ff", 16))
 
     assert(result.evidenceResponseAccepted)
+    assert(result.identityMatchResponseMatchesSelected)
+    assert(result.responseMatchOrdered)
     assert(result.responseHeadReducedScbReturned)
     assert(result.rowStatePlanValid)
     assert(result.rowStatePlanNextScbReturned)
@@ -770,9 +822,146 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.rawResponseSourceCandidate)
     assert(!result.rawResponseSourceValid)
     assert(result.rawResponseSourceBlockedByLiveDisabled)
+    assert(result.identityMatchResponseMatchesSelected)
+    assert(result.responseMatchOrdered)
     assert(result.requestQueueHeadConsumed)
     assert(result.evidenceResponseAccepted)
     assert(result.storeSnapshotReady)
+  }
+
+  test("path-local identity diagnostics report response blockers") {
+    val noQuery = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = false,
+      legacySnapshotReady = false,
+      rawResponseLiveEnable = true,
+      responseValidIn = true,
+      responseClusterId = 0,
+      responseEntryId = 2,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4)
+    val mismatch = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      requestEnable = true,
+      rawResponseLiveEnable = true,
+      responseValidIn = true,
+      responseClusterId = 0,
+      responseEntryId = 3,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16))
+    val stale = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = false,
+      legacySnapshotReady = false,
+      rawResponseLiveEnable = true,
+      responseValidIn = true,
+      responseClusterId = 0,
+      responseEntryId = 2,
+      acceptedTokenState = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token(
+        valid = true,
+        repick = false,
+        clusterId = 0,
+        entryId = 2))
+
+    assert(noQuery.identityMatchCandidate)
+    assert(noQuery.identityMatchBlockedByNoQuery)
+    assert(noQuery.identityMatchInvalidResponseWithoutQuery)
+    assert(noQuery.responseMatchBlockedByNoQuery)
+    assert(noQuery.responseMatchInvalidResponseWithoutQuery)
+    assert(!noQuery.identityMatchResponseMatchesSelected)
+
+    assert(mismatch.identityMatchCandidate)
+    assert(mismatch.identityMatchSelectedReady)
+    assert(!mismatch.identityMatchIdentityMatches)
+    assert(mismatch.identityMatchBlockedByEntryMismatch)
+    assert(mismatch.responseMatchBlockedByNoMatch)
+    assert(!mismatch.responseMatchMatched)
+
+    assert(stale.identityMatchCandidate)
+    assert(stale.identityMatchBlockedByStaleRow)
+    assert(stale.responseMatchBlockedByNoMatch)
+    assert(!stale.identityMatchResponseMatchesSelected)
+  }
+
+  test("path-local response diagnostics distinguish SCB ordering and malformed payloads") {
+    val waitingScb = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      requestEnable = true,
+      rawResponseLiveEnable = true,
+      responseValidIn = true,
+      responseClusterId = 0,
+      responseEntryId = 2,
+      dataValidIn = true,
+      rawDataValidIn = true,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16))
+    val malformed = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      requestEnable = true,
+      rawResponseLiveEnable = true,
+      responseValidIn = true,
+      responseClusterId = 0,
+      responseEntryId = 2,
+      waitStoreIn = true,
+      dataValidIn = true,
+      rawDataValidIn = true,
+      scbReturned = true,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16))
+
+    assert(waitingScb.identityMatchResponseMatchesSelected)
+    assert(waitingScb.responseMatchMatched)
+    assert(!waitingScb.responseMatchOrdered)
+    assert(waitingScb.responseMatchBlockedByScbOrder)
+    assert(!waitingScb.responseMatchValid)
+
+    assert(malformed.responseMatchOrdered)
+    assert(malformed.responseMatchValid)
+    assert(malformed.responseMatchWaitStore)
+    assert(malformed.responseMatchDataValid)
+    assert(malformed.responseMatchInvalidDataWithWaitStore)
   }
 
   test("request queue stores issued payload while future raw sink is stalled") {
@@ -888,6 +1077,12 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_responseWaitStoreRid_value"))
     assert(sv.contains("io_responseDataMask"))
     assert(sv.contains("io_rawResponseSourceBlockedByLiveDisabled"))
+    assert(sv.contains("io_identityMatchResponseMatchesSelected"))
+    assert(sv.contains("io_identityMatchBlockedByStaleRow"))
+    assert(sv.contains("io_identityMatchBlockedByEntryMismatch"))
+    assert(sv.contains("io_responseMatchOrdered"))
+    assert(sv.contains("io_responseMatchBlockedByScbOrder"))
+    assert(sv.contains("io_responseMatchInvalidDataWithWaitStore"))
     assert(sv.contains("tokenLineDataReg"))
     assert(sv.contains("io_responseApplyValid"))
     assert(sv.contains("io_responseApplyWaitStoreRid_value"))

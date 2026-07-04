@@ -176,6 +176,11 @@ and response FIFOs. A matching recovery cycle now clears the resident
 accepted-query owner using the same load request identity/context carried by
 the queued records, preventing selective queue pruning from leaving a stale
 one-entry token.
+R432 exposes the existing identity-match and response-match owner diagnostics
+through the path boundary, but not through the reduced top. This gives the next
+live-response promotion a path-local proof for no-query, no-selected, stale,
+cluster/entry mismatch, SCB-order, and malformed-response blockers without
+adding another batch of top-level diagnostic IO.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
@@ -308,6 +313,8 @@ boundary and can later be promoted without another direct top child instance.
 | `control*` | Ready-control active/request/evidence/legacy/live/blocker diagnostics. |
 | `evidence*` | Selected-row local STQ evidence diagnostics from the evidence classifier. |
 | `rawResponseSource*` | R421 raw-response source diagnostics: active/candidate/live-valid, disabled/flush/live-disabled blockers, and malformed payload checks. |
+| `identityMatch*` | R432 path-local identity matcher diagnostics: candidate, selected-ready, cluster/entry match, final selected response match, no-query/no-selected/stale/mismatch blockers, and invalid response-without-query detection. |
+| `responseMatch*` | R432 path-local response matcher diagnostics: candidate, matched, ordered, valid, wait-store/data evidence, disabled/flush/no-query/no-match/SCB-order blockers, and malformed ordered payload detection. |
 | `queryIssue*` | Selected-row query issue diagnostics from the query owner. |
 | `requestControlBlockedByToken` | R430 query-capacity blocker from `RequestControl`: a selected live query has request FIFO capacity but the accepted-query token is still occupied. |
 | `acceptedToken*` | R430/R431 accepted-query owner diagnostics: capacity, visible/resident token, capture/clear/precise-prune pulses, precise-flush/outstanding-token blockers, and visible token `cID/eID`. |
@@ -321,8 +328,9 @@ boundary and can later be promoted without another direct top child instance.
 
 The top consumes the existing `control*`, `evidence*`, `queryIssue*`, and
 selected `rowMutation*` diagnostics through top IO names. Response-match and
-identity-match diagnostics remain module-local until an external wrapper
-consumes them or the top is split further.
+identity-match diagnostics are now visible at the path boundary for module and
+future wrapper evidence, but they remain off the reduced top IO to avoid
+constructor growth.
 
 ## State
 
@@ -471,6 +479,13 @@ token's accepted load identity/context matches the flush predicate, the token
 clears. This keeps token ownership consistent with R424 request/response FIFO
 pruning.
 
+R432 keeps behavior unchanged and forwards the already-computed child-owner
+diagnostics to path IO. These signals identify whether a response head has no
+resident accepted token, no selected row, a stale row, a cluster/entry mismatch,
+or a selected identity that is waiting for prior SCB return. This is the
+path-local evidence needed before `rawResponseLiveEnable` is promoted to live
+external `lookup_su_lu_q` traffic.
+
 The R402 request-payload owner publishes the selected row's reduced LIQ slot,
 accepted local `cID/eID`, BID/GID/RID identity, load LSID, PC, address, size,
 and request byte mask only when query issue fires for a selected repick row.
@@ -600,8 +615,9 @@ FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r410x bash tools/chisel/run
 Reference tests cover legacy readiness preservation, dormant query/response
 behavior, future live accepted-token response completion, flush handling,
 disabled behavior, request-queue storage while the future raw sink is stalled,
-raw-response priority over sink-generated response, and Chisel elaboration with
-the selected-identity, request-control, request-payload, request-queue,
-request-sink, accepted-token, payload-bearing response-queue, response-head-state,
-response-drain, response-apply, row-state-plan, row-mutation-request, lookup,
-identity, response, and evidence child owners present in the composite module.
+raw-response priority over sink-generated response, path-local identity and
+response blocker diagnostics, and Chisel elaboration with the selected-identity,
+request-control, request-payload, request-queue, request-sink, accepted-token,
+payload-bearing response-queue, response-head-state, response-drain,
+response-apply, row-state-plan, row-mutation-request, lookup, identity,
+response, and evidence child owners present in the composite module.
