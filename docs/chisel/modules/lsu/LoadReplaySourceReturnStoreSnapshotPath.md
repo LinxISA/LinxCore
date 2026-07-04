@@ -197,21 +197,25 @@ still remains deferred to a separate `FlushBus` matcher owner.
 R424 wires a precise `FlushBus` into the request and response queues. Each
 queue applies the model-shaped `FlushBus::match(MemReqBus)` predicate to its
 resident records, suppresses same-cycle enqueue/dequeue during the recovery
-cycle, removes matches, and compacts survivors. The current reduced top still
-ties this bus invalid, so generated-top behavior is unchanged.
+cycle, removes matches, and compacts survivors.
+
+R425 wires the reduced top's scalar backend cleanup into this path with the
+same MemReq-shaped LSID override used by ResolveQ. Frontend flush,
+start/restart, feature-disable, and marker-only cleanup still drive the path's
+hard `flush`, while scalar redirects with a valid reduced load LSID drive
+`preciseFlush` so resident request/response records can be pruned selectively.
 
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `rowMutationLiveEnable`, `rawResponseLiveEnable`, `sinkReady`,
-precise flush, raw STQ response, SCB return, wait-store, data-valid, raw-data,
-wait-store identity, response request identity/context, and data-payload inputs
-false or zero, and it ties external stale-head evidence false, so
-`storeSnapshotReady` still forwards the legacy resident-store snapshot
-readiness. The reduced `selectedRepickMask`, `selectedRowValidMask`, and
-`selectedRowScbReturnedMask` now feed head-state proof inside the path, but no
-raw response is visible in the top. Those raw inputs live at the path boundary
-instead of inside the module so the identity and response child owners remain a
-real composite boundary and can later be promoted without another direct top
-child instance.
+raw STQ response, SCB return, wait-store, data-valid, raw-data, wait-store
+identity, response request identity/context, and data-payload inputs false or
+zero, and it ties external stale-head evidence false, so `storeSnapshotReady`
+still forwards the legacy resident-store snapshot readiness. The reduced
+`selectedRepickMask`, `selectedRowValidMask`, and `selectedRowScbReturnedMask`
+now feed head-state proof inside the path, but no raw response is visible in
+the top. Those raw inputs live at the path boundary instead of inside the
+module so the identity and response child owners remain a real composite
+boundary and can later be promoted without another direct top child instance.
 
 ## Interface
 
@@ -220,8 +224,8 @@ child instance.
 | Signal | Description |
 |---|---|
 | `enable` | Replay-LIQ wrapper is active. |
-| `flush` | Store/replay flush suppresses live source-return evidence. |
-| `preciseFlush` | Model-shaped `FlushBus` forwarded to the request and response queues for selective resident pruning. Current top ties it invalid. |
+| `flush` | Hard source-return path clear for frontend flush, start/restart, feature-disable, and marker-only backend cleanup. |
+| `preciseFlush` | Model-shaped `FlushBus` forwarded to the request and response queues for selective resident pruning. The reduced top drives scalar redirect cleanup here only when a valid reduced load LSID is available. |
 | `requestEnable` | Future live arm for issuing and consuming selected-row STQ snapshot evidence. Current top ties this false. |
 | `rowMutationLiveEnable` | Future live arm for allowing a row-state plan to become a LIQ row-mutation request. R417 exposes this path input; the current top ties it false. |
 | `rawResponseLiveEnable` | Future live arm for allowing raw external STQ response candidates to enter the response queue. R421 exposes this path input; the current top ties it false. |
@@ -483,18 +487,18 @@ row-mutation `liveEnable` can be asserted.
 
 ## Flush/Recovery
 
-Flush clears active query, identity, response, and evidence predicates. Legacy
-mode still forwards `legacySnapshotReady`, matching the pre-R395 disabled-live
-behavior.
+Hard flush clears active query, identity, response, and evidence predicates.
+Legacy mode still forwards `legacySnapshotReady`, matching the pre-R395
+disabled-live behavior.
 
 `preciseFlush` selectively prunes resident request/response queue records but
-does not clear unrelated child state. The current top drives it invalid; live
-backend recovery wiring remains separate from this queue-local owner.
+does not clear unrelated child state. The reduced top builds this bus from the
+scalar cleanup source, overrides `req.lsId` with the redirecting load LSID, and
+keeps LSID-less marker cleanup on the hard-clear path.
 
 ## Deferred Owners
 
 - Live external `lookup_su_lu_q` producer wiring into the R421 raw-response source.
-- Live backend recovery wiring into the R424 `preciseFlush` input.
 - Full multi-cluster row-state evidence into `responseHeadStale`.
 - Full selected replay-row identity storage from replay-LIQ residency beyond
   the reduced launch-index projection.

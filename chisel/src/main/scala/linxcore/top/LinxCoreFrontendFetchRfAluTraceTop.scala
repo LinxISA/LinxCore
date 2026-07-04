@@ -2525,11 +2525,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     VecInit((0 until p.robEntries).map(idx =>
       reducedLoadReplayLiqAllocPath.io.rows(idx).valid && reducedLoadReplayLiqAllocPath.io.rows(idx).scbReturned
     )).asUInt
+  val reducedReplayLiqStoreSnapshotHardFlush =
+    io.frontendFlushValid || io.startValid || io.restartValid || (!useReducedStoreDispatchStq).B ||
+      (scalarRedirectPending && !scalarRedirectResolveLsIdValidReg)
+  val reducedReplayLiqStoreSnapshotPreciseFlush =
+    Wire(new FlushBus(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
+  reducedReplayLiqStoreSnapshotPreciseFlush := 0.U.asTypeOf(reducedReplayLiqStoreSnapshotPreciseFlush)
   val reducedReplayLiqStoreSnapshotReady =
     LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring.connectInputs(
       path = reducedReplayLiqSourceReturnStoreSnapshotPath,
       enable = reducedLoadReplayLiqAllocEnabled,
-      flush = reducedStoreFlush,
+      flush = reducedReplayLiqStoreSnapshotHardFlush,
+      preciseFlush = reducedReplayLiqStoreSnapshotPreciseFlush,
       rowMutationLiveEnable = false.B,
       launchValid = reducedLoadReplayLiqAllocPath.io.launchValid,
       selectedLaunchIndex = reducedLoadReplayLiqAllocPath.io.launchIndex,
@@ -2922,6 +2929,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   pathCleanup.blockFlushValid := scalarRedirectPending
   pathCleanup.blockFlushBid := scalarRedirectBlockBidReg
   pathCleanup.reportQueueFlushValid := scalarRedirectPending
+  // Replay STQ request/response queues are MemReq-shaped; prune by load LSID, not ROB RID.
+  reducedReplayLiqStoreSnapshotPreciseFlush := pathCleanup.flush
+  reducedReplayLiqStoreSnapshotPreciseFlush.req.valid :=
+    reducedLoadReplayLiqAllocEnabled && scalarRedirectPending && scalarRedirectResolveLsIdValidReg
+  reducedReplayLiqStoreSnapshotPreciseFlush.req.lsId := scalarRedirectLsIdReg
   reducedLoadReplayResolvePreciseFlush := pathCleanup.flush
   reducedLoadReplayResolvePreciseFlush.req.valid :=
     reducedLoadReplayLiqAllocEnabled && scalarRedirectPending && scalarRedirectResolveLsIdValidReg
@@ -5475,6 +5487,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       path: LoadReplaySourceReturnStoreSnapshotPath,
       enable: Bool,
       flush: Bool,
+      preciseFlush: FlushBus,
       rowMutationLiveEnable: Bool,
       launchValid: Bool,
       selectedLaunchIndex: UInt,
@@ -5498,7 +5511,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       legacySnapshotReady: Bool): Bool = {
     path.io.enable := enable
     path.io.flush := flush
-    path.io.preciseFlush := 0.U.asTypeOf(path.io.preciseFlush)
+    path.io.preciseFlush := preciseFlush
     path.io.requestEnable := false.B
     path.io.rowMutationLiveEnable := rowMutationLiveEnable
     path.io.rawResponseLiveEnable := false.B
