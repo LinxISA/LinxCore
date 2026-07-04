@@ -95,7 +95,8 @@ item 4 for the replay-LIQ path:
    R391 feeds that control's evidence inputs from
    `LoadReplaySourceReturnStoreSnapshotEvidence`. Current legacy mode forwards
    the opt-in wrapper enable because the snapshot is combinational, while
-   future live mode must provide selected-row STQ request/response evidence.
+   R392 names the disabled selected-row query-issue side and future live mode
+   must still provide selected-row STQ response evidence.
 4. Treat SCB as returned when no external SCB path is pending. R389 now places
    `LoadReplaySourceReturnScbLiveControl` before these inputs; a future SCB
    owner must drive that control's pending/returned evidence instead of relying
@@ -118,7 +119,7 @@ from already flush-pruned replay-LIQ state.
 
 ## Deferred Owners
 
-- Selected-row STQ request/response matching for the R391 evidence inputs.
+- Live selected-row STQ response matching for the R391 evidence inputs.
 - External SCB replay response producer and pending/returned qualification.
 - Return-pipe availability producer and arbitration behind
   `LoadReplayReturnReadiness`.

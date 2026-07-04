@@ -1046,6 +1046,10 @@ owner. The selected replay row now produces dormant local-STQ
 `snapshotRequired` diagnostics, while STQ query/response, wait-store, and data
 evidence inputs remain disabled and the ready-control request gate still
 forwards legacy readiness.
+R392 adds `LoadReplaySourceReturnStoreSnapshotQueryIssue` before the R391
+evidence owner. The reduced top drives `queryIssued` through that named owner,
+but still keeps live query request and sink readiness disabled, so selected-row
+STQ response matching and live readiness remain deferred.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1315,8 +1319,13 @@ overlay. Most state remains in child modules:
 - `LoadReplaySourceReturnStoreSnapshotEvidence`: optional R391 selected-row
   local STQ evidence classifier feeding
   `LoadReplaySourceReturnStoreSnapshotReadyControl`. The current reduced top
-  still leaves STQ query/response evidence disabled and preserves legacy
-  combinational snapshot-ready behavior.
+  feeds `queryIssued` through the R392 query-issue owner while keeping request
+  issue and response evidence disabled and preserving legacy combinational
+  snapshot-ready behavior.
+- `LoadReplaySourceReturnStoreSnapshotQueryIssue`: optional R392 selected-row
+  local STQ snapshot query-issue owner before
+  `LoadReplaySourceReturnStoreSnapshotEvidence`. The current reduced top ties
+  request issue and downstream sink readiness low.
 - `LoadReplaySourceReturnScbLiveControl`: optional R389 external-SCB live
   request owner before `LoadReplaySourceReturnReadiness`. The current reduced
   top ties its request and evidence inputs low, so source readiness keeps the
@@ -1778,7 +1787,9 @@ request disabled. R390 feeds the local snapshot side from
 evidence disabled and forwarding the legacy combinational readiness. R391 feeds
 that control's evidence inputs from
 `LoadReplaySourceReturnStoreSnapshotEvidence`, but the top still leaves
-selected-row STQ query/response evidence disabled. R300
+selected-row STQ query/response evidence disabled. R392 replaces the local
+query-issued literal with `LoadReplaySourceReturnStoreSnapshotQueryIssue`,
+while keeping live request issue and sink readiness disabled. R300
 inserts
 `LoadReplayReturnReadiness` after that source-return boundary. R301 inserts
 `LoadReplayReturnPipeSelect` as the explicit pipe-mask/select owner feeding

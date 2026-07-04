@@ -12,6 +12,7 @@
     - `LDQInfo::waitStore`
     - `LDQInfo::handleMerge`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnReadiness.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnScbLiveControl.scala`
@@ -30,8 +31,9 @@ a combinational `ResidentStoreForwardStoreSnapshot`, so the control runs with
 `requestEnable=false` and forwards the legacy snapshot-ready input exactly.
 R391 feeds `snapshotRequired` and `snapshotValid` from
 `LoadReplaySourceReturnStoreSnapshotEvidence`, but leaves the live request gate
-disabled. Future live mode can enable this control only after selected-row STQ
-request/response matching is stable.
+disabled. R392 names the selected-row STQ query-issue boundary but leaves that
+request disabled too. Future live mode can enable this control only after
+selected-row STQ query issue and response matching are both stable.
 
 ## Interface
 
@@ -95,9 +97,10 @@ This module only produces its `storeSnapshotReady` input.
 
 The control is same-cycle combinational logic in front of
 `LoadReplaySourceReturnReadiness`. It does not latch resident snapshot state;
-R391 provides the current combinational evidence classifier, and a future
-selected-row STQ owner must provide stable query/response inputs to that
-classifier.
+R391 provides the current combinational evidence classifier and R392 provides a
+disabled query-issue owner. Future selected-row STQ response matching must
+provide stable response inputs to that classifier before live request mode is
+enabled.
 
 ## Flush/Recovery
 
@@ -107,7 +110,7 @@ behavior.
 
 ## Deferred Owners
 
-- Live selected-row STQ request/response matching.
+- Live selected-row STQ response matching.
 - Stateful STQ/source return tracking across replay-row repick cycles.
 - Full LIQ/LDQ relaunch, LHQ publication, ready-table wakeup, and memory trace
   rows.
@@ -118,11 +121,12 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnReadiness
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayLaunchReadiness
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r390x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r392x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover legacy snapshot readiness preservation, optional live
