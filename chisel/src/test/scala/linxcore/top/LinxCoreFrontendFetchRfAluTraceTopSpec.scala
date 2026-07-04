@@ -709,6 +709,20 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedBySnapshot.getWidth == 1)
   }
 
+  test("R426 replay-LIQ source-return store snapshot precise-flush diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneMask.getWidth == 2)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneCount.getWidth == 2)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueBlockedByPreciseFlush.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePrecisePruneMask.getWidth == 2)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePrecisePruneCount.getWidth == 2)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueBlockedByPreciseFlush.getWidth == 1)
+  }
+
   test("R391 replay-LIQ source-return store snapshot evidence diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)

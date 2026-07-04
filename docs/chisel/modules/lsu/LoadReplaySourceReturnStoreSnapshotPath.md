@@ -205,6 +205,11 @@ start/restart, feature-disable, and marker-only cleanup still drive the path's
 hard `flush`, while scalar redirects with a valid reduced load LSID drive
 `preciseFlush` so resident request/response records can be pruned selectively.
 
+R426 exposes the request and response FIFO precise-prune masks, prune counts,
+and enqueue-blocked diagnostics through the path and reduced-top diagnostic
+bundles. This does not change queue behavior; it makes the R425 live cleanup
+observable before request or raw-response live arms are promoted.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `rowMutationLiveEnable`, `rawResponseLiveEnable`, `sinkReady`,
 raw STQ response, SCB return, wait-store, data-valid, raw-data, wait-store
@@ -279,7 +284,8 @@ boundary and can later be promoted without another direct top child instance.
 | `rawResponseSource*` | R421 raw-response source diagnostics: active/candidate/live-valid, disabled/flush/live-disabled blockers, and malformed payload checks. |
 | `queryIssue*` | Selected-row query issue diagnostics from the query owner. |
 | `requestPayload*` | R402 selected-row request payload and diagnostics for the future local STQ lookup queue. |
-| `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, and blocker diagnostics. |
+| `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, blocker diagnostics, and R426 precise-prune mask/count visibility. |
+| `responseQueue*` | R426 response FIFO precise-prune mask/count and enqueue-blocked-by-precise-flush diagnostics. |
 | `lookup*` | R405 resident-STQ lookup diagnostics: query validity, row masks, eligible store mask, forward/wait masks, wait-store, raw data evidence, and response-visible data evidence. |
 | `responseApply*` | R407/R408 ordered-response apply intent: STQ-returned, wait-store identity, accepted-context data merge mask/data, completion diagnostic, and malformed-payload blockers. |
 | `rowStatePlan*` | R409 future row-state write plan: wait-store rewait clearing, data/no-data repick preservation, next line image, next split SCB/STQ bits, and invalid response-class diagnostics. |
@@ -408,6 +414,9 @@ not issue a new STQ lookup request, consume a queued request head, expose a
 queued response head, or accept a new response. It only prunes matched resident
 records and compacts survivors. This keeps queue-local recovery deterministic
 until the backend cleanup path drives the bus live.
+
+R426 keeps that behavior unchanged and only forwards the queue-local precise
+prune diagnostics to the composite boundary and reduced top.
 
 The R401 request-control owner gates future STQ lookup request acceptance with
 `requestEnable`, path activity, R397 accepted-token capacity, and R403 request

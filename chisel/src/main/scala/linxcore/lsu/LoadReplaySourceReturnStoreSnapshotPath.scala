@@ -22,9 +22,11 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
     stqSizeWidth: Int,
     simtLaneWidth: Int,
     mapQDepth: Int,
-    requestQueueDepth: Int) extends Bundle {
+    requestQueueDepth: Int,
+    responseQueueDepth: Int) extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val requestQueueCountWidth = log2Ceil(requestQueueDepth + 1)
+  private val responseQueueCountWidth = log2Ceil(responseQueueDepth + 1)
 
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -259,7 +261,13 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val requestQueueCount = Output(UInt(requestQueueCountWidth.W))
   val requestQueueBlockedByDisabled = Output(Bool())
   val requestQueueBlockedByFlush = Output(Bool())
+  val requestQueuePrecisePruneMask = Output(UInt(requestQueueDepth.W))
+  val requestQueuePrecisePruneCount = Output(UInt(requestQueueCountWidth.W))
+  val requestQueueBlockedByPreciseFlush = Output(Bool())
   val requestQueueBlockedByFull = Output(Bool())
+  val responseQueuePrecisePruneMask = Output(UInt(responseQueueDepth.W))
+  val responseQueuePrecisePruneCount = Output(UInt(responseQueueCountWidth.W))
+  val responseQueueBlockedByPreciseFlush = Output(Bool())
   val lookupActive = Output(Bool())
   val lookupQueryValid = Output(Bool())
   val lookupLoadCrossesLine = Output(Bool())
@@ -325,7 +333,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     stqSizeWidth = stqSizeWidth,
     simtLaneWidth = simtLaneWidth,
     mapQDepth = mapQDepth,
-    requestQueueDepth = requestQueueDepth
+    requestQueueDepth = requestQueueDepth,
+    responseQueueDepth = responseQueueDepth
   ))
 
   val queryIssue = Module(new LoadReplaySourceReturnStoreSnapshotQueryIssue)
@@ -823,7 +832,13 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.requestQueueCount := requestQueue.io.count
   io.requestQueueBlockedByDisabled := requestQueue.io.blockedByDisabled
   io.requestQueueBlockedByFlush := requestQueue.io.blockedByFlush
+  io.requestQueuePrecisePruneMask := requestQueue.io.precisePruneMask
+  io.requestQueuePrecisePruneCount := requestQueue.io.precisePruneCount
+  io.requestQueueBlockedByPreciseFlush := requestQueue.io.blockedByPreciseFlush
   io.requestQueueBlockedByFull := requestQueue.io.blockedByFull
+  io.responseQueuePrecisePruneMask := responseQueue.io.precisePruneMask
+  io.responseQueuePrecisePruneCount := responseQueue.io.precisePruneCount
+  io.responseQueueBlockedByPreciseFlush := responseQueue.io.blockedByPreciseFlush
   io.lookupActive := lookup.io.active
   io.lookupQueryValid := lookup.io.queryValid
   io.lookupLoadCrossesLine := lookup.io.loadCrossesLine

@@ -42,6 +42,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   private val storeMemoryLineCountWidth = log2Ceil(storeMemoryLineEntries + 1)
   private val loadReplayRelaunchQueueCountWidth = log2Ceil(2 + 1)
   private val loadReplayLretSinkCountWidth = log2Ceil(2 + 1)
+  private val sourceReturnStoreSnapshotQueueDepth = 2
+  private val sourceReturnStoreSnapshotQueueCountWidth = log2Ceil(sourceReturnStoreSnapshotQueueDepth + 1)
   private val mdbConflictOrdinalWidth = log2Ceil(p.robEntries * 2)
   private val gprFreeWidth = log2Ceil(physRegs + 1)
   private val gprMapQFreeWidth = log2Ceil(gprMapQDepth + 1)
@@ -457,6 +459,16 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedByRequestDisabled = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedByLegacySnapshot = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedBySnapshot = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneMask =
+    Output(UInt(sourceReturnStoreSnapshotQueueDepth.W))
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneCount =
+    Output(UInt(sourceReturnStoreSnapshotQueueCountWidth.W))
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueBlockedByPreciseFlush = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePrecisePruneMask =
+    Output(UInt(sourceReturnStoreSnapshotQueueDepth.W))
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePrecisePruneCount =
+    Output(UInt(sourceReturnStoreSnapshotQueueCountWidth.W))
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueBlockedByPreciseFlush = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceActive = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceRequestValid = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceQueryActive = Output(Bool())
@@ -5587,6 +5599,18 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       path.io.controlBlockedByLegacySnapshot
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedBySnapshot :=
       path.io.controlBlockedBySnapshot
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneMask :=
+      path.io.requestQueuePrecisePruneMask
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneCount :=
+      path.io.requestQueuePrecisePruneCount
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueBlockedByPreciseFlush :=
+      path.io.requestQueueBlockedByPreciseFlush
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePrecisePruneMask :=
+      path.io.responseQueuePrecisePruneMask
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePrecisePruneCount :=
+      path.io.responseQueuePrecisePruneCount
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueBlockedByPreciseFlush :=
+      path.io.responseQueueBlockedByPreciseFlush
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceActive :=
       path.io.evidenceActive
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceRequestValid :=
