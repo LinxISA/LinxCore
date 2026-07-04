@@ -18,6 +18,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotAcceptedToken.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-RESPONSE-MATCH-001`
@@ -47,6 +48,9 @@ raw STQ response inputs, selected-row identity, and SCB-return evidence false
 at the path boundary, so `responseValid`, `waitStore`, and `dataValid` remain
 false at
 `LoadReplaySourceReturnStoreSnapshotEvidence`.
+R397 feeds this module's `queryIssued` input from the accepted-query token
+inside the composite path, so response ordering is tied to an outstanding
+accepted snapshot request rather than the raw same-cycle query pulse.
 
 ## Interface
 
@@ -56,7 +60,7 @@ false at
 |---|---|
 | `enable` | Replay-LIQ wrapper is active. |
 | `flush` | Store/replay flush suppresses response matching. |
-| `queryIssued` | The selected-row STQ snapshot query has issued. |
+| `queryIssued` | Accepted local STQ snapshot token is visible. |
 | `responseValidIn` | Future raw STQ response is visible. |
 | `responseMatchesSelected` | Future identity check says the response targets the selected replay row. |
 | `scbReturned` | Future SCB source-return evidence has already arrived. |
@@ -85,10 +89,11 @@ false at
 ## State
 
 The module is combinational. It does not store selected-row identity or mutate
-LIQ/LDQ state. R395 feeds `responseMatchesSelected` from the R394 identity
-matcher inside the composite path; future live integration must still supply
-selected-row identity state and a raw STQ response queue owner before this top
-can consume it.
+LIQ/LDQ state. R397 stores accepted selected-row identity in
+`LoadReplaySourceReturnStoreSnapshotAcceptedToken`, and R395 feeds
+`responseMatchesSelected` from the R394 identity matcher inside the composite
+path. Future live integration must still supply a raw STQ response queue owner
+before this top can consume it.
 
 ## Logic Design
 
@@ -138,7 +143,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r395x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r397x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover disabled/flush suppression, no-query blocking, unmatched
