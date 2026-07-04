@@ -88,9 +88,10 @@ In `LinxCoreFrontendFetchRfAluTraceTop`, R315 wires:
 - R378 LRET sink readiness from `LoadReplayReturnLretSink.enqueueReady`;
 - R380 writeback sink readiness from `LoadReplayReturnWritebackSinkReady`,
   which observes abstract execute-priority RF write-port capacity but remains
-  live-disabled in the current top;
+  live-disabled through R381 side-effect live control in the current top;
 - R379 wakeup sink readiness from `LoadReplayReturnWakeupSinkReady`, which
-  remains live-disabled in the current top.
+  remains live-disabled through R381 side-effect live control in the current
+  top.
 
 ## Deferred Owners
 

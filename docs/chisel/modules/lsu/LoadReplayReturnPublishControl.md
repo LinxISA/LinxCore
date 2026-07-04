@@ -34,8 +34,10 @@ paths. R315 names side-effect readiness; R316 adds the final explicit
 `liveEnable` guard so a reduced top can expose the full publish predicate
 without accidentally making replay return state live.
 
-The current top ties `liveEnable` low. Therefore `publishFire` is always false
-in the reduced replay-LIQ wrapper, even when R378 feeds real LRET sink capacity
+R381 feeds `liveEnable` from `LoadReplayReturnSideEffectLiveControl` instead
+of a top-local false constant. The current top ties that owner's
+`liveRequested` input low. Therefore `publishFire` is still always false in
+the reduced replay-LIQ wrapper, even when R378 feeds real LRET sink capacity
 into the side-effect readiness join.
 
 ## Interface
@@ -43,7 +45,7 @@ into the side-effect readiness join.
 | Direction | Signal | Description |
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
-| input | `liveEnable` | Global owner-controlled permission to fire live replay-return publication. Current top ties this low. |
+| input | `liveEnable` | Global owner-controlled permission to fire live replay-return publication. R381 currently drives this from a live-control owner whose request input is tied low. |
 | input | `payloadValid` | LRET payload exists for the selected replay-return row. |
 | input | `publishReady` | Data-valid plus consumer-ready join from `LoadReplayReturnPublishReady`. |
 | input | `sideEffectsReady` | LRET/writeback/wakeup side-effect readiness from `LoadReplayReturnSideEffectReady`. |
@@ -80,9 +82,9 @@ issue queues.
 
 ## Deferred Owners
 
-- Replacing the top-level `liveEnable := false.B` tie-off with an owner-gated
-  mode bit after LRET, replay RF writeback, ready-table, and wakeup sinks are
-  implemented.
+- Replacing the R381 live-control `liveRequested := false.B` tie-off with an
+  owner-gated mode bit after LRET, replay RF writeback, ready-table, and
+  wakeup sinks are implemented.
 - Driving LRET enqueue, RF writeback, ready-table update, and wakeup fire from
   `publishFire`.
 - Feeding a live publish result back into replay launch/clear/retry policy.

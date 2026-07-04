@@ -813,6 +813,21 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqReturnWritebackSinkBlockedByLiveDisabled.getWidth == 1)
   }
 
+  test("R381 replay-LIQ return side-effect live-control diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqReturnSideEffectLiveCandidateValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnSideEffectLiveRequiredMask.getWidth == 3)
+    assert(io.reducedLoadReplayLiqReturnSideEffectLiveEnableMask.getWidth == 3)
+    assert(io.reducedLoadReplayLiqReturnSideEffectLiveBlockedByDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnSideEffectLiveBlockedByFlush.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnSideEffectLiveBlockedByNoPayload.getWidth == 1)
+    assert(io.reducedLoadReplayLiqReturnSideEffectLiveBlockedByLiveDisabled.getWidth == 1)
+  }
+
   test("R367 replay W2 row-fill enable diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -1212,6 +1227,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqReturnConsumerBlockedByWakeupSink"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnWritebackSinkCandidateValid"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnWritebackSinkBlockedByLiveDisabled"))
+    assert(sv.contains("io_reducedLoadReplayLiqReturnSideEffectLiveRequiredMask"))
+    assert(sv.contains("io_reducedLoadReplayLiqReturnSideEffectLiveBlockedByLiveDisabled"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnWakeupSinkCandidateValid"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnWakeupSinkBlockedByLiveDisabled"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnPipeBudgetEnable"))

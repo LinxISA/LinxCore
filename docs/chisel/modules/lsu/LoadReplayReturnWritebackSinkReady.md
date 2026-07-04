@@ -32,6 +32,8 @@ pre-W2 publication path. R380 therefore separates abstract RF write-port
 availability from live mutation enable. The sink can arm when the execute
 writeback port is idle, but `writebackSinkReady` remains low while
 `liveEnable` is false, preserving the disabled-live-replay contract.
+R381 now drives that input from `LoadReplayReturnSideEffectLiveControl`, whose
+current `liveRequested` input is tied low.
 
 ## Interface
 
@@ -72,7 +74,9 @@ R380 wires this module in `LinxCoreFrontendFetchRfAluTraceTop` after
 - `writebackRequired` comes from the pre-W2 replay-return writeback candidate;
 - `sinkReady` is `!ReducedScalarWritebackArbiter.selectedExecute`, the
   abstract single-port scalar RF availability after execute priority;
-- `liveEnable` is tied low, so `writebackSinkReady` remains false;
+- R381 `LoadReplayReturnSideEffectLiveControl.writebackLiveEnable` feeds
+  `liveEnable`, and its live request is tied low, so `writebackSinkReady`
+  remains false;
 - `LoadReplayReturnSideEffectReady.writebackSinkReady` consumes this module
   output instead of deriving readiness from the W2 live-control path;
 - top-level diagnostics expose candidate, armed, ready, and blocker signals

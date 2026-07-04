@@ -33,8 +33,10 @@ queues and the ready table.
 The current reduced Chisel top does not own live ready-table mutation or issue
 wakeup for replay returns. R379 therefore separates abstract sink capacity from
 live mutation enable. The sink can be armed for diagnostics, but
-`wakeupSinkReady` remains low while `liveEnable` is false, preserving the
-existing disabled-live-replay contract.
+`wakeupSinkReady` remains low while `liveEnable` is false. R381 now drives
+that input from `LoadReplayReturnSideEffectLiveControl`, whose current
+`liveRequested` input is tied low, preserving the existing
+disabled-live-replay contract.
 
 ## Interface
 
@@ -75,7 +77,9 @@ R379 wires this module in `LinxCoreFrontendFetchRfAluTraceTop` after
 
 - `wakeupRequired` comes from the pre-W2 replay-return wakeup candidate;
 - `sinkReady` is tied high as an abstract diagnostic capacity source;
-- `liveEnable` is tied low, so the output `wakeupSinkReady` remains false;
+- R381 `LoadReplayReturnSideEffectLiveControl.wakeupLiveEnable` feeds
+  `liveEnable`, and its live request is tied low, so the output
+  `wakeupSinkReady` remains false;
 - `LoadReplayReturnConsumerReady.wakeupSinkReady` and
   `LoadReplayReturnSideEffectReady.wakeupSinkReady` consume the module output
   instead of a raw false tie-off;
