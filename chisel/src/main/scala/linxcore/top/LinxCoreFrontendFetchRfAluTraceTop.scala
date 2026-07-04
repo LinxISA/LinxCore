@@ -2646,7 +2646,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       preciseFlush = reducedReplayLiqStoreSnapshotPreciseFlush,
       liveArmPolicyEnable = true.B,
       liveArmRawSinkAvailable = true.B,
-      rowMutationLiveEnable = false.B,
+      rowMutationLiveEnable = true.B,
       launchValid = reducedLoadReplayLiqAllocPath.io.launchValid,
       selectedLaunchIndex = reducedLoadReplayLiqAllocPath.io.launchIndex,
       selectedRepickMask = reducedLoadReplayLiqAllocPath.io.repickMask,

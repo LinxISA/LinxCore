@@ -255,6 +255,15 @@ the existing row-mutation candidate/request signals. The reduced top still
 ties `rowMutationLiveEnable=false`, so these outputs are observability for the
 next live-enable decision rather than a row-write promotion.
 
+R445 flips the reduced top's `rowMutationLiveEnable` input true while keeping
+the R443 same-row proof in front of `RowMutationRequest.liveEnable`. A
+row-state plan can now become a native LIQ row-mutation request only when the
+response head is apply-eligible, targets the same one-hot LIQ row as
+`ResponseApply`, and the downstream `LoadInflightQueue` row-mutation path
+accepts the target row through its valid/Repick/SCB-return and same-row
+conflict guards. Raw external STQ responses remain disabled; this promotion
+uses only the path-local resident-STQ lookup/sink response.
+
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
 drops stale heads from the model-equivalent not-repick proof, but response
@@ -336,10 +345,10 @@ boundary and can later be promoted without another direct top child instance.
 | `flush` | Hard source-return path clear for frontend flush, start/restart, feature-disable, and marker-only backend cleanup. |
 | `preciseFlush` | Model-shaped `FlushBus` forwarded to the request and response queues for selective resident pruning. The reduced top drives scalar redirect cleanup here only when a valid reduced load LSID is available. |
 | `requestEnable` | Raw future live arm for issuing and consuming selected-row STQ snapshot evidence. The path selects this input only when `liveArmPolicyEnable=false`; the current top ties it false. |
-| `rowMutationLiveEnable` | Future live arm for allowing a row-state plan to become a LIQ row-mutation request. R417 exposes this path input; the current top ties it false. |
+| `rowMutationLiveEnable` | Live arm for allowing a row-state plan to become a LIQ row-mutation request after the R443 same-row head-proof guard. R445 drives this true in the reduced top. |
 | `rawResponseLiveEnable` | Future live arm for allowing raw external STQ response candidates to enter the response queue. R421 exposes this path input; the current top ties it false. |
-| `liveArmPolicyEnable` | R436/R438 path-local policy selector for computing and optionally selecting future `requestEnable` and `sinkReady` candidates. R439 drives this true in the reduced top while row mutation remains disabled. |
-| `liveArmRawSinkAvailable` | R436 raw/local store-unit sink availability input observed by the policy diagnostics. R439 drives this true for the internal resident-STQ lookup sink while row mutation remains disabled. |
+| `liveArmPolicyEnable` | R436/R438 path-local policy selector for computing and selecting request issue and sink readiness from launch/request/queue state. R439 drives this true in the reduced top. |
+| `liveArmRawSinkAvailable` | R436 raw/local store-unit sink availability input observed by the policy diagnostics. R439 drives this true for the internal resident-STQ lookup sink. |
 | `launchValid` | A selected replay row would need local STQ source-return qualification. |
 | `sinkReady` | Raw future store-unit request sink readiness for the R404 request sink. The path selects this input only when `liveArmPolicyEnable=false`; the current top ties it false. |
 | `selectedIdentityEnable` | Selects the reduced LIQ launch-index projection instead of the raw selected-row identity inputs. |
@@ -708,10 +717,9 @@ keeps LSID-less marker cleanup on the hard-clear path.
 - Live SCB return evidence source.
 - Stateful wait-store replay mutation and returned-data merge from the R410
   row-mutation request.
-- Live row-mutation promotion control after row-carried `scbRnt/stqRnt` and
-  stale-response policy are explicit enough for a write-enable proof.
-- Reduced-top row-mutation live promotion after row-carried `scbRnt/stqRnt`,
-  stale-response policy, and downstream LIQ write conflicts are explicit.
+- Live external raw-response row mutation from `lookup_su_lu_q`.
+- Replay relaunch, return publish, wakeup, writeback, and ROB mutation after
+  the mutated LIQ row returns to launch-ready state.
 
 ## Verification
 

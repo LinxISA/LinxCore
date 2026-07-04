@@ -2390,6 +2390,12 @@ not-repick, target-mismatch, and aggregate head-proof blockers now reach the
 reduced top. The top still ties the source `rowMutationLiveEnable` input false,
 so these signals separate "live gate disabled" from "head proof would block"
 without promoting any registered LIQ row write.
+R445 drives the source `rowMutationLiveEnable` input true in the reduced-store
+replay-LIQ wrapper. The source path can now issue a native row-mutation request
+only after the live-permit same-row head proof passes, and the child LIQ still
+applies its valid/Repick/SCB-return plus same-row writer conflict guards before
+writing the row. Raw external STQ responses, replay relaunch, publish, wakeup,
+writeback, and ROB mutation remain disabled.
 R418 splits the replay-LIQ source-return launch sideband: local STQ/store
 snapshot readiness now feeds the reduced LIQ `e2StqReturned` input, while SCB
 readiness feeds `e2ScbReturned`. The combined launch/return behavior remains

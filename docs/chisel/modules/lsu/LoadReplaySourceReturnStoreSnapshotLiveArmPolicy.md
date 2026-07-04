@@ -32,6 +32,13 @@ response before the row-mutation side is intentionally armed; otherwise a
 matched no-wait response could make store-snapshot evidence look complete while
 the LIQ row still has not recorded the returned store state.
 
+R445 is the first reduced-top caller that intentionally arms that safety gate:
+`LinxCoreFrontendFetchRfAluTraceTop` now drives `rowMutationLiveEnable=true`
+only through the source path's `LoadReplaySourceReturnStoreSnapshotRowMutationLivePermit`
+guard and the downstream LIQ row-mutation write-control guard. The policy
+module remains a combinational selector; it does not itself prove target-row
+eligibility.
+
 ## Interface
 
 ### Inputs
@@ -89,11 +96,9 @@ the selected LDQ row only after identity and SCB-order proof.
 
 ## Deferred Owners
 
-- Driving the reduced top's dormant `requestEnable` and `sinkReady` inputs from
-  policy outputs.
-- Promoting `rowMutationLiveEnable` after row-state and native LIQ write-control
-  blockers are proven live.
 - Full external `lookup_lu_su_q` / `lookup_su_lu_q` producer wiring.
+- Replay relaunch/publish/wakeup/writeback after a row-mutation request updates
+  LIQ state.
 
 ## Verification
 

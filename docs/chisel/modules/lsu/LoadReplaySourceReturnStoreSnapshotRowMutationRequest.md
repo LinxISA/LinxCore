@@ -27,20 +27,21 @@ wait-store state and calls `rewait`, or merges/no-ops returned data into that
 same row. This module keeps that single-row mutation shape explicit before the
 live row writer exists.
 
-R417 keeps the current generated top dormant but moves the arm bit to the
-composite path boundary. `LoadReplaySourceReturnStoreSnapshotPath` forwards
-its `rowMutationLiveEnable` input into this module; the reduced top ties that
-input false while wiring the source-shaped request payload toward
-`ReducedLoadReplayLiqAllocPath`. Candidate diagnostics still prove whether
-the R409 plan has exactly one LIQ target and whether the future live enable is
-the only remaining request blocker.
+R417 moved the arm bit to the composite path boundary.
+`LoadReplaySourceReturnStoreSnapshotPath` forwards its
+`rowMutationLiveEnable` input into the R443 live-permit owner, which then
+drives this module's `liveEnable`. R445 drives the outer reduced-top arm true,
+so this module can now issue a request only when the R443 same-row proof also
+permits it. Candidate diagnostics still prove whether the R409 plan has
+exactly one LIQ target and whether live permission is the remaining request
+blocker.
 
 ## Interface
 
 | Signal | Description |
 |---|---|
 | `enable` / `flush` | Gate all candidate and request outputs. |
-| `liveEnable` | Future arm for allowing a candidate to become a row mutation request. R417 drives this from `LoadReplaySourceReturnStoreSnapshotPath.rowMutationLiveEnable`; the current reduced top ties that path input false. |
+| `liveEnable` | Guarded arm for allowing a candidate to become a row mutation request. R443 drives this from the source live-permit owner, and R445 arms the outer reduced-top path input. |
 | `planValid` | R409 row-state plan is valid for an ordered STQ response. |
 | `targetMask` | One-hot LIQ row target from `LoadReplaySourceReturnStoreSnapshotResponseApply`. |
 | `setWaitStatus` / `keepRepickStatus` | Future status-write intent for wait-store rewait or continued repick. |

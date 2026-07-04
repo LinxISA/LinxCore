@@ -28,8 +28,9 @@ same target row is valid, repick, SCB-returned, and apply-eligible.
 Inputs:
 
 - `enable`, `flush`: path lifecycle controls.
-- `liveEnable`: outer live row-mutation arm. The reduced top currently keeps
-  this false.
+- `liveEnable`: outer live row-mutation arm. R445 drives this true in the
+  reduced top; this owner still withholds `livePermit` until the same-row head
+  proof passes.
 - `targetReady`: source request owner has a valid one-row target candidate.
 - `targetMask`: target mask from `ResponseApply`.
 - `headTargetsRow`, `headRepick`, `headApplyEligible`,

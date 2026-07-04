@@ -51,11 +51,12 @@ path accepts the R410
 `LoadReplaySourceReturnStoreSnapshotRowMutationRequest` payload shape, uses
 `LoadInflightRowMutationRequestBridge` to translate the source wait-store ID
 width into the LIQ-native `storeEntries` width, and drives the child
-`LoadInflightQueue` native row-mutation port. The current reduced top wires
-the source path into these inputs but keeps `rowMutationLiveEnable=false`, so
-the bridge and native writer remain structurally present without changing live
-generated-top replay behavior. R428 forwards the bridge, native write-control,
-and aggregate row-mutation blocker diagnostics through the reduced top IO so
+`LoadInflightQueue` native row-mutation port. R445 lets the current reduced top
+drive the source path's guarded `rowMutationLiveEnable` true, so the bridge and
+native writer can now accept source-shaped local-STQ response mutations after
+the source head-proof and LIQ write-control guards pass. R428 forwards the
+bridge, native write-control, and aggregate row-mutation blocker diagnostics
+through the reduced top IO so
 future live-mutation packets can be compared at the wrapper boundary before
 changing the enable policy. R429 also forwards the child LIQ write-control
 blocker reasons, making the model-required valid/Repick/SCB-return and
@@ -216,8 +217,9 @@ clear timing: the top delays `clearResolvedValid` until the cycle after
 ResolveQ accepts the LHQ record, when the source LIQ row is resident in
 `Resolved` state.
 R417 connects the child LIQ native row-mutation port to the source-shaped
-bridge in this composition. Current reduced-top behavior remains unchanged
-because the upstream source path keeps `rowMutationLiveEnable=false`.
+bridge in this composition. R445 promotes the upstream source live arm, so this
+path may now write the child LIQ row when the source proof and native
+write-control checks both pass.
 R429 only forwards the existing child LIQ write-control blocker reasons; it
 does not change the bridge request, write-enable predicate, or registered row
 mutation behavior.
