@@ -556,6 +556,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByNoTarget = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByLiveDisabled = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationInvalidMultiTarget = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationHeadProofReady = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationLivePermit = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadProof = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadInvalidRow = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadScbNotReturned = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadNotRepick = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadTargetMismatch = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSourceReturned = Output(Bool())
   val reducedLoadReplayLiqSourceReturnScbSourceReturned = Output(Bool())
   val reducedLoadReplayLiqSourceReturnSourceReturned = Output(Bool())
@@ -5877,6 +5884,20 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       path.io.rowMutationBlockedByLiveDisabled
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationInvalidMultiTarget :=
       path.io.rowMutationInvalidMultiTarget
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationHeadProofReady :=
+      path.io.rowMutationHeadProofReady
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationLivePermit :=
+      path.io.rowMutationLivePermit
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadProof :=
+      path.io.rowMutationBlockedByHeadProof
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadInvalidRow :=
+      path.io.rowMutationBlockedByHeadInvalidRow
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadScbNotReturned :=
+      path.io.rowMutationBlockedByHeadScbNotReturned
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadNotRepick :=
+      path.io.rowMutationBlockedByHeadNotRepick
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadTargetMismatch :=
+      path.io.rowMutationBlockedByHeadTargetMismatch
   }
 }
 

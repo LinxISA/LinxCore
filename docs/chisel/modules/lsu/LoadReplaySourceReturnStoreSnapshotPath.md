@@ -248,6 +248,13 @@ The composite path now wires `ResponseHeadState`, `ResponseApply`, and
 owner's `liveEnable`. This is behavior-preserving relative to R442 and keeps
 future promotion packets from editing the composite for guard policy details.
 
+R444 keeps the guard policy unchanged and promotes the compact live-permit
+diagnostics to the reduced top: `rowMutationHeadProofReady`,
+`rowMutationLivePermit`, and the head-proof blocker bits are visible next to
+the existing row-mutation candidate/request signals. The reduced top still
+ties `rowMutationLiveEnable=false`, so these outputs are observability for the
+next live-enable decision rather than a row-write promotion.
+
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
 drops stale heads from the model-equivalent not-repick proof, but response

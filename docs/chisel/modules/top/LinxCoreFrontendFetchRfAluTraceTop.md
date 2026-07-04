@@ -2384,6 +2384,12 @@ R429 extends the same helper-routed top visibility with the detailed native LIQ
 write-control blocker reasons, so future live-promotion agents can distinguish
 invalid/non-Repick/missing-SCB prerequisites from same-row E4, clear, replay,
 refill, launch, or allocation conflicts before enabling row mutation.
+R444 adds the corresponding source-path live-permit proof visibility:
+`HeadProofReady`, `LivePermit`, and head invalid-row, SCB-not-returned,
+not-repick, target-mismatch, and aggregate head-proof blockers now reach the
+reduced top. The top still ties the source `rowMutationLiveEnable` input false,
+so these signals separate "live gate disabled" from "head proof would block"
+without promoting any registered LIQ row write.
 R418 splits the replay-LIQ source-return launch sideband: local STQ/store
 snapshot readiness now feeds the reduced LIQ `e2StqReturned` input, while SCB
 readiness feeds `e2ScbReturned`. The combined launch/return behavior remains
