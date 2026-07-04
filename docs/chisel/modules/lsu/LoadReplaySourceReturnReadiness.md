@@ -12,6 +12,7 @@
     - `LDQInfo::pickL1`
     - `LDQInfo::returnData`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnScbLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayLaunchReadiness.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnReadiness.scala`
@@ -29,6 +30,8 @@ source-return predicate consumed by `LoadReplayLaunchReadiness` and
 
 R299 keeps this owner conservative. The current reduced top has a combinational
 resident STQ snapshot and no live external SCB replay path, so it ties
+`LoadReplaySourceReturnStoreSnapshotReadyControl.requestEnable` low and
+forwards the legacy snapshot-ready bit before this module. It also ties
 `LoadReplaySourceReturnScbLiveControl.requestEnable` and source evidence low
 before this module. That keeps `externalScbPending` low and lets source return
 become true only after the selected row has base data and the local store
@@ -46,7 +49,7 @@ loads.
 | `enable` | Replay-LIQ wrapper is active. |
 | `launchValid` | A selected LIQ row is eligible for the launch path. |
 | `baseDataReady` | Grant-qualified baseline load data has returned for the selected row. |
-| `storeSnapshotReady` | The local resident-store snapshot feeding E2 is available. |
+| `storeSnapshotReady` | The local resident-store snapshot feeding E2 is available. R390 feeds this from `LoadReplaySourceReturnStoreSnapshotReadyControl`, whose current live request is disabled. |
 | `externalScbPending` | A future external SCB source is required for this launch. R389 feeds this from `LoadReplaySourceReturnScbLiveControl`, whose current request is disabled. |
 | `externalScbReturned` | The pending external SCB source has returned. R389 feeds this from `LoadReplaySourceReturnScbLiveControl`, whose current request is disabled. |
 
@@ -84,9 +87,11 @@ item 4 for the replay-LIQ path:
 
 1. Form `candidateValid` from `enable && launchValid`.
 2. Require `baseDataReady` before claiming any source-return completion.
-3. Require `storeSnapshotReady` for the local resident STQ source. In the
-   R299 top this is the opt-in wrapper enable because the snapshot is
-   combinational and already wired beside the launch selector.
+3. Require `storeSnapshotReady` for the local resident STQ source. R390 now
+   places `LoadReplaySourceReturnStoreSnapshotReadyControl` before this input:
+   current legacy mode forwards the opt-in wrapper enable because the snapshot
+   is combinational, while future live mode must supply selected-row snapshot
+   evidence.
 4. Treat SCB as returned when no external SCB path is pending. R389 now places
    `LoadReplaySourceReturnScbLiveControl` before these inputs; a future SCB
    owner must drive that control's pending/returned evidence instead of relying
@@ -121,6 +126,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnReadiness
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnScbLiveControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r299-replay-liq-source-return-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh

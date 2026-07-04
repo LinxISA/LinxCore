@@ -1035,6 +1035,12 @@ R389 extends the replay-LIQ source-return namespace with
 `externalScbReturned` from a named request/evidence owner, but the request and
 SCB evidence remain disabled, so the current no-external-SCB source-return
 behavior is preserved.
+R390 extends the same source-return namespace with
+`LoadReplaySourceReturnStoreSnapshotReadyControl`. The reduced top now feeds
+`LoadReplaySourceReturnReadiness.storeSnapshotReady` from a named
+legacy/live-readiness owner, but the live request and snapshot evidence remain
+disabled, so the current combinational resident-store snapshot readiness is
+preserved.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1299,6 +1305,10 @@ overlay. Most state remains in child modules:
   replay-LIQ rows. It treats the local resident-store snapshot as the current
   reduced store source, keeps the future external SCB pending/returned boundary
   explicit, and feeds `LoadReplayLaunchReadiness.scbReturned`.
+- `LoadReplaySourceReturnStoreSnapshotReadyControl`: optional R390 local STQ
+  snapshot readiness request owner before `LoadReplaySourceReturnReadiness`.
+  The current reduced top ties its live request and evidence inputs low, so
+  the legacy combinational snapshot-ready behavior is preserved.
 - `LoadReplaySourceReturnScbLiveControl`: optional R389 external-SCB live
   request owner before `LoadReplaySourceReturnReadiness`. The current reduced
   top ties its request and evidence inputs low, so source readiness keeps the
@@ -1755,7 +1765,10 @@ snapshot readiness becomes the current reduced source-return sideband, the
 future external SCB pending/returned boundary remains explicit, and return-pipe
 readiness is separated from source return. R389 feeds that external-SCB
 boundary from `LoadReplaySourceReturnScbLiveControl` while keeping the live
-request disabled. R300 inserts
+request disabled. R390 feeds the local snapshot side from
+`LoadReplaySourceReturnStoreSnapshotReadyControl` while keeping live snapshot
+evidence disabled and forwarding the legacy combinational readiness. R300
+inserts
 `LoadReplayReturnReadiness` after that source-return boundary. R301 inserts
 `LoadReplayReturnPipeSelect` as the explicit pipe-mask/select owner feeding
 that readiness gate. R302 inserts `LoadReplayReturnPipePermit` as the mask
