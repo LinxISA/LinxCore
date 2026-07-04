@@ -17,8 +17,11 @@ object LoadReplaySourceReturnStoreSnapshotRequestQueueReference {
       full: Boolean,
       empty: Boolean,
       count: Int,
+      precisePruneMask: Int,
+      precisePruneCount: Int,
       blockedByDisabled: Boolean,
       blockedByFlush: Boolean,
+      blockedByPreciseFlush: Boolean,
       blockedByFull: Boolean,
       next: Vector[Payload])
 
@@ -27,9 +30,11 @@ object LoadReplaySourceReturnStoreSnapshotRequestQueueReference {
       depth: Int,
       enable: Boolean,
       flush: Boolean,
+      preciseFlush: Option[STQFlushPruneReference.Flush] = None,
       enqueue: Option[Payload] = None,
       dequeueReady: Boolean = false): Result = {
-    val active = enable && !flush
+    val precisePruneActive = enable && !flush && preciseFlush.exists(_.valid)
+    val active = enable && !flush && !precisePruneActive
     val residentHead = state.headOption
     val popResident = active && residentHead.isDefined && dequeueReady
     val enqueueReady = active && (state.size < depth || popResident)
@@ -43,13 +48,36 @@ object LoadReplaySourceReturnStoreSnapshotRequestQueueReference {
       }
     val headConsumed = head.isDefined && dequeueReady
     val storeEnqueue = enqueueAccepted && !(bypassHead && dequeueReady)
+    val precisePruneBits =
+      if (precisePruneActive) {
+        state.map { payload =>
+          STQFlushPruneReference.matches(
+            preciseFlush.get,
+            STQFlushPruneReference.Row(
+              valid = payload.valid,
+              stid = payload.stid,
+              peId = payload.peId,
+              tid = payload.tid,
+              bid = STQFlushPruneReference.Id(value = payload.bid),
+              gid = STQFlushPruneReference.Id(value = payload.gid),
+              lsId = STQFlushPruneReference.Id(value = payload.loadLsId)
+            )
+          )
+        }
+      } else {
+        state.map(_ => false)
+      }
     val next =
       if (flush) {
         Vector.empty
       } else {
-        val afterPop = if (popResident) state.drop(1) else state
+        val afterPrune = state.zip(precisePruneBits).collect { case (payload, false) => payload }
+        val afterPop = if (popResident) afterPrune.drop(1) else afterPrune
         if (storeEnqueue) afterPop :+ enqueue.get else afterPop
       }
+    val precisePruneMask = precisePruneBits.zipWithIndex.foldLeft(0) { case (acc, (bit, index)) =>
+      if (bit) acc | (1 << index) else acc
+    }
 
     Result(
       enqueueReady = enqueueReady,
@@ -62,9 +90,12 @@ object LoadReplaySourceReturnStoreSnapshotRequestQueueReference {
       full = next.size == depth,
       empty = next.isEmpty,
       count = next.size,
+      precisePruneMask = precisePruneMask,
+      precisePruneCount = precisePruneBits.count(identity),
       blockedByDisabled = !enable && enqueue.isDefined,
       blockedByFlush = enable && flush && enqueue.isDefined,
-      blockedByFull = enable && !flush && enqueue.isDefined && !enqueueReady,
+      blockedByPreciseFlush = precisePruneActive && enqueue.isDefined,
+      blockedByFull = enable && !flush && !precisePruneActive && enqueue.isDefined && !enqueueReady,
       next = next)
   }
 }
@@ -206,16 +237,73 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueSpec extends AnyFunSuite {
     assert(!disabled.headValid)
   }
 
+  test("precise flush prunes matching requests and compacts survivors") {
+    val oldSameThread = request(0).copy(
+      bid = 1,
+      loadLsId = 1,
+      stid = 2,
+      peId = 1,
+      tid = 3)
+    val matchSameBid = request(1).copy(
+      bid = 1,
+      loadLsId = 2,
+      stid = 2,
+      peId = 1,
+      tid = 3)
+    val matchNewerBid = request(2).copy(
+      bid = 2,
+      loadLsId = 0,
+      stid = 2,
+      peId = 1,
+      tid = 3)
+    val otherStid = request(3).copy(
+      bid = 3,
+      loadLsId = 0,
+      stid = 1,
+      peId = 1,
+      tid = 3)
+    val incoming = request(4)
+
+    val result = step(
+      state = Vector(oldSameThread, matchSameBid, matchNewerBid, otherStid),
+      depth = 4,
+      enable = true,
+      flush = false,
+      preciseFlush = Some(STQFlushPruneReference.Flush(
+        stid = 2,
+        peId = 1,
+        tid = 3,
+        bid = STQFlushPruneReference.Id(value = 1),
+        lsId = STQFlushPruneReference.Id(value = 2),
+        baseOnPE = true,
+        baseOnThread = true)),
+      enqueue = Some(incoming),
+      dequeueReady = true)
+
+    assert(!result.enqueueReady)
+    assert(!result.enqueueAccepted)
+    assert(result.enqueueDropped)
+    assert(!result.headValid)
+    assert(result.blockedByPreciseFlush)
+    assert(result.precisePruneMask == 0x6)
+    assert(result.precisePruneCount == 2)
+    assert(result.next == Vector(oldSameThread, otherStid))
+  }
+
   test("Chisel LoadReplaySourceReturnStoreSnapshotRequestQueue elaborates FIFO payload state") {
     val sv = ChiselStage.emitSystemVerilog(new LoadReplaySourceReturnStoreSnapshotRequestQueue(depth = 2))
 
     assert(sv.contains("module LoadReplaySourceReturnStoreSnapshotRequestQueue"))
     assert(sv.contains("io_enqueueAccepted"))
+    assert(sv.contains("io_preciseFlush_req_valid"))
+    assert(sv.contains("io_precisePruneMask"))
+    assert(sv.contains("io_precisePruneCount"))
     assert(sv.contains("io_head_peId"))
     assert(sv.contains("io_head_stid"))
     assert(sv.contains("io_head_tid"))
     assert(sv.contains("io_head_valid"))
     assert(sv.contains("io_headConsumed"))
+    assert(sv.contains("io_blockedByPreciseFlush"))
     assert(sv.contains("io_blockedByFull"))
   }
 }

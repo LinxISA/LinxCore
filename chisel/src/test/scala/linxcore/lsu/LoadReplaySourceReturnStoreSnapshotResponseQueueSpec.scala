@@ -37,8 +37,11 @@ object LoadReplaySourceReturnStoreSnapshotResponseQueueReference {
       full: Boolean,
       empty: Boolean,
       count: Int,
+      precisePruneMask: Int,
+      precisePruneCount: Int,
       blockedByDisabled: Boolean,
       blockedByFlush: Boolean,
+      blockedByPreciseFlush: Boolean,
       blockedByFull: Boolean,
       next: Vector[Response])
 
@@ -47,9 +50,11 @@ object LoadReplaySourceReturnStoreSnapshotResponseQueueReference {
       depth: Int,
       enable: Boolean,
       flush: Boolean,
+      preciseFlush: Option[STQFlushPruneReference.Flush] = None,
       enqueue: Option[Response] = None,
       dequeueReady: Boolean = false): Result = {
-    val active = enable && !flush
+    val precisePruneActive = enable && !flush && preciseFlush.exists(_.valid)
+    val active = enable && !flush && !precisePruneActive
     val residentHead = state.headOption
     val popResident = active && residentHead.isDefined && dequeueReady
     val enqueueReady = active && (state.size < depth || popResident)
@@ -60,16 +65,39 @@ object LoadReplaySourceReturnStoreSnapshotResponseQueueReference {
         None
       } else {
         residentHead.orElse(if (bypassHead) enqueue else None)
-      }
+    }
     val headConsumed = head.isDefined && dequeueReady
     val storeEnqueue = enqueueAccepted && !(bypassHead && dequeueReady)
+    val precisePruneBits =
+      if (precisePruneActive) {
+        state.map { response =>
+          STQFlushPruneReference.matches(
+            preciseFlush.get,
+            STQFlushPruneReference.Row(
+              valid = true,
+              stid = response.requestStid,
+              peId = response.requestPeId,
+              tid = response.requestTid,
+              bid = STQFlushPruneReference.Id(value = response.requestBid),
+              gid = STQFlushPruneReference.Id(value = response.requestGid),
+              lsId = STQFlushPruneReference.Id(value = response.requestLoadLsId)
+            )
+          )
+        }
+      } else {
+        state.map(_ => false)
+      }
     val next =
       if (flush) {
         Vector.empty
       } else {
-        val afterPop = if (popResident) state.drop(1) else state
+        val afterPrune = state.zip(precisePruneBits).collect { case (response, false) => response }
+        val afterPop = if (popResident) afterPrune.drop(1) else afterPrune
         if (storeEnqueue) afterPop :+ enqueue.get else afterPop
       }
+    val precisePruneMask = precisePruneBits.zipWithIndex.foldLeft(0) { case (acc, (bit, index)) =>
+      if (bit) acc | (1 << index) else acc
+    }
 
     Result(
       enqueueReady = enqueueReady,
@@ -82,9 +110,12 @@ object LoadReplaySourceReturnStoreSnapshotResponseQueueReference {
       full = next.size == depth,
       empty = next.isEmpty,
       count = next.size,
+      precisePruneMask = precisePruneMask,
+      precisePruneCount = precisePruneBits.count(identity),
       blockedByDisabled = !enable && enqueue.isDefined,
       blockedByFlush = enable && flush && enqueue.isDefined,
-      blockedByFull = enable && !flush && enqueue.isDefined && !enqueueReady,
+      blockedByPreciseFlush = precisePruneActive && enqueue.isDefined,
+      blockedByFull = enable && !flush && !precisePruneActive && enqueue.isDefined && !enqueueReady,
       next = next)
   }
 }
@@ -237,6 +268,67 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
     assert(result.empty)
   }
 
+  test("precise flush prunes matching responses and compacts survivors") {
+    val oldSameThread = Response(
+      clusterId = 0,
+      entryId = 0,
+      requestBid = 1,
+      requestLoadLsId = 1,
+      requestPeId = 1,
+      requestStid = 2,
+      requestTid = 3)
+    val matchSameBid = Response(
+      clusterId = 0,
+      entryId = 1,
+      requestBid = 1,
+      requestLoadLsId = 2,
+      requestPeId = 1,
+      requestStid = 2,
+      requestTid = 3)
+    val matchNewerBid = Response(
+      clusterId = 0,
+      entryId = 2,
+      requestBid = 2,
+      requestLoadLsId = 0,
+      requestPeId = 1,
+      requestStid = 2,
+      requestTid = 3)
+    val otherStid = Response(
+      clusterId = 0,
+      entryId = 3,
+      requestBid = 3,
+      requestLoadLsId = 0,
+      requestPeId = 1,
+      requestStid = 1,
+      requestTid = 3)
+    val incoming = Response(clusterId = 0, entryId = 4)
+
+    val result = step(
+      state = Vector(oldSameThread, matchSameBid, matchNewerBid, otherStid),
+      depth = 4,
+      enable = true,
+      flush = false,
+      preciseFlush = Some(STQFlushPruneReference.Flush(
+        stid = 2,
+        peId = 1,
+        tid = 3,
+        bid = STQFlushPruneReference.Id(value = 1),
+        lsId = STQFlushPruneReference.Id(value = 2),
+        baseOnPE = true,
+        baseOnThread = true)),
+      enqueue = Some(incoming),
+      dequeueReady = true)
+
+    assert(!result.enqueueReady)
+    assert(!result.enqueueAccepted)
+    assert(result.enqueueDropped)
+    assert(!result.headValid)
+    assert(result.blockedByPreciseFlush)
+    assert(result.precisePruneMask == 0x6)
+    assert(result.precisePruneCount == 2)
+    assert(result.next == Vector(oldSameThread, otherStid))
+  }
+
   test("disabled queue diagnoses raw response without exposing a head") {
     val response = Response(clusterId = 0, entryId = 1, dataValid = true)
     val result = step(
@@ -265,6 +357,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
 
     assert(sv.contains("module LoadReplaySourceReturnStoreSnapshotResponseQueue"))
     assert(sv.contains("io_enqueueAccepted"))
+    assert(sv.contains("io_preciseFlush_req_valid"))
+    assert(sv.contains("io_precisePruneMask"))
+    assert(sv.contains("io_precisePruneCount"))
     assert(sv.contains("io_headValid"))
     assert(sv.contains("io_headConsumed"))
     assert(sv.contains("io_headRequestBid"))
@@ -274,6 +369,7 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_headRequestTid"))
     assert(sv.contains("io_headWaitStoreRid"))
     assert(sv.contains("io_headDataMask"))
+    assert(sv.contains("io_blockedByPreciseFlush"))
     assert(sv.contains("io_blockedByFull"))
   }
 }

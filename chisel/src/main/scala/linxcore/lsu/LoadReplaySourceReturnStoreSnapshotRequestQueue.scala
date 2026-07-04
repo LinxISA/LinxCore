@@ -1,7 +1,9 @@
 package linxcore.lsu
 
 import chisel3._
-import chisel3.util.log2Ceil
+import chisel3.util.{PopCount, log2Ceil}
+
+import linxcore.recovery.FlushBus
 
 class LoadReplaySourceReturnStoreSnapshotRequestQueueIO(
     val liqEntries: Int,
@@ -21,6 +23,7 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueIO(
 
   val enable = Input(Bool())
   val flush = Input(Bool())
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
   val enqueueValid = Input(Bool())
   val enqueueRequest = Input(new LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle(
     liqEntries,
@@ -59,8 +62,11 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueueIO(
   val full = Output(Bool())
   val empty = Output(Bool())
   val count = Output(UInt(countWidth.W))
+  val precisePruneMask = Output(UInt(depth.W))
+  val precisePruneCount = Output(UInt(countWidth.W))
   val blockedByDisabled = Output(Bool())
   val blockedByFlush = Output(Bool())
+  val blockedByPreciseFlush = Output(Bool())
   val blockedByFull = Output(Bool())
 }
 
@@ -92,7 +98,6 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
   require(stidWidth > 0, "stidWidth must be positive")
   require(tidWidth > 0, "tidWidth must be positive")
 
-  private val ptrWidth = math.max(1, log2Ceil(depth))
   private val countWidth = log2Ceil(depth + 1)
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotRequestQueueIO(
@@ -128,15 +133,25 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
     request
   }
 
-  private def inc(ptr: UInt): UInt =
-    if (depth == 1) 0.U(ptrWidth.W) else Mux(ptr === (depth - 1).U, 0.U, ptr + 1.U)
+  private def toPruneEntry(request: LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle): STQFlushPruneEntry = {
+    val entry = Wire(new STQFlushPruneEntry(idEntries, peIdWidth, stidWidth, tidWidth))
+    entry.valid := request.valid
+    entry.status := STQEntryStatus.Wait
+    entry.peId := request.peId
+    entry.stid := request.stid
+    entry.tid := request.tid
+    entry.bid := request.bid
+    entry.gid := request.gid
+    entry.lsId := request.loadLsId
+    entry
+  }
 
   val entries = RegInit(VecInit(Seq.fill(depth)(zeroRequest)))
-  val headPtr = RegInit(0.U(ptrWidth.W))
-  val tailPtr = RegInit(0.U(ptrWidth.W))
   val count = RegInit(0.U(countWidth.W))
 
-  val active = io.enable && !io.flush
+  val baseActive = io.enable && !io.flush
+  val precisePruneActive = baseActive && io.preciseFlush.req.valid
+  val active = baseActive && !precisePruneActive
   val residentHeadValid = count =/= 0.U
   val popResident = active && residentHeadValid && io.dequeueReady
   val hasOpenSlot = count =/= depth.U
@@ -144,31 +159,79 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
   val enqueueAccepted = io.enqueueValid && enqueueReady
   val bypassHead = active && !residentHeadValid && io.enqueueValid && hasOpenSlot
   val headValid = active && (residentHeadValid || bypassHead)
-  val headRequest = Mux(residentHeadValid, entries(headPtr), io.enqueueRequest)
+  val headRequest = Mux(residentHeadValid, entries(0), io.enqueueRequest)
   val headConsumed = headValid && io.dequeueReady
   val storeEnqueue = enqueueAccepted && !(bypassHead && io.dequeueReady)
+
+  val precisePruneVec = Wire(Vec(depth, Bool()))
+  val removeVec = Wire(Vec(depth, Bool()))
+  val keptVec = Wire(Vec(depth, Bool()))
+  val keptRank = Wire(Vec(depth, UInt(countWidth.W)))
+  val compacted = Wire(Vec(depth, new LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle(
+    liqEntries,
+    idEntries,
+    clusterIdWidth,
+    entryIdWidth,
+    addrWidth,
+    pcWidth,
+    lineBytes,
+    sizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  )))
+
+  for (slot <- 0 until depth) {
+    val resident = slot.U < count
+    precisePruneVec(slot) := resident && precisePruneActive && STQFlushPrune.matchesFlush(io.preciseFlush, toPruneEntry(entries(slot)))
+    removeVec(slot) := precisePruneVec(slot) || (popResident && slot.U === 0.U)
+    keptVec(slot) := resident && !removeVec(slot)
+    if (slot == 0) {
+      keptRank(slot) := 0.U
+    } else {
+      keptRank(slot) := PopCount((0 until slot).map(keptVec(_)))
+    }
+  }
+
+  for (dst <- 0 until depth) {
+    compacted(dst) := zeroRequest
+    for (src <- 0 until depth) {
+      when(keptVec(src) && (keptRank(src) === dst.U)) {
+        compacted(dst) := entries(src)
+      }
+    }
+  }
+
+  val keptCount = PopCount(keptVec)
+  val nextCount = keptCount + storeEnqueue.asUInt
+  val nextEntries = Wire(Vec(depth, new LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle(
+    liqEntries,
+    idEntries,
+    clusterIdWidth,
+    entryIdWidth,
+    addrWidth,
+    pcWidth,
+    lineBytes,
+    sizeWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth
+  )))
+  for (dst <- 0 until depth) {
+    nextEntries(dst) := compacted(dst)
+    when(storeEnqueue && (keptCount === dst.U)) {
+      nextEntries(dst) := io.enqueueRequest
+    }
+  }
 
   when(io.flush) {
     for (idx <- 0 until depth) {
       entries(idx) := zeroRequest
     }
-    headPtr := 0.U
-    tailPtr := 0.U
     count := 0.U
-  }.elsewhen(active) {
-    when(popResident) {
-      headPtr := inc(headPtr)
-    }
-    when(storeEnqueue) {
-      entries(tailPtr) := io.enqueueRequest
-      tailPtr := inc(tailPtr)
-    }
-
-    when(storeEnqueue && !popResident) {
-      count := count + 1.U
-    }.elsewhen(!storeEnqueue && popResident) {
-      count := count - 1.U
-    }
+  }.elsewhen(baseActive) {
+    entries := nextEntries
+    count := nextCount
   }
 
   io.enqueueReady := enqueueReady
@@ -181,7 +244,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestQueue(
   io.full := count === depth.U
   io.empty := count === 0.U
   io.count := count
+  io.precisePruneMask := precisePruneVec.asUInt
+  io.precisePruneCount := PopCount(precisePruneVec)
   io.blockedByDisabled := !io.enable && io.enqueueValid
   io.blockedByFlush := io.enable && io.flush && io.enqueueValid
-  io.blockedByFull := io.enable && !io.flush && io.enqueueValid && !enqueueReady
+  io.blockedByPreciseFlush := precisePruneActive && io.enqueueValid
+  io.blockedByFull := io.enable && !io.flush && !precisePruneActive && io.enqueueValid && !enqueueReady
 }

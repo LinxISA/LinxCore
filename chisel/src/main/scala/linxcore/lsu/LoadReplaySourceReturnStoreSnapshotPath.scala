@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.log2Ceil
 
+import linxcore.recovery.FlushBus
 import linxcore.rob.ROBID
 
 class LoadReplaySourceReturnStoreSnapshotPathIO(
@@ -27,6 +28,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
 
   val enable = Input(Bool())
   val flush = Input(Bool())
+  val preciseFlush = Input(new FlushBus(idEntries, peIdWidth, stidWidth, tidWidth))
   val requestEnable = Input(Bool())
   val rowMutationLiveEnable = Input(Bool())
   val rawResponseLiveEnable = Input(Bool())
@@ -498,6 +500,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
 
   requestQueue.io.enable := io.enable
   requestQueue.io.flush := io.flush
+  requestQueue.io.preciseFlush := io.preciseFlush
   requestQueue.io.enqueueValid := requestPayload.io.requestValid
   requestQueue.io.enqueueRequest := requestPayload.io.request
   requestQueue.io.dequeueReady := requestSink.io.requestReady
@@ -568,6 +571,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
 
   responseQueue.io.enable := io.enable
   responseQueue.io.flush := io.flush
+  responseQueue.io.preciseFlush := io.preciseFlush
   val enqueueSinkResponse = !rawResponseSource.io.responseValid && requestSink.io.responseValid
   responseQueue.io.enqueueValid := rawResponseSource.io.responseValid || enqueueSinkResponse
   responseQueue.io.enqueue := Mux(rawResponseSource.io.responseValid, rawResponseSource.io.response, requestSink.io.response)

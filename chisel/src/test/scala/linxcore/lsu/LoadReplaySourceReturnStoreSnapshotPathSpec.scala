@@ -576,6 +576,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     val sv = ChiselStage.emitSystemVerilog(new LoadReplaySourceReturnStoreSnapshotPath)
 
     assert(sv.contains("module LoadReplaySourceReturnStoreSnapshotPath"))
+    assert(sv.contains("io_preciseFlush_req_valid"))
     assert(sv.contains("io_rowMutationLiveEnable"))
     assert(sv.contains("io_rawResponseLiveEnable"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestControl"))

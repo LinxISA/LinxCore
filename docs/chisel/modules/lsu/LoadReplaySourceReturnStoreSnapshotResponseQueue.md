@@ -80,6 +80,11 @@ R423 widens the FIFO record with original load request context
 different STIDs and then applies optional PE/thread filters before BID/LSID
 ordering, so these fields must remain resident with the queued response.
 
+R424 adds queue-local precise `FlushBus` pruning. A valid precise flush matches
+resident response records against the carried load request identity/context,
+suppresses same-cycle enqueue/dequeue, removes matched responses, and compacts
+survivors in FIFO order.
+
 ## Interface
 
 ### Inputs
@@ -88,6 +93,7 @@ ordering, so these fields must remain resident with the queued response.
 |---|---|
 | `enable` | Replay-LIQ wrapper is active. |
 | `flush` | Clears resident raw STQ responses and suppresses admission. |
+| `preciseFlush` | Model-shaped `FlushBus` used to prune only resident responses whose carried load request `MemReqBus` matches. |
 | `enqueueValid` | A raw STQ response `MemReqBus` is visible. |
 | `enqueue` | Full response payload carrying `cID/eID`, load request identity/context, wait-store identity, raw data evidence, and store data mask/data. |
 | `dequeueReady` | Downstream drain owner consumed or explicitly dropped the current head. |
@@ -114,13 +120,15 @@ ordering, so these fields must remain resident with the queued response.
 | `full` | Resident queue occupancy is at depth. |
 | `empty` | Resident queue occupancy is zero. |
 | `count` | Resident queue occupancy. |
+| `precisePruneMask` / `precisePruneCount` | Resident logical-order responses pruned by `preciseFlush` this cycle. |
 | `blockedByDisabled` | Raw response arrived while disabled. |
 | `blockedByFlush` | Raw response arrived during flush. |
+| `blockedByPreciseFlush` | Raw response arrived during a precise prune recovery cycle. |
 | `blockedByFull` | Raw response arrived while no resident slot was available. |
 
 ## State
 
-The module owns a circular FIFO of response records:
+The module owns a logical-order FIFO of response records:
 
 ```text
 clusterId
@@ -177,20 +185,27 @@ response matching. Resident dequeue happens after the downstream ordered
 response is accepted. Full queues can still accept a new response when the
 resident head is consumed in the same cycle.
 
+When `preciseFlush.req.valid` is asserted while the queue is enabled, the queue
+hides the head and suppresses same-cycle enqueue/dequeue. It converts each
+resident response into the load-request portion of `MemReqBus` and applies the
+same model predicate used by `STQFlushPrune.matchesFlush`: STID must match,
+optional PE/thread scopes must match, and then the selected BID-only,
+BID/GID/LSID, or BID/LSID age rule decides pruning. Matching responses are
+removed and survivors are compacted in FIFO order.
+
 ## Flush/Recovery
 
 Flush clears all resident entries, hides the head, and suppresses admission.
 The model has a more selective `FlushBus` match over queued `MemReqBus`
 records. R422 preserves the load request identity and R423 preserves the
-request context needed for that comparison, but this reduced packet still uses
-the existing path-level all-clear flush until a separate matcher owner applies
-those fields.
+request context needed for that comparison. R424 applies those fields locally
+inside the response queue. The current reduced top still ties the composite
+path's precise flush bus invalid, so live generated-top behavior is unchanged.
 
 ## Deferred Owners
 
 - Live external `lookup_su_lu_q` producer wiring into the R421 raw-response source.
-- `FlushBus`-shaped precise response-prune owner using the carried request
-  identity and PE/STID/TID context.
+- Live backend recovery wiring into the queue's `preciseFlush` input.
 - Full multi-cluster stale-row proof beyond the R400 reduced `repickMask`
   owner.
 - Multi-token or multi-row response ownership beyond the current one-token
@@ -209,5 +224,6 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 
 Reference tests cover FIFO order, empty-queue bypass plus same-cycle consume,
 full-queue simultaneous pop/push, full-queue drop diagnostics, flush clearing,
-disabled-response diagnostics, preservation of request identity, wait-store
-identity, data mask/data sidebands, and Chisel elaboration.
+precise `FlushBus` pruning and compaction, disabled-response diagnostics,
+preservation of request identity, wait-store identity, data mask/data sidebands,
+and Chisel elaboration.

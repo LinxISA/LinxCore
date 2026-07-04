@@ -194,11 +194,17 @@ response FIFO. The reduced top drives selected context from its single
 zero while `rawResponseLiveEnable=false`. Selective request/response pruning
 still remains deferred to a separate `FlushBus` matcher owner.
 
+R424 wires a precise `FlushBus` into the request and response queues. Each
+queue applies the model-shaped `FlushBus::match(MemReqBus)` predicate to its
+resident records, suppresses same-cycle enqueue/dequeue during the recovery
+cycle, removes matches, and compacts survivors. The current reduced top still
+ties this bus invalid, so generated-top behavior is unchanged.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `rowMutationLiveEnable`, `rawResponseLiveEnable`, `sinkReady`,
-raw STQ response, SCB return, wait-store, data-valid, raw-data, wait-store
-identity, response request identity/context, and data-payload inputs false or
-zero, and it ties external stale-head evidence false, so
+precise flush, raw STQ response, SCB return, wait-store, data-valid, raw-data,
+wait-store identity, response request identity/context, and data-payload inputs
+false or zero, and it ties external stale-head evidence false, so
 `storeSnapshotReady` still forwards the legacy resident-store snapshot
 readiness. The reduced `selectedRepickMask`, `selectedRowValidMask`, and
 `selectedRowScbReturnedMask` now feed head-state proof inside the path, but no
@@ -215,6 +221,7 @@ child instance.
 |---|---|
 | `enable` | Replay-LIQ wrapper is active. |
 | `flush` | Store/replay flush suppresses live source-return evidence. |
+| `preciseFlush` | Model-shaped `FlushBus` forwarded to the request and response queues for selective resident pruning. Current top ties it invalid. |
 | `requestEnable` | Future live arm for issuing and consuming selected-row STQ snapshot evidence. Current top ties this false. |
 | `rowMutationLiveEnable` | Future live arm for allowing a row-state plan to become a LIQ row-mutation request. R417 exposes this path input; the current top ties it false. |
 | `rawResponseLiveEnable` | Future live arm for allowing raw external STQ response candidates to enter the response queue. R421 exposes this path input; the current top ties it false. |
@@ -392,6 +399,12 @@ context beside that identity. Future `lookup_su_lu_q` pruning must use those
 request fields, not the wait-store fields, when comparing to
 `FlushBus::match`.
 
+R424 forwards `preciseFlush` to both local FIFOs. A precise recovery cycle does
+not issue a new STQ lookup request, consume a queued request head, expose a
+queued response head, or accept a new response. It only prunes matched resident
+records and compacts survivors. This keeps queue-local recovery deterministic
+until the backend cleanup path drives the bus live.
+
 The R401 request-control owner gates future STQ lookup request acceptance with
 `requestEnable`, path activity, R397 accepted-token capacity, and R403 request
 queue enqueue capacity. It does not store payload or identity; it only prevents
@@ -474,12 +487,14 @@ Flush clears active query, identity, response, and evidence predicates. Legacy
 mode still forwards `legacySnapshotReady`, matching the pre-R395 disabled-live
 behavior.
 
+`preciseFlush` selectively prunes resident request/response queue records but
+does not clear unrelated child state. The current top drives it invalid; live
+backend recovery wiring remains separate from this queue-local owner.
+
 ## Deferred Owners
 
 - Live external `lookup_su_lu_q` producer wiring into the R421 raw-response source.
-- Precise queued-response flush pruning using the carried load-request identity
-  and `FlushBus` PE/STID/thread context.
-- Precise queued-request flush pruning beyond all-clear flush.
+- Live backend recovery wiring into the R424 `preciseFlush` input.
 - Full multi-cluster row-state evidence into `responseHeadStale`.
 - Full selected replay-row identity storage from replay-LIQ residency beyond
   the reduced launch-index projection.

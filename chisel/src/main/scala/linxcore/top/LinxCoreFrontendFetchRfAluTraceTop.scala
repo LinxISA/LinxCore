@@ -5498,6 +5498,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       legacySnapshotReady: Bool): Bool = {
     path.io.enable := enable
     path.io.flush := flush
+    path.io.preciseFlush := 0.U.asTypeOf(path.io.preciseFlush)
     path.io.requestEnable := false.B
     path.io.rowMutationLiveEnable := rowMutationLiveEnable
     path.io.rawResponseLiveEnable := false.B
