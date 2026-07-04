@@ -22,7 +22,7 @@ source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
 
 cd "${CHISEL_DIR}"
 if [[ -n "${ONLY}" ]]; then
-  sbt --batch --no-colors "testOnly *${ONLY}*"
+  sbt --server --batch --no-colors "testOnly *${ONLY}*"
 else
-  sbt --batch --no-colors test
+  sbt --server --batch --no-colors test
 fi

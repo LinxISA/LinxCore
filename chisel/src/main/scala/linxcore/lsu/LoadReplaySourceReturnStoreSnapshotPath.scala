@@ -1,15 +1,22 @@
 package linxcore.lsu
 
 import chisel3._
+import chisel3.util.log2Ceil
 
 class LoadReplaySourceReturnStoreSnapshotPathIO(
+    liqEntries: Int,
     clusterIdWidth: Int,
     entryIdWidth: Int) extends Bundle {
+  private val liqPtrWidth = log2Ceil(liqEntries)
+
   val enable = Input(Bool())
   val flush = Input(Bool())
   val requestEnable = Input(Bool())
   val launchValid = Input(Bool())
   val sinkReady = Input(Bool())
+  val selectedIdentityEnable = Input(Bool())
+  val selectedLaunchIndex = Input(UInt(liqPtrWidth.W))
+  val selectedRepickMask = Input(UInt(liqEntries.W))
   val selectedValid = Input(Bool())
   val selectedRepick = Input(Bool())
   val responseValidIn = Input(Bool())
@@ -56,17 +63,26 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
 }
 
 class LoadReplaySourceReturnStoreSnapshotPath(
+    liqEntries: Int = 4,
     clusterIdWidth: Int = 2,
     entryIdWidth: Int = 4) extends Module {
+  require(liqEntries > 1, "LIQ entries must be greater than one")
+  require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
   require(clusterIdWidth > 0, "clusterIdWidth must be positive")
-  require(entryIdWidth > 0, "entryIdWidth must be positive")
+  require(entryIdWidth >= log2Ceil(liqEntries), "entryIdWidth must cover the reduced LIQ slot index")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotPathIO(
+    liqEntries = liqEntries,
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth
   ))
 
   val queryIssue = Module(new LoadReplaySourceReturnStoreSnapshotQueryIssue)
+  val selectedIdentity = Module(new LoadReplaySourceReturnStoreSnapshotSelectedIdentity(
+    liqEntries = liqEntries,
+    clusterIdWidth = clusterIdWidth,
+    entryIdWidth = entryIdWidth
+  ))
   val identityMatch = Module(new LoadReplaySourceReturnStoreSnapshotIdentityMatch(
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth
@@ -81,14 +97,25 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   queryIssue.io.launchValid := io.launchValid
   queryIssue.io.sinkReady := io.sinkReady
 
+  selectedIdentity.io.enable := io.enable && io.selectedIdentityEnable
+  selectedIdentity.io.flush := io.flush
+  selectedIdentity.io.launchValid := io.launchValid
+  selectedIdentity.io.launchIndex := io.selectedLaunchIndex
+  selectedIdentity.io.repickMask := io.selectedRepickMask
+
+  val selectedValid = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedValid, io.selectedValid)
+  val selectedRepick = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedRepick, io.selectedRepick)
+  val selectedClusterId = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedClusterId, io.selectedClusterId)
+  val selectedEntryId = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedEntryId, io.selectedEntryId)
+
   identityMatch.io.enable := io.enable
   identityMatch.io.flush := io.flush
   identityMatch.io.queryIssued := queryIssue.io.queryIssued
-  identityMatch.io.selectedValid := io.selectedValid
-  identityMatch.io.selectedRepick := io.selectedRepick
+  identityMatch.io.selectedValid := selectedValid
+  identityMatch.io.selectedRepick := selectedRepick
   identityMatch.io.responseValid := io.responseValidIn
-  identityMatch.io.selectedClusterId := io.selectedClusterId
-  identityMatch.io.selectedEntryId := io.selectedEntryId
+  identityMatch.io.selectedClusterId := selectedClusterId
+  identityMatch.io.selectedEntryId := selectedEntryId
   identityMatch.io.responseClusterId := io.responseClusterId
   identityMatch.io.responseEntryId := io.responseEntryId
 

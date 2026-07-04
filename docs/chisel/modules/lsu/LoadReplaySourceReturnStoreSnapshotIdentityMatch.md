@@ -18,6 +18,7 @@
     - `MemReqBus::eID`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotSelectedIdentity.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-IDENTITY-MATCH-001`
@@ -40,6 +41,12 @@ selected-row identity and response inputs false at the path boundary, so
 identity/stale-row boundary is nevertheless now part of the composed path
 instead of a separate direct top child.
 
+R396 adds `LoadReplaySourceReturnStoreSnapshotSelectedIdentity` upstream inside
+that path. In the current reduced single-cluster topology, the selected LIQ
+launch index projects to `(clusterId=0, entryId=launchIndex)` and
+`repickMask[launchIndex]` supplies the stale-row guard. Full LDQ selected-row
+storage can still replace that projection through the raw path-boundary inputs.
+
 ## Interface
 
 ### Inputs
@@ -49,8 +56,8 @@ instead of a separate direct top child.
 | `enable` | Replay-LIQ wrapper is active. |
 | `flush` | Store/replay flush suppresses response identity matching. |
 | `queryIssued` | Selected-row STQ snapshot query has issued. |
-| `selectedValid` | Future selected replay-row identity is valid. |
-| `selectedRepick` | Future selected row is still in the model-equivalent `LDQ_REPICK` state. |
+| `selectedValid` | Selected replay-row identity is valid. In R396 this may come from the reduced launch-index projection. |
+| `selectedRepick` | Selected row is still in the model-equivalent `LDQ_REPICK` state. In R396 this may come from `repickMask[launchIndex]`. |
 | `responseValid` | Future raw STQ response is visible. |
 | `selectedClusterId` | Future selected replay-row cluster ID. |
 | `selectedEntryId` | Future selected replay-row entry ID. |
@@ -102,10 +109,10 @@ SCB-before-STQ ordering remains in that downstream owner.
 
 ## Timing
 
-The current reduced top instantiates this module through the R395 composite
-path. Future live integration must source stable selected-row identity from
-replay-LIQ state and raw response identity from an STQ response queue, while
-preserving the top compile-budget constraint.
+The current reduced top instantiates this module through the R395/R396
+composite path. Future live integration must source stable selected-row
+identity from replay-LIQ state and raw response identity from an STQ response
+queue, while preserving the top compile-budget constraint.
 
 ## Flush/Recovery
 
@@ -115,7 +122,7 @@ through `blockedByFlush`.
 
 ## Deferred Owners
 
-- Selected replay-row identity storage from replay-LIQ launch residency.
+- Full selected replay-row identity storage from replay-LIQ launch residency.
 - Raw STQ response queue carrying `MemReqBus.cID/eID`.
 - Live `selectedRepick` stale-row state from the replay row FSM.
 - Live SCB-order evidence, wait-store mutation, and data merge.

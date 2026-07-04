@@ -22,6 +22,7 @@
     - `MemReqBus::eID`
 - Child Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotSelectedIdentity.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
@@ -39,9 +40,15 @@ owner, the R394 `cID/eID` identity matcher, the R393 response-order owner, the
 R391 evidence classifier, and the R390 ready-control owner. This relieves the
 oversized top constructor while preserving every existing top diagnostic.
 
-The current top keeps the path live-disabled. It ties `requestEnable`,
-`sinkReady`, selected-row identity, raw STQ response, SCB return, wait-store,
-and data-valid inputs false, so `storeSnapshotReady` still forwards the legacy
+R396 adds `LoadReplaySourceReturnStoreSnapshotSelectedIdentity` inside the
+composite. The top now passes the existing reduced LIQ launch index and
+`repickMask` into the path, and the composite can use that projection as a
+single-cluster selected-row identity. Raw selected-row identity inputs still
+live at the path boundary for the later full LDQ identity owner.
+
+The current top keeps the path response side live-disabled. It ties
+`requestEnable`, `sinkReady`, raw STQ response, SCB return, wait-store, and
+data-valid inputs false, so `storeSnapshotReady` still forwards the legacy
 resident-store snapshot readiness. Those raw inputs live at the path boundary
 instead of inside the module so the identity and response child owners remain a
 real composite boundary and can later be promoted without another direct top
@@ -58,8 +65,11 @@ child instance.
 | `requestEnable` | Future live arm for issuing and consuming selected-row STQ snapshot evidence. Current top ties this false. |
 | `launchValid` | A selected replay row would need local STQ source-return qualification. |
 | `sinkReady` | Future STQ lookup sink readiness for selected-row query issue. Current top ties this false. |
-| `selectedValid` | Future selected replay-row identity is valid. |
-| `selectedRepick` | Future selected row is still in the model-equivalent `LDQ_REPICK` state. |
+| `selectedIdentityEnable` | Selects the reduced LIQ launch-index projection instead of the raw selected-row identity inputs. |
+| `selectedLaunchIndex` | Reduced LIQ selected launch slot used by `LoadReplaySourceReturnStoreSnapshotSelectedIdentity`. |
+| `selectedRepickMask` | Reduced LIQ rows already resident in `Repick`; used to reject pre-repick or stale selected rows. |
+| `selectedValid` | Future raw selected replay-row identity is valid when `selectedIdentityEnable=false`. |
+| `selectedRepick` | Future raw selected row is still in the model-equivalent `LDQ_REPICK` state. |
 | `responseValidIn` | Future raw STQ response is visible. |
 | `selectedClusterId` | Future selected replay-row cluster ID. |
 | `selectedEntryId` | Future selected replay-row entry ID. |
@@ -95,6 +105,7 @@ The path preserves the model ordering as a chain of small owners:
 
 ```text
 QueryIssue.queryIssued
+  -> SelectedIdentity.selectedValid/selectedRepick/cID/eID
   -> IdentityMatch.responseMatchesSelected
   -> ResponseMatch.responseValid/waitStore/dataValid
   -> Evidence.snapshotRequired/snapshotValid
@@ -105,6 +116,12 @@ The model sends a selected `LDQ_REPICK` row to STQ, matches the returned
 `MemReqBus.cID/eID` back to the row, ignores stale non-repick rows, requires
 SCB return before STQ return, and then either rewaits on `wait_store` or merges
 returned data before `pickL1` can call `returnData`.
+
+The R396 selected-identity projection maps the reduced selected LIQ slot to
+`clusterId=0` and `entryId=launchIndex`, then qualifies it with the current
+`repickMask`. This is only a reduced single-cluster surrogate. The real
+accepted-query selected-row token and full `MemReqBus.cID/eID` storage remain
+deferred.
 
 The current top tie-offs keep `queryIssued=false`, `responseValid=false`, and
 `requestEnable=false`, so the live chain does not affect replay launch. The
@@ -126,7 +143,7 @@ behavior.
 ## Deferred Owners
 
 - Raw STQ response queue and valid/ready boundary.
-- Selected replay-row identity storage from replay-LIQ residency.
+- Full selected replay-row identity storage from replay-LIQ residency.
 - Live SCB return evidence source.
 - Stateful wait-store replay mutation and returned-data merge.
 - Live promotion of `requestEnable` after query, response, and row-state owners
@@ -138,6 +155,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotSelectedIdentity
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotIdentityMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
@@ -148,5 +166,6 @@ FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r395x bash tools/chisel/run
 ```
 
 Reference tests cover legacy readiness preservation, dormant query/response
-behavior, flush handling, disabled behavior, and Chisel elaboration with the
-identity and response child owners present in the composite module.
+behavior, future live projected-identity response completion, flush handling,
+disabled behavior, and Chisel elaboration with the selected-identity, identity,
+and response child owners present in the composite module.

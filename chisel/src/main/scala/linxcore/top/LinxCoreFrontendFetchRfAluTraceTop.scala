@@ -2515,6 +2515,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       enable = reducedLoadReplayLiqAllocEnabled,
       flush = reducedStoreFlush,
       launchValid = reducedLoadReplayLiqAllocPath.io.launchValid,
+      selectedLaunchIndex = reducedLoadReplayLiqAllocPath.io.launchIndex,
+      selectedRepickMask = reducedLoadReplayLiqAllocPath.io.repickMask,
       legacySnapshotReady = reducedLoadReplayLiqAllocEnabled
     )
   val reducedReplayLiqReturnPipeBudgetEnable = reducedLoadReplayLiqAllocEnabled
@@ -5443,12 +5445,17 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       enable: Bool,
       flush: Bool,
       launchValid: Bool,
+      selectedLaunchIndex: UInt,
+      selectedRepickMask: UInt,
       legacySnapshotReady: Bool): Bool = {
     path.io.enable := enable
     path.io.flush := flush
     path.io.requestEnable := false.B
     path.io.launchValid := launchValid
     path.io.sinkReady := false.B
+    path.io.selectedIdentityEnable := true.B
+    path.io.selectedLaunchIndex := selectedLaunchIndex
+    path.io.selectedRepickMask := selectedRepickMask
     path.io.selectedValid := false.B
     path.io.selectedRepick := false.B
     path.io.responseValidIn := false.B

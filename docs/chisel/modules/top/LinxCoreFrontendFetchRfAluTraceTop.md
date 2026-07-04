@@ -1062,7 +1062,11 @@ children with one `LoadReplaySourceReturnStoreSnapshotPath` child. The path
 contains query issue, identity match, response match, evidence, and
 ready-control; the top helper ties the path's live request, sink, selected-row
 identity, raw response, SCB, wait-store, and data inputs false while preserving
-all existing top diagnostics.
+all existing top diagnostics. R396 adds
+`LoadReplaySourceReturnStoreSnapshotSelectedIdentity` inside that composite:
+the top passes the existing reduced LIQ launch index and `repickMask` to the
+path, which projects a single-cluster selected-row identity while raw
+request/response inputs remain disabled.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1328,9 +1332,9 @@ overlay. Most state remains in child modules:
   reduced store source, keeps the future external SCB pending/returned boundary
   explicit, and feeds `LoadReplayLaunchReadiness.scbReturned`.
 - `LoadReplaySourceReturnStoreSnapshotPath`: optional R395 composite local STQ
-  snapshot source-return path. It contains the R392 query issue, R394 identity
-  match, R393 response match, R391 evidence, and R390 ready-control owners
-  under one top child instance.
+  snapshot source-return path. It contains the R392 query issue, R396
+  selected-identity projection, R394 identity match, R393 response match, R391
+  evidence, and R390 ready-control owners under one top child instance.
 - `LoadReplaySourceReturnStoreSnapshotReadyControl`: optional R390 local STQ
   snapshot readiness request owner before `LoadReplaySourceReturnReadiness`.
 - `LoadReplaySourceReturnStoreSnapshotEvidence`: optional R391 selected-row
@@ -1343,6 +1347,11 @@ overlay. Most state remains in child modules:
   local STQ snapshot query-issue owner before
   `LoadReplaySourceReturnStoreSnapshotEvidence`. The current reduced top ties
   request issue and downstream sink readiness low.
+- `LoadReplaySourceReturnStoreSnapshotSelectedIdentity`: optional R396 reduced
+  selected-row identity projection inside
+  `LoadReplaySourceReturnStoreSnapshotPath`. The current reduced top feeds it
+  from `ReducedLoadReplayLiqAllocPath.launchIndex` and `repickMask`, but keeps
+  raw STQ responses disabled.
 - `LoadReplaySourceReturnStoreSnapshotResponseMatch`: optional R393 selected-row
   local STQ snapshot response-match owner before
   `LoadReplaySourceReturnStoreSnapshotEvidence`. The current reduced top
@@ -1818,7 +1827,10 @@ selected-row match, and SCB-return evidence disabled. R394 adds the identity
 owner for that selected-row match input. R395 replaces the separate
 store-snapshot top children with `LoadReplaySourceReturnStoreSnapshotPath`, so
 the identity owner is integrated inside the composite path without new top IO
-or another direct top child instance. R300
+or another direct top child instance. R396 feeds that path with the reduced
+LIQ launch index and repick mask through
+`LoadReplaySourceReturnStoreSnapshotSelectedIdentity`, preserving the existing
+top IO surface and keeping raw response/request inputs disabled. R300
 inserts
 `LoadReplayReturnReadiness` after that source-return boundary. R301 inserts
 `LoadReplayReturnPipeSelect` as the explicit pipe-mask/select owner feeding
