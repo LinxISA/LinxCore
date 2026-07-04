@@ -36,6 +36,9 @@ R401 inserts this owner inside `LoadReplaySourceReturnStoreSnapshotPath`. The
 top still ties `requestEnable=false` and `sinkReady=false`, so generated RTL
 behavior remains dormant while the composite path now has a named promotion
 point for future live STQ lookup issue.
+R403 wires `rawSinkReady` to the internal request queue's enqueue capacity
+inside the composite. The path-level `sinkReady` now drains that queue toward a
+future raw store-unit sink.
 
 ## Interface
 
@@ -47,7 +50,7 @@ point for future live STQ lookup issue.
 | `flush` | Flush suppresses live request arming. |
 | `requestEnable` | Future live-mode arm for issuing selected-row STQ snapshot requests. |
 | `launchValid` | A selected replay row needs local STQ snapshot evidence. |
-| `rawSinkReady` | Future raw STQ lookup/request sink can accept a request. |
+| `rawSinkReady` | Request acceptance capacity. In the R403 composite this is the request queue's enqueue readiness. |
 | `tokenCanAccept` | Accepted-query token slot is empty or otherwise ready for a new outstanding request. |
 
 ### Outputs
@@ -63,7 +66,7 @@ point for future live STQ lookup issue.
 | `blockedByFlush` | Request, launch, or sink evidence appears during flush. |
 | `blockedByRequestDisabled` | A selected row needs a query while live issue remains disabled. |
 | `blockedByNoLaunch` | Live issue is enabled without a selected row. |
-| `blockedBySink` | A valid live query waits for raw STQ sink capacity. |
+| `blockedBySink` | A valid live query waits for request acceptance capacity. |
 | `blockedByToken` | Raw sink is ready, but the accepted-query token cannot accept another request. |
 
 ## State
@@ -74,7 +77,7 @@ requests. Outstanding request identity remains owned by
 
 ## Logic Design
 
-The owner separates raw sink readiness from token capacity:
+The owner separates request acceptance readiness from token capacity:
 
 ```text
 active              = enable && !flush
@@ -93,9 +96,8 @@ row.
 
 ## Timing
 
-The R401 owner is same-cycle. A later live STQ request sink may register the
-request payload or expose a real ready/valid queue, but token capacity must
-remain part of the issue boundary.
+The R401 owner is same-cycle. R403 adds the request queue behind this gate, but
+token capacity remains part of the issue boundary.
 
 ## Flush/Recovery
 
@@ -105,7 +107,7 @@ Flush clears `active`, `requestActive`, `queryCandidate`, and
 
 ## Deferred Owners
 
-- Live raw STQ lookup request payload sink.
+- Raw store-unit request sink behind the R403 request queue.
 - Multi-token accepted-query queueing.
 - Raw STQ response source wiring.
 - Wait-store mutation and returned-data merge after response acceptance.
@@ -120,7 +122,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotAcceptedToken
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r401x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r403x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover the dormant reduced-top shape, live-ready request,

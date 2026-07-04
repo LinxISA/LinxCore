@@ -13,8 +13,10 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
     addrWidth: Int,
     pcWidth: Int,
     lineBytes: Int,
-    sizeWidth: Int) extends Bundle {
+    sizeWidth: Int,
+    requestQueueDepth: Int) extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
+  private val requestQueueCountWidth = log2Ceil(requestQueueDepth + 1)
 
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -94,6 +96,29 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val requestPayloadBlockedByNoIssue = Output(Bool())
   val requestPayloadBlockedByNoSelected = Output(Bool())
   val requestPayloadBlockedByStaleRow = Output(Bool())
+
+  val requestQueueEnqueueReady = Output(Bool())
+  val requestQueueEnqueueAccepted = Output(Bool())
+  val requestQueueEnqueueDropped = Output(Bool())
+  val requestQueueHeadValid = Output(Bool())
+  val requestQueueHead = Output(new LoadReplaySourceReturnStoreSnapshotRequestPayloadBundle(
+    liqEntries,
+    idEntries,
+    clusterIdWidth,
+    entryIdWidth,
+    addrWidth,
+    pcWidth,
+    lineBytes,
+    sizeWidth
+  ))
+  val requestQueueHeadConsumed = Output(Bool())
+  val requestQueuePending = Output(Bool())
+  val requestQueueFull = Output(Bool())
+  val requestQueueEmpty = Output(Bool())
+  val requestQueueCount = Output(UInt(requestQueueCountWidth.W))
+  val requestQueueBlockedByDisabled = Output(Bool())
+  val requestQueueBlockedByFlush = Output(Bool())
+  val requestQueueBlockedByFull = Output(Bool())
 }
 
 class LoadReplaySourceReturnStoreSnapshotPath(
@@ -105,6 +130,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     pcWidth: Int = 64,
     lineBytes: Int = 64,
     sizeWidth: Int = 7,
+    requestQueueDepth: Int = 2,
     responseQueueDepth: Int = 2) extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
   require((liqEntries & (liqEntries - 1)) == 0, "LIQ entries must be a power of two")
@@ -115,6 +141,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   require(addrWidth >= 7, "LoadReplaySourceReturnStoreSnapshotPath needs 64-byte line addresses")
   require(lineBytes == 64, "LoadReplaySourceReturnStoreSnapshotPath currently models 64-byte scalar cachelines")
   require(sizeWidth >= 7, "sizeWidth must cover 64-byte scalar lines")
+  require(requestQueueDepth > 0, "requestQueueDepth must be nonzero")
   require(responseQueueDepth > 0, "responseQueueDepth must be nonzero")
 
   val io = IO(new LoadReplaySourceReturnStoreSnapshotPathIO(
@@ -125,7 +152,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     addrWidth = addrWidth,
     pcWidth = pcWidth,
     lineBytes = lineBytes,
-    sizeWidth = sizeWidth
+    sizeWidth = sizeWidth,
+    requestQueueDepth = requestQueueDepth
   ))
 
   val queryIssue = Module(new LoadReplaySourceReturnStoreSnapshotQueryIssue)
@@ -139,6 +167,17 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     pcWidth = pcWidth,
     lineBytes = lineBytes,
     sizeWidth = sizeWidth
+  ))
+  val requestQueue = Module(new LoadReplaySourceReturnStoreSnapshotRequestQueue(
+    liqEntries = liqEntries,
+    idEntries = idEntries,
+    clusterIdWidth = clusterIdWidth,
+    entryIdWidth = entryIdWidth,
+    addrWidth = addrWidth,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes,
+    sizeWidth = sizeWidth,
+    depth = requestQueueDepth
   ))
   val selectedIdentity = Module(new LoadReplaySourceReturnStoreSnapshotSelectedIdentity(
     liqEntries = liqEntries,
@@ -172,7 +211,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   requestControl.io.flush := io.flush
   requestControl.io.requestEnable := io.requestEnable
   requestControl.io.launchValid := io.launchValid
-  requestControl.io.rawSinkReady := io.sinkReady
+  requestControl.io.rawSinkReady := requestQueue.io.enqueueReady
   requestControl.io.tokenCanAccept := acceptedToken.io.tokenCanAccept
 
   queryIssue.io.enable := io.enable
@@ -208,6 +247,12 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   requestPayload.io.selectedAddr := io.selectedAddr
   requestPayload.io.selectedSize := io.selectedSize
   requestPayload.io.selectedRequestByteMask := io.selectedRequestByteMask
+
+  requestQueue.io.enable := io.enable
+  requestQueue.io.flush := io.flush
+  requestQueue.io.enqueueValid := requestPayload.io.requestValid
+  requestQueue.io.enqueueRequest := requestPayload.io.request
+  requestQueue.io.dequeueReady := io.sinkReady
 
   acceptedToken.io.enable := io.enable
   acceptedToken.io.flush := io.flush
@@ -316,4 +361,18 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.requestPayloadBlockedByNoIssue := requestPayload.io.blockedByNoIssue
   io.requestPayloadBlockedByNoSelected := requestPayload.io.blockedByNoSelected
   io.requestPayloadBlockedByStaleRow := requestPayload.io.blockedByStaleRow
+
+  io.requestQueueEnqueueReady := requestQueue.io.enqueueReady
+  io.requestQueueEnqueueAccepted := requestQueue.io.enqueueAccepted
+  io.requestQueueEnqueueDropped := requestQueue.io.enqueueDropped
+  io.requestQueueHeadValid := requestQueue.io.headValid
+  io.requestQueueHead := requestQueue.io.head
+  io.requestQueueHeadConsumed := requestQueue.io.headConsumed
+  io.requestQueuePending := requestQueue.io.pending
+  io.requestQueueFull := requestQueue.io.full
+  io.requestQueueEmpty := requestQueue.io.empty
+  io.requestQueueCount := requestQueue.io.count
+  io.requestQueueBlockedByDisabled := requestQueue.io.blockedByDisabled
+  io.requestQueueBlockedByFlush := requestQueue.io.blockedByFlush
+  io.requestQueueBlockedByFull := requestQueue.io.blockedByFull
 }

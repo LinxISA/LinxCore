@@ -37,7 +37,19 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestPayloadValid: Boolean,
       requestPayloadBlockedByNoIssue: Boolean,
       requestPayloadBlockedByNoSelected: Boolean,
-      requestPayloadBlockedByStaleRow: Boolean)
+      requestPayloadBlockedByStaleRow: Boolean,
+      requestQueueEnqueueReady: Boolean,
+      requestQueueEnqueueAccepted: Boolean,
+      requestQueueEnqueueDropped: Boolean,
+      requestQueueHeadValid: Boolean,
+      requestQueueHeadConsumed: Boolean,
+      requestQueuePending: Boolean,
+      requestQueueFull: Boolean,
+      requestQueueEmpty: Boolean,
+      requestQueueCount: Int,
+      requestQueueBlockedByDisabled: Boolean,
+      requestQueueBlockedByFlush: Boolean,
+      requestQueueBlockedByFull: Boolean)
 
   def apply(
       enable: Boolean,
@@ -68,13 +80,20 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedPc: BigInt = 0,
       selectedAddr: BigInt = 0,
       selectedSize: Int = 0,
-      selectedRequestByteMask: BigInt = 0): Result = {
+      selectedRequestByteMask: BigInt = 0,
+      requestQueueState: Vector[LoadReplaySourceReturnStoreSnapshotRequestPayloadReference.Payload] = Vector.empty): Result = {
+    val requestQueueCapacity = LoadReplaySourceReturnStoreSnapshotRequestQueueReference.step(
+      state = requestQueueState,
+      depth = 2,
+      enable = enable,
+      flush = flush,
+      dequeueReady = sinkReady)
     val requestControl = LoadReplaySourceReturnStoreSnapshotRequestControlReference(
       enable = enable,
       flush = flush,
       requestEnable = requestEnable,
       launchValid = launchValid,
-      rawSinkReady = sinkReady,
+      rawSinkReady = requestQueueCapacity.enqueueReady,
       tokenCanAccept = true)
     val queryIssue = LoadReplaySourceReturnStoreSnapshotQueryIssueReference(
       enable = enable,
@@ -114,6 +133,13 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedAddr = selectedAddr,
       selectedSize = selectedSize,
       selectedRequestByteMask = selectedRequestByteMask)
+    val requestQueue = LoadReplaySourceReturnStoreSnapshotRequestQueueReference.step(
+      state = requestQueueState,
+      depth = 2,
+      enable = enable,
+      flush = flush,
+      enqueue = if (requestPayload.payload.valid) Some(requestPayload.payload) else None,
+      dequeueReady = sinkReady)
     val acceptedToken = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.step(
       state = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token(),
       enable = enable,
@@ -209,7 +235,19 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestPayloadValid = requestPayload.payload.valid,
       requestPayloadBlockedByNoIssue = requestPayload.blockedByNoIssue,
       requestPayloadBlockedByNoSelected = requestPayload.blockedByNoSelected,
-      requestPayloadBlockedByStaleRow = requestPayload.blockedByStaleRow)
+      requestPayloadBlockedByStaleRow = requestPayload.blockedByStaleRow,
+      requestQueueEnqueueReady = requestQueue.enqueueReady,
+      requestQueueEnqueueAccepted = requestQueue.enqueueAccepted,
+      requestQueueEnqueueDropped = requestQueue.enqueueDropped,
+      requestQueueHeadValid = requestQueue.headValid,
+      requestQueueHeadConsumed = requestQueue.headConsumed,
+      requestQueuePending = requestQueue.pending,
+      requestQueueFull = requestQueue.full,
+      requestQueueEmpty = requestQueue.empty,
+      requestQueueCount = requestQueue.count,
+      requestQueueBlockedByDisabled = requestQueue.blockedByDisabled,
+      requestQueueBlockedByFlush = requestQueue.blockedByFlush,
+      requestQueueBlockedByFull = requestQueue.blockedByFull)
   }
 }
 
@@ -288,12 +326,49 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
 
     assert(result.queryIssueIssued)
     assert(result.requestPayloadValid)
+    assert(result.requestQueueEnqueueAccepted)
+    assert(result.requestQueueHeadConsumed)
+    assert(result.requestQueueEmpty)
     assert(result.evidenceResponseAccepted)
     assert(result.evidenceSnapshotRequired)
     assert(result.evidenceSnapshotValid)
     assert(result.controlLiveReady)
     assert(result.storeSnapshotReady)
     assert(!result.controlBlockedBySnapshot)
+  }
+
+  test("request queue stores issued payload while future raw sink is stalled") {
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      requestEnable = true,
+      sinkReady = false,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 1,
+      selectedRepickMask = 0x2,
+      selectedLoadId = 1,
+      selectedBid = 5,
+      selectedGid = 1,
+      selectedRid = 6,
+      selectedLoadLsId = 7,
+      selectedPc = BigInt("400055e8", 16),
+      selectedAddr = BigInt("40012020", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16) << 4)
+
+    assert(result.queryIssueIssued)
+    assert(!result.queryIssueBlockedBySink)
+    assert(result.requestPayloadValid)
+    assert(result.requestQueueEnqueueReady)
+    assert(result.requestQueueEnqueueAccepted)
+    assert(result.requestQueueHeadValid)
+    assert(!result.requestQueueHeadConsumed)
+    assert(result.requestQueuePending)
+    assert(result.requestQueueCount == 1)
+    assert(!result.evidenceResponseAccepted)
+    assert(!result.storeSnapshotReady)
   }
 
   test("flush suppresses live diagnostics while keeping legacy fallback literal") {
@@ -332,6 +407,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("module LoadReplaySourceReturnStoreSnapshotPath"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestControl"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestPayload"))
+    assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestQueue"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotSelectedIdentity"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotAcceptedToken"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseQueue"))
@@ -342,6 +418,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_storeSnapshotReady"))
     assert(sv.contains("io_selectedLaunchIndex"))
     assert(sv.contains("io_requestPayload_requestByteMask"))
+    assert(sv.contains("io_requestQueueHead_requestByteMask"))
     assert(sv.contains("io_queryIssueCandidate"))
   }
 }

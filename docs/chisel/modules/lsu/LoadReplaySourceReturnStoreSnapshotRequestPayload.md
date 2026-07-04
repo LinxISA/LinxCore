@@ -40,8 +40,9 @@ MtcLDQInfo::pickL1
 ```
 
 R402 adds only the request payload owner. It does not add the live request
-queue, raw store-unit sink, raw response source, or LIQ row mutation. The
-current top still ties live request enable false.
+sink, raw response source, or LIQ row mutation. R403 adds the adjacent request
+queue that consumes this payload, while the current top still ties live request
+enable false.
 
 ## Interface
 
@@ -97,8 +98,9 @@ but keeps the actual queue and store-unit data lookup as later owners.
 
 ## Timing
 
-R402 is same-cycle with query issue. A later request queue may register this
-payload and expose a dequeue-ready boundary to the store unit.
+R402 is same-cycle with query issue. R403 registers this payload in
+`LoadReplaySourceReturnStoreSnapshotRequestQueue` before a later raw store-unit
+sink consumes it.
 
 ## Flush/Recovery
 
@@ -108,8 +110,7 @@ request queue owner.
 
 ## Deferred Owners
 
-- Live local STQ lookup request queue.
-- Raw store-unit request sink and STQ data lookup.
+- Raw store-unit request sink and STQ data lookup behind the R403 request queue.
 - Raw `lookup_su_lu_q` response source.
 - Precise queued-request and queued-response flush pruning.
 - Wait-store row mutation and returned-data merge.
