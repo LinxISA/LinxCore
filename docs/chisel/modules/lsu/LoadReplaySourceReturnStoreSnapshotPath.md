@@ -210,6 +210,13 @@ still ties `liveArmPolicyEnable=false`, `requestEnable=false`, and
 also feeds `RequestControl.rawSinkReady` from resident request FIFO fullness
 instead of dequeue-sensitive `enqueueReady`, so selecting the policy sink arm
 cannot feed a request-capacity combinational loop through queue drain.
+R439 promotes the reduced-top selector one step further: the top now drives
+`liveArmPolicyEnable=true` and `liveArmRawSinkAvailable=true`, and it exposes
+the policy/effective selected-control diagnostics through top IO. The top still
+ties `rowMutationLiveEnable=false`, raw `requestEnable=false`, and raw
+`sinkReady=false`, so the selected policy arm can report launch intent and
+row-mutation blockers without issuing a live local-STQ request or consuming a
+request head.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
@@ -294,8 +301,8 @@ boundary and can later be promoted without another direct top child instance.
 | `requestEnable` | Raw future live arm for issuing and consuming selected-row STQ snapshot evidence. The path selects this input only when `liveArmPolicyEnable=false`; the current top ties it false. |
 | `rowMutationLiveEnable` | Future live arm for allowing a row-state plan to become a LIQ row-mutation request. R417 exposes this path input; the current top ties it false. |
 | `rawResponseLiveEnable` | Future live arm for allowing raw external STQ response candidates to enter the response queue. R421 exposes this path input; the current top ties it false. |
-| `liveArmPolicyEnable` | R436/R438 path-local policy selector for computing and optionally selecting future `requestEnable` and `sinkReady` candidates. The current top ties this false. |
-| `liveArmRawSinkAvailable` | R436 raw/local store-unit sink availability input observed only by the policy diagnostics. The current top ties this false. |
+| `liveArmPolicyEnable` | R436/R438 path-local policy selector for computing and optionally selecting future `requestEnable` and `sinkReady` candidates. R439 drives this true in the reduced top while row mutation remains disabled. |
+| `liveArmRawSinkAvailable` | R436 raw/local store-unit sink availability input observed by the policy diagnostics. R439 drives this true for the internal resident-STQ lookup sink while row mutation remains disabled. |
 | `launchValid` | A selected replay row would need local STQ source-return qualification. |
 | `sinkReady` | Raw future store-unit request sink readiness for the R404 request sink. The path selects this input only when `liveArmPolicyEnable=false`; the current top ties it false. |
 | `selectedIdentityEnable` | Selects the reduced LIQ launch-index projection instead of the raw selected-row identity inputs. |
@@ -361,11 +368,11 @@ boundary and can later be promoted without another direct top child instance.
 | `rowStatePlan*` | R409 future row-state write plan: wait-store rewait clearing, data/no-data repick preservation, next line image, next split SCB/STQ bits, and invalid response-class diagnostics. |
 | `rowMutation*` | R410 future LIQ row mutation request: candidate one-hot target diagnostics, live-disabled request payload, future row write enables, next row image, and invalid target/payload diagnostics. |
 
-The top consumes the existing `control*`, `evidence*`, `queryIssue*`, and
-selected `rowMutation*` diagnostics through top IO names. Response-match and
-identity-match diagnostics are now visible at the path boundary for module and
-future wrapper evidence, but they remain off the reduced top IO to avoid
-constructor growth.
+The top consumes the existing `control*`, `evidence*`, `queryIssue*`,
+R439 `liveArmPolicy*`/`effective*`, and selected `rowMutation*` diagnostics
+through top IO names. Response-match and identity-match diagnostics are now
+visible at the path boundary for module and future wrapper evidence, but they
+remain off the reduced top IO to avoid constructor growth.
 
 ## State
 
@@ -661,8 +668,8 @@ keeps LSID-less marker cleanup on the hard-clear path.
   row-mutation request.
 - Live row-mutation promotion control after row-carried `scbRnt/stqRnt` and
   stale-response policy are explicit.
-- Reduced-top promotion of `liveArmPolicyEnable`, raw sink availability, and
-  row mutation after query, response, and row-state owners are stable.
+- Reduced-top row-mutation live promotion after row-carried `scbRnt/stqRnt`,
+  stale-response policy, and downstream LIQ write conflicts are explicit.
 
 ## Verification
 

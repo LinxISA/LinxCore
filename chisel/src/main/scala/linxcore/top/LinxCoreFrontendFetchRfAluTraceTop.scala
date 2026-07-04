@@ -459,6 +459,27 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedByRequestDisabled = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedByLegacySnapshot = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedBySnapshot = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyActive = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestCandidate = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestEnable = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkCandidate = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkReady = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyResponsePortBlocked = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyBlockedByDisabled = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyBlockedByFlush = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyBlockedByPolicyDisabled = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByNoLaunch = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByRowMutationDisabled = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByRequestQueue = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByAcceptedToken = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkBlockedByNoRequest = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkBlockedByRowMutationDisabled = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkBlockedByRawSink = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyResponseBlockedByQueueFull = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyResponseBlockedByRawResponse = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveRequestEnable = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveRequestQueueCanAccept = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveSinkReady = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneMask =
     Output(UInt(sourceReturnStoreSnapshotQueueDepth.W))
   val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneCount =
@@ -2582,6 +2603,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       enable = reducedLoadReplayLiqAllocEnabled,
       flush = reducedReplayLiqStoreSnapshotHardFlush,
       preciseFlush = reducedReplayLiqStoreSnapshotPreciseFlush,
+      liveArmPolicyEnable = true.B,
+      liveArmRawSinkAvailable = true.B,
       rowMutationLiveEnable = false.B,
       launchValid = reducedLoadReplayLiqAllocPath.io.launchValid,
       selectedLaunchIndex = reducedLoadReplayLiqAllocPath.io.launchIndex,
@@ -5537,6 +5560,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       enable: Bool,
       flush: Bool,
       preciseFlush: FlushBus,
+      liveArmPolicyEnable: Bool,
+      liveArmRawSinkAvailable: Bool,
       rowMutationLiveEnable: Bool,
       launchValid: Bool,
       selectedLaunchIndex: UInt,
@@ -5564,8 +5589,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.requestEnable := false.B
     path.io.rowMutationLiveEnable := rowMutationLiveEnable
     path.io.rawResponseLiveEnable := false.B
-    path.io.liveArmPolicyEnable := false.B
-    path.io.liveArmRawSinkAvailable := false.B
+    path.io.liveArmPolicyEnable := liveArmPolicyEnable
+    path.io.liveArmRawSinkAvailable := liveArmRawSinkAvailable
     path.io.launchValid := launchValid
     path.io.sinkReady := false.B
     path.io.selectedIdentityEnable := true.B
@@ -5638,6 +5663,48 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       path.io.controlBlockedByLegacySnapshot
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedBySnapshot :=
       path.io.controlBlockedBySnapshot
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyActive :=
+      path.io.liveArmPolicyActive
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestCandidate :=
+      path.io.liveArmPolicyRequestCandidate
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestEnable :=
+      path.io.liveArmPolicyRequestEnable
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkCandidate :=
+      path.io.liveArmPolicySinkCandidate
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkReady :=
+      path.io.liveArmPolicySinkReady
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyResponsePortBlocked :=
+      path.io.liveArmPolicyResponsePortBlocked
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyBlockedByDisabled :=
+      path.io.liveArmPolicyBlockedByDisabled
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyBlockedByFlush :=
+      path.io.liveArmPolicyBlockedByFlush
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyBlockedByPolicyDisabled :=
+      path.io.liveArmPolicyBlockedByPolicyDisabled
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByNoLaunch :=
+      path.io.liveArmPolicyRequestBlockedByNoLaunch
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByRowMutationDisabled :=
+      path.io.liveArmPolicyRequestBlockedByRowMutationDisabled
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByRequestQueue :=
+      path.io.liveArmPolicyRequestBlockedByRequestQueue
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByAcceptedToken :=
+      path.io.liveArmPolicyRequestBlockedByAcceptedToken
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkBlockedByNoRequest :=
+      path.io.liveArmPolicySinkBlockedByNoRequest
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkBlockedByRowMutationDisabled :=
+      path.io.liveArmPolicySinkBlockedByRowMutationDisabled
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkBlockedByRawSink :=
+      path.io.liveArmPolicySinkBlockedByRawSink
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyResponseBlockedByQueueFull :=
+      path.io.liveArmPolicyResponseBlockedByQueueFull
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyResponseBlockedByRawResponse :=
+      path.io.liveArmPolicyResponseBlockedByRawResponse
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveRequestEnable :=
+      path.io.effectiveRequestEnable
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveRequestQueueCanAccept :=
+      path.io.effectiveRequestQueueCanAccept
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveSinkReady :=
+      path.io.effectiveSinkReady
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneMask :=
       path.io.requestQueuePrecisePruneMask
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneCount :=

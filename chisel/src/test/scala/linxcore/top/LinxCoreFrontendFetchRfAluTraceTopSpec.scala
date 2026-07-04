@@ -709,6 +709,35 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedBySnapshot.getWidth == 1)
   }
 
+  test("R439 replay-LIQ source-return store snapshot live-arm policy diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyActive.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestEnable.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyResponsePortBlocked.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyBlockedByDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyBlockedByFlush.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyBlockedByPolicyDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByNoLaunch.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByRowMutationDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByRequestQueue.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByAcceptedToken.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkBlockedByNoRequest.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkBlockedByRowMutationDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkBlockedByRawSink.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyResponseBlockedByQueueFull.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyResponseBlockedByRawResponse.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveRequestEnable.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveRequestQueueCanAccept.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveSinkReady.getWidth == 1)
+  }
+
   test("R426 replay-LIQ source-return store snapshot precise-flush diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -1193,6 +1222,9 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLaunchReadinessEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLaunchReadinessBlockedByScb"))
     assert(sv.contains("io_reducedLoadReplayLiqLaunchReadinessBlockedByReturn"))
+    assert(sv.contains("io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestCandidate"))
+    assert(sv.contains("io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByRowMutationDisabled"))
+    assert(sv.contains("io_reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationCandidateValid"))
     assert(sv.contains("io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByLiveDisabled"))
     assert(sv.contains("io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationInvalidMultiTarget"))
