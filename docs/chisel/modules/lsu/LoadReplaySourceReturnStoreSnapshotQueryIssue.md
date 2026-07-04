@@ -16,6 +16,7 @@
   - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
     - `STQ::lookupForLoad`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
@@ -88,9 +89,11 @@ queryIssued    = queryValid && sinkReady
 
 `queryIssued` feeds `LoadReplaySourceReturnStoreSnapshotEvidence.queryIssued`
 and the R393 `LoadReplaySourceReturnStoreSnapshotResponseMatch` owner in the
-top. In R393 integration, `requestEnable`, `sinkReady`, and raw response
-inputs remain tied false, so the evidence path still observes an unissued
-query and no response evidence.
+top. R394 names the future identity-match consumer of that query in standalone
+form, but it is not instantiated in the oversized fetch/RF/ALU top yet. In the
+current integration, `requestEnable`, `sinkReady`, selected-row match, and raw
+response inputs remain tied false, so the evidence path still observes an
+unissued query and no response evidence.
 
 ## Timing
 
@@ -107,7 +110,7 @@ Flush clears `active`, `requestActive`, `queryCandidate`, `queryValid`, and
 ## Deferred Owners
 
 - Selected-row request payload and STQ lookup sink valid/ready connection.
-- Raw STQ response queue and selected-row response matching.
+- Raw STQ response queue and selected-row identity source into R394 matching.
 - Wait-store row mutation and data merge.
 - Live promotion of `LoadReplaySourceReturnStoreSnapshotReadyControl.requestEnable`.
 

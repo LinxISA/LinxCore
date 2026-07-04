@@ -1054,6 +1054,12 @@ R393 adds `LoadReplaySourceReturnStoreSnapshotResponseMatch` between query
 issue and evidence. The reduced top now routes `responseValid`, `waitStore`,
 and `dataValid` through a named response-match/order owner while raw response,
 selected-row match, and SCB-return evidence remain disabled.
+R394 adds standalone `LoadReplaySourceReturnStoreSnapshotIdentityMatch` as the
+future `cID/eID` and stale-row identity owner for that response-match input.
+It is not instantiated in this top yet: the first dormant integration attempt
+hit the top constructor `Method too large` limit, so the top keeps the R393
+false tie-off until the replay-LIQ source-return cluster is split or an
+existing owner absorbs the identity logic.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1333,7 +1339,9 @@ overlay. Most state remains in child modules:
 - `LoadReplaySourceReturnStoreSnapshotResponseMatch`: optional R393 selected-row
   local STQ snapshot response-match owner before
   `LoadReplaySourceReturnStoreSnapshotEvidence`. The current reduced top ties
-  raw response, selected-row match, and SCB-return evidence low.
+  raw response, selected-row match, and SCB-return evidence low. R394's
+  standalone identity owner is deferred from this top until the constructor
+  method-size limit is relieved.
 - `LoadReplaySourceReturnScbLiveControl`: optional R389 external-SCB live
   request owner before `LoadReplaySourceReturnReadiness`. The current reduced
   top ties its request and evidence inputs low, so source readiness keeps the
@@ -1800,7 +1808,10 @@ query-issued literal with `LoadReplaySourceReturnStoreSnapshotQueryIssue`,
 while keeping live request issue and sink readiness disabled. R393 replaces the
 local response evidence literals with
 `LoadReplaySourceReturnStoreSnapshotResponseMatch`, while keeping raw response,
-selected-row match, and SCB-return evidence disabled. R300
+selected-row match, and SCB-return evidence disabled. R394 adds the standalone
+identity owner for that selected-row match input, but its top integration is
+deferred because the dormant instance alone exceeded the top constructor
+method-size limit. R300
 inserts
 `LoadReplayReturnReadiness` after that source-return boundary. R301 inserts
 `LoadReplayReturnPipeSelect` as the explicit pipe-mask/select owner feeding

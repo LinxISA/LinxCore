@@ -18,6 +18,7 @@
     - `LDQInfo::pickL1`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnReadiness.scala`
@@ -42,8 +43,10 @@ replay-row launch-valid signal. R392 drives `queryIssued` from
 `LoadReplaySourceReturnStoreSnapshotQueryIssue`, but keeps that owner's
 `requestEnable` and `sinkReady` false, so `queryIssued` remains false. R393
 drives `responseValid`, `waitStore`, and `dataValid` from
-`LoadReplaySourceReturnStoreSnapshotResponseMatch`, but keeps that owner's raw
-response, selected-row match, and SCB-order inputs false. Its
+`LoadReplaySourceReturnStoreSnapshotResponseMatch`, while raw response,
+selected-row match, and SCB-order evidence remain false. R394 names the future
+selected-row identity matcher as a standalone unit; this top does not
+instantiate it until the constructor method-size limit is relieved. Its
 `snapshotRequired` and `snapshotValid` outputs feed
 `LoadReplaySourceReturnStoreSnapshotReadyControl`; that control still has
 `requestEnable=false`, so the integrated readiness path continues to forward
@@ -89,9 +92,9 @@ the legacy combinational resident-store snapshot readiness.
 ## State
 
 The module is combinational. It does not store selected-row identity or merge
-data. R392 names the request-issue side of `queryIssued`, and R393 names the
-response-match/order side that will eventually provide selected-row
-`responseValid`, `waitStore`, and `dataValid` evidence.
+data. R392 names the request-issue side of `queryIssued`, R393 names the
+response-order side, and R394 names a standalone future identity-match source
+for the still-tied selected-row match input.
 
 ## Logic Design
 
@@ -131,7 +134,7 @@ snapshot completion. Evidence visible during flush is reported through
 
 ## Deferred Owners
 
-- Raw STQ response queue and live selected-row STQ response matching.
+- Raw STQ response queue and live selected-row identity into R394 matching.
 - Stateful wait-store replay row mutation.
 - Store-data merge into replay row line data.
 - Live promotion of `LoadReplaySourceReturnStoreSnapshotReadyControl.requestEnable`.

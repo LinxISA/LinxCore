@@ -16,6 +16,7 @@
   - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
     - `STQ::lookupForLoad`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
@@ -39,9 +40,11 @@ The model path is:
 4. A `wait_store` response calls `LDQInfo::waitStore`; otherwise `data_vld`
    controls whether `LDQInfo::handleMerge` merges returned store bytes.
 
-R393 adds only the response-match and ordering boundary. The reduced top ties
-raw STQ response inputs, selected-row match, and SCB-return evidence false, so
-`responseValid`, `waitStore`, and `dataValid` remain false at
+R393 adds only the response-match and ordering boundary. R394 names the future
+identity source for `responseMatchesSelected` in standalone form, but the
+reduced top still ties raw STQ response inputs, selected-row match, and
+SCB-return evidence false, so `responseValid`, `waitStore`, and `dataValid`
+remain false at
 `LoadReplaySourceReturnStoreSnapshotEvidence`.
 
 ## Interface
@@ -81,8 +84,9 @@ raw STQ response inputs, selected-row match, and SCB-return evidence false, so
 ## State
 
 The module is combinational. It does not store selected-row identity or mutate
-LIQ/LDQ state. Future live integration must supply the actual selected-row
-identity comparator and a raw STQ response queue owner.
+LIQ/LDQ state. R394 names a standalone selected-row identity comparator;
+future live integration must still supply selected-row identity state and a raw
+STQ response queue owner before this top can consume it.
 
 ## Logic Design
 
@@ -115,8 +119,8 @@ Response evidence visible during flush is reported through `blockedByFlush`.
 ## Deferred Owners
 
 - Raw STQ response queue and valid/ready boundary.
-- Selected replay-row identity storage and `cID/eID` or equivalent response
-  matching.
+- Selected replay-row identity storage and live `cID/eID` response source into
+  R394 identity matching.
 - Live SCB-return evidence into the response-ordering input.
 - Stateful wait-store rewait and returned-data merge into replay row state.
 - Live promotion of `LoadReplaySourceReturnStoreSnapshotReadyControl.requestEnable`.
