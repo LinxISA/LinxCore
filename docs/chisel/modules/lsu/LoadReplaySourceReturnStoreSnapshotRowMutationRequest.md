@@ -78,8 +78,8 @@ The invalid diagnostics guard the shape expected from `RowStatePlan`:
 
 ## Deferred Owners
 
-- Registered `LoadInflightQueue` row mutation.
-- Real row-carried `scbRnt`/`stqRnt` fields in `LoadInflightRow`.
+- Registered `LoadInflightQueue` row mutation using the R411 split return bits
+  and the R412 LIQ-native apply preview.
 - A live promotion control that can set `liveEnable` only after stale-response
   and split source-return policy are row-owned.
 
