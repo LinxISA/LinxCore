@@ -13,6 +13,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyAdvanceCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
@@ -32,8 +33,9 @@ R329 adds a one-entry Chisel slot behind the R328 residency diagnostic. The
 slot captures the R322 insert-shaped payload only when R328 reports a live,
 unblocked residency write. It exposes occupancy and blockers but does not yet
 drive the real IEX pipe pipeline, RF/writeback, ready table, issue wakeup, or
-replay-row lifecycle. The current reduced top still ties R328 `liveEnable`
-false, so this slot remains dormant in the generated cross-check fixture.
+replay-row lifecycle. R384 now drives R328 `liveEnable` from
+`LoadReplayReturnPipeResidencyLiveControl`, whose request input remains false,
+so this slot remains dormant in the generated cross-check fixture.
 
 R330 consumes this slot's occupancy, target, and pipe-index diagnostics in
 `LoadReplayReturnPipeResidencyAdvanceCandidate`. That candidate now owns the
@@ -103,9 +105,10 @@ model contract that `setMemData` chooses exactly one pipe family before writing
 - the top exposes accepted, occupied, target, pipe-index, and blocker
   diagnostics only.
 
-Because R328 remains live-disabled in the current reduced scalar top, this
-module does not change fixture-visible replay behavior. It only establishes the
-state owner that later packets can connect to an LDA/AGU pipe pipeline.
+Because the R384 live-control owner keeps R328 live-disabled in the current
+reduced scalar top, this module does not change fixture-visible replay behavior.
+It only establishes the state owner that later packets can connect to an
+LDA/AGU pipe pipeline.
 
 ## Deferred Owners
 
@@ -123,6 +126,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencySlot
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyLiveControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyAdvanceCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1Slot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate

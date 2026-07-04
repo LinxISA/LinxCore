@@ -11,6 +11,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDrainPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencySlot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTimingStatsCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-RESIDENCY-001`
@@ -34,9 +35,10 @@ blockers:
 - live residency writes disabled;
 - selected pipe occupied.
 
-The current reduced scalar top ties `liveEnable` low and `isVectorMachine` low,
-so this packet exposes LDA residency intent and full-pipe diagnostics while
-keeping actual pipe state disabled.
+The current reduced scalar top drives `liveEnable` from R384
+`LoadReplayReturnPipeResidencyLiveControl`, whose request input remains false,
+and drives `isVectorMachine` low. This exposes LDA residency intent and
+full-pipe diagnostics while keeping actual pipe state disabled.
 
 R329 consumes `residencyWriteValid`, target-domain, and selected-pipe outputs
 in `LoadReplayReturnPipeResidencySlot`, a dormant one-entry state owner that
@@ -51,7 +53,7 @@ writes.
 | input | `flush` | Suppresses residency diagnostics for the cycle. |
 | input | `insertCandidateValid` | R322 insert-shaped candidate exists after timing/stat handling. |
 | input | `insertValid` | R322 accepted insert candidate. |
-| input | `liveEnable` | Enables real residency write intent. Current top ties this false. |
+| input | `liveEnable` | Enables real residency write intent. Current top drives this from R384 live control with request disabled. |
 | input | `isVectorMachine` | Selects AGU residency when true, LDA residency when false. |
 | input | `selectedPipeIndex` | Pipe index selected by the IEX drain/pipe-capacity owner. |
 | input | `selectedPipeOccupied` | Diagnostic occupancy for the selected return pipe. |
@@ -77,7 +79,8 @@ targetIsLda = candidateValid && !isVectorMachine
 
 `residencyArmed` names the model point where `pipe.e4_inst = inst` would be
 legal if the selected target is free. `residencyWriteValid` remains false in
-the current integrated top because live E4 pipe state is not owned yet.
+the current integrated top because the R384 live-control request remains
+disabled.
 
 ## Integration
 
@@ -89,16 +92,17 @@ the current integrated top because live E4 pipe state is not owned yet.
 - `selectedPipeIndex` comes from R322 `insertPipeIndex`;
 - `selectedPipeOccupied` is derived from the R319 drain permit's free-pipe
   diagnostic;
-- `liveEnable` is tied false;
+- `liveEnable` comes from R384 `LoadReplayReturnPipeResidencyLiveControl`,
+  whose `requestEnable` remains false;
 - `isVectorMachine` is tied false for the current reduced scalar path.
 
 The top exposes candidate, armed, write-valid, target-domain, pipe-index, and
 blocker diagnostics.
 
 R329 additionally feeds `residencyWriteValid`, target-domain, and pipe-index
-diagnostics into `LoadReplayReturnPipeResidencySlot`. Since `liveEnable` remains
-false in this top, the slot observes no writes and only reports dormant
-occupancy/no-write state.
+diagnostics into `LoadReplayReturnPipeResidencySlot`. Since the R384
+live-control request remains false in this top, `liveEnable` remains false, and
+the slot observes no writes and only reports dormant occupancy/no-write state.
 
 ## Deferred Owners
 
@@ -116,6 +120,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyLiveControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencySlot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTimingStatsCandidate
