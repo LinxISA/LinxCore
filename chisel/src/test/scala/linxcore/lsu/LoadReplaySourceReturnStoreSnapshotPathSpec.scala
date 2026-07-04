@@ -44,6 +44,8 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       acceptedTokenCaptureCandidate: Boolean,
       acceptedTokenCaptureAccepted: Boolean,
       acceptedTokenClearAccepted: Boolean,
+      acceptedTokenPrecisePruned: Boolean,
+      acceptedTokenBlockedByPreciseFlush: Boolean,
       acceptedTokenBlockedByOutstanding: Boolean,
       acceptedTokenClusterId: Int,
       acceptedTokenEntryId: Int,
@@ -118,12 +120,15 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedRowScbReturnedMask: Int = 0,
       requestQueueState: Vector[LoadReplaySourceReturnStoreSnapshotRequestPayloadReference.Payload] = Vector.empty,
       acceptedTokenState: LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token =
-        LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token()): Result = {
+        LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token(),
+      preciseFlush: Option[STQFlushPruneReference.Flush] = None): Result = {
+    val precisePruneActive = enable && !flush && preciseFlush.exists(_.valid)
     val responseQueueCapacity = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
       state = Vector.empty,
       depth = 2,
       enable = enable,
       flush = flush,
+      preciseFlush = preciseFlush,
       dequeueReady = false)
     val rawResponseSource = LoadReplaySourceReturnStoreSnapshotRawResponseSourceReference(
       enable = enable,
@@ -156,6 +161,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       depth = 2,
       enable = enable,
       flush = flush,
+      preciseFlush = preciseFlush,
       dequeueReady = requestSinkPreview.requestReady)
     val requestControl = LoadReplaySourceReturnStoreSnapshotRequestControlReference(
       enable = enable,
@@ -163,7 +169,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestEnable = requestEnable,
       launchValid = launchValid,
       rawSinkReady = requestQueueCapacity.enqueueReady,
-      tokenCanAccept = enable && !flush && !acceptedTokenState.valid)
+      tokenCanAccept = enable && !flush && !precisePruneActive && !acceptedTokenState.valid)
     val queryIssue = LoadReplaySourceReturnStoreSnapshotQueryIssueReference(
       enable = enable,
       flush = flush,
@@ -210,6 +216,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       depth = 2,
       enable = enable,
       flush = flush,
+      preciseFlush = preciseFlush,
       enqueue = if (requestPayload.payload.valid) Some(requestPayload.payload) else None,
       dequeueReady = requestSinkPreview.requestReady)
     val requestSink = LoadReplaySourceReturnStoreSnapshotRequestSinkReference(
@@ -228,9 +235,16 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedClusterId = selectedClusterIdResolved,
       selectedEntryId = selectedEntryIdResolved,
       responseConsumed = false,
+      selectedBid = selectedBid,
+      selectedGid = selectedGid,
+      selectedLoadLsId = selectedLoadLsId,
+      selectedPeId = selectedPeId,
+      selectedStid = selectedStid,
+      selectedTid = selectedTid,
       selectedLineData = selectedLineData,
       selectedValidMask = selectedValidMask,
-      selectedRequestByteMask = selectedRequestByteMask)
+      selectedRequestByteMask = selectedRequestByteMask,
+      preciseFlush = preciseFlush)
     val sinkResponse =
       if (!rawResponseSource.responseValid && requestSink.responseValid) {
         Some(LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
@@ -275,6 +289,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       depth = 2,
       enable = enable,
       flush = flush,
+      preciseFlush = preciseFlush,
       enqueue = rawResponse.orElse(sinkResponse),
       dequeueReady = false)
     val responseHeadState = LoadReplaySourceReturnStoreSnapshotResponseHeadStateReference(
@@ -415,6 +430,8 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       acceptedTokenCaptureCandidate = acceptedToken.captureCandidate,
       acceptedTokenCaptureAccepted = acceptedToken.captureAccepted,
       acceptedTokenClearAccepted = acceptedToken.clearAccepted,
+      acceptedTokenPrecisePruned = acceptedToken.precisePruned,
+      acceptedTokenBlockedByPreciseFlush = acceptedToken.blockedByPreciseFlush,
       acceptedTokenBlockedByOutstanding = acceptedToken.blockedByOutstandingToken,
       acceptedTokenClusterId = acceptedToken.token.clusterId,
       acceptedTokenEntryId = acceptedToken.token.entryId,
@@ -537,6 +554,12 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       repick = true,
       clusterId = 0,
       entryId = 1,
+      bid = 6,
+      gid = 1,
+      loadLsId = 9,
+      peId = 2,
+      stid = 3,
+      tid = 4,
       lineData = BigInt("11223344", 16),
       validMask = BigInt("ff", 16),
       requestByteMask = BigInt("ff", 16))
@@ -568,6 +591,66 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(!result.acceptedTokenCaptureAccepted)
     assert(!result.acceptedTokenBlockedByOutstanding)
     assert(result.requestControlBlockedByToken)
+    assert(result.queryIssueValid)
+    assert(!result.queryIssueIssued)
+    assert(result.queryIssueBlockedBySink)
+    assert(!result.requestPayloadValid)
+    assert(!result.requestQueueEnqueueAccepted)
+  }
+
+  test("precise flush prunes a resident accepted-query token before new issue") {
+    val residentToken = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token(
+      valid = true,
+      repick = true,
+      clusterId = 0,
+      entryId = 1,
+      bid = 6,
+      gid = 1,
+      loadLsId = 9,
+      peId = 2,
+      stid = 3,
+      tid = 4,
+      lineData = BigInt("11223344", 16),
+      validMask = BigInt("ff", 16),
+      requestByteMask = BigInt("ff", 16))
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      requestEnable = true,
+      sinkReady = true,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPeId = 2,
+      selectedStid = 3,
+      selectedTid = 4,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16),
+      acceptedTokenState = residentToken,
+      preciseFlush = Some(STQFlushPruneReference.Flush(
+        stid = 3,
+        peId = 2,
+        tid = 4,
+        bid = STQFlushPruneReference.Id(value = 6),
+        lsId = STQFlushPruneReference.Id(value = 9),
+        baseOnPE = true,
+        baseOnThread = true)))
+
+    assert(!result.acceptedTokenCanAccept)
+    assert(result.acceptedTokenValid)
+    assert(result.acceptedTokenResidentValid)
+    assert(result.acceptedTokenPrecisePruned)
+    assert(!result.acceptedTokenBlockedByPreciseFlush)
+    assert(!result.acceptedTokenCaptureAccepted)
     assert(result.queryIssueValid)
     assert(!result.queryIssueIssued)
     assert(result.queryIssueBlockedBySink)
@@ -819,6 +902,8 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_acceptedTokenResidentValid"))
     assert(sv.contains("io_acceptedTokenCaptureAccepted"))
     assert(sv.contains("io_acceptedTokenClearAccepted"))
+    assert(sv.contains("io_acceptedTokenPrecisePruned"))
+    assert(sv.contains("io_acceptedTokenBlockedByPreciseFlush"))
     assert(sv.contains("io_acceptedTokenBlockedByOutstanding"))
     assert(sv.contains("io_acceptedTokenEntryId"))
   }

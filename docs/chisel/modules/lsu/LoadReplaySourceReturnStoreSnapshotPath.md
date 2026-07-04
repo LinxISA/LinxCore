@@ -171,6 +171,11 @@ load `MemReqBus` through the LU/SU queues; Chisel must therefore prove the
 accepted owner token (`cID/eID` plus row context) is resident, captured, or
 cleared independently from the current launch selector before `requestEnable`
 or row mutation are made live.
+R431 forwards `preciseFlush` into that accepted token as well as the request
+and response FIFOs. A matching recovery cycle now clears the resident
+accepted-query owner using the same load request identity/context carried by
+the queued records, preventing selective queue pruning from leaving a stale
+one-entry token.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
@@ -305,7 +310,7 @@ boundary and can later be promoted without another direct top child instance.
 | `rawResponseSource*` | R421 raw-response source diagnostics: active/candidate/live-valid, disabled/flush/live-disabled blockers, and malformed payload checks. |
 | `queryIssue*` | Selected-row query issue diagnostics from the query owner. |
 | `requestControlBlockedByToken` | R430 query-capacity blocker from `RequestControl`: a selected live query has request FIFO capacity but the accepted-query token is still occupied. |
-| `acceptedToken*` | R430 accepted-query owner diagnostics: capacity, visible/resident token, capture/clear pulses, outstanding-token blocker, and visible token `cID/eID`. |
+| `acceptedToken*` | R430/R431 accepted-query owner diagnostics: capacity, visible/resident token, capture/clear/precise-prune pulses, precise-flush/outstanding-token blockers, and visible token `cID/eID`. |
 | `requestPayload*` | R402 selected-row request payload and diagnostics for the future local STQ lookup queue. |
 | `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, blocker diagnostics, and R426 precise-prune mask/count visibility. |
 | `responseQueue*` | R426 response FIFO precise-prune mask/count and enqueue-blocked-by-precise-flush diagnostics. |
@@ -341,7 +346,9 @@ shape; it adds no state. R421 adds a combinational raw-response source gate in
 front of that response queue and adds no state. R422 widens the response
 payload and raw boundary with load request identity; it adds no state. The path
 still owns no LDQ/LIQ mutation, full multi-cluster row fsm source, wait-store
-state mutation, or data merge state.
+state mutation, or data merge state. R431 widens the accepted-token state with
+load request BID/GID/LSID plus PE/STID/TID context so the token can share the
+same `FlushBus` predicate as the queues.
 
 ## Logic Design
 
@@ -458,6 +465,12 @@ slot and keeps the owner token observable as the model-equivalent load
 `MemReqBus` that travels through `lookup_lu_su_q` and returns through
 `lookup_su_lu_q`.
 
+R431 applies the same precise recovery bus to the accepted token. During a
+precise-prune cycle the token suppresses same-cycle capture; if the resident
+token's accepted load identity/context matches the flush predicate, the token
+clears. This keeps token ownership consistent with R424 request/response FIFO
+pruning.
+
 The R402 request-payload owner publishes the selected row's reduced LIQ slot,
 accepted local `cID/eID`, BID/GID/RID identity, load LSID, PC, address, size,
 and request byte mask only when query issue fires for a selected repick row.
@@ -535,7 +548,8 @@ Legacy mode still forwards `legacySnapshotReady`, matching the pre-R395
 disabled-live behavior.
 
 `preciseFlush` selectively prunes resident request/response queue records but
-does not clear unrelated child state. The reduced top builds this bus from the
+does not clear unrelated child state. R431 also applies the same predicate to
+the resident accepted-query token. The reduced top builds this bus from the
 scalar cleanup source, overrides `req.lsId` with the redirecting load LSID, and
 keeps LSID-less marker cleanup on the hard-clear path.
 

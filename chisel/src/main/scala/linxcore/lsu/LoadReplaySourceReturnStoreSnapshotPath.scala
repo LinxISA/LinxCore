@@ -224,6 +224,8 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val acceptedTokenCaptureCandidate = Output(Bool())
   val acceptedTokenCaptureAccepted = Output(Bool())
   val acceptedTokenClearAccepted = Output(Bool())
+  val acceptedTokenPrecisePruned = Output(Bool())
+  val acceptedTokenBlockedByPreciseFlush = Output(Bool())
   val acceptedTokenBlockedByOutstanding = Output(Bool())
   val acceptedTokenClusterId = Output(UInt(clusterIdWidth.W))
   val acceptedTokenEntryId = Output(UInt(entryIdWidth.W))
@@ -413,8 +415,12 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     entryIdWidth = entryIdWidth
   ))
   val acceptedToken = Module(new LoadReplaySourceReturnStoreSnapshotAcceptedToken(
+    idEntries = idEntries,
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth,
     lineBytes = lineBytes
   ))
   val responseQueue = Module(new LoadReplaySourceReturnStoreSnapshotResponseQueue(
@@ -554,11 +560,18 @@ class LoadReplaySourceReturnStoreSnapshotPath(
 
   acceptedToken.io.enable := io.enable
   acceptedToken.io.flush := io.flush
+  acceptedToken.io.preciseFlush := io.preciseFlush
   acceptedToken.io.queryIssued := queryIssue.io.queryIssued
   acceptedToken.io.selectedValid := selectedValid
   acceptedToken.io.selectedRepick := selectedRepick
   acceptedToken.io.selectedClusterId := selectedClusterId
   acceptedToken.io.selectedEntryId := selectedEntryId
+  acceptedToken.io.selectedBid := io.selectedBid
+  acceptedToken.io.selectedGid := io.selectedGid
+  acceptedToken.io.selectedLoadLsId := io.selectedLoadLsId
+  acceptedToken.io.selectedPeId := io.selectedPeId
+  acceptedToken.io.selectedStid := io.selectedStid
+  acceptedToken.io.selectedTid := io.selectedTid
   acceptedToken.io.selectedLineData := io.selectedLineData
   acceptedToken.io.selectedValidMask := io.selectedValidMask
   acceptedToken.io.selectedRequestByteMask := io.selectedRequestByteMask
@@ -830,6 +843,8 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.acceptedTokenCaptureCandidate := acceptedToken.io.captureCandidate
   io.acceptedTokenCaptureAccepted := acceptedToken.io.captureAccepted
   io.acceptedTokenClearAccepted := acceptedToken.io.clearAccepted
+  io.acceptedTokenPrecisePruned := acceptedToken.io.precisePruned
+  io.acceptedTokenBlockedByPreciseFlush := acceptedToken.io.blockedByPreciseFlush
   io.acceptedTokenBlockedByOutstanding := acceptedToken.io.blockedByOutstandingToken
   io.acceptedTokenClusterId := acceptedToken.io.tokenClusterId
   io.acceptedTokenEntryId := acceptedToken.io.tokenEntryId
