@@ -1049,7 +1049,11 @@ forwards legacy readiness.
 R392 adds `LoadReplaySourceReturnStoreSnapshotQueryIssue` before the R391
 evidence owner. The reduced top drives `queryIssued` through that named owner,
 but still keeps live query request and sink readiness disabled, so selected-row
-STQ response matching and live readiness remain deferred.
+raw STQ response production and live readiness remain deferred.
+R393 adds `LoadReplaySourceReturnStoreSnapshotResponseMatch` between query
+issue and evidence. The reduced top now routes `responseValid`, `waitStore`,
+and `dataValid` through a named response-match/order owner while raw response,
+selected-row match, and SCB-return evidence remain disabled.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1326,6 +1330,10 @@ overlay. Most state remains in child modules:
   local STQ snapshot query-issue owner before
   `LoadReplaySourceReturnStoreSnapshotEvidence`. The current reduced top ties
   request issue and downstream sink readiness low.
+- `LoadReplaySourceReturnStoreSnapshotResponseMatch`: optional R393 selected-row
+  local STQ snapshot response-match owner before
+  `LoadReplaySourceReturnStoreSnapshotEvidence`. The current reduced top ties
+  raw response, selected-row match, and SCB-return evidence low.
 - `LoadReplaySourceReturnScbLiveControl`: optional R389 external-SCB live
   request owner before `LoadReplaySourceReturnReadiness`. The current reduced
   top ties its request and evidence inputs low, so source readiness keeps the
@@ -1789,7 +1797,10 @@ that control's evidence inputs from
 `LoadReplaySourceReturnStoreSnapshotEvidence`, but the top still leaves
 selected-row STQ query/response evidence disabled. R392 replaces the local
 query-issued literal with `LoadReplaySourceReturnStoreSnapshotQueryIssue`,
-while keeping live request issue and sink readiness disabled. R300
+while keeping live request issue and sink readiness disabled. R393 replaces the
+local response evidence literals with
+`LoadReplaySourceReturnStoreSnapshotResponseMatch`, while keeping raw response,
+selected-row match, and SCB-return evidence disabled. R300
 inserts
 `LoadReplayReturnReadiness` after that source-return boundary. R301 inserts
 `LoadReplayReturnPipeSelect` as the explicit pipe-mask/select owner feeding

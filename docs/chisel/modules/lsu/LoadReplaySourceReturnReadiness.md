@@ -119,7 +119,8 @@ from already flush-pruned replay-LIQ state.
 
 ## Deferred Owners
 
-- Live selected-row STQ response matching for the R391 evidence inputs.
+- Live raw STQ response source and selected-row identity inputs for the R393
+  response-match owner.
 - External SCB replay response producer and pending/returned qualification.
 - Return-pipe availability producer and arbitration behind
   `LoadReplayReturnReadiness`.

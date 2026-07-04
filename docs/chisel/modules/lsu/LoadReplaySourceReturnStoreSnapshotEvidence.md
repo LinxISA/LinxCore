@@ -18,6 +18,7 @@
     - `LDQInfo::pickL1`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnReadiness.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ResidentStoreForwardStoreSnapshot.scala`
@@ -39,8 +40,10 @@ bytes through `LDQInfo::handleMerge`.
 R391 keeps the reduced top dormant. The top feeds this owner with the selected
 replay-row launch-valid signal. R392 drives `queryIssued` from
 `LoadReplaySourceReturnStoreSnapshotQueryIssue`, but keeps that owner's
-`requestEnable` and `sinkReady` false, so `queryIssued` remains false.
-`responseValid`, `waitStore`, and `dataValid` also remain false. Its
+`requestEnable` and `sinkReady` false, so `queryIssued` remains false. R393
+drives `responseValid`, `waitStore`, and `dataValid` from
+`LoadReplaySourceReturnStoreSnapshotResponseMatch`, but keeps that owner's raw
+response, selected-row match, and SCB-order inputs false. Its
 `snapshotRequired` and `snapshotValid` outputs feed
 `LoadReplaySourceReturnStoreSnapshotReadyControl`; that control still has
 `requestEnable=false`, so the integrated readiness path continues to forward
@@ -86,9 +89,9 @@ the legacy combinational resident-store snapshot readiness.
 ## State
 
 The module is combinational. It does not store selected-row identity or merge
-data. R392 names the request-issue side of `queryIssued`; future integration
-must still provide stable response matching for the currently selected replay
-row.
+data. R392 names the request-issue side of `queryIssued`, and R393 names the
+response-match/order side that will eventually provide selected-row
+`responseValid`, `waitStore`, and `dataValid` evidence.
 
 ## Logic Design
 
@@ -128,7 +131,7 @@ snapshot completion. Evidence visible during flush is reported through
 
 ## Deferred Owners
 
-- Live selected-row STQ response matching.
+- Raw STQ response queue and live selected-row STQ response matching.
 - Stateful wait-store replay row mutation.
 - Store-data merge into replay row line data.
 - Live promotion of `LoadReplaySourceReturnStoreSnapshotReadyControl.requestEnable`.
@@ -139,11 +142,12 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnReadiness
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r392x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r393x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover idle/no-row behavior, selected-row query requirement,

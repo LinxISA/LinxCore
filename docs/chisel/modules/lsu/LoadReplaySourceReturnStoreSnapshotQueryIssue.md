@@ -16,6 +16,7 @@
   - `model/LinxCoreModel/model/lsu/store_unit/stq.cpp`
     - `STQ::lookupForLoad`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnReadiness.scala`
@@ -86,8 +87,10 @@ queryIssued    = queryValid && sinkReady
 ```
 
 `queryIssued` feeds `LoadReplaySourceReturnStoreSnapshotEvidence.queryIssued`
-in the top. In R392 integration, both `requestEnable` and `sinkReady` are tied
-false, so the evidence path still observes an unissued query.
+and the R393 `LoadReplaySourceReturnStoreSnapshotResponseMatch` owner in the
+top. In R393 integration, `requestEnable`, `sinkReady`, and raw response
+inputs remain tied false, so the evidence path still observes an unissued
+query and no response evidence.
 
 ## Timing
 
@@ -104,7 +107,7 @@ Flush clears `active`, `requestActive`, `queryCandidate`, `queryValid`, and
 ## Deferred Owners
 
 - Selected-row request payload and STQ lookup sink valid/ready connection.
-- STQ response matching back to the selected replay row.
+- Raw STQ response queue and selected-row response matching.
 - Wait-store row mutation and data merge.
 - Live promotion of `LoadReplaySourceReturnStoreSnapshotReadyControl.requestEnable`.
 
@@ -114,10 +117,11 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r392x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r393x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover disabled/flush suppression, disabled live request with a

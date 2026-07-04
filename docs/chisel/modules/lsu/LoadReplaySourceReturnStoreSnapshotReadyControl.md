@@ -13,6 +13,7 @@
     - `LDQInfo::handleMerge`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnReadiness.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnScbLiveControl.scala`
@@ -32,8 +33,10 @@ a combinational `ResidentStoreForwardStoreSnapshot`, so the control runs with
 R391 feeds `snapshotRequired` and `snapshotValid` from
 `LoadReplaySourceReturnStoreSnapshotEvidence`, but leaves the live request gate
 disabled. R392 names the selected-row STQ query-issue boundary but leaves that
-request disabled too. Future live mode can enable this control only after
-selected-row STQ query issue and response matching are both stable.
+request disabled too. R393 names selected-row STQ response matching and
+SCB-before-STQ ordering, while raw response evidence remains inactive. Future
+live mode can enable this control only after selected-row STQ query issue and
+response matching are both stable.
 
 ## Interface
 
@@ -98,9 +101,9 @@ This module only produces its `storeSnapshotReady` input.
 The control is same-cycle combinational logic in front of
 `LoadReplaySourceReturnReadiness`. It does not latch resident snapshot state;
 R391 provides the current combinational evidence classifier and R392 provides a
-disabled query-issue owner. Future selected-row STQ response matching must
-provide stable response inputs to that classifier before live request mode is
-enabled.
+disabled query-issue owner. R393 provides the disabled response-match/order
+owner. Future raw STQ response and selected-row identity inputs must be stable
+before live request mode is enabled.
 
 ## Flush/Recovery
 
@@ -110,7 +113,7 @@ behavior.
 
 ## Deferred Owners
 
-- Live selected-row STQ response matching.
+- Live raw STQ response source and selected-row identity match inputs.
 - Stateful STQ/source return tracking across replay-row repick cycles.
 - Full LIQ/LDQ relaunch, LHQ publication, ready-table wakeup, and memory trace
   rows.
@@ -122,11 +125,12 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnReadiness
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayLaunchReadiness
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r392x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r393x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover legacy snapshot readiness preservation, optional live
