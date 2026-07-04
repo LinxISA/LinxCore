@@ -113,6 +113,29 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val responseApplyInvalidDataWithWaitStore = Output(Bool())
   val responseApplyInvalidDataValidWithoutRawData = Output(Bool())
   val responseApplyInvalidSuppressedDataWithoutWait = Output(Bool())
+  val rowStatePlanActive = Output(Bool())
+  val rowStatePlanValid = Output(Bool())
+  val rowStatePlanRewait = Output(Bool())
+  val rowStatePlanDataMerge = Output(Bool())
+  val rowStatePlanDataNoMerge = Output(Bool())
+  val rowStatePlanSetWaitStatus = Output(Bool())
+  val rowStatePlanKeepRepickStatus = Output(Bool())
+  val rowStatePlanClearReturnState = Output(Bool())
+  val rowStatePlanLineWrite = Output(Bool())
+  val rowStatePlanWaitStoreWrite = Output(Bool())
+  val rowStatePlanNextWaitStore = Output(Bool())
+  val rowStatePlanNextWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val rowStatePlanNextWaitStoreRid = Output(new ROBID(idEntries))
+  val rowStatePlanNextLineData = Output(UInt((lineBytes * 8).W))
+  val rowStatePlanNextValidMask = Output(UInt(lineBytes.W))
+  val rowStatePlanNextDataComplete = Output(Bool())
+  val rowStatePlanNextScbReturned = Output(Bool())
+  val rowStatePlanNextStqReturned = Output(Bool())
+  val rowStatePlanNextStoreSourceReturned = Output(Bool())
+  val rowStatePlanBlockedByNoApply = Output(Bool())
+  val rowStatePlanInvalidApplyWithoutStqReturned = Output(Bool())
+  val rowStatePlanInvalidStqReturnedWithoutApply = Output(Bool())
+  val rowStatePlanInvalidStqApplyWithoutScb = Output(Bool())
 
   val queryIssueActive = Output(Bool())
   val queryIssueRequestActive = Output(Bool())
@@ -317,6 +340,11 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     pcWidth = pcWidth,
     lineBytes = lineBytes
   ))
+  val rowStatePlan = Module(new LoadReplaySourceReturnStoreSnapshotRowStatePlan(
+    idEntries = idEntries,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes
+  ))
   val evidence = Module(new LoadReplaySourceReturnStoreSnapshotEvidence)
   val control = Module(new LoadReplaySourceReturnStoreSnapshotReadyControl)
 
@@ -472,6 +500,28 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   responseApply.io.rowValidMask := acceptedToken.io.tokenValidMask
   responseApply.io.rowRequestMask := acceptedToken.io.tokenRequestByteMask
 
+  val acceptedContextComplete =
+    (acceptedToken.io.tokenRequestByteMask =/= 0.U) &&
+      ((acceptedToken.io.tokenValidMask & acceptedToken.io.tokenRequestByteMask) === acceptedToken.io.tokenRequestByteMask)
+
+  rowStatePlan.io.enable := io.enable
+  rowStatePlan.io.flush := io.flush
+  rowStatePlan.io.applyValid := responseApply.io.applyValid
+  rowStatePlan.io.applyStqReturned := responseApply.io.stqReturned
+  rowStatePlan.io.waitStoreApply := responseApply.io.waitStoreApply
+  rowStatePlan.io.waitStoreInfo := responseApply.io.waitStoreInfo
+  rowStatePlan.io.waitStoreRid := responseApply.io.waitStoreRid
+  rowStatePlan.io.dataMergeApply := responseApply.io.dataMergeApply
+  rowStatePlan.io.dataNoMerge := responseApply.io.dataNoMerge
+  rowStatePlan.io.priorScbReturned := io.scbReturned
+  rowStatePlan.io.priorStqReturned := false.B
+  rowStatePlan.io.priorLineData := acceptedToken.io.tokenLineData
+  rowStatePlan.io.priorValidMask := acceptedToken.io.tokenValidMask
+  rowStatePlan.io.priorRequestComplete := acceptedContextComplete
+  rowStatePlan.io.mergedLineData := responseApply.io.mergedLineData
+  rowStatePlan.io.mergedValidMask := responseApply.io.mergedValidMask
+  rowStatePlan.io.mergedRequestComplete := responseApply.io.mergedRequestComplete
+
   evidence.io.enable := io.enable
   evidence.io.flush := io.flush
   evidence.io.launchValid := io.launchValid
@@ -531,6 +581,29 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.responseApplyInvalidDataWithWaitStore := responseApply.io.invalidDataWithWaitStore
   io.responseApplyInvalidDataValidWithoutRawData := responseApply.io.invalidDataValidWithoutRawData
   io.responseApplyInvalidSuppressedDataWithoutWait := responseApply.io.invalidSuppressedDataWithoutWait
+  io.rowStatePlanActive := rowStatePlan.io.active
+  io.rowStatePlanValid := rowStatePlan.io.planValid
+  io.rowStatePlanRewait := rowStatePlan.io.rewaitApply
+  io.rowStatePlanDataMerge := rowStatePlan.io.dataMergePlan
+  io.rowStatePlanDataNoMerge := rowStatePlan.io.dataNoMergePlan
+  io.rowStatePlanSetWaitStatus := rowStatePlan.io.setWaitStatus
+  io.rowStatePlanKeepRepickStatus := rowStatePlan.io.keepRepickStatus
+  io.rowStatePlanClearReturnState := rowStatePlan.io.clearReturnState
+  io.rowStatePlanLineWrite := rowStatePlan.io.lineWrite
+  io.rowStatePlanWaitStoreWrite := rowStatePlan.io.waitStoreWrite
+  io.rowStatePlanNextWaitStore := rowStatePlan.io.nextWaitStore
+  io.rowStatePlanNextWaitStoreInfo := rowStatePlan.io.nextWaitStoreInfo
+  io.rowStatePlanNextWaitStoreRid := rowStatePlan.io.nextWaitStoreRid
+  io.rowStatePlanNextLineData := rowStatePlan.io.nextLineData
+  io.rowStatePlanNextValidMask := rowStatePlan.io.nextValidMask
+  io.rowStatePlanNextDataComplete := rowStatePlan.io.nextDataComplete
+  io.rowStatePlanNextScbReturned := rowStatePlan.io.nextScbReturned
+  io.rowStatePlanNextStqReturned := rowStatePlan.io.nextStqReturned
+  io.rowStatePlanNextStoreSourceReturned := rowStatePlan.io.nextStoreSourceReturned
+  io.rowStatePlanBlockedByNoApply := rowStatePlan.io.blockedByNoApply
+  io.rowStatePlanInvalidApplyWithoutStqReturned := rowStatePlan.io.invalidApplyWithoutStqReturned
+  io.rowStatePlanInvalidStqReturnedWithoutApply := rowStatePlan.io.invalidStqReturnedWithoutApply
+  io.rowStatePlanInvalidStqApplyWithoutScb := rowStatePlan.io.invalidStqApplyWithoutScb
 
   io.queryIssueActive := queryIssue.io.active
   io.queryIssueRequestActive := queryIssue.io.requestActive

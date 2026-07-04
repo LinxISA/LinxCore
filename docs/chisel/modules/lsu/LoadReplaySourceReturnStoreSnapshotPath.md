@@ -36,6 +36,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseHeadState.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseDrain.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseApply.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowStatePlan.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-PATH-001`
@@ -137,6 +138,13 @@ valid byte mask, and request byte mask. `ResponseApply` now computes merge
 intent from that accepted-token context, not from a zero placeholder or the
 current launch selector.
 
+R409 adds `LoadReplaySourceReturnStoreSnapshotRowStatePlan` after
+`ResponseApply`. The plan converts the ordered response apply event into the
+final future row-state branch: wait-store rewait clears return/data state and
+records wait-store identity, while data/no-data responses keep the row repick
+and produce split `scbRnt/stqRnt` diagnostics. This is still a diagnostic
+plan; no registered LIQ row mutation is enabled.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `sinkReady`, raw STQ response, SCB return, wait-store, and
 data-valid inputs false, and it ties external stale-head evidence false, so
@@ -195,6 +203,7 @@ without another direct top child instance.
 | `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, and blocker diagnostics. |
 | `lookup*` | R405 resident-STQ lookup diagnostics: query validity, row masks, eligible store mask, forward/wait masks, wait-store, raw data evidence, and response-visible data evidence. |
 | `responseApply*` | R407/R408 ordered-response apply intent: STQ-returned, wait-store identity, accepted-context data merge mask/data, completion diagnostic, and malformed-payload blockers. |
+| `rowStatePlan*` | R409 future row-state write plan: wait-store rewait clearing, data/no-data repick preservation, next line image, next split SCB/STQ bits, and invalid response-class diagnostics. |
 
 The top consumes the existing `control*`, `evidence*`, and `queryIssue*`
 diagnostics through unchanged top IO names. Response-match and identity-match
@@ -214,7 +223,8 @@ response-drain owner, R400 adds a combinational reduced row-state proof owner,
 R401 adds a combinational request/capacity gate, R402 adds a combinational
 request-payload shaper, R404 adds a combinational request sink, and R405 adds
 a combinational resident-STQ lookup owner. R407 adds a combinational
-response-apply intent owner. The path still owns no LDQ/LIQ mutation, full
+response-apply intent owner. R409 adds a combinational row-state plan owner
+after response apply. The path still owns no LDQ/LIQ mutation, full
 multi-cluster row fsm source, wait-store state mutation, or data merge state.
 
 ## Logic Design
@@ -236,6 +246,7 @@ RequestControl.querySinkReady
   -> ResponseHeadState.headStale
   -> ResponseDrain.orderedConsumed/staleDropped/dequeueReady
   -> ResponseApply.stqReturned/waitStoreApply/dataMergeApply
+  -> RowStatePlan.rewaitApply/dataMergePlan/nextStqReturned
   -> Evidence.snapshotRequired/snapshotValid
   -> ReadyControl.storeSnapshotReady
 ```
@@ -325,6 +336,12 @@ the path composition it is connected to the ordered-consumed queue head and the
 R400 reduced repick proof. R408 feeds its row image inputs from the accepted
 query token, so the merge diagnostic uses the line data, valid mask, and
 request mask captured with the query that produced the response.
+
+The R409 row-state plan converts the apply event into the final write intent
+that a future LIQ mutation owner should use. Wait-store responses clear final
+SCB/STQ return bits and the row data image because the model immediately calls
+`rewait`; data/no-data responses keep the row in repick state and set final
+`stqRnt`.
 
 The current top tie-offs keep `queryIssued=false`, `responseValid=false`,
 `requestAccepted=false`, and `requestEnable=false`, so the live chain does not

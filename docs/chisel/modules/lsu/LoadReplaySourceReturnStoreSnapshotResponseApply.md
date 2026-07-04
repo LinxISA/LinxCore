@@ -39,6 +39,12 @@ R408 wires the row-image inputs from
 `rowValidMask`, and `rowRequestMask` are delayed with the accepted local STQ
 query instead of sampled from the current launch selector.
 
+R409 consumes this intent in
+`LoadReplaySourceReturnStoreSnapshotRowStatePlan`, which names the future
+final row-state branch. `ResponseApply.stqReturned` remains an event-level
+intent; for wait-store responses the row-state plan clears final `stqRnt`
+again because the model immediately calls `rewait`.
+
 ## Interface
 
 | Signal | Description |
@@ -83,8 +89,8 @@ controlled by `dataValid` after the wait-store priority rule.
 
 ## Deferred Owners
 
-- Registered LIQ row mutation from apply intent.
-- Separate `stqRnt` and `scbRnt` row state instead of coarse
+- Registered LIQ row mutation from the R409 row-state plan.
+- Real row-carried `stqRnt` and `scbRnt` state instead of coarse
   `sourcesReturned`.
 - Full raw external STQ response data payload wiring.
 
