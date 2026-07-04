@@ -15,6 +15,9 @@ class LoadReplaySourceReturnStoreSnapshotResponseHeadStateIO(
   val responseClusterId = Input(UInt(clusterIdWidth.W))
   val responseEntryId = Input(UInt(entryIdWidth.W))
   val repickMask = Input(UInt(liqEntries.W))
+  val rowProofEnable = Input(Bool())
+  val rowValidMask = Input(UInt(liqEntries.W))
+  val rowScbReturnedMask = Input(UInt(liqEntries.W))
   val externalHeadStale = Input(Bool())
 
   val active = Output(Bool())
@@ -22,12 +25,17 @@ class LoadReplaySourceReturnStoreSnapshotResponseHeadStateIO(
   val externalHeadStaleUsed = Output(Bool())
   val reducedHeadTargetsRow = Output(Bool())
   val reducedHeadRepick = Output(Bool())
+  val reducedHeadRowValid = Output(Bool())
+  val reducedHeadScbReturned = Output(Bool())
+  val reducedHeadApplyEligible = Output(Bool())
   val reducedHeadStale = Output(Bool())
   val reducedHeadOneHot = Output(UInt(liqEntries.W))
   val blockedByNoHead = Output(Bool())
   val blockedByReducedDisabled = Output(Bool())
   val blockedByUnsupportedCluster = Output(Bool())
   val blockedByEntryOutOfRange = Output(Bool())
+  val blockedByInvalidRow = Output(Bool())
+  val blockedByScbNotReturned = Output(Bool())
   val blockedByStillRepick = Output(Bool())
   val blockedByDisabled = Output(Bool())
   val blockedByFlush = Output(Bool())
@@ -59,8 +67,13 @@ class LoadReplaySourceReturnStoreSnapshotResponseHeadState(
   val rawOneHot = UIntToOH(responseEntryIndex, liqEntries)
   val reducedHeadOneHot = Mux(reducedCandidate && clusterIsReduced && entryInRange, rawOneHot, 0.U(liqEntries.W))
   val repickMaskHit = (io.repickMask & rawOneHot).orR
+  val rowValidMaskHit = (io.rowValidMask & rawOneHot).orR
+  val rowScbReturnedMaskHit = (io.rowScbReturnedMask & rawOneHot).orR
   val reducedHeadTargetsRow = reducedCandidate && clusterIsReduced && entryInRange
   val reducedHeadRepick = reducedHeadTargetsRow && repickMaskHit
+  val reducedHeadRowValid = reducedHeadTargetsRow && (!io.rowProofEnable || rowValidMaskHit)
+  val reducedHeadScbReturned = reducedHeadRepick && (!io.rowProofEnable || rowScbReturnedMaskHit)
+  val reducedHeadApplyEligible = reducedHeadRepick && reducedHeadRowValid && reducedHeadScbReturned
   val reducedHeadStale = reducedHeadTargetsRow && !repickMaskHit
   val externalHeadStaleUsed = active && io.headValid && io.externalHeadStale
 
@@ -69,12 +82,17 @@ class LoadReplaySourceReturnStoreSnapshotResponseHeadState(
   io.externalHeadStaleUsed := externalHeadStaleUsed
   io.reducedHeadTargetsRow := reducedHeadTargetsRow
   io.reducedHeadRepick := reducedHeadRepick
+  io.reducedHeadRowValid := reducedHeadRowValid
+  io.reducedHeadScbReturned := reducedHeadScbReturned
+  io.reducedHeadApplyEligible := reducedHeadApplyEligible
   io.reducedHeadStale := reducedHeadStale
   io.reducedHeadOneHot := reducedHeadOneHot
   io.blockedByNoHead := active && !io.headValid
   io.blockedByReducedDisabled := active && io.headValid && !io.reducedEnable && !io.externalHeadStale
   io.blockedByUnsupportedCluster := reducedCandidate && !clusterIsReduced
   io.blockedByEntryOutOfRange := reducedCandidate && clusterIsReduced && !entryInRange
+  io.blockedByInvalidRow := reducedHeadTargetsRow && io.rowProofEnable && !rowValidMaskHit
+  io.blockedByScbNotReturned := reducedHeadRepick && io.rowProofEnable && !rowScbReturnedMaskHit
   io.blockedByStillRepick := reducedHeadRepick
   io.blockedByDisabled := !io.enable && io.headValid
   io.blockedByFlush := io.enable && io.flush && io.headValid

@@ -34,6 +34,8 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val selectedIdentityEnable = Input(Bool())
   val selectedLaunchIndex = Input(UInt(liqPtrWidth.W))
   val selectedRepickMask = Input(UInt(liqEntries.W))
+  val selectedRowValidMask = Input(UInt(liqEntries.W))
+  val selectedRowScbReturnedMask = Input(UInt(liqEntries.W))
   val selectedValid = Input(Bool())
   val selectedRepick = Input(Bool())
   val responseValidIn = Input(Bool())
@@ -511,7 +513,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   responseMatch.io.queryIssued := acceptedToken.io.tokenValid
   responseMatch.io.responseValidIn := responseQueue.io.headValid
   responseMatch.io.responseMatchesSelected := identityMatch.io.responseMatchesSelected
-  responseMatch.io.scbReturned := io.scbReturned
+  responseMatch.io.scbReturned := io.scbReturned || responseHeadState.io.reducedHeadScbReturned
   responseMatch.io.waitStoreIn := responseQueue.io.headWaitStore
   responseMatch.io.dataValidIn := responseQueue.io.headDataValid
 
@@ -522,6 +524,9 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   responseHeadState.io.responseClusterId := responseQueue.io.headClusterId
   responseHeadState.io.responseEntryId := responseQueue.io.headEntryId
   responseHeadState.io.repickMask := io.selectedRepickMask
+  responseHeadState.io.rowProofEnable := io.selectedIdentityEnable
+  responseHeadState.io.rowValidMask := io.selectedRowValidMask
+  responseHeadState.io.rowScbReturnedMask := io.selectedRowScbReturnedMask
   responseHeadState.io.externalHeadStale := io.responseHeadStale
 
   responseDrain.io.enable := io.enable

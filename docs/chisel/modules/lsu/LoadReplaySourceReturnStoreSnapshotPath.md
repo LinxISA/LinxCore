@@ -156,15 +156,24 @@ but it wires the source-shaped request payload onward to
 `ReducedLoadReplayLiqAllocPath` so the downstream bridge and native LIQ
 mutation boundary are now structurally connected.
 
+R419 extends the R400 response-head proof with reduced row-valid and
+row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
+drops stale heads from the model-equivalent not-repick proof, but response
+matching can now use the targeted LIQ row's `scbReturned` bit as the
+SCB-before-STQ ordering proof when the response head targets a valid reduced
+row. The top also instantiates this composite with the same LIQ depth as the
+reduced allocator so row masks are not truncated at the response-head boundary.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `rowMutationLiveEnable`, `sinkReady`, raw STQ response, SCB
 return, wait-store, and data-valid inputs false, and it ties external
 stale-head evidence false, so `storeSnapshotReady` still forwards the legacy
-resident-store snapshot readiness. The reduced `selectedRepickMask` now feeds
-head-state proof inside the path, but no raw response is visible in the top.
-Those raw inputs live at the path boundary instead of inside the module so the
-identity and response child owners remain a real composite boundary and can
-later be promoted without another direct top child instance.
+resident-store snapshot readiness. The reduced `selectedRepickMask`,
+`selectedRowValidMask`, and `selectedRowScbReturnedMask` now feed head-state
+proof inside the path, but no raw response is visible in the top. Those raw
+inputs live at the path boundary instead of inside the module so the identity
+and response child owners remain a real composite boundary and can later be
+promoted without another direct top child instance.
 
 ## Interface
 
@@ -181,6 +190,8 @@ later be promoted without another direct top child instance.
 | `selectedIdentityEnable` | Selects the reduced LIQ launch-index projection instead of the raw selected-row identity inputs. |
 | `selectedLaunchIndex` | Reduced LIQ selected launch slot used by `LoadReplaySourceReturnStoreSnapshotSelectedIdentity`. |
 | `selectedRepickMask` | Reduced LIQ rows already resident in `Repick`; used to reject pre-repick or stale selected rows. |
+| `selectedRowValidMask` | Reduced LIQ row-valid mask used by R419 response-head proof. |
+| `selectedRowScbReturnedMask` | Reduced LIQ row SCB-returned mask used by R419 response-head proof and response ordering. |
 | `selectedValid` | Future raw selected replay-row identity is valid when `selectedIdentityEnable=false`. |
 | `selectedRepick` | Future raw selected row is still in the model-equivalent `LDQ_REPICK` state. |
 | `responseValidIn` | Future raw STQ response is visible to the R398 queue. |
@@ -238,8 +249,10 @@ request-payload shaper, R404 adds a combinational request sink, and R405 adds
 a combinational resident-STQ lookup owner. R407 adds a combinational
 response-apply intent owner. R409 adds a combinational row-state plan owner
 after response apply. R410 adds a combinational row-mutation request owner with
-its live request arm forced off. The path still owns no LDQ/LIQ mutation, full
-multi-cluster row fsm source, wait-store state mutation, or data merge state.
+its live request arm forced off. R419 widens the response-head proof inputs
+with row-valid and row-SCB-returned masks; it adds no state. The path still
+owns no LDQ/LIQ mutation, full multi-cluster row fsm source, wait-store state
+mutation, or data merge state.
 
 ## Logic Design
 
@@ -256,8 +269,8 @@ RequestControl.querySinkReady
   -> AcceptedToken.tokenValid/tokenRepick/cID/eID
   -> ResponseQueue.headValid/head response payload
   -> IdentityMatch.responseMatchesSelected
+  -> ResponseHeadState.headStale/reducedHeadScbReturned
   -> ResponseMatch.responseValid/waitStore/dataValid
-  -> ResponseHeadState.headStale
   -> ResponseDrain.orderedConsumed/staleDropped/dequeueReady
   -> ResponseApply.stqReturned/waitStoreApply/dataMergeApply
   -> RowStatePlan.rewaitApply/dataMergePlan/nextStqReturned
@@ -301,6 +314,13 @@ single-cluster path from `selectedRepickMask` and the queue-head `cID/eID`.
 This mirrors the model's `entry.fsm != MTC_LDQ_REPICK` check without treating
 unsupported identities as stale. The external `responseHeadStale` input remains
 available for the later full multi-cluster row-state owner.
+
+R419 adds `selectedRowValidMask` and `selectedRowScbReturnedMask` to the same
+head-state owner. The not-repick proof still drives stale drain, while
+`reducedHeadScbReturned` can satisfy `ResponseMatch.scbReturned` for the
+targeted row. This mirrors `ASSERT(entry.scbRnt)` in
+`MtcLDQInfo::handleSTQReceive` without enabling raw response inputs in the
+current top.
 
 The R401 request-control owner gates future STQ lookup request acceptance with
 `requestEnable`, path activity, R397 accepted-token capacity, and R403 request

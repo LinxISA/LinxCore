@@ -1683,6 +1683,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   ))
   val reducedReplayLiqSourceReturnStoreSnapshotPath =
     Module(new LoadReplaySourceReturnStoreSnapshotPath(
+      liqEntries = p.robEntries,
       idEntries = p.robEntries,
       peIdWidth = p.peIdWidth,
       stidWidth = p.threadIdWidth,
@@ -2518,6 +2519,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     loadLookupArbiter.io.replayGranted && reducedReplayLiqBaseDataAlign.io.dataReturned
   val reducedReplayLiqSelectedRowForStoreSnapshot =
     reducedLoadReplayLiqAllocPath.io.rows(reducedLoadReplayLiqAllocPath.io.launchIndex)
+  val reducedReplayLiqRowValidMask =
+    VecInit((0 until p.robEntries).map(idx => reducedLoadReplayLiqAllocPath.io.rows(idx).valid)).asUInt
+  val reducedReplayLiqRowScbReturnedMask =
+    VecInit((0 until p.robEntries).map(idx =>
+      reducedLoadReplayLiqAllocPath.io.rows(idx).valid && reducedLoadReplayLiqAllocPath.io.rows(idx).scbReturned
+    )).asUInt
   val reducedReplayLiqStoreSnapshotReady =
     LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring.connectInputs(
       path = reducedReplayLiqSourceReturnStoreSnapshotPath,
@@ -2527,6 +2534,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       launchValid = reducedLoadReplayLiqAllocPath.io.launchValid,
       selectedLaunchIndex = reducedLoadReplayLiqAllocPath.io.launchIndex,
       selectedRepickMask = reducedLoadReplayLiqAllocPath.io.repickMask,
+      selectedRowValidMask = reducedReplayLiqRowValidMask,
+      selectedRowScbReturnedMask = reducedReplayLiqRowScbReturnedMask,
       selectedLoadId = reducedLoadReplayLiqAllocPath.io.launchSelectedLoadId,
       selectedBid = reducedLoadReplayLiqAllocPath.io.launchSelectedBid,
       selectedGid = reducedLoadReplayLiqAllocPath.io.launchSelectedGid,
@@ -5467,6 +5476,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       launchValid: Bool,
       selectedLaunchIndex: UInt,
       selectedRepickMask: UInt,
+      selectedRowValidMask: UInt,
+      selectedRowScbReturnedMask: UInt,
       selectedLoadId: ROBID,
       selectedBid: ROBID,
       selectedGid: ROBID,
@@ -5488,6 +5499,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.selectedIdentityEnable := true.B
     path.io.selectedLaunchIndex := selectedLaunchIndex
     path.io.selectedRepickMask := selectedRepickMask
+    path.io.selectedRowValidMask := selectedRowValidMask
+    path.io.selectedRowScbReturnedMask := selectedRowScbReturnedMask
     path.io.selectedValid := false.B
     path.io.selectedRepick := false.B
     path.io.responseValidIn := false.B
