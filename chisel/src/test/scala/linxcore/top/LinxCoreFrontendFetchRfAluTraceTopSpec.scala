@@ -677,6 +677,22 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.blockPendingMask.getWidth == 8)
   }
 
+  test("R389 replay-LIQ source-return SCB live-control diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqSourceReturnScbLiveActive.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnScbLiveRequestActive.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnScbLiveEvidenceValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnScbLivePending.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnScbLiveReturned.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnScbLiveBlockedByRequestDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnScbLiveBlockedByNoPending.getWidth == 1)
+    assert(io.reducedLoadReplayLiqSourceReturnScbLiveBlockedByScbReturn.getWidth == 1)
+  }
+
   test("R364 replay W2 ROB completion diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -1075,6 +1091,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLaunchReadinessBlockedByReturn"))
     assert(sv.contains("io_reducedLoadReplayLiqSourceReturnSourceReturned"))
     assert(sv.contains("io_reducedLoadReplayLiqSourceReturnBlockedByStoreSnapshot"))
+    assert(sv.contains("io_reducedLoadReplayLiqSourceReturnScbLiveActive"))
+    assert(sv.contains("io_reducedLoadReplayLiqSourceReturnScbLiveBlockedByScbReturn"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnPipeBudgetAvailable"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnPipeBudgetBlockedByBudgetDisabled"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnPipeBudgetBlockedByConsumer"))
@@ -1222,6 +1240,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLaunchReadinessBlockedByReturn"))
     assert(sv.contains("io_reducedLoadReplayLiqSourceReturnScbSourceReturned"))
     assert(sv.contains("io_reducedLoadReplayLiqSourceReturnBlockedByScb"))
+    assert(sv.contains("io_reducedLoadReplayLiqSourceReturnScbLivePending"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnConsumerReady"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnConsumerBlockedByLretSink"))
     assert(sv.contains("io_reducedLoadReplayLiqReturnConsumerBlockedByWakeupSink"))

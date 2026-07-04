@@ -1029,6 +1029,12 @@ IEX occupancy owner's `liveRequested` and `livePipeOccupiedMask` from a named
 request/source-valid owner, but both the request and source remain disabled, so
 the existing forced-full pipe-occupied mask and blocked drain permit are
 preserved.
+R389 extends the replay-LIQ source-return namespace with
+`LoadReplaySourceReturnScbLiveControl`. The reduced top now feeds
+`LoadReplaySourceReturnReadiness.externalScbPending` and
+`externalScbReturned` from a named request/evidence owner, but the request and
+SCB evidence remain disabled, so the current no-external-SCB source-return
+behavior is preserved.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1293,6 +1299,10 @@ overlay. Most state remains in child modules:
   replay-LIQ rows. It treats the local resident-store snapshot as the current
   reduced store source, keeps the future external SCB pending/returned boundary
   explicit, and feeds `LoadReplayLaunchReadiness.scbReturned`.
+- `LoadReplaySourceReturnScbLiveControl`: optional R389 external-SCB live
+  request owner before `LoadReplaySourceReturnReadiness`. The current reduced
+  top ties its request and evidence inputs low, so source readiness keeps the
+  no-external-SCB behavior.
 - `LoadReplayReturnConsumerReady`: optional R305 replay-return consumer owner
   for replay-LIQ rows. It keeps the always-required IEX LRET sink separate
   from the conditional mem-wakeup sink and feeds
@@ -1743,7 +1753,9 @@ SCB/source return and return-pipe readiness low. R299 inserts
 `LoadReplaySourceReturnReadiness` before the launch gate: local resident-store
 snapshot readiness becomes the current reduced source-return sideband, the
 future external SCB pending/returned boundary remains explicit, and return-pipe
-readiness is separated from source return. R300 inserts
+readiness is separated from source return. R389 feeds that external-SCB
+boundary from `LoadReplaySourceReturnScbLiveControl` while keeping the live
+request disabled. R300 inserts
 `LoadReplayReturnReadiness` after that source-return boundary. R301 inserts
 `LoadReplayReturnPipeSelect` as the explicit pipe-mask/select owner feeding
 that readiness gate. R302 inserts `LoadReplayReturnPipePermit` as the mask
