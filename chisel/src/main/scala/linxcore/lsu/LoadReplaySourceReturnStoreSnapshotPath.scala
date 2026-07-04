@@ -24,6 +24,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val selectedEntryId = Input(UInt(entryIdWidth.W))
   val responseClusterId = Input(UInt(clusterIdWidth.W))
   val responseEntryId = Input(UInt(entryIdWidth.W))
+  val responseHeadStale = Input(Bool())
   val scbReturned = Input(Bool())
   val waitStoreIn = Input(Bool())
   val dataValidIn = Input(Bool())
@@ -99,6 +100,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     entryIdWidth = entryIdWidth
   ))
   val responseMatch = Module(new LoadReplaySourceReturnStoreSnapshotResponseMatch)
+  val responseDrain = Module(new LoadReplaySourceReturnStoreSnapshotResponseDrain)
   val evidence = Module(new LoadReplaySourceReturnStoreSnapshotEvidence)
   val control = Module(new LoadReplaySourceReturnStoreSnapshotReadyControl)
 
@@ -126,7 +128,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   acceptedToken.io.selectedRepick := selectedRepick
   acceptedToken.io.selectedClusterId := selectedClusterId
   acceptedToken.io.selectedEntryId := selectedEntryId
-  acceptedToken.io.responseConsumed := responseMatch.io.responseValid
+  acceptedToken.io.responseConsumed := responseDrain.io.orderedConsumed
 
   responseQueue.io.enable := io.enable
   responseQueue.io.flush := io.flush
@@ -135,7 +137,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   responseQueue.io.enqueueEntryId := io.responseEntryId
   responseQueue.io.enqueueWaitStore := io.waitStoreIn
   responseQueue.io.enqueueDataValid := io.dataValidIn
-  responseQueue.io.dequeueReady := responseMatch.io.responseValid
+  responseQueue.io.dequeueReady := responseDrain.io.dequeueReady
 
   identityMatch.io.enable := io.enable
   identityMatch.io.flush := io.flush
@@ -156,6 +158,12 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   responseMatch.io.scbReturned := io.scbReturned
   responseMatch.io.waitStoreIn := responseQueue.io.headWaitStore
   responseMatch.io.dataValidIn := responseQueue.io.headDataValid
+
+  responseDrain.io.enable := io.enable
+  responseDrain.io.flush := io.flush
+  responseDrain.io.headValid := responseQueue.io.headValid
+  responseDrain.io.orderedResponse := responseMatch.io.responseValid
+  responseDrain.io.headStale := io.responseHeadStale
 
   evidence.io.enable := io.enable
   evidence.io.flush := io.flush

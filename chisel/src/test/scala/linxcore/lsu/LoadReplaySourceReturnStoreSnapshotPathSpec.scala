@@ -52,6 +52,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedEntryId: Int = 0,
       responseClusterId: Int = 0,
       responseEntryId: Int = 0,
+      responseHeadStale: Boolean = false,
       scbReturned: Boolean = false,
       waitStoreIn: Boolean = false,
       dataValidIn: Boolean = false): Result = {
@@ -272,6 +273,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotSelectedIdentity"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotAcceptedToken"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseQueue"))
+    assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseDrain"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotIdentityMatch"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseMatch"))
     assert(sv.contains("io_storeSnapshotReady"))

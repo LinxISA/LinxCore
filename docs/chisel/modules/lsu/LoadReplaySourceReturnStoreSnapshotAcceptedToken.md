@@ -34,6 +34,10 @@ R397 inserts this owner inside
 the generated-RTL gate. The module is present so the composite can progress
 from same-cycle launch-index projection toward an accepted-query boundary
 without adding another direct child to `LinxCoreFrontendFetchRfAluTraceTop`.
+R399 clears the token from `LoadReplaySourceReturnStoreSnapshotResponseDrain`
+`orderedConsumed`, not from the raw queue pop signal. A future stale response
+drop can therefore drain the raw queue without destroying the accepted query
+identity.
 
 ## Interface
 
@@ -48,7 +52,7 @@ without adding another direct child to `LinxCoreFrontendFetchRfAluTraceTop`.
 | `selectedRepick` | Selected row is still in model-equivalent `LDQ_REPICK` state. |
 | `selectedClusterId` | Selected replay-row cluster ID. |
 | `selectedEntryId` | Selected replay-row entry ID. |
-| `responseConsumed` | Downstream response path accepted the matching ordered response. |
+| `responseConsumed` | Downstream drain owner accepted the matching ordered response. |
 
 ### Outputs
 
@@ -101,8 +105,8 @@ cycle so a same-cycle response can match it. If an older token is resident,
 the older token remains the response-match authority and a new query is
 diagnosed as `blockedByOutstandingToken`.
 
-`responseConsumed` clears the currently visible token. Flush has priority over
-capture and clear.
+`responseConsumed` clears the currently visible token only for ordered response
+consumption. Flush has priority over capture and clear.
 
 ## Timing
 
@@ -118,7 +122,8 @@ visible during flush reports `blockedByFlush`.
 
 ## Deferred Owners
 
-- Raw STQ response queue and valid/ready boundary.
+- Live raw STQ response source into the R398 queue.
+- Live stale-row proof into the R399 response drain.
 - Multi-cluster LDQ identity storage beyond the reduced launch-index
   projection.
 - Live wait-store replay mutation and returned-data merge.

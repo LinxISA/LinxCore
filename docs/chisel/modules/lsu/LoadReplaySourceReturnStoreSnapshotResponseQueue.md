@@ -37,6 +37,10 @@ response inputs false, so this packet does not make replay launch live. It
 does give the composite a real valid/ready boundary for future raw STQ
 responses without adding another direct child to the oversized top.
 
+R399 moves the pop decision into
+`LoadReplaySourceReturnStoreSnapshotResponseDrain`. The queue remains only the
+raw FIFO/bypass owner; it does not decide whether a head is ordered or stale.
+
 ## Interface
 
 ### Inputs
@@ -50,7 +54,7 @@ responses without adding another direct child to the oversized top.
 | `enqueueEntryId` | Response target entry ID from `MemReqBus.eID`. |
 | `enqueueWaitStore` | Response asks the load row to wait on an older store. |
 | `enqueueDataValid` | Response carries mergeable store data. |
-| `dequeueReady` | Downstream response owner consumed the current head. |
+| `dequeueReady` | Downstream drain owner consumed or explicitly dropped the current head. |
 
 ### Outputs
 
@@ -85,7 +89,7 @@ dataValid
 ```
 
 It does not own selected-row token identity, SCB-before-STQ ordering,
-stale-row discard, wait-store mutation, or returned-data merge.
+stale-row proof, wait-store mutation, or returned-data merge.
 
 ## Logic Design
 
@@ -106,6 +110,8 @@ multi-cycle raw response return.
 `headValid` is intentionally independent of `dequeueReady`; only storage and
 occupancy depend on downstream readiness. This avoids a combinational loop
 when the downstream response matcher drives `dequeueReady`.
+As of R399, `dequeueReady` comes from `LoadReplaySourceReturnStoreSnapshotResponseDrain`,
+which may pop an ordered head or a future explicitly stale head.
 
 ## Timing
 
@@ -124,8 +130,7 @@ identity and precise queued-response pruning are promoted.
 ## Deferred Owners
 
 - Live raw STQ response source into the path boundary.
-- Stale-row discard and nonmatching-head dequeue policy tied to replay row
-  state.
+- Live stale-row proof into the R399 response-drain owner.
 - Multi-token or multi-row response ownership beyond the current one-token
   accepted-query path.
 - Wait-store row mutation and returned-data merge.

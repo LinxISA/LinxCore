@@ -19,6 +19,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotAcceptedToken.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseDrain.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-RESPONSE-MATCH-001`
@@ -54,6 +55,10 @@ accepted snapshot request rather than the raw same-cycle query pulse.
 R398 feeds `responseValidIn`, response identity, and wait/data sidebands from
 the head of `LoadReplaySourceReturnStoreSnapshotResponseQueue`, preserving the
 model `lookup_su_lu_q` FIFO boundary before this matcher.
+R399 feeds this module's ordered response output into
+`LoadReplaySourceReturnStoreSnapshotResponseDrain`, which owns queue pop and
+accepted-token clear. The matcher still only decides whether the visible head
+is ordered for the accepted token.
 
 ## Interface
 
@@ -118,7 +123,7 @@ no-query, stale/unmatched, and SCB-order blockers.
 
 The current reduced top uses this module as a dormant same-cycle diagnostic
 owner. Live raw response sourcing, selected-row identity storage, stale-head
-dequeue, and replay-row mutation remain future owners.
+row-state evidence, and replay-row mutation remain future owners.
 
 ## Flush/Recovery
 
@@ -127,8 +132,8 @@ Response evidence visible during flush is reported through `blockedByFlush`.
 
 ## Deferred Owners
 
-- Live raw STQ response source into the R398 queue and precise stale-head
-  dequeue policy.
+- Live raw STQ response source into the R398 queue and live stale-head
+  row-state evidence into the R399 drain owner.
 - Selected replay-row identity storage and live `cID/eID` response source into
   R394 identity matching.
 - Live SCB-return evidence into the response-ordering input.
