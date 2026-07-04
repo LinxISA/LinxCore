@@ -13,6 +13,7 @@
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDataCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnReducedScalarShapeControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLaneCompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayDestination.scala`
@@ -43,6 +44,11 @@ mode, and emits future ROB resolve-data diagnostics:
 The module deliberately does not mutate the ROB row, write vector lane data,
 count multi-lane or vector returns, drive RF/writeback, update ready tables,
 wake issue queues, drain LRET, or insert an instruction into IEX E4 residency.
+
+R387 moves the current one-lane mode input under
+`LoadReplayReturnReducedScalarShapeControl`, so the ROB resolve-data boundary
+now consumes the same named reduced-shape owner as lane completion, TLOAD
+completion, and residency selection.
 
 ## Interface
 
@@ -91,7 +97,8 @@ visibility signal from asserting.
 
 - `setMemDataValid`, `memRid`, `memDst`, and `memData` come from
   `LoadReplayReturnIexDataCandidate`;
-- `reducedSingleLane` is tied true for the current scalar replay subset;
+- `reducedSingleLane` comes from `LoadReplayReturnReducedScalarShapeControl`
+  for the current scalar replay subset;
 - `readyForPipeInsert` feeds the R324 lane-completion permit before the R322
   insert-shaped diagnostic.
 

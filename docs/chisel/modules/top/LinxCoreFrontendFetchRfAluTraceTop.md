@@ -1019,6 +1019,9 @@ R386 extends the same replay-LIQ namespace with
 ordinary scalar one-lane, non-TLOAD, LDA-target shape into lane completion,
 TLOAD completion, and E4 residency selection from one owner instead of raw
 shape constants.
+R387 extends that shape owner to feed the ROB resolve-data candidate's
+`reducedSingleLane` mode as well, removing the last top-local ordinary scalar
+lane-mode constant from the replay-return resolve path.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1357,12 +1360,13 @@ overlay. Most state remains in child modules:
 - `LoadReplayReturnRobResolveDataCandidate`: optional R323 diagnostic ROB
   resolve-data request owner. It consumes the admitted setMemData payload,
   emits reduced scalar all-destination data-valid, one-destination data-valid,
-  and ret-lane increment intent, and leaves real ROB mutation plus vector lane
-  accounting to future owner packets.
+  and ret-lane increment intent, consumes single-lane mode from the R386/R387
+  shape owner, and leaves real ROB mutation plus vector lane accounting to
+  future owner packets.
 - `LoadReplayReturnReducedScalarShapeControl`: optional R386 reduced scalar
   replay-return shape owner. It publishes the current ordinary scalar one-lane,
-  non-TLOAD, LDA-target shape consumed by lane completion, TLOAD completion, and
-  pipe residency selection.
+  non-TLOAD, LDA-target shape consumed by ROB resolve-data, lane completion,
+  TLOAD completion, and pipe residency selection.
 - `LoadReplayReturnLaneCompletionCandidate`: optional R324 diagnostic
   post-resolve lane-completion owner. It computes the future
   `retLaneAfterResolve` predicate and blocks scalar load-pair or vector/MEM
@@ -1849,15 +1853,18 @@ model ordering in `IEX::setMemData`: after ROB row checks, the model calls
 `ROBState::resolveData` to mark instruction destinations data-valid and
 increment `retLane`, then clones the instruction for E4 insertion. The reduced
 top exposes the scalar resolve request, one-destination data-valid flag, and
-ret-lane increment intent; the R322 insert candidate now consumes
-`readyForPipeInsert` from this boundary instead of the raw setMemData valid.
+ret-lane increment intent; R387 now feeds its single-lane mode from
+`LoadReplayReturnReducedScalarShapeControl`, and the R322 insert candidate now
+consumes `readyForPipeInsert` from this boundary instead of the raw setMemData
+valid.
 No ROB row, RF, ready-table, issue queue, replay-row, FIFO, or E4 pipe state is
 mutated by this diagnostic.
 R324 inserts `LoadReplayReturnLaneCompletionCandidate` after that R323
 resolve-data diagnostic. It names the model's `retLane < mem.realReqCnt`
 early-return checks for scalar load-pair and vector/MEM multi-lane rows before
 E4 insertion. R386 feeds `retLaneBefore=0`, `returnedLaneCount=1`,
-`realReqCnt=1`, and both all-lane classifiers false from
+`realReqCnt=1`, the ROB resolve single-lane mode, and both all-lane
+classifiers false from
 `LoadReplayReturnReducedScalarShapeControl`, so ordinary scalar replay
 continues to the R322 insert diagnostic only after the post-resolve completion
 permit is valid.

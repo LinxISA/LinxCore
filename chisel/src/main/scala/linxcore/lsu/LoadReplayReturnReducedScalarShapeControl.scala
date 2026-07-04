@@ -9,6 +9,7 @@ class LoadReplayReturnReducedScalarShapeControlIO(val countWidth: Int = 8)
 
   val active = Output(Bool())
   val reducedScalarShapeValid = Output(Bool())
+  val reducedSingleLane = Output(Bool())
   val scalarLoadPair = Output(Bool())
   val vectorOrMemMultiLane = Output(Bool())
   val retLaneBefore = Output(UInt(countWidth.W))
@@ -32,6 +33,7 @@ class LoadReplayReturnReducedScalarShapeControl(val countWidth: Int = 8)
 
   io.active := active
   io.reducedScalarShapeValid := active
+  io.reducedSingleLane := true.B
   io.scalarLoadPair := false.B
   io.vectorOrMemMultiLane := false.B
   io.retLaneBefore := 0.U

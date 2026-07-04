@@ -2988,7 +2988,6 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedReplayLiqReturnRobResolveDataCandidate.io.flush := reducedStoreFlush
   reducedReplayLiqReturnRobResolveDataCandidate.io.setMemDataValid :=
     reducedReplayLiqReturnIexDataCandidate.io.setMemDataValid
-  reducedReplayLiqReturnRobResolveDataCandidate.io.reducedSingleLane := true.B
   reducedReplayLiqReturnRobResolveDataCandidate.io.memRid :=
     reducedReplayLiqReturnIexDataCandidate.io.memRid
   reducedReplayLiqReturnRobResolveDataCandidate.io.memDst :=
@@ -3007,10 +3006,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     enable = reducedLoadReplayLiqAllocEnabled,
     flush = reducedStoreFlush,
     shape = reducedReplayLiqReturnReducedScalarShapeControl,
+    robResolve = reducedReplayLiqReturnRobResolveDataCandidate,
     lane = reducedReplayLiqReturnLaneCompletionCandidate,
     tload = reducedReplayLiqReturnTloadCompletionCandidate,
-    residency = reducedReplayLiqReturnPipeResidencyCandidate,
-    retLaneIncrement = reducedReplayLiqReturnRobResolveDataCandidate.io.retLaneIncrement)
+    residency = reducedReplayLiqReturnPipeResidencyCandidate)
   reducedReplayLiqReturnFinalMetadataCandidate.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqReturnFinalMetadataCandidate.io.flush := reducedStoreFlush
   reducedReplayLiqReturnFinalMetadataCandidate.io.tloadCompletionValid :=
@@ -5313,17 +5312,19 @@ private object LinxCoreFrontendFetchRfAluTraceTopR386ReducedScalarShapeWiring {
       enable: Bool,
       flush: Bool,
       shape: LoadReplayReturnReducedScalarShapeControl,
+      robResolve: LoadReplayReturnRobResolveDataCandidate,
       lane: LoadReplayReturnLaneCompletionCandidate,
       tload: LoadReplayReturnTloadCompletionCandidate,
-      residency: LoadReplayReturnPipeResidencyCandidate,
-      retLaneIncrement: Bool): Unit = {
+      residency: LoadReplayReturnPipeResidencyCandidate): Unit = {
     shape.io.enable := enable
     shape.io.flush := flush
+
+    robResolve.io.reducedSingleLane := shape.io.reducedSingleLane
 
     lane.io.scalarLoadPair := shape.io.scalarLoadPair
     lane.io.vectorOrMemMultiLane := shape.io.vectorOrMemMultiLane
     lane.io.retLaneBefore := shape.io.retLaneBefore
-    lane.io.returnedLaneCount := Mux(retLaneIncrement, shape.io.returnedLaneCount, 0.U)
+    lane.io.returnedLaneCount := Mux(robResolve.io.retLaneIncrement, shape.io.returnedLaneCount, 0.U)
     lane.io.realReqCnt := shape.io.realReqCnt
 
     tload.io.isMemIex := shape.io.isMemIex

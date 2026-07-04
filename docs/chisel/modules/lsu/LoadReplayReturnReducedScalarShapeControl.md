@@ -8,8 +8,11 @@
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/iex/iex.cpp`
     - `IEX::setMemData`
+  - `model/LinxCoreModel/model/pe/PECommon/PROBCommon.cpp`
+    - `ROBState::resolveData`
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnRobResolveDataCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLaneCompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTloadCompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyCandidate.scala`
@@ -30,6 +33,12 @@ outputs intentionally preserve existing behavior while giving later agents a
 single boundary to replace with real decoded instruction, ROB, and MemReqBus
 shape sidebands.
 
+R387 extends the same owner to publish the reduced ROB resolve lane mode.
+`ROBState::resolveData` returns an updated `retLane` count per returned lane;
+the current top supports only one ordinary scalar lane, so
+`reducedSingleLane` remains true and multi-lane/vector ROB lane writes remain
+blocked by downstream candidates.
+
 ## Interface
 
 | Direction | Signal | Description |
@@ -38,6 +47,7 @@ shape sidebands.
 | input | `flush` | Suppresses active shape diagnostics for the cycle. |
 | output | `active` | Wrapper enabled and not flushing. |
 | output | `reducedScalarShapeValid` | Current reduced scalar shape is active. |
+| output | `reducedSingleLane` | True for the current supported ROB resolve-data subset: one scalar returned lane. |
 | output | `scalarLoadPair` | False in the current reduced scalar subset. |
 | output | `vectorOrMemMultiLane` | False in the current reduced scalar subset. |
 | output | `retLaneBefore` | Zero diagnostic lane count before this return. |
@@ -54,6 +64,7 @@ shape sidebands.
 ```text
 active = enable && !flush
 reducedScalarShapeValid = active
+reducedSingleLane = true
 scalarLoadPair = false
 vectorOrMemMultiLane = false
 retLaneBefore = 0
@@ -74,6 +85,8 @@ with one returned lane and no TLOAD sub-instruction state.
 R386 wires `LinxCoreFrontendFetchRfAluTraceTop` through
 `LinxCoreFrontendFetchRfAluTraceTopR386ReducedScalarShapeWiring`:
 
+- `LoadReplayReturnRobResolveDataCandidate` receives `reducedSingleLane` from
+  this owner instead of a top-local constant;
 - `LoadReplayReturnLaneCompletionCandidate` receives scalar-pair,
   vector/MEM-multi-lane, `retLaneBefore`, returned-lane count, and `realReqCnt`
   from this owner;
@@ -101,6 +114,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnReducedScalarShapeControl
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnRobResolveDataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLaneCompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTloadCompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate

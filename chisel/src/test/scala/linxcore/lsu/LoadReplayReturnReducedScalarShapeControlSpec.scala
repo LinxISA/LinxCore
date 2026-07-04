@@ -7,6 +7,7 @@ object LoadReplayReturnReducedScalarShapeControlReference {
   final case class Result(
       active: Boolean,
       reducedScalarShapeValid: Boolean,
+      reducedSingleLane: Boolean,
       scalarLoadPair: Boolean,
       vectorOrMemMultiLane: Boolean,
       retLaneBefore: Int,
@@ -25,6 +26,7 @@ object LoadReplayReturnReducedScalarShapeControlReference {
     Result(
       active = active,
       reducedScalarShapeValid = active,
+      reducedSingleLane = true,
       scalarLoadPair = false,
       vectorOrMemMultiLane = false,
       retLaneBefore = 0,
@@ -49,6 +51,7 @@ class LoadReplayReturnReducedScalarShapeControlSpec extends AnyFunSuite {
 
     assert(result.active)
     assert(result.reducedScalarShapeValid)
+    assert(result.reducedSingleLane)
     assert(!result.scalarLoadPair)
     assert(!result.vectorOrMemMultiLane)
     assert(result.retLaneBefore == 0)
@@ -67,6 +70,7 @@ class LoadReplayReturnReducedScalarShapeControlSpec extends AnyFunSuite {
     assert(disabled.blockedByDisabled)
     assert(!disabled.active)
     assert(!disabled.reducedScalarShapeValid)
+    assert(disabled.reducedSingleLane)
     assert(disabled.returnedLaneCount == 1)
     assert(disabled.realReqCnt == 1)
 
@@ -76,6 +80,7 @@ class LoadReplayReturnReducedScalarShapeControlSpec extends AnyFunSuite {
     assert(flushed.blockedByFlush)
     assert(!flushed.active)
     assert(!flushed.reducedScalarShapeValid)
+    assert(flushed.reducedSingleLane)
     assert(!flushed.isVectorMachine)
   }
 
@@ -85,6 +90,7 @@ class LoadReplayReturnReducedScalarShapeControlSpec extends AnyFunSuite {
 
     assert(sv.contains("module LoadReplayReturnReducedScalarShapeControl"))
     assert(sv.contains("io_reducedScalarShapeValid"))
+    assert(sv.contains("io_reducedSingleLane"))
     assert(sv.contains("io_scalarLoadPair"))
     assert(sv.contains("io_vectorOrMemMultiLane"))
     assert(sv.contains("io_isMemIex"))
