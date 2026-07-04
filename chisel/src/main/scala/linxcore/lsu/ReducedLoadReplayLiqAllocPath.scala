@@ -66,6 +66,15 @@ class ReducedLoadReplayLiqAllocPathIO(
   val rowMutationWriteConflict = Output(Bool())
   val rowMutationBlockedByBridge = Output(Bool())
   val rowMutationBlockedByControl = Output(Bool())
+  val rowMutationControlBlockedByInvalidRow = Output(Bool())
+  val rowMutationControlBlockedByNotRepick = Output(Bool())
+  val rowMutationControlBlockedByScbNotReturned = Output(Bool())
+  val rowMutationControlBlockedByE4UpdateConflict = Output(Bool())
+  val rowMutationControlBlockedByClearResolvedConflict = Output(Bool())
+  val rowMutationControlBlockedByReplayWakeConflict = Output(Bool())
+  val rowMutationControlBlockedByRefillConflict = Output(Bool())
+  val rowMutationControlBlockedByLaunchConflict = Output(Bool())
+  val rowMutationControlBlockedByAllocationConflict = Output(Bool())
 
   val candidateConsumeReady = Output(Bool())
   val candidateUsable = Output(Bool())
@@ -345,4 +354,13 @@ class ReducedLoadReplayLiqAllocPath(
   io.rowMutationWriteConflict := liq.io.rowMutationWriteConflict
   io.rowMutationBlockedByBridge := io.rowMutationRequestValid && !rowMutationBridge.io.bridgeValid
   io.rowMutationBlockedByControl := liq.io.rowMutationBlockedByControl
+  io.rowMutationControlBlockedByInvalidRow := liq.io.rowMutationControlBlockedByInvalidRow
+  io.rowMutationControlBlockedByNotRepick := liq.io.rowMutationControlBlockedByNotRepick
+  io.rowMutationControlBlockedByScbNotReturned := liq.io.rowMutationControlBlockedByScbNotReturned
+  io.rowMutationControlBlockedByE4UpdateConflict := liq.io.rowMutationControlBlockedByE4UpdateConflict
+  io.rowMutationControlBlockedByClearResolvedConflict := liq.io.rowMutationControlBlockedByClearResolvedConflict
+  io.rowMutationControlBlockedByReplayWakeConflict := liq.io.rowMutationControlBlockedByReplayWakeConflict
+  io.rowMutationControlBlockedByRefillConflict := liq.io.rowMutationControlBlockedByRefillConflict
+  io.rowMutationControlBlockedByLaunchConflict := liq.io.rowMutationControlBlockedByLaunchConflict
+  io.rowMutationControlBlockedByAllocationConflict := liq.io.rowMutationControlBlockedByAllocationConflict
 }

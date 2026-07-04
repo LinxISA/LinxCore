@@ -2380,6 +2380,10 @@ live row mutation is introduced by this wiring packet.
 R428 exposes that handoff at the top IO: source-path row-mutation
 candidate/request diagnostics and the downstream LIQ bridge/write-control
 diagnostics are visible together while the live gate remains false.
+R429 extends the same helper-routed top visibility with the detailed native LIQ
+write-control blocker reasons, so future live-promotion agents can distinguish
+invalid/non-Repick/missing-SCB prerequisites from same-row E4, clear, replay,
+refill, launch, or allocation conflicts before enabling row mutation.
 R418 splits the replay-LIQ source-return launch sideband: local STQ/store
 snapshot readiness now feeds the reduced LIQ `e2StqReturned` input, while SCB
 readiness feeds `e2ScbReturned`. The combined launch/return behavior remains

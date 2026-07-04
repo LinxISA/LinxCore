@@ -55,9 +55,12 @@ width into the LIQ-native `storeEntries` width, and drives the child
 the source path into these inputs but keeps `rowMutationLiveEnable=false`, so
 the bridge and native writer remain structurally present without changing live
 generated-top replay behavior. R428 forwards the bridge, native write-control,
-and row-mutation blocker diagnostics through the reduced top IO so future
-live-mutation packets can be compared at the wrapper boundary before changing
-the enable policy.
+and aggregate row-mutation blocker diagnostics through the reduced top IO so
+future live-mutation packets can be compared at the wrapper boundary before
+changing the enable policy. R429 also forwards the child LIQ write-control
+blocker reasons, making the model-required valid/Repick/SCB-return and
+same-row writer-conflict prerequisites visible without changing the disabled
+live arm.
 
 R418 splits the E2 source-return inputs passed into `LoadInflightQueue`.
 `e2ScbReturned` now carries only the SCB source bit, while `e2StqReturned`
@@ -129,6 +132,7 @@ state.
 | `rowMutationInvalid*` | Bridge/payload invalid diagnostics for out-of-range source store index, conflicting status writes, wait-store payload without wait status, and inconsistent split-return state. |
 | `rowMutationWriteEnable` / `rowMutationApplyValid` / `rowMutationTargetEvidenceValid` / `rowMutationWriteConflict` | Native `LoadInflightQueue` row-mutation storage diagnostics from the R416 row owner. |
 | `rowMutationBlockedByBridge` / `rowMutationBlockedByControl` | Request blocked before native shape conversion or by the LIQ row-mutation write-control policy. |
+| `rowMutationControlBlockedBy*` | R429 detailed native write-control blocker reasons from `LoadInflightQueue`: invalid target row, not-Repick state, missing SCB return, E4 update conflict, clear-resolved conflict, replay-wakeup conflict, refill conflict, launch conflict, and allocation conflict. |
 
 ## State
 
@@ -214,6 +218,9 @@ ResolveQ accepts the LHQ record, when the source LIQ row is resident in
 R417 connects the child LIQ native row-mutation port to the source-shaped
 bridge in this composition. Current reduced-top behavior remains unchanged
 because the upstream source path keeps `rowMutationLiveEnable=false`.
+R429 only forwards the existing child LIQ write-control blocker reasons; it
+does not change the bridge request, write-enable predicate, or registered row
+mutation behavior.
 
 ## Timing
 
@@ -263,3 +270,6 @@ queue consumption, flush clearing, and Chisel elaboration with the adapter, LIQ
 row owner, and launch selector child modules. R282 elaboration also locks the path-local
 `launchEnable`, E2 forwarding inputs, launch accepted/ready outputs, E4
 diagnostics, LHQ hit-record output, and miss-pending diagnostic.
+R429 elaboration also locks the detailed row-mutation write-control blocker
+output names so downstream top-level diagnostics can distinguish model
+prerequisite failures from same-row writer conflicts.

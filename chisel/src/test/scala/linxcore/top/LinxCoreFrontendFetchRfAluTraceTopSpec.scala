@@ -750,6 +750,15 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqRowMutationWriteConflict.getWidth == 1)
     assert(io.reducedLoadReplayLiqRowMutationBlockedByBridge.getWidth == 1)
     assert(io.reducedLoadReplayLiqRowMutationBlockedByControl.getWidth == 1)
+    assert(io.reducedLoadReplayLiqRowMutationControlBlockedByInvalidRow.getWidth == 1)
+    assert(io.reducedLoadReplayLiqRowMutationControlBlockedByNotRepick.getWidth == 1)
+    assert(io.reducedLoadReplayLiqRowMutationControlBlockedByScbNotReturned.getWidth == 1)
+    assert(io.reducedLoadReplayLiqRowMutationControlBlockedByE4UpdateConflict.getWidth == 1)
+    assert(io.reducedLoadReplayLiqRowMutationControlBlockedByClearResolvedConflict.getWidth == 1)
+    assert(io.reducedLoadReplayLiqRowMutationControlBlockedByReplayWakeConflict.getWidth == 1)
+    assert(io.reducedLoadReplayLiqRowMutationControlBlockedByRefillConflict.getWidth == 1)
+    assert(io.reducedLoadReplayLiqRowMutationControlBlockedByLaunchConflict.getWidth == 1)
+    assert(io.reducedLoadReplayLiqRowMutationControlBlockedByAllocationConflict.getWidth == 1)
   }
 
   test("R391 replay-LIQ source-return store snapshot evidence diagnostics have stable widths") {
@@ -1416,6 +1425,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqRowMutationBridgeValid"))
     assert(sv.contains("io_reducedLoadReplayLiqRowMutationWriteEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqRowMutationBlockedByControl"))
+    assert(sv.contains("io_reducedLoadReplayLiqRowMutationControlBlockedByScbNotReturned"))
+    assert(sv.contains("io_reducedLoadReplayLiqRowMutationControlBlockedByAllocationConflict"))
     assert(sv.contains("io_reducedLoadReplayLiqMissMask"))
     assert(sv.contains("io_reducedLoadReplayLiqResolvedMask"))
     assert(sv.contains("io_reducedLoadReplayLiqE4MissKind"))

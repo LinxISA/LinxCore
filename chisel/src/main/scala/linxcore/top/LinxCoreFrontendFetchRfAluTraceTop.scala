@@ -1303,6 +1303,15 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqRowMutationWriteConflict = Output(Bool())
   val reducedLoadReplayLiqRowMutationBlockedByBridge = Output(Bool())
   val reducedLoadReplayLiqRowMutationBlockedByControl = Output(Bool())
+  val reducedLoadReplayLiqRowMutationControlBlockedByInvalidRow = Output(Bool())
+  val reducedLoadReplayLiqRowMutationControlBlockedByNotRepick = Output(Bool())
+  val reducedLoadReplayLiqRowMutationControlBlockedByScbNotReturned = Output(Bool())
+  val reducedLoadReplayLiqRowMutationControlBlockedByE4UpdateConflict = Output(Bool())
+  val reducedLoadReplayLiqRowMutationControlBlockedByClearResolvedConflict = Output(Bool())
+  val reducedLoadReplayLiqRowMutationControlBlockedByReplayWakeConflict = Output(Bool())
+  val reducedLoadReplayLiqRowMutationControlBlockedByRefillConflict = Output(Bool())
+  val reducedLoadReplayLiqRowMutationControlBlockedByLaunchConflict = Output(Bool())
+  val reducedLoadReplayLiqRowMutationControlBlockedByAllocationConflict = Output(Bool())
   val reducedLoadReplayLiqResidentCount = Output(UInt(storeStqCountWidth.W))
   val reducedLoadReplayLiqEmpty = Output(Bool())
   val reducedLoadReplayLiqFull = Output(Bool())
@@ -5761,6 +5770,24 @@ private object LinxCoreFrontendFetchRfAluTraceTopR428RowMutationVisibilityWiring
     io.reducedLoadReplayLiqRowMutationWriteConflict := liqPath.io.rowMutationWriteConflict
     io.reducedLoadReplayLiqRowMutationBlockedByBridge := liqPath.io.rowMutationBlockedByBridge
     io.reducedLoadReplayLiqRowMutationBlockedByControl := liqPath.io.rowMutationBlockedByControl
+    io.reducedLoadReplayLiqRowMutationControlBlockedByInvalidRow :=
+      liqPath.io.rowMutationControlBlockedByInvalidRow
+    io.reducedLoadReplayLiqRowMutationControlBlockedByNotRepick :=
+      liqPath.io.rowMutationControlBlockedByNotRepick
+    io.reducedLoadReplayLiqRowMutationControlBlockedByScbNotReturned :=
+      liqPath.io.rowMutationControlBlockedByScbNotReturned
+    io.reducedLoadReplayLiqRowMutationControlBlockedByE4UpdateConflict :=
+      liqPath.io.rowMutationControlBlockedByE4UpdateConflict
+    io.reducedLoadReplayLiqRowMutationControlBlockedByClearResolvedConflict :=
+      liqPath.io.rowMutationControlBlockedByClearResolvedConflict
+    io.reducedLoadReplayLiqRowMutationControlBlockedByReplayWakeConflict :=
+      liqPath.io.rowMutationControlBlockedByReplayWakeConflict
+    io.reducedLoadReplayLiqRowMutationControlBlockedByRefillConflict :=
+      liqPath.io.rowMutationControlBlockedByRefillConflict
+    io.reducedLoadReplayLiqRowMutationControlBlockedByLaunchConflict :=
+      liqPath.io.rowMutationControlBlockedByLaunchConflict
+    io.reducedLoadReplayLiqRowMutationControlBlockedByAllocationConflict :=
+      liqPath.io.rowMutationControlBlockedByAllocationConflict
   }
 }
 

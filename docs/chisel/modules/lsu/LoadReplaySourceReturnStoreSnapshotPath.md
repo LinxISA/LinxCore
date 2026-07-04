@@ -161,6 +161,10 @@ R428 exposes the source-path row-mutation candidate, request target, and
 live-disabled/target-shape diagnostics through the reduced top IO. This remains
 visibility-only: the top still ties `rowMutationLiveEnable=false`, so no LIQ
 row mutation request can fire.
+R429 exposes the downstream reduced-LIQ native write-control blocker reasons
+beside those source-path diagnostics, so a future promotion can prove whether a
+request is blocked by model prerequisites such as Repick state and prior SCB
+return or by same-row writer conflicts before this path asserts a live request.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
