@@ -14,6 +14,10 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseApply.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
+    - `MemReqBus::bid`
+    - `MemReqBus::gid`
+    - `MemReqBus::rid`
+    - `MemReqBus::lsID`
     - `MemReqBus::cID`
     - `MemReqBus::eID`
     - `MemReqBus::wait_store`
@@ -50,12 +54,18 @@ R421 moves the raw external response shaping into
 full payload only after the explicit raw-response live gate is enabled, while
 the current reduced top keeps that gate false.
 
+R422 adds the returned load request identity (`bid/gid/rid/loadLsId`) to this
+payload. LinxCoreModel flushes `lookup_su_lu_q` by matching the original load
+`MemReqBus`, not the wait-store sideband, so queued response pruning needs the
+load identity preserved before a precise prune owner can be added.
+
 ## Interface
 
 | Field | Description |
 |---|---|
 | `valid` | Payload record is meaningful. |
 | `clusterId` / `entryId` | Returned `MemReqBus.cID/eID` identity. |
+| `requestBid` / `requestGid` / `requestRid` / `requestLoadLsId` | Original load request identity carried by the returned `MemReqBus`; future precise response pruning must use these fields rather than wait-store identity. |
 | `waitStore` | Store lookup found an older not-ready store for at least one requested byte. |
 | `dataValid` | Store data may be merged by `handleSTQReceive`; this is suppressed when `waitStore` is true. |
 | `rawDataValid` | Store lookup found at least one ready resident-store byte, even if wait-store control wins. |
@@ -81,6 +91,10 @@ STQ lookup can discover ready bytes and a later not-ready store in the same
 response, but `MtcLDQInfo::handleSTQReceive` handles `wait_store` first and
 returns before data merge.
 
+The request identity and wait-store identity are intentionally separate:
+`request*` fields describe the load response itself, while `waitStore*` fields
+describe the older store that may block that load.
+
 R407 adds `LoadReplaySourceReturnStoreSnapshotResponseApply` as the first
 consumer of the full payload. It converts ordered queue-head payloads into
 wait-store and data-merge intent without mutating LIQ rows yet.
@@ -90,7 +104,8 @@ wait-store and data-merge intent without mutating LIQ rows yet.
 - Registered LIQ/LDQ wait-store row mutation using the R407 apply intent.
 - Registered LIQ/LDQ data merge using the R407 apply intent.
 - Live external `lookup_su_lu_q` producer wiring behind the R421 raw-response source.
-- Precise queued response pruning.
+- Precise queued response pruning after the path also carries the required
+  flush context, including STID and any PE/thread filter.
 
 ## Verification
 
@@ -104,6 +119,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
-Reference tests cover payload production from wait-store/data lookup
-sidebands, FIFO preservation of wait identity and data mask/data, empty-queue
-bypass, full-queue pop/push, disabled/flush behavior, and Chisel elaboration.
+Reference tests cover payload production from request identity plus
+wait-store/data lookup sidebands, FIFO preservation of request and wait-store
+identity plus data mask/data, empty-queue bypass, full-queue pop/push,
+disabled/flush behavior, and Chisel elaboration.

@@ -72,6 +72,10 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedEntryId: Int = 0,
       responseClusterId: Int = 0,
       responseEntryId: Int = 0,
+      responseRequestBid: Int = 0,
+      responseRequestGid: Int = 0,
+      responseRequestRid: Int = 0,
+      responseRequestLoadLsId: Int = 0,
       responseHeadStale: Boolean = false,
       scbReturned: Boolean = false,
       waitStoreIn: Boolean = false,
@@ -101,6 +105,10 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       rawValid = responseValidIn,
       clusterId = responseClusterId,
       entryId = responseEntryId,
+      requestBid = responseRequestBid,
+      requestGid = responseRequestGid,
+      requestRid = responseRequestRid,
+      requestLoadLsId = responseRequestLoadLsId,
       waitStore = waitStoreIn,
       dataValid = dataValidIn,
       rawDataValid = rawDataValidIn,
@@ -192,6 +200,10 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
         Some(LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
           clusterId = requestSink.responseClusterId,
           entryId = requestSink.responseEntryId,
+          requestBid = requestSink.responseRequestBid,
+          requestGid = requestSink.responseRequestGid,
+          requestRid = requestSink.responseRequestRid,
+          requestLoadLsId = requestSink.responseRequestLoadLsId,
           waitStore = requestSink.responseWaitStore,
           dataValid = requestSink.responseDataValid))
       } else {
@@ -201,6 +213,10 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
         clusterId = response.clusterId,
         entryId = response.entryId,
+        requestBid = response.requestBid,
+        requestGid = response.requestGid,
+        requestRid = response.requestRid,
+        requestLoadLsId = response.requestLoadLsId,
         waitStore = response.waitStore,
         dataValid = response.dataValid,
         rawDataValid = response.rawDataValid,
@@ -404,6 +420,10 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       responseValidIn = true,
       responseClusterId = 0,
       responseEntryId = 2,
+      responseRequestBid = 6,
+      responseRequestGid = 1,
+      responseRequestRid = 7,
+      responseRequestLoadLsId = 9,
       scbReturned = true,
       selectedLoadId = 2,
       selectedBid = 6,
@@ -553,6 +573,8 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_lookupResponseDataValid"))
     assert(sv.contains("io_selectedLineData"))
     assert(sv.contains("io_rawDataValidIn"))
+    assert(sv.contains("io_responseRequestBid_value"))
+    assert(sv.contains("io_responseRequestLoadLsId_value"))
     assert(sv.contains("io_responseWaitStoreRid_value"))
     assert(sv.contains("io_responseDataMask"))
     assert(sv.contains("io_rawResponseSourceBlockedByLiveDisabled"))

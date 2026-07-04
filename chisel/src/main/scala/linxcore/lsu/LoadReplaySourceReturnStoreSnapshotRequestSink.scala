@@ -53,6 +53,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestSinkIO(
   val responseValid = Output(Bool())
   val responseClusterId = Output(UInt(clusterIdWidth.W))
   val responseEntryId = Output(UInt(entryIdWidth.W))
+  val responseRequestBid = Output(new ROBID(idEntries))
+  val responseRequestGid = Output(new ROBID(idEntries))
+  val responseRequestRid = Output(new ROBID(idEntries))
+  val responseRequestLoadLsId = Output(new ROBID(idEntries))
   val responseWaitStore = Output(Bool())
   val responseDataValid = Output(Bool())
   val responseRawDataValid = Output(Bool())
@@ -121,6 +125,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
     response.valid := true.B
     response.clusterId := io.request.clusterId
     response.entryId := io.request.entryId
+    response.requestBid := io.request.bid
+    response.requestGid := io.request.gid
+    response.requestRid := io.request.rid
+    response.requestLoadLsId := io.request.loadLsId
     response.waitStore := io.lookupWaitStore
     response.dataValid := io.lookupDataValid
     response.rawDataValid := io.lookupRawDataValid
@@ -142,6 +150,10 @@ class LoadReplaySourceReturnStoreSnapshotRequestSink(
   io.responseValid := response.valid
   io.responseClusterId := response.clusterId
   io.responseEntryId := response.entryId
+  io.responseRequestBid := response.requestBid
+  io.responseRequestGid := response.requestGid
+  io.responseRequestRid := response.requestRid
+  io.responseRequestLoadLsId := response.requestLoadLsId
   io.responseWaitStore := response.waitStore
   io.responseDataValid := response.dataValid
   io.responseRawDataValid := response.rawDataValid

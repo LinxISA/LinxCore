@@ -7,6 +7,10 @@ object LoadReplaySourceReturnStoreSnapshotResponseQueueReference {
   final case class Response(
       clusterId: Int = 0,
       entryId: Int = 0,
+      requestBid: Int = 0,
+      requestGid: Int = 0,
+      requestRid: Int = 0,
+      requestLoadLsId: Int = 0,
       waitStore: Boolean = false,
       dataValid: Boolean = false,
       rawDataValid: Boolean = false,
@@ -89,6 +93,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
     val first = Response(
       clusterId = 0,
       entryId = 1,
+      requestBid = 4,
+      requestGid = 1,
+      requestRid = 6,
+      requestLoadLsId = 8,
       dataValid = true,
       rawDataValid = true,
       dataMask = BigInt("ff", 16),
@@ -96,6 +104,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
     val second = Response(
       clusterId = 0,
       entryId = 2,
+      requestBid = 5,
+      requestGid = 1,
+      requestRid = 7,
+      requestLoadLsId = 9,
       waitStore = true,
       rawDataValid = true,
       dataSuppressedByWait = true,
@@ -120,12 +132,15 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
     val popFirst = step(enqueueSecond.next, depth = 2, enable = true, flush = false, dequeueReady = true)
     assert(popFirst.headConsumed)
     assert(popFirst.head.contains(first))
+    assert(popFirst.head.exists(_.requestBid == 4))
+    assert(popFirst.head.exists(_.requestLoadLsId == 8))
     assert(popFirst.head.exists(_.dataMask == BigInt("ff", 16)))
     assert(popFirst.count == 1)
 
     val popSecond = step(popFirst.next, depth = 2, enable = true, flush = false, dequeueReady = true)
     assert(popSecond.headConsumed)
     assert(popSecond.head.contains(second))
+    assert(popSecond.head.exists(_.requestRid == 7))
     assert(popSecond.head.exists(_.waitStoreRid == 9))
     assert(popSecond.head.exists(_.dataSuppressedByWait))
     assert(popSecond.empty)
@@ -237,6 +252,8 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_enqueueAccepted"))
     assert(sv.contains("io_headValid"))
     assert(sv.contains("io_headConsumed"))
+    assert(sv.contains("io_headRequestBid"))
+    assert(sv.contains("io_headRequestLoadLsId"))
     assert(sv.contains("io_headWaitStoreRid"))
     assert(sv.contains("io_headDataMask"))
     assert(sv.contains("io_blockedByFull"))

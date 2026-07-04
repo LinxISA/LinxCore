@@ -179,11 +179,19 @@ candidate as live-disabled and leaves the response enqueue port available to
 the local request-sink generated response. The current top ties
 `rawResponseLiveEnable=false`.
 
+R422 adds load request identity fields to raw and sink-generated response
+payloads. This follows LinxCoreModel's `lookup_su_lu_q` lifetime: the store
+unit returns the same load `MemReqBus` after STQ lookup, and
+`MtcLDQInfo::flush` removes queued responses by `FlushBus::match` on that load
+identity. The packet deliberately does not implement selective pruning yet,
+because the current path still lacks a full `FlushBus` context such as STID
+and optional PE/thread filters.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `rowMutationLiveEnable`, `rawResponseLiveEnable`, `sinkReady`,
 raw STQ response, SCB return, wait-store, data-valid, raw-data, wait-store
-identity, and data-payload inputs false or zero, and it ties external
-stale-head evidence false, so
+identity, response request identity, and data-payload inputs false or zero, and
+it ties external stale-head evidence false, so
 `storeSnapshotReady` still forwards the legacy resident-store snapshot
 readiness. The reduced `selectedRepickMask`, `selectedRowValidMask`, and
 `selectedRowScbReturnedMask` now feed head-state proof inside the path, but no
@@ -227,6 +235,7 @@ child instance.
 | `responseEntryId` | Future STQ response entry ID from `MemReqBus.eID`. |
 | `responseHeadStale` | Future external row-state evidence proving the raw queue head targets a row that is no longer repick. Current top ties this false while the R400 reduced proof uses `selectedRepickMask`. |
 | `scbReturned` | Future SCB source-return evidence arrived before STQ response acceptance. |
+| `responseRequestBid` / `responseRequestGid` / `responseRequestRid` / `responseRequestLoadLsId` | Future raw response's original load request identity; this is separate from wait-store identity and is the basis for later precise response flush pruning. |
 | `waitStoreIn` | Future raw response asks the row to wait on a store. |
 | `dataValidIn` | Future raw response carries mergeable store data. |
 | `rawDataValidIn` | Future raw response contains resident-store data bytes, even if wait-store suppresses merge. |
@@ -280,9 +289,10 @@ its live request arm forced off. R419 widens the response-head proof inputs
 with row-valid and row-SCB-returned masks; it adds no state. R420 widens raw
 external response inputs to the already registered response-queue payload
 shape; it adds no state. R421 adds a combinational raw-response source gate in
-front of that response queue and adds no state. The path still owns no LDQ/LIQ
-mutation, full multi-cluster row fsm source, wait-store state mutation, or data
-merge state.
+front of that response queue and adds no state. R422 widens the response
+payload and raw boundary with load request identity; it adds no state. The path
+still owns no LDQ/LIQ mutation, full multi-cluster row fsm source, wait-store
+state mutation, or data merge state.
 
 ## Logic Design
 
@@ -366,6 +376,11 @@ is diagnosed but does not block the request-sink generated response. This keeps
 the structural payload boundary in place while preventing accidental raw
 response admission before stale-row, SCB-return, and row-mutation promotion
 policy is complete.
+
+R422 carries the response load request `bid/gid/rid/loadLsId` through both
+sources into the same FIFO payload. Future `lookup_su_lu_q` pruning must use
+these request fields, not the wait-store fields, when comparing to
+`FlushBus::match`.
 
 The R401 request-control owner gates future STQ lookup request acceptance with
 `requestEnable`, path activity, R397 accepted-token capacity, and R403 request
@@ -452,7 +467,8 @@ behavior.
 ## Deferred Owners
 
 - Live external `lookup_su_lu_q` producer wiring into the R421 raw-response source.
-- Precise queued-response flush pruning.
+- Precise queued-response flush pruning after the response path carries the
+  remaining `FlushBus` context, especially STID and optional PE/thread filters.
 - Precise queued-request flush pruning beyond all-clear flush.
 - Full multi-cluster row-state evidence into `responseHeadStale`.
 - Full selected replay-row identity storage from replay-LIQ residency beyond

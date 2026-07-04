@@ -60,6 +60,12 @@ queue inside the composite path. Raw external candidates now require an
 explicit live gate before they can drive `enqueueValid`; request-sink generated
 responses continue to use the same FIFO payload shape.
 
+R422 widens the FIFO record with original load request identity
+(`requestBid/requestGid/requestRid/requestLoadLsId`). LinxCoreModel prunes
+queued `lookup_su_lu_q` responses by matching the load `MemReqBus`; this queue
+now preserves that identity, while the actual selective prune owner remains a
+later packet.
+
 ## Interface
 
 ### Inputs
@@ -69,7 +75,7 @@ responses continue to use the same FIFO payload shape.
 | `enable` | Replay-LIQ wrapper is active. |
 | `flush` | Clears resident raw STQ responses and suppresses admission. |
 | `enqueueValid` | A raw STQ response `MemReqBus` is visible. |
-| `enqueue` | Full response payload carrying `cID/eID`, wait-store identity, raw data evidence, and store data mask/data. |
+| `enqueue` | Full response payload carrying `cID/eID`, load request identity, wait-store identity, raw data evidence, and store data mask/data. |
 | `dequeueReady` | Downstream drain owner consumed or explicitly dropped the current head. |
 
 ### Outputs
@@ -83,6 +89,7 @@ responses continue to use the same FIFO payload shape.
 | `head` | Full R406 response payload at the FIFO head. |
 | `headClusterId` | Head response `cID`. |
 | `headEntryId` | Head response `eID`. |
+| `headRequest*` | Original load request BID/GID/RID/LSID sidecars preserved for future precise queued-response pruning. |
 | `headWaitStore` | Head wait-store sideband. |
 | `headDataValid` | Head data-valid sideband. |
 | `headRawDataValid` / `headDataSuppressedByWait` | Raw-data diagnostics preserved across FIFO storage. |
@@ -104,6 +111,10 @@ The module owns a circular FIFO of response records:
 ```text
 clusterId
 entryId
+requestBid
+requestGid
+requestRid
+requestLoadLsId
 waitStore
 dataValid
 rawDataValid
@@ -153,12 +164,16 @@ resident head is consumed in the same cycle.
 
 Flush clears all resident entries, hides the head, and suppresses admission.
 The model has a more selective `FlushBus` match over queued `MemReqBus`
-records; this reduced packet uses the existing path-level flush until full row
-identity and precise queued-response pruning are promoted.
+records. R422 preserves the load request identity needed for that comparison,
+but this reduced packet still uses the existing path-level all-clear flush
+until the path carries the remaining `FlushBus` context, including STID and
+optional PE/thread filters.
 
 ## Deferred Owners
 
 - Live external `lookup_su_lu_q` producer wiring into the R421 raw-response source.
+- `FlushBus`-shaped precise response-prune owner using the R422 request
+  identity plus STID/PE/thread context.
 - Full multi-cluster stale-row proof beyond the R400 reduced `repickMask`
   owner.
 - Multi-token or multi-row response ownership beyond the current one-token
@@ -177,5 +192,5 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 
 Reference tests cover FIFO order, empty-queue bypass plus same-cycle consume,
 full-queue simultaneous pop/push, full-queue drop diagnostics, flush clearing,
-disabled-response diagnostics, preservation of wait-store identity and data
-mask/data sidebands, and Chisel elaboration.
+disabled-response diagnostics, preservation of request identity, wait-store
+identity, data mask/data sidebands, and Chisel elaboration.

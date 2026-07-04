@@ -14,6 +14,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueEntry(
     extends Bundle {
   val clusterId = UInt(clusterIdWidth.W)
   val entryId = UInt(entryIdWidth.W)
+  val requestBid = new ROBID(idEntries)
+  val requestGid = new ROBID(idEntries)
+  val requestRid = new ROBID(idEntries)
+  val requestLoadLsId = new ROBID(idEntries)
   val waitStore = Bool()
   val dataValid = Bool()
   val rawDataValid = Bool()
@@ -62,6 +66,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueueIO(
   ))
   val headClusterId = Output(UInt(clusterIdWidth.W))
   val headEntryId = Output(UInt(entryIdWidth.W))
+  val headRequestBid = Output(new ROBID(idEntries))
+  val headRequestGid = Output(new ROBID(idEntries))
+  val headRequestRid = Output(new ROBID(idEntries))
+  val headRequestLoadLsId = Output(new ROBID(idEntries))
   val headWaitStore = Output(Bool())
   val headDataValid = Output(Bool())
   val headRawDataValid = Output(Bool())
@@ -133,6 +141,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     ))
     entry.clusterId := io.enqueue.clusterId
     entry.entryId := io.enqueue.entryId
+    entry.requestBid := io.enqueue.requestBid
+    entry.requestGid := io.enqueue.requestGid
+    entry.requestRid := io.enqueue.requestRid
+    entry.requestLoadLsId := io.enqueue.requestLoadLsId
     entry.waitStore := io.enqueue.waitStore
     entry.dataValid := io.enqueue.dataValid
     entry.rawDataValid := io.enqueue.rawDataValid
@@ -175,6 +187,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
     headPayload.valid := true.B
     headPayload.clusterId := headEntry.clusterId
     headPayload.entryId := headEntry.entryId
+    headPayload.requestBid := headEntry.requestBid
+    headPayload.requestGid := headEntry.requestGid
+    headPayload.requestRid := headEntry.requestRid
+    headPayload.requestLoadLsId := headEntry.requestLoadLsId
     headPayload.waitStore := headEntry.waitStore
     headPayload.dataValid := headEntry.dataValid
     headPayload.rawDataValid := headEntry.rawDataValid
@@ -220,6 +236,10 @@ class LoadReplaySourceReturnStoreSnapshotResponseQueue(
   io.head := headPayload
   io.headClusterId := headPayload.clusterId
   io.headEntryId := headPayload.entryId
+  io.headRequestBid := headPayload.requestBid
+  io.headRequestGid := headPayload.requestGid
+  io.headRequestRid := headPayload.requestRid
+  io.headRequestLoadLsId := headPayload.requestLoadLsId
   io.headWaitStore := headPayload.waitStore
   io.headDataValid := headPayload.dataValid
   io.headRawDataValid := headPayload.rawDataValid

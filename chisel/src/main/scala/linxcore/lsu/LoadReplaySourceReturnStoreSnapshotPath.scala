@@ -57,6 +57,10 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val responseEntryId = Input(UInt(entryIdWidth.W))
   val responseHeadStale = Input(Bool())
   val scbReturned = Input(Bool())
+  val responseRequestBid = Input(new ROBID(idEntries))
+  val responseRequestGid = Input(new ROBID(idEntries))
+  val responseRequestRid = Input(new ROBID(idEntries))
+  val responseRequestLoadLsId = Input(new ROBID(idEntries))
   val waitStoreIn = Input(Bool())
   val dataValidIn = Input(Bool())
   val rawDataValidIn = Input(Bool())
@@ -510,6 +514,10 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   rawResponseSource.io.rawValid := io.responseValidIn
   rawResponseSource.io.clusterId := io.responseClusterId
   rawResponseSource.io.entryId := io.responseEntryId
+  rawResponseSource.io.requestBid := io.responseRequestBid
+  rawResponseSource.io.requestGid := io.responseRequestGid
+  rawResponseSource.io.requestRid := io.responseRequestRid
+  rawResponseSource.io.requestLoadLsId := io.responseRequestLoadLsId
   rawResponseSource.io.waitStore := io.waitStoreIn
   rawResponseSource.io.dataValid := io.dataValidIn
   rawResponseSource.io.rawDataValid := io.rawDataValidIn

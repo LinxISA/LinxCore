@@ -18,6 +18,10 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSourceIO(
   val rawValid = Input(Bool())
   val clusterId = Input(UInt(clusterIdWidth.W))
   val entryId = Input(UInt(entryIdWidth.W))
+  val requestBid = Input(new ROBID(idEntries))
+  val requestGid = Input(new ROBID(idEntries))
+  val requestRid = Input(new ROBID(idEntries))
+  val requestLoadLsId = Input(new ROBID(idEntries))
   val waitStore = Input(Bool())
   val dataValid = Input(Bool())
   val rawDataValid = Input(Bool())
@@ -86,6 +90,10 @@ class LoadReplaySourceReturnStoreSnapshotRawResponseSource(
     response.valid := true.B
     response.clusterId := io.clusterId
     response.entryId := io.entryId
+    response.requestBid := io.requestBid
+    response.requestGid := io.requestGid
+    response.requestRid := io.requestRid
+    response.requestLoadLsId := io.requestLoadLsId
     response.waitStore := io.waitStore
     response.dataValid := io.dataValid
     response.rawDataValid := io.rawDataValid

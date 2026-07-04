@@ -7,6 +7,10 @@
 - Integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotPath.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
+    - `MemReqBus::bid`
+    - `MemReqBus::gid`
+    - `MemReqBus::rid`
+    - `MemReqBus::lsID`
     - `MemReqBus::cID`
     - `MemReqBus::eID`
     - `MemReqBus::wait_store`
@@ -49,6 +53,12 @@ response queue until the rest of the replay source-return policy is ready. The
 current top ties `liveEnable=false`, so this packet is structural and does not
 make raw STQ responses observable in generated top behavior.
 
+R422 widens the raw candidate with original load request identity. The model
+stores the STQ result in the same `MemReqBus` that came from the load unit, so
+the raw response boundary must carry both the load identity
+(`requestBid/requestGid/requestRid/requestLoadLsId`) and any wait-store
+sideband.
+
 ## Interface
 
 ### Inputs
@@ -60,6 +70,7 @@ make raw STQ responses observable in generated top behavior.
 | `liveEnable` | Future live-mode arm for allowing raw STQ responses into the response queue. |
 | `rawValid` | A raw store-unit response candidate is visible. |
 | `clusterId` / `entryId` | Returned `MemReqBus.cID/eID` identity. |
+| `requestBid` / `requestGid` / `requestRid` / `requestLoadLsId` | Original load request identity from the returned `MemReqBus`; this is the future queued-response flush identity. |
 | `waitStore` | Raw response asks the target row to rewait on a not-ready store. |
 | `dataValid` | Raw response has model-visible merge data. |
 | `rawDataValid` | Raw response found resident-store bytes before wait-store suppression. |
@@ -106,6 +117,10 @@ When `responseValid` is true, the module copies the full raw sideband set into
 the emitted payload is zero and the path can still admit a request-sink
 generated response into the queue.
 
+The raw sideband set keeps load request identity separate from wait-store
+identity. `FlushBus::match(MemReqBus)` applies to the returned load request
+fields; wait-store fields are consumed later by row mutation and wakeup logic.
+
 The consistency diagnostics are candidates, not admission blockers. They
 remain visible while `liveEnable=false` so future wiring can be checked before
 raw responses are allowed to affect replay source-return readiness.
@@ -137,6 +152,6 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 ```
 
-Reference tests cover live payload preservation, live-disabled candidate
-blocking, disabled/flush suppression, malformed-payload diagnostics, composite
-enqueue priority, and Chisel elaboration.
+Reference tests cover live request-identity and payload preservation,
+live-disabled candidate blocking, disabled/flush suppression, malformed-payload
+diagnostics, composite enqueue priority, and Chisel elaboration.

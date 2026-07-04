@@ -38,6 +38,11 @@ The sink now carries wait-store BID/RID/LSID/PC and 64-byte data mask/data
 sidebands from the R405 lookup into the response queue while preserving the
 old scalar outputs for existing response matching.
 
+R422 additionally copies the accepted load request's `bid/gid/rid/loadLsId`
+into the response payload. These fields are the identity that LinxCoreModel's
+`FlushBus::match(MemReqBus)` uses for queued `lookup_su_lu_q` responses; the
+wait-store BID/RID/LSID fields are not a substitute for response pruning.
+
 ## Interface
 
 ### Inputs
@@ -66,6 +71,7 @@ old scalar outputs for existing response matching.
 | `response` | Full R406 response payload record for `LoadReplaySourceReturnStoreSnapshotResponseQueue`. |
 | `responseValid` | A response record should enqueue into the response queue. |
 | `responseClusterId` / `responseEntryId` | Returned row identity copied from the consumed request. |
+| `responseRequestBid` / `responseRequestGid` / `responseRequestRid` / `responseRequestLoadLsId` | Original load request identity copied from the consumed request for future precise response pruning. |
 | `responseWaitStore` / `responseDataValid` | Returned STQ lookup sidebands. |
 | `responseRawDataValid` / `responseDataSuppressedByWait` | Raw-data diagnostics preserved for future row mutation/debug. |
 | `responseWaitStore*` | Wait-store index, BID, RID, LSID, and PC copied into the response payload. |
@@ -91,6 +97,11 @@ The sink accepts a request only when all of these predicates hold:
 On acceptance, the response identity is copied from the request `clusterId` and
 `entryId`, matching the model's mutation of the same `MemReqBus` between
 `lookup_lu_su_q` and `lookup_su_lu_q`.
+
+R422 also copies the request `bid/gid/rid/loadLsId` sidecars into the response
+record. Future queued-response flush pruning must compare those load fields to
+the flush request; it must not compare against `waitStoreBid` or
+`waitStoreLsId`, which identify a different store instruction.
 
 R406 also copies the model-equivalent return sidebands:
 
@@ -144,5 +155,6 @@ FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r406x bash tools/chisel/run
 ```
 
 Reference tests cover request acceptance only with both sink and response
-readiness, independent raw-sink and response backpressure, wait-store/data-valid
-payload diagnostics, disabled/flush blockers, and Chisel elaboration.
+readiness, independent raw-sink and response backpressure, request-identity
+carry, wait-store/data-valid payload diagnostics, disabled/flush blockers, and
+Chisel elaboration.

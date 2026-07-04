@@ -5522,6 +5522,10 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.responseEntryId := 0.U
     path.io.responseHeadStale := false.B
     path.io.scbReturned := false.B
+    path.io.responseRequestBid := 0.U.asTypeOf(path.io.responseRequestBid)
+    path.io.responseRequestGid := 0.U.asTypeOf(path.io.responseRequestGid)
+    path.io.responseRequestRid := 0.U.asTypeOf(path.io.responseRequestRid)
+    path.io.responseRequestLoadLsId := 0.U.asTypeOf(path.io.responseRequestLoadLsId)
     path.io.waitStoreIn := false.B
     path.io.dataValidIn := false.B
     path.io.rawDataValidIn := false.B
