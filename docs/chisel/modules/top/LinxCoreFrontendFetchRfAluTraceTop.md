@@ -34,6 +34,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeOccupancy.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDataCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnRobResolveDataCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnReducedScalarShapeControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLaneCompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTloadCompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnFinalMetadataCandidate.scala`
@@ -1013,6 +1014,11 @@ R385 extends the same replay-LIQ namespace with
 E4-slot and exclusive-target evidence, but the live request remains disabled,
 so the E4 residency slot is not cleared and the W1 slot still observes no
 writes.
+R386 extends the same replay-LIQ namespace with
+`LoadReplayReturnReducedScalarShapeControl`. The reduced top now feeds the
+ordinary scalar one-lane, non-TLOAD, LDA-target shape into lane completion,
+TLOAD completion, and E4 residency selection from one owner instead of raw
+shape constants.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1353,15 +1359,20 @@ overlay. Most state remains in child modules:
   emits reduced scalar all-destination data-valid, one-destination data-valid,
   and ret-lane increment intent, and leaves real ROB mutation plus vector lane
   accounting to future owner packets.
+- `LoadReplayReturnReducedScalarShapeControl`: optional R386 reduced scalar
+  replay-return shape owner. It publishes the current ordinary scalar one-lane,
+  non-TLOAD, LDA-target shape consumed by lane completion, TLOAD completion, and
+  pipe residency selection.
 - `LoadReplayReturnLaneCompletionCandidate`: optional R324 diagnostic
   post-resolve lane-completion owner. It computes the future
   `retLaneAfterResolve` predicate and blocks scalar load-pair or vector/MEM
-  multi-lane rows until `retLane >= realReqCnt`; the current reduced top ties
-  one scalar lane complete.
+  multi-lane rows until `retLane >= realReqCnt`; the current reduced top feeds
+  one scalar lane complete from the R386 shape owner.
 - `LoadReplayReturnTloadCompletionCandidate`: optional R325 diagnostic TLOAD
   sub-instruction completion owner. It computes the future `subInstCnt`
   decrement, tile-SCB send/islast intent, and non-final TLOAD early-return
-  predicate; the current reduced top ties ordinary non-TLOAD pass-through.
+  predicate; the current reduced top feeds ordinary non-TLOAD pass-through from
+  the R386 shape owner.
 - `LoadReplayReturnFinalMetadataCandidate`: optional R326 diagnostic final
   load-return metadata owner. It marks the post-TLOAD candidate as load-return,
   records the currently no-op load-branch-resolve call point, and exposes
@@ -1376,8 +1387,8 @@ overlay. Most state remains in child modules:
 - `LoadReplayReturnPipeResidencyCandidate`: optional R328 diagnostic LDA/AGU
   E4 pipe-residency owner. It consumes the R322 insert-shaped diagnostics,
   exposes scalar LDA versus vector AGU target intent and pipe-occupied blockers,
-  and consumes the R384 disabled live-control owner in the current reduced
-  scalar top.
+  consumes the R384 disabled live-control owner, and gets scalar-vs-vector
+  residency selection from the R386 reduced-shape owner in the current top.
 - `LoadReplayReturnPipeResidencyLiveControl`: optional R384 live request owner
   for E4 residency writes. It replaces the direct top-level false tie-off with
   an accepted-insert/free-pipe evidence gate while the top request remains
@@ -1845,17 +1856,18 @@ mutated by this diagnostic.
 R324 inserts `LoadReplayReturnLaneCompletionCandidate` after that R323
 resolve-data diagnostic. It names the model's `retLane < mem.realReqCnt`
 early-return checks for scalar load-pair and vector/MEM multi-lane rows before
-E4 insertion. The current reduced top ties `retLaneBefore=0`,
-`returnedLaneCount=1`, `realReqCnt=1`, and both all-lane classifiers false, so
-ordinary scalar replay continues to the R322 insert diagnostic only after the
-post-resolve completion permit is valid.
+E4 insertion. R386 feeds `retLaneBefore=0`, `returnedLaneCount=1`,
+`realReqCnt=1`, and both all-lane classifiers false from
+`LoadReplayReturnReducedScalarShapeControl`, so ordinary scalar replay
+continues to the R322 insert diagnostic only after the post-resolve completion
+permit is valid.
 R325 inserts `LoadReplayReturnTloadCompletionCandidate` after that lane
 completion permit. It names the model's MEM-IEX `OP_TLD` block: decrement the
 ROB row's `subInstCnt`, send a tile-SCB sequence with `islast`, and return
-early until the final sub-instruction completes. The current reduced top ties
-`isMemIex=false`, `isTload=false`, and `subInstCntBefore=0`, so ordinary scalar
-replay passes through to the R322 insert diagnostic without mutating ROB
-sub-instruction state or publishing a real tile-SCB request.
+early until the final sub-instruction completes. R386 feeds `isMemIex=false`,
+`isTload=false`, and `subInstCntBefore=0` from the reduced scalar shape owner,
+so ordinary scalar replay passes through to the R322 insert diagnostic without
+mutating ROB sub-instruction state or publishing a real tile-SCB request.
 R326 inserts `LoadReplayReturnFinalMetadataCandidate` after TLOAD completion.
 It names the model point where the cloned instruction is marked
 `isLoadReturn`, `loadBranchResolve(inst)` is called, and memory-return timing

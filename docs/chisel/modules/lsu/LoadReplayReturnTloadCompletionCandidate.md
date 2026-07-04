@@ -12,6 +12,7 @@
     - `IEX::PrintTlsPipeViewLog`
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnReducedScalarShapeControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLaneCompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnFinalMetadataCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
@@ -33,7 +34,8 @@ After ROB resolve-data and lane completion, LinxCoreModel handles
   insertion.
 
 R325 names that predicate without mutating ROB `subInstCnt` and without
-driving a real tile-SCB request. The current reduced scalar top ties
+driving a real tile-SCB request. R386 now feeds the current reduced scalar top
+through `LoadReplayReturnReducedScalarShapeControl`, which publishes
 `isMemIex=false`, `isTload=false`, and `subInstCntBefore=0`, so ordinary scalar
 replay passes through after the R324 lane-completion permit.
 
@@ -82,8 +84,8 @@ pipe-insert permit.
 `LoadReplayReturnFinalMetadataCandidate`:
 
 - `laneCompletionValid` comes from R324 `readyForPipeInsert`;
-- `isMemIex`, `isTload`, and `subInstCntBefore` are tied to the ordinary
-  scalar pass-through shape in the current reduced top;
+- `isMemIex`, `isTload`, and `subInstCntBefore` come from R386's ordinary
+  scalar reduced-shape owner;
 - R326 consumes R325 `readyForPipeInsert`.
 
 This preserves the model order:
@@ -104,6 +106,8 @@ ROB `subInstCnt`, publish tile-SCB data, update pipe-view logs, set
 ## Deferred Owners
 
 - Real ROB `subInstCnt` storage, decrement, and commit interaction.
+- Replacement of R386 reduced scalar shape outputs with decoded/ROB/MemReqBus
+  row shape sidebands.
 - `MEM_IEX`/`OP_TLD` classification sidebands from decoded/renamed rows.
 - Tile-SCB request payload construction from `TloadSendSeqToTileScb`.
 - Pipe-view cycle sideband carry for TLOAD returns.
@@ -117,6 +121,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTloadCompletionCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnReducedScalarShapeControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLaneCompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnFinalMetadataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate

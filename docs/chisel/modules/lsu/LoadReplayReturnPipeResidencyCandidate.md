@@ -11,6 +11,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDrainPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnReducedScalarShapeControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencySlot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTimingStatsCandidate.scala`
@@ -37,8 +38,10 @@ blockers:
 
 The current reduced scalar top drives `liveEnable` from R384
 `LoadReplayReturnPipeResidencyLiveControl`, whose request input remains false,
-and drives `isVectorMachine` low. This exposes LDA residency intent and
-full-pipe diagnostics while keeping actual pipe state disabled.
+and drives `isVectorMachine` from R386
+`LoadReplayReturnReducedScalarShapeControl`, whose current shape selects scalar
+LDA residency. This exposes LDA residency intent and full-pipe diagnostics
+while keeping actual pipe state disabled.
 
 R329 consumes `residencyWriteValid`, target-domain, and selected-pipe outputs
 in `LoadReplayReturnPipeResidencySlot`, a dormant one-entry state owner that
@@ -94,7 +97,7 @@ disabled.
   diagnostic;
 - `liveEnable` comes from R384 `LoadReplayReturnPipeResidencyLiveControl`,
   whose `requestEnable` remains false;
-- `isVectorMachine` is tied false for the current reduced scalar path.
+- `isVectorMachine` comes from R386's reduced scalar shape owner.
 
 The top exposes candidate, armed, write-valid, target-domain, pipe-index, and
 blocker diagnostics.
@@ -111,6 +114,8 @@ the slot observes no writes and only reports dormant occupancy/no-write state.
 - Multi-pipe AGU/LDA first-free scan state beyond the current diagnostic
   selected index.
 - Vector IEX machine classification in the reduced top.
+- Replacement of R386 reduced scalar shape outputs with decoded/ROB/MemReqBus
+  row shape sidebands.
 - FIFO drain enable, ROB/RF/ready-table mutation, issue wakeup, and replay-row
   retirement after residency.
 
@@ -120,6 +125,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnReducedScalarShapeControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyLiveControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencySlot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate

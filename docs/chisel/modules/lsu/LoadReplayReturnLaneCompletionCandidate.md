@@ -13,6 +13,7 @@
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnRobResolveDataCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnReducedScalarShapeControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnTloadCompletionCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeInsertCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-LANE-COMPLETION-001`
@@ -29,11 +30,12 @@ early-return checks before cloning the load-return instruction for E4:
 - vector or MEM-IEX multi-lane rows with `inst->lanes > 0` also return while
   `retLane < mem.realReqCnt`.
 
-R324 names this completion predicate without mutating ROB state. The current
-reduced top ties the packet to one returned scalar lane with no load-pair or
-vector/MEM multi-lane requirement, so it passes through exactly when the R323
-resolve-data diagnostic is valid. Future owners can replace those tied inputs
-with real load-pair, vector, MEM-IEX, and lane-count state.
+R324 names this completion predicate without mutating ROB state. R386 now feeds
+the current reduced top through `LoadReplayReturnReducedScalarShapeControl`,
+which publishes one returned scalar lane with no load-pair or vector/MEM
+multi-lane requirement. The candidate therefore still passes through exactly
+when the R323 resolve-data diagnostic is valid. Future owners can replace that
+shape owner with real load-pair, vector, MEM-IEX, and lane-count state.
 
 ## Interface
 
@@ -81,10 +83,8 @@ returns, this module blocks until the diagnostic post-resolve lane count reaches
 
 - `resolveValid` comes from R323 `readyForPipeInsert`;
 - `returnedLaneCount` is `1` when R323 reports `retLaneIncrement`;
-- `retLaneBefore` is tied to zero in the current reduced scalar subset;
-- `realReqCnt` is tied to one in the current reduced scalar subset;
-- `scalarLoadPair` and `vectorOrMemMultiLane` are tied false until those row
-  classifiers and lane counters exist;
+- `retLaneBefore`, `realReqCnt`, `scalarLoadPair`, and
+  `vectorOrMemMultiLane` come from R386's reduced scalar shape owner;
 - R325 consumes R324 `readyForPipeInsert`.
 
 This preserves the model order:
@@ -104,6 +104,8 @@ or clear replay-LIQ rows.
 ## Deferred Owners
 
 - Real per-ROB-row `retLane` storage and update.
+- Replacement of R386 reduced scalar shape outputs with decoded/ROB/MemReqBus
+  row shape sidebands.
 - Scalar load-pair opcode classification and per-lane destination data writes.
 - Vector/MEM-IEX `inst->lanes` qualification and `realReqCnt` sideband carry.
 - Real TLOAD sub-instruction completion state and tile-SCB request side effects.
@@ -116,6 +118,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLaneCompletionCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnReducedScalarShapeControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTloadCompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnRobResolveDataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandidate
