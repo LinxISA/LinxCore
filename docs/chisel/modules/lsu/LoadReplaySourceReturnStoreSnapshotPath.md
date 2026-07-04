@@ -185,6 +185,10 @@ R433 exposes compact response FIFO and response-drain diagnostics through the
 same path boundary. This closes the local observability gap for response enqueue
 capacity, full FIFO stalls, ordered response consumption, stale-head drops, and
 no-action heads before any live request/raw-response arm is promoted.
+R434 exposes the existing request-sink candidate, ready, accept, response-valid,
+and blocker diagnostics through the path boundary. This keeps raw store-unit
+sink stalls and response-FIFO/raw-response arbitration stalls visible before
+`requestEnable` or `sinkReady` are promoted in the reduced top.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
@@ -324,6 +328,7 @@ boundary and can later be promoted without another direct top child instance.
 | `acceptedToken*` | R430/R431 accepted-query owner diagnostics: capacity, visible/resident token, capture/clear/precise-prune pulses, precise-flush/outstanding-token blockers, and visible token `cID/eID`. |
 | `requestPayload*` | R402 selected-row request payload and diagnostics for the future local STQ lookup queue. |
 | `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, blocker diagnostics, and R426 precise-prune mask/count visibility. |
+| `requestSink*` | R434 request-sink diagnostics: active/candidate/ready/accepted, generated response-valid, raw-sink blocker, response-port blocker, disabled/flush/no-request blockers, and invalid wait-store-with-data detection. |
 | `responseQueue*` | R426/R433 response FIFO enqueue, head-consume, occupancy, full/disabled/flush blockers, and precise-prune mask/count diagnostics. |
 | `responseDrain*` | R433 response-head drain diagnostics: ordered consumption, stale-head drop, no-head/no-action blockers, and invalid stale-with-ordered evidence. |
 | `lookup*` | R405 resident-STQ lookup diagnostics: query validity, row masks, eligible store mask, forward/wait masks, wait-store, raw data evidence, and response-visible data evidence. |
@@ -362,6 +367,8 @@ still owns no LDQ/LIQ mutation, full multi-cluster row fsm source, wait-store
 state mutation, or data merge state. R431 widens the accepted-token state with
 load request BID/GID/LSID plus PE/STID/TID context so the token can share the
 same `FlushBus` predicate as the queues.
+R434 adds no state; it only forwards the existing combinational request-sink
+diagnostics through the path boundary.
 
 ## Logic Design
 
@@ -499,6 +506,13 @@ for match or row-state proof. This is the path-local evidence needed before the
 local request sink or raw external response source is made live in the reduced
 top.
 
+R434 keeps behavior unchanged and forwards the already-computed request-sink
+diagnostics to path IO. The request sink consumes a visible request only when
+the raw store-unit sink is ready and the response FIFO port is not already
+occupied by a live raw response or a full resident FIFO. These diagnostics make
+that final local request arm visible without adding reduced-top IO or changing
+the dormant top tie-offs.
+
 The R402 request-payload owner publishes the selected row's reduced LIQ slot,
 accepted local `cID/eID`, BID/GID/RID identity, load LSID, PC, address, size,
 and request byte mask only when query issue fires for a selected repick row.
@@ -629,7 +643,8 @@ Reference tests cover legacy readiness preservation, dormant query/response
 behavior, future live accepted-token response completion, flush handling,
 disabled behavior, request-queue storage while the future raw sink is stalled,
 raw-response priority over sink-generated response, path-local identity and
-response blocker diagnostics, response FIFO/drain diagnostics, and Chisel
+response blocker diagnostics, request-sink blocker diagnostics,
+response FIFO/drain diagnostics, and Chisel
 elaboration with the selected-identity, request-control, request-payload,
 request-queue, request-sink, accepted-token, payload-bearing response-queue,
 response-head-state, response-drain, response-apply, row-state-plan,

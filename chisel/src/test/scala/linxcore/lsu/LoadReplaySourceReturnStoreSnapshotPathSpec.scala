@@ -91,6 +91,17 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestQueueBlockedByDisabled: Boolean,
       requestQueueBlockedByFlush: Boolean,
       requestQueueBlockedByFull: Boolean,
+      requestSinkActive: Boolean,
+      requestSinkCandidate: Boolean,
+      requestSinkReady: Boolean,
+      requestSinkAccepted: Boolean,
+      requestSinkResponseValid: Boolean,
+      requestSinkBlockedByDisabled: Boolean,
+      requestSinkBlockedByFlush: Boolean,
+      requestSinkBlockedByNoRequest: Boolean,
+      requestSinkBlockedByRawSink: Boolean,
+      requestSinkBlockedByResponse: Boolean,
+      requestSinkInvalidDataWithWaitStore: Boolean,
       responseQueueEnqueueReady: Boolean,
       responseQueueEnqueueAccepted: Boolean,
       responseQueueEnqueueDropped: Boolean,
@@ -526,6 +537,17 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestQueueBlockedByDisabled = requestQueue.blockedByDisabled,
       requestQueueBlockedByFlush = requestQueue.blockedByFlush,
       requestQueueBlockedByFull = requestQueue.blockedByFull,
+      requestSinkActive = requestSink.active,
+      requestSinkCandidate = requestSink.requestCandidate,
+      requestSinkReady = requestSink.requestReady,
+      requestSinkAccepted = requestSink.requestAccepted,
+      requestSinkResponseValid = requestSink.responseValid,
+      requestSinkBlockedByDisabled = requestSink.blockedByDisabled,
+      requestSinkBlockedByFlush = requestSink.blockedByFlush,
+      requestSinkBlockedByNoRequest = requestSink.blockedByNoRequest,
+      requestSinkBlockedByRawSink = requestSink.blockedByRawSink,
+      requestSinkBlockedByResponse = requestSink.blockedByResponse,
+      requestSinkInvalidDataWithWaitStore = requestSink.invalidDataWithWaitStore,
       responseQueueEnqueueReady = responseQueue.enqueueReady,
       responseQueueEnqueueAccepted = responseQueue.enqueueAccepted,
       responseQueueEnqueueDropped = responseQueue.enqueueDropped,
@@ -628,6 +650,11 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.requestQueueEnqueueAccepted)
     assert(result.requestQueueHeadConsumed)
     assert(result.requestQueueEmpty)
+    assert(result.requestSinkActive)
+    assert(result.requestSinkCandidate)
+    assert(result.requestSinkReady)
+    assert(result.requestSinkAccepted)
+    assert(result.requestSinkResponseValid)
     assert(result.evidenceResponseAccepted)
     assert(result.evidenceSnapshotRequired)
     assert(result.evidenceSnapshotValid)
@@ -830,6 +857,10 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.queryIssueIssued)
     assert(result.requestPayloadValid)
     assert(result.requestQueueEnqueueAccepted)
+    assert(result.requestSinkCandidate)
+    assert(!result.requestSinkReady)
+    assert(!result.requestSinkAccepted)
+    assert(result.requestSinkBlockedByResponse)
     assert(!result.requestQueueHeadConsumed)
     assert(result.requestQueuePending)
     assert(result.responseQueueEnqueueAccepted)
@@ -876,6 +907,10 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.responseQueueEnqueueAccepted)
     assert(result.responseQueueHeadConsumed)
     assert(result.responseDrainOrderedConsumed)
+    assert(result.requestSinkCandidate)
+    assert(result.requestSinkReady)
+    assert(result.requestSinkAccepted)
+    assert(result.requestSinkResponseValid)
     assert(result.requestQueueHeadConsumed)
     assert(result.evidenceResponseAccepted)
     assert(result.storeSnapshotReady)
@@ -1112,6 +1147,10 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(!result.requestQueueHeadConsumed)
     assert(result.requestQueuePending)
     assert(result.requestQueueCount == 1)
+    assert(result.requestSinkCandidate)
+    assert(!result.requestSinkReady)
+    assert(!result.requestSinkAccepted)
+    assert(result.requestSinkBlockedByRawSink)
     assert(!result.evidenceResponseAccepted)
     assert(!result.storeSnapshotReady)
   }
@@ -1181,6 +1220,12 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_requestQueueHead_peId"))
     assert(sv.contains("io_requestQueueHead_stid"))
     assert(sv.contains("io_requestQueueHead_tid"))
+    assert(sv.contains("io_requestSinkCandidate"))
+    assert(sv.contains("io_requestSinkReady"))
+    assert(sv.contains("io_requestSinkAccepted"))
+    assert(sv.contains("io_requestSinkResponseValid"))
+    assert(sv.contains("io_requestSinkBlockedByRawSink"))
+    assert(sv.contains("io_requestSinkBlockedByResponse"))
     assert(sv.contains("io_responseQueueEnqueueAccepted"))
     assert(sv.contains("io_responseQueueHeadConsumed"))
     assert(sv.contains("io_responseQueueBlockedByFull"))
