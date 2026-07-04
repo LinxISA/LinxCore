@@ -12,6 +12,7 @@
     - `CheckPipeValid`
     - `IEX::setMemData`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeOccupancyLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeOccupancy.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretSink.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretPayload.scala`
@@ -26,11 +27,12 @@ when at least one return pipe is not occupied by an E4 instruction. The popped
 payload is then passed to `IEX::setMemData`.
 
 R382 wires this permit to the Chisel FIFO's real `drainReady` input. R383
-feeds `pipeOccupiedMask` from `LoadReplayReturnIexPipeOccupancy`, whose current
-live-disabled policy still forces every return pipe occupied. The permit
-therefore remains false in the reduced top, exposes the pipe-full blocker, and
-names the downstream readiness predicate without discarding payloads before the
-real IEX data-mutation owner exists.
+feeds `pipeOccupiedMask` from `LoadReplayReturnIexPipeOccupancy`, and R388
+feeds that occupancy owner from `LoadReplayReturnIexPipeOccupancyLiveControl`.
+The current live-disabled policy still forces every return pipe occupied. The
+permit therefore remains false in the reduced top, exposes the pipe-full
+blocker, and names the downstream readiness predicate without discarding
+payloads before the real IEX data-mutation owner exists.
 
 ## Interface
 
@@ -68,13 +70,16 @@ The R319/R383 top wiring uses:
 - `LoadReplayReturnLretSink.drainValid` as `sinkValid`;
 - reduced-store flush as `flush`;
 - replay-LIQ wrapper enable as `enable`;
-- `LoadReplayReturnIexPipeOccupancy.pipeOccupiedMask` as the return-pipe
-  occupancy source.
+- `LoadReplayReturnIexPipeOccupancyLiveControl` as the live-disabled request
+  and source-valid gate for future real occupancy;
+- `LoadReplayReturnIexPipeOccupancy.pipeOccupiedMask` as the selected
+  return-pipe occupancy source.
 
 R382 drives `LoadReplayReturnLretSink.drainReady` from this permit's
-`drainReady` output. The R383 occupancy owner preserves the disabled-live-replay
-contract by forcing a full mask while `liveRequested=false`, so the permit
-remains false and this packet alone cannot drain or discard an LRET payload.
+`drainReady` output. The R383/R388 occupancy path preserves the
+disabled-live-replay contract by forcing a full mask while the live-control
+request remains disabled, so the permit remains false and this packet alone
+cannot drain or discard an LRET payload.
 
 ## Deferred Owners
 
@@ -91,6 +96,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeOccupancy
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeOccupancyLiveControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDrainPermit
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLretSink
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop

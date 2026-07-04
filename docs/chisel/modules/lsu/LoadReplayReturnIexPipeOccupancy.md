@@ -12,6 +12,7 @@
     - `CheckPipeValid`
     - `IEX::setMemData`
 - Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexPipeOccupancyLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnIexDrainPermit.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretSink.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-IEX-OCCUPANCY-001`
@@ -25,10 +26,13 @@ AGU return pipes through `CheckPipeValid`; it reads an LRET queue entry only
 when at least one E4 return-pipe slot is free, then calls `IEX::setMemData`.
 
 R383 replaces the reduced top's raw tied-full occupancy literal with this
-owner. The top drives `liveRequested=false`, so the output mask is still all
-occupied and `LoadReplayReturnIexDrainPermit` still refuses to drain the FIFO.
-This keeps replay-return mutation disabled while making the future live pipe
-occupancy source explicit.
+owner. R388 routes the live request and source mask through
+`LoadReplayReturnIexPipeOccupancyLiveControl`; the top keeps that live-control
+request disabled and supplies no source evidence, so this owner still sees
+`liveRequested=false`, selects an all-occupied output mask, and
+`LoadReplayReturnIexDrainPermit` still refuses to drain the FIFO. This keeps
+replay-return mutation disabled while making the future live pipe occupancy
+request and source explicit.
 
 ## Interface
 
@@ -66,13 +70,14 @@ cannot be consumed.
 
 ## Integration
 
-R383 wires `LinxCoreFrontendFetchRfAluTraceTop` as follows:
+R383/R388 wire `LinxCoreFrontendFetchRfAluTraceTop` as follows:
 
 - `enable` comes from the reduced replay-LIQ allocation enable;
 - `flush` comes from reduced-store flush;
-- `liveRequested` remains `false`;
-- `livePipeOccupiedMask` is tied to zero because no real return-pipe owner is
-  connected yet;
+- `liveRequested` comes from `LoadReplayReturnIexPipeOccupancyLiveControl`,
+  whose current `requestEnable` and `sourceValid` inputs remain false;
+- `livePipeOccupiedMask` also comes from that live-control owner, which emits
+  zero while no real return-pipe owner is connected;
 - `pipeOccupiedMask` feeds `LoadReplayReturnIexDrainPermit.pipeOccupiedMask`.
 
 The top's existing `reducedLoadReplayLiqLretDrainPermitPipeOccupiedMask`
@@ -82,8 +87,8 @@ single-pipe reduced configuration.
 ## Deferred Owners
 
 - Real scalar LDA/vector AGU E4 return-pipe occupancy.
-- Live occupancy request control once `IEX::setMemData` mutation and returned
-  load pipe residency are promoted.
+- Enabling the R388 live occupancy request once `IEX::setMemData` mutation and
+  returned load pipe residency are promoted.
 - Multi-return-pipe policy beyond the current lowest-free-pipe diagnostic.
 - FIFO drain, ROB mutation, RF replay writeback, ready-table mutation, issue
   wakeup, W2 row fill, and replay-row lifecycle clear.
@@ -94,6 +99,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeOccupancy
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeOccupancyLiveControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDrainPermit
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLretSink
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
