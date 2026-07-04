@@ -43,6 +43,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencySlot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyAdvanceCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyAdvanceLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1AdvanceCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
@@ -97,6 +98,8 @@
   - `model/LinxCoreModel/model/iex/iex_iq.cpp`
   - `model/LinxCoreModel/model/iex/iex_dispatch.cpp`
   - `model/LinxCoreModel/model/iex/iex.cpp`
+  - `model/LinxCoreModel/model/iex/pipe/lda_pipe.cpp`
+  - `model/LinxCoreModel/model/iex/pipe/agu_pipe.cpp`
   - `model/LinxCoreModel/model/iex/pipe/alu_pipe.cpp`
   - `model/LinxCoreModel/model/pe/PECommon/PROBCommon.cpp`
 - Contract IDs: `LC-IF-CHISEL-TOP-006`, `LC-IF-CHISEL-XCHK-011`
@@ -1004,6 +1007,12 @@ R384 extends the same replay-LIQ namespace with
 `LoadReplayReturnPipeResidencyCandidate.liveEnable` from an accepted-insert and
 free-pipe evidence gate, but the live request remains disabled, so the dormant
 E4 residency slot still observes no writes.
+R385 extends the same replay-LIQ namespace with
+`LoadReplayReturnPipeResidencyAdvanceLiveControl`. The reduced top now feeds
+`LoadReplayReturnPipeResidencyAdvanceCandidate.advanceEnable` from occupied
+E4-slot and exclusive-target evidence, but the live request remains disabled,
+so the E4 residency slot is not cleared and the W1 slot still observes no
+writes.
 
 R375 extends the same replay-LIQ namespace with
 `reducedLoadReplayLiqLaunchSelectedSourceTrace*` diagnostics. Execute captures
@@ -1377,10 +1386,14 @@ overlay. Most state remains in child modules:
   residency state owner. It consumes only live unblocked R328 residency writes,
   captures the R322 insert-shaped payload in a one-entry slot, and exposes
   occupancy/blocker diagnostics while the top keeps the write path disabled.
+- `LoadReplayReturnPipeResidencyAdvanceLiveControl`: optional R385 live request
+  owner for E4-to-W1 advance. It replaces the direct top-level false tie-off
+  with an occupied-slot/target-evidence gate while the top request remains
+  disabled.
 - `LoadReplayReturnPipeResidencyAdvanceCandidate`: optional R330 dormant
   E4-to-W1 advance/clear owner. It observes the R329 slot, emits a slot clear
-  only when future advance is enabled, and currently reports no-slot or
-  advance-disabled diagnostics without changing fixture behavior.
+  only when R385's live-control owner enables advance, and currently reports
+  no-slot or advance-disabled diagnostics without changing fixture behavior.
 - `LoadReplayReturnPipeW1Slot`: optional R331 dormant returned-load W1 stage
   owner. It consumes future R330 advance pulses plus the R329 slot payload and
   exposes W1 occupancy/blocker diagnostics while the top keeps advance disabled.
@@ -1869,8 +1882,9 @@ still disables that write path through R384, so the slot reports dormant
 occupancy and no-write diagnostics while preserving fixture behavior.
 R330 inserts `LoadReplayReturnPipeResidencyAdvanceCandidate` behind the slot.
 It names the LDA/AGU pipe `move()` point where E4 advances to W1 and E4 is
-cleared, but the current top ties `advanceEnable=false` until a real W1/W2
-stage owner exists.
+cleared. R385 now feeds its `advanceEnable` from
+`LoadReplayReturnPipeResidencyAdvanceLiveControl`, whose current request is
+false until a real W1/W2 stage owner and downstream lifecycle proof exist.
 R331 inserts `LoadReplayReturnPipeW1Slot` behind that advance point. It would
 capture the R329 payload when R330 `advanceValid` fires, but the current top
 keeps advance disabled while W1 clear comes from the R332 W1 advance

@@ -14,6 +14,7 @@
     - `AGUPipe::flush`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencySlot.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyAdvanceLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyCandidate.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-RESIDENCY-ADVANCE-001`
@@ -28,9 +29,11 @@ Their `flush()` paths can also clear the E4 stage before normal advance.
 R330 adds a combinational advance/clear diagnostic behind the one-entry
 residency slot. It observes whether the slot is occupied, checks that the slot
 has exactly one target pipe family, and emits a future `clearSlot` request only
-when an explicit `advanceEnable` input is true. The integrated reduced top ties
-`advanceEnable` false, so the slot cannot be cleared through this path until a
-later packet enables the R331 W1 owner and gives it a downstream W2 clear path.
+when an explicit `advanceEnable` input is true. R385 feeds that input from
+`LoadReplayReturnPipeResidencyAdvanceLiveControl`; the integrated reduced top
+still keeps the live request disabled, so the slot cannot be cleared through
+this path until a later packet enables E4-to-W1 promotion and proves the
+downstream W1/W2 clear path.
 
 ## Interface
 
@@ -38,7 +41,7 @@ later packet enables the R331 W1 owner and gives it a downstream W2 clear path.
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Suppresses normal advance diagnostics. The slot itself still sees the top-level flush. |
-| input | `advanceEnable` | Enables the future E4-to-W1 clear/advance point. Current top ties this false. |
+| input | `advanceEnable` | Enables the future E4-to-W1 clear/advance point. Current top receives this from R385's live-control owner with the request disabled. |
 | input | `slotOccupied` | R329 slot contains a resident returned-load payload. |
 | input | `slotTargetIsAgu` / `slotTargetIsLda` | Resident slot target family. Exactly one must be set. |
 | input | `slotPipeIndex` | Resident slot's selected pipe index. |
@@ -70,7 +73,8 @@ advance and provides a downstream W2 clear owner.
 - `slotOccupied`, target-domain, and pipe-index inputs come from the R329 slot;
 - `clearSlot` feeds the R329 slot's `clear` input;
 - `advanceValid`, target, and pipe-index outputs feed the dormant R331 W1 slot;
-- `advanceEnable` is tied false in the current reduced top;
+- `advanceEnable` comes from `LoadReplayReturnPipeResidencyAdvanceLiveControl`,
+  whose top-level request is currently false;
 - top-level diagnostics expose candidate, advance, clear, target, pipe-index,
   and blockers.
 
@@ -80,7 +84,7 @@ the generated fixture observes the same replay behavior as before this packet.
 ## Deferred Owners
 
 - Live W1-to-W2 returned-load pipe stage advance/storage.
-- Live enable for E4-to-W1 advance.
+- Top-level request enable for R385 E4-to-W1 advance live control.
 - Pipe-stage flush by precise ROB/LSID identity rather than top-level replay
   flush only.
 - Downstream RF/writeback, ready-table update, issue wakeup, and replay-row
@@ -92,10 +96,11 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyAdvanceCandidate
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyAdvanceLiveControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencySlot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r330-replay-pipe-advance-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r385x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover enabled LDA advance, live-disabled AGU blocking,

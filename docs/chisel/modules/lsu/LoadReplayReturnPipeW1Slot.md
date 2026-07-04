@@ -19,6 +19,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencySlot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyAdvanceCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyAdvanceLiveControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW1AdvanceCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeResidencyCandidate.scala`
@@ -34,9 +35,10 @@ then `w1_inst = e4_inst`, and finally clears `e4_inst`. `runW1()` records only
 the W1 pipe-cycle timestamp; RF writeback, resolve publication, and scalar
 wakeup are deferred until `runW2()`.
 
-R331 adds the W1 payload state boundary without enabling live advance. The
-current top still ties the R330 `advanceEnable` input false, so this slot sees
-no writes in the generated fixture. It exists so the later W2/writeback
+R331 adds the W1 payload state boundary without enabling live advance. R385
+feeds the R330 `advanceEnable` input from a live-control owner whose top-level
+request remains false, so this slot sees no writes in the generated fixture. It
+exists so the later W2/writeback
 ownership chain has a typed W1 producer before any RF, ROB, ready-table,
 issue-wakeup, or replay-row lifecycle side effects are enabled.
 
@@ -99,8 +101,8 @@ load has exactly one LDA or AGU target before entering the pipe stages.
 - top-level diagnostics expose accepted, occupied, target, pipe-index, and
   blocker signals.
 
-Because R328 still live-disables E4 residency writes and R330 still
-live-disables E4-to-W1 advance, this module does not change fixture-visible
+Because R328 still live-disables E4 residency writes and R385 keeps the R330
+E4-to-W1 advance request disabled, this module does not change fixture-visible
 replay behavior. It only names the W1 stage boundary that the model advances
 through before W2 side effects.
 
