@@ -17,6 +17,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestPayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestControl.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestSink.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotPath.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-REQUEST-QUEUE-001`
 
@@ -35,6 +36,11 @@ R403 adds only the request queue. It does not perform STQ data lookup, create a
 raw store-unit sink, source raw responses, or mutate LIQ row state. The current
 top still ties live request enable false.
 
+R404 consumes this queue through `LoadReplaySourceReturnStoreSnapshotRequestSink`.
+The queue still owns only FIFO residency: the sink decides whether the visible
+head can be consumed based on raw store-unit sink readiness and response-queue
+capacity.
+
 ## Interface
 
 ### Inputs
@@ -45,7 +51,7 @@ top still ties live request enable false.
 | `flush` | Clears resident queued requests and suppresses admission. |
 | `enqueueValid` | R402 request payload is valid after query issue. |
 | `enqueueRequest` | Typed selected-row request payload. |
-| `dequeueReady` | Future raw store-unit request sink can consume the head. |
+| `dequeueReady` | R404 request sink can consume the head. |
 
 ### Outputs
 
@@ -86,7 +92,7 @@ multi-token request path exists.
 
 ## Deferred Owners
 
-- Raw store-unit request sink and STQ data lookup.
+- Resident STQ data lookup behind the request sink.
 - Raw `lookup_su_lu_q` response source.
 - Precise queued-request pruning beyond all-clear flush.
 - Multi-token accepted-query queueing.
@@ -98,9 +104,10 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestQueue
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestSink
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r403x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r404x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover FIFO order, empty-queue same-cycle bypass, full-queue

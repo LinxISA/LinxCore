@@ -24,6 +24,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestControl.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestPayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestQueue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestSink.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotSelectedIdentity.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotAcceptedToken.scala`
@@ -97,6 +98,15 @@ path-level `sinkReady` drains the queue head for the future raw store-unit
 sink. The current top still keeps `requestEnable=false`, so the queue remains
 dormant in generated-RTL fixtures.
 
+R404 adds `LoadReplaySourceReturnStoreSnapshotRequestSink` after the R403
+request queue. The sink consumes the visible request head only when the raw
+store-unit sink and the existing response queue are both ready, then emits a
+typed `lookup_su_lu_q` response identity into the R398 response queue. Raw
+external responses keep priority over sink-generated responses. The current top
+still keeps `requestEnable=false` and `sinkReady=false`, so the sink remains
+dormant in generated-RTL fixtures and resident STQ byte lookup is still
+deferred.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `sinkReady`, raw STQ response, SCB return, wait-store, and
 data-valid inputs false, and it ties external stale-head evidence false, so
@@ -117,7 +127,7 @@ without another direct top child instance.
 | `flush` | Store/replay flush suppresses live source-return evidence. |
 | `requestEnable` | Future live arm for issuing and consuming selected-row STQ snapshot evidence. Current top ties this false. |
 | `launchValid` | A selected replay row would need local STQ source-return qualification. |
-| `sinkReady` | Future raw store-unit request sink readiness for draining the R403 request queue. Current top ties this false. |
+| `sinkReady` | Future raw store-unit request sink readiness for the R404 request sink. Current top ties this false. |
 | `selectedIdentityEnable` | Selects the reduced LIQ launch-index projection instead of the raw selected-row identity inputs. |
 | `selectedLaunchIndex` | Reduced LIQ selected launch slot used by `LoadReplaySourceReturnStoreSnapshotSelectedIdentity`. |
 | `selectedRepickMask` | Reduced LIQ rows already resident in `Repick`; used to reject pre-repick or stale selected rows. |
@@ -165,10 +175,10 @@ one raw-response FIFO inside
 selected-request FIFO inside
 `LoadReplaySourceReturnStoreSnapshotRequestQueue`. R399 adds a combinational
 response-drain owner, R400 adds a combinational reduced row-state proof owner,
-R401 adds a combinational request/capacity gate, and R402 adds a combinational
-request-payload shaper. The path still owns no raw store-unit lookup, LDQ/LIQ
-mutation, full multi-cluster row fsm source, wait-store state, or data merge
-state.
+R401 adds a combinational request/capacity gate, R402 adds a combinational
+request-payload shaper, and R404 adds a combinational request sink. The path
+still owns no resident STQ byte lookup, LDQ/LIQ mutation, full multi-cluster
+row fsm source, wait-store state, or data merge state.
 
 ## Logic Design
 
@@ -180,6 +190,7 @@ RequestControl.querySinkReady
   -> SelectedIdentity.selectedValid/selectedRepick/cID/eID
   -> RequestPayload.requestValid/request
   -> RequestQueue.headValid/head request
+  -> RequestSink.responseValid/response cID/eID
   -> AcceptedToken.tokenValid/tokenRepick/cID/eID
   -> ResponseQueue.headValid/head cID/eID/waitStore/dataValid
   -> IdentityMatch.responseMatchesSelected
@@ -244,9 +255,21 @@ into a full queue when the resident head drains in the same cycle. Head
 visibility is independent of `sinkReady`; drain readiness only updates queue
 storage and count.
 
-The current top tie-offs keep `queryIssued=false`, `responseValid=false`, and
-`requestEnable=false`, so the live chain does not affect replay launch. The
-same signals remain visible inside the path for future promotion.
+The R404 request sink turns the visible request head into an ordered response
+source for the existing response queue. It gates request consumption by
+`sinkReady` and response-queue storage space so a consumed request cannot lose
+its returned identity. It does not use response-queue `enqueueReady` because
+that signal can include same-cycle drain through response matching and would
+form a request-acceptance to response-bypass combinational loop. Raw external
+response inputs have priority over the sink's generated response because the
+response queue has one enqueue port. The current lookup sidebands are tied to
+no-wait/no-data inside the composite until a resident STQ lookup owner can
+compute `waitStore` and `dataValid`.
+
+The current top tie-offs keep `queryIssued=false`, `responseValid=false`,
+`requestAccepted=false`, and `requestEnable=false`, so the live chain does not
+affect replay launch. The same signals remain visible inside the path for
+future promotion.
 
 ## Timing
 
@@ -264,7 +287,7 @@ behavior.
 ## Deferred Owners
 
 - Live raw STQ response source and precise queued-response flush pruning.
-- Raw store-unit request sink and STQ data lookup behind the R403 request queue.
+- Resident STQ data lookup behind the R404 request sink.
 - Precise queued-request flush pruning beyond all-clear flush.
 - Full multi-cluster row-state evidence into `responseHeadStale`.
 - Live raw STQ response source before reduced stale drops become observable.
@@ -284,6 +307,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestPayload
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestQueue
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestSink
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseHeadState
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseDrain
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseQueue
@@ -295,13 +319,14 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r403x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r404x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover legacy readiness preservation, dormant query/response
 behavior, future live accepted-token response completion, flush handling,
 disabled behavior, request-queue storage while the future raw sink is stalled,
-and Chisel elaboration with the selected-identity, request-control,
-request-payload, request-queue, accepted-token, response-queue,
-response-head-state, response-drain, identity, response, and evidence child
-owners present in the composite module.
+raw-response priority over sink-generated response, and Chisel elaboration with
+the selected-identity, request-control, request-payload, request-queue,
+request-sink, accepted-token, response-queue, response-head-state,
+response-drain, identity, response, and evidence child owners present in the
+composite module.

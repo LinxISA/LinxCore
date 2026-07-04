@@ -82,12 +82,26 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedSize: Int = 0,
       selectedRequestByteMask: BigInt = 0,
       requestQueueState: Vector[LoadReplaySourceReturnStoreSnapshotRequestPayloadReference.Payload] = Vector.empty): Result = {
+    val responseQueueCapacity = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
+      state = Vector.empty,
+      depth = 2,
+      enable = enable,
+      flush = flush,
+      dequeueReady = false)
+    val sinkResponseReady = enable && !flush && !responseQueueCapacity.full && !responseValidIn
+    val initialRequestQueueHead = requestQueueState.headOption
+    val requestSinkPreview = LoadReplaySourceReturnStoreSnapshotRequestSinkReference(
+      enable = enable,
+      flush = flush,
+      request = initialRequestQueueHead,
+      rawSinkReady = sinkReady,
+      responseReady = sinkResponseReady)
     val requestQueueCapacity = LoadReplaySourceReturnStoreSnapshotRequestQueueReference.step(
       state = requestQueueState,
       depth = 2,
       enable = enable,
       flush = flush,
-      dequeueReady = sinkReady)
+      dequeueReady = requestSinkPreview.requestReady)
     val requestControl = LoadReplaySourceReturnStoreSnapshotRequestControlReference(
       enable = enable,
       flush = flush,
@@ -139,7 +153,13 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       enable = enable,
       flush = flush,
       enqueue = if (requestPayload.payload.valid) Some(requestPayload.payload) else None,
-      dequeueReady = sinkReady)
+      dequeueReady = requestSinkPreview.requestReady)
+    val requestSink = LoadReplaySourceReturnStoreSnapshotRequestSinkReference(
+      enable = enable,
+      flush = flush,
+      request = requestQueue.head,
+      rawSinkReady = sinkReady,
+      responseReady = sinkResponseReady)
     val acceptedToken = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.step(
       state = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token(),
       enable = enable,
@@ -150,21 +170,32 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedClusterId = selectedClusterIdResolved,
       selectedEntryId = selectedEntryIdResolved,
       responseConsumed = false)
+    val sinkResponse =
+      if (!responseValidIn && requestSink.responseValid) {
+        Some(LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
+          clusterId = requestSink.responseClusterId,
+          entryId = requestSink.responseEntryId,
+          waitStore = requestSink.responseWaitStore,
+          dataValid = requestSink.responseDataValid))
+      } else {
+        None
+      }
+    val rawResponse =
+      if (responseValidIn) {
+        Some(LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
+          clusterId = responseClusterId,
+          entryId = responseEntryId,
+          waitStore = waitStoreIn,
+          dataValid = dataValidIn))
+      } else {
+        None
+      }
     val responseQueue = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
       state = Vector.empty,
       depth = 2,
       enable = enable,
       flush = flush,
-      enqueue =
-        if (responseValidIn) {
-          Some(LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
-            clusterId = responseClusterId,
-            entryId = responseEntryId,
-            waitStore = waitStoreIn,
-            dataValid = dataValidIn))
-        } else {
-          None
-        },
+      enqueue = rawResponse.orElse(sinkResponse),
       dequeueReady = false)
     val identityMatch = LoadReplaySourceReturnStoreSnapshotIdentityMatchReference(
       enable = enable,
@@ -308,12 +339,8 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       selectedIdentityEnable = true,
       selectedLaunchIndex = 2,
       selectedRepickMask = 0x4,
-      responseValidIn = true,
-      responseClusterId = 0,
-      responseEntryId = 2,
+      responseValidIn = false,
       scbReturned = true,
-      waitStoreIn = false,
-      dataValidIn = true,
       selectedLoadId = 2,
       selectedBid = 6,
       selectedGid = 1,
@@ -335,6 +362,40 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.controlLiveReady)
     assert(result.storeSnapshotReady)
     assert(!result.controlBlockedBySnapshot)
+  }
+
+  test("raw response priority keeps request head resident when the response enqueue port is occupied") {
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      requestEnable = true,
+      sinkReady = true,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4,
+      responseValidIn = true,
+      responseClusterId = 0,
+      responseEntryId = 2,
+      scbReturned = true,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16) << 8)
+
+    assert(result.queryIssueIssued)
+    assert(result.requestPayloadValid)
+    assert(result.requestQueueEnqueueAccepted)
+    assert(!result.requestQueueHeadConsumed)
+    assert(result.requestQueuePending)
+    assert(result.evidenceResponseAccepted)
+    assert(result.storeSnapshotReady)
   }
 
   test("request queue stores issued payload while future raw sink is stalled") {
@@ -408,6 +469,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestControl"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestPayload"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestQueue"))
+    assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestSink"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotSelectedIdentity"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotAcceptedToken"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseQueue"))
