@@ -1682,7 +1682,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     pcWidth = p.pcWidth
   ))
   val reducedReplayLiqSourceReturnStoreSnapshotPath =
-    Module(new LoadReplaySourceReturnStoreSnapshotPath)
+    Module(new LoadReplaySourceReturnStoreSnapshotPath(
+      idEntries = p.robEntries,
+      peIdWidth = p.peIdWidth,
+      stidWidth = p.threadIdWidth,
+      tidWidth = p.threadIdWidth,
+      mapQDepth = mapQDepth
+    ))
   val reducedReplayLiqSourceReturnScbLiveControl = Module(new LoadReplaySourceReturnScbLiveControl)
   val reducedReplayLiqSourceReturnReadiness = Module(new LoadReplaySourceReturnReadiness)
   val reducedReplayLiqReturnConsumerReady = Module(new LoadReplayReturnConsumerReady)
@@ -2496,6 +2502,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.candidate := reducedLoadReplayRelaunchQueue.io.out
   reducedReplayLiqStoreSnapshot.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqStoreSnapshot.io.rows := path.io.storeStqRows
+  reducedReplayLiqSourceReturnStoreSnapshotPath.io.stqRows := path.io.storeStqRows
   reducedReplayLiqBaseDataAlign.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqBaseDataAlign.io.loadValid := reducedLoadReplayLiqAllocPath.io.launchValid
   reducedReplayLiqBaseDataAlign.io.loadAddr := reducedLoadReplayLiqAllocPath.io.launchSelectedAddr

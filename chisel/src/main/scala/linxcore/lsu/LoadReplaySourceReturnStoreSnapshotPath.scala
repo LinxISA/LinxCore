@@ -11,9 +11,16 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
     clusterIdWidth: Int,
     entryIdWidth: Int,
     addrWidth: Int,
+    dataWidth: Int,
+    peIdWidth: Int,
+    stidWidth: Int,
+    tidWidth: Int,
     pcWidth: Int,
     lineBytes: Int,
     sizeWidth: Int,
+    stqSizeWidth: Int,
+    simtLaneWidth: Int,
+    mapQDepth: Int,
     requestQueueDepth: Int) extends Bundle {
   private val liqPtrWidth = log2Ceil(liqEntries)
   private val requestQueueCountWidth = log2Ceil(requestQueueDepth + 1)
@@ -47,6 +54,18 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val waitStoreIn = Input(Bool())
   val dataValidIn = Input(Bool())
   val legacySnapshotReady = Input(Bool())
+  val stqRows = Input(Vec(idEntries, new STQEntryBankRow(
+    idEntries,
+    addrWidth,
+    dataWidth,
+    peIdWidth,
+    stidWidth,
+    tidWidth,
+    stqSizeWidth,
+    simtLaneWidth,
+    mapQDepth,
+    pcWidth
+  )))
 
   val storeSnapshotReady = Output(Bool())
   val controlActive = Output(Bool())
@@ -119,6 +138,21 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val requestQueueBlockedByDisabled = Output(Bool())
   val requestQueueBlockedByFlush = Output(Bool())
   val requestQueueBlockedByFull = Output(Bool())
+  val lookupActive = Output(Bool())
+  val lookupQueryValid = Output(Bool())
+  val lookupLoadCrossesLine = Output(Bool())
+  val lookupRequestMaskMismatch = Output(Bool())
+  val lookupStoreSnapshotValidMask = Output(UInt(idEntries.W))
+  val lookupStoreSnapshotWaitMask = Output(UInt(idEntries.W))
+  val lookupStoreSnapshotCrossLineMask = Output(UInt(idEntries.W))
+  val lookupEligibleStoreMask = Output(UInt(idEntries.W))
+  val lookupForwardMask = Output(UInt(lineBytes.W))
+  val lookupWaitMask = Output(UInt(lineBytes.W))
+  val lookupWaitStoreValid = Output(Bool())
+  val lookupRawDataValid = Output(Bool())
+  val lookupResponseDataValid = Output(Bool())
+  val lookupDataSuppressedByWait = Output(Bool())
+  val lookupStoreBypassComplete = Output(Bool())
 }
 
 class LoadReplaySourceReturnStoreSnapshotPath(
@@ -127,9 +161,16 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     clusterIdWidth: Int = 2,
     entryIdWidth: Int = 4,
     addrWidth: Int = 64,
+    dataWidth: Int = 64,
+    peIdWidth: Int = 8,
+    stidWidth: Int = 8,
+    tidWidth: Int = 8,
     pcWidth: Int = 64,
     lineBytes: Int = 64,
     sizeWidth: Int = 7,
+    stqSizeWidth: Int = 4,
+    simtLaneWidth: Int = 8,
+    mapQDepth: Int = 32,
     requestQueueDepth: Int = 2,
     responseQueueDepth: Int = 2) extends Module {
   require(liqEntries > 1, "LIQ entries must be greater than one")
@@ -139,8 +180,10 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   require(clusterIdWidth > 0, "clusterIdWidth must be positive")
   require(entryIdWidth >= log2Ceil(liqEntries), "entryIdWidth must cover the reduced LIQ slot index")
   require(addrWidth >= 7, "LoadReplaySourceReturnStoreSnapshotPath needs 64-byte line addresses")
+  require(dataWidth == 64, "LoadReplaySourceReturnStoreSnapshotPath currently consumes 64-bit scalar STQ rows")
   require(lineBytes == 64, "LoadReplaySourceReturnStoreSnapshotPath currently models 64-byte scalar cachelines")
   require(sizeWidth >= 7, "sizeWidth must cover 64-byte scalar lines")
+  require(stqSizeWidth >= 4, "stqSizeWidth must cover scalar STQ row sizes")
   require(requestQueueDepth > 0, "requestQueueDepth must be nonzero")
   require(responseQueueDepth > 0, "responseQueueDepth must be nonzero")
 
@@ -150,9 +193,16 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth,
     addrWidth = addrWidth,
+    dataWidth = dataWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth,
     pcWidth = pcWidth,
     lineBytes = lineBytes,
     sizeWidth = sizeWidth,
+    stqSizeWidth = stqSizeWidth,
+    simtLaneWidth = simtLaneWidth,
+    mapQDepth = mapQDepth,
     requestQueueDepth = requestQueueDepth
   ))
 
@@ -188,6 +238,23 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     pcWidth = pcWidth,
     lineBytes = lineBytes,
     sizeWidth = sizeWidth
+  ))
+  val lookup = Module(new LoadReplaySourceReturnStoreSnapshotLookup(
+    liqEntries = liqEntries,
+    idEntries = idEntries,
+    clusterIdWidth = clusterIdWidth,
+    entryIdWidth = entryIdWidth,
+    addrWidth = addrWidth,
+    dataWidth = dataWidth,
+    peIdWidth = peIdWidth,
+    stidWidth = stidWidth,
+    tidWidth = tidWidth,
+    requestSizeWidth = sizeWidth,
+    stqSizeWidth = stqSizeWidth,
+    simtLaneWidth = simtLaneWidth,
+    mapQDepth = mapQDepth,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes
   ))
   val selectedIdentity = Module(new LoadReplaySourceReturnStoreSnapshotSelectedIdentity(
     liqEntries = liqEntries,
@@ -264,14 +331,21 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   requestQueue.io.enqueueRequest := requestPayload.io.request
   requestQueue.io.dequeueReady := requestSink.io.requestReady
 
+  lookup.io.enable := io.enable
+  lookup.io.flush := io.flush
+  lookup.io.requestValid := requestQueue.io.headValid
+  lookup.io.request := requestQueue.io.head
+  lookup.io.rows := io.stqRows
+  lookup.io.cacheData := 0.U
+
   requestSink.io.enable := io.enable
   requestSink.io.flush := io.flush
   requestSink.io.requestValid := requestQueue.io.headValid
   requestSink.io.request := requestQueue.io.head
   requestSink.io.rawSinkReady := io.sinkReady
   requestSink.io.responseReady := !responseQueue.io.full && !io.responseValidIn
-  requestSink.io.lookupWaitStore := false.B
-  requestSink.io.lookupDataValid := false.B
+  requestSink.io.lookupWaitStore := lookup.io.waitStoreValid
+  requestSink.io.lookupDataValid := lookup.io.responseDataValid
 
   acceptedToken.io.enable := io.enable
   acceptedToken.io.flush := io.flush
@@ -395,4 +469,19 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.requestQueueBlockedByDisabled := requestQueue.io.blockedByDisabled
   io.requestQueueBlockedByFlush := requestQueue.io.blockedByFlush
   io.requestQueueBlockedByFull := requestQueue.io.blockedByFull
+  io.lookupActive := lookup.io.active
+  io.lookupQueryValid := lookup.io.queryValid
+  io.lookupLoadCrossesLine := lookup.io.loadCrossesLine
+  io.lookupRequestMaskMismatch := lookup.io.requestMaskMismatch
+  io.lookupStoreSnapshotValidMask := lookup.io.storeSnapshotValidMask
+  io.lookupStoreSnapshotWaitMask := lookup.io.storeSnapshotWaitMask
+  io.lookupStoreSnapshotCrossLineMask := lookup.io.storeSnapshotCrossLineMask
+  io.lookupEligibleStoreMask := lookup.io.eligibleStoreMask
+  io.lookupForwardMask := lookup.io.forwardMask
+  io.lookupWaitMask := lookup.io.waitMask
+  io.lookupWaitStoreValid := lookup.io.waitStoreValid
+  io.lookupRawDataValid := lookup.io.rawDataValid
+  io.lookupResponseDataValid := lookup.io.responseDataValid
+  io.lookupDataSuppressedByWait := lookup.io.dataSuppressedByWait
+  io.lookupStoreBypassComplete := lookup.io.storeBypassComplete
 }

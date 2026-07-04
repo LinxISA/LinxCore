@@ -470,6 +470,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestPayload"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestQueue"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestSink"))
+    assert(sv.contains("LoadReplaySourceReturnStoreSnapshotLookup"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotSelectedIdentity"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotAcceptedToken"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseQueue"))
@@ -481,6 +482,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_selectedLaunchIndex"))
     assert(sv.contains("io_requestPayload_requestByteMask"))
     assert(sv.contains("io_requestQueueHead_requestByteMask"))
+    assert(sv.contains("io_lookupResponseDataValid"))
     assert(sv.contains("io_queryIssueCandidate"))
   }
 }

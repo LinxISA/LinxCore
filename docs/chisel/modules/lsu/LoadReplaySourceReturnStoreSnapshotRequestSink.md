@@ -16,6 +16,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestPayload.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestQueue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotLookup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseQueue.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-REQUEST-SINK-001`
 
@@ -41,8 +42,8 @@ lookup, data merge, wait-store row mutation, or full LIQ/LDQ state mutation.
 | `requestValid` / `request` | Visible R403 request-queue head. |
 | `rawSinkReady` | Future store-unit lookup sink readiness. Current top ties this false. |
 | `responseReady` | Existing response queue has storage space for the generated `lookup_su_lu_q` response. In the R404 composite this is the queue `!full` predicate, not enqueue-ready-with-pop. |
-| `lookupWaitStore` | Future STQ lookup result asks the load to wait on a store. |
-| `lookupDataValid` | Future STQ lookup result has mergeable store data. |
+| `lookupWaitStore` | STQ lookup result asks the load to wait on a store. R405 drives this from `LoadReplaySourceReturnStoreSnapshotLookup.waitStoreValid`. |
+| `lookupDataValid` | Response-visible store-data evidence. R405 drives this from `Lookup.responseDataValid`, not raw `data_vld`, so wait-store rewait wins before data merge. |
 
 ### Outputs
 
@@ -81,10 +82,11 @@ same-cycle resident-head drain, and that drain depends on response matching.
 Using it here would feed request acceptance into response enqueue, response
 head bypass, response drain, and back into request acceptance.
 
-The current composite wires `lookupWaitStore=false` and `lookupDataValid=false`
-because resident STQ byte lookup is still deferred. This still models the
-no-conflict STQ lookup response and gives the path a typed response source
-without adding another direct child to the oversized live fetch/RF/ALU top.
+R405 drives `lookupWaitStore` and `lookupDataValid` from the resident-STQ
+lookup owner. A lookup can still produce no-wait/no-data, matching the model
+case where no older resident store overlaps the replay request. Raw ready-byte
+evidence remains visible at the lookup owner as `rawDataValid`; the sink only
+receives response-visible data evidence after wait-store suppression.
 
 ## Flush/Recovery
 
@@ -94,7 +96,6 @@ the visible request head.
 
 ## Deferred Owners
 
-- Resident STQ byte lookup using `LoadStoreForwarding` or a full STQ owner.
 - Wait-store identity and row mutation.
 - Store-data merge into replay row line data.
 - Precise queued-request flush pruning beyond all-clear flush.
@@ -106,6 +107,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestSink
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotLookup
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRequestQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseQueue
