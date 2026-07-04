@@ -90,6 +90,28 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val evidenceInvalidResponseWithoutQuery = Output(Bool())
   val evidenceInvalidDataWithWaitStore = Output(Bool())
 
+  val responseApplyActive = Output(Bool())
+  val responseApplyCandidate = Output(Bool())
+  val responseApplyValid = Output(Bool())
+  val responseApplyStqReturned = Output(Bool())
+  val responseApplyTargetMask = Output(UInt(liqEntries.W))
+  val responseApplyWaitStore = Output(Bool())
+  val responseApplyWaitStoreInfo = Output(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val responseApplyWaitStoreRid = Output(new ROBID(idEntries))
+  val responseApplyDataMerge = Output(Bool())
+  val responseApplyDataNoMerge = Output(Bool())
+  val responseApplyMergedValidMask = Output(UInt(lineBytes.W))
+  val responseApplyMergedLineData = Output(UInt((lineBytes * 8).W))
+  val responseApplyMergedRequestComplete = Output(Bool())
+  val responseApplyBlockedByNoOrderedResponse = Output(Bool())
+  val responseApplyBlockedByNotRepick = Output(Bool())
+  val responseApplyBlockedByWaitStore = Output(Bool())
+  val responseApplyBlockedByNoData = Output(Bool())
+  val responseApplyInvalidOrderedWithoutPayload = Output(Bool())
+  val responseApplyInvalidDataWithWaitStore = Output(Bool())
+  val responseApplyInvalidDataValidWithoutRawData = Output(Bool())
+  val responseApplyInvalidSuppressedDataWithoutWait = Output(Bool())
+
   val queryIssueActive = Output(Bool())
   val queryIssueRequestActive = Output(Bool())
   val queryIssueCandidate = Output(Bool())
@@ -284,6 +306,14 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     entryIdWidth = entryIdWidth
   ))
   val responseDrain = Module(new LoadReplaySourceReturnStoreSnapshotResponseDrain)
+  val responseApply = Module(new LoadReplaySourceReturnStoreSnapshotResponseApply(
+    liqEntries = liqEntries,
+    idEntries = idEntries,
+    clusterIdWidth = clusterIdWidth,
+    entryIdWidth = entryIdWidth,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes
+  ))
   val evidence = Module(new LoadReplaySourceReturnStoreSnapshotEvidence)
   val control = Module(new LoadReplaySourceReturnStoreSnapshotReadyControl)
 
@@ -426,6 +456,16 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   responseDrain.io.orderedResponse := responseMatch.io.responseValid
   responseDrain.io.headStale := responseHeadState.io.headStale
 
+  responseApply.io.enable := io.enable
+  responseApply.io.flush := io.flush
+  responseApply.io.orderedConsumed := responseDrain.io.orderedConsumed
+  responseApply.io.targetRepick := responseHeadState.io.reducedHeadRepick
+  responseApply.io.targetOneHot := responseHeadState.io.reducedHeadOneHot
+  responseApply.io.response := responseQueue.io.head
+  responseApply.io.rowLineData := 0.U
+  responseApply.io.rowValidMask := 0.U
+  responseApply.io.rowRequestMask := io.selectedRequestByteMask
+
   evidence.io.enable := io.enable
   evidence.io.flush := io.flush
   evidence.io.launchValid := io.launchValid
@@ -463,6 +503,28 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.evidenceBlockedByWaitStore := evidence.io.blockedByWaitStore
   io.evidenceInvalidResponseWithoutQuery := evidence.io.invalidResponseWithoutQuery
   io.evidenceInvalidDataWithWaitStore := evidence.io.invalidDataWithWaitStore
+
+  io.responseApplyActive := responseApply.io.active
+  io.responseApplyCandidate := responseApply.io.applyCandidate
+  io.responseApplyValid := responseApply.io.applyValid
+  io.responseApplyStqReturned := responseApply.io.stqReturned
+  io.responseApplyTargetMask := responseApply.io.targetMask
+  io.responseApplyWaitStore := responseApply.io.waitStoreApply
+  io.responseApplyWaitStoreInfo := responseApply.io.waitStoreInfo
+  io.responseApplyWaitStoreRid := responseApply.io.waitStoreRid
+  io.responseApplyDataMerge := responseApply.io.dataMergeApply
+  io.responseApplyDataNoMerge := responseApply.io.dataNoMerge
+  io.responseApplyMergedValidMask := responseApply.io.mergedValidMask
+  io.responseApplyMergedLineData := responseApply.io.mergedLineData
+  io.responseApplyMergedRequestComplete := responseApply.io.mergedRequestComplete
+  io.responseApplyBlockedByNoOrderedResponse := responseApply.io.blockedByNoOrderedResponse
+  io.responseApplyBlockedByNotRepick := responseApply.io.blockedByNotRepick
+  io.responseApplyBlockedByWaitStore := responseApply.io.blockedByWaitStore
+  io.responseApplyBlockedByNoData := responseApply.io.blockedByNoData
+  io.responseApplyInvalidOrderedWithoutPayload := responseApply.io.invalidOrderedWithoutPayload
+  io.responseApplyInvalidDataWithWaitStore := responseApply.io.invalidDataWithWaitStore
+  io.responseApplyInvalidDataValidWithoutRawData := responseApply.io.invalidDataValidWithoutRawData
+  io.responseApplyInvalidSuppressedDataWithoutWait := responseApply.io.invalidSuppressedDataWithoutWait
 
   io.queryIssueActive := queryIssue.io.active
   io.queryIssueRequestActive := queryIssue.io.requestActive

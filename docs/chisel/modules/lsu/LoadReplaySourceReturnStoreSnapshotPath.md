@@ -35,6 +35,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseHeadState.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseDrain.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseApply.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotReadyControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-PATH-001`
@@ -124,6 +125,13 @@ resident lookup through the ordered response FIFO. Response matching and
 evidence still consume only `cID/eID`, `waitStore`, and response-visible
 `dataValid`; LIQ/LDQ row mutation remains deferred.
 
+R407 adds `LoadReplaySourceReturnStoreSnapshotResponseApply` after the R399
+drain. It observes only ordered-consumed response heads that still target a
+reduced repick row, then emits the model-equivalent apply intent:
+`stqRnt`, wait-store rewait, data merge, or no-data return. The current path
+exports these as diagnostics only; it does not write `LoadInflightQueue` row
+state yet.
+
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `sinkReady`, raw STQ response, SCB return, wait-store, and
 data-valid inputs false, and it ties external stale-head evidence false, so
@@ -179,6 +187,7 @@ without another direct top child instance.
 | `requestPayload*` | R402 selected-row request payload and diagnostics for the future local STQ lookup queue. |
 | `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, and blocker diagnostics. |
 | `lookup*` | R405 resident-STQ lookup diagnostics: query validity, row masks, eligible store mask, forward/wait masks, wait-store, raw data evidence, and response-visible data evidence. |
+| `responseApply*` | R407 ordered-response apply intent: STQ-returned, wait-store identity, data merge mask/data, completion diagnostic, and malformed-payload blockers. |
 
 The top consumes the existing `control*`, `evidence*`, and `queryIssue*`
 diagnostics through unchanged top IO names. Response-match and identity-match
@@ -196,9 +205,9 @@ selected-request FIFO inside
 response-drain owner, R400 adds a combinational reduced row-state proof owner,
 R401 adds a combinational request/capacity gate, R402 adds a combinational
 request-payload shaper, R404 adds a combinational request sink, and R405 adds
-a combinational resident-STQ lookup owner. The path still owns no LDQ/LIQ
-mutation, full multi-cluster row fsm source, wait-store state mutation, or
-data merge state.
+a combinational resident-STQ lookup owner. R407 adds a combinational
+response-apply intent owner. The path still owns no LDQ/LIQ mutation, full
+multi-cluster row fsm source, wait-store state mutation, or data merge state.
 
 ## Logic Design
 
@@ -218,6 +227,7 @@ RequestControl.querySinkReady
   -> ResponseMatch.responseValid/waitStore/dataValid
   -> ResponseHeadState.headStale
   -> ResponseDrain.orderedConsumed/staleDropped/dequeueReady
+  -> ResponseApply.stqReturned/waitStoreApply/dataMergeApply
   -> Evidence.snapshotRequired/snapshotValid
   -> ReadyControl.storeSnapshotReady
 ```
@@ -302,6 +312,13 @@ mutation owner will need after response matching:
   `waitStore` suppresses immediate merge.
 - `dataValid` remains the response-visible merge gate used by evidence.
 
+The R407 apply owner is the first LIQ-side interpretation of that payload. In
+the path composition it is connected to the ordered-consumed queue head and the
+R400 reduced repick proof. Its current row image inputs are tied to zero except
+for `selectedRequestByteMask`; a later accepted-token or row-state packet must
+carry the exact delayed row mask/data before these diagnostics become mutation
+inputs.
+
 The current top tie-offs keep `queryIssued=false`, `responseValid=false`,
 `requestAccepted=false`, and `requestEnable=false`, so the live chain does not
 affect replay launch. The same signals remain visible inside the path for
@@ -329,8 +346,10 @@ behavior.
 - Full selected replay-row identity storage from replay-LIQ residency beyond
   the reduced launch-index projection.
 - Live SCB return evidence source.
-- Stateful wait-store replay mutation and returned-data merge from the R406
-  response payload.
+- Stateful wait-store replay mutation and returned-data merge from the R407
+  response apply intent.
+- Accepted-token or row-state carry of the exact request mask and resident row
+  line data into delayed response application.
 - Live promotion of `requestEnable` after query, response, and row-state owners
   are stable.
 
@@ -348,6 +367,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseHeadState
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseDrain
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseApply
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotAcceptedToken
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotSelectedIdentity
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotIdentityMatch

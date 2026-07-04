@@ -9,6 +9,7 @@
 - Integrated users:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRequestSink.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseQueue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseApply.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/ModelCommon/bus/MemReqBus.h`
     - `MemReqBus::cID`
@@ -67,10 +68,14 @@ STQ lookup can discover ready bytes and a later not-ready store in the same
 response, but `MtcLDQInfo::handleSTQReceive` handles `wait_store` first and
 returns before data merge.
 
+R407 adds `LoadReplaySourceReturnStoreSnapshotResponseApply` as the first
+consumer of the full payload. It converts ordered queue-head payloads into
+wait-store and data-merge intent without mutating LIQ rows yet.
+
 ## Deferred Owners
 
-- LIQ/LDQ wait-store row mutation using `waitStore*`.
-- LIQ/LDQ data merge using `dataMask` and `data`.
+- Registered LIQ/LDQ wait-store row mutation using the R407 apply intent.
+- Registered LIQ/LDQ data merge using the R407 apply intent.
 - Raw external `lookup_su_lu_q` data payload inputs.
 - Precise queued response pruning.
 
