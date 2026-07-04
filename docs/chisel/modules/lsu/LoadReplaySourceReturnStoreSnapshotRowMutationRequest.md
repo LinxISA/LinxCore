@@ -5,6 +5,7 @@
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowMutationRequest.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotRowMutationRequestSpec.scala`
 - Integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotPath.scala`
+- Downstream bridge: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationRequestBridge.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/mtccore/lsu/load_unit/ldq_cluster.cpp`
     - `MTCLUEntryInfo::rewait`
@@ -79,7 +80,7 @@ The invalid diagnostics guard the shape expected from `RowStatePlan`:
 ## Deferred Owners
 
 - Registered `LoadInflightQueue` row mutation using the R411 split return bits
-  and the R412 LIQ-native apply preview.
+  and the R412/R413 bridge-plus-apply preview.
 - A live promotion control that can set `liveEnable` only after stale-response
   and split source-return policy are row-owned.
 
