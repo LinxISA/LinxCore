@@ -20,6 +20,8 @@ class LoadReplayReturnPipeW1SlotSpec extends AnyFunSuite {
     assert(result.next.entry.rid.value == 3)
     assert(result.next.entry.dst.valid)
     assert(result.next.entry.dst.kind == "Gpr")
+    assert(result.next.entry.sourceTraceValid)
+    assert(result.next.entry.source1.data == 0x2222)
     assert(result.next.entry.data == 0xfeed)
     assert(result.next.entry.wakeupRequired)
   }
@@ -44,6 +46,7 @@ class LoadReplayReturnPipeW1SlotSpec extends AnyFunSuite {
     assert(!second.accepted)
     assert(second.blockedByOccupied)
     assert(second.next.entry.data == 0x44)
+    assert(second.next.entry.source0.data == 0x1111)
   }
 
   test("flush and explicit W1 clear have priority over simultaneous writes") {
@@ -121,6 +124,8 @@ class LoadReplayReturnPipeW1SlotSpec extends AnyFunSuite {
     assert(sv.contains("module LoadReplayReturnPipeW1Slot"))
     assert(sv.contains("io_accepted"))
     assert(sv.contains("io_entryWakeupRequired"))
+    assert(sv.contains("io_entrySourceTraceValid"))
+    assert(sv.contains("io_entrySource1_data"))
     assert(sv.contains("io_blockedByInvalidTarget"))
     assert(sv.contains("io_blockedByOccupied"))
   }

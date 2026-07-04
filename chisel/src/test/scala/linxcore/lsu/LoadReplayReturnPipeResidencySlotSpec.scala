@@ -12,6 +12,7 @@ object LoadReplayReturnPipeResidencySlotReference {
       relTag: Int = 0,
       physTag: Int = 0,
       oldPhysTag: Int = 0)
+  final case class Source(valid: Boolean = false, reg: Int = 0, data: BigInt = 0)
 
   final case class Entry(
       targetIsAgu: Boolean = false,
@@ -26,6 +27,9 @@ object LoadReplayReturnPipeResidencySlotReference {
       addr: BigInt = 0,
       size: Int = 0,
       dst: Destination = Destination(),
+      sourceTraceValid: Boolean = false,
+      source0: Source = Source(),
+      source1: Source = Source(),
       data: BigInt = 0,
       wakeupRequired: Boolean = false)
 
@@ -58,6 +62,9 @@ object LoadReplayReturnPipeResidencySlotReference {
       addr: BigInt = 0x1000,
       size: Int = 8,
       dst: Destination = Destination(valid = true, kind = "Gpr", archTag = 5, relTag = 6, physTag = 7, oldPhysTag = 8),
+      sourceTraceValid: Boolean = true,
+      source0: Source = Source(valid = true, reg = 5, data = 0x1111),
+      source1: Source = Source(valid = true, reg = 6, data = 0x2222),
       data: BigInt = 0xfeed,
       wakeupRequired: Boolean = true)
 
@@ -93,6 +100,9 @@ object LoadReplayReturnPipeResidencySlotReference {
             addr = write.addr,
             size = write.size,
             dst = write.dst,
+            sourceTraceValid = write.sourceTraceValid,
+            source0 = write.source0,
+            source1 = write.source1,
             data = write.data,
             wakeupRequired = write.wakeupRequired))
       } else if (clear) {
@@ -134,6 +144,9 @@ class LoadReplayReturnPipeResidencySlotSpec extends AnyFunSuite {
     assert(result.next.entry.rid.value == 3)
     assert(result.next.entry.dst.valid)
     assert(result.next.entry.dst.kind == "Gpr")
+    assert(result.next.entry.sourceTraceValid)
+    assert(result.next.entry.source0.reg == 5)
+    assert(result.next.entry.source1.data == 0x2222)
     assert(result.next.entry.data == 0xfeed)
     assert(result.next.entry.wakeupRequired)
   }
@@ -158,6 +171,7 @@ class LoadReplayReturnPipeResidencySlotSpec extends AnyFunSuite {
     assert(!second.accepted)
     assert(second.blockedByOccupied)
     assert(second.next.entry.data == 0x44)
+    assert(second.next.entry.source0.data == 0x1111)
   }
 
   test("flush and explicit clear have priority over simultaneous writes") {
@@ -235,6 +249,8 @@ class LoadReplayReturnPipeResidencySlotSpec extends AnyFunSuite {
     assert(sv.contains("module LoadReplayReturnPipeResidencySlot"))
     assert(sv.contains("io_accepted"))
     assert(sv.contains("io_entryWakeupRequired"))
+    assert(sv.contains("io_entrySourceTraceValid"))
+    assert(sv.contains("io_entrySource0_data"))
     assert(sv.contains("io_blockedByInvalidTarget"))
     assert(sv.contains("io_blockedByOccupied"))
   }

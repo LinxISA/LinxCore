@@ -759,6 +759,28 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLaunchSelectedSource1Data.getWidth == 64)
   }
 
+  test("R376 replay-LIQ LRET and W2 source trace diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqLretPayloadSourceTraceValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPayloadSource0Valid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPayloadSource0Reg.getWidth == 8)
+    assert(io.reducedLoadReplayLiqLretPayloadSource0Data.getWidth == 64)
+    assert(io.reducedLoadReplayLiqLretPayloadSource1Valid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPayloadSource1Reg.getWidth == 8)
+    assert(io.reducedLoadReplayLiqLretPayloadSource1Data.getWidth == 64)
+    assert(io.reducedLoadReplayLiqLretPipeW2SlotSourceTraceValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2SlotSource0Valid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2SlotSource0Reg.getWidth == 8)
+    assert(io.reducedLoadReplayLiqLretPipeW2SlotSource0Data.getWidth == 64)
+    assert(io.reducedLoadReplayLiqLretPipeW2SlotSource1Valid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2SlotSource1Reg.getWidth == 8)
+    assert(io.reducedLoadReplayLiqLretPipeW2SlotSource1Data.getWidth == 64)
+  }
+
   test("R367 replay W2 row-fill enable diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -1163,8 +1185,12 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqReturnPublishBlockedByConsumer"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPayloadValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPayloadDstPhysTag"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPayloadSourceTraceValid"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPayloadSource0Data"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPayloadData"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPayloadWakeupRequired"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2SlotSourceTraceValid"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2SlotSource1Data"))
     assert(sv.contains("module LoadReplayReturnPipeW2ResolveFirePayload"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ResolveFirePayloadFireValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ResolveFirePayloadBidValue"))

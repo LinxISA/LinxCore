@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.log2Ceil
 
+import linxcore.commit.{CommitOperandTrace, CommitTraceParams}
 import linxcore.rob.ROBID
 
 class LoadReplayReturnIexDataCandidateIO(
@@ -16,6 +17,8 @@ class LoadReplayReturnIexDataCandidateIO(
     val physRegWidth: Int = 6)
     extends Bundle {
   private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
+  private val sourceTraceParams =
+    CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = dataWidth)
 
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -45,6 +48,9 @@ class LoadReplayReturnIexDataCandidateIO(
   val memAddr = Output(UInt(addrWidth.W))
   val memSize = Output(UInt(sizeWidth.W))
   val memDst = Output(new LoadReplayDestination(archRegWidth, physRegWidth))
+  val memSourceTraceValid = Output(Bool())
+  val memSource0 = Output(new CommitOperandTrace(sourceTraceParams))
+  val memSource1 = Output(new CommitOperandTrace(sourceTraceParams))
   val memData = Output(UInt(dataWidth.W))
   val memPipeIndex = Output(UInt(returnPipeIndexWidth.W))
   val memSpecWakeup = Output(Bool())
@@ -106,6 +112,9 @@ class LoadReplayReturnIexDataCandidate(
   io.memAddr := 0.U
   io.memSize := 0.U
   io.memDst := LoadReplayDestination.none(archRegWidth, physRegWidth)
+  io.memSourceTraceValid := false.B
+  io.memSource0 := 0.U.asTypeOf(io.memSource0)
+  io.memSource1 := 0.U.asTypeOf(io.memSource1)
   io.memData := 0.U
   io.memPipeIndex := 0.U(returnPipeIndexWidth.W)
   io.memSpecWakeup := false.B
@@ -120,6 +129,9 @@ class LoadReplayReturnIexDataCandidate(
     io.memAddr := io.entry.addr
     io.memSize := io.entry.size
     io.memDst := io.entry.dst
+    io.memSourceTraceValid := io.entry.sourceTraceValid
+    io.memSource0 := io.entry.source0
+    io.memSource1 := io.entry.source1
     io.memData := io.entry.data
     io.memPipeIndex := io.entry.pipeIndex
     io.memSpecWakeup := io.entry.specWakeup

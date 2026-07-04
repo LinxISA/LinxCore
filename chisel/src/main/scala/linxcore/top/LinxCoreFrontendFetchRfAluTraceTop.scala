@@ -550,6 +550,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPayloadDstRelTag = Output(UInt(p.archRegWidth.W))
   val reducedLoadReplayLiqLretPayloadDstPhysTag = Output(UInt(p.physRegWidth.W))
   val reducedLoadReplayLiqLretPayloadDstOldPhysTag = Output(UInt(p.physRegWidth.W))
+  val reducedLoadReplayLiqLretPayloadSourceTraceValid = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadSource0Valid = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadSource0Reg = Output(UInt(traceParams.regWidth.W))
+  val reducedLoadReplayLiqLretPayloadSource0Data = Output(UInt(traceParams.dataWidth.W))
+  val reducedLoadReplayLiqLretPayloadSource1Valid = Output(Bool())
+  val reducedLoadReplayLiqLretPayloadSource1Reg = Output(UInt(traceParams.regWidth.W))
+  val reducedLoadReplayLiqLretPayloadSource1Data = Output(UInt(traceParams.dataWidth.W))
   val reducedLoadReplayLiqLretPayloadData = Output(UInt(p.immWidth.W))
   val reducedLoadReplayLiqLretPayloadPipeIndex = Output(UInt(1.W))
   val reducedLoadReplayLiqLretPayloadSpecWakeup = Output(Bool())
@@ -729,6 +736,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2SlotTargetIsAgu = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SlotTargetIsLda = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SlotPipeIndex = Output(UInt(1.W))
+  val reducedLoadReplayLiqLretPipeW2SlotSourceTraceValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2SlotSource0Valid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2SlotSource0Reg = Output(UInt(traceParams.regWidth.W))
+  val reducedLoadReplayLiqLretPipeW2SlotSource0Data = Output(UInt(traceParams.dataWidth.W))
+  val reducedLoadReplayLiqLretPipeW2SlotSource1Valid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2SlotSource1Reg = Output(UInt(traceParams.regWidth.W))
+  val reducedLoadReplayLiqLretPipeW2SlotSource1Data = Output(UInt(traceParams.dataWidth.W))
   val reducedLoadReplayLiqLretPipeW2SlotBlockedByDisabled = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SlotBlockedByFlush = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SlotBlockedByClear = Output(Bool())
@@ -3131,6 +3145,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       reducedReplayLiqReturnPipeW2Slot.io.occupied
   path.io.robCommitTraceLookupRid := reducedReplayLiqReturnPipeW2Slot.io.entryRid
   path.io.robCommitTraceLookupSourceTraceEnable := false.B
+  LinxCoreFrontendFetchRfAluTraceTopR376SourceTraceWiring.connect(
+    io,
+    reducedLoadReplayLiqAllocPath,
+    reducedReplayLiqReturnLretPayload,
+    reducedReplayLiqReturnLretSinkEntry,
+    reducedReplayLiqReturnIexDataCandidate,
+    reducedReplayLiqReturnIexPipeInsertCandidate,
+    reducedReplayLiqReturnPipeResidencySlot,
+    reducedReplayLiqReturnPipeW1Slot,
+    reducedReplayLiqReturnPipeW2Slot)
   LinxCoreFrontendFetchRfAluTraceTopW2RequestPayloadWiring.connect(
     reducedReplayLiqReturnPipeW2CompletionCandidate,
     reducedReplayLiqReturnPipeW2Slot,
@@ -5909,6 +5933,59 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2ClearIntentWiring {
       clearIntent.io.blockedByFireCompleteMismatch
     io.reducedLoadReplayLiqLretPipeW2ClearIntentInvalidEvidenceWithoutSlot :=
       clearIntent.io.invalidEvidenceWithoutSlot
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR376SourceTraceWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      allocPath: ReducedLoadReplayLiqAllocPath,
+      lretPayload: LoadReplayReturnLretPayload,
+      lretEntry: LoadReplayReturnLretEntry,
+      iexData: LoadReplayReturnIexDataCandidate,
+      pipeInsert: LoadReplayReturnIexPipeInsertCandidate,
+      residencySlot: LoadReplayReturnPipeResidencySlot,
+      w1Slot: LoadReplayReturnPipeW1Slot,
+      w2Slot: LoadReplayReturnPipeW2Slot): Unit = {
+    lretPayload.io.selectedSourceTraceValid := allocPath.io.launchSelectedSourceTraceValid
+    lretPayload.io.selectedSource0 := allocPath.io.launchSelectedSource0
+    lretPayload.io.selectedSource1 := allocPath.io.launchSelectedSource1
+
+    lretEntry.sourceTraceValid := lretPayload.io.payloadSourceTraceValid
+    lretEntry.source0 := lretPayload.io.payloadSource0
+    lretEntry.source1 := lretPayload.io.payloadSource1
+
+    pipeInsert.io.memSourceTraceValid := iexData.io.memSourceTraceValid
+    pipeInsert.io.memSource0 := iexData.io.memSource0
+    pipeInsert.io.memSource1 := iexData.io.memSource1
+
+    residencySlot.io.writeSourceTraceValid := pipeInsert.io.insertSourceTraceValid
+    residencySlot.io.writeSource0 := pipeInsert.io.insertSource0
+    residencySlot.io.writeSource1 := pipeInsert.io.insertSource1
+
+    w1Slot.io.writeSourceTraceValid := residencySlot.io.entrySourceTraceValid
+    w1Slot.io.writeSource0 := residencySlot.io.entrySource0
+    w1Slot.io.writeSource1 := residencySlot.io.entrySource1
+
+    w2Slot.io.writeSourceTraceValid := w1Slot.io.entrySourceTraceValid
+    w2Slot.io.writeSource0 := w1Slot.io.entrySource0
+    w2Slot.io.writeSource1 := w1Slot.io.entrySource1
+
+    io.reducedLoadReplayLiqLretPayloadSourceTraceValid := lretPayload.io.payloadSourceTraceValid
+    io.reducedLoadReplayLiqLretPayloadSource0Valid := lretPayload.io.payloadSource0.valid
+    io.reducedLoadReplayLiqLretPayloadSource0Reg := lretPayload.io.payloadSource0.reg
+    io.reducedLoadReplayLiqLretPayloadSource0Data := lretPayload.io.payloadSource0.data
+    io.reducedLoadReplayLiqLretPayloadSource1Valid := lretPayload.io.payloadSource1.valid
+    io.reducedLoadReplayLiqLretPayloadSource1Reg := lretPayload.io.payloadSource1.reg
+    io.reducedLoadReplayLiqLretPayloadSource1Data := lretPayload.io.payloadSource1.data
+
+    io.reducedLoadReplayLiqLretPipeW2SlotSourceTraceValid := w2Slot.io.entrySourceTraceValid
+    io.reducedLoadReplayLiqLretPipeW2SlotSource0Valid := w2Slot.io.entrySource0.valid
+    io.reducedLoadReplayLiqLretPipeW2SlotSource0Reg := w2Slot.io.entrySource0.reg
+    io.reducedLoadReplayLiqLretPipeW2SlotSource0Data := w2Slot.io.entrySource0.data
+    io.reducedLoadReplayLiqLretPipeW2SlotSource1Valid := w2Slot.io.entrySource1.valid
+    io.reducedLoadReplayLiqLretPipeW2SlotSource1Reg := w2Slot.io.entrySource1.reg
+    io.reducedLoadReplayLiqLretPipeW2SlotSource1Data := w2Slot.io.entrySource1.data
   }
 }
 

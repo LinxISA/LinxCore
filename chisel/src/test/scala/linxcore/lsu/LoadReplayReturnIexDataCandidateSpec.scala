@@ -4,6 +4,7 @@ import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
 object LoadReplayReturnIexDataCandidateReference {
+  final case class Source(valid: Boolean = false, reg: Int = 0, data: BigInt = 0)
   final case class Entry(
       valid: Boolean = true,
       bid: Int = 1,
@@ -13,6 +14,9 @@ object LoadReplayReturnIexDataCandidateReference {
       pc: BigInt = 0x1000,
       addr: BigInt = 0x2000,
       size: Int = 8,
+      sourceTraceValid: Boolean = true,
+      source0: Source = Source(valid = true, reg = 5, data = 0x1111),
+      source1: Source = Source(valid = true, reg = 6, data = 0x2222),
       data: BigInt = 0x12345678L,
       pipeIndex: Int = 0,
       specWakeup: Boolean = false,
@@ -24,6 +28,8 @@ object LoadReplayReturnIexDataCandidateReference {
       setMemDataValid: Boolean,
       copiedBid: Int,
       copiedRid: Int,
+      copiedSourceTraceValid: Boolean,
+      copiedSource0: Source,
       copiedData: BigInt,
       blockedByDisabled: Boolean,
       blockedByFlush: Boolean,
@@ -51,6 +57,8 @@ object LoadReplayReturnIexDataCandidateReference {
       setMemDataValid = setMemDataValid,
       copiedBid = if (setMemDataValid) entry.bid else 0,
       copiedRid = if (setMemDataValid) entry.rid else 0,
+      copiedSourceTraceValid = setMemDataValid && entry.sourceTraceValid,
+      copiedSource0 = if (setMemDataValid) entry.source0 else Source(),
       copiedData = if (setMemDataValid) entry.data else 0,
       blockedByDisabled = !enable && sinkValid,
       blockedByFlush = enable && flush && sinkValid,
@@ -80,6 +88,8 @@ class LoadReplayReturnIexDataCandidateSpec extends AnyFunSuite {
     assert(result.setMemDataValid)
     assert(result.copiedBid == 5)
     assert(result.copiedRid == 7)
+    assert(result.copiedSourceTraceValid)
+    assert(result.copiedSource0.data == 0x1111)
     assert(result.copiedData == 0xdeadbeefL)
     assert(!result.blockedByRobMissing)
     assert(!result.blockedByNeedFlush)
@@ -99,6 +109,7 @@ class LoadReplayReturnIexDataCandidateSpec extends AnyFunSuite {
     assert(result.wouldDrain)
     assert(!result.setMemDataValid)
     assert(result.blockedByRobMissing)
+    assert(!result.copiedSourceTraceValid)
     assert(result.copiedData == 0)
   }
 
@@ -191,6 +202,8 @@ class LoadReplayReturnIexDataCandidateSpec extends AnyFunSuite {
     assert(sv.contains("io_wouldDrain"))
     assert(sv.contains("io_setMemDataValid"))
     assert(sv.contains("io_memData"))
+    assert(sv.contains("io_memSourceTraceValid"))
+    assert(sv.contains("io_memSource0_data"))
     assert(sv.contains("io_blockedByRobMissing"))
     assert(sv.contains("io_blockedByNeedFlush"))
   }

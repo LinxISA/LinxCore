@@ -12,6 +12,7 @@ object LoadReplayReturnLretPayloadReference {
       relTag: Int = 0,
       physTag: Int = 0,
       oldPhysTag: Int = 0)
+  final case class Source(valid: Boolean = false, reg: Int = 0, data: BigInt = 0)
 
   final case class Result(
       candidateValid: Boolean,
@@ -24,6 +25,9 @@ object LoadReplayReturnLretPayloadReference {
       payloadAddr: BigInt,
       payloadSize: Int,
       payloadDst: Dst,
+      payloadSourceTraceValid: Boolean,
+      payloadSource0: Source,
+      payloadSource1: Source,
       payloadData: BigInt,
       payloadPipeIndex: Int,
       payloadSpecWakeup: Boolean,
@@ -35,6 +39,7 @@ object LoadReplayReturnLretPayloadReference {
 
   private val DisabledId = Id(valid = false, wrap = false, value = 0)
   private val NoDst = Dst()
+  private val NoSource = Source()
 
   def apply(
       enable: Boolean,
@@ -48,6 +53,9 @@ object LoadReplayReturnLretPayloadReference {
       selectedAddr: BigInt,
       selectedSize: Int,
       selectedDst: Dst = NoDst,
+      selectedSourceTraceValid: Boolean = false,
+      selectedSource0: Source = NoSource,
+      selectedSource1: Source = NoSource,
       returnData: BigInt,
       returnPipeIndex: Int,
       specWakeup: Boolean,
@@ -66,6 +74,9 @@ object LoadReplayReturnLretPayloadReference {
       payloadAddr = if (payloadValid) selectedAddr else BigInt(0),
       payloadSize = if (payloadValid) selectedSize else 0,
       payloadDst = if (payloadValid) selectedDst else NoDst,
+      payloadSourceTraceValid = payloadValid && selectedSourceTraceValid,
+      payloadSource0 = if (payloadValid) selectedSource0 else NoSource,
+      payloadSource1 = if (payloadValid) selectedSource1 else NoSource,
       payloadData = if (payloadValid) returnData else BigInt(0),
       payloadPipeIndex = if (payloadValid) returnPipeIndex else 0,
       payloadSpecWakeup = payloadValid && specWakeup,
@@ -93,6 +104,9 @@ class LoadReplayReturnLretPayloadSpec extends AnyFunSuite {
       selectedAddr = BigInt("2000", 16),
       selectedSize = 8,
       selectedDst = Dst(valid = true, kind = 1, archTag = 10, relTag = 10, physTag = 42, oldPhysTag = 10),
+      selectedSourceTraceValid = true,
+      selectedSource0 = Source(valid = true, reg = 11, data = BigInt("1000200030004000", 16)),
+      selectedSource1 = Source(valid = true, reg = 12, data = BigInt("5000600070008000", 16)),
       returnData = BigInt("8877665544332211", 16),
       returnPipeIndex = 1,
       specWakeup = false,
@@ -108,6 +122,9 @@ class LoadReplayReturnLretPayloadSpec extends AnyFunSuite {
     assert(result.payloadAddr == BigInt("2000", 16))
     assert(result.payloadSize == 8)
     assert(result.payloadDst.physTag == 42)
+    assert(result.payloadSourceTraceValid)
+    assert(result.payloadSource0.reg == 11)
+    assert(result.payloadSource1.data == BigInt("5000600070008000", 16))
     assert(result.payloadData == BigInt("8877665544332211", 16))
     assert(result.payloadPipeIndex == 1)
     assert(result.wakeupRequired)
@@ -189,6 +206,8 @@ class LoadReplayReturnLretPayloadSpec extends AnyFunSuite {
     assert(dataBlocked.blockedByData)
     assert(!dataBlocked.payloadBid.valid)
     assert(!dataBlocked.payloadDst.valid)
+    assert(!dataBlocked.payloadSourceTraceValid)
+    assert(!dataBlocked.payloadSource0.valid)
     assert(dataBlocked.payloadData == 0)
     assert(!empty.payloadValid)
     assert(empty.blockedByNoCandidate)
@@ -200,6 +219,8 @@ class LoadReplayReturnLretPayloadSpec extends AnyFunSuite {
     assert(sv.contains("module LoadReplayReturnLretPayload"))
     assert(sv.contains("io_payloadValid"))
     assert(sv.contains("io_payloadData"))
+    assert(sv.contains("io_payloadSourceTraceValid"))
+    assert(sv.contains("io_payloadSource0_data"))
     assert(sv.contains("io_payloadDst_physTag"))
     assert(sv.contains("io_payloadPipeIndex"))
     assert(sv.contains("io_wakeupRequired"))

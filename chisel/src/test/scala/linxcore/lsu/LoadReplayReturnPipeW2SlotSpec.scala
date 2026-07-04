@@ -20,6 +20,8 @@ class LoadReplayReturnPipeW2SlotSpec extends AnyFunSuite {
     assert(result.next.entry.rid.value == 3)
     assert(result.next.entry.dst.valid)
     assert(result.next.entry.dst.kind == "Gpr")
+    assert(result.next.entry.sourceTraceValid)
+    assert(result.next.entry.source0.reg == 5)
     assert(result.next.entry.data == 0xfeed)
     assert(result.next.entry.wakeupRequired)
   }
@@ -44,6 +46,7 @@ class LoadReplayReturnPipeW2SlotSpec extends AnyFunSuite {
     assert(!second.accepted)
     assert(second.blockedByOccupied)
     assert(second.next.entry.data == 0x44)
+    assert(second.next.entry.source0.data == 0x1111)
   }
 
   test("flush and explicit W2 clear have priority over simultaneous writes") {
@@ -101,6 +104,7 @@ class LoadReplayReturnPipeW2SlotSpec extends AnyFunSuite {
     assert(replaced.next.entry.targetIsAgu)
     assert(!replaced.next.entry.targetIsLda)
     assert(replaced.next.entry.data == 0x99)
+    assert(replaced.next.entry.sourceTraceValid)
   }
 
   test("replace-on-clear preserves flush priority and target validation") {
@@ -202,6 +206,8 @@ class LoadReplayReturnPipeW2SlotSpec extends AnyFunSuite {
     assert(sv.contains("module LoadReplayReturnPipeW2Slot"))
     assert(sv.contains("io_accepted"))
     assert(sv.contains("io_entryWakeupRequired"))
+    assert(sv.contains("io_entrySourceTraceValid"))
+    assert(sv.contains("io_entrySource0_data"))
     assert(sv.contains("io_blockedByInvalidTarget"))
     assert(sv.contains("io_blockedByOccupied"))
     assert(sv.contains("io_replaceOnClear"))

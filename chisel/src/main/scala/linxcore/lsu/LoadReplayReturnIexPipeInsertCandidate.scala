@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.log2Ceil
 
+import linxcore.commit.{CommitOperandTrace, CommitTraceParams}
 import linxcore.rob.ROBID
 
 class LoadReplayReturnIexPipeInsertCandidateIO(
@@ -16,6 +17,8 @@ class LoadReplayReturnIexPipeInsertCandidateIO(
     val physRegWidth: Int = 6)
     extends Bundle {
   private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
+  private val sourceTraceParams =
+    CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = dataWidth)
 
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -30,6 +33,9 @@ class LoadReplayReturnIexPipeInsertCandidateIO(
   val memAddr = Input(UInt(addrWidth.W))
   val memSize = Input(UInt(sizeWidth.W))
   val memDst = Input(new LoadReplayDestination(archRegWidth, physRegWidth))
+  val memSourceTraceValid = Input(Bool())
+  val memSource0 = Input(new CommitOperandTrace(sourceTraceParams))
+  val memSource1 = Input(new CommitOperandTrace(sourceTraceParams))
   val memData = Input(UInt(dataWidth.W))
   val memLoadToUsePipeIndex = Input(UInt(returnPipeIndexWidth.W))
   val memSpecWakeup = Input(Bool())
@@ -48,6 +54,9 @@ class LoadReplayReturnIexPipeInsertCandidateIO(
   val insertAddr = Output(UInt(addrWidth.W))
   val insertSize = Output(UInt(sizeWidth.W))
   val insertDst = Output(new LoadReplayDestination(archRegWidth, physRegWidth))
+  val insertSourceTraceValid = Output(Bool())
+  val insertSource0 = Output(new CommitOperandTrace(sourceTraceParams))
+  val insertSource1 = Output(new CommitOperandTrace(sourceTraceParams))
   val insertData = Output(UInt(dataWidth.W))
   val insertWakeupRequired = Output(Bool())
   val blockedByDisabled = Output(Bool())
@@ -106,6 +115,9 @@ class LoadReplayReturnIexPipeInsertCandidate(
   io.insertAddr := 0.U
   io.insertSize := 0.U
   io.insertDst := LoadReplayDestination.none(archRegWidth, physRegWidth)
+  io.insertSourceTraceValid := false.B
+  io.insertSource0 := 0.U.asTypeOf(io.insertSource0)
+  io.insertSource1 := 0.U.asTypeOf(io.insertSource1)
   io.insertData := 0.U
   io.insertWakeupRequired := false.B
 
@@ -120,6 +132,9 @@ class LoadReplayReturnIexPipeInsertCandidate(
     io.insertAddr := io.memAddr
     io.insertSize := io.memSize
     io.insertDst := io.memDst
+    io.insertSourceTraceValid := io.memSourceTraceValid
+    io.insertSource0 := io.memSource0
+    io.insertSource1 := io.memSource1
     io.insertData := io.memData
     io.insertWakeupRequired := !io.memSpecWakeup && !io.memStackValid
   }

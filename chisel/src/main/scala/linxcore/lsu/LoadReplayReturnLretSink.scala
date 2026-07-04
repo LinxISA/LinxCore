@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.log2Ceil
 
+import linxcore.commit.{CommitOperandTrace, CommitTraceParams}
 import linxcore.rob.ROBID
 
 class LoadReplayReturnLretEntry(
@@ -16,6 +17,8 @@ class LoadReplayReturnLretEntry(
     val physRegWidth: Int = 6)
     extends Bundle {
   private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
+  private val sourceTraceParams =
+    CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = dataWidth)
 
   val valid = Bool()
   val bid = new ROBID(idEntries)
@@ -26,6 +29,9 @@ class LoadReplayReturnLretEntry(
   val addr = UInt(addrWidth.W)
   val size = UInt(sizeWidth.W)
   val dst = new LoadReplayDestination(archRegWidth, physRegWidth)
+  val sourceTraceValid = Bool()
+  val source0 = new CommitOperandTrace(sourceTraceParams)
+  val source1 = new CommitOperandTrace(sourceTraceParams)
   val data = UInt(dataWidth.W)
   val pipeIndex = UInt(returnPipeIndexWidth.W)
   val specWakeup = Bool()

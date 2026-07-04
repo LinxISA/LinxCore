@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.log2Ceil
 
+import linxcore.commit.{CommitOperandTrace, CommitTraceParams}
 import linxcore.rob.ROBID
 
 class LoadReplayReturnLretPayloadIO(
@@ -16,6 +17,8 @@ class LoadReplayReturnLretPayloadIO(
     val physRegWidth: Int = 6)
     extends Bundle {
   private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
+  private val sourceTraceParams =
+    CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = dataWidth)
 
   val enable = Input(Bool())
   val launchValid = Input(Bool())
@@ -28,6 +31,9 @@ class LoadReplayReturnLretPayloadIO(
   val selectedAddr = Input(UInt(addrWidth.W))
   val selectedSize = Input(UInt(sizeWidth.W))
   val selectedDst = Input(new LoadReplayDestination(archRegWidth, physRegWidth))
+  val selectedSourceTraceValid = Input(Bool())
+  val selectedSource0 = Input(new CommitOperandTrace(sourceTraceParams))
+  val selectedSource1 = Input(new CommitOperandTrace(sourceTraceParams))
   val returnData = Input(UInt(dataWidth.W))
   val returnPipeIndex = Input(UInt(returnPipeIndexWidth.W))
   val specWakeup = Input(Bool())
@@ -43,6 +49,9 @@ class LoadReplayReturnLretPayloadIO(
   val payloadAddr = Output(UInt(addrWidth.W))
   val payloadSize = Output(UInt(sizeWidth.W))
   val payloadDst = Output(new LoadReplayDestination(archRegWidth, physRegWidth))
+  val payloadSourceTraceValid = Output(Bool())
+  val payloadSource0 = Output(new CommitOperandTrace(sourceTraceParams))
+  val payloadSource1 = Output(new CommitOperandTrace(sourceTraceParams))
   val payloadData = Output(UInt(dataWidth.W))
   val payloadPipeIndex = Output(UInt(returnPipeIndexWidth.W))
   val payloadSpecWakeup = Output(Bool())
@@ -97,6 +106,9 @@ class LoadReplayReturnLretPayload(
   io.payloadAddr := 0.U
   io.payloadSize := 0.U
   io.payloadDst := LoadReplayDestination.none(archRegWidth, physRegWidth)
+  io.payloadSourceTraceValid := false.B
+  io.payloadSource0 := 0.U.asTypeOf(io.payloadSource0)
+  io.payloadSource1 := 0.U.asTypeOf(io.payloadSource1)
   io.payloadData := 0.U
   io.payloadPipeIndex := 0.U(returnPipeIndexWidth.W)
   io.payloadSpecWakeup := false.B
@@ -112,6 +124,9 @@ class LoadReplayReturnLretPayload(
     io.payloadAddr := io.selectedAddr
     io.payloadSize := io.selectedSize
     io.payloadDst := io.selectedDst
+    io.payloadSourceTraceValid := io.selectedSourceTraceValid
+    io.payloadSource0 := io.selectedSource0
+    io.payloadSource1 := io.selectedSource1
     io.payloadData := io.returnData
     io.payloadPipeIndex := io.returnPipeIndex
     io.payloadSpecWakeup := io.specWakeup

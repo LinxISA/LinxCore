@@ -4,6 +4,7 @@ import circt.stage.ChiselStage
 import org.scalatest.funsuite.AnyFunSuite
 
 object LoadReplayReturnIexPipeInsertCandidateReference {
+  final case class Source(valid: Boolean = false, reg: Int = 0, data: BigInt = 0)
   final case class Mem(
       bidValid: Boolean = true,
       gidValid: Boolean = true,
@@ -16,6 +17,9 @@ object LoadReplayReturnIexPipeInsertCandidateReference {
       pc: BigInt = 0x1000,
       addr: BigInt = 0x2000,
       size: Int = 8,
+      sourceTraceValid: Boolean = true,
+      source0: Source = Source(valid = true, reg = 5, data = 0x1111),
+      source1: Source = Source(valid = true, reg = 6, data = 0x2222),
       data: BigInt = 0x12345678L,
       loadToUsePipeIndex: Int = 0,
       specWakeup: Boolean = false,
@@ -28,6 +32,8 @@ object LoadReplayReturnIexPipeInsertCandidateReference {
       insertPipeIndex: Int,
       insertLoadToUsePipeIndex: Int,
       copiedRid: Int,
+      copiedSourceTraceValid: Boolean,
+      copiedSource0: Source,
       copiedData: BigInt,
       wakeupRequired: Boolean,
       blockedByDisabled: Boolean,
@@ -53,6 +59,8 @@ object LoadReplayReturnIexPipeInsertCandidateReference {
       insertPipeIndex = if (insertValid) pipeInsertIndex else 0,
       insertLoadToUsePipeIndex = if (insertValid) mem.loadToUsePipeIndex else 0,
       copiedRid = if (insertValid) mem.rid else 0,
+      copiedSourceTraceValid = insertValid && mem.sourceTraceValid,
+      copiedSource0 = if (insertValid) mem.source0 else Source(),
       copiedData = if (insertValid) mem.data else 0,
       wakeupRequired = insertValid && !mem.specWakeup && !mem.stackValid,
       blockedByDisabled = !enable && setMemDataValid,
@@ -81,6 +89,8 @@ class LoadReplayReturnIexPipeInsertCandidateSpec extends AnyFunSuite {
     assert(result.insertPipeIndex == 1)
     assert(result.insertLoadToUsePipeIndex == 0)
     assert(result.copiedRid == 7)
+    assert(result.copiedSourceTraceValid)
+    assert(result.copiedSource0.data == 0x1111)
     assert(result.copiedData == 0xdeadbeefL)
     assert(result.wakeupRequired)
   }
@@ -163,6 +173,7 @@ class LoadReplayReturnIexPipeInsertCandidateSpec extends AnyFunSuite {
     assert(!result.insertValid)
     assert(result.blockedByInvalidRid)
     assert(result.copiedRid == 0)
+    assert(!result.copiedSourceTraceValid)
     assert(result.copiedData == 0)
   }
 
@@ -170,5 +181,7 @@ class LoadReplayReturnIexPipeInsertCandidateSpec extends AnyFunSuite {
     val sv = ChiselStage.emitSystemVerilog(
       new LoadReplayReturnIexPipeInsertCandidate(returnPipeCount = 2))
     assert(sv.contains("module LoadReplayReturnIexPipeInsertCandidate"))
+    assert(sv.contains("io_insertSourceTraceValid"))
+    assert(sv.contains("io_insertSource0_data"))
   }
 }

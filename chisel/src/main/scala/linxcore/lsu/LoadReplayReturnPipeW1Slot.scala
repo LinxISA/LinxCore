@@ -3,6 +3,7 @@ package linxcore.lsu
 import chisel3._
 import chisel3.util.log2Ceil
 
+import linxcore.commit.{CommitOperandTrace, CommitTraceParams}
 import linxcore.rob.ROBID
 
 class LoadReplayReturnPipeW1SlotIO(
@@ -16,6 +17,8 @@ class LoadReplayReturnPipeW1SlotIO(
     val physRegWidth: Int = 6)
     extends Bundle {
   private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
+  private val sourceTraceParams =
+    CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = dataWidth)
 
   val enable = Input(Bool())
   val flush = Input(Bool())
@@ -33,6 +36,9 @@ class LoadReplayReturnPipeW1SlotIO(
   val writeAddr = Input(UInt(addrWidth.W))
   val writeSize = Input(UInt(sizeWidth.W))
   val writeDst = Input(new LoadReplayDestination(archRegWidth, physRegWidth))
+  val writeSourceTraceValid = Input(Bool())
+  val writeSource0 = Input(new CommitOperandTrace(sourceTraceParams))
+  val writeSource1 = Input(new CommitOperandTrace(sourceTraceParams))
   val writeData = Input(UInt(dataWidth.W))
   val writeWakeupRequired = Input(Bool())
 
@@ -51,6 +57,9 @@ class LoadReplayReturnPipeW1SlotIO(
   val entryAddr = Output(UInt(addrWidth.W))
   val entrySize = Output(UInt(sizeWidth.W))
   val entryDst = Output(new LoadReplayDestination(archRegWidth, physRegWidth))
+  val entrySourceTraceValid = Output(Bool())
+  val entrySource0 = Output(new CommitOperandTrace(sourceTraceParams))
+  val entrySource1 = Output(new CommitOperandTrace(sourceTraceParams))
   val entryData = Output(UInt(dataWidth.W))
   val entryWakeupRequired = Output(Bool())
   val blockedByDisabled = Output(Bool())
@@ -82,6 +91,8 @@ class LoadReplayReturnPipeW1Slot(
   require(physRegWidth > 0, "physRegWidth must be positive")
 
   private val returnPipeIndexWidth = math.max(1, log2Ceil(returnPipeCount))
+  private val sourceTraceParams =
+    CommitTraceParams(regWidth = math.max(8, archRegWidth), dataWidth = dataWidth)
 
   val io = IO(new LoadReplayReturnPipeW1SlotIO(
     idEntries,
@@ -107,6 +118,9 @@ class LoadReplayReturnPipeW1Slot(
   val addrReg = RegInit(0.U(addrWidth.W))
   val sizeReg = RegInit(0.U(sizeWidth.W))
   val dstReg = RegInit(LoadReplayDestination.none(archRegWidth, physRegWidth))
+  val sourceTraceValidReg = RegInit(false.B)
+  val source0Reg = RegInit(0.U.asTypeOf(new CommitOperandTrace(sourceTraceParams)))
+  val source1Reg = RegInit(0.U.asTypeOf(new CommitOperandTrace(sourceTraceParams)))
   val dataReg = RegInit(0.U(dataWidth.W))
   val wakeupRequiredReg = RegInit(false.B)
 
@@ -127,6 +141,9 @@ class LoadReplayReturnPipeW1Slot(
     addrReg := 0.U
     sizeReg := 0.U
     dstReg := LoadReplayDestination.none(archRegWidth, physRegWidth)
+    sourceTraceValidReg := false.B
+    source0Reg := 0.U.asTypeOf(source0Reg)
+    source1Reg := 0.U.asTypeOf(source1Reg)
     dataReg := 0.U
     wakeupRequiredReg := false.B
   }.elsewhen(accepted) {
@@ -143,6 +160,9 @@ class LoadReplayReturnPipeW1Slot(
     addrReg := io.writeAddr
     sizeReg := io.writeSize
     dstReg := io.writeDst
+    sourceTraceValidReg := io.writeSourceTraceValid
+    source0Reg := io.writeSource0
+    source1Reg := io.writeSource1
     dataReg := io.writeData
     wakeupRequiredReg := io.writeWakeupRequired
   }
@@ -162,6 +182,9 @@ class LoadReplayReturnPipeW1Slot(
   io.entryAddr := addrReg
   io.entrySize := sizeReg
   io.entryDst := dstReg
+  io.entrySourceTraceValid := sourceTraceValidReg
+  io.entrySource0 := source0Reg
+  io.entrySource1 := source1Reg
   io.entryData := dataReg
   io.entryWakeupRequired := wakeupRequiredReg
   io.blockedByDisabled := !io.enable && io.writeValid
