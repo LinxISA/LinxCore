@@ -181,6 +181,10 @@ through the path boundary, but not through the reduced top. This gives the next
 live-response promotion a path-local proof for no-query, no-selected, stale,
 cluster/entry mismatch, SCB-order, and malformed-response blockers without
 adding another batch of top-level diagnostic IO.
+R433 exposes compact response FIFO and response-drain diagnostics through the
+same path boundary. This closes the local observability gap for response enqueue
+capacity, full FIFO stalls, ordered response consumption, stale-head drops, and
+no-action heads before any live request/raw-response arm is promoted.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
@@ -320,7 +324,8 @@ boundary and can later be promoted without another direct top child instance.
 | `acceptedToken*` | R430/R431 accepted-query owner diagnostics: capacity, visible/resident token, capture/clear/precise-prune pulses, precise-flush/outstanding-token blockers, and visible token `cID/eID`. |
 | `requestPayload*` | R402 selected-row request payload and diagnostics for the future local STQ lookup queue. |
 | `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, blocker diagnostics, and R426 precise-prune mask/count visibility. |
-| `responseQueue*` | R426 response FIFO precise-prune mask/count and enqueue-blocked-by-precise-flush diagnostics. |
+| `responseQueue*` | R426/R433 response FIFO enqueue, head-consume, occupancy, full/disabled/flush blockers, and precise-prune mask/count diagnostics. |
+| `responseDrain*` | R433 response-head drain diagnostics: ordered consumption, stale-head drop, no-head/no-action blockers, and invalid stale-with-ordered evidence. |
 | `lookup*` | R405 resident-STQ lookup diagnostics: query validity, row masks, eligible store mask, forward/wait masks, wait-store, raw data evidence, and response-visible data evidence. |
 | `responseApply*` | R407/R408 ordered-response apply intent: STQ-returned, wait-store identity, accepted-context data merge mask/data, completion diagnostic, and malformed-payload blockers. |
 | `rowStatePlan*` | R409 future row-state write plan: wait-store rewait clearing, data/no-data repick preservation, next line image, next split SCB/STQ bits, and invalid response-class diagnostics. |
@@ -486,6 +491,14 @@ or a selected identity that is waiting for prior SCB return. This is the
 path-local evidence needed before `rawResponseLiveEnable` is promoted to live
 external `lookup_su_lu_q` traffic.
 
+R433 keeps behavior unchanged and forwards the already-computed response FIFO
+and drain diagnostics to path IO. The FIFO diagnostics distinguish accepted,
+dropped, full, and consumed response heads; the drain diagnostics distinguish
+ordered consumption from explicit stale-head drops and from held heads waiting
+for match or row-state proof. This is the path-local evidence needed before the
+local request sink or raw external response source is made live in the reduced
+top.
+
 The R402 request-payload owner publishes the selected row's reduced LIQ slot,
 accepted local `cID/eID`, BID/GID/RID identity, load LSID, PC, address, size,
 and request byte mask only when query issue fires for a selected repick row.
@@ -616,8 +629,9 @@ Reference tests cover legacy readiness preservation, dormant query/response
 behavior, future live accepted-token response completion, flush handling,
 disabled behavior, request-queue storage while the future raw sink is stalled,
 raw-response priority over sink-generated response, path-local identity and
-response blocker diagnostics, and Chisel elaboration with the selected-identity,
-request-control, request-payload, request-queue, request-sink, accepted-token,
-payload-bearing response-queue, response-head-state, response-drain,
-response-apply, row-state-plan, row-mutation-request, lookup, identity,
-response, and evidence child owners present in the composite module.
+response blocker diagnostics, response FIFO/drain diagnostics, and Chisel
+elaboration with the selected-identity, request-control, request-payload,
+request-queue, request-sink, accepted-token, payload-bearing response-queue,
+response-head-state, response-drain, response-apply, row-state-plan,
+row-mutation-request, lookup, identity, response, and evidence child owners
+present in the composite module.

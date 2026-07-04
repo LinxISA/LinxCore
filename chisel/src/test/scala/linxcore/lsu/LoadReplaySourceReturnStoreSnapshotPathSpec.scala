@@ -90,7 +90,25 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestQueueCount: Int,
       requestQueueBlockedByDisabled: Boolean,
       requestQueueBlockedByFlush: Boolean,
-      requestQueueBlockedByFull: Boolean)
+      requestQueueBlockedByFull: Boolean,
+      responseQueueEnqueueReady: Boolean,
+      responseQueueEnqueueAccepted: Boolean,
+      responseQueueEnqueueDropped: Boolean,
+      responseQueueHeadValid: Boolean,
+      responseQueueHeadConsumed: Boolean,
+      responseQueuePending: Boolean,
+      responseQueueFull: Boolean,
+      responseQueueEmpty: Boolean,
+      responseQueueCount: Int,
+      responseQueueBlockedByDisabled: Boolean,
+      responseQueueBlockedByFlush: Boolean,
+      responseQueueBlockedByFull: Boolean,
+      responseDrainDequeueReady: Boolean,
+      responseDrainOrderedConsumed: Boolean,
+      responseDrainStaleDropped: Boolean,
+      responseDrainBlockedByNoHead: Boolean,
+      responseDrainBlockedByNoAction: Boolean,
+      responseDrainInvalidStaleWithOrdered: Boolean)
 
   def apply(
       enable: Boolean,
@@ -140,12 +158,13 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedRowValidMask: Int = 0,
       selectedRowScbReturnedMask: Int = 0,
       requestQueueState: Vector[LoadReplaySourceReturnStoreSnapshotRequestPayloadReference.Payload] = Vector.empty,
+      responseQueueState: Vector[LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response] = Vector.empty,
       acceptedTokenState: LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token =
         LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token(),
       preciseFlush: Option[STQFlushPruneReference.Flush] = None): Result = {
     val precisePruneActive = enable && !flush && preciseFlush.exists(_.valid)
     val responseQueueCapacity = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
-      state = Vector.empty,
+      state = responseQueueState,
       depth = 2,
       enable = enable,
       flush = flush,
@@ -305,22 +324,23 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
         waitStorePc = response.waitStorePc,
         dataMask = response.dataMask,
         data = response.data))
-    val responseQueue = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
-      state = Vector.empty,
+    val responseEnqueue = rawResponse.orElse(sinkResponse)
+    val responseQueuePreview = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
+      state = responseQueueState,
       depth = 2,
       enable = enable,
       flush = flush,
       preciseFlush = preciseFlush,
-      enqueue = rawResponse.orElse(sinkResponse),
+      enqueue = responseEnqueue,
       dequeueReady = false)
     val responseHeadState = LoadReplaySourceReturnStoreSnapshotResponseHeadStateReference(
       liqEntries = 4,
       enable = enable,
       flush = flush,
       reducedEnable = selectedIdentityEnable,
-      headValid = responseQueue.headValid,
-      responseClusterId = responseQueue.head.map(_.clusterId).getOrElse(0),
-      responseEntryId = responseQueue.head.map(_.entryId).getOrElse(0),
+      headValid = responseQueuePreview.headValid,
+      responseClusterId = responseQueuePreview.head.map(_.clusterId).getOrElse(0),
+      responseEntryId = responseQueuePreview.head.map(_.entryId).getOrElse(0),
       repickMask = selectedRepickMask,
       rowProofEnable = selectedIdentityEnable,
       rowValidMask = selectedRowValidMask,
@@ -332,26 +352,34 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       queryIssued = acceptedToken.token.valid,
       selectedValid = acceptedToken.token.valid,
       selectedRepick = acceptedToken.token.repick,
-      responseValid = responseQueue.headValid,
+      responseValid = responseQueuePreview.headValid,
       selectedClusterId = acceptedToken.token.clusterId,
       selectedEntryId = acceptedToken.token.entryId,
-      responseClusterId = responseQueue.head.map(_.clusterId).getOrElse(0),
-      responseEntryId = responseQueue.head.map(_.entryId).getOrElse(0))
+      responseClusterId = responseQueuePreview.head.map(_.clusterId).getOrElse(0),
+      responseEntryId = responseQueuePreview.head.map(_.entryId).getOrElse(0))
     val responseMatch = LoadReplaySourceReturnStoreSnapshotResponseMatchReference(
       enable = enable,
       flush = flush,
       queryIssued = acceptedToken.token.valid,
-      responseValidIn = responseQueue.headValid,
+      responseValidIn = responseQueuePreview.headValid,
       responseMatchesSelected = identityMatch.responseMatchesSelected,
       scbReturned = scbReturned || responseHeadState.reducedHeadScbReturned,
-      waitStoreIn = responseQueue.head.exists(_.waitStore),
-      dataValidIn = responseQueue.head.exists(_.dataValid))
+      waitStoreIn = responseQueuePreview.head.exists(_.waitStore),
+      dataValidIn = responseQueuePreview.head.exists(_.dataValid))
     val responseDrain = LoadReplaySourceReturnStoreSnapshotResponseDrainReference(
       enable = enable,
       flush = flush,
-      headValid = responseQueue.headValid,
+      headValid = responseQueuePreview.headValid,
       orderedResponse = responseMatch.responseValid,
       headStale = responseHeadState.headStale)
+    val responseQueue = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
+      state = responseQueueState,
+      depth = 2,
+      enable = enable,
+      flush = flush,
+      preciseFlush = preciseFlush,
+      enqueue = responseEnqueue,
+      dequeueReady = responseDrain.dequeueReady)
     val responseApply = LoadReplaySourceReturnStoreSnapshotResponseApplyReference(
       liqEntries = 4,
       enable = enable,
@@ -359,7 +387,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       orderedConsumed = responseDrain.orderedConsumed,
       targetRepick = responseHeadState.reducedHeadRepick,
       targetOneHot = responseHeadState.reducedHeadOneHot,
-      response = responseQueue.head.map(response =>
+      response = responseQueuePreview.head.map(response =>
         LoadReplaySourceReturnStoreSnapshotResponseApplyReference.Response(
           valid = true,
           waitStore = response.waitStore,
@@ -497,7 +525,25 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestQueueCount = requestQueue.count,
       requestQueueBlockedByDisabled = requestQueue.blockedByDisabled,
       requestQueueBlockedByFlush = requestQueue.blockedByFlush,
-      requestQueueBlockedByFull = requestQueue.blockedByFull)
+      requestQueueBlockedByFull = requestQueue.blockedByFull,
+      responseQueueEnqueueReady = responseQueue.enqueueReady,
+      responseQueueEnqueueAccepted = responseQueue.enqueueAccepted,
+      responseQueueEnqueueDropped = responseQueue.enqueueDropped,
+      responseQueueHeadValid = responseQueue.headValid,
+      responseQueueHeadConsumed = responseQueue.headConsumed,
+      responseQueuePending = responseQueue.pending,
+      responseQueueFull = responseQueue.full,
+      responseQueueEmpty = responseQueue.empty,
+      responseQueueCount = responseQueue.count,
+      responseQueueBlockedByDisabled = responseQueue.blockedByDisabled,
+      responseQueueBlockedByFlush = responseQueue.blockedByFlush,
+      responseQueueBlockedByFull = responseQueue.blockedByFull,
+      responseDrainDequeueReady = responseDrain.dequeueReady,
+      responseDrainOrderedConsumed = responseDrain.orderedConsumed,
+      responseDrainStaleDropped = responseDrain.staleDropped,
+      responseDrainBlockedByNoHead = responseDrain.blockedByNoHead,
+      responseDrainBlockedByNoAction = responseDrain.blockedByNoAction,
+      responseDrainInvalidStaleWithOrdered = responseDrain.invalidStaleWithOrdered)
   }
 }
 
@@ -786,6 +832,9 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.requestQueueEnqueueAccepted)
     assert(!result.requestQueueHeadConsumed)
     assert(result.requestQueuePending)
+    assert(result.responseQueueEnqueueAccepted)
+    assert(result.responseQueueHeadConsumed)
+    assert(result.responseDrainOrderedConsumed)
     assert(result.evidenceResponseAccepted)
     assert(result.storeSnapshotReady)
   }
@@ -824,9 +873,75 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.rawResponseSourceBlockedByLiveDisabled)
     assert(result.identityMatchResponseMatchesSelected)
     assert(result.responseMatchOrdered)
+    assert(result.responseQueueEnqueueAccepted)
+    assert(result.responseQueueHeadConsumed)
+    assert(result.responseDrainOrderedConsumed)
     assert(result.requestQueueHeadConsumed)
     assert(result.evidenceResponseAccepted)
     assert(result.storeSnapshotReady)
+  }
+
+  test("path-local response queue diagnostics report a full response FIFO") {
+    val first = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
+      clusterId = 0,
+      entryId = 1,
+      requestBid = 6,
+      requestGid = 1,
+      requestRid = 7,
+      requestLoadLsId = 9)
+    val second = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
+      clusterId = 0,
+      entryId = 2,
+      requestBid = 7,
+      requestGid = 1,
+      requestRid = 8,
+      requestLoadLsId = 10)
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = false,
+      legacySnapshotReady = false,
+      rawResponseLiveEnable = true,
+      responseValidIn = true,
+      responseClusterId = 0,
+      responseEntryId = 3,
+      responseQueueState = Vector(first, second))
+
+    assert(!result.responseQueueEnqueueReady)
+    assert(!result.responseQueueEnqueueAccepted)
+    assert(result.responseQueueEnqueueDropped)
+    assert(result.responseQueueFull)
+    assert(result.responseQueueCount == 2)
+    assert(result.responseQueueBlockedByFull)
+    assert(result.responseQueueHeadValid)
+    assert(!result.responseQueueHeadConsumed)
+    assert(result.responseDrainBlockedByNoAction)
+  }
+
+  test("path-local response drain diagnostics report explicit stale-head drop") {
+    val staleHead = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.Response(
+      clusterId = 0,
+      entryId = 2,
+      requestBid = 6,
+      requestGid = 1,
+      requestRid = 7,
+      requestLoadLsId = 9)
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = false,
+      legacySnapshotReady = false,
+      responseHeadStale = true,
+      responseQueueState = Vector(staleHead))
+
+    assert(result.responseQueueHeadValid)
+    assert(result.responseDrainDequeueReady)
+    assert(result.responseDrainStaleDropped)
+    assert(result.responseQueueHeadConsumed)
+    assert(result.responseQueueEmpty)
+    assert(result.responseQueueCount == 0)
+    assert(!result.responseDrainOrderedConsumed)
+    assert(!result.responseDrainInvalidStaleWithOrdered)
   }
 
   test("path-local identity diagnostics report response blockers") {
@@ -1066,6 +1181,12 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_requestQueueHead_peId"))
     assert(sv.contains("io_requestQueueHead_stid"))
     assert(sv.contains("io_requestQueueHead_tid"))
+    assert(sv.contains("io_responseQueueEnqueueAccepted"))
+    assert(sv.contains("io_responseQueueHeadConsumed"))
+    assert(sv.contains("io_responseQueueBlockedByFull"))
+    assert(sv.contains("io_responseDrainOrderedConsumed"))
+    assert(sv.contains("io_responseDrainStaleDropped"))
+    assert(sv.contains("io_responseDrainBlockedByNoAction"))
     assert(sv.contains("io_lookupResponseDataValid"))
     assert(sv.contains("io_selectedLineData"))
     assert(sv.contains("io_rawDataValidIn"))
