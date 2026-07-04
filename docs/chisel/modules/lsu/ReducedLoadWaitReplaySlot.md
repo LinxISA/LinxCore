@@ -11,6 +11,9 @@
   - `tools/LinxCoreModel/model/lsu/load_unit/ldq.cpp`
     - `LDQInfo::waitStore`
     - `LDQInfo::handleSUWakeup`
+  - `tools/LinxCoreModel/model/ModelCommon/SimInstInfo.cpp`
+    - `SimInstInfo::GenRFReqBus`
+    - `SimInstInfo::RFRetSetData`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreResidentForward.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ResidentStoreReplayWakeup.scala`
@@ -38,8 +41,11 @@ implicit in the reduced top's current BID/LSID aliases. R307 carries the
 derived replay-return signedness bit beside address and size, using the model
 opcode class that later feeds `SignExtend`. R311 carries the renamed load
 destination sideband from the held execute uop beside the same replay
-candidate, matching the model's later ROB `pdsts_` lookup. In the reduced top
-after R272,
+candidate, matching the model's later ROB `pdsts_` lookup. R375 also captures
+the RF-derived `sourceTraceValid/source0/source1` sideband from
+`ReducedScalarAluExecute`, preserving original load source operands through
+the wait-store clear boundary instead of deriving them from ROB or LIQ
+metadata later. In the reduced top after R272,
 `ReducedLoadReplayRelaunchQueue` consumes that pulse into a finite pending
 queue. The slot itself does not drive a launch port, wake dependent consumers,
 or replace the full `LoadInflightQueue` owner.
@@ -57,6 +63,8 @@ or replace the full `LoadInflightQueue` owner.
 | `captureSize` | Byte size of the waiting load. |
 | `captureReturnSignExtend` | Derived scalar return signedness for future replay-return data extraction. |
 | `captureDst` | Renamed destination sideband from the held load uop. |
+| `captureSourceTraceValid` | R375 RF-derived source-trace sideband valid from the held load uop. |
+| `captureSource0`, `captureSource1` | R375 original source operand traces captured from execute-stage RF-return data. |
 | `captureBid` | Load allocation snapshot BID. |
 | `captureGid` | Load allocation snapshot GID sidecar. |
 | `captureRid` | Load allocation snapshot RID sidecar. |
@@ -82,6 +90,8 @@ or replace the full `LoadInflightQueue` owner.
 | `relaunch.size` | Byte size of the remembered load. |
 | `relaunch.returnSignExtend` | Captured scalar return signedness sideband. |
 | `relaunch.dst` | Captured renamed destination sideband for future LRET/wakeup payload construction. |
+| `relaunch.sourceTraceValid` | Captured source-trace validity for future replay W2 commit-row source fill. |
+| `relaunch.source0`, `relaunch.source1` | Captured original source operand traces; not ROB allocation placeholders. |
 | `relaunch.bid` | BID snapshot captured with the remembered load. |
 | `relaunch.gid` | GID snapshot captured with the remembered load. |
 | `relaunch.rid` | RID snapshot captured with the remembered load. |
@@ -122,10 +132,10 @@ R269 maps that sequence onto the reduced top:
 4. Clear the diagnostic slot when the wakeup matches the remembered
    wait-store key by `(storeId, storeLsId, pc)`.
 5. Publish a one-cycle relaunch candidate containing the stored load PC,
-   address, size, derived return signedness, renamed destination, BID, GID, RID,
-   reduced LSID, and forwarding snapshot `(youngestStoreId,
-   youngestStoreLsId)`. This is the future LIQ/issue handoff boundary; it does
-   not itself relaunch the load.
+   address, size, derived return signedness, renamed destination, RF-derived
+   source operand traces, BID, GID, RID, reduced LSID, and forwarding snapshot
+   `(youngestStoreId, youngestStoreLsId)`. This is the future LIQ/issue
+   handoff boundary; it does not itself relaunch the load.
 6. In the reduced top, `ReducedLoadReplayRelaunchQueue` stores that one-cycle
    pulse as a stable pending diagnostic until a later LIQ/issue consumer
    exists.

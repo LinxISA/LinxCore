@@ -11,6 +11,9 @@
     - `LDQInfo::handleSUWakeup`
   - `tools/LinxCoreModel/model/lsu/store_unit/stq.cpp`
     - `STQ::lookupForLoad`
+  - `tools/LinxCoreModel/model/ModelCommon/SimInstInfo.cpp`
+    - `SimInstInfo::GenRFReqBus`
+    - `SimInstInfo::RFRetSetData`
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadWaitReplaySlot.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala`
@@ -43,7 +46,10 @@ R307 also preserves the replay-return signedness sideband derived from the
 original load opcode, so the queued request can later drive the standalone
 return-data extractor without recovering opcode class from top-level wires.
 R311 preserves the captured renamed destination sideband for the later
-LRET/wakeup payload owner.
+LRET/wakeup payload owner. R375 preserves the original RF-derived
+`sourceTraceValid/source0/source1` operands in the same FIFO entry so replay W2
+row-fill work can consume real source data instead of reconstructing it from
+allocation metadata.
 
 ## Interface
 
@@ -53,7 +59,7 @@ LRET/wakeup payload owner.
 |---|---|
 | `flush` | Clears the queue and suppresses enqueue/dequeue for the cycle. |
 | `enqueueValid` | Candidate-valid pulse from the reduced wait-store slot. |
-| `enqueue` | `ReducedLoadReplayCandidate` payload: remembered load PC, address, size, return signedness, destination, BID, GID, RID, reduced LSID, and forwarding snapshot `(youngestStoreId, youngestStoreLsId)`. |
+| `enqueue` | `ReducedLoadReplayCandidate` payload: remembered load PC, address, size, return signedness, destination, source traces, BID, GID, RID, reduced LSID, and forwarding snapshot `(youngestStoreId, youngestStoreLsId)`. |
 | `outReady` | Consumer readiness for the queue head. In the reduced top this comes from `ReducedLoadReplayCompletionDrain`; future LIQ/issue work may replace that diagnostic consumer. |
 
 ### Outputs
@@ -64,7 +70,7 @@ LRET/wakeup payload owner.
 | `enqueueAccepted` | Candidate was stored in the queue. |
 | `enqueueDropped` | A one-cycle candidate was valid while the queue was full and no dequeue opened space. |
 | `outValid` | Queue head is valid. |
-| `out` | Queue-head relaunch candidate payload. |
+| `out` | Queue-head relaunch candidate payload, including the R375 source-trace sideband. |
 | `outFire` | Queue head was consumed by `outReady`. |
 | `pending` | At least one relaunch candidate is resident. |
 | `full` | FIFO is full. |
@@ -78,8 +84,8 @@ with registered head pointer, tail pointer, and occupancy count. Stored
 payloads force `valid=true` on admission so the output valid handshake remains
 the authority for queue residency. Empty payloads explicitly disable every
 ROBID-shaped sidecar, including GID/RID and the forwarding snapshot; the
-destination and scalar return signedness sidebands clear with the empty
-payload.
+destination, source traces, and scalar return signedness sidebands clear with
+the empty payload.
 
 ## Logic Design
 

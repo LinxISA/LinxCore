@@ -7,6 +7,9 @@
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/bctrl/spe/SPERename.cpp`
   - `model/LinxCoreModel/model/iex/pipe/alu_pipe.cpp`
+  - `model/LinxCoreModel/model/iex/pipe/lda_pipe.cpp`
+  - `model/LinxCoreModel/model/iex/pipe/agu_pipe.cpp`
+  - `model/LinxCoreModel/model/iex/iex_rf.cpp`
   - `model/LinxCoreModel/model/iex/rtable.cpp`
   - `model/LinxCoreModel/model/iex/iex.cpp`
   - `model/LinxCoreModel/model/ModelCommon/SimInstInfo.cpp`
@@ -51,6 +54,13 @@ identity used by `LDQInfo::handleSUWakeup`.
 R311 also exposes the E-stage load's first renamed destination as
 `loadLookupDst`, matching the model return path where `IEX::setMemWakeup` and
 `IEX::setMemData` recover destination ownership from the ROB instruction.
+R375 exposes `loadLookupSourceTraceValid/source0/source1` from the same
+E-stage RF-returned source data used for execution. The model evidence is
+`SimInstInfo::GenRFReqBus` plus `RFRetSetData`, where `iex_rf.cpp` fills
+`psrcs_`, and `LDAPipe::runI1/runI2` plus `AGUPipe::runI1/runI2`, where load
+pipes request and consume those source operands before W2. The sideband is
+disabled for the synthetic `FRET.STK` RA-load return path and is not
+reconstructed from ROB allocation rows.
 
 ## Interface
 
@@ -84,6 +94,8 @@ R311 also exposes the E-stage load's first renamed destination as
 | output | `loadLookupPc` | `UInt(pcWidth.W)` | with `loadLookupValid` | R269 PC sideband for the reduced wait-store replay slot. |
 | output | `loadLookupBid`, `loadLookupGid`, `loadLookupRid` | `ROBID` | with `loadLookupValid` | R274 model ROB identity sidecars for reduced replay candidates. |
 | output | `loadLookupDst` | `RenamedDestination` | with `loadLookupValid` | R311 first destination sideband captured with the load lookup for future replay LRET/writeback/wakeup ownership. |
+| output | `loadLookupSourceTraceValid` | `Bool` | with ordinary load `loadLookupValid` | R375 source-trace sideband valid. Suppressed for `FRET.STK` RA-load returns because that synthetic path does not have ordinary load source provenance. |
+| output | `loadLookupSource0`, `loadLookupSource1` | `CommitOperandTrace` | with `loadLookupSourceTraceValid` | R375 source operand trace copied from E-stage `srcData(0/1)` and the accepted uop's P-class architectural source tags. |
 | output | `fretStkSpRestoreValid` | `Bool` | with `completeValid` | The condition-false `FRET.STK` RA-load path also restores architectural `x1/sp`. |
 | output | `fretStkSpRestoreData` | `UInt(64.W)` by default | with `fretStkSpRestoreValid` | Restored SP value, `stackPointerData + in.imm`, for the owning top's scalar-SP shadow. |
 | output | `redirectValid` | `Bool` | with `completeValid` | Reduced scalar redirect request for `FRET.STK` target-taken rows or condition-false RA-load return rows. |
@@ -232,6 +244,12 @@ register data path is owned by `ScalarTURenameBridge`, the reduced local-value
 overlay in the live top, and later T/U issue owners rather than by the scalar
 RF. T/U local sources are consumed internally and suppressed from the
 QEMU-shaped source fields.
+R375 reuses that same real E-stage source-data rule for replay-load
+provenance: ordinary load lookups export only P-class `src0/src1` operand
+traces copied from `eSrcData`, while T/U/local sources remain suppressed and
+`FRET.STK` RA-load returns keep `loadLookupSourceTraceValid=false`. This
+matches LinxCoreModel's RF-return provenance and avoids treating ROB
+allocation metadata as source data.
 R110 proves this for CoreMark's first `HL.LUI`, which writes architectural tag
 `31` as a T destination while scalar RF writeback remains gated off.
 R133 proves the same row shape for post-return `OP_ADDTPC`: the ALU already
