@@ -216,6 +216,17 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val queryIssueBlockedByRequestDisabled = Output(Bool())
   val queryIssueBlockedByNoLaunch = Output(Bool())
   val queryIssueBlockedBySink = Output(Bool())
+  val requestControlBlockedByToken = Output(Bool())
+
+  val acceptedTokenCanAccept = Output(Bool())
+  val acceptedTokenValid = Output(Bool())
+  val acceptedTokenResidentValid = Output(Bool())
+  val acceptedTokenCaptureCandidate = Output(Bool())
+  val acceptedTokenCaptureAccepted = Output(Bool())
+  val acceptedTokenClearAccepted = Output(Bool())
+  val acceptedTokenBlockedByOutstanding = Output(Bool())
+  val acceptedTokenClusterId = Output(UInt(clusterIdWidth.W))
+  val acceptedTokenEntryId = Output(UInt(entryIdWidth.W))
 
   val requestPayloadActive = Output(Bool())
   val requestPayloadCaptureCandidate = Output(Bool())
@@ -811,6 +822,17 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   io.queryIssueBlockedByRequestDisabled := queryIssue.io.blockedByRequestDisabled
   io.queryIssueBlockedByNoLaunch := queryIssue.io.blockedByNoLaunch
   io.queryIssueBlockedBySink := queryIssue.io.blockedBySink
+  io.requestControlBlockedByToken := requestControl.io.blockedByToken
+
+  io.acceptedTokenCanAccept := acceptedToken.io.tokenCanAccept
+  io.acceptedTokenValid := acceptedToken.io.tokenValid
+  io.acceptedTokenResidentValid := acceptedToken.io.residentTokenValid
+  io.acceptedTokenCaptureCandidate := acceptedToken.io.captureCandidate
+  io.acceptedTokenCaptureAccepted := acceptedToken.io.captureAccepted
+  io.acceptedTokenClearAccepted := acceptedToken.io.clearAccepted
+  io.acceptedTokenBlockedByOutstanding := acceptedToken.io.blockedByOutstandingToken
+  io.acceptedTokenClusterId := acceptedToken.io.tokenClusterId
+  io.acceptedTokenEntryId := acceptedToken.io.tokenEntryId
 
   io.requestPayloadActive := requestPayload.io.active
   io.requestPayloadCaptureCandidate := requestPayload.io.captureCandidate

@@ -44,6 +44,11 @@ storage. The token now captures the selected row line image, valid byte mask,
 and request byte mask at query issue so the later ordered response apply owner
 uses delayed row context instead of the current launch selector.
 
+R430 exposes the token's capacity, visible/resident state, capture/clear
+pulses, outstanding-token blocker, and visible `cID/eID` through the composite
+path boundary. This remains path-local visibility; the reduced top still does
+not grow another diagnostic port pack for these signals.
+
 ## Interface
 
 ### Inputs

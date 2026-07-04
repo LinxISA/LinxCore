@@ -39,6 +39,9 @@ point for future live STQ lookup issue.
 R403 wires `rawSinkReady` to the internal request queue's enqueue capacity
 inside the composite. The path-level `sinkReady` now drains that queue toward a
 future raw store-unit sink.
+R430 forwards `blockedByToken` through the composite path boundary so live-arm
+promotion can distinguish request-FIFO capacity from accepted-query token
+capacity before issuing another LU-to-SU lookup.
 
 ## Interface
 

@@ -37,6 +37,16 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       queryIssueBlockedByRequestDisabled: Boolean,
       queryIssueBlockedByNoLaunch: Boolean,
       queryIssueBlockedBySink: Boolean,
+      requestControlBlockedByToken: Boolean,
+      acceptedTokenCanAccept: Boolean,
+      acceptedTokenValid: Boolean,
+      acceptedTokenResidentValid: Boolean,
+      acceptedTokenCaptureCandidate: Boolean,
+      acceptedTokenCaptureAccepted: Boolean,
+      acceptedTokenClearAccepted: Boolean,
+      acceptedTokenBlockedByOutstanding: Boolean,
+      acceptedTokenClusterId: Int,
+      acceptedTokenEntryId: Int,
       requestPayloadValid: Boolean,
       requestPayloadBlockedByNoIssue: Boolean,
       requestPayloadBlockedByNoSelected: Boolean,
@@ -106,7 +116,9 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedValidMask: BigInt = 0,
       selectedRowValidMask: Int = 0,
       selectedRowScbReturnedMask: Int = 0,
-      requestQueueState: Vector[LoadReplaySourceReturnStoreSnapshotRequestPayloadReference.Payload] = Vector.empty): Result = {
+      requestQueueState: Vector[LoadReplaySourceReturnStoreSnapshotRequestPayloadReference.Payload] = Vector.empty,
+      acceptedTokenState: LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token =
+        LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token()): Result = {
     val responseQueueCapacity = LoadReplaySourceReturnStoreSnapshotResponseQueueReference.step(
       state = Vector.empty,
       depth = 2,
@@ -151,7 +163,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       requestEnable = requestEnable,
       launchValid = launchValid,
       rawSinkReady = requestQueueCapacity.enqueueReady,
-      tokenCanAccept = true)
+      tokenCanAccept = enable && !flush && !acceptedTokenState.valid)
     val queryIssue = LoadReplaySourceReturnStoreSnapshotQueryIssueReference(
       enable = enable,
       flush = flush,
@@ -207,7 +219,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       rawSinkReady = sinkReady,
       responseReady = sinkResponseReady)
     val acceptedToken = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.step(
-      state = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token(),
+      state = acceptedTokenState,
       enable = enable,
       flush = flush,
       queryIssued = queryIssue.queryIssued,
@@ -396,6 +408,16 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       queryIssueBlockedByRequestDisabled = queryIssue.blockedByRequestDisabled,
       queryIssueBlockedByNoLaunch = queryIssue.blockedByNoLaunch,
       queryIssueBlockedBySink = queryIssue.blockedBySink,
+      requestControlBlockedByToken = requestControl.blockedByToken,
+      acceptedTokenCanAccept = acceptedToken.tokenCanAccept,
+      acceptedTokenValid = acceptedToken.token.valid,
+      acceptedTokenResidentValid = acceptedToken.residentTokenValid,
+      acceptedTokenCaptureCandidate = acceptedToken.captureCandidate,
+      acceptedTokenCaptureAccepted = acceptedToken.captureAccepted,
+      acceptedTokenClearAccepted = acceptedToken.clearAccepted,
+      acceptedTokenBlockedByOutstanding = acceptedToken.blockedByOutstandingToken,
+      acceptedTokenClusterId = acceptedToken.token.clusterId,
+      acceptedTokenEntryId = acceptedToken.token.entryId,
       requestPayloadValid = requestPayload.payload.valid,
       requestPayloadBlockedByNoIssue = requestPayload.blockedByNoIssue,
       requestPayloadBlockedByNoSelected = requestPayload.blockedByNoSelected,
@@ -490,6 +512,13 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
       selectedRequestByteMask = BigInt("ff", 16) << 8)
 
     assert(result.queryIssueIssued)
+    assert(result.acceptedTokenCanAccept)
+    assert(result.acceptedTokenValid)
+    assert(result.acceptedTokenCaptureAccepted)
+    assert(!result.acceptedTokenResidentValid)
+    assert(result.acceptedTokenClusterId == 0)
+    assert(result.acceptedTokenEntryId == 2)
+    assert(!result.requestControlBlockedByToken)
     assert(result.requestPayloadValid)
     assert(result.requestQueueEnqueueAccepted)
     assert(result.requestQueueHeadConsumed)
@@ -500,6 +529,50 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(result.controlLiveReady)
     assert(result.storeSnapshotReady)
     assert(!result.controlBlockedBySnapshot)
+  }
+
+  test("resident accepted-query token blocks another local STQ snapshot issue") {
+    val residentToken = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token(
+      valid = true,
+      repick = true,
+      clusterId = 0,
+      entryId = 1,
+      lineData = BigInt("11223344", 16),
+      validMask = BigInt("ff", 16),
+      requestByteMask = BigInt("ff", 16))
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = false,
+      requestEnable = true,
+      sinkReady = true,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 2,
+      selectedRepickMask = 0x4,
+      selectedLoadId = 2,
+      selectedBid = 6,
+      selectedGid = 1,
+      selectedRid = 7,
+      selectedLoadLsId = 9,
+      selectedPc = BigInt("400055f2", 16),
+      selectedAddr = BigInt("40012040", 16),
+      selectedSize = 8,
+      selectedRequestByteMask = BigInt("ff", 16),
+      acceptedTokenState = residentToken)
+
+    assert(!result.acceptedTokenCanAccept)
+    assert(result.acceptedTokenValid)
+    assert(result.acceptedTokenResidentValid)
+    assert(result.acceptedTokenEntryId == 1)
+    assert(!result.acceptedTokenCaptureAccepted)
+    assert(!result.acceptedTokenBlockedByOutstanding)
+    assert(result.requestControlBlockedByToken)
+    assert(result.queryIssueValid)
+    assert(!result.queryIssueIssued)
+    assert(result.queryIssueBlockedBySink)
+    assert(!result.requestPayloadValid)
+    assert(!result.requestQueueEnqueueAccepted)
   }
 
   test("reduced row SCB proof feeds the row-state plan") {
@@ -740,5 +813,13 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_rowMutationCandidateTargetMask"))
     assert(sv.contains("io_rowMutationBlockedByLiveDisabled"))
     assert(sv.contains("io_queryIssueCandidate"))
+    assert(sv.contains("io_requestControlBlockedByToken"))
+    assert(sv.contains("io_acceptedTokenCanAccept"))
+    assert(sv.contains("io_acceptedTokenValid"))
+    assert(sv.contains("io_acceptedTokenResidentValid"))
+    assert(sv.contains("io_acceptedTokenCaptureAccepted"))
+    assert(sv.contains("io_acceptedTokenClearAccepted"))
+    assert(sv.contains("io_acceptedTokenBlockedByOutstanding"))
+    assert(sv.contains("io_acceptedTokenEntryId"))
   }
 }

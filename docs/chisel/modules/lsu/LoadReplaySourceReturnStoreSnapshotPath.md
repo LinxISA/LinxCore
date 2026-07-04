@@ -165,6 +165,12 @@ R429 exposes the downstream reduced-LIQ native write-control blocker reasons
 beside those source-path diagnostics, so a future promotion can prove whether a
 request is blocked by model prerequisites such as Repick state and prior SCB
 return or by same-row writer conflicts before this path asserts a live request.
+R430 surfaces the composite-local accepted-query token and token-capacity
+blocker diagnostics at the path boundary. The C++ model returns the original
+load `MemReqBus` through the LU/SU queues; Chisel must therefore prove the
+accepted owner token (`cID/eID` plus row context) is resident, captured, or
+cleared independently from the current launch selector before `requestEnable`
+or row mutation are made live.
 
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
@@ -298,6 +304,8 @@ boundary and can later be promoted without another direct top child instance.
 | `evidence*` | Selected-row local STQ evidence diagnostics from the evidence classifier. |
 | `rawResponseSource*` | R421 raw-response source diagnostics: active/candidate/live-valid, disabled/flush/live-disabled blockers, and malformed payload checks. |
 | `queryIssue*` | Selected-row query issue diagnostics from the query owner. |
+| `requestControlBlockedByToken` | R430 query-capacity blocker from `RequestControl`: a selected live query has request FIFO capacity but the accepted-query token is still occupied. |
+| `acceptedToken*` | R430 accepted-query owner diagnostics: capacity, visible/resident token, capture/clear pulses, outstanding-token blocker, and visible token `cID/eID`. |
 | `requestPayload*` | R402 selected-row request payload and diagnostics for the future local STQ lookup queue. |
 | `requestQueue*` | R403 local STQ snapshot request-queue head, occupancy, blocker diagnostics, and R426 precise-prune mask/count visibility. |
 | `responseQueue*` | R426 response FIFO precise-prune mask/count and enqueue-blocked-by-precise-flush diagnostics. |
@@ -442,6 +450,13 @@ The R401 request-control owner gates future STQ lookup request acceptance with
 queue enqueue capacity. It does not store payload or identity; it only prevents
 query issue from accepting a new selected request when the token slot or queue
 slot is not available.
+
+R430 forwards the accepted-token capacity and owner-token diagnostics through
+the path boundary without adding top-level IO. This makes the next live-arm
+promotion distinguish a full request queue from an occupied accepted-token
+slot and keeps the owner token observable as the model-equivalent load
+`MemReqBus` that travels through `lookup_lu_su_q` and returns through
+`lookup_su_lu_q`.
 
 The R402 request-payload owner publishes the selected row's reduced LIQ slot,
 accepted local `cID/eID`, BID/GID/RID identity, load LSID, PC, address, size,
