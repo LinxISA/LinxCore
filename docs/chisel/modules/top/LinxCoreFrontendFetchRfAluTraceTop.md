@@ -2377,6 +2377,9 @@ R417 structurally routes the source-shaped local-STQ snapshot row-mutation
 payload into the reduced LIQ bridge and native queue row-mutation port, but
 the source path still ties `rowMutationLiveEnable=false` in the top, so no
 live row mutation is introduced by this wiring packet.
+R428 exposes that handoff at the top IO: source-path row-mutation
+candidate/request diagnostics and the downstream LIQ bridge/write-control
+diagnostics are visible together while the live gate remains false.
 R418 splits the replay-LIQ source-return launch sideband: local STQ/store
 snapshot readiness now feeds the reduced LIQ `e2StqReturned` input, while SCB
 readiness feeds `e2ScbReturned`. The combined launch/return behavior remains

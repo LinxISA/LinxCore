@@ -54,7 +54,10 @@ width into the LIQ-native `storeEntries` width, and drives the child
 `LoadInflightQueue` native row-mutation port. The current reduced top wires
 the source path into these inputs but keeps `rowMutationLiveEnable=false`, so
 the bridge and native writer remain structurally present without changing live
-generated-top replay behavior.
+generated-top replay behavior. R428 forwards the bridge, native write-control,
+and row-mutation blocker diagnostics through the reduced top IO so future
+live-mutation packets can be compared at the wrapper boundary before changing
+the enable policy.
 
 R418 splits the E2 source-return inputs passed into `LoadInflightQueue`.
 `e2ScbReturned` now carries only the SCB source bit, while `e2StqReturned`

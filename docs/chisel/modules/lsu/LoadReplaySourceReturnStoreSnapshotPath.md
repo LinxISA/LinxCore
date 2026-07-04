@@ -157,6 +157,11 @@ but it wires the source-shaped request payload onward to
 `ReducedLoadReplayLiqAllocPath` so the downstream bridge and native LIQ
 mutation boundary are now structurally connected.
 
+R428 exposes the source-path row-mutation candidate, request target, and
+live-disabled/target-shape diagnostics through the reduced top IO. This remains
+visibility-only: the top still ties `rowMutationLiveEnable=false`, so no LIQ
+row mutation request can fire.
+
 R419 extends the R400 response-head proof with reduced row-valid and
 row-SCB-returned masks from `ReducedLoadReplayLiqAllocPath`. The path still
 drops stale heads from the model-equivalent not-repick proof, but response
@@ -297,10 +302,10 @@ boundary and can later be promoted without another direct top child instance.
 | `rowStatePlan*` | R409 future row-state write plan: wait-store rewait clearing, data/no-data repick preservation, next line image, next split SCB/STQ bits, and invalid response-class diagnostics. |
 | `rowMutation*` | R410 future LIQ row mutation request: candidate one-hot target diagnostics, live-disabled request payload, future row write enables, next row image, and invalid target/payload diagnostics. |
 
-The top consumes the existing `control*`, `evidence*`, and `queryIssue*`
-diagnostics through unchanged top IO names. Response-match and identity-match
-diagnostics remain module-local until an external wrapper consumes them or the
-top is split further.
+The top consumes the existing `control*`, `evidence*`, `queryIssue*`, and
+selected `rowMutation*` diagnostics through top IO names. Response-match and
+identity-match diagnostics remain module-local until an external wrapper
+consumes them or the top is split further.
 
 ## State
 

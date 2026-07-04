@@ -489,6 +489,18 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedByRequestDisabled = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedByNoLaunch = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedBySink = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationCandidateValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationCandidateTargetMask =
+    Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationTargetReady = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationRequestValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationRequestTargetMask =
+    Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationRequestTargetIndex =
+    Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByNoTarget = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByLiveDisabled = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationInvalidMultiTarget = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSourceReturned = Output(Bool())
   val reducedLoadReplayLiqSourceReturnScbSourceReturned = Output(Bool())
   val reducedLoadReplayLiqSourceReturnSourceReturned = Output(Bool())
@@ -1279,6 +1291,18 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqE4MissKind = Output(UInt(3.W))
   val reducedLoadReplayLiqE4WakeupValid = Output(Bool())
   val reducedLoadReplayLiqLhqRecordValid = Output(Bool())
+  val reducedLoadReplayLiqRowMutationBridgeValid = Output(Bool())
+  val reducedLoadReplayLiqRowMutationSourceStoreIndexFits = Output(Bool())
+  val reducedLoadReplayLiqRowMutationInvalidStoreIndexOutOfRange = Output(Bool())
+  val reducedLoadReplayLiqRowMutationInvalidConflictingStatusWrite = Output(Bool())
+  val reducedLoadReplayLiqRowMutationInvalidWaitStoreWithoutWaitStatus = Output(Bool())
+  val reducedLoadReplayLiqRowMutationInvalidReturnWithoutSplitSources = Output(Bool())
+  val reducedLoadReplayLiqRowMutationWriteEnable = Output(Bool())
+  val reducedLoadReplayLiqRowMutationApplyValid = Output(Bool())
+  val reducedLoadReplayLiqRowMutationTargetEvidenceValid = Output(Bool())
+  val reducedLoadReplayLiqRowMutationWriteConflict = Output(Bool())
+  val reducedLoadReplayLiqRowMutationBlockedByBridge = Output(Bool())
+  val reducedLoadReplayLiqRowMutationBlockedByControl = Output(Bool())
   val reducedLoadReplayLiqResidentCount = Output(UInt(storeStqCountWidth.W))
   val reducedLoadReplayLiqEmpty = Output(Bool())
   val reducedLoadReplayLiqFull = Output(Bool())
@@ -5077,6 +5101,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqE4MissKind := reducedLoadReplayLiqAllocPath.io.e4MissKind.asUInt
   io.reducedLoadReplayLiqE4WakeupValid := reducedLoadReplayLiqAllocPath.io.e4WakeupValid
   io.reducedLoadReplayLiqLhqRecordValid := reducedLoadReplayLiqAllocPath.io.lhqRecordValid
+  LinxCoreFrontendFetchRfAluTraceTopR428RowMutationVisibilityWiring.connect(
+    io = io,
+    liqPath = reducedLoadReplayLiqAllocPath
+  )
   io.reducedLoadReplayLiqResidentCount := reducedLoadReplayLiqAllocPath.io.residentCount
   io.reducedLoadReplayLiqEmpty := reducedLoadReplayLiqAllocPath.io.empty
   io.reducedLoadReplayLiqFull := reducedLoadReplayLiqAllocPath.io.full
@@ -5651,6 +5679,24 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       path.io.queryIssueBlockedByNoLaunch
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedBySink :=
       path.io.queryIssueBlockedBySink
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationCandidateValid :=
+      path.io.rowMutationCandidateValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationCandidateTargetMask :=
+      path.io.rowMutationCandidateTargetMask
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationTargetReady :=
+      path.io.rowMutationTargetReady
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationRequestValid :=
+      path.io.rowMutationRequestValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationRequestTargetMask :=
+      path.io.rowMutationRequestTargetMask
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationRequestTargetIndex :=
+      path.io.rowMutationRequestTargetIndex
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByNoTarget :=
+      path.io.rowMutationBlockedByNoTarget
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByLiveDisabled :=
+      path.io.rowMutationBlockedByLiveDisabled
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationInvalidMultiTarget :=
+      path.io.rowMutationInvalidMultiTarget
   }
 }
 
@@ -5693,6 +5739,28 @@ private object LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring {
     scbLive.io.scbReturnedEvidence := false.B
     sourceReadiness.io.externalScbPending := scbLive.io.externalScbPending
     sourceReadiness.io.externalScbReturned := scbLive.io.externalScbReturned
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR428RowMutationVisibilityWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      liqPath: ReducedLoadReplayLiqAllocPath): Unit = {
+    io.reducedLoadReplayLiqRowMutationBridgeValid := liqPath.io.rowMutationBridgeValid
+    io.reducedLoadReplayLiqRowMutationSourceStoreIndexFits := liqPath.io.rowMutationSourceStoreIndexFits
+    io.reducedLoadReplayLiqRowMutationInvalidStoreIndexOutOfRange := liqPath.io.rowMutationInvalidStoreIndexOutOfRange
+    io.reducedLoadReplayLiqRowMutationInvalidConflictingStatusWrite :=
+      liqPath.io.rowMutationInvalidConflictingStatusWrite
+    io.reducedLoadReplayLiqRowMutationInvalidWaitStoreWithoutWaitStatus :=
+      liqPath.io.rowMutationInvalidWaitStoreWithoutWaitStatus
+    io.reducedLoadReplayLiqRowMutationInvalidReturnWithoutSplitSources :=
+      liqPath.io.rowMutationInvalidReturnWithoutSplitSources
+    io.reducedLoadReplayLiqRowMutationWriteEnable := liqPath.io.rowMutationWriteEnable
+    io.reducedLoadReplayLiqRowMutationApplyValid := liqPath.io.rowMutationApplyValid
+    io.reducedLoadReplayLiqRowMutationTargetEvidenceValid := liqPath.io.rowMutationTargetEvidenceValid
+    io.reducedLoadReplayLiqRowMutationWriteConflict := liqPath.io.rowMutationWriteConflict
+    io.reducedLoadReplayLiqRowMutationBlockedByBridge := liqPath.io.rowMutationBlockedByBridge
+    io.reducedLoadReplayLiqRowMutationBlockedByControl := liqPath.io.rowMutationBlockedByControl
   }
 }
 
