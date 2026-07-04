@@ -157,6 +157,7 @@ class LoadInflightQueueIO(
   val e2BaseValidMask = Input(UInt(lineBytes.W))
   val e2LoadDataReturned = Input(Bool())
   val e2ScbReturned = Input(Bool())
+  val e2StqReturned = Input(Bool())
   val e2ReturnReady = Input(Bool())
 
   val replayWakeValid = Input(Bool())
@@ -332,6 +333,7 @@ class LoadInflightQueue(
   pipeline.io.e2Stores := io.e2Stores
   pipeline.io.e2LoadDataReturned := io.e2LoadDataReturned
   pipeline.io.e2ScbReturned := io.e2ScbReturned
+  pipeline.io.e2StqReturned := io.e2StqReturned
   pipeline.io.e2ReturnReady := io.e2ReturnReady
 
   val launchRow = rows(io.launchIndex)
@@ -469,7 +471,7 @@ class LoadInflightQueue(
       rows(e4Index).dataComplete := pipeline.io.e4DataComplete
       rows(e4Index).sourcesReturned := pipeline.io.e4SourcesReturned
       rows(e4Index).scbReturned := pipeline.io.e4ScbReturned
-      rows(e4Index).stqReturned := false.B
+      rows(e4Index).stqReturned := pipeline.io.e4StqReturned
       rows(e4Index).missKind := pipeline.io.e4MissKind
       rows(e4Index).storeBypass := pipeline.io.e4ForwardMask.orR
 

@@ -2657,7 +2657,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.e2BaseData := reducedReplayLiqE2BaseData
   reducedLoadReplayLiqAllocPath.io.e2BaseValidMask := reducedReplayLiqE2BaseValidMask
   reducedLoadReplayLiqAllocPath.io.e2LoadDataReturned := reducedReplayLiqBaseDataReady
-  reducedLoadReplayLiqAllocPath.io.e2ScbReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
+  reducedLoadReplayLiqAllocPath.io.e2ScbReturned := reducedReplayLiqSourceReturnReadiness.io.scbSourceReturned
+  reducedLoadReplayLiqAllocPath.io.e2StqReturned := reducedReplayLiqSourceReturnReadiness.io.storeSourceReturned
   reducedLoadReplayLiqAllocPath.io.e2ReturnReady := reducedReplayLiqReturnReadiness.io.returnReady
   val reducedLoadReplayResolvePreciseFlush =
     Wire(new FlushBus(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))

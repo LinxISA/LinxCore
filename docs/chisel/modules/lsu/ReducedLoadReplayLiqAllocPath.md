@@ -56,6 +56,13 @@ the source path into these inputs but keeps `rowMutationLiveEnable=false`, so
 the bridge and native writer remain structurally present without changing live
 generated-top replay behavior.
 
+R418 splits the E2 source-return inputs passed into `LoadInflightQueue`.
+`e2ScbReturned` now carries only the SCB source bit, while `e2StqReturned`
+carries the local STQ/store-source bit from `LoadReplaySourceReturnReadiness`.
+The downstream `LoadForwardPipeline` still requires load-data, SCB, and
+STQ/store source bits before asserting the combined `sourcesReturned` row
+state.
+
 ## Interface
 
 ### Inputs
@@ -68,7 +75,7 @@ generated-top replay behavior.
 | `launchEnable` | Parent-owned arm bit. When low, selector diagnostics remain visible but `LoadInflightQueue.launchValid` is not driven. |
 | `e2Stores` | Abstract STQ forwarding rows for the `LoadForwardPipeline` launch path. R283 top wiring feeds a `ResidentStoreForwardStoreSnapshot` vector while keeping launch disabled. |
 | `e2BaseData` / `e2BaseValidMask` | Baseline line data and valid bytes for relaunches that do not already have row-owned data. R295 top wiring shapes the selected row's scalar sparse-memory response through `LoadReplayBaseDataAlign` while keeping launch disabled; R296 gates those inputs with `LoadLookupArbiter.replayGranted` so execute-returned sparse-memory bytes cannot feed the replay row. R297 routes the same grant-qualified data-return predicate through `LoadReplayLaunchReadiness`. |
-| `e2LoadDataReturned` / `e2ScbReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. R299 drives `e2ScbReturned` from `LoadReplaySourceReturnReadiness`. R305 drives `e2ReturnReady` from `LoadReplayReturnReadiness` fed by the consumer-ready, budget, permit, and select split; the reduced top arms the budget but keeps the downstream LRET and mem-wakeup sinks low. |
+| `e2LoadDataReturned` / `e2ScbReturned` / `e2StqReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. R418 drives `e2ScbReturned` from `LoadReplaySourceReturnReadiness.scbSourceReturned` and `e2StqReturned` from `storeSourceReturned`. R305 drives `e2ReturnReady` from `LoadReplayReturnReadiness` fed by the consumer-ready, budget, permit, and select split; the reduced top arms the budget but keeps the downstream LRET and mem-wakeup sinks low. |
 | `clearResolvedValid` | Pass-through clear request for future tests or consumers that resolve rows. |
 | `clearResolvedIndex` | LIQ slot for `clearResolvedValid`. |
 | `rowMutationRequestValid` / `rowMutationRequestTargetMask` / `rowMutationRequestTargetIndex` | Source-shaped R410 row-mutation request validity and LIQ target. Current top drives these from `LoadReplaySourceReturnStoreSnapshotPath`, whose live arm remains false. |
@@ -185,6 +192,9 @@ reduced wait slot and replay queue produce the same cleared load as a
    out-of-range wait-store identities, and feeds the child LIQ native mutation
    port. The native writer still enforces the R416 target-row and same-cycle
    conflict policy before mutating registered row state.
+8. R418 passes split SCB and STQ/store source-return bits to the child LIQ so
+   E4 row state can preserve `scbReturned` and `stqReturned` separately while
+   keeping the combined `sourcesReturned` wakeup behavior unchanged.
 
 Replay wakeup and refill wakeup ports remain inactive in this owner. The R283
 reduced top keeps `launchEnable` low but feeds `e2Stores` from a shared

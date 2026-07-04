@@ -26,8 +26,11 @@
 `LoadReplaySourceReturnReadiness` is the source-return sideband owner for the
 reduced replay-LIQ launch path. It separates the local resident-store snapshot
 source from a future external SCB response source, then publishes the combined
-source-return predicate consumed by `LoadReplayLaunchReadiness` and
-`LoadForwardPipeline.e2ScbReturned`.
+source-return predicate consumed by `LoadReplayLaunchReadiness`. Since R418,
+the reduced top sends `scbSourceReturned` to `LoadForwardPipeline.e2ScbReturned`
+and `storeSourceReturned` to `LoadForwardPipeline.e2StqReturned`, so row state
+can preserve the split source-return bits while downstream wakeup behavior
+still observes the combined predicate.
 
 R299 keeps this owner conservative. The current reduced top has a combinational
 resident STQ snapshot and no live external SCB replay path. R391 now exposes
@@ -63,7 +66,7 @@ loads.
 | `candidateValid` | `enable && launchValid`. |
 | `storeSourceReturned` | Candidate has grant-qualified base data and a local store snapshot. |
 | `scbSourceReturned` | No external SCB source is pending, or the pending SCB source returned. |
-| `sourceReturned` | Combined source-return predicate for replay launch and E2 sideband wiring. |
+| `sourceReturned` | Combined source-return predicate for replay launch and higher-level readiness diagnostics. |
 | `blockedByDisabled` | Launch row exists while the wrapper is disabled. |
 | `blockedByNoCandidate` | Wrapper is enabled but no launch row is selected. |
 | `blockedByBaseData` | Source return is waiting on base data. |
@@ -108,9 +111,10 @@ item 4 for the replay-LIQ path:
 
 ## Timing
 
-The source-return predicate is combinational in the same cycle as selected-row
-base-data readiness. `LoadForwardPipeline` registers it into E3 through its
-existing `e2ScbReturned` input when launch is eventually enabled.
+The source-return predicates are combinational in the same cycle as
+selected-row base-data readiness. `LoadForwardPipeline` registers the split
+SCB and STQ/store source bits into E3 through `e2ScbReturned` and
+`e2StqReturned` when launch is eventually enabled.
 
 ## Flush/Recovery
 

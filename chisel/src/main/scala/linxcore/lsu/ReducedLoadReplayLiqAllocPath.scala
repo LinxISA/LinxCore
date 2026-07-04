@@ -32,6 +32,7 @@ class ReducedLoadReplayLiqAllocPathIO(
   val e2BaseValidMask = Input(UInt(lineBytes.W))
   val e2LoadDataReturned = Input(Bool())
   val e2ScbReturned = Input(Bool())
+  val e2StqReturned = Input(Bool())
   val e2ReturnReady = Input(Bool())
 
   val clearResolvedValid = Input(Bool())
@@ -229,6 +230,7 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.e2BaseValidMask := io.e2BaseValidMask
   liq.io.e2LoadDataReturned := io.e2LoadDataReturned
   liq.io.e2ScbReturned := io.e2ScbReturned
+  liq.io.e2StqReturned := io.e2StqReturned
   liq.io.e2ReturnReady := io.e2ReturnReady
   liq.io.replayWakeValid := false.B
   liq.io.replayWake := 0.U.asTypeOf(liq.io.replayWake)

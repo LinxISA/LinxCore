@@ -56,6 +56,7 @@ object LoadInflightQueueReference {
       baseValidMask: BigInt = 0,
       loadDataReturned: Boolean = true,
       scbReturned: Boolean = true,
+      stqReturned: Boolean = true,
       returnReady: Boolean = true)
   final case class HitRecord(row: Row, byteMask: BigInt, data: BigInt, forwardedMask: BigInt)
   final case class CycleResult(e4Index: Option[Int] = None, hitRecord: Option[HitRecord] = None)
@@ -156,6 +157,7 @@ object LoadInflightQueueReference {
             baseValidMask = baseValidMask,
             loadDataReturned = input.loadDataReturned,
             scbReturned = input.scbReturned,
+            stqReturned = input.stqReturned,
             returnReady = input.returnReady
           )))
           require(e4.e4.isEmpty, "single-cycle tests should not launch over a resident E3")
@@ -183,7 +185,7 @@ object LoadInflightQueueReference {
             dataComplete = e4.dataComplete,
             sourcesReturned = e4.sourcesReturned,
             scbReturned = e4.scbReturned,
-            stqReturned = false,
+            stqReturned = e4.stqReturned,
             missKind = e4.missKind
           )
 
@@ -395,7 +397,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(row.dataComplete)
     assert(row.sourcesReturned)
     assert(row.scbReturned)
-    assert(!row.stqReturned)
+    assert(row.stqReturned)
     assert(row.forwardMask == byteMask(4, 4))
     assert(result.hitRecord.exists(r => r.row.loadId.value == rowIndex && r.byteMask == byteMask(4, 4)))
     assert(result.hitRecord.exists(_.row.alloc.loadLsId.value == 0))
@@ -448,6 +450,14 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(missingScb.row(scbIndex).exists(row => row.status == Wait && row.missKind == AwaitingSources))
     assert(missingScb.row(scbIndex).exists(row => !row.scbReturned && !row.stqReturned))
     assert(scbResult.hitRecord.isEmpty)
+
+    val missingStq = new Model(entries = 4)
+    val stqIndex = missingStq.allocate(alloc(0, addr = 0x1000, size = 4)).index
+    assert(missingStq.launch(stqIndex, LaunchInput(baseValidMask = byteMask(0, 4), stqReturned = false)))
+    val stqResult = missingStq.cycle()
+    assert(missingStq.row(stqIndex).exists(row => row.status == Wait && row.missKind == AwaitingSources))
+    assert(missingStq.row(stqIndex).exists(row => !row.scbReturned && !row.stqReturned))
+    assert(stqResult.hitRecord.isEmpty)
 
     val blockedReturn = new Model(entries = 4)
     val retIndex = blockedReturn.allocate(alloc(0, addr = 0x1000, size = 4)).index
@@ -643,6 +653,7 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_lhqRecord_pc"))
     assert(sv.contains("io_alloc_loadLsId_value"))
     assert(sv.contains("io_alloc_dst_physTag"))
+    assert(sv.contains("io_e2StqReturned"))
     assert(sv.contains("io_e4UpdateValid"))
     assert(sv.contains("io_missPending"))
     assert(sv.contains("LoadReplayWakeup"))

@@ -29,6 +29,11 @@ toward LIQ/LHQ/STQ load execution. It still stops before LIQ allocation, LHQ
 hit recording, LDQ row mutation, ready-table updates, issue-queue wakeup
 fanout, L1/SCB response queues, and memory-event trace.
 
+R418 splits the source-return sideband carried through E3/E4 into SCB and STQ
+bits. `sourcesReturned` remains the active combined wakeup predicate, but it
+now requires load-data, SCB, and STQ/store-source return bits instead of
+folding the store-source condition into `e2ScbReturned`.
+
 ## Interface
 
 ### E2 Inputs
@@ -43,6 +48,7 @@ fanout, L1/SCB response queues, and memory-event trace.
 | `e2BaseValidMask` | Position-valid bytes already present in the baseline data. |
 | `e2LoadDataReturned` | Model `(ldqRnt || l1Rnt)` equivalent for the load-data source. |
 | `e2ScbReturned` | Model `scbRnt` equivalent. |
+| `e2StqReturned` | Model `stqRnt` or local store-source equivalent. |
 | `e2ReturnReady` | Return/wakeup slot availability for the E4 result. |
 
 ### E3 Outputs
@@ -68,7 +74,8 @@ fanout, L1/SCB response queues, and memory-event trace.
 | `e4DataComplete` | All requested bytes are position-valid. |
 | `e4LoadDataReturned` | Delayed model `(ldqRnt || l1Rnt)` equivalent for row-carried diagnostics. |
 | `e4ScbReturned` | Delayed model `scbRnt` equivalent for row-carried diagnostics. |
-| `e4SourcesReturned` | Load-data source and SCB source have both returned. |
+| `e4StqReturned` | Delayed model `stqRnt` or local store-source equivalent for row-carried diagnostics. |
+| `e4SourcesReturned` | Load-data, SCB, and STQ/store sources have all returned. |
 | `e4WakeupValid` | E4 can wake/return this load result. |
 | `e4WaitStore` | Blocking not-ready store diagnostic from `LoadStoreForwarding`. |
 | `e4MissKind` | Local classification: no miss, store-data replay, incomplete data, awaiting source response, or return-port block. |
@@ -100,10 +107,10 @@ The model `LDQInfo` path has three relevant rules:
    readiness.
 3. E4 computes final valid bytes as baseline-valid bytes plus ready forwarded
    bytes.
-4. E4 republishes delayed load-data and SCB source-return bits separately, then
-   asserts `e4WakeupValid` only when no wait-store bytes exist, all requested
-   bytes are valid, load-data and SCB sources have returned, and the return
-   slot is available.
+4. E4 republishes delayed load-data, SCB, and STQ/store source-return bits
+   separately, then asserts `e4WakeupValid` only when no wait-store bytes
+   exist, all requested bytes are valid, all three source-return bits have
+   returned, and the return slot is available.
 5. E4 classifies the local block reason in priority order:
    `StoreDataNotReady`, `DataNotComplete`, `AwaitingSources`,
    `ReturnPortBlocked`, then `NoMiss`.

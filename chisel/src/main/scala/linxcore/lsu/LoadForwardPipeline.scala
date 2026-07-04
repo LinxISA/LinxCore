@@ -24,6 +24,7 @@ class LoadForwardPipelineIO(
   val e2BaseValidMask = Input(UInt(lineBytes.W))
   val e2LoadDataReturned = Input(Bool())
   val e2ScbReturned = Input(Bool())
+  val e2StqReturned = Input(Bool())
   val e2ReturnReady = Input(Bool())
 
   val e3Valid = Output(Bool())
@@ -41,6 +42,7 @@ class LoadForwardPipelineIO(
   val e4DataComplete = Output(Bool())
   val e4LoadDataReturned = Output(Bool())
   val e4ScbReturned = Output(Bool())
+  val e4StqReturned = Output(Bool())
   val e4SourcesReturned = Output(Bool())
   val e4WakeupValid = Output(Bool())
   val e4WaitStore = Output(new LoadStoreForwardWait(robEntries, storeEntries, pcWidth))
@@ -81,6 +83,7 @@ class LoadForwardPipeline(
   val e3BaseValidMaskReg = RegInit(0.U(lineBytes.W))
   val e3LoadDataReturnedReg = RegInit(false.B)
   val e3ScbReturnedReg = RegInit(false.B)
+  val e3StqReturnedReg = RegInit(false.B)
   val e3ReturnReadyReg = RegInit(false.B)
   val e3WaitStoreReg = RegInit(zeroWait)
 
@@ -93,6 +96,7 @@ class LoadForwardPipeline(
   val e4DataCompleteReg = RegInit(false.B)
   val e4LoadDataReturnedReg = RegInit(false.B)
   val e4ScbReturnedReg = RegInit(false.B)
+  val e4StqReturnedReg = RegInit(false.B)
   val e4SourcesReturnedReg = RegInit(false.B)
   val e4WakeupValidReg = RegInit(false.B)
   val e4WaitStoreReg = RegInit(zeroWait)
@@ -101,7 +105,7 @@ class LoadForwardPipeline(
   val e3ValidMask = e3BaseValidMaskReg | e3ForwardMaskReg
   val e3DataComplete =
     e3ValidReg && (e3LoadMaskReg =/= 0.U) && ((e3ValidMask & e3LoadMaskReg) === e3LoadMaskReg)
-  val e3SourcesReturned = e3LoadDataReturnedReg && e3ScbReturnedReg
+  val e3SourcesReturned = e3LoadDataReturnedReg && e3ScbReturnedReg && e3StqReturnedReg
   val e3WaitStoreBlocked = e3WaitMaskReg.orR
   val e3WakeupValid =
     e3ValidReg && !e3WaitStoreBlocked && e3DataComplete && e3SourcesReturned && e3ReturnReadyReg
@@ -135,6 +139,7 @@ class LoadForwardPipeline(
     e4DataCompleteReg := e3DataComplete
     e4LoadDataReturnedReg := e3LoadDataReturnedReg
     e4ScbReturnedReg := e3ScbReturnedReg
+    e4StqReturnedReg := e3StqReturnedReg
     e4SourcesReturnedReg := e3SourcesReturned
     e4WakeupValidReg := e3WakeupValid
     e4WaitStoreReg := e3WaitStoreReg
@@ -148,6 +153,7 @@ class LoadForwardPipeline(
     e3BaseValidMaskReg := io.e2BaseValidMask
     e3LoadDataReturnedReg := io.e2LoadDataReturned
     e3ScbReturnedReg := io.e2ScbReturned
+    e3StqReturnedReg := io.e2StqReturned
     e3ReturnReadyReg := io.e2ReturnReady
     e3WaitStoreReg := e2Forward.io.waitStore
   }
@@ -167,6 +173,7 @@ class LoadForwardPipeline(
   io.e4DataComplete := e4DataCompleteReg
   io.e4LoadDataReturned := e4LoadDataReturnedReg
   io.e4ScbReturned := e4ScbReturnedReg
+  io.e4StqReturned := e4StqReturnedReg
   io.e4SourcesReturned := e4SourcesReturnedReg
   io.e4WakeupValid := e4WakeupValidReg
   io.e4WaitStore := e4WaitStoreReg

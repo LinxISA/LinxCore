@@ -20,6 +20,7 @@ object LoadForwardPipelineReference {
       baseValidMask: BigInt = 0,
       loadDataReturned: Boolean = true,
       scbReturned: Boolean = true,
+      stqReturned: Boolean = true,
       returnReady: Boolean = true)
 
   final case class E3(
@@ -30,6 +31,7 @@ object LoadForwardPipelineReference {
       baseValidMask: BigInt,
       loadDataReturned: Boolean,
       scbReturned: Boolean,
+      stqReturned: Boolean,
       returnReady: Boolean,
       waitStore: Option[Store])
 
@@ -42,6 +44,7 @@ object LoadForwardPipelineReference {
       dataComplete: Boolean,
       loadDataReturned: Boolean,
       scbReturned: Boolean,
+      stqReturned: Boolean,
       sourcesReturned: Boolean,
       wakeupValid: Boolean,
       waitStore: Option[Store],
@@ -62,6 +65,7 @@ object LoadForwardPipelineReference {
         baseValidMask = input.baseValidMask,
         loadDataReturned = input.loadDataReturned,
         scbReturned = input.scbReturned,
+        stqReturned = input.stqReturned,
         returnReady = input.returnReady,
         waitStore = result.waitStore
       )
@@ -70,7 +74,7 @@ object LoadForwardPipelineReference {
     private def buildE4(stage: E3): E4 = {
       val validMask = stage.baseValidMask | stage.forwardMask
       val dataComplete = stage.loadByteMask != 0 && (validMask & stage.loadByteMask) == stage.loadByteMask
-      val sourcesReturned = stage.loadDataReturned && stage.scbReturned
+      val sourcesReturned = stage.loadDataReturned && stage.scbReturned && stage.stqReturned
       val waitStoreBlocked = stage.waitMask != 0
       val wakeup = !waitStoreBlocked && dataComplete && sourcesReturned && stage.returnReady
       val miss =
@@ -89,6 +93,7 @@ object LoadForwardPipelineReference {
         dataComplete = dataComplete,
         loadDataReturned = stage.loadDataReturned,
         scbReturned = stage.scbReturned,
+        stqReturned = stage.stqReturned,
         sourcesReturned = sourcesReturned,
         wakeupValid = wakeup,
         waitStore = stage.waitStore,
@@ -135,6 +140,7 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
       out.dataComplete &&
       out.loadDataReturned &&
       out.scbReturned &&
+      out.stqReturned &&
       out.sourcesReturned &&
       out.missKind == NoMiss &&
       out.lineData == lineData(Map(4 -> 0xaa, 5 -> 0xbb, 6 -> 0xcc, 7 -> 0xdd))
@@ -175,11 +181,15 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
     assert(e4.missKind == DataNotComplete)
   }
 
-  test("source-return and return-port gates block E4 wakeup after data is complete") {
+  test("source-return split bits and return-port gates block E4 wakeup after data is complete") {
     val missingScb = new Model
     val query = Query(byteOffset = 0, size = 4, youngestStoreId = id(4))
     missingScb.step(Some(Input(query = query, baseValidMask = byteMask(0, 4), scbReturned = false)))
     assert(missingScb.step().e4.exists(out => !out.wakeupValid && !out.scbReturned && out.missKind == AwaitingSources))
+
+    val missingStq = new Model
+    missingStq.step(Some(Input(query = query, baseValidMask = byteMask(0, 4), stqReturned = false)))
+    assert(missingStq.step().e4.exists(out => !out.wakeupValid && !out.stqReturned && out.missKind == AwaitingSources))
 
     val blockedReturn = new Model
     blockedReturn.step(Some(Input(query = query, baseValidMask = byteMask(0, 4), returnReady = false)))
@@ -204,6 +214,7 @@ class LoadForwardPipelineSpec extends AnyFunSuite {
     assert(sv.contains("io_e4WakeupValid"))
     assert(sv.contains("io_e4LoadDataReturned"))
     assert(sv.contains("io_e4ScbReturned"))
+    assert(sv.contains("io_e4StqReturned"))
     assert(sv.contains("io_e4MissKind"))
     assert(sv.contains("io_e4WaitStore_valid"))
   }

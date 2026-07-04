@@ -2377,6 +2377,11 @@ R417 structurally routes the source-shaped local-STQ snapshot row-mutation
 payload into the reduced LIQ bridge and native queue row-mutation port, but
 the source path still ties `rowMutationLiveEnable=false` in the top, so no
 live row mutation is introduced by this wiring packet.
+R418 splits the replay-LIQ source-return launch sideband: local STQ/store
+snapshot readiness now feeds the reduced LIQ `e2StqReturned` input, while SCB
+readiness feeds `e2ScbReturned`. The combined launch/return behavior remains
+unchanged because `LoadForwardPipeline` still requires load-data, SCB, and
+STQ/store source bits before `sourcesReturned`.
 This remains a reduced memory visibility bridge, not a general LSU/STQ, cache,
 replay, or MDB implementation.
 

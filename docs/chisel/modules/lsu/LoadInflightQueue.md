@@ -49,8 +49,15 @@ R416 adds a native row-mutation storage boundary inside the queue. It uses the
 R415 `LoadInflightRowMutationPath` composition with the queue's native
 `storeEntries` wait-store shape, computes same-row conflicts against the
 registered LIQ writers, and writes the previewed `nextRow` only when the path
-admits the mutation. The reduced replay top still ties this port off, so the
-source-shaped R410 request owner is not live-connected yet.
+admits the mutation. R417 connects this native port through
+`ReducedLoadReplayLiqAllocPath` and `LoadInflightRowMutationRequestBridge`,
+but the source-shaped request owner remains live-disabled in the top.
+
+R418 threads `e2StqReturned` through the launch pipeline and stores the
+delayed E4 value into the row's `stqReturned` bit. This preserves the existing
+coarse `sourcesReturned` behavior as the conjunction of load-data, SCB, and
+STQ/store-source return bits while making the row-carried split diagnostics
+consistent before replay-STQ mutation is live-enabled.
 
 This packet turns the standalone forwarding pipeline into reusable row state
 without taking ownership of full LDQ/LIQ recovery, miss-queue ownership,
@@ -87,6 +94,7 @@ resident row, even when a later slot is free.
 | `e2BaseValidMask` | Baseline byte-valid mask. |
 | `e2LoadDataReturned` | Model `(ldqRnt || l1Rnt)` equivalent. |
 | `e2ScbReturned` | Model `scbRnt` equivalent. |
+| `e2StqReturned` | Model `stqRnt` or local store-source equivalent. |
 | `e2ReturnReady` | Return/wakeup slot availability. |
 
 The queue derives the forwarding query from the resident row address, size,
@@ -237,9 +245,9 @@ The C++ model provides the owner split:
    eligibility before driving this broader launch port.
 3. E4 hit with `NoMiss` and `e4WakeupValid` changes the row to `Resolved` and
    publishes `lhqRecord` with the row PC preserved for future recovery/MDB
-   reporting. R411 stores the delayed pipeline SCB return bit in
-   `scbReturned`; `stqReturned` remains false because the local STQ response
-   row-mutation owner is still dormant.
+   reporting. R418 stores the delayed pipeline SCB and STQ/store source-return
+   bits in `scbReturned` and `stqReturned`, while `sourcesReturned` remains the
+   combined active readiness bit.
 4. E4 `StoreDataNotReady` changes the row back to `Wait`, records
    `waitStoreInfo`, and clears transient byte-valid data like model
    `LUEntryInfo::rewait`. R411 also clears split return diagnostics on this
