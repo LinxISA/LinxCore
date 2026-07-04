@@ -15,6 +15,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightLaunchSelect.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotAcceptedToken.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-SELECTED-ID-001`
 
@@ -34,6 +35,9 @@ maps the selected LIQ launch index to `(clusterId=0, entryId=launchIndex)` and
 uses `ReducedLoadReplayLiqAllocPath.repickMask` to decide whether the selected
 slot is already resident in the post-launch `Repick` state. It is a projection
 owner only; real multi-cluster LDQ identity storage remains deferred.
+R397 consumes this projection through
+`LoadReplaySourceReturnStoreSnapshotAcceptedToken`, so response matching now
+uses an accepted-query token instead of the raw current launch selector.
 
 ## Interface
 
@@ -88,8 +92,8 @@ rejecting responses before the row reaches or after it leaves `Repick`.
 ## Deferred Owners
 
 - Multi-cluster LDQ selected-row `cID/eID` storage.
-- Stateful selected-row token from an accepted query rather than the current
-  launch selector.
+- Multi-entry or multi-cluster selected-row token storage beyond the R397
+  reduced accepted-query token.
 - Raw STQ response queueing and `MemReqBus.cID/eID` decode.
 - Live promotion of store-snapshot request issue and response acceptance.
 

@@ -23,6 +23,7 @@
 - Child Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotSelectedIdentity.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotAcceptedToken.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotIdentityMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
@@ -45,6 +46,13 @@ composite. The top now passes the existing reduced LIQ launch index and
 `repickMask` into the path, and the composite can use that projection as a
 single-cluster selected-row identity. Raw selected-row identity inputs still
 live at the path boundary for the later full LDQ identity owner.
+
+R397 adds `LoadReplaySourceReturnStoreSnapshotAcceptedToken` inside the same
+composite. Query issue is now capacity-qualified by the token slot, and the
+identity/response/evidence chain uses the accepted token rather than the
+floating same-cycle selected identity. The current top still keeps live request
+and sink readiness disabled, so this remains an internal future-promotable
+boundary.
 
 The current top keeps the path response side live-disabled. It ties
 `requestEnable`, `sinkReady`, raw STQ response, SCB return, wait-store, and
@@ -96,8 +104,10 @@ top is split further.
 
 ## State
 
-The module is combinational. It owns no queue storage, selected-row register,
-LDQ/LIQ mutation, wait-store state, or data merge state.
+The module is mostly combinational, but R397 adds one accepted-query token
+register inside `LoadReplaySourceReturnStoreSnapshotAcceptedToken`. The path
+still owns no raw STQ response queue, LDQ/LIQ mutation, wait-store state, or
+data merge state.
 
 ## Logic Design
 
@@ -106,6 +116,7 @@ The path preserves the model ordering as a chain of small owners:
 ```text
 QueryIssue.queryIssued
   -> SelectedIdentity.selectedValid/selectedRepick/cID/eID
+  -> AcceptedToken.tokenValid/tokenRepick/cID/eID
   -> IdentityMatch.responseMatchesSelected
   -> ResponseMatch.responseValid/waitStore/dataValid
   -> Evidence.snapshotRequired/snapshotValid
@@ -122,6 +133,13 @@ The R396 selected-identity projection maps the reduced selected LIQ slot to
 `repickMask`. This is only a reduced single-cluster surrogate. The real
 accepted-query selected-row token and full `MemReqBus.cID/eID` storage remain
 deferred.
+
+The R397 accepted token stores the projected or raw selected identity only
+after `QueryIssue.queryIssued` fires and no older token is resident. It also
+bypasses an empty-slot capture for same-cycle response matching, then clears
+when `ResponseMatch.responseValid` accepts the ordered response. This preserves
+one outstanding local STQ snapshot query without feeding response acceptance
+back into query validity.
 
 The current top tie-offs keep `queryIssued=false`, `responseValid=false`, and
 `requestEnable=false`, so the live chain does not affect replay launch. The
@@ -143,7 +161,8 @@ behavior.
 ## Deferred Owners
 
 - Raw STQ response queue and valid/ready boundary.
-- Full selected replay-row identity storage from replay-LIQ residency.
+- Full selected replay-row identity storage from replay-LIQ residency beyond
+  the reduced launch-index projection.
 - Live SCB return evidence source.
 - Stateful wait-store replay mutation and returned-data merge.
 - Live promotion of `requestEnable` after query, response, and row-state owners
@@ -155,6 +174,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotAcceptedToken
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotSelectedIdentity
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotIdentityMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
@@ -162,10 +182,11 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotReadyControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r396x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r397x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover legacy readiness preservation, dormant query/response
-behavior, future live projected-identity response completion, flush handling,
-disabled behavior, and Chisel elaboration with the selected-identity, identity,
-and response child owners present in the composite module.
+behavior, future live accepted-token response completion, flush handling,
+disabled behavior, and Chisel elaboration with the selected-identity,
+accepted-token, identity, and response child owners present in the composite
+module.

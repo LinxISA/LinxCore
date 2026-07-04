@@ -83,6 +83,10 @@ class LoadReplaySourceReturnStoreSnapshotPath(
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth
   ))
+  val acceptedToken = Module(new LoadReplaySourceReturnStoreSnapshotAcceptedToken(
+    clusterIdWidth = clusterIdWidth,
+    entryIdWidth = entryIdWidth
+  ))
   val identityMatch = Module(new LoadReplaySourceReturnStoreSnapshotIdentityMatch(
     clusterIdWidth = clusterIdWidth,
     entryIdWidth = entryIdWidth
@@ -95,7 +99,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   queryIssue.io.flush := io.flush
   queryIssue.io.requestEnable := io.requestEnable
   queryIssue.io.launchValid := io.launchValid
-  queryIssue.io.sinkReady := io.sinkReady
+  queryIssue.io.sinkReady := io.sinkReady && acceptedToken.io.tokenCanAccept
 
   selectedIdentity.io.enable := io.enable && io.selectedIdentityEnable
   selectedIdentity.io.flush := io.flush
@@ -108,20 +112,29 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   val selectedClusterId = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedClusterId, io.selectedClusterId)
   val selectedEntryId = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedEntryId, io.selectedEntryId)
 
+  acceptedToken.io.enable := io.enable
+  acceptedToken.io.flush := io.flush
+  acceptedToken.io.queryIssued := queryIssue.io.queryIssued
+  acceptedToken.io.selectedValid := selectedValid
+  acceptedToken.io.selectedRepick := selectedRepick
+  acceptedToken.io.selectedClusterId := selectedClusterId
+  acceptedToken.io.selectedEntryId := selectedEntryId
+  acceptedToken.io.responseConsumed := responseMatch.io.responseValid
+
   identityMatch.io.enable := io.enable
   identityMatch.io.flush := io.flush
-  identityMatch.io.queryIssued := queryIssue.io.queryIssued
-  identityMatch.io.selectedValid := selectedValid
-  identityMatch.io.selectedRepick := selectedRepick
+  identityMatch.io.queryIssued := acceptedToken.io.tokenValid
+  identityMatch.io.selectedValid := acceptedToken.io.tokenValid
+  identityMatch.io.selectedRepick := acceptedToken.io.tokenRepick
   identityMatch.io.responseValid := io.responseValidIn
-  identityMatch.io.selectedClusterId := selectedClusterId
-  identityMatch.io.selectedEntryId := selectedEntryId
+  identityMatch.io.selectedClusterId := acceptedToken.io.tokenClusterId
+  identityMatch.io.selectedEntryId := acceptedToken.io.tokenEntryId
   identityMatch.io.responseClusterId := io.responseClusterId
   identityMatch.io.responseEntryId := io.responseEntryId
 
   responseMatch.io.enable := io.enable
   responseMatch.io.flush := io.flush
-  responseMatch.io.queryIssued := queryIssue.io.queryIssued
+  responseMatch.io.queryIssued := acceptedToken.io.tokenValid
   responseMatch.io.responseValidIn := io.responseValidIn
   responseMatch.io.responseMatchesSelected := identityMatch.io.responseMatchesSelected
   responseMatch.io.scbReturned := io.scbReturned
@@ -131,7 +144,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   evidence.io.enable := io.enable
   evidence.io.flush := io.flush
   evidence.io.launchValid := io.launchValid
-  evidence.io.queryIssued := queryIssue.io.queryIssued
+  evidence.io.queryIssued := acceptedToken.io.tokenValid
   evidence.io.responseValid := responseMatch.io.responseValid
   evidence.io.waitStore := responseMatch.io.waitStore
   evidence.io.dataValid := responseMatch.io.dataValid

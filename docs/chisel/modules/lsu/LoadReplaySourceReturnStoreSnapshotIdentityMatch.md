@@ -19,6 +19,7 @@
 - Related Chisel contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotQueryIssue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotSelectedIdentity.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotAcceptedToken.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotResponseMatch.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplaySourceReturnStoreSnapshotEvidence.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-IDENTITY-MATCH-001`
@@ -47,6 +48,11 @@ launch index projects to `(clusterId=0, entryId=launchIndex)` and
 `repickMask[launchIndex]` supplies the stale-row guard. Full LDQ selected-row
 storage can still replace that projection through the raw path-boundary inputs.
 
+R397 inserts `LoadReplaySourceReturnStoreSnapshotAcceptedToken` between the
+selected-identity projection and this matcher. This matcher now sees the
+identity of an accepted local STQ snapshot query, including an empty-slot
+same-cycle bypass, rather than the floating selected launch row.
+
 ## Interface
 
 ### Inputs
@@ -55,9 +61,9 @@ storage can still replace that projection through the raw path-boundary inputs.
 |---|---|
 | `enable` | Replay-LIQ wrapper is active. |
 | `flush` | Store/replay flush suppresses response identity matching. |
-| `queryIssued` | Selected-row STQ snapshot query has issued. |
-| `selectedValid` | Selected replay-row identity is valid. In R396 this may come from the reduced launch-index projection. |
-| `selectedRepick` | Selected row is still in the model-equivalent `LDQ_REPICK` state. In R396 this may come from `repickMask[launchIndex]`. |
+| `queryIssued` | Accepted-query token is visible to the response path. |
+| `selectedValid` | Accepted-query token identity is valid. |
+| `selectedRepick` | Accepted token still represents a model-equivalent `LDQ_REPICK` row. |
 | `responseValid` | Future raw STQ response is visible. |
 | `selectedClusterId` | Future selected replay-row cluster ID. |
 | `selectedEntryId` | Future selected replay-row entry ID. |
@@ -86,8 +92,9 @@ storage can still replace that projection through the raw path-boundary inputs.
 
 ## State
 
-The module is combinational. It does not store selected-row identity, allocate
-an STQ response queue entry, or mutate LDQ/LIQ state.
+The module is combinational. R397 moves selected-row storage into
+`LoadReplaySourceReturnStoreSnapshotAcceptedToken`; this matcher still does
+not allocate an STQ response queue entry or mutate LDQ/LIQ state.
 
 ## Logic Design
 
@@ -111,8 +118,8 @@ SCB-before-STQ ordering remains in that downstream owner.
 
 The current reduced top instantiates this module through the R395/R396
 composite path. Future live integration must source stable selected-row
-identity from replay-LIQ state and raw response identity from an STQ response
-queue, while preserving the top compile-budget constraint.
+identity from the accepted-token owner and raw response identity from an STQ
+response queue, while preserving the top compile-budget constraint.
 
 ## Flush/Recovery
 
@@ -122,7 +129,8 @@ through `blockedByFlush`.
 
 ## Deferred Owners
 
-- Full selected replay-row identity storage from replay-LIQ launch residency.
+- Full selected replay-row identity storage from replay-LIQ launch residency
+  beyond the R397 one-token reduced boundary.
 - Raw STQ response queue carrying `MemReqBus.cID/eID`.
 - Live `selectedRepick` stale-row state from the replay row FSM.
 - Live SCB-order evidence, wait-store mutation, and data merge.
@@ -133,12 +141,13 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotIdentityMatch
+bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotAcceptedToken
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotPath
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotQueryIssue
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotEvidence
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r396x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r397x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
 Reference tests cover disabled/flush suppression, no-query blocking,

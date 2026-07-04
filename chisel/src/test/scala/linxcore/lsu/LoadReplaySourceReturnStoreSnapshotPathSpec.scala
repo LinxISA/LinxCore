@@ -68,21 +68,31 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       launchValid = launchValid,
       launchIndex = selectedLaunchIndex,
       repickMask = selectedRepickMask)
-    val identityMatch = LoadReplaySourceReturnStoreSnapshotIdentityMatchReference(
+    val acceptedToken = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.step(
+      state = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.Token(),
       enable = enable,
       flush = flush,
       queryIssued = queryIssue.queryIssued,
       selectedValid = if (selectedIdentityEnable) projectedSelectedIdentity.selectedValid else selectedValid,
       selectedRepick = if (selectedIdentityEnable) projectedSelectedIdentity.selectedRepick else selectedRepick,
-      responseValid = responseValidIn,
       selectedClusterId = if (selectedIdentityEnable) projectedSelectedIdentity.selectedClusterId else selectedClusterId,
       selectedEntryId = if (selectedIdentityEnable) projectedSelectedIdentity.selectedEntryId else selectedEntryId,
+      responseConsumed = false)
+    val identityMatch = LoadReplaySourceReturnStoreSnapshotIdentityMatchReference(
+      enable = enable,
+      flush = flush,
+      queryIssued = acceptedToken.token.valid,
+      selectedValid = acceptedToken.token.valid,
+      selectedRepick = acceptedToken.token.repick,
+      responseValid = responseValidIn,
+      selectedClusterId = acceptedToken.token.clusterId,
+      selectedEntryId = acceptedToken.token.entryId,
       responseClusterId = responseClusterId,
       responseEntryId = responseEntryId)
     val responseMatch = LoadReplaySourceReturnStoreSnapshotResponseMatchReference(
       enable = enable,
       flush = flush,
-      queryIssued = queryIssue.queryIssued,
+      queryIssued = acceptedToken.token.valid,
       responseValidIn = responseValidIn,
       responseMatchesSelected = identityMatch.responseMatchesSelected,
       scbReturned = scbReturned,
@@ -92,7 +102,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       enable = enable,
       flush = flush,
       launchValid = launchValid,
-      queryIssued = queryIssue.queryIssued,
+      queryIssued = acceptedToken.token.valid,
       responseValid = responseMatch.responseValid,
       waitStore = responseMatch.waitStore,
       dataValid = responseMatch.dataValid)
@@ -244,6 +254,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
 
     assert(sv.contains("module LoadReplaySourceReturnStoreSnapshotPath"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotSelectedIdentity"))
+    assert(sv.contains("LoadReplaySourceReturnStoreSnapshotAcceptedToken"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotIdentityMatch"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotResponseMatch"))
     assert(sv.contains("io_storeSnapshotReady"))
