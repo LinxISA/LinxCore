@@ -28,6 +28,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val enable = Input(Bool())
   val flush = Input(Bool())
   val requestEnable = Input(Bool())
+  val rowMutationLiveEnable = Input(Bool())
   val launchValid = Input(Bool())
   val sinkReady = Input(Bool())
   val selectedIdentityEnable = Input(Bool())
@@ -563,7 +564,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
 
   rowMutationRequest.io.enable := io.enable
   rowMutationRequest.io.flush := io.flush
-  rowMutationRequest.io.liveEnable := false.B
+  rowMutationRequest.io.liveEnable := io.rowMutationLiveEnable
   rowMutationRequest.io.planValid := rowStatePlan.io.rowWriteValid
   rowMutationRequest.io.targetMask := responseApply.io.targetMask
   rowMutationRequest.io.setWaitStatus := rowStatePlan.io.setWaitStatus

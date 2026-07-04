@@ -37,6 +37,35 @@ class ReducedLoadReplayLiqAllocPathIO(
   val clearResolvedValid = Input(Bool())
   val clearResolvedIndex = Input(UInt(liqPtrWidth.W))
 
+  val rowMutationRequestValid = Input(Bool())
+  val rowMutationRequestTargetMask = Input(UInt(liqEntries.W))
+  val rowMutationRequestTargetIndex = Input(UInt(liqPtrWidth.W))
+  val rowMutationSetWaitStatus = Input(Bool())
+  val rowMutationKeepRepickStatus = Input(Bool())
+  val rowMutationClearReturnState = Input(Bool())
+  val rowMutationLineWrite = Input(Bool())
+  val rowMutationWaitStoreWrite = Input(Bool())
+  val rowMutationNextWaitStore = Input(Bool())
+  val rowMutationNextWaitStoreInfo = Input(new LoadStoreForwardWait(idEntries, idEntries, pcWidth))
+  val rowMutationNextLineData = Input(UInt((lineBytes * 8).W))
+  val rowMutationNextValidMask = Input(UInt(lineBytes.W))
+  val rowMutationNextDataComplete = Input(Bool())
+  val rowMutationNextScbReturned = Input(Bool())
+  val rowMutationNextStqReturned = Input(Bool())
+  val rowMutationNextStoreSourceReturned = Input(Bool())
+  val rowMutationBridgeValid = Output(Bool())
+  val rowMutationSourceStoreIndexFits = Output(Bool())
+  val rowMutationInvalidStoreIndexOutOfRange = Output(Bool())
+  val rowMutationInvalidConflictingStatusWrite = Output(Bool())
+  val rowMutationInvalidWaitStoreWithoutWaitStatus = Output(Bool())
+  val rowMutationInvalidReturnWithoutSplitSources = Output(Bool())
+  val rowMutationWriteEnable = Output(Bool())
+  val rowMutationApplyValid = Output(Bool())
+  val rowMutationTargetEvidenceValid = Output(Bool())
+  val rowMutationWriteConflict = Output(Bool())
+  val rowMutationBlockedByBridge = Output(Bool())
+  val rowMutationBlockedByControl = Output(Bool())
+
   val candidateConsumeReady = Output(Bool())
   val candidateUsable = Output(Bool())
   val candidateBlockedByAlloc = Output(Bool())
@@ -175,6 +204,14 @@ class ReducedLoadReplayLiqAllocPath(
     archRegWidth,
     physRegWidth
   ))
+  val rowMutationBridge = Module(new LoadInflightRowMutationRequestBridge(
+    liqEntries = liqEntries,
+    idEntries = idEntries,
+    sourceStoreEntries = idEntries,
+    storeEntries = storeEntries,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes
+  ))
 
   adapter.io.flush := io.flush
   adapter.io.candidateValid := io.candidateValid
@@ -199,21 +236,41 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.refill := 0.U.asTypeOf(liq.io.refill)
   liq.io.clearResolvedValid := io.clearResolvedValid
   liq.io.clearResolvedIndex := io.clearResolvedIndex
-  liq.io.rowMutationValid := false.B
-  liq.io.rowMutationTargetIndex := 0.U
-  liq.io.rowMutationSetWaitStatus := false.B
-  liq.io.rowMutationKeepRepickStatus := false.B
-  liq.io.rowMutationClearReturnState := false.B
-  liq.io.rowMutationLineWrite := false.B
-  liq.io.rowMutationWaitStoreWrite := false.B
-  liq.io.rowMutationNextWaitStore := false.B
-  liq.io.rowMutationNextWaitStoreInfo := 0.U.asTypeOf(liq.io.rowMutationNextWaitStoreInfo)
-  liq.io.rowMutationNextLineData := 0.U
-  liq.io.rowMutationNextValidMask := 0.U
-  liq.io.rowMutationNextDataComplete := false.B
-  liq.io.rowMutationNextScbReturned := false.B
-  liq.io.rowMutationNextStqReturned := false.B
-  liq.io.rowMutationNextStoreSourceReturned := false.B
+
+  rowMutationBridge.io.enable := !io.flush
+  rowMutationBridge.io.flush := io.flush
+  rowMutationBridge.io.requestValid := io.rowMutationRequestValid
+  rowMutationBridge.io.requestTargetMask := io.rowMutationRequestTargetMask
+  rowMutationBridge.io.requestTargetIndex := io.rowMutationRequestTargetIndex
+  rowMutationBridge.io.setWaitStatus := io.rowMutationSetWaitStatus
+  rowMutationBridge.io.keepRepickStatus := io.rowMutationKeepRepickStatus
+  rowMutationBridge.io.clearReturnState := io.rowMutationClearReturnState
+  rowMutationBridge.io.lineWrite := io.rowMutationLineWrite
+  rowMutationBridge.io.waitStoreWrite := io.rowMutationWaitStoreWrite
+  rowMutationBridge.io.nextWaitStore := io.rowMutationNextWaitStore
+  rowMutationBridge.io.nextWaitStoreInfo := io.rowMutationNextWaitStoreInfo
+  rowMutationBridge.io.nextLineData := io.rowMutationNextLineData
+  rowMutationBridge.io.nextValidMask := io.rowMutationNextValidMask
+  rowMutationBridge.io.nextDataComplete := io.rowMutationNextDataComplete
+  rowMutationBridge.io.nextScbReturned := io.rowMutationNextScbReturned
+  rowMutationBridge.io.nextStqReturned := io.rowMutationNextStqReturned
+  rowMutationBridge.io.nextStoreSourceReturned := io.rowMutationNextStoreSourceReturned
+
+  liq.io.rowMutationValid := rowMutationBridge.io.bridgeValid
+  liq.io.rowMutationTargetIndex := rowMutationBridge.io.requestTargetIndexOut
+  liq.io.rowMutationSetWaitStatus := rowMutationBridge.io.setWaitStatusOut
+  liq.io.rowMutationKeepRepickStatus := rowMutationBridge.io.keepRepickStatusOut
+  liq.io.rowMutationClearReturnState := rowMutationBridge.io.clearReturnStateOut
+  liq.io.rowMutationLineWrite := rowMutationBridge.io.lineWriteOut
+  liq.io.rowMutationWaitStoreWrite := rowMutationBridge.io.waitStoreWriteOut
+  liq.io.rowMutationNextWaitStore := rowMutationBridge.io.nextWaitStoreOut
+  liq.io.rowMutationNextWaitStoreInfo := rowMutationBridge.io.nativeNextWaitStoreInfoOut
+  liq.io.rowMutationNextLineData := rowMutationBridge.io.nextLineDataOut
+  liq.io.rowMutationNextValidMask := rowMutationBridge.io.nextValidMaskOut
+  liq.io.rowMutationNextDataComplete := rowMutationBridge.io.nextDataCompleteOut
+  liq.io.rowMutationNextScbReturned := rowMutationBridge.io.nextScbReturnedOut
+  liq.io.rowMutationNextStqReturned := rowMutationBridge.io.nextStqReturnedOut
+  liq.io.rowMutationNextStoreSourceReturned := rowMutationBridge.io.nextStoreSourceReturnedOut
 
   launchSelect.io.enable := !io.flush
   launchSelect.io.rows := liq.io.rows
@@ -274,4 +331,16 @@ class ReducedLoadReplayLiqAllocPath(
   io.full := liq.io.full
   io.missPending := liq.io.missPending
   io.clearResolvedAccepted := liq.io.clearResolvedAccepted
+  io.rowMutationBridgeValid := rowMutationBridge.io.bridgeValid
+  io.rowMutationSourceStoreIndexFits := rowMutationBridge.io.sourceStoreIndexFits
+  io.rowMutationInvalidStoreIndexOutOfRange := rowMutationBridge.io.invalidStoreIndexOutOfRange
+  io.rowMutationInvalidConflictingStatusWrite := rowMutationBridge.io.invalidConflictingStatusWrite
+  io.rowMutationInvalidWaitStoreWithoutWaitStatus := rowMutationBridge.io.invalidWaitStoreWithoutWaitStatus
+  io.rowMutationInvalidReturnWithoutSplitSources := rowMutationBridge.io.invalidReturnWithoutSplitSources
+  io.rowMutationWriteEnable := liq.io.rowMutationWriteEnable
+  io.rowMutationApplyValid := liq.io.rowMutationApplyValid
+  io.rowMutationTargetEvidenceValid := liq.io.rowMutationTargetEvidenceValid
+  io.rowMutationWriteConflict := liq.io.rowMutationWriteConflict
+  io.rowMutationBlockedByBridge := io.rowMutationRequestValid && !rowMutationBridge.io.bridgeValid
+  io.rowMutationBlockedByControl := liq.io.rowMutationBlockedByControl
 }

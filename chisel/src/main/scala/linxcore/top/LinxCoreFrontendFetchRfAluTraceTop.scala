@@ -2523,6 +2523,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       path = reducedReplayLiqSourceReturnStoreSnapshotPath,
       enable = reducedLoadReplayLiqAllocEnabled,
       flush = reducedStoreFlush,
+      rowMutationLiveEnable = false.B,
       launchValid = reducedLoadReplayLiqAllocPath.io.launchValid,
       selectedLaunchIndex = reducedLoadReplayLiqAllocPath.io.launchIndex,
       selectedRepickMask = reducedLoadReplayLiqAllocPath.io.repickMask,
@@ -2539,22 +2540,19 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       selectedValidMask = reducedReplayLiqSelectedRowForStoreSnapshot.validMask,
       legacySnapshotReady = reducedLoadReplayLiqAllocEnabled
     )
+  LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring.connect(
+    source = reducedReplayLiqSourceReturnStoreSnapshotPath,
+    liqPath = reducedLoadReplayLiqAllocPath,
+    sourceReadiness = reducedReplayLiqSourceReturnReadiness,
+    scbLive = reducedReplayLiqSourceReturnScbLiveControl,
+    enable = reducedLoadReplayLiqAllocEnabled,
+    flush = reducedStoreFlush,
+    launchValid = reducedLoadReplayLiqAllocPath.io.launchValid,
+    baseDataReady = reducedReplayLiqBaseDataReady,
+    storeSnapshotReady = reducedReplayLiqStoreSnapshotReady)
   val reducedReplayLiqReturnPipeBudgetEnable = reducedLoadReplayLiqAllocEnabled
   val reducedReplayLiqReturnLretSinkReady = reducedReplayLiqReturnLretSink.io.enqueueReady
   val reducedReplayLiqReturnWakeupSinkReady = reducedReplayLiqReturnWakeupSinkReadyControl.io.wakeupSinkReady
-  reducedReplayLiqSourceReturnReadiness.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqSourceReturnReadiness.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
-  reducedReplayLiqSourceReturnReadiness.io.baseDataReady := reducedReplayLiqBaseDataReady
-  reducedReplayLiqSourceReturnReadiness.io.storeSnapshotReady := reducedReplayLiqStoreSnapshotReady
-  reducedReplayLiqSourceReturnScbLiveControl.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqSourceReturnScbLiveControl.io.flush := reducedStoreFlush
-  reducedReplayLiqSourceReturnScbLiveControl.io.requestEnable := false.B
-  reducedReplayLiqSourceReturnScbLiveControl.io.scbPendingEvidence := false.B
-  reducedReplayLiqSourceReturnScbLiveControl.io.scbReturnedEvidence := false.B
-  reducedReplayLiqSourceReturnReadiness.io.externalScbPending :=
-    reducedReplayLiqSourceReturnScbLiveControl.io.externalScbPending
-  reducedReplayLiqSourceReturnReadiness.io.externalScbReturned :=
-    reducedReplayLiqSourceReturnScbLiveControl.io.externalScbReturned
   reducedReplayLiqReturnConsumerReady.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqReturnConsumerReady.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
   reducedReplayLiqReturnConsumerReady.io.sourcesReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
@@ -5464,6 +5462,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       path: LoadReplaySourceReturnStoreSnapshotPath,
       enable: Bool,
       flush: Bool,
+      rowMutationLiveEnable: Bool,
       launchValid: Bool,
       selectedLaunchIndex: UInt,
       selectedRepickMask: UInt,
@@ -5482,6 +5481,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.enable := enable
     path.io.flush := flush
     path.io.requestEnable := false.B
+    path.io.rowMutationLiveEnable := rowMutationLiveEnable
     path.io.launchValid := launchValid
     path.io.sinkReady := false.B
     path.io.selectedIdentityEnable := true.B
@@ -5573,6 +5573,48 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       path.io.queryIssueBlockedByNoLaunch
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedBySink :=
       path.io.queryIssueBlockedBySink
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring {
+  def connect(
+      source: LoadReplaySourceReturnStoreSnapshotPath,
+      liqPath: ReducedLoadReplayLiqAllocPath,
+      sourceReadiness: LoadReplaySourceReturnReadiness,
+      scbLive: LoadReplaySourceReturnScbLiveControl,
+      enable: Bool,
+      flush: Bool,
+      launchValid: Bool,
+      baseDataReady: Bool,
+      storeSnapshotReady: Bool): Unit = {
+    liqPath.io.rowMutationRequestValid := source.io.rowMutationRequestValid
+    liqPath.io.rowMutationRequestTargetMask := source.io.rowMutationRequestTargetMask
+    liqPath.io.rowMutationRequestTargetIndex := source.io.rowMutationRequestTargetIndex
+    liqPath.io.rowMutationSetWaitStatus := source.io.rowMutationSetWaitStatus
+    liqPath.io.rowMutationKeepRepickStatus := source.io.rowMutationKeepRepickStatus
+    liqPath.io.rowMutationClearReturnState := source.io.rowMutationClearReturnState
+    liqPath.io.rowMutationLineWrite := source.io.rowMutationLineWrite
+    liqPath.io.rowMutationWaitStoreWrite := source.io.rowMutationWaitStoreWrite
+    liqPath.io.rowMutationNextWaitStore := source.io.rowMutationNextWaitStore
+    liqPath.io.rowMutationNextWaitStoreInfo := source.io.rowMutationNextWaitStoreInfo
+    liqPath.io.rowMutationNextLineData := source.io.rowMutationNextLineData
+    liqPath.io.rowMutationNextValidMask := source.io.rowMutationNextValidMask
+    liqPath.io.rowMutationNextDataComplete := source.io.rowMutationNextDataComplete
+    liqPath.io.rowMutationNextScbReturned := source.io.rowMutationNextScbReturned
+    liqPath.io.rowMutationNextStqReturned := source.io.rowMutationNextStqReturned
+    liqPath.io.rowMutationNextStoreSourceReturned := source.io.rowMutationNextStoreSourceReturned
+
+    sourceReadiness.io.enable := enable
+    sourceReadiness.io.launchValid := launchValid
+    sourceReadiness.io.baseDataReady := baseDataReady
+    sourceReadiness.io.storeSnapshotReady := storeSnapshotReady
+    scbLive.io.enable := enable
+    scbLive.io.flush := flush
+    scbLive.io.requestEnable := false.B
+    scbLive.io.scbPendingEvidence := false.B
+    scbLive.io.scbReturnedEvidence := false.B
+    sourceReadiness.io.externalScbPending := scbLive.io.externalScbPending
+    sourceReadiness.io.externalScbReturned := scbLive.io.externalScbReturned
   }
 }
 

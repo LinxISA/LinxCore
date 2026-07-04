@@ -150,18 +150,21 @@ R410 adds `LoadReplaySourceReturnStoreSnapshotRowMutationRequest` after the
 row-state plan. The request owner joins the plan with the R407 target mask,
 requires exactly one LIQ row target, and shapes the status, return-state,
 line-data, and wait-store write enables for the future registered row writer.
-The composite still ties the request owner's `liveEnable` false, so only
-candidate and blocker diagnostics can assert in the current generated top.
+R417 promotes the request owner's `liveEnable` to an explicit path input named
+`rowMutationLiveEnable`. The current reduced top still ties that input false,
+but it wires the source-shaped request payload onward to
+`ReducedLoadReplayLiqAllocPath` so the downstream bridge and native LIQ
+mutation boundary are now structurally connected.
 
 The current top keeps the path response side live-disabled. It ties
-`requestEnable`, `sinkReady`, raw STQ response, SCB return, wait-store, and
-data-valid inputs false, and it ties external stale-head evidence false, so
-`storeSnapshotReady` still forwards the legacy resident-store snapshot
-readiness. The reduced `selectedRepickMask` now feeds head-state proof inside
-the path, but no raw response is visible in the top. Those raw inputs live at
-the path boundary instead of inside the module so the identity and response
-child owners remain a real composite boundary and can later be promoted
-without another direct top child instance.
+`requestEnable`, `rowMutationLiveEnable`, `sinkReady`, raw STQ response, SCB
+return, wait-store, and data-valid inputs false, and it ties external
+stale-head evidence false, so `storeSnapshotReady` still forwards the legacy
+resident-store snapshot readiness. The reduced `selectedRepickMask` now feeds
+head-state proof inside the path, but no raw response is visible in the top.
+Those raw inputs live at the path boundary instead of inside the module so the
+identity and response child owners remain a real composite boundary and can
+later be promoted without another direct top child instance.
 
 ## Interface
 
@@ -172,6 +175,7 @@ without another direct top child instance.
 | `enable` | Replay-LIQ wrapper is active. |
 | `flush` | Store/replay flush suppresses live source-return evidence. |
 | `requestEnable` | Future live arm for issuing and consuming selected-row STQ snapshot evidence. Current top ties this false. |
+| `rowMutationLiveEnable` | Future live arm for allowing a row-state plan to become a LIQ row-mutation request. R417 exposes this path input; the current top ties it false. |
 | `launchValid` | A selected replay row would need local STQ source-return qualification. |
 | `sinkReady` | Future raw store-unit request sink readiness for the R404 request sink. Current top ties this false. |
 | `selectedIdentityEnable` | Selects the reduced LIQ launch-index projection instead of the raw selected-row identity inputs. |

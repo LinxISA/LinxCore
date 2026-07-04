@@ -15,6 +15,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightLaunchSelect.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationRequestBridge.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnConsumerReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayRelaunchQueue.scala`
@@ -45,10 +46,15 @@ replay. R285 gives the path-local `lhqRecord` output a top-level
 `clearResolved` request once that consumer accepts the record. Retire and live
 MDB publication remain outside this module.
 
-R416 ties off the new native row-mutation port on `LoadInflightQueue`. The LIQ
-can now apply an admitted native replay-STQ row mutation in isolation, but this
-composition still does not drive that port from the R410 source-shaped replay
-snapshot request owner.
+R417 replaces the R416 tie-off with a source-shaped row-mutation bridge. The
+path accepts the R410
+`LoadReplaySourceReturnStoreSnapshotRowMutationRequest` payload shape, uses
+`LoadInflightRowMutationRequestBridge` to translate the source wait-store ID
+width into the LIQ-native `storeEntries` width, and drives the child
+`LoadInflightQueue` native row-mutation port. The current reduced top wires
+the source path into these inputs but keeps `rowMutationLiveEnable=false`, so
+the bridge and native writer remain structurally present without changing live
+generated-top replay behavior.
 
 ## Interface
 
@@ -65,6 +71,12 @@ snapshot request owner.
 | `e2LoadDataReturned` / `e2ScbReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. R299 drives `e2ScbReturned` from `LoadReplaySourceReturnReadiness`. R305 drives `e2ReturnReady` from `LoadReplayReturnReadiness` fed by the consumer-ready, budget, permit, and select split; the reduced top arms the budget but keeps the downstream LRET and mem-wakeup sinks low. |
 | `clearResolvedValid` | Pass-through clear request for future tests or consumers that resolve rows. |
 | `clearResolvedIndex` | LIQ slot for `clearResolvedValid`. |
+| `rowMutationRequestValid` / `rowMutationRequestTargetMask` / `rowMutationRequestTargetIndex` | Source-shaped R410 row-mutation request validity and LIQ target. Current top drives these from `LoadReplaySourceReturnStoreSnapshotPath`, whose live arm remains false. |
+| `rowMutationSetWaitStatus` / `rowMutationKeepRepickStatus` / `rowMutationClearReturnState` | Future status and split-return-state writes for wait-store rewait or continued repick. |
+| `rowMutationLineWrite` / `rowMutationWaitStoreWrite` | Future row-data and wait-store-state write enables. |
+| `rowMutationNextWaitStore*` | Source-shaped wait-store payload. The bridge converts `rowMutationNextWaitStoreInfo` from source ID width to native `storeEntries` width. |
+| `rowMutationNextLineData` / `rowMutationNextValidMask` / `rowMutationNextDataComplete` | Future row data image from the source snapshot row-state plan. |
+| `rowMutationNextScbReturned` / `rowMutationNextStqReturned` / `rowMutationNextStoreSourceReturned` | Future split source-return state from the source snapshot row-state plan. |
 
 ### Outputs
 
@@ -103,6 +115,10 @@ snapshot request owner.
 | `empty` / `full` | LIQ occupancy diagnostics. |
 | `missPending` | Pass-through LIQ miss-pending diagnostic. |
 | `clearResolvedAccepted` | Pass-through `LoadInflightQueue` clear response. |
+| `rowMutationBridgeValid` / `rowMutationSourceStoreIndexFits` | R417 bridge admission diagnostics before the native LIQ row-mutation port. |
+| `rowMutationInvalid*` | Bridge/payload invalid diagnostics for out-of-range source store index, conflicting status writes, wait-store payload without wait status, and inconsistent split-return state. |
+| `rowMutationWriteEnable` / `rowMutationApplyValid` / `rowMutationTargetEvidenceValid` / `rowMutationWriteConflict` | Native `LoadInflightQueue` row-mutation storage diagnostics from the R416 row owner. |
+| `rowMutationBlockedByBridge` / `rowMutationBlockedByControl` | Request blocked before native shape conversion or by the LIQ row-mutation write-control policy. |
 
 ## State
 
@@ -164,6 +180,11 @@ reduced wait slot and replay queue produce the same cleared load as a
    `e2BaseData`, `e2BaseValidMask`, and source-return sidebands. When it is
    low, all selector diagnostics remain visible but no LIQ state is mutated by
    launch.
+7. R417 adds the source-shaped row-mutation bridge in parallel with launch
+   selection. The bridge accepts the R410 request shape, blocks malformed or
+   out-of-range wait-store identities, and feeds the child LIQ native mutation
+   port. The native writer still enforces the R416 target-row and same-cycle
+   conflict policy before mutating registered row state.
 
 Replay wakeup and refill wakeup ports remain inactive in this owner. The R283
 reduced top keeps `launchEnable` low but feeds `e2Stores` from a shared
@@ -177,9 +198,9 @@ state or become visible to MDB conflict detection. R286 records that parent
 clear timing: the top delays `clearResolvedValid` until the cycle after
 ResolveQ accepts the LHQ record, when the source LIQ row is resident in
 `Resolved` state.
-R416 also keeps the child LIQ native row-mutation port inactive in this
-composition; the port exists for the next live-connect packet, not for current
-reduced-top behavior.
+R417 connects the child LIQ native row-mutation port to the source-shaped
+bridge in this composition. Current reduced-top behavior remains unchanged
+because the upstream source path keeps `rowMutationLiveEnable=false`.
 
 ## Timing
 
@@ -206,8 +227,8 @@ owner.
   leaves that gate disabled.
 - External SCB replay response ownership and real LRET/mem-wakeup sink
   readiness for enabled relaunch.
-- Live connection from `LoadReplaySourceReturnStoreSnapshotRowMutationRequest`
-  through the native `LoadInflightQueue` row-mutation port.
+- Live enable of `LoadReplaySourceReturnStoreSnapshotRowMutationRequest` and
+  raw source-response evidence that can produce active row-mutation requests.
 - Default/live LIQ ResolveQ insertion and load-store conflict publication.
 - Ready-table, bypass, and dependent-consumer wakeup.
 

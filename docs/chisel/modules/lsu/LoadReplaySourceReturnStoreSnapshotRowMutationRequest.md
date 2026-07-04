@@ -27,18 +27,20 @@ wait-store state and calls `rewait`, or merges/no-ops returned data into that
 same row. This module keeps that single-row mutation shape explicit before the
 live row writer exists.
 
-R410 is still dormant in the composite path. The path wires `liveEnable=false`,
-so `requestValid` and the request payload remain zero in generated-top
-fixtures. Candidate diagnostics still prove whether the R409 plan has exactly
-one LIQ target and whether the future live enable is the only remaining
-request blocker.
+R417 keeps the current generated top dormant but moves the arm bit to the
+composite path boundary. `LoadReplaySourceReturnStoreSnapshotPath` forwards
+its `rowMutationLiveEnable` input into this module; the reduced top ties that
+input false while wiring the source-shaped request payload toward
+`ReducedLoadReplayLiqAllocPath`. Candidate diagnostics still prove whether
+the R409 plan has exactly one LIQ target and whether the future live enable is
+the only remaining request blocker.
 
 ## Interface
 
 | Signal | Description |
 |---|---|
 | `enable` / `flush` | Gate all candidate and request outputs. |
-| `liveEnable` | Future arm for allowing a candidate to become a row mutation request. The R410 path integration ties this false. |
+| `liveEnable` | Future arm for allowing a candidate to become a row mutation request. R417 drives this from `LoadReplaySourceReturnStoreSnapshotPath.rowMutationLiveEnable`; the current reduced top ties that path input false. |
 | `planValid` | R409 row-state plan is valid for an ordered STQ response. |
 | `targetMask` | One-hot LIQ row target from `LoadReplaySourceReturnStoreSnapshotResponseApply`. |
 | `setWaitStatus` / `keepRepickStatus` | Future status-write intent for wait-store rewait or continued repick. |
@@ -80,7 +82,9 @@ The invalid diagnostics guard the shape expected from `RowStatePlan`:
 ## Deferred Owners
 
 - Registered `LoadInflightQueue` row mutation using the R411 split return bits
-  and the R412/R413 bridge-plus-apply preview.
+  and the R412/R413 bridge-plus-apply preview is now structurally reachable
+  through `ReducedLoadReplayLiqAllocPath`, but the current top keeps the
+  source request live arm disabled.
 - A live promotion control that can set `liveEnable` only after stale-response
   and split source-return policy are row-owned.
 
