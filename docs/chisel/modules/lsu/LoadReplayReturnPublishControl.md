@@ -35,8 +35,8 @@ paths. R315 names side-effect readiness; R316 adds the final explicit
 without accidentally making replay return state live.
 
 The current top ties `liveEnable` low. Therefore `publishFire` is always false
-in the reduced replay-LIQ wrapper, even if future diagnostic inputs become
-ready.
+in the reduced replay-LIQ wrapper, even when R378 feeds real LRET sink capacity
+into the side-effect readiness join.
 
 ## Interface
 

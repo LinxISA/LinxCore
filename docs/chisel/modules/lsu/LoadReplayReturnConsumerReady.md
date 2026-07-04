@@ -33,8 +33,10 @@ This module keeps that split explicit:
 - the LRET sink is required for every selected replay return;
 - the mem-wakeup sink is required only for selected rows that are neither
   speculative-wakeup rows nor stack-valid rows;
-- the current reduced top keeps both sinks not-ready, so live relaunch remains
-  disabled while diagnostics identify the missing owner.
+- R378 feeds LRET readiness from `LoadReplayReturnLretSink.enqueueReady`, while
+  the current reduced top still keeps the conditional mem-wakeup sink not-ready.
+  Live relaunch therefore remains disabled for rows that require regular memory
+  wakeup, and capacity diagnostics now identify only the missing owner.
 
 ## Interface
 
@@ -47,7 +49,7 @@ This module keeps that split explicit:
 | `sourcesReturned` | Base/load, store, and SCB source readiness has completed. Used for ordered blocker reporting. |
 | `specWakeup` | Selected row has already produced the model speculative load wakeup. |
 | `stackValid` | Selected row is a stack-valid load. |
-| `lretSinkReady` | Future IEX load-return queue can accept the data result. Current top ties this low. |
+| `lretSinkReady` | IEX load-return queue capacity can accept the data result. R378 feeds this from `LoadReplayReturnLretSink.enqueueReady`; live enqueue is still blocked by publish control. |
 | `wakeupSinkReady` | Future IEX mem-wakeup path can accept the dependent wakeup. Current top ties this low. |
 
 ### Outputs
@@ -92,9 +94,9 @@ blocking because model data return cannot skip the load-return queue.
 
 ## Deferred Owners
 
-- Real IEX load-return queue enqueue and payload formatting.
+- Live IEX load-return queue enqueue fire from replay-return publication.
 - Real IEX mem-wakeup payload, ready-table mutation, and issue wakeup fanout.
-- LRET/wakeup backpressure once the reduced top exposes real sinks.
+- IEX drain-side backpressure once the reduced top exposes real return-pipe capacity.
 - Tile-transfer return data and cross-line return splitting.
 
 ## Verification

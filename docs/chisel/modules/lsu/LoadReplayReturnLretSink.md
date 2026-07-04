@@ -30,9 +30,11 @@ drains that queue only while the target return pipe has capacity, then calls
 
 The current reduced top keeps replay-return publication disabled through
 `LoadReplayReturnPublishControl.liveEnable`, so the sink is dormant in
-generated-RTL fixtures. Its capacity and blockers are exposed as diagnostics,
-but upstream replay launch still treats the LRET sink as unavailable until the
-remaining RF writeback, ready-table, wakeup, and row-lifecycle owners are live.
+generated-RTL fixtures. R378 feeds the upstream LRET readiness predicate from
+the FIFO `enqueueReady` capacity signal, but the post-fire enqueue request and
+IEX drain remain disabled. This lets return-readiness diagnostics observe the
+real sink capacity without making LRET publication, RF writeback, ready-table
+mutation, wakeup, or row lifecycle state live.
 
 R376 extends `LoadReplayReturnLretEntry` with the row-owned source trace pair
 from the LRET payload. The FIFO stores and drains these fields as ordinary
@@ -86,14 +88,18 @@ R318 wires the sink in `LinxCoreFrontendFetchRfAluTraceTop` from:
 - reduced-store flush for `flush`;
 - tied-low `drainReady` because the IEX return-pipe consumer is not owned yet.
 
-The top deliberately keeps the existing upstream `lretSinkReady` literal low.
-This preserves the R315-R317 disabled-live-replay contract: adding the storage
-owner must not make `LoadReplayReturnReadiness` or `LoadReplayLaunchReadiness`
-launch replay rows before RF writeback, ready-table update, issue wakeup, and
-replay-row lifecycle owners exist.
+R378 replaces the old upstream `lretSinkReady` literal with
+`LoadReplayReturnLretSink.enqueueReady`. This is still a capacity-only
+promotion: `LoadReplayReturnPublishControl.liveEnable` remains false, so
+`LoadReplayReturnPublishRequest.lretRequest` cannot enqueue an entry, and
+`drainReady` remains false until the IEX return-pipe consumer is owned. The
+storage owner can now contribute real LRET-capacity blockers without enabling
+replay launch side effects before RF writeback, ready-table update, issue
+wakeup, and replay-row lifecycle owners exist.
 
 ## Deferred Owners
 
+- Live LRET enqueue fire from replay-return publication.
 - Live IEX return-pipe drain readiness and `IEX::setMemData` mutation.
 - Feeding accepted LRET enqueue back into replay-row clear/return lifecycle.
 - Multi-pipe LRET queue fanout and arbitration.

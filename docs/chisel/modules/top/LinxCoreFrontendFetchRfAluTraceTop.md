@@ -1732,9 +1732,11 @@ writeback-candidate, and wakeup-candidate boundaries. It names the future
 publish predicate: the LRET sink must be ready for every payload, the replay RF
 writeback sink must be ready only when a reduced GPR writeback is present, and
 the wakeup sink must be ready only when the payload requires regular memory
-wakeup. The current top still ties the real LRET and wakeup sinks low and keeps
-the replay writeback arbiter disabled, so the new predicate is diagnostic-only
-and cannot enable live replay state mutation.
+wakeup. R378 feeds the LRET sink predicate from the dormant FIFO's
+`enqueueReady` capacity signal, while the current top still ties the wakeup
+sink low and keeps the replay writeback arbiter disabled. The side-effect
+predicate therefore reports real LRET capacity but remains unable to enable
+live replay state mutation.
 R316 adds `LoadReplayReturnPublishControl` as the final named publish fire
 point. It requires a valid payload, the R309 publish-ready join, the R315
 side-effect-ready join, and an explicit `liveEnable` bit before asserting
@@ -1750,10 +1752,12 @@ state.
 R318 adds `LoadReplayReturnLretSink` behind the R317 LRET request. It formats
 the current `LoadReplayReturnLretPayload` outputs into a typed FIFO entry and
 connects enqueue to the post-fire LRET request, while drain remains tied low
-because the IEX return-pipe consumer is not yet owned. The top continues to
-feed upstream readiness with the existing tied-low LRET sink flag, so this
-storage owner cannot accidentally enable replay launch before RF writeback,
-ready-table update, issue wakeup, and replay-row lifecycle owners are live.
+because the IEX return-pipe consumer is not yet owned. R378 feeds upstream
+readiness from the FIFO `enqueueReady` capacity signal instead of the old
+tied-low LRET sink flag. This is still capacity-only: `publishFire`,
+`lretRequest`, and `drainReady` remain disabled, so the storage owner cannot
+enqueue, drain, or enable replay launch before RF writeback, ready-table
+update, issue wakeup, and replay-row lifecycle owners are live.
 R319 adds `LoadReplayReturnIexDrainPermit` behind the R318 sink diagnostics.
 It names the model `IEX::receiveFromLSU` drain predicate: a sink entry can move
 only when replay-LIQ is enabled, flush is inactive, and at least one IEX return
