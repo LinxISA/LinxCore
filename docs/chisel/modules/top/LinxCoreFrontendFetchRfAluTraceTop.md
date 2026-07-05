@@ -85,6 +85,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RefillReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2SlotReplacePlan.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AdvanceControl.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/MDBStoreProbeReplay.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/pe/ifu/iside/pe_ifu.cpp`
   - `model/LinxCoreModel/model/ModelCommon/bus/FetchReqBus.h`
@@ -3754,6 +3755,19 @@ packet should make model-equivalent conflict learning observe the resolved
 load after publication, for example by retaining or replaying the store probe
 until the resolved-load candidate exists, before claiming MDB fanout record
 publication.
+R497 adds that reduced timing owner with `MDBStoreProbeReplay`. The reduced
+top retains the latest live store probe and replays it once when
+`LoadResolveQueue` is nonempty, leaving the existing `MDBConflictDetect`
+predicate and `MDBQueueFanout` learning path unchanged. The enabled early-STA
+fixture at `generated/r497-replay-liq-mdb-store-replay-gate` passes with 3
+normalized QEMU/DUT rows and zero mismatches, and the sideband report records
+`mdb_conflict_store_with_resolve_queue_valid=1`,
+`mdb_conflict_resolve_candidate=1`, `mdb_conflict_valid=1`,
+`mdb_fanout_record_valid=1`, `mdb_fanout_record_accepted=1`,
+`mdb_fanout_record_processed=1`, `mdb_fanout_bmdb_report=1`, and
+`mdb_fanout_ssit_nonempty=1`. MDB lookup wait-plan counters remain zero, so
+the next packet must prove the learned MDB record can drive a later lookup hit
+and wait-store mutation before claiming load replay prediction.
 
 ## Verification
 
