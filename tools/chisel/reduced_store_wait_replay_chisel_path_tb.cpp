@@ -14,8 +14,10 @@ constexpr std::uint8_t kStoreAddr = 1;
 constexpr std::uint8_t kStoreData = 2;
 constexpr std::uint64_t kStorePc = 0x4400;
 constexpr std::uint64_t kLoadAddr = 0x3000;
+constexpr std::uint64_t kLoadLineAddr = 0x3000;
 constexpr std::uint64_t kStoreDataValue = 0x1122334455667788ULL;
 constexpr std::uint64_t kBaseData = 0xffeeddccbbaa9988ULL;
+constexpr std::uint64_t kRefillDataLow = 0x0123456789abcdefULL;
 constexpr std::uint8_t kStoreBid = 1;
 constexpr std::uint8_t kStoreLsId = 1;
 constexpr std::uint8_t kLoadBid = 2;
@@ -99,6 +101,12 @@ void clear_inputs(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_loadLsId_value = 0;
   dut.io_baseLoadData = 0;
   dut.io_captureEnable = 0;
+  dut.io_liqRefillValid = 0;
+  dut.io_liqRefillLineAddr = 0;
+  for (int word = 0; word < 16; ++word) {
+    dut.io_liqRefillData[word] = 0;
+  }
+  dut.io_liqLaunchEnable = 0;
 }
 
 void tick(VReducedStoreWaitReplayChiselPathProbe &dut, std::uint64_t &cycle) {
@@ -165,7 +173,11 @@ struct Report {
   bool std_wake_clear = false;
   bool relaunch_queue_fire = false;
   bool liq_alloc = false;
+  bool liq_refill = false;
+  bool liq_launch_valid = false;
+  bool liq_launch_accepted = false;
   std::uint32_t youngest_store_lsid = 0;
+  std::uint32_t launch_load_lsid = 0;
 };
 
 void run_ready_store_negative(VReducedStoreWaitReplayChiselPathProbe &dut, std::uint64_t &cycle, Report &report) {
@@ -246,6 +258,39 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   expect(dut.io_liqFirstYoungestStoreLsId_valid, "LIQ row did not preserve youngest-store LSID valid bit");
   expect(dut.io_liqFirstYoungestStoreLsId_value == kStoreLsId, "LIQ row did not preserve youngest-store LSID value");
   report.youngest_store_lsid = dut.io_liqFirstYoungestStoreLsId_value;
+
+  clear_inputs(dut);
+  dut.io_liqRefillValid = 1;
+  dut.io_liqRefillLineAddr = kLoadLineAddr;
+  dut.io_liqRefillData[0] = static_cast<std::uint32_t>(kRefillDataLow);
+  dut.io_liqRefillData[1] = static_cast<std::uint32_t>(kRefillDataLow >> 32);
+  dut.eval();
+  expect(dut.io_liqRefillAccepted, "LIQ refill wakeup was not accepted");
+  expect((dut.io_liqRefillWakeMask & 0x1) != 0, "LIQ refill did not wake row zero");
+  tick(dut, cycle);
+  report.liq_refill = true;
+
+  clear_inputs(dut);
+  dut.eval();
+  expect((dut.io_liqWaitMask & 0x1) != 0, "refilled LIQ row did not remain in Wait");
+  expect(dut.io_liqLaunchValid, "refilled LIQ row did not become a launch candidate");
+  expect(dut.io_liqLaunchReady, "refilled LIQ row was not launch-ready");
+  expect(dut.io_liqLaunchIndex == 0, "LIQ launch selected the wrong row");
+  expect(dut.io_liqLaunchSelectedLoadLsId_valid, "LIQ launch did not preserve selected load LSID valid bit");
+  expect(dut.io_liqLaunchSelectedLoadLsId_value == kLoadLsId, "LIQ launch did not preserve selected load LSID value");
+  report.liq_launch_valid = true;
+  report.launch_load_lsid = dut.io_liqLaunchSelectedLoadLsId_value;
+
+  dut.io_liqLaunchEnable = 1;
+  dut.eval();
+  expect(dut.io_liqLaunchDriveValid, "LIQ launchEnable did not drive launch valid");
+  expect(dut.io_liqLaunchAccepted, "LIQ launch was not accepted");
+  tick(dut, cycle);
+  report.liq_launch_accepted = true;
+
+  clear_inputs(dut);
+  dut.eval();
+  expect((dut.io_liqRepickMask & 0x1) != 0, "launched LIQ row did not enter Repick");
 }
 
 void write_report(const std::string &path, const Report &report) {
@@ -265,7 +310,11 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"std_wake_clear\": " << (report.std_wake_clear ? "true" : "false") << ",\n"
       << "  \"relaunch_queue_fire\": " << (report.relaunch_queue_fire ? "true" : "false") << ",\n"
       << "  \"liq_alloc\": " << (report.liq_alloc ? "true" : "false") << ",\n"
-      << "  \"youngest_store_lsid\": " << report.youngest_store_lsid << "\n"
+      << "  \"liq_refill\": " << (report.liq_refill ? "true" : "false") << ",\n"
+      << "  \"liq_launch_valid\": " << (report.liq_launch_valid ? "true" : "false") << ",\n"
+      << "  \"liq_launch_accepted\": " << (report.liq_launch_accepted ? "true" : "false") << ",\n"
+      << "  \"youngest_store_lsid\": " << report.youngest_store_lsid << ",\n"
+      << "  \"launch_load_lsid\": " << report.launch_load_lsid << "\n"
       << "}\n";
 }
 
@@ -286,6 +335,7 @@ int main(int argc, char **argv) {
 
   std::cout << "reduced-store-wait-replay-chisel-path: pass"
             << " cycles=" << report.cycles
-            << " youngest_store_lsid=" << report.youngest_store_lsid << "\n";
+            << " youngest_store_lsid=" << report.youngest_store_lsid
+            << " launch_load_lsid=" << report.launch_load_lsid << "\n";
   return 0;
 }

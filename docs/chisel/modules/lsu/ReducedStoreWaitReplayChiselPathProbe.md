@@ -72,6 +72,12 @@ window directly and proves the owner chain through generated RTL.
 | `waitStoreClear` | Store wakeup cleared the wait slot. |
 | `relaunchQueueOutFire` | Relaunch queue handed the replay candidate to LIQ allocation. |
 | `liqAllocAccepted` | LIQ accepted the replay candidate. |
+| `liqRefillValid` / `liqRefillLineAddr` / `liqRefillData` | Fixture-driven refill wakeup for the allocated replay row. |
+| `liqRefillAccepted` / `liqRefillWakeMask` | LIQ refill wakeup was accepted and matched resident rows. |
+| `liqLaunchEnable` | Fixture-owned launch arm for `ReducedLoadReplayLiqAllocPath`. |
+| `liqLaunchValid` / `liqLaunchReady` / `liqLaunchDriveValid` / `liqLaunchAccepted` | Selector, readiness, gated drive, and accepted launch diagnostics. |
+| `liqLaunchSelectedLoadLsId` | Selected launch row preserved the original load LSID. |
+| `liqWaitMask` / `liqRepickMask` | LIQ row status masks before and after launch. |
 | `liqFirstYoungestStoreLsId` | Allocated LIQ row preserved the forwarding snapshot sidecar. |
 
 ## Logic Design
@@ -87,6 +93,11 @@ The generated-RTL harness runs two scenarios:
    `STD` merge makes the row ready, `ResidentStoreReplayWakeup` emits a store
    wakeup, the wait slot clears into a relaunch candidate, the queue fires, and
    `ReducedLoadReplayLiqAllocPath` allocates a resident LIQ row.
+3. The harness drives a read-refill wakeup for the allocated row's cacheline.
+   This gives the row complete row-owned bytes through the existing
+   `LoadRefillWakeup` path, making `LoadInflightLaunchSelect` assert
+   `launchValid`. With `liqLaunchEnable` asserted for one cycle, the LIQ row
+   accepts launch and enters `Repick`.
 
 This is fixture evidence for the reduced owner chain. It is not architectural
 QEMU/DUT replacement evidence and does not prove live top scheduling can yet
@@ -114,3 +125,9 @@ passing R452 report records `ready_forward_observed=true`,
 `sta_wait_capture=true`, `not_ready_wake_blocked=true`,
 `std_wake_clear=true`, `relaunch_queue_fire=true`, `liq_alloc=true`, and
 `youngest_store_lsid=1`.
+
+R453 extends the same report with `liq_refill=true`,
+`liq_launch_valid=true`, `liq_launch_accepted=true`, and
+`launch_load_lsid=3`. This remains generated-RTL fixture evidence: the refill
+and launch arm are harness-driven, and the live reduced top still ties the
+alloc-path refill wakeup inactive.

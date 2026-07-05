@@ -147,6 +147,13 @@ Verilator executable, and writes a JSON report proving ready-store no-capture
 plus split STA/STD wait capture, wake clear, relaunch queue fire, and LIQ
 allocation. This still is not live QEMU/DUT promotion evidence because the
 timing is harness-driven rather than produced by the reduced top scheduler.
+R453 extends that fixture boundary one stage farther: the alloc path now
+passes the existing `LoadRefillWakeup` input through to `LoadInflightQueue`,
+the live reduced top ties it inactive, and the generated-RTL probe drives a
+read-refill after LIQ allocation. The report proves the refilled row becomes a
+launch candidate and accepts one gated launch into `Repick`. This is still
+fixture evidence, not live replay-LIQ promotion, because both the refill and
+launch arm are harness-driven.
 
 ## XiangShan Flow Reference
 

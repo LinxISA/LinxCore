@@ -2791,6 +2791,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.e2ScbReturned := reducedReplayLiqSourceReturnReadiness.io.scbSourceReturned
   reducedLoadReplayLiqAllocPath.io.e2StqReturned := reducedReplayLiqSourceReturnReadiness.io.storeSourceReturned
   reducedLoadReplayLiqAllocPath.io.e2ReturnReady := reducedReplayLiqReturnReadiness.io.returnReady
+  LinxCoreFrontendFetchRfAluTraceTopR453ReplayLiqRefillTieOff.connect(reducedLoadReplayLiqAllocPath)
   val reducedLoadReplayResolvePreciseFlush =
     Wire(new FlushBus(p.robEntries, peIdWidth = p.peIdWidth, stidWidth = p.threadIdWidth, tidWidth = p.threadIdWidth))
   reducedLoadReplayResolvePreciseFlush := 0.U.asTypeOf(reducedLoadReplayResolvePreciseFlush)
@@ -5943,6 +5944,13 @@ private object LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring {
     scbLive.io.scbReturnedEvidence := false.B
     sourceReadiness.io.externalScbPending := scbLive.io.externalScbPending
     sourceReadiness.io.externalScbReturned := scbLive.io.externalScbReturned
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR453ReplayLiqRefillTieOff {
+  def connect(path: ReducedLoadReplayLiqAllocPath): Unit = {
+    path.io.refillValid := false.B
+    path.io.refill := 0.U.asTypeOf(path.io.refill)
   }
 }
 

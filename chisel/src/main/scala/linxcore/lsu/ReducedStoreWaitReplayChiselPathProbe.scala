@@ -11,6 +11,7 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
     val addrWidth: Int,
     val dataWidth: Int,
     val pcWidth: Int,
+    val lineBytes: Int,
     val sizeWidth: Int)
     extends Bundle {
   val flush = Input(Bool())
@@ -48,8 +49,22 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
 
   val liqCandidateConsumeReady = Output(Bool())
   val liqAllocAccepted = Output(Bool())
+  val liqRefillValid = Input(Bool())
+  val liqRefillLineAddr = Input(UInt(addrWidth.W))
+  val liqRefillData = Input(UInt((lineBytes * 8).W))
+  val liqRefillAccepted = Output(Bool())
+  val liqRefillWakeMask = Output(UInt(liqEntries.W))
+  val liqLaunchEnable = Input(Bool())
+  val liqLaunchValid = Output(Bool())
+  val liqLaunchDriveValid = Output(Bool())
+  val liqLaunchReady = Output(Bool())
+  val liqLaunchAccepted = Output(Bool())
+  val liqLaunchIndex = Output(UInt(log2Ceil(liqEntries).W))
+  val liqLaunchSelectedLoadLsId = Output(new ROBID(entries))
   val liqResidentCount = Output(UInt(log2Ceil(liqEntries + 1).W))
   val liqOccupiedMask = Output(UInt(liqEntries.W))
+  val liqWaitMask = Output(UInt(liqEntries.W))
+  val liqRepickMask = Output(UInt(liqEntries.W))
   val liqFirstYoungestStoreLsId = Output(new ROBID(entries))
 }
 
@@ -65,7 +80,15 @@ class ReducedStoreWaitReplayChiselPathProbe(
   require(entries > 1 && (entries & (entries - 1)) == 0)
   require(liqEntries > 1 && (liqEntries & (liqEntries - 1)) == 0)
 
-  val io = IO(new ReducedStoreWaitReplayChiselPathProbeIO(entries, liqEntries, addrWidth, dataWidth, pcWidth, sizeWidth))
+  val io = IO(new ReducedStoreWaitReplayChiselPathProbeIO(
+    entries,
+    liqEntries,
+    addrWidth,
+    dataWidth,
+    pcWidth,
+    lineBytes,
+    sizeWidth
+  ))
 
   val stq = Module(new STQEntryBank(entries, addrWidth, dataWidth, sizeWidth = 4))
   stq.io.flush := 0.U.asTypeOf(stq.io.flush)
@@ -124,7 +147,7 @@ class ReducedStoreWaitReplayChiselPathProbe(
   liq.io.flush := io.flush
   liq.io.candidateValid := relaunchQueue.io.outValid
   liq.io.candidate := relaunchQueue.io.out
-  liq.io.launchEnable := false.B
+  liq.io.launchEnable := io.liqLaunchEnable
   liq.io.e2Stores := 0.U.asTypeOf(liq.io.e2Stores)
   liq.io.e2BaseData := 0.U
   liq.io.e2BaseValidMask := 0.U
@@ -132,6 +155,11 @@ class ReducedStoreWaitReplayChiselPathProbe(
   liq.io.e2ScbReturned := false.B
   liq.io.e2StqReturned := false.B
   liq.io.e2ReturnReady := false.B
+  liq.io.refillValid := io.liqRefillValid
+  liq.io.refill.isRead := true.B
+  liq.io.refill.lineAddr := io.liqRefillLineAddr
+  liq.io.refill.data := io.liqRefillData
+  liq.io.refill.l2Miss := false.B
   liq.io.clearResolvedValid := false.B
   liq.io.clearResolvedIndex := 0.U
   liq.io.rowMutationRequestValid := false.B
@@ -172,8 +200,18 @@ class ReducedStoreWaitReplayChiselPathProbe(
   io.relaunchQueueOutFire := relaunchQueue.io.outFire
   io.liqCandidateConsumeReady := liq.io.candidateConsumeReady
   io.liqAllocAccepted := liq.io.allocAccepted
+  io.liqRefillAccepted := liq.io.refillAccepted
+  io.liqRefillWakeMask := liq.io.refillWakeMask
+  io.liqLaunchValid := liq.io.launchValid
+  io.liqLaunchDriveValid := liq.io.launchDriveValid
+  io.liqLaunchReady := liq.io.launchReady
+  io.liqLaunchAccepted := liq.io.launchAccepted
+  io.liqLaunchIndex := liq.io.launchIndex
+  io.liqLaunchSelectedLoadLsId := liq.io.launchSelectedLoadLsId
   io.liqResidentCount := liq.io.residentCount
   io.liqOccupiedMask := liq.io.occupiedMask
+  io.liqWaitMask := liq.io.waitMask
+  io.liqRepickMask := liq.io.repickMask
   io.liqFirstYoungestStoreLsId := liq.io.rows(0).youngestStoreLsId
 }
 

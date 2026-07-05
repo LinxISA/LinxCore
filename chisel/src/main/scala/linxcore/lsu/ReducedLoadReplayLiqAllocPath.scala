@@ -54,6 +54,12 @@ class ReducedLoadReplayLiqAllocPathIO(
   val rowMutationNextScbReturned = Input(Bool())
   val rowMutationNextStqReturned = Input(Bool())
   val rowMutationNextStoreSourceReturned = Input(Bool())
+
+  val refillValid = Input(Bool())
+  val refill = Input(new LoadRefillWakeupRequest(addrWidth, lineBytes))
+  val refillAccepted = Output(Bool())
+  val refillWakeMask = Output(UInt(liqEntries.W))
+
   val rowMutationBridgeValid = Output(Bool())
   val rowMutationSourceStoreIndexFits = Output(Bool())
   val rowMutationInvalidStoreIndexOutOfRange = Output(Bool())
@@ -243,8 +249,8 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.e2ReturnReady := io.e2ReturnReady
   liq.io.replayWakeValid := false.B
   liq.io.replayWake := 0.U.asTypeOf(liq.io.replayWake)
-  liq.io.refillValid := false.B
-  liq.io.refill := 0.U.asTypeOf(liq.io.refill)
+  liq.io.refillValid := io.refillValid
+  liq.io.refill := io.refill
   liq.io.clearResolvedValid := io.clearResolvedValid
   liq.io.clearResolvedIndex := io.clearResolvedIndex
 
@@ -335,6 +341,8 @@ class ReducedLoadReplayLiqAllocPath(
   io.e4UpdateIndex := liq.io.e4UpdateIndex
   io.e4MissKind := liq.io.e4MissKind
   io.e4WakeupValid := liq.io.e4WakeupValid
+  io.refillAccepted := liq.io.refillAccepted
+  io.refillWakeMask := liq.io.refillWakeMask
   io.lhqRecordValid := liq.io.lhqRecordValid
   io.lhqRecord := liq.io.lhqRecord
   io.residentCount := liq.io.residentCount
