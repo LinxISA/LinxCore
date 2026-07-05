@@ -9,10 +9,27 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v1"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v2"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
+    "load_lookup_valid",
+    "load_lookup_execute_granted",
+    "load_lookup_execute_with_eligible_store",
+    "load_lookup_execute_with_wait_store",
+    "execute_load_wait_hold",
+    "resident_store_eligible",
+    "resident_store_ready_forward",
+    "resident_store_wait_blocked",
+    "resident_store_wait_store_valid",
+    "store_sta_queue_valid",
+    "store_std_queue_valid",
+    "store_sta_queue_only_valid",
+    "store_sta_dequeue_fire",
+    "store_std_dequeue_fire",
+    "store_sta_exec_valid",
+    "store_std_exec_valid",
+    "store_sta_exec_only_valid",
     "resident_store_wake_valid",
     "resident_store_wake_ready",
     "wait_replay_capture_accepted",

@@ -195,6 +195,23 @@ GprCommitHistory g_gpr_commit_history;
 
 struct ReplayLiqSidebandStats {
   std::uint64_t cycles_sampled = 0;
+  std::uint64_t load_lookup_valid = 0;
+  std::uint64_t load_lookup_execute_granted = 0;
+  std::uint64_t load_lookup_execute_with_eligible_store = 0;
+  std::uint64_t load_lookup_execute_with_wait_store = 0;
+  std::uint64_t execute_load_wait_hold = 0;
+  std::uint64_t resident_store_eligible = 0;
+  std::uint64_t resident_store_ready_forward = 0;
+  std::uint64_t resident_store_wait_blocked = 0;
+  std::uint64_t resident_store_wait_store_valid = 0;
+  std::uint64_t store_sta_queue_valid = 0;
+  std::uint64_t store_std_queue_valid = 0;
+  std::uint64_t store_sta_queue_only_valid = 0;
+  std::uint64_t store_sta_dequeue_fire = 0;
+  std::uint64_t store_std_dequeue_fire = 0;
+  std::uint64_t store_sta_exec_valid = 0;
+  std::uint64_t store_std_exec_valid = 0;
+  std::uint64_t store_sta_exec_only_valid = 0;
   std::uint64_t resident_store_wake_valid = 0;
   std::uint64_t resident_store_wake_ready = 0;
   std::uint64_t wait_replay_capture_accepted = 0;
@@ -250,6 +267,57 @@ ReplayLiqSidebandStats g_replay_liq_sideband_stats;
 void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   ++g_replay_liq_sideband_stats.cycles_sampled;
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+  if (dut.io_loadLookupValid) {
+    ++g_replay_liq_sideband_stats.load_lookup_valid;
+  }
+  if (dut.io_loadLookupExecuteGranted) {
+    ++g_replay_liq_sideband_stats.load_lookup_execute_granted;
+  }
+  if (dut.io_loadLookupExecuteGranted && dut.io_reducedStoreResidentEligibleMask != 0) {
+    ++g_replay_liq_sideband_stats.load_lookup_execute_with_eligible_store;
+  }
+  if (dut.io_loadLookupExecuteGranted && dut.io_reducedStoreResidentWaitStoreValid) {
+    ++g_replay_liq_sideband_stats.load_lookup_execute_with_wait_store;
+  }
+  if (dut.io_executeLoadWaitHold) {
+    ++g_replay_liq_sideband_stats.execute_load_wait_hold;
+  }
+  if (dut.io_reducedStoreResidentEligibleMask != 0) {
+    ++g_replay_liq_sideband_stats.resident_store_eligible;
+  }
+  if (dut.io_reducedStoreResidentReadyForward) {
+    ++g_replay_liq_sideband_stats.resident_store_ready_forward;
+  }
+  if (dut.io_reducedStoreResidentWaitBlocked) {
+    ++g_replay_liq_sideband_stats.resident_store_wait_blocked;
+  }
+  if (dut.io_reducedStoreResidentWaitStoreValid) {
+    ++g_replay_liq_sideband_stats.resident_store_wait_store_valid;
+  }
+  if (dut.io_storeStaQueueValid) {
+    ++g_replay_liq_sideband_stats.store_sta_queue_valid;
+  }
+  if (dut.io_storeStdQueueValid) {
+    ++g_replay_liq_sideband_stats.store_std_queue_valid;
+  }
+  if (dut.io_storeStaQueueValid && !dut.io_storeStdQueueValid) {
+    ++g_replay_liq_sideband_stats.store_sta_queue_only_valid;
+  }
+  if (dut.io_storeStaDequeueFire) {
+    ++g_replay_liq_sideband_stats.store_sta_dequeue_fire;
+  }
+  if (dut.io_storeStdDequeueFire) {
+    ++g_replay_liq_sideband_stats.store_std_dequeue_fire;
+  }
+  if (dut.io_reducedStoreStaExecValid) {
+    ++g_replay_liq_sideband_stats.store_sta_exec_valid;
+  }
+  if (dut.io_reducedStoreStdExecValid) {
+    ++g_replay_liq_sideband_stats.store_std_exec_valid;
+  }
+  if (dut.io_reducedStoreStaExecValid && !dut.io_reducedStoreStdExecValid) {
+    ++g_replay_liq_sideband_stats.store_sta_exec_only_valid;
+  }
   if (dut.io_reducedStoreResidentReplayWakeValid) {
     ++g_replay_liq_sideband_stats.resident_store_wake_valid;
   }
@@ -409,7 +477,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v1\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v2\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -417,6 +485,40 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
 #endif
       << "  \"replay_liq\": {\n"
       << "    \"cycles_sampled\": " << g_replay_liq_sideband_stats.cycles_sampled << ",\n"
+      << "    \"load_lookup_valid\": "
+      << g_replay_liq_sideband_stats.load_lookup_valid << ",\n"
+      << "    \"load_lookup_execute_granted\": "
+      << g_replay_liq_sideband_stats.load_lookup_execute_granted << ",\n"
+      << "    \"load_lookup_execute_with_eligible_store\": "
+      << g_replay_liq_sideband_stats.load_lookup_execute_with_eligible_store << ",\n"
+      << "    \"load_lookup_execute_with_wait_store\": "
+      << g_replay_liq_sideband_stats.load_lookup_execute_with_wait_store << ",\n"
+      << "    \"execute_load_wait_hold\": "
+      << g_replay_liq_sideband_stats.execute_load_wait_hold << ",\n"
+      << "    \"resident_store_eligible\": "
+      << g_replay_liq_sideband_stats.resident_store_eligible << ",\n"
+      << "    \"resident_store_ready_forward\": "
+      << g_replay_liq_sideband_stats.resident_store_ready_forward << ",\n"
+      << "    \"resident_store_wait_blocked\": "
+      << g_replay_liq_sideband_stats.resident_store_wait_blocked << ",\n"
+      << "    \"resident_store_wait_store_valid\": "
+      << g_replay_liq_sideband_stats.resident_store_wait_store_valid << ",\n"
+      << "    \"store_sta_queue_valid\": "
+      << g_replay_liq_sideband_stats.store_sta_queue_valid << ",\n"
+      << "    \"store_std_queue_valid\": "
+      << g_replay_liq_sideband_stats.store_std_queue_valid << ",\n"
+      << "    \"store_sta_queue_only_valid\": "
+      << g_replay_liq_sideband_stats.store_sta_queue_only_valid << ",\n"
+      << "    \"store_sta_dequeue_fire\": "
+      << g_replay_liq_sideband_stats.store_sta_dequeue_fire << ",\n"
+      << "    \"store_std_dequeue_fire\": "
+      << g_replay_liq_sideband_stats.store_std_dequeue_fire << ",\n"
+      << "    \"store_sta_exec_valid\": "
+      << g_replay_liq_sideband_stats.store_sta_exec_valid << ",\n"
+      << "    \"store_std_exec_valid\": "
+      << g_replay_liq_sideband_stats.store_std_exec_valid << ",\n"
+      << "    \"store_sta_exec_only_valid\": "
+      << g_replay_liq_sideband_stats.store_sta_exec_only_valid << ",\n"
       << "    \"resident_store_wake_valid\": "
       << g_replay_liq_sideband_stats.resident_store_wake_valid << ",\n"
       << "    \"resident_store_wake_ready\": "

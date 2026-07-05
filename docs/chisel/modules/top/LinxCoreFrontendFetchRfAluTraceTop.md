@@ -826,6 +826,24 @@ again show no resident-store wake, wait-replay, replay queue, LIQ allocation,
 MDB lookup hit, or row-mutation activity, preserving the live-stimulus
 negative result while making the wrapper invocation reproducible.
 
+R473 extends the wrapper-validated sideband stats schema to v2 with a
+model-derived wait-stimulus classifier. LinxCoreModel `STQ::lookupForLoad`
+marks `wait_store` only when a younger load overlaps an older address-ready
+resident STQ row whose data bytes are still not ready; `LDQInfo::waitStore`
+then holds the load until the store unit wakeup clears that key. The v2 report
+therefore records execute load-lookup activity, resident eligible-store
+cycles, lookup/store overlap cycles, ready-forward/wait-blocked predicates,
+STA/STD queue and execution validity, plus the existing replay-LIQ/MDB
+counters. This does not add RTL ports or change compare behavior; it makes
+future live probes distinguish no load lookup, no resident store, no overlap,
+and wait-predicate failure before claiming a nonzero replay-LIQ/MDB stimulus.
+The R473 fixture run passes 3 compared rows with zero mismatches and classifies
+the current negative probe as load/STQ timing rather than LIQ mutation:
+`load_lookup_execute_granted=2`, `store_sta_exec_valid=1`,
+`store_std_exec_valid=2`, but `resident_store_eligible=0`,
+`load_lookup_execute_with_eligible_store=0`, and
+`resident_store_wait_blocked=0`.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
@@ -1077,7 +1095,7 @@ store).
 | output | `reducedStoreDrain*` | mixed | diagnostic | R241 reduced `STQCommitDrain` diagnostics: mark-accepted enqueue result, duplicate detect, issue mask/count, abstract drain early-free mask, queue count, empty, and order-error. |
 | output | `reducedStoreScb*` | mixed | diagnostic | R241 reduced `SCBRowBank` diagnostics: model-batch readiness, accepted/stalled request masks, accepted-`last` commit-free mask/count, valid row mask, and entry count. |
 | output | `reducedStoreMemoryValidMask`, `reducedStoreMemoryLineCount`, `reducedStoreMemoryLoadForwardMask`, `reducedStoreMemoryStoreDroppedMask` | mixed | diagnostic | R258/R259 reduced store-memory overlay occupancy, load-byte forward mask, and accepted-request drop diagnostics. The drop mask covers commit-row bypass lanes plus SCB accepted lanes. |
-| output | `reducedStoreResidentForwardMask`, `reducedStoreResidentWaitMask`, `reducedStoreResidentEligibleMask`, `reducedStoreResidentReadyForward`, `reducedStoreResidentWaitBlocked`, `reducedStoreResidentWaitStore*`, `reducedStoreResidentLoadCrossesLine` | mixed | diagnostic | R265-R267 resident-STQ forwarding diagnostics after the committed-store overlay. Ready hits forward bytes; wait hits hold execute through `executeLoadWaitHold` and expose the selected not-ready store's index, BID, LSID, and PC for later replay wakeup wiring. |
+| output | `reducedStoreResidentForwardMask`, `reducedStoreResidentWaitMask`, `reducedStoreResidentEligibleMask`, `reducedStoreResidentReadyForward`, `reducedStoreResidentWaitBlocked`, `reducedStoreResidentWaitStore*`, `reducedStoreResidentLoadCrossesLine` | mixed | diagnostic | R265-R267 resident-STQ forwarding diagnostics after the committed-store overlay. Ready hits forward bytes; wait hits hold execute through `executeLoadWaitHold` and expose the selected not-ready store's index, BID, LSID, and PC for later replay wakeup wiring. R473's sideband stats v2 samples these existing ports to classify whether live probes have load/STQ overlap before a replay-LIQ counter is expected to fire. |
 | output | `reducedStoreResidentReplayWake*` | mixed | diagnostic | R268-R269 typed store-unit replay wakeup request diagnostics derived from a registered resident wait-store identity and live STQ row readiness. |
 | output | `reducedLoadWaitReplay*` | mixed | diagnostic | R269/R271/R274/R275/R307/R311 registered reduced wait-store slot diagnostics. The slot remembers the held load and wait-store key, feeds that key back to `ResidentStoreReplayWakeup`, clears through `LoadReplayWakeup`, and publishes a one-cycle relaunch candidate carrying PC, address, size, replay-return signedness, destination, BID/GID/RID, reduced LSID, and forwarding snapshot `(youngestStoreId, youngestStoreLsId)` for future LIQ wiring; it does not drive a launch port. |
 | output | `reducedLoadReplayQueue*` | mixed | diagnostic | R272-R283/R307/R311 finite relaunch-candidate queue diagnostics. The queue consumes the one-cycle wait-slot candidate, records pending/outgoing full load identity plus destination, replay-return signedness, and forwarding snapshot, and reports accepted/drop/full state. Default mode drains only exact held-load completion matches; opt-in replay-LIQ mode consumes only when `ReducedLoadReplayLiqAllocPath` accepts allocation. |
