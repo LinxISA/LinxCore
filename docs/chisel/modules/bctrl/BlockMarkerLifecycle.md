@@ -248,3 +248,14 @@ divergence. The manifest records clean LinxCore
 `793722e85c62eade9ab4e8481c9577dc5b9c98f7`, clean QEMU
 `63bb880da43bec3cb980b91c29397c1d2f12cf3f`, and clean superproject
 `4013f546b03db6ce5225cd1a5f8a5e10c806cc64`.
+R519 observes the same admitted-marker CoreMark proof beyond R518 with
+`generated/r519-row-order-557056-marker-qemu-elf-xcheck`: 557056 raw QEMU rows,
+556922 expected rows, 40089 admitted and filtered marker commits, 516833
+normalized rows per side, 516832 compared rows, zero mismatches, and no CBSTOP
+divergence. The manifest records clean LinxCore
+`5360d36af2ae6092fdbb4fcc06aee388702c4e40`, clean LinxCoreModel
+`793722e85c62eade9ab4e8481c9577dc5b9c98f7`, dirty QEMU
+`63bb880da43bec3cb980b91c29397c1d2f12cf3f`, and dirty superproject
+`3b542ea2484c02fffbc2ed852793dc5d9ddf31d0`. Treat R519 as dirty-provenance
+observation evidence until the same window is rerun on clean QEMU and
+superproject state.
