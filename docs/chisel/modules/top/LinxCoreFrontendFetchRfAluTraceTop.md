@@ -784,9 +784,9 @@ report can now distinguish "planner idle" from future lookup/target/bridge
 activity. This is observability evidence only; live top MDB lookup ownership,
 SCB/STQ source-return ownership, and replay-LIQ mutation remain deferred.
 
-R470 moves the sideband stats schema validation out of the wrapper's inline
-Python into `tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py` and
-adds an opt-in wrapper gate,
+R470 locks the standalone sideband stats validator
+`tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py` and its opt-in
+wrapper gate,
 `FETCH_REPLAY_LIQ_REQUIRE_NONZERO=<counter>[,<counter>...]`, for future
 stimulus packets that claim replay-LIQ/MDB activity. The generated-RTL gate
 `generated/r470-sideband-validator-xcheck` runs the reduced-store replay-LIQ
