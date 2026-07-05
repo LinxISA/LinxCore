@@ -26,16 +26,18 @@ again. The same MDB lookup result also fans out to the store unit, where the
 store-side scan can resolve a native STQ row when a resident store with the
 predicted `(store BID, store PC)` is present and ready.
 
-The current Chisel replay wakeup path needs native wait-store identity
-(`storeIndex`, `storeLsId`, `storeId`, `pc`) before it can safely arm a future
-`LoadStoreForwardWait`. The MDB LU result by itself carries store BID and PC,
-but not the native STQ index or store LSID. This module therefore separates two
-events:
+The current Chisel replay wakeup path can record the model-equivalent MDB wait
+as soon as the LU result names the predicted store BID/PC. Native store-row
+identity (`storeIndex` and `storeLsId`) improves later diagnostics and exact
+same-BID matching when available, but the LinxCoreModel `LDQInfo::updateMDBInfo`
+path does not require it before marking the load as waiting on the predicted
+store. This module therefore separates two events:
 
 1. `waitIntentValid`: a scalar MDB LU hit found exactly one resident repick LIQ
    row that matches the MDB load identity.
-2. `requestValid`: the same wait intent also has a resolved native store index
-   and store LSID supplied by a future SU/store-row matching owner.
+2. `requestValid`: the same wait intent is ready to publish as a row mutation.
+   Missing native store index/LSID are retained as diagnostics and represented
+   conservatively in `nextWaitStoreInfo`.
 
 The R463/R464 generated-RTL fixture wires this request shape into
 `ReducedLoadReplayLiqAllocPath` row mutation for proof. R463 proves bridge and
@@ -52,15 +54,15 @@ misses before `waitIntentValid` or `requestValid` can assert.
 | `enable` / `flush` | Gate the planner. |
 | `luOutValid` / `luOut` | MDB LU output from `MDBQueueFanout`; must be valid, hit, scalar, and carry valid load/store sidecars. |
 | `rows` | Current LIQ row image used for exact resident-row matching. |
-| `storeIndexValid` / `storeIndex` | Native STQ row index from a future store-side match. Required for `requestValid`. |
-| `storeLsIdValid` / `storeLsId` | Native store LSID from a future store-side match. Required for `requestValid`. |
+| `storeIndexValid` / `storeIndex` | Native STQ row index from a store-side match when available. Missing index no longer blocks MDB wait publication. |
+| `storeLsIdValid` / `storeLsId` | Native store LSID from a store-side match when available. Missing LSID no longer blocks MDB wait publication. |
 | `candidateMask` / `candidateCount` | Repick scalar LIQ rows matching MDB load `(BID, LSID)`. |
 | `targetValid` / `targetIndex` | Exactly one candidate row was found. |
 | `waitIntentValid` | MDB LU hit can name the waiting load row, independent of native store identity readiness. |
 | `requestValid` / `requestTarget*` | Native LIQ row-mutation request shape is safe to consume. |
 | `setWaitStatus` / `clearReturnState` / `lineWrite` / `waitStoreWrite` | Future row write intent for returning the target repick row to wait-store state. |
-| `nextWaitStoreInfo` | Native wait-store identity. Valid only when `requestValid` is high. |
-| `blockedBy*` | Diagnostic blockers for disabled/flush, miss, missing sidecars, tile suppression, no target, multi-target, and missing native store identity. |
+| `nextWaitStoreInfo` | Wait-store identity. Valid when `requestValid` is high; store BID/PC come from MDB LU output, store index defaults to zero if unresolved, and store LSID is disabled if unresolved. |
+| `blockedBy*` | Diagnostic blockers for disabled/flush, miss, missing sidecars, tile suppression, no target, multi-target, and missing native store identity. Missing native store identity can assert with `requestValid`. |
 
 ## Logic Design
 
@@ -83,22 +85,23 @@ candidate[i] =
   row[i].loadLsId == luOut.ldInfo.lsId
 
 waitIntentValid = PopCount(candidate) == 1
-requestValid = waitIntentValid && storeIndexValid && storeLsIdValid && storeLsId.valid
+requestValid = waitIntentValid
 ```
 
 When `requestValid` is true, the output row-mutation shape clears accumulated
-return state and line-valid state, writes `waitStore=true`, and records the
-native store identity:
+return state and line-valid state, writes `waitStore=true`, and records the MDB
+wait identity:
 
-- `storeIndex` from the external resolved store-row match,
+- `storeIndex` from the external resolved store-row match when available,
 - `storeId` from `luOut.stInfo.bid`,
-- `storeLsId` from the external resolved store-row match,
+- `storeLsId` from the external resolved store-row match when available, or a
+  disabled ROBID wildcard when unresolved,
 - `pc` from `luOut.stInfo.pc`.
 
-The explicit `waitIntentValid`/`requestValid` split prevents the LU result from
-inventing a store index or store LSID. A later owner can either provide those
-fields from `MDBQueueFanout` SU matching or from a resident STQ row scan before
-wiring this plan into `LoadInflightQueue` mutation.
+The explicit `waitIntentValid`/`requestValid` split keeps the lookup/target
+classification visible even when downstream row mutation is disabled. Missing
+store-index and store-LSID outputs remain useful diagnostics, but they no longer
+hide a model-valid wait-store publication.
 
 ## Deferred Owners
 
@@ -115,9 +118,9 @@ Focused gate:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayMdbLookupWaitPlan
 ```
 
-Reference tests cover exact one-row planning, missing native store index/LSID
-blocking, multi-target suppression, tile suppression, disabled/flush/miss and
-metadata blockers, and Chisel elaboration.
+Reference tests cover exact one-row planning, request publication with missing
+native store index/LSID diagnostics, multi-target suppression, tile suppression,
+disabled/flush/miss and metadata blockers, and Chisel elaboration.
 
 Generated-RTL fixture gate:
 
@@ -202,3 +205,18 @@ than `suWakeup`. This preserves the model distinction between a pending matched
 store and a ready wakeup: the planner needs the matched store index/LSID to set
 wait-store state, while `suWakeup` remains reserved for a store that already has
 address and data ready.
+
+R506 corrects that remaining predicate to match `LDQInfo::updateMDBInfo`: the
+model stores `waitBid`/`waitStoreTpc` from the LU lookup result and does not
+require a native STQ index or store LSID before publishing wait state. The live
+gate at `generated/r506-replay-loop-mdb-wait-plan-request-gate` compares 9
+normalized QEMU/DUT rows with zero mismatches and records
+`mdb_lookup_wait_plan_lookup_hit=1`,
+`mdb_lookup_wait_plan_wait_intent_valid=1`,
+`mdb_lookup_wait_plan_request_valid=1`, and
+`mdb_lookup_wait_plan_bridge_valid=1`, while the diagnostic counters
+`mdb_lookup_wait_plan_blocked_by_missing_store_index=1` and
+`mdb_lookup_wait_plan_blocked_by_missing_store_lsid=1` still pulse. This is the
+intended MDB-origin wait shape: publish the wait using store BID/PC, carry a
+disabled LSID wildcard when unresolved, and let later store-unit wakeup clear by
+BID/PC plus wildcard LSID.

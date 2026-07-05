@@ -3800,11 +3800,23 @@ rows with zero mismatches and records `mdb_fanout_lookup_valid=3`,
 `mdb_fanout_lu_out_hit=1`, `mdb_fanout_su_out_hit=1`,
 `mdb_lookup_wait_plan_lookup_hit=1`, and
 `mdb_lookup_wait_plan_wait_intent_valid=1`. Planner `request_valid` and bridge
-valid remain zero, narrowing the next live-top work to resolved store identity
+valid remain zero, first narrowing the live-top work to resolved store identity
 publication for `LoadReplayMdbLookupWaitPlan`.
 R505 feeds that planner from `MDBQueueFanout.suMatchedStore*` instead of
 `suWakeup`. The top therefore gives the planner a pending matched store's
 index/LSID while keeping store wakeup publication gated by address/data ready.
+That proved useful for diagnostics but was insufficient in the live loop because
+the model LU wait path does not require a resident native store row.
+R506 relaxes `LoadReplayMdbLookupWaitPlan.requestValid` to follow the LU hit and
+target match alone, with missing store index/LSID retained as diagnostics. The
+gate at `generated/r506-replay-loop-mdb-wait-plan-request-gate` compares nine
+normalized rows with zero mismatches and records
+`mdb_lookup_wait_plan_request_valid=1` and
+`mdb_lookup_wait_plan_bridge_valid=1` even while
+`blocked_by_missing_store_index=1` and `blocked_by_missing_store_lsid=1`.
+`LoadReplayWakeup` treats an invalid stored wait LSID as a wildcard, matching
+the model `LDQInfo::updateMDBInfo`/store-wakeup split where MDB records store
+BID/PC first and precise native LSID may be absent.
 
 ## Verification
 

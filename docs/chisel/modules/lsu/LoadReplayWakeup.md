@@ -86,8 +86,10 @@ The Chisel mapping is:
    `LoadInflightQueue` clears transient `loadByteMask` on incomplete-data
    replay.
 2. A `StoreUnit` wakeup clears wait-store diagnostics when row
-   `waitStoreInfo.storeId`, `waitStoreInfo.storeLsId`, and `waitStoreInfo.pc`
-   match the wakeup.
+   `waitStoreInfo.storeId` and `waitStoreInfo.pc` match the wakeup and the row's
+   stored LSID is either invalid or equal to the wakeup LSID. The invalid-LSID
+   wildcard is required for MDB-origin waits published before native store LSID
+   resolution.
 3. A `StoreUnit` wakeup may merge data only into `L1DcMiss` or `L2Wait` rows
    on the same line, and only when `(wake.storeId, wake.storeLsId)` is older
    than or equal to the row's `(youngestStoreId, youngestStoreLsId)` snapshot
@@ -128,6 +130,7 @@ yet compared against QEMU or LinxCoreModel execution traces.
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`
 
-Focused tests cover wait-store clear, store-unit miss-byte merge, younger-store
-suppression, SCB partial and complete merges, SCB suppression for `Repick` and
-`Resolved` rows, and Chisel elaboration.
+Focused tests cover exact wait-store clear, MDB wildcard-LSID wait-store clear,
+store-unit miss-byte merge, younger-store suppression, SCB partial and complete
+merges, SCB suppression for `Repick` and `Resolved` rows, and Chisel
+elaboration.
