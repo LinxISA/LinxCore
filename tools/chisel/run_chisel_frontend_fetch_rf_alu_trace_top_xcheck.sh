@@ -58,6 +58,7 @@ FETCH_QEMU_MAX_ROWS="${FETCH_QEMU_MAX_ROWS:-0}"
 FETCH_QEMU_ALLOW_BLOCK_MARKERS="${FETCH_QEMU_ALLOW_BLOCK_MARKERS:-0}"
 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY="${FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY:-0}"
 FETCH_DISABLE_STORE_MEMORY_MUTATION="${FETCH_DISABLE_STORE_MEMORY_MUTATION:-0}"
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO="${FETCH_REPLAY_LIQ_REQUIRE_NONZERO:-}"
 
 if ! command -v verilator >/dev/null 2>&1; then
   echo "error: Verilator is required for Chisel frontend fetch RF ALU trace top xcheck" >&2
@@ -227,104 +228,24 @@ verilator \
 
 "${OBJ_DIR}/linxcore_frontend_fetch_rf_alu_trace_top_tb" "${TB_ARGS[@]}"
 
-python3 - "${SIDEBAND_STATS}" "${FETCH_REDUCED_STORE_REPLAY_LIQ}" <<'PY'
-import json
-import sys
-
-path = sys.argv[1]
-expect_replay_liq = sys.argv[2] == "1"
-required_replay_liq_keys = [
-    "cycles_sampled",
-    "resident_store_wake_valid",
-    "resident_store_wake_ready",
-    "wait_replay_capture_accepted",
-    "wait_replay_clear_valid",
-    "wait_replay_relaunch_valid",
-    "replay_queue_enqueue_accepted",
-    "replay_queue_out_valid",
-    "replay_queue_out_fire",
-    "liq_alloc_valid",
-    "liq_alloc_accepted",
-    "liq_launch_valid",
-    "liq_launch_accepted",
-    "liq_base_lookup_valid",
-    "liq_base_lookup_granted",
-    "liq_base_data_returned",
-    "source_return_candidate_valid",
-    "source_return_store_snapshot_ready",
-    "source_return_store_snapshot_live_request_active",
-    "source_return_store_snapshot_live_evidence_valid",
-    "source_return_query_issued",
-    "source_return_response_apply_valid",
-    "source_return_row_state_plan_valid",
-    "source_row_mutation_candidate_valid",
-    "source_row_mutation_live_permit",
-    "source_row_mutation_request_valid",
-    "source_row_mutation_blocked_by_head_proof",
-    "source_row_mutation_blocked_by_live_disabled",
-    "mdb_lookup_wait_plan_lookup_hit",
-    "mdb_lookup_wait_plan_wait_intent_valid",
-    "mdb_lookup_wait_plan_request_valid",
-    "mdb_lookup_wait_plan_blocked_by_no_target",
-    "mdb_lookup_wait_plan_blocked_by_missing_store_index",
-    "mdb_lookup_wait_plan_blocked_by_missing_store_lsid",
-    "mdb_lookup_wait_plan_bridge_active",
-    "mdb_lookup_wait_plan_bridge_valid",
-    "mdb_lookup_wait_plan_bridge_source_store_index_fits",
-    "mdb_lookup_wait_plan_bridge_blocked_by_disabled",
-    "mdb_lookup_wait_plan_bridge_blocked_by_flush",
-    "mdb_lookup_wait_plan_bridge_blocked_by_no_request",
-    "mdb_lookup_wait_plan_bridge_invalid_store_index_out_of_range",
-    "mdb_lookup_wait_plan_bridge_invalid_conflicting_status_write",
-    "mdb_lookup_wait_plan_bridge_invalid_wait_store_without_wait_status",
-    "mdb_lookup_wait_plan_bridge_invalid_return_without_split_sources",
-    "liq_row_mutation_bridge_valid",
-    "liq_row_mutation_write_enable",
-    "liq_row_mutation_apply_valid",
-    "liq_row_mutation_blocked_by_bridge",
-    "liq_row_mutation_blocked_by_control",
-]
-
-try:
-    with open(path, "r", encoding="utf-8") as f:
-        stats = json.load(f)
-except OSError as exc:
-    print(f"error: failed to read sideband stats {path}: {exc}", file=sys.stderr)
-    sys.exit(2)
-except json.JSONDecodeError as exc:
-    print(f"error: malformed sideband stats {path}: {exc}", file=sys.stderr)
-    sys.exit(2)
-
-schema = stats.get("schema")
-if schema != "linxcore.frontend_fetch_rf_alu.sideband_stats.v1":
-    print(f"error: unexpected sideband stats schema {schema!r}", file=sys.stderr)
-    sys.exit(2)
-
-if stats.get("reduced_store_replay_liq_top") is not expect_replay_liq:
-    print(
-        "error: sideband stats reduced_store_replay_liq_top does not match "
-        f"FETCH_REDUCED_STORE_REPLAY_LIQ={int(expect_replay_liq)}",
-        file=sys.stderr,
-    )
-    sys.exit(2)
-
-replay_liq = stats.get("replay_liq")
-if not isinstance(replay_liq, dict):
-    print("error: sideband stats missing replay_liq object", file=sys.stderr)
-    sys.exit(2)
-
-for key in required_replay_liq_keys:
-    value = replay_liq.get(key)
-    if not isinstance(value, int) or value < 0:
-        print(f"error: replay_liq.{key} must be a nonnegative integer", file=sys.stderr)
-        sys.exit(2)
-
-if replay_liq["cycles_sampled"] <= 0:
-    print("error: replay_liq.cycles_sampled must be positive", file=sys.stderr)
-    sys.exit(2)
-
-print(f"sideband_stats_json={path}")
-PY
+SIDEBAND_VALIDATOR_ARGS=("${SIDEBAND_STATS}")
+if [[ "${FETCH_REDUCED_STORE_REPLAY_LIQ}" == "1" ]]; then
+  SIDEBAND_VALIDATOR_ARGS+=(--expect-reduced-store-replay-liq)
+fi
+if [[ -n "${FETCH_REPLAY_LIQ_REQUIRE_NONZERO}" ]]; then
+  IFS=',' read -r -a replay_liq_required_nonzero <<< "${FETCH_REPLAY_LIQ_REQUIRE_NONZERO}"
+  for replay_liq_required_counter in "${replay_liq_required_nonzero[@]}"; do
+    if [[ -n "${replay_liq_required_counter}" ]]; then
+      if [[ "${replay_liq_required_counter}" == replay_liq.* ]]; then
+        SIDEBAND_VALIDATOR_ARGS+=(--require-nonzero "${replay_liq_required_counter}")
+      else
+        SIDEBAND_VALIDATOR_ARGS+=(--require-nonzero "replay_liq.${replay_liq_required_counter}")
+      fi
+    fi
+  done
+fi
+python3 "${ROOT_DIR}/tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py" \
+  "${SIDEBAND_VALIDATOR_ARGS[@]}"
 
 bash "${ROOT_DIR}/tools/chisel/run_chisel_qemu_crosscheck.sh" \
   --qemu-trace "${QEMU_TRACE}" \
