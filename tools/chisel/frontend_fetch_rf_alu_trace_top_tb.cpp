@@ -251,6 +251,14 @@ struct ReplayLiqSidebandStats {
   std::uint64_t liq_base_lookup_granted = 0;
   std::uint64_t liq_base_data_returned = 0;
   std::uint64_t liq_wait_store_mask_nonzero = 0;
+  std::uint64_t liq_replay_wake_valid = 0;
+  std::uint64_t liq_replay_wake_wait_store_candidate = 0;
+  std::uint64_t liq_replay_wake_bid_match = 0;
+  std::uint64_t liq_replay_wake_lsid_match = 0;
+  std::uint64_t liq_replay_wake_pc_match = 0;
+  std::uint64_t liq_replay_wake_full_match = 0;
+  std::uint64_t liq_replay_wake_store_unit = 0;
+  std::uint64_t liq_replay_wake_store_unit_full_match = 0;
   std::uint64_t liq_replay_wake_wait_store_clear = 0;
   std::uint64_t source_return_candidate_valid = 0;
   std::uint64_t source_return_store_snapshot_ready = 0;
@@ -550,6 +558,30 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqWaitStoreMask != 0) {
     ++g_replay_liq_sideband_stats.liq_wait_store_mask_nonzero;
   }
+  if (dut.io_reducedLoadReplayLiqReplayWakeValid) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqReplayWakeWaitStoreCandidateMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_wait_store_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqReplayWakeBidMatchMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_bid_match;
+  }
+  if (dut.io_reducedLoadReplayLiqReplayWakeLsIdMatchMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_lsid_match;
+  }
+  if (dut.io_reducedLoadReplayLiqReplayWakePcMatchMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_pc_match;
+  }
+  if (dut.io_reducedLoadReplayLiqReplayWakeFullMatchMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_full_match;
+  }
+  if (dut.io_reducedLoadReplayLiqReplayWakeStoreUnit) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_store_unit;
+  }
+  if (dut.io_reducedLoadReplayLiqReplayWakeStoreUnitFullMatchMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_store_unit_full_match;
+  }
   if (dut.io_reducedLoadReplayLiqReplayWakeWaitStoreClearMask != 0) {
     ++g_replay_liq_sideband_stats.liq_replay_wake_wait_store_clear;
   }
@@ -755,7 +787,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v7\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v9\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -873,6 +905,22 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.liq_base_data_returned << ",\n"
       << "    \"liq_wait_store_mask_nonzero\": "
       << g_replay_liq_sideband_stats.liq_wait_store_mask_nonzero << ",\n"
+      << "    \"liq_replay_wake_valid\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_valid << ",\n"
+      << "    \"liq_replay_wake_wait_store_candidate\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_wait_store_candidate << ",\n"
+      << "    \"liq_replay_wake_bid_match\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_bid_match << ",\n"
+      << "    \"liq_replay_wake_lsid_match\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_lsid_match << ",\n"
+      << "    \"liq_replay_wake_pc_match\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_pc_match << ",\n"
+      << "    \"liq_replay_wake_full_match\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_full_match << ",\n"
+      << "    \"liq_replay_wake_store_unit\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_store_unit << ",\n"
+      << "    \"liq_replay_wake_store_unit_full_match\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_store_unit_full_match << ",\n"
       << "    \"liq_replay_wake_wait_store_clear\": "
       << g_replay_liq_sideband_stats.liq_replay_wake_wait_store_clear << ",\n"
       << "    \"source_return_candidate_valid\": "

@@ -9,7 +9,7 @@ import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandCla
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicLiveRequestControl, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
-import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan, LoadReplayResolvedRowHitRecord, LoadReplayRowMutationSourceMux}
+import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan, LoadReplayResolvedRowHitRecord, LoadReplayRowMutationSourceMux, LoadReplayWakeMatchDiagnostics}
 import linxcore.lsu.MDBStoreProbeReplay
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID, ROBRowCommitTraceLookupResult}
@@ -402,6 +402,14 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqOccupiedMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqWaitMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqWaitStoreMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqReplayWakeValid = Output(Bool())
+  val reducedLoadReplayLiqReplayWakeWaitStoreCandidateMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqReplayWakeBidMatchMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqReplayWakeLsIdMatchMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqReplayWakePcMatchMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqReplayWakeFullMatchMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqReplayWakeStoreUnit = Output(Bool())
+  val reducedLoadReplayLiqReplayWakeStoreUnitFullMatchMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqReplayWakeWaitStoreClearMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqLaunchWaitMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqLaunchWaitStoreBlockedMask = Output(UInt(p.robEntries.W))
@@ -2745,6 +2753,23 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.replayWakeValid :=
     reducedLoadReplayLiqAllocEnabled && reducedStoreResidentReplayWakeForLiqValid
   reducedLoadReplayLiqAllocPath.io.replayWake := reducedStoreResidentReplayWakeForLiq
+  val reducedLoadReplayLiqReplayWakeValid =
+    reducedLoadReplayLiqAllocEnabled && reducedStoreResidentReplayWakeForLiqValid
+  val reducedLoadReplayLiqWakeMatchDiagnostics =
+    Module(new LoadReplayWakeMatchDiagnostics(
+      p.robEntries,
+      p.robEntries,
+      p.robEntries,
+      p.immWidth,
+      p.pcWidth,
+      64,
+      7,
+      p.archRegWidth,
+      p.physRegWidth
+    ))
+  reducedLoadReplayLiqWakeMatchDiagnostics.io.wakeValid := reducedLoadReplayLiqReplayWakeValid
+  reducedLoadReplayLiqWakeMatchDiagnostics.io.wake := reducedStoreResidentReplayWakeForLiq
+  reducedLoadReplayLiqWakeMatchDiagnostics.io.rows := reducedLoadReplayLiqAllocPath.io.rows
   val reducedStoreResidentReplayWakeLiqConsumed =
     reducedLoadReplayLiqAllocPath.io.replayWakeWaitStoreClearMask.orR ||
       reducedLoadReplayLiqAllocPath.io.replayWakeMergeMask.orR
@@ -4389,6 +4414,21 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqOccupiedMask := reducedLoadReplayLiqAllocPath.io.occupiedMask
   io.reducedLoadReplayLiqWaitMask := reducedLoadReplayLiqAllocPath.io.waitMask
   io.reducedLoadReplayLiqWaitStoreMask := reducedLoadReplayLiqAllocPath.io.waitStoreMask
+  io.reducedLoadReplayLiqReplayWakeValid := reducedLoadReplayLiqReplayWakeValid
+  io.reducedLoadReplayLiqReplayWakeWaitStoreCandidateMask :=
+    reducedLoadReplayLiqWakeMatchDiagnostics.io.waitStoreCandidateMask
+  io.reducedLoadReplayLiqReplayWakeBidMatchMask :=
+    reducedLoadReplayLiqWakeMatchDiagnostics.io.bidMatchMask
+  io.reducedLoadReplayLiqReplayWakeLsIdMatchMask :=
+    reducedLoadReplayLiqWakeMatchDiagnostics.io.lsIdMatchMask
+  io.reducedLoadReplayLiqReplayWakePcMatchMask :=
+    reducedLoadReplayLiqWakeMatchDiagnostics.io.pcMatchMask
+  io.reducedLoadReplayLiqReplayWakeFullMatchMask :=
+    reducedLoadReplayLiqWakeMatchDiagnostics.io.fullMatchMask
+  io.reducedLoadReplayLiqReplayWakeStoreUnit :=
+    reducedLoadReplayLiqWakeMatchDiagnostics.io.storeUnit
+  io.reducedLoadReplayLiqReplayWakeStoreUnitFullMatchMask :=
+    reducedLoadReplayLiqWakeMatchDiagnostics.io.storeUnitFullMatchMask
   io.reducedLoadReplayLiqReplayWakeWaitStoreClearMask :=
     reducedLoadReplayLiqAllocPath.io.replayWakeWaitStoreClearMask
   io.reducedLoadReplayLiqLaunchWaitMask := reducedLoadReplayLiqAllocPath.io.launchWaitMask
