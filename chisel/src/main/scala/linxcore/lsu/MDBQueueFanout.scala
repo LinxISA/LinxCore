@@ -123,6 +123,10 @@ class MDBQueueFanoutIO(
   val suWakeup = Output(new MDBStoreWakeup(entries, storeEntries, addrWidth, pcWidth, stidWidth, sizeWidth))
 
   val lookupProcessed = Output(Bool())
+  val lookupTableHit = Output(Bool())
+  val lookupFirstAfterNuke = Output(Bool())
+  val lookupConfBlocked = Output(Bool())
+  val lookupWeightBlocked = Output(Bool())
   val deleteProcessed = Output(Bool())
   val recordProcessed = Output(Bool())
   val phaseStalledByFanout = Output(Bool())
@@ -318,6 +322,10 @@ class MDBQueueFanout(
   io.suWakeup.size := wakeupRow.size
 
   io.lookupProcessed := lookupCanFanout
+  io.lookupTableHit := ssit.io.lookupTableHit
+  io.lookupFirstAfterNuke := ssit.io.lookupFirstAfterNuke
+  io.lookupConfBlocked := ssit.io.lookupConfBlocked
+  io.lookupWeightBlocked := ssit.io.lookupWeightBlocked
   io.deleteProcessed := deleteCanFire
   io.recordProcessed := recordCanFire
   io.phaseStalledByFanout := phaseStalled

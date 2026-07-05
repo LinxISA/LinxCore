@@ -287,6 +287,10 @@ struct ReplayLiqSidebandStats {
   std::uint64_t mdb_fanout_lookup_valid = 0;
   std::uint64_t mdb_fanout_lookup_accepted = 0;
   std::uint64_t mdb_fanout_lookup_processed = 0;
+  std::uint64_t mdb_fanout_lookup_table_hit = 0;
+  std::uint64_t mdb_fanout_lookup_first_after_nuke = 0;
+  std::uint64_t mdb_fanout_lookup_conf_blocked = 0;
+  std::uint64_t mdb_fanout_lookup_weight_blocked = 0;
   std::uint64_t mdb_fanout_lu_out_valid = 0;
   std::uint64_t mdb_fanout_lu_out_hit = 0;
   std::uint64_t mdb_fanout_su_out_valid = 0;
@@ -619,6 +623,18 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedMdbFanoutLookupProcessed) {
     ++g_replay_liq_sideband_stats.mdb_fanout_lookup_processed;
   }
+  if (dut.io_reducedMdbFanoutLookupTableHit) {
+    ++g_replay_liq_sideband_stats.mdb_fanout_lookup_table_hit;
+  }
+  if (dut.io_reducedMdbFanoutLookupFirstAfterNuke) {
+    ++g_replay_liq_sideband_stats.mdb_fanout_lookup_first_after_nuke;
+  }
+  if (dut.io_reducedMdbFanoutLookupConfBlocked) {
+    ++g_replay_liq_sideband_stats.mdb_fanout_lookup_conf_blocked;
+  }
+  if (dut.io_reducedMdbFanoutLookupWeightBlocked) {
+    ++g_replay_liq_sideband_stats.mdb_fanout_lookup_weight_blocked;
+  }
   if (dut.io_reducedMdbFanoutLuOutValid) {
     ++g_replay_liq_sideband_stats.mdb_fanout_lu_out_valid;
   }
@@ -904,6 +920,14 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.mdb_fanout_lookup_accepted << ",\n"
       << "    \"mdb_fanout_lookup_processed\": "
       << g_replay_liq_sideband_stats.mdb_fanout_lookup_processed << ",\n"
+      << "    \"mdb_fanout_lookup_table_hit\": "
+      << g_replay_liq_sideband_stats.mdb_fanout_lookup_table_hit << ",\n"
+      << "    \"mdb_fanout_lookup_first_after_nuke\": "
+      << g_replay_liq_sideband_stats.mdb_fanout_lookup_first_after_nuke << ",\n"
+      << "    \"mdb_fanout_lookup_conf_blocked\": "
+      << g_replay_liq_sideband_stats.mdb_fanout_lookup_conf_blocked << ",\n"
+      << "    \"mdb_fanout_lookup_weight_blocked\": "
+      << g_replay_liq_sideband_stats.mdb_fanout_lookup_weight_blocked << ",\n"
       << "    \"mdb_fanout_lu_out_valid\": "
       << g_replay_liq_sideband_stats.mdb_fanout_lu_out_valid << ",\n"
       << "    \"mdb_fanout_lu_out_hit\": "

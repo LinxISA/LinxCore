@@ -90,6 +90,10 @@ model `MemReqBus::tpc`.
 | `luOutValid/luOut/luDequeueReady` | Lookup result queue for the future LDQ update owner. |
 | `suOutValid/suOut/suCheckReady` | Lookup result queue consumed by this module's SU wakeup check. |
 | `lookupProcessed` | A lookup command left the input queue and was pushed to both output queues. |
+| `lookupTableHit` | Raw SSIT load-PC table match for the processed lookup, before first-after-nuke/confidence/weight suppression. |
+| `lookupFirstAfterNuke` | SSIT hit was suppressed by the model first-after-nuke rule for the same load BID that created the record. |
+| `lookupConfBlocked` | SSIT hit was suppressed because the learned confidence reached zero. |
+| `lookupWeightBlocked` | SSIT hit was suppressed because the learned weight is still below the wait threshold. |
 | `phaseStalledByFanout` | A pending lookup could not be atomically enqueued to both output queues; delete and record phases are frozen. |
 
 ### Store-Side Wakeup
@@ -189,6 +193,12 @@ R498 adds live generated-RTL/QEMU evidence for the lookup queue itself:
 `generated/r498-replay-liq-mdb-lookup-query-gate`. The same report records
 `mdb_fanout_lu_out_hit=0` and `mdb_fanout_su_out_hit=0`, so it is a
 model-timed lookup publication proof, not a wait-plan hit proof.
+R503 surfaces the underlying SSIT lookup qualifiers
+(`mdb_fanout_lookup_table_hit`, `mdb_fanout_lookup_first_after_nuke`,
+`mdb_fanout_lookup_conf_blocked`, and
+`mdb_fanout_lookup_weight_blocked`) through the live top sideband report so
+agents can distinguish a true table miss from a model-qualified suppression
+before editing lookup timing or wait-plan logic.
 
 ## Verification
 

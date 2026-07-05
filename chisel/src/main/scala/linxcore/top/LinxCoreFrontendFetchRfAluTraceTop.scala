@@ -1547,6 +1547,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedMdbFanoutLookupReady = Output(Bool())
   val reducedMdbFanoutLookupAccepted = Output(Bool())
   val reducedMdbFanoutLookupProcessed = Output(Bool())
+  val reducedMdbFanoutLookupTableHit = Output(Bool())
+  val reducedMdbFanoutLookupFirstAfterNuke = Output(Bool())
+  val reducedMdbFanoutLookupConfBlocked = Output(Bool())
+  val reducedMdbFanoutLookupWeightBlocked = Output(Bool())
   val reducedMdbFanoutDeleteValid = Output(Bool())
   val reducedMdbFanoutDeleteReady = Output(Bool())
   val reducedMdbFanoutDeleteAccepted = Output(Bool())
@@ -6405,6 +6409,10 @@ private object LinxCoreFrontendFetchRfAluTraceTopR466MdbFanoutVisibilityWiring {
     io.reducedMdbFanoutLookupReady := fanout.io.lookupInReady
     io.reducedMdbFanoutLookupAccepted := fanout.io.lookupInAccepted
     io.reducedMdbFanoutLookupProcessed := fanout.io.lookupProcessed
+    io.reducedMdbFanoutLookupTableHit := fanout.io.lookupTableHit
+    io.reducedMdbFanoutLookupFirstAfterNuke := fanout.io.lookupFirstAfterNuke
+    io.reducedMdbFanoutLookupConfBlocked := fanout.io.lookupConfBlocked
+    io.reducedMdbFanoutLookupWeightBlocked := fanout.io.lookupWeightBlocked
     io.reducedMdbFanoutDeleteValid := false.B
     io.reducedMdbFanoutDeleteReady := fanout.io.deleteInReady
     io.reducedMdbFanoutDeleteAccepted := fanout.io.deleteInAccepted

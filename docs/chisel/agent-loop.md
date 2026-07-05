@@ -1218,9 +1218,14 @@ Closeout:
    `0x10002,0x1000a,0x10002,0x1000a` and store PCs
    `0x10006,0x10006`. R501 adds `--expect-load-pcs` and
    `--expect-store-pcs` so the same fixture-shape gate can assert those
-   sequences directly in the wrapper. Use that fixture before claiming
-   positive MDB wait-plan publication, but do not treat `--qemu-only` as DUT
-   equivalence evidence. Focused gates should include
+   sequences directly in the wrapper. R502 runs the live loop fixture with
+   strict replay/MDB prerequisite counters and reaches lookup fanout twice, but
+   stops at `mdb_fanout_lu_out_hit=0` before comparator manifest emission.
+   R503 therefore surfaces SSIT lookup qualifier counters so the next live
+   gate can distinguish raw table miss from first-after-nuke, confidence, or
+   weight suppression before changing wait-plan logic. Use that fixture before
+   claiming positive MDB wait-plan publication, but do not treat `--qemu-only`
+   as DUT equivalence evidence. Focused gates should include
    `ReducedStoreResidentForwardSpec`, `LoadForwardPipelineSpec`,
    `LoadInflightQueueSpec`, `LoadReplayWakeupSpec`,
    `MDBConflictDetectSpec`, and `LinxCoreFrontendFetchRfAluTraceTopSpec`
