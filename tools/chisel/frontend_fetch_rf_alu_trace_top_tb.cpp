@@ -2905,6 +2905,54 @@ void drain_empty(VLinxCoreFrontendFetchRfAluTraceTop &dut, const FetchMemoryImag
             << hex_port(dut.io_reducedLoadReplayLiqBaseLineValidMask)
             << " replayLiqBaseLookupBlockedByExecute=" << std::dec
             << static_cast<unsigned>(dut.io_reducedLoadReplayLiqBaseLookupBlockedByExecute)
+            << " replayLiqSourceReturnCandidateValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnCandidateValid)
+            << " replayLiqSourceReturnStoreSnapshotReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotReady)
+            << " replayLiqSourceReturnStoreSnapshotLegacyReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLegacyReady)
+            << " replayLiqSourceReturnStoreSnapshotLiveReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveReady)
+            << " replayLiqSourceReturnStoreSnapshotBlockedByLegacySnapshot="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedByLegacySnapshot)
+            << " replayLiqSourceReturnStoreSnapshotBlockedBySnapshot="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedBySnapshot)
+            << " replayLiqSourceReturnStoreSourceReturned="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSourceReturned)
+            << " replayLiqSourceReturnScbSourceReturned="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnScbSourceReturned)
+            << " replayLiqSourceReturnSourceReturned="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnSourceReturned)
+            << " replayLiqSourceReturnBlockedByBaseData="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnBlockedByBaseData)
+            << " replayLiqSourceReturnBlockedByStoreSnapshot="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnBlockedByStoreSnapshot)
+            << " replayLiqSourceReturnBlockedByScb="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnBlockedByScb)
+            << " replayLiqSourceReturnScbLivePending="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnScbLivePending)
+            << " replayLiqSourceReturnScbLiveReturned="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnScbLiveReturned)
+            << " replayLiqReturnConsumerReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnConsumerReady)
+            << " replayLiqReturnConsumerBlockedBySources="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnConsumerBlockedBySources)
+            << " replayLiqReturnConsumerBlockedByLretSink="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnConsumerBlockedByLretSink)
+            << " replayLiqReturnPipeBudgetAvailable="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnPipeBudgetAvailable)
+            << " replayLiqReturnPipeBudgetBlockedByConsumer="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnPipeBudgetBlockedByConsumer)
+            << " replayLiqReturnPipeAvailable="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnPipeAvailable)
+            << " replayLiqReturnPipeBlockedByNoPipe="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnPipeBlockedByNoPipe)
+            << " replayLiqReturnReadinessReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnReadinessReady)
+            << " replayLiqReturnReadinessBlockedBySources="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnReadinessBlockedBySources)
+            << " replayLiqReturnReadinessBlockedByReturnPipe="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnReadinessBlockedByReturnPipe)
             << std::dec
             << "\n";
   std::exit(1);

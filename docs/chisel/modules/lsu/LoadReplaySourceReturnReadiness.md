@@ -46,6 +46,14 @@ the local store snapshot is ready. The return pipe now has an explicit
 boundary's pipe availability input disabled, so this packet does not relaunch
 loads.
 
+R484 uses the enabled early-STA fixture to split R483's parent
+`LaunchReadinessBlockedByScb` report. The detailed source-return fields show
+`scbSourceReturned=1`, `externalScbPending=0`, and
+`blockedByScb=0`; the false combined `sourceReturned` bit comes from
+`storeSnapshotReady=0` with `blockedByStoreSnapshot=1`. In other words, the
+next live owner is local store-snapshot request/evidence readiness, not the
+external SCB live-control path.
+
 ## Interface
 
 ### Inputs
@@ -125,6 +133,9 @@ from already flush-pruned replay-LIQ state.
 
 - Live raw STQ response source and selected-row identity inputs for the R393
   response-match owner.
+- The R484 enabled early-STA blocker: local store-snapshot evidence for the
+  selected `Wait` row. Parent launch readiness reports this as source-return
+  false; this module's detailed blockers distinguish it from external SCB.
 - External SCB replay response producer and pending/returned qualification.
 - Return-pipe availability producer and arbitration behind
   `LoadReplayReturnReadiness`.

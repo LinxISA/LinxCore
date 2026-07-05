@@ -984,6 +984,29 @@ selection/base lookup to replay source-return and SCB readiness; the next
 packet should inspect `LoadReplaySourceReturnReadiness` and row-clear policy
 before changing the idle predicate or promoting early STA by default.
 
+R484 extends the final-drain line again with replay source-return,
+store-snapshot, SCB-live, return-consumer, return-pipe, and return-readiness
+blockers. The enabled early-STA fixture at
+`generated/r484-replay-liq-source-return-diagnostics-enabled-xcheck` still
+reaches the expected drain timeout after generated RTL builds cleanly. The new
+fields report `replayLiqSourceReturnCandidateValid=1`,
+`replayLiqSourceReturnStoreSnapshotReady=0`,
+`replayLiqSourceReturnStoreSnapshotLegacyReady=1`,
+`replayLiqSourceReturnStoreSnapshotLiveReady=0`,
+`replayLiqSourceReturnStoreSnapshotBlockedBySnapshot=1`,
+`replayLiqSourceReturnStoreSourceReturned=0`,
+`replayLiqSourceReturnScbSourceReturned=1`,
+`replayLiqSourceReturnSourceReturned=0`,
+`replayLiqSourceReturnBlockedByStoreSnapshot=1`,
+`replayLiqSourceReturnBlockedByScb=0`, and
+`replayLiqReturnReadinessBlockedBySources=1`. Therefore R483's
+`LaunchReadinessBlockedByScb` is the parent launch gate observing combined
+source-return as false; the detailed source-return owner shows external SCB is
+not pending, and the remaining live blocker is local store-snapshot evidence
+inside `LoadReplaySourceReturnStoreSnapshotReadyControl`. The next packet
+should inspect the selected live-arm request/evidence path for a `Wait` row
+before changing row state or launch readiness.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue

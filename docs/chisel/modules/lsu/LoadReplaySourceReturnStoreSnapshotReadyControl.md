@@ -41,6 +41,13 @@ instance for this local STQ snapshot path. Future live mode can enable this
 control only after selected-row STQ query issue, identity matching, and
 response matching are all stable.
 
+R484 proves the enabled early-STA path is now reaching this owner. At final
+drain timeout the top reports `legacyReady=1`, `liveReady=0`,
+`storeSnapshotReady=0`, and `blockedBySnapshot=1`. That means the composite is
+in live request mode, not legacy forwarding mode, and the selected row is
+waiting for live local STQ snapshot evidence. The external SCB path is not the
+blocker in that trial.
+
 ## Interface
 
 ### Inputs
@@ -119,6 +126,10 @@ behavior.
 
 - Live raw STQ response source and selected-row identity match inputs through
   the R395 path.
+- R484 live-mode evidence for the selected early-STA replay row: either the
+  local STQ snapshot request/response path must provide `snapshotValid`, or
+  the top must deliberately keep this control in legacy mode until that owner
+  is ready.
 - Stateful STQ/source return tracking across replay-row repick cycles.
 - Full LIQ/LDQ relaunch, LHQ publication, ready-table wakeup, and memory trace
   rows.
