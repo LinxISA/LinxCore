@@ -3793,6 +3793,15 @@ with zero mismatches and records `mdb_fanout_lookup_valid=1`,
 `replay-ldi-sdi-ldi` fixture has no later same-PC dynamic load after the SSIT
 record is learned, and the model also suppresses the first post-nuke lookup for
 the same BID.
+R504 extends that live stimulus to a third loop pass. The report at
+`generated/r504-replay-loop-third-pass-mdb-hit-probe` compares nine normalized
+rows with zero mismatches and records `mdb_fanout_lookup_valid=3`,
+`mdb_fanout_lookup_table_hit=2`, `mdb_fanout_lookup_weight_blocked=1`,
+`mdb_fanout_lu_out_hit=1`, `mdb_fanout_su_out_hit=1`,
+`mdb_lookup_wait_plan_lookup_hit=1`, and
+`mdb_lookup_wait_plan_wait_intent_valid=1`. Planner `request_valid` and bridge
+valid remain zero, narrowing the next live-top work to resolved store identity
+publication for `LoadReplayMdbLookupWaitPlan`.
 
 ## Verification
 

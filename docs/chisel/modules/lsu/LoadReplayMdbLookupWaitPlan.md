@@ -184,3 +184,15 @@ with `mdb_fanout_lookup_valid=1`, `mdb_fanout_lookup_accepted=1`,
 `mdb_lookup_wait_plan_request_valid=0` remain the expected live result for this
 fixture. A later packet needs a repeated same-PC post-record lookup or
 equivalent model stimulus before claiming live wait-plan mutation.
+
+R504 proves that stimulus must run deep enough to satisfy the model MDB SSIT
+weight threshold. The two-pass loop records a raw table hit but
+`lookupWeightBlocked=1`; the third-pass live gate at
+`generated/r504-replay-loop-third-pass-mdb-hit-probe` records
+`mdb_fanout_lu_out_hit=1`,
+`mdb_lookup_wait_plan_lookup_hit=1`, and
+`mdb_lookup_wait_plan_wait_intent_valid=1` with QEMU/DUT comparison passing for
+9 normalized rows. `requestValid` still stays low because the planner lacks
+resolved native store identity (`storeIndexValid`/`storeLsIdValid` side of the
+request predicate), so the next live packet should feed the resolved store
+identity into this planner rather than weakening MDB lookup qualification.
