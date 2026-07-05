@@ -106,6 +106,10 @@ second observation boundary.
 R513 proves the reduced top's live replay-wakeup input is no longer suppressed
 by the refill tie-off helper. The loop fixture now records nonzero path-local
 `StoreUnit`, full-match, and wait-store-clear counters and drains cleanly.
+R514 scales that same fixture from 18 to 36 captured QEMU rows without RTL
+changes. The longer gate records five replay-queue fires and three path-local
+wait-store clears while still draining cleanly, so the R513 fix is not only a
+single-pass coincidence.
 
 ## Interface
 
