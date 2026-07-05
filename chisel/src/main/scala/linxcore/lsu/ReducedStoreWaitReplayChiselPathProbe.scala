@@ -82,6 +82,8 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val resolveQueueFirstLoadLsId = Output(new ROBID(entries))
   val mdbStore = Input(new MDBConflictStoreProbe(entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth))
   val mdbLookupValid = Input(Bool())
+  val mdbDeleteValid = Input(Bool())
+  val mdbDeleteWaitStorePc = Input(UInt(pcWidth.W))
   val mdbResolveCandidateMask = Output(UInt(liqEntries.W))
   val mdbConflictValid = Output(Bool())
   val mdbConflictFromResolveQueue = Output(Bool())
@@ -101,6 +103,12 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val mdbFanoutLookupReady = Output(Bool())
   val mdbFanoutLookupAccepted = Output(Bool())
   val mdbFanoutLookupProcessed = Output(Bool())
+  val mdbFanoutDeleteReady = Output(Bool())
+  val mdbFanoutDeleteAccepted = Output(Bool())
+  val mdbFanoutDeleteProcessed = Output(Bool())
+  val mdbFanoutDeleteMatched = Output(Bool())
+  val mdbFanoutDeleteReleased = Output(Bool())
+  val mdbFanoutDeleteDroppedBelowStall = Output(Bool())
   val mdbFanoutLuOutDequeued = Output(Bool())
   val mdbFanoutLuOutHit = Output(Bool())
   val mdbFanoutSuOutDequeued = Output(Bool())
@@ -311,6 +319,17 @@ class ReducedStoreWaitReplayChiselPathProbe(
   mdbLookupBus.ldInfo.isTile := false.B
   mdbLookupBus.conf := 1.U
 
+  val mdbDeleteBus = Wire(chiselTypeOf(mdbZeroBus))
+  mdbDeleteBus := mdbZeroBus
+  mdbDeleteBus.valid := io.mdbDeleteValid
+  mdbDeleteBus.ldInfo.valid := io.mdbDeleteValid
+  mdbDeleteBus.ldInfo.pc := resolveQueue.io.entries(0).record.pc
+  mdbDeleteBus.ldInfo.bid := resolveQueue.io.entries(0).record.bid
+  mdbDeleteBus.ldInfo.lsId := resolveQueue.io.entries(0).record.loadLsId
+  mdbDeleteBus.ldInfo.stid := resolveQueue.io.entries(0).stid
+  mdbDeleteBus.ldInfo.waitStorePc := io.mdbDeleteWaitStorePc
+  mdbDeleteBus.conf := 1.U
+
   val mdbFanoutStoreRows = Wire(Vec(
     entries,
     new MDBStoreWakeupEntry(entries, entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth)
@@ -337,8 +356,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
 
   mdbFanout.io.lookupIn := mdbLookupBus
   mdbFanout.io.lookupInValid := io.mdbLookupValid
-  mdbFanout.io.deleteIn := mdbZeroBus
-  mdbFanout.io.deleteInValid := false.B
+  mdbFanout.io.deleteIn := mdbDeleteBus
+  mdbFanout.io.deleteInValid := io.mdbDeleteValid
   mdbFanout.io.recordIn := mdbRecordBus
   mdbFanout.io.recordInValid := mdbDetect.io.conflictValid
   mdbFanout.io.luDequeueReady := true.B
@@ -416,6 +435,12 @@ class ReducedStoreWaitReplayChiselPathProbe(
   io.mdbFanoutLookupReady := mdbFanout.io.lookupInReady
   io.mdbFanoutLookupAccepted := mdbFanout.io.lookupInAccepted
   io.mdbFanoutLookupProcessed := mdbFanout.io.lookupProcessed
+  io.mdbFanoutDeleteReady := mdbFanout.io.deleteInReady
+  io.mdbFanoutDeleteAccepted := mdbFanout.io.deleteInAccepted
+  io.mdbFanoutDeleteProcessed := mdbFanout.io.deleteProcessed
+  io.mdbFanoutDeleteMatched := mdbFanout.io.deleteMatched
+  io.mdbFanoutDeleteReleased := mdbFanout.io.deleteReleased
+  io.mdbFanoutDeleteDroppedBelowStall := mdbFanout.io.deleteDroppedBelowStall
   io.mdbFanoutLuOutDequeued := mdbFanout.io.luOutDequeued
   io.mdbFanoutLuOutHit := mdbFanout.io.luOut.hit
   io.mdbFanoutSuOutDequeued := mdbFanout.io.suOutDequeued

@@ -197,6 +197,15 @@ report records `mdb_fanout_record_reinforced=true`,
 `mdb_su_wakeup=true`. This is still fixture evidence because lookup timing is
 harness-owned and no live load wait-state mutation, recovery flush, or ROB
 nuke retirement is published.
+R460 extends the fixture through MDB delete decay and release: after the R459
+lookup/wakeup proof, the harness drives three failed-wait delete commands with
+the learned load PC and store wait PC. The first two deletes decay the learned
+SSIT row below stall threshold while retaining it, and the third zero-weight
+delete releases the row. The report records `mdb_delete_accepted=true`,
+`mdb_delete_dropped_below_stall=true`, and `mdb_delete_released=true`. This is
+still fixture evidence because the failed-wait timer and delete producer are
+harness-owned, and no live LDQ oldest-wait wakeup path is publishing
+`delete_lu_mdb_q` yet.
 
 ## XiangShan Flow Reference
 

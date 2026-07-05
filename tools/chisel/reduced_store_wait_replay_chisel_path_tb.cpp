@@ -119,6 +119,8 @@ void clear_inputs(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_resolveQueueRetireLsId_wrap = 0;
   dut.io_resolveQueueRetireLsId_value = 0;
   dut.io_mdbLookupValid = 0;
+  dut.io_mdbDeleteValid = 0;
+  dut.io_mdbDeleteWaitStorePc = 0;
   dut.io_mdbStore_valid = 0;
   dut.io_mdbStore_addrOnly = 0;
   dut.io_mdbStore_isTile = 0;
@@ -245,6 +247,9 @@ struct Report {
   bool mdb_lookup_first_suppressed = false;
   bool mdb_lookup_hit = false;
   bool mdb_su_wakeup = false;
+  bool mdb_delete_accepted = false;
+  bool mdb_delete_dropped_below_stall = false;
+  bool mdb_delete_released = false;
   bool resolve_queue_retired = false;
   std::uint32_t youngest_store_lsid = 0;
   std::uint32_t launch_load_lsid = 0;
@@ -518,6 +523,49 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   report.mdb_su_wakeup_store_index = dut.io_mdbFanoutSuWakeupStoreIndex;
 
   clear_inputs(dut);
+  dut.io_mdbDeleteValid = 1;
+  dut.io_mdbDeleteWaitStorePc = kStorePc;
+  dut.eval();
+  expect(dut.io_mdbFanoutDeleteReady, "MDB fanout delete queue was not ready for first delete");
+  expect(dut.io_mdbFanoutDeleteAccepted, "MDB fanout did not accept first delete");
+  tick(dut, cycle);
+
+  clear_inputs(dut);
+  dut.eval();
+  expect(dut.io_mdbFanoutDeleteProcessed, "MDB fanout did not process first delete");
+  expect(dut.io_mdbFanoutDeleteMatched, "MDB first delete did not match the learned SSIT row");
+  expect(dut.io_mdbFanoutDeleteDroppedBelowStall, "MDB first delete did not report drop below stall threshold");
+  expect(!dut.io_mdbFanoutDeleteReleased, "MDB first delete released the row too early");
+  expect((dut.io_mdbFanoutSsitValidMask & 0x1) != 0, "MDB SSIT row was released after first delete");
+  report.mdb_delete_accepted = true;
+  report.mdb_delete_dropped_below_stall = true;
+
+  for (int delete_index = 0; delete_index < 2; ++delete_index) {
+    clear_inputs(dut);
+    dut.io_mdbDeleteValid = 1;
+    dut.io_mdbDeleteWaitStorePc = kStorePc;
+    dut.eval();
+    expect(dut.io_mdbFanoutDeleteReady, "MDB fanout delete queue was not ready for release delete");
+    expect(dut.io_mdbFanoutDeleteAccepted, "MDB fanout did not accept release delete");
+    tick(dut, cycle);
+
+    clear_inputs(dut);
+    dut.eval();
+    expect(dut.io_mdbFanoutDeleteProcessed, "MDB fanout did not process release delete");
+    expect(dut.io_mdbFanoutDeleteMatched, "MDB release delete did not match the learned SSIT row");
+    if (delete_index == 0) {
+      expect(dut.io_mdbFanoutDeleteDroppedBelowStall, "MDB second delete did not retain below-stall diagnostic");
+      expect(!dut.io_mdbFanoutDeleteReleased, "MDB second delete released before zero-weight retry");
+      expect((dut.io_mdbFanoutSsitValidMask & 0x1) != 0, "MDB SSIT row released before zero-weight retry");
+    } else {
+      expect(!dut.io_mdbFanoutDeleteDroppedBelowStall, "MDB release delete reported decay instead of release");
+      expect(dut.io_mdbFanoutDeleteReleased, "MDB zero-weight delete did not release the SSIT row");
+      expect((dut.io_mdbFanoutSsitValidMask & 0x1) == 0, "MDB SSIT row remained valid after release delete");
+      report.mdb_delete_released = true;
+    }
+  }
+
+  clear_inputs(dut);
   dut.io_resolveQueueRetireValid = 1;
   dut.io_resolveQueueRetireBid_valid = 1;
   dut.io_resolveQueueRetireBid_value = kLoadBid;
@@ -570,6 +618,9 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"mdb_lookup_first_suppressed\": " << (report.mdb_lookup_first_suppressed ? "true" : "false") << ",\n"
       << "  \"mdb_lookup_hit\": " << (report.mdb_lookup_hit ? "true" : "false") << ",\n"
       << "  \"mdb_su_wakeup\": " << (report.mdb_su_wakeup ? "true" : "false") << ",\n"
+      << "  \"mdb_delete_accepted\": " << (report.mdb_delete_accepted ? "true" : "false") << ",\n"
+      << "  \"mdb_delete_dropped_below_stall\": " << (report.mdb_delete_dropped_below_stall ? "true" : "false") << ",\n"
+      << "  \"mdb_delete_released\": " << (report.mdb_delete_released ? "true" : "false") << ",\n"
       << "  \"resolve_queue_retired\": " << (report.resolve_queue_retired ? "true" : "false") << ",\n"
       << "  \"youngest_store_lsid\": " << report.youngest_store_lsid << ",\n"
       << "  \"launch_load_lsid\": " << report.launch_load_lsid << ",\n"

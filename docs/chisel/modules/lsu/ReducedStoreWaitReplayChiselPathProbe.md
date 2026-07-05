@@ -97,6 +97,9 @@ window directly and proves the owner chain through generated RTL.
 | `mdbFanoutSsitValidMask` | Fixture-local SSIT valid rows after the conflict record is processed. |
 | `mdbLookupValid` | Fixture-owned MDB lookup request for the resolved load. |
 | `mdbFanoutLookupReady` / `mdbFanoutLookupAccepted` / `mdbFanoutLookupProcessed` | `MDBQueueFanout.lookupIn` queue and lookup-processing diagnostics. |
+| `mdbDeleteValid` / `mdbDeleteWaitStorePc` | Fixture-owned failed-wait delete request equivalent to `delete_lu_mdb_q`; `mdbDeleteWaitStorePc` supplies model `wait_tpc`. |
+| `mdbFanoutDeleteReady` / `mdbFanoutDeleteAccepted` / `mdbFanoutDeleteProcessed` | `MDBQueueFanout.deleteIn` queue and delete-processing diagnostics. |
+| `mdbFanoutDeleteMatched` / `mdbFanoutDeleteDroppedBelowStall` / `mdbFanoutDeleteReleased` | SSIT delete result diagnostics for decay below stall threshold and final zero-weight release. |
 | `mdbFanoutLuOutDequeued` / `mdbFanoutLuOutHit` | LU lookup-result fanout diagnostics. |
 | `mdbFanoutSuOutDequeued` / `mdbFanoutSuOutHit` | SU lookup-result fanout diagnostics. |
 | `mdbFanoutSuMatchedStore` / `mdbFanoutSuStorePending` / `mdbFanoutSuWakeupValid` | Store-side MDB check result against the resident STQ rows. |
@@ -147,6 +150,11 @@ The generated-RTL harness runs two scenarios:
    first lookup after nuke learning is suppressed and clears the nuke marker;
    the second lookup fans out a hit to LU and SU. The SU path scans the
    resident STQ rows and emits a store wakeup for row zero.
+10. The harness then drives three fixture-owned MDB delete requests with the
+    learned load PC and store wait PC. The first two deletes decay the SSIT row
+    below the stall threshold while retaining the row, and the third delete
+    releases the zero-weight row, matching `MDB::handleMDBDelete` /
+    `MDB::dec`.
 
 This is fixture evidence for the reduced owner chain. It is not architectural
 QEMU/DUT replacement evidence and does not prove live top scheduling can yet
@@ -232,3 +240,11 @@ suppressed lookup, then prove the later lookup hits and wakes the ready store.
 This remains fixture evidence because lookup timing is harness-owned and no
 live load wait-state mutation, recovery flush publication, or ROB nuke
 retirement is driven.
+
+R460 extends the report with `mdb_delete_accepted=true`,
+`mdb_delete_dropped_below_stall=true`, and `mdb_delete_released=true`. The
+probe now feeds `MDBQueueFanout.deleteIn` from the resident ResolveQ load PC
+plus fixture-provided `wait_tpc`, proving generated RTL can decay the learned
+SSIT row after a failed wait and release it only after the model zero-weight
+delete. This remains fixture evidence because the failed-wait timer and delete
+producer are harness-owned.

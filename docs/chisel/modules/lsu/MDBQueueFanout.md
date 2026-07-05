@@ -53,7 +53,10 @@ are still tied off in that fixture. R459 enables the fixture lookup path:
 after reinforcing the same record, the harness drives two lookups for the
 resolved load. The first lookup is suppressed by the model first-after-nuke
 rule, and the second lookup hits, fans out to LU/SU, matches the resident STQ
-row, and emits the store-side wakeup.
+row, and emits the store-side wakeup. R460 enables the fixture delete path:
+after the lookup/wakeup proof, the harness drives repeated failed-wait delete
+commands through `deleteIn`, observes below-stall decay, and releases the
+learned SSIT row only after the zero-weight delete.
 
 It does not yet own LDQ row mutation, STQ row storage, byte forwarding, BCTRL
 `BMDB` table mutation, IEX-local MDB, ROB nuke retirement, or final recovery
@@ -170,7 +173,9 @@ exists. R458 adds fixture-level generated-RTL evidence for the record queue and
 SSIT/BMDB-report path, but it does not make those diagnostics architectural
 replacement evidence. R459 adds fixture-level evidence for lookup fanout and
 SU wakeup after SSIT reinforcement, but the lookup timing and resolved-load
-source are still harness-owned.
+source are still harness-owned. R460 adds fixture-level evidence for delete
+decay/release after that lookup proof; the failed-wait producer and timer
+remain harness-owned.
 
 ## Verification
 
@@ -201,3 +206,7 @@ The R459 generated-RTL fixture report records
 `mdb_lookup_hit=true`, `mdb_su_wakeup=true`, and
 `mdb_su_wakeup_store_index=0`, proving lookup fanout and store-side wakeup
 through the same fixture-local fanout owner.
+The R460 generated-RTL fixture report records `mdb_delete_accepted=true`,
+`mdb_delete_dropped_below_stall=true`, and `mdb_delete_released=true`, proving
+the same owner can process failed-wait delete decay and release of the learned
+SSIT row.
