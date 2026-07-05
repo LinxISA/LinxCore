@@ -85,11 +85,18 @@ The Chisel mapping is:
 1. Recompute the load request byte mask from row address and size because
    `LoadInflightQueue` clears transient `loadByteMask` on incomplete-data
    replay.
-2. A `StoreUnit` wakeup clears wait-store diagnostics when row
+2. A `StoreUnit` wakeup clears wait-store diagnostics through the shared
+   `LoadReplayWakeMatchDiagnostics` predicate owner when row
    `waitStoreInfo.storeId` and `waitStoreInfo.pc` match the wakeup and the row's
    stored LSID is either invalid or equal to the wakeup LSID. The invalid-LSID
    wildcard is required for MDB-origin waits published before native store LSID
-   resolution.
+   resolution. R511 makes this shared predicate the actual child clear-mask
+   source after R510 proved active top-level full matches while the duplicated
+   child clear predicate stayed zero. The R511 live replay-loop gate still
+   records `liq_replay_wake_store_unit_full_match_active=11` and
+   `liq_replay_wake_wait_store_clear=0`, so the remaining integration blocker
+   is outside the duplicate predicate body, likely in the row image/mask
+   application path between `LoadReplayWakeup` and `LoadInflightQueue`.
 3. A `StoreUnit` wakeup may merge data only into `L1DcMiss` or `L2Wait` rows
    on the same line, and only when `(wake.storeId, wake.storeLsId)` is older
    than or equal to the row's `(youngestStoreId, youngestStoreLsId)` snapshot

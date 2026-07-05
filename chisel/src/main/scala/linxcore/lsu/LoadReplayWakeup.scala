@@ -68,6 +68,12 @@ class LoadReplayWakeup(
 
   val io = IO(new LoadReplayWakeupIO(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
 
+  val waitStoreDiagnostics =
+    Module(new LoadReplayWakeMatchDiagnostics(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  waitStoreDiagnostics.io.wakeValid := io.wakeValid
+  waitStoreDiagnostics.io.wake := io.wake
+  waitStoreDiagnostics.io.rows := io.rows
+
   private def lineAddr(addr: UInt): UInt =
     Cat(addr(addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W))
 
@@ -86,7 +92,6 @@ class LoadReplayWakeup(
   private def isWorking(row: LoadInflightRow): Bool =
     row.valid && (row.status =/= LoadInflightStatus.Idle) && (row.status =/= LoadInflightStatus.Resolved)
 
-  val waitStoreClearVec = Wire(Vec(liqEntries, Bool()))
   val mergeVec = Wire(Vec(liqEntries, Bool()))
   val completedVec = Wire(Vec(liqEntries, Bool()))
 
@@ -112,15 +117,6 @@ class LoadReplayWakeup(
         sameLine &&
         (row.status =/= LoadInflightStatus.Repick)
 
-    waitStoreClearVec(idx) :=
-      io.wakeValid &&
-        storeWake &&
-        row.valid &&
-        row.waitStore &&
-        row.waitStoreInfo.valid &&
-        ROBID.equal(row.waitStoreInfo.storeId, io.wake.storeId) &&
-        (!row.waitStoreInfo.storeLsId.valid || ROBID.equal(row.waitStoreInfo.storeLsId, io.wake.storeLsId)) &&
-        (row.waitStoreInfo.pc === io.wake.pc)
     mergeVec(idx) := io.wakeValid && (io.wake.validMask =/= 0.U) && (storeMissEligible || scbEligible)
     completedVec(idx) := mergeVec(idx) && completed
 
@@ -136,7 +132,7 @@ class LoadReplayWakeup(
     io.mergedLineData(idx) := Cat(mergedBytes.reverse)
   }
 
-  io.waitStoreClearMask := waitStoreClearVec.asUInt
+  io.waitStoreClearMask := waitStoreDiagnostics.io.storeUnitFullMatchMask
   io.mergeMask := mergeVec.asUInt
   io.completedMask := completedVec.asUInt
 }
