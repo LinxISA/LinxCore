@@ -1123,6 +1123,15 @@ R491 zero wait-plan result into model prerequisites: conflict record learning
 must happen before a later load launch can produce an MDB lookup hit and reach
 `LoadReplayMdbLookupWaitPlan`.
 
+R496 extends that report to schema v6 with cycle-position counters for
+ResolveQ push, ResolveQ residency, store-arrival probes, and store-probe
+overlap with ResolveQ residency. The enabled early-STA fixture proves the
+current live-top MDB gap is timing, not a missing ResolveQ producer: store
+probes happen at cycles 22 and 28, the ResolveQ push lands at cycle 33, and
+ResolveQ is visible at cycle 34. The overlap counter remains zero, so
+`MDBConflictDetect` never sees a store probe and a resolved-load row in the
+same cycle.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
@@ -3733,6 +3742,18 @@ rows compared, zero mismatches, `resolve_queue_push_accepted=1`, and
 `resolve_queue_valid=1`. MDB conflict publication is still not proven in this
 fixture: `mdb_conflict_valid=0`, `mdb_fanout_record_valid=0`, and the MDB
 lookup wait-plan counters remain zero.
+R496 reruns the same enabled early-STA fixture with sideband schema v6 at
+`generated/r496-replay-liq-mdb-overlap-sideband-gate`. The generated-RTL
+QEMU/Verilator gate again passes with 3 normalized rows and zero mismatches.
+The new timing counters show `mdb_conflict_store_valid_first_cycle=22`,
+`mdb_conflict_store_valid_last_cycle=28`,
+`resolve_queue_push_accepted_first_cycle=33`,
+`resolve_queue_valid_first_cycle=34`, and
+`mdb_conflict_store_with_resolve_queue_valid=0`. The next implementation
+packet should make model-equivalent conflict learning observe the resolved
+load after publication, for example by retaining or replaying the store probe
+until the resolved-load candidate exists, before claiming MDB fanout record
+publication.
 
 ## Verification
 

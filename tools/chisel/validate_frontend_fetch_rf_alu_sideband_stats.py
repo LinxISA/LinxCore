@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v5"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v6"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -81,9 +81,21 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "source_row_mutation_blocked_by_live_disabled",
     "resolve_queue_push_accepted",
     "resolve_queue_valid",
+    "resolve_queue_push_accepted_first_cycle",
+    "resolve_queue_push_accepted_last_cycle",
+    "resolve_queue_valid_first_cycle",
+    "resolve_queue_valid_last_cycle",
     "mdb_conflict_store_valid",
+    "mdb_conflict_store_valid_first_cycle",
+    "mdb_conflict_store_valid_last_cycle",
+    "mdb_conflict_store_with_resolve_queue_valid",
+    "mdb_conflict_store_with_resolve_queue_valid_first_cycle",
+    "mdb_conflict_store_with_resolve_queue_valid_last_cycle",
+    "mdb_conflict_store_without_resolve_queue_valid",
     "mdb_conflict_active_candidate",
     "mdb_conflict_resolve_candidate",
+    "mdb_conflict_resolve_candidate_first_cycle",
+    "mdb_conflict_resolve_candidate_last_cycle",
     "mdb_conflict_valid",
     "mdb_fanout_record_valid",
     "mdb_fanout_record_accepted",

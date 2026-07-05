@@ -263,9 +263,21 @@ struct ReplayLiqSidebandStats {
   std::uint64_t source_row_mutation_blocked_by_live_disabled = 0;
   std::uint64_t resolve_queue_push_accepted = 0;
   std::uint64_t resolve_queue_valid = 0;
+  std::uint64_t resolve_queue_push_accepted_first_cycle = 0;
+  std::uint64_t resolve_queue_push_accepted_last_cycle = 0;
+  std::uint64_t resolve_queue_valid_first_cycle = 0;
+  std::uint64_t resolve_queue_valid_last_cycle = 0;
   std::uint64_t mdb_conflict_store_valid = 0;
+  std::uint64_t mdb_conflict_store_valid_first_cycle = 0;
+  std::uint64_t mdb_conflict_store_valid_last_cycle = 0;
+  std::uint64_t mdb_conflict_store_with_resolve_queue_valid = 0;
+  std::uint64_t mdb_conflict_store_with_resolve_queue_valid_first_cycle = 0;
+  std::uint64_t mdb_conflict_store_with_resolve_queue_valid_last_cycle = 0;
+  std::uint64_t mdb_conflict_store_without_resolve_queue_valid = 0;
   std::uint64_t mdb_conflict_active_candidate = 0;
   std::uint64_t mdb_conflict_resolve_candidate = 0;
+  std::uint64_t mdb_conflict_resolve_candidate_first_cycle = 0;
+  std::uint64_t mdb_conflict_resolve_candidate_last_cycle = 0;
   std::uint64_t mdb_conflict_valid = 0;
   std::uint64_t mdb_fanout_record_valid = 0;
   std::uint64_t mdb_fanout_record_accepted = 0;
@@ -377,6 +389,38 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
       cycle,
       g_replay_liq_sideband_stats.store_std_exec_valid_first_cycle,
       g_replay_liq_sideband_stats.store_std_exec_valid_last_cycle);
+  const bool resolve_queue_push_accepted = dut.io_reducedLoadReplayResolveQueuePushAccepted;
+  const bool resolve_queue_valid = dut.io_reducedLoadReplayResolveQueueValidMask != 0;
+  const bool mdb_conflict_store_valid = dut.io_reducedMdbConflictStoreValid;
+  const bool mdb_conflict_store_with_resolve_queue_valid =
+      mdb_conflict_store_valid && resolve_queue_valid;
+  const bool mdb_conflict_resolve_candidate =
+      dut.io_reducedMdbConflictResolveCandidateMask != 0;
+  observe_cycle(
+      resolve_queue_push_accepted,
+      cycle,
+      g_replay_liq_sideband_stats.resolve_queue_push_accepted_first_cycle,
+      g_replay_liq_sideband_stats.resolve_queue_push_accepted_last_cycle);
+  observe_cycle(
+      resolve_queue_valid,
+      cycle,
+      g_replay_liq_sideband_stats.resolve_queue_valid_first_cycle,
+      g_replay_liq_sideband_stats.resolve_queue_valid_last_cycle);
+  observe_cycle(
+      mdb_conflict_store_valid,
+      cycle,
+      g_replay_liq_sideband_stats.mdb_conflict_store_valid_first_cycle,
+      g_replay_liq_sideband_stats.mdb_conflict_store_valid_last_cycle);
+  observe_cycle(
+      mdb_conflict_store_with_resolve_queue_valid,
+      cycle,
+      g_replay_liq_sideband_stats.mdb_conflict_store_with_resolve_queue_valid_first_cycle,
+      g_replay_liq_sideband_stats.mdb_conflict_store_with_resolve_queue_valid_last_cycle);
+  observe_cycle(
+      mdb_conflict_resolve_candidate,
+      cycle,
+      g_replay_liq_sideband_stats.mdb_conflict_resolve_candidate_first_cycle,
+      g_replay_liq_sideband_stats.mdb_conflict_resolve_candidate_last_cycle);
   if (dut.io_loadLookupValid) {
     ++g_replay_liq_sideband_stats.load_lookup_valid;
   }
@@ -527,19 +571,25 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByLiveDisabled) {
     ++g_replay_liq_sideband_stats.source_row_mutation_blocked_by_live_disabled;
   }
-  if (dut.io_reducedLoadReplayResolveQueuePushAccepted) {
+  if (resolve_queue_push_accepted) {
     ++g_replay_liq_sideband_stats.resolve_queue_push_accepted;
   }
-  if (dut.io_reducedLoadReplayResolveQueueValidMask != 0) {
+  if (resolve_queue_valid) {
     ++g_replay_liq_sideband_stats.resolve_queue_valid;
   }
-  if (dut.io_reducedMdbConflictStoreValid) {
+  if (mdb_conflict_store_valid) {
     ++g_replay_liq_sideband_stats.mdb_conflict_store_valid;
+  }
+  if (mdb_conflict_store_with_resolve_queue_valid) {
+    ++g_replay_liq_sideband_stats.mdb_conflict_store_with_resolve_queue_valid;
+  }
+  if (mdb_conflict_store_valid && !resolve_queue_valid) {
+    ++g_replay_liq_sideband_stats.mdb_conflict_store_without_resolve_queue_valid;
   }
   if (dut.io_reducedMdbConflictActiveCandidateMask != 0) {
     ++g_replay_liq_sideband_stats.mdb_conflict_active_candidate;
   }
-  if (dut.io_reducedMdbConflictResolveCandidateMask != 0) {
+  if (mdb_conflict_resolve_candidate) {
     ++g_replay_liq_sideband_stats.mdb_conflict_resolve_candidate;
   }
   if (dut.io_reducedMdbConflictValid) {
@@ -662,7 +712,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v5\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v6\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -806,12 +856,36 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.resolve_queue_push_accepted << ",\n"
       << "    \"resolve_queue_valid\": "
       << g_replay_liq_sideband_stats.resolve_queue_valid << ",\n"
+      << "    \"resolve_queue_push_accepted_first_cycle\": "
+      << g_replay_liq_sideband_stats.resolve_queue_push_accepted_first_cycle << ",\n"
+      << "    \"resolve_queue_push_accepted_last_cycle\": "
+      << g_replay_liq_sideband_stats.resolve_queue_push_accepted_last_cycle << ",\n"
+      << "    \"resolve_queue_valid_first_cycle\": "
+      << g_replay_liq_sideband_stats.resolve_queue_valid_first_cycle << ",\n"
+      << "    \"resolve_queue_valid_last_cycle\": "
+      << g_replay_liq_sideband_stats.resolve_queue_valid_last_cycle << ",\n"
       << "    \"mdb_conflict_store_valid\": "
       << g_replay_liq_sideband_stats.mdb_conflict_store_valid << ",\n"
+      << "    \"mdb_conflict_store_valid_first_cycle\": "
+      << g_replay_liq_sideband_stats.mdb_conflict_store_valid_first_cycle << ",\n"
+      << "    \"mdb_conflict_store_valid_last_cycle\": "
+      << g_replay_liq_sideband_stats.mdb_conflict_store_valid_last_cycle << ",\n"
+      << "    \"mdb_conflict_store_with_resolve_queue_valid\": "
+      << g_replay_liq_sideband_stats.mdb_conflict_store_with_resolve_queue_valid << ",\n"
+      << "    \"mdb_conflict_store_with_resolve_queue_valid_first_cycle\": "
+      << g_replay_liq_sideband_stats.mdb_conflict_store_with_resolve_queue_valid_first_cycle << ",\n"
+      << "    \"mdb_conflict_store_with_resolve_queue_valid_last_cycle\": "
+      << g_replay_liq_sideband_stats.mdb_conflict_store_with_resolve_queue_valid_last_cycle << ",\n"
+      << "    \"mdb_conflict_store_without_resolve_queue_valid\": "
+      << g_replay_liq_sideband_stats.mdb_conflict_store_without_resolve_queue_valid << ",\n"
       << "    \"mdb_conflict_active_candidate\": "
       << g_replay_liq_sideband_stats.mdb_conflict_active_candidate << ",\n"
       << "    \"mdb_conflict_resolve_candidate\": "
       << g_replay_liq_sideband_stats.mdb_conflict_resolve_candidate << ",\n"
+      << "    \"mdb_conflict_resolve_candidate_first_cycle\": "
+      << g_replay_liq_sideband_stats.mdb_conflict_resolve_candidate_first_cycle << ",\n"
+      << "    \"mdb_conflict_resolve_candidate_last_cycle\": "
+      << g_replay_liq_sideband_stats.mdb_conflict_resolve_candidate_last_cycle << ",\n"
       << "    \"mdb_conflict_valid\": "
       << g_replay_liq_sideband_stats.mdb_conflict_valid << ",\n"
       << "    \"mdb_fanout_record_valid\": "
