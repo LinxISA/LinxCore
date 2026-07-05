@@ -2773,6 +2773,29 @@ void drain_empty(VLinxCoreFrontendFetchRfAluTraceTop &dut, const FetchMemoryImag
             << " executeBusy=" << static_cast<unsigned>(dut.io_executeBusy)
             << " sourceWaiting=" << static_cast<unsigned>(dut.io_sourceWaitingResponse)
             << " sourcePacket=" << static_cast<unsigned>(dut.io_sourcePacketValid)
+            << " storeCommitPendingMarkMask=0x" << std::hex
+            << static_cast<unsigned>(dut.io_reducedStoreCommitPendingMarkMask)
+            << " storeCommitPendingFreeMask=0x"
+            << static_cast<unsigned>(dut.io_reducedStoreCommitPendingFreeMask)
+            << " storeCommitMarkValid=" << std::dec
+            << static_cast<unsigned>(dut.io_reducedStoreCommitMarkValid)
+            << " storeCommitMarkAccepted="
+            << static_cast<unsigned>(dut.io_reducedStoreCommitMarkAccepted)
+            << " storeCommitMarkBlocked="
+            << static_cast<unsigned>(dut.io_reducedStoreCommitMarkBlocked)
+            << " storeCommitPendingMarkCount="
+            << static_cast<unsigned>(dut.io_reducedStoreCommitPendingMarkCount)
+            << " storeDrainEmpty="
+            << static_cast<unsigned>(dut.io_reducedStoreDrainEmpty)
+            << " storeDrainQueueCount="
+            << static_cast<unsigned>(dut.io_reducedStoreDrainQueueCount)
+            << " storeDrainIssueMask=0x" << std::hex
+            << static_cast<unsigned>(dut.io_reducedStoreDrainIssueValidMask)
+            << " storeStqCommitMask=0x"
+            << hex_port(dut.io_storeStqCommitMask)
+            << " storeStqOccupiedMask=0x"
+            << hex_port(dut.io_storeStqOccupiedMask)
+            << std::dec
             << "\n";
   std::exit(1);
 }
