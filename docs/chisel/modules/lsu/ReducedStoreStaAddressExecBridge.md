@@ -122,10 +122,12 @@ R476 covered:
 
 ## Deferred Owners
 
-- Top-level RF/local read wiring and live selection for STA queue heads. R477
-  adds auxiliary RF read lanes as the prerequisite, but a direct live selection
-  trial exposed a reduced-store lifecycle drain blocker and was not kept.
+- Default-on live promotion. R479 wires top-level RF/local read data and
+  opt-in STA selection for replay-LIQ trials, but the switch remains disabled
+  by default because the enabled fixture still fails final idle drain.
 - Arbitration between the existing scalar issue RF reads and STA address reads.
-- Live-top selection between early STA output and buffered full-store STA
-  output.
+- Replay-LIQ idle-state classification after early STA. R479 proves
+  reduced-store commit/drain/STQ state is empty at timeout, so the next owner
+  must expose the replay-LIQ allocation/resolve empty terms before changing
+  the idle predicate.
 - STD/data execution ownership beyond the existing buffered full-store bridge.

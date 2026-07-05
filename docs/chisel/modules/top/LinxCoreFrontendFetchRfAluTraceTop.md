@@ -908,6 +908,24 @@ for the reduced-store commit/free or replay-LIQ lifecycle state that remains
 live after early STA, then re-enable the bridge selection with a passing
 generated gate and the existing nonzero-counter requirements.
 
+R478 extends the Verilator drain-time failure report with the reduced-store
+commit/free owner, drain queue, and STQ resident masks. The stable
+`replay-ldi-sdi-ldi` reduced-store replay-LIQ fixture still compares three
+QEMU/DUT rows with zero mismatches. The extra report fields are diagnostic
+only; they do not relax the idle predicate or hide a live owner.
+
+R479 keeps live early-STA selection behind an emit-time replay-LIQ wrapper
+knob, `LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1`. With the knob disabled, the
+same `replay-ldi-sdi-ldi` fixture passes with three compared rows and zero
+mismatches. With the knob enabled, the trial reproduces the final drain
+failure, but R478's store fields are all empty at timeout:
+`storeCommitPendingMarkMask=0`, `storeCommitPendingFreeMask=0`,
+`storeDrainEmpty=1`, `storeDrainQueueCount=0`, and `storeStqOccupiedMask=0`.
+That proves the remaining `io_idle` blocker is not reduced-store
+commit/drain/STQ residue; the next diagnostic should print the replay-LIQ
+allocation/resolve idle terms before changing the idle predicate or promoting
+early STA as default behavior.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue

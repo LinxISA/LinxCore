@@ -13,6 +13,7 @@ class LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
     gprMapQDepth: Int = 32,
     archRegs: Int = 24,
     physRegs: Int = 64,
+    useReducedStoreStaAddressExecBridge: Boolean = false,
     reducedStoreStdExecDelayCycles: Int = 0)
     extends LinxCoreFrontendFetchRfAluTraceTop(
       coreParams = coreParams,
@@ -26,6 +27,7 @@ class LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
       archRegs = archRegs,
       physRegs = physRegs,
       useReducedStoreDispatchStq = true,
+      useReducedStoreStaAddressExecBridge = useReducedStoreStaAddressExecBridge,
       useReducedLoadReplayLiqAlloc = true,
       reducedStoreStdExecDelayCycles = reducedStoreStdExecDelayCycles)
 
@@ -39,6 +41,8 @@ object EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop extends App {
 
   private val stdDelayCycles = envInt("LINXCORE_REPLAY_LIQ_STD_DELAY_CYCLES")
   require(stdDelayCycles >= 0, "LINXCORE_REPLAY_LIQ_STD_DELAY_CYCLES must be nonnegative")
+  private val useEarlyStaAddressExec =
+    sys.env.get("LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS").exists(value => value.nonEmpty && value != "0")
 
   circt.stage.ChiselStage.emitSystemVerilogFile(
     new LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
@@ -46,6 +50,7 @@ object EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop extends App {
       mapQDepth = 32,
       gprMapQDepth = 256,
       physRegs = 128,
+      useReducedStoreStaAddressExecBridge = useEarlyStaAddressExec,
       reducedStoreStdExecDelayCycles = stdDelayCycles),
     args = Array("--target-dir", "../generated/chisel-verilog/frontend-fetch-rf-alu-reduced-store-replay-liq-trace-top"),
     firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")

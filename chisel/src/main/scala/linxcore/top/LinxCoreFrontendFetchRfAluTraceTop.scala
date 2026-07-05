@@ -8,7 +8,7 @@ import linxcore.commit.{CommitTraceParams, CommitTracePort}
 import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandClass}
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
-import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicLiveRequestControl, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicLiveRequestControl, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID, ROBRowCommitTraceLookupResult}
@@ -1700,6 +1700,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val skipBlockMarkers: Boolean = true,
     val useMarkerDecodeContext: Boolean = false,
     val useReducedStoreDispatchStq: Boolean = false,
+    val useReducedStoreStaAddressExecBridge: Boolean = false,
     val useReducedLoadReplayLiqAlloc: Boolean = false,
     val reducedStoreStdExecDelayCycles: Int = 0)
     extends Module {
@@ -1761,6 +1762,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     stidWidth = p.threadIdWidth,
     tidWidth = p.threadIdWidth,
     stdDelayCycles = reducedStoreStdExecDelayCycles
+  ))
+  val storeStaAddressExecBridge = Module(new ReducedStoreStaAddressExecBridge(
+    p = p,
+    mapQDepth = mapQDepth,
+    peIdWidth = p.peIdWidth,
+    stidWidth = p.threadIdWidth,
+    tidWidth = p.threadIdWidth
   ))
   val storeCommitOwner = Module(new ReducedStoreCommitFreeOwner(
     entries = p.robEntries,
@@ -2467,8 +2475,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   storeExecBridge.io.stdQueue := path.io.storeStdQueue
   storeExecBridge.io.staConsumed := path.io.storeSelectedSta
   storeExecBridge.io.stdConsumed := path.io.storeSelectedStd
+  storeStaAddressExecBridge.io.enable := useReducedStoreStaAddressExecBridge.B && useReducedStoreDispatchStq.B
+  storeStaAddressExecBridge.io.queueValid := path.io.storeStaQueueValid
+  storeStaAddressExecBridge.io.queue := path.io.storeStaQueue
   val zeroStoreExec = 0.U.asTypeOf(new StoreDispatchExecResult(64, 64, p.peIdWidth, p.threadIdWidth, p.threadIdWidth))
-  path.io.storeStaExec := Mux(useReducedStoreDispatchStq.B, storeExecBridge.io.staExec, zeroStoreExec)
+  val selectedStoreStaExec =
+    Mux(storeStaAddressExecBridge.io.exec.valid, storeStaAddressExecBridge.io.exec, storeExecBridge.io.staExec)
+  path.io.storeStaExec := Mux(useReducedStoreDispatchStq.B, selectedStoreStaExec, zeroStoreExec)
   path.io.storeStdExec := Mux(useReducedStoreDispatchStq.B, storeExecBridge.io.stdExec, zeroStoreExec)
   storeCommitOwner.io.enable := useReducedStoreDispatchStq.B
   storeCommitOwner.io.directFreeEnable := false.B
@@ -3146,13 +3159,35 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val localReadReady = Mux(readIsT, localTReady(rel), Mux(readIsU, localUReady(rel), false.B))
     val localReadData = Mux(readIsT, localTData(rel), localUData(rel))
     val scalarReadData = Mux(readIsScalarSp, scalarSpValue, rf.io.readData(idx))
+    val staSrc = path.io.storeStaQueue.uop.src(idx)
+    val staReadValid =
+      useReducedStoreStaAddressExecBridge.B && useReducedStoreDispatchStq.B &&
+        path.io.storeStaQueueValid && path.io.storeStaQueue.valid && staSrc.valid
+    val staReadIsT = staReadValid && (staSrc.operandClass === OperandClass.T)
+    val staReadIsU = staReadValid && (staSrc.operandClass === OperandClass.U)
+    val staReadIsLocal = staReadIsT || staReadIsU
+    val staReadIsScalarSp =
+      staReadValid &&
+        (staSrc.operandClass === OperandClass.P) &&
+        (staSrc.relTag === 1.U)
+    val staReadIsRf =
+      staReadValid &&
+        (staSrc.operandClass === OperandClass.P) &&
+        !staReadIsScalarSp
+    val staRel = staSrc.relTag(1, 0)
+    val staLocalReadReady = Mux(staReadIsT, localTReady(staRel), Mux(staReadIsU, localUReady(staRel), false.B))
+    val staLocalReadData = Mux(staReadIsT, localTData(staRel), localUData(staRel))
 
     rf.io.readValid(idx) := issue.io.readValid(idx) && !readIsLocal
     rf.io.readTags(idx) := issue.io.readTags(idx)
-    rf.io.auxReadValid(idx) := false.B
-    rf.io.auxReadTags(idx) := 0.U
+    rf.io.auxReadValid(idx) := staReadIsRf
+    rf.io.auxReadTags(idx) := staSrc.physTag
     issue.io.readReady(idx) := Mux(readIsLocal, localReadReady, rf.io.readReady(idx))
     issue.io.readData(idx) := Mux(readIsLocal, localReadData, scalarReadData)
+    storeStaAddressExecBridge.io.srcReadReady(idx) :=
+      Mux(staReadIsLocal, staLocalReadReady, Mux(staReadIsScalarSp, true.B, rf.io.auxReadReady(idx)))
+    storeStaAddressExecBridge.io.srcReadData(idx) :=
+      Mux(staReadIsLocal, staLocalReadData, Mux(staReadIsScalarSp, scalarSpValue, rf.io.auxReadData(idx)))
   }
   rf.io.clearValid := issue.io.enqueueDstValid
   rf.io.clearTag := issue.io.enqueueDstTag
