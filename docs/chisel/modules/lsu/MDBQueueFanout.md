@@ -57,6 +57,13 @@ row, and emits the store-side wakeup. R460 enables the fixture delete path:
 after the lookup/wakeup proof, the harness drives repeated failed-wait delete
 commands through `deleteIn`, observes below-stall decay, and releases the
 learned SSIT row only after the zero-weight delete.
+R498 changes the live top lookup producer from replay-LIQ launch acceptance to
+the source-return store-snapshot query issue boundary. That makes the live
+`replay-ldi-sdi-ldi` fixture enqueue and process one MDB lookup while the row
+is being state-queried, matching the model load-side query timing. The lookup
+validly fans out to LU/SU but misses because the learned SSIT record is
+published later in the same short fixture and no later same-PC dynamic load
+re-enters the lookup path.
 
 It does not yet own LDQ row mutation, STQ row storage, byte forwarding, BCTRL
 `BMDB` table mutation, IEX-local MDB, ROB nuke retirement, or final recovery
@@ -176,6 +183,12 @@ SU wakeup after SSIT reinforcement, but the lookup timing and resolved-load
 source are still harness-owned. R460 adds fixture-level evidence for delete
 decay/release after that lookup proof; the failed-wait producer and timer
 remain harness-owned.
+R498 adds live generated-RTL/QEMU evidence for the lookup queue itself:
+`mdb_fanout_lookup_valid=1`, `mdb_fanout_lookup_accepted=1`, and
+`mdb_fanout_lookup_processed=1` in
+`generated/r498-replay-liq-mdb-lookup-query-gate`. The same report records
+`mdb_fanout_lu_out_hit=0` and `mdb_fanout_su_out_hit=0`, so it is a
+model-timed lookup publication proof, not a wait-plan hit proof.
 
 ## Verification
 
@@ -188,6 +201,7 @@ remain harness-owned.
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r291-replay-liq-mdb-fanout-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r292-replay-liq-mdb-lookup-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r293-replay-liq-mdb-delete-boundary-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,wait_replay_relaunch_valid,replay_queue_enqueue_accepted,replay_queue_out_fire,liq_alloc_accepted,liq_base_lookup_granted,source_return_query_issued,source_return_response_apply_valid,source_row_mutation_request_valid,liq_row_mutation_write_enable,resolve_queue_push_accepted,resolve_queue_valid,mdb_conflict_store_valid,mdb_conflict_store_with_resolve_queue_valid,mdb_conflict_resolve_candidate,mdb_conflict_valid,mdb_fanout_record_valid,mdb_fanout_record_accepted,mdb_fanout_record_processed,mdb_fanout_bmdb_report,mdb_fanout_ssit_nonempty,mdb_fanout_lookup_valid,mdb_fanout_lookup_accepted,mdb_fanout_lookup_processed FETCH_REPLAY_LIQ_REQUIRE_ZERO=mdb_lookup_wait_plan_lookup_hit,mdb_lookup_wait_plan_wait_intent_valid,mdb_lookup_wait_plan_request_valid LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r498-replay-liq-mdb-lookup-query-gate --fixture replay-ldi-sdi-ldi --reduced-store-replay-liq --disable-store-memory-mutation --max-seconds 8`
 - `bash tools/chisel/run_chisel_tests.sh --only STQCommitQueue`
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`

@@ -9,7 +9,7 @@ import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandCla
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicLiveRequestControl, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
-import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan, LoadReplayResolvedRowHitRecord}
+import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan, LoadReplayResolvedRowHitRecord, LoadReplayRowMutationSourceMux}
 import linxcore.lsu.MDBStoreProbeReplay
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID, ROBRowCommitTraceLookupResult}
@@ -3096,7 +3096,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val reducedMdbLookupRow =
     reducedLoadReplayLiqAllocPath.io.rows(reducedLoadReplayLiqAllocPath.io.launchIndex)
   val reducedMdbFanoutLookupValid =
-    reducedLoadReplayLiqAllocEnabled && reducedLoadReplayLiqAllocPath.io.launchAccepted && !reducedMdbLookupRow.isTile
+    reducedLoadReplayLiqAllocEnabled &&
+      reducedReplayLiqSourceReturnStoreSnapshotPath.io.queryIssueIssued &&
+      !reducedMdbLookupRow.isTile
   val reducedMdbLookupBus = Wire(chiselTypeOf(reducedMdbZeroBus))
   reducedMdbLookupBus := reducedMdbZeroBus
   reducedMdbLookupBus.valid := reducedMdbFanoutLookupValid
@@ -3165,6 +3167,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       flush = reducedStoreFlush,
       plan = reducedMdbLookupWaitPlan
     )
+  LinxCoreFrontendFetchRfAluTraceTopR498RowMutationSourceMuxWiring.connect(
+    p = p,
+    source = reducedReplayLiqSourceReturnStoreSnapshotPath,
+    mdbWaitPlan = reducedMdbLookupWaitPlan,
+    liqPath = reducedLoadReplayLiqAllocPath
+  )
   when(reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled) {
     reducedLoadReplayResolveClearPending := false.B
   }.otherwise {
@@ -6235,22 +6243,6 @@ private object LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring {
       launchValid: Bool,
       baseDataReady: Bool,
       storeSnapshotReady: Bool): Unit = {
-    liqPath.io.rowMutationRequestValid := source.io.rowMutationRequestValid
-    liqPath.io.rowMutationRequestTargetMask := source.io.rowMutationRequestTargetMask
-    liqPath.io.rowMutationRequestTargetIndex := source.io.rowMutationRequestTargetIndex
-    liqPath.io.rowMutationSetWaitStatus := source.io.rowMutationSetWaitStatus
-    liqPath.io.rowMutationKeepRepickStatus := source.io.rowMutationKeepRepickStatus
-    liqPath.io.rowMutationClearReturnState := source.io.rowMutationClearReturnState
-    liqPath.io.rowMutationLineWrite := source.io.rowMutationLineWrite
-    liqPath.io.rowMutationWaitStoreWrite := source.io.rowMutationWaitStoreWrite
-    liqPath.io.rowMutationNextWaitStore := source.io.rowMutationNextWaitStore
-    liqPath.io.rowMutationNextWaitStoreInfo := source.io.rowMutationNextWaitStoreInfo
-    liqPath.io.rowMutationNextLineData := source.io.rowMutationNextLineData
-    liqPath.io.rowMutationNextValidMask := source.io.rowMutationNextValidMask
-    liqPath.io.rowMutationNextDataComplete := source.io.rowMutationNextDataComplete
-    liqPath.io.rowMutationNextScbReturned := source.io.rowMutationNextScbReturned
-    liqPath.io.rowMutationNextStqReturned := source.io.rowMutationNextStqReturned
-    liqPath.io.rowMutationNextStoreSourceReturned := source.io.rowMutationNextStoreSourceReturned
     liqPath.io.pickValid := source.io.queryIssueIssued
     liqPath.io.pickIndex := liqPath.io.launchIndex
     val scbReturnEntryIndex = source.io.acceptedTokenEntryId(liqPath.io.scbReturnIndex.getWidth - 1, 0)
@@ -6269,6 +6261,73 @@ private object LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring {
     scbLive.io.scbReturnedEvidence := false.B
     sourceReadiness.io.externalScbPending := scbLive.io.externalScbPending
     sourceReadiness.io.externalScbReturned := scbLive.io.externalScbReturned
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR498RowMutationSourceMuxWiring {
+  def connect(
+      p: InterfaceParams,
+      source: LoadReplaySourceReturnStoreSnapshotPath,
+      mdbWaitPlan: LoadReplayMdbLookupWaitPlan,
+      liqPath: ReducedLoadReplayLiqAllocPath): Unit = {
+    val mux = Module(new LoadReplayRowMutationSourceMux(
+      liqEntries = p.robEntries,
+      idEntries = p.robEntries,
+      sourceStoreEntries = p.robEntries,
+      pcWidth = p.pcWidth,
+      lineBytes = 64
+    ))
+
+    mux.io.sourceReturn.valid := source.io.rowMutationRequestValid
+    mux.io.sourceReturn.targetMask := source.io.rowMutationRequestTargetMask
+    mux.io.sourceReturn.targetIndex := source.io.rowMutationRequestTargetIndex
+    mux.io.sourceReturn.setWaitStatus := source.io.rowMutationSetWaitStatus
+    mux.io.sourceReturn.keepRepickStatus := source.io.rowMutationKeepRepickStatus
+    mux.io.sourceReturn.clearReturnState := source.io.rowMutationClearReturnState
+    mux.io.sourceReturn.lineWrite := source.io.rowMutationLineWrite
+    mux.io.sourceReturn.waitStoreWrite := source.io.rowMutationWaitStoreWrite
+    mux.io.sourceReturn.nextWaitStore := source.io.rowMutationNextWaitStore
+    mux.io.sourceReturn.nextWaitStoreInfo := source.io.rowMutationNextWaitStoreInfo
+    mux.io.sourceReturn.nextLineData := source.io.rowMutationNextLineData
+    mux.io.sourceReturn.nextValidMask := source.io.rowMutationNextValidMask
+    mux.io.sourceReturn.nextDataComplete := source.io.rowMutationNextDataComplete
+    mux.io.sourceReturn.nextScbReturned := source.io.rowMutationNextScbReturned
+    mux.io.sourceReturn.nextStqReturned := source.io.rowMutationNextStqReturned
+    mux.io.sourceReturn.nextStoreSourceReturned := source.io.rowMutationNextStoreSourceReturned
+
+    mux.io.mdbWaitPlan.valid := mdbWaitPlan.io.requestValid
+    mux.io.mdbWaitPlan.targetMask := mdbWaitPlan.io.requestTargetMask
+    mux.io.mdbWaitPlan.targetIndex := mdbWaitPlan.io.requestTargetIndex
+    mux.io.mdbWaitPlan.setWaitStatus := mdbWaitPlan.io.setWaitStatus
+    mux.io.mdbWaitPlan.keepRepickStatus := mdbWaitPlan.io.keepRepickStatus
+    mux.io.mdbWaitPlan.clearReturnState := mdbWaitPlan.io.clearReturnState
+    mux.io.mdbWaitPlan.lineWrite := mdbWaitPlan.io.lineWrite
+    mux.io.mdbWaitPlan.waitStoreWrite := mdbWaitPlan.io.waitStoreWrite
+    mux.io.mdbWaitPlan.nextWaitStore := mdbWaitPlan.io.nextWaitStore
+    mux.io.mdbWaitPlan.nextWaitStoreInfo := mdbWaitPlan.io.nextWaitStoreInfo
+    mux.io.mdbWaitPlan.nextLineData := mdbWaitPlan.io.nextLineData
+    mux.io.mdbWaitPlan.nextValidMask := mdbWaitPlan.io.nextValidMask
+    mux.io.mdbWaitPlan.nextDataComplete := mdbWaitPlan.io.nextDataComplete
+    mux.io.mdbWaitPlan.nextScbReturned := mdbWaitPlan.io.nextScbReturned
+    mux.io.mdbWaitPlan.nextStqReturned := mdbWaitPlan.io.nextStqReturned
+    mux.io.mdbWaitPlan.nextStoreSourceReturned := mdbWaitPlan.io.nextStoreSourceReturned
+
+    liqPath.io.rowMutationRequestValid := mux.io.out.valid
+    liqPath.io.rowMutationRequestTargetMask := mux.io.out.targetMask
+    liqPath.io.rowMutationRequestTargetIndex := mux.io.out.targetIndex
+    liqPath.io.rowMutationSetWaitStatus := mux.io.out.setWaitStatus
+    liqPath.io.rowMutationKeepRepickStatus := mux.io.out.keepRepickStatus
+    liqPath.io.rowMutationClearReturnState := mux.io.out.clearReturnState
+    liqPath.io.rowMutationLineWrite := mux.io.out.lineWrite
+    liqPath.io.rowMutationWaitStoreWrite := mux.io.out.waitStoreWrite
+    liqPath.io.rowMutationNextWaitStore := mux.io.out.nextWaitStore
+    liqPath.io.rowMutationNextWaitStoreInfo := mux.io.out.nextWaitStoreInfo
+    liqPath.io.rowMutationNextLineData := mux.io.out.nextLineData
+    liqPath.io.rowMutationNextValidMask := mux.io.out.nextValidMask
+    liqPath.io.rowMutationNextDataComplete := mux.io.out.nextDataComplete
+    liqPath.io.rowMutationNextScbReturned := mux.io.out.nextScbReturned
+    liqPath.io.rowMutationNextStqReturned := mux.io.out.nextStqReturned
+    liqPath.io.rowMutationNextStoreSourceReturned := mux.io.out.nextStoreSourceReturned
   }
 }
 

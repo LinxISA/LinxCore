@@ -41,7 +41,9 @@ The R463/R464 generated-RTL fixture wires this request shape into
 `ReducedLoadReplayLiqAllocPath` row mutation for proof. R463 proves bridge and
 control reachability for a live target row; R464 adds explicit SCB
 source-return evidence through the existing replay-wakeup path and proves the
-native LIQ row write. The live top is not integrated yet.
+native LIQ row write. R498 connects the live top through
+`LoadReplayRowMutationSourceMux`, but the first live lookup fixture still
+misses before `waitIntentValid` or `requestValid` can assert.
 
 ## Interface
 
@@ -100,10 +102,8 @@ wiring this plan into `LoadInflightQueue` mutation.
 
 ## Deferred Owners
 
-- Top integration behind the replay-LIQ path.
-- Store-side native identity producer for MDB LU wait mutation.
-- Live top integration behind the replay-LIQ path's existing row-mutation
-  bridge/write-control path.
+- Live positive MDB lookup hit after a learned same-PC load occurs after record
+  publication and the model first-after-nuke suppression window.
 - Live source-return evidence owner for default/top MDB wait mutation.
 - Live failed-wait timer that publishes MDB delete commands from LIQ state.
 
@@ -168,3 +168,19 @@ post-write wait/wait-store masks are present by default. This does not promote
 the fixture to live-top evidence; it prevents later packets from silently
 regressing the only positive MDB wait-plan row-mutation proof while live QEMU
 still reports the R491 zero-counter MDB boundary.
+
+R498 connects this planner's raw request fields into the live replay-LIQ row
+mutation path through `LoadReplayRowMutationSourceMux`, with source-return
+mutation taking priority. The same packet moves the live lookup producer from
+`ReducedLoadReplayLiqAllocPath.launchAccepted` to
+`LoadReplaySourceReturnStoreSnapshotPath.queryIssueIssued`, matching the model
+`LDQInfo::handleStateQuery` boundary more closely. The live
+`replay-ldi-sdi-ldi` gate at
+`generated/r498-replay-liq-mdb-lookup-query-gate` passes QEMU/DUT comparison
+with `mdb_fanout_lookup_valid=1`, `mdb_fanout_lookup_accepted=1`,
+`mdb_fanout_lookup_processed=1`, `mdb_fanout_lu_out_valid=1`, and
+`mdb_fanout_lu_out_hit=0`. Therefore `mdb_lookup_wait_plan_lookup_hit=0`,
+`mdb_lookup_wait_plan_wait_intent_valid=0`, and
+`mdb_lookup_wait_plan_request_valid=0` remain the expected live result for this
+fixture. A later packet needs a repeated same-PC post-record lookup or
+equivalent model stimulus before claiming live wait-plan mutation.

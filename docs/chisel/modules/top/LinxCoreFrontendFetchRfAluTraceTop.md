@@ -1675,8 +1675,8 @@ so the top still selects the current empty-only advance gate.
 
 | output | `reducedLoadReplayResolveQueue*` | mixed | diagnostic | R285-R289 opt-in replay-LIQ ResolveQ diagnostics. `lhqRecord` from `ReducedLoadReplayLiqAllocPath` can append to `LoadResolveQueue`; the top exposes push, delayed clear, commit-window retire watermark, scalar-redirect precise flush identity, retire/prune mask/count, occupancy, valid-mask, and head conflict-row sidecars. Because launch remains disabled, the current fixture observes storage, retire, and recovery-prune wiring only; live MDB/recovery publication is deferred. |
 | output | `reducedMdbConflict*` | mixed | diagnostic | R290 opt-in replay-LIQ MDB conflict diagnostics. The top feeds `MDBConflictDetect` with the accepted reduced STQ insert request, replay-LIQ resident rows, and ResolveQ conflict rows, then exposes store-valid, active/ResolveQ candidate masks, wait-store mask/count, selected source/index/ordinal, selected load/store BID and LSID identity, plus inner/nuke classification. These signals are diagnostic only; they do not yet drive recovery flush. |
-| output | `reducedMdbFanout*` | mixed | diagnostic | R291-R293 opt-in replay-LIQ MDB fanout/learning diagnostics. Selected conflict records enqueue into `MDBQueueFanout.recordIn` with model confidence `1`; resident STQ rows feed the SU wakeup scan view; replay-LIQ launch acceptance forms a dormant `lookupIn` command boundary; and R293 exposes the still-inactive delete command/decay boundary plus phase-stall diagnostics. Delete producers remain tied off. The top exposes lookup ready/accept/process, delete ready/accept/process and decay result flags, LU/SU lookup-result hit/store-BID diagnostics, record ready/accept/process, BMDB report intent, SSIT valid mask, record errors, and SU match/wakeup diagnostics without mutating recovery or load wakeup state. |
-| output | `reducedMdbLookupWaitPlan*` | mixed | diagnostic | R465/R466 live-top MDB lookup wait-plan diagnostics. The top instantiates `LoadReplayMdbLookupWaitPlan` beside the real `MDBQueueFanout`, feeds it from fanout LU/SU outputs plus current `ReducedLoadReplayLiqAllocPath` rows, and exposes lookup hit, candidate mask, target index, wait-intent, request-valid, and blocker diagnostics. R466 adds a nested `reducedMdbLookupWaitPlanBridge` diagnostic bundle from a sidecar `LoadInflightRowMutationRequestBridge` fed by the plan request. These outputs are observational only; the sidecar bridge is not connected to the top LIQ row-mutation write path. |
+| output | `reducedMdbFanout*` | mixed | diagnostic | R291-R293 opt-in replay-LIQ MDB fanout/learning diagnostics. Selected conflict records enqueue into `MDBQueueFanout.recordIn` with model confidence `1`; resident STQ rows feed the SU wakeup scan view; R498 forms `lookupIn` from source-return query issue; and R293 exposes the still-inactive delete command/decay boundary plus phase-stall diagnostics. Delete producers remain tied off. The top exposes lookup ready/accept/process, delete ready/accept/process and decay result flags, LU/SU lookup-result hit/store-BID diagnostics, record ready/accept/process, BMDB report intent, SSIT valid mask, record errors, and SU match/wakeup diagnostics without mutating recovery or load wakeup state. |
+| output | `reducedMdbLookupWaitPlan*` | mixed | diagnostic | R465/R466 live-top MDB lookup wait-plan diagnostics. The top instantiates `LoadReplayMdbLookupWaitPlan` beside the real `MDBQueueFanout`, feeds it from fanout LU/SU outputs plus current `ReducedLoadReplayLiqAllocPath` rows, and exposes lookup hit, candidate mask, target index, wait-intent, request-valid, and blocker diagnostics. R466 adds a nested `reducedMdbLookupWaitPlanBridge` diagnostic bundle from a sidecar `LoadInflightRowMutationRequestBridge` fed by the plan request. R498 connects the planner's raw request into `ReducedLoadReplayLiqAllocPath` through `LoadReplayRowMutationSourceMux`; the diagnostic bridge remains observational, while the actual path still uses the LIQ path's internal row-mutation bridge. |
 | output | `executeLoadWaitHold` | `Bool` | diagnostic | R266 reduced execute hold for a load waiting on an older not-ready resident store. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
@@ -2712,6 +2712,17 @@ activity, validity, source-store index fit, and malformed-payload blockers befor
 any live row-mutation ownership decision. The same packet moves the direct MDB
 fanout visibility assignments into a helper object to keep the already-large top
 constructor below the JVM bytecode limit.
+R498 updates the live lookup producer to use
+`LoadReplaySourceReturnStoreSnapshotPath.queryIssueIssued` instead of
+`ReducedLoadReplayLiqAllocPath.launchAccepted`, matching the model
+`LDQInfo::handleStateQuery` timing more closely for a replay load that is being
+state-queried. R498 also inserts `LoadReplayRowMutationSourceMux` before
+`ReducedLoadReplayLiqAllocPath`'s internal row-mutation bridge. Source-return
+mutation has priority over MDB wait-plan mutation; if the planner later emits
+`requestValid`, the selected request can reach the native LIQ write path
+without bypassing bridge/control validation. The R498 live fixture proves
+lookup publication only: `mdb_fanout_lookup_valid/accepted/processed=1`,
+`mdb_fanout_lu_out_hit=0`, and all MDB wait-plan request counters remain zero.
 
 The overlay clears only on
 run start/restart or when the optional reduced-store path is disabled;
@@ -3768,6 +3779,16 @@ normalized QEMU/DUT rows and zero mismatches, and the sideband report records
 `mdb_fanout_ssit_nonempty=1`. MDB lookup wait-plan counters remain zero, so
 the next packet must prove the learned MDB record can drive a later lookup hit
 and wait-store mutation before claiming load replay prediction.
+R498 moves MDB lookup publication to the source-return query boundary and
+routes any future planner request through the row-mutation source mux. The
+`generated/r498-replay-liq-mdb-lookup-query-gate` report compares three rows
+with zero mismatches and records `mdb_fanout_lookup_valid=1`,
+`mdb_fanout_lookup_accepted=1`, `mdb_fanout_lookup_processed=1`,
+`mdb_fanout_lu_out_valid=1`, `mdb_fanout_lu_out_hit=0`, and
+`mdb_lookup_wait_plan_request_valid=0`. This is expected because the short
+`replay-ldi-sdi-ldi` fixture has no later same-PC dynamic load after the SSIT
+record is learned, and the model also suppresses the first post-nuke lookup for
+the same BID.
 
 ## Verification
 
