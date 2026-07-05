@@ -9,6 +9,7 @@ fi
 TRACE_DIR="${BUILD_DIR}/traces"
 REPORT_DIR="${BUILD_DIR}/report"
 ELF=""
+FIXTURE=""
 QEMU_BIN=""
 EXPECTED_ROWS="${EXPECTED_ROWS:-3}"
 CAPTURE_ROWS="${CAPTURE_ROWS:-}"
@@ -26,9 +27,12 @@ usage() {
   cat <<USAGE
 Usage:
   $(basename "$0") --elf <program.elf> [options] -- [qemu args]
+  $(basename "$0") --fixture replay-ldi-sdi-ldi [options] -- [qemu args]
 
 Options:
   --build-dir <dir>       Output root (default: ${BUILD_DIR})
+  --fixture <name>        Build a named fixture ELF before capture.
+                          Supported: replay-ldi-sdi-ldi
   --qemu-bin <path>       QEMU binary. Defaults to the Chisel cross-check QEMU.
   --expected-rows <int>   Reduced scalar rows to extract/compare (default: ${EXPECTED_ROWS}; 0 means all)
   --capture-rows <int>    Filtered QEMU rows to capture before stopping QEMU
@@ -67,17 +71,25 @@ With --reduced-store-replay-liq, the harness emits the reduced-store replay-LIQ
 top so queued replay candidates are consumed only by LIQ allocation acceptance.
 With --disable-store-memory-mutation, later loads can observe committed stores
 only through the reduced-store RTL memory overlay.
+With --fixture replay-ldi-sdi-ldi, the wrapper builds the memory-order probe
+inside the build directory and defaults to the bounded prefix
+C.BSTART.STD/LDI/SDI/LDI. The C.BSTOP tail is excluded by default because the
+current dense fetch checker cannot consume that trailing two-byte stop marker
+as part of the same fixture window.
 USAGE
 }
 
 QEMU_ARGS=()
+EXPECTED_ROWS_SET=0
+CAPTURE_ROWS_SET=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --elf) ELF="$2"; shift 2 ;;
+    --fixture) FIXTURE="$2"; shift 2 ;;
     --build-dir) BUILD_DIR="$2"; shift 2 ;;
     --qemu-bin) QEMU_BIN="$2"; shift 2 ;;
-    --expected-rows) EXPECTED_ROWS="$2"; shift 2 ;;
-    --capture-rows) CAPTURE_ROWS="$2"; shift 2 ;;
+    --expected-rows) EXPECTED_ROWS="$2"; EXPECTED_ROWS_SET=1; shift 2 ;;
+    --capture-rows) CAPTURE_ROWS="$2"; CAPTURE_ROWS_SET=1; shift 2 ;;
     --max-seconds) MAX_SECONDS="$2"; shift 2 ;;
     --pc-lo) PC_LO="$2"; shift 2 ;;
     --pc-hi) PC_HI="$2"; shift 2 ;;
@@ -107,13 +119,48 @@ QEMU_FIFO="${TRACE_DIR}/qemu.live.raw.fifo"
 QEMU_TRACE_RUNNER="${ROOT_DIR}/tools/qemu/run_qemu_commit_trace.sh"
 FETCH_RUNNER="${ROOT_DIR}/tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh"
 QEMU_CROSSCHECK_RUNNER="${ROOT_DIR}/tools/chisel/run_chisel_qemu_crosscheck.sh"
+FIXTURE_BUILDER="${ROOT_DIR}/tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh"
 qemu_pid=""
 reader_pid=""
 watchdog_pid=""
 producer_watch_pid=""
 
+if [[ -n "${ELF}" && -n "${FIXTURE}" ]]; then
+  echo "error: --elf and --fixture are mutually exclusive" >&2
+  usage
+  exit 2
+fi
+if [[ -n "${FIXTURE}" ]]; then
+  case "${FIXTURE}" in
+    replay-ldi-sdi-ldi)
+      FIXTURE_DIR="${BUILD_DIR}/fixture-replay-ldi-sdi-ldi"
+      bash "${FIXTURE_BUILDER}" \
+        --out-dir "${FIXTURE_DIR}" \
+        --replay-ldi-sdi-ldi
+      ELF="${FIXTURE_DIR}/frontend_fetch_rf_alu_qemu_fixture.elf"
+      if [[ "${EXPECTED_ROWS_SET}" == "0" ]]; then
+        EXPECTED_ROWS=0
+      fi
+      if [[ "${CAPTURE_ROWS_SET}" == "0" ]]; then
+        CAPTURE_ROWS=4
+      fi
+      ALLOW_BLOCK_MARKERS=1
+      if [[ -z "${PC_LO}" ]]; then
+        PC_LO=0x10000
+      fi
+      if [[ -z "${PC_HI}" ]]; then
+        PC_HI=0x1000b
+      fi
+      ;;
+    *)
+      echo "error: unsupported --fixture: ${FIXTURE}" >&2
+      usage
+      exit 2
+      ;;
+  esac
+fi
 if [[ -z "${ELF}" ]]; then
-  echo "error: --elf is required" >&2
+  echo "error: --elf or --fixture is required" >&2
   usage
   exit 2
 fi

@@ -813,6 +813,19 @@ does not change the R449/R450 conclusion that the current reduced top can
 retire the architectural sequence while all replay-LIQ/MDB wait counters stay
 zero.
 
+R472 adds the same probe as a named fixture mode in
+`tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`:
+`--fixture replay-ldi-sdi-ldi`. The wrapper builds the fixture under the
+selected build directory, captures the bounded `C.BSTART.STD` + `LDI`/`SDI`/`LDI`
+prefix by default, admits the entry marker as a legal skip row, and excludes
+the `C.BSTOP` tail that the current dense fetch checker cannot consume in the
+same fixture window. The R472 reduced-store replay-LIQ gate
+`generated/r472-replay-ldi-sdi-fixture-wrapper-xcheck` captures 4 raw QEMU rows,
+normalizes 3 QEMU/DUT rows, and passes with zero mismatches. Its sideband stats
+again show no resident-store wake, wait-replay, replay queue, LIQ allocation,
+MDB lookup hit, or row-mutation activity, preserving the live-stimulus
+negative result while making the wrapper invocation reproducible.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
@@ -2516,6 +2529,9 @@ row comparison is therefore not replay-LIQ promotion evidence by itself.
 R471 makes that negative live probe reproducible in the fixture builder with
 `--replay-ldi-sdi-ldi`, so future agents no longer depend on a stale
 `/tmp/linx_r449_ldi_sdi_probe.elf` artifact when rerunning the same stimulus.
+R472 wires that probe into the QEMU/RTL wrapper as
+`--fixture replay-ldi-sdi-ldi`, using the bounded `BSTART` + three-memory-row
+prefix by default and leaving the `C.BSTOP` tail out of the dense fetch window.
 R418 splits the replay-LIQ source-return launch sideband: local STQ/store
 snapshot readiness now feeds the reduced LIQ `e2StqReturned` input, while SCB
 readiness feeds `e2ScbReturned`. The combined launch/return behavior remains
