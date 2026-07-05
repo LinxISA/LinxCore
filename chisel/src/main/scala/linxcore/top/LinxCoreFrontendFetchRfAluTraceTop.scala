@@ -2739,6 +2739,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     loadLookupArbiter.io.replayGranted && reducedReplayLiqBaseDataAlign.io.dataReturned
   val reducedReplayLiqSelectedRowForStoreSnapshot =
     reducedLoadReplayLiqAllocPath.io.rows(reducedLoadReplayLiqAllocPath.io.launchIndex)
+  val reducedReplayLiqStoreSnapshotLineData =
+    Mux(reducedReplayLiqBaseDataReady, reducedReplayLiqBaseDataAlign.io.lineData, reducedReplayLiqSelectedRowForStoreSnapshot.lineData)
+  val reducedReplayLiqStoreSnapshotValidMask =
+    Mux(reducedReplayLiqBaseDataReady, reducedReplayLiqBaseDataAlign.io.lineValidMask, reducedReplayLiqSelectedRowForStoreSnapshot.validMask)
   val reducedReplayLiqRowValidMask =
     VecInit((0 until p.robEntries).map(idx => reducedLoadReplayLiqAllocPath.io.rows(idx).valid)).asUInt
   val reducedReplayLiqPtrWidth = log2Ceil(p.robEntries)
@@ -2783,8 +2787,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       selectedAddr = reducedLoadReplayLiqAllocPath.io.launchSelectedAddr,
       selectedSize = reducedLoadReplayLiqAllocPath.io.launchSelectedSize,
       selectedRequestByteMask = reducedLoadReplayLiqAllocPath.io.launchSelectedRequestByteMask,
-      selectedLineData = reducedReplayLiqSelectedRowForStoreSnapshot.lineData,
-      selectedValidMask = reducedReplayLiqSelectedRowForStoreSnapshot.validMask,
+      selectedLineData = reducedReplayLiqStoreSnapshotLineData,
+      selectedValidMask = reducedReplayLiqStoreSnapshotValidMask,
       legacySnapshotReady = reducedLoadReplayLiqAllocEnabled
     )
   LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring.connect(
