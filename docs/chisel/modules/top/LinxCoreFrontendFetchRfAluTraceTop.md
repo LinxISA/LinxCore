@@ -882,6 +882,19 @@ preserves the R474 conclusion with cycle-level evidence: the next packet needs
 to delay or replay the younger load lookup into the STA-only STQ cycle, not
 repair STQ insertion or address/data readiness visibility.
 
+R476 adds `ReducedStoreStaAddressExecBridge` as the next model-aligned reduced
+STA execution boundary. The bridge is not wired into this top yet; it creates
+the explicit contract this top is missing. It consumes a visible STA queue head
+plus externally supplied address-source read data/readiness and emits a
+`StoreDispatchExecResult` for address-only STQ insertion. This follows the
+LinxCoreModel split-store path where rename creates `ST_ADDR` and `ST_DATA`
+work independently, and `STQueueEntryInfo::init` records address-only rows with
+address ready and data not ready. R475 showed the live top currently produces
+the STA-only row after the younger load lookup because `ReducedStoreExecResultBridge`
+waits for full reduced-ALU store completion. R476 therefore narrows the next
+top change to an RF/local read and selection owner for STA queue heads, with
+STD/data still allowed to use the existing completion-backed bridge.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
