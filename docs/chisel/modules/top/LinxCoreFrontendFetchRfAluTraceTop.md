@@ -1081,6 +1081,13 @@ complete `Repick` shape as a terminal row, matching the model sequence
 harness idle exception. The early-STA replay-LIQ fixture now drains cleanly
 with 3 compared QEMU/DUT rows and zero mismatches.
 
+R490 promotes that fixture from a quiet architectural pass to a replay-LIQ
+activity proof by running the same early-STA gate with
+`FETCH_REPLAY_LIQ_REQUIRE_NONZERO` over wait-replay capture/relaunch, replay
+queue fire, LIQ allocation, base lookup grant, source-return query/apply,
+row-mutation request, and LIQ row-mutation write-enable counters. The gate
+passes with the same 3 compared rows and zero mismatches.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
@@ -3676,6 +3683,9 @@ source-returned `Repick` head after the replay return has produced the final
 architectural row. The enabled early-STA replay-LIQ gate at
 `generated/r489-replay-liq-complete-repick-clear-enabled-xcheck` passes with
 3 normalized rows compared and zero mismatches.
+R490 repeats that gate with explicit nonzero replay-LIQ counter requirements
+at `generated/r490-replay-liq-nonzero-promotion-gate`; it also passes with 3
+normalized rows compared and zero mismatches.
 
 ## Verification
 
