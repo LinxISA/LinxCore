@@ -1058,6 +1058,19 @@ visible. The next packet should inspect
 across the pick/reissue cycle before changing final launch readiness or the
 idle predicate.
 
+R488 changes the source-return accepted-token image selected by the reduced
+top. When `LoadReplayBaseDataAlign` has a replay-granted returned line, the
+store-snapshot path captures that base line data and valid mask rather than
+the still-empty LIQ row image; otherwise it falls back to the row-owned image.
+This matches the model order where L1/SCB/base data can already be in
+`ReqData` before the STQ response says no store data was merged. The enabled
+early-STA fixture now advances to a source-complete `Repick` row:
+`DataComplete=1`, `SourcesReturned=1`, `ScbReturned=1`, and `StqReturned=1`.
+The next packet should add the final return/resolve owner for a source-complete
+`Repick` row, because the current launch selector only scans `Wait` rows and
+therefore reports no candidate once the row has already collected all source
+evidence.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
