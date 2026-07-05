@@ -252,6 +252,7 @@ struct ReplayLiqSidebandStats {
   std::uint64_t liq_base_data_returned = 0;
   std::uint64_t liq_wait_store_mask_nonzero = 0;
   std::uint64_t liq_replay_wake_valid = 0;
+  std::uint64_t liq_replay_wake_active = 0;
   std::uint64_t liq_replay_wake_wait_store_candidate = 0;
   std::uint64_t liq_replay_wake_bid_match = 0;
   std::uint64_t liq_replay_wake_lsid_match = 0;
@@ -259,6 +260,8 @@ struct ReplayLiqSidebandStats {
   std::uint64_t liq_replay_wake_full_match = 0;
   std::uint64_t liq_replay_wake_store_unit = 0;
   std::uint64_t liq_replay_wake_store_unit_full_match = 0;
+  std::uint64_t liq_replay_wake_store_unit_full_match_active = 0;
+  std::uint64_t liq_replay_wake_store_unit_full_match_flush_blocked = 0;
   std::uint64_t liq_replay_wake_wait_store_clear = 0;
   std::uint64_t source_return_candidate_valid = 0;
   std::uint64_t source_return_store_snapshot_ready = 0;
@@ -558,8 +561,15 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqWaitStoreMask != 0) {
     ++g_replay_liq_sideband_stats.liq_wait_store_mask_nonzero;
   }
-  if (dut.io_reducedLoadReplayLiqReplayWakeValid) {
+  const bool liq_replay_wake_valid = dut.io_reducedLoadReplayLiqReplayWakeValid;
+  const bool liq_replay_wake_flush = dut.io_reducedLoadReplayLiqReplayWakeFlush;
+  const bool liq_replay_wake_store_unit_full_match =
+      dut.io_reducedLoadReplayLiqReplayWakeStoreUnitFullMatchMask != 0;
+  if (liq_replay_wake_valid) {
     ++g_replay_liq_sideband_stats.liq_replay_wake_valid;
+  }
+  if (liq_replay_wake_valid && !liq_replay_wake_flush) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_active;
   }
   if (dut.io_reducedLoadReplayLiqReplayWakeWaitStoreCandidateMask != 0) {
     ++g_replay_liq_sideband_stats.liq_replay_wake_wait_store_candidate;
@@ -579,8 +589,14 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqReplayWakeStoreUnit) {
     ++g_replay_liq_sideband_stats.liq_replay_wake_store_unit;
   }
-  if (dut.io_reducedLoadReplayLiqReplayWakeStoreUnitFullMatchMask != 0) {
+  if (liq_replay_wake_store_unit_full_match) {
     ++g_replay_liq_sideband_stats.liq_replay_wake_store_unit_full_match;
+  }
+  if (liq_replay_wake_store_unit_full_match && !liq_replay_wake_flush) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_store_unit_full_match_active;
+  }
+  if (liq_replay_wake_valid && liq_replay_wake_flush && liq_replay_wake_store_unit_full_match) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_store_unit_full_match_flush_blocked;
   }
   if (dut.io_reducedLoadReplayLiqReplayWakeWaitStoreClearMask != 0) {
     ++g_replay_liq_sideband_stats.liq_replay_wake_wait_store_clear;
@@ -787,7 +803,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v9\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v10\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -907,6 +923,8 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.liq_wait_store_mask_nonzero << ",\n"
       << "    \"liq_replay_wake_valid\": "
       << g_replay_liq_sideband_stats.liq_replay_wake_valid << ",\n"
+      << "    \"liq_replay_wake_active\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_active << ",\n"
       << "    \"liq_replay_wake_wait_store_candidate\": "
       << g_replay_liq_sideband_stats.liq_replay_wake_wait_store_candidate << ",\n"
       << "    \"liq_replay_wake_bid_match\": "
@@ -921,6 +939,10 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.liq_replay_wake_store_unit << ",\n"
       << "    \"liq_replay_wake_store_unit_full_match\": "
       << g_replay_liq_sideband_stats.liq_replay_wake_store_unit_full_match << ",\n"
+      << "    \"liq_replay_wake_store_unit_full_match_active\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_store_unit_full_match_active << ",\n"
+      << "    \"liq_replay_wake_store_unit_full_match_flush_blocked\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_store_unit_full_match_flush_blocked << ",\n"
       << "    \"liq_replay_wake_wait_store_clear\": "
       << g_replay_liq_sideband_stats.liq_replay_wake_wait_store_clear << ",\n"
       << "    \"source_return_candidate_valid\": "

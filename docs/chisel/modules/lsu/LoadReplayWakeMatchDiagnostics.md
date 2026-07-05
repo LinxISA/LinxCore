@@ -10,6 +10,12 @@ top before relying on the child LIQ clear mask.
 It does not mutate LIQ rows, arbitrate wakeups, merge data, or change launch
 eligibility.
 
+R510 keeps this helper as a raw predicate mirror and exports the top-level
+flush qualifier beside it. The child `LoadInflightQueue` gates
+`LoadReplayWakeup.wakeValid` with `!flush`, so a raw store-unit full match is
+only actionable when the Verilator sideband report classifies it as active
+rather than flush-blocked.
+
 ## Interface
 
 | Direction | Signal | Description |
@@ -45,3 +51,5 @@ failures.
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - R509 live gate:
   `generated/r509-replay-liq-wake-source-diagnostics/report/frontend_fetch_rf_alu_sideband_stats.json`
+- R510 live gate:
+  `generated/r510-replay-liq-wake-active-flush-diagnostics/report/frontend_fetch_rf_alu_sideband_stats.json`

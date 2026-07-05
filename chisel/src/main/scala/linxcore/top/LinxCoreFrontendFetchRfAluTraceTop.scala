@@ -403,6 +403,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqWaitMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqWaitStoreMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqReplayWakeValid = Output(Bool())
+  val reducedLoadReplayLiqReplayWakeFlush = Output(Bool())
   val reducedLoadReplayLiqReplayWakeWaitStoreCandidateMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqReplayWakeBidMatchMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqReplayWakeLsIdMatchMask = Output(UInt(p.robEntries.W))
@@ -4414,23 +4415,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqOccupiedMask := reducedLoadReplayLiqAllocPath.io.occupiedMask
   io.reducedLoadReplayLiqWaitMask := reducedLoadReplayLiqAllocPath.io.waitMask
   io.reducedLoadReplayLiqWaitStoreMask := reducedLoadReplayLiqAllocPath.io.waitStoreMask
-  io.reducedLoadReplayLiqReplayWakeValid := reducedLoadReplayLiqReplayWakeValid
-  io.reducedLoadReplayLiqReplayWakeWaitStoreCandidateMask :=
-    reducedLoadReplayLiqWakeMatchDiagnostics.io.waitStoreCandidateMask
-  io.reducedLoadReplayLiqReplayWakeBidMatchMask :=
-    reducedLoadReplayLiqWakeMatchDiagnostics.io.bidMatchMask
-  io.reducedLoadReplayLiqReplayWakeLsIdMatchMask :=
-    reducedLoadReplayLiqWakeMatchDiagnostics.io.lsIdMatchMask
-  io.reducedLoadReplayLiqReplayWakePcMatchMask :=
-    reducedLoadReplayLiqWakeMatchDiagnostics.io.pcMatchMask
-  io.reducedLoadReplayLiqReplayWakeFullMatchMask :=
-    reducedLoadReplayLiqWakeMatchDiagnostics.io.fullMatchMask
-  io.reducedLoadReplayLiqReplayWakeStoreUnit :=
-    reducedLoadReplayLiqWakeMatchDiagnostics.io.storeUnit
-  io.reducedLoadReplayLiqReplayWakeStoreUnitFullMatchMask :=
-    reducedLoadReplayLiqWakeMatchDiagnostics.io.storeUnitFullMatchMask
-  io.reducedLoadReplayLiqReplayWakeWaitStoreClearMask :=
-    reducedLoadReplayLiqAllocPath.io.replayWakeWaitStoreClearMask
+  LinxCoreFrontendFetchRfAluTraceTopReplayWakeVisibilityWiring.connect(
+    io,
+    reducedLoadReplayLiqWakeMatchDiagnostics,
+    reducedLoadReplayLiqAllocPath,
+    reducedLoadReplayLiqReplayWakeValid,
+    reducedStoreFlush
+  )
   io.reducedLoadReplayLiqLaunchWaitMask := reducedLoadReplayLiqAllocPath.io.launchWaitMask
   io.reducedLoadReplayLiqLaunchWaitStoreBlockedMask := reducedLoadReplayLiqAllocPath.io.launchWaitStoreBlockedMask
   io.reducedLoadReplayLiqLaunchTileBlockedMask := reducedLoadReplayLiqAllocPath.io.launchTileBlockedMask
@@ -5816,6 +5807,34 @@ private object LinxCoreFrontendFetchRfAluTraceTopR379WakeupSinkReadyWiring {
     io.reducedLoadReplayLiqReturnWakeupSinkBlockedByNoWakeup := sink.io.blockedByNoWakeup
     io.reducedLoadReplayLiqReturnWakeupSinkBlockedBySink := sink.io.blockedBySink
     io.reducedLoadReplayLiqReturnWakeupSinkBlockedByLiveDisabled := sink.io.blockedByLiveDisabled
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopReplayWakeVisibilityWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      wakeMatchDiagnostics: LoadReplayWakeMatchDiagnostics,
+      liqAllocPath: ReducedLoadReplayLiqAllocPath,
+      replayWakeValid: Bool,
+      replayWakeFlush: Bool): Unit = {
+    io.reducedLoadReplayLiqReplayWakeValid := replayWakeValid
+    io.reducedLoadReplayLiqReplayWakeFlush := replayWakeFlush
+    io.reducedLoadReplayLiqReplayWakeWaitStoreCandidateMask :=
+      wakeMatchDiagnostics.io.waitStoreCandidateMask
+    io.reducedLoadReplayLiqReplayWakeBidMatchMask :=
+      wakeMatchDiagnostics.io.bidMatchMask
+    io.reducedLoadReplayLiqReplayWakeLsIdMatchMask :=
+      wakeMatchDiagnostics.io.lsIdMatchMask
+    io.reducedLoadReplayLiqReplayWakePcMatchMask :=
+      wakeMatchDiagnostics.io.pcMatchMask
+    io.reducedLoadReplayLiqReplayWakeFullMatchMask :=
+      wakeMatchDiagnostics.io.fullMatchMask
+    io.reducedLoadReplayLiqReplayWakeStoreUnit :=
+      wakeMatchDiagnostics.io.storeUnit
+    io.reducedLoadReplayLiqReplayWakeStoreUnitFullMatchMask :=
+      wakeMatchDiagnostics.io.storeUnitFullMatchMask
+    io.reducedLoadReplayLiqReplayWakeWaitStoreClearMask :=
+      liqAllocPath.io.replayWakeWaitStoreClearMask
   }
 }
 
