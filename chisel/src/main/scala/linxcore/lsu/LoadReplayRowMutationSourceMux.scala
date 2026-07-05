@@ -70,13 +70,43 @@ class LoadReplayRowMutationSourceMux(
     lineBytes
   ))
 
-  val useSourceReturn = io.sourceReturn.valid
-  val useMdbWaitPlan = !useSourceReturn && io.mdbWaitPlan.valid
+  val sourceValid = io.sourceReturn.valid
+  val mdbValid = io.mdbWaitPlan.valid
+  val sameTarget =
+    sourceValid &&
+      mdbValid &&
+      (io.sourceReturn.targetMask === io.mdbWaitPlan.targetMask) &&
+      (io.sourceReturn.targetIndex === io.mdbWaitPlan.targetIndex)
+  val useSourceReturn = sourceValid
+  val useMdbWaitPlan = mdbValid && (!sourceValid || sameTarget)
   val selected = WireDefault(0.U.asTypeOf(io.out))
   val selectedPayload = Mux(useSourceReturn, io.sourceReturn, Mux(useMdbWaitPlan, io.mdbWaitPlan, 0.U.asTypeOf(io.out)))
 
   selected := selectedPayload
   selected.valid := useSourceReturn || useMdbWaitPlan
+  when(sameTarget) {
+    selected.valid := true.B
+    selected.targetMask := io.sourceReturn.targetMask
+    selected.targetIndex := io.sourceReturn.targetIndex
+    selected.setWaitStatus := io.sourceReturn.setWaitStatus || io.mdbWaitPlan.setWaitStatus
+    selected.keepRepickStatus := io.sourceReturn.keepRepickStatus && !io.mdbWaitPlan.setWaitStatus
+    selected.clearReturnState := io.sourceReturn.clearReturnState || io.mdbWaitPlan.clearReturnState
+    selected.lineWrite := io.sourceReturn.lineWrite || io.mdbWaitPlan.lineWrite
+    selected.waitStoreWrite := io.sourceReturn.waitStoreWrite || io.mdbWaitPlan.waitStoreWrite
+    selected.nextWaitStore := Mux(io.mdbWaitPlan.waitStoreWrite, io.mdbWaitPlan.nextWaitStore, io.sourceReturn.nextWaitStore)
+    selected.nextWaitStoreInfo :=
+      Mux(io.mdbWaitPlan.waitStoreWrite, io.mdbWaitPlan.nextWaitStoreInfo, io.sourceReturn.nextWaitStoreInfo)
+    selected.nextLineData := Mux(io.mdbWaitPlan.lineWrite, io.mdbWaitPlan.nextLineData, io.sourceReturn.nextLineData)
+    selected.nextValidMask := Mux(io.mdbWaitPlan.lineWrite, io.mdbWaitPlan.nextValidMask, io.sourceReturn.nextValidMask)
+    selected.nextDataComplete :=
+      Mux(io.mdbWaitPlan.clearReturnState, io.mdbWaitPlan.nextDataComplete, io.sourceReturn.nextDataComplete)
+    selected.nextScbReturned :=
+      Mux(io.mdbWaitPlan.clearReturnState, io.mdbWaitPlan.nextScbReturned, io.sourceReturn.nextScbReturned)
+    selected.nextStqReturned :=
+      Mux(io.mdbWaitPlan.clearReturnState, io.mdbWaitPlan.nextStqReturned, io.sourceReturn.nextStqReturned)
+    selected.nextStoreSourceReturned :=
+      Mux(io.mdbWaitPlan.clearReturnState, io.mdbWaitPlan.nextStoreSourceReturned, io.sourceReturn.nextStoreSourceReturned)
+  }
 
   io.out := selected
   io.selectedSourceReturn := useSourceReturn

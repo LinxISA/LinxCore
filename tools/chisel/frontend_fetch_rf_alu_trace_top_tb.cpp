@@ -249,6 +249,8 @@ struct ReplayLiqSidebandStats {
   std::uint64_t liq_base_lookup_valid = 0;
   std::uint64_t liq_base_lookup_granted = 0;
   std::uint64_t liq_base_data_returned = 0;
+  std::uint64_t liq_wait_store_mask_nonzero = 0;
+  std::uint64_t liq_replay_wake_wait_store_clear = 0;
   std::uint64_t source_return_candidate_valid = 0;
   std::uint64_t source_return_store_snapshot_ready = 0;
   std::uint64_t source_return_store_snapshot_live_request_active = 0;
@@ -313,6 +315,10 @@ struct ReplayLiqSidebandStats {
   std::uint64_t mdb_lookup_wait_plan_bridge_invalid_wait_store_without_wait_status = 0;
   std::uint64_t mdb_lookup_wait_plan_bridge_invalid_return_without_split_sources = 0;
   std::uint64_t liq_row_mutation_bridge_valid = 0;
+  std::uint64_t liq_row_mutation_selected_source_return = 0;
+  std::uint64_t liq_row_mutation_selected_mdb_wait_plan = 0;
+  std::uint64_t liq_row_mutation_source_conflict = 0;
+  std::uint64_t mdb_wait_plan_row_mutation_write_enable = 0;
   std::uint64_t liq_row_mutation_write_enable = 0;
   std::uint64_t liq_row_mutation_apply_valid = 0;
   std::uint64_t liq_row_mutation_blocked_by_bridge = 0;
@@ -539,6 +545,12 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqBaseDataReturned) {
     ++g_replay_liq_sideband_stats.liq_base_data_returned;
   }
+  if (dut.io_reducedLoadReplayLiqWaitStoreMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_wait_store_mask_nonzero;
+  }
+  if (dut.io_reducedLoadReplayLiqReplayWakeWaitStoreClearMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_replay_wake_wait_store_clear;
+  }
   if (dut.io_reducedLoadReplayLiqSourceReturnCandidateValid) {
     ++g_replay_liq_sideband_stats.source_return_candidate_valid;
   }
@@ -701,6 +713,19 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqRowMutationBridgeValid) {
     ++g_replay_liq_sideband_stats.liq_row_mutation_bridge_valid;
   }
+  if (dut.io_reducedLoadReplayLiqRowMutationSelectedSourceReturn) {
+    ++g_replay_liq_sideband_stats.liq_row_mutation_selected_source_return;
+  }
+  if (dut.io_reducedLoadReplayLiqRowMutationSelectedMdbWaitPlan) {
+    ++g_replay_liq_sideband_stats.liq_row_mutation_selected_mdb_wait_plan;
+  }
+  if (dut.io_reducedLoadReplayLiqRowMutationSourceConflict) {
+    ++g_replay_liq_sideband_stats.liq_row_mutation_source_conflict;
+  }
+  if (dut.io_reducedLoadReplayLiqRowMutationSelectedMdbWaitPlan &&
+      dut.io_reducedLoadReplayLiqRowMutationWriteEnable) {
+    ++g_replay_liq_sideband_stats.mdb_wait_plan_row_mutation_write_enable;
+  }
   if (dut.io_reducedLoadReplayLiqRowMutationWriteEnable) {
     ++g_replay_liq_sideband_stats.liq_row_mutation_write_enable;
   }
@@ -728,7 +753,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v6\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v7\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -844,6 +869,10 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.liq_base_lookup_granted << ",\n"
       << "    \"liq_base_data_returned\": "
       << g_replay_liq_sideband_stats.liq_base_data_returned << ",\n"
+      << "    \"liq_wait_store_mask_nonzero\": "
+      << g_replay_liq_sideband_stats.liq_wait_store_mask_nonzero << ",\n"
+      << "    \"liq_replay_wake_wait_store_clear\": "
+      << g_replay_liq_sideband_stats.liq_replay_wake_wait_store_clear << ",\n"
       << "    \"source_return_candidate_valid\": "
       << g_replay_liq_sideband_stats.source_return_candidate_valid << ",\n"
       << "    \"source_return_store_snapshot_ready\": "
@@ -972,6 +1001,14 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.mdb_lookup_wait_plan_bridge_invalid_return_without_split_sources << ",\n"
       << "    \"liq_row_mutation_bridge_valid\": "
       << g_replay_liq_sideband_stats.liq_row_mutation_bridge_valid << ",\n"
+      << "    \"liq_row_mutation_selected_source_return\": "
+      << g_replay_liq_sideband_stats.liq_row_mutation_selected_source_return << ",\n"
+      << "    \"liq_row_mutation_selected_mdb_wait_plan\": "
+      << g_replay_liq_sideband_stats.liq_row_mutation_selected_mdb_wait_plan << ",\n"
+      << "    \"liq_row_mutation_source_conflict\": "
+      << g_replay_liq_sideband_stats.liq_row_mutation_source_conflict << ",\n"
+      << "    \"mdb_wait_plan_row_mutation_write_enable\": "
+      << g_replay_liq_sideband_stats.mdb_wait_plan_row_mutation_write_enable << ",\n"
       << "    \"liq_row_mutation_write_enable\": "
       << g_replay_liq_sideband_stats.liq_row_mutation_write_enable << ",\n"
       << "    \"liq_row_mutation_apply_valid\": "

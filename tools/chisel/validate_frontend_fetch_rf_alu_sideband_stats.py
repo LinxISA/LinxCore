@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v6"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v7"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -67,6 +67,8 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "liq_base_lookup_valid",
     "liq_base_lookup_granted",
     "liq_base_data_returned",
+    "liq_wait_store_mask_nonzero",
+    "liq_replay_wake_wait_store_clear",
     "source_return_candidate_valid",
     "source_return_store_snapshot_ready",
     "source_return_store_snapshot_live_request_active",
@@ -131,6 +133,10 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "mdb_lookup_wait_plan_bridge_invalid_wait_store_without_wait_status",
     "mdb_lookup_wait_plan_bridge_invalid_return_without_split_sources",
     "liq_row_mutation_bridge_valid",
+    "liq_row_mutation_selected_source_return",
+    "liq_row_mutation_selected_mdb_wait_plan",
+    "liq_row_mutation_source_conflict",
+    "mdb_wait_plan_row_mutation_write_enable",
     "liq_row_mutation_write_enable",
     "liq_row_mutation_apply_valid",
     "liq_row_mutation_blocked_by_bridge",

@@ -401,6 +401,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqAllocLoadIdValue = Output(UInt(ptrWidth.W))
   val reducedLoadReplayLiqOccupiedMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqWaitMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqWaitStoreMask = Output(UInt(p.robEntries.W))
+  val reducedLoadReplayLiqReplayWakeWaitStoreClearMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqLaunchWaitMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqLaunchWaitStoreBlockedMask = Output(UInt(p.robEntries.W))
   val reducedLoadReplayLiqLaunchTileBlockedMask = Output(UInt(p.robEntries.W))
@@ -1414,6 +1416,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqE4WakeupValid = Output(Bool())
   val reducedLoadReplayLiqLhqRecordValid = Output(Bool())
   val reducedLoadReplayLiqRowMutationBridgeValid = Output(Bool())
+  val reducedLoadReplayLiqRowMutationSelectedSourceReturn = Output(Bool())
+  val reducedLoadReplayLiqRowMutationSelectedMdbWaitPlan = Output(Bool())
+  val reducedLoadReplayLiqRowMutationSourceConflict = Output(Bool())
   val reducedLoadReplayLiqRowMutationSourceStoreIndexFits = Output(Bool())
   val reducedLoadReplayLiqRowMutationInvalidStoreIndexOutOfRange = Output(Bool())
   val reducedLoadReplayLiqRowMutationInvalidConflictingStatusWrite = Output(Bool())
@@ -3170,9 +3175,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       enable = reducedLoadReplayLiqAllocEnabled,
       flush = reducedStoreFlush,
       plan = reducedMdbLookupWaitPlan
-    )
+  )
   LinxCoreFrontendFetchRfAluTraceTopR498RowMutationSourceMuxWiring.connect(
     p = p,
+    io = io,
     source = reducedReplayLiqSourceReturnStoreSnapshotPath,
     mdbWaitPlan = reducedMdbLookupWaitPlan,
     liqPath = reducedLoadReplayLiqAllocPath
@@ -4353,6 +4359,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqAllocLoadIdValue := reducedLoadReplayLiqAllocPath.io.allocLoadId.value
   io.reducedLoadReplayLiqOccupiedMask := reducedLoadReplayLiqAllocPath.io.occupiedMask
   io.reducedLoadReplayLiqWaitMask := reducedLoadReplayLiqAllocPath.io.waitMask
+  io.reducedLoadReplayLiqWaitStoreMask := reducedLoadReplayLiqAllocPath.io.waitStoreMask
+  io.reducedLoadReplayLiqReplayWakeWaitStoreClearMask :=
+    reducedLoadReplayLiqAllocPath.io.replayWakeWaitStoreClearMask
   io.reducedLoadReplayLiqLaunchWaitMask := reducedLoadReplayLiqAllocPath.io.launchWaitMask
   io.reducedLoadReplayLiqLaunchWaitStoreBlockedMask := reducedLoadReplayLiqAllocPath.io.launchWaitStoreBlockedMask
   io.reducedLoadReplayLiqLaunchTileBlockedMask := reducedLoadReplayLiqAllocPath.io.launchTileBlockedMask
@@ -6271,6 +6280,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring {
 private object LinxCoreFrontendFetchRfAluTraceTopR498RowMutationSourceMuxWiring {
   def connect(
       p: InterfaceParams,
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
       source: LoadReplaySourceReturnStoreSnapshotPath,
       mdbWaitPlan: LoadReplayMdbLookupWaitPlan,
       liqPath: ReducedLoadReplayLiqAllocPath): Unit = {
@@ -6332,6 +6342,10 @@ private object LinxCoreFrontendFetchRfAluTraceTopR498RowMutationSourceMuxWiring 
     liqPath.io.rowMutationNextScbReturned := mux.io.out.nextScbReturned
     liqPath.io.rowMutationNextStqReturned := mux.io.out.nextStqReturned
     liqPath.io.rowMutationNextStoreSourceReturned := mux.io.out.nextStoreSourceReturned
+
+    io.reducedLoadReplayLiqRowMutationSelectedSourceReturn := mux.io.selectedSourceReturn
+    io.reducedLoadReplayLiqRowMutationSelectedMdbWaitPlan := mux.io.selectedMdbWaitPlan
+    io.reducedLoadReplayLiqRowMutationSourceConflict := mux.io.conflict
   }
 }
 
