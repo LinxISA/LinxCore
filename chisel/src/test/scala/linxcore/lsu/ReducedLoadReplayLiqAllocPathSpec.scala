@@ -132,6 +132,8 @@ class ReducedLoadReplayLiqAllocPathSpec extends AnyFunSuite {
     assert(sv.contains("io_e2StqReturned"))
     assert(sv.contains("io_replayWakeValid"))
     assert(sv.contains("io_replayWake_source"))
+    assert(sv.contains("io_replayWakeStoreUnitFullMatchMask"))
+    assert(sv.contains("LoadReplayWakeMatchDiagnostics"))
     assert(sv.contains("io_replayWakeMergeMask"))
     assert(sv.contains("io_replayWakeCompletedMask"))
     assert(sv.contains("io_refillValid"))

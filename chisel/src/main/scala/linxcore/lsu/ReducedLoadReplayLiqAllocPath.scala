@@ -42,6 +42,13 @@ class ReducedLoadReplayLiqAllocPathIO(
   val e2ReturnReady = Input(Bool())
   val replayWakeValid = Input(Bool())
   val replayWake = Input(new LoadReplayWakeupRequest(idEntries, addrWidth, pcWidth, lineBytes))
+  val replayWakeWaitStoreCandidateMask = Output(UInt(liqEntries.W))
+  val replayWakeBidMatchMask = Output(UInt(liqEntries.W))
+  val replayWakeLsIdMatchMask = Output(UInt(liqEntries.W))
+  val replayWakePcMatchMask = Output(UInt(liqEntries.W))
+  val replayWakeFullMatchMask = Output(UInt(liqEntries.W))
+  val replayWakeStoreUnit = Output(Bool())
+  val replayWakeStoreUnitFullMatchMask = Output(UInt(liqEntries.W))
   val replayWakeWaitStoreClearMask = Output(UInt(liqEntries.W))
   val replayWakeMergeMask = Output(UInt(liqEntries.W))
   val replayWakeCompletedMask = Output(UInt(liqEntries.W))
@@ -355,6 +362,12 @@ class ReducedLoadReplayLiqAllocPath(
   completeRepickSelect.io.enable := !io.flush
   completeRepickSelect.io.rows := liq.io.rows
 
+  val replayWakeDiagnostics =
+    Module(new LoadReplayWakeMatchDiagnostics(liqEntries, idEntries, storeEntries, addrWidth, pcWidth, lineBytes, sizeWidth, archRegWidth, physRegWidth))
+  replayWakeDiagnostics.io.wakeValid := io.replayWakeValid
+  replayWakeDiagnostics.io.wake := io.replayWake
+  replayWakeDiagnostics.io.rows := liq.io.rows
+
   io.candidateConsumeReady := adapter.io.consumeReady
   io.candidateUsable := adapter.io.candidateUsable
   io.candidateBlockedByAlloc := adapter.io.blockedByAlloc
@@ -437,6 +450,13 @@ class ReducedLoadReplayLiqAllocPath(
   io.e4UpdateIndex := liq.io.e4UpdateIndex
   io.e4MissKind := liq.io.e4MissKind
   io.e4WakeupValid := liq.io.e4WakeupValid
+  io.replayWakeWaitStoreCandidateMask := replayWakeDiagnostics.io.waitStoreCandidateMask
+  io.replayWakeBidMatchMask := replayWakeDiagnostics.io.bidMatchMask
+  io.replayWakeLsIdMatchMask := replayWakeDiagnostics.io.lsIdMatchMask
+  io.replayWakePcMatchMask := replayWakeDiagnostics.io.pcMatchMask
+  io.replayWakeFullMatchMask := replayWakeDiagnostics.io.fullMatchMask
+  io.replayWakeStoreUnit := replayWakeDiagnostics.io.storeUnit
+  io.replayWakeStoreUnitFullMatchMask := replayWakeDiagnostics.io.storeUnitFullMatchMask
   io.replayWakeWaitStoreClearMask := liq.io.replayWakeWaitStoreClearMask
   io.replayWakeMergeMask := liq.io.replayWakeMergeMask
   io.replayWakeCompletedMask := liq.io.replayWakeCompletedMask
