@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v3"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v4"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -28,6 +28,22 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "store_stq_addr_ready_not_data_ready",
     "store_stq_addr_and_data_ready",
     "load_lookup_execute_with_addr_ready_not_data_ready",
+    "load_lookup_execute_granted_first_cycle",
+    "load_lookup_execute_granted_last_cycle",
+    "store_stq_addr_ready_not_data_ready_first_cycle",
+    "store_stq_addr_ready_not_data_ready_last_cycle",
+    "store_stq_addr_and_data_ready_first_cycle",
+    "store_stq_addr_and_data_ready_last_cycle",
+    "load_lookup_execute_with_addr_ready_not_data_ready_first_cycle",
+    "load_lookup_execute_with_addr_ready_not_data_ready_last_cycle",
+    "store_sta_dequeue_fire_first_cycle",
+    "store_sta_dequeue_fire_last_cycle",
+    "store_std_dequeue_fire_first_cycle",
+    "store_std_dequeue_fire_last_cycle",
+    "store_sta_exec_valid_first_cycle",
+    "store_sta_exec_valid_last_cycle",
+    "store_std_exec_valid_first_cycle",
+    "store_std_exec_valid_last_cycle",
     "store_sta_queue_valid",
     "store_std_queue_valid",
     "store_sta_queue_only_valid",

@@ -863,6 +863,25 @@ packet therefore needs to shift scheduler/load-lookup timing so a younger load
 executes during that STA-only residency window before MDB/LIQ row mutation can
 be required nonzero.
 
+R475 extends the sideband report to schema v4 with first/last cycle positions
+for the same replay-LIQ stimulus events. The counters use one-based sampled
+cycles and report `0` when the event is absent, so the report can distinguish a
+missing predicate from a timing miss without requiring waveform inspection.
+The `generated/r475-stq-load-timing-sideband-xcheck` fixture again passes 3
+QEMU/DUT rows with zero mismatches and zero CBSTOP rows. Its v4 report samples
+33 cycles and shows the younger load lookups happened at cycles 13 and 27,
+while the STA-only STQ row existed only at cycle 29:
+`load_lookup_execute_granted_first_cycle=13`,
+`load_lookup_execute_granted_last_cycle=27`,
+`store_sta_dequeue_fire_first_cycle=28`,
+`store_std_dequeue_fire_first_cycle=29`,
+`store_stq_addr_ready_not_data_ready_first_cycle=29`,
+`store_stq_addr_ready_not_data_ready_last_cycle=29`, and
+`load_lookup_execute_with_addr_ready_not_data_ready_first_cycle=0`. This
+preserves the R474 conclusion with cycle-level evidence: the next packet needs
+to delay or replay the younger load lookup into the STA-only STQ cycle, not
+repair STQ insertion or address/data readiness visibility.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue

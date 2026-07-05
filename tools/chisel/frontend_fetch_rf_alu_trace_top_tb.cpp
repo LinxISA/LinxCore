@@ -210,6 +210,22 @@ struct ReplayLiqSidebandStats {
   std::uint64_t store_stq_addr_ready_not_data_ready = 0;
   std::uint64_t store_stq_addr_and_data_ready = 0;
   std::uint64_t load_lookup_execute_with_addr_ready_not_data_ready = 0;
+  std::uint64_t load_lookup_execute_granted_first_cycle = 0;
+  std::uint64_t load_lookup_execute_granted_last_cycle = 0;
+  std::uint64_t store_stq_addr_ready_not_data_ready_first_cycle = 0;
+  std::uint64_t store_stq_addr_ready_not_data_ready_last_cycle = 0;
+  std::uint64_t store_stq_addr_and_data_ready_first_cycle = 0;
+  std::uint64_t store_stq_addr_and_data_ready_last_cycle = 0;
+  std::uint64_t load_lookup_execute_with_addr_ready_not_data_ready_first_cycle = 0;
+  std::uint64_t load_lookup_execute_with_addr_ready_not_data_ready_last_cycle = 0;
+  std::uint64_t store_sta_dequeue_fire_first_cycle = 0;
+  std::uint64_t store_sta_dequeue_fire_last_cycle = 0;
+  std::uint64_t store_std_dequeue_fire_first_cycle = 0;
+  std::uint64_t store_std_dequeue_fire_last_cycle = 0;
+  std::uint64_t store_sta_exec_valid_first_cycle = 0;
+  std::uint64_t store_sta_exec_valid_last_cycle = 0;
+  std::uint64_t store_std_exec_valid_first_cycle = 0;
+  std::uint64_t store_std_exec_valid_last_cycle = 0;
   std::uint64_t store_sta_queue_valid = 0;
   std::uint64_t store_std_queue_valid = 0;
   std::uint64_t store_sta_queue_only_valid = 0;
@@ -270,9 +286,19 @@ struct ReplayLiqSidebandStats {
 
 ReplayLiqSidebandStats g_replay_liq_sideband_stats;
 
+void observe_cycle(bool event, std::uint64_t cycle, std::uint64_t &first, std::uint64_t &last) {
+  if (event) {
+    if (first == 0) {
+      first = cycle;
+    }
+    last = cycle;
+  }
+}
+
 void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   ++g_replay_liq_sideband_stats.cycles_sampled;
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+  const std::uint64_t cycle = g_replay_liq_sideband_stats.cycles_sampled;
   const std::uint64_t stq_occupied_mask =
       static_cast<std::uint64_t>(dut.io_storeStqOccupiedMask);
   const std::uint64_t stq_addr_ready_mask =
@@ -287,16 +313,61 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
       stq_addr_ready_resident_mask & ~stq_data_ready_mask;
   const std::uint64_t stq_addr_and_data_ready_mask =
       stq_addr_ready_resident_mask & stq_data_ready_mask;
+  const bool load_lookup_execute_granted = dut.io_loadLookupExecuteGranted;
+  const bool stq_addr_ready_not_data_ready = stq_addr_ready_not_data_ready_mask != 0;
+  const bool stq_addr_and_data_ready = stq_addr_and_data_ready_mask != 0;
+  const bool load_lookup_execute_with_addr_ready_not_data_ready =
+      load_lookup_execute_granted && stq_addr_ready_not_data_ready;
+  observe_cycle(
+      load_lookup_execute_granted,
+      cycle,
+      g_replay_liq_sideband_stats.load_lookup_execute_granted_first_cycle,
+      g_replay_liq_sideband_stats.load_lookup_execute_granted_last_cycle);
+  observe_cycle(
+      stq_addr_ready_not_data_ready,
+      cycle,
+      g_replay_liq_sideband_stats.store_stq_addr_ready_not_data_ready_first_cycle,
+      g_replay_liq_sideband_stats.store_stq_addr_ready_not_data_ready_last_cycle);
+  observe_cycle(
+      stq_addr_and_data_ready,
+      cycle,
+      g_replay_liq_sideband_stats.store_stq_addr_and_data_ready_first_cycle,
+      g_replay_liq_sideband_stats.store_stq_addr_and_data_ready_last_cycle);
+  observe_cycle(
+      load_lookup_execute_with_addr_ready_not_data_ready,
+      cycle,
+      g_replay_liq_sideband_stats.load_lookup_execute_with_addr_ready_not_data_ready_first_cycle,
+      g_replay_liq_sideband_stats.load_lookup_execute_with_addr_ready_not_data_ready_last_cycle);
+  observe_cycle(
+      dut.io_storeStaDequeueFire,
+      cycle,
+      g_replay_liq_sideband_stats.store_sta_dequeue_fire_first_cycle,
+      g_replay_liq_sideband_stats.store_sta_dequeue_fire_last_cycle);
+  observe_cycle(
+      dut.io_storeStdDequeueFire,
+      cycle,
+      g_replay_liq_sideband_stats.store_std_dequeue_fire_first_cycle,
+      g_replay_liq_sideband_stats.store_std_dequeue_fire_last_cycle);
+  observe_cycle(
+      dut.io_reducedStoreStaExecValid,
+      cycle,
+      g_replay_liq_sideband_stats.store_sta_exec_valid_first_cycle,
+      g_replay_liq_sideband_stats.store_sta_exec_valid_last_cycle);
+  observe_cycle(
+      dut.io_reducedStoreStdExecValid,
+      cycle,
+      g_replay_liq_sideband_stats.store_std_exec_valid_first_cycle,
+      g_replay_liq_sideband_stats.store_std_exec_valid_last_cycle);
   if (dut.io_loadLookupValid) {
     ++g_replay_liq_sideband_stats.load_lookup_valid;
   }
-  if (dut.io_loadLookupExecuteGranted) {
+  if (load_lookup_execute_granted) {
     ++g_replay_liq_sideband_stats.load_lookup_execute_granted;
   }
-  if (dut.io_loadLookupExecuteGranted && dut.io_reducedStoreResidentEligibleMask != 0) {
+  if (load_lookup_execute_granted && dut.io_reducedStoreResidentEligibleMask != 0) {
     ++g_replay_liq_sideband_stats.load_lookup_execute_with_eligible_store;
   }
-  if (dut.io_loadLookupExecuteGranted && dut.io_reducedStoreResidentWaitStoreValid) {
+  if (load_lookup_execute_granted && dut.io_reducedStoreResidentWaitStoreValid) {
     ++g_replay_liq_sideband_stats.load_lookup_execute_with_wait_store;
   }
   if (dut.io_executeLoadWaitHold) {
@@ -323,13 +394,13 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (stq_data_ready_resident_mask != 0) {
     ++g_replay_liq_sideband_stats.store_stq_data_ready;
   }
-  if (stq_addr_ready_not_data_ready_mask != 0) {
+  if (stq_addr_ready_not_data_ready) {
     ++g_replay_liq_sideband_stats.store_stq_addr_ready_not_data_ready;
   }
-  if (stq_addr_and_data_ready_mask != 0) {
+  if (stq_addr_and_data_ready) {
     ++g_replay_liq_sideband_stats.store_stq_addr_and_data_ready;
   }
-  if (dut.io_loadLookupExecuteGranted && stq_addr_ready_not_data_ready_mask != 0) {
+  if (load_lookup_execute_with_addr_ready_not_data_ready) {
     ++g_replay_liq_sideband_stats.load_lookup_execute_with_addr_ready_not_data_ready;
   }
   if (dut.io_storeStaQueueValid) {
@@ -515,7 +586,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v3\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v4\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -553,6 +624,38 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.store_stq_addr_and_data_ready << ",\n"
       << "    \"load_lookup_execute_with_addr_ready_not_data_ready\": "
       << g_replay_liq_sideband_stats.load_lookup_execute_with_addr_ready_not_data_ready << ",\n"
+      << "    \"load_lookup_execute_granted_first_cycle\": "
+      << g_replay_liq_sideband_stats.load_lookup_execute_granted_first_cycle << ",\n"
+      << "    \"load_lookup_execute_granted_last_cycle\": "
+      << g_replay_liq_sideband_stats.load_lookup_execute_granted_last_cycle << ",\n"
+      << "    \"store_stq_addr_ready_not_data_ready_first_cycle\": "
+      << g_replay_liq_sideband_stats.store_stq_addr_ready_not_data_ready_first_cycle << ",\n"
+      << "    \"store_stq_addr_ready_not_data_ready_last_cycle\": "
+      << g_replay_liq_sideband_stats.store_stq_addr_ready_not_data_ready_last_cycle << ",\n"
+      << "    \"store_stq_addr_and_data_ready_first_cycle\": "
+      << g_replay_liq_sideband_stats.store_stq_addr_and_data_ready_first_cycle << ",\n"
+      << "    \"store_stq_addr_and_data_ready_last_cycle\": "
+      << g_replay_liq_sideband_stats.store_stq_addr_and_data_ready_last_cycle << ",\n"
+      << "    \"load_lookup_execute_with_addr_ready_not_data_ready_first_cycle\": "
+      << g_replay_liq_sideband_stats.load_lookup_execute_with_addr_ready_not_data_ready_first_cycle << ",\n"
+      << "    \"load_lookup_execute_with_addr_ready_not_data_ready_last_cycle\": "
+      << g_replay_liq_sideband_stats.load_lookup_execute_with_addr_ready_not_data_ready_last_cycle << ",\n"
+      << "    \"store_sta_dequeue_fire_first_cycle\": "
+      << g_replay_liq_sideband_stats.store_sta_dequeue_fire_first_cycle << ",\n"
+      << "    \"store_sta_dequeue_fire_last_cycle\": "
+      << g_replay_liq_sideband_stats.store_sta_dequeue_fire_last_cycle << ",\n"
+      << "    \"store_std_dequeue_fire_first_cycle\": "
+      << g_replay_liq_sideband_stats.store_std_dequeue_fire_first_cycle << ",\n"
+      << "    \"store_std_dequeue_fire_last_cycle\": "
+      << g_replay_liq_sideband_stats.store_std_dequeue_fire_last_cycle << ",\n"
+      << "    \"store_sta_exec_valid_first_cycle\": "
+      << g_replay_liq_sideband_stats.store_sta_exec_valid_first_cycle << ",\n"
+      << "    \"store_sta_exec_valid_last_cycle\": "
+      << g_replay_liq_sideband_stats.store_sta_exec_valid_last_cycle << ",\n"
+      << "    \"store_std_exec_valid_first_cycle\": "
+      << g_replay_liq_sideband_stats.store_std_exec_valid_first_cycle << ",\n"
+      << "    \"store_std_exec_valid_last_cycle\": "
+      << g_replay_liq_sideband_stats.store_std_exec_valid_last_cycle << ",\n"
       << "    \"store_sta_queue_valid\": "
       << g_replay_liq_sideband_stats.store_sta_queue_valid << ",\n"
       << "    \"store_std_queue_valid\": "
