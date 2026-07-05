@@ -16,6 +16,11 @@ flush qualifier beside it. The child `LoadInflightQueue` gates
 only actionable when the Verilator sideband report classifies it as active
 rather than flush-blocked.
 
+R512 moves the live diagnostic instance under `ReducedLoadReplayLiqAllocPath`
+so the masks are computed from the LIQ path owner's row image. The trace top
+still reports the counters, but no longer instantiates a separate mirror over
+the path output rows.
+
 ## Interface
 
 | Direction | Signal | Description |
@@ -53,3 +58,5 @@ failures.
   `generated/r509-replay-liq-wake-source-diagnostics/report/frontend_fetch_rf_alu_sideband_stats.json`
 - R510 live gate:
   `generated/r510-replay-liq-wake-active-flush-diagnostics/report/frontend_fetch_rf_alu_sideband_stats.json`
+- R512 live gate:
+  `generated/r512-replay-liq-path-local-wake-diagnostics/report/frontend_fetch_rf_alu_sideband_stats.json`

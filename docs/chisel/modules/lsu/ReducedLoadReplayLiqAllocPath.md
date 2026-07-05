@@ -95,6 +95,12 @@ LIQ contract: `clearResolvedValid` may now clear either an explicit
 `Resolved` row or a complete source-returned `Repick` row selected by the
 parent replay-return lifecycle path.
 
+R512 localizes `LoadReplayWakeMatchDiagnostics` under this path so replay-wake
+predicate masks are sampled from the same LIQ row image that feeds the child
+`LoadInflightQueue` clear path. The top still exports the masks for generated
+RTL sideband evidence, but no longer owns a separate diagnostic instance over a
+second observation boundary.
+
 ## Interface
 
 ### Inputs
@@ -165,7 +171,8 @@ parent replay-return lifecycle path.
 | `rowMutationWriteEnable` / `rowMutationApplyValid` / `rowMutationTargetEvidenceValid` / `rowMutationWriteConflict` | Native `LoadInflightQueue` row-mutation storage diagnostics from the R416 row owner. |
 | `rowMutationBlockedByBridge` / `rowMutationBlockedByControl` | Request blocked before native shape conversion or by the LIQ row-mutation write-control policy. |
 | `rowMutationControlBlockedBy*` | R429 detailed native write-control blocker reasons from `LoadInflightQueue`: invalid target row, not-Repick state, missing SCB return, E4 update conflict, clear-resolved conflict, replay-wakeup conflict, refill conflict, launch conflict, and allocation conflict. |
-| `replayWakeWaitStoreClearMask` / `replayWakeMergeMask` / `replayWakeCompletedMask` | Child LIQ replay-wakeup diagnostics passed through for generated-RTL evidence. |
+| `replayWakeWaitStoreCandidateMask` / `replayWakeBidMatchMask` / `replayWakeLsIdMatchMask` / `replayWakePcMatchMask` / `replayWakeFullMatchMask` / `replayWakeStoreUnit` / `replayWakeStoreUnitFullMatchMask` | R512 path-local replay-wake predicate diagnostics sampled from this path's LIQ row image before the top sideband counters classify active store-unit full matches. |
+| `replayWakeWaitStoreClearMask` / `replayWakeMergeMask` / `replayWakeCompletedMask` | Child LIQ replay-wakeup diagnostics passed through for generated-RTL evidence. R512 records these beside the path-local predicate masks so full-match and clear-mask evidence share the same owner boundary. |
 | `refillAccepted` / `refillWakeMask` | Child LIQ refill-wakeup diagnostics. |
 
 ## State
