@@ -160,6 +160,10 @@ class ReducedStoreWaitReplayChiselPathSpec extends AnyFunSuite {
     assert(sv.contains("io_mdbResolveCandidateMask"))
     assert(sv.contains("io_mdbNukeFlush"))
     assert(sv.contains("io_mdbConflictLoadLsId_value"))
+    assert(sv.contains("MDBQueueFanout"))
+    assert(sv.contains("io_mdbFanoutRecordAccepted"))
+    assert(sv.contains("io_mdbFanoutBmdbReportValid"))
+    assert(sv.contains("io_mdbFanoutSsitValidMask"))
     assert(sv.contains("io_liqClearResolvedAccepted"))
     assert(sv.contains("io_liqFirstYoungestStoreLsId_value"))
   }

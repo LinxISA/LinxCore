@@ -44,7 +44,12 @@ fixture. R293 surfaces the delete queue/decay and phase-stall diagnostics at
 the top boundary while keeping `deleteInValid` tied low. Delete producers remain
 tied off until failed-wait delete owners exist, so the top observes SSIT
 record/BMDB/lookup/delete command state without changing load wakeup or
-recovery behavior.
+recovery behavior. R458 proves the record path in the executable replay
+fixture: `ReducedStoreWaitReplayChiselPathProbe` converts the selected
+`MDBConflictDetect.record` into `MDBQueueBus`, drives `recordIn`, and observes
+record queue acceptance, record processing, BMDB report intent, and one SSIT
+valid row in generated RTL. Lookup/delete producers and store-wakeup fanout
+are still tied off in that fixture.
 
 It does not yet own LDQ row mutation, STQ row storage, byte forwarding, BCTRL
 `BMDB` table mutation, IEX-local MDB, ROB nuke retirement, or final recovery
@@ -157,13 +162,17 @@ visibility, and R292 exposes lookup enqueue, fanout, and LU/SU hit identity
 diagnostics from the dormant replay-LIQ launch boundary. R293 adds generated
 top visibility for delete ready/accept/process, delete matched/released/decayed,
 and lookup-fanout phase stall outputs before a real failed-wait delete producer
-exists.
+exists. R458 adds fixture-level generated-RTL evidence for the record queue and
+SSIT/BMDB-report path, but it does not make those diagnostics architectural
+replacement evidence.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only MDBQueueFanout`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBSSIT`
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayChiselPath`
+- `bash tools/chisel/run_chisel_reduced_store_wait_replay_chisel_path.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r291-replay-liq-mdb-fanout-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r292-replay-liq-mdb-lookup-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
@@ -177,3 +186,7 @@ Focused reference tests cover atomic lookup fanout, output-backpressure phase
 freezing, SU wakeup on a ready matching store, pending/no-wakeup for incomplete
 stores, tile-row suppression, BMDB report intent only on accepted records, and
 Chisel elaboration with queue and wakeup IO.
+The R458 generated-RTL fixture report additionally records
+`mdb_fanout_record_accepted=true`, `mdb_fanout_record_processed=true`,
+`mdb_bmdb_report=true`, and `mdb_fanout_ssit_valid_mask=1` for a ResolveQ
+conflict record sourced from `MDBConflictDetect`.

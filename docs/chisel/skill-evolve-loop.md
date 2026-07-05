@@ -181,6 +181,13 @@ The generated-RTL report proves `mdb_resolve_conflict=true`,
 `mdb_conflict_load_lsid=3` for an older overlapping store probe. This is still
 fixture evidence: the store probe and replay-return sidebands are harness
 owned, and no live MDB fanout or recovery flush is published yet.
+R458 converts that selected conflict record into `MDBQueueBus` and feeds a
+fixture-local `MDBQueueFanout.recordIn` path. The generated-RTL report proves
+`mdb_fanout_record_accepted=true`, `mdb_fanout_record_processed=true`,
+`mdb_bmdb_report=true`, and `mdb_fanout_ssit_valid_mask=1`. This advances MDB
+record learning and BMDB report intent under the fixture, but lookup/delete,
+store wakeup, live BMDB mutation, recovery publication, and ROB nuke retirement
+remain future live owners.
 
 ## XiangShan Flow Reference
 

@@ -29,6 +29,7 @@ the reduced replay-LIQ path:
 - `ReducedLoadReplayLiqAllocPath`
 - `LoadResolveQueue`
 - `MDBConflictDetect`
+- `MDBQueueFanout`
 
 The probe exists because R450 showed that delaying split STD data in the live
 top does not force the younger load to execute while the resident store is
@@ -91,6 +92,9 @@ window directly and proves the owner chain through generated RTL.
 | `mdbConflictValid` / `mdbConflictFromResolveQueue` / `mdbConflictResolveIndex` | Selected MDB conflict source and index diagnostics. |
 | `mdbInnerFlush` / `mdbNukeFlush` | Same-BID versus cross-BID conflict classification from `MDBConflictDetect`. |
 | `mdbConflictLoadLsId` / `mdbConflictLoadPc` | Selected load identity retained in the MDB conflict record. |
+| `mdbFanoutRecordReady` / `mdbFanoutRecordAccepted` / `mdbFanoutRecordProcessed` | Fixture-local `MDBQueueFanout.recordIn` queue and process diagnostics. |
+| `mdbFanoutBmdbReportValid` / `mdbFanoutBmdbLoadBid` / `mdbFanoutBmdbStoreBid` / `mdbFanoutBmdbStoreStid` | BMDB report intent produced when `MDBQueueFanout` accepts the conflict record into `MDBSSIT`. |
+| `mdbFanoutSsitValidMask` | Fixture-local SSIT valid rows after the conflict record is processed. |
 | `liqClearResolvedPending` / `liqClearResolvedAccepted` | Probe-local delayed clear request back into LIQ after ResolveQ accepts the LHQ record. |
 | `liqWaitMask` / `liqRepickMask` / `liqResolvedMask` | LIQ row status masks before launch, after launch, and after E4 resolution. |
 | `liqFirstYoungestStoreLsId` | Allocated LIQ row preserved the forwarding snapshot sidecar. |
@@ -128,6 +132,10 @@ The generated-RTL harness runs two scenarios:
    matching the older resident store. `MDBConflictDetect` consumes
    `LoadResolveQueue.conflictRows`, selects ResolveQ row zero as a scalar
    conflict, and classifies the cross-BID conflict as a nuke flush.
+8. The same conflict cycle feeds the selected record into a fixture-local
+   `MDBQueueFanout`. The next cycle processes the queued record, publishes
+   BMDB report intent, and allocates an SSIT row. Lookup, delete, and
+   store-wakeup fanout remain tied off in this fixture.
 
 This is fixture evidence for the reduced owner chain. It is not architectural
 QEMU/DUT replacement evidence and does not prove live top scheduling can yet
@@ -192,3 +200,13 @@ classifier and applies the model cross-BID nuke classification. It is still
 fixture evidence, not live MDB/recovery publication, because the store probe,
 replay launch, refill, source-return sidebands, return readiness, and retire
 watermark are harness-driven.
+
+R458 extends the report with `mdb_fanout_record_accepted=true`,
+`mdb_fanout_record_processed=true`, `mdb_bmdb_report=true`, and
+`mdb_fanout_ssit_valid_mask=1`. The probe converts the selected
+`MDBConflictDetect.record` into the same `MDBQueueBus` shape used by the live
+top and feeds a fixture-local `MDBQueueFanout.recordIn` path. This proves
+generated RTL can move the ResolveQ conflict record into MDB record learning
+and BMDB report intent. It is still fixture evidence: lookup/delete producers,
+store-wakeup fanout, live BMDB mutation, recovery publication, and ROB nuke
+retirement are not driven here.

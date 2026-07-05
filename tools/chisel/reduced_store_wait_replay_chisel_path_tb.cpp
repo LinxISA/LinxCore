@@ -237,6 +237,9 @@ struct Report {
   bool liq_clear_resolved = false;
   bool mdb_resolve_conflict = false;
   bool mdb_nuke_flush = false;
+  bool mdb_fanout_record_accepted = false;
+  bool mdb_fanout_record_processed = false;
+  bool mdb_bmdb_report = false;
   bool resolve_queue_retired = false;
   std::uint32_t youngest_store_lsid = 0;
   std::uint32_t launch_load_lsid = 0;
@@ -244,6 +247,7 @@ struct Report {
   std::uint32_t resolve_queue_count_after_retire = 0;
   std::uint32_t mdb_resolve_candidate_mask = 0;
   std::uint32_t mdb_conflict_load_lsid = 0;
+  std::uint32_t mdb_fanout_ssit_valid_mask = 0;
   std::uint32_t e4_cycles_after_launch = 0;
 };
 
@@ -420,10 +424,28 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   expect(dut.io_mdbConflictLoadLsId_valid, "MDB conflict record did not preserve load LSID valid bit");
   expect(dut.io_mdbConflictLoadLsId_value == kLoadLsId, "MDB conflict record did not preserve load LSID value");
   expect(dut.io_mdbConflictLoadPc == 0, "MDB conflict record load PC changed from fixture-owned zero PC");
+  expect(dut.io_mdbFanoutRecordReady, "MDB fanout record queue was not ready");
+  expect(dut.io_mdbFanoutRecordAccepted, "MDB fanout did not accept the conflict record");
   report.mdb_resolve_conflict = true;
   report.mdb_nuke_flush = true;
+  report.mdb_fanout_record_accepted = true;
   report.mdb_resolve_candidate_mask = dut.io_mdbResolveCandidateMask;
   report.mdb_conflict_load_lsid = dut.io_mdbConflictLoadLsId_value;
+
+  tick(dut, cycle);
+  clear_inputs(dut);
+  dut.eval();
+  expect(dut.io_mdbFanoutRecordProcessed, "MDB fanout did not process the accepted conflict record");
+  expect(dut.io_mdbFanoutBmdbReportValid, "MDB fanout did not publish BMDB report intent");
+  expect(dut.io_mdbFanoutBmdbLoadBid_valid, "MDB fanout BMDB load BID did not preserve valid bit");
+  expect(dut.io_mdbFanoutBmdbLoadBid_value == kLoadBid, "MDB fanout BMDB load BID did not match resolved load");
+  expect(dut.io_mdbFanoutBmdbStoreBid_valid, "MDB fanout BMDB store BID did not preserve valid bit");
+  expect(dut.io_mdbFanoutBmdbStoreBid_value == kStoreBid, "MDB fanout BMDB store BID did not match conflict store");
+  expect(dut.io_mdbFanoutBmdbStoreStid == 0, "MDB fanout BMDB STID did not match fixture thread");
+  expect((dut.io_mdbFanoutSsitValidMask & 0x1) != 0, "MDB fanout SSIT did not allocate a record row");
+  report.mdb_fanout_record_processed = true;
+  report.mdb_bmdb_report = true;
+  report.mdb_fanout_ssit_valid_mask = dut.io_mdbFanoutSsitValidMask;
 
   clear_inputs(dut);
   dut.io_resolveQueueRetireValid = 1;
@@ -471,6 +493,9 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"liq_clear_resolved\": " << (report.liq_clear_resolved ? "true" : "false") << ",\n"
       << "  \"mdb_resolve_conflict\": " << (report.mdb_resolve_conflict ? "true" : "false") << ",\n"
       << "  \"mdb_nuke_flush\": " << (report.mdb_nuke_flush ? "true" : "false") << ",\n"
+      << "  \"mdb_fanout_record_accepted\": " << (report.mdb_fanout_record_accepted ? "true" : "false") << ",\n"
+      << "  \"mdb_fanout_record_processed\": " << (report.mdb_fanout_record_processed ? "true" : "false") << ",\n"
+      << "  \"mdb_bmdb_report\": " << (report.mdb_bmdb_report ? "true" : "false") << ",\n"
       << "  \"resolve_queue_retired\": " << (report.resolve_queue_retired ? "true" : "false") << ",\n"
       << "  \"youngest_store_lsid\": " << report.youngest_store_lsid << ",\n"
       << "  \"launch_load_lsid\": " << report.launch_load_lsid << ",\n"
@@ -478,6 +503,7 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"resolve_queue_count_after_retire\": " << report.resolve_queue_count_after_retire << ",\n"
       << "  \"mdb_resolve_candidate_mask\": " << report.mdb_resolve_candidate_mask << ",\n"
       << "  \"mdb_conflict_load_lsid\": " << report.mdb_conflict_load_lsid << ",\n"
+      << "  \"mdb_fanout_ssit_valid_mask\": " << report.mdb_fanout_ssit_valid_mask << ",\n"
       << "  \"e4_cycles_after_launch\": " << report.e4_cycles_after_launch << "\n"
       << "}\n";
 }

@@ -89,6 +89,14 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val mdbNukeFlush = Output(Bool())
   val mdbConflictLoadLsId = Output(new ROBID(entries))
   val mdbConflictLoadPc = Output(UInt(pcWidth.W))
+  val mdbFanoutRecordReady = Output(Bool())
+  val mdbFanoutRecordAccepted = Output(Bool())
+  val mdbFanoutRecordProcessed = Output(Bool())
+  val mdbFanoutBmdbReportValid = Output(Bool())
+  val mdbFanoutBmdbLoadBid = Output(new ROBID(entries))
+  val mdbFanoutBmdbStoreBid = Output(new ROBID(entries))
+  val mdbFanoutBmdbStoreStid = Output(UInt(8.W))
+  val mdbFanoutSsitValidMask = Output(UInt(liqEntries.W))
   val liqClearResolvedPending = Output(Bool())
   val liqClearResolvedAccepted = Output(Bool())
   val liqResidentCount = Output(UInt(log2Ceil(liqEntries + 1).W))
@@ -239,6 +247,54 @@ class ReducedStoreWaitReplayChiselPathProbe(
   mdbDetect.io.activeLoads := 0.U.asTypeOf(mdbDetect.io.activeLoads)
   mdbDetect.io.resolvedQueue := resolveQueue.io.conflictRows
 
+  val mdbFanout = Module(new MDBQueueFanout(
+    entries = entries,
+    ssitEntries = liqEntries,
+    commandQueueEntries = liqEntries,
+    outputQueueEntries = liqEntries,
+    storeEntries = entries,
+    addrWidth = addrWidth,
+    pcWidth = pcWidth,
+    sizeWidth = sizeWidth
+  ))
+  val mdbZeroBus = Wire(new MDBQueueBus(entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth))
+  mdbZeroBus := 0.U.asTypeOf(mdbZeroBus)
+  mdbZeroBus.ldInfo.bid := ROBID.disabled(entries)
+  mdbZeroBus.ldInfo.lsId := ROBID.disabled(entries)
+  mdbZeroBus.stInfo.bid := ROBID.disabled(entries)
+  mdbZeroBus.stInfo.lsId := ROBID.disabled(entries)
+
+  val mdbRecordBus = Wire(chiselTypeOf(mdbZeroBus))
+  mdbRecordBus := mdbZeroBus
+  mdbRecordBus.valid := mdbDetect.io.conflictValid
+  mdbRecordBus.ldInfo.valid := mdbDetect.io.conflictValid
+  mdbRecordBus.ldInfo.pc := mdbDetect.io.record.load.pc
+  mdbRecordBus.ldInfo.bid := mdbDetect.io.record.load.bid
+  mdbRecordBus.ldInfo.lsId := mdbDetect.io.record.load.lsId
+  mdbRecordBus.ldInfo.stid := mdbDetect.io.record.load.stid
+  mdbRecordBus.ldInfo.addr := mdbDetect.io.record.load.addr
+  mdbRecordBus.ldInfo.size := mdbDetect.io.record.load.size
+  mdbRecordBus.ldInfo.isTile := mdbDetect.io.record.load.isTile
+  mdbRecordBus.stInfo.valid := mdbDetect.io.conflictValid
+  mdbRecordBus.stInfo.pc := mdbDetect.io.record.store.pc
+  mdbRecordBus.stInfo.bid := mdbDetect.io.record.store.bid
+  mdbRecordBus.stInfo.lsId := mdbDetect.io.record.store.lsId
+  mdbRecordBus.stInfo.stid := mdbDetect.io.record.store.stid
+  mdbRecordBus.stInfo.addr := mdbDetect.io.record.store.addr
+  mdbRecordBus.stInfo.size := mdbDetect.io.record.store.size
+  mdbRecordBus.stInfo.isTile := mdbDetect.io.record.store.isTile
+  mdbRecordBus.conf := 1.U
+
+  mdbFanout.io.lookupIn := mdbZeroBus
+  mdbFanout.io.lookupInValid := false.B
+  mdbFanout.io.deleteIn := mdbZeroBus
+  mdbFanout.io.deleteInValid := false.B
+  mdbFanout.io.recordIn := mdbRecordBus
+  mdbFanout.io.recordInValid := mdbDetect.io.conflictValid
+  mdbFanout.io.luDequeueReady := true.B
+  mdbFanout.io.suCheckReady := true.B
+  mdbFanout.io.storeRows := 0.U.asTypeOf(mdbFanout.io.storeRows)
+
   when(io.flush) {
     clearResolvedPending := false.B
     clearResolvedIndex := 0.U
@@ -299,6 +355,14 @@ class ReducedStoreWaitReplayChiselPathProbe(
   io.mdbNukeFlush := mdbDetect.io.nukeFlush
   io.mdbConflictLoadLsId := mdbDetect.io.record.load.lsId
   io.mdbConflictLoadPc := mdbDetect.io.record.load.pc
+  io.mdbFanoutRecordReady := mdbFanout.io.recordInReady
+  io.mdbFanoutRecordAccepted := mdbFanout.io.recordInAccepted
+  io.mdbFanoutRecordProcessed := mdbFanout.io.recordProcessed
+  io.mdbFanoutBmdbReportValid := mdbFanout.io.bmdbReportValid
+  io.mdbFanoutBmdbLoadBid := mdbFanout.io.bmdbLoadBid
+  io.mdbFanoutBmdbStoreBid := mdbFanout.io.bmdbStoreBid
+  io.mdbFanoutBmdbStoreStid := mdbFanout.io.bmdbStoreStid
+  io.mdbFanoutSsitValidMask := mdbFanout.io.ssitValidMask
   io.liqClearResolvedPending := clearResolvedPending
   io.liqClearResolvedAccepted := liq.io.clearResolvedAccepted
   io.liqResidentCount := liq.io.residentCount
