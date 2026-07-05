@@ -22,6 +22,7 @@ MARKER_ROWS=0
 REDUCED_STORE_DISPATCH_STQ=0
 REDUCED_STORE_REPLAY_LIQ=0
 DISABLE_STORE_MEMORY_MUTATION=0
+ALLOW_RESIDUAL_REPLAY_LIQ_WAIT=0
 QEMU_ONLY=0
 EXPECT_LOAD_PCS=""
 EXPECT_STORE_PCS=""
@@ -60,6 +61,10 @@ Options:
                           Do not mutate the harness sparse memory image after
                           matched store commits; reduced-store mode must supply
                           store-visible load data from RTL overlay state
+  --allow-residual-replay-liq-wait
+                          Allow a residual replay-LIQ wait row after the
+                          compared rows and emit sideband evidence instead of
+                          requiring the final idle-drain check
   --qemu-only             Stop after QEMU capture and reduced-row preview; this
                           validates fixture/reducer shape only and does not
                           build or run generated RTL
@@ -120,6 +125,7 @@ while [[ $# -gt 0 ]]; do
     --reduced-store-dispatch-stq) REDUCED_STORE_DISPATCH_STQ=1; shift ;;
     --reduced-store-replay-liq) REDUCED_STORE_REPLAY_LIQ=1; shift ;;
     --disable-store-memory-mutation) DISABLE_STORE_MEMORY_MUTATION=1; shift ;;
+    --allow-residual-replay-liq-wait) ALLOW_RESIDUAL_REPLAY_LIQ_WAIT=1; shift ;;
     --qemu-only) QEMU_ONLY=1; shift ;;
     --expect-load-pcs) EXPECT_LOAD_PCS="$2"; shift 2 ;;
     --expect-store-pcs) EXPECT_STORE_PCS="$2"; shift 2 ;;
@@ -485,6 +491,7 @@ FETCH_MARKER_ROWS_TRACE_TOP="${MARKER_ROWS}" \
 FETCH_REDUCED_STORE_DISPATCH_STQ="${REDUCED_STORE_DISPATCH_STQ}" \
 FETCH_REDUCED_STORE_REPLAY_LIQ="${REDUCED_STORE_REPLAY_LIQ}" \
 FETCH_DISABLE_STORE_MEMORY_MUTATION="${DISABLE_STORE_MEMORY_MUTATION}" \
+FETCH_ALLOW_RESIDUAL_REPLAY_LIQ_WAIT="${ALLOW_RESIDUAL_REPLAY_LIQ_WAIT}" \
 bash "${FETCH_RUNNER}"
 
 MANIFEST="${REPORT_DIR}/crosscheck_manifest.json"

@@ -220,3 +220,18 @@ normalized QEMU/DUT rows with zero mismatches and records
 intended MDB-origin wait shape: publish the wait using store BID/PC, carry a
 disabled LSID wildcard when unresolved, and let later store-unit wakeup clear by
 BID/PC plus wildcard LSID.
+
+R507 proves that the live R506 request reaches the LIQ write path and leaves a
+wait-store row. The residual-wait gate at
+`generated/r507-replay-loop-mdb-wait-store-mutation-gate` compares 9 normalized
+QEMU/DUT rows with zero mismatches, then intentionally observes eight extra
+cycles instead of requiring final idle drain. The sideband report records
+`mdb_lookup_wait_plan_request_valid=1`,
+`mdb_lookup_wait_plan_bridge_valid=1`,
+`liq_row_mutation_selected_mdb_wait_plan=1`,
+`mdb_wait_plan_row_mutation_write_enable=1`, and
+`liq_wait_store_mask_nonzero=8`. It also requires
+`mdb_fanout_su_wakeup_valid=0` and `liq_replay_wake_wait_store_clear=0` for
+this disabled-store-memory-mutation fixture, so the proof stops at LU-side wait
+publication. The next live proof should exercise a ready matching store so
+`StoreUnit::mdbCheck` can publish the later wake/clear.

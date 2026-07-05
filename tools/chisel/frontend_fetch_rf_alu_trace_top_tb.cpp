@@ -75,6 +75,7 @@ struct Args {
   std::uint64_t memory_base = 0x1000;
   bool admit_marker_rows = false;
   bool disable_store_memory_mutation = false;
+  bool allow_residual_replay_liq_wait = false;
 };
 
 struct ExpectedRow {
@@ -1039,7 +1040,8 @@ void trace_top_debug_pipeline(
             << " [--memory-hex <sparse.mem>]"
             << " [--sideband-stats <stats.json>]"
             << " [--admit-marker-rows]"
-            << " [--disable-store-memory-mutation]\n";
+            << " [--disable-store-memory-mutation]"
+            << " [--allow-residual-replay-liq-wait]\n";
   std::exit(2);
 }
 
@@ -1076,6 +1078,8 @@ Args parse_args(int argc, char **argv) {
       args.admit_marker_rows = true;
     } else if (arg == "--disable-store-memory-mutation") {
       args.disable_store_memory_mutation = true;
+    } else if (arg == "--allow-residual-replay-liq-wait") {
+      args.allow_residual_replay_liq_wait = true;
     } else {
       usage(argv[0]);
     }
@@ -4147,6 +4151,19 @@ int main(int argc, char **argv) {
               << "\n";
   };
   if (captured_tail_superset) {
+    print_bfu_stats();
+    if (!write_replay_liq_sideband_stats(args.sideband_stats)) {
+      dut.final();
+      return 2;
+    }
+    dut.final();
+    return 0;
+  }
+  if (args.allow_residual_replay_liq_wait) {
+    for (int cycle = 0; cycle < 8; ++cycle) {
+      eval_with_load_lookup(dut, fetch_memory, "residual replay-liq wait observe");
+      tick(dut);
+    }
     print_bfu_stats();
     if (!write_replay_liq_sideband_stats(args.sideband_stats)) {
       dut.final();
