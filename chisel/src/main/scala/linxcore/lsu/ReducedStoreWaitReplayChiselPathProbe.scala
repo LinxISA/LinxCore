@@ -72,6 +72,11 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val liqLhqRecordLoadLsId = Output(new ROBID(entries))
   val liqLhqRecordData = Output(UInt((lineBytes * 8).W))
   val resolveQueuePushAccepted = Output(Bool())
+  val resolveQueueRetireValid = Input(Bool())
+  val resolveQueueRetireBid = Input(new ROBID(entries))
+  val resolveQueueRetireLsId = Input(new ROBID(entries))
+  val resolveQueueRetireMask = Output(UInt(liqEntries.W))
+  val resolveQueueRetireCount = Output(UInt(log2Ceil(liqEntries + 1).W))
   val resolveQueueValidMask = Output(UInt(liqEntries.W))
   val resolveQueueCount = Output(UInt(log2Ceil(liqEntries + 1).W))
   val resolveQueueFirstLoadLsId = Output(new ROBID(entries))
@@ -209,9 +214,9 @@ class ReducedStoreWaitReplayChiselPathProbe(
   resolveQueue.io.pushStid := 0.U
   resolveQueue.io.pushTid := 0.U
   resolveQueue.io.pushRecord := liq.io.lhqRecord
-  resolveQueue.io.retireValid := false.B
-  resolveQueue.io.retireBid := ROBID.disabled(entries)
-  resolveQueue.io.retireLsId := ROBID.disabled(entries)
+  resolveQueue.io.retireValid := io.resolveQueueRetireValid
+  resolveQueue.io.retireBid := io.resolveQueueRetireBid
+  resolveQueue.io.retireLsId := io.resolveQueueRetireLsId
 
   when(io.flush) {
     clearResolvedPending := false.B
@@ -260,6 +265,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
   io.liqLhqRecordLoadLsId := liq.io.lhqRecord.loadLsId
   io.liqLhqRecordData := liq.io.lhqRecord.data
   io.resolveQueuePushAccepted := resolveQueue.io.pushAccepted
+  io.resolveQueueRetireMask := resolveQueue.io.retireMask
+  io.resolveQueueRetireCount := resolveQueue.io.retireCount
   io.resolveQueueValidMask := resolveQueue.io.validMask
   io.resolveQueueCount := resolveQueue.io.count
   io.resolveQueueFirstLoadLsId := resolveQueue.io.entries(0).record.loadLsId

@@ -169,6 +169,11 @@ the source LIQ row is freed after acceptance. This remains fixture evidence:
 launch, refill, source-return, and return readiness are still harness-driven,
 so live promotion still needs nonzero replay-LIQ counters through the reduced
 top.
+R456 adds the commit-style ResolveQ retire watermark to that fixture. The
+report proves `resolve_queue_retired=true` and
+`resolve_queue_count_after_retire=0` after driving a watermark one LSID newer
+than the resolved load. This is still fixture evidence, but it closes the local
+ResolveQ lifecycle from LHQ append through LIQ clear and queue retire.
 
 ## XiangShan Flow Reference
 

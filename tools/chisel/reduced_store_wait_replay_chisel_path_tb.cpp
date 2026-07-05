@@ -111,6 +111,13 @@ void clear_inputs(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_liqE2ScbReturned = 0;
   dut.io_liqE2StqReturned = 0;
   dut.io_liqE2ReturnReady = 0;
+  dut.io_resolveQueueRetireValid = 0;
+  dut.io_resolveQueueRetireBid_valid = 0;
+  dut.io_resolveQueueRetireBid_wrap = 0;
+  dut.io_resolveQueueRetireBid_value = 0;
+  dut.io_resolveQueueRetireLsId_valid = 0;
+  dut.io_resolveQueueRetireLsId_wrap = 0;
+  dut.io_resolveQueueRetireLsId_value = 0;
 }
 
 void tick(VReducedStoreWaitReplayChiselPathProbe &dut, std::uint64_t &cycle) {
@@ -185,9 +192,11 @@ struct Report {
   bool liq_resolved = false;
   bool resolve_queue_push = false;
   bool liq_clear_resolved = false;
+  bool resolve_queue_retired = false;
   std::uint32_t youngest_store_lsid = 0;
   std::uint32_t launch_load_lsid = 0;
   std::uint32_t resolve_queue_count = 0;
+  std::uint32_t resolve_queue_count_after_retire = 0;
   std::uint32_t e4_cycles_after_launch = 0;
 };
 
@@ -351,6 +360,24 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   expect(!dut.io_liqClearResolvedPending, "LIQ clear-resolved request remained pending after acceptance");
   expect(dut.io_resolveQueueCount == 1, "ResolveQ lost the resolved record after LIQ clear");
   report.liq_clear_resolved = true;
+
+  clear_inputs(dut);
+  dut.io_resolveQueueRetireValid = 1;
+  dut.io_resolveQueueRetireBid_valid = 1;
+  dut.io_resolveQueueRetireBid_value = kLoadBid;
+  dut.io_resolveQueueRetireLsId_valid = 1;
+  dut.io_resolveQueueRetireLsId_value = kLoadLsId + 1;
+  dut.eval();
+  expect((dut.io_resolveQueueRetireMask & 0x1) != 0, "ResolveQ retire did not select the resolved row");
+  expect(dut.io_resolveQueueRetireCount == 1, "ResolveQ retire count did not report one row");
+
+  tick(dut, cycle);
+  clear_inputs(dut);
+  dut.eval();
+  expect(dut.io_resolveQueueCount == 0, "ResolveQ row remained resident after retire watermark");
+  expect(dut.io_resolveQueueValidMask == 0, "ResolveQ valid mask remained set after retire watermark");
+  report.resolve_queue_retired = true;
+  report.resolve_queue_count_after_retire = dut.io_resolveQueueCount;
 }
 
 void write_report(const std::string &path, const Report &report) {
@@ -378,9 +405,11 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"liq_resolved\": " << (report.liq_resolved ? "true" : "false") << ",\n"
       << "  \"resolve_queue_push\": " << (report.resolve_queue_push ? "true" : "false") << ",\n"
       << "  \"liq_clear_resolved\": " << (report.liq_clear_resolved ? "true" : "false") << ",\n"
+      << "  \"resolve_queue_retired\": " << (report.resolve_queue_retired ? "true" : "false") << ",\n"
       << "  \"youngest_store_lsid\": " << report.youngest_store_lsid << ",\n"
       << "  \"launch_load_lsid\": " << report.launch_load_lsid << ",\n"
       << "  \"resolve_queue_count\": " << report.resolve_queue_count << ",\n"
+      << "  \"resolve_queue_count_after_retire\": " << report.resolve_queue_count_after_retire << ",\n"
       << "  \"e4_cycles_after_launch\": " << report.e4_cycles_after_launch << "\n"
       << "}\n";
 }

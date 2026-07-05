@@ -81,6 +81,8 @@ window directly and proves the owner chain through generated RTL.
 | `liqE4UpdateValid` / `liqE4UpdateIndex` / `liqE4WakeupValid` | E4 outcome diagnostics for the launched replay row. |
 | `liqLhqRecordValid` / `liqLhqRecordLoadLsId` / `liqLhqRecordData` | LHQ hit-record diagnostics emitted when the replay row resolves. |
 | `resolveQueuePushAccepted` | Probe-local `LoadResolveQueue` accepted the LHQ hit record. |
+| `resolveQueueRetireValid` / `resolveQueueRetireBid` / `resolveQueueRetireLsId` | Fixture-owned ResolveQ retire watermark input. |
+| `resolveQueueRetireMask` / `resolveQueueRetireCount` | ResolveQ rows selected by the retire watermark before compaction. |
 | `resolveQueueValidMask` / `resolveQueueCount` / `resolveQueueFirstLoadLsId` | ResolveQ residency diagnostics after the LHQ record is appended. |
 | `liqClearResolvedPending` / `liqClearResolvedAccepted` | Probe-local delayed clear request back into LIQ after ResolveQ accepts the LHQ record. |
 | `liqWaitMask` / `liqRepickMask` / `liqResolvedMask` | LIQ row status masks before launch, after launch, and after E4 resolution. |
@@ -112,6 +114,9 @@ The generated-RTL harness runs two scenarios:
    cycle. A fixture-local pending-clear register captures the accepted
    `loadId.value` and drives `clearResolved` on the next cycle, clearing the
    LIQ row while the ResolveQ record remains resident.
+6. The harness can drive a model-style ResolveQ retire watermark. A watermark
+   strictly newer than the resolved row's `(BID, loadLsId)` selects that row,
+   and the following cycle compacts ResolveQ to empty.
 
 This is fixture evidence for the reduced owner chain. It is not architectural
 QEMU/DUT replacement evidence and does not prove live top scheduling can yet
@@ -159,3 +164,9 @@ the real `LoadResolveQueue` beside the LIQ path and applies the existing
 delayed clear rule after the LHQ record is accepted. This remains fixture
 evidence because the replay launch and return sidebands are still
 harness-driven.
+
+R456 extends the report with `resolve_queue_retired=true` and
+`resolve_queue_count_after_retire=0`. The harness drives a commit watermark
+one LSID newer than the resolved load, proving the same generated-RTL fixture
+can drain the ResolveQ row through the model strict older-than retire rule
+after the source LIQ row has been cleared.
