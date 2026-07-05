@@ -2731,6 +2731,35 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedLoadReplayLiqAllocPath.io.candidateValid :=
     reducedLoadReplayLiqAllocEnabled && reducedLoadReplayRelaunchQueue.io.outValid
   reducedLoadReplayLiqAllocPath.io.candidate := reducedLoadReplayRelaunchQueue.io.out
+
+  val reducedStoreResidentReplayWakeHoldValid = RegInit(false.B)
+  val reducedStoreResidentReplayWakeHoldAge = RegInit(0.U(4.W))
+  val reducedStoreResidentReplayWakeHold =
+    RegInit(0.U.asTypeOf(chiselTypeOf(reducedStoreResidentReplayWakeup.io.wake)))
+  val reducedStoreResidentReplayWakeHoldActive =
+    reducedStoreResidentReplayWakeHoldValid && (reducedStoreResidentReplayWakeHoldAge =/= 0.U)
+  val reducedStoreResidentReplayWakeForLiqValid =
+    reducedStoreResidentReplayWakeup.io.wakeValid || reducedStoreResidentReplayWakeHoldActive
+  val reducedStoreResidentReplayWakeForLiq =
+    Mux(reducedStoreResidentReplayWakeup.io.wakeValid, reducedStoreResidentReplayWakeup.io.wake, reducedStoreResidentReplayWakeHold)
+  reducedLoadReplayLiqAllocPath.io.replayWakeValid :=
+    reducedLoadReplayLiqAllocEnabled && reducedStoreResidentReplayWakeForLiqValid
+  reducedLoadReplayLiqAllocPath.io.replayWake := reducedStoreResidentReplayWakeForLiq
+  val reducedStoreResidentReplayWakeLiqConsumed =
+    reducedLoadReplayLiqAllocPath.io.replayWakeWaitStoreClearMask.orR ||
+      reducedLoadReplayLiqAllocPath.io.replayWakeMergeMask.orR
+  when(reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled) {
+    reducedStoreResidentReplayWakeHoldValid := false.B
+    reducedStoreResidentReplayWakeHoldAge := 0.U
+  }.elsewhen(reducedStoreResidentReplayWakeup.io.wakeValid && !reducedStoreResidentReplayWakeLiqConsumed) {
+    reducedStoreResidentReplayWakeHoldValid := true.B
+    reducedStoreResidentReplayWakeHoldAge := "hf".U
+    reducedStoreResidentReplayWakeHold := reducedStoreResidentReplayWakeup.io.wake
+  }.elsewhen(reducedStoreResidentReplayWakeLiqConsumed || reducedStoreResidentReplayWakeHoldAge === 0.U) {
+    reducedStoreResidentReplayWakeHoldValid := false.B
+  }.elsewhen(reducedStoreResidentReplayWakeHoldValid) {
+    reducedStoreResidentReplayWakeHoldAge := reducedStoreResidentReplayWakeHoldAge - 1.U
+  }
   reducedReplayLiqStoreSnapshot.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqStoreSnapshot.io.rows := path.io.storeStqRows
   reducedReplayLiqSourceReturnStoreSnapshotPath.io.stqRows := path.io.storeStqRows

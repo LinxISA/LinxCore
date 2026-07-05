@@ -327,6 +327,7 @@ struct ReplayLiqSidebandStats {
 };
 
 ReplayLiqSidebandStats g_replay_liq_sideband_stats;
+std::string g_replay_liq_sideband_stats_path;
 
 void observe_cycle(bool event, std::uint64_t cycle, std::uint64_t &first, std::uint64_t &last) {
   if (event) {
@@ -3386,6 +3387,9 @@ void drain_empty(VLinxCoreFrontendFetchRfAluTraceTop &dut, const FetchMemoryImag
             << static_cast<unsigned>(dut.io_reducedLoadReplayLiqReturnReadinessBlockedByReturnPipe)
             << std::dec
             << "\n";
+  if (!g_replay_liq_sideband_stats_path.empty()) {
+    write_replay_liq_sideband_stats(g_replay_liq_sideband_stats_path);
+  }
   std::exit(1);
 }
 
@@ -3900,6 +3904,7 @@ std::vector<ExpectedRow> fixture_rows() {
 int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
   const Args args = parse_args(argc, argv);
+  g_replay_liq_sideband_stats_path = args.sideband_stats;
 
   const auto rows = args.expected_rows.empty()
                         ? fixture_rows()
