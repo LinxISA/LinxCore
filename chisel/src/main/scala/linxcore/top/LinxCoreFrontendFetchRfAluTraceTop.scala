@@ -6568,8 +6568,6 @@ private object LinxCoreFrontendFetchRfAluTraceTopR466MdbLookupWaitPlanBridgeVisi
 
 private object LinxCoreFrontendFetchRfAluTraceTopR453ReplayLiqRefillTieOff {
   def connect(path: ReducedLoadReplayLiqAllocPath): Unit = {
-    path.io.replayWakeValid := false.B
-    path.io.replayWake := 0.U.asTypeOf(path.io.replayWake)
     path.io.refillValid := false.B
     path.io.refill := 0.U.asTypeOf(path.io.refill)
   }
