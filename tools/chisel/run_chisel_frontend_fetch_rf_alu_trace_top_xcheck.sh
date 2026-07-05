@@ -59,6 +59,7 @@ FETCH_QEMU_ALLOW_BLOCK_MARKERS="${FETCH_QEMU_ALLOW_BLOCK_MARKERS:-0}"
 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY="${FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY:-0}"
 FETCH_DISABLE_STORE_MEMORY_MUTATION="${FETCH_DISABLE_STORE_MEMORY_MUTATION:-0}"
 FETCH_REPLAY_LIQ_REQUIRE_NONZERO="${FETCH_REPLAY_LIQ_REQUIRE_NONZERO:-}"
+FETCH_REPLAY_LIQ_REQUIRE_ZERO="${FETCH_REPLAY_LIQ_REQUIRE_ZERO:-}"
 
 if ! command -v verilator >/dev/null 2>&1; then
   echo "error: Verilator is required for Chisel frontend fetch RF ALU trace top xcheck" >&2
@@ -240,6 +241,18 @@ if [[ -n "${FETCH_REPLAY_LIQ_REQUIRE_NONZERO}" ]]; then
         SIDEBAND_VALIDATOR_ARGS+=(--require-nonzero "${replay_liq_required_counter}")
       else
         SIDEBAND_VALIDATOR_ARGS+=(--require-nonzero "replay_liq.${replay_liq_required_counter}")
+      fi
+    fi
+  done
+fi
+if [[ -n "${FETCH_REPLAY_LIQ_REQUIRE_ZERO}" ]]; then
+  IFS=',' read -r -a replay_liq_required_zero <<< "${FETCH_REPLAY_LIQ_REQUIRE_ZERO}"
+  for replay_liq_required_counter in "${replay_liq_required_zero[@]}"; do
+    if [[ -n "${replay_liq_required_counter}" ]]; then
+      if [[ "${replay_liq_required_counter}" == replay_liq.* ]]; then
+        SIDEBAND_VALIDATOR_ARGS+=(--require-zero "${replay_liq_required_counter}")
+      else
+        SIDEBAND_VALIDATOR_ARGS+=(--require-zero "replay_liq.${replay_liq_required_counter}")
       fi
     fi
   done

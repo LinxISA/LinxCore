@@ -1088,6 +1088,19 @@ queue fire, LIQ allocation, base lookup grant, source-return query/apply,
 row-mutation request, and LIQ row-mutation write-enable counters. The gate
 passes with the same 3 compared rows and zero mismatches.
 
+R491 adds the symmetric sideband guard for negative evidence:
+`FETCH_REPLAY_LIQ_REQUIRE_ZERO` accepts the same counter selector format as the
+nonzero guard and fails if a validated replay-LIQ counter is nonzero. The
+early-STA `replay-ldi-sdi-ldi` fixture now runs with positive requirements for
+the R490 replay/source-return path and zero requirements for
+`mdb_lookup_wait_plan_lookup_hit`,
+`mdb_lookup_wait_plan_wait_intent_valid`, and
+`mdb_lookup_wait_plan_request_valid`. This records the fixture boundary: the
+model MDB wait-store path requires a learned load/store conflict keyed by load
+PC and BID (`LDQInfo::updateMDBInfo` plus `MDB::lookupMDB`), while this
+straight-line one-shot fixture only proves live wait-replay/source-return row
+mutation and cannot yet claim MDB wait-plan publication.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue

@@ -118,6 +118,13 @@ def parse_args() -> argparse.Namespace:
         metavar="replay_liq.KEY",
         help="require a validated counter to be greater than zero",
     )
+    parser.add_argument(
+        "--require-zero",
+        action="append",
+        default=[],
+        metavar="replay_liq.KEY",
+        help="require a validated counter to be exactly zero",
+    )
     return parser.parse_args()
 
 
@@ -185,11 +192,32 @@ def require_nonzero(replay_liq: dict[str, int], selectors: list[str]) -> None:
             sys.exit(1)
 
 
+def require_zero(replay_liq: dict[str, int], selectors: list[str]) -> None:
+    for selector in selectors:
+        if not selector.startswith("replay_liq."):
+            print(
+                f"error: unsupported zero selector {selector!r}; expected replay_liq.KEY",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        key = selector.removeprefix("replay_liq.")
+        if key not in replay_liq:
+            print(f"error: unknown replay_liq counter {key!r}", file=sys.stderr)
+            sys.exit(2)
+        if replay_liq[key] != 0:
+            print(
+                f"error: replay_liq.{key} must be zero, observed {replay_liq[key]}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+
 def main() -> int:
     args = parse_args()
     stats = load_stats(args.stats)
     replay_liq = validate_replay_liq(stats, args.expect_reduced_store_replay_liq)
     require_nonzero(replay_liq, args.require_nonzero)
+    require_zero(replay_liq, args.require_zero)
     print(f"sideband_stats_json={args.stats}")
     return 0
 
