@@ -22,6 +22,7 @@ MARKER_ROWS=0
 REDUCED_STORE_DISPATCH_STQ=0
 REDUCED_STORE_REPLAY_LIQ=0
 DISABLE_STORE_MEMORY_MUTATION=0
+QEMU_ONLY=0
 
 usage() {
   cat <<USAGE
@@ -57,6 +58,9 @@ Options:
                           Do not mutate the harness sparse memory image after
                           matched store commits; reduced-store mode must supply
                           store-visible load data from RTL overlay state
+  --qemu-only             Stop after QEMU capture and reduced-row preview; this
+                          validates fixture/reducer shape only and does not
+                          build or run generated RTL
 
 This wrapper captures a bounded QEMU commit JSONL prefix from a direct-boot ELF,
 validates that the selected rows are inside the current reduced scalar
@@ -81,6 +85,9 @@ as part of the same fixture window.
 With --fixture replay-ldi-sdi-ldi-loop, the wrapper captures the first memory
 probe, the direct loop boundary, and the second dynamic memory probe so MDB
 lookup evidence can be collected after the first pass records the dependency.
+With --qemu-only, the wrapper still builds any requested fixture, captures the
+bounded QEMU prefix, and runs the reduced-row extractor, then exits before the
+Verilator harness. Do not use that mode as QEMU/DUT equivalence evidence.
 USAGE
 }
 
@@ -104,6 +111,7 @@ while [[ $# -gt 0 ]]; do
     --reduced-store-dispatch-stq) REDUCED_STORE_DISPATCH_STQ=1; shift ;;
     --reduced-store-replay-liq) REDUCED_STORE_REPLAY_LIQ=1; shift ;;
     --disable-store-memory-mutation) DISABLE_STORE_MEMORY_MUTATION=1; shift ;;
+    --qemu-only) QEMU_ONLY=1; shift ;;
     --)
       shift
       QEMU_ARGS=("$@")
@@ -389,6 +397,14 @@ if [[ "${ALLOW_BLOCK_LOOP_REENTRY}" == "1" ]]; then
   row_args+=(--allow-block-loop-reentry)
 fi
 python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" "${row_args[@]}"
+
+if [[ "${QEMU_ONLY}" == "1" ]]; then
+  echo "frontend-fetch-rf-alu-qemu-elf-status=qemu-only raw_rows=${raw_rows}"
+  echo "qemu-live-trace=${QEMU_TRACE}"
+  echo "qemu-live-expected-preview=${EXPECTED_PREVIEW}"
+  echo "frontend-fetch-rf-alu-qemu-elf-xcheck-report=${REPORT_DIR}"
+  exit 0
+fi
 
 BUILD_DIR="${BUILD_DIR}" \
 FETCH_ELF="${ELF}" \

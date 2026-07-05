@@ -244,6 +244,27 @@ for `C.BSTART; ADD; ADDI; C.MOVR; C.BSTOP`, compared three scalar commits,
 and produced a manifest with `status: "pass"`, `compared_rows: 3`, and
 `mismatch_count: 0`.
 
+R500 adds a QEMU/reducer-only stop point for fixture validation:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r500-replay-loop-qemu-only \
+  --fixture replay-ldi-sdi-ldi-loop \
+  --qemu-only \
+  --max-seconds 8
+```
+
+`--qemu-only` still builds the requested fixture, captures the bounded QEMU
+FIFO prefix, and runs `frontend_fetch_rf_alu_qemu_rows.py`, but exits before
+the Verilator harness and does not emit a QEMU/DUT
+`crosscheck_manifest.json`. Treat this as stimulus/reducer evidence only. The
+R500 replay-loop run captured 12 raw QEMU rows, reduced them to 10 preview
+rows, and proved the repeated memory sequence needed by later MDB wait-plan
+work: load PCs `0x10002,0x1000a,0x10002,0x1000a`, store PCs
+`0x10006,0x10006`, with legal skip rows
+`0x10000->0x10002`, `0x1000e->0x10014`, `0x10014->0x10000`, and
+`0x10000->0x10002`.
+
 Full compare gate, once a Chisel commit trace exists:
 
 ```bash

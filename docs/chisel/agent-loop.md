@@ -1212,8 +1212,13 @@ Closeout:
    probe still cannot hit the wait-plan path. R499 adds the
    `replay-ldi-sdi-ldi-loop` QEMU fixture so the live gate can capture the
    same `LDI`/`SDI`/`LDI` PCs a second time after the first pass records the
-   store-dependence lesson; use that fixture before claiming positive MDB
-   wait-plan publication. Focused gates should include
+   store-dependence lesson. R500 adds `--qemu-only` to the live-ELF wrapper
+   and proves the loop fixture's QEMU/reducer shape without compiling the
+   generated top: 12 raw QEMU rows reduce to 10 preview rows with load PCs
+   `0x10002,0x1000a,0x10002,0x1000a` and store PCs
+   `0x10006,0x10006`. Use that fixture before claiming positive MDB wait-plan
+   publication, but do not treat `--qemu-only` as DUT equivalence evidence.
+   Focused gates should include
    `ReducedStoreResidentForwardSpec`, `LoadForwardPipelineSpec`,
    `LoadInflightQueueSpec`, `LoadReplayWakeupSpec`,
    `MDBConflictDetectSpec`, and `LinxCoreFrontendFetchRfAluTraceTopSpec`
