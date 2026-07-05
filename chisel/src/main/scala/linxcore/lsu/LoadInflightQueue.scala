@@ -162,6 +162,11 @@ class LoadInflightQueueIO(
   val scbReturnReady = Output(Bool())
   val scbReturnAccepted = Output(Bool())
 
+  val markResolvedValid = Input(Bool())
+  val markResolvedIndex = Input(UInt(liqPtrWidth.W))
+  val markResolvedReady = Output(Bool())
+  val markResolvedAccepted = Output(Bool())
+
   val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(idEntries, storeEntries, addrWidth, pcWidth, lineBytes)))
   val e2BaseData = Input(UInt((lineBytes * 8).W))
   val e2BaseValidMask = Input(UInt(lineBytes.W))
@@ -333,6 +338,18 @@ class LoadInflightQueue(
   private def lineAddr(addr: UInt): UInt =
     Cat(addr(addrWidth - 1, lineOffsetWidth), 0.U(lineOffsetWidth.W))
 
+  private def requestByteMask(row: LoadInflightRow): UInt = {
+    val mask = Wire(Vec(lineBytes, Bool()))
+    val offset = Wire(UInt(sizeWidth.W))
+    offset := row.addr(lineOffsetWidth - 1, 0)
+    val end = offset +& row.size
+    for (byte <- 0 until lineBytes) {
+      val byteIndex = byte.U(end.getWidth.W)
+      mask(byte) := row.valid && row.size =/= 0.U && byteIndex >= offset && byteIndex < end
+    }
+    mask.asUInt
+  }
+
   val rows = RegInit(VecInit(Seq.fill(liqEntries)(zeroRow)))
   val allocPtr = RegInit(0.U(liqPtrWidth.W))
   val allocWrap = RegInit(false.B)
@@ -359,6 +376,20 @@ class LoadInflightQueue(
   val scbReturnReady =
     !io.flush && scbReturnRow.valid && (scbReturnRow.status === LoadInflightStatus.Repick) && !scbReturnRow.scbReturned
   val scbReturnAccepted = io.scbReturnValid && scbReturnReady
+  val markResolvedRow = rows(io.markResolvedIndex)
+  val markResolvedRequestByteMask = requestByteMask(markResolvedRow)
+  val markResolvedRequestComplete =
+    markResolvedRequestByteMask.orR && ((markResolvedRow.validMask & markResolvedRequestByteMask) === markResolvedRequestByteMask)
+  val markResolvedReady =
+    !io.flush &&
+      markResolvedRow.valid &&
+      (markResolvedRow.status === LoadInflightStatus.Repick) &&
+      markResolvedRow.dataComplete &&
+      markResolvedRow.sourcesReturned &&
+      markResolvedRow.scbReturned &&
+      markResolvedRow.stqReturned &&
+      markResolvedRequestComplete
+  val markResolvedAccepted = io.markResolvedValid && markResolvedReady
 
   pipeline.io.e2BaseData := Mux(launchUsesRowData, launchRow.lineData, io.e2BaseData)
   pipeline.io.e2BaseValidMask := Mux(launchUsesRowData, launchRow.validMask, io.e2BaseValidMask)
@@ -465,7 +496,8 @@ class LoadInflightQueue(
   rowMutationPath.io.launchConflict :=
     (launchAccepted && (io.launchIndex === io.rowMutationTargetIndex)) ||
       (pickAccepted && (io.pickIndex === io.rowMutationTargetIndex)) ||
-      (scbReturnAccepted && (io.scbReturnIndex === io.rowMutationTargetIndex))
+      (scbReturnAccepted && (io.scbReturnIndex === io.rowMutationTargetIndex)) ||
+      (markResolvedAccepted && (io.markResolvedIndex === io.rowMutationTargetIndex))
   rowMutationPath.io.allocationConflict := allocAccepted && (allocPtr === io.rowMutationTargetIndex)
 
   when(io.flush) {
@@ -613,6 +645,12 @@ class LoadInflightQueue(
       rows(io.scbReturnIndex).scbReturned := true.B
     }
 
+    when(markResolvedAccepted) {
+      rows(io.markResolvedIndex).status := LoadInflightStatus.Resolved
+      rows(io.markResolvedIndex).waitStore := false.B
+      rows(io.markResolvedIndex).missKind := LoadForwardMissKind.NoMiss
+    }
+
     when(allocAccepted) {
       rows(allocPtr) := zeroRow
       rows(allocPtr).valid := true.B
@@ -678,6 +716,8 @@ class LoadInflightQueue(
   io.pickAccepted := pickAccepted
   io.scbReturnReady := scbReturnReady
   io.scbReturnAccepted := scbReturnAccepted
+  io.markResolvedReady := markResolvedReady
+  io.markResolvedAccepted := markResolvedAccepted
   io.clearResolvedAccepted := clearResolvedAccepted
   io.rowMutationBridgeValid := rowMutationPath.io.bridgeValid
   io.rowMutationTargetEvidenceValid := rowMutationPath.io.targetEvidenceValid

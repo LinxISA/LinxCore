@@ -31,6 +31,8 @@ class ReducedLoadReplayLiqAllocPathIO(
   val pickIndex = Input(UInt(liqPtrWidth.W))
   val scbReturnValid = Input(Bool())
   val scbReturnIndex = Input(UInt(liqPtrWidth.W))
+  val markResolvedValid = Input(Bool())
+  val markResolvedIndex = Input(UInt(liqPtrWidth.W))
   val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(idEntries, storeEntries, addrWidth, pcWidth, lineBytes)))
   val e2BaseData = Input(UInt((lineBytes * 8).W))
   val e2BaseValidMask = Input(UInt(lineBytes.W))
@@ -152,6 +154,35 @@ class ReducedLoadReplayLiqAllocPathIO(
   val pickAccepted = Output(Bool())
   val scbReturnReady = Output(Bool())
   val scbReturnAccepted = Output(Bool())
+  val markResolvedReady = Output(Bool())
+  val markResolvedAccepted = Output(Bool())
+  val returnCompleteRepickMask = Output(UInt(liqEntries.W))
+  val returnCompleteSourceReturnedMask = Output(UInt(liqEntries.W))
+  val returnCompleteDataCompleteMask = Output(UInt(liqEntries.W))
+  val returnCompleteRequestCompleteMask = Output(UInt(liqEntries.W))
+  val returnCompleteCandidateMask = Output(UInt(liqEntries.W))
+  val returnCompleteMask = Output(UInt(liqEntries.W))
+  val returnCompleteValid = Output(Bool())
+  val returnCompleteIndex = Output(UInt(liqPtrWidth.W))
+  val returnCompleteCandidateCount = Output(UInt(countWidth.W))
+  val returnCompleteSelectedLoadId = Output(new ROBID(liqEntries))
+  val returnCompleteSelectedBid = Output(new ROBID(idEntries))
+  val returnCompleteSelectedGid = Output(new ROBID(idEntries))
+  val returnCompleteSelectedRid = Output(new ROBID(idEntries))
+  val returnCompleteSelectedLoadLsId = Output(new ROBID(idEntries))
+  val returnCompleteSelectedPc = Output(UInt(pcWidth.W))
+  val returnCompleteSelectedAddr = Output(UInt(addrWidth.W))
+  val returnCompleteSelectedSize = Output(UInt(sizeWidth.W))
+  val returnCompleteSelectedReturnSignExtend = Output(Bool())
+  val returnCompleteSelectedDst = Output(new LoadReplayDestination(archRegWidth, physRegWidth))
+  val returnCompleteSelectedSourceTraceValid = Output(Bool())
+  val returnCompleteSelectedSource0 = Output(new CommitOperandTrace(sourceTraceParams))
+  val returnCompleteSelectedSource1 = Output(new CommitOperandTrace(sourceTraceParams))
+  val returnCompleteSelectedRequestByteMask = Output(UInt(lineBytes.W))
+  val returnCompleteSelectedLineData = Output(UInt((lineBytes * 8).W))
+  val returnCompleteSelectedValidMask = Output(UInt(lineBytes.W))
+  val returnCompleteSelectedSpecWakeup = Output(Bool())
+  val returnCompleteSelectedStackValid = Output(Bool())
   val repickMask = Output(UInt(liqEntries.W))
   val missMask = Output(UInt(liqEntries.W))
   val resolvedMask = Output(UInt(liqEntries.W))
@@ -233,6 +264,17 @@ class ReducedLoadReplayLiqAllocPath(
     archRegWidth,
     physRegWidth
   ))
+  val completeRepickSelect = Module(new LoadReplayReturnCompleteRepickSelect(
+    liqEntries,
+    idEntries,
+    storeEntries,
+    addrWidth,
+    pcWidth,
+    lineBytes,
+    sizeWidth,
+    archRegWidth,
+    physRegWidth
+  ))
   val rowMutationBridge = Module(new LoadInflightRowMutationRequestBridge(
     liqEntries = liqEntries,
     idEntries = idEntries,
@@ -257,6 +299,8 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.pickIndex := io.pickIndex
   liq.io.scbReturnValid := io.scbReturnValid
   liq.io.scbReturnIndex := io.scbReturnIndex
+  liq.io.markResolvedValid := io.markResolvedValid
+  liq.io.markResolvedIndex := io.markResolvedIndex
   liq.io.e2Stores := io.e2Stores
   liq.io.e2BaseData := io.e2BaseData
   liq.io.e2BaseValidMask := io.e2BaseValidMask
@@ -308,6 +352,8 @@ class ReducedLoadReplayLiqAllocPath(
 
   launchSelect.io.enable := !io.flush
   launchSelect.io.rows := liq.io.rows
+  completeRepickSelect.io.enable := !io.flush
+  completeRepickSelect.io.rows := liq.io.rows
 
   io.candidateConsumeReady := adapter.io.consumeReady
   io.candidateUsable := adapter.io.candidateUsable
@@ -355,6 +401,35 @@ class ReducedLoadReplayLiqAllocPath(
   io.pickAccepted := liq.io.pickAccepted
   io.scbReturnReady := liq.io.scbReturnReady
   io.scbReturnAccepted := liq.io.scbReturnAccepted
+  io.markResolvedReady := liq.io.markResolvedReady
+  io.markResolvedAccepted := liq.io.markResolvedAccepted
+  io.returnCompleteRepickMask := completeRepickSelect.io.repickMask
+  io.returnCompleteSourceReturnedMask := completeRepickSelect.io.sourceReturnedMask
+  io.returnCompleteDataCompleteMask := completeRepickSelect.io.dataCompleteMask
+  io.returnCompleteRequestCompleteMask := completeRepickSelect.io.requestCompleteMask
+  io.returnCompleteCandidateMask := completeRepickSelect.io.returnCandidateMask
+  io.returnCompleteMask := completeRepickSelect.io.returnMask
+  io.returnCompleteValid := completeRepickSelect.io.returnValid
+  io.returnCompleteIndex := completeRepickSelect.io.returnIndex
+  io.returnCompleteCandidateCount := completeRepickSelect.io.candidateCount
+  io.returnCompleteSelectedLoadId := completeRepickSelect.io.selectedLoadId
+  io.returnCompleteSelectedBid := completeRepickSelect.io.selectedBid
+  io.returnCompleteSelectedGid := completeRepickSelect.io.selectedGid
+  io.returnCompleteSelectedRid := completeRepickSelect.io.selectedRid
+  io.returnCompleteSelectedLoadLsId := completeRepickSelect.io.selectedLoadLsId
+  io.returnCompleteSelectedPc := completeRepickSelect.io.selectedPc
+  io.returnCompleteSelectedAddr := completeRepickSelect.io.selectedAddr
+  io.returnCompleteSelectedSize := completeRepickSelect.io.selectedSize
+  io.returnCompleteSelectedReturnSignExtend := completeRepickSelect.io.selectedReturnSignExtend
+  io.returnCompleteSelectedDst := completeRepickSelect.io.selectedDst
+  io.returnCompleteSelectedSourceTraceValid := completeRepickSelect.io.selectedSourceTraceValid
+  io.returnCompleteSelectedSource0 := completeRepickSelect.io.selectedSource0
+  io.returnCompleteSelectedSource1 := completeRepickSelect.io.selectedSource1
+  io.returnCompleteSelectedRequestByteMask := completeRepickSelect.io.selectedRequestByteMask
+  io.returnCompleteSelectedLineData := completeRepickSelect.io.selectedLineData
+  io.returnCompleteSelectedValidMask := completeRepickSelect.io.selectedValidMask
+  io.returnCompleteSelectedSpecWakeup := completeRepickSelect.io.selectedSpecWakeup
+  io.returnCompleteSelectedStackValid := completeRepickSelect.io.selectedStackValid
   io.repickMask := liq.io.repickMask
   io.missMask := liq.io.missMask
   io.resolvedMask := liq.io.resolvedMask
