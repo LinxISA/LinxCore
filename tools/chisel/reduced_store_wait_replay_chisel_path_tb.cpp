@@ -107,6 +107,10 @@ void clear_inputs(VReducedStoreWaitReplayChiselPathProbe &dut) {
     dut.io_liqRefillData[word] = 0;
   }
   dut.io_liqLaunchEnable = 0;
+  dut.io_liqE2LoadDataReturned = 0;
+  dut.io_liqE2ScbReturned = 0;
+  dut.io_liqE2StqReturned = 0;
+  dut.io_liqE2ReturnReady = 0;
 }
 
 void tick(VReducedStoreWaitReplayChiselPathProbe &dut, std::uint64_t &cycle) {
@@ -176,8 +180,12 @@ struct Report {
   bool liq_refill = false;
   bool liq_launch_valid = false;
   bool liq_launch_accepted = false;
+  bool liq_e4_update = false;
+  bool liq_lhq_record = false;
+  bool liq_resolved = false;
   std::uint32_t youngest_store_lsid = 0;
   std::uint32_t launch_load_lsid = 0;
+  std::uint32_t e4_cycles_after_launch = 0;
 };
 
 void run_ready_store_negative(VReducedStoreWaitReplayChiselPathProbe &dut, std::uint64_t &cycle, Report &report) {
@@ -282,6 +290,10 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   report.launch_load_lsid = dut.io_liqLaunchSelectedLoadLsId_value;
 
   dut.io_liqLaunchEnable = 1;
+  dut.io_liqE2LoadDataReturned = 1;
+  dut.io_liqE2ScbReturned = 1;
+  dut.io_liqE2StqReturned = 1;
+  dut.io_liqE2ReturnReady = 1;
   dut.eval();
   expect(dut.io_liqLaunchDriveValid, "LIQ launchEnable did not drive launch valid");
   expect(dut.io_liqLaunchAccepted, "LIQ launch was not accepted");
@@ -289,8 +301,35 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   report.liq_launch_accepted = true;
 
   clear_inputs(dut);
+  bool saw_e4 = false;
+  std::uint32_t e4_latency = 0;
+  for (std::uint32_t wait = 0; wait < 4; ++wait) {
+    dut.eval();
+    if (dut.io_liqE4UpdateValid) {
+      expect(dut.io_liqE4UpdateIndex == 0, "LIQ E4 update selected the wrong row");
+      expect(dut.io_liqE4WakeupValid, "LIQ E4 update did not report wakeup-valid resolved data");
+      expect(dut.io_liqLhqRecordValid, "LIQ E4 update did not publish an LHQ record");
+      expect(dut.io_liqLhqRecordLoadLsId_valid, "LIQ LHQ record did not preserve load LSID valid bit");
+      expect(dut.io_liqLhqRecordLoadLsId_value == kLoadLsId, "LIQ LHQ record did not preserve load LSID value");
+      expect(dut.io_liqLhqRecordData[0] == static_cast<std::uint32_t>(kRefillDataLow),
+             "LIQ LHQ record did not preserve refill data low word");
+      saw_e4 = true;
+      e4_latency = wait;
+      break;
+    }
+    tick(dut, cycle);
+  }
+
+  expect(saw_e4, "launched LIQ row did not produce an E4 update");
+  report.liq_e4_update = true;
+  report.liq_lhq_record = true;
+  report.e4_cycles_after_launch = e4_latency;
+
+  tick(dut, cycle);
   dut.eval();
-  expect((dut.io_liqRepickMask & 0x1) != 0, "launched LIQ row did not enter Repick");
+  expect((dut.io_liqResolvedMask & 0x1) != 0, "E4-resolved LIQ row did not enter Resolved");
+  expect((dut.io_liqRepickMask & 0x1) == 0, "E4-resolved LIQ row remained in Repick");
+  report.liq_resolved = true;
 }
 
 void write_report(const std::string &path, const Report &report) {
@@ -313,8 +352,12 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"liq_refill\": " << (report.liq_refill ? "true" : "false") << ",\n"
       << "  \"liq_launch_valid\": " << (report.liq_launch_valid ? "true" : "false") << ",\n"
       << "  \"liq_launch_accepted\": " << (report.liq_launch_accepted ? "true" : "false") << ",\n"
+      << "  \"liq_e4_update\": " << (report.liq_e4_update ? "true" : "false") << ",\n"
+      << "  \"liq_lhq_record\": " << (report.liq_lhq_record ? "true" : "false") << ",\n"
+      << "  \"liq_resolved\": " << (report.liq_resolved ? "true" : "false") << ",\n"
       << "  \"youngest_store_lsid\": " << report.youngest_store_lsid << ",\n"
-      << "  \"launch_load_lsid\": " << report.launch_load_lsid << "\n"
+      << "  \"launch_load_lsid\": " << report.launch_load_lsid << ",\n"
+      << "  \"e4_cycles_after_launch\": " << report.e4_cycles_after_launch << "\n"
       << "}\n";
 }
 
@@ -336,6 +379,7 @@ int main(int argc, char **argv) {
   std::cout << "reduced-store-wait-replay-chisel-path: pass"
             << " cycles=" << report.cycles
             << " youngest_store_lsid=" << report.youngest_store_lsid
-            << " launch_load_lsid=" << report.launch_load_lsid << "\n";
+            << " launch_load_lsid=" << report.launch_load_lsid
+            << " e4_cycles_after_launch=" << report.e4_cycles_after_launch << "\n";
   return 0;
 }

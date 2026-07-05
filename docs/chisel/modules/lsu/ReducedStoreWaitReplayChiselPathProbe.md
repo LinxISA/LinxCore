@@ -75,9 +75,12 @@ window directly and proves the owner chain through generated RTL.
 | `liqRefillValid` / `liqRefillLineAddr` / `liqRefillData` | Fixture-driven refill wakeup for the allocated replay row. |
 | `liqRefillAccepted` / `liqRefillWakeMask` | LIQ refill wakeup was accepted and matched resident rows. |
 | `liqLaunchEnable` | Fixture-owned launch arm for `ReducedLoadReplayLiqAllocPath`. |
+| `liqE2LoadDataReturned` / `liqE2ScbReturned` / `liqE2StqReturned` / `liqE2ReturnReady` | Fixture-owned source-return and return-port sidebands for the launched replay row. |
 | `liqLaunchValid` / `liqLaunchReady` / `liqLaunchDriveValid` / `liqLaunchAccepted` | Selector, readiness, gated drive, and accepted launch diagnostics. |
 | `liqLaunchSelectedLoadLsId` | Selected launch row preserved the original load LSID. |
-| `liqWaitMask` / `liqRepickMask` | LIQ row status masks before and after launch. |
+| `liqE4UpdateValid` / `liqE4UpdateIndex` / `liqE4WakeupValid` | E4 outcome diagnostics for the launched replay row. |
+| `liqLhqRecordValid` / `liqLhqRecordLoadLsId` / `liqLhqRecordData` | LHQ hit-record diagnostics emitted when the replay row resolves. |
+| `liqWaitMask` / `liqRepickMask` / `liqResolvedMask` | LIQ row status masks before launch, after launch, and after E4 resolution. |
 | `liqFirstYoungestStoreLsId` | Allocated LIQ row preserved the forwarding snapshot sidecar. |
 
 ## Logic Design
@@ -98,6 +101,10 @@ The generated-RTL harness runs two scenarios:
    `LoadRefillWakeup` path, making `LoadInflightLaunchSelect` assert
    `launchValid`. With `liqLaunchEnable` asserted for one cycle, the LIQ row
    accepts launch and enters `Repick`.
+4. The same launch cycle drives all source-return sidebands and return-port
+   readiness. One cycle later the fixture observes `e4UpdateValid`,
+   `e4WakeupValid`, and `lhqRecordValid`; after the following clock, the row
+   status mask moves from `Repick` to `Resolved`.
 
 This is fixture evidence for the reduced owner chain. It is not architectural
 QEMU/DUT replacement evidence and does not prove live top scheduling can yet
@@ -131,3 +138,10 @@ R453 extends the same report with `liq_refill=true`,
 `launch_load_lsid=3`. This remains generated-RTL fixture evidence: the refill
 and launch arm are harness-driven, and the live reduced top still ties the
 alloc-path refill wakeup inactive.
+
+R454 extends the report with `liq_e4_update=true`, `liq_lhq_record=true`,
+`liq_resolved=true`, and `e4_cycles_after_launch=1`. This proves the fixture
+can carry the launched replay row through the existing `LoadForwardPipeline`
+E4 outcome and `LoadInflightQueue` resolved-row write. It still is not live
+QEMU/DUT replay-LIQ promotion evidence because the launch, source-return
+sidebands, return readiness, and refill are harness-driven.

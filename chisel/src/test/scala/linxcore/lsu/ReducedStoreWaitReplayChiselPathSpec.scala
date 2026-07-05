@@ -145,6 +145,11 @@ class ReducedStoreWaitReplayChiselPathSpec extends AnyFunSuite {
     assert(sv.contains("io_liqRefillAccepted"))
     assert(sv.contains("io_liqLaunchAccepted"))
     assert(sv.contains("io_liqLaunchSelectedLoadLsId_value"))
+    assert(sv.contains("io_liqE2LoadDataReturned"))
+    assert(sv.contains("io_liqE4UpdateValid"))
+    assert(sv.contains("io_liqLhqRecordValid"))
+    assert(sv.contains("io_liqLhqRecordLoadLsId_value"))
+    assert(sv.contains("io_liqResolvedMask"))
     assert(sv.contains("io_liqFirstYoungestStoreLsId_value"))
   }
 }

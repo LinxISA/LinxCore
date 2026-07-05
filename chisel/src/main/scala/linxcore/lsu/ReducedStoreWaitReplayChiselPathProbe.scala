@@ -55,16 +55,27 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val liqRefillAccepted = Output(Bool())
   val liqRefillWakeMask = Output(UInt(liqEntries.W))
   val liqLaunchEnable = Input(Bool())
+  val liqE2LoadDataReturned = Input(Bool())
+  val liqE2ScbReturned = Input(Bool())
+  val liqE2StqReturned = Input(Bool())
+  val liqE2ReturnReady = Input(Bool())
   val liqLaunchValid = Output(Bool())
   val liqLaunchDriveValid = Output(Bool())
   val liqLaunchReady = Output(Bool())
   val liqLaunchAccepted = Output(Bool())
   val liqLaunchIndex = Output(UInt(log2Ceil(liqEntries).W))
   val liqLaunchSelectedLoadLsId = Output(new ROBID(entries))
+  val liqE4UpdateValid = Output(Bool())
+  val liqE4UpdateIndex = Output(UInt(log2Ceil(liqEntries).W))
+  val liqE4WakeupValid = Output(Bool())
+  val liqLhqRecordValid = Output(Bool())
+  val liqLhqRecordLoadLsId = Output(new ROBID(entries))
+  val liqLhqRecordData = Output(UInt((lineBytes * 8).W))
   val liqResidentCount = Output(UInt(log2Ceil(liqEntries + 1).W))
   val liqOccupiedMask = Output(UInt(liqEntries.W))
   val liqWaitMask = Output(UInt(liqEntries.W))
   val liqRepickMask = Output(UInt(liqEntries.W))
+  val liqResolvedMask = Output(UInt(liqEntries.W))
   val liqFirstYoungestStoreLsId = Output(new ROBID(entries))
 }
 
@@ -151,10 +162,10 @@ class ReducedStoreWaitReplayChiselPathProbe(
   liq.io.e2Stores := 0.U.asTypeOf(liq.io.e2Stores)
   liq.io.e2BaseData := 0.U
   liq.io.e2BaseValidMask := 0.U
-  liq.io.e2LoadDataReturned := false.B
-  liq.io.e2ScbReturned := false.B
-  liq.io.e2StqReturned := false.B
-  liq.io.e2ReturnReady := false.B
+  liq.io.e2LoadDataReturned := io.liqE2LoadDataReturned
+  liq.io.e2ScbReturned := io.liqE2ScbReturned
+  liq.io.e2StqReturned := io.liqE2StqReturned
+  liq.io.e2ReturnReady := io.liqE2ReturnReady
   liq.io.refillValid := io.liqRefillValid
   liq.io.refill.isRead := true.B
   liq.io.refill.lineAddr := io.liqRefillLineAddr
@@ -208,10 +219,17 @@ class ReducedStoreWaitReplayChiselPathProbe(
   io.liqLaunchAccepted := liq.io.launchAccepted
   io.liqLaunchIndex := liq.io.launchIndex
   io.liqLaunchSelectedLoadLsId := liq.io.launchSelectedLoadLsId
+  io.liqE4UpdateValid := liq.io.e4UpdateValid
+  io.liqE4UpdateIndex := liq.io.e4UpdateIndex
+  io.liqE4WakeupValid := liq.io.e4WakeupValid
+  io.liqLhqRecordValid := liq.io.lhqRecordValid
+  io.liqLhqRecordLoadLsId := liq.io.lhqRecord.loadLsId
+  io.liqLhqRecordData := liq.io.lhqRecord.data
   io.liqResidentCount := liq.io.residentCount
   io.liqOccupiedMask := liq.io.occupiedMask
   io.liqWaitMask := liq.io.waitMask
   io.liqRepickMask := liq.io.repickMask
+  io.liqResolvedMask := liq.io.resolvedMask
   io.liqFirstYoungestStoreLsId := liq.io.rows(0).youngestStoreLsId
 }
 

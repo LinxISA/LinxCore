@@ -221,8 +221,14 @@ reduced wait slot and replay queue produce the same cleared load as a
    `Wait` with `l1Hit` and full row-owned valid bytes, allowing
    `LoadInflightLaunchSelect` to select them without changing allocation or
    row-mutation ownership.
+10. R454 drives the existing E2 source-return and return-ready sidebands from
+    the generated-RTL fixture, then observes the child LIQ's existing E4
+    outcome, LHQ hit-record, and `Resolved` status outputs. The E4/LHQ
+    observation is one cycle after launch, and the registered `Resolved` mask
+    follows on the next clock.
 
-Replay wakeup and refill wakeup ports remain inactive in this owner. The R283
+The replay wakeup port remains inactive in this owner unless a parent wires it;
+the refill wakeup port is exposed for parents and fixtures after R453. The R283
 reduced top keeps `launchEnable` low but feeds `e2Stores` from a shared
 `ResidentStoreForwardStoreSnapshot`, so the path has model-shaped resident STQ
 store candidates available before live replay launch is armed. Base-data and
@@ -312,3 +318,9 @@ allocation, assert that the refilled row becomes a launch candidate, and then
 assert `launchEnable` long enough for `launchAccepted` to move the row into
 `Repick`. The passing report records `liq_refill=true`,
 `liq_launch_valid=true`, `liq_launch_accepted=true`, and `launch_load_lsid=3`.
+R454 extends the same harness to drive source-return and return-port readiness
+on the launch cycle. The passing report records `liq_e4_update=true`,
+`liq_lhq_record=true`, `liq_resolved=true`, and
+`e4_cycles_after_launch=1`, proving the existing path-local E4/LHQ diagnostics
+and registered resolved-row transition under generated RTL. The proof remains
+fixture-driven and does not promote the live reduced top.

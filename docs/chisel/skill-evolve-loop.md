@@ -154,6 +154,13 @@ read-refill after LIQ allocation. The report proves the refilled row becomes a
 launch candidate and accepts one gated launch into `Repick`. This is still
 fixture evidence, not live replay-LIQ promotion, because both the refill and
 launch arm are harness-driven.
+R454 extends the executable fixture through the launched row's E4 return path:
+the probe exposes fixture-owned source-return and return-ready sidebands plus
+the existing E4/LHQ/resolved diagnostics. The generated-RTL report proves
+`liq_e4_update=true`, `liq_lhq_record=true`, `liq_resolved=true`, and
+`e4_cycles_after_launch=1`. This remains fixture evidence because launch,
+refill, source-return, and return readiness are harness-driven; live promotion
+still needs nonzero replay-LIQ counters through the reduced top.
 
 ## XiangShan Flow Reference
 
