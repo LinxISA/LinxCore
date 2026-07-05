@@ -14,6 +14,10 @@ class ReducedScalarRegisterFileIO(
   val readData = Output(Vec(3, UInt(p.immWidth.W)))
   val readReady = Output(Vec(3, Bool()))
   val allReadReady = Output(Bool())
+  val auxReadValid = Input(Vec(3, Bool()))
+  val auxReadTags = Input(Vec(3, UInt(p.physRegWidth.W)))
+  val auxReadData = Output(Vec(3, UInt(p.immWidth.W)))
+  val auxReadReady = Output(Vec(3, Bool()))
 
   val initValid = Input(Bool())
   val initArchTag = Input(UInt(p.archRegWidth.W))
@@ -52,6 +56,8 @@ class ReducedScalarRegisterFile(
   for (idx <- 0 until 3) {
     io.readData(idx) := data(io.readTags(idx))
     io.readReady(idx) := !io.readValid(idx) || ready(io.readTags(idx))
+    io.auxReadData(idx) := data(io.auxReadTags(idx))
+    io.auxReadReady(idx) := !io.auxReadValid(idx) || ready(io.auxReadTags(idx))
   }
 
   io.allReadReady := io.readReady.reduce(_ && _)

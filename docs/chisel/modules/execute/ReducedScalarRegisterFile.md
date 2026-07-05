@@ -31,6 +31,10 @@ dependent scalar ALU rows observable through the monitored commit trace.
 | output | `readData` | `Vec(3, UInt(64.W))` by default | combinational | Current data for each physical source tag. |
 | output | `readReady` | `Vec(3, Bool)` | combinational | Per-source ready state; invalid lanes are reported ready. |
 | output | `allReadReady` | `Bool` | combinational | Reduction of `readReady`; the RF-backed top keeps this as diagnostic while `ReducedScalarIssueQueue` samples `readyMask` into registered per-entry readiness. |
+| input | `auxReadValid` | `Vec(3, Bool)` | valid | Auxiliary source lanes for non-issue readers such as reduced STA address execution. |
+| input | `auxReadTags` | `Vec(3, UInt(physRegWidth.W))` | with `auxReadValid` | Physical source tags for the auxiliary read lanes. |
+| output | `auxReadData` | `Vec(3, UInt(64.W))` by default | combinational | Current data for each auxiliary physical source tag. |
+| output | `auxReadReady` | `Vec(3, Bool)` | combinational | Per-auxiliary-source ready state; invalid lanes are reported ready. |
 | input | `initValid` | `Bool` | pulse | Preload one architectural identity register for reduced top fixtures. |
 | input | `initArchTag` | `UInt(archRegWidth.W)` | with `initValid` | Architectural GPR tag. In reset identity state this is the same physical tag. |
 | input | `initData` | `UInt(64.W)` by default | with `initValid` | Initial data for the identity physical tag. |
@@ -74,6 +78,9 @@ The Chisel module mirrors the reduced subset:
 - execute writeback stores result data and marks the destination physical tag
   ready;
 - read ports return data and readiness for the current physical source tags.
+- auxiliary read ports return the same combinational data/readiness for
+  sideband owners without arbitrating away the scalar issue queue's three
+  source-read lanes.
 
 If init, clear, and write target the same tag in one cycle, writeback has final
 priority because it is applied after init and clear in the sequential block.

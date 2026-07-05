@@ -195,6 +195,8 @@ class LinxCoreFrontendRfAluTraceTop(
   for (idx <- 0 until 3) {
     rf.io.readValid(idx) := issue.io.readValid(idx)
     rf.io.readTags(idx) := issue.io.readTags(idx)
+    rf.io.auxReadValid(idx) := false.B
+    rf.io.auxReadTags(idx) := 0.U
     issue.io.readReady(idx) := rf.io.readReady(idx)
     issue.io.readData(idx) := rf.io.readData(idx)
   }

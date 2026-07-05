@@ -122,7 +122,9 @@ R476 covered:
 
 ## Deferred Owners
 
-- Top-level RF/local read wiring for STA queue heads.
+- Top-level RF/local read wiring and live selection for STA queue heads. R477
+  adds auxiliary RF read lanes as the prerequisite, but a direct live selection
+  trial exposed a reduced-store lifecycle drain blocker and was not kept.
 - Arbitration between the existing scalar issue RF reads and STA address reads.
 - Live-top selection between early STA output and buffered full-store STA
   output.

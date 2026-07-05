@@ -3149,6 +3149,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
 
     rf.io.readValid(idx) := issue.io.readValid(idx) && !readIsLocal
     rf.io.readTags(idx) := issue.io.readTags(idx)
+    rf.io.auxReadValid(idx) := false.B
+    rf.io.auxReadTags(idx) := 0.U
     issue.io.readReady(idx) := Mux(readIsLocal, localReadReady, rf.io.readReady(idx))
     issue.io.readData(idx) := Mux(readIsLocal, localReadData, scalarReadData)
   }

@@ -12,6 +12,9 @@ class ReducedScalarRegisterFileSpec extends AnyFunSuite {
     assert(io.readValid.length == 3)
     assert(io.readTags.head.getWidth == 6)
     assert(io.readData.head.getWidth == 64)
+    assert(io.auxReadValid.length == 3)
+    assert(io.auxReadTags.head.getWidth == 6)
+    assert(io.auxReadData.head.getWidth == 64)
     assert(io.initArchTag.getWidth == 6)
     assert(io.clearTag.getWidth == 6)
     assert(io.writeTag.getWidth == 6)
@@ -28,6 +31,7 @@ class ReducedScalarRegisterFileSpec extends AnyFunSuite {
     assert(sv.contains("io_clearValid"))
     assert(sv.contains("io_writeValid"))
     assert(sv.contains("io_readReady"))
+    assert(sv.contains("io_auxReadReady"))
     assert(sv.contains("io_readyMask"))
     assert(sv.contains("io_stateError"))
   }

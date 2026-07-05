@@ -895,6 +895,19 @@ waits for full reduced-ALU store completion. R476 therefore narrows the next
 top change to an RF/local read and selection owner for STA queue heads, with
 STD/data still allowed to use the existing completion-backed bridge.
 
+R477 adds auxiliary combinational read lanes to `ReducedScalarRegisterFile` and
+ties them off in this top. That is the safe prerequisite for STA queue-head
+address reads without stealing the existing scalar issue read lanes. A direct
+live-top trial that wired those lanes into `ReducedStoreStaAddressExecBridge`
+and selected early STA ahead of `ReducedStoreExecResultBridge` was built at
+`generated/r477-early-sta-address-xcheck`; it emitted the same three DUT scalar
+rows as QEMU but failed the harness drain check because `io_idle` remained low
+after commit drain while decode/issue/execute/fetch were visibly empty. The
+trial was not kept in RTL. The next live early-STA packet must first account
+for the reduced-store commit/free or replay-LIQ lifecycle state that remains
+live after early STA, then re-enable the bridge selection with a passing
+generated gate and the existing nonzero-counter requirements.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
