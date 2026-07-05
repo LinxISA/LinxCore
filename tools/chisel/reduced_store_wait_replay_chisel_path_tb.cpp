@@ -183,8 +183,11 @@ struct Report {
   bool liq_e4_update = false;
   bool liq_lhq_record = false;
   bool liq_resolved = false;
+  bool resolve_queue_push = false;
+  bool liq_clear_resolved = false;
   std::uint32_t youngest_store_lsid = 0;
   std::uint32_t launch_load_lsid = 0;
+  std::uint32_t resolve_queue_count = 0;
   std::uint32_t e4_cycles_after_launch = 0;
 };
 
@@ -313,6 +316,7 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
       expect(dut.io_liqLhqRecordLoadLsId_value == kLoadLsId, "LIQ LHQ record did not preserve load LSID value");
       expect(dut.io_liqLhqRecordData[0] == static_cast<std::uint32_t>(kRefillDataLow),
              "LIQ LHQ record did not preserve refill data low word");
+      expect(dut.io_resolveQueuePushAccepted, "ResolveQ did not accept the LIQ LHQ record");
       saw_e4 = true;
       e4_latency = wait;
       break;
@@ -323,13 +327,30 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   expect(saw_e4, "launched LIQ row did not produce an E4 update");
   report.liq_e4_update = true;
   report.liq_lhq_record = true;
+  report.resolve_queue_push = true;
   report.e4_cycles_after_launch = e4_latency;
 
   tick(dut, cycle);
   dut.eval();
   expect((dut.io_liqResolvedMask & 0x1) != 0, "E4-resolved LIQ row did not enter Resolved");
   expect((dut.io_liqRepickMask & 0x1) == 0, "E4-resolved LIQ row remained in Repick");
+  expect(dut.io_resolveQueueCount == 1, "ResolveQ did not retain the pushed LHQ record");
+  expect((dut.io_resolveQueueValidMask & 0x1) != 0, "ResolveQ row zero is not valid after push");
+  expect(dut.io_resolveQueueFirstLoadLsId_valid, "ResolveQ did not preserve load LSID valid bit");
+  expect(dut.io_resolveQueueFirstLoadLsId_value == kLoadLsId, "ResolveQ did not preserve load LSID value");
+  expect(dut.io_liqClearResolvedPending, "LIQ clear-resolved request was not pending after ResolveQ push");
+  expect(dut.io_liqClearResolvedAccepted, "LIQ clear-resolved request was not accepted");
   report.liq_resolved = true;
+  report.resolve_queue_count = dut.io_resolveQueueCount;
+
+  tick(dut, cycle);
+  dut.eval();
+  expect(dut.io_liqResidentCount == 0, "LIQ resident count did not clear after ResolveQ push");
+  expect(dut.io_liqOccupiedMask == 0, "LIQ row remained occupied after clear-resolved");
+  expect(dut.io_liqResolvedMask == 0, "LIQ resolved mask remained set after clear-resolved");
+  expect(!dut.io_liqClearResolvedPending, "LIQ clear-resolved request remained pending after acceptance");
+  expect(dut.io_resolveQueueCount == 1, "ResolveQ lost the resolved record after LIQ clear");
+  report.liq_clear_resolved = true;
 }
 
 void write_report(const std::string &path, const Report &report) {
@@ -355,8 +376,11 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"liq_e4_update\": " << (report.liq_e4_update ? "true" : "false") << ",\n"
       << "  \"liq_lhq_record\": " << (report.liq_lhq_record ? "true" : "false") << ",\n"
       << "  \"liq_resolved\": " << (report.liq_resolved ? "true" : "false") << ",\n"
+      << "  \"resolve_queue_push\": " << (report.resolve_queue_push ? "true" : "false") << ",\n"
+      << "  \"liq_clear_resolved\": " << (report.liq_clear_resolved ? "true" : "false") << ",\n"
       << "  \"youngest_store_lsid\": " << report.youngest_store_lsid << ",\n"
       << "  \"launch_load_lsid\": " << report.launch_load_lsid << ",\n"
+      << "  \"resolve_queue_count\": " << report.resolve_queue_count << ",\n"
       << "  \"e4_cycles_after_launch\": " << report.e4_cycles_after_launch << "\n"
       << "}\n";
 }

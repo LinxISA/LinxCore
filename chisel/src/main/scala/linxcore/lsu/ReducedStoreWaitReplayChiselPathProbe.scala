@@ -71,6 +71,12 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val liqLhqRecordValid = Output(Bool())
   val liqLhqRecordLoadLsId = Output(new ROBID(entries))
   val liqLhqRecordData = Output(UInt((lineBytes * 8).W))
+  val resolveQueuePushAccepted = Output(Bool())
+  val resolveQueueValidMask = Output(UInt(liqEntries.W))
+  val resolveQueueCount = Output(UInt(log2Ceil(liqEntries + 1).W))
+  val resolveQueueFirstLoadLsId = Output(new ROBID(entries))
+  val liqClearResolvedPending = Output(Bool())
+  val liqClearResolvedAccepted = Output(Bool())
   val liqResidentCount = Output(UInt(log2Ceil(liqEntries + 1).W))
   val liqOccupiedMask = Output(UInt(liqEntries.W))
   val liqWaitMask = Output(UInt(liqEntries.W))
@@ -155,6 +161,10 @@ class ReducedStoreWaitReplayChiselPathProbe(
   relaunchQueue.io.enqueue := waitSlot.io.relaunch
 
   val liq = Module(new ReducedLoadReplayLiqAllocPath(liqEntries, entries, entries, addrWidth, pcWidth, lineBytes, sizeWidth))
+  val resolveQueue = Module(new LoadResolveQueue(queueEntries = liqEntries, liqEntries = liqEntries, idEntries = entries, addrWidth = addrWidth, pcWidth = pcWidth, lineBytes = lineBytes, sizeWidth = sizeWidth))
+  val clearResolvedPending = RegInit(false.B)
+  val clearResolvedIndex = RegInit(0.U(log2Ceil(liqEntries).W))
+
   liq.io.flush := io.flush
   liq.io.candidateValid := relaunchQueue.io.outValid
   liq.io.candidate := relaunchQueue.io.out
@@ -171,8 +181,8 @@ class ReducedStoreWaitReplayChiselPathProbe(
   liq.io.refill.lineAddr := io.liqRefillLineAddr
   liq.io.refill.data := io.liqRefillData
   liq.io.refill.l2Miss := false.B
-  liq.io.clearResolvedValid := false.B
-  liq.io.clearResolvedIndex := 0.U
+  liq.io.clearResolvedValid := clearResolvedPending
+  liq.io.clearResolvedIndex := clearResolvedIndex
   liq.io.rowMutationRequestValid := false.B
   liq.io.rowMutationRequestTargetMask := 0.U
   liq.io.rowMutationRequestTargetIndex := 0.U
@@ -191,6 +201,30 @@ class ReducedStoreWaitReplayChiselPathProbe(
   liq.io.rowMutationNextStoreSourceReturned := false.B
 
   relaunchQueue.io.outReady := liq.io.candidateConsumeReady
+
+  resolveQueue.io.flush := io.flush
+  resolveQueue.io.preciseFlush := 0.U.asTypeOf(resolveQueue.io.preciseFlush)
+  resolveQueue.io.pushValid := liq.io.lhqRecordValid
+  resolveQueue.io.pushPeId := 0.U
+  resolveQueue.io.pushStid := 0.U
+  resolveQueue.io.pushTid := 0.U
+  resolveQueue.io.pushRecord := liq.io.lhqRecord
+  resolveQueue.io.retireValid := false.B
+  resolveQueue.io.retireBid := ROBID.disabled(entries)
+  resolveQueue.io.retireLsId := ROBID.disabled(entries)
+
+  when(io.flush) {
+    clearResolvedPending := false.B
+    clearResolvedIndex := 0.U
+  }.otherwise {
+    when(clearResolvedPending && liq.io.clearResolvedAccepted) {
+      clearResolvedPending := false.B
+    }
+    when(resolveQueue.io.pushAccepted) {
+      clearResolvedPending := true.B
+      clearResolvedIndex := liq.io.lhqRecord.loadId.value
+    }
+  }
 
   io.storeInsertAccepted := stq.io.insertAccepted
   io.stqOccupiedMask := stq.io.occupiedMask
@@ -225,6 +259,12 @@ class ReducedStoreWaitReplayChiselPathProbe(
   io.liqLhqRecordValid := liq.io.lhqRecordValid
   io.liqLhqRecordLoadLsId := liq.io.lhqRecord.loadLsId
   io.liqLhqRecordData := liq.io.lhqRecord.data
+  io.resolveQueuePushAccepted := resolveQueue.io.pushAccepted
+  io.resolveQueueValidMask := resolveQueue.io.validMask
+  io.resolveQueueCount := resolveQueue.io.count
+  io.resolveQueueFirstLoadLsId := resolveQueue.io.entries(0).record.loadLsId
+  io.liqClearResolvedPending := clearResolvedPending
+  io.liqClearResolvedAccepted := liq.io.clearResolvedAccepted
   io.liqResidentCount := liq.io.residentCount
   io.liqOccupiedMask := liq.io.occupiedMask
   io.liqWaitMask := liq.io.waitMask

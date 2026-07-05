@@ -226,6 +226,9 @@ reduced wait slot and replay queue produce the same cleared load as a
     outcome, LHQ hit-record, and `Resolved` status outputs. The E4/LHQ
     observation is one cycle after launch, and the registered `Resolved` mask
     follows on the next clock.
+11. R455 composes the fixture LHQ record with `LoadResolveQueue` and feeds the
+    child LIQ `clearResolved` input one cycle after the queue accepts the
+    record, matching the R286 top-level delayed-clear contract.
 
 The replay wakeup port remains inactive in this owner unless a parent wires it;
 the refill wakeup port is exposed for parents and fixtures after R453. The R283
@@ -324,3 +327,10 @@ on the launch cycle. The passing report records `liq_e4_update=true`,
 `e4_cycles_after_launch=1`, proving the existing path-local E4/LHQ diagnostics
 and registered resolved-row transition under generated RTL. The proof remains
 fixture-driven and does not promote the live reduced top.
+R455 extends the same harness through the next owner boundary:
+`LoadResolveQueue` accepts the LHQ record, the delayed `clearResolved` request
+clears the LIQ row, and the ResolveQ record remains resident. The passing
+report records `resolve_queue_push=true`, `liq_clear_resolved=true`, and
+`resolve_queue_count=1`. This remains generated-RTL fixture evidence because
+the replay launch, refill, source-return sidebands, and return readiness are
+harness-driven.

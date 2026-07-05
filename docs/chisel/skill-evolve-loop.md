@@ -161,6 +161,14 @@ the existing E4/LHQ/resolved diagnostics. The generated-RTL report proves
 `e4_cycles_after_launch=1`. This remains fixture evidence because launch,
 refill, source-return, and return readiness are harness-driven; live promotion
 still needs nonzero replay-LIQ counters through the reduced top.
+R455 composes the same generated-RTL fixture with the real `LoadResolveQueue`
+and existing delayed LIQ clear feedback. The report proves
+`resolve_queue_push=true`, `liq_clear_resolved=true`, and
+`resolve_queue_count=1`, showing that the LHQ record moves into ResolveQ and
+the source LIQ row is freed after acceptance. This remains fixture evidence:
+launch, refill, source-return, and return readiness are still harness-driven,
+so live promotion still needs nonzero replay-LIQ counters through the reduced
+top.
 
 ## XiangShan Flow Reference
 

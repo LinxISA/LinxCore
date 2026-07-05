@@ -31,14 +31,18 @@ younger store arrives.
 R285 wires the opt-in replay-LIQ top path's path-local `lhqRecord` output into
 this queue and exposes queue/head diagnostics. R286 adds the matching
 parent-owned delayed `clearResolved` request for that opt-in top path. That
-integration is still storage-only because replay launch remains disabled in
-the current fixture. R287 wires ROB commit memory-order retire watermarks.
+top integration is storage-only in the live reduced top because replay launch
+remains disabled there. R287 wires ROB commit memory-order retire watermarks.
 R288 adds queue-local precise `FlushBus` pruning. R289 has the opt-in
 replay-LIQ top drive that port from execute-owned scalar redirect cleanup when
 the redirecting uop supplies a valid all-row LSID sidecar; marker-only cleanup
-without an LSID still uses the hard all-clear fallback. Default/live LIQ
-insertion and exported conflict rows feeding the live MDB/recovery path remain
-deferred owner packets.
+without an LSID still uses the hard all-clear fallback. R455 proves this queue
+under the executable reduced-store replay fixture: the generated RTL drives a
+real LIQ E4 LHQ record into `LoadResolveQueue`, then applies the delayed LIQ
+`clearResolved` feedback while the ResolveQ record remains resident. That is
+fixture evidence because launch and return sidebands are harness-driven.
+Default/live LIQ insertion and exported conflict rows feeding the live
+MDB/recovery path remain deferred owner packets.
 
 ## Interface
 
@@ -152,6 +156,22 @@ bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
 bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
+bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayChiselPath
+```
+
+Generated-RTL fixture gate:
+
+```bash
+bash tools/chisel/run_chisel_reduced_store_wait_replay_chisel_path.sh
+jq . generated/chisel-reduced-store-wait-replay-chisel-path/report/reduced_store_wait_replay_chisel_path.json
+```
+
+The R455 generated report records `resolve_queue_push=true`,
+`liq_clear_resolved=true`, and `resolve_queue_count=1`, proving that this queue
+accepts the fixture LHQ record and that the parent delayed clear frees the
+source LIQ row after acceptance. Older focused fixtures remain:
+
+```bash
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r285-replay-liq-resolveq-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r286-replay-liq-resolve-clear-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r287-replay-liq-resolve-retire-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh

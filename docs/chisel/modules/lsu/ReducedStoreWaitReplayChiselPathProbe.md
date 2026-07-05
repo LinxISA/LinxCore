@@ -80,6 +80,9 @@ window directly and proves the owner chain through generated RTL.
 | `liqLaunchSelectedLoadLsId` | Selected launch row preserved the original load LSID. |
 | `liqE4UpdateValid` / `liqE4UpdateIndex` / `liqE4WakeupValid` | E4 outcome diagnostics for the launched replay row. |
 | `liqLhqRecordValid` / `liqLhqRecordLoadLsId` / `liqLhqRecordData` | LHQ hit-record diagnostics emitted when the replay row resolves. |
+| `resolveQueuePushAccepted` | Probe-local `LoadResolveQueue` accepted the LHQ hit record. |
+| `resolveQueueValidMask` / `resolveQueueCount` / `resolveQueueFirstLoadLsId` | ResolveQ residency diagnostics after the LHQ record is appended. |
+| `liqClearResolvedPending` / `liqClearResolvedAccepted` | Probe-local delayed clear request back into LIQ after ResolveQ accepts the LHQ record. |
 | `liqWaitMask` / `liqRepickMask` / `liqResolvedMask` | LIQ row status masks before launch, after launch, and after E4 resolution. |
 | `liqFirstYoungestStoreLsId` | Allocated LIQ row preserved the forwarding snapshot sidecar. |
 
@@ -105,6 +108,10 @@ The generated-RTL harness runs two scenarios:
    readiness. One cycle later the fixture observes `e4UpdateValid`,
    `e4WakeupValid`, and `lhqRecordValid`; after the following clock, the row
    status mask moves from `Repick` to `Resolved`.
+5. The probe appends the LHQ hit record to `LoadResolveQueue` on the E4
+   cycle. A fixture-local pending-clear register captures the accepted
+   `loadId.value` and drives `clearResolved` on the next cycle, clearing the
+   LIQ row while the ResolveQ record remains resident.
 
 This is fixture evidence for the reduced owner chain. It is not architectural
 QEMU/DUT replacement evidence and does not prove live top scheduling can yet
@@ -145,3 +152,10 @@ can carry the launched replay row through the existing `LoadForwardPipeline`
 E4 outcome and `LoadInflightQueue` resolved-row write. It still is not live
 QEMU/DUT replay-LIQ promotion evidence because the launch, source-return
 sidebands, return readiness, and refill are harness-driven.
+
+R455 extends the report with `resolve_queue_push=true`,
+`liq_clear_resolved=true`, and `resolve_queue_count=1`. The probe now composes
+the real `LoadResolveQueue` beside the LIQ path and applies the existing
+delayed clear rule after the LHQ record is accepted. This remains fixture
+evidence because the replay launch and return sidebands are still
+harness-driven.
