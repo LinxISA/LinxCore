@@ -141,7 +141,12 @@ wait-slot, store-wakeup, relaunch-queue, and LIQ allocation modules, and
 separately locks the reference timing rule that only an STA-only row at younger
 load lookup captures wait-replay. The next live promotion still needs scheduler
 or fixture timing that makes those R451 path counters nonzero in a generated-RTL
-or QEMU/DUT evidence run.
+or QEMU/DUT evidence run. R452 turns the fixture into generated-RTL evidence:
+`run_chisel_reduced_store_wait_replay_chisel_path.sh` emits the probe, builds a
+Verilator executable, and writes a JSON report proving ready-store no-capture
+plus split STA/STD wait capture, wake clear, relaunch queue fire, and LIQ
+allocation. This still is not live QEMU/DUT promotion evidence because the
+timing is harness-driven rather than produced by the reduced top scheduler.
 
 ## XiangShan Flow Reference
 

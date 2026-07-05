@@ -17,6 +17,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocAdapter.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightQueue.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightLaunchSelect.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadInflightRowMutationRequestBridge.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnConsumerReady.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadResolveQueue.scala`
@@ -271,6 +272,7 @@ bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayChiselPath
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayLiqAllocAdapter
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightLaunchSelect
+bash tools/chisel/run_chisel_reduced_store_wait_replay_chisel_path.sh
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 ```
 
@@ -290,3 +292,7 @@ owner through the resident-forward, wait-slot, replay-wakeup, relaunch-queue,
 and LIQ allocation modules. This probe is fixture evidence for the
 address-ready/data-late timing window R450 could not reach through the live
 `LDI`/`SDI`/`LDI` top stimulus; it is not itself QEMU/live promotion evidence.
+R452 makes the probe executable through Verilator. The generated-RTL harness
+asserts that the relaunch queue fires into this LIQ path and that the first
+resident LIQ row preserves the `youngestStoreLsId` sidecar from the blocking
+store.

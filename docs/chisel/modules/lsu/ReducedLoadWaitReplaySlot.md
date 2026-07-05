@@ -21,6 +21,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ResidentStoreReplayWakeup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayWakeup.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayRelaunchQueue.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathProbe.scala`
 - Contract IDs: `LC-CHISEL-LSU-STQ-FWD-004`
 
 ## Purpose
@@ -186,6 +187,7 @@ bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayChiselPath
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayRelaunchQueue
 bash tools/chisel/run_chisel_tests.sh --only ResidentStoreReplayWakeup
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup
+bash tools/chisel/run_chisel_reduced_store_wait_replay_chisel_path.sh
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 git diff --check
 ```
@@ -202,4 +204,8 @@ candidate, the queue preserves it, and replay-LIQ allocation preserves
 `ReducedLoadReplayLiqAllocPath` modules together. The companion reference case
 locks the R450 timing conclusion: a ready store at load lookup forwards
 normally, while an address-ready/data-late resident store is the required
-window for wait-store capture and later relaunch.
+window for wait-store capture and later relaunch. R452 promotes that probe into
+a main-source generated-RTL fixture and Verilator harness. The executable proof
+drives a ready-store negative case and a split STA/STD case through the real
+module chain, then records nonzero wait capture, wake clear, relaunch queue
+fire, LIQ allocation, and `youngest_store_lsid=1` in a JSON report.
