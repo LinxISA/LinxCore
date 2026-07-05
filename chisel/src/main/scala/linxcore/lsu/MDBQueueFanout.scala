@@ -119,6 +119,8 @@ class MDBQueueFanoutIO(
   val storeRows = Input(Vec(storeEntries, new MDBStoreWakeupEntry(entries, storeEntries, addrWidth, pcWidth, stidWidth, sizeWidth)))
   val suMatchedStore = Output(Bool())
   val suMatchedStoreIndex = Output(UInt(log2Ceil(storeEntries).W))
+  val suMatchedStoreBid = Output(new ROBID(entries))
+  val suMatchedStoreLsId = Output(new ROBID(entries))
   val suStorePending = Output(Bool())
   val suWakeup = Output(new MDBStoreWakeup(entries, storeEntries, addrWidth, pcWidth, stidWidth, sizeWidth))
 
@@ -306,10 +308,13 @@ class MDBQueueFanout(
   val anyWakeup = readyVec.asUInt.orR
   val wakeupIndex = PriorityEncoder(readyVec.asUInt)
   val matchedIndex = PriorityEncoder(firstMatchVec.asUInt)
+  val matchedRow = io.storeRows(matchedIndex)
   val wakeupRow = io.storeRows(wakeupIndex)
 
   io.suMatchedStore := anyStoreMatch
   io.suMatchedStoreIndex := matchedIndex
+  io.suMatchedStoreBid := matchedRow.bid
+  io.suMatchedStoreLsId := matchedRow.lsId
   io.suStorePending := anyStoreMatch && !anyWakeup
   io.suWakeup := zeroWakeup
   io.suWakeup.valid := anyWakeup

@@ -3802,6 +3802,9 @@ rows with zero mismatches and records `mdb_fanout_lookup_valid=3`,
 `mdb_lookup_wait_plan_wait_intent_valid=1`. Planner `request_valid` and bridge
 valid remain zero, narrowing the next live-top work to resolved store identity
 publication for `LoadReplayMdbLookupWaitPlan`.
+R505 feeds that planner from `MDBQueueFanout.suMatchedStore*` instead of
+`suWakeup`. The top therefore gives the planner a pending matched store's
+index/LSID while keeping store wakeup publication gated by address/data ready.
 
 ## Verification
 

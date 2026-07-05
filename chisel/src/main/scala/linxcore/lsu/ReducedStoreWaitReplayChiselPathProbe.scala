@@ -393,10 +393,10 @@ class ReducedStoreWaitReplayChiselPathProbe(
   mdbLookupWaitPlan.io.luOutValid := mdbFanout.io.luOutValid
   mdbLookupWaitPlan.io.luOut := mdbFanout.io.luOut
   mdbLookupWaitPlan.io.rows := liq.io.rows
-  mdbLookupWaitPlan.io.storeIndexValid := mdbFanout.io.suWakeup.valid
-  mdbLookupWaitPlan.io.storeIndex := mdbFanout.io.suWakeup.storeIndex
-  mdbLookupWaitPlan.io.storeLsIdValid := mdbFanout.io.suWakeup.valid
-  mdbLookupWaitPlan.io.storeLsId := mdbFanout.io.suWakeup.lsId
+  mdbLookupWaitPlan.io.storeIndexValid := mdbFanout.io.suMatchedStore
+  mdbLookupWaitPlan.io.storeIndex := mdbFanout.io.suMatchedStoreIndex
+  mdbLookupWaitPlan.io.storeLsIdValid := mdbFanout.io.suMatchedStore
+  mdbLookupWaitPlan.io.storeLsId := mdbFanout.io.suMatchedStoreLsId
 
   liq.io.rowMutationRequestValid := mdbLookupWaitPlan.io.requestValid
   liq.io.rowMutationRequestTargetMask := mdbLookupWaitPlan.io.requestTargetMask

@@ -6355,10 +6355,10 @@ private object LinxCoreFrontendFetchRfAluTraceTopR465MdbLookupWaitPlanWiring {
     plan.io.luOutValid := fanout.io.luOutValid
     plan.io.luOut := fanout.io.luOut
     plan.io.rows := liqPath.io.rows
-    plan.io.storeIndexValid := fanout.io.suWakeup.valid
-    plan.io.storeIndex := fanout.io.suWakeup.storeIndex
-    plan.io.storeLsIdValid := fanout.io.suWakeup.valid
-    plan.io.storeLsId := fanout.io.suWakeup.lsId
+    plan.io.storeIndexValid := fanout.io.suMatchedStore
+    plan.io.storeIndex := fanout.io.suMatchedStoreIndex
+    plan.io.storeLsIdValid := fanout.io.suMatchedStore
+    plan.io.storeLsId := fanout.io.suMatchedStoreLsId
     plan
   }
 }

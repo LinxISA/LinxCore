@@ -196,3 +196,9 @@ weight threshold. The two-pass loop records a raw table hit but
 resolved native store identity (`storeIndexValid`/`storeLsIdValid` side of the
 request predicate), so the next live packet should feed the resolved store
 identity into this planner rather than weakening MDB lookup qualification.
+
+R505 changes that live-top feed to use `MDBQueueFanout.suMatchedStore*` rather
+than `suWakeup`. This preserves the model distinction between a pending matched
+store and a ready wakeup: the planner needs the matched store index/LSID to set
+wait-store state, while `suWakeup` remains reserved for a store that already has
+address and data ready.

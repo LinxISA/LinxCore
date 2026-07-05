@@ -29,10 +29,13 @@ queue and fanout boundary. It models the queue topology around `MDB::Work`:
 - `lookup_mdb_lu_q` output for `LDQInfo.updateMDBInfo`,
 - `lookup_mdb_su_q` output consumed by the store-side `mdbCheck` path.
 
-The module also exposes the store-side wakeup decision from the model
-`StoreUnit::mdbCheck` / `STQ::mdbCheck` path: a predicted store must name a
-non-tile STQ row with matching `(bid, pc)`, and that row must have both address
-and data ready before a wakeup is published.
+The module also exposes the store-side decision from the model
+`StoreUnit::mdbCheck` / `STQ::mdbCheck` path in two steps: a predicted store
+first names the first non-tile STQ row with matching `(bid, pc)`, then publishes
+a wakeup only when that row has both address and data ready. The matched-store
+identity is intentionally visible even while the row is pending so
+`LoadReplayMdbLookupWaitPlan` can put the load back into wait-store state
+without pretending the store is ready to wake it.
 
 R291 wires this owner into the opt-in replay-LIQ reduced top as a diagnostic
 record path. `MDBConflictDetect.record` becomes a `recordIn` command with
@@ -102,6 +105,7 @@ model `MemReqBus::tpc`.
 |---|---|
 | `storeRows` | Abstract STQ row view used by `STQ::mdbCheck`: valid, non-tile, `(bid, pc)`, ready bits, and wakeup payload. |
 | `suMatchedStore` | The SU side consumed an MDB hit and found the first matching non-tile store row. |
+| `suMatchedStoreIndex` / `suMatchedStoreBid` / `suMatchedStoreLsId` | Identity of the first matching store row, valid when `suMatchedStore` is true even if the row is not ready for wakeup. |
 | `suStorePending` | The first matching row exists but is not both address-ready and data-ready. |
 | `suWakeup` | Store-side wakeup payload equivalent to `wakeup_su_lu_q->push_back(hitReq)`. |
 

@@ -49,6 +49,8 @@ object MDBQueueFanoutReference {
       luOut: Option[Bus],
       suOut: Option[Bus],
       suMatchedStore: Boolean,
+      suMatchedStoreIndex: Int,
+      suMatchedStoreLsId: Id,
       suStorePending: Boolean,
       suWakeup: Wakeup,
       bmdbReport: Boolean)
@@ -71,18 +73,18 @@ object MDBQueueFanoutReference {
         case None => (queue, false)
       }
 
-    private def storeWakeup(bus: Bus, rows: Seq[StoreRow]): (Boolean, Boolean, Wakeup) = {
+    private def storeWakeup(bus: Bus, rows: Seq[StoreRow]): (Boolean, Int, Id, Boolean, Wakeup) = {
       if (!bus.hit) {
-        return (false, false, Wakeup())
+        return (false, 0, Id(), false, Wakeup())
       }
       val matched = rows.find(row => row.valid && !row.isTile && row.bid == bus.stInfo.bid && row.pc == bus.stInfo.pc)
       matched match {
         case Some(row) if row.addrReady && row.dataReady =>
-          (true, false, Wakeup(valid = true, index = row.index, pc = row.pc, bid = row.bid, addr = row.addr, size = row.size))
-        case Some(_) =>
-          (true, true, Wakeup())
+          (true, row.index, row.lsId, false, Wakeup(valid = true, index = row.index, pc = row.pc, bid = row.bid, addr = row.addr, size = row.size))
+        case Some(row) =>
+          (true, row.index, row.lsId, true, Wakeup())
         case None =>
-          (false, false, Wakeup())
+          (false, 0, Id(), false, Wakeup())
       }
     }
 
@@ -102,7 +104,8 @@ object MDBQueueFanoutReference {
       if (suOut.nonEmpty) {
         suOutQ = suOutQ.tail
       }
-      val (suMatched, suPending, wakeup) = suOut.map(storeWakeup(_, storeRows)).getOrElse((false, false, Wakeup()))
+      val (suMatched, suMatchedIndex, suMatchedLsId, suPending, wakeup) =
+        suOut.map(storeWakeup(_, storeRows)).getOrElse((false, 0, Id(), false, Wakeup()))
 
       val lookupEnq = enqueue(lookupQ, lookup, commandDepth)
       lookupQ = lookupEnq._1
@@ -163,6 +166,8 @@ object MDBQueueFanoutReference {
         luOut = luOut,
         suOut = suOut,
         suMatchedStore = suMatched,
+        suMatchedStoreIndex = suMatchedIndex,
+        suMatchedStoreLsId = suMatchedLsId,
         suStorePending = suPending,
         suWakeup = wakeup,
         bmdbReport = bmdbReport
@@ -208,6 +213,7 @@ class MDBQueueFanoutSpec extends AnyFunSuite {
     assert(hit.luOut.exists(_.hit))
     assert(hit.suOut.exists(_.hit))
     assert(hit.suMatchedStore)
+    assert(hit.suMatchedStoreIndex == 2)
     assert(!hit.suStorePending)
     assert(hit.suWakeup.valid)
     assert(hit.suWakeup.index == 2)
@@ -246,10 +252,12 @@ class MDBQueueFanoutSpec extends AnyFunSuite {
     val pending = model.step(
       luReady = true,
       suReady = true,
-      storeRows = Seq(StoreRow(index = 0, pc = 0x2000, bid = id(3), dataReady = false))
+      storeRows = Seq(StoreRow(index = 3, pc = 0x2000, bid = id(3), lsId = id(6), dataReady = false))
     )
 
     assert(pending.suMatchedStore)
+    assert(pending.suMatchedStoreIndex == 3)
+    assert(pending.suMatchedStoreLsId == id(6))
     assert(pending.suStorePending)
     assert(!pending.suWakeup.valid)
 
@@ -281,6 +289,7 @@ class MDBQueueFanoutSpec extends AnyFunSuite {
     assert(sv.contains("MDBSSIT"))
     assert(sv.contains("io_luOutValid"))
     assert(sv.contains("io_suWakeup_valid"))
+    assert(sv.contains("io_suMatchedStoreLsId_valid"))
     assert(sv.contains("io_bmdbReportValid"))
   }
 }
