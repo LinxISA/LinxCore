@@ -9,6 +9,7 @@ import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandCla
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicLiveRequestControl, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
+import linxcore.lsu.LoadReplayMdbLookupWaitPlan
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID, ROBRowCommitTraceLookupResult}
 
@@ -1497,6 +1498,14 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedMdbFanoutSuStorePending = Output(Bool())
   val reducedMdbFanoutSuWakeupValid = Output(Bool())
   val reducedMdbFanoutSuWakeupIndex = Output(UInt(ptrWidth.W))
+  val reducedMdbLookupWaitPlanLookupHit = Output(Bool())
+  val reducedMdbLookupWaitPlanCandidateMask = Output(UInt(p.robEntries.W))
+  val reducedMdbLookupWaitPlanTargetIndex = Output(UInt(ptrWidth.W))
+  val reducedMdbLookupWaitPlanWaitIntentValid = Output(Bool())
+  val reducedMdbLookupWaitPlanRequestValid = Output(Bool())
+  val reducedMdbLookupWaitPlanBlockedByNoTarget = Output(Bool())
+  val reducedMdbLookupWaitPlanBlockedByMissingStoreIndex = Output(Bool())
+  val reducedMdbLookupWaitPlanBlockedByMissingStoreLsId = Output(Bool())
   val reducedLoadWaitReplaySlotPc = Output(UInt(p.pcWidth.W))
   val reducedLoadWaitReplaySlotAddr = Output(UInt(p.immWidth.W))
   val reducedLoadWaitReplayRelaunchReturnSignExtend = Output(Bool())
@@ -2972,6 +2981,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   reducedMdbQueueFanout.io.luDequeueReady := true.B
   reducedMdbQueueFanout.io.suCheckReady := true.B
   reducedMdbQueueFanout.io.storeRows := reducedMdbFanoutStoreRows
+  val reducedMdbLookupWaitPlan =
+    LinxCoreFrontendFetchRfAluTraceTopR465MdbLookupWaitPlanWiring.connect(
+      p = p,
+      enable = reducedLoadReplayLiqAllocEnabled,
+      flush = reducedStoreFlush,
+      fanout = reducedMdbQueueFanout,
+      liqPath = reducedLoadReplayLiqAllocPath
+    )
   when(reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled) {
     reducedLoadReplayResolveClearPending := false.B
   }.otherwise {
@@ -5306,6 +5323,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedMdbFanoutSuStorePending := reducedMdbQueueFanout.io.suStorePending
   io.reducedMdbFanoutSuWakeupValid := reducedMdbQueueFanout.io.suWakeup.valid
   io.reducedMdbFanoutSuWakeupIndex := reducedMdbQueueFanout.io.suWakeup.storeIndex
+  LinxCoreFrontendFetchRfAluTraceTopR465MdbLookupWaitPlanVisibilityWiring.connect(io, reducedMdbLookupWaitPlan)
   io.reducedLoadWaitReplaySlotPc := reducedLoadWaitReplaySlot.io.slotPc
   io.reducedLoadWaitReplaySlotAddr := reducedLoadWaitReplaySlot.io.slotAddr
   io.storeDispatchReady := path.io.storeDispatchReady
@@ -5944,6 +5962,47 @@ private object LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring {
     scbLive.io.scbReturnedEvidence := false.B
     sourceReadiness.io.externalScbPending := scbLive.io.externalScbPending
     sourceReadiness.io.externalScbReturned := scbLive.io.externalScbReturned
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR465MdbLookupWaitPlanWiring {
+  def connect(
+      p: InterfaceParams,
+      enable: Bool,
+      flush: Bool,
+      fanout: MDBQueueFanout,
+      liqPath: ReducedLoadReplayLiqAllocPath): LoadReplayMdbLookupWaitPlan = {
+    val plan = Module(new LoadReplayMdbLookupWaitPlan(
+      liqEntries = p.robEntries,
+      idEntries = p.robEntries,
+      storeEntries = p.robEntries,
+      addrWidth = p.immWidth,
+      pcWidth = p.pcWidth
+    ))
+
+    plan.io.enable := enable
+    plan.io.flush := flush
+    plan.io.luOutValid := fanout.io.luOutValid
+    plan.io.luOut := fanout.io.luOut
+    plan.io.rows := liqPath.io.rows
+    plan.io.storeIndexValid := fanout.io.suWakeup.valid
+    plan.io.storeIndex := fanout.io.suWakeup.storeIndex
+    plan.io.storeLsIdValid := fanout.io.suWakeup.valid
+    plan.io.storeLsId := fanout.io.suWakeup.lsId
+    plan
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR465MdbLookupWaitPlanVisibilityWiring {
+  def connect(io: LinxCoreFrontendFetchRfAluTraceTopIO, plan: LoadReplayMdbLookupWaitPlan): Unit = {
+    io.reducedMdbLookupWaitPlanLookupHit := plan.io.lookupHit
+    io.reducedMdbLookupWaitPlanCandidateMask := plan.io.candidateMask
+    io.reducedMdbLookupWaitPlanTargetIndex := plan.io.targetIndex
+    io.reducedMdbLookupWaitPlanWaitIntentValid := plan.io.waitIntentValid
+    io.reducedMdbLookupWaitPlanRequestValid := plan.io.requestValid
+    io.reducedMdbLookupWaitPlanBlockedByNoTarget := plan.io.blockedByNoTarget
+    io.reducedMdbLookupWaitPlanBlockedByMissingStoreIndex := plan.io.blockedByMissingStoreIndex
+    io.reducedMdbLookupWaitPlanBlockedByMissingStoreLsId := plan.io.blockedByMissingStoreLsId
   }
 }
 

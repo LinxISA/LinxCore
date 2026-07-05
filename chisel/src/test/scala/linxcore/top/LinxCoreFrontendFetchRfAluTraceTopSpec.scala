@@ -677,6 +677,22 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.blockPendingMask.getWidth == 8)
   }
 
+  test("R465 replay-LIQ MDB wait-plan diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedMdbLookupWaitPlanLookupHit.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanCandidateMask.getWidth == 8)
+    assert(io.reducedMdbLookupWaitPlanTargetIndex.getWidth == 3)
+    assert(io.reducedMdbLookupWaitPlanWaitIntentValid.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanRequestValid.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBlockedByNoTarget.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBlockedByMissingStoreIndex.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBlockedByMissingStoreLsId.getWidth == 1)
+  }
+
   test("R389 replay-LIQ source-return SCB live-control diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
@@ -1222,6 +1238,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("module LoadResolveQueue"))
     assert(sv.contains("module MDBConflictDetect"))
     assert(sv.contains("module MDBQueueFanout"))
+    assert(sv.contains("io_reducedMdbLookupWaitPlanRequestValid"))
     assert(sv.contains("module ReducedLoadReplayCompletionDrain"))
     assert(sv.contains("io_loadLookupDstPhysTag"))
     assert(sv.contains("io_reducedLoadWaitReplayRelaunchDstPhysTag"))
