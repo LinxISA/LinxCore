@@ -9,11 +9,12 @@ OUTPUT=""
 TEXT_BASE="${TEXT_BASE:-0x10000}"
 LONG_BODY=0
 REPLAY_LDI_SDI_LDI=0
+REPLAY_LDI_SDI_LDI_LOOP=0
 
 usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0") [--output <fixture.elf>] [--out-dir <dir>] [--text-base <hex>] [--long-body] [--replay-ldi-sdi-ldi]
+  $(basename "$0") [--output <fixture.elf>] [--out-dir <dir>] [--text-base <hex>] [--long-body] [--replay-ldi-sdi-ldi] [--replay-ldi-sdi-ldi-loop]
 
 Builds a tiny legal-entry Linx ELF for the reduced live QEMU fetch RF/ALU gate:
   C.BSTART.STD; ADD; ADDI; C.MOVR; C.BSTOP
@@ -23,6 +24,10 @@ C.MOVI, and C.MOVR rows that are already supported by the reduced Chisel ALU.
 
 With --replay-ldi-sdi-ldi, the scalar body is a minimal memory-order probe:
   C.BSTART.STD; LDI; SDI; LDI; C.BSTOP
+
+With --replay-ldi-sdi-ldi-loop, the same probe is followed by a direct block
+back to the first C.BSTART.STD, allowing bounded QEMU captures to include a
+second dynamic instance of the same load PCs after MDB record learning.
 
 The scalar prefix starts two bytes after the entry block header. Use the printed
 pc filter values with run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh until
@@ -37,13 +42,15 @@ while [[ $# -gt 0 ]]; do
     --text-base) TEXT_BASE="$2"; shift 2 ;;
     --long-body) LONG_BODY=1; shift ;;
     --replay-ldi-sdi-ldi) REPLAY_LDI_SDI_LDI=1; shift ;;
+    --replay-ldi-sdi-ldi-loop) REPLAY_LDI_SDI_LDI_LOOP=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
 
-if [[ "${LONG_BODY}" == "1" && "${REPLAY_LDI_SDI_LDI}" == "1" ]]; then
-  echo "error: --long-body and --replay-ldi-sdi-ldi are mutually exclusive" >&2
+selected_fixture_count=$((LONG_BODY + REPLAY_LDI_SDI_LDI + REPLAY_LDI_SDI_LDI_LOOP))
+if (( selected_fixture_count > 1 )); then
+  echo "error: --long-body, --replay-ldi-sdi-ldi, and --replay-ldi-sdi-ldi-loop are mutually exclusive" >&2
   exit 2
 fi
 
@@ -71,7 +78,21 @@ ASM="${OUT_DIR}/frontend_fetch_rf_alu_qemu_fixture.s"
 OBJ="${OUT_DIR}/frontend_fetch_rf_alu_qemu_fixture.o"
 DISASM="${OUT_DIR}/frontend_fetch_rf_alu_qemu_fixture.objdump"
 
-if [[ "${REPLAY_LDI_SDI_LDI}" -eq 1 ]]; then
+if [[ "${REPLAY_LDI_SDI_LDI_LOOP}" -eq 1 ]]; then
+  SCALAR_PC_HI_OFFSET=0x15
+  cat > "${ASM}" <<'ASM'
+.section .text,"ax",@progbits
+.globl _start
+_start:
+  C.BSTART             # C.BSTART.STD, assembler form
+  ldi [r0, 0], ->r3    # LDI from zero base
+  sdi r3, [r0, 0]      # SDI to the same base
+  ldi [r0, 0], ->r4    # Younger LDI after the store
+loop_back:
+  C.BSTART DIRECT, _start
+  C.BSTOP
+ASM
+elif [[ "${REPLAY_LDI_SDI_LDI}" -eq 1 ]]; then
   SCALAR_PC_HI_OFFSET=0xf
   cat > "${ASM}" <<'ASM'
 .section .text,"ax",@progbits

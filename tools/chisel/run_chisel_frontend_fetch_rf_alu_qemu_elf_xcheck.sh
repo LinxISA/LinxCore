@@ -28,11 +28,13 @@ usage() {
 Usage:
   $(basename "$0") --elf <program.elf> [options] -- [qemu args]
   $(basename "$0") --fixture replay-ldi-sdi-ldi [options] -- [qemu args]
+  $(basename "$0") --fixture replay-ldi-sdi-ldi-loop [options] -- [qemu args]
 
 Options:
   --build-dir <dir>       Output root (default: ${BUILD_DIR})
   --fixture <name>        Build a named fixture ELF before capture.
-                          Supported: replay-ldi-sdi-ldi
+                          Supported: replay-ldi-sdi-ldi,
+                                     replay-ldi-sdi-ldi-loop
   --qemu-bin <path>       QEMU binary. Defaults to the Chisel cross-check QEMU.
   --expected-rows <int>   Reduced scalar rows to extract/compare (default: ${EXPECTED_ROWS}; 0 means all)
   --capture-rows <int>    Filtered QEMU rows to capture before stopping QEMU
@@ -76,6 +78,9 @@ inside the build directory and defaults to the bounded prefix
 C.BSTART.STD/LDI/SDI/LDI. The C.BSTOP tail is excluded by default because the
 current dense fetch checker cannot consume that trailing two-byte stop marker
 as part of the same fixture window.
+With --fixture replay-ldi-sdi-ldi-loop, the wrapper captures the first memory
+probe, the direct loop boundary, and the second dynamic memory probe so MDB
+lookup evidence can be collected after the first pass records the dependency.
 USAGE
 }
 
@@ -150,6 +155,27 @@ if [[ -n "${FIXTURE}" ]]; then
       fi
       if [[ -z "${PC_HI}" ]]; then
         PC_HI=0x1000b
+      fi
+      ;;
+    replay-ldi-sdi-ldi-loop)
+      FIXTURE_DIR="${BUILD_DIR}/fixture-replay-ldi-sdi-ldi-loop"
+      bash "${FIXTURE_BUILDER}" \
+        --out-dir "${FIXTURE_DIR}" \
+        --replay-ldi-sdi-ldi-loop
+      ELF="${FIXTURE_DIR}/frontend_fetch_rf_alu_qemu_fixture.elf"
+      if [[ "${EXPECTED_ROWS_SET}" == "0" ]]; then
+        EXPECTED_ROWS=0
+      fi
+      if [[ "${CAPTURE_ROWS_SET}" == "0" ]]; then
+        CAPTURE_ROWS=12
+      fi
+      ALLOW_BLOCK_MARKERS=1
+      ALLOW_BLOCK_LOOP_REENTRY=1
+      if [[ -z "${PC_LO}" ]]; then
+        PC_LO=0x10000
+      fi
+      if [[ -z "${PC_HI}" ]]; then
+        PC_HI=0x10015
       fi
       ;;
     *)

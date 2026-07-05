@@ -1206,8 +1206,14 @@ Closeout:
    reduced top, but lookup wait-plan counters remain zero. It still lacks full LIQ/LDQ
    replay row mutation, load relaunch, dependent wakeup,
    cross-line resident forwarding, MDB conflict
-   publication, TSO/fence completion, and real cache/SCB memory state. Focused
-   gates should include
+   publication, TSO/fence completion, and real cache/SCB memory state.
+   R498 moves MDB lookup issue to the replay source-return query boundary and
+   proves lookup request/fanout processing even when the existing one-shot
+   probe still cannot hit the wait-plan path. R499 adds the
+   `replay-ldi-sdi-ldi-loop` QEMU fixture so the live gate can capture the
+   same `LDI`/`SDI`/`LDI` PCs a second time after the first pass records the
+   store-dependence lesson; use that fixture before claiming positive MDB
+   wait-plan publication. Focused gates should include
    `ReducedStoreResidentForwardSpec`, `LoadForwardPipelineSpec`,
    `LoadInflightQueueSpec`, `LoadReplayWakeupSpec`,
    `MDBConflictDetectSpec`, and `LinxCoreFrontendFetchRfAluTraceTopSpec`
