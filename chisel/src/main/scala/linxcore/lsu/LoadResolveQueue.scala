@@ -171,8 +171,8 @@ class LoadResolveQueue(
     row
   }
 
-  private def lessBidLs(srcBid: ROBID, srcLsId: ROBID, dstBid: ROBID, dstLsId: ROBID): Bool =
-    ROBID.less(srcBid, dstBid) || (ROBID.equal(srcBid, dstBid) && ROBID.less(srcLsId, dstLsId))
+  private def lessEqualBidLs(srcBid: ROBID, srcLsId: ROBID, dstBid: ROBID, dstLsId: ROBID): Bool =
+    ROBID.less(srcBid, dstBid) || (ROBID.equal(srcBid, dstBid) && ROBID.lessEqual(srcLsId, dstLsId))
 
   private def flushMatchesEntry(signal: FlushBus, entry: LoadResolveQueueEntry): Bool = {
     val sameStid = signal.req.stid === entry.stid
@@ -240,7 +240,7 @@ class LoadResolveQueue(
   for (slot <- 0 until queueEntries) {
     retireVec(slot) :=
       queue(slot).valid && io.retireValid &&
-        lessBidLs(queue(slot).record.bid, queue(slot).record.loadLsId, io.retireBid, io.retireLsId)
+        lessEqualBidLs(queue(slot).record.bid, queue(slot).record.loadLsId, io.retireBid, io.retireLsId)
     flushPruneVec(slot) := flushMatchesEntry(io.preciseFlush, queue(slot))
     removeVec(slot) := retireVec(slot) || flushPruneVec(slot)
     keptVec(slot) := queue(slot).valid && !removeVec(slot)

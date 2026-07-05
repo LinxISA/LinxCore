@@ -3721,6 +3721,18 @@ architectural row. The enabled early-STA replay-LIQ gate at
 R490 repeats that gate with explicit nonzero replay-LIQ counter requirements
 at `generated/r490-replay-liq-nonzero-promotion-gate`; it also passes with 3
 normalized rows compared and zero mismatches.
+R495 adds `LoadReplayResolvedRowHitRecord` to publish a ResolveQ record from
+the source-return row-mutation image when the live replay-LIQ path completes a
+scalar `Repick` row without going through the normal E4 LHQ record output. The
+top gives ordinary LHQ records priority, otherwise pushes the replay-derived
+record, tracks that record's load row for the delayed `clearResolved`, and
+uses the accepted clear row identity as a same-load ResolveQ retire watermark.
+The enabled early-STA replay-LIQ gate at
+`generated/r495-replay-liq-rowmutation-resolveq-gate` passes with 3 normalized
+rows compared, zero mismatches, `resolve_queue_push_accepted=1`, and
+`resolve_queue_valid=1`. MDB conflict publication is still not proven in this
+fixture: `mdb_conflict_valid=0`, `mdb_fanout_record_valid=0`, and the MDB
+lookup wait-plan counters remain zero.
 
 ## Verification
 

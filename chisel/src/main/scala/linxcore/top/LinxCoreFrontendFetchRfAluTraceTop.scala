@@ -9,7 +9,7 @@ import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandCla
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicLiveRequestControl, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
-import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan}
+import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan, LoadReplayResolvedRowHitRecord}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID, ROBRowCommitTraceLookupResult}
 
@@ -2892,12 +2892,67 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       (scalarRedirectPending && !scalarRedirectResolveLsIdValidReg)
   reducedLoadReplayResolveQueue.io.flush := reducedLoadReplayResolveHardFlush
   reducedLoadReplayResolveQueue.io.preciseFlush := reducedLoadReplayResolvePreciseFlush
+  val reducedReplayResolvedRowHitRecord = Module(new LoadReplayResolvedRowHitRecord(
+    liqEntries = p.robEntries,
+    idEntries = p.robEntries,
+    storeEntries = p.robEntries,
+    addrWidth = p.immWidth,
+    pcWidth = p.pcWidth,
+    lineBytes = 64,
+    sizeWidth = 7,
+    archRegWidth = p.archRegWidth,
+    physRegWidth = p.physRegWidth
+  ))
+  val reducedReplayRowMutationResolvedForResolveQ =
+    reducedLoadReplayLiqAllocEnabled &&
+      reducedLoadReplayLiqAllocPath.io.rowMutationApplyValid &&
+      reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationRequestValid &&
+      reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationKeepRepickStatus &&
+      !reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationSetWaitStatus &&
+      !reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationClearReturnState &&
+      !reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextWaitStore &&
+      reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextDataComplete &&
+      reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextScbReturned &&
+      reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextStqReturned &&
+      reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextStoreSourceReturned
+  val reducedReplayResolvedRowHitIndex =
+    Mux(
+      reducedReplayRowMutationResolvedForResolveQ,
+      reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationRequestTargetIndex,
+      reducedReplayLiqMarkResolvedIndex)
+  reducedReplayResolvedRowHitRecord.io.enable :=
+    reducedLoadReplayLiqAllocEnabled &&
+      (reducedLoadReplayLiqAllocPath.io.markResolvedAccepted || reducedReplayRowMutationResolvedForResolveQ)
+  reducedReplayResolvedRowHitRecord.io.row :=
+    reducedLoadReplayLiqAllocPath.io.rows(reducedReplayResolvedRowHitIndex)
+  reducedReplayResolvedRowHitRecord.io.useResolvedImage := reducedReplayRowMutationResolvedForResolveQ
+  reducedReplayResolvedRowHitRecord.io.resolvedLineData :=
+    reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextLineData
+  reducedReplayResolvedRowHitRecord.io.resolvedValidMask :=
+    reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextValidMask
+  reducedReplayResolvedRowHitRecord.io.resolvedDataComplete :=
+    reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextDataComplete
+  reducedReplayResolvedRowHitRecord.io.resolvedSourcesReturned :=
+    reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextStoreSourceReturned
+  reducedReplayResolvedRowHitRecord.io.resolvedScbReturned :=
+    reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextScbReturned
+  reducedReplayResolvedRowHitRecord.io.resolvedStqReturned :=
+    reducedReplayLiqSourceReturnStoreSnapshotPath.io.rowMutationNextStqReturned
+  val reducedLoadReplayResolvePushFromLhq = reducedLoadReplayLiqAllocPath.io.lhqRecordValid
+  val reducedLoadReplayResolvePushFromReplay =
+    reducedReplayResolvedRowHitRecord.io.recordValid && !reducedLoadReplayResolvePushFromLhq
+  val reducedLoadReplayResolvePushRecord =
+    Mux(
+      reducedLoadReplayResolvePushFromLhq,
+      reducedLoadReplayLiqAllocPath.io.lhqRecord,
+      reducedReplayResolvedRowHitRecord.io.record)
   reducedLoadReplayResolveQueue.io.pushValid :=
-    reducedLoadReplayLiqAllocEnabled && reducedLoadReplayLiqAllocPath.io.lhqRecordValid
+    reducedLoadReplayLiqAllocEnabled &&
+      (reducedLoadReplayResolvePushFromLhq || reducedLoadReplayResolvePushFromReplay)
   reducedLoadReplayResolveQueue.io.pushPeId := io.peId
   reducedLoadReplayResolveQueue.io.pushStid := io.threadId
   reducedLoadReplayResolveQueue.io.pushTid := io.threadId
-  reducedLoadReplayResolveQueue.io.pushRecord := reducedLoadReplayLiqAllocPath.io.lhqRecord
+  reducedLoadReplayResolveQueue.io.pushRecord := reducedLoadReplayResolvePushRecord
   val reducedLoadReplayResolveRetireSource = Wire(chiselTypeOf(path.io.commitMemoryOrder(0)))
   reducedLoadReplayResolveRetireSource := 0.U.asTypeOf(reducedLoadReplayResolveRetireSource)
   for (slot <- 0 until traceParams.commitWidth) {
@@ -2906,10 +2961,26 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     }
   }
   val reducedLoadReplayResolveRetireLsId = lsidToReducedStoreId(reducedLoadReplayResolveRetireSource.lsId)
+  val reducedLoadReplayResolveClearRetireRow =
+    reducedLoadReplayLiqAllocPath.io.rows(reducedLoadReplayResolveClearIndex)
+  val reducedLoadReplayResolveClearRetireValid =
+    reducedLoadReplayLiqAllocEnabled &&
+      reducedLoadReplayResolveClearPending &&
+      reducedLoadReplayLiqAllocPath.io.clearResolvedAccepted &&
+      reducedLoadReplayResolveClearRetireRow.valid
   reducedLoadReplayResolveQueue.io.retireValid :=
-    reducedLoadReplayLiqAllocEnabled && reducedLoadReplayResolveRetireSource.valid
-  reducedLoadReplayResolveQueue.io.retireBid := reducedLoadReplayResolveRetireSource.bid
-  reducedLoadReplayResolveQueue.io.retireLsId := reducedLoadReplayResolveRetireLsId
+    (reducedLoadReplayLiqAllocEnabled && reducedLoadReplayResolveRetireSource.valid) ||
+      reducedLoadReplayResolveClearRetireValid
+  reducedLoadReplayResolveQueue.io.retireBid :=
+    Mux(
+      reducedLoadReplayResolveClearRetireValid,
+      reducedLoadReplayResolveClearRetireRow.bid,
+      reducedLoadReplayResolveRetireSource.bid)
+  reducedLoadReplayResolveQueue.io.retireLsId :=
+    Mux(
+      reducedLoadReplayResolveClearRetireValid,
+      reducedLoadReplayResolveClearRetireRow.loadLsId,
+      reducedLoadReplayResolveRetireLsId)
   val reducedMdbStoreProbe = Wire(new MDBConflictStoreProbe(
     p.robEntries,
     addrWidth = p.immWidth,
@@ -3087,7 +3158,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     }
     when(reducedLoadReplayResolveQueue.io.pushAccepted) {
       reducedLoadReplayResolveClearPending := true.B
-      reducedLoadReplayResolveClearIndex := reducedLoadReplayLiqAllocPath.io.lhqRecord.loadId.value
+      reducedLoadReplayResolveClearIndex := reducedLoadReplayResolvePushRecord.loadId.value
     }
   }
   val reducedCompleteLoadLsId = lsidToReducedStoreId(execute.io.completeLsId)

@@ -42,11 +42,16 @@ real LIQ E4 LHQ record into `LoadResolveQueue`, then applies the delayed LIQ
 `clearResolved` feedback while the ResolveQ record remains resident. That is
 fixture evidence because launch and return sidebands are harness-driven. R456
 extends the same fixture with a commit-style retire watermark and proves the
-resolved row drains by the strict older-than `(BID, LSID)` rule. R457 uses
+resolved row drains by the then-strict older-than `(BID, LSID)` rule. R457 uses
 the same resident row through `conflictRows` as input to `MDBConflictDetect`
 and proves the ResolveQ-only scalar conflict mask plus cross-BID nuke
 classification in generated RTL. Default/live LIQ insertion and live
-MDB/recovery publication remain deferred owner packets.
+MDB/recovery publication remain deferred owner packets. R495 changes the
+generic retire comparison to at-or-older-than `(BID, LSID)` and has the
+reduced replay-LIQ top also present the matching row identity when an accepted
+parent LIQ clear drains a source-return-published replay record. That keeps
+the live reduced fixture from retaining a stale ResolveQ row after the
+physical LIQ row has been cleared.
 
 ## Interface
 
@@ -66,7 +71,7 @@ MDB/recovery publication remain deferred owner packets.
 | Signal | Description |
 |---|---|
 | `retireValid` | Commit identity is valid for model-style `ResolveQ::retired` pruning. R287 wires the opt-in replay-LIQ top from the ROB commit memory-order watermark. |
-| `retireBid` / `retireLsId` | Commit-row BID plus pre-increment LSID snapshot. Rows strictly older by `(BID, LSID)` are removed. |
+| `retireBid` / `retireLsId` | Commit-row BID plus pre-increment LSID snapshot, or the accepted LIQ clear row identity in the reduced replay-LIQ top. Rows at or older by `(BID, LSID)` are removed. |
 | `retireMask` | Pre-cycle queue rows retired this cycle. |
 | `retireCount` | Number of retired rows. |
 
@@ -102,8 +107,7 @@ The C++ model has a simple owner split:
 1. `LDQInfo::returnData` resolves a load, and `CheckMovRslvQ` moves resolved
    rows into `ResolveQ`.
 2. `ResolveQ::insert` appends the resolved `MemReqBus`.
-3. `ResolveQ::retired` removes queue rows strictly older than the commit
-   identity.
+3. `ResolveQ::retired` removes queue rows covered by the commit identity.
 4. `ResolveQ::flush` removes rows matched by `FlushBus::match`.
 5. `ResolveQ::detect` scans remaining rows with the same address-overlap and
    `(BID, LSID)` age predicate used for active LDQ rows.
@@ -112,7 +116,7 @@ The Chisel queue implements the storage half of those rules:
 
 1. Build a queue entry from `pushRecord` and explicit thread sidecars.
 2. On each cycle, mark rows for retire when
-   `row.(BID, loadLsId) < retire.(BID, LSID)`.
+   `row.(BID, loadLsId) <= retire.(BID, LSID)`.
 3. Mark rows for precise prune when `preciseFlush` is valid, STID and optional
    PE/thread scopes match, and the model BID/group/LSID comparison covers the
    row.
@@ -121,8 +125,9 @@ The Chisel queue implements the storage half of those rules:
 6. Convert every valid entry into an `MDBConflictLoadEntry` with the preserved
    load PC, address, size, BID/GID/RID, and load LSID.
 
-The strict retire comparison intentionally does not remove a row with exactly
-the same `(BID, LSID)` as the commit identity, matching `ResolveQ::retired`.
+R495 uses an inclusive comparison so the live top can use the accepted
+LIQ-clear row identity as the precise queue-drain watermark for a
+source-return-published replay record.
 
 ## Timing
 
@@ -187,7 +192,7 @@ FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r287-replay-liq-resolve-ret
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r289-replay-liq-resolve-precise-flush-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
 
-Reference tests cover push/backpressure, strict retire pruning, flush clearing,
+Reference tests cover push/backpressure, inclusive retire pruning, flush clearing,
 precise `FlushBus` pruning and compaction, conflict-row sidecar preservation,
 and Chisel elaboration with push, retire, precise flush, entry, and
 conflict-row ports.

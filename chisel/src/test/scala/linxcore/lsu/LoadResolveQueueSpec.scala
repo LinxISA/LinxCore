@@ -46,8 +46,11 @@ object LoadResolveQueueReference {
   private def less(lhs: Id, rhs: Id): Boolean =
     if (lhs.wrap == rhs.wrap) lhs.value < rhs.value else lhs.value > rhs.value
 
-  private def lessBidLs(srcBid: Id, srcLsId: Id, dstBid: Id, dstLsId: Id): Boolean =
-    less(srcBid, dstBid) || (srcBid == dstBid && less(srcLsId, dstLsId))
+  private def lessEqual(lhs: Id, rhs: Id): Boolean =
+    lhs == rhs || less(lhs, rhs)
+
+  private def lessEqualBidLs(srcBid: Id, srcLsId: Id, dstBid: Id, dstLsId: Id): Boolean =
+    less(srcBid, dstBid) || (srcBid == dstBid && lessEqual(srcLsId, dstLsId))
 
   final class Model(capacity: Int) {
     private var entries = Vector.empty[Entry]
@@ -67,7 +70,7 @@ object LoadResolveQueueReference {
     }
 
     def retire(commitBid: Id, commitLsId: Id): RetireResult = {
-      val retireBits = entries.map(entry => lessBidLs(entry.record.bid, entry.record.loadLsId, commitBid, commitLsId))
+      val retireBits = entries.map(entry => lessEqualBidLs(entry.record.bid, entry.record.loadLsId, commitBid, commitLsId))
       val mask = retireBits.zipWithIndex.foldLeft(0) { case (acc, (bit, idx)) =>
         if (bit) acc | (1 << idx) else acc
       }
@@ -152,7 +155,7 @@ class LoadResolveQueueSpec extends AnyFunSuite {
     assert(queue.validMask == 0x3)
   }
 
-  test("retire removes only loads older than the commit identity") {
+  test("retire removes loads at or older than the commit identity") {
     val queue = new Model(capacity = 4)
     queue.push(Entry(record = record(0).copy(bid = id(1), loadLsId = id(1))))
     queue.push(Entry(record = record(1).copy(bid = id(1), loadLsId = id(3))))
@@ -160,9 +163,9 @@ class LoadResolveQueueSpec extends AnyFunSuite {
 
     val retired = queue.retire(commitBid = id(1), commitLsId = id(3))
 
-    assert(retired == RetireResult(mask = 0x1, count = 1))
-    assert(queue.count == 2)
-    assert(queue.conflictRows.head.lsId == id(3))
+    assert(retired == RetireResult(mask = 0x3, count = 2))
+    assert(queue.count == 1)
+    assert(queue.conflictRows.head.lsId == id(0))
   }
 
   test("conflict rows preserve thread sidecars and load PC") {
