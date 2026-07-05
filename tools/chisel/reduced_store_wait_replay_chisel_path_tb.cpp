@@ -118,6 +118,7 @@ void clear_inputs(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_resolveQueueRetireLsId_valid = 0;
   dut.io_resolveQueueRetireLsId_wrap = 0;
   dut.io_resolveQueueRetireLsId_value = 0;
+  dut.io_mdbLookupValid = 0;
   dut.io_mdbStore_valid = 0;
   dut.io_mdbStore_addrOnly = 0;
   dut.io_mdbStore_isTile = 0;
@@ -240,6 +241,10 @@ struct Report {
   bool mdb_fanout_record_accepted = false;
   bool mdb_fanout_record_processed = false;
   bool mdb_bmdb_report = false;
+  bool mdb_fanout_record_reinforced = false;
+  bool mdb_lookup_first_suppressed = false;
+  bool mdb_lookup_hit = false;
+  bool mdb_su_wakeup = false;
   bool resolve_queue_retired = false;
   std::uint32_t youngest_store_lsid = 0;
   std::uint32_t launch_load_lsid = 0;
@@ -248,6 +253,7 @@ struct Report {
   std::uint32_t mdb_resolve_candidate_mask = 0;
   std::uint32_t mdb_conflict_load_lsid = 0;
   std::uint32_t mdb_fanout_ssit_valid_mask = 0;
+  std::uint32_t mdb_su_wakeup_store_index = 0;
   std::uint32_t e4_cycles_after_launch = 0;
 };
 
@@ -448,6 +454,70 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   report.mdb_fanout_ssit_valid_mask = dut.io_mdbFanoutSsitValidMask;
 
   clear_inputs(dut);
+  drive_mdb_store_probe(dut);
+  dut.eval();
+  expect(dut.io_mdbConflictValid, "MDB second conflict record lost ResolveQ conflict");
+  expect(dut.io_mdbFanoutRecordAccepted, "MDB fanout did not accept the reinforcing conflict record");
+  tick(dut, cycle);
+
+  clear_inputs(dut);
+  dut.eval();
+  expect(dut.io_mdbFanoutRecordProcessed, "MDB fanout did not process the reinforcing conflict record");
+  expect(dut.io_mdbFanoutBmdbReportValid, "MDB fanout did not report BMDB intent for reinforcing record");
+  expect((dut.io_mdbFanoutSsitValidMask & 0x1) != 0, "MDB fanout lost SSIT row after reinforcing record");
+  report.mdb_fanout_record_reinforced = true;
+
+  clear_inputs(dut);
+  dut.io_mdbLookupValid = 1;
+  dut.eval();
+  expect(dut.io_mdbFanoutLookupReady, "MDB fanout lookup queue was not ready for first lookup");
+  expect(dut.io_mdbFanoutLookupAccepted, "MDB fanout did not accept first lookup");
+  tick(dut, cycle);
+
+  clear_inputs(dut);
+  dut.eval();
+  expect(dut.io_mdbFanoutLookupProcessed, "MDB fanout did not process first lookup");
+  tick(dut, cycle);
+
+  clear_inputs(dut);
+  dut.eval();
+  expect(dut.io_mdbFanoutLuOutDequeued, "MDB fanout did not dequeue first LU lookup result");
+  expect(dut.io_mdbFanoutSuOutDequeued, "MDB fanout did not dequeue first SU lookup result");
+  expect(!dut.io_mdbFanoutLuOutHit, "first MDB lookup after nuke unexpectedly hit");
+  expect(!dut.io_mdbFanoutSuOutHit, "first MDB SU lookup after nuke unexpectedly hit");
+  expect(!dut.io_mdbFanoutSuMatchedStore, "first suppressed MDB lookup matched a store");
+  expect(!dut.io_mdbFanoutSuWakeupValid, "first suppressed MDB lookup emitted wakeup");
+  report.mdb_lookup_first_suppressed = true;
+
+  clear_inputs(dut);
+  dut.io_mdbLookupValid = 1;
+  dut.eval();
+  expect(dut.io_mdbFanoutLookupReady, "MDB fanout lookup queue was not ready for second lookup");
+  expect(dut.io_mdbFanoutLookupAccepted, "MDB fanout did not accept second lookup");
+  tick(dut, cycle);
+
+  clear_inputs(dut);
+  dut.eval();
+  expect(dut.io_mdbFanoutLookupProcessed, "MDB fanout did not process second lookup");
+  tick(dut, cycle);
+
+  clear_inputs(dut);
+  dut.eval();
+  expect(dut.io_mdbFanoutLuOutDequeued, "MDB fanout did not dequeue second LU lookup result");
+  expect(dut.io_mdbFanoutSuOutDequeued, "MDB fanout did not dequeue second SU lookup result");
+  expect(dut.io_mdbFanoutLuOutHit, "reinforced MDB lookup did not hit for LU");
+  expect(dut.io_mdbFanoutSuOutHit, "reinforced MDB lookup did not hit for SU");
+  expect(dut.io_mdbFanoutSuMatchedStore, "MDB SU lookup did not match resident STQ row");
+  expect(!dut.io_mdbFanoutSuStorePending, "MDB SU lookup reported ready resident store as pending");
+  expect(dut.io_mdbFanoutSuWakeupValid, "MDB SU lookup did not emit wakeup");
+  expect(dut.io_mdbFanoutSuWakeupStoreIndex == 0, "MDB SU wakeup selected the wrong STQ row");
+  expect(dut.io_mdbFanoutSuWakeupBid_valid, "MDB SU wakeup did not preserve store BID valid bit");
+  expect(dut.io_mdbFanoutSuWakeupBid_value == kStoreBid, "MDB SU wakeup did not preserve store BID");
+  report.mdb_lookup_hit = true;
+  report.mdb_su_wakeup = true;
+  report.mdb_su_wakeup_store_index = dut.io_mdbFanoutSuWakeupStoreIndex;
+
+  clear_inputs(dut);
   dut.io_resolveQueueRetireValid = 1;
   dut.io_resolveQueueRetireBid_valid = 1;
   dut.io_resolveQueueRetireBid_value = kLoadBid;
@@ -496,6 +566,10 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"mdb_fanout_record_accepted\": " << (report.mdb_fanout_record_accepted ? "true" : "false") << ",\n"
       << "  \"mdb_fanout_record_processed\": " << (report.mdb_fanout_record_processed ? "true" : "false") << ",\n"
       << "  \"mdb_bmdb_report\": " << (report.mdb_bmdb_report ? "true" : "false") << ",\n"
+      << "  \"mdb_fanout_record_reinforced\": " << (report.mdb_fanout_record_reinforced ? "true" : "false") << ",\n"
+      << "  \"mdb_lookup_first_suppressed\": " << (report.mdb_lookup_first_suppressed ? "true" : "false") << ",\n"
+      << "  \"mdb_lookup_hit\": " << (report.mdb_lookup_hit ? "true" : "false") << ",\n"
+      << "  \"mdb_su_wakeup\": " << (report.mdb_su_wakeup ? "true" : "false") << ",\n"
       << "  \"resolve_queue_retired\": " << (report.resolve_queue_retired ? "true" : "false") << ",\n"
       << "  \"youngest_store_lsid\": " << report.youngest_store_lsid << ",\n"
       << "  \"launch_load_lsid\": " << report.launch_load_lsid << ",\n"
@@ -504,6 +578,7 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"mdb_resolve_candidate_mask\": " << report.mdb_resolve_candidate_mask << ",\n"
       << "  \"mdb_conflict_load_lsid\": " << report.mdb_conflict_load_lsid << ",\n"
       << "  \"mdb_fanout_ssit_valid_mask\": " << report.mdb_fanout_ssit_valid_mask << ",\n"
+      << "  \"mdb_su_wakeup_store_index\": " << report.mdb_su_wakeup_store_index << ",\n"
       << "  \"e4_cycles_after_launch\": " << report.e4_cycles_after_launch << "\n"
       << "}\n";
 }

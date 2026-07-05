@@ -49,7 +49,11 @@ fixture: `ReducedStoreWaitReplayChiselPathProbe` converts the selected
 `MDBConflictDetect.record` into `MDBQueueBus`, drives `recordIn`, and observes
 record queue acceptance, record processing, BMDB report intent, and one SSIT
 valid row in generated RTL. Lookup/delete producers and store-wakeup fanout
-are still tied off in that fixture.
+are still tied off in that fixture. R459 enables the fixture lookup path:
+after reinforcing the same record, the harness drives two lookups for the
+resolved load. The first lookup is suppressed by the model first-after-nuke
+rule, and the second lookup hits, fans out to LU/SU, matches the resident STQ
+row, and emits the store-side wakeup.
 
 It does not yet own LDQ row mutation, STQ row storage, byte forwarding, BCTRL
 `BMDB` table mutation, IEX-local MDB, ROB nuke retirement, or final recovery
@@ -164,7 +168,9 @@ top visibility for delete ready/accept/process, delete matched/released/decayed,
 and lookup-fanout phase stall outputs before a real failed-wait delete producer
 exists. R458 adds fixture-level generated-RTL evidence for the record queue and
 SSIT/BMDB-report path, but it does not make those diagnostics architectural
-replacement evidence.
+replacement evidence. R459 adds fixture-level evidence for lookup fanout and
+SU wakeup after SSIT reinforcement, but the lookup timing and resolved-load
+source are still harness-owned.
 
 ## Verification
 
@@ -190,3 +196,8 @@ The R458 generated-RTL fixture report additionally records
 `mdb_fanout_record_accepted=true`, `mdb_fanout_record_processed=true`,
 `mdb_bmdb_report=true`, and `mdb_fanout_ssit_valid_mask=1` for a ResolveQ
 conflict record sourced from `MDBConflictDetect`.
+The R459 generated-RTL fixture report records
+`mdb_fanout_record_reinforced=true`, `mdb_lookup_first_suppressed=true`,
+`mdb_lookup_hit=true`, `mdb_su_wakeup=true`, and
+`mdb_su_wakeup_store_index=0`, proving lookup fanout and store-side wakeup
+through the same fixture-local fanout owner.

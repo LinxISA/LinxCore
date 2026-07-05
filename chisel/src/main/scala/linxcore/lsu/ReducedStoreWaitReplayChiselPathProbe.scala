@@ -81,6 +81,7 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val resolveQueueCount = Output(UInt(log2Ceil(liqEntries + 1).W))
   val resolveQueueFirstLoadLsId = Output(new ROBID(entries))
   val mdbStore = Input(new MDBConflictStoreProbe(entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth))
+  val mdbLookupValid = Input(Bool())
   val mdbResolveCandidateMask = Output(UInt(liqEntries.W))
   val mdbConflictValid = Output(Bool())
   val mdbConflictFromResolveQueue = Output(Bool())
@@ -97,6 +98,18 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val mdbFanoutBmdbStoreBid = Output(new ROBID(entries))
   val mdbFanoutBmdbStoreStid = Output(UInt(8.W))
   val mdbFanoutSsitValidMask = Output(UInt(liqEntries.W))
+  val mdbFanoutLookupReady = Output(Bool())
+  val mdbFanoutLookupAccepted = Output(Bool())
+  val mdbFanoutLookupProcessed = Output(Bool())
+  val mdbFanoutLuOutDequeued = Output(Bool())
+  val mdbFanoutLuOutHit = Output(Bool())
+  val mdbFanoutSuOutDequeued = Output(Bool())
+  val mdbFanoutSuOutHit = Output(Bool())
+  val mdbFanoutSuMatchedStore = Output(Bool())
+  val mdbFanoutSuStorePending = Output(Bool())
+  val mdbFanoutSuWakeupValid = Output(Bool())
+  val mdbFanoutSuWakeupStoreIndex = Output(UInt(log2Ceil(entries).W))
+  val mdbFanoutSuWakeupBid = Output(new ROBID(entries))
   val liqClearResolvedPending = Output(Bool())
   val liqClearResolvedAccepted = Output(Bool())
   val liqResidentCount = Output(UInt(log2Ceil(liqEntries + 1).W))
@@ -285,15 +298,52 @@ class ReducedStoreWaitReplayChiselPathProbe(
   mdbRecordBus.stInfo.isTile := mdbDetect.io.record.store.isTile
   mdbRecordBus.conf := 1.U
 
-  mdbFanout.io.lookupIn := mdbZeroBus
-  mdbFanout.io.lookupInValid := false.B
+  val mdbLookupBus = Wire(chiselTypeOf(mdbZeroBus))
+  mdbLookupBus := mdbZeroBus
+  mdbLookupBus.valid := io.mdbLookupValid
+  mdbLookupBus.ldInfo.valid := io.mdbLookupValid
+  mdbLookupBus.ldInfo.pc := resolveQueue.io.entries(0).record.pc
+  mdbLookupBus.ldInfo.bid := resolveQueue.io.entries(0).record.bid
+  mdbLookupBus.ldInfo.lsId := resolveQueue.io.entries(0).record.loadLsId
+  mdbLookupBus.ldInfo.stid := resolveQueue.io.entries(0).stid
+  mdbLookupBus.ldInfo.addr := resolveQueue.io.entries(0).record.addr
+  mdbLookupBus.ldInfo.size := resolveQueue.io.entries(0).record.size
+  mdbLookupBus.ldInfo.isTile := false.B
+  mdbLookupBus.conf := 1.U
+
+  val mdbFanoutStoreRows = Wire(Vec(
+    entries,
+    new MDBStoreWakeupEntry(entries, entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth)
+  ))
+  for (idx <- 0 until entries) {
+    val stqRow = stq.io.rows(idx)
+    val wakeRow = Wire(chiselTypeOf(mdbFanoutStoreRows(idx)))
+    wakeRow := 0.U.asTypeOf(wakeRow)
+    wakeRow.bid := ROBID.disabled(entries)
+    wakeRow.lsId := ROBID.disabled(entries)
+    wakeRow.valid := stqRow.valid
+    wakeRow.storeIndex := idx.U
+    wakeRow.pc := stqRow.pc
+    wakeRow.bid := stqRow.bid
+    wakeRow.lsId := stqRow.lsId
+    wakeRow.stid := stqRow.stid
+    wakeRow.addr := stqRow.addr
+    wakeRow.size := stqRow.size.pad(sizeWidth)
+    wakeRow.addrReady := stqRow.addrReady
+    wakeRow.dataReady := stqRow.dataReady
+    wakeRow.isTile := !stqRow.scalarIex
+    mdbFanoutStoreRows(idx) := wakeRow
+  }
+
+  mdbFanout.io.lookupIn := mdbLookupBus
+  mdbFanout.io.lookupInValid := io.mdbLookupValid
   mdbFanout.io.deleteIn := mdbZeroBus
   mdbFanout.io.deleteInValid := false.B
   mdbFanout.io.recordIn := mdbRecordBus
   mdbFanout.io.recordInValid := mdbDetect.io.conflictValid
   mdbFanout.io.luDequeueReady := true.B
   mdbFanout.io.suCheckReady := true.B
-  mdbFanout.io.storeRows := 0.U.asTypeOf(mdbFanout.io.storeRows)
+  mdbFanout.io.storeRows := mdbFanoutStoreRows
 
   when(io.flush) {
     clearResolvedPending := false.B
@@ -363,6 +413,18 @@ class ReducedStoreWaitReplayChiselPathProbe(
   io.mdbFanoutBmdbStoreBid := mdbFanout.io.bmdbStoreBid
   io.mdbFanoutBmdbStoreStid := mdbFanout.io.bmdbStoreStid
   io.mdbFanoutSsitValidMask := mdbFanout.io.ssitValidMask
+  io.mdbFanoutLookupReady := mdbFanout.io.lookupInReady
+  io.mdbFanoutLookupAccepted := mdbFanout.io.lookupInAccepted
+  io.mdbFanoutLookupProcessed := mdbFanout.io.lookupProcessed
+  io.mdbFanoutLuOutDequeued := mdbFanout.io.luOutDequeued
+  io.mdbFanoutLuOutHit := mdbFanout.io.luOut.hit
+  io.mdbFanoutSuOutDequeued := mdbFanout.io.suOutDequeued
+  io.mdbFanoutSuOutHit := mdbFanout.io.suOut.hit
+  io.mdbFanoutSuMatchedStore := mdbFanout.io.suMatchedStore
+  io.mdbFanoutSuStorePending := mdbFanout.io.suStorePending
+  io.mdbFanoutSuWakeupValid := mdbFanout.io.suWakeup.valid
+  io.mdbFanoutSuWakeupStoreIndex := mdbFanout.io.suWakeup.storeIndex
+  io.mdbFanoutSuWakeupBid := mdbFanout.io.suWakeup.bid
   io.liqClearResolvedPending := clearResolvedPending
   io.liqClearResolvedAccepted := liq.io.clearResolvedAccepted
   io.liqResidentCount := liq.io.residentCount

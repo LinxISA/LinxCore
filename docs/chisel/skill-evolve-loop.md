@@ -188,6 +188,15 @@ fixture-local `MDBQueueFanout.recordIn` path. The generated-RTL report proves
 record learning and BMDB report intent under the fixture, but lookup/delete,
 store wakeup, live BMDB mutation, recovery publication, and ROB nuke retirement
 remain future live owners.
+R459 extends the same fixture through MDB lookup fanout and store-side wakeup:
+after reinforcing the learned SSIT row, the harness proves the first lookup is
+suppressed by the model first-after-nuke rule and the second lookup hits,
+fans out to LU/SU, matches resident STQ row zero, and emits SU wakeup. The
+report records `mdb_fanout_record_reinforced=true`,
+`mdb_lookup_first_suppressed=true`, `mdb_lookup_hit=true`, and
+`mdb_su_wakeup=true`. This is still fixture evidence because lookup timing is
+harness-owned and no live load wait-state mutation, recovery flush, or ROB
+nuke retirement is published.
 
 ## XiangShan Flow Reference
 
