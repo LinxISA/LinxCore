@@ -2717,16 +2717,24 @@ R498 updates the live lookup producer to use
 `ReducedLoadReplayLiqAllocPath.launchAccepted`, matching the model
 `LDQInfo::handleStateQuery` timing more closely for a replay load that is being
 state-queried. R498 also inserts `LoadReplayRowMutationSourceMux` before
-`ReducedLoadReplayLiqAllocPath`'s internal row-mutation bridge. Source-return
-mutation has priority over MDB wait-plan mutation; if the planner later emits
-`requestValid`, the selected request can reach the native LIQ write path
-without bypassing bridge/control validation. The R498 live fixture proves
+`ReducedLoadReplayLiqAllocPath`'s internal row-mutation bridge. Different-row
+source-return mutation has priority over MDB wait-plan mutation, while same-row
+requests are coalesced so a source-return pulse cannot drop the MDB wait-plan
+rewrite for the identical LIQ entry. If the planner emits `requestValid`, the
+selected or merged request can reach the native LIQ write path without
+bypassing bridge/control validation. The R498 live fixture proves
 lookup publication only: `mdb_fanout_lookup_valid/accepted/processed=1`,
 `mdb_fanout_lu_out_hit=0`, and all MDB wait-plan request counters remain zero.
 R503 adds live sideband counters for the SSIT lookup qualifiers behind that
 miss: raw table hit, first-after-nuke suppression, confidence block, and
 weight block. These counters are diagnostic-only and do not change lookup
 fanout, wait-plan request generation, or LIQ row mutation.
+R507 proves the live same-row path can carry the MDB rewrite into LIQ:
+`liq_row_mutation_selected_mdb_wait_plan=1`,
+`mdb_wait_plan_row_mutation_write_enable=1`, and
+`liq_wait_store_mask_nonzero=8` in the residual-wait gate. The same gate requires
+zero SU wake/clear, so later work should target the store-ready wakeup path
+rather than this mux boundary.
 
 The overlay clears only on
 run start/restart or when the optional reduced-store path is disabled;
@@ -3817,6 +3825,19 @@ normalized rows with zero mismatches and records
 `LoadReplayWakeup` treats an invalid stored wait LSID as a wildcard, matching
 the model `LDQInfo::updateMDBInfo`/store-wakeup split where MDB records store
 BID/PC first and precise native LSID may be absent.
+R507 adds the residual-wait harness mode for this live top:
+`--allow-residual-replay-liq-wait` skips only the final idle-drain requirement
+after compared rows and observes eight extra cycles before writing sideband
+stats. The gate at
+`generated/r507-replay-loop-mdb-wait-store-mutation-gate` compares nine
+normalized rows with zero mismatches and records
+`liq_row_mutation_selected_mdb_wait_plan=1`,
+`mdb_wait_plan_row_mutation_write_enable=1`, and
+`liq_wait_store_mask_nonzero=8`, while keeping
+`mdb_fanout_su_wakeup_valid=0` and `liq_replay_wake_wait_store_clear=0` as
+required zero counters. This proves live MDB-origin wait-store mutation in the
+reduced top; it deliberately leaves store-unit wake/clear for a later ready-store
+fixture.
 
 ## Verification
 
