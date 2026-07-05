@@ -2917,6 +2917,184 @@ void drain_empty(VLinxCoreFrontendFetchRfAluTraceTop &dut, const FetchMemoryImag
             << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedByLegacySnapshot)
             << " replayLiqSourceReturnStoreSnapshotBlockedBySnapshot="
             << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotBlockedBySnapshot)
+            << " replayLiqSourceReturnStoreSnapshotPolicyRequestCandidate="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestCandidate)
+            << " replayLiqSourceReturnStoreSnapshotPolicyRequestEnable="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestEnable)
+            << " replayLiqSourceReturnStoreSnapshotPolicySinkReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkReady)
+            << " replayLiqSourceReturnStoreSnapshotPolicyReqBlockedNoLaunch="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByNoLaunch)
+            << " replayLiqSourceReturnStoreSnapshotPolicyReqBlockedRowMutation="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByRowMutationDisabled)
+            << " replayLiqSourceReturnStoreSnapshotPolicyReqBlockedRequestQueue="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByRequestQueue)
+            << " replayLiqSourceReturnStoreSnapshotPolicyReqBlockedAcceptedToken="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyRequestBlockedByAcceptedToken)
+            << " replayLiqSourceReturnStoreSnapshotPolicySinkBlockedNoRequest="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkBlockedByNoRequest)
+            << " replayLiqSourceReturnStoreSnapshotPolicySinkBlockedRawSink="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicySinkBlockedByRawSink)
+            << " replayLiqSourceReturnStoreSnapshotPolicyResponseBlockedQueueFull="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLiveArmPolicyResponseBlockedByQueueFull)
+            << " replayLiqSourceReturnStoreSnapshotEffectiveRequestEnable="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveRequestEnable)
+            << " replayLiqSourceReturnStoreSnapshotEffectiveRequestQueueCanAccept="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveRequestQueueCanAccept)
+            << " replayLiqSourceReturnStoreSnapshotEffectiveSinkReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveSinkReady)
+            << " replayLiqSourceReturnStoreSnapshotRequestControlBlockedByToken="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestControlBlockedByToken)
+            << " replayLiqSourceReturnStoreSnapshotAcceptedTokenCanAccept="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenCanAccept)
+            << " replayLiqSourceReturnStoreSnapshotAcceptedTokenValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenValid)
+            << " replayLiqSourceReturnStoreSnapshotAcceptedTokenResidentValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenResidentValid)
+            << " replayLiqSourceReturnStoreSnapshotAcceptedTokenCaptureCandidate="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenCaptureCandidate)
+            << " replayLiqSourceReturnStoreSnapshotAcceptedTokenCaptureAccepted="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenCaptureAccepted)
+            << " replayLiqSourceReturnStoreSnapshotAcceptedTokenBlockedByOutstanding="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenBlockedByOutstanding)
+            << " replayLiqSourceReturnStoreSnapshotQueryIssueCandidate="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueCandidate)
+            << " replayLiqSourceReturnStoreSnapshotQueryIssueValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueValid)
+            << " replayLiqSourceReturnStoreSnapshotQueryIssueIssued="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueIssued)
+            << " replayLiqSourceReturnStoreSnapshotQueryIssueBlockedByRequestDisabled="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedByRequestDisabled)
+            << " replayLiqSourceReturnStoreSnapshotQueryIssueBlockedByNoLaunch="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedByNoLaunch)
+            << " replayLiqSourceReturnStoreSnapshotQueryIssueBlockedBySink="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotQueryIssueBlockedBySink)
+            << " replayLiqSourceReturnStoreSnapshotRequestPayloadValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadValid)
+            << " replayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByNoIssue="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByNoIssue)
+            << " replayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByNoSelected="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByNoSelected)
+            << " replayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByStaleRow="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByStaleRow)
+            << " replayLiqSourceReturnStoreSnapshotRequestQueueHeadValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueHeadValid)
+            << " replayLiqSourceReturnStoreSnapshotRequestQueueHeadConsumed="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueHeadConsumed)
+            << " replayLiqSourceReturnStoreSnapshotRequestQueuePending="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePending)
+            << " replayLiqSourceReturnStoreSnapshotRequestQueueFull="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueFull)
+            << " replayLiqSourceReturnStoreSnapshotRequestQueueEmpty="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueEmpty)
+            << " replayLiqSourceReturnStoreSnapshotRequestQueueCount="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueCount)
+            << " replayLiqSourceReturnStoreSnapshotRequestQueueBlockedByFull="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueBlockedByFull)
+            << " replayLiqSourceReturnStoreSnapshotRequestSinkCandidate="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkCandidate)
+            << " replayLiqSourceReturnStoreSnapshotRequestSinkReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkReady)
+            << " replayLiqSourceReturnStoreSnapshotRequestSinkAccepted="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkAccepted)
+            << " replayLiqSourceReturnStoreSnapshotRequestSinkResponseValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkResponseValid)
+            << " replayLiqSourceReturnStoreSnapshotRequestSinkBlockedByNoRequest="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkBlockedByNoRequest)
+            << " replayLiqSourceReturnStoreSnapshotRequestSinkBlockedByRawSink="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkBlockedByRawSink)
+            << " replayLiqSourceReturnStoreSnapshotRequestSinkBlockedByResponse="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkBlockedByResponse)
+            << " replayLiqSourceReturnStoreSnapshotResponseQueueEnqueueAccepted="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueEnqueueAccepted)
+            << " replayLiqSourceReturnStoreSnapshotResponseQueueHeadValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueHeadValid)
+            << " replayLiqSourceReturnStoreSnapshotResponseQueueHeadConsumed="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueHeadConsumed)
+            << " replayLiqSourceReturnStoreSnapshotResponseQueuePending="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePending)
+            << " replayLiqSourceReturnStoreSnapshotResponseQueueFull="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueFull)
+            << " replayLiqSourceReturnStoreSnapshotResponseQueueEmpty="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueEmpty)
+            << " replayLiqSourceReturnStoreSnapshotResponseQueueCount="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueCount)
+            << " replayLiqSourceReturnStoreSnapshotResponseQueueBlockedByFull="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueBlockedByFull)
+            << " replayLiqSourceReturnStoreSnapshotResponseDrainDequeueReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainDequeueReady)
+            << " replayLiqSourceReturnStoreSnapshotResponseDrainOrderedConsumed="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainOrderedConsumed)
+            << " replayLiqSourceReturnStoreSnapshotResponseDrainStaleDropped="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainStaleDropped)
+            << " replayLiqSourceReturnStoreSnapshotResponseDrainBlockedByNoHead="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainBlockedByNoHead)
+            << " replayLiqSourceReturnStoreSnapshotResponseDrainBlockedByNoAction="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainBlockedByNoAction)
+            << " replayLiqSourceReturnStoreSnapshotLookupQueryValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLookupQueryValid)
+            << " replayLiqSourceReturnStoreSnapshotLookupWaitStoreValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLookupWaitStoreValid)
+            << " replayLiqSourceReturnStoreSnapshotLookupRawDataValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLookupRawDataValid)
+            << " replayLiqSourceReturnStoreSnapshotLookupResponseDataValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLookupResponseDataValid)
+            << " replayLiqSourceReturnStoreSnapshotLookupStoreBypassComplete="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotLookupStoreBypassComplete)
+            << " replayLiqSourceReturnStoreSnapshotEvidenceRequestValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceRequestValid)
+            << " replayLiqSourceReturnStoreSnapshotEvidenceQueryActive="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceQueryActive)
+            << " replayLiqSourceReturnStoreSnapshotEvidenceResponseAccepted="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceResponseAccepted)
+            << " replayLiqSourceReturnStoreSnapshotEvidenceSnapshotRequired="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceSnapshotRequired)
+            << " replayLiqSourceReturnStoreSnapshotEvidenceSnapshotValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceSnapshotValid)
+            << " replayLiqSourceReturnStoreSnapshotEvidenceWaitStoreReplay="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceWaitStoreReplay)
+            << " replayLiqSourceReturnStoreSnapshotEvidenceBlockedByNoQuery="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceBlockedByNoQuery)
+            << " replayLiqSourceReturnStoreSnapshotEvidenceBlockedByNoResponse="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceBlockedByNoResponse)
+            << " replayLiqSourceReturnStoreSnapshotEvidenceBlockedByWaitStore="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceBlockedByWaitStore)
+            << " replayLiqSourceReturnStoreSnapshotResponseApplyCandidate="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyCandidate)
+            << " replayLiqSourceReturnStoreSnapshotResponseApplyValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyValid)
+            << " replayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNoOrderedResponse="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNoOrderedResponse)
+            << " replayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNotRepick="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNotRepick)
+            << " replayLiqSourceReturnStoreSnapshotResponseApplyBlockedByWaitStore="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByWaitStore)
+            << " replayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNoData="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotResponseApplyBlockedByNoData)
+            << " replayLiqSourceReturnStoreSnapshotRowStatePlanValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanValid)
+            << " replayLiqSourceReturnStoreSnapshotRowStatePlanBlockedByNoApply="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowStatePlanBlockedByNoApply)
+            << " replayLiqSourceReturnStoreSnapshotRowMutationCandidateValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationCandidateValid)
+            << " replayLiqSourceReturnStoreSnapshotRowMutationTargetReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationTargetReady)
+            << " replayLiqSourceReturnStoreSnapshotRowMutationRequestValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationRequestValid)
+            << " replayLiqSourceReturnStoreSnapshotRowMutationHeadProofReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationHeadProofReady)
+            << " replayLiqSourceReturnStoreSnapshotRowMutationLivePermit="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationLivePermit)
+            << " replayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadProof="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadProof)
+            << " replayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadInvalidRow="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadInvalidRow)
+            << " replayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadScbNotReturned="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadScbNotReturned)
+            << " replayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadNotRepick="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadNotRepick)
+            << " replayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadTargetMismatch="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByHeadTargetMismatch)
             << " replayLiqSourceReturnStoreSourceReturned="
             << static_cast<unsigned>(dut.io_reducedLoadReplayLiqSourceReturnStoreSourceReturned)
             << " replayLiqSourceReturnScbSourceReturned="

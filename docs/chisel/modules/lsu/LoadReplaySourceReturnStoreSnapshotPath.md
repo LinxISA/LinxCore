@@ -218,6 +218,18 @@ ties `rowMutationLiveEnable=false`, raw `requestEnable=false`, and raw
 `sinkReady=false`, so the selected policy arm can report launch intent and
 row-mutation blockers without issuing a live local-STQ request or consuming a
 request head.
+
+R485 widens the reduced-top diagnostic surface for the already-owned composite
+internals. The top now exposes accepted-token, request-payload, request-queue,
+request-sink, response-queue, response-drain, and compact lookup diagnostics
+from this path so an enabled early-STA replay timeout can classify whether the
+selected row is blocked before query issue, while holding the accepted token,
+inside request/sink response flow, at ordered response drain, or at row
+mutation. This packet does not change any path control or row-state behavior.
+The R485 enabled early-STA run proves the path's policy and query owner are not
+the blocker (`queryIssueIssued=1`); the request payload and accepted-token
+owners both reject the selected row as stale because the top still presents the
+LIQ row in `Wait` rather than model-equivalent `Repick` state at capture time.
 R440 exposes compact `ResponseApply` and `RowStatePlan` diagnostics through the
 reduced top. This makes the future row-write branch visible before mutation:
 ordered STQ responses can be classified as wait-store rewait, data merge,
@@ -417,10 +429,10 @@ boundary and can later be promoted without another direct top child instance.
 
 The top consumes the existing `control*`, `evidence*`, `queryIssue*`,
 R439 `liveArmPolicy*`/`effective*`, R440 `responseApply*`/`rowStatePlan*`,
-and selected `rowMutation*` diagnostics through top IO names. Response-match
-and identity-match diagnostics are now visible at the path boundary for module
-and future wrapper evidence, but they remain off the reduced top IO to avoid
-constructor growth.
+selected `rowMutation*`, and R485 compact request/token/queue/sink/drain/lookup
+diagnostics through top IO names. Response-match and identity-match diagnostics
+are still visible at the path boundary for module and future wrapper evidence,
+but they remain off the reduced top IO to avoid constructor growth.
 
 ## State
 

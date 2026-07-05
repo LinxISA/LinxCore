@@ -1007,6 +1007,33 @@ inside `LoadReplaySourceReturnStoreSnapshotReadyControl`. The next packet
 should inspect the selected live-arm request/evidence path for a `Wait` row
 before changing row state or launch readiness.
 
+R485 widens that final-drain path again with the compact internals from
+`LoadReplaySourceReturnStoreSnapshotPath`: live-arm request/sink blockers,
+effective request/sink control, accepted-token state, query issue, request
+payload, request FIFO, request sink, response FIFO, response drain, resident
+STQ lookup, evidence, response apply, row-state plan, and row-mutation
+head-proof fields. This is diagnostic-only and is meant to decide whether the
+R484 local store-snapshot blocker is no query, outstanding token/FIFO
+residency, no sink response, ordered-response drain, not-Repick apply, or
+head-proof/row-mutation gating before any control path is changed.
+
+The enabled early-STA fixture at
+`generated/r485-replay-liq-snapshot-flow-diagnostics-enabled-xcheck` builds
+generated RTL and reaches the expected drain timeout with
+`replayLiqSourceReturnStoreSnapshotPolicyRequestEnable=1`,
+`EffectiveRequestEnable=1`, `EffectiveSinkReady=1`,
+`QueryIssueValid=1`, and `QueryIssueIssued=1`. The next fields classify the
+actual blocker: `AcceptedTokenCaptureCandidate=1` but
+`AcceptedTokenCaptureAccepted=0`, `RequestPayloadValid=0`,
+`RequestPayloadBlockedByStaleRow=1`, `RequestQueueHeadValid=0`,
+`RequestSinkBlockedByNoRequest=1`, `EvidenceBlockedByNoQuery=1`, and the
+resident LIQ head remains `Status=1` (`Wait`). Therefore the selected source
+path can issue a query, but the request/token owners reject the row because
+the LIQ has not performed the model `loadRepick` Wait-to-Repick transition
+before local STQ snapshot request capture. The next packet should split
+pick/Repick state from final replay-return readiness rather than relaxing the
+idle predicate.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue

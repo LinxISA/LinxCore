@@ -494,16 +494,61 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveRequestEnable = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveRequestQueueCanAccept = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveSinkReady = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestControlBlockedByToken = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenCanAccept = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenResidentValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenCaptureCandidate = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenCaptureAccepted = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenBlockedByOutstanding = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByNoIssue = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByNoSelected = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByStaleRow = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueHeadValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueHeadConsumed = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePending = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueFull = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueEmpty = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueCount =
+    Output(UInt(sourceReturnStoreSnapshotQueueCountWidth.W))
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueBlockedByFull = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneMask =
     Output(UInt(sourceReturnStoreSnapshotQueueDepth.W))
   val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneCount =
     Output(UInt(sourceReturnStoreSnapshotQueueCountWidth.W))
   val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueBlockedByPreciseFlush = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkCandidate = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkReady = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkAccepted = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkResponseValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkBlockedByNoRequest = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkBlockedByRawSink = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkBlockedByResponse = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueEnqueueAccepted = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueHeadValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueHeadConsumed = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePending = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueFull = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueEmpty = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueCount =
+    Output(UInt(sourceReturnStoreSnapshotQueueCountWidth.W))
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueBlockedByFull = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePrecisePruneMask =
     Output(UInt(sourceReturnStoreSnapshotQueueDepth.W))
   val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePrecisePruneCount =
     Output(UInt(sourceReturnStoreSnapshotQueueCountWidth.W))
   val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueBlockedByPreciseFlush = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainDequeueReady = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainOrderedConsumed = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainStaleDropped = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainBlockedByNoHead = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainBlockedByNoAction = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLookupQueryValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLookupWaitStoreValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLookupRawDataValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLookupResponseDataValid = Output(Bool())
+  val reducedLoadReplayLiqSourceReturnStoreSnapshotLookupStoreBypassComplete = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceActive = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceRequestValid = Output(Bool())
   val reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceQueryActive = Output(Bool())
@@ -5858,18 +5903,104 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       path.io.effectiveRequestQueueCanAccept
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotEffectiveSinkReady :=
       path.io.effectiveSinkReady
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestControlBlockedByToken :=
+      path.io.requestControlBlockedByToken
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenCanAccept :=
+      path.io.acceptedTokenCanAccept
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenValid :=
+      path.io.acceptedTokenValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenResidentValid :=
+      path.io.acceptedTokenResidentValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenCaptureCandidate :=
+      path.io.acceptedTokenCaptureCandidate
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenCaptureAccepted :=
+      path.io.acceptedTokenCaptureAccepted
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotAcceptedTokenBlockedByOutstanding :=
+      path.io.acceptedTokenBlockedByOutstanding
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadValid :=
+      path.io.requestPayloadValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByNoIssue :=
+      path.io.requestPayloadBlockedByNoIssue
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByNoSelected :=
+      path.io.requestPayloadBlockedByNoSelected
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestPayloadBlockedByStaleRow :=
+      path.io.requestPayloadBlockedByStaleRow
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueHeadValid :=
+      path.io.requestQueueHeadValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueHeadConsumed :=
+      path.io.requestQueueHeadConsumed
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePending :=
+      path.io.requestQueuePending
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueFull :=
+      path.io.requestQueueFull
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueEmpty :=
+      path.io.requestQueueEmpty
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueCount :=
+      path.io.requestQueueCount
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueBlockedByFull :=
+      path.io.requestQueueBlockedByFull
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneMask :=
       path.io.requestQueuePrecisePruneMask
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueuePrecisePruneCount :=
       path.io.requestQueuePrecisePruneCount
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestQueueBlockedByPreciseFlush :=
       path.io.requestQueueBlockedByPreciseFlush
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkCandidate :=
+      path.io.requestSinkCandidate
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkReady :=
+      path.io.requestSinkReady
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkAccepted :=
+      path.io.requestSinkAccepted
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkResponseValid :=
+      path.io.requestSinkResponseValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkBlockedByNoRequest :=
+      path.io.requestSinkBlockedByNoRequest
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkBlockedByRawSink :=
+      path.io.requestSinkBlockedByRawSink
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotRequestSinkBlockedByResponse :=
+      path.io.requestSinkBlockedByResponse
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueEnqueueAccepted :=
+      path.io.responseQueueEnqueueAccepted
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueHeadValid :=
+      path.io.responseQueueHeadValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueHeadConsumed :=
+      path.io.responseQueueHeadConsumed
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePending :=
+      path.io.responseQueuePending
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueFull :=
+      path.io.responseQueueFull
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueEmpty :=
+      path.io.responseQueueEmpty
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueCount :=
+      path.io.responseQueueCount
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueBlockedByFull :=
+      path.io.responseQueueBlockedByFull
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePrecisePruneMask :=
       path.io.responseQueuePrecisePruneMask
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueuePrecisePruneCount :=
       path.io.responseQueuePrecisePruneCount
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseQueueBlockedByPreciseFlush :=
       path.io.responseQueueBlockedByPreciseFlush
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainDequeueReady :=
+      path.io.responseDrainDequeueReady
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainOrderedConsumed :=
+      path.io.responseDrainOrderedConsumed
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainStaleDropped :=
+      path.io.responseDrainStaleDropped
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainBlockedByNoHead :=
+      path.io.responseDrainBlockedByNoHead
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotResponseDrainBlockedByNoAction :=
+      path.io.responseDrainBlockedByNoAction
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLookupQueryValid :=
+      path.io.lookupQueryValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLookupWaitStoreValid :=
+      path.io.lookupWaitStoreValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLookupRawDataValid :=
+      path.io.lookupRawDataValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLookupResponseDataValid :=
+      path.io.lookupResponseDataValid
+    io.reducedLoadReplayLiqSourceReturnStoreSnapshotLookupStoreBypassComplete :=
+      path.io.lookupStoreBypassComplete
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceActive :=
       path.io.evidenceActive
     io.reducedLoadReplayLiqSourceReturnStoreSnapshotEvidenceRequestValid :=
