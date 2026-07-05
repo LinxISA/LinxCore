@@ -235,6 +235,17 @@ not yet supplied the source-return evidence required for a safe row write. The
 next positive proof should feed or synthesize that evidence and then require
 `rowMutationWriteEnable=true` plus the target row moving back to Wait with a
 valid native wait-store payload.
+R464 closes that generated-RTL proof by exposing the child LIQ replay-wakeup
+port through `ReducedLoadReplayLiqAllocPath` and driving an SCB wake for the
+second fixture row before launch. The harness observes
+`liq_replay_wake_completed_mask=2`,
+`liq_scb_returned_mask_before_mdb_write=2`, and
+`liq_sources_returned_mask_before_mdb_write=2`, then accepts the live MDB
+lookup and requires `mdb_lookup_wait_plan_write=true`,
+`mdb_lookup_wait_plan_apply=true`, and
+`liq_wait_store_mask_after_mdb_write=2`. This is still fixture evidence; live
+MDB lookup timing, live SCB response ownership, and live failed-wait delete
+publication remain separate top-level owners.
 
 ## XiangShan Flow Reference
 

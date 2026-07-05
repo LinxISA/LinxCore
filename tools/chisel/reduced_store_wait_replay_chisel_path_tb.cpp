@@ -18,6 +18,8 @@ constexpr std::uint64_t kLoadLineAddr = 0x3000;
 constexpr std::uint64_t kStoreDataValue = 0x1122334455667788ULL;
 constexpr std::uint64_t kBaseData = 0xffeeddccbbaa9988ULL;
 constexpr std::uint64_t kRefillDataLow = 0x0123456789abcdefULL;
+constexpr std::uint64_t kReplayWakeValidMask = 0xffULL;
+constexpr std::uint8_t kReplayWakeScbSource = 1;
 constexpr std::uint8_t kStoreBid = 1;
 constexpr std::uint8_t kStoreLsId = 1;
 constexpr std::uint8_t kLoadBid = 2;
@@ -123,6 +125,20 @@ void clear_inputs(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_liqE2ScbReturned = 0;
   dut.io_liqE2StqReturned = 0;
   dut.io_liqE2ReturnReady = 0;
+  dut.io_liqReplayWakeValid = 0;
+  dut.io_liqReplayWake_source = 0;
+  dut.io_liqReplayWake_storeId_valid = 0;
+  dut.io_liqReplayWake_storeId_wrap = 0;
+  dut.io_liqReplayWake_storeId_value = 0;
+  dut.io_liqReplayWake_storeLsId_valid = 0;
+  dut.io_liqReplayWake_storeLsId_wrap = 0;
+  dut.io_liqReplayWake_storeLsId_value = 0;
+  dut.io_liqReplayWake_pc = 0;
+  dut.io_liqReplayWake_lineAddr = 0;
+  dut.io_liqReplayWake_validMask = 0;
+  for (int word = 0; word < 16; ++word) {
+    dut.io_liqReplayWake_data[word] = 0;
+  }
   dut.io_resolveQueueRetireValid = 0;
   dut.io_resolveQueueRetireBid_valid = 0;
   dut.io_resolveQueueRetireBid_wrap = 0;
@@ -230,6 +246,15 @@ void drive_live_lookup_load_identity(VReducedStoreWaitReplayChiselPathProbe &dut
   dut.io_loadLsId_value = ls_id;
 }
 
+void drive_scb_replay_wake(VReducedStoreWaitReplayChiselPathProbe &dut) {
+  dut.io_liqReplayWakeValid = 1;
+  dut.io_liqReplayWake_source = kReplayWakeScbSource;
+  dut.io_liqReplayWake_lineAddr = kLoadLineAddr;
+  dut.io_liqReplayWake_validMask = kReplayWakeValidMask;
+  dut.io_liqReplayWake_data[0] = static_cast<std::uint32_t>(kRefillDataLow);
+  dut.io_liqReplayWake_data[1] = static_cast<std::uint32_t>(kRefillDataLow >> 32);
+}
+
 void drive_mdb_store_probe(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_mdbStore_valid = 1;
   dut.io_mdbStore_addrOnly = 0;
@@ -282,6 +307,10 @@ struct Report {
   bool mdb_lookup_wait_plan_request = false;
   bool mdb_lookup_wait_plan_bridge = false;
   bool mdb_lookup_wait_plan_control_blocked = false;
+  bool mdb_lookup_wait_plan_scb_evidence = false;
+  bool mdb_lookup_wait_plan_write = false;
+  bool mdb_lookup_wait_plan_apply = false;
+  bool mdb_lookup_wait_plan_wait_status_after_write = false;
   bool mdb_delete_accepted = false;
   bool mdb_delete_dropped_below_stall = false;
   bool mdb_delete_released = false;
@@ -297,6 +326,11 @@ struct Report {
   std::uint32_t mdb_lookup_wait_plan_candidate_mask = 0;
   std::uint32_t mdb_lookup_wait_plan_live_candidate_mask = 0;
   std::uint32_t mdb_lookup_wait_plan_live_target_index = 0;
+  std::uint32_t liq_replay_wake_completed_mask = 0;
+  std::uint32_t liq_sources_returned_mask_before_mdb_write = 0;
+  std::uint32_t liq_scb_returned_mask_before_mdb_write = 0;
+  std::uint32_t liq_wait_mask_after_mdb_write = 0;
+  std::uint32_t liq_wait_store_mask_after_mdb_write = 0;
   std::uint32_t e4_cycles_after_launch = 0;
 };
 
@@ -611,6 +645,26 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   tick(dut, cycle);
 
   clear_inputs(dut);
+  drive_scb_replay_wake(dut);
+  dut.eval();
+  expect((dut.io_liqReplayWakeMergeMask & 0x2) != 0,
+         "second LIQ SCB replay wake did not merge row 1 before MDB mutation");
+  expect((dut.io_liqReplayWakeCompletedMask & 0x2) != 0,
+         "second LIQ SCB replay wake did not complete row 1 before MDB mutation");
+  report.liq_replay_wake_completed_mask = dut.io_liqReplayWakeCompletedMask;
+  tick(dut, cycle);
+
+  clear_inputs(dut);
+  dut.eval();
+  expect((dut.io_liqScbReturnedMask & 0x2) != 0,
+         "second LIQ row did not retain SCB-return evidence after replay wake");
+  expect((dut.io_liqSourcesReturnedMask & 0x2) != 0,
+         "second LIQ row did not retain sources-returned evidence after replay wake");
+  report.mdb_lookup_wait_plan_scb_evidence = true;
+  report.liq_sources_returned_mask_before_mdb_write = dut.io_liqSourcesReturnedMask;
+  report.liq_scb_returned_mask_before_mdb_write = dut.io_liqScbReturnedMask;
+
+  clear_inputs(dut);
   drive_live_lookup_load_identity(dut);
   dut.eval();
   expect(dut.io_mdbFanoutLookupReady, "MDB fanout lookup queue was not ready for live second lookup");
@@ -641,21 +695,37 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
          "MDB lookup wait planner did not produce live second row mutation request");
   expect(dut.io_rowMutationBridgeValid,
          "MDB lookup wait planner request did not reach the LIQ row-mutation bridge");
-  expect(dut.io_rowMutationBlockedByControl,
-         "live second row mutation was expected to stop at LIQ control without source-return evidence");
-  expect(!dut.io_rowMutationWriteEnable,
-         "live second row mutation unexpectedly wrote without source-return evidence");
-  expect(!dut.io_rowMutationApplyValid,
-         "live second row mutation unexpectedly applied without source-return evidence");
-  expect(dut.io_rowMutationControlBlockedByScbNotReturned ||
-         dut.io_rowMutationControlBlockedByE4UpdateConflict,
-         "live second row mutation did not report the expected source-return/E4 control blocker");
+  expect(dut.io_rowMutationTargetEvidenceValid,
+         "live second row mutation did not see the SCB-returned target evidence");
+  expect(!dut.io_rowMutationBlockedByControl,
+         "live second row mutation was blocked even after SCB source-return evidence");
+  expect(dut.io_rowMutationWriteEnable,
+         "live second row mutation did not write after source-return evidence");
+  expect(dut.io_rowMutationApplyValid,
+         "live second row mutation did not apply after source-return evidence");
   report.mdb_lookup_wait_plan_live_target = true;
   report.mdb_lookup_wait_plan_request = true;
   report.mdb_lookup_wait_plan_bridge = true;
-  report.mdb_lookup_wait_plan_control_blocked = true;
+  report.mdb_lookup_wait_plan_control_blocked = false;
+  report.mdb_lookup_wait_plan_write = true;
+  report.mdb_lookup_wait_plan_apply = true;
   report.mdb_lookup_wait_plan_live_candidate_mask = dut.io_mdbLookupWaitPlanCandidateMask;
   report.mdb_lookup_wait_plan_live_target_index = dut.io_mdbLookupWaitPlanTargetIndex;
+
+  tick(dut, cycle);
+  clear_inputs(dut);
+  dut.eval();
+  expect((dut.io_liqWaitMask & 0x2) != 0,
+         "MDB wait mutation did not return live row 1 to Wait");
+  expect((dut.io_liqWaitStoreMask & 0x2) != 0,
+         "MDB wait mutation did not arm wait-store state on live row 1");
+  expect((dut.io_liqRepickMask & 0x2) == 0,
+         "MDB wait mutation left live row 1 in Repick");
+  expect((dut.io_liqScbReturnedMask & 0x2) == 0,
+         "MDB wait mutation did not clear source-return state on live row 1");
+  report.mdb_lookup_wait_plan_wait_status_after_write = true;
+  report.liq_wait_mask_after_mdb_write = dut.io_liqWaitMask;
+  report.liq_wait_store_mask_after_mdb_write = dut.io_liqWaitStoreMask;
 
   clear_inputs(dut);
   dut.io_mdbDeleteValid = 1;
@@ -762,6 +832,14 @@ void write_report(const std::string &path, const Report &report) {
       << (report.mdb_lookup_wait_plan_bridge ? "true" : "false") << ",\n"
       << "  \"mdb_lookup_wait_plan_control_blocked\": "
       << (report.mdb_lookup_wait_plan_control_blocked ? "true" : "false") << ",\n"
+      << "  \"mdb_lookup_wait_plan_scb_evidence\": "
+      << (report.mdb_lookup_wait_plan_scb_evidence ? "true" : "false") << ",\n"
+      << "  \"mdb_lookup_wait_plan_write\": "
+      << (report.mdb_lookup_wait_plan_write ? "true" : "false") << ",\n"
+      << "  \"mdb_lookup_wait_plan_apply\": "
+      << (report.mdb_lookup_wait_plan_apply ? "true" : "false") << ",\n"
+      << "  \"mdb_lookup_wait_plan_wait_status_after_write\": "
+      << (report.mdb_lookup_wait_plan_wait_status_after_write ? "true" : "false") << ",\n"
       << "  \"mdb_delete_accepted\": " << (report.mdb_delete_accepted ? "true" : "false") << ",\n"
       << "  \"mdb_delete_dropped_below_stall\": " << (report.mdb_delete_dropped_below_stall ? "true" : "false") << ",\n"
       << "  \"mdb_delete_released\": " << (report.mdb_delete_released ? "true" : "false") << ",\n"
@@ -779,6 +857,14 @@ void write_report(const std::string &path, const Report &report) {
       << report.mdb_lookup_wait_plan_live_candidate_mask << ",\n"
       << "  \"mdb_lookup_wait_plan_live_target_index\": "
       << report.mdb_lookup_wait_plan_live_target_index << ",\n"
+      << "  \"liq_replay_wake_completed_mask\": " << report.liq_replay_wake_completed_mask << ",\n"
+      << "  \"liq_sources_returned_mask_before_mdb_write\": "
+      << report.liq_sources_returned_mask_before_mdb_write << ",\n"
+      << "  \"liq_scb_returned_mask_before_mdb_write\": "
+      << report.liq_scb_returned_mask_before_mdb_write << ",\n"
+      << "  \"liq_wait_mask_after_mdb_write\": " << report.liq_wait_mask_after_mdb_write << ",\n"
+      << "  \"liq_wait_store_mask_after_mdb_write\": "
+      << report.liq_wait_store_mask_after_mdb_write << ",\n"
       << "  \"e4_cycles_after_launch\": " << report.e4_cycles_after_launch << "\n"
       << "}\n";
 }

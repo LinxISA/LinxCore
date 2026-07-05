@@ -78,6 +78,8 @@ window directly and proves the owner chain through generated RTL.
 | `liqAllocAccepted` | LIQ accepted the replay candidate. |
 | `liqRefillValid` / `liqRefillLineAddr` / `liqRefillData` | Fixture-driven refill wakeup for the allocated replay row. |
 | `liqRefillAccepted` / `liqRefillWakeMask` | LIQ refill wakeup was accepted and matched resident rows. |
+| `liqReplayWakeValid` / `liqReplayWake` | Fixture-driven typed `LoadReplayWakeupRequest` passed through the reduced LIQ path for source-return evidence. |
+| `liqReplayWakeMergeMask` / `liqReplayWakeCompletedMask` | Child LIQ replay-wakeup merge and completion masks. |
 | `liqLaunchEnable` | Fixture-owned launch arm for `ReducedLoadReplayLiqAllocPath`. |
 | `liqE2LoadDataReturned` / `liqE2ScbReturned` / `liqE2StqReturned` / `liqE2ReturnReady` | Fixture-owned source-return and return-port sidebands for the launched replay row. |
 | `liqLaunchValid` / `liqLaunchReady` / `liqLaunchDriveValid` / `liqLaunchAccepted` | Selector, readiness, gated drive, and accepted launch diagnostics. |
@@ -115,7 +117,8 @@ window directly and proves the owner chain through generated RTL.
 | `rowMutationWriteEnable` / `rowMutationApplyValid` | Native LIQ row-mutation write and apply diagnostics. |
 | `rowMutationBlockedByControl` / `rowMutationControlBlockedByScbNotReturned` / `rowMutationControlBlockedByE4UpdateConflict` | Control blockers proving why a valid fixture request did not write the LIQ row. |
 | `liqClearResolvedPending` / `liqClearResolvedAccepted` | Probe-local delayed clear request back into LIQ after ResolveQ accepts the LHQ record. |
-| `liqWaitMask` / `liqRepickMask` / `liqResolvedMask` | LIQ row status masks before launch, after launch, and after E4 resolution. |
+| `liqWaitMask` / `liqWaitStoreMask` / `liqRepickMask` / `liqResolvedMask` | LIQ row status and wait-store masks before launch, after launch, and after MDB/E4 mutation. |
+| `liqSourcesReturnedMask` / `liqScbReturnedMask` / `liqStqReturnedMask` | LIQ row source-return evidence masks. |
 | `liqFirstYoungestStoreLsId` | Allocated LIQ row preserved the forwarding snapshot sidecar. |
 
 ## Logic Design
@@ -181,6 +184,13 @@ The generated-RTL harness runs two scenarios:
     emits `requestValid`; the request reaches the bridge/control path, then
     stops because the fixture has not yet supplied source-return evidence for a
     safe row write.
+13. R464 drives the existing LIQ replay-wakeup path with an SCB wake for the
+    second row before launch. `LoadReplayWakeup` marks row 1
+    `scbReturned/sourcesReturned`, launch preserves that evidence into
+    `Repick`, and the MDB wait-plan request then passes native write control.
+    The generated-RTL harness requires `rowMutationWriteEnable=true`,
+    `rowMutationApplyValid=true`, and the following row image to return to
+    `Wait` with `waitStore` armed and return-state evidence cleared.
 
 This is fixture evidence for the reduced owner chain. It is not architectural
 QEMU/DUT replacement evidence and does not prove live top scheduling can yet
@@ -296,3 +306,17 @@ lookup. This proves generated RTL can carry a learned SSIT lookup into a
 specific live LIQ `Repick` row and through the row-mutation bridge/control
 surface. It is still not a positive LIQ row-write proof because the control
 path correctly blocks the write until source-return evidence is available.
+
+R464 extends the report with `mdb_lookup_wait_plan_scb_evidence=true`,
+`mdb_lookup_wait_plan_control_blocked=false`,
+`mdb_lookup_wait_plan_write=true`, `mdb_lookup_wait_plan_apply=true`,
+`mdb_lookup_wait_plan_wait_status_after_write=true`,
+`liq_replay_wake_completed_mask=2`,
+`liq_scb_returned_mask_before_mdb_write=2`,
+`liq_sources_returned_mask_before_mdb_write=2`,
+`liq_wait_mask_after_mdb_write=2`, and
+`liq_wait_store_mask_after_mdb_write=2`. The proof is still generated-RTL
+fixture evidence: the SCB wake, live MDB lookup timing, and launch arm are
+harness-driven, but the row write itself uses the native
+`LoadReplayWakeup -> LoadInflightQueue -> LoadInflightRowMutationPath`
+ownership path.

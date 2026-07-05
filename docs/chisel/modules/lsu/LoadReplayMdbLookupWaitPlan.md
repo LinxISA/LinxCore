@@ -37,10 +37,11 @@ events:
 2. `requestValid`: the same wait intent also has a resolved native store index
    and store LSID supplied by a future SU/store-row matching owner.
 
-The R463 generated-RTL fixture wires this request shape into
-`ReducedLoadReplayLiqAllocPath` row mutation for proof. The live top is not
-integrated yet, and the fixture still stops before a row write when the LIQ
-control path lacks source-return evidence.
+The R463/R464 generated-RTL fixture wires this request shape into
+`ReducedLoadReplayLiqAllocPath` row mutation for proof. R463 proves bridge and
+control reachability for a live target row; R464 adds explicit SCB
+source-return evidence through the existing replay-wakeup path and proves the
+native LIQ row write. The live top is not integrated yet.
 
 ## Interface
 
@@ -103,8 +104,7 @@ wiring this plan into `LoadInflightQueue` mutation.
 - Store-side native identity producer for MDB LU wait mutation.
 - Live top integration behind the replay-LIQ path's existing row-mutation
   bridge/write-control path.
-- Source-return evidence owner that makes a generated-RTL MDB wait request
-  write-eligible instead of stopping at LIQ control.
+- Live source-return evidence owner for default/top MDB wait mutation.
 - Live failed-wait timer that publishes MDB delete commands from LIQ state.
 
 ## Verification
@@ -148,3 +148,15 @@ is resident in LIQ row 1 and has just entered `Repick`. The report records
 the native LIQ mutation bridge/control surface for a live target row. It still
 is not a row-write proof because the existing control path blocks without
 source-return evidence.
+
+R464 keeps the same live-target lookup but first drives an SCB replay wake
+through the reduced LIQ path, proving row 1 has
+`scbReturned/sourcesReturned` evidence before launch. The generated-RTL report
+records `mdb_lookup_wait_plan_scb_evidence=true`,
+`mdb_lookup_wait_plan_control_blocked=false`,
+`mdb_lookup_wait_plan_write=true`, `mdb_lookup_wait_plan_apply=true`,
+`liq_replay_wake_completed_mask=2`, and
+`liq_wait_store_mask_after_mdb_write=2`. This proves the planner request can
+produce a native wait-store row mutation when the existing LIQ write-control
+preconditions are satisfied. It remains fixture evidence; live MDB lookup
+timing and live SCB response ownership are still deferred.
