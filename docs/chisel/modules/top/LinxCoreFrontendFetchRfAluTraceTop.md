@@ -1112,6 +1112,17 @@ PC and BID (`LDQInfo::updateMDBInfo` plus `MDB::lookupMDB`), while this
 straight-line one-shot fixture only proves live wait-replay/source-return row
 mutation and cannot yet claim MDB wait-plan publication.
 
+R494 extends the same sideband artifact to schema v5 by recording the existing
+live-top MDB conflict and `MDBQueueFanout` phase outputs. The new counters
+cover ResolveQ push/valid residency, store-arrival conflict probes, active and
+resolved conflict candidates, conflict-valid record input, MDB record
+accept/process/BMDB report/SSIT residency, lookup accept/process, LU/SU output
+valid/hit, and SU wakeup. These are harness-side counters over already-exported
+top IO; they do not enable live MDB mutation. Their purpose is to split the
+R491 zero wait-plan result into model prerequisites: conflict record learning
+must happen before a later load launch can produce an MDB lookup hit and reach
+`LoadReplayMdbLookupWaitPlan`.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
