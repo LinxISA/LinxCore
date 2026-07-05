@@ -2422,6 +2422,15 @@ launch, source-return request/evidence/apply, and row-mutation activity except
 `source_return_store_snapshot_ready=6695`. The next replay-LIQ packet therefore
 needs a legal resident-store wait/replay stimulus; stats-only pulses are not
 replacement evidence.
+R449 adds that distinction to the regression surface. The chained
+`ReducedStoreWaitReplayToLiqPathSpec` proves the owner handoff from a
+not-ready resident store wait through wait-slot capture, resident wake,
+relaunch queueing, and replay-LIQ allocation. A live direct-boot
+`LDI`/`SDI`/`LDI` architectural probe at
+`generated/r449-ldi-sdi-ldi-replay-probe` still passes 4 compared QEMU/DUT rows
+with zero mismatches while all resident-store wake, wait-replay, queue, LIQ,
+source-return, and row-mutation counters remain zero. Architectural store/load
+row comparison is therefore not replay-LIQ promotion evidence by itself.
 R418 splits the replay-LIQ source-return launch sideband: local STQ/store
 snapshot readiness now feeds the reduced LIQ `e2StqReturned` input, while SCB
 readiness feeds `e2ScbReturned`. The combined launch/return behavior remains
@@ -3277,6 +3286,14 @@ with the same zero activity profile except
 `source_return_store_snapshot_ready: 6695`. This proves the stage-observation
 surface and also shows that the current default and R274 traces do not exercise
 a legal wait/replay event.
+The R449 direct-boot `LDI`/`SDI`/`LDI` probe at
+`generated/r449-ldi-sdi-ldi-replay-probe/report/crosscheck_manifest.json`
+passes with `summary.compared_rows: 4` and `summary.mismatch_count: 0`, but
+`frontend_fetch_rf_alu_sideband_stats.json` records zero resident-store wake,
+wait-replay capture/clear/relaunch, replay-queue, LIQ allocation/launch,
+source-return request/evidence/apply, and row-mutation activity. This fixture
+is a negative live-stimulus proof: it confirms the comparator can accept the
+architectural sequence, not that the reduced top exercised replay-LIQ timing.
 
 ## Verification
 
@@ -3284,6 +3301,7 @@ a legal wait/replay event.
 - `bash tools/chisel/run_chisel_tests.sh --only F4DenseSlotQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only F4DecodeWindow`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayToLiqPath`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r279-replay-liq-fixture-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`

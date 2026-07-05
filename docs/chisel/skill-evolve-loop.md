@@ -128,8 +128,11 @@ themselves. Do not claim nonzero replay-LIQ row mutation unless the earlier
 path counters show a real sequence through wait-replay capture or relaunch,
 LIQ allocation/launch, source-return request/evidence/apply, and then the row
 mutation request/write counters. The R448 default smoke and 665-row R274 replay
-probe both showed zero wait/replay activity, so the next replay-LIQ proof needs
-a legal resident-store wait/replay stimulus rather than synthetic stats pulses.
+probe both showed zero wait/replay activity, and the R449 direct-boot
+`LDI`/`SDI`/`LDI` architectural store/load probe also passed comparison with
+zero replay counters. Use `ReducedStoreWaitReplayToLiqPathSpec` as the current
+owner-chain regression, and require a true address-ready/data-late resident
+store timing stimulus before claiming live replay-LIQ promotion.
 
 ## XiangShan Flow Reference
 

@@ -3,7 +3,8 @@
 ## Source Mapping
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadWaitReplaySlot.scala`
-- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedLoadWaitReplaySlotSpec.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedLoadWaitReplaySlotSpec.scala`,
+  `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedStoreWaitReplayToLiqPathSpec.scala`
 - Integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
 - LinxCoreModel evidence:
   - `tools/LinxCoreModel/model/lsu/store_unit/stq.cpp`
@@ -48,7 +49,11 @@ the wait-store clear boundary instead of deriving them from ROB or LIQ
 metadata later. In the reduced top after R272,
 `ReducedLoadReplayRelaunchQueue` consumes that pulse into a finite pending
 queue. The slot itself does not drive a launch port, wake dependent consumers,
-or replace the full `LoadInflightQueue` owner.
+or replace the full `LoadInflightQueue` owner. R449 adds a chained reference
+proof that carries the same owner handoff through resident forwarding,
+wait-slot capture, resident store wakeup, relaunch queue storage, and
+replay-LIQ allocation before any live top stimulus can naturally produce that
+timing.
 
 ## Interface
 
@@ -175,6 +180,7 @@ Focused gates:
 
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadWaitReplaySlot
+bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayToLiqPath
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayRelaunchQueue
 bash tools/chisel/run_chisel_tests.sh --only ResidentStoreReplayWakeup
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup
@@ -184,4 +190,8 @@ git diff --check
 
 Reference tests cover capture/clear behavior, mismatched wake suppression,
 capture overwrite, relaunch-candidate identity, flush clearing, and Chisel
-elaboration through `LoadReplayWakeup`.
+elaboration through `LoadReplayWakeup`. R449 adds the multi-owner reference
+chain proving a not-ready resident store blocks a younger load, the stored wait
+key does not wake until the store row is ready, the clear produces a relaunch
+candidate, the queue preserves it, and replay-LIQ allocation preserves
+`youngestStoreLsId`.
