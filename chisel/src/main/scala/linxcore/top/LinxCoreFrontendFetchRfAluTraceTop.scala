@@ -9,9 +9,22 @@ import linxcore.common.{CoreParams, DestinationKind, InterfaceParams, OperandCla
 import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, ReducedScalarRegisterFile, ReducedScalarWritebackArbiter}
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicLiveRequestControl, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
-import linxcore.lsu.LoadReplayMdbLookupWaitPlan
+import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan}
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
 import linxcore.rob.{ROBEntryStatus, ROBID, ROBRowCommitTraceLookupResult}
+
+class MdbLookupWaitPlanBridgeDiagnostics extends Bundle {
+  val active = Bool()
+  val valid = Bool()
+  val sourceStoreIndexFits = Bool()
+  val blockedByDisabled = Bool()
+  val blockedByFlush = Bool()
+  val blockedByNoRequest = Bool()
+  val invalidStoreIndexOutOfRange = Bool()
+  val invalidConflictingStatusWrite = Bool()
+  val invalidWaitStoreWithoutWaitStatus = Bool()
+  val invalidReturnWithoutSplitSources = Bool()
+}
 
 class LinxCoreFrontendFetchRfAluTraceTopIO(
     val p: InterfaceParams,
@@ -1506,6 +1519,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedMdbLookupWaitPlanBlockedByNoTarget = Output(Bool())
   val reducedMdbLookupWaitPlanBlockedByMissingStoreIndex = Output(Bool())
   val reducedMdbLookupWaitPlanBlockedByMissingStoreLsId = Output(Bool())
+  val reducedMdbLookupWaitPlanBridge = Output(new MdbLookupWaitPlanBridgeDiagnostics)
   val reducedLoadWaitReplaySlotPc = Output(UInt(p.pcWidth.W))
   val reducedLoadWaitReplaySlotAddr = Output(UInt(p.immWidth.W))
   val reducedLoadWaitReplayRelaunchReturnSignExtend = Output(Bool())
@@ -2988,6 +3002,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       flush = reducedStoreFlush,
       fanout = reducedMdbQueueFanout,
       liqPath = reducedLoadReplayLiqAllocPath
+    )
+  val reducedMdbLookupWaitPlanBridge =
+    LinxCoreFrontendFetchRfAluTraceTopR466MdbLookupWaitPlanBridgeWiring.connect(
+      p = p,
+      enable = reducedLoadReplayLiqAllocEnabled,
+      flush = reducedStoreFlush,
+      plan = reducedMdbLookupWaitPlan
     )
   when(reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled) {
     reducedLoadReplayResolveClearPending := false.B
@@ -5282,48 +5303,17 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedMdbConflictStoreLsIdValid := reducedMdbConflictDetect.io.record.store.lsId.valid
   io.reducedMdbConflictStoreLsIdWrap := reducedMdbConflictDetect.io.record.store.lsId.wrap
   io.reducedMdbConflictStoreLsIdValue := reducedMdbConflictDetect.io.record.store.lsId.value
-  io.reducedMdbFanoutLookupValid := reducedMdbFanoutLookupValid
-  io.reducedMdbFanoutLookupReady := reducedMdbQueueFanout.io.lookupInReady
-  io.reducedMdbFanoutLookupAccepted := reducedMdbQueueFanout.io.lookupInAccepted
-  io.reducedMdbFanoutLookupProcessed := reducedMdbQueueFanout.io.lookupProcessed
-  io.reducedMdbFanoutDeleteValid := false.B
-  io.reducedMdbFanoutDeleteReady := reducedMdbQueueFanout.io.deleteInReady
-  io.reducedMdbFanoutDeleteAccepted := reducedMdbQueueFanout.io.deleteInAccepted
-  io.reducedMdbFanoutDeleteProcessed := reducedMdbQueueFanout.io.deleteProcessed
-  io.reducedMdbFanoutPhaseStalledByFanout := reducedMdbQueueFanout.io.phaseStalledByFanout
-  io.reducedMdbFanoutLuOutValid := reducedMdbQueueFanout.io.luOutValid
-  io.reducedMdbFanoutLuOutHit := reducedMdbQueueFanout.io.luOut.hit
-  io.reducedMdbFanoutLuOutStoreBidValid := reducedMdbQueueFanout.io.luOut.stInfo.bid.valid
-  io.reducedMdbFanoutLuOutStoreBidWrap := reducedMdbQueueFanout.io.luOut.stInfo.bid.wrap
-  io.reducedMdbFanoutLuOutStoreBidValue := reducedMdbQueueFanout.io.luOut.stInfo.bid.value
-  io.reducedMdbFanoutSuOutValid := reducedMdbQueueFanout.io.suOutValid
-  io.reducedMdbFanoutSuOutHit := reducedMdbQueueFanout.io.suOut.hit
-  io.reducedMdbFanoutSuOutStoreBidValid := reducedMdbQueueFanout.io.suOut.stInfo.bid.valid
-  io.reducedMdbFanoutSuOutStoreBidWrap := reducedMdbQueueFanout.io.suOut.stInfo.bid.wrap
-  io.reducedMdbFanoutSuOutStoreBidValue := reducedMdbQueueFanout.io.suOut.stInfo.bid.value
-  io.reducedMdbFanoutRecordValid := reducedMdbFanoutRecordValid
-  io.reducedMdbFanoutRecordReady := reducedMdbQueueFanout.io.recordInReady
-  io.reducedMdbFanoutRecordAccepted := reducedMdbQueueFanout.io.recordInAccepted
-  io.reducedMdbFanoutRecordProcessed := reducedMdbQueueFanout.io.recordProcessed
-  io.reducedMdbFanoutBmdbReportValid := reducedMdbQueueFanout.io.bmdbReportValid
-  io.reducedMdbFanoutBmdbLoadBidValid := reducedMdbQueueFanout.io.bmdbLoadBid.valid
-  io.reducedMdbFanoutBmdbLoadBidWrap := reducedMdbQueueFanout.io.bmdbLoadBid.wrap
-  io.reducedMdbFanoutBmdbLoadBidValue := reducedMdbQueueFanout.io.bmdbLoadBid.value
-  io.reducedMdbFanoutBmdbStoreBidValid := reducedMdbQueueFanout.io.bmdbStoreBid.valid
-  io.reducedMdbFanoutBmdbStoreBidWrap := reducedMdbQueueFanout.io.bmdbStoreBid.wrap
-  io.reducedMdbFanoutBmdbStoreBidValue := reducedMdbQueueFanout.io.bmdbStoreBid.value
-  io.reducedMdbFanoutBmdbStoreStid := reducedMdbQueueFanout.io.bmdbStoreStid
-  io.reducedMdbFanoutDeleteMatched := reducedMdbQueueFanout.io.deleteMatched
-  io.reducedMdbFanoutDeleteReleased := reducedMdbQueueFanout.io.deleteReleased
-  io.reducedMdbFanoutDeleteDroppedBelowStall := reducedMdbQueueFanout.io.deleteDroppedBelowStall
-  io.reducedMdbFanoutRecordOverflow := reducedMdbQueueFanout.io.recordOverflow
-  io.reducedMdbFanoutRecordOrderIllegal := reducedMdbQueueFanout.io.recordOrderIllegal
-  io.reducedMdbFanoutSsitValidMask := reducedMdbQueueFanout.io.ssitValidMask
-  io.reducedMdbFanoutSuMatchedStore := reducedMdbQueueFanout.io.suMatchedStore
-  io.reducedMdbFanoutSuStorePending := reducedMdbQueueFanout.io.suStorePending
-  io.reducedMdbFanoutSuWakeupValid := reducedMdbQueueFanout.io.suWakeup.valid
-  io.reducedMdbFanoutSuWakeupIndex := reducedMdbQueueFanout.io.suWakeup.storeIndex
+  LinxCoreFrontendFetchRfAluTraceTopR466MdbFanoutVisibilityWiring.connect(
+    io,
+    reducedMdbQueueFanout,
+    reducedMdbFanoutLookupValid,
+    reducedMdbFanoutRecordValid
+  )
   LinxCoreFrontendFetchRfAluTraceTopR465MdbLookupWaitPlanVisibilityWiring.connect(io, reducedMdbLookupWaitPlan)
+  LinxCoreFrontendFetchRfAluTraceTopR466MdbLookupWaitPlanBridgeVisibilityWiring.connect(
+    io,
+    reducedMdbLookupWaitPlanBridge
+  )
   io.reducedLoadWaitReplaySlotPc := reducedLoadWaitReplaySlot.io.slotPc
   io.reducedLoadWaitReplaySlotAddr := reducedLoadWaitReplaySlot.io.slotAddr
   io.storeDispatchReady := path.io.storeDispatchReady
@@ -5993,6 +5983,92 @@ private object LinxCoreFrontendFetchRfAluTraceTopR465MdbLookupWaitPlanWiring {
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopR466MdbLookupWaitPlanBridgeWiring {
+  def connect(
+      p: InterfaceParams,
+      enable: Bool,
+      flush: Bool,
+      plan: LoadReplayMdbLookupWaitPlan): LoadInflightRowMutationRequestBridge = {
+    val bridge = Module(new LoadInflightRowMutationRequestBridge(
+      liqEntries = p.robEntries,
+      idEntries = p.robEntries,
+      sourceStoreEntries = p.robEntries,
+      storeEntries = p.robEntries,
+      pcWidth = p.pcWidth
+    ))
+
+    bridge.io.enable := enable
+    bridge.io.flush := flush
+    bridge.io.requestValid := plan.io.requestValid
+    bridge.io.requestTargetMask := plan.io.requestTargetMask
+    bridge.io.requestTargetIndex := plan.io.requestTargetIndex
+    bridge.io.setWaitStatus := plan.io.setWaitStatus
+    bridge.io.keepRepickStatus := plan.io.keepRepickStatus
+    bridge.io.clearReturnState := plan.io.clearReturnState
+    bridge.io.lineWrite := plan.io.lineWrite
+    bridge.io.waitStoreWrite := plan.io.waitStoreWrite
+    bridge.io.nextWaitStore := plan.io.nextWaitStore
+    bridge.io.nextWaitStoreInfo := plan.io.nextWaitStoreInfo
+    bridge.io.nextLineData := plan.io.nextLineData
+    bridge.io.nextValidMask := plan.io.nextValidMask
+    bridge.io.nextDataComplete := plan.io.nextDataComplete
+    bridge.io.nextScbReturned := plan.io.nextScbReturned
+    bridge.io.nextStqReturned := plan.io.nextStqReturned
+    bridge.io.nextStoreSourceReturned := plan.io.nextStoreSourceReturned
+    bridge
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR466MdbFanoutVisibilityWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      fanout: MDBQueueFanout,
+      lookupValid: Bool,
+      recordValid: Bool): Unit = {
+    io.reducedMdbFanoutLookupValid := lookupValid
+    io.reducedMdbFanoutLookupReady := fanout.io.lookupInReady
+    io.reducedMdbFanoutLookupAccepted := fanout.io.lookupInAccepted
+    io.reducedMdbFanoutLookupProcessed := fanout.io.lookupProcessed
+    io.reducedMdbFanoutDeleteValid := false.B
+    io.reducedMdbFanoutDeleteReady := fanout.io.deleteInReady
+    io.reducedMdbFanoutDeleteAccepted := fanout.io.deleteInAccepted
+    io.reducedMdbFanoutDeleteProcessed := fanout.io.deleteProcessed
+    io.reducedMdbFanoutPhaseStalledByFanout := fanout.io.phaseStalledByFanout
+    io.reducedMdbFanoutLuOutValid := fanout.io.luOutValid
+    io.reducedMdbFanoutLuOutHit := fanout.io.luOut.hit
+    io.reducedMdbFanoutLuOutStoreBidValid := fanout.io.luOut.stInfo.bid.valid
+    io.reducedMdbFanoutLuOutStoreBidWrap := fanout.io.luOut.stInfo.bid.wrap
+    io.reducedMdbFanoutLuOutStoreBidValue := fanout.io.luOut.stInfo.bid.value
+    io.reducedMdbFanoutSuOutValid := fanout.io.suOutValid
+    io.reducedMdbFanoutSuOutHit := fanout.io.suOut.hit
+    io.reducedMdbFanoutSuOutStoreBidValid := fanout.io.suOut.stInfo.bid.valid
+    io.reducedMdbFanoutSuOutStoreBidWrap := fanout.io.suOut.stInfo.bid.wrap
+    io.reducedMdbFanoutSuOutStoreBidValue := fanout.io.suOut.stInfo.bid.value
+    io.reducedMdbFanoutRecordValid := recordValid
+    io.reducedMdbFanoutRecordReady := fanout.io.recordInReady
+    io.reducedMdbFanoutRecordAccepted := fanout.io.recordInAccepted
+    io.reducedMdbFanoutRecordProcessed := fanout.io.recordProcessed
+    io.reducedMdbFanoutBmdbReportValid := fanout.io.bmdbReportValid
+    io.reducedMdbFanoutBmdbLoadBidValid := fanout.io.bmdbLoadBid.valid
+    io.reducedMdbFanoutBmdbLoadBidWrap := fanout.io.bmdbLoadBid.wrap
+    io.reducedMdbFanoutBmdbLoadBidValue := fanout.io.bmdbLoadBid.value
+    io.reducedMdbFanoutBmdbStoreBidValid := fanout.io.bmdbStoreBid.valid
+    io.reducedMdbFanoutBmdbStoreBidWrap := fanout.io.bmdbStoreBid.wrap
+    io.reducedMdbFanoutBmdbStoreBidValue := fanout.io.bmdbStoreBid.value
+    io.reducedMdbFanoutBmdbStoreStid := fanout.io.bmdbStoreStid
+    io.reducedMdbFanoutDeleteMatched := fanout.io.deleteMatched
+    io.reducedMdbFanoutDeleteReleased := fanout.io.deleteReleased
+    io.reducedMdbFanoutDeleteDroppedBelowStall := fanout.io.deleteDroppedBelowStall
+    io.reducedMdbFanoutRecordOverflow := fanout.io.recordOverflow
+    io.reducedMdbFanoutRecordOrderIllegal := fanout.io.recordOrderIllegal
+    io.reducedMdbFanoutSsitValidMask := fanout.io.ssitValidMask
+    io.reducedMdbFanoutSuMatchedStore := fanout.io.suMatchedStore
+    io.reducedMdbFanoutSuStorePending := fanout.io.suStorePending
+    io.reducedMdbFanoutSuWakeupValid := fanout.io.suWakeup.valid
+    io.reducedMdbFanoutSuWakeupIndex := fanout.io.suWakeup.storeIndex
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopR465MdbLookupWaitPlanVisibilityWiring {
   def connect(io: LinxCoreFrontendFetchRfAluTraceTopIO, plan: LoadReplayMdbLookupWaitPlan): Unit = {
     io.reducedMdbLookupWaitPlanLookupHit := plan.io.lookupHit
@@ -6003,6 +6079,21 @@ private object LinxCoreFrontendFetchRfAluTraceTopR465MdbLookupWaitPlanVisibility
     io.reducedMdbLookupWaitPlanBlockedByNoTarget := plan.io.blockedByNoTarget
     io.reducedMdbLookupWaitPlanBlockedByMissingStoreIndex := plan.io.blockedByMissingStoreIndex
     io.reducedMdbLookupWaitPlanBlockedByMissingStoreLsId := plan.io.blockedByMissingStoreLsId
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR466MdbLookupWaitPlanBridgeVisibilityWiring {
+  def connect(io: LinxCoreFrontendFetchRfAluTraceTopIO, bridge: LoadInflightRowMutationRequestBridge): Unit = {
+    io.reducedMdbLookupWaitPlanBridge.active := bridge.io.active
+    io.reducedMdbLookupWaitPlanBridge.valid := bridge.io.bridgeValid
+    io.reducedMdbLookupWaitPlanBridge.sourceStoreIndexFits := bridge.io.sourceStoreIndexFits
+    io.reducedMdbLookupWaitPlanBridge.blockedByDisabled := bridge.io.blockedByDisabled
+    io.reducedMdbLookupWaitPlanBridge.blockedByFlush := bridge.io.blockedByFlush
+    io.reducedMdbLookupWaitPlanBridge.blockedByNoRequest := bridge.io.blockedByNoRequest
+    io.reducedMdbLookupWaitPlanBridge.invalidStoreIndexOutOfRange := bridge.io.invalidStoreIndexOutOfRange
+    io.reducedMdbLookupWaitPlanBridge.invalidConflictingStatusWrite := bridge.io.invalidConflictingStatusWrite
+    io.reducedMdbLookupWaitPlanBridge.invalidWaitStoreWithoutWaitStatus := bridge.io.invalidWaitStoreWithoutWaitStatus
+    io.reducedMdbLookupWaitPlanBridge.invalidReturnWithoutSplitSources := bridge.io.invalidReturnWithoutSplitSources
   }
 }
 

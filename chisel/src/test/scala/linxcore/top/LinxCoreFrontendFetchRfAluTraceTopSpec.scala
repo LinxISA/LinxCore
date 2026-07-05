@@ -691,6 +691,16 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedMdbLookupWaitPlanBlockedByNoTarget.getWidth == 1)
     assert(io.reducedMdbLookupWaitPlanBlockedByMissingStoreIndex.getWidth == 1)
     assert(io.reducedMdbLookupWaitPlanBlockedByMissingStoreLsId.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBridge.active.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBridge.valid.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBridge.sourceStoreIndexFits.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBridge.blockedByDisabled.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBridge.blockedByFlush.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBridge.blockedByNoRequest.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBridge.invalidStoreIndexOutOfRange.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBridge.invalidConflictingStatusWrite.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBridge.invalidWaitStoreWithoutWaitStatus.getWidth == 1)
+    assert(io.reducedMdbLookupWaitPlanBridge.invalidReturnWithoutSplitSources.getWidth == 1)
   }
 
   test("R389 replay-LIQ source-return SCB live-control diagnostics have stable widths") {

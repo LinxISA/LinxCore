@@ -252,6 +252,13 @@ The top exports lookup-hit, candidate-mask, target-index, wait-intent,
 request-valid, and blocker signals, but the planner request is intentionally not
 connected to live LIQ row mutation. This keeps fixture row-write proof separate
 from the later live-top ownership decision.
+R466 adds a live-top sidecar `LoadInflightRowMutationRequestBridge` fed by the
+R465 planner request and exports its bridge-shape diagnostics as a nested bundle,
+still without connecting the bridge to LIQ row mutation. The packet also records
+a top-maintenance rule: `LinxCoreFrontendFetchRfAluTraceTop` is close to the JVM
+constructor bytecode limit, so new diagnostic surfaces should first move dense
+visibility assignment blocks into helper objects rather than adding more direct
+constructor statements.
 
 ## XiangShan Flow Reference
 
