@@ -2795,6 +2795,16 @@ void drain_empty(VLinxCoreFrontendFetchRfAluTraceTop &dut, const FetchMemoryImag
             << hex_port(dut.io_storeStqCommitMask)
             << " storeStqOccupiedMask=0x"
             << hex_port(dut.io_storeStqOccupiedMask)
+            << " replayLiqEmpty=" << std::dec
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqEmpty)
+            << " replayLiqResidentCount="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqResidentCount)
+            << " replayResolveQueueEmpty="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayResolveQueueEmpty)
+            << " replayResolveQueueCount="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayResolveQueueCount)
+            << " replayResolveQueueValidMask=0x" << std::hex
+            << static_cast<unsigned>(dut.io_reducedLoadReplayResolveQueueValidMask)
             << std::dec
             << "\n";
   std::exit(1);

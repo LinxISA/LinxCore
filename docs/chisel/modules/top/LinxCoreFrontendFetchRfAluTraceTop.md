@@ -926,6 +926,17 @@ commit/drain/STQ residue; the next diagnostic should print the replay-LIQ
 allocation/resolve idle terms before changing the idle predicate or promoting
 early STA as default behavior.
 
+R480 extends the same final-drain timeout report with replay-LIQ allocation and
+ResolveQ idle terms. Re-running the enabled early-STA fixture at
+`generated/r480-replay-liq-drain-diagnostics-enabled-xcheck` still reaches the
+expected diagnostic failure, but now reports `replayLiqEmpty=0`,
+`replayLiqResidentCount=1`, `replayResolveQueueEmpty=1`,
+`replayResolveQueueCount=0`, and `replayResolveQueueValidMask=0`. This proves
+the remaining live idle owner is a resident replay-LIQ allocation row, not
+ResolveQ residue or store commit/drain/STQ state. The next packet should expose
+or clear the replay-LIQ allocation row lifecycle before changing the idle
+predicate or enabling early STA by default.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue

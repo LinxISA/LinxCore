@@ -126,8 +126,9 @@ R476 covered:
   opt-in STA selection for replay-LIQ trials, but the switch remains disabled
   by default because the enabled fixture still fails final idle drain.
 - Arbitration between the existing scalar issue RF reads and STA address reads.
-- Replay-LIQ idle-state classification after early STA. R479 proves
-  reduced-store commit/drain/STQ state is empty at timeout, so the next owner
-  must expose the replay-LIQ allocation/resolve empty terms before changing
-  the idle predicate.
+- Replay-LIQ allocation-row lifecycle after early STA. R480 proves the enabled
+  early-STA trial leaves `replayLiqResidentCount=1` while ResolveQ and all
+  reduced-store commit/drain/STQ state are empty at timeout; the next owner
+  must expose or clear that resident LIQ row before changing the idle
+  predicate.
 - STD/data execution ownership beyond the existing buffered full-store bridge.
