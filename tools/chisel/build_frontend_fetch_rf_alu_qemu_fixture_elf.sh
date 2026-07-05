@@ -8,17 +8,21 @@ OUT_DIR="${OUT_DIR:-${ROOT_DIR}/generated/chisel-frontend-fetch-rf-alu-qemu-fixt
 OUTPUT=""
 TEXT_BASE="${TEXT_BASE:-0x10000}"
 LONG_BODY=0
+REPLAY_LDI_SDI_LDI=0
 
 usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0") [--output <fixture.elf>] [--out-dir <dir>] [--text-base <hex>] [--long-body]
+  $(basename "$0") [--output <fixture.elf>] [--out-dir <dir>] [--text-base <hex>] [--long-body] [--replay-ldi-sdi-ldi]
 
 Builds a tiny legal-entry Linx ELF for the reduced live QEMU fetch RF/ALU gate:
   C.BSTART.STD; ADD; ADDI; C.MOVR; C.BSTOP
 
 With --long-body, the scalar body is extended with additional ADDI, ADD,
 C.MOVI, and C.MOVR rows that are already supported by the reduced Chisel ALU.
+
+With --replay-ldi-sdi-ldi, the scalar body is a minimal memory-order probe:
+  C.BSTART.STD; LDI; SDI; LDI; C.BSTOP
 
 The scalar prefix starts two bytes after the entry block header. Use the printed
 pc filter values with run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh until
@@ -32,10 +36,16 @@ while [[ $# -gt 0 ]]; do
     --out-dir) OUT_DIR="$2"; shift 2 ;;
     --text-base) TEXT_BASE="$2"; shift 2 ;;
     --long-body) LONG_BODY=1; shift ;;
+    --replay-ldi-sdi-ldi) REPLAY_LDI_SDI_LDI=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
+
+if [[ "${LONG_BODY}" == "1" && "${REPLAY_LDI_SDI_LDI}" == "1" ]]; then
+  echo "error: --long-body and --replay-ldi-sdi-ldi are mutually exclusive" >&2
+  exit 2
+fi
 
 if [[ "${OUT_DIR}" != /* ]]; then
   OUT_DIR="${ROOT_DIR}/${OUT_DIR}"
@@ -61,7 +71,19 @@ ASM="${OUT_DIR}/frontend_fetch_rf_alu_qemu_fixture.s"
 OBJ="${OUT_DIR}/frontend_fetch_rf_alu_qemu_fixture.o"
 DISASM="${OUT_DIR}/frontend_fetch_rf_alu_qemu_fixture.objdump"
 
-if [[ "${LONG_BODY}" -eq 0 ]]; then
+if [[ "${REPLAY_LDI_SDI_LDI}" -eq 1 ]]; then
+  SCALAR_PC_HI_OFFSET=0xf
+  cat > "${ASM}" <<'ASM'
+.section .text,"ax",@progbits
+.globl _start
+_start:
+  .short 0x0800       # C.BSTART.STD
+  ldi [r0, 0], ->r3   # LDI from zero base
+  sdi r3, [r0, 0]     # SDI to the same base
+  ldi [r0, 0], ->r4   # Younger LDI after the store
+  .short 0x0000       # C.BSTOP
+ASM
+elif [[ "${LONG_BODY}" -eq 0 ]]; then
   SCALAR_PC_HI_OFFSET=0xb
   cat > "${ASM}" <<'ASM'
 .section .text,"ax",@progbits

@@ -799,6 +799,20 @@ validator and observability evidence only; future live probes that are expected
 to hit MDB lookup or row mutation must require the corresponding nonzero
 counter instead of citing a zero-activity trace.
 
+R471 makes the R449/R450 live `LDI`/`SDI`/`LDI` replay probe reproducible by
+adding `--replay-ldi-sdi-ldi` to
+`tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`. The generated
+fixture emits `C.BSTART.STD; LDI [r0, 0]; SDI r3, [r0, 0]; LDI [r0, 0];
+C.BSTOP`, with printed scalar filter bounds `pc-lo=0x10002` and
+`pc-hi=0x1000f` for the default text base. The R471 QEMU prefix reduction
+keeps the first six architectural rows as
+`generated/r471-ldi-sdi-ldi-fixture/qemu.expected.jsonl`: marker skip, load,
+store, load, stop-marker skip, and one fallthrough marker row. This packet
+restores a buildable stimulus artifact for future live replay-LIQ work; it
+does not change the R449/R450 conclusion that the current reduced top can
+retire the architectural sequence while all replay-LIQ/MDB wait counters stay
+zero.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
@@ -2499,6 +2513,9 @@ relaunch queueing, and replay-LIQ allocation. A live direct-boot
 with zero mismatches while all resident-store wake, wait-replay, queue, LIQ,
 source-return, and row-mutation counters remain zero. Architectural store/load
 row comparison is therefore not replay-LIQ promotion evidence by itself.
+R471 makes that negative live probe reproducible in the fixture builder with
+`--replay-ldi-sdi-ldi`, so future agents no longer depend on a stale
+`/tmp/linx_r449_ldi_sdi_probe.elf` artifact when rerunning the same stimulus.
 R418 splits the replay-LIQ source-return launch sideband: local STQ/store
 snapshot readiness now feeds the reduced LIQ `e2StqReturned` input, while SCB
 readiness feeds `e2ScbReturned`. The combined launch/return behavior remains
