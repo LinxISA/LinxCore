@@ -770,6 +770,20 @@ This keeps the admitted-marker CoreMark path as the largest reduced
 fetch/RF/ALU replacement proof while full LSU/full-DUT CoreMark execution
 remains deferred.
 
+R469 extends the reduced-store replay-LIQ sideband stats report to cover the
+live-top MDB lookup wait-plan and the unconnected row-mutation bridge sidecar
+added in R465/R466. The harness samples existing IO only; it does not add RTL
+ports, connect the sidecar to `ReducedLoadReplayLiqAllocPath`, or enable row
+mutation. The generated-RTL fixture gate
+`generated/r469-mdb-wait-plan-sideband-xcheck` passes 3 compared QEMU/DUT rows
+with zero mismatches and validates the expanded JSON contract. Its sideband
+report samples 37 cycles, records no MDB lookup hits, no wait intents, no
+planner requests, and no LIQ row-mutation bridge/write/apply pulses. The
+sidecar bridge is active for 36 cycles but blocked by no request, proving the
+report can now distinguish "planner idle" from future lookup/target/bridge
+activity. This is observability evidence only; live top MDB lookup ownership,
+SCB/STQ source-return ownership, and replay-LIQ mutation remain deferred.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
