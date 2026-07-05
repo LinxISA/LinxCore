@@ -119,7 +119,7 @@ class LoadReplayWakeup(
         row.waitStore &&
         row.waitStoreInfo.valid &&
         ROBID.equal(row.waitStoreInfo.storeId, io.wake.storeId) &&
-        ROBID.equal(row.waitStoreInfo.storeLsId, io.wake.storeLsId) &&
+        (!row.waitStoreInfo.storeLsId.valid || ROBID.equal(row.waitStoreInfo.storeLsId, io.wake.storeLsId)) &&
         (row.waitStoreInfo.pc === io.wake.pc)
     mergeVec(idx) := io.wakeValid && (io.wake.validMask =/= 0.U) && (storeMissEligible || scbEligible)
     completedVec(idx) := mergeVec(idx) && completed

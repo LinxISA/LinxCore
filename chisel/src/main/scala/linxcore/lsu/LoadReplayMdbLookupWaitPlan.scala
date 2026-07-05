@@ -156,15 +156,15 @@ class LoadReplayMdbLookupWaitPlan(
   val targetValid = lookupHit && candidateCount === 1.U
   val multiTarget = lookupHit && candidateCount > 1.U
   val waitIntentValid = targetValid
-  val resolvedStoreIdentity = io.storeIndexValid && io.storeLsIdValid && io.storeLsId.valid
-  val requestValid = waitIntentValid && resolvedStoreIdentity
+  val resolvedStoreLsId = io.storeLsIdValid && io.storeLsId.valid
+  val requestValid = waitIntentValid
 
   val waitInfo = Wire(new LoadStoreForwardWait(idEntries, storeEntries, pcWidth))
   waitInfo := zeroWait
   waitInfo.valid := requestValid
-  waitInfo.storeIndex := io.storeIndex
+  waitInfo.storeIndex := Mux(io.storeIndexValid, io.storeIndex, 0.U)
   waitInfo.storeId := io.luOut.stInfo.bid
-  waitInfo.storeLsId := io.storeLsId
+  waitInfo.storeLsId := Mux(resolvedStoreLsId, io.storeLsId, ROBID.disabled(idEntries))
   waitInfo.pc := io.luOut.stInfo.pc
 
   io.active := active
@@ -204,5 +204,5 @@ class LoadReplayMdbLookupWaitPlan(
   io.blockedByNoTarget := lookupHit && candidateCount === 0.U
   io.blockedByMultiTarget := multiTarget
   io.blockedByMissingStoreIndex := waitIntentValid && !io.storeIndexValid
-  io.blockedByMissingStoreLsId := waitIntentValid && (!io.storeLsIdValid || !io.storeLsId.valid)
+  io.blockedByMissingStoreLsId := waitIntentValid && !resolvedStoreLsId
 }

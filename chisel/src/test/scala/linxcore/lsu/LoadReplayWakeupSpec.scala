@@ -56,7 +56,10 @@ object LoadReplayWakeupReference {
     val requestMask = byteMask((row.alloc.addr & BigInt(0x3f)).toInt, row.alloc.size)
     val sameLine = (row.alloc.addr & ~BigInt(0x3f)) == wake.lineAddr
     val waitStoreClear = wake.source == StoreUnit &&
-      row.waitStore.exists(store => store.storeId == wake.storeId && store.storeLsId == wake.storeLsId && store.pc == wake.pc)
+      row.waitStore.exists(store =>
+        store.storeId == wake.storeId &&
+          (!store.storeLsId.valid || store.storeLsId == wake.storeLsId) &&
+          store.pc == wake.pc)
     val storeMissEligible = wake.source == StoreUnit &&
       sameLine &&
       (row.status == L1DcMiss || row.status == L2Wait) &&
@@ -118,6 +121,17 @@ class LoadReplayWakeupSpec extends AnyFunSuite {
     val result = LoadReplayWakeupReference(
       row(Wait, waitStore = Some(storeWait(pc = 0x3450, storeId = storeId))),
       Wakeup(source = StoreUnit, storeId = storeId, pc = 0x3450, lineAddr = 0x1000))
+
+    assert(result.waitStoreClear)
+    assert(!result.merge)
+    assert(!result.completed)
+  }
+
+  test("store-unit wakeup clears MDB wait-store rows with wildcard LSID") {
+    val storeId = id(4)
+    val result = LoadReplayWakeupReference(
+      row(Wait, waitStore = Some(storeWait(pc = 0x3450, storeId = storeId, storeLsId = Id(valid = false)))),
+      Wakeup(source = StoreUnit, storeId = storeId, storeLsId = id(9), pc = 0x3450, lineAddr = 0x1000))
 
     assert(result.waitStoreClear)
     assert(!result.merge)

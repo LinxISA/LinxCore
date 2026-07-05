@@ -90,7 +90,7 @@ object LoadReplayMdbLookupWaitPlanReference {
       else rows.indices.find(idx => ((candidateMask >> idx) & 1) == 1).getOrElse(0)
     val multiTarget = lookupHit && candidateCount > 1
     val waitIntentValid = targetValid
-    val requestValid = waitIntentValid && storeIndexValid && storeLsIdValid && storeLsId.valid
+    val requestValid = waitIntentValid
 
     Result(
       active = active,
@@ -156,7 +156,7 @@ class LoadReplayMdbLookupWaitPlanSpec extends AnyFunSuite {
     assert(result.nextWaitStore)
   }
 
-  test("keeps MDB wait intent observable but blocks the native request until store index and LSID are resolved") {
+  test("publishes MDB wait request even when native store index and LSID are unresolved") {
     val lookup = Lookup(loadBid = id(5), loadLsId = id(3), storeBid = id(2), storePc = 0x2400)
     val missingIndex = LoadReplayMdbLookupWaitPlanReference(
       enable = true,
@@ -172,10 +172,10 @@ class LoadReplayMdbLookupWaitPlanSpec extends AnyFunSuite {
       storeLsId = id(0, valid = false))
 
     assert(missingIndex.waitIntentValid)
-    assert(!missingIndex.requestValid)
+    assert(missingIndex.requestValid)
     assert(missingIndex.blockedByMissingStoreIndex)
     assert(missingLsId.waitIntentValid)
-    assert(!missingLsId.requestValid)
+    assert(missingLsId.requestValid)
     assert(missingLsId.blockedByMissingStoreLsId)
   }
 
