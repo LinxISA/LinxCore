@@ -212,3 +212,12 @@ filtered 36 marker commits, normalized 88 QEMU/DUT rows, compared 88 rows, and
 passed with zero mismatches and no CBSTOP divergence. The default skip-mode
 regression `generated/r192-default-skip-regression-qemu-elf-xcheck` compared
 the three-row prefix with zero marker admissions and zero mismatches.
+R515 scales the admitted-marker CoreMark proof beyond R492 with
+`generated/r515-row-order-425984-marker-qemu-elf-xcheck`: 425984 raw QEMU rows,
+425850 expected rows, 30727 admitted and filtered marker commits, 395123
+normalized rows per side, 395122 compared rows, zero mismatches, and no CBSTOP
+divergence. The manifest records clean LinxCore
+`d6f405c33184a96b01aeba425ceb99877488ecb6`, clean LinxCoreModel
+`793722e85c62eade9ab4e8481c9577dc5b9c98f7`, clean QEMU
+`3fb2ae66bc4d1976731b43e38e53c3c60d92f0c7`, and clean superproject
+`50ebc41d3267b6ff78ee4a821e747ed7f0f4a87b`.
