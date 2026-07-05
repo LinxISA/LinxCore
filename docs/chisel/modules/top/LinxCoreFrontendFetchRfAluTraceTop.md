@@ -784,6 +784,21 @@ report can now distinguish "planner idle" from future lookup/target/bridge
 activity. This is observability evidence only; live top MDB lookup ownership,
 SCB/STQ source-return ownership, and replay-LIQ mutation remain deferred.
 
+R470 moves the sideband stats schema validation out of the wrapper's inline
+Python into `tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py` and
+adds an opt-in wrapper gate,
+`FETCH_REPLAY_LIQ_REQUIRE_NONZERO=<counter>[,<counter>...]`, for future
+stimulus packets that claim replay-LIQ/MDB activity. The generated-RTL gate
+`generated/r470-sideband-validator-xcheck` runs the reduced-store replay-LIQ
+top with `FETCH_REPLAY_LIQ_REQUIRE_NONZERO=mdb_lookup_wait_plan_bridge_active`
+and passes 3 compared QEMU/DUT rows with zero mismatches. Its sideband report
+again samples 37 cycles, observes `mdb_lookup_wait_plan_bridge_active=36`, and
+keeps `mdb_lookup_wait_plan_lookup_hit`, `wait_intent_valid`,
+`request_valid`, and `liq_row_mutation_write_enable` at zero. This is still
+validator and observability evidence only; future live probes that are expected
+to hit MDB lookup or row mutation must require the corresponding nonzero
+counter instead of citing a zero-activity trace.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
