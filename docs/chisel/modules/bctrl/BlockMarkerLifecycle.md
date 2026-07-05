@@ -230,3 +230,12 @@ divergence. The manifest records clean LinxCore
 `793722e85c62eade9ab4e8481c9577dc5b9c98f7`, clean QEMU
 `63bb880da43bec3cb980b91c29397c1d2f12cf3f`, and clean superproject
 `ff30111e5e92b74b8778311c4329901ec74c4b9c`.
+R517 scales the same admitted-marker CoreMark proof beyond R516 with
+`generated/r517-row-order-491520-marker-qemu-elf-xcheck`: 491520 raw QEMU rows,
+491386 expected rows, 35408 admitted and filtered marker commits, 455978
+normalized rows per side, 455977 compared rows, zero mismatches, and no CBSTOP
+divergence. The manifest records clean LinxCore
+`283b25b69ab48508a5792c074e8be68aea37fb75`, clean LinxCoreModel
+`793722e85c62eade9ab4e8481c9577dc5b9c98f7`, clean QEMU
+`63bb880da43bec3cb980b91c29397c1d2f12cf3f`, and clean superproject
+`5b28ed8d1ef02466d59153c762bec464c4ffd75d`.
