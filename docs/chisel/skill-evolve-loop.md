@@ -206,6 +206,14 @@ delete releases the row. The report records `mdb_delete_accepted=true`,
 still fixture evidence because the failed-wait timer and delete producer are
 harness-owned, and no live LDQ oldest-wait wakeup path is publishing
 `delete_lu_mdb_q` yet.
+R461 adds the standalone MDB LU-hit wait planner before wiring live mutation.
+`LoadReplayMdbLookupWaitPlan` scans current LIQ rows for exactly one scalar
+`Repick` row matching the MDB load `(BID, LSID)` and exposes
+`waitIntentValid`, but it emits a native row-mutation request only after a
+future SU/store-row owner supplies the resolved STQ index and store LSID. This
+keeps the model `updateMDBInfo` load-side intent separate from Chisel's native
+`LoadStoreForwardWait` identity, where BID/PC alone are not enough to drive
+store-unit wakeup matching.
 
 ## XiangShan Flow Reference
 
