@@ -160,3 +160,11 @@ records `mdb_lookup_wait_plan_scb_evidence=true`,
 produce a native wait-store row mutation when the existing LIQ write-control
 preconditions are satisfied. It remains fixture evidence; live MDB lookup
 timing and live SCB response ownership are still deferred.
+
+R493 makes that generated-RTL row-write evidence mandatory in the wrapper:
+`run_chisel_reduced_store_wait_replay_chisel_path.sh` now validates the JSON
+schema and fails unless the R464 SCB evidence, row write, row apply, and
+post-write wait/wait-store masks are present by default. This does not promote
+the fixture to live-top evidence; it prevents later packets from silently
+regressing the only positive MDB wait-plan row-mutation proof while live QEMU
+still reports the R491 zero-counter MDB boundary.

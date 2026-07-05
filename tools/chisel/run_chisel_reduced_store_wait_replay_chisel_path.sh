@@ -9,6 +9,8 @@ BUILD_DIR="${BUILD_DIR:-${ROOT_DIR}/generated/chisel-reduced-store-wait-replay-c
 OBJ_DIR="${BUILD_DIR}/obj_dir"
 REPORT_DIR="${BUILD_DIR}/report"
 REPORT_JSON="${REPORT_DIR}/reduced_store_wait_replay_chisel_path.json"
+REDUCED_STORE_WAIT_REPLAY_REQUIRE_TRUE="${REDUCED_STORE_WAIT_REPLAY_REQUIRE_TRUE:-mdb_lookup_wait_plan_scb_evidence,mdb_lookup_wait_plan_write,mdb_lookup_wait_plan_apply,mdb_lookup_wait_plan_wait_status_after_write}"
+REDUCED_STORE_WAIT_REPLAY_REQUIRE_NONZERO="${REDUCED_STORE_WAIT_REPLAY_REQUIRE_NONZERO:-liq_replay_wake_completed_mask,liq_scb_returned_mask_before_mdb_write,liq_sources_returned_mask_before_mdb_write,liq_wait_mask_after_mdb_write,liq_wait_store_mask_after_mdb_write}"
 
 source "${ROOT_DIR}/tools/chisel/chisel_env.sh"
 
@@ -44,5 +46,25 @@ verilator \
 
 "${OBJ_DIR}/reduced_store_wait_replay_chisel_path_tb" \
   --report-json "${REPORT_JSON}"
+
+REPORT_VALIDATOR_ARGS=("${REPORT_JSON}")
+if [[ -n "${REDUCED_STORE_WAIT_REPLAY_REQUIRE_TRUE}" ]]; then
+  IFS=',' read -r -a reduced_store_required_true <<< "${REDUCED_STORE_WAIT_REPLAY_REQUIRE_TRUE}"
+  for reduced_store_report_key in "${reduced_store_required_true[@]}"; do
+    if [[ -n "${reduced_store_report_key}" ]]; then
+      REPORT_VALIDATOR_ARGS+=(--require-true "${reduced_store_report_key}")
+    fi
+  done
+fi
+if [[ -n "${REDUCED_STORE_WAIT_REPLAY_REQUIRE_NONZERO}" ]]; then
+  IFS=',' read -r -a reduced_store_required_nonzero <<< "${REDUCED_STORE_WAIT_REPLAY_REQUIRE_NONZERO}"
+  for reduced_store_report_key in "${reduced_store_required_nonzero[@]}"; do
+    if [[ -n "${reduced_store_report_key}" ]]; then
+      REPORT_VALIDATOR_ARGS+=(--require-nonzero "${reduced_store_report_key}")
+    fi
+  done
+fi
+python3 "${ROOT_DIR}/tools/chisel/validate_reduced_store_wait_replay_chisel_path.py" \
+  "${REPORT_VALIDATOR_ARGS[@]}"
 
 echo "reduced-store-wait-replay-chisel-path-report=${REPORT_JSON}"

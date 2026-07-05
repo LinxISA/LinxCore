@@ -219,6 +219,31 @@ passing R452 report records `ready_forward_observed=true`,
 `std_wake_clear=true`, `relaunch_queue_fire=true`, `liq_alloc=true`, and
 `youngest_store_lsid=1`.
 
+R493 adds `tools/chisel/validate_reduced_store_wait_replay_chisel_path.py` and
+makes the wrapper validate the R464 positive MDB wait-plan row-write proof by
+default. The packet also ties the newer `ReducedLoadReplayLiqAllocPath`
+`pick`, `scbReturn`, and `markResolved` inputs inactive in this probe, because
+this fixture's R464 positive path uses `LoadReplayWakeup` for SCB evidence and
+does not exercise those later live-top ports. A passing wrapper run now
+requires:
+
+- `mdb_lookup_wait_plan_scb_evidence=true`
+- `mdb_lookup_wait_plan_write=true`
+- `mdb_lookup_wait_plan_apply=true`
+- `mdb_lookup_wait_plan_wait_status_after_write=true`
+- nonzero `liq_replay_wake_completed_mask`
+- nonzero `liq_scb_returned_mask_before_mdb_write`
+- nonzero `liq_sources_returned_mask_before_mdb_write`
+- nonzero `liq_wait_mask_after_mdb_write`
+- nonzero `liq_wait_store_mask_after_mdb_write`
+
+The requirement lists can be overridden with
+`REDUCED_STORE_WAIT_REPLAY_REQUIRE_TRUE` and
+`REDUCED_STORE_WAIT_REPLAY_REQUIRE_NONZERO` when a future packet deliberately
+builds a narrower diagnostic report. The default remains a regression guard
+for the generated-RTL proof that learned MDB lookup can write a live LIQ row
+back to native wait-store state after SCB source-return evidence arrives.
+
 R453 extends the same report with `liq_refill=true`,
 `liq_launch_valid=true`, `liq_launch_accepted=true`, and
 `launch_load_lsid=3`. This remains generated-RTL fixture evidence: the refill

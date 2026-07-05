@@ -236,6 +236,12 @@ class ReducedStoreWaitReplayChiselPathProbe(
   liq.io.candidateValid := relaunchQueue.io.outValid
   liq.io.candidate := relaunchQueue.io.out
   liq.io.launchEnable := io.liqLaunchEnable
+  liq.io.pickValid := false.B
+  liq.io.pickIndex := 0.U
+  liq.io.scbReturnValid := false.B
+  liq.io.scbReturnIndex := 0.U
+  liq.io.markResolvedValid := false.B
+  liq.io.markResolvedIndex := 0.U
   liq.io.e2Stores := 0.U.asTypeOf(liq.io.e2Stores)
   liq.io.e2BaseData := 0.U
   liq.io.e2BaseValidMask := 0.U
