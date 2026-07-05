@@ -203,6 +203,12 @@ R503 surfaces the underlying SSIT lookup qualifiers
 `mdb_fanout_lookup_weight_blocked`) through the live top sideband report so
 agents can distinguish a true table miss from a model-qualified suppression
 before editing lookup timing or wait-plan logic.
+R507 confirms the fanout can produce both LU and SU hit sideband for the
+third-pass loop while still producing no `suWakeup`: the residual-wait gate
+records `mdb_fanout_lu_out_hit=1` and `mdb_fanout_su_out_hit=1`, but requires
+`mdb_fanout_su_wakeup_valid=0` because `StoreUnit::mdbCheck` only wakes a load
+when the matching store is address-ready and data-ready. Treat this as a
+store-ready wakeup fixture gap, not a reason to weaken LU wait publication.
 
 ## Verification
 
