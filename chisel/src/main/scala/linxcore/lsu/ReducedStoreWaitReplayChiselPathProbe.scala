@@ -80,6 +80,15 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val resolveQueueValidMask = Output(UInt(liqEntries.W))
   val resolveQueueCount = Output(UInt(log2Ceil(liqEntries + 1).W))
   val resolveQueueFirstLoadLsId = Output(new ROBID(entries))
+  val mdbStore = Input(new MDBConflictStoreProbe(entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth))
+  val mdbResolveCandidateMask = Output(UInt(liqEntries.W))
+  val mdbConflictValid = Output(Bool())
+  val mdbConflictFromResolveQueue = Output(Bool())
+  val mdbConflictResolveIndex = Output(UInt(log2Ceil(liqEntries.max(2)).W))
+  val mdbInnerFlush = Output(Bool())
+  val mdbNukeFlush = Output(Bool())
+  val mdbConflictLoadLsId = Output(new ROBID(entries))
+  val mdbConflictLoadPc = Output(UInt(pcWidth.W))
   val liqClearResolvedPending = Output(Bool())
   val liqClearResolvedAccepted = Output(Bool())
   val liqResidentCount = Output(UInt(log2Ceil(liqEntries + 1).W))
@@ -218,6 +227,18 @@ class ReducedStoreWaitReplayChiselPathProbe(
   resolveQueue.io.retireBid := io.resolveQueueRetireBid
   resolveQueue.io.retireLsId := io.resolveQueueRetireLsId
 
+  val mdbDetect = Module(new MDBConflictDetect(
+    entries = entries,
+    loadEntries = liqEntries,
+    resolveEntries = liqEntries,
+    addrWidth = addrWidth,
+    pcWidth = pcWidth,
+    sizeWidth = sizeWidth
+  ))
+  mdbDetect.io.store := io.mdbStore
+  mdbDetect.io.activeLoads := 0.U.asTypeOf(mdbDetect.io.activeLoads)
+  mdbDetect.io.resolvedQueue := resolveQueue.io.conflictRows
+
   when(io.flush) {
     clearResolvedPending := false.B
     clearResolvedIndex := 0.U
@@ -270,6 +291,14 @@ class ReducedStoreWaitReplayChiselPathProbe(
   io.resolveQueueValidMask := resolveQueue.io.validMask
   io.resolveQueueCount := resolveQueue.io.count
   io.resolveQueueFirstLoadLsId := resolveQueue.io.entries(0).record.loadLsId
+  io.mdbResolveCandidateMask := mdbDetect.io.resolveCandidateMask
+  io.mdbConflictValid := mdbDetect.io.conflictValid
+  io.mdbConflictFromResolveQueue := mdbDetect.io.conflictFromResolveQueue
+  io.mdbConflictResolveIndex := mdbDetect.io.conflictResolveIndex
+  io.mdbInnerFlush := mdbDetect.io.innerFlush
+  io.mdbNukeFlush := mdbDetect.io.nukeFlush
+  io.mdbConflictLoadLsId := mdbDetect.io.record.load.lsId
+  io.mdbConflictLoadPc := mdbDetect.io.record.load.pc
   io.liqClearResolvedPending := clearResolvedPending
   io.liqClearResolvedAccepted := liq.io.clearResolvedAccepted
   io.liqResidentCount := liq.io.residentCount

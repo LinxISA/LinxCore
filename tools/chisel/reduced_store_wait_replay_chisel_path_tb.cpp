@@ -118,6 +118,27 @@ void clear_inputs(VReducedStoreWaitReplayChiselPathProbe &dut) {
   dut.io_resolveQueueRetireLsId_valid = 0;
   dut.io_resolveQueueRetireLsId_wrap = 0;
   dut.io_resolveQueueRetireLsId_value = 0;
+  dut.io_mdbStore_valid = 0;
+  dut.io_mdbStore_addrOnly = 0;
+  dut.io_mdbStore_isTile = 0;
+  dut.io_mdbStore_peId = 0;
+  dut.io_mdbStore_stid = 0;
+  dut.io_mdbStore_tid = 0;
+  dut.io_mdbStore_bid_valid = 0;
+  dut.io_mdbStore_bid_wrap = 0;
+  dut.io_mdbStore_bid_value = 0;
+  dut.io_mdbStore_gid_valid = 0;
+  dut.io_mdbStore_gid_wrap = 0;
+  dut.io_mdbStore_gid_value = 0;
+  dut.io_mdbStore_rid_valid = 0;
+  dut.io_mdbStore_rid_wrap = 0;
+  dut.io_mdbStore_rid_value = 0;
+  dut.io_mdbStore_lsId_valid = 0;
+  dut.io_mdbStore_lsId_wrap = 0;
+  dut.io_mdbStore_lsId_value = 0;
+  dut.io_mdbStore_pc = 0;
+  dut.io_mdbStore_addr = 0;
+  dut.io_mdbStore_size = 0;
 }
 
 void tick(VReducedStoreWaitReplayChiselPathProbe &dut, std::uint64_t &cycle) {
@@ -176,6 +197,28 @@ void drive_load(VReducedStoreWaitReplayChiselPathProbe &dut, bool capture_enable
   dut.io_captureEnable = capture_enable ? 1 : 0;
 }
 
+void drive_mdb_store_probe(VReducedStoreWaitReplayChiselPathProbe &dut) {
+  dut.io_mdbStore_valid = 1;
+  dut.io_mdbStore_addrOnly = 0;
+  dut.io_mdbStore_isTile = 0;
+  dut.io_mdbStore_peId = 0;
+  dut.io_mdbStore_stid = 0;
+  dut.io_mdbStore_tid = 0;
+  dut.io_mdbStore_bid_valid = 1;
+  dut.io_mdbStore_bid_wrap = 0;
+  dut.io_mdbStore_bid_value = kStoreBid;
+  dut.io_mdbStore_gid_valid = 1;
+  dut.io_mdbStore_gid_value = 0;
+  dut.io_mdbStore_rid_valid = 1;
+  dut.io_mdbStore_rid_value = 0;
+  dut.io_mdbStore_lsId_valid = 1;
+  dut.io_mdbStore_lsId_wrap = 0;
+  dut.io_mdbStore_lsId_value = kStoreLsId;
+  dut.io_mdbStore_pc = kStorePc;
+  dut.io_mdbStore_addr = kLoadAddr;
+  dut.io_mdbStore_size = 8;
+}
+
 struct Report {
   std::uint64_t cycles = 0;
   bool ready_forward_observed = false;
@@ -192,11 +235,15 @@ struct Report {
   bool liq_resolved = false;
   bool resolve_queue_push = false;
   bool liq_clear_resolved = false;
+  bool mdb_resolve_conflict = false;
+  bool mdb_nuke_flush = false;
   bool resolve_queue_retired = false;
   std::uint32_t youngest_store_lsid = 0;
   std::uint32_t launch_load_lsid = 0;
   std::uint32_t resolve_queue_count = 0;
   std::uint32_t resolve_queue_count_after_retire = 0;
+  std::uint32_t mdb_resolve_candidate_mask = 0;
+  std::uint32_t mdb_conflict_load_lsid = 0;
   std::uint32_t e4_cycles_after_launch = 0;
 };
 
@@ -362,6 +409,23 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   report.liq_clear_resolved = true;
 
   clear_inputs(dut);
+  drive_mdb_store_probe(dut);
+  dut.eval();
+  expect(dut.io_mdbConflictValid, "MDB conflict detect did not see the ResolveQ row");
+  expect(dut.io_mdbConflictFromResolveQueue, "MDB conflict did not come from ResolveQ");
+  expect((dut.io_mdbResolveCandidateMask & 0x1) != 0, "MDB ResolveQ candidate mask did not select row zero");
+  expect(dut.io_mdbConflictResolveIndex == 0, "MDB conflict selected the wrong ResolveQ index");
+  expect(dut.io_mdbNukeFlush, "MDB conflict did not classify cross-BID conflict as nuke flush");
+  expect(!dut.io_mdbInnerFlush, "MDB conflict incorrectly classified cross-BID conflict as inner flush");
+  expect(dut.io_mdbConflictLoadLsId_valid, "MDB conflict record did not preserve load LSID valid bit");
+  expect(dut.io_mdbConflictLoadLsId_value == kLoadLsId, "MDB conflict record did not preserve load LSID value");
+  expect(dut.io_mdbConflictLoadPc == 0, "MDB conflict record load PC changed from fixture-owned zero PC");
+  report.mdb_resolve_conflict = true;
+  report.mdb_nuke_flush = true;
+  report.mdb_resolve_candidate_mask = dut.io_mdbResolveCandidateMask;
+  report.mdb_conflict_load_lsid = dut.io_mdbConflictLoadLsId_value;
+
+  clear_inputs(dut);
   dut.io_resolveQueueRetireValid = 1;
   dut.io_resolveQueueRetireBid_valid = 1;
   dut.io_resolveQueueRetireBid_value = kLoadBid;
@@ -405,11 +469,15 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"liq_resolved\": " << (report.liq_resolved ? "true" : "false") << ",\n"
       << "  \"resolve_queue_push\": " << (report.resolve_queue_push ? "true" : "false") << ",\n"
       << "  \"liq_clear_resolved\": " << (report.liq_clear_resolved ? "true" : "false") << ",\n"
+      << "  \"mdb_resolve_conflict\": " << (report.mdb_resolve_conflict ? "true" : "false") << ",\n"
+      << "  \"mdb_nuke_flush\": " << (report.mdb_nuke_flush ? "true" : "false") << ",\n"
       << "  \"resolve_queue_retired\": " << (report.resolve_queue_retired ? "true" : "false") << ",\n"
       << "  \"youngest_store_lsid\": " << report.youngest_store_lsid << ",\n"
       << "  \"launch_load_lsid\": " << report.launch_load_lsid << ",\n"
       << "  \"resolve_queue_count\": " << report.resolve_queue_count << ",\n"
       << "  \"resolve_queue_count_after_retire\": " << report.resolve_queue_count_after_retire << ",\n"
+      << "  \"mdb_resolve_candidate_mask\": " << report.mdb_resolve_candidate_mask << ",\n"
+      << "  \"mdb_conflict_load_lsid\": " << report.mdb_conflict_load_lsid << ",\n"
       << "  \"e4_cycles_after_launch\": " << report.e4_cycles_after_launch << "\n"
       << "}\n";
 }

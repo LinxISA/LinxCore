@@ -174,6 +174,13 @@ report proves `resolve_queue_retired=true` and
 `resolve_queue_count_after_retire=0` after driving a watermark one LSID newer
 than the resolved load. This is still fixture evidence, but it closes the local
 ResolveQ lifecycle from LHQ append through LIQ clear and queue retire.
+R457 feeds the same ResolveQ row into a fixture-local `MDBConflictDetect`
+through `LoadResolveQueue.conflictRows` while active LDQ rows are tied off.
+The generated-RTL report proves `mdb_resolve_conflict=true`,
+`mdb_nuke_flush=true`, `mdb_resolve_candidate_mask=1`, and
+`mdb_conflict_load_lsid=3` for an older overlapping store probe. This is still
+fixture evidence: the store probe and replay-return sidebands are harness
+owned, and no live MDB fanout or recovery flush is published yet.
 
 ## XiangShan Flow Reference
 

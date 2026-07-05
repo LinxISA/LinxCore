@@ -27,6 +27,8 @@ the reduced replay-LIQ path:
 - `ResidentStoreReplayWakeup`
 - `ReducedLoadReplayRelaunchQueue`
 - `ReducedLoadReplayLiqAllocPath`
+- `LoadResolveQueue`
+- `MDBConflictDetect`
 
 The probe exists because R450 showed that delaying split STD data in the live
 top does not force the younger load to execute while the resident store is
@@ -84,6 +86,11 @@ window directly and proves the owner chain through generated RTL.
 | `resolveQueueRetireValid` / `resolveQueueRetireBid` / `resolveQueueRetireLsId` | Fixture-owned ResolveQ retire watermark input. |
 | `resolveQueueRetireMask` / `resolveQueueRetireCount` | ResolveQ rows selected by the retire watermark before compaction. |
 | `resolveQueueValidMask` / `resolveQueueCount` / `resolveQueueFirstLoadLsId` | ResolveQ residency diagnostics after the LHQ record is appended. |
+| `mdbStore` | Fixture-owned store-arrival probe for the local `MDBConflictDetect` instance. |
+| `mdbResolveCandidateMask` | ResolveQ rows classified as scalar conflicts for the current store probe. |
+| `mdbConflictValid` / `mdbConflictFromResolveQueue` / `mdbConflictResolveIndex` | Selected MDB conflict source and index diagnostics. |
+| `mdbInnerFlush` / `mdbNukeFlush` | Same-BID versus cross-BID conflict classification from `MDBConflictDetect`. |
+| `mdbConflictLoadLsId` / `mdbConflictLoadPc` | Selected load identity retained in the MDB conflict record. |
 | `liqClearResolvedPending` / `liqClearResolvedAccepted` | Probe-local delayed clear request back into LIQ after ResolveQ accepts the LHQ record. |
 | `liqWaitMask` / `liqRepickMask` / `liqResolvedMask` | LIQ row status masks before launch, after launch, and after E4 resolution. |
 | `liqFirstYoungestStoreLsId` | Allocated LIQ row preserved the forwarding snapshot sidecar. |
@@ -117,6 +124,10 @@ The generated-RTL harness runs two scenarios:
 6. The harness can drive a model-style ResolveQ retire watermark. A watermark
    strictly newer than the resolved row's `(BID, loadLsId)` selects that row,
    and the following cycle compacts ResolveQ to empty.
+7. Before the retire watermark, the harness drives a fixture-owned store probe
+   matching the older resident store. `MDBConflictDetect` consumes
+   `LoadResolveQueue.conflictRows`, selects ResolveQ row zero as a scalar
+   conflict, and classifies the cross-BID conflict as a nuke flush.
 
 This is fixture evidence for the reduced owner chain. It is not architectural
 QEMU/DUT replacement evidence and does not prove live top scheduling can yet
@@ -170,3 +181,14 @@ R456 extends the report with `resolve_queue_retired=true` and
 one LSID newer than the resolved load, proving the same generated-RTL fixture
 can drain the ResolveQ row through the model strict older-than retire rule
 after the source LIQ row has been cleared.
+
+R457 extends the report with `mdb_resolve_conflict=true`,
+`mdb_nuke_flush=true`, `mdb_resolve_candidate_mask=1`, and
+`mdb_conflict_load_lsid=3`. The probe composes `MDBConflictDetect` with the
+real `LoadResolveQueue.conflictRows`, ties active LDQ rows inactive, and lets
+the harness drive an older overlapping store probe before ResolveQ retire.
+This proves generated RTL exposes the resolved replay row to the MDB conflict
+classifier and applies the model cross-BID nuke classification. It is still
+fixture evidence, not live MDB/recovery publication, because the store probe,
+replay launch, refill, source-return sidebands, return readiness, and retire
+watermark are harness-driven.

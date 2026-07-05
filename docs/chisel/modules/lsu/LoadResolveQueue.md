@@ -42,9 +42,11 @@ real LIQ E4 LHQ record into `LoadResolveQueue`, then applies the delayed LIQ
 `clearResolved` feedback while the ResolveQ record remains resident. That is
 fixture evidence because launch and return sidebands are harness-driven. R456
 extends the same fixture with a commit-style retire watermark and proves the
-resolved row drains by the strict older-than `(BID, LSID)` rule. Default/live
-LIQ insertion and exported conflict rows feeding the live MDB/recovery path
-remain deferred owner packets.
+resolved row drains by the strict older-than `(BID, LSID)` rule. R457 uses
+the same resident row through `conflictRows` as input to `MDBConflictDetect`
+and proves the ResolveQ-only scalar conflict mask plus cross-BID nuke
+classification in generated RTL. Default/live LIQ insertion and live
+MDB/recovery publication remain deferred owner packets.
 
 ## Interface
 
@@ -168,12 +170,15 @@ bash tools/chisel/run_chisel_reduced_store_wait_replay_chisel_path.sh
 jq . generated/chisel-reduced-store-wait-replay-chisel-path/report/reduced_store_wait_replay_chisel_path.json
 ```
 
-The R455/R456 generated reports record `resolve_queue_push=true`,
+The R455/R456/R457 generated reports record `resolve_queue_push=true`,
 `liq_clear_resolved=true`, `resolve_queue_count=1`,
+`mdb_resolve_conflict=true`, `mdb_nuke_flush=true`,
 `resolve_queue_retired=true`, and `resolve_queue_count_after_retire=0`,
 proving that this queue accepts the fixture LHQ record, the parent delayed
 clear frees the source LIQ row after acceptance, and a later commit watermark
-retires the ResolveQ row. Older focused fixtures remain:
+retires the ResolveQ row. R457 additionally proves the exported conflict-row
+view feeds `MDBConflictDetect` before that retire watermark drains the row.
+Older focused fixtures remain:
 
 ```bash
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r285-replay-liq-resolveq-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh

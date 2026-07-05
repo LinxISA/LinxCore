@@ -34,6 +34,13 @@ but no MDB fanout, ready-store wakeup, or recovery flush is emitted yet.
 R291 feeds the selected `record` into the diagnostic `MDBQueueFanout.recordIn`
 path with model confidence `1`, while lookup/delete producers, recovery flush,
 and live load/store wakeup side effects remain deferred.
+R457 also proves the detector at a smaller executable fixture boundary:
+`ReducedStoreWaitReplayChiselPathProbe` feeds a real `LoadResolveQueue`
+`conflictRows` export into a local `MDBConflictDetect`, ties active rows
+inactive, and drives a harness-owned older overlapping store probe before
+ResolveQ retire. The generated-RTL report observes the ResolveQ candidate mask,
+selected load LSID, and cross-BID nuke classification. This is fixture
+composition evidence only; it does not publish live MDB or recovery effects.
 
 The module owns:
 
@@ -146,6 +153,8 @@ memory or recovery events are emitted from the Chisel top.
 
 - `bash tools/chisel/run_chisel_tests.sh --only MDBConflictDetect`
 - `bash tools/chisel/run_chisel_tests.sh --only LoadResolveQueue`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayChiselPath`
+- `bash tools/chisel/run_chisel_reduced_store_wait_replay_chisel_path.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r290-replay-liq-mdb-detect-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
@@ -159,3 +168,7 @@ memory or recovery events are emitted from the Chisel top.
 Focused reference tests cover same-BID inner conflict, oldest selection across
 active LDQ rows and `ResolveQ`, younger-store rejection, `ST_ADDR` wait-store
 marking, tile suppression, zero-size non-overlap, and Chisel elaboration.
+The R457 generated-RTL fixture report additionally records
+`mdb_resolve_conflict=true`, `mdb_nuke_flush=true`,
+`mdb_resolve_candidate_mask=1`, and `mdb_conflict_load_lsid=3` for a
+ResolveQ-only conflict path.
