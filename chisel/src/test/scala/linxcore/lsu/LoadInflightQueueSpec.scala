@@ -176,6 +176,15 @@ object LoadInflightQueueReference {
           false
       }
 
+    def scbReturn(index: Int): Boolean =
+      rows(index) match {
+        case Some(row) if row.status == Repick && !row.scbReturned =>
+          rows(index) = Some(row.copy(scbReturned = true))
+          true
+        case _ =>
+          false
+      }
+
     def cycle(): CycleResult = {
       val updateIndex = e3Index
       val out = pipe.step()
@@ -450,6 +459,22 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(!resolvedLiq.pick(resolvedIndex))
   }
 
+  test("SCB return marks an admitted REPICK row without mutating STQ return state") {
+    val liq = new Model(entries = 4)
+    val rowIndex = liq.allocate(alloc(0, addr = 0x1004, size = 4, youngestStore = 5)).index
+
+    assert(liq.pick(rowIndex))
+    assert(liq.scbReturn(rowIndex))
+    assert(liq.row(rowIndex).exists(row =>
+      row.status == Repick && row.scbReturned && !row.stqReturned && !row.sourcesReturned))
+    assert(!liq.scbReturn(rowIndex))
+
+    val waitLiq = new Model(entries = 4)
+    val waitIndex = waitLiq.allocate(alloc(1, addr = 0x1040)).index
+    assert(!waitLiq.scbReturn(waitIndex))
+    assert(waitLiq.row(waitIndex).exists(row => row.status == Wait && !row.scbReturned))
+  }
+
   test("store-data-not-ready returns to WAIT with wait-store diagnostics") {
     val liq = new Model(entries = 4)
     val rowIndex = liq.allocate(alloc(0, addr = 0x1008, size = 2, youngestStore = 6)).index
@@ -696,6 +721,10 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(sv.contains("io_pickValid"))
     assert(sv.contains("io_pickReady"))
     assert(sv.contains("io_pickAccepted"))
+    assert(sv.contains("io_scbReturnValid"))
+    assert(sv.contains("io_scbReturnIndex"))
+    assert(sv.contains("io_scbReturnReady"))
+    assert(sv.contains("io_scbReturnAccepted"))
     assert(sv.contains("LoadForwardPipeline"))
     assert(sv.contains("io_lhqRecordValid"))
     assert(sv.contains("io_lhqRecord_loadLsId_value"))

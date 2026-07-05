@@ -157,6 +157,11 @@ class LoadInflightQueueIO(
   val pickReady = Output(Bool())
   val pickAccepted = Output(Bool())
 
+  val scbReturnValid = Input(Bool())
+  val scbReturnIndex = Input(UInt(liqPtrWidth.W))
+  val scbReturnReady = Output(Bool())
+  val scbReturnAccepted = Output(Bool())
+
   val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(idEntries, storeEntries, addrWidth, pcWidth, lineBytes)))
   val e2BaseData = Input(UInt((lineBytes * 8).W))
   val e2BaseValidMask = Input(UInt(lineBytes.W))
@@ -350,6 +355,10 @@ class LoadInflightQueue(
   val pickReady =
     !io.flush && pickRow.valid && (pickRow.status === LoadInflightStatus.Wait) && !pickRow.waitStore
   val pickAccepted = io.pickValid && pickReady
+  val scbReturnRow = rows(io.scbReturnIndex)
+  val scbReturnReady =
+    !io.flush && scbReturnRow.valid && (scbReturnRow.status === LoadInflightStatus.Repick) && !scbReturnRow.scbReturned
+  val scbReturnAccepted = io.scbReturnValid && scbReturnReady
 
   pipeline.io.e2BaseData := Mux(launchUsesRowData, launchRow.lineData, io.e2BaseData)
   pipeline.io.e2BaseValidMask := Mux(launchUsesRowData, launchRow.validMask, io.e2BaseValidMask)
@@ -455,7 +464,8 @@ class LoadInflightQueue(
   rowMutationPath.io.refillConflict := io.refillValid && rowMutationRefillConflictVec(io.rowMutationTargetIndex)
   rowMutationPath.io.launchConflict :=
     (launchAccepted && (io.launchIndex === io.rowMutationTargetIndex)) ||
-      (pickAccepted && (io.pickIndex === io.rowMutationTargetIndex))
+      (pickAccepted && (io.pickIndex === io.rowMutationTargetIndex)) ||
+      (scbReturnAccepted && (io.scbReturnIndex === io.rowMutationTargetIndex))
   rowMutationPath.io.allocationConflict := allocAccepted && (allocPtr === io.rowMutationTargetIndex)
 
   when(io.flush) {
@@ -599,6 +609,10 @@ class LoadInflightQueue(
       rows(io.pickIndex).missKind := LoadForwardMissKind.NoMiss
     }
 
+    when(scbReturnAccepted) {
+      rows(io.scbReturnIndex).scbReturned := true.B
+    }
+
     when(allocAccepted) {
       rows(allocPtr) := zeroRow
       rows(allocPtr).valid := true.B
@@ -662,6 +676,8 @@ class LoadInflightQueue(
   io.launchAccepted := launchAccepted
   io.pickReady := pickReady
   io.pickAccepted := pickAccepted
+  io.scbReturnReady := scbReturnReady
+  io.scbReturnAccepted := scbReturnAccepted
   io.clearResolvedAccepted := clearResolvedAccepted
   io.rowMutationBridgeValid := rowMutationPath.io.bridgeValid
   io.rowMutationTargetEvidenceValid := rowMutationPath.io.targetEvidenceValid

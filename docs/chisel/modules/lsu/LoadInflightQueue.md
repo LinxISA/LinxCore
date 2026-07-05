@@ -59,6 +59,12 @@ coarse `sourcesReturned` behavior as the conjunction of load-data, SCB, and
 STQ/store-source return bits while making the row-carried split diagnostics
 consistent before replay-STQ mutation is live-enabled.
 
+R487 adds a direct SCB-return proof port for rows already in `Repick`.
+LinxCoreModel handles SCB receive before STQ receive and records `scbRnt` on
+`LDQ_REPICK` rows even when no cache data is carried. The Chisel port lets the
+source-return accepted-token owner mark that proof without pretending the row
+received a replay-wakeup byte merge or an E2 forwarding result.
+
 This packet turns the standalone forwarding pipeline into reusable row state
 without taking ownership of full LDQ/LIQ recovery, miss-queue ownership,
 ready-table update, issue wakeup fanout, L2/CHI response queues, or
@@ -114,6 +120,20 @@ R486 adds this split because LinxCoreModel marks a selected `LDQ_WAIT` row
 Chisel `launchAccepted` path also started `LoadForwardPipeline`. The pick-only
 path gives source-return owners a model-equivalent `Repick` row without
 running E4 early with missing STQ/SCB evidence.
+
+### SCB Return Proof
+
+| Signal | Description |
+|---|---|
+| `scbReturnValid` | Requests a model `handleSCBReceive` proof for an already picked replay row. |
+| `scbReturnIndex` | LIQ slot to mark SCB-returned. |
+| `scbReturnReady` | The target row is valid, `Repick`, not already SCB-returned, and no flush is active. |
+| `scbReturnAccepted` | The row's `scbReturned` bit will be set this cycle. |
+
+This port is intentionally narrower than `replayWakeValid`: it does not merge
+bytes, does not clear wait-store state, and does not complete a miss row. It
+only records the SCB ordering proof required before an ordered STQ response can
+mutate a `Repick` row.
 
 ### Replay Wakeup
 
@@ -211,6 +231,8 @@ The module owns:
 - a combinational `LoadRefillWakeup` sidecar for read-refill row wake masks,
 - a combinational `LoadInflightRowMutationPath` sidecar for native replay-STQ
   row mutation admission and next-row preview,
+- a one-cycle SCB-return proof writer for `Repick` rows selected by the
+  source-return accepted-token path,
 - a combinational LHQ hit-record output for E4 hits.
 
 It does not own a separate LHQ queue, load-store conflict recovery, precise
@@ -260,34 +282,37 @@ The C++ model provides the owner split:
    eligibility before driving this broader launch port. R486 adds a separate
    pick-only port for the same `Wait` to `Repick` transition when source-return
    owners need a selected `Repick` row before final replay launch/readiness.
-3. E4 hit with `NoMiss` and `e4WakeupValid` changes the row to `Resolved` and
+3. R487 accepts `scbReturnValid` only for valid `Repick` rows that have not
+   already recorded `scbReturned`. The write conflicts with same-row native
+   row mutation so the model `scbRnt` proof cannot race an STQ response apply.
+4. E4 hit with `NoMiss` and `e4WakeupValid` changes the row to `Resolved` and
    publishes `lhqRecord` with the row PC preserved for future recovery/MDB
    reporting. R418 stores the delayed pipeline SCB and STQ/store source-return
    bits in `scbReturned` and `stqReturned`, while `sourcesReturned` remains the
    combined active readiness bit.
-4. E4 `StoreDataNotReady` changes the row back to `Wait`, records
+5. E4 `StoreDataNotReady` changes the row back to `Wait`, records
    `waitStoreInfo`, and clears transient byte-valid data like model
    `LUEntryInfo::rewait`. R411 also clears split return diagnostics on this
    rewait path.
-5. E4 `DataNotComplete` changes the row to `L1DcMiss`, marks `l1Miss`, and
+6. E4 `DataNotComplete` changes the row to `L1DcMiss`, marks `l1Miss`, and
    asserts `missPending`.
-6. E4 source-return or return-port blocking changes the row back to `Wait`
+7. E4 source-return or return-port blocking changes the row back to `Wait`
    without publishing an LHQ record.
-7. Replay wakeups run through `LoadReplayWakeup`. Matching store-unit wakeups
+8. Replay wakeups run through `LoadReplayWakeup`. Matching store-unit wakeups
    clear `waitStore` by BID/LSID/PC; store-unit/SCB byte merges update row data and valid
    masks; completed rows become `Wait` with `storeBypass` set so the normal
    launch path can recheck source and return-slot readiness. R411 records
    source-specific diagnostic completion in `stqReturned` for store-unit
    wakeups and `scbReturned` for SCB wakeups without changing the coarse
    `sourcesReturned` behavior.
-8. Refill wakeups run through `LoadRefillWakeup`. Matching read-refill lines
+9. Refill wakeups run through `LoadRefillWakeup`. Matching read-refill lines
    return rows to `Wait`, set `l1Hit`, store full-line data, and clear
    `missPending` by leaving the miss states.
-9. Native row mutations run through `LoadInflightRowMutationPath`. The queue
+10. Native row mutations run through `LoadInflightRowMutationPath`. The queue
    synthesizes the target one-hot mask from `rowMutationTargetIndex`, feeds the
    current row image into the path, computes conflicts against E4,
-   clear-resolved, replay wakeup, refill, launch, and allocation writers, and
-   writes `nextRow` only when `rowMutationWriteEnable` is true.
+   clear-resolved, replay wakeup, refill, launch, SCB-return, and allocation
+   writers, and writes `nextRow` only when `rowMutationWriteEnable` is true.
 
 ## Timing
 
@@ -347,7 +372,8 @@ row-observation surfaces.
 Focused reference tests cover slot-plus-wrap allocation, E4 hit-to-resolved
 transition and LHQ record publication including PC, not-ready store replay, incomplete-data
 miss-pending behavior, source/return-port replay, store-wakeup wait-store
-clear, store-wakeup miss completion, resolved-row clearing before wraparound
+clear, store-wakeup miss completion, direct SCB-return proof for a `Repick`
+row, resolved-row clearing before wraparound
 allocation, L1 refill wakeup, row-owned refill-data relaunch, native
 row-mutation writes and blockers, and Chisel elaboration with the child
 `LoadForwardPipeline`, `LoadReplayWakeup`, `LoadRefillWakeup`, and

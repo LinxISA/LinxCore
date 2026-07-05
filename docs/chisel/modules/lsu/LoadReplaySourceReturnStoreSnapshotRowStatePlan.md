@@ -13,6 +13,11 @@
     - `MtcLDQInfo::handleSTQReceive`
     - `MtcLDQInfo::waitStore`
     - `MtcLDQInfo::handleMerge`
+  - `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`
+    - `LDQInfo::handleSTQReceive`
+    - `LDQInfo::receiveData`
+  - `model/LinxCoreModel/model/lsu/load_unit/ldq_cluster.cpp`
+    - `LUEntryInfo::rewait`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-STQ-SNAPSHOT-ROW-STATE-PLAN-001`
 
 ## Purpose
@@ -31,8 +36,12 @@ class:
    request data.
 2. A data response keeps the row in repick state, preserves the already-returned
    SCB source, sets final `stqRnt`, and uses the merged request-data image.
-3. A no-data response still sets final `stqRnt`, but leaves the accepted row
-   data image unchanged.
+3. A no-data response that already has complete requested bytes sets final
+   `stqRnt` and leaves the accepted row data image unchanged.
+4. A no-data response that does not have complete requested bytes follows the
+   model return loop into a rewait/miss-retry shape: the row goes back to
+   `WAIT`, the accumulated source-return bits are cleared, and the row data
+   image is cleared.
 
 R409 captures that branch structure as a combinational plan only. It does not
 mutate `LoadInflightQueue` rows.
@@ -52,13 +61,13 @@ to consume the ordered STQ response.
 | `waitStoreInfo` / `waitStoreRid` | Wait-store identity copied into the future row write. |
 | `dataMergeApply` / `dataNoMerge` | Non-wait response class. |
 | `priorScbReturned` / `priorStqReturned` | Current split source-return bits. `priorScbReturned` must already be true for an STQ apply. |
-| `priorLineData` / `priorValidMask` / `priorRequestComplete` | Accepted-row data image before STQ response application. |
+| `priorLineData` / `priorValidMask` / `priorRequestComplete` | Accepted-row data image before STQ response application. `priorRequestComplete` decides whether a no-data STQ response can remain `Repick` or must rewait. |
 | `mergedLineData` / `mergedValidMask` / `mergedRequestComplete` | Data-merge image from `ResponseApply`. |
-| `rewaitApply` | Final row state is wait-store rewait. |
-| `dataMergePlan` / `dataNoMergePlan` | Final row state remains repick with final `stqRnt` set. |
+| `rewaitApply` | Final row state is rewait. This covers explicit wait-store responses and incomplete no-data responses. |
+| `dataMergePlan` / `dataNoMergePlan` | Non-wait response class. `dataNoMergePlan` is still true for an incomplete no-data response, but `rewaitApply` selects the final wait-state rewrite. |
 | `nextScbReturned` / `nextStqReturned` | Final split source-return bits for a future row writer. |
 | `nextStoreSourceReturned` | Store-side source completion, `nextScbReturned && nextStqReturned`, for non-rewait plans. |
-| `nextLineData` / `nextValidMask` / `nextDataComplete` | Final row data image. Wait-store rewait clears the image; data merge uses the merged image; no-data preserves the accepted image. |
+| `nextLineData` / `nextValidMask` / `nextDataComplete` | Final row data image. Rewait clears the image; data merge uses the merged image; complete no-data preserves the accepted image. |
 | `setWaitStatus` / `keepRepickStatus` | Future status-write intent. |
 | `invalid*` | Malformed or impossible response-class diagnostics. |
 
@@ -67,16 +76,19 @@ to consume the ordered STQ response.
 The plan is combinational:
 
 ```text
-planValid    = enable && !flush && applyValid && applyStqReturned
-rewaitApply  = planValid && waitStoreApply
-dataMerge    = planValid && !waitStoreApply && dataMergeApply
-dataNoMerge  = planValid && !waitStoreApply && dataNoMerge
+planValid         = enable && !flush && applyValid && applyStqReturned
+dataNoMergePlan   = planValid && !waitStoreApply && dataNoMerge
+dataNoMergeRewait = dataNoMergePlan && !priorRequestComplete
+rewaitApply       = planValid && (waitStoreApply || dataNoMergeRewait)
+dataMergePlan     = planValid && !waitStoreApply && dataMergeApply
 ```
 
 For `rewaitApply`, the final row image is cleared and both split store-source
-bits are false. For non-wait plans, `nextScbReturned` preserves the prior SCB
-bit, `nextStqReturned` becomes true, and the row either takes the merged data
-image or preserves the accepted image.
+bits are false. Wait-store rewait also writes the wait-store identity; no-data
+rewait clears return state without recording a wait-store dependency. For
+non-rewait plans, `nextScbReturned` preserves the prior SCB bit,
+`nextStqReturned` becomes true, and the row either takes the merged data image
+or preserves the accepted complete image.
 
 `invalidStqApplyWithoutScb` is asserted when a plan is formed without the SCB
 return bit. This mirrors the model `ASSERT(entry.scbRnt)` in
@@ -100,6 +112,6 @@ Focused gate:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotRowStatePlan
 ```
 
-Reference tests cover wait-store rewait clearing, data merge, no-data STQ
-return, disabled/flush/no-apply blockers, malformed response classes, and
-Chisel elaboration.
+Reference tests cover wait-store rewait clearing, data merge, complete no-data
+STQ return, incomplete no-data rewait clearing, disabled/flush/no-apply
+blockers, malformed response classes, and Chisel elaboration.

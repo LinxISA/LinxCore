@@ -85,6 +85,11 @@ can be queued and allocated into LIQ residency with the original load identity
 and forwarding snapshot intact. It is not a live top replay proof; the current
 live architectural store/load probe still produces zero wait/replay counters.
 
+R487 forwards the child LIQ `scbReturn*` proof port. This gives the top-level
+source-return accepted-token owner a narrow way to record model
+`handleSCBReceive` ordering evidence on a selected `Repick` row without
+driving the broader replay-wakeup byte-merge path.
+
 ## Interface
 
 ### Inputs
@@ -96,6 +101,7 @@ live architectural store/load probe still produces zero wait/replay counters.
 | `candidate` | Queued reduced replay candidate with load identity, destination, source traces, return signedness, and forwarding snapshot. |
 | `launchEnable` | Parent-owned arm bit. When low, selector diagnostics remain visible but `LoadInflightQueue.launchValid` is not driven. |
 | `pickValid` / `pickIndex` | Parent-owned R486 pick-only request. It marks the selected LIQ row `Repick` without running `LoadForwardPipeline`. |
+| `scbReturnValid` / `scbReturnIndex` | Parent-owned R487 SCB-return proof request. It marks a selected `Repick` row `scbReturned` without merging data. |
 | `e2Stores` | Abstract STQ forwarding rows for the `LoadForwardPipeline` launch path. R283 top wiring feeds a `ResidentStoreForwardStoreSnapshot` vector while keeping launch disabled. |
 | `e2BaseData` / `e2BaseValidMask` | Baseline line data and valid bytes for relaunches that do not already have row-owned data. R295 top wiring shapes the selected row's scalar sparse-memory response through `LoadReplayBaseDataAlign` while keeping launch disabled; R296 gates those inputs with `LoadLookupArbiter.replayGranted` so execute-returned sparse-memory bytes cannot feed the replay row. R297 routes the same grant-qualified data-return predicate through `LoadReplayLaunchReadiness`. |
 | `e2LoadDataReturned` / `e2ScbReturned` / `e2StqReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. R418 drives `e2ScbReturned` from `LoadReplaySourceReturnReadiness.scbSourceReturned` and `e2StqReturned` from `storeSourceReturned`. R305 drives `e2ReturnReady` from `LoadReplayReturnReadiness` fed by the consumer-ready, budget, permit, and select split; the reduced top arms the budget but keeps the downstream LRET and mem-wakeup sinks low. |
@@ -141,6 +147,7 @@ live architectural store/load probe still produces zero wait/replay counters.
 | `launchReady` | Selected row is launch-ready in `LoadInflightQueue`. |
 | `launchAccepted` | Selected row entered `Repick` through `LoadInflightQueue`. |
 | `pickReady` / `pickAccepted` | Child LIQ response for the R486 pick-only path. |
+| `scbReturnReady` / `scbReturnAccepted` | Child LIQ response for the R487 SCB-return proof path. |
 | `repickMask` / `missMask` / `resolvedMask` | Pass-through LIQ state masks after any enabled relaunches. |
 | `e4UpdateValid` / `e4UpdateIndex` / `e4MissKind` / `e4WakeupValid` | Pass-through E4 outcome diagnostics from the launched-row pipeline. |
 | `lhqRecordValid` / `lhqRecord` | Path-local resolved-load hit record, including load PC after R284. R285 top wiring can append this row to `LoadResolveQueue`; R286 top wiring clears the resolved LIQ row after that append is accepted. This module itself does not own ResolveQ backpressure, retire, or MDB publication. |
@@ -220,28 +227,32 @@ reduced wait slot and replay queue produce the same cleared load as a
    top drives this from the source-return snapshot query issue so the selected
    row enters `Repick` before STQ response matching, but final launch/E4 still
    waits for source-return and replay-return readiness.
-8. R417 adds the source-shaped row-mutation bridge in parallel with launch
+8. R487 forwards a parent-owned SCB-return proof gate in parallel with launch
+   and pick. The top drives it from the source-return accepted token after that
+   token is resident, matching the model order where SCB receive records
+   `scbRnt` before STQ receive applies the store snapshot.
+9. R417 adds the source-shaped row-mutation bridge in parallel with launch
    selection. The bridge accepts the R410 request shape, blocks malformed or
    out-of-range wait-store identities, and feeds the child LIQ native mutation
    port. The native writer still enforces the R416 target-row and same-cycle
    conflict policy before mutating registered row state.
-8. R418 passes split SCB and STQ/store source-return bits to the child LIQ so
+10. R418 passes split SCB and STQ/store source-return bits to the child LIQ so
    E4 row state can preserve `scbReturned` and `stqReturned` separately while
    keeping the combined `sourcesReturned` wakeup behavior unchanged.
-9. R453 passes read-refill wakeups through to the child LIQ. Refilled rows use
+11. R453 passes read-refill wakeups through to the child LIQ. Refilled rows use
    the normal `LoadRefillWakeup` update path: matching working rows return to
    `Wait` with `l1Hit` and full row-owned valid bytes, allowing
    `LoadInflightLaunchSelect` to select them without changing allocation or
    row-mutation ownership.
-10. R454 drives the existing E2 source-return and return-ready sidebands from
+12. R454 drives the existing E2 source-return and return-ready sidebands from
     the generated-RTL fixture, then observes the child LIQ's existing E4
     outcome, LHQ hit-record, and `Resolved` status outputs. The E4/LHQ
     observation is one cycle after launch, and the registered `Resolved` mask
     follows on the next clock.
-11. R455 composes the fixture LHQ record with `LoadResolveQueue` and feeds the
+13. R455 composes the fixture LHQ record with `LoadResolveQueue` and feeds the
     child LIQ `clearResolved` input one cycle after the queue accepts the
     record, matching the R286 top-level delayed-clear contract.
-12. R464 passes replay wakeups through to the child LIQ. A parent-provided SCB
+14. R464 passes replay wakeups through to the child LIQ. A parent-provided SCB
     wake uses the existing `LoadReplayWakeup` logic to merge bytes and mark
     matching non-`Repick` working rows `scbReturned/sourcesReturned`. If that
     row is then launched, `LoadInflightQueue` preserves the source-return
@@ -359,3 +370,7 @@ The generated-RTL report records `liq_replay_wake_completed_mask=2`,
 `mdb_lookup_wait_plan_write=true`, `mdb_lookup_wait_plan_apply=true`, and
 `liq_wait_store_mask_after_mdb_write=2`, proving the row write uses native LIQ
 source-return evidence rather than bypassing write-control.
+R487 locks the direct SCB-return proof pass-through at this composition
+boundary. Focused elaboration checks cover `scbReturnValid`, `scbReturnReady`,
+and `scbReturnAccepted` so the top can drive model ordering evidence without
+changing replay-wakeup ownership.

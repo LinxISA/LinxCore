@@ -29,6 +29,8 @@ class ReducedLoadReplayLiqAllocPathIO(
   val launchEnable = Input(Bool())
   val pickValid = Input(Bool())
   val pickIndex = Input(UInt(liqPtrWidth.W))
+  val scbReturnValid = Input(Bool())
+  val scbReturnIndex = Input(UInt(liqPtrWidth.W))
   val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(idEntries, storeEntries, addrWidth, pcWidth, lineBytes)))
   val e2BaseData = Input(UInt((lineBytes * 8).W))
   val e2BaseValidMask = Input(UInt(lineBytes.W))
@@ -148,6 +150,8 @@ class ReducedLoadReplayLiqAllocPathIO(
   val launchAccepted = Output(Bool())
   val pickReady = Output(Bool())
   val pickAccepted = Output(Bool())
+  val scbReturnReady = Output(Bool())
+  val scbReturnAccepted = Output(Bool())
   val repickMask = Output(UInt(liqEntries.W))
   val missMask = Output(UInt(liqEntries.W))
   val resolvedMask = Output(UInt(liqEntries.W))
@@ -251,6 +255,8 @@ class ReducedLoadReplayLiqAllocPath(
   liq.io.launchIndex := launchSelect.io.launchIndex
   liq.io.pickValid := io.pickValid
   liq.io.pickIndex := io.pickIndex
+  liq.io.scbReturnValid := io.scbReturnValid
+  liq.io.scbReturnIndex := io.scbReturnIndex
   liq.io.e2Stores := io.e2Stores
   liq.io.e2BaseData := io.e2BaseData
   liq.io.e2BaseValidMask := io.e2BaseValidMask
@@ -347,6 +353,8 @@ class ReducedLoadReplayLiqAllocPath(
   io.launchAccepted := liq.io.launchAccepted
   io.pickReady := liq.io.pickReady
   io.pickAccepted := liq.io.pickAccepted
+  io.scbReturnReady := liq.io.scbReturnReady
+  io.scbReturnAccepted := liq.io.scbReturnAccepted
   io.repickMask := liq.io.repickMask
   io.missMask := liq.io.missMask
   io.resolvedMask := liq.io.resolvedMask

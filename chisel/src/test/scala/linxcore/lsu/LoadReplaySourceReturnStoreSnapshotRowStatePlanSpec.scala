@@ -51,9 +51,10 @@ object LoadReplaySourceReturnStoreSnapshotRowStatePlanReference {
     val rawIntent = applyValid || applyStqReturned || waitStoreApply || dataMergeApply || dataNoMerge
     val planCandidate = active && applyValid
     val planValid = planCandidate && applyStqReturned
-    val rewaitApply = planValid && waitStoreApply
-    val dataMergePlan = planValid && !waitStoreApply && dataMergeApply
     val dataNoMergePlan = planValid && !waitStoreApply && dataNoMerge
+    val dataNoMergeRewait = dataNoMergePlan && !priorRequestComplete
+    val rewaitApply = planValid && (waitStoreApply || dataNoMergeRewait)
+    val dataMergePlan = planValid && !waitStoreApply && dataMergeApply
     val nextScbReturned = if (rewaitApply) false else priorScbReturned
     val nextStqReturned = if (rewaitApply) false else if (planValid) true else priorStqReturned
     val nextLineData = if (rewaitApply) BigInt(0) else if (dataMergePlan) mergedLineData else priorLineData
@@ -72,7 +73,7 @@ object LoadReplaySourceReturnStoreSnapshotRowStatePlanReference {
       clearReturnState = rewaitApply,
       lineWrite = rewaitApply || dataMergePlan,
       waitStoreWrite = planValid,
-      nextWaitStore = rewaitApply,
+      nextWaitStore = planValid && waitStoreApply,
       nextLineData = nextLineData,
       nextValidMask = nextValidMask,
       nextDataComplete = nextDataComplete,
@@ -148,7 +149,7 @@ class LoadReplaySourceReturnStoreSnapshotRowStatePlanSpec extends AnyFunSuite {
     assert(result.nextStoreSourceReturned)
   }
 
-  test("no-data response only marks the STQ side returned") {
+  test("complete no-data response only marks the STQ side returned") {
     val result = LoadReplaySourceReturnStoreSnapshotRowStatePlanReference(
       enable = true,
       flush = false,
@@ -170,6 +171,35 @@ class LoadReplaySourceReturnStoreSnapshotRowStatePlanSpec extends AnyFunSuite {
     assert(result.nextScbReturned)
     assert(result.nextStqReturned)
     assert(result.nextStoreSourceReturned)
+  }
+
+  test("incomplete no-data response rewrites to WAIT and clears return state") {
+    val result = LoadReplaySourceReturnStoreSnapshotRowStatePlanReference(
+      enable = true,
+      flush = false,
+      applyValid = true,
+      applyStqReturned = true,
+      dataNoMerge = true,
+      priorScbReturned = true,
+      priorLineData = BigInt("99887766", 16),
+      priorValidMask = BigInt("0f", 16),
+      priorRequestComplete = false)
+
+    assert(result.planValid)
+    assert(result.dataNoMergePlan)
+    assert(result.rewaitApply)
+    assert(result.setWaitStatus)
+    assert(!result.keepRepickStatus)
+    assert(result.clearReturnState)
+    assert(result.lineWrite)
+    assert(result.waitStoreWrite)
+    assert(!result.nextWaitStore)
+    assert(result.nextLineData == 0)
+    assert(result.nextValidMask == 0)
+    assert(!result.nextDataComplete)
+    assert(!result.nextScbReturned)
+    assert(!result.nextStqReturned)
+    assert(!result.nextStoreSourceReturned)
   }
 
   test("disabled, flushed, and unaccepted intents do not create a row plan") {

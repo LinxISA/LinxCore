@@ -82,9 +82,10 @@ class LoadReplaySourceReturnStoreSnapshotRowStatePlan(
       io.dataNoMerge
   val planCandidate = active && io.applyValid
   val planValid = planCandidate && io.applyStqReturned
-  val rewaitApply = planValid && io.waitStoreApply
-  val dataMergePlan = planValid && !io.waitStoreApply && io.dataMergeApply
   val dataNoMergePlan = planValid && !io.waitStoreApply && io.dataNoMerge
+  val dataNoMergeRewait = dataNoMergePlan && !io.priorRequestComplete
+  val rewaitApply = planValid && (io.waitStoreApply || dataNoMergeRewait)
+  val dataMergePlan = planValid && !io.waitStoreApply && io.dataMergeApply
 
   val nextScbReturned = Mux(rewaitApply, false.B, io.priorScbReturned)
   val nextStqReturned = Mux(rewaitApply, false.B, Mux(planValid, true.B, io.priorStqReturned))
@@ -102,9 +103,9 @@ class LoadReplaySourceReturnStoreSnapshotRowStatePlan(
   io.clearReturnState := rewaitApply
   io.lineWrite := rewaitApply || dataMergePlan
   io.waitStoreWrite := planValid
-  io.nextWaitStore := rewaitApply
-  io.nextWaitStoreInfo := Mux(rewaitApply, io.waitStoreInfo, zeroWait)
-  io.nextWaitStoreRid := Mux(rewaitApply, io.waitStoreRid, ROBID.disabled(idEntries))
+  io.nextWaitStore := planValid && io.waitStoreApply
+  io.nextWaitStoreInfo := Mux(planValid && io.waitStoreApply, io.waitStoreInfo, zeroWait)
+  io.nextWaitStoreRid := Mux(planValid && io.waitStoreApply, io.waitStoreRid, ROBID.disabled(idEntries))
   io.nextLineData := Mux(rewaitApply, 0.U, Mux(dataMergePlan, io.mergedLineData, io.priorLineData))
   io.nextValidMask := Mux(rewaitApply, 0.U, Mux(dataMergePlan, io.mergedValidMask, io.priorValidMask))
   io.nextDataComplete :=

@@ -6176,6 +6176,10 @@ private object LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring {
     liqPath.io.rowMutationNextStoreSourceReturned := source.io.rowMutationNextStoreSourceReturned
     liqPath.io.pickValid := source.io.queryIssueIssued
     liqPath.io.pickIndex := liqPath.io.launchIndex
+    val scbReturnEntryIndex = source.io.acceptedTokenEntryId(liqPath.io.scbReturnIndex.getWidth - 1, 0)
+    liqPath.io.scbReturnValid :=
+      enable && !flush && source.io.acceptedTokenResidentValid && (source.io.acceptedTokenClusterId === 0.U)
+    liqPath.io.scbReturnIndex := scbReturnEntryIndex
 
     sourceReadiness.io.enable := enable
     sourceReadiness.io.launchValid := launchValid

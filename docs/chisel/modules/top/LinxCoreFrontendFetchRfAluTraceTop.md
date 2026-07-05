@@ -1034,6 +1034,30 @@ before local STQ snapshot request capture. The next packet should split
 pick/Repick state from final replay-return readiness rather than relaxing the
 idle predicate.
 
+R486 adds that split behind the reduced-store replay-LIQ wrapper. The
+source-return snapshot query issue now drives `ReducedLoadReplayLiqAllocPath`
+`pickValid/pickIndex`, marking the selected replay row `Repick` without
+starting E3/E4 forwarding. The same-cycle selected-pick acceptance satisfies
+the snapshot request payload and accepted-token capture path, while the raw
+request sink remains suppressed for that cycle so a sink-generated response is
+not consumed before the physical LIQ row register is `Repick`.
+
+R487 wires the source-return accepted token back into
+`ReducedLoadReplayLiqAllocPath.scbReturnValid/scbReturnIndex`, using only a
+resident accepted token for cluster 0. This records the model
+`handleSCBReceive`/`scbRnt` ordering proof on the selected `Repick` row before
+ordered STQ response application. The same packet updates the row-state plan
+so a no-data STQ response with incomplete requested bytes rewrites the row to
+`Wait`, clears source-return bits, and clears the row line image, matching the
+model `rewait()` path. The enabled early-STA fixture now advances from missing
+SCB proof to a reissued `Wait` row with base data ready; the remaining timeout
+is source-return/store-snapshot timing on that reissue, with the request sink
+blocked by raw-sink suppression while the accepted-token bypass cycle is
+visible. The next packet should inspect
+`LoadReplaySourceReturnStoreSnapshotRequestQueue` and `RequestSink` retention
+across the pick/reissue cycle before changing final launch readiness or the
+idle predicate.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
