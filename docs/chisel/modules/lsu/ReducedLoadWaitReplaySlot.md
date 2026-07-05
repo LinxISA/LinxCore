@@ -4,7 +4,8 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadWaitReplaySlot.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedLoadWaitReplaySlotSpec.scala`,
-  `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedStoreWaitReplayToLiqPathSpec.scala`
+  `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedStoreWaitReplayToLiqPathSpec.scala`,
+  `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathSpec.scala`
 - Integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
 - LinxCoreModel evidence:
   - `tools/LinxCoreModel/model/lsu/store_unit/stq.cpp`
@@ -181,6 +182,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadWaitReplaySlot
 bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayToLiqPath
+bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayChiselPath
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayRelaunchQueue
 bash tools/chisel/run_chisel_tests.sh --only ResidentStoreReplayWakeup
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayWakeup
@@ -194,4 +196,10 @@ elaboration through `LoadReplayWakeup`. R449 adds the multi-owner reference
 chain proving a not-ready resident store blocks a younger load, the stored wait
 key does not wake until the store row is ready, the clear produces a relaunch
 candidate, the queue preserves it, and replay-LIQ allocation preserves
-`youngestStoreLsId`.
+`youngestStoreLsId`. R451 adds a test-only Chisel probe that wires the real
+`STQEntryBank`, `ReducedStoreResidentForward`, this slot,
+`ResidentStoreReplayWakeup`, `ReducedLoadReplayRelaunchQueue`, and
+`ReducedLoadReplayLiqAllocPath` modules together. The companion reference case
+locks the R450 timing conclusion: a ready store at load lookup forwards
+normally, while an address-ready/data-late resident store is the required
+window for wait-store capture and later relaunch.

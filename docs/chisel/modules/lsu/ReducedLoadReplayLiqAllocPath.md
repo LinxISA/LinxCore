@@ -4,7 +4,8 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPath.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedLoadReplayLiqAllocPathSpec.scala`,
-  `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedStoreWaitReplayToLiqPathSpec.scala`
+  `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedStoreWaitReplayToLiqPathSpec.scala`,
+  `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/ReducedStoreWaitReplayChiselPathSpec.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/lsu/load_unit/ldq.cpp`
     - `LDQInfo::insert`
@@ -266,6 +267,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayLiqAllocPath
 bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayToLiqPath
+bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayChiselPath
 bash tools/chisel/run_chisel_tests.sh --only ReducedLoadReplayLiqAllocAdapter
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightQueue
 bash tools/chisel/run_chisel_tests.sh --only LoadInflightLaunchSelect
@@ -283,3 +285,8 @@ output names so downstream top-level diagnostics can distinguish model
 prerequisite failures from same-row writer conflicts.
 R449 locks the cross-owner wait-store-to-LIQ allocation contract while live
 launch, source-return mutation, and row lifecycle side effects remain disabled.
+R451 adds a test-only Chisel composition probe that connects the real STQ row
+owner through the resident-forward, wait-slot, replay-wakeup, relaunch-queue,
+and LIQ allocation modules. This probe is fixture evidence for the
+address-ready/data-late timing window R450 could not reach through the live
+`LDI`/`SDI`/`LDI` top stimulus; it is not itself QEMU/live promotion evidence.

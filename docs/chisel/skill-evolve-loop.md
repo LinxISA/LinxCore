@@ -135,9 +135,13 @@ owner-chain regression, and require a true address-ready/data-late resident
 store timing stimulus before claiming live replay-LIQ promotion.
 R450 shows that simply delaying split STD after STA in the replay-LIQ emitted
 top is not enough: the delayed `LDI`/`SDI`/`LDI` probe still has zero replay
-counters. The next stimulus must directly prove the younger load executes
-while an STA-only row is resident, or add a fixture that drives that exact
-microarchitectural timing.
+counters. R451 adds `ReducedStoreWaitReplayChiselPathSpec`, a test-only Chisel
+composition fixture that wires `STQEntryBank` through the real resident-forward,
+wait-slot, store-wakeup, relaunch-queue, and LIQ allocation modules, and
+separately locks the reference timing rule that only an STA-only row at younger
+load lookup captures wait-replay. The next live promotion still needs scheduler
+or fixture timing that makes those R451 path counters nonzero in a generated-RTL
+or QEMU/DUT evidence run.
 
 ## XiangShan Flow Reference
 
