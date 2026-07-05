@@ -214,6 +214,8 @@ class DecodeRenameROBPathIO(
   val storeStqOccupiedMask = Output(UInt(p.robEntries.W))
   val storeStqWaitMask = Output(UInt(p.robEntries.W))
   val storeStqCommitMask = Output(UInt(p.robEntries.W))
+  val storeStqAddrReadyMask = Output(UInt(p.robEntries.W))
+  val storeStqDataReadyMask = Output(UInt(p.robEntries.W))
   val storeStqResidentCount = Output(UInt(stqCountWidth.W))
   val storeStqOutstandingWaitCount = Output(UInt(stqCountWidth.W))
   val storeStqEmpty = Output(Bool())
@@ -1171,6 +1173,8 @@ class DecodeRenameROBPath(
   io.storeStqOccupiedMask := storeDispatch.io.stqOccupiedMask
   io.storeStqWaitMask := storeDispatch.io.stqWaitMask
   io.storeStqCommitMask := storeDispatch.io.stqCommitMask
+  io.storeStqAddrReadyMask := storeDispatch.io.stqAddrReadyMask
+  io.storeStqDataReadyMask := storeDispatch.io.stqDataReadyMask
   io.storeStqResidentCount := storeDispatch.io.stqResidentCount
   io.storeStqOutstandingWaitCount := storeDispatch.io.stqOutstandingWaitCount
   io.storeStqEmpty := storeDispatch.io.stqEmpty

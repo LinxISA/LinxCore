@@ -1550,6 +1550,8 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val storeStqOccupiedMask = Output(UInt(p.robEntries.W))
   val storeStqWaitMask = Output(UInt(p.robEntries.W))
   val storeStqCommitMask = Output(UInt(p.robEntries.W))
+  val storeStqAddrReadyMask = Output(UInt(p.robEntries.W))
+  val storeStqDataReadyMask = Output(UInt(p.robEntries.W))
   val storeStqResidentCount = Output(UInt(storeStqCountWidth.W))
   val storeStqOutstandingWaitCount = Output(UInt(storeStqCountWidth.W))
   val storeStqEmpty = Output(Bool())
@@ -5343,6 +5345,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.storeStqOccupiedMask := path.io.storeStqOccupiedMask
   io.storeStqWaitMask := path.io.storeStqWaitMask
   io.storeStqCommitMask := path.io.storeStqCommitMask
+  io.storeStqAddrReadyMask := path.io.storeStqAddrReadyMask
+  io.storeStqDataReadyMask := path.io.storeStqDataReadyMask
   io.storeStqResidentCount := path.io.storeStqResidentCount
   io.storeStqOutstandingWaitCount := path.io.storeStqOutstandingWaitCount
   io.storeStqEmpty := path.io.storeStqEmpty

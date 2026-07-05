@@ -110,6 +110,8 @@ class StoreDispatchSTQPathIO(
   val stqOccupiedMask = Output(UInt(entries.W))
   val stqWaitMask = Output(UInt(entries.W))
   val stqCommitMask = Output(UInt(entries.W))
+  val stqAddrReadyMask = Output(UInt(entries.W))
+  val stqDataReadyMask = Output(UInt(entries.W))
   val stqResidentCount = Output(UInt(stqCountWidth.W))
   val stqOutstandingWaitCount = Output(UInt(stqCountWidth.W))
   val stqEmpty = Output(Bool())
@@ -249,6 +251,8 @@ class StoreDispatchSTQPath(
   io.stqOccupiedMask := stq.io.occupiedMask
   io.stqWaitMask := stq.io.waitMask
   io.stqCommitMask := stq.io.commitMask
+  io.stqAddrReadyMask := stq.io.addrReadyMask
+  io.stqDataReadyMask := stq.io.dataReadyMask
   io.stqResidentCount := stq.io.residentCount
   io.stqOutstandingWaitCount := stq.io.outstandingWaitCount
   io.stqEmpty := stq.io.empty

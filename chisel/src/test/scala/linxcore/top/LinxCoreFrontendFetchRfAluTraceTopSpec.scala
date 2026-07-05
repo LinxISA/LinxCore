@@ -660,6 +660,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.storeStdQueueCount.getWidth == 3)
     assert(io.storeStqInsertIndex.getWidth == 3)
     assert(io.storeStqOccupiedMask.getWidth == 8)
+    assert(io.storeStqAddrReadyMask.getWidth == 8)
+    assert(io.storeStqDataReadyMask.getWidth == 8)
     assert(io.storeStqResidentCount.getWidth == 4)
     assert(io.commit.rows.length == 2)
     assert(io.robDeallocBlockLastValid.getWidth == 1)
@@ -1352,6 +1354,8 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayResolveQueueHeadPc"))
     assert(sv.contains("io_executeLoadWaitHold"))
     assert(sv.contains("io_storeStqInsertValid"))
+    assert(sv.contains("io_storeStqAddrReadyMask"))
+    assert(sv.contains("io_storeStqDataReadyMask"))
   }
 
   test("reduced-store harness wrapper elaborates the opt-in STQ path") {

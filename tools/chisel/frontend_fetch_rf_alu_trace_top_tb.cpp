@@ -204,6 +204,12 @@ struct ReplayLiqSidebandStats {
   std::uint64_t resident_store_ready_forward = 0;
   std::uint64_t resident_store_wait_blocked = 0;
   std::uint64_t resident_store_wait_store_valid = 0;
+  std::uint64_t store_stq_resident = 0;
+  std::uint64_t store_stq_addr_ready = 0;
+  std::uint64_t store_stq_data_ready = 0;
+  std::uint64_t store_stq_addr_ready_not_data_ready = 0;
+  std::uint64_t store_stq_addr_and_data_ready = 0;
+  std::uint64_t load_lookup_execute_with_addr_ready_not_data_ready = 0;
   std::uint64_t store_sta_queue_valid = 0;
   std::uint64_t store_std_queue_valid = 0;
   std::uint64_t store_sta_queue_only_valid = 0;
@@ -267,6 +273,20 @@ ReplayLiqSidebandStats g_replay_liq_sideband_stats;
 void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
   ++g_replay_liq_sideband_stats.cycles_sampled;
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+  const std::uint64_t stq_occupied_mask =
+      static_cast<std::uint64_t>(dut.io_storeStqOccupiedMask);
+  const std::uint64_t stq_addr_ready_mask =
+      static_cast<std::uint64_t>(dut.io_storeStqAddrReadyMask);
+  const std::uint64_t stq_data_ready_mask =
+      static_cast<std::uint64_t>(dut.io_storeStqDataReadyMask);
+  const std::uint64_t stq_addr_ready_resident_mask =
+      stq_occupied_mask & stq_addr_ready_mask;
+  const std::uint64_t stq_data_ready_resident_mask =
+      stq_occupied_mask & stq_data_ready_mask;
+  const std::uint64_t stq_addr_ready_not_data_ready_mask =
+      stq_addr_ready_resident_mask & ~stq_data_ready_mask;
+  const std::uint64_t stq_addr_and_data_ready_mask =
+      stq_addr_ready_resident_mask & stq_data_ready_mask;
   if (dut.io_loadLookupValid) {
     ++g_replay_liq_sideband_stats.load_lookup_valid;
   }
@@ -293,6 +313,24 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   }
   if (dut.io_reducedStoreResidentWaitStoreValid) {
     ++g_replay_liq_sideband_stats.resident_store_wait_store_valid;
+  }
+  if (stq_occupied_mask != 0) {
+    ++g_replay_liq_sideband_stats.store_stq_resident;
+  }
+  if (stq_addr_ready_resident_mask != 0) {
+    ++g_replay_liq_sideband_stats.store_stq_addr_ready;
+  }
+  if (stq_data_ready_resident_mask != 0) {
+    ++g_replay_liq_sideband_stats.store_stq_data_ready;
+  }
+  if (stq_addr_ready_not_data_ready_mask != 0) {
+    ++g_replay_liq_sideband_stats.store_stq_addr_ready_not_data_ready;
+  }
+  if (stq_addr_and_data_ready_mask != 0) {
+    ++g_replay_liq_sideband_stats.store_stq_addr_and_data_ready;
+  }
+  if (dut.io_loadLookupExecuteGranted && stq_addr_ready_not_data_ready_mask != 0) {
+    ++g_replay_liq_sideband_stats.load_lookup_execute_with_addr_ready_not_data_ready;
   }
   if (dut.io_storeStaQueueValid) {
     ++g_replay_liq_sideband_stats.store_sta_queue_valid;
@@ -477,7 +515,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v2\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v3\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -503,6 +541,18 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.resident_store_wait_blocked << ",\n"
       << "    \"resident_store_wait_store_valid\": "
       << g_replay_liq_sideband_stats.resident_store_wait_store_valid << ",\n"
+      << "    \"store_stq_resident\": "
+      << g_replay_liq_sideband_stats.store_stq_resident << ",\n"
+      << "    \"store_stq_addr_ready\": "
+      << g_replay_liq_sideband_stats.store_stq_addr_ready << ",\n"
+      << "    \"store_stq_data_ready\": "
+      << g_replay_liq_sideband_stats.store_stq_data_ready << ",\n"
+      << "    \"store_stq_addr_ready_not_data_ready\": "
+      << g_replay_liq_sideband_stats.store_stq_addr_ready_not_data_ready << ",\n"
+      << "    \"store_stq_addr_and_data_ready\": "
+      << g_replay_liq_sideband_stats.store_stq_addr_and_data_ready << ",\n"
+      << "    \"load_lookup_execute_with_addr_ready_not_data_ready\": "
+      << g_replay_liq_sideband_stats.load_lookup_execute_with_addr_ready_not_data_ready << ",\n"
       << "    \"store_sta_queue_valid\": "
       << g_replay_liq_sideband_stats.store_sta_queue_valid << ",\n"
       << "    \"store_std_queue_valid\": "
