@@ -123,6 +123,14 @@ slice under test.
 Every non-dry-run generated-RTL or QEMU/DUT comparison routed through the common
 wrapper must preserve and inspect `crosscheck_manifest.json`.
 
+Replay-LIQ sideband stats are observation evidence, not promotion evidence by
+themselves. Do not claim nonzero replay-LIQ row mutation unless the earlier
+path counters show a real sequence through wait-replay capture or relaunch,
+LIQ allocation/launch, source-return request/evidence/apply, and then the row
+mutation request/write counters. The R448 default smoke and 665-row R274 replay
+probe both showed zero wait/replay activity, so the next replay-LIQ proof needs
+a legal resident-store wait/replay stimulus rather than synthetic stats pulses.
+
 ## XiangShan Flow Reference
 
 Assumption: the request's "Xianghan" refers to the OpenXiangShan GitHub flow.

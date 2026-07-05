@@ -2407,6 +2407,21 @@ R447 makes that sideband artifact part of the wrapper contract: after the
 Verilator harness exits, the RF/ALU xcheck validates the JSON schema, selected
 top flag, replay-LIQ counter object, positive cycle sample count, and
 nonnegative integer counters before running the neutral comparator.
+R448 expands the same stats artifact from final row-mutation-only counters into
+a replay-LIQ path-stage ladder: resident-store wake, wait-replay
+capture/clear/relaunch, replay queue enqueue/dequeue, LIQ allocation/launch,
+base lookup, source-return request/evidence/apply/row-state planning, and the
+existing row-mutation counters. The harness still samples only existing reduced
+top IO, adds no RTL ports, and leaves commit-row comparison unchanged. The
+R448 default reduced-store replay-LIQ gate samples 37 cycles, compares 3 rows
+with zero mismatches, and records no replay activity except the always-ready
+`source_return_store_snapshot_ready=37`. Reusing the same binary on the R274
+665-row replay trace samples 6695 cycles, compares 665 rows with zero
+mismatches, and again records zero resident-store wake, wait-replay, LIQ
+launch, source-return request/evidence/apply, and row-mutation activity except
+`source_return_store_snapshot_ready=6695`. The next replay-LIQ packet therefore
+needs a legal resident-store wait/replay stimulus; stats-only pulses are not
+replacement evidence.
 R418 splits the replay-LIQ source-return launch sideband: local STQ/store
 snapshot readiness now feeds the reduced LIQ `e2StqReturned` input, while SCB
 readiness feeds `e2ScbReturned`. The combined launch/return behavior remains
@@ -3249,6 +3264,19 @@ reporting surface rather than a nonzero replay event.
 The R447 sideband-contract fixture at
 `generated/r447-sideband-contract-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json`
 is validated by the wrapper before the comparator manifest is produced.
+The R448 replay-LIQ stage-stats fixture at
+`generated/r448-replay-liq-stage-stats-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json`
+extends that wrapper-validated artifact with earlier path-stage counters and
+passes the neutral comparator with `summary.compared_rows: 3` and
+`summary.mismatch_count: 0`. The artifact records `cycles_sampled: 37`, zero
+resident-store wake, wait-replay, replay-queue, LIQ allocation/launch,
+source-return request/evidence/apply, and row-mutation activity, and
+`source_return_store_snapshot_ready: 37`. A direct R274 replay probe using the
+same R448 binary passes 665 QEMU/DUT rows and records `cycles_sampled: 6695`
+with the same zero activity profile except
+`source_return_store_snapshot_ready: 6695`. This proves the stage-observation
+surface and also shows that the current default and R274 traces do not exercise
+a legal wait/replay event.
 
 ## Verification
 
@@ -3285,6 +3313,7 @@ is validated by the wrapper before the comparator manifest is produced.
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r303-replay-liq-return-pipe-budget-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r446-replay-liq-sideband-stats-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r447-sideband-contract-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r448-replay-liq-stage-stats-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `BUILD_DIR=generated/r141-diagnostic-replay-1747-fret-target-priority FETCH_EXPECTED_ROWS=generated/r141-logical-local-1747-qemu-elf-xcheck/qemu.expected.jsonl FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`
