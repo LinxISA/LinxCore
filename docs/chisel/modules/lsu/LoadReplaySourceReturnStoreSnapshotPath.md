@@ -230,6 +230,18 @@ The R485 enabled early-STA run proves the path's policy and query owner are not
 the blocker (`queryIssueIssued=1`); the request payload and accepted-token
 owners both reject the selected row as stale because the top still presents the
 LIQ row in `Wait` rather than model-equivalent `Repick` state at capture time.
+R486 adds `selectedPickAccepted` to the composite. A same-cycle LIQ pick is
+allowed to satisfy request-payload and accepted-token `selectedRepick` capture,
+but it suppresses the raw request sink for that cycle so the request stores in
+the queue until the LIQ row register visibly becomes `Repick`. This preserves
+the model order `pickL1 -> loadRepick -> handleSTQReceive` without allowing a
+same-cycle sink response to be consumed against a still-`Wait` physical row.
+The R486 enabled early-STA run advances the live blocker: the row is now
+resident as `Repick` (`replayLiqHeadStatus=2`), the accepted token is resident,
+and a response FIFO head is present, but ordered response consumption remains
+blocked because SCB/source-return proof is still missing
+(`replayLiqHeadScbReturned=0`), matching the model `handleSTQReceive`
+precondition that `entry.scbRnt` is already true.
 R440 exposes compact `ResponseApply` and `RowStatePlan` diagnostics through the
 reduced top. This makes the future row-write branch visible before mutation:
 ordered STQ responses can be classified as wait-store rewait, data merge,

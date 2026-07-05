@@ -45,6 +45,7 @@ class LoadReplaySourceReturnStoreSnapshotPathIO(
   val selectedRowScbReturnedMask = Input(UInt(liqEntries.W))
   val selectedValid = Input(Bool())
   val selectedRepick = Input(Bool())
+  val selectedPickAccepted = Input(Bool())
   val responseValidIn = Input(Bool())
   val selectedClusterId = Input(UInt(clusterIdWidth.W))
   val selectedEntryId = Input(UInt(entryIdWidth.W))
@@ -622,6 +623,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
 
   val selectedValid = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedValid, io.selectedValid)
   val selectedRepick = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedRepick, io.selectedRepick)
+  val selectedRepickForCapture = selectedRepick || io.selectedPickAccepted
   val selectedClusterId = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedClusterId, io.selectedClusterId)
   val selectedEntryId = Mux(io.selectedIdentityEnable, selectedIdentity.io.selectedEntryId, io.selectedEntryId)
 
@@ -629,7 +631,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   requestPayload.io.flush := io.flush
   requestPayload.io.queryIssued := queryIssue.io.queryIssued
   requestPayload.io.selectedValid := selectedValid
-  requestPayload.io.selectedRepick := selectedRepick
+  requestPayload.io.selectedRepick := selectedRepickForCapture
   requestPayload.io.selectedClusterId := selectedClusterId
   requestPayload.io.selectedEntryId := selectedEntryId
   requestPayload.io.selectedLoadId := io.selectedLoadId
@@ -668,7 +670,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   requestSink.io.flush := io.flush
   requestSink.io.requestValid := requestQueue.io.headValid
   requestSink.io.request := requestQueue.io.head
-  requestSink.io.rawSinkReady := effectiveSinkReady
+  requestSink.io.rawSinkReady := effectiveSinkReady && !io.selectedPickAccepted
   requestSink.io.responseReady := !responseQueue.io.full && !rawResponseSource.io.responseValid
   requestSink.io.lookupWaitStore := lookup.io.waitStoreValid
   requestSink.io.lookupWaitStoreInfo := lookup.io.waitStore
@@ -684,7 +686,7 @@ class LoadReplaySourceReturnStoreSnapshotPath(
   acceptedToken.io.preciseFlush := io.preciseFlush
   acceptedToken.io.queryIssued := queryIssue.io.queryIssued
   acceptedToken.io.selectedValid := selectedValid
-  acceptedToken.io.selectedRepick := selectedRepick
+  acceptedToken.io.selectedRepick := selectedRepickForCapture
   acceptedToken.io.selectedClusterId := selectedClusterId
   acceptedToken.io.selectedEntryId := selectedEntryId
   acceptedToken.io.selectedBid := io.selectedBid

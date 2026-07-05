@@ -3615,6 +3615,15 @@ show zero wait/replay and LIQ activity except
 and the architectural comparator still passes; it also shows that STD delay
 alone does not force the younger load to execute while the STA-only row is
 resident.
+R486 adds the replay-LIQ Wait-to-Repick pick split used by the source-return
+snapshot path. The enabled early-STA probe at
+`generated/r486-replay-liq-pick-split-enabled-xcheck` still exits through the
+expected final-drain failure, but the failure moves past the R485 stale-row
+blocker: the LIQ head is now `Repick` (`replayLiqHeadStatus=2`), the accepted
+query token is resident, and the response queue holds one head. The remaining
+blocker is SCB/source-return ordering (`replayLiqHeadScbReturned=0`,
+`ResponseDrainBlockedByNoAction=1`), matching the model rule that STQ receive
+does not apply before SCB receive.
 
 ## Verification
 

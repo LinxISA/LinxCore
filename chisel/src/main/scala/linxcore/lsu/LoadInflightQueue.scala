@@ -152,6 +152,11 @@ class LoadInflightQueueIO(
   val launchReady = Output(Bool())
   val launchAccepted = Output(Bool())
 
+  val pickValid = Input(Bool())
+  val pickIndex = Input(UInt(liqPtrWidth.W))
+  val pickReady = Output(Bool())
+  val pickAccepted = Output(Bool())
+
   val e2Stores = Input(Vec(storeEntries, new LoadStoreForwardStore(idEntries, storeEntries, addrWidth, pcWidth, lineBytes)))
   val e2BaseData = Input(UInt((lineBytes * 8).W))
   val e2BaseValidMask = Input(UInt(lineBytes.W))
@@ -341,6 +346,10 @@ class LoadInflightQueue(
     !io.flush && launchRow.valid && (launchRow.status === LoadInflightStatus.Wait) && !launchRow.waitStore
   val launchAccepted = io.launchValid && launchReady
   val launchUsesRowData = launchRow.validMask.orR
+  val pickRow = rows(io.pickIndex)
+  val pickReady =
+    !io.flush && pickRow.valid && (pickRow.status === LoadInflightStatus.Wait) && !pickRow.waitStore
+  val pickAccepted = io.pickValid && pickReady
 
   pipeline.io.e2BaseData := Mux(launchUsesRowData, launchRow.lineData, io.e2BaseData)
   pipeline.io.e2BaseValidMask := Mux(launchUsesRowData, launchRow.validMask, io.e2BaseValidMask)
@@ -444,7 +453,9 @@ class LoadInflightQueue(
   rowMutationPath.io.clearResolvedConflict := clearResolvedAccepted && (io.clearResolvedIndex === io.rowMutationTargetIndex)
   rowMutationPath.io.replayWakeConflict := io.replayWakeValid && rowMutationReplayConflictVec(io.rowMutationTargetIndex)
   rowMutationPath.io.refillConflict := io.refillValid && rowMutationRefillConflictVec(io.rowMutationTargetIndex)
-  rowMutationPath.io.launchConflict := launchAccepted && (io.launchIndex === io.rowMutationTargetIndex)
+  rowMutationPath.io.launchConflict :=
+    (launchAccepted && (io.launchIndex === io.rowMutationTargetIndex)) ||
+      (pickAccepted && (io.pickIndex === io.rowMutationTargetIndex))
   rowMutationPath.io.allocationConflict := allocAccepted && (allocPtr === io.rowMutationTargetIndex)
 
   when(io.flush) {
@@ -582,6 +593,12 @@ class LoadInflightQueue(
       rows(io.launchIndex).missKind := LoadForwardMissKind.NoMiss
     }
 
+    when(pickAccepted && !(launchAccepted && (io.launchIndex === io.pickIndex))) {
+      rows(io.pickIndex).status := LoadInflightStatus.Repick
+      rows(io.pickIndex).waitStore := false.B
+      rows(io.pickIndex).missKind := LoadForwardMissKind.NoMiss
+    }
+
     when(allocAccepted) {
       rows(allocPtr) := zeroRow
       rows(allocPtr).valid := true.B
@@ -643,6 +660,8 @@ class LoadInflightQueue(
   io.allocLoadId := allocLoadId
   io.launchReady := launchReady
   io.launchAccepted := launchAccepted
+  io.pickReady := pickReady
+  io.pickAccepted := pickAccepted
   io.clearResolvedAccepted := clearResolvedAccepted
   io.rowMutationBridgeValid := rowMutationPath.io.bridgeValid
   io.rowMutationTargetEvidenceValid := rowMutationPath.io.targetEvidenceValid

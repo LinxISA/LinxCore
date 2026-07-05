@@ -189,6 +189,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       selectedRepickMask: Int = 0,
       selectedValid: Boolean = false,
       selectedRepick: Boolean = false,
+      selectedPickAccepted: Boolean = false,
       responseValidIn: Boolean = false,
       selectedClusterId: Int = 0,
       selectedEntryId: Int = 0,
@@ -296,6 +297,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       if (selectedIdentityEnable) projectedSelectedIdentity.selectedValid else selectedValid
     val selectedRepickResolved =
       if (selectedIdentityEnable) projectedSelectedIdentity.selectedRepick else selectedRepick
+    val selectedRepickForCapture = selectedRepickResolved || selectedPickAccepted
     val selectedClusterIdResolved =
       if (selectedIdentityEnable) projectedSelectedIdentity.selectedClusterId else selectedClusterId
     val selectedEntryIdResolved =
@@ -305,7 +307,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       flush = flush,
       queryIssued = queryIssue.queryIssued,
       selectedValid = selectedValidResolved,
-      selectedRepick = selectedRepickResolved,
+      selectedRepick = selectedRepickForCapture,
       selectedClusterId = selectedClusterIdResolved,
       selectedEntryId = selectedEntryIdResolved,
       selectedLoadId = selectedLoadId,
@@ -337,7 +339,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       rawResponseValid = rawResponseSource.responseValid)
     val effectiveSinkReady =
       if (liveArmPolicyEnable) liveArmPolicy.sinkReady else sinkReady
-    val requestDequeueReady = enable && !flush && effectiveSinkReady && sinkResponseReady
+    val requestDequeueReady = enable && !flush && effectiveSinkReady && !selectedPickAccepted && sinkResponseReady
     val requestQueue = LoadReplaySourceReturnStoreSnapshotRequestQueueReference.step(
       state = requestQueueState,
       depth = 2,
@@ -350,7 +352,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       enable = enable,
       flush = flush,
       request = requestQueue.head,
-      rawSinkReady = effectiveSinkReady,
+      rawSinkReady = effectiveSinkReady && !selectedPickAccepted,
       responseReady = sinkResponseReady)
     val acceptedToken = LoadReplaySourceReturnStoreSnapshotAcceptedTokenReference.step(
       state = acceptedTokenState,
@@ -358,7 +360,7 @@ object LoadReplaySourceReturnStoreSnapshotPathReference {
       flush = flush,
       queryIssued = queryIssue.queryIssued,
       selectedValid = selectedValidResolved,
-      selectedRepick = selectedRepickResolved,
+      selectedRepick = selectedRepickForCapture,
       selectedClusterId = selectedClusterIdResolved,
       selectedEntryId = selectedEntryIdResolved,
       responseConsumed = false,
@@ -758,6 +760,40 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(ready.evidenceBlockedByNoQuery)
     assert(!blocked.storeSnapshotReady)
     assert(blocked.controlBlockedByLegacySnapshot)
+  }
+
+  test("selected pick captures query context and stores request without same-cycle sink drain") {
+    val result = LoadReplaySourceReturnStoreSnapshotPathReference(
+      enable = true,
+      flush = false,
+      launchValid = true,
+      legacySnapshotReady = true,
+      rowMutationLiveEnable = true,
+      liveArmPolicyEnable = true,
+      liveArmRawSinkAvailable = true,
+      selectedIdentityEnable = true,
+      selectedLaunchIndex = 1,
+      selectedRepickMask = 0x0,
+      selectedPickAccepted = true,
+      selectedRowValidMask = 0x2,
+      selectedLoadId = 1,
+      selectedBid = 3,
+      selectedGid = 0,
+      selectedRid = 4,
+      selectedLoadLsId = 5,
+      selectedAddr = 0x1008,
+      selectedSize = 8,
+      selectedRequestByteMask = 0xff)
+
+    assert(result.queryIssueIssued)
+    assert(result.requestPayloadValid)
+    assert(result.acceptedTokenCaptureAccepted)
+    assert(result.requestQueueEnqueueAccepted)
+    assert(result.requestQueuePending)
+    assert(!result.requestQueueHeadConsumed)
+    assert(!result.requestSinkAccepted)
+    assert(result.requestSinkBlockedByRawSink)
+    assert(!result.requestPayloadBlockedByStaleRow)
   }
 
   test("dormant response side keeps live response and query issue disabled") {
@@ -1658,6 +1694,7 @@ class LoadReplaySourceReturnStoreSnapshotPathSpec extends AnyFunSuite {
     assert(sv.contains("io_preciseFlush_req_valid"))
     assert(sv.contains("io_rowMutationLiveEnable"))
     assert(sv.contains("io_rawResponseLiveEnable"))
+    assert(sv.contains("io_selectedPickAccepted"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestControl"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestPayload"))
     assert(sv.contains("LoadReplaySourceReturnStoreSnapshotRequestQueue"))

@@ -95,6 +95,7 @@ live architectural store/load probe still produces zero wait/replay counters.
 | `candidateValid` | Queue-head valid from `ReducedLoadReplayRelaunchQueue`. |
 | `candidate` | Queued reduced replay candidate with load identity, destination, source traces, return signedness, and forwarding snapshot. |
 | `launchEnable` | Parent-owned arm bit. When low, selector diagnostics remain visible but `LoadInflightQueue.launchValid` is not driven. |
+| `pickValid` / `pickIndex` | Parent-owned R486 pick-only request. It marks the selected LIQ row `Repick` without running `LoadForwardPipeline`. |
 | `e2Stores` | Abstract STQ forwarding rows for the `LoadForwardPipeline` launch path. R283 top wiring feeds a `ResidentStoreForwardStoreSnapshot` vector while keeping launch disabled. |
 | `e2BaseData` / `e2BaseValidMask` | Baseline line data and valid bytes for relaunches that do not already have row-owned data. R295 top wiring shapes the selected row's scalar sparse-memory response through `LoadReplayBaseDataAlign` while keeping launch disabled; R296 gates those inputs with `LoadLookupArbiter.replayGranted` so execute-returned sparse-memory bytes cannot feed the replay row. R297 routes the same grant-qualified data-return predicate through `LoadReplayLaunchReadiness`. |
 | `e2LoadDataReturned` / `e2ScbReturned` / `e2StqReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. R418 drives `e2ScbReturned` from `LoadReplaySourceReturnReadiness.scbSourceReturned` and `e2StqReturned` from `storeSourceReturned`. R305 drives `e2ReturnReady` from `LoadReplayReturnReadiness` fed by the consumer-ready, budget, permit, and select split; the reduced top arms the budget but keeps the downstream LRET and mem-wakeup sinks low. |
@@ -139,6 +140,7 @@ live architectural store/load probe still produces zero wait/replay counters.
 | `launchDriveValid` | Actual valid presented to `LoadInflightQueue.launchValid`; low unless the parent-owned `launchEnable && launchValid` predicate is true. Since R305, the reduced top drives return readiness from `LoadReplayReturnReadiness` fed by `LoadReplayReturnConsumerReady` plus the budget/permit/select split; the LRET and mem-wakeup sinks remain low, so launch stays disabled. |
 | `launchReady` | Selected row is launch-ready in `LoadInflightQueue`. |
 | `launchAccepted` | Selected row entered `Repick` through `LoadInflightQueue`. |
+| `pickReady` / `pickAccepted` | Child LIQ response for the R486 pick-only path. |
 | `repickMask` / `missMask` / `resolvedMask` | Pass-through LIQ state masks after any enabled relaunches. |
 | `e4UpdateValid` / `e4UpdateIndex` / `e4MissKind` / `e4WakeupValid` | Pass-through E4 outcome diagnostics from the launched-row pipeline. |
 | `lhqRecordValid` / `lhqRecord` | Path-local resolved-load hit record, including load PC after R284. R285 top wiring can append this row to `LoadResolveQueue`; R286 top wiring clears the resolved LIQ row after that append is accepted. This module itself does not own ResolveQ backpressure, retire, or MDB publication. |
@@ -214,7 +216,11 @@ reduced wait slot and replay queue produce the same cleared load as a
    `e2BaseData`, `e2BaseValidMask`, and source-return sidebands. When it is
    low, all selector diagnostics remain visible but no LIQ state is mutated by
    launch.
-7. R417 adds the source-shaped row-mutation bridge in parallel with launch
+7. R486 adds a parent-owned pick-only gate in parallel with launch. The reduced
+   top drives this from the source-return snapshot query issue so the selected
+   row enters `Repick` before STQ response matching, but final launch/E4 still
+   waits for source-return and replay-return readiness.
+8. R417 adds the source-shaped row-mutation bridge in parallel with launch
    selection. The bridge accepts the R410 request shape, blocks malformed or
    out-of-range wait-store identities, and feeds the child LIQ native mutation
    port. The native writer still enforces the R416 target-row and same-cycle

@@ -167,6 +167,15 @@ object LoadInflightQueueReference {
           false
       }
 
+    def pick(index: Int): Boolean =
+      rows(index) match {
+        case Some(row) if row.status == Wait && row.waitStore.isEmpty =>
+          rows(index) = Some(row.copy(status = Repick, missKind = NoMiss))
+          true
+        case _ =>
+          false
+      }
+
     def cycle(): CycleResult = {
       val updateIndex = e3Index
       val out = pipe.step()
@@ -402,6 +411,43 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     assert(result.hitRecord.exists(r => r.row.loadId.value == rowIndex && r.byteMask == byteMask(4, 4)))
     assert(result.hitRecord.exists(_.row.alloc.loadLsId.value == 0))
     assert(liq.resolvedMask == (1 << rowIndex))
+  }
+
+  test("pick moves a WAIT row to REPICK without launching E4 forwarding") {
+    val liq = new Model(entries = 4)
+    val rowIndex = liq.allocate(alloc(0, addr = 0x1004, size = 4, youngestStore = 5)).index
+
+    assert(liq.pick(rowIndex))
+    assert(liq.row(rowIndex).exists(_.status == Repick))
+    val result = liq.cycle()
+
+    assert(result.e4Index.isEmpty)
+    assert(result.hitRecord.isEmpty)
+    assert(liq.row(rowIndex).exists(row => row.status == Repick && row.missKind == LoadForwardPipelineReference.NoMiss))
+  }
+
+  test("pick rejects wait-store and non-WAIT rows") {
+    val waitStoreLiq = new Model(entries = 4)
+    val waitStoreIndex = waitStoreLiq.allocate(alloc(0, addr = 0x1008, size = 2, youngestStore = 6)).index
+    val store = Store(
+      index = 1,
+      dataReady = false,
+      pc = 0x3450,
+      storeId = Id(value = 4),
+      byteMask = byteMask(8, 2),
+      data = lineData(Map(8 -> 0x11, 9 -> 0x22))
+    )
+    assert(waitStoreLiq.launch(waitStoreIndex, LaunchInput(stores = Seq(store))))
+    waitStoreLiq.cycle()
+    assert(!waitStoreLiq.pick(waitStoreIndex))
+    assert(waitStoreLiq.row(waitStoreIndex).exists(row => row.status == Wait && row.waitStore.nonEmpty))
+
+    val resolvedLiq = new Model(entries = 4)
+    val resolvedIndex = resolvedLiq.allocate(alloc(1, addr = 0x1000)).index
+    assert(resolvedLiq.launch(resolvedIndex, LaunchInput(baseValidMask = byteMask(0, 4))))
+    resolvedLiq.cycle()
+    assert(resolvedLiq.row(resolvedIndex).exists(_.status == Resolved))
+    assert(!resolvedLiq.pick(resolvedIndex))
   }
 
   test("store-data-not-ready returns to WAIT with wait-store diagnostics") {
@@ -647,6 +693,9 @@ class LoadInflightQueueSpec extends AnyFunSuite {
     val sv = ChiselStage.emitSystemVerilog(new LoadInflightQueue(liqEntries = 4, idEntries = 8, storeEntries = 4))
 
     assert(sv.contains("module LoadInflightQueue"))
+    assert(sv.contains("io_pickValid"))
+    assert(sv.contains("io_pickReady"))
+    assert(sv.contains("io_pickAccepted"))
     assert(sv.contains("LoadForwardPipeline"))
     assert(sv.contains("io_lhqRecordValid"))
     assert(sv.contains("io_lhqRecord_loadLsId_value"))

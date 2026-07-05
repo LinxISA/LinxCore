@@ -100,6 +100,21 @@ resident row, even when a later slot is free.
 The queue derives the forwarding query from the resident row address, size,
 tile bit, and `(youngestStoreId, youngestStoreLsId)` snapshot.
 
+### Pick Without Forwarding
+
+| Signal | Description |
+|---|---|
+| `pickValid` | Requests the model `pickL1`/`loadRepick` state transition for an existing row without entering the E2 forwarding pipeline. |
+| `pickIndex` | LIQ slot to mark `Repick`. |
+| `pickReady` | The row is valid, `Wait`, and not wait-store blocked. |
+| `pickAccepted` | The row changed to `Repick` through the pick-only path. |
+
+R486 adds this split because LinxCoreModel marks a selected `LDQ_WAIT` row
+`LDQ_REPICK` before store-source responses are consumed, while the original
+Chisel `launchAccepted` path also started `LoadForwardPipeline`. The pick-only
+path gives source-return owners a model-equivalent `Repick` row without
+running E4 early with missing STQ/SCB evidence.
+
 ### Replay Wakeup
 
 | Signal | Description |
@@ -242,7 +257,9 @@ The C++ model provides the owner split:
    row to `Repick`, and sends the row-derived query into
    `LoadForwardPipeline`. R280 adds `LoadInflightLaunchSelect` as a separate
    pre-integration selector for replay rows that require model-style data-hit
-   eligibility before driving this broader launch port.
+   eligibility before driving this broader launch port. R486 adds a separate
+   pick-only port for the same `Wait` to `Repick` transition when source-return
+   owners need a selected `Repick` row before final replay launch/readiness.
 3. E4 hit with `NoMiss` and `e4WakeupValid` changes the row to `Resolved` and
    publishes `lhqRecord` with the row PC preserved for future recovery/MDB
    reporting. R418 stores the delayed pipeline SCB and STQ/store source-return

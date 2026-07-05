@@ -2770,6 +2770,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       selectedRepickMask = reducedLoadReplayLiqAllocPath.io.repickMask,
       selectedRowValidMask = reducedReplayLiqRowValidMask,
       selectedRowScbReturnedMask = reducedReplayLiqRowScbReturnedMask,
+      selectedPickAccepted = reducedLoadReplayLiqAllocPath.io.pickAccepted,
       selectedLoadId = reducedLoadReplayLiqAllocPath.io.launchSelectedLoadId,
       selectedBid = reducedLoadReplayLiqAllocPath.io.launchSelectedBid,
       selectedGid = reducedLoadReplayLiqAllocPath.io.launchSelectedGid,
@@ -5766,6 +5767,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
       selectedRepickMask: UInt,
       selectedRowValidMask: UInt,
       selectedRowScbReturnedMask: UInt,
+      selectedPickAccepted: Bool,
       selectedLoadId: ROBID,
       selectedBid: ROBID,
       selectedGid: ROBID,
@@ -5798,6 +5800,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopR395StoreSnapshotPathWiring {
     path.io.selectedRowScbReturnedMask := selectedRowScbReturnedMask
     path.io.selectedValid := false.B
     path.io.selectedRepick := false.B
+    path.io.selectedPickAccepted := selectedPickAccepted
     path.io.responseValidIn := false.B
     path.io.selectedClusterId := 0.U
     path.io.selectedEntryId := 0.U
@@ -6171,6 +6174,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopR417RowMutationWiring {
     liqPath.io.rowMutationNextScbReturned := source.io.rowMutationNextScbReturned
     liqPath.io.rowMutationNextStqReturned := source.io.rowMutationNextStqReturned
     liqPath.io.rowMutationNextStoreSourceReturned := source.io.rowMutationNextStoreSourceReturned
+    liqPath.io.pickValid := source.io.queryIssueIssued
+    liqPath.io.pickIndex := liqPath.io.launchIndex
 
     sourceReadiness.io.enable := enable
     sourceReadiness.io.launchValid := launchValid
