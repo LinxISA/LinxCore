@@ -2801,64 +2801,29 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     launchValid = reducedLoadReplayLiqAllocPath.io.launchValid,
     baseDataReady = reducedReplayLiqBaseDataReady,
     storeSnapshotReady = reducedReplayLiqStoreSnapshotReady)
-  val reducedReplayLiqReturnPipeBudgetEnable = reducedLoadReplayLiqAllocEnabled
   val reducedReplayLiqReturnLretSinkReady = reducedReplayLiqReturnLretSink.io.enqueueReady
   val reducedReplayLiqReturnWakeupSinkReady = reducedReplayLiqReturnWakeupSinkReadyControl.io.wakeupSinkReady
-  reducedReplayLiqReturnConsumerReady.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqReturnConsumerReady.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
-  reducedReplayLiqReturnConsumerReady.io.sourcesReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
-  reducedReplayLiqReturnConsumerReady.io.specWakeup := reducedLoadReplayLiqAllocPath.io.launchSelectedSpecWakeup
-  reducedReplayLiqReturnConsumerReady.io.stackValid := reducedLoadReplayLiqAllocPath.io.launchSelectedStackValid
-  reducedReplayLiqReturnConsumerReady.io.lretSinkReady := reducedReplayLiqReturnLretSinkReady
-  reducedReplayLiqReturnConsumerReady.io.wakeupSinkReady := reducedReplayLiqReturnWakeupSinkReady
-  reducedReplayLiqReturnPipeBudget.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqReturnPipeBudget.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
-  reducedReplayLiqReturnPipeBudget.io.sourcesReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
-  reducedReplayLiqReturnPipeBudget.io.pipeBudgetEnable := reducedReplayLiqReturnPipeBudgetEnable
-  reducedReplayLiqReturnPipeBudget.io.consumerReady := reducedReplayLiqReturnConsumerReady.io.consumerReady
-  reducedReplayLiqReturnPipePermit.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqReturnPipePermit.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
-  reducedReplayLiqReturnPipePermit.io.sourcesReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
-  reducedReplayLiqReturnPipePermit.io.pipeBudgetAvailable := reducedReplayLiqReturnPipeBudget.io.pipeBudgetAvailable
-  reducedReplayLiqReturnPipeSelect.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqReturnPipeSelect.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
-  reducedReplayLiqReturnPipeSelect.io.sourcesReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
-  reducedReplayLiqReturnPipeSelect.io.pipeAvailableMask := reducedReplayLiqReturnPipePermit.io.pipeAvailableMask
-  reducedReplayLiqReturnReadiness.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqReturnReadiness.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
-  reducedReplayLiqReturnReadiness.io.sourcesReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
-  reducedReplayLiqReturnReadiness.io.returnPipeAvailable := reducedReplayLiqReturnPipeSelect.io.pipeAvailable
-  reducedReplayLiqReturnReadiness.io.returnPipeIndex := reducedReplayLiqReturnPipeSelect.io.selectedPipeIndex
   val reducedReplayLiqE2BaseData =
     Mux(loadLookupArbiter.io.replayGranted, reducedReplayLiqBaseDataAlign.io.lineData, 0.U)
   val reducedReplayLiqE2BaseValidMask =
     Mux(loadLookupArbiter.io.replayGranted, reducedReplayLiqBaseDataAlign.io.lineValidMask, 0.U)
-  reducedReplayLiqReturnDataExtract.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqReturnDataExtract.io.returnValid := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
-  reducedReplayLiqReturnDataExtract.io.lineData := reducedReplayLiqE2BaseData
-  reducedReplayLiqReturnDataExtract.io.lineValidMask := reducedReplayLiqE2BaseValidMask
-  reducedReplayLiqReturnDataExtract.io.addr := reducedLoadReplayLiqAllocPath.io.launchSelectedAddr
-  reducedReplayLiqReturnDataExtract.io.size := reducedLoadReplayLiqAllocPath.io.launchSelectedSize
-  reducedReplayLiqReturnDataExtract.io.signExtend := reducedLoadReplayLiqAllocPath.io.launchSelectedReturnSignExtend
-  reducedReplayLiqReturnPublishReady.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqReturnPublishReady.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
-  reducedReplayLiqReturnPublishReady.io.dataValid := reducedReplayLiqReturnDataExtract.io.dataValid
-  reducedReplayLiqReturnPublishReady.io.consumerReady := reducedReplayLiqReturnConsumerReady.io.consumerReady
-  reducedReplayLiqReturnLretPayload.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqReturnLretPayload.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
-  reducedReplayLiqReturnLretPayload.io.dataValid := reducedReplayLiqReturnDataExtract.io.dataValid
-  reducedReplayLiqReturnLretPayload.io.selectedBid := reducedLoadReplayLiqAllocPath.io.launchSelectedBid
-  reducedReplayLiqReturnLretPayload.io.selectedGid := reducedLoadReplayLiqAllocPath.io.launchSelectedGid
-  reducedReplayLiqReturnLretPayload.io.selectedRid := reducedLoadReplayLiqAllocPath.io.launchSelectedRid
-  reducedReplayLiqReturnLretPayload.io.selectedLoadLsId := reducedLoadReplayLiqAllocPath.io.launchSelectedLoadLsId
-  reducedReplayLiqReturnLretPayload.io.selectedPc := reducedLoadReplayLiqAllocPath.io.launchSelectedPc
-  reducedReplayLiqReturnLretPayload.io.selectedAddr := reducedLoadReplayLiqAllocPath.io.launchSelectedAddr
-  reducedReplayLiqReturnLretPayload.io.selectedSize := reducedLoadReplayLiqAllocPath.io.launchSelectedSize
-  reducedReplayLiqReturnLretPayload.io.selectedDst := reducedLoadReplayLiqAllocPath.io.launchSelectedDst
-  reducedReplayLiqReturnLretPayload.io.returnData := reducedReplayLiqReturnDataExtract.io.data
-  reducedReplayLiqReturnLretPayload.io.returnPipeIndex := reducedReplayLiqReturnReadiness.io.selectedPipeIndex
-  reducedReplayLiqReturnLretPayload.io.specWakeup := reducedLoadReplayLiqAllocPath.io.launchSelectedSpecWakeup
-  reducedReplayLiqReturnLretPayload.io.stackValid := reducedLoadReplayLiqAllocPath.io.launchSelectedStackValid
+  val (reducedReplayLiqReturnCompleteValid, reducedReplayLiqLaunchReturnPathValid) =
+    LinxCoreFrontendFetchRfAluTraceTopR489CompleteRepickReturnWiring.connect(
+      allocPath = reducedLoadReplayLiqAllocPath,
+      sourceReadiness = reducedReplayLiqSourceReturnReadiness,
+      consumerReady = reducedReplayLiqReturnConsumerReady,
+      pipeBudget = reducedReplayLiqReturnPipeBudget,
+      pipePermit = reducedReplayLiqReturnPipePermit,
+      pipeSelect = reducedReplayLiqReturnPipeSelect,
+      returnReadiness = reducedReplayLiqReturnReadiness,
+      dataExtract = reducedReplayLiqReturnDataExtract,
+      publishReady = reducedReplayLiqReturnPublishReady,
+      lretPayload = reducedReplayLiqReturnLretPayload,
+      enable = reducedLoadReplayLiqAllocEnabled,
+      e2BaseData = reducedReplayLiqE2BaseData,
+      e2BaseValidMask = reducedReplayLiqE2BaseValidMask,
+      lretSinkReady = reducedReplayLiqReturnLretSinkReady,
+      wakeupSinkReady = reducedReplayLiqReturnWakeupSinkReady)
   io.reducedLoadReplayLiqLaunchSelectedSourceTraceValid :=
     reducedLoadReplayLiqAllocPath.io.launchSelectedSourceTraceValid
   io.reducedLoadReplayLiqLaunchSelectedSource0Valid :=
@@ -2886,7 +2851,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     live = reducedReplayLiqReturnSideEffectLiveControl,
     enable = reducedLoadReplayLiqAllocEnabled,
     flush = reducedStoreFlush,
-    liveRequested = false.B,
+    liveRequested = reducedReplayLiqReturnLretPayload.io.payloadValid,
     payloadValid = reducedReplayLiqReturnLretPayload.io.payloadValid,
     writebackRequired = reducedReplayLiqReturnWritebackCandidate.io.writeValid,
     wakeupRequired = reducedReplayLiqReturnWakeupCandidate.io.wakeupRequired)
@@ -2898,12 +2863,19 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     liveEnable = reducedReplayLiqReturnSideEffectLiveControl.io.wakeupLiveEnable,
     wakeupRequired = reducedReplayLiqReturnWakeupCandidate.io.wakeupRequired)
   reducedReplayLiqLaunchReadiness.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqLaunchReadiness.io.launchValid := reducedLoadReplayLiqAllocPath.io.launchValid
+  reducedReplayLiqLaunchReadiness.io.launchValid := reducedReplayLiqLaunchReturnPathValid
   reducedReplayLiqLaunchReadiness.io.baseLookupGranted := loadLookupArbiter.io.replayGranted
   reducedReplayLiqLaunchReadiness.io.baseDataReturned := reducedReplayLiqBaseDataAlign.io.dataReturned
   reducedReplayLiqLaunchReadiness.io.scbReturned := reducedReplayLiqSourceReturnReadiness.io.sourceReturned
   reducedReplayLiqLaunchReadiness.io.returnReady := reducedReplayLiqReturnReadiness.io.returnReady
   reducedLoadReplayLiqAllocPath.io.launchEnable := reducedReplayLiqLaunchReadiness.io.launchEnable
+  val reducedReplayLiqMarkResolvedIndex =
+    Mux(reducedReplayLiqReturnCompleteValid,
+      reducedLoadReplayLiqAllocPath.io.returnCompleteIndex,
+      reducedLoadReplayLiqAllocPath.io.launchIndex)
+  reducedLoadReplayLiqAllocPath.io.markResolvedValid :=
+    reducedReplayLiqReturnPublishRequest.io.lretRequest
+  reducedLoadReplayLiqAllocPath.io.markResolvedIndex := reducedReplayLiqMarkResolvedIndex
   reducedLoadReplayLiqAllocPath.io.e2Stores := reducedReplayLiqStoreSnapshot.io.stores
   reducedLoadReplayLiqAllocPath.io.e2BaseData := reducedReplayLiqE2BaseData
   reducedLoadReplayLiqAllocPath.io.e2BaseValidMask := reducedReplayLiqE2BaseValidMask
@@ -3337,8 +3309,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     occupancy = reducedReplayLiqReturnIexPipeOccupancy,
     enable = reducedLoadReplayLiqAllocEnabled,
     flush = reducedStoreFlush,
-    requestEnable = false.B,
-    sourceValid = false.B,
+    requestEnable = reducedReplayLiqReturnLretSink.io.drainValid,
+    sourceValid = reducedReplayLiqReturnLretSink.io.drainValid,
     sourceMask = 0.U(1.W)
   )
   val reducedReplayLiqReturnIexPipeOccupiedMask =
@@ -3444,7 +3416,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnIexPipeInsertCandidate.io.insertValid
   reducedReplayLiqReturnPipeResidencyLiveControl.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqReturnPipeResidencyLiveControl.io.flush := reducedStoreFlush
-  reducedReplayLiqReturnPipeResidencyLiveControl.io.requestEnable := false.B
+  reducedReplayLiqReturnPipeResidencyLiveControl.io.requestEnable :=
+    reducedReplayLiqReturnIexPipeInsertCandidate.io.candidateValid
   reducedReplayLiqReturnPipeResidencyLiveControl.io.insertCandidateValid :=
     reducedReplayLiqReturnIexPipeInsertCandidate.io.candidateValid
   reducedReplayLiqReturnPipeResidencyLiveControl.io.insertValid :=
@@ -3593,7 +3566,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnIexPipeInsertCandidate,
     reducedReplayLiqReturnPipeResidencySlot,
     reducedReplayLiqReturnPipeW1Slot,
-    reducedReplayLiqReturnPipeW2Slot)
+    reducedReplayLiqReturnPipeW2Slot,
+    reducedReplayLiqReturnCompleteValid)
   LinxCoreFrontendFetchRfAluTraceTopW2RequestPayloadWiring.connect(
     reducedReplayLiqReturnPipeW2CompletionCandidate,
     reducedReplayLiqReturnPipeW2Slot,
@@ -3804,6 +3778,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2CompletionCandidate,
     reducedReplayLiqReturnPipeW1AdvanceCandidate,
     reducedReplayLiqReturnPipeW2ClearIntent,
+    reducedReplayLiqReturnPipeW2Slot.io.occupied,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -4399,7 +4374,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqReturnPipeBudgetCandidateValid :=
     reducedReplayLiqReturnPipeBudget.io.candidateValid
   io.reducedLoadReplayLiqReturnPipeBudgetEnable :=
-    reducedReplayLiqReturnPipeBudgetEnable
+    reducedLoadReplayLiqAllocEnabled
   io.reducedLoadReplayLiqReturnPipeBudgetConsumerReady :=
     reducedReplayLiqReturnConsumerReady.io.consumerReady
   io.reducedLoadReplayLiqReturnPipeBudgetAvailable :=
@@ -6417,6 +6392,98 @@ private object LinxCoreFrontendFetchRfAluTraceTopR381SideEffectLiveControlWiring
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopR489CompleteRepickReturnWiring {
+  def connect(
+      allocPath: ReducedLoadReplayLiqAllocPath,
+      sourceReadiness: LoadReplaySourceReturnReadiness,
+      consumerReady: LoadReplayReturnConsumerReady,
+      pipeBudget: LoadReplayReturnPipeBudget,
+      pipePermit: LoadReplayReturnPipePermit,
+      pipeSelect: LoadReplayReturnPipeSelect,
+      returnReadiness: LoadReplayReturnReadiness,
+      dataExtract: LoadReplayReturnDataExtract,
+      publishReady: LoadReplayReturnPublishReady,
+      lretPayload: LoadReplayReturnLretPayload,
+      enable: Bool,
+      e2BaseData: UInt,
+      e2BaseValidMask: UInt,
+      lretSinkReady: Bool,
+      wakeupSinkReady: Bool): (Bool, Bool) = {
+    val returnCompleteValid = allocPath.io.returnCompleteValid
+    val launchReturnPathValid = allocPath.io.launchValid && !returnCompleteValid
+    val returnPathValid = returnCompleteValid || launchReturnPathValid
+    val returnPathSourcesReturned =
+      Mux(returnCompleteValid, true.B, sourceReadiness.io.sourceReturned)
+
+    consumerReady.io.enable := enable
+    consumerReady.io.launchValid := returnPathValid
+    consumerReady.io.sourcesReturned := returnPathSourcesReturned
+    consumerReady.io.specWakeup :=
+      Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedSpecWakeup, allocPath.io.launchSelectedSpecWakeup)
+    consumerReady.io.stackValid :=
+      Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedStackValid, allocPath.io.launchSelectedStackValid)
+    consumerReady.io.lretSinkReady := lretSinkReady
+    consumerReady.io.wakeupSinkReady := wakeupSinkReady
+
+    pipeBudget.io.enable := enable
+    pipeBudget.io.launchValid := returnPathValid
+    pipeBudget.io.sourcesReturned := returnPathSourcesReturned
+    pipeBudget.io.pipeBudgetEnable := enable
+    pipeBudget.io.consumerReady := consumerReady.io.consumerReady
+
+    pipePermit.io.enable := enable
+    pipePermit.io.launchValid := returnPathValid
+    pipePermit.io.sourcesReturned := returnPathSourcesReturned
+    pipePermit.io.pipeBudgetAvailable := pipeBudget.io.pipeBudgetAvailable
+
+    pipeSelect.io.enable := enable
+    pipeSelect.io.launchValid := returnPathValid
+    pipeSelect.io.sourcesReturned := returnPathSourcesReturned
+    pipeSelect.io.pipeAvailableMask := pipePermit.io.pipeAvailableMask
+
+    returnReadiness.io.enable := enable
+    returnReadiness.io.launchValid := returnPathValid
+    returnReadiness.io.sourcesReturned := returnPathSourcesReturned
+    returnReadiness.io.returnPipeAvailable := pipeSelect.io.pipeAvailable
+    returnReadiness.io.returnPipeIndex := pipeSelect.io.selectedPipeIndex
+
+    dataExtract.io.enable := enable
+    dataExtract.io.returnValid := returnPathValid && returnPathSourcesReturned
+    dataExtract.io.lineData := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedLineData, e2BaseData)
+    dataExtract.io.lineValidMask := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedValidMask, e2BaseValidMask)
+    dataExtract.io.addr := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedAddr, allocPath.io.launchSelectedAddr)
+    dataExtract.io.size := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedSize, allocPath.io.launchSelectedSize)
+    dataExtract.io.signExtend :=
+      Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedReturnSignExtend, allocPath.io.launchSelectedReturnSignExtend)
+
+    publishReady.io.enable := enable
+    publishReady.io.launchValid := returnPathValid
+    publishReady.io.dataValid := dataExtract.io.dataValid
+    publishReady.io.consumerReady := consumerReady.io.consumerReady
+
+    lretPayload.io.enable := enable
+    lretPayload.io.launchValid := returnPathValid
+    lretPayload.io.dataValid := dataExtract.io.dataValid
+    lretPayload.io.selectedBid := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedBid, allocPath.io.launchSelectedBid)
+    lretPayload.io.selectedGid := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedGid, allocPath.io.launchSelectedGid)
+    lretPayload.io.selectedRid := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedRid, allocPath.io.launchSelectedRid)
+    lretPayload.io.selectedLoadLsId :=
+      Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedLoadLsId, allocPath.io.launchSelectedLoadLsId)
+    lretPayload.io.selectedPc := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedPc, allocPath.io.launchSelectedPc)
+    lretPayload.io.selectedAddr := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedAddr, allocPath.io.launchSelectedAddr)
+    lretPayload.io.selectedSize := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedSize, allocPath.io.launchSelectedSize)
+    lretPayload.io.selectedDst := Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedDst, allocPath.io.launchSelectedDst)
+    lretPayload.io.returnData := dataExtract.io.data
+    lretPayload.io.returnPipeIndex := returnReadiness.io.selectedPipeIndex
+    lretPayload.io.specWakeup :=
+      Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedSpecWakeup, allocPath.io.launchSelectedSpecWakeup)
+    lretPayload.io.stackValid :=
+      Mux(returnCompleteValid, allocPath.io.returnCompleteSelectedStackValid, allocPath.io.launchSelectedStackValid)
+
+    (returnCompleteValid, launchReturnPathValid)
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopR381ReturnPublishWiring {
   def connect(
       sideEffectReady: LoadReplayReturnSideEffectReady,
@@ -7229,10 +7296,16 @@ private object LinxCoreFrontendFetchRfAluTraceTopR376SourceTraceWiring {
       pipeInsert: LoadReplayReturnIexPipeInsertCandidate,
       residencySlot: LoadReplayReturnPipeResidencySlot,
       w1Slot: LoadReplayReturnPipeW1Slot,
-      w2Slot: LoadReplayReturnPipeW2Slot): Unit = {
-    lretPayload.io.selectedSourceTraceValid := allocPath.io.launchSelectedSourceTraceValid
-    lretPayload.io.selectedSource0 := allocPath.io.launchSelectedSource0
-    lretPayload.io.selectedSource1 := allocPath.io.launchSelectedSource1
+      w2Slot: LoadReplayReturnPipeW2Slot,
+      returnCompleteSelected: Bool): Unit = {
+    lretPayload.io.selectedSourceTraceValid :=
+      Mux(returnCompleteSelected,
+        allocPath.io.returnCompleteSelectedSourceTraceValid,
+        allocPath.io.launchSelectedSourceTraceValid)
+    lretPayload.io.selectedSource0 :=
+      Mux(returnCompleteSelected, allocPath.io.returnCompleteSelectedSource0, allocPath.io.launchSelectedSource0)
+    lretPayload.io.selectedSource1 :=
+      Mux(returnCompleteSelected, allocPath.io.returnCompleteSelectedSource1, allocPath.io.launchSelectedSource1)
 
     lretEntry.sourceTraceValid := lretPayload.io.payloadSourceTraceValid
     lretEntry.source0 := lretPayload.io.payloadSource0
@@ -7498,11 +7571,12 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2AtomicLiveRequestWiring {
       completion: LoadReplayReturnPipeW2CompletionCandidate,
       w1Advance: LoadReplayReturnPipeW1AdvanceCandidate,
       clearIntent: LoadReplayReturnPipeW2ClearIntent,
+      requestEnable: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     liveRequest.io.enable := enable
     liveRequest.io.flush := flush
-    liveRequest.io.requestEnable := false.B
+    liveRequest.io.requestEnable := requestEnable
     liveRequest.io.sideEffectCandidateValid := completion.io.resolveRequired
     liveRequest.io.sideEffectRequiredMask :=
       Cat(completion.io.wakeupRequired, completion.io.writebackRequired, completion.io.resolveRequired)
