@@ -118,6 +118,14 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val mdbFanoutSuWakeupValid = Output(Bool())
   val mdbFanoutSuWakeupStoreIndex = Output(UInt(log2Ceil(entries).W))
   val mdbFanoutSuWakeupBid = Output(new ROBID(entries))
+  val mdbLookupWaitPlanLookupHit = Output(Bool())
+  val mdbLookupWaitPlanCandidateMask = Output(UInt(liqEntries.W))
+  val mdbLookupWaitPlanTargetIndex = Output(UInt(log2Ceil(liqEntries).W))
+  val mdbLookupWaitPlanWaitIntentValid = Output(Bool())
+  val mdbLookupWaitPlanRequestValid = Output(Bool())
+  val mdbLookupWaitPlanBlockedByNoTarget = Output(Bool())
+  val mdbLookupWaitPlanBlockedByMissingStoreIndex = Output(Bool())
+  val mdbLookupWaitPlanBlockedByMissingStoreLsId = Output(Bool())
   val liqClearResolvedPending = Output(Bool())
   val liqClearResolvedAccepted = Output(Bool())
   val liqResidentCount = Output(UInt(log2Ceil(liqEntries + 1).W))
@@ -364,6 +372,25 @@ class ReducedStoreWaitReplayChiselPathProbe(
   mdbFanout.io.suCheckReady := true.B
   mdbFanout.io.storeRows := mdbFanoutStoreRows
 
+  val mdbLookupWaitPlan = Module(new LoadReplayMdbLookupWaitPlan(
+    liqEntries = liqEntries,
+    idEntries = entries,
+    storeEntries = entries,
+    addrWidth = addrWidth,
+    pcWidth = pcWidth,
+    lineBytes = lineBytes,
+    sizeWidth = sizeWidth
+  ))
+  mdbLookupWaitPlan.io.enable := true.B
+  mdbLookupWaitPlan.io.flush := io.flush
+  mdbLookupWaitPlan.io.luOutValid := mdbFanout.io.luOutValid
+  mdbLookupWaitPlan.io.luOut := mdbFanout.io.luOut
+  mdbLookupWaitPlan.io.rows := liq.io.rows
+  mdbLookupWaitPlan.io.storeIndexValid := mdbFanout.io.suWakeup.valid
+  mdbLookupWaitPlan.io.storeIndex := mdbFanout.io.suWakeup.storeIndex
+  mdbLookupWaitPlan.io.storeLsIdValid := mdbFanout.io.suWakeup.valid
+  mdbLookupWaitPlan.io.storeLsId := mdbFanout.io.suWakeup.lsId
+
   when(io.flush) {
     clearResolvedPending := false.B
     clearResolvedIndex := 0.U
@@ -450,6 +477,14 @@ class ReducedStoreWaitReplayChiselPathProbe(
   io.mdbFanoutSuWakeupValid := mdbFanout.io.suWakeup.valid
   io.mdbFanoutSuWakeupStoreIndex := mdbFanout.io.suWakeup.storeIndex
   io.mdbFanoutSuWakeupBid := mdbFanout.io.suWakeup.bid
+  io.mdbLookupWaitPlanLookupHit := mdbLookupWaitPlan.io.lookupHit
+  io.mdbLookupWaitPlanCandidateMask := mdbLookupWaitPlan.io.candidateMask
+  io.mdbLookupWaitPlanTargetIndex := mdbLookupWaitPlan.io.targetIndex
+  io.mdbLookupWaitPlanWaitIntentValid := mdbLookupWaitPlan.io.waitIntentValid
+  io.mdbLookupWaitPlanRequestValid := mdbLookupWaitPlan.io.requestValid
+  io.mdbLookupWaitPlanBlockedByNoTarget := mdbLookupWaitPlan.io.blockedByNoTarget
+  io.mdbLookupWaitPlanBlockedByMissingStoreIndex := mdbLookupWaitPlan.io.blockedByMissingStoreIndex
+  io.mdbLookupWaitPlanBlockedByMissingStoreLsId := mdbLookupWaitPlan.io.blockedByMissingStoreLsId
   io.liqClearResolvedPending := clearResolvedPending
   io.liqClearResolvedAccepted := liq.io.clearResolvedAccepted
   io.liqResidentCount := liq.io.residentCount

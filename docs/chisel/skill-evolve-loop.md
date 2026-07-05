@@ -214,6 +214,14 @@ future SU/store-row owner supplies the resolved STQ index and store LSID. This
 keeps the model `updateMDBInfo` load-side intent separate from Chisel's native
 `LoadStoreForwardWait` identity, where BID/PC alone are not enough to drive
 store-unit wakeup matching.
+R462 composes that planner into the generated replay fixture and proves the
+guarded negative case: the existing fixture performs MDB lookup after the
+source replay row has resolved, pushed ResolveQ, and cleared out of LIQ. The
+LU/SU lookup still hits and SU supplies store row zero, but
+`mdb_lookup_wait_plan_candidate_mask=0` and
+`mdb_lookup_wait_plan_no_target=true`, so no native LIQ mutation request is
+emitted for a stale ResolveQ-only load. The positive proof now needs a learned
+SSIT lookup against a later dynamic load that remains resident in LIQ/Repick.
 
 ## XiangShan Flow Reference
 

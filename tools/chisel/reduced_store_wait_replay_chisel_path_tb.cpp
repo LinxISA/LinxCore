@@ -247,6 +247,7 @@ struct Report {
   bool mdb_lookup_first_suppressed = false;
   bool mdb_lookup_hit = false;
   bool mdb_su_wakeup = false;
+  bool mdb_lookup_wait_plan_no_target = false;
   bool mdb_delete_accepted = false;
   bool mdb_delete_dropped_below_stall = false;
   bool mdb_delete_released = false;
@@ -259,6 +260,7 @@ struct Report {
   std::uint32_t mdb_conflict_load_lsid = 0;
   std::uint32_t mdb_fanout_ssit_valid_mask = 0;
   std::uint32_t mdb_su_wakeup_store_index = 0;
+  std::uint32_t mdb_lookup_wait_plan_candidate_mask = 0;
   std::uint32_t e4_cycles_after_launch = 0;
 };
 
@@ -518,9 +520,18 @@ void run_sta_only_replay_path(VReducedStoreWaitReplayChiselPathProbe &dut, std::
   expect(dut.io_mdbFanoutSuWakeupStoreIndex == 0, "MDB SU wakeup selected the wrong STQ row");
   expect(dut.io_mdbFanoutSuWakeupBid_valid, "MDB SU wakeup did not preserve store BID valid bit");
   expect(dut.io_mdbFanoutSuWakeupBid_value == kStoreBid, "MDB SU wakeup did not preserve store BID");
+  expect(dut.io_mdbLookupWaitPlanLookupHit, "MDB lookup wait planner did not see the LU hit");
+  expect(dut.io_mdbLookupWaitPlanBlockedByNoTarget,
+         "MDB lookup wait planner did not block after the source LIQ row had cleared");
+  expect(!dut.io_mdbLookupWaitPlanWaitIntentValid,
+         "MDB lookup wait planner unexpectedly found a current LIQ target after clear-resolved");
+  expect(!dut.io_mdbLookupWaitPlanRequestValid,
+         "MDB lookup wait planner emitted a mutation request without a current LIQ target");
   report.mdb_lookup_hit = true;
   report.mdb_su_wakeup = true;
   report.mdb_su_wakeup_store_index = dut.io_mdbFanoutSuWakeupStoreIndex;
+  report.mdb_lookup_wait_plan_no_target = true;
+  report.mdb_lookup_wait_plan_candidate_mask = dut.io_mdbLookupWaitPlanCandidateMask;
 
   clear_inputs(dut);
   dut.io_mdbDeleteValid = 1;
@@ -618,6 +629,7 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"mdb_lookup_first_suppressed\": " << (report.mdb_lookup_first_suppressed ? "true" : "false") << ",\n"
       << "  \"mdb_lookup_hit\": " << (report.mdb_lookup_hit ? "true" : "false") << ",\n"
       << "  \"mdb_su_wakeup\": " << (report.mdb_su_wakeup ? "true" : "false") << ",\n"
+      << "  \"mdb_lookup_wait_plan_no_target\": " << (report.mdb_lookup_wait_plan_no_target ? "true" : "false") << ",\n"
       << "  \"mdb_delete_accepted\": " << (report.mdb_delete_accepted ? "true" : "false") << ",\n"
       << "  \"mdb_delete_dropped_below_stall\": " << (report.mdb_delete_dropped_below_stall ? "true" : "false") << ",\n"
       << "  \"mdb_delete_released\": " << (report.mdb_delete_released ? "true" : "false") << ",\n"
@@ -630,6 +642,7 @@ void write_report(const std::string &path, const Report &report) {
       << "  \"mdb_conflict_load_lsid\": " << report.mdb_conflict_load_lsid << ",\n"
       << "  \"mdb_fanout_ssit_valid_mask\": " << report.mdb_fanout_ssit_valid_mask << ",\n"
       << "  \"mdb_su_wakeup_store_index\": " << report.mdb_su_wakeup_store_index << ",\n"
+      << "  \"mdb_lookup_wait_plan_candidate_mask\": " << report.mdb_lookup_wait_plan_candidate_mask << ",\n"
       << "  \"e4_cycles_after_launch\": " << report.e4_cycles_after_launch << "\n"
       << "}\n";
 }

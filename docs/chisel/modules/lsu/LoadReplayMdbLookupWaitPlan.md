@@ -114,3 +114,20 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayMdbLookupWaitPlan
 Reference tests cover exact one-row planning, missing native store index/LSID
 blocking, multi-target suppression, tile suppression, disabled/flush/miss and
 metadata blockers, and Chisel elaboration.
+
+Generated-RTL fixture gate:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayChiselPath
+bash tools/chisel/run_chisel_reduced_store_wait_replay_chisel_path.sh
+```
+
+R462 composes this planner into `ReducedStoreWaitReplayChiselPathProbe` behind
+`MDBQueueFanout`. The fixture report records
+`mdb_lookup_wait_plan_no_target=true` and
+`mdb_lookup_wait_plan_candidate_mask=0` at the existing MDB lookup point. That
+lookup still has `mdb_lookup_hit=true`, `mdb_su_wakeup=true`, and
+`mdb_su_wakeup_store_index=0`, so the planner is seeing the LU hit plus
+store-side native identity but refusing to emit `requestValid` because the
+source LIQ row has already resolved and cleared. This proves the no-target
+guard in generated RTL; it is not a positive live mutation proof yet.

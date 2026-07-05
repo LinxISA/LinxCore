@@ -30,6 +30,7 @@ the reduced replay-LIQ path:
 - `LoadResolveQueue`
 - `MDBConflictDetect`
 - `MDBQueueFanout`
+- `LoadReplayMdbLookupWaitPlan`
 
 The probe exists because R450 showed that delaying split STD data in the live
 top does not force the younger load to execute while the resident store is
@@ -104,6 +105,11 @@ window directly and proves the owner chain through generated RTL.
 | `mdbFanoutSuOutDequeued` / `mdbFanoutSuOutHit` | SU lookup-result fanout diagnostics. |
 | `mdbFanoutSuMatchedStore` / `mdbFanoutSuStorePending` / `mdbFanoutSuWakeupValid` | Store-side MDB check result against the resident STQ rows. |
 | `mdbFanoutSuWakeupStoreIndex` / `mdbFanoutSuWakeupBid` | Store-side wakeup identity selected by `MDBQueueFanout`. |
+| `mdbLookupWaitPlanLookupHit` | Fixture-local `LoadReplayMdbLookupWaitPlan` saw the LU lookup hit. |
+| `mdbLookupWaitPlanCandidateMask` / `mdbLookupWaitPlanTargetIndex` | Current LIQ row match diagnostics for the LU hit. |
+| `mdbLookupWaitPlanWaitIntentValid` / `mdbLookupWaitPlanRequestValid` | Load-side wait intent and native mutation request diagnostics from the planner. |
+| `mdbLookupWaitPlanBlockedByNoTarget` | The planner saw an LU hit but found no current matching LIQ row. |
+| `mdbLookupWaitPlanBlockedByMissingStoreIndex` / `mdbLookupWaitPlanBlockedByMissingStoreLsId` | Native store identity blockers from the planner. |
 | `liqClearResolvedPending` / `liqClearResolvedAccepted` | Probe-local delayed clear request back into LIQ after ResolveQ accepts the LHQ record. |
 | `liqWaitMask` / `liqRepickMask` / `liqResolvedMask` | LIQ row status masks before launch, after launch, and after E4 resolution. |
 | `liqFirstYoungestStoreLsId` | Allocated LIQ row preserved the forwarding snapshot sidecar. |
@@ -155,6 +161,14 @@ The generated-RTL harness runs two scenarios:
     below the stall threshold while retaining the row, and the third delete
     releases the zero-weight row, matching `MDB::handleMDBDelete` /
     `MDB::dec`.
+11. R462 composes `LoadReplayMdbLookupWaitPlan` beside `MDBQueueFanout`. At the
+    existing second lookup point, LU/SU lookup hits and SU wakeup has native
+    store identity, but the original source LIQ row has already resolved and
+    been cleared into ResolveQ. The planner therefore reports
+    `blockedByNoTarget` with an empty candidate mask and does not emit a native
+    wait-store mutation request. This is the desired guard for this fixture
+    ordering; a positive mutation proof needs a later dynamic load that is
+    currently resident in LIQ when the learned SSIT lookup hits.
 
 This is fixture evidence for the reduced owner chain. It is not architectural
 QEMU/DUT replacement evidence and does not prove live top scheduling can yet
@@ -248,3 +262,13 @@ plus fixture-provided `wait_tpc`, proving generated RTL can decay the learned
 SSIT row after a failed wait and release it only after the model zero-weight
 delete. This remains fixture evidence because the failed-wait timer and delete
 producer are harness-owned.
+
+R462 extends the report with `mdb_lookup_wait_plan_no_target=true` and
+`mdb_lookup_wait_plan_candidate_mask=0` while preserving the R459
+`mdb_lookup_hit=true`, `mdb_su_wakeup=true`, and
+`mdb_su_wakeup_store_index=0` fields. This proves the fixture-composed
+`LoadReplayMdbLookupWaitPlan` sees the LU hit and resolved SU store identity,
+but correctly suppresses a native wait-store mutation request because the
+source LIQ row has already been cleared after ResolveQ accepted the LHQ record.
+The next positive mutation proof must use a later dynamic load row that is
+still resident in LIQ when the learned MDB lookup hits.
