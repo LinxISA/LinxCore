@@ -1,7 +1,7 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.{Cat, Fill, UIntToOH, log2Ceil}
+import chisel3.util.{Cat, Fill, PriorityEncoder, UIntToOH, log2Ceil}
 
 import linxcore.backend.{DecodeRenameROBPath, ReducedRobCompletionArbiter}
 import linxcore.commit.{CommitTraceParams, CommitTracePort}
@@ -1391,6 +1391,33 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqResidentCount = Output(UInt(storeStqCountWidth.W))
   val reducedLoadReplayLiqEmpty = Output(Bool())
   val reducedLoadReplayLiqFull = Output(Bool())
+  val reducedLoadReplayLiqHeadValid = Output(Bool())
+  val reducedLoadReplayLiqHeadIndex = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqHeadStatus = Output(UInt(3.W))
+  val reducedLoadReplayLiqHeadLoadIdValid = Output(Bool())
+  val reducedLoadReplayLiqHeadLoadIdWrap = Output(Bool())
+  val reducedLoadReplayLiqHeadLoadIdValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqHeadBidValid = Output(Bool())
+  val reducedLoadReplayLiqHeadBidWrap = Output(Bool())
+  val reducedLoadReplayLiqHeadBidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqHeadGidValid = Output(Bool())
+  val reducedLoadReplayLiqHeadGidWrap = Output(Bool())
+  val reducedLoadReplayLiqHeadGidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqHeadRidValid = Output(Bool())
+  val reducedLoadReplayLiqHeadRidWrap = Output(Bool())
+  val reducedLoadReplayLiqHeadRidValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqHeadLoadLsIdValid = Output(Bool())
+  val reducedLoadReplayLiqHeadLoadLsIdWrap = Output(Bool())
+  val reducedLoadReplayLiqHeadLoadLsIdValue = Output(UInt(ptrWidth.W))
+  val reducedLoadReplayLiqHeadPc = Output(UInt(p.pcWidth.W))
+  val reducedLoadReplayLiqHeadAddr = Output(UInt(p.immWidth.W))
+  val reducedLoadReplayLiqHeadSize = Output(UInt(7.W))
+  val reducedLoadReplayLiqHeadWaitStore = Output(Bool())
+  val reducedLoadReplayLiqHeadStoreBypass = Output(Bool())
+  val reducedLoadReplayLiqHeadDataComplete = Output(Bool())
+  val reducedLoadReplayLiqHeadSourcesReturned = Output(Bool())
+  val reducedLoadReplayLiqHeadScbReturned = Output(Bool())
+  val reducedLoadReplayLiqHeadStqReturned = Output(Bool())
   val reducedLoadReplayResolveQueuePushReady = Output(Bool())
   val reducedLoadReplayResolveQueuePushAccepted = Output(Bool())
   val reducedLoadReplayResolveQueueClearPending = Output(Bool())
@@ -2669,6 +2696,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayLiqAllocPath.io.rows(reducedLoadReplayLiqAllocPath.io.launchIndex)
   val reducedReplayLiqRowValidMask =
     VecInit((0 until p.robEntries).map(idx => reducedLoadReplayLiqAllocPath.io.rows(idx).valid)).asUInt
+  val reducedReplayLiqPtrWidth = log2Ceil(p.robEntries)
+  val reducedReplayLiqHeadValid = reducedReplayLiqRowValidMask.orR
+  val reducedReplayLiqHeadIndex =
+    Mux(reducedReplayLiqHeadValid, PriorityEncoder(reducedReplayLiqRowValidMask), 0.U(reducedReplayLiqPtrWidth.W))
+  val reducedReplayLiqHeadRow = reducedLoadReplayLiqAllocPath.io.rows(reducedReplayLiqHeadIndex)
   val reducedReplayLiqRowScbReturnedMask =
     VecInit((0 until p.robEntries).map(idx =>
       reducedLoadReplayLiqAllocPath.io.rows(idx).valid && reducedLoadReplayLiqAllocPath.io.rows(idx).scbReturned
@@ -5262,6 +5294,33 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqResidentCount := reducedLoadReplayLiqAllocPath.io.residentCount
   io.reducedLoadReplayLiqEmpty := reducedLoadReplayLiqAllocPath.io.empty
   io.reducedLoadReplayLiqFull := reducedLoadReplayLiqAllocPath.io.full
+  io.reducedLoadReplayLiqHeadValid := reducedReplayLiqHeadValid
+  io.reducedLoadReplayLiqHeadIndex := reducedReplayLiqHeadIndex
+  io.reducedLoadReplayLiqHeadStatus := reducedReplayLiqHeadRow.status.asUInt
+  io.reducedLoadReplayLiqHeadLoadIdValid := reducedReplayLiqHeadRow.loadId.valid
+  io.reducedLoadReplayLiqHeadLoadIdWrap := reducedReplayLiqHeadRow.loadId.wrap
+  io.reducedLoadReplayLiqHeadLoadIdValue := reducedReplayLiqHeadRow.loadId.value
+  io.reducedLoadReplayLiqHeadBidValid := reducedReplayLiqHeadRow.bid.valid
+  io.reducedLoadReplayLiqHeadBidWrap := reducedReplayLiqHeadRow.bid.wrap
+  io.reducedLoadReplayLiqHeadBidValue := reducedReplayLiqHeadRow.bid.value
+  io.reducedLoadReplayLiqHeadGidValid := reducedReplayLiqHeadRow.gid.valid
+  io.reducedLoadReplayLiqHeadGidWrap := reducedReplayLiqHeadRow.gid.wrap
+  io.reducedLoadReplayLiqHeadGidValue := reducedReplayLiqHeadRow.gid.value
+  io.reducedLoadReplayLiqHeadRidValid := reducedReplayLiqHeadRow.rid.valid
+  io.reducedLoadReplayLiqHeadRidWrap := reducedReplayLiqHeadRow.rid.wrap
+  io.reducedLoadReplayLiqHeadRidValue := reducedReplayLiqHeadRow.rid.value
+  io.reducedLoadReplayLiqHeadLoadLsIdValid := reducedReplayLiqHeadRow.loadLsId.valid
+  io.reducedLoadReplayLiqHeadLoadLsIdWrap := reducedReplayLiqHeadRow.loadLsId.wrap
+  io.reducedLoadReplayLiqHeadLoadLsIdValue := reducedReplayLiqHeadRow.loadLsId.value
+  io.reducedLoadReplayLiqHeadPc := reducedReplayLiqHeadRow.pc
+  io.reducedLoadReplayLiqHeadAddr := reducedReplayLiqHeadRow.addr
+  io.reducedLoadReplayLiqHeadSize := reducedReplayLiqHeadRow.size
+  io.reducedLoadReplayLiqHeadWaitStore := reducedReplayLiqHeadRow.waitStore
+  io.reducedLoadReplayLiqHeadStoreBypass := reducedReplayLiqHeadRow.storeBypass
+  io.reducedLoadReplayLiqHeadDataComplete := reducedReplayLiqHeadRow.dataComplete
+  io.reducedLoadReplayLiqHeadSourcesReturned := reducedReplayLiqHeadRow.sourcesReturned
+  io.reducedLoadReplayLiqHeadScbReturned := reducedReplayLiqHeadRow.scbReturned
+  io.reducedLoadReplayLiqHeadStqReturned := reducedReplayLiqHeadRow.stqReturned
   io.reducedLoadReplayResolveQueuePushReady := reducedLoadReplayResolveQueue.io.pushReady
   io.reducedLoadReplayResolveQueuePushAccepted := reducedLoadReplayResolveQueue.io.pushAccepted
   io.reducedLoadReplayResolveQueueClearPending := reducedLoadReplayResolveClearPending

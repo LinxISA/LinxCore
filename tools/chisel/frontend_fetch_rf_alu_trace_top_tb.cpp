@@ -2805,6 +2805,50 @@ void drain_empty(VLinxCoreFrontendFetchRfAluTraceTop &dut, const FetchMemoryImag
             << static_cast<unsigned>(dut.io_reducedLoadReplayResolveQueueCount)
             << " replayResolveQueueValidMask=0x" << std::hex
             << static_cast<unsigned>(dut.io_reducedLoadReplayResolveQueueValidMask)
+            << " replayLiqHeadValid=" << std::dec
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadValid)
+            << " replayLiqHeadIndex="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadIndex)
+            << " replayLiqHeadStatus="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadStatus)
+            << " replayLiqHeadLoadId="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadLoadIdValid)
+            << "/" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadLoadIdWrap)
+            << "/" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadLoadIdValue)
+            << " replayLiqHeadBid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadBidValid)
+            << "/" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadBidWrap)
+            << "/" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadBidValue)
+            << " replayLiqHeadGid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadGidValid)
+            << "/" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadGidWrap)
+            << "/" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadGidValue)
+            << " replayLiqHeadRid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadRidValid)
+            << "/" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadRidWrap)
+            << "/" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadRidValue)
+            << " replayLiqHeadLoadLsId="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadLoadLsIdValid)
+            << "/" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadLoadLsIdWrap)
+            << "/" << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadLoadLsIdValue)
+            << " replayLiqHeadPc=0x" << std::hex
+            << hex_port(dut.io_reducedLoadReplayLiqHeadPc)
+            << " replayLiqHeadAddr=0x"
+            << hex_port(dut.io_reducedLoadReplayLiqHeadAddr)
+            << " replayLiqHeadSize=" << std::dec
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadSize)
+            << " replayLiqHeadWaitStore="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadWaitStore)
+            << " replayLiqHeadStoreBypass="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadStoreBypass)
+            << " replayLiqHeadDataComplete="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadDataComplete)
+            << " replayLiqHeadSourcesReturned="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadSourcesReturned)
+            << " replayLiqHeadScbReturned="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadScbReturned)
+            << " replayLiqHeadStqReturned="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadStqReturned)
             << std::dec
             << "\n";
   std::exit(1);
