@@ -1289,6 +1289,7 @@ so the top still selects the current empty-only advance gate.
 | output | `reducedLoadReplayResolveQueue*` | mixed | diagnostic | R285-R289 opt-in replay-LIQ ResolveQ diagnostics. `lhqRecord` from `ReducedLoadReplayLiqAllocPath` can append to `LoadResolveQueue`; the top exposes push, delayed clear, commit-window retire watermark, scalar-redirect precise flush identity, retire/prune mask/count, occupancy, valid-mask, and head conflict-row sidecars. Because launch remains disabled, the current fixture observes storage, retire, and recovery-prune wiring only; live MDB/recovery publication is deferred. |
 | output | `reducedMdbConflict*` | mixed | diagnostic | R290 opt-in replay-LIQ MDB conflict diagnostics. The top feeds `MDBConflictDetect` with the accepted reduced STQ insert request, replay-LIQ resident rows, and ResolveQ conflict rows, then exposes store-valid, active/ResolveQ candidate masks, wait-store mask/count, selected source/index/ordinal, selected load/store BID and LSID identity, plus inner/nuke classification. These signals are diagnostic only; they do not yet drive recovery flush. |
 | output | `reducedMdbFanout*` | mixed | diagnostic | R291-R293 opt-in replay-LIQ MDB fanout/learning diagnostics. Selected conflict records enqueue into `MDBQueueFanout.recordIn` with model confidence `1`; resident STQ rows feed the SU wakeup scan view; replay-LIQ launch acceptance forms a dormant `lookupIn` command boundary; and R293 exposes the still-inactive delete command/decay boundary plus phase-stall diagnostics. Delete producers remain tied off. The top exposes lookup ready/accept/process, delete ready/accept/process and decay result flags, LU/SU lookup-result hit/store-BID diagnostics, record ready/accept/process, BMDB report intent, SSIT valid mask, record errors, and SU match/wakeup diagnostics without mutating recovery or load wakeup state. |
+| output | `reducedMdbLookupWaitPlan*` | mixed | diagnostic | R465 live-top MDB lookup wait-plan diagnostics. The top instantiates `LoadReplayMdbLookupWaitPlan` beside the real `MDBQueueFanout`, feeds it from fanout LU/SU outputs plus current `ReducedLoadReplayLiqAllocPath` rows, and exposes lookup hit, candidate mask, target index, wait-intent, request-valid, and blocker diagnostics. These outputs are observational only; the plan request is not connected to the top LIQ row-mutation write path. |
 | output | `executeLoadWaitHold` | `Bool` | diagnostic | R266 reduced execute hold for a load waiting on an older not-ready resident store. |
 | output | `storeDispatch*`, `storeSta*`, `storeStd*`, `storeStq*` | mixed | diagnostic | R239-R241 store-dispatch queue, bridge-selection, STQ insert, mark/free, and resident-STQ observability from `DecodeRenameROBPath`. |
 | output | `executeUnsupported`, `executeUnsupportedOpcode` | mixed | diagnostic | Unsupported reduced ALU opcode report. |
@@ -1754,6 +1755,10 @@ overlay. Most state remains in child modules:
   launch acceptance builds a load-side `lookupIn` command. Delete commands stay
   inactive until failed-wait feedback producers exist, but the top now exposes
   delete queue readiness, process, decay result, and phase-stall diagnostics.
+- `LoadReplayMdbLookupWaitPlan`: optional R465 live-top diagnostic planner beside
+  `MDBQueueFanout`. It consumes the fanout LU lookup result, SU wakeup store
+  identity, and current replay-LIQ row image, then publishes target and blocker
+  diagnostics without driving live LIQ row mutation.
 - `ReducedLoadReplayCompletionDrain`: optional R273/R274 diagnostic matcher that
   consumes the queued candidate when the same held load completes through W2
   with matching PC, address, size, BID, GID, RID, and reduced LSID.
@@ -2308,7 +2313,11 @@ this diagnostic surface. The resident STQ row image feeds the fanout's SU wakeup
 scan. The top exposes lookup acceptance/processing, delete boundary status,
 LU/SU lookup result hit/store-BID identity, record acceptance, processed records,
 BMDB report intent, SSIT valid mask, record error flags, and SU match/wakeup
-diagnostics.
+diagnostics. R465 adds `LoadReplayMdbLookupWaitPlan` as a diagnostic consumer
+of those live fanout outputs and current replay-LIQ rows. It exposes the same
+LU-hit, candidate-row, wait-intent, request, and blocker shape proven in the
+generated fixture, but it does not drive `ReducedLoadReplayLiqAllocPath`
+row-mutation inputs in the live top.
 
 The overlay clears only on
 run start/restart or when the optional reduced-store path is disabled;
@@ -3344,6 +3353,8 @@ resident.
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r446-replay-liq-sideband-stats-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r447-sideband-contract-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r448-replay-liq-stage-stats-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
+- `bash tools/chisel/run_chisel_tests.sh --only LoadReplayMdbLookupWaitPlan`
+- `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `BUILD_DIR=generated/r141-diagnostic-replay-1747-fret-target-priority FETCH_EXPECTED_ROWS=generated/r141-logical-local-1747-qemu-elf-xcheck/qemu.expected.jsonl FETCH_ELF=tests/benchmarks/build/coremark_real.elf bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
 - `bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b --max-seconds 5`

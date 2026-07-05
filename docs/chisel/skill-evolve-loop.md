@@ -246,6 +246,12 @@ lookup and requires `mdb_lookup_wait_plan_write=true`,
 `liq_wait_store_mask_after_mdb_write=2`. This is still fixture evidence; live
 MDB lookup timing, live SCB response ownership, and live failed-wait delete
 publication remain separate top-level owners.
+R465 moves the same planner visibility into the live reduced top as a diagnostic
+consumer of the real `MDBQueueFanout` LU/SU outputs and current replay-LIQ rows.
+The top exports lookup-hit, candidate-mask, target-index, wait-intent,
+request-valid, and blocker signals, but the planner request is intentionally not
+connected to live LIQ row mutation. This keeps fixture row-write proof separate
+from the later live-top ownership decision.
 
 ## XiangShan Flow Reference
 
