@@ -82,6 +82,7 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val resolveQueueFirstLoadLsId = Output(new ROBID(entries))
   val mdbStore = Input(new MDBConflictStoreProbe(entries, addrWidth = addrWidth, pcWidth = pcWidth, sizeWidth = sizeWidth))
   val mdbLookupValid = Input(Bool())
+  val mdbLookupUseLiveLoad = Input(Bool())
   val mdbDeleteValid = Input(Bool())
   val mdbDeleteWaitStorePc = Input(UInt(pcWidth.W))
   val mdbResolveCandidateMask = Output(UInt(liqEntries.W))
@@ -126,6 +127,13 @@ class ReducedStoreWaitReplayChiselPathProbeIO(
   val mdbLookupWaitPlanBlockedByNoTarget = Output(Bool())
   val mdbLookupWaitPlanBlockedByMissingStoreIndex = Output(Bool())
   val mdbLookupWaitPlanBlockedByMissingStoreLsId = Output(Bool())
+  val rowMutationBridgeValid = Output(Bool())
+  val rowMutationTargetEvidenceValid = Output(Bool())
+  val rowMutationWriteEnable = Output(Bool())
+  val rowMutationApplyValid = Output(Bool())
+  val rowMutationBlockedByControl = Output(Bool())
+  val rowMutationControlBlockedByScbNotReturned = Output(Bool())
+  val rowMutationControlBlockedByE4UpdateConflict = Output(Bool())
   val liqClearResolvedPending = Output(Bool())
   val liqClearResolvedAccepted = Output(Bool())
   val liqResidentCount = Output(UInt(log2Ceil(liqEntries + 1).W))
@@ -234,23 +242,6 @@ class ReducedStoreWaitReplayChiselPathProbe(
   liq.io.refill.l2Miss := false.B
   liq.io.clearResolvedValid := clearResolvedPending
   liq.io.clearResolvedIndex := clearResolvedIndex
-  liq.io.rowMutationRequestValid := false.B
-  liq.io.rowMutationRequestTargetMask := 0.U
-  liq.io.rowMutationRequestTargetIndex := 0.U
-  liq.io.rowMutationSetWaitStatus := false.B
-  liq.io.rowMutationKeepRepickStatus := false.B
-  liq.io.rowMutationClearReturnState := false.B
-  liq.io.rowMutationLineWrite := false.B
-  liq.io.rowMutationWaitStoreWrite := false.B
-  liq.io.rowMutationNextWaitStore := false.B
-  liq.io.rowMutationNextWaitStoreInfo := 0.U.asTypeOf(liq.io.rowMutationNextWaitStoreInfo)
-  liq.io.rowMutationNextLineData := 0.U
-  liq.io.rowMutationNextValidMask := 0.U
-  liq.io.rowMutationNextDataComplete := false.B
-  liq.io.rowMutationNextScbReturned := false.B
-  liq.io.rowMutationNextStqReturned := false.B
-  liq.io.rowMutationNextStoreSourceReturned := false.B
-
   relaunchQueue.io.outReady := liq.io.candidateConsumeReady
 
   resolveQueue.io.flush := io.flush
@@ -318,12 +309,12 @@ class ReducedStoreWaitReplayChiselPathProbe(
   mdbLookupBus := mdbZeroBus
   mdbLookupBus.valid := io.mdbLookupValid
   mdbLookupBus.ldInfo.valid := io.mdbLookupValid
-  mdbLookupBus.ldInfo.pc := resolveQueue.io.entries(0).record.pc
-  mdbLookupBus.ldInfo.bid := resolveQueue.io.entries(0).record.bid
-  mdbLookupBus.ldInfo.lsId := resolveQueue.io.entries(0).record.loadLsId
+  mdbLookupBus.ldInfo.pc := Mux(io.mdbLookupUseLiveLoad, 0.U, resolveQueue.io.entries(0).record.pc)
+  mdbLookupBus.ldInfo.bid := Mux(io.mdbLookupUseLiveLoad, io.loadBid, resolveQueue.io.entries(0).record.bid)
+  mdbLookupBus.ldInfo.lsId := Mux(io.mdbLookupUseLiveLoad, io.loadLsId, resolveQueue.io.entries(0).record.loadLsId)
   mdbLookupBus.ldInfo.stid := resolveQueue.io.entries(0).stid
-  mdbLookupBus.ldInfo.addr := resolveQueue.io.entries(0).record.addr
-  mdbLookupBus.ldInfo.size := resolveQueue.io.entries(0).record.size
+  mdbLookupBus.ldInfo.addr := Mux(io.mdbLookupUseLiveLoad, io.loadAddr, resolveQueue.io.entries(0).record.addr)
+  mdbLookupBus.ldInfo.size := Mux(io.mdbLookupUseLiveLoad, io.loadSize, resolveQueue.io.entries(0).record.size)
   mdbLookupBus.ldInfo.isTile := false.B
   mdbLookupBus.conf := 1.U
 
@@ -390,6 +381,23 @@ class ReducedStoreWaitReplayChiselPathProbe(
   mdbLookupWaitPlan.io.storeIndex := mdbFanout.io.suWakeup.storeIndex
   mdbLookupWaitPlan.io.storeLsIdValid := mdbFanout.io.suWakeup.valid
   mdbLookupWaitPlan.io.storeLsId := mdbFanout.io.suWakeup.lsId
+
+  liq.io.rowMutationRequestValid := mdbLookupWaitPlan.io.requestValid
+  liq.io.rowMutationRequestTargetMask := mdbLookupWaitPlan.io.requestTargetMask
+  liq.io.rowMutationRequestTargetIndex := mdbLookupWaitPlan.io.requestTargetIndex
+  liq.io.rowMutationSetWaitStatus := mdbLookupWaitPlan.io.setWaitStatus
+  liq.io.rowMutationKeepRepickStatus := mdbLookupWaitPlan.io.keepRepickStatus
+  liq.io.rowMutationClearReturnState := mdbLookupWaitPlan.io.clearReturnState
+  liq.io.rowMutationLineWrite := mdbLookupWaitPlan.io.lineWrite
+  liq.io.rowMutationWaitStoreWrite := mdbLookupWaitPlan.io.waitStoreWrite
+  liq.io.rowMutationNextWaitStore := mdbLookupWaitPlan.io.nextWaitStore
+  liq.io.rowMutationNextWaitStoreInfo := mdbLookupWaitPlan.io.nextWaitStoreInfo
+  liq.io.rowMutationNextLineData := mdbLookupWaitPlan.io.nextLineData
+  liq.io.rowMutationNextValidMask := mdbLookupWaitPlan.io.nextValidMask
+  liq.io.rowMutationNextDataComplete := mdbLookupWaitPlan.io.nextDataComplete
+  liq.io.rowMutationNextScbReturned := mdbLookupWaitPlan.io.nextScbReturned
+  liq.io.rowMutationNextStqReturned := mdbLookupWaitPlan.io.nextStqReturned
+  liq.io.rowMutationNextStoreSourceReturned := mdbLookupWaitPlan.io.nextStoreSourceReturned
 
   when(io.flush) {
     clearResolvedPending := false.B
@@ -485,6 +493,13 @@ class ReducedStoreWaitReplayChiselPathProbe(
   io.mdbLookupWaitPlanBlockedByNoTarget := mdbLookupWaitPlan.io.blockedByNoTarget
   io.mdbLookupWaitPlanBlockedByMissingStoreIndex := mdbLookupWaitPlan.io.blockedByMissingStoreIndex
   io.mdbLookupWaitPlanBlockedByMissingStoreLsId := mdbLookupWaitPlan.io.blockedByMissingStoreLsId
+  io.rowMutationBridgeValid := liq.io.rowMutationBridgeValid
+  io.rowMutationTargetEvidenceValid := liq.io.rowMutationTargetEvidenceValid
+  io.rowMutationWriteEnable := liq.io.rowMutationWriteEnable
+  io.rowMutationApplyValid := liq.io.rowMutationApplyValid
+  io.rowMutationBlockedByControl := liq.io.rowMutationBlockedByControl
+  io.rowMutationControlBlockedByScbNotReturned := liq.io.rowMutationControlBlockedByScbNotReturned
+  io.rowMutationControlBlockedByE4UpdateConflict := liq.io.rowMutationControlBlockedByE4UpdateConflict
   io.liqClearResolvedPending := clearResolvedPending
   io.liqClearResolvedAccepted := liq.io.clearResolvedAccepted
   io.liqResidentCount := liq.io.residentCount

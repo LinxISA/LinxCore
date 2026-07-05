@@ -105,11 +105,15 @@ window directly and proves the owner chain through generated RTL.
 | `mdbFanoutSuOutDequeued` / `mdbFanoutSuOutHit` | SU lookup-result fanout diagnostics. |
 | `mdbFanoutSuMatchedStore` / `mdbFanoutSuStorePending` / `mdbFanoutSuWakeupValid` | Store-side MDB check result against the resident STQ rows. |
 | `mdbFanoutSuWakeupStoreIndex` / `mdbFanoutSuWakeupBid` | Store-side wakeup identity selected by `MDBQueueFanout`. |
+| `mdbLookupUseLiveLoad` | Fixture selector that builds `MDBQueueFanout.lookupIn.ldInfo` from the current live load identity inputs instead of the resident ResolveQ row. |
 | `mdbLookupWaitPlanLookupHit` | Fixture-local `LoadReplayMdbLookupWaitPlan` saw the LU lookup hit. |
 | `mdbLookupWaitPlanCandidateMask` / `mdbLookupWaitPlanTargetIndex` | Current LIQ row match diagnostics for the LU hit. |
 | `mdbLookupWaitPlanWaitIntentValid` / `mdbLookupWaitPlanRequestValid` | Load-side wait intent and native mutation request diagnostics from the planner. |
 | `mdbLookupWaitPlanBlockedByNoTarget` | The planner saw an LU hit but found no current matching LIQ row. |
 | `mdbLookupWaitPlanBlockedByMissingStoreIndex` / `mdbLookupWaitPlanBlockedByMissingStoreLsId` | Native store identity blockers from the planner. |
+| `rowMutationBridgeValid` / `rowMutationTargetEvidenceValid` | LIQ row-mutation bridge/control evidence for the planner request. |
+| `rowMutationWriteEnable` / `rowMutationApplyValid` | Native LIQ row-mutation write and apply diagnostics. |
+| `rowMutationBlockedByControl` / `rowMutationControlBlockedByScbNotReturned` / `rowMutationControlBlockedByE4UpdateConflict` | Control blockers proving why a valid fixture request did not write the LIQ row. |
 | `liqClearResolvedPending` / `liqClearResolvedAccepted` | Probe-local delayed clear request back into LIQ after ResolveQ accepts the LHQ record. |
 | `liqWaitMask` / `liqRepickMask` / `liqResolvedMask` | LIQ row status masks before launch, after launch, and after E4 resolution. |
 | `liqFirstYoungestStoreLsId` | Allocated LIQ row preserved the forwarding snapshot sidecar. |
@@ -169,6 +173,14 @@ The generated-RTL harness runs two scenarios:
     wait-store mutation request. This is the desired guard for this fixture
     ordering; a positive mutation proof needs a later dynamic load that is
     currently resident in LIQ when the learned SSIT lookup hits.
+12. R463 wires the planner request into `ReducedLoadReplayLiqAllocPath`'s
+    existing row-mutation bridge and adds a fixture live-lookup selector. The
+    harness allocates a second replay row, accepts the live MDB lookup one
+    cycle before launching that row, and samples the LU/SU hit after the row
+    enters `Repick`. The planner now reports a live candidate at LIQ row 1 and
+    emits `requestValid`; the request reaches the bridge/control path, then
+    stops because the fixture has not yet supplied source-return evidence for a
+    safe row write.
 
 This is fixture evidence for the reduced owner chain. It is not architectural
 QEMU/DUT replacement evidence and does not prove live top scheduling can yet
@@ -272,3 +284,15 @@ but correctly suppresses a native wait-store mutation request because the
 source LIQ row has already been cleared after ResolveQ accepted the LHQ record.
 The next positive mutation proof must use a later dynamic load row that is
 still resident in LIQ when the learned MDB lookup hits.
+
+R463 extends the report with `mdb_lookup_wait_plan_live_target=true`,
+`mdb_lookup_wait_plan_request=true`, `mdb_lookup_wait_plan_bridge=true`,
+`mdb_lookup_wait_plan_control_blocked=true`,
+`mdb_lookup_wait_plan_live_candidate_mask=2`, and
+`mdb_lookup_wait_plan_live_target_index=1`. The probe now wires
+`LoadReplayMdbLookupWaitPlan.request*` into `ReducedLoadReplayLiqAllocPath`
+row mutation and lets the harness drive a second live load identity into MDB
+lookup. This proves generated RTL can carry a learned SSIT lookup into a
+specific live LIQ `Repick` row and through the row-mutation bridge/control
+surface. It is still not a positive LIQ row-write proof because the control
+path correctly blocks the write until source-return evidence is available.

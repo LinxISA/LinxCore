@@ -222,6 +222,19 @@ LU/SU lookup still hits and SU supplies store row zero, but
 `mdb_lookup_wait_plan_no_target=true`, so no native LIQ mutation request is
 emitted for a stale ResolveQ-only load. The positive proof now needs a learned
 SSIT lookup against a later dynamic load that remains resident in LIQ/Repick.
+R463 wires the planner request into the generated fixture's existing
+`ReducedLoadReplayLiqAllocPath` row-mutation inputs and adds a fixture
+live-lookup selector. The harness proves a second dynamic load can be resident
+in LIQ row 1 as `Repick` when the learned MDB lookup returns:
+`mdb_lookup_wait_plan_live_candidate_mask=2`,
+`mdb_lookup_wait_plan_live_target_index=1`,
+`mdb_lookup_wait_plan_request=true`, and
+`mdb_lookup_wait_plan_bridge=true`. The request intentionally stops at LIQ
+control (`mdb_lookup_wait_plan_control_blocked=true`) because this fixture has
+not yet supplied the source-return evidence required for a safe row write. The
+next positive proof should feed or synthesize that evidence and then require
+`rowMutationWriteEnable=true` plus the target row moving back to Wait with a
+valid native wait-store payload.
 
 ## XiangShan Flow Reference
 

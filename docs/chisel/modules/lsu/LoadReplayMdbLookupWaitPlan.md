@@ -37,8 +37,10 @@ events:
 2. `requestValid`: the same wait intent also has a resolved native store index
    and store LSID supplied by a future SU/store-row matching owner.
 
-This packet does not mutate `LoadInflightQueue` rows and is not top-integrated
-yet.
+The R463 generated-RTL fixture wires this request shape into
+`ReducedLoadReplayLiqAllocPath` row mutation for proof. The live top is not
+integrated yet, and the fixture still stops before a row write when the LIQ
+control path lacks source-return evidence.
 
 ## Interface
 
@@ -99,8 +101,10 @@ wiring this plan into `LoadInflightQueue` mutation.
 
 - Top integration behind the replay-LIQ path.
 - Store-side native identity producer for MDB LU wait mutation.
-- Registered `LoadInflightQueue` mutation using the existing row-mutation
-  bridge/write-control path or a dedicated MDB update writer.
+- Live top integration behind the replay-LIQ path's existing row-mutation
+  bridge/write-control path.
+- Source-return evidence owner that makes a generated-RTL MDB wait request
+  write-eligible instead of stopping at LIQ control.
 - Live failed-wait timer that publishes MDB delete commands from LIQ state.
 
 ## Verification
@@ -131,3 +135,16 @@ lookup still has `mdb_lookup_hit=true`, `mdb_su_wakeup=true`, and
 store-side native identity but refusing to emit `requestValid` because the
 source LIQ row has already resolved and cleared. This proves the no-target
 guard in generated RTL; it is not a positive live mutation proof yet.
+
+R463 wires the planner's `request*` outputs into the fixture-local
+`ReducedLoadReplayLiqAllocPath` row-mutation inputs. The same generated-RTL
+fixture now drives a second live load identity into MDB lookup while that load
+is resident in LIQ row 1 and has just entered `Repick`. The report records
+`mdb_lookup_wait_plan_live_target=true`,
+`mdb_lookup_wait_plan_request=true`, `mdb_lookup_wait_plan_bridge=true`,
+`mdb_lookup_wait_plan_control_blocked=true`,
+`mdb_lookup_wait_plan_live_candidate_mask=2`, and
+`mdb_lookup_wait_plan_live_target_index=1`. This proves the request can reach
+the native LIQ mutation bridge/control surface for a live target row. It still
+is not a row-write proof because the existing control path blocks without
+source-return evidence.
