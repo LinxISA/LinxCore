@@ -954,6 +954,36 @@ return progress, not to a resolved row waiting for ResolveQ drain. The next
 packet should explain why the row never launches or clears before modifying
 the idle predicate.
 
+R482 extends the same final-drain report with replay-LIQ launch-selector,
+launch-readiness, and base-lookup diagnostics. The enabled early-STA fixture at
+`generated/r482-replay-liq-launch-diagnostics-enabled-xcheck` still reaches the
+expected drain timeout, but reports `replayLiqLaunchWaitMask=0x1`,
+`replayLiqLaunchUnblockedWaitMask=0x1`,
+`replayLiqLaunchDataHitMask=0x0`, `replayLiqLaunchCandidateMask=0x0`,
+`replayLiqLaunchValid=0`, `replayLiqBaseLookupValid=0`, and
+`replayLiqLaunchReadinessBlockedByNoCandidate=1`. That proves the row was an
+unblocked `Wait` row, but `LoadInflightLaunchSelect` required pre-existing
+row-owned data before it would expose a launch candidate. Because
+`LoadReplayBaseDataAlign` depends on that launch selection to issue base-data
+lookup, the old selector policy was circular for fresh replay rows.
+
+R483 fixes that selector boundary by treating every enabled scalar unblocked
+`Wait` row as a launch candidate while leaving `dataHitMask` as a data-owned
+diagnostic. The focused `LoadInflightLaunchSelect`,
+`ReducedLoadReplayLiqAllocPath`, and `LinxCoreFrontendFetchRfAluTraceTop`
+suites pass. The enabled early-STA fixture at
+`generated/r483-replay-liq-unblocked-wait-launch-enabled-xcheck` still reaches
+the expected final drain timeout, but now reports
+`replayLiqLaunchCandidateMask=0x1`, `replayLiqLaunchValid=1`,
+`replayLiqLaunchReady=1`, `replayLiqBaseLookupValid=1`,
+`replayLiqBaseLookupGranted=1`, `replayLiqBaseDataReturned=1`,
+`replayLiqBaseLineValidMask=0xff`,
+`replayLiqLaunchReadinessBaseDataReady=1`, and
+`replayLiqLaunchReadinessBlockedByScb=1`. The blocker has moved from launch
+selection/base lookup to replay source-return and SCB readiness; the next
+packet should inspect `LoadReplaySourceReturnReadiness` and row-clear policy
+before changing the idle predicate or promoting early STA by default.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue

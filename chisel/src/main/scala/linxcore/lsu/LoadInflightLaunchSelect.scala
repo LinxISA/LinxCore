@@ -143,7 +143,7 @@ class LoadInflightLaunchSelect(
     unblockedWaitVec(idx) := unblockedWait
     requestCompleteVec(idx) := unblockedWait && requestComplete
     dataHitVec(idx) := unblockedWait && rowDataHit
-    launchCandidateVec(idx) := io.enable && dataHitVec(idx)
+    launchCandidateVec(idx) := io.enable && unblockedWait
   }
 
   val selectedVec = Wire(Vec(liqEntries, Bool()))

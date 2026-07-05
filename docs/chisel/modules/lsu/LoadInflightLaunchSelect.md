@@ -35,7 +35,7 @@ completion-drain path.
 | output | `unblockedWaitMask` | Scalar `Wait` rows with no wait-store block. |
 | output | `requestCompleteMask` | Unblocked rows whose row-owned `validMask` covers every requested load byte. |
 | output | `dataHitMask` | Rows matching the model `dataHit` condition: `l1Hit`, `storeBypass`, or complete requested row-owned bytes. |
-| output | `launchCandidateMask` | `dataHitMask` after `enable` gating. |
+| output | `launchCandidateMask` | Unblocked scalar `Wait` rows after `enable` gating. |
 | output | `launchMask` | One-hot selected oldest candidate. |
 | output | `launchValid`, `launchIndex` | Launch request and selected LIQ slot. |
 | output | `candidateCount` | Number of enabled launch candidates. |
@@ -43,11 +43,11 @@ completion-drain path.
 
 ## Logic Design
 
-The model's scalar L1 pick path selects rows in `LDQ_WAIT` only when:
+The model's scalar L1 pick path selects rows in `LDQ_WAIT` when:
 
 1. the row is not waiting on a store,
 2. the row is not a tile load/store,
-3. `LUEntryInfo::dataHit()` is true, and
+3. the row has a path to obtain data, and
 4. the oldest row by scalar `(BID, LSID)` order wins.
 
 `LUEntryInfo::dataHit()` is `ldqHit || l1Hit || storeBypass`. Chisel does not
@@ -72,11 +72,14 @@ R375 forwards `selectedSourceTraceValid/source0/source1` from the selected row.
 These fields are pass-through provenance from the original RF-read path; the
 selector does not inspect source data when deciding `dataHit` or launch order.
 
-This keeps freshly allocated R279 replay rows resident but not launchable until
-a replay wakeup, refill wakeup, or later LDQ data owner provides the requested
-bytes. It also keeps ordinary initial-load launch policy outside this selector;
-`LoadInflightQueue.launchReady` remains broader because initial loads may use
-external base data rather than row-owned data.
+R483 separates selection from data ownership. A freshly allocated replay row
+that is valid, scalar, in `Wait`, and not wait-store blocked is a launch
+candidate even when `dataHitMask` is still zero. That lets the selected row
+drive the replay base-data lookup that can make data available. `dataHitMask`
+remains a diagnostic for rows that already own requested bytes through
+`l1Hit`, store bypass, or complete row-owned byte state; it is not the
+candidate predicate. This avoids the circular dependency where base lookup
+required `launchValid`, while `launchValid` required pre-existing row data.
 
 Oldest selection uses the same scalar order helper used by store/load
 forwarding sidecars: `STQCommitQueue.lessEqualBidLs(row.bid, row.loadLsId, ...)`.
@@ -85,10 +88,12 @@ tie-breaker.
 
 ## Deferred Owners
 
-- Driving the opt-in replay-LIQ reduced top's `LoadInflightQueue.launchValid`
-  from `LoadInflightLaunchSelect` after launch/new-load arbitration is owned.
-- Supplying `LoadInflightQueue.launchValid/launchIndex` and row-owned E2 base
-  data from the selected replay row.
+- Source-return/SCB readiness for the opt-in replay-LIQ reduced top. R483
+  proves the selected unblocked `Wait` row can issue and complete the base-data
+  lookup, but the enabled early-STA fixture still blocks launch acceptance on
+  `LoadReplayLaunchReadiness` source-return/SCB state.
+- Live replay-row launch acceptance and row lifecycle clear after source-return
+  readiness is owned.
 - Clear-resolved/LHQ/ResolveQ movement after selected rows complete.
 - Ready-table and dependent-consumer wakeup after replay completion.
 - Vector/tile LDQ pick rules.
@@ -102,6 +107,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadInflightLaunchSelect
 ```
 
 Reference tests cover oldest scalar order, suppression of freshly allocated rows
-without requested bytes, store-bypass and refill-hit candidate handling,
-wait-store/tile blocking diagnostics, enable gating, selected destination
-elaboration, and Chisel elaboration.
+without requested bytes only from `dataHitMask`, launch candidacy for unblocked
+fresh rows, store-bypass and refill-hit data-hit diagnostics, wait-store/tile
+blocking diagnostics, enable gating, selected destination elaboration, and
+Chisel elaboration.

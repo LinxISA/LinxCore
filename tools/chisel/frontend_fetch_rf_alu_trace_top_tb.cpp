@@ -2849,6 +2849,62 @@ void drain_empty(VLinxCoreFrontendFetchRfAluTraceTop &dut, const FetchMemoryImag
             << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadScbReturned)
             << " replayLiqHeadStqReturned="
             << static_cast<unsigned>(dut.io_reducedLoadReplayLiqHeadStqReturned)
+            << " replayLiqLaunchWaitMask=0x" << std::hex
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchWaitMask)
+            << " replayLiqLaunchUnblockedWaitMask=0x"
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchUnblockedWaitMask)
+            << " replayLiqLaunchRequestCompleteMask=0x"
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchRequestCompleteMask)
+            << " replayLiqLaunchDataHitMask=0x"
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchDataHitMask)
+            << " replayLiqLaunchCandidateMask=0x"
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchCandidateMask)
+            << " replayLiqLaunchMask=0x"
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchMask)
+            << " replayLiqLaunchValid=" << std::dec
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchValid)
+            << " replayLiqLaunchIndex="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchIndex)
+            << " replayLiqLaunchDriveValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchDriveValid)
+            << " replayLiqLaunchReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReady)
+            << " replayLiqLaunchAccepted="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchAccepted)
+            << " replayLiqLaunchCandidateCount="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchCandidateCount)
+            << " replayLiqLaunchReadinessCandidateValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessCandidateValid)
+            << " replayLiqLaunchReadinessBaseDataReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBaseDataReady)
+            << " replayLiqLaunchReadinessSourcesReturned="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessSourcesReturned)
+            << " replayLiqLaunchReadinessReady="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessReady)
+            << " replayLiqLaunchReadinessEnable="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessEnable)
+            << " replayLiqLaunchReadinessBlockedByDisabled="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBlockedByDisabled)
+            << " replayLiqLaunchReadinessBlockedByNoCandidate="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBlockedByNoCandidate)
+            << " replayLiqLaunchReadinessBlockedByBaseLookup="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBlockedByBaseLookup)
+            << " replayLiqLaunchReadinessBlockedByBaseData="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBlockedByBaseData)
+            << " replayLiqLaunchReadinessBlockedByScb="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBlockedByScb)
+            << " replayLiqLaunchReadinessBlockedByReturn="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqLaunchReadinessBlockedByReturn)
+            << " replayLiqBaseLookupValid="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqBaseLookupValid)
+            << " replayLiqBaseLookupGranted="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqBaseLookupGranted)
+            << " replayLiqBaseDataReturned="
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqBaseDataReturned)
+            << " replayLiqBaseLineValidMask=0x" << std::hex
+            << hex_port(dut.io_reducedLoadReplayLiqBaseLineValidMask)
+            << " replayLiqBaseLookupBlockedByExecute=" << std::dec
+            << static_cast<unsigned>(dut.io_reducedLoadReplayLiqBaseLookupBlockedByExecute)
             << std::dec
             << "\n";
   std::exit(1);

@@ -131,6 +131,9 @@ R476 covered:
   reduced-store commit/drain/STQ state are empty at timeout. R481 identifies
   the resident head as row 0 in `Wait` state with load id 0, RID/load-LSID 2,
   PC `0x1000a`, size 8, and no wait-store, bypass, data-complete, or source
-  return bits. The next owner must explain why that row never launches or
-  clears before changing the idle predicate.
+  return bits. R483 fixes the launch selector's circular data-hit gate: the row
+  now becomes a launch candidate and completes base lookup, but launch
+  acceptance remains blocked by source-return/SCB readiness. The next owner is
+  replay source-return readiness and row lifecycle clear, not STA address
+  execution or the idle predicate.
 - STD/data execution ownership beyond the existing buffered full-store bridge.

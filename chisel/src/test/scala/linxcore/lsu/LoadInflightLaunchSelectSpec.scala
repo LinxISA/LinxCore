@@ -57,7 +57,7 @@ object LoadInflightLaunchSelectReference {
     val dataHit = rows.zip(unblockedWait).zip(requestComplete).map { case ((row, unblocked), complete) =>
       unblocked && (row.l1Hit || row.storeBypass || complete)
     }
-    val candidates = dataHit.map(enable && _)
+    val candidates = unblockedWait.map(enable && _)
     val selectedIndex = rows.indices.find { idx =>
       candidates(idx) && !rows.indices.exists { other =>
         candidates(other) && olderOrTie(rows(other), rows(idx), other, idx)
@@ -129,7 +129,7 @@ class LoadInflightLaunchSelectSpec extends AnyFunSuite {
     assert(result.selectedReturnSignExtend)
   }
 
-  test("fresh allocation without row-owned requested bytes is not launchable") {
+  test("fresh allocation without row-owned requested bytes can request base lookup") {
     val result = select(
       Seq(
         row(bid = 0, lsId = 0, validMask = 0),
@@ -140,11 +140,12 @@ class LoadInflightLaunchSelectSpec extends AnyFunSuite {
     assert(result.waitMask == BigInt(7))
     assert(result.requestCompleteMask == BigInt(4))
     assert(result.dataHitMask == BigInt(4))
-    assert(result.launchIndex == 2)
+    assert(result.launchCandidateMask == BigInt(7))
+    assert(result.launchIndex == 0)
     assert(result.selectedRequestByteMask == bytes(0, 4))
   }
 
-  test("store-bypass and refill hits can be candidates even with sparse valid masks") {
+  test("store-bypass and refill hits remain data-hit diagnostics") {
     val result = select(
       Seq(
         row(bid = 3, lsId = 0, validMask = 0).copy(storeBypass = true),
@@ -153,8 +154,9 @@ class LoadInflightLaunchSelectSpec extends AnyFunSuite {
       enable = true)
 
     assert(result.dataHitMask == BigInt(3))
-    assert(result.launchIndex == 1)
-    assert(result.launchMask == BigInt(2))
+    assert(result.launchCandidateMask == BigInt(7))
+    assert(result.launchIndex == 2)
+    assert(result.launchMask == BigInt(4))
   }
 
   test("wait-store and tile rows are exposed as blocked diagnostics") {
