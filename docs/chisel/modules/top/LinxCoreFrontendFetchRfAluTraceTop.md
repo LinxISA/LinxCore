@@ -937,6 +937,23 @@ ResolveQ residue or store commit/drain/STQ state. The next packet should expose
 or clear the replay-LIQ allocation row lifecycle before changing the idle
 predicate or enabling early STA by default.
 
+R481 extends that final-drain report with the selected resident replay-LIQ row
+identity and lifecycle bits. The enabled early-STA fixture at
+`generated/r481-replay-liq-head-diagnostics-enabled-xcheck` still fails only at
+the expected drain timeout, but now reports `replayLiqHeadValid=1`,
+`replayLiqHeadIndex=0`, `replayLiqHeadStatus=1`,
+`replayLiqHeadLoadId=1/0/0`, `replayLiqHeadBid=1/0/0`,
+`replayLiqHeadGid=1/0/0`, `replayLiqHeadRid=1/0/2`,
+`replayLiqHeadLoadLsId=1/0/2`, `replayLiqHeadPc=0x1000a`,
+`replayLiqHeadAddr=0x0`, `replayLiqHeadSize=8`,
+`replayLiqHeadWaitStore=0`, `replayLiqHeadStoreBypass=0`,
+`replayLiqHeadDataComplete=0`, `replayLiqHeadSourcesReturned=0`,
+`replayLiqHeadScbReturned=0`, and `replayLiqHeadStqReturned=0`. This narrows
+the blocker to a valid row still in the initial `Wait` state with no source
+return progress, not to a resolved row waiting for ResolveQ drain. The next
+packet should explain why the row never launches or clears before modifying
+the idle predicate.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue

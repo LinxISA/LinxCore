@@ -128,7 +128,9 @@ R476 covered:
 - Arbitration between the existing scalar issue RF reads and STA address reads.
 - Replay-LIQ allocation-row lifecycle after early STA. R480 proves the enabled
   early-STA trial leaves `replayLiqResidentCount=1` while ResolveQ and all
-  reduced-store commit/drain/STQ state are empty at timeout; the next owner
-  must expose or clear that resident LIQ row before changing the idle
-  predicate.
+  reduced-store commit/drain/STQ state are empty at timeout. R481 identifies
+  the resident head as row 0 in `Wait` state with load id 0, RID/load-LSID 2,
+  PC `0x1000a`, size 8, and no wait-store, bypass, data-complete, or source
+  return bits. The next owner must explain why that row never launches or
+  clears before changing the idle predicate.
 - STD/data execution ownership beyond the existing buffered full-store bridge.
