@@ -65,6 +65,12 @@ LinxCoreModel handles SCB receive before STQ receive and records `scbRnt` on
 source-return accepted-token owner mark that proof without pretending the row
 received a replay-wakeup byte merge or an E2 forwarding result.
 
+R489 widens the existing `clearResolved` input to accept a completed
+source-returned `Repick` row as well as an explicit `Resolved` row. This
+matches the model return loop where a complete `LDQ_REPICK` entry can call
+`returnData`, become resolved, move through `CheckMovRslvQ`, and reset the
+active LDQ entry without requiring a second wait-row relaunch.
+
 This packet turns the standalone forwarding pipeline into reusable row state
 without taking ownership of full LDQ/LIQ recovery, miss-queue ownership,
 ready-table update, issue wakeup fanout, L2/CHI response queues, or
@@ -199,9 +205,11 @@ can drive this port.
 | `lhqRecordValid` | The E4 outcome resolved as a hit and publishes an LHQ record. |
 | `lhqRecord` | Load ID, row identity including load LSID and PC, line address, byte mask, final line data, and forwarded mask. |
 
-Resolved rows remain resident until `clearResolvedValid` accepts the row. This
-matches the model split where `LDQ_RESOLVED` rows later move into `ResolveQ`
-and the active row is reset.
+Resolved rows remain resident until `clearResolvedValid` accepts the row. R489
+also lets `clearResolvedValid` clear a `Repick` row whose requested bytes are
+complete and whose coarse, SCB, and STQ source-return bits are all set. This
+models the same terminal row lifecycle as `returnData` followed by
+`CheckMovRslvQ`, but keeps the Chisel boundary on the existing clear port.
 
 ### Observability
 
@@ -260,7 +268,9 @@ The C++ model provides the owner split:
    merges the cacheline into cluster data, and returns matching unresolved
    scalar rows to `LDQ_WAIT` with `l1Hit=true`.
 8. `CheckMovRslvQ` later moves `LDQ_RESOLVED` rows into `ResolveQ` and resets
-   the active row.
+   the active row. R489 permits the Chisel clear port to consume an already
+   complete source-returned `Repick` row directly when the top-level replay
+   return path has published the returned load but no E4 relaunch is needed.
 9. Replay-STQ response mutation uses the R415 path to avoid same-cycle
    ambiguity with the current registered row writers before applying the R412
    row-image update.
@@ -313,6 +323,10 @@ The C++ model provides the owner split:
    current row image into the path, computes conflicts against E4,
    clear-resolved, replay wakeup, refill, launch, SCB-return, and allocation
    writers, and writes `nextRow` only when `rowMutationWriteEnable` is true.
+11. `clearResolvedValid` resets either a `Resolved` row or an R489 complete
+    `Repick` row with `dataComplete`, coarse source-return, SCB-return, and
+    STQ-return proofs set and no wait-store blocker. Incomplete or
+    wait-store-blocked `Repick` rows remain resident.
 
 ## Timing
 
@@ -373,7 +387,7 @@ Focused reference tests cover slot-plus-wrap allocation, E4 hit-to-resolved
 transition and LHQ record publication including PC, not-ready store replay, incomplete-data
 miss-pending behavior, source/return-port replay, store-wakeup wait-store
 clear, store-wakeup miss completion, direct SCB-return proof for a `Repick`
-row, resolved-row clearing before wraparound
+row, resolved-row clearing before wraparound, completed-`Repick` row clearing,
 allocation, L1 refill wakeup, row-owned refill-data relaunch, native
 row-mutation writes and blockers, and Chisel elaboration with the child
 `LoadForwardPipeline`, `LoadReplayWakeup`, `LoadRefillWakeup`, and

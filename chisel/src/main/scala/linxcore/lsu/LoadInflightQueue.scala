@@ -425,8 +425,19 @@ class LoadInflightQueue(
   val allocLoadId = currentLoadId
   val allocReady = !io.flush && !rows(allocPtr).valid
   val allocAccepted = io.allocValid && allocReady
+  val clearResolvedRow = rows(io.clearResolvedIndex)
+  val clearResolvedCompleteRepick =
+    clearResolvedRow.valid &&
+      (clearResolvedRow.status === LoadInflightStatus.Repick) &&
+      clearResolvedRow.dataComplete &&
+      clearResolvedRow.sourcesReturned &&
+      clearResolvedRow.scbReturned &&
+      clearResolvedRow.stqReturned &&
+      !clearResolvedRow.waitStore
   val clearResolvedReady =
-    !io.flush && rows(io.clearResolvedIndex).valid && (rows(io.clearResolvedIndex).status === LoadInflightStatus.Resolved)
+    !io.flush &&
+      clearResolvedRow.valid &&
+      ((clearResolvedRow.status === LoadInflightStatus.Resolved) || clearResolvedCompleteRepick)
   val clearResolvedAccepted = io.clearResolvedValid && clearResolvedReady
 
   val e4UpdateValid =

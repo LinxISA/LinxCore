@@ -90,6 +90,11 @@ source-return accepted-token owner a narrow way to record model
 `handleSCBReceive` ordering evidence on a selected `Repick` row without
 driving the broader replay-wakeup byte-merge path.
 
+R489 keeps the same pass-through clear interface but records the widened child
+LIQ contract: `clearResolvedValid` may now clear either an explicit
+`Resolved` row or a complete source-returned `Repick` row selected by the
+parent replay-return lifecycle path.
+
 ## Interface
 
 ### Inputs
@@ -106,7 +111,7 @@ driving the broader replay-wakeup byte-merge path.
 | `e2BaseData` / `e2BaseValidMask` | Baseline line data and valid bytes for relaunches that do not already have row-owned data. R295 top wiring shapes the selected row's scalar sparse-memory response through `LoadReplayBaseDataAlign` while keeping launch disabled; R296 gates those inputs with `LoadLookupArbiter.replayGranted` so execute-returned sparse-memory bytes cannot feed the replay row. R297 routes the same grant-qualified data-return predicate through `LoadReplayLaunchReadiness`. |
 | `e2LoadDataReturned` / `e2ScbReturned` / `e2StqReturned` / `e2ReturnReady` | Source-return and return-slot readiness sidebands consumed by `LoadForwardPipeline`. R418 drives `e2ScbReturned` from `LoadReplaySourceReturnReadiness.scbSourceReturned` and `e2StqReturned` from `storeSourceReturned`. R305 drives `e2ReturnReady` from `LoadReplayReturnReadiness` fed by the consumer-ready, budget, permit, and select split; the reduced top arms the budget but keeps the downstream LRET and mem-wakeup sinks low. |
 | `replayWakeValid` / `replayWake` | Pass-through store-unit/SCB replay wakeup to the child `LoadInflightQueue`. The live reduced top ties this inactive; the generated-RTL wait/replay probe drives it to mark a live target row source-returned before an MDB wait mutation. |
-| `clearResolvedValid` | Pass-through clear request for future tests or consumers that resolve rows. |
+| `clearResolvedValid` | Pass-through clear request for future tests or consumers that resolve rows. Since R489, the child LIQ also accepts a complete source-returned `Repick` row on this path. |
 | `clearResolvedIndex` | LIQ slot for `clearResolvedValid`. |
 | `rowMutationRequestValid` / `rowMutationRequestTargetMask` / `rowMutationRequestTargetIndex` | Source-shaped R410 row-mutation request validity and LIQ target. Current top drives these from `LoadReplaySourceReturnStoreSnapshotPath`, whose live arm remains false. |
 | `rowMutationSetWaitStatus` / `rowMutationKeepRepickStatus` / `rowMutationClearReturnState` | Future status and split-return-state writes for wait-store rewait or continued repick. |
@@ -374,3 +379,6 @@ R487 locks the direct SCB-return proof pass-through at this composition
 boundary. Focused elaboration checks cover `scbReturnValid`, `scbReturnReady`,
 and `scbReturnAccepted` so the top can drive model ordering evidence without
 changing replay-wakeup ownership.
+R489 keeps the same `clearResolved*` pass-through while relying on
+`LoadInflightQueue` to classify complete source-returned `Repick` rows as
+clearable terminal rows.

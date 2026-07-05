@@ -3675,6 +3675,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
+  val reducedReplayLiqHeadCompleteRepickClear =
+    reducedReplayLiqHeadValid &&
+      (reducedReplayLiqHeadRow.status === LoadInflightStatus.Repick) &&
+      reducedReplayLiqHeadRow.dataComplete &&
+      reducedReplayLiqHeadRow.sourcesReturned &&
+      reducedReplayLiqHeadRow.scbReturned &&
+      reducedReplayLiqHeadRow.stqReturned &&
+      !reducedReplayLiqHeadRow.waitStore
+  val reducedReplayLiqExistingClearValid =
+    reducedLoadReplayResolveClearPending || reducedReplayLiqHeadCompleteRepickClear
+  val reducedReplayLiqExistingClearIndex =
+    Mux(reducedLoadReplayResolveClearPending, reducedLoadReplayResolveClearIndex, reducedReplayLiqHeadIndex)
   LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowClearRequestWiring.connect(
     io,
     reducedReplayLiqReturnPipeW2ReplayRowClearRequest,
@@ -3682,8 +3694,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2ReplayRowLifecycleCommitPermit,
     reducedReplayLiqReturnPipeW2ReplayRowLifecycleReady,
     reducedLoadReplayLiqAllocPath,
-    reducedLoadReplayResolveClearPending,
-    reducedLoadReplayResolveClearIndex,
+    reducedReplayLiqExistingClearValid,
+    reducedReplayLiqExistingClearIndex,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )

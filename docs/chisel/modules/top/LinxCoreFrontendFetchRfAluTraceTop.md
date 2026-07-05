@@ -1071,6 +1071,16 @@ The next packet should add the final return/resolve owner for a source-complete
 therefore reports no candidate once the row has already collected all source
 evidence.
 
+R489 closes that source-complete `Repick` row lifecycle through the existing
+LIQ clear boundary. The top detects the resident replay-LIQ head when it is a
+complete source-returned `Repick` row with no wait-store blocker and feeds the
+same `W2ReplayRowClearRequest` existing-clear path used by delayed ResolveQ
+clear feedback. `LoadInflightQueue.clearResolvedReady` now accepts that
+complete `Repick` shape as a terminal row, matching the model sequence
+`returnData` -> `LDQ_RESOLVED` -> `CheckMovRslvQ` reset without adding a
+harness idle exception. The early-STA replay-LIQ fixture now drains cleanly
+with 3 compared QEMU/DUT rows and zero mismatches.
+
 R239 starts the reduced-top LSU/STQ integration boundary. The top now
 instantiates `ReducedStoreExecResultBridge`, which buffers reduced ALU store
 completion sidebands and matches them to `StoreDispatchSTQPath` STA/STD queue
@@ -3661,6 +3671,11 @@ query token is resident, and the response queue holds one head. The remaining
 blocker is SCB/source-return ordering (`replayLiqHeadScbReturned=0`,
 `ResponseDrainBlockedByNoAction=1`), matching the model rule that STQ receive
 does not apply before SCB receive.
+R489 uses the same row-clear request wiring to consume a completed
+source-returned `Repick` head after the replay return has produced the final
+architectural row. The enabled early-STA replay-LIQ gate at
+`generated/r489-replay-liq-complete-repick-clear-enabled-xcheck` passes with
+3 normalized rows compared and zero mismatches.
 
 ## Verification
 
