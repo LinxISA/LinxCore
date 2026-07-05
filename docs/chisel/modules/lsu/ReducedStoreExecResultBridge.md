@@ -104,6 +104,15 @@ The bridge preserves that separation for the reduced top. It only supplies the
 execution-result side of the dispatch queue contract; it does not collapse
 retire/commit/free into ALU completion.
 
+R450 adds an opt-in split-STD delay to this bridge for replay-LIQ stimulus
+experiments. When `stdDelayCycles > 0`, consuming a split STA half arms a
+per-buffered-result counter and suppresses the matching `stdExec.valid` while
+the counter is nonzero. The default value is zero, so ordinary reduced-store
+top behavior remains unchanged. The replay-LIQ emit wrapper can set
+`LINXCORE_REPLAY_LIQ_STD_DELAY_CYCLES` to produce emitted RTL with the delay
+counter present. This hook is stimulus shaping only; it does not by itself
+prove load replay.
+
 ## Deferred Owners
 
 - External store memory mutation after the reduced top accepts stores into
@@ -129,4 +138,18 @@ sbt "testOnly linxcore.lsu.ReducedStoreExecResultBridgeSpec linxcore.top.LinxCor
 
 The tests cover store capture, queue-head mismatch, split-store retention
 after STA consumption, unsplit clearing after STA consumption, overflow
-reporting, bridge elaboration, and top-level diagnostic elaboration.
+reporting, bridge elaboration, and top-level diagnostic elaboration. R450 also
+covers delayed split-STD matching and elaborates the opt-in delayed branch.
+
+R450 live probe:
+
+```bash
+LINXCORE_REPLAY_LIQ_STD_DELAY_CYCLES=4 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r450-std-delay-ldi-sdi-ldi-replay-probe --elf /tmp/linx_r449_ldi_sdi_probe.elf --expected-rows 0 --capture-rows 6 --allow-block-markers --reduced-store-replay-liq --disable-store-memory-mutation --max-seconds 8
+```
+
+That probe emits a delayed replay-LIQ top, passes 4 compared rows with zero
+mismatches, and still records zero resident-store wake, wait-replay, queue,
+LIQ allocation/launch, source-return, and row-mutation counters. The result
+narrows the remaining live-stimulus problem: delaying STD after STA is
+insufficient unless the younger load is driven while the STA-only row is
+resident.

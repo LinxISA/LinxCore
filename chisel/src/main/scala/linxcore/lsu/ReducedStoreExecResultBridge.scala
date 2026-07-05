@@ -76,13 +76,15 @@ class ReducedStoreExecResultBridge(
     val stidWidth: Int = 8,
     val tidWidth: Int = 8,
     val sizeWidth: Int = 4,
-    val simtLaneWidth: Int = 8)
+    val simtLaneWidth: Int = 8,
+    val stdDelayCycles: Int = 0)
     extends Module {
   require(bufferEntries > 1, "reduced store exec bridge needs at least two result entries")
   require((bufferEntries & (bufferEntries - 1)) == 0, "reduced store exec bridge depth must be a power of two")
   require(traceParams.dataWidth >= dataWidth, "commit trace data must hold store data")
   require(traceParams.dataWidth >= addrWidth, "commit trace data must hold store address")
   require(traceParams.robValueWidth >= p.robIndexWidth, "commit trace ROB width must cover ROB ids")
+  require(stdDelayCycles >= 0, "STD delay cycles must be nonnegative")
 
   val io = IO(new ReducedStoreExecResultBridgeIO(
     p,
@@ -167,11 +169,6 @@ class ReducedStoreExecResultBridge(
   val staIndex = PriorityEncoder(staHitVec.asUInt)
   val stdIndex = PriorityEncoder(stdHitVec.asUInt)
 
-  io.staExec := Mux(staHit, execFromEntry(entries(staIndex), io.staQueue), zeroExec)
-  io.stdExec := Mux(stdHit, execFromEntry(entries(stdIndex), io.stdQueue), zeroExec)
-  io.staMatch := staHit
-  io.stdMatch := stdHit
-
   val duplicateVec = VecInit((0 until bufferEntries).map(idx => sameComplete(entries(idx))))
   val duplicateCapture = completeStoreValid && duplicateVec.asUInt.orR
   val clearVec = Wire(Vec(bufferEntries, Bool()))
@@ -181,6 +178,45 @@ class ReducedStoreExecResultBridge(
     val stdClearsSplit = io.stdConsumed && stdHitVec(idx)
     clearVec(idx) := staClearsUnsplit || stdClearsSplit
   }
+
+  io.staExec := Mux(staHit, execFromEntry(entries(staIndex), io.staQueue), zeroExec)
+  val rawStdExec = Mux(stdHit, execFromEntry(entries(stdIndex), io.stdQueue), zeroExec)
+  val stdDelayActiveVec =
+    if (stdDelayCycles > 0) {
+      val width = math.max(1, log2Ceil(stdDelayCycles + 1))
+      val counters = RegInit(VecInit(Seq.fill(bufferEntries)(0.U(width.W))))
+      val activeVec = VecInit((0 until bufferEntries).map(idx => counters(idx) =/= 0.U))
+      val staArmsDelayVec = VecInit((0 until bufferEntries).map(idx =>
+        io.staConsumed && staHitVec(idx) && (io.staQueue.storeType === StoreSplitStoreType.Addr)))
+
+      when(io.flushValid) {
+        for (idx <- 0 until bufferEntries) {
+          counters(idx) := 0.U
+        }
+      }.otherwise {
+        for (idx <- 0 until bufferEntries) {
+          when(clearVec(idx)) {
+            counters(idx) := 0.U
+          }.elsewhen(staArmsDelayVec(idx)) {
+            counters(idx) := stdDelayCycles.U
+          }.elsewhen(counters(idx) =/= 0.U) {
+            counters(idx) := counters(idx) - 1.U
+          }
+        }
+      }
+
+      activeVec
+    } else {
+      VecInit(Seq.fill(bufferEntries)(false.B))
+    }
+  val stdExec = Wire(new StoreDispatchExecResult(addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth, simtLaneWidth))
+  stdExec := rawStdExec
+  when(stdHit && stdDelayActiveVec(stdIndex)) {
+    stdExec.valid := false.B
+  }
+  io.stdExec := stdExec
+  io.staMatch := staHit
+  io.stdMatch := stdHit
 
   val freeVec = VecInit((0 until bufferEntries).map(idx => !entries(idx).valid || clearVec(idx)))
   val freeMask = freeVec.asUInt

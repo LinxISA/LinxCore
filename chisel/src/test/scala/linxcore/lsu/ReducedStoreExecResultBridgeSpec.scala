@@ -16,8 +16,9 @@ object ReducedStoreExecResultBridgeReference {
       captureBlocked: Boolean,
       pending: Vector[Result])
 
-  final class Model(depth: Int) {
+  final class Model(depth: Int, stdDelayCycles: Int = 0) {
     private var pending = Vector.empty[Result]
+    private var stdDelay = Map.empty[Key, Int]
 
     def step(
         complete: Option[Result] = None,
@@ -26,7 +27,9 @@ object ReducedStoreExecResultBridgeReference {
         staConsumed: Boolean = false,
         stdConsumed: Boolean = false): StepResult = {
       val staMatch = staHead.exists(head => pending.exists(_.key == head.key))
-      val stdMatch = stdHead.exists(head => pending.exists(_.key == head.key))
+      val stdMatch = stdHead.exists { head =>
+        pending.exists(_.key == head.key) && stdDelay.getOrElse(head.key, 0) == 0
+      }
       val afterConsume = pending.filterNot { result =>
         val staClears = staConsumed && staHead.exists(head => head.key == result.key && !head.splitHalf)
         val stdClears = stdConsumed && stdHead.exists(_.key == result.key)
@@ -36,6 +39,15 @@ object ReducedStoreExecResultBridgeReference {
       val captureFire = complete.nonEmpty && !duplicate && afterConsume.size < depth
       val captureBlocked = complete.nonEmpty && !duplicate && afterConsume.size >= depth
       pending = if (captureFire) afterConsume :+ complete.get else afterConsume
+      val consumedKeys = pending.map(_.key).toSet
+      val decremented = stdDelay.collect {
+        case (key, remaining) if consumedKeys.contains(key) && remaining > 1 => key -> (remaining - 1)
+      }
+      val staDelayKey =
+        if (stdDelayCycles > 0 && staConsumed)
+          staHead.collect { case Head(key, true) => key }
+        else None
+      stdDelay = staDelayKey.map(key => decremented + (key -> stdDelayCycles)).getOrElse(decremented)
       StepResult(staMatch, stdMatch, captureFire, captureBlocked, pending)
     }
   }
@@ -72,6 +84,28 @@ class ReducedStoreExecResultBridgeSpec extends AnyFunSuite {
     val std = model.step(stdHead = Some(Head(split.key, splitHalf = true)), stdConsumed = true)
     assert(std.stdMatch)
     assert(std.pending.isEmpty)
+  }
+
+  test("reference can delay split-store STD after STA consumption") {
+    val model = new Model(depth = 4, stdDelayCycles = 2)
+    val split = Result(Key(bid = 6, rid = 2), addr = 0x4080, data = 0xfeed, size = 8)
+
+    assert(model.step(complete = Some(split)).captureFire)
+    val sta = model.step(staHead = Some(Head(split.key, splitHalf = true)), staConsumed = true)
+    assert(sta.staMatch)
+    assert(sta.pending.map(_.key) == Vector(split.key))
+
+    val blocked0 = model.step(stdHead = Some(Head(split.key, splitHalf = true)))
+    assert(!blocked0.stdMatch)
+    assert(blocked0.pending.map(_.key) == Vector(split.key))
+
+    val blocked1 = model.step(stdHead = Some(Head(split.key, splitHalf = true)))
+    assert(!blocked1.stdMatch)
+    assert(blocked1.pending.map(_.key) == Vector(split.key))
+
+    val released = model.step(stdHead = Some(Head(split.key, splitHalf = true)), stdConsumed = true)
+    assert(released.stdMatch)
+    assert(released.pending.isEmpty)
   }
 
   test("reference releases an unsplit store after STA consumption") {
@@ -113,5 +147,19 @@ class ReducedStoreExecResultBridgeSpec extends AnyFunSuite {
     assert(sv.contains("io_staMatch"))
     assert(sv.contains("io_stdMatch"))
     assert(sv.contains("io_bufferCount"))
+  }
+
+  test("ReducedStoreExecResultBridge elaborates the opt-in split STD delay path") {
+    val sv = ChiselStage.emitSystemVerilog(
+      new ReducedStoreExecResultBridge(
+        p = InterfaceParams(robEntries = 8),
+        traceParams = CommitTraceParams(commitWidth = 2, robValueWidth = 3),
+        bufferEntries = 4,
+        mapQDepth = 8,
+        stdDelayCycles = 2)
+    )
+
+    assert(sv.contains("module ReducedStoreExecResultBridge"))
+    assert(sv.contains("io_stdExec_valid"))
   }
 }

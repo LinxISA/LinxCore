@@ -133,6 +133,11 @@ probe both showed zero wait/replay activity, and the R449 direct-boot
 zero replay counters. Use `ReducedStoreWaitReplayToLiqPathSpec` as the current
 owner-chain regression, and require a true address-ready/data-late resident
 store timing stimulus before claiming live replay-LIQ promotion.
+R450 shows that simply delaying split STD after STA in the replay-LIQ emitted
+top is not enough: the delayed `LDI`/`SDI`/`LDI` probe still has zero replay
+counters. The next stimulus must directly prove the younger load executes
+while an STA-only row is resident, or add a fixture that drives that exact
+microarchitectural timing.
 
 ## XiangShan Flow Reference
 

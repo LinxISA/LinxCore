@@ -3294,6 +3294,17 @@ wait-replay capture/clear/relaunch, replay-queue, LIQ allocation/launch,
 source-return request/evidence/apply, and row-mutation activity. This fixture
 is a negative live-stimulus proof: it confirms the comparator can accept the
 architectural sequence, not that the reduced top exercised replay-LIQ timing.
+R450 adds an opt-in replay-LIQ emitted-top knob,
+`LINXCORE_REPLAY_LIQ_STD_DELAY_CYCLES`, which delays matching split-STD
+execution after a split STA half has been consumed by
+`ReducedStoreExecResultBridge`. The delayed `LDI`/`SDI`/`LDI` probe at
+`generated/r450-std-delay-ldi-sdi-ldi-replay-probe/report/crosscheck_manifest.json`
+passes with the same 4 compared rows and zero mismatches, and its stats still
+show zero wait/replay and LIQ activity except
+`source_return_store_snapshot_ready: 49`. This proves the delay hook emitted
+and the architectural comparator still passes; it also shows that STD delay
+alone does not force the younger load to execute while the STA-only row is
+resident.
 
 ## Verification
 
@@ -3301,6 +3312,7 @@ architectural sequence, not that the reduced top exercised replay-LIQ timing.
 - `bash tools/chisel/run_chisel_tests.sh --only F4DenseSlotQueue`
 - `bash tools/chisel/run_chisel_tests.sh --only F4DecodeWindow`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
+- `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreExecResultBridge`
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedStoreWaitReplayToLiqPath`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`

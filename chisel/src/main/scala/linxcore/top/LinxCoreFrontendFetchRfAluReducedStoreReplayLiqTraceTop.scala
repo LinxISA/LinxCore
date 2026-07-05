@@ -12,7 +12,8 @@ class LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
     mapQDepth: Int = 32,
     gprMapQDepth: Int = 32,
     archRegs: Int = 24,
-    physRegs: Int = 64)
+    physRegs: Int = 64,
+    reducedStoreStdExecDelayCycles: Int = 0)
     extends LinxCoreFrontendFetchRfAluTraceTop(
       coreParams = coreParams,
       decRenQueueDepth = decRenQueueDepth,
@@ -25,15 +26,27 @@ class LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
       archRegs = archRegs,
       physRegs = physRegs,
       useReducedStoreDispatchStq = true,
-      useReducedLoadReplayLiqAlloc = true)
+      useReducedLoadReplayLiqAlloc = true,
+      reducedStoreStdExecDelayCycles = reducedStoreStdExecDelayCycles)
 
 object EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop extends App {
+  private def envInt(name: String): Int =
+    sys.env.get(name).filter(_.nonEmpty).map { value =>
+      value.toIntOption.getOrElse {
+        throw new IllegalArgumentException(s"$name must be a nonnegative integer, got '$value'")
+      }
+    }.getOrElse(0)
+
+  private val stdDelayCycles = envInt("LINXCORE_REPLAY_LIQ_STD_DELAY_CYCLES")
+  require(stdDelayCycles >= 0, "LINXCORE_REPLAY_LIQ_STD_DELAY_CYCLES must be nonnegative")
+
   circt.stage.ChiselStage.emitSystemVerilogFile(
     new LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
       CoreParams(robEntries = 8, commitWidth = 2),
       mapQDepth = 32,
       gprMapQDepth = 256,
-      physRegs = 128),
+      physRegs = 128,
+      reducedStoreStdExecDelayCycles = stdDelayCycles),
     args = Array("--target-dir", "../generated/chisel-verilog/frontend-fetch-rf-alu-reduced-store-replay-liq-trace-top"),
     firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
   )

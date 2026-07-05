@@ -1675,9 +1675,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val skipBlockMarkers: Boolean = true,
     val useMarkerDecodeContext: Boolean = false,
     val useReducedStoreDispatchStq: Boolean = false,
-    val useReducedLoadReplayLiqAlloc: Boolean = false)
+    val useReducedLoadReplayLiqAlloc: Boolean = false,
+    val reducedStoreStdExecDelayCycles: Int = 0)
     extends Module {
   require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
+  require(reducedStoreStdExecDelayCycles >= 0, "reduced store STD execution delay cycles must be nonnegative")
   private val reducedStoreMemoryLineEntries = 64
   private val reducedLoadReplayRelaunchQueueDepth = 2
   private val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(
@@ -1732,7 +1734,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     mapQDepth = mapQDepth,
     peIdWidth = p.peIdWidth,
     stidWidth = p.threadIdWidth,
-    tidWidth = p.threadIdWidth
+    tidWidth = p.threadIdWidth,
+    stdDelayCycles = reducedStoreStdExecDelayCycles
   ))
   val storeCommitOwner = Module(new ReducedStoreCommitFreeOwner(
     entries = p.robEntries,
