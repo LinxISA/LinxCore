@@ -1216,9 +1216,11 @@ Closeout:
    and proves the loop fixture's QEMU/reducer shape without compiling the
    generated top: 12 raw QEMU rows reduce to 10 preview rows with load PCs
    `0x10002,0x1000a,0x10002,0x1000a` and store PCs
-   `0x10006,0x10006`. Use that fixture before claiming positive MDB wait-plan
-   publication, but do not treat `--qemu-only` as DUT equivalence evidence.
-   Focused gates should include
+   `0x10006,0x10006`. R501 adds `--expect-load-pcs` and
+   `--expect-store-pcs` so the same fixture-shape gate can assert those
+   sequences directly in the wrapper. Use that fixture before claiming
+   positive MDB wait-plan publication, but do not treat `--qemu-only` as DUT
+   equivalence evidence. Focused gates should include
    `ReducedStoreResidentForwardSpec`, `LoadForwardPipelineSpec`,
    `LoadInflightQueueSpec`, `LoadReplayWakeupSpec`,
    `MDBConflictDetectSpec`, and `LinxCoreFrontendFetchRfAluTraceTopSpec`

@@ -251,6 +251,8 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --build-dir generated/r500-replay-loop-qemu-only \
   --fixture replay-ldi-sdi-ldi-loop \
   --qemu-only \
+  --expect-load-pcs 0x10002,0x1000a,0x10002,0x1000a \
+  --expect-store-pcs 0x10006,0x10006 \
   --max-seconds 8
 ```
 
@@ -264,6 +266,11 @@ work: load PCs `0x10002,0x1000a,0x10002,0x1000a`, store PCs
 `0x10006,0x10006`, with legal skip rows
 `0x10000->0x10002`, `0x1000e->0x10014`, `0x10014->0x10000`, and
 `0x10000->0x10002`.
+
+R501 makes the replay-loop stimulus proof self-checking by adding
+`--expect-load-pcs` and `--expect-store-pcs` to the same wrapper. These
+options compare the reduced preview's exact memory PC sequence before any
+optional RTL run and print the observed load/store PC lists on success.
 
 Full compare gate, once a Chisel commit trace exists:
 

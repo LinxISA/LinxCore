@@ -23,6 +23,8 @@ REDUCED_STORE_DISPATCH_STQ=0
 REDUCED_STORE_REPLAY_LIQ=0
 DISABLE_STORE_MEMORY_MUTATION=0
 QEMU_ONLY=0
+EXPECT_LOAD_PCS=""
+EXPECT_STORE_PCS=""
 
 usage() {
   cat <<USAGE
@@ -61,6 +63,11 @@ Options:
   --qemu-only             Stop after QEMU capture and reduced-row preview; this
                           validates fixture/reducer shape only and does not
                           build or run generated RTL
+  --expect-load-pcs <csv> Require the reduced preview's load PC sequence to
+                          equal a comma-separated hex/decimal list
+  --expect-store-pcs <csv>
+                          Require the reduced preview's store PC sequence to
+                          equal a comma-separated hex/decimal list
 
 This wrapper captures a bounded QEMU commit JSONL prefix from a direct-boot ELF,
 validates that the selected rows are inside the current reduced scalar
@@ -88,6 +95,8 @@ lookup evidence can be collected after the first pass records the dependency.
 With --qemu-only, the wrapper still builds any requested fixture, captures the
 bounded QEMU prefix, and runs the reduced-row extractor, then exits before the
 Verilator harness. Do not use that mode as QEMU/DUT equivalence evidence.
+With --expect-load-pcs or --expect-store-pcs, the wrapper asserts the exact
+memory PC sequence in the reduced preview before any optional RTL run.
 USAGE
 }
 
@@ -112,6 +121,8 @@ while [[ $# -gt 0 ]]; do
     --reduced-store-replay-liq) REDUCED_STORE_REPLAY_LIQ=1; shift ;;
     --disable-store-memory-mutation) DISABLE_STORE_MEMORY_MUTATION=1; shift ;;
     --qemu-only) QEMU_ONLY=1; shift ;;
+    --expect-load-pcs) EXPECT_LOAD_PCS="$2"; shift 2 ;;
+    --expect-store-pcs) EXPECT_STORE_PCS="$2"; shift 2 ;;
     --)
       shift
       QEMU_ARGS=("$@")
@@ -397,6 +408,64 @@ if [[ "${ALLOW_BLOCK_LOOP_REENTRY}" == "1" ]]; then
   row_args+=(--allow-block-loop-reentry)
 fi
 python3 "${ROOT_DIR}/tools/chisel/frontend_fetch_rf_alu_qemu_rows.py" "${row_args[@]}"
+
+if [[ -n "${EXPECT_LOAD_PCS}" || -n "${EXPECT_STORE_PCS}" ]]; then
+  python3 - "${EXPECTED_PREVIEW}" "${EXPECT_LOAD_PCS}" "${EXPECT_STORE_PCS}" <<'PY'
+import json
+import sys
+
+preview, expected_loads_s, expected_stores_s = sys.argv[1:4]
+
+
+def parse_pc_list(text):
+    if not text:
+        return []
+    out = []
+    for item in text.split(","):
+        item = item.strip()
+        if item:
+            out.append(int(item, 0))
+    return out
+
+
+expected_loads = parse_pc_list(expected_loads_s)
+expected_stores = parse_pc_list(expected_stores_s)
+loads = []
+stores = []
+with open(preview, "r", encoding="utf-8") as f:
+    for line in f:
+        row = json.loads(line)
+        if row.get("mem_valid") != 1:
+            continue
+        pc = int(row.get("pc", 0))
+        if row.get("mem_is_store") == 1:
+            stores.append(pc)
+        else:
+            loads.append(pc)
+
+if expected_loads_s and loads != expected_loads:
+    print(
+        "error: reduced preview load PCs {observed} did not match expected {expected}".format(
+            observed=",".join(hex(pc) for pc in loads),
+            expected=",".join(hex(pc) for pc in expected_loads),
+        ),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+if expected_stores_s and stores != expected_stores:
+    print(
+        "error: reduced preview store PCs {observed} did not match expected {expected}".format(
+            observed=",".join(hex(pc) for pc in stores),
+            expected=",".join(hex(pc) for pc in expected_stores),
+        ),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+print("qemu-live-load-pcs=" + ",".join(hex(pc) for pc in loads))
+print("qemu-live-store-pcs=" + ",".join(hex(pc) for pc in stores))
+PY
+fi
 
 if [[ "${QEMU_ONLY}" == "1" ]]; then
   echo "frontend-fetch-rf-alu-qemu-elf-status=qemu-only raw_rows=${raw_rows}"
