@@ -2160,39 +2160,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       traceParams = traceParams
     ))
   val reducedReplayLiqReturnPipeW2CommitRowCandidate =
-    Module(new LoadReplayReturnPipeW2CommitRowCandidate(
-      idEntries = p.robEntries,
-      sizeWidth = p.memSizeWidth,
-      archRegWidth = p.archRegWidth,
-      physRegWidth = p.physRegWidth,
-      traceParams = traceParams
-    ))
+    LinxCoreFrontendFetchRfAluTraceTopW2CommitRowCandidateModule.create(p, traceParams)
   val reducedReplayLiqReturnPipeW2CommitRowTraceSource =
     Module(new LoadReplayReturnPipeW2CommitRowTraceSource(traceParams = traceParams))
   val reducedReplayLiqReturnPipeW2ReplayRowLifecycleReady =
-    Module(new LoadReplayReturnPipeW2ReplayRowLifecycleReady(
-      liqEntries = p.robEntries,
-      idEntries = p.robEntries,
-      storeEntries = p.robEntries,
-      addrWidth = p.immWidth,
-      pcWidth = p.pcWidth,
-      lineBytes = 64,
-      sizeWidth = p.memSizeWidth,
-      archRegWidth = p.archRegWidth,
-      physRegWidth = p.physRegWidth
-    ))
+    LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowLifecycleReadyModule.create(p)
   val reducedReplayLiqReturnPipeW2RetireRecordLifecycleReady =
-    Module(new LoadReplayReturnPipeW2ReplayRowLifecycleReady(
-      liqEntries = p.robEntries,
-      idEntries = p.robEntries,
-      storeEntries = p.robEntries,
-      addrWidth = p.immWidth,
-      pcWidth = p.pcWidth,
-      lineBytes = 64,
-      sizeWidth = p.memSizeWidth,
-      archRegWidth = p.archRegWidth,
-      physRegWidth = p.physRegWidth
-    ))
+    LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowLifecycleReadyModule.create(p)
   val reducedReplayLiqReturnPipeW2ReplayRowLifecycleRequestControl =
     Module(new LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl)
   val reducedReplayLiqReturnPipeW2ReplayRowLifecycleCommitPermit =
@@ -8466,6 +8440,34 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowLifecycleCommitPermi
     io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitInvalidRowFillWithoutSelection :=
       permit.io.invalidRowFillWithoutSelection
   }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowLifecycleReadyModule {
+  def create(p: InterfaceParams): LoadReplayReturnPipeW2ReplayRowLifecycleReady =
+    Module(new LoadReplayReturnPipeW2ReplayRowLifecycleReady(
+      liqEntries = p.robEntries,
+      idEntries = p.robEntries,
+      storeEntries = p.robEntries,
+      addrWidth = p.immWidth,
+      pcWidth = p.pcWidth,
+      lineBytes = 64,
+      sizeWidth = p.memSizeWidth,
+      archRegWidth = p.archRegWidth,
+      physRegWidth = p.physRegWidth
+    ))
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2CommitRowCandidateModule {
+  def create(
+      p: InterfaceParams,
+      traceParams: CommitTraceParams): LoadReplayReturnPipeW2CommitRowCandidate =
+    Module(new LoadReplayReturnPipeW2CommitRowCandidate(
+      idEntries = p.robEntries,
+      sizeWidth = p.memSizeWidth,
+      archRegWidth = p.archRegWidth,
+      physRegWidth = p.physRegWidth,
+      traceParams = traceParams
+    ))
 }
 
 private object LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowClearRequestWiring {

@@ -83,6 +83,17 @@ retire-record lifecycle result into the existing request/commit/clear owners
 without bypassing atomic side-effect, ROB resolve, row-fill, or LIQ-clear
 ordering.
 
+R580 adds `LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe` as a
+standalone LSU module to name that next request/commit prerequisite check:
+retained record valid, unique lifecycle row, atomic request active, row-fill
+candidate valid, and row-fill enable. Focused tests pass, but top integration
+is deferred because adding the probe to
+`LinxCoreFrontendFetchRfAluTraceTop` pushed the already-large top constructor
+over the JVM method-size limit. R580 keeps a mechanical constructor split for
+the repeated W2 lifecycle and commit-row candidate module constructors; the
+next packet should split the generated top further before exposing new
+sideband or running a generated RTL/QEMU xcheck for the probe.
+
 ## Current Baseline
 
 Record these SHAs at the start of each agent packet and refresh them if the

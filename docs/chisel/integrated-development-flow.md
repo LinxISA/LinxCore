@@ -437,6 +437,14 @@ CBSTOP rows. Sideband schema v30 records
 `w2_retire_record_lifecycle_row_clear_ready=3`,
 `w2_retire_record_lifecycle_blocked_by_no_resolved_row=0`, and
 `w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`.
+R580 adds the standalone
+`LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe` to define the next
+retained-record promotion predicate before live LIQ mutation: retained record
+valid, unique lifecycle row, atomic request active, row-fill candidate valid,
+and row-fill enable. The packet also records a top-maintenance blocker: direct
+integration of the probe into `LinxCoreFrontendFetchRfAluTraceTop` pushed the
+already-large top constructor over the JVM method-size limit, so top sideband
+exposure must wait for a deliberate constructor/wiring split.
 
 Use this packet shape first:
 
