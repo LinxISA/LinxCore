@@ -37,6 +37,19 @@ The current Chisel top still ties `publishFire` low through
 `LoadReplayReturnPublishControl.liveEnable`. Therefore every request output in
 the integrated reduced replay-LIQ wrapper remains false. This module is only a
 diagnostic owner for the future side-effect fanout shape.
+R540 adds harness-only sideband counters for this request boundary:
+`publish_request_valid`, `publish_request_lret`, `publish_request_writeback`,
+`publish_request_wakeup`, `publish_request_mask_nonzero`,
+`publish_request_blocked_by_no_fire`, and
+`publish_request_invalid_fire_without_payload`. These counters are used with
+the publish-control and LRET-payload counters to prove whether the LRET FIFO
+stays empty because no payload is valid or because a valid payload is blocked
+at the live fire/request fanout point.
+The R540 replay-loop probe observed all request counters at zero, including
+`publish_request_valid=0`, `publish_request_lret=0`, `publish_request_writeback=0`,
+`publish_request_wakeup=0`, and `publish_request_invalid_fire_without_payload=0`.
+This is expected for the current blocker because `lret_payload_valid=0` and
+`publish_control_fire=0`.
 
 ## Interface
 

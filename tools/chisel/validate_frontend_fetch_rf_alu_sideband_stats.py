@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v14"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v15"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -92,6 +92,32 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "source_row_mutation_request_valid",
     "source_row_mutation_blocked_by_head_proof",
     "source_row_mutation_blocked_by_live_disabled",
+    "return_publish_candidate_valid",
+    "return_publish_data_ready",
+    "return_publish_ready",
+    "return_publish_blocked_by_no_candidate",
+    "return_publish_blocked_by_data",
+    "return_publish_blocked_by_consumer",
+    "lret_payload_candidate_valid",
+    "lret_payload_valid",
+    "lret_payload_wakeup_required",
+    "lret_payload_blocked_by_no_candidate",
+    "lret_payload_blocked_by_data",
+    "publish_control_candidate_valid",
+    "publish_control_live_enable",
+    "publish_control_armed",
+    "publish_control_fire",
+    "publish_control_blocked_by_no_payload",
+    "publish_control_blocked_by_publish",
+    "publish_control_blocked_by_side_effects",
+    "publish_control_blocked_by_live_disabled",
+    "publish_request_valid",
+    "publish_request_lret",
+    "publish_request_writeback",
+    "publish_request_wakeup",
+    "publish_request_mask_nonzero",
+    "publish_request_blocked_by_no_fire",
+    "publish_request_invalid_fire_without_payload",
     "lret_sink_enqueue_ready",
     "lret_sink_enqueue_accepted",
     "lret_sink_enqueue_dropped",

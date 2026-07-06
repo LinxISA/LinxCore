@@ -1420,6 +1420,16 @@ CBSTOP rows. The v12 report records `w2_atomic_live_active=108`,
 `w2_atomic_blocked_by_no_evidence=108`, and zero side-effect, clear,
 row-fill, lifecycle, request-active, and request-evidence counters, so the next
 owner is still W2 slot/request-evidence production.
+R540 extends the Verilator sideband stats schema to v15 using existing
+replay-return publish, payload, control, and request top outputs. The
+`replay-ldi-sdi-ldi-loop` probe passes the QEMU/DUT comparator with 9 compared
+rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. The v15 report records
+`return_publish_candidate_valid=4`, `return_publish_data_ready=0`,
+`lret_payload_candidate_valid=4`, `lret_payload_valid=0`,
+`publish_control_fire=0`, `publish_request_lret=0`, and
+`lret_sink_enqueue_ready=108`. This proves the current empty LRET FIFO is not a
+consumer/FIFO capacity issue; the replay-return path lacks complete scalar
+return data before payload and publish control.
 R384 extends the same replay-LIQ namespace with
 `LoadReplayReturnPipeResidencyLiveControl`. The reduced top now feeds
 `LoadReplayReturnPipeResidencyCandidate.liveEnable` from an accepted-insert and
@@ -2715,6 +2725,11 @@ The R539 loop fixture records `lret_sink_enqueue_ready=108`,
 `lret_iex_insert_candidate_valid=0`. This classifies the live blocker as
 missing LRET publication/payload request before the FIFO, not a later IEX
 drain or insert-copy failure.
+R540 extends the same harness-only sideband report to schema v15 with
+`return_publish_*`, `lret_payload_*`, `publish_control_*`, and
+`publish_request_*` counters sampled from existing top outputs. This classifies
+the pre-FIFO publication point before changing live publication, request
+fanout, LRET enqueue, or W-stage policy.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

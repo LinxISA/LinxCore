@@ -39,6 +39,17 @@ of a top-local false constant. The current top ties that owner's
 `liveRequested` input low. Therefore `publishFire` is still always false in
 the reduced replay-LIQ wrapper, even when R378 feeds real LRET sink capacity
 into the side-effect readiness join.
+R540 keeps this path diagnostic-only and extends the generated-RTL sideband
+schema with harness-sampled publish-ready, LRET-payload, publish-control, and
+publish-request counters. The counters classify whether missing LRET FIFO
+enqueue is caused by absent return-data payload, consumer readiness,
+side-effect readiness, the live fire gate, or request fanout.
+The R540 replay-loop probe observed `publish_control_candidate_valid=0`,
+`publish_control_armed=0`, `publish_control_fire=0`, and
+`publish_control_blocked_by_no_payload=109`; combined with
+`return_publish_candidate_valid=4` and `return_publish_data_ready=0`, this keeps
+the live fire gate out of the current blocker and points to absent return data
+before publish control.
 
 ## Interface
 

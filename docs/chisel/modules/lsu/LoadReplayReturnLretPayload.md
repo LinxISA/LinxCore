@@ -51,6 +51,16 @@ R376 carries the RF-derived `CommitOperandTrace` pair from the selected
 replay-LIQ launch row into this LRET payload. The sideband is copied only when
 `payloadValid` is true, so blocked or invalid return-data cycles expose a
 disabled source trace instead of stale launch operands.
+R540 adds harness-only generated-RTL sideband counters for
+`lret_payload_candidate_valid`, `lret_payload_valid`,
+`lret_payload_wakeup_required`, `lret_payload_blocked_by_no_candidate`, and
+`lret_payload_blocked_by_data`. These counters decide whether the empty LRET
+FIFO seen in R539 is caused by this payload formatter never seeing a selected
+return candidate or by selected rows lacking complete scalar return data.
+The R540 replay-loop probe observed `lret_payload_candidate_valid=4`,
+`lret_payload_valid=0`, `lret_payload_blocked_by_data=4`, and
+`lret_payload_blocked_by_no_candidate=105`, proving the formatter sees selected
+return candidates but has no complete scalar return data to publish.
 
 ## Interface
 
