@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v23"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v24"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -72,6 +72,7 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "liq_return_complete_mask_nonzero",
     "liq_return_complete_valid",
     "liq_return_complete_candidate_count_nonzero",
+    "liq_return_complete_valid_w2_occupied",
     "liq_base_lookup_valid",
     "liq_base_lookup_granted",
     "liq_base_data_returned",
@@ -123,11 +124,16 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "source_return_query_issued",
     "source_return_response_apply_valid",
     "source_return_row_state_plan_valid",
+    "source_return_candidate_w2_occupied",
+    "source_return_store_snapshot_ready_w2_occupied",
+    "source_return_query_issued_w2_occupied",
+    "source_return_response_apply_w2_occupied",
     "source_row_mutation_candidate_valid",
     "source_row_mutation_live_permit",
     "source_row_mutation_request_valid",
     "source_row_mutation_blocked_by_head_proof",
     "source_row_mutation_blocked_by_live_disabled",
+    "source_row_mutation_request_w2_occupied",
     "return_data_candidate_valid",
     "return_data_request_mask_nonzero",
     "return_data_bytes_complete",
@@ -146,11 +152,15 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "return_publish_blocked_by_no_candidate",
     "return_publish_blocked_by_data",
     "return_publish_blocked_by_consumer",
+    "return_publish_candidate_w2_occupied",
+    "return_publish_ready_w2_occupied",
     "lret_payload_candidate_valid",
     "lret_payload_valid",
     "lret_payload_wakeup_required",
     "lret_payload_blocked_by_no_candidate",
     "lret_payload_blocked_by_data",
+    "lret_payload_candidate_w2_occupied",
+    "lret_payload_valid_w2_occupied",
     "publish_control_candidate_valid",
     "publish_control_live_enable",
     "publish_control_armed",
@@ -176,6 +186,9 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "lret_sink_blocked_by_no_payload",
     "lret_sink_blocked_by_full",
     "lret_sink_blocked_by_drain",
+    "lret_sink_pending_w2_occupied",
+    "lret_sink_drain_valid_w2_occupied",
+    "lret_sink_drain_fire_w2_occupied",
     "lret_commit_history_load_rows",
     "lret_shadow_enqueue",
     "lret_shadow_enqueue_after_prior_commit",

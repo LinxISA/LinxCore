@@ -288,8 +288,28 @@ restored replay progress (`wait_replay_capture_accepted=12`,
 `lret_w2_slot_accepted=6`) and held W2 resident
 (`lret_w2_slot_occupied=77`), but every new upstream-overlap bucket remained
 zero: no IEX insert candidate, residency candidate, or W1 advance candidate was
-present while W2 was occupied. The next owner must therefore create upstream
-returned-load overlap before changing W2 slot storage.
+present while W2 was occupied.
+R571 keeps RTL behavior unchanged and moves the sideband one stage further
+upstream with schema v24 buckets for LIQ return-complete, source-return,
+row-mutation, return-publish, LRET payload, and LRET sink activity while W2 is
+occupied. The same early-STA delay-12 gate,
+`generated/r571-replay-source-w2-overlap-xcheck`, passes with
+`compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT CBSTOP rows. It proves
+source-side return activity does overlap occupied W2:
+`liq_return_complete_valid_w2_occupied=3`,
+`source_return_candidate_w2_occupied=4`,
+`source_return_query_issued_w2_occupied=4`,
+`source_return_response_apply_w2_occupied=4`,
+`source_row_mutation_request_w2_occupied=4`,
+`return_publish_candidate_w2_occupied=7`,
+`return_publish_ready_w2_occupied=3`, and
+`lret_payload_valid_w2_occupied=3`. The gap is now downstream of LRET payload
+formation: `lret_sink_pending_w2_occupied=0`,
+`lret_sink_drain_valid_w2_occupied=0`, and
+`lret_sink_drain_fire_w2_occupied=0`. The next owner must therefore make
+publish-to-LRET-sink admission and LRET drain/IEX-pipe capacity live enough to
+hold a younger returned payload while W2 is occupied before changing W2 slot
+storage.
 
 Use this packet shape first:
 
@@ -313,22 +333,25 @@ Promotion gate: R557 replay-loop fixture, R558
   `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561/R562/R563/R564/R565
   phase-distance, identity, and different-LSID near-miss sideband, or a stronger
   multiple-return-load phasing fixture through
-  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v23 sideband
-  inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
-  W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
-  policy blocks, nonzero ROB instruction metadata evidence, nonzero row-fill
-  candidate evidence, valid lifecycle slot identity, nonzero lifecycle
-  resolved-row match, nonzero row-fill enable, nonzero W2 promotion/live-clear
-  and refill/advance counters, nonzero `live_clear_without_w1_candidate` in
-  the old/R558/R559/R560 fixtures, and nonzero same-cycle slot replacement
-  evidence in a stronger fixture before changing W2 storage; if overlap is
-  zero, inspect the R563 identity buckets and R564 different-LSID buckets before
-  treating phase gaps as replacement stimulus; R565 extends that negative check
-  back to the repeated dependency-chain fixture, R566 extends it to the
-  clustered second-dependency fixture, R569 shows W2 delay-4/delay-12
-  residency alone does not make a younger W1 candidate resident, and R570 shows
-  no IEX/residency/W1 upstream overlap while W2 is occupied even under delay 12
-  plus early STA
+  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v24 sideband
+  inspection requiring nonzero source-return and LRET-payload overlap while W2
+  is occupied, then nonzero LRET sink pending/drain and IEX insert/residency/W1
+  evidence before changing W2 storage; keep the existing W2 slot source trace,
+  W2 policy blocker split, zero clear-commit policy blocks, nonzero ROB
+  instruction metadata evidence, nonzero row-fill candidate evidence, valid
+  lifecycle slot identity, nonzero lifecycle resolved-row match, nonzero
+  row-fill enable, nonzero W2 promotion/live-clear and refill/advance counters,
+  nonzero `live_clear_without_w1_candidate` in the old/R558/R559/R560 fixtures,
+  and nonzero same-cycle slot replacement evidence in a stronger fixture before
+  changing W2 storage; if overlap is zero, inspect the R563 identity buckets and
+  R564 different-LSID buckets before treating phase gaps as replacement
+  stimulus; R565 extends that negative check back to the repeated
+  dependency-chain fixture, R566 extends it to the clustered second-dependency
+  fixture, R569 shows W2 delay-4/delay-12 residency alone does not make a
+  younger W1 candidate resident, R570 shows no IEX/residency/W1 upstream overlap
+  while W2 is occupied even under delay 12 plus early STA, and R571 narrows the
+  current gap to the publish-to-LRET-sink / LRET-drain / IEX-pipe-capacity
+  boundary
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
@@ -336,9 +359,10 @@ Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
   policy, or replay-LIQ lifecycle ownership before same-cycle replacement
   evidence exists
 First-divergence owner if the gate fails: fixture/stimulus until the sideband
-  report proves a younger W1 candidate exists while W2 is occupied and live
-  clear fires; based on R569, look upstream of W1 advance before changing W2
-  storage or W1/W2 advance ordering
+  report proves LRET sink pending/drain and then a younger W1 candidate exists
+  while W2 is occupied and live clear fires; based on R571, start at
+  publish-to-LRET-sink admission and LRET drain/IEX-pipe capacity before
+  changing W2 storage or W1/W2 advance ordering
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```

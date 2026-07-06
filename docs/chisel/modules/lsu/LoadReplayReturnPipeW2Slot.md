@@ -195,6 +195,16 @@ zero (`lret_iex_insert_candidate_w2_occupied=0`,
 `lret_residency_candidate_w2_occupied=0`,
 `lret_w1_advance_candidate_w2_occupied=0`). W2 storage replacement remains
 blocked on upstream returned-load overlap evidence.
+R571 keeps W2 slot RTL unchanged again and extends the sideband schema to v24
+with source-return, return-publish, LRET payload, and LRET sink overlap buckets.
+The same early-STA delay-12 gate proves source-side overlap while W2 is occupied
+(`source_return_candidate_w2_occupied=4`,
+`return_publish_ready_w2_occupied=3`,
+`lret_payload_valid_w2_occupied=3`), but the LRET sink still has no resident or
+draining entry during occupied W2 (`lret_sink_pending_w2_occupied=0`,
+`lret_sink_drain_fire_w2_occupied=0`). W2 storage replacement remains blocked;
+the next owner is publish-to-LRET-sink admission and LRET drain/IEX-pipe
+capacity.
 
 ## Deferred Owners
 

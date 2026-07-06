@@ -46,6 +46,17 @@ from the LRET payload. The FIFO stores and drains these fields as ordinary
 payload state; flush and reset use the bundle zero image so stale source
 operands cannot survive an invalid entry.
 
+R571 adds harness-only schema v24 counters around W2 occupancy and narrows the
+next live owner to this sink boundary. The early-STA delay-12 replay-LIQ gate
+records upstream source and payload overlap while W2 is occupied
+(`source_return_candidate_w2_occupied=4`,
+`return_publish_ready_w2_occupied=3`,
+`lret_payload_valid_w2_occupied=3`), but this sink is not resident or draining in
+that window (`lret_sink_pending_w2_occupied=0`,
+`lret_sink_drain_fire_w2_occupied=0`). Future implementation should first make
+publish-to-LRET-sink enqueue and IEX drain capacity observable under the passing
+fixture before promoting W2 slot replacement.
+
 ## Interface
 
 | Direction | Signal | Description |
@@ -111,6 +122,8 @@ ready-table update, issue wakeup, and replay-row lifecycle owners exist.
 
 - Live LRET enqueue fire from replay-return publication.
 - Real IEX return-pipe free-capacity input and `IEX::setMemData` mutation.
+- Generated-RTL/QEMU proof that LRET sink pending/drain overlaps occupied W2
+  before W2 slot storage replacement is promoted.
 - Feeding accepted LRET enqueue back into replay-row clear/return lifecycle.
 - Multi-pipe LRET queue fanout and arbitration.
 - Ready-table and issue-wakeup side effects after LRET enqueue.

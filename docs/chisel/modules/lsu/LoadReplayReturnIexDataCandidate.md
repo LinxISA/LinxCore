@@ -52,6 +52,13 @@ R376 also copies the LRET entry source-trace pair into the admitted
 `setMemData` diagnostic payload. The source sideband is valid only when
 `setMemDataValid` is true, matching the identity/data copy guard.
 
+R571's generated-RTL/QEMU sideband v24 evidence shows that source-return and
+LRET-payload formation can overlap occupied W2, but the LRET sink has no pending
+or drain-fire overlap in that same window. Treat this module's next proof as a
+post-LRET-sink step: first make the sink hold and drain a younger return while
+W2 is occupied, then require nonzero `setMemData` / IEX insert overlap before
+changing W2 slot storage.
+
 ## Interface
 
 | Direction | Signal | Description |
@@ -110,6 +117,8 @@ module side-effect-free and keeps FIFO drain disabled.
 ## Deferred Owners
 
 - Driving the LRET sink's real `drainReady`.
+- Proving nonzero LRET sink drain and `setMemData` overlap with occupied W2 in a
+  passing generated-RTL/QEMU fixture.
 - `IEX::setMemData` data resolution into ROB instruction destinations.
 - Scalar load-pair lane completion and vector/MEM_IEX `realReqCnt` accounting.
 - TLOAD tile-SCB side effects and load-branch resolve.
