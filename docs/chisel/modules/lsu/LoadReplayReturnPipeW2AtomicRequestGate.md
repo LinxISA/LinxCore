@@ -87,6 +87,9 @@ R529 keeps this module unintegrated. R530 replaces the current
 tie-off with this composite, while still feeding `gatedRequestEnable=false`
 through `liveModeEnable=false` and tied-off policy prerequisites until the
 generated-RTL gate proves the full side-effect/clear/row-fill/lifecycle chain.
+R531 removes the unused current-cycle prerequisite owner parameters from the
+top helper signature so the dormant policy tie-offs are explicit; future packets
+must add proven pre-request producers deliberately.
 
 Because `LinxCoreFrontendFetchRfAluTraceTop` is near the JVM constructor method
 size limit, this composite is intended as a constructor-containment boundary:
