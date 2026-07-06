@@ -1408,6 +1408,18 @@ observation (`w2_atomic_live_active=108`) but keeps
 W2 side-effect, row-fill, and lifecycle counters at zero. The first replay-return
 promotion owner is therefore the W2 atomic request evidence path, not the
 sideband schema or comparator.
+R537 extends the same Verilator sideband stats schema to v12 using existing
+top-level W2 ports. The new counters sample the atomic request block summary,
+side-effect candidate/readiness, clear intent/commit readiness, commit-row and
+row-fill candidates, and replay-row lifecycle readiness. This is still
+visibility infrastructure only; it does not alter Chisel RTL policy or claim
+live replay-return promotion. The R537 replay-loop diagnostic passes the
+QEMU/DUT comparator with 9 compared rows, zero mismatches, and zero QEMU/DUT
+CBSTOP rows. The v12 report records `w2_atomic_live_active=108`,
+`w2_atomic_blocked=109`, `w2_atomic_blocked_by_request_disabled=109`,
+`w2_atomic_blocked_by_no_evidence=108`, and zero side-effect, clear,
+row-fill, lifecycle, request-active, and request-evidence counters, so the next
+owner is still W2 slot/request-evidence production.
 R384 extends the same replay-LIQ namespace with
 `LoadReplayReturnPipeResidencyLiveControl`. The reduced top now feeds
 `LoadReplayReturnPipeResidencyCandidate.liveEnable` from an accepted-insert and

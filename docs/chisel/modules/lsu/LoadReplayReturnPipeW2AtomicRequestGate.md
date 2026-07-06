@@ -111,6 +111,19 @@ evidence (`w2_atomic_request_active=0`, `w2_atomic_evidence_valid=0`). The next
 RTL promotion must provide a model-derived W2 slot/request-evidence producer
 before expecting side-effect fire, row-fill, or replay-row lifecycle clear
 counters to become nonzero.
+R537 extends the generated-RTL sideband schema with request-blocker and
+prerequisite counters from existing top outputs. The packet distinguishes
+`blocked_by_request_disabled` from `blocked_by_no_evidence`, then samples
+side-effect readiness, clear intent/commit readiness, commit-row and row-fill
+candidates, and replay-row lifecycle readiness so the next policy or evidence
+owner can be selected from observed prerequisite data rather than from the
+aggregate zero request counter. The constructed replay-loop diagnostic records
+nonzero W2 residency and request blockers (`w2_atomic_live_active=108`,
+`w2_atomic_blocked=109`, `w2_atomic_blocked_by_request_disabled=109`,
+`w2_atomic_blocked_by_no_evidence=108`) while every sampled downstream
+side-effect, clear, row-fill, lifecycle, request-active, and request-evidence
+counter remains zero. That keeps the next RTL owner at model-derived W2
+request-evidence production, not downstream fire/row-clear policy.
 
 Because `LinxCoreFrontendFetchRfAluTraceTop` is near the JVM constructor method
 size limit, this composite is intended as a constructor-containment boundary:
