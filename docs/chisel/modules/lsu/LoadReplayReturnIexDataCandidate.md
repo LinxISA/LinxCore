@@ -58,10 +58,11 @@ or drain-fire overlap in that same window. R572's schema v25 evidence proves
 publish-control fire and LRET enqueue acceptance also overlap occupied W2
 (`publish_control_fire_w2_occupied=3`,
 `lret_sink_enqueue_accepted_w2_occupied=3`), yet `pending` and `drainFire`
-remain zero during W2 occupancy. Treat this module's next proof as a
-post-enqueue step: first make the accepted sink entry hold and drain while W2 is
-occupied, then require nonzero `setMemData` / IEX insert overlap before changing
-W2 slot storage.
+remain zero during W2 occupancy. R573 proves the accepted entry becomes pending,
+drain-valid, and drain-fired on the next cycle with drain permit ready, but W2
+has already cleared. Treat this module's next proof as a W2 phasing step: first
+keep W2 occupied through the accepted-entry follow-up cycle, then require
+nonzero `setMemData` / IEX insert overlap before changing W2 slot storage.
 
 ## Interface
 

@@ -379,6 +379,15 @@ struct ReplayLiqSidebandStats {
   std::uint64_t lret_sink_enqueue_accepted_same_cycle_drain_fire = 0;
   std::uint64_t lret_sink_enqueue_accepted_same_cycle_drain_fire_w2_occupied = 0;
   std::uint64_t lret_sink_enqueue_accepted_w2_without_drain_fire = 0;
+  std::uint64_t lret_sink_followup_after_enqueue_accepted_w2 = 0;
+  std::uint64_t lret_sink_followup_w2_still_occupied = 0;
+  std::uint64_t lret_sink_followup_w2_cleared = 0;
+  std::uint64_t lret_sink_pending_after_enqueue_accepted_w2 = 0;
+  std::uint64_t lret_sink_drain_valid_after_enqueue_accepted_w2 = 0;
+  std::uint64_t lret_sink_drain_fire_after_enqueue_accepted_w2 = 0;
+  std::uint64_t lret_drain_permit_ready_after_enqueue_accepted_w2 = 0;
+  std::uint64_t lret_drain_permit_pipe_free_after_enqueue_accepted_w2 = 0;
+  std::uint64_t lret_drain_permit_pipe_full_after_enqueue_accepted_w2 = 0;
   std::uint64_t lret_sink_pending_w2_occupied = 0;
   std::uint64_t lret_sink_drain_valid_w2_occupied = 0;
   std::uint64_t lret_sink_drain_fire_w2_occupied = 0;
@@ -807,6 +816,33 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   const bool load_lookup_execute_with_addr_ready_not_data_ready =
       load_lookup_execute_granted && stq_addr_ready_not_data_ready;
   const bool w2_slot_occupied = dut.io_reducedLoadReplayLiqLretPipeW2SlotOccupied;
+  static bool previous_lret_sink_enqueue_accepted_w2 = false;
+  if (previous_lret_sink_enqueue_accepted_w2) {
+    ++g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_accepted_w2;
+    if (w2_slot_occupied) {
+      ++g_replay_liq_sideband_stats.lret_sink_followup_w2_still_occupied;
+    } else {
+      ++g_replay_liq_sideband_stats.lret_sink_followup_w2_cleared;
+    }
+    if (dut.io_reducedLoadReplayLiqLretSinkPending) {
+      ++g_replay_liq_sideband_stats.lret_sink_pending_after_enqueue_accepted_w2;
+    }
+    if (dut.io_reducedLoadReplayLiqLretSinkDrainValid) {
+      ++g_replay_liq_sideband_stats.lret_sink_drain_valid_after_enqueue_accepted_w2;
+    }
+    if (dut.io_reducedLoadReplayLiqLretSinkDrainFire) {
+      ++g_replay_liq_sideband_stats.lret_sink_drain_fire_after_enqueue_accepted_w2;
+    }
+    if (dut.io_reducedLoadReplayLiqLretDrainPermitReady) {
+      ++g_replay_liq_sideband_stats.lret_drain_permit_ready_after_enqueue_accepted_w2;
+    }
+    if (dut.io_reducedLoadReplayLiqLretDrainPermitAnyPipeFree) {
+      ++g_replay_liq_sideband_stats.lret_drain_permit_pipe_free_after_enqueue_accepted_w2;
+    }
+    if (dut.io_reducedLoadReplayLiqLretDrainPermitBlockedByPipeFull) {
+      ++g_replay_liq_sideband_stats.lret_drain_permit_pipe_full_after_enqueue_accepted_w2;
+    }
+  }
   observe_cycle(
       load_lookup_execute_granted,
       cycle,
@@ -1380,6 +1416,8 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
       !dut.io_reducedLoadReplayLiqLretSinkDrainFire) {
     ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_without_drain_fire;
   }
+  previous_lret_sink_enqueue_accepted_w2 =
+      w2_slot_occupied && dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted;
   if (dut.io_reducedLoadReplayLiqLretSinkPending) {
     ++g_replay_liq_sideband_stats.lret_sink_pending;
   }
@@ -2307,7 +2345,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v25\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v26\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -2681,6 +2719,24 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_same_cycle_drain_fire_w2_occupied << ",\n"
       << "    \"lret_sink_enqueue_accepted_w2_without_drain_fire\": "
       << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_without_drain_fire << ",\n"
+      << "    \"lret_sink_followup_after_enqueue_accepted_w2\": "
+      << g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_accepted_w2 << ",\n"
+      << "    \"lret_sink_followup_w2_still_occupied\": "
+      << g_replay_liq_sideband_stats.lret_sink_followup_w2_still_occupied << ",\n"
+      << "    \"lret_sink_followup_w2_cleared\": "
+      << g_replay_liq_sideband_stats.lret_sink_followup_w2_cleared << ",\n"
+      << "    \"lret_sink_pending_after_enqueue_accepted_w2\": "
+      << g_replay_liq_sideband_stats.lret_sink_pending_after_enqueue_accepted_w2 << ",\n"
+      << "    \"lret_sink_drain_valid_after_enqueue_accepted_w2\": "
+      << g_replay_liq_sideband_stats.lret_sink_drain_valid_after_enqueue_accepted_w2 << ",\n"
+      << "    \"lret_sink_drain_fire_after_enqueue_accepted_w2\": "
+      << g_replay_liq_sideband_stats.lret_sink_drain_fire_after_enqueue_accepted_w2 << ",\n"
+      << "    \"lret_drain_permit_ready_after_enqueue_accepted_w2\": "
+      << g_replay_liq_sideband_stats.lret_drain_permit_ready_after_enqueue_accepted_w2 << ",\n"
+      << "    \"lret_drain_permit_pipe_free_after_enqueue_accepted_w2\": "
+      << g_replay_liq_sideband_stats.lret_drain_permit_pipe_free_after_enqueue_accepted_w2 << ",\n"
+      << "    \"lret_drain_permit_pipe_full_after_enqueue_accepted_w2\": "
+      << g_replay_liq_sideband_stats.lret_drain_permit_pipe_full_after_enqueue_accepted_w2 << ",\n"
       << "    \"lret_sink_pending_w2_occupied\": "
       << g_replay_liq_sideband_stats.lret_sink_pending_w2_occupied << ",\n"
       << "    \"lret_sink_drain_valid_w2_occupied\": "

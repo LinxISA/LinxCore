@@ -213,6 +213,12 @@ The same gate proves publish admission already overlaps occupied W2
 the accepted enqueue is still not pending or draining while W2 is occupied.
 W2 storage replacement remains blocked; the next owner is the LRET
 enqueue-to-pending/drain timing and IEX drain-capacity path.
+R573 adds one-cycle follow-up sideband and proves that the accepted entry
+becomes pending/draining with drain permit ready in the next cycle, but W2 has
+already cleared (`lret_sink_followup_w2_cleared=3`,
+`lret_sink_followup_w2_still_occupied=0`). W2 storage replacement remains
+blocked; the next owner is W2 hold/live-clear phasing relative to accepted LRET
+enqueue and registered FIFO visibility.
 
 ## Deferred Owners
 

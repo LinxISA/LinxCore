@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v25"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v26"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -196,6 +196,15 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "lret_sink_enqueue_accepted_same_cycle_drain_fire",
     "lret_sink_enqueue_accepted_same_cycle_drain_fire_w2_occupied",
     "lret_sink_enqueue_accepted_w2_without_drain_fire",
+    "lret_sink_followup_after_enqueue_accepted_w2",
+    "lret_sink_followup_w2_still_occupied",
+    "lret_sink_followup_w2_cleared",
+    "lret_sink_pending_after_enqueue_accepted_w2",
+    "lret_sink_drain_valid_after_enqueue_accepted_w2",
+    "lret_sink_drain_fire_after_enqueue_accepted_w2",
+    "lret_drain_permit_ready_after_enqueue_accepted_w2",
+    "lret_drain_permit_pipe_free_after_enqueue_accepted_w2",
+    "lret_drain_permit_pipe_full_after_enqueue_accepted_w2",
     "lret_sink_pending_w2_occupied",
     "lret_sink_drain_valid_w2_occupied",
     "lret_sink_drain_fire_w2_occupied",

@@ -327,6 +327,22 @@ The sink still does not become pending or drain in that W2 window
 publish admission; it is the enqueue-to-pending/drain observation and
 IEX-drain-capacity timing needed to make the accepted younger return visible
 while W2 remains occupied.
+R573 keeps RTL behavior unchanged and adds schema v26 one-cycle follow-up
+buckets after an enqueue accepted while W2 was occupied. The same gate,
+`generated/r573-replay-lret-followup-w2-timing-xcheck`, passes with
+`compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT CBSTOP rows. The
+follow-up evidence proves the accepted entry becomes visible and drains, but
+only after W2 has cleared:
+`lret_sink_followup_after_enqueue_accepted_w2=3`,
+`lret_sink_followup_w2_cleared=3`,
+`lret_sink_followup_w2_still_occupied=0`,
+`lret_sink_pending_after_enqueue_accepted_w2=3`,
+`lret_sink_drain_valid_after_enqueue_accepted_w2=3`,
+`lret_sink_drain_fire_after_enqueue_accepted_w2=3`,
+`lret_drain_permit_ready_after_enqueue_accepted_w2=3`, and
+`lret_drain_permit_pipe_full_after_enqueue_accepted_w2=0`. The next owner is
+therefore W2 hold/live-clear phasing relative to accepted LRET enqueue and
+registered FIFO visibility, not LRET drain capacity.
 
 Use this packet shape first:
 
@@ -369,8 +385,9 @@ Promotion gate: R557 replay-loop fixture, R558
   younger W1 candidate resident, R570 shows no IEX/residency/W1 upstream overlap
   while W2 is occupied even under delay 12 plus early STA, R571 narrows the
   current gap to the publish-to-LRET-sink / LRET-drain / IEX-pipe-capacity
-  boundary, and R572 proves publish-control fire plus LRET enqueue acceptance
-  already overlap W2 while sink pending/drain still do not
+  boundary, R572 proves publish-control fire plus LRET enqueue acceptance
+  already overlap W2 while sink pending/drain still do not, and R573 proves the
+  accepted entry drains on the next cycle after W2 has already cleared
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
@@ -379,9 +396,9 @@ Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
   evidence exists
 First-divergence owner if the gate fails: fixture/stimulus until the sideband
   report proves LRET sink pending/drain and then a younger W1 candidate exists
-  while W2 is occupied and live clear fires; based on R572, start at the
-  enqueue-to-pending/drain observation and LRET drain/IEX-pipe capacity timing
-  before changing W2 storage or W1/W2 advance ordering
+  while W2 is occupied and live clear fires; based on R573, start at W2
+  hold/live-clear phasing relative to accepted LRET enqueue and registered FIFO
+  visibility before changing W2 storage or W1/W2 advance ordering
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```

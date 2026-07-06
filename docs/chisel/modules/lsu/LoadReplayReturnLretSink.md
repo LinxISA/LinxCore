@@ -64,6 +64,13 @@ accepted enqueues are not same-cycle drains
 not make `pending` or `drainFire` overlap W2. The next implementation owner is
 therefore enqueue-to-pending/drain timing and the IEX drain-capacity path, not
 publication readiness.
+R573 adds one-cycle follow-up buckets after W2-overlap enqueue acceptance. The
+accepted entry becomes `pending`, `drainValid`, and `drainFire` with drain
+permit ready in the following cycle, but W2 has already cleared in every
+follow-up sample (`lret_sink_followup_w2_cleared=3`,
+`lret_sink_followup_w2_still_occupied=0`). The sink and permit are not the live
+capacity blocker on this fixture; the next owner is W2 hold/live-clear phasing
+relative to this registered FIFO visibility.
 
 ## Interface
 
@@ -129,8 +136,8 @@ ready-table update, issue wakeup, and replay-row lifecycle owners exist.
 ## Deferred Owners
 
 - Real IEX return-pipe free-capacity input and `IEX::setMemData` mutation.
-- Generated-RTL/QEMU proof that accepted LRET enqueue becomes pending/draining
-  while W2 remains occupied before W2 slot storage replacement is promoted.
+- Generated-RTL/QEMU proof that W2 remains occupied through the cycle after
+  accepted LRET enqueue, when the registered FIFO entry is pending/draining.
 - Feeding accepted LRET enqueue back into replay-row clear/return lifecycle.
 - Multi-pipe LRET queue fanout and arbitration.
 - Ready-table and issue-wakeup side effects after LRET enqueue.
