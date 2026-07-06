@@ -98,6 +98,16 @@ The guard exposes compact diagnostics under
 slot `clear`, W2 advance/refill, RF writeback, wakeup, resolve, ROB
 completion, or replay-row lifecycle paths.
 
+R551 deliberately keeps this guard on the live post-fire path. The atomic
+request prerequisite snapshot instead consumes pre-request clear/ROB capacity
+from side-effect sink capacity, resident RID validity, and
+`LoadReplayReturnPipeW2RobCompleteSource.sinkReady`. That split lets the
+request policy move past `blockedByNoClearCommit` without asserting
+`commitClearReady`, `liveClearReady`, resolve fire, ROB completion, or W2 slot
+clear before the atomic request owns mutation. The replay-loop sideband keeps
+`w2_clear_commit_ready=0` while `w2_atomic_blocked_by_no_clear_commit=0`, so
+the next owner is row-fill candidate readiness.
+
 ## Deferred Owners
 
 - Replace the current W2 slot `clear` source with a live guard-owned clear only

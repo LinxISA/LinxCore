@@ -102,10 +102,13 @@ sink-capacity evidence built from `LoadReplayReturnPipeW2ResolveSinkReady`
 `resolveArmed`, `LoadReplayReturnPipeW2WritebackSinkReady.writebackArmed`, and
 `LoadReplayReturnPipeW2WakeupSinkReady.wakeupArmed`. Required sinks must be
 armed, optional sinks are ignored, and actual resolve/writeback/wakeup mutation
-remains gated later by `LoadReplayReturnPipeW2SideEffectLiveControl`. The top
-captures that pre-request side-effect capacity plus observations from
-`LoadReplayReturnPipeW2ClearCommitGuard`,
-`LoadReplayReturnPipeW2CommitRowCandidate`, and
+remains gated later by `LoadReplayReturnPipeW2SideEffectLiveControl`. R551
+extends the same pre-request split to clear/ROB capacity: the top captures
+clear-commit readiness from side-effect sink capacity, a valid resident slot
+RID, and `LoadReplayReturnPipeW2RobCompleteSource.sinkReady`, while the live
+`LoadReplayReturnPipeW2ClearCommitGuard` remains a post-fire coherence
+diagnostic. The top captures those pre-request prerequisites plus observations
+from `LoadReplayReturnPipeW2CommitRowCandidate` and
 `LoadReplayReturnPipeW2ReplayRowLifecycleReady`, then feeds only the snapshot
 outputs into `LoadReplayReturnPipeW2AtomicRequestGate`.
 
@@ -123,6 +126,15 @@ The sideband report shows the intended ordered-blocker movement:
 `w2_atomic_blocked_by_no_side_effect_sink` drops to 7 while
 `w2_atomic_blocked_by_no_clear_commit` rises to 67, so the next owner is
 clear-commit readiness rather than side-effect sink capacity.
+R551 generated-RTL/QEMU evidence at
+`generated/r551-replay-w2-prereq-clear-commit-capacity/report/crosscheck_manifest.json`
+passes with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+The sideband report moves the ordered policy blocker again:
+`w2_atomic_blocked_by_no_clear_commit=0`,
+`w2_atomic_blocked_by_no_row_fill_candidate=67`,
+`w2_atomic_blocked_by_no_side_effect_sink=7`, and
+`w2_atomic_request_active=0`. The next owner is pre-request row-fill candidate
+readiness rather than clear-commit capacity.
 
 ## Deferred Owners
 

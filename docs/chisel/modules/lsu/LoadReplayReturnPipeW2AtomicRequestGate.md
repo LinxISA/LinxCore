@@ -146,6 +146,18 @@ capacity to clear-commit readiness: `w2_atomic_blocked_by_no_side_effect_sink=7`
 `w2_atomic_blocked_by_no_row_fill_candidate=0`,
 `w2_atomic_blocked_by_no_lifecycle_row=0`, `w2_clear_intent=0`,
 `w2_clear_commit_ready=0`, and `w2_atomic_request_active=0`.
+R551 repairs the next policy prerequisite without enabling live clear or ROB
+completion: the top feeds the prereq snapshot with pre-request clear/ROB
+capacity from side-effect sink capacity, resident RID validity, and
+`LoadReplayReturnPipeW2RobCompleteSource.sinkReady`. The live
+`LoadReplayReturnPipeW2ClearCommitGuard` still reports post-fire coherence and
+remains zero in the dormant fixture. The replay-loop fixture passes with 9
+compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. The v21 sideband
+report moves the ordered policy blocker from clear-commit capacity to row-fill
+candidate readiness: `w2_atomic_blocked_by_no_clear_commit=0`,
+`w2_atomic_blocked_by_no_row_fill_candidate=67`,
+`w2_atomic_blocked_by_no_side_effect_sink=7`,
+`w2_row_fill_candidate_valid=0`, and `w2_atomic_request_active=0`.
 
 Because `LinxCoreFrontendFetchRfAluTraceTop` is near the JVM constructor method
 size limit, this composite is intended as a constructor-containment boundary:

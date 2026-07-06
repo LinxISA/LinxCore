@@ -2859,6 +2859,19 @@ sideband report moves the ordered blocker to clear-commit readiness:
 `w2_atomic_request_active=0`. The next owner is W2 clear-commit readiness /
 clear intent, not side-effect sink capacity, row-fill, lifecycle, or generic
 W2 evidence.
+R551 keeps the live clear-commit guard intact as a post-fire diagnostic, but
+feeds the W2 atomic prerequisite snapshot from pre-request clear/ROB capacity:
+side-effect sink capacity, a valid resident slot RID, and an idle replay
+ROB-complete sink. The replay-loop fixture again passes with 9 compared rows,
+zero mismatches, and zero QEMU/DUT CBSTOP rows. The v21 sideband report moves
+the ordered policy blocker from clear-commit capacity to row-fill candidate
+readiness: `w2_atomic_blocked_by_no_clear_commit=0`,
+`w2_atomic_blocked_by_no_row_fill_candidate=67`,
+`w2_atomic_blocked_by_no_side_effect_sink=7`,
+`w2_row_fill_candidate_valid=0`, `w2_clear_intent=0`,
+`w2_clear_commit_ready=0`, and `w2_atomic_request_active=0`. The next owner is
+W2 commit-row/row-fill candidate readiness, not clear-commit capacity,
+side-effect sink capacity, lifecycle, or generic W2 evidence.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

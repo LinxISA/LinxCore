@@ -3936,15 +3936,19 @@ class LinxCoreFrontendFetchRfAluTraceTop(
         reducedReplayLiqReturnPipeW2WritebackSinkReady.io.writebackArmed) &&
       (!reducedReplayLiqReturnPipeW2CompletionCandidate.io.wakeupRequired ||
         reducedReplayLiqReturnPipeW2WakeupSinkReady.io.wakeupArmed)
+  val reducedReplayLiqReturnPipeW2ClearCommitPrereqReady =
+    reducedReplayLiqReturnPipeW2SideEffectSinksPrereqReady &&
+      reducedReplayLiqReturnPipeW2Slot.io.entryRid.valid &&
+      reducedReplayLiqReturnPipeW2RobCompleteSource.io.sinkReady
   LinxCoreFrontendFetchRfAluTraceTopW2AtomicLiveRequestWiring.connect(
     io,
     reducedReplayLiqReturnPipeW2AtomicLiveRequestControl,
     reducedReplayLiqReturnPipeW2AtomicPrereqSnapshot,
     reducedReplayLiqReturnPipeW2CompletionCandidate,
     reducedReplayLiqReturnPipeW2SideEffectSinksPrereqReady,
+    reducedReplayLiqReturnPipeW2ClearCommitPrereqReady,
     reducedReplayLiqReturnPipeW1AdvanceCandidate,
     reducedReplayLiqReturnPipeW2ClearIntent,
-    reducedReplayLiqReturnPipeW2ClearCommitGuard,
     reducedReplayLiqReturnPipeW2CommitRowCandidate,
     reducedReplayLiqReturnPipeW2ReplayRowLifecycleReady,
     reducedReplayLiqReturnPipeW2Slot,
@@ -7938,9 +7942,9 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2AtomicLiveRequestWiring {
       prereqSnapshot: LoadReplayReturnPipeW2AtomicPrereqSnapshot,
       completion: LoadReplayReturnPipeW2CompletionCandidate,
       sideEffectSinksPrereqReady: Bool,
+      clearCommitPrereqReady: Bool,
       w1Advance: LoadReplayReturnPipeW1AdvanceCandidate,
       clearIntent: LoadReplayReturnPipeW2ClearIntent,
-      clearGuard: LoadReplayReturnPipeW2ClearCommitGuard,
       commitRowCandidate: LoadReplayReturnPipeW2CommitRowCandidate,
       lifecycle: LoadReplayReturnPipeW2ReplayRowLifecycleReady,
       slot: LoadReplayReturnPipeW2Slot,
@@ -7956,7 +7960,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2AtomicLiveRequestWiring {
     prereqSnapshot.io.slotRid := slot.io.entryRid
     prereqSnapshot.io.slotLoadLsId := slot.io.entryLoadLsId
     prereqSnapshot.io.sideEffectSinksReadyIn := sideEffectSinksPrereqReady
-    prereqSnapshot.io.clearCommitReadyIn := clearGuard.io.commitClearReady
+    prereqSnapshot.io.clearCommitReadyIn := clearCommitPrereqReady
     prereqSnapshot.io.rowFillCandidateValidIn := commitRowCandidate.io.rowFillCandidateValid
     prereqSnapshot.io.lifecycleRowClearReadyIn := lifecycle.io.rowClearReady
 
