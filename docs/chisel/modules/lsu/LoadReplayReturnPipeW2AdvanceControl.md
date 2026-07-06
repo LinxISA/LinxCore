@@ -64,6 +64,9 @@ R565 repeats the different-LSID bucket check on
 `replay-ldi-sdi-ldi-sdi-ldi-loop`; it records same-LSID phase gaps at gap2 and
 gap4 but zero different-LSID buckets, so advance-control replacement remains a
 stimulus problem.
+R566 adds `replay-ldi-sdi-ldi-sdi-ldi-ldi-loop` and still records same-LSID
+gap2/gap4 evidence with zero same-cycle replacement, so `replaceOnClear` remains
+blocked on distinct-candidate stimulus.
 
 ## Interface
 
@@ -140,7 +143,8 @@ replay RF writeback, ready-table mutation, or issue wakeup.
   live-clear cycle, because the observed gap only follows the same LSID through
   W2 lifetime. R564 confirms the current fixture has no different-LSID near-miss
   across the measured gap buckets in either direction. R565 confirms the older
-  repeated dependency-chain fixture also lacks different-LSID near-misses.
+  repeated dependency-chain fixture also lacks different-LSID near-misses. R566
+  confirms clustered second-dependency pressure is still insufficient.
 - Tie W2 clear to the live side-effect completion owner instead of the current
   dormant completion path.
 - Retire or update the consumed replay-row lifecycle when W2 side effects

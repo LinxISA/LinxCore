@@ -12,12 +12,13 @@ REPLAY_LDI_SDI_LDI=0
 REPLAY_LDI_SDI_LDI_LOOP=0
 REPLAY_LDI_SDI_LDI_LDI_LOOP=0
 REPLAY_LDI_SDI_LDI_SDI_LDI_LOOP=0
+REPLAY_LDI_SDI_LDI_SDI_LDI_LDI_LOOP=0
 REPLAY_LDI_SDI_LDI_LDI_LDI_LDI_LOOP=0
 
 usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0") [--output <fixture.elf>] [--out-dir <dir>] [--text-base <hex>] [--long-body] [--replay-ldi-sdi-ldi] [--replay-ldi-sdi-ldi-loop] [--replay-ldi-sdi-ldi-ldi-loop] [--replay-ldi-sdi-ldi-sdi-ldi-loop] [--replay-ldi-sdi-ldi-ldi-ldi-ldi-loop]
+  $(basename "$0") [--output <fixture.elf>] [--out-dir <dir>] [--text-base <hex>] [--long-body] [--replay-ldi-sdi-ldi] [--replay-ldi-sdi-ldi-loop] [--replay-ldi-sdi-ldi-ldi-loop] [--replay-ldi-sdi-ldi-sdi-ldi-loop] [--replay-ldi-sdi-ldi-sdi-ldi-ldi-loop] [--replay-ldi-sdi-ldi-ldi-ldi-ldi-loop]
 
 Builds a tiny legal-entry Linx ELF for the reduced live QEMU fetch RF/ALU gate:
   C.BSTART.STD; ADD; ADDI; C.MOVR; C.BSTOP
@@ -40,6 +41,11 @@ With --replay-ldi-sdi-ldi-sdi-ldi-loop, the loop probe repeats the
 store/load dependency chain before the direct loop boundary to create denser
 MDB/LIQ replay-return pressure for W1/W2 same-cycle replacement gates.
 
+With --replay-ldi-sdi-ldi-sdi-ldi-ldi-loop, the loop probe repeats the
+store/load dependency chain and adds one more younger load after the second
+store dependency to test whether a clustered second dependency can create a
+different returned-load candidate near W2 live clear.
+
 With --replay-ldi-sdi-ldi-ldi-ldi-ldi-loop, the loop probe keeps one
 store-dependent load and then appends additional consecutive younger loads to
 test whether bursty returned-load phasing can overlap W1 refill with W2 clear.
@@ -60,15 +66,16 @@ while [[ $# -gt 0 ]]; do
     --replay-ldi-sdi-ldi-loop) REPLAY_LDI_SDI_LDI_LOOP=1; shift ;;
     --replay-ldi-sdi-ldi-ldi-loop) REPLAY_LDI_SDI_LDI_LDI_LOOP=1; shift ;;
     --replay-ldi-sdi-ldi-sdi-ldi-loop) REPLAY_LDI_SDI_LDI_SDI_LDI_LOOP=1; shift ;;
+    --replay-ldi-sdi-ldi-sdi-ldi-ldi-loop) REPLAY_LDI_SDI_LDI_SDI_LDI_LDI_LOOP=1; shift ;;
     --replay-ldi-sdi-ldi-ldi-ldi-ldi-loop) REPLAY_LDI_SDI_LDI_LDI_LDI_LDI_LOOP=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
 
-selected_fixture_count=$((LONG_BODY + REPLAY_LDI_SDI_LDI + REPLAY_LDI_SDI_LDI_LOOP + REPLAY_LDI_SDI_LDI_LDI_LOOP + REPLAY_LDI_SDI_LDI_SDI_LDI_LOOP + REPLAY_LDI_SDI_LDI_LDI_LDI_LDI_LOOP))
+selected_fixture_count=$((LONG_BODY + REPLAY_LDI_SDI_LDI + REPLAY_LDI_SDI_LDI_LOOP + REPLAY_LDI_SDI_LDI_LDI_LOOP + REPLAY_LDI_SDI_LDI_SDI_LDI_LOOP + REPLAY_LDI_SDI_LDI_SDI_LDI_LDI_LOOP + REPLAY_LDI_SDI_LDI_LDI_LDI_LDI_LOOP))
 if (( selected_fixture_count > 1 )); then
-  echo "error: --long-body, --replay-ldi-sdi-ldi, --replay-ldi-sdi-ldi-loop, --replay-ldi-sdi-ldi-ldi-loop, --replay-ldi-sdi-ldi-sdi-ldi-loop, and --replay-ldi-sdi-ldi-ldi-ldi-ldi-loop are mutually exclusive" >&2
+  echo "error: --long-body, --replay-ldi-sdi-ldi, --replay-ldi-sdi-ldi-loop, --replay-ldi-sdi-ldi-ldi-loop, --replay-ldi-sdi-ldi-sdi-ldi-loop, --replay-ldi-sdi-ldi-sdi-ldi-ldi-loop, and --replay-ldi-sdi-ldi-ldi-ldi-ldi-loop are mutually exclusive" >&2
   exit 2
 fi
 
@@ -109,6 +116,23 @@ _start:
   ldi [r0, 0], ->r5    # Consecutive younger LDI
   ldi [r0, 0], ->r6    # Consecutive younger LDI
   ldi [r0, 0], ->r7    # Consecutive younger LDI
+loop_back:
+  C.BSTART DIRECT, _start
+  C.BSTOP
+ASM
+elif [[ "${REPLAY_LDI_SDI_LDI_SDI_LDI_LDI_LOOP}" -eq 1 ]]; then
+  SCALAR_PC_HI_OFFSET=0x21
+  cat > "${ASM}" <<'ASM'
+.section .text,"ax",@progbits
+.globl _start
+_start:
+  C.BSTART             # C.BSTART.STD, assembler form
+  ldi [r0, 0], ->r3    # LDI from zero base
+  sdi r3, [r0, 0]      # SDI to the same base
+  ldi [r0, 0], ->r4    # Younger LDI after the store
+  sdi r4, [r0, 0]      # Second SDI to repeat the dependency chain
+  ldi [r0, 0], ->r5    # Younger LDI after the second store
+  ldi [r0, 0], ->r6    # Extra younger LDI to cluster the second dependency
 loop_back:
   C.BSTART DIRECT, _start
   C.BSTOP

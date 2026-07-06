@@ -159,6 +159,8 @@ replacement changes.
 R565 applies the same counters to `replay-ldi-sdi-ldi-sdi-ldi-loop` and again
 records only same-LSID gaps, so the next owner must create a new different-LSID
 returned-load overlap stimulus.
+R566 adds one more younger load after the second store dependency and still
+records only same-LSID gap2/gap4 clears with zero replacement eligibility.
 
 ## Deferred Owners
 

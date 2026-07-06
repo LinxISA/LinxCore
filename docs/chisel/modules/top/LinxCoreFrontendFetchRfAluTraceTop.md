@@ -120,6 +120,10 @@ more top-level diagnostics or changing W2 storage.
 R565 reuses the same top and harness-side buckets on the repeated
 dependency-chain fixture and reaches the same conclusion: the observed W1/W2
 phase gaps are same-LSID lifetime, not hidden replacement stimulus.
+R566 adds a clustered dependency fixture through the wrapper without changing
+the top interface. Its sideband again classifies the gaps as same-LSID, so more
+top-level diagnostics are not justified before a distinct-candidate stimulus
+exists.
 
 ## Purpose
 

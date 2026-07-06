@@ -115,6 +115,8 @@ near-misses across the measured gap buckets; new stimulus is required before
 W1 can prove a real W2 replacement candidate.
 R565 proves the repeated dependency-chain fixture has the same same-LSID-only
 phase gaps under those diagnostics.
+R566 proves clustering an additional younger load after the second dependency
+does not create a distinct W1 candidate near W2 live clear.
 
 ## Deferred Owners
 

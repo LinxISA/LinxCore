@@ -63,6 +63,10 @@ R565 applies the same buckets to the repeated dependency-chain fixture; it sees
 six same-LSID phase gaps (`gap2=5`, `gap4=1`) and zero different-LSID buckets,
 so both current dense fixtures are resident-row lifetime observations rather
 than replacement candidates.
+R566 adds a clustered second-dependency fixture with one extra younger load and
+still records only same-LSID phase gaps (`gap2=4`, `gap4=2`) plus zero
+same-cycle replacement, so more same-address pressure does not change the owner
+boundary.
 
 ## Interface
 
@@ -165,7 +169,8 @@ clears, proving they are not different-candidate replacement opportunities.
   either direction across the measured gap buckets, so the next packet should
   create a new different-LSID overlap stimulus rather than adjust W2 storage.
   R565 proves the older repeated dependency-chain fixture has the same
-  same-LSID-only limitation under those buckets.
+  same-LSID-only limitation under those buckets. R566 proves adding one extra
+  younger load after the second store dependency also stays same-LSID-only.
 - Verify `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future
   readiness and drives `LoadReplayReturnPipeW2Slot.replaceOnClear` in that
   same-cycle replacement case.

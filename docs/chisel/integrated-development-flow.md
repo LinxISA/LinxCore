@@ -215,6 +215,15 @@ records `gap2=5` and `gap4=1`, but again classifies every gap as same-LSID
 (`same_lsid=6`, `different_lsid=0`) and leaves all different-LSID buckets at
 zero. Both existing high-pressure fixtures are therefore same-resident-row
 lifetime tests, not replacement stimulus.
+R566 adds `replay-ldi-sdi-ldi-sdi-ldi-ldi-loop`, a clustered dependency-chain
+fixture with one extra younger load after the second store dependency. QEMU-only
+shape gates pass for two and three loop bodies, and the generated-RTL/QEMU gate
+passes with 18 compared rows and zero mismatches. The fixture increases W2
+residency (`lret_w2_slot_occupied=16`) but still records only same-LSID phase
+gaps (`gap2=4`, `gap4=2`, `same_lsid=6`, `different_lsid=0`) and zero
+same-cycle replacement. Clustered same-address dependency pressure is therefore
+still insufficient; the next stimulus must change return phasing or introduce a
+controlled delay/retention hook that creates a distinct returned-load candidate.
 
 Use this packet shape first:
 
@@ -232,7 +241,8 @@ Expected first gate: focused W2 slot/advance coverage proving same-cycle live
   losing the consumed row's side effects
 Promotion gate: R557 replay-loop fixture, R558
   `replay-ldi-sdi-ldi-ldi-loop`, R559
-  `replay-ldi-sdi-ldi-sdi-ldi-loop`, R560
+  `replay-ldi-sdi-ldi-sdi-ldi-loop`, R566
+  `replay-ldi-sdi-ldi-sdi-ldi-ldi-loop`, R560
   `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561/R562/R563/R564/R565
   phase-distance, identity, and different-LSID near-miss sideband, or a stronger
   multiple-return-load phasing fixture through
@@ -247,7 +257,8 @@ Promotion gate: R557 replay-loop fixture, R558
   evidence in a stronger fixture before changing W2 storage; if overlap is
   zero, inspect the R563 identity buckets and R564 different-LSID buckets before
   treating phase gaps as replacement stimulus; R565 extends that negative check
-  back to the repeated dependency-chain fixture
+  back to the repeated dependency-chain fixture, and R566 extends it to the
+  clustered second-dependency fixture
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
