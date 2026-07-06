@@ -92,6 +92,20 @@ Because R363 still ties `LoadReplayReturnPipeW2AtomicLiveRequestControl`
 `requestEnable` low, the source is dormant in the integrated top and cannot
 complete a replay row yet.
 
+R587 adds `LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard` beside
+this physical source. In the focused replay-LIQ fixture, the physical source
+already completes the same RIDs later visible through retained retire records:
+sideband schema v37 records
+`w2_retire_record_rob_fallback_capture_physical_complete=5` and
+`w2_retire_record_rob_fallback_duplicate_physical_complete=5`, while retained
+fallback completion remains disabled and zero. This preserves single ownership
+of ROB completion before any retained-record fallback can be promoted.
+
+The same packet extracts the top-level completion-port assignments into
+`LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring`. That helper is a
+constructor-size maintenance split only; execute completion still has priority
+over replay completion through `ReducedRobCompletionArbiter`.
+
 ## Deferred Owners
 
 - Live replay load commit-row fill after instruction metadata and source trace

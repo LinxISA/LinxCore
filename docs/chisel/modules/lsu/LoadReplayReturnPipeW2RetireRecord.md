@@ -185,6 +185,21 @@ passes with 18 compared rows and zero mismatches. Sideband schema v36 records
 `w2_retire_record_commit_row_complete_candidate=5`, and
 `w2_retire_record_lifecycle_request_live_promotion_candidate=5`.
 
+R587 adds `LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard` as the
+next retained-record boundary. The guard observes the retained complete-row
+candidate and the existing physical W2 ROB completion source, then classifies
+whether the retained row would duplicate a physical ROB completion for the same
+captured RID. The generated RTL/QEMU gate
+`generated/r587-replay-retire-record-rob-fallback-guard-xcheck` passes with 18
+compared rows and zero mismatches. Sideband schema v37 records
+`w2_retire_record_rob_fallback_capture_physical_complete=5`,
+`w2_retire_record_rob_fallback_candidate=5`,
+`w2_retire_record_rob_fallback_duplicate_physical_complete=5`, and
+`w2_retire_record_rob_fallback_complete_valid=0`. This proves the current
+fixture already completes those retained RIDs through the physical W2 path, so
+the next owner is a no-physical-complete fallback stimulus or RF/LIQ clear
+alignment, not direct retained ROB completion.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -195,6 +210,9 @@ passes with 18 compared rows and zero mismatches. Sideband schema v36 records
 - Live retained-record row-fill mutation ordering after R586 proved retained
   lifecycle evidence, row-fill enable, atomic request alignment, and complete
   row candidates with zero diagnostic blockers.
+- Retained ROB fallback promotion after R587 proves a non-duplicate
+  no-physical-complete stimulus; keep fallback completion disabled while the
+  physical W2 path still covers the retained RID.
 
 ## Verification
 

@@ -126,6 +126,19 @@ The active owner has moved from candidate formation to live mutation ordering:
 the retained complete row must still be wired through LIQ clear, ROB resolve,
 RF writeback, and replay wakeup without perturbing the physical W2 path.
 
+R587 feeds the retained complete row into
+`LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard` before any live
+ROB-completion promotion. The generated RTL/QEMU gate
+`generated/r587-replay-retire-record-rob-fallback-guard-xcheck` passes with 18
+compared rows and zero mismatches. Sideband schema v37 keeps retained row-fill
+evidence nonzero (`w2_retire_record_row_fill_enable=5`,
+`w2_retire_record_commit_row_complete_candidate=5`) while proving that all
+visible retained ROB fallback candidates are duplicates of the physical W2 ROB
+completion path (`w2_retire_record_rob_fallback_duplicate_physical_complete=5`,
+`w2_retire_record_rob_fallback_complete_valid=0`). The complete-row candidate
+therefore remains a proof surface until a later packet demonstrates a
+no-physical-complete retained fallback case.
+
 ## Verification
 
 Focused gates:

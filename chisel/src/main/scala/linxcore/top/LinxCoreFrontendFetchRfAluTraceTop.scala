@@ -13,6 +13,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordCommitRowCandidate
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRowFillEnableControl
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
 import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan, LoadReplayResolvedRowHitRecord, LoadReplayRowMutationSourceMux}
 import linxcore.lsu.MDBStoreProbeReplay
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
@@ -1318,6 +1319,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceProviderValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceProviderValidWithoutRecord = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceRecordValidWithoutProvider = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCapturePhysicalComplete = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCandidate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackDuplicatePhysicalComplete = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCompleteValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable = Output(Bool())
@@ -3284,25 +3289,13 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   path.io.cleanup := pathCleanup
   path.io.scalarCleanupOrderValid := scalarRedirectOrderValidReg
   path.io.scalarCleanupOrder := scalarRedirectOrderReg
-  robCompleteArbiter.io.executeCompleteValid := execute.io.completeValid
-  robCompleteArbiter.io.executeCompleteRobValue := execute.io.completeRobValue
-  robCompleteArbiter.io.executeCompleteRowValid := execute.io.completeValid
-  robCompleteArbiter.io.executeCompleteRow := execute.io.completeRow
-  robCompleteArbiter.io.replayCompleteValid :=
-    reducedReplayLiqReturnPipeW2Modules.robCompleteSource.io.completeValid
-  robCompleteArbiter.io.replayCompleteRobValue :=
-    reducedReplayLiqReturnPipeW2Modules.robCompleteSource.io.completeRobValue
-  robCompleteArbiter.io.replayCompleteRowValid :=
-    reducedReplayLiqReturnPipeW2Modules.robCompleteSource.io.completeRowValid
-  robCompleteArbiter.io.replayCompleteRow :=
-    reducedReplayLiqReturnPipeW2Modules.robCompleteSource.io.completeRow
-  path.io.completeValid := robCompleteArbiter.io.completeValid
-  path.io.completeRobValue := robCompleteArbiter.io.completeRobValue
-  path.io.completeRowValid := robCompleteArbiter.io.completeRowValid
-  path.io.completeRow := robCompleteArbiter.io.completeRow
-  io.robCompleteArbiterSelectedExecute := robCompleteArbiter.io.selectedExecute
-  io.robCompleteArbiterSelectedReplay := robCompleteArbiter.io.selectedReplay
-  io.robCompleteArbiterReplayBlockedByExecute := robCompleteArbiter.io.replayBlockedByExecute
+  LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring.connect(
+    io,
+    path,
+    robCompleteArbiter,
+    execute,
+    reducedReplayLiqReturnPipeW2Modules.robCompleteSource
+  )
   path.io.blockBranchTakenValid := blockBranchTakenValid
   path.io.blockBranchTaken := blockBranchTaken
   path.io.scalarRedirectValid := execute.io.redirectValid
@@ -4043,6 +4036,17 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleEvidence.io.providerRowClearReady,
     reducedReplayLiqReturnPipeW2Modules.retireRecordCommitRowCandidate,
     true.B,
+    reducedLoadReplayLiqAllocEnabled,
+    reducedStoreFlush
+  )
+  LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRobCompleteFallbackWiring.connect(
+    io,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordRobCompleteFallbackGuard,
+    reducedReplayLiqReturnPipeW2Modules.retireRecord,
+    reducedReplayLiqReturnPipeW2Modules.slot,
+    reducedReplayLiqReturnPipeW2Modules.robCompleteSource,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordCommitRowCandidate,
+    false.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -8341,6 +8345,68 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRowFillEnableCont
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      path: DecodeRenameROBPath,
+      arbiter: ReducedRobCompletionArbiter,
+      execute: ReducedScalarAluExecute,
+      replay: LoadReplayReturnPipeW2RobCompleteSource): Unit = {
+    arbiter.io.executeCompleteValid := execute.io.completeValid
+    arbiter.io.executeCompleteRobValue := execute.io.completeRobValue
+    arbiter.io.executeCompleteRowValid := execute.io.completeValid
+    arbiter.io.executeCompleteRow := execute.io.completeRow
+    arbiter.io.replayCompleteValid := replay.io.completeValid
+    arbiter.io.replayCompleteRobValue := replay.io.completeRobValue
+    arbiter.io.replayCompleteRowValid := replay.io.completeRowValid
+    arbiter.io.replayCompleteRow := replay.io.completeRow
+
+    path.io.completeValid := arbiter.io.completeValid
+    path.io.completeRobValue := arbiter.io.completeRobValue
+    path.io.completeRowValid := arbiter.io.completeRowValid
+    path.io.completeRow := arbiter.io.completeRow
+
+    io.robCompleteArbiterSelectedExecute := arbiter.io.selectedExecute
+    io.robCompleteArbiterSelectedReplay := arbiter.io.selectedReplay
+    io.robCompleteArbiterReplayBlockedByExecute := arbiter.io.replayBlockedByExecute
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRobCompleteFallbackWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      guard: LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard,
+      retireRecord: LoadReplayReturnPipeW2RetireRecord,
+      slot: LoadReplayReturnPipeW2Slot,
+      physicalRobComplete: LoadReplayReturnPipeW2RobCompleteSource,
+      retainedCandidate: LoadReplayReturnPipeW2RetireRecordCommitRowCandidate,
+      fallbackEnable: Bool,
+      enable: Bool,
+      flush: Bool): Unit = {
+    guard.io.enable := enable
+    guard.io.flush := flush
+    guard.io.fallbackEnable := fallbackEnable
+    guard.io.captureAccepted := retireRecord.io.captureAccepted
+    guard.io.captureRid := slot.io.entryRid
+    guard.io.physicalCompleteValid := physicalRobComplete.io.completeValid
+    guard.io.physicalCompleteRobValue := physicalRobComplete.io.completeRobValue
+    guard.io.recordValid := retireRecord.io.recordValid
+    guard.io.recordRid := retireRecord.io.record.rid
+    guard.io.recordFire := retireRecord.io.recordFire
+    guard.io.retainedCompleteRowValid := retainedCandidate.io.completeRowValid
+    guard.io.retainedCompleteRow := retainedCandidate.io.completeRow
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCapturePhysicalComplete :=
+      guard.io.capturePhysicalComplete
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCandidate :=
+      guard.io.recordCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackDuplicatePhysicalComplete :=
+      guard.io.duplicatePhysicalComplete
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCompleteValid :=
+      guard.io.fallbackCompleteValid
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopW2ClearCommitGuardWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -8695,6 +8761,7 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     retireRecordAtomicRequestProbe: LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe,
     retireRecordLifecycleRequestProbe: LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe,
     retireRecordRowFillEnableControl: LoadReplayReturnPipeW2RetireRecordRowFillEnableControl,
+    retireRecordRobCompleteFallbackGuard: LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard,
     clearCommitGuard: LoadReplayReturnPipeW2ClearCommitGuard,
     promotionControl: LoadReplayReturnPipeW2PromotionControl,
     refillReady: LoadReplayReturnPipeW2RefillReady,
@@ -8819,6 +8886,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
       retireRecordAtomicRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe),
       retireRecordLifecycleRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe),
       retireRecordRowFillEnableControl = Module(new LoadReplayReturnPipeW2RetireRecordRowFillEnableControl),
+      retireRecordRobCompleteFallbackGuard =
+        LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRobCompleteFallbackGuardModule.create(p, traceParams),
       clearCommitGuard = Module(new LoadReplayReturnPipeW2ClearCommitGuard(idEntries = p.robEntries)),
       promotionControl = Module(new LoadReplayReturnPipeW2PromotionControl),
       refillReady = Module(new LoadReplayReturnPipeW2RefillReady),
@@ -8880,6 +8949,16 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordInstructionMetada
       p: InterfaceParams,
       traceParams: CommitTraceParams): LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch =
     Module(new LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch(
+      idEntries = p.robEntries,
+      traceParams = traceParams
+    ))
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRobCompleteFallbackGuardModule {
+  def create(
+      p: InterfaceParams,
+      traceParams: CommitTraceParams): LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard =
+    Module(new LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard(
       idEntries = p.robEntries,
       traceParams = traceParams
     ))
