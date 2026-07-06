@@ -366,6 +366,9 @@ struct ReplayLiqSidebandStats {
   std::uint64_t lret_drain_permit_pipe_occupied = 0;
   std::uint64_t lret_iex_data_rob_row_valid = 0;
   std::uint64_t lret_iex_data_rob_row_need_flush = 0;
+  std::uint64_t lret_iex_data_rob_row_blocked_by_invalid_rid = 0;
+  std::uint64_t lret_iex_data_rob_row_blocked_by_free = 0;
+  std::uint64_t lret_iex_data_rob_row_blocked_by_stale_rid = 0;
   std::uint64_t lret_iex_data_candidate_valid = 0;
   std::uint64_t lret_iex_data_would_drain = 0;
   std::uint64_t lret_iex_data_set_mem_data_valid = 0;
@@ -1114,6 +1117,15 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretIexDataRobRowNeedFlush) {
     ++g_replay_liq_sideband_stats.lret_iex_data_rob_row_need_flush;
   }
+  if (dut.io_reducedLoadReplayLiqLretIexDataRobRowBlockedByInvalidRid) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_rob_row_blocked_by_invalid_rid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataRobRowBlockedByFree) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_rob_row_blocked_by_free;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataRobRowBlockedByStaleRid) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_rob_row_blocked_by_stale_rid;
+  }
   if (dut.io_reducedLoadReplayLiqLretIexDataCandidateValid) {
     ++g_replay_liq_sideband_stats.lret_iex_data_candidate_valid;
   }
@@ -1619,7 +1631,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v18\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v19\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -1967,6 +1979,12 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.lret_iex_data_rob_row_valid << ",\n"
       << "    \"lret_iex_data_rob_row_need_flush\": "
       << g_replay_liq_sideband_stats.lret_iex_data_rob_row_need_flush << ",\n"
+      << "    \"lret_iex_data_rob_row_blocked_by_invalid_rid\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_rob_row_blocked_by_invalid_rid << ",\n"
+      << "    \"lret_iex_data_rob_row_blocked_by_free\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_rob_row_blocked_by_free << ",\n"
+      << "    \"lret_iex_data_rob_row_blocked_by_stale_rid\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_rob_row_blocked_by_stale_rid << ",\n"
       << "    \"lret_iex_data_candidate_valid\": "
       << g_replay_liq_sideband_stats.lret_iex_data_candidate_valid << ",\n"
       << "    \"lret_iex_data_would_drain\": "

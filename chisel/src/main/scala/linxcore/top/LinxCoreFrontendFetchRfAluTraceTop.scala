@@ -816,6 +816,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretIexDataEnable = Output(Bool())
   val reducedLoadReplayLiqLretIexDataRobRowValid = Output(Bool())
   val reducedLoadReplayLiqLretIexDataRobRowNeedFlush = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataRobRowBlockedByInvalidRid = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataRobRowBlockedByFree = Output(Bool())
+  val reducedLoadReplayLiqLretIexDataRobRowBlockedByStaleRid = Output(Bool())
   val reducedLoadReplayLiqLretIexDataCandidateValid = Output(Bool())
   val reducedLoadReplayLiqLretIexDataWouldDrain = Output(Bool())
   val reducedLoadReplayLiqLretIexDataSetMemDataValid = Output(Bool())
@@ -4772,6 +4775,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnIexDataRobRowValid
   io.reducedLoadReplayLiqLretIexDataRobRowNeedFlush :=
     reducedReplayLiqReturnIexDataRobRowNeedFlush
+  io.reducedLoadReplayLiqLretIexDataRobRowBlockedByInvalidRid :=
+    path.io.robStatusLookup.blockedByInvalidRid
+  io.reducedLoadReplayLiqLretIexDataRobRowBlockedByFree :=
+    path.io.robStatusLookup.blockedByFree
+  io.reducedLoadReplayLiqLretIexDataRobRowBlockedByStaleRid :=
+    path.io.robStatusLookup.blockedByStaleRid
   io.reducedLoadReplayLiqLretIexDataCandidateValid :=
     reducedReplayLiqReturnIexDataCandidate.io.candidateValid
   io.reducedLoadReplayLiqLretIexDataWouldDrain :=

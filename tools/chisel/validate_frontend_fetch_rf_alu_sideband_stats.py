@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v18"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v19"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -183,6 +183,9 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "lret_drain_permit_pipe_occupied",
     "lret_iex_data_rob_row_valid",
     "lret_iex_data_rob_row_need_flush",
+    "lret_iex_data_rob_row_blocked_by_invalid_rid",
+    "lret_iex_data_rob_row_blocked_by_free",
+    "lret_iex_data_rob_row_blocked_by_stale_rid",
     "lret_iex_data_candidate_valid",
     "lret_iex_data_would_drain",
     "lret_iex_data_set_mem_data_valid",

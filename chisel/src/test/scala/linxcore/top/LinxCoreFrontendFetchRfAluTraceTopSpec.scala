@@ -1063,6 +1063,17 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2SlotSource1Data.getWidth == 64)
   }
 
+  test("R545 replay-LIQ LRET ROB row-status blocker diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqLretIexDataRobRowBlockedByInvalidRid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretIexDataRobRowBlockedByFree.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretIexDataRobRowBlockedByStaleRid.getWidth == 1)
+  }
+
   test("R379 replay-LIQ return wakeup sink diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)

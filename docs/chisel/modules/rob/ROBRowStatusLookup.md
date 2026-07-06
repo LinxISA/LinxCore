@@ -81,10 +81,14 @@ R543 enables the replay-loop fixture to publish LRET payloads and drain the
 LRET FIFO. R544's v18 sideband report proves the next live blocker is now this
 status boundary or the RID provenance feeding it: `lret_iex_data_candidate_valid=3`
 and `lret_iex_data_would_drain=3`, but `lret_iex_data_rob_row_valid=0` and
-`lret_iex_data_blocked_by_rob_missing=3`. A future repair must establish why
-the returned LRET RID is not observed as an occupied epoch-matched ROB row
-before enabling `rob_next.resolveData`, pipe residency, RF/writeback,
-ready-table, or W2 replay-row side effects.
+`lret_iex_data_blocked_by_rob_missing=3`. R545's v19 sideband report classifies
+that miss as a free-slot miss, not an invalid RID or stale epoch:
+`lret_iex_data_rob_row_blocked_by_free=3`,
+`lret_iex_data_rob_row_blocked_by_invalid_rid=0`, and
+`lret_iex_data_rob_row_blocked_by_stale_rid=0`. A future repair must establish
+why the returned LRET RID's slot is free when the FIFO drains before enabling
+`rob_next.resolveData`, pipe residency, RF/writeback, ready-table, or W2
+replay-row side effects.
 
 ## Deferred Owners
 
@@ -92,7 +96,7 @@ ready-table, or W2 replay-row side effects.
 - Scalar load-pair lane accounting and vector/MEM_IEX request completion.
 - Ready-table update, issue wakeup, and RF writeback side effects.
 - Return-pipe E4 residency.
-- LRET RID to occupied ROB-row provenance after FIFO drain.
+- LRET RID to still-occupied ROB-row lifetime after FIFO drain.
 
 ## Verification
 

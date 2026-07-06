@@ -2791,6 +2791,14 @@ the post-FIFO candidate exists (`lret_iex_data_candidate_valid=3` and
 `lret_iex_data_blocked_by_rob_missing=3`, so setMemData is currently blocked
 by ROB row-status/RID provenance rather than FIFO drain, return-pipe capacity,
 lane/TLOAD/final metadata, insert payload copying, residency, or W2 policy.
+R545 extends it to schema v19 with the row-status lookup's invalid/free/stale
+blocker split. The same replay-loop fixture passes the QEMU/DUT comparator with
+9 compared rows and zero mismatches, while the sideband report records
+`lret_iex_data_rob_row_blocked_by_free=3`,
+`lret_iex_data_rob_row_blocked_by_invalid_rid=0`, and
+`lret_iex_data_rob_row_blocked_by_stale_rid=0`. This narrows the next owner to
+ROB slot lifetime/freeing for the returned LRET RID; downstream replay-return
+stages remain blocked by missing setMemData evidence.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the
