@@ -2690,6 +2690,19 @@ R358/R359/R360 pre-arbiter `liveEnable` inputs through the same owner.
 R362 uses the same disabled writeback live-control output as the RF arbiter
 `replayEnable`, while the R358 candidate feeds `replayValid` and its live-gated
 payload feeds `replayTag`/`replayData`.
+R538 bumps the replay-LIQ sideband stats schema to v13 and adds harness-sampled
+stage-chain counters for the existing LRET return-pipe top outputs:
+`lret_residency_*`, `lret_w1_*`, and `lret_w2_slot_*`. This is an
+observability-only packet. It does not add Chisel top IO, alter the R363
+request gate, or enable W2 side effects; it lets the live QEMU fixture
+distinguish "no returned payload reaches residency" from "residency/W1/W2 is
+blocked later" before changing replay-return policy.
+The R538 loop fixture records positive upstream replay-LIQ counters, but
+`lret_residency_candidate_valid=0`, `lret_residency_slot_accepted=0`,
+`lret_w1_slot_accepted=0`, and `lret_w2_slot_accepted=0`, with
+`lret_w2_slot_blocked_by_no_write=108`. That places the next repair upstream
+of W2 request policy, around returned-load/IEX pipe insertion or LRET residency
+payload production.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

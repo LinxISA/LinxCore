@@ -135,6 +135,19 @@ disabled, this module does not change fixture-visible replay behavior. It
 names the W2 payload owner required before real RF, ROB, ready-table,
 issue-wakeup, or replay-row lifecycle side effects can consume returned loads.
 
+R538 keeps the W2 slot policy unchanged and extends only the generated-RTL
+sideband stats report. Schema v13 samples the existing top-level
+`LretPipeResidency*`, `LretPipeW1*`, and `LretPipeW2Slot*` diagnostics as
+`lret_residency_*`, `lret_w1_*`, and `lret_w2_slot_*` counters. These counters
+are intended to classify the live replay-return blockage before promoting W2
+side effects or clear/refill replacement.
+The R538 replay loop still records upstream replay-LIQ progress, but the new
+stage counters stay empty (`lret_residency_candidate_valid=0`,
+`lret_w1_slot_accepted=0`, `lret_w2_slot_accepted=0`) while the W2 slot
+reports `lret_w2_slot_blocked_by_no_write=108`. This keeps the next owner
+upstream of W2 storage: returned-load/IEX pipe insertion and LRET residency
+payload production.
+
 ## Deferred Owners
 
 - W2 pipe-cycle timestamp storage.

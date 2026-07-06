@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v12"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v13"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -92,6 +92,23 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "source_row_mutation_request_valid",
     "source_row_mutation_blocked_by_head_proof",
     "source_row_mutation_blocked_by_live_disabled",
+    "lret_residency_candidate_valid",
+    "lret_residency_write_valid",
+    "lret_residency_live_enable",
+    "lret_residency_blocked_by_live_disabled",
+    "lret_residency_slot_accepted",
+    "lret_residency_slot_occupied",
+    "lret_residency_advance_candidate_valid",
+    "lret_residency_advance_valid",
+    "lret_residency_advance_blocked_by_advance_disabled",
+    "lret_w1_slot_accepted",
+    "lret_w1_slot_occupied",
+    "lret_w1_advance_candidate_valid",
+    "lret_w1_advance_valid",
+    "lret_w1_advance_blocked_by_advance_disabled",
+    "lret_w2_slot_accepted",
+    "lret_w2_slot_occupied",
+    "lret_w2_slot_blocked_by_no_write",
     "w2_atomic_live_active",
     "w2_atomic_request_active",
     "w2_atomic_evidence_valid",

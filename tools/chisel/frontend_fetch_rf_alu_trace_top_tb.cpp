@@ -275,6 +275,23 @@ struct ReplayLiqSidebandStats {
   std::uint64_t source_row_mutation_request_valid = 0;
   std::uint64_t source_row_mutation_blocked_by_head_proof = 0;
   std::uint64_t source_row_mutation_blocked_by_live_disabled = 0;
+  std::uint64_t lret_residency_candidate_valid = 0;
+  std::uint64_t lret_residency_write_valid = 0;
+  std::uint64_t lret_residency_live_enable = 0;
+  std::uint64_t lret_residency_blocked_by_live_disabled = 0;
+  std::uint64_t lret_residency_slot_accepted = 0;
+  std::uint64_t lret_residency_slot_occupied = 0;
+  std::uint64_t lret_residency_advance_candidate_valid = 0;
+  std::uint64_t lret_residency_advance_valid = 0;
+  std::uint64_t lret_residency_advance_blocked_by_advance_disabled = 0;
+  std::uint64_t lret_w1_slot_accepted = 0;
+  std::uint64_t lret_w1_slot_occupied = 0;
+  std::uint64_t lret_w1_advance_candidate_valid = 0;
+  std::uint64_t lret_w1_advance_valid = 0;
+  std::uint64_t lret_w1_advance_blocked_by_advance_disabled = 0;
+  std::uint64_t lret_w2_slot_accepted = 0;
+  std::uint64_t lret_w2_slot_occupied = 0;
+  std::uint64_t lret_w2_slot_blocked_by_no_write = 0;
   std::uint64_t w2_atomic_live_active = 0;
   std::uint64_t w2_atomic_request_active = 0;
   std::uint64_t w2_atomic_evidence_valid = 0;
@@ -663,6 +680,57 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByLiveDisabled) {
     ++g_replay_liq_sideband_stats.source_row_mutation_blocked_by_live_disabled;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeResidencyCandidateValid) {
+    ++g_replay_liq_sideband_stats.lret_residency_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeResidencyWriteValid) {
+    ++g_replay_liq_sideband_stats.lret_residency_write_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeResidencyLiveEnable) {
+    ++g_replay_liq_sideband_stats.lret_residency_live_enable;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeResidencyBlockedByLiveDisabled) {
+    ++g_replay_liq_sideband_stats.lret_residency_blocked_by_live_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeResidencySlotAccepted) {
+    ++g_replay_liq_sideband_stats.lret_residency_slot_accepted;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeResidencySlotOccupied) {
+    ++g_replay_liq_sideband_stats.lret_residency_slot_occupied;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeResidencyAdvanceCandidateValid) {
+    ++g_replay_liq_sideband_stats.lret_residency_advance_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeResidencyAdvanceValid) {
+    ++g_replay_liq_sideband_stats.lret_residency_advance_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeResidencyAdvanceBlockedByAdvanceDisabled) {
+    ++g_replay_liq_sideband_stats.lret_residency_advance_blocked_by_advance_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW1SlotAccepted) {
+    ++g_replay_liq_sideband_stats.lret_w1_slot_accepted;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW1SlotOccupied) {
+    ++g_replay_liq_sideband_stats.lret_w1_slot_occupied;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW1AdvanceCandidateValid) {
+    ++g_replay_liq_sideband_stats.lret_w1_advance_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW1AdvanceValid) {
+    ++g_replay_liq_sideband_stats.lret_w1_advance_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW1AdvanceBlockedByAdvanceDisabled) {
+    ++g_replay_liq_sideband_stats.lret_w1_advance_blocked_by_advance_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotAccepted) {
+    ++g_replay_liq_sideband_stats.lret_w2_slot_accepted;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotOccupied) {
+    ++g_replay_liq_sideband_stats.lret_w2_slot_occupied;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotBlockedByNoWrite) {
+    ++g_replay_liq_sideband_stats.lret_w2_slot_blocked_by_no_write;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2AtomicLiveRequestActive) {
     ++g_replay_liq_sideband_stats.w2_atomic_live_active;
   }
@@ -907,7 +975,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v12\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v13\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -1073,6 +1141,40 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.source_row_mutation_blocked_by_head_proof << ",\n"
       << "    \"source_row_mutation_blocked_by_live_disabled\": "
       << g_replay_liq_sideband_stats.source_row_mutation_blocked_by_live_disabled << ",\n"
+      << "    \"lret_residency_candidate_valid\": "
+      << g_replay_liq_sideband_stats.lret_residency_candidate_valid << ",\n"
+      << "    \"lret_residency_write_valid\": "
+      << g_replay_liq_sideband_stats.lret_residency_write_valid << ",\n"
+      << "    \"lret_residency_live_enable\": "
+      << g_replay_liq_sideband_stats.lret_residency_live_enable << ",\n"
+      << "    \"lret_residency_blocked_by_live_disabled\": "
+      << g_replay_liq_sideband_stats.lret_residency_blocked_by_live_disabled << ",\n"
+      << "    \"lret_residency_slot_accepted\": "
+      << g_replay_liq_sideband_stats.lret_residency_slot_accepted << ",\n"
+      << "    \"lret_residency_slot_occupied\": "
+      << g_replay_liq_sideband_stats.lret_residency_slot_occupied << ",\n"
+      << "    \"lret_residency_advance_candidate_valid\": "
+      << g_replay_liq_sideband_stats.lret_residency_advance_candidate_valid << ",\n"
+      << "    \"lret_residency_advance_valid\": "
+      << g_replay_liq_sideband_stats.lret_residency_advance_valid << ",\n"
+      << "    \"lret_residency_advance_blocked_by_advance_disabled\": "
+      << g_replay_liq_sideband_stats.lret_residency_advance_blocked_by_advance_disabled << ",\n"
+      << "    \"lret_w1_slot_accepted\": "
+      << g_replay_liq_sideband_stats.lret_w1_slot_accepted << ",\n"
+      << "    \"lret_w1_slot_occupied\": "
+      << g_replay_liq_sideband_stats.lret_w1_slot_occupied << ",\n"
+      << "    \"lret_w1_advance_candidate_valid\": "
+      << g_replay_liq_sideband_stats.lret_w1_advance_candidate_valid << ",\n"
+      << "    \"lret_w1_advance_valid\": "
+      << g_replay_liq_sideband_stats.lret_w1_advance_valid << ",\n"
+      << "    \"lret_w1_advance_blocked_by_advance_disabled\": "
+      << g_replay_liq_sideband_stats.lret_w1_advance_blocked_by_advance_disabled << ",\n"
+      << "    \"lret_w2_slot_accepted\": "
+      << g_replay_liq_sideband_stats.lret_w2_slot_accepted << ",\n"
+      << "    \"lret_w2_slot_occupied\": "
+      << g_replay_liq_sideband_stats.lret_w2_slot_occupied << ",\n"
+      << "    \"lret_w2_slot_blocked_by_no_write\": "
+      << g_replay_liq_sideband_stats.lret_w2_slot_blocked_by_no_write << ",\n"
       << "    \"w2_atomic_live_active\": "
       << g_replay_liq_sideband_stats.w2_atomic_live_active << ",\n"
       << "    \"w2_atomic_request_active\": "
