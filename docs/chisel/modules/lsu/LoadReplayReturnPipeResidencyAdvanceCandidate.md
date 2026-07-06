@@ -30,10 +30,9 @@ R330 adds a combinational advance/clear diagnostic behind the one-entry
 residency slot. It observes whether the slot is occupied, checks that the slot
 has exactly one target pipe family, and emits a future `clearSlot` request only
 when an explicit `advanceEnable` input is true. R385 feeds that input from
-`LoadReplayReturnPipeResidencyAdvanceLiveControl`; the integrated reduced top
-still keeps the live request disabled, so the slot cannot be cleared through
-this path until a later packet enables E4-to-W1 promotion and proves the
-downstream W1/W2 clear path.
+`LoadReplayReturnPipeResidencyAdvanceLiveControl`; R548 enables the integrated
+reduced top request only when the E4 residency slot is occupied and the
+one-entry W1 slot is empty, so E4 clears only when W1 can accept the payload.
 
 ## Interface
 
@@ -41,7 +40,7 @@ downstream W1/W2 clear path.
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Suppresses normal advance diagnostics. The slot itself still sees the top-level flush. |
-| input | `advanceEnable` | Enables the future E4-to-W1 clear/advance point. Current top receives this from R385's live-control owner with the request disabled. |
+| input | `advanceEnable` | Enables the E4-to-W1 clear/advance point. The integrated top receives this from R385/R548 live-control wiring. |
 | input | `slotOccupied` | R329 slot contains a resident returned-load payload. |
 | input | `slotTargetIsAgu` / `slotTargetIsLda` | Resident slot target family. Exactly one must be set. |
 | input | `slotPipeIndex` | Resident slot's selected pipe index. |
@@ -74,17 +73,17 @@ advance and provides a downstream W2 clear owner.
 - `clearSlot` feeds the R329 slot's `clear` input;
 - `advanceValid`, target, and pipe-index outputs feed the dormant R331 W1 slot;
 - `advanceEnable` comes from `LoadReplayReturnPipeResidencyAdvanceLiveControl`,
-  whose top-level request is currently false;
+  whose top-level request is asserted only while W1 is empty;
 - top-level diagnostics expose candidate, advance, clear, target, pipe-index,
   and blockers.
 
-Since R328 still live-disables residency writes and R330 live-disables advance,
-the generated fixture observes the same replay behavior as before this packet.
+R548's replay-loop fixture records nonzero residency advance, W1 acceptance,
+W2 acceptance, and W2 atomic evidence while preserving QEMU/DUT comparator
+agreement. W2 atomic request promotion remains disabled.
 
 ## Deferred Owners
 
 - Live W1-to-W2 returned-load pipe stage advance/storage.
-- Top-level request enable for R385 E4-to-W1 advance live control.
 - Pipe-stage flush by precise ROB/LSID identity rather than top-level replay
   flush only.
 - Downstream RF/writeback, ready-table update, issue wakeup, and replay-row

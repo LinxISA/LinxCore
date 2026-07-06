@@ -27,9 +27,10 @@ for returned-load E4-to-W1 advancement. In the LinxCoreModel LDA and AGU pipes,
 
 R385 replaces the reduced top's raw
 `LoadReplayReturnPipeResidencyAdvanceCandidate.advanceEnable=false.B` tie with
-this owner. The reduced top still drives `requestEnable=false`, so the R330
-advance candidate sees a disabled live request, the E4 residency slot is not
-cleared, and the W1 slot observes no writes.
+this owner. R548 drives the integrated reduced top request when the E4 residency
+slot is occupied and the one-entry W1 slot is empty. That gives the
+replay-return pipe one safe E4-to-W1 transfer at a time without relying on W1
+same-cycle clear/refill, which `LoadReplayReturnPipeW1Slot` does not support.
 
 ## Interface
 
@@ -37,7 +38,7 @@ cleared, and the W1 slot observes no writes.
 |---|---|---|
 | input | `enable` | Replay-LIQ wrapper is active. |
 | input | `flush` | Suppresses the live request and slot evidence. |
-| input | `requestEnable` | Future top-level request to enable E4-to-W1 advance. Current top ties this false. |
+| input | `requestEnable` | Top-level request to enable E4-to-W1 advance. R548 drives this from resident E4 slot occupancy and an empty W1 slot. |
 | input | `slotOccupied` | E4 residency slot contains a returned-load payload. |
 | input | `slotTargetIsAgu` / `slotTargetIsLda` | Resident slot target family. Exactly one must be set before evidence is valid. |
 | input | `slotPipeIndex` | Resident return-pipe index for evidence diagnostics. |
@@ -60,10 +61,11 @@ advanceEvidenceValid = active && rawEvidence
 advanceEnable = requestActive && rawEvidence
 ```
 
-The gate is intentionally stricter than a raw top-level enable. A future live
-request can advance only when the resident E4 slot exists and carries a valid
-exclusive target. With the current request disabled, the module reports valid
-resident-slot evidence as request-disabled rather than mutating pipe state.
+The gate is intentionally stricter than a raw top-level enable. A live request
+can advance only when the resident E4 slot exists and carries a valid exclusive
+target. The integrated top also holds `requestEnable` low while W1 is occupied,
+because the current W1 slot clears with priority over writes and cannot accept
+a same-cycle replacement.
 
 ## Integration
 
@@ -71,17 +73,18 @@ R385 wires `LinxCoreFrontendFetchRfAluTraceTop` as follows:
 
 - `enable` comes from the reduced replay-LIQ allocation enable;
 - `flush` comes from reduced-store flush;
-- `requestEnable` remains `false`;
+- `requestEnable` is asserted only when the E4 residency slot is occupied and
+  the W1 slot is empty;
 - slot evidence comes from `LoadReplayReturnPipeResidencySlot`;
 - `advanceEnable` feeds `LoadReplayReturnPipeResidencyAdvanceCandidate`.
 
-Because `requestEnable` is false, `LoadReplayReturnPipeResidencyAdvanceCandidate`
-keeps `advanceValid` and `clearSlot` false even when a future resident slot
-exists.
+R548's replay-loop fixture records the live E4-to-W1 handoff:
+`lret_residency_advance_valid=2`, `lret_w1_slot_accepted=2`,
+`lret_w2_slot_accepted=1`, and `w2_atomic_evidence_valid=75`. The remaining
+blocker is W2 atomic request promotion, not residency advance.
 
 ## Deferred Owners
 
-- Top-level request enable for live E4-to-W1 advance.
 - Real multi-entry AGU/LDA W-stage occupancy and replacement policy.
 - W1/W2 advance, RF replay writeback, ROB/PE resolve, ready-table/issue wakeup,
   replay-row lifecycle clear, and commit-row fill after W-stage completion.

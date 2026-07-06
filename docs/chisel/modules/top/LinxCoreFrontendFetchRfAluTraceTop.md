@@ -1471,14 +1471,14 @@ past publish and FIFO drain to returned-load IEX insertion/residency evidence.
 R384 extends the same replay-LIQ namespace with
 `LoadReplayReturnPipeResidencyLiveControl`. The reduced top now feeds
 `LoadReplayReturnPipeResidencyCandidate.liveEnable` from an accepted-insert and
-free-pipe evidence gate, but the live request remains disabled, so the dormant
-E4 residency slot still observes no writes.
+free-pipe evidence gate. R547/R548 positive replay-loop gates now record live
+E4 residency writes and slot acceptance.
 R385 extends the same replay-LIQ namespace with
 `LoadReplayReturnPipeResidencyAdvanceLiveControl`. The reduced top now feeds
 `LoadReplayReturnPipeResidencyAdvanceCandidate.advanceEnable` from occupied
-E4-slot and exclusive-target evidence, but the live request remains disabled,
-so the E4 residency slot is not cleared and the W1 slot still observes no
-writes.
+E4-slot, exclusive-target evidence, and R548's W1-empty request gate, so the
+E4 residency slot can advance into W1 without relying on same-cycle W1
+clear/refill.
 R386 extends the same replay-LIQ namespace with
 `LoadReplayReturnReducedScalarShapeControl`. The reduced top now feeds the
 ordinary scalar one-lane, non-TLOAD, LDA-target shape into lane completion,
@@ -2007,20 +2007,18 @@ overlay. Most state remains in child modules:
   residency selection from the R386 reduced-shape owner in the current top.
 - `LoadReplayReturnPipeResidencyLiveControl`: optional R384 live request owner
   for E4 residency writes. It replaces the direct top-level false tie-off with
-  an accepted-insert/free-pipe evidence gate while the top request remains
-  disabled.
-- `LoadReplayReturnPipeResidencySlot`: optional R329 dormant returned-load E4
+  an accepted-insert/free-pipe evidence gate.
+- `LoadReplayReturnPipeResidencySlot`: optional R329 returned-load E4
   residency state owner. It consumes only live unblocked R328 residency writes,
   captures the R322 insert-shaped payload in a one-entry slot, and exposes
-  occupancy/blocker diagnostics while the top keeps the write path disabled.
+  occupancy/blocker diagnostics.
 - `LoadReplayReturnPipeResidencyAdvanceLiveControl`: optional R385 live request
   owner for E4-to-W1 advance. It replaces the direct top-level false tie-off
-  with an occupied-slot/target-evidence gate while the top request remains
-  disabled.
-- `LoadReplayReturnPipeResidencyAdvanceCandidate`: optional R330 dormant
-  E4-to-W1 advance/clear owner. It observes the R329 slot, emits a slot clear
-  only when R385's live-control owner enables advance, and currently reports
-  no-slot or advance-disabled diagnostics without changing fixture behavior.
+  with an occupied-slot/target-evidence gate, and R548 asserts the integrated
+  request only when W1 is empty.
+- `LoadReplayReturnPipeResidencyAdvanceCandidate`: optional R330 E4-to-W1
+  advance/clear owner. It observes the R329 slot and emits a slot clear only
+  when R385/R548 live-control wiring enables advance.
 - `LoadReplayReturnPipeW1Slot`: optional R331 dormant returned-load W1 stage
   owner. It consumes future R330 advance pulses plus the R329 slot payload and
   exposes W1 occupancy/blocker diagnostics while the top keeps advance disabled.
@@ -2827,6 +2825,16 @@ are live through `lret_rob_resolve_candidate_valid=3`,
 `lret_residency_candidate_valid=3`. The remaining live blocker is W2 atomic
 request/evidence production: `w2_atomic_request_active=0` and
 `w2_atomic_evidence_valid=0`.
+R548 enables the E4 residency slot to advance into W1 only when W1 is empty.
+The replay-loop fixture still passes the QEMU/DUT comparator with 9 compared
+rows, zero mismatches, and zero CBSTOP rows. The sideband report now records
+`lret_residency_write_valid=3`, `lret_residency_slot_accepted=3`,
+`lret_residency_advance_valid=2`, `lret_w1_slot_accepted=2`,
+`lret_w2_slot_accepted=1`, `lret_w2_slot_occupied=74`, and
+`w2_atomic_evidence_valid=75`. The remaining blocker is W2 atomic request
+promotion: `w2_atomic_request_active=0`,
+`w2_atomic_blocked_by_request_disabled=111`, `w2_side_effect_ready=0`,
+`w2_row_fill_candidate_valid=0`, and `w2_lifecycle_ready=0`.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

@@ -3606,6 +3606,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     flush = reducedStoreFlush,
     live = reducedReplayLiqReturnPipeResidencyAdvanceLiveControl,
     slot = reducedReplayLiqReturnPipeResidencySlot,
+    w1Slot = reducedReplayLiqReturnPipeW1Slot,
     advance = reducedReplayLiqReturnPipeResidencyAdvanceCandidate)
   reducedReplayLiqReturnPipeW1Slot.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqReturnPipeW1Slot.io.flush := reducedStoreFlush
@@ -5867,10 +5868,11 @@ private object LinxCoreFrontendFetchRfAluTraceTopR385ResidencyAdvanceLiveWiring 
       flush: Bool,
       live: LoadReplayReturnPipeResidencyAdvanceLiveControl,
       slot: LoadReplayReturnPipeResidencySlot,
+      w1Slot: LoadReplayReturnPipeW1Slot,
       advance: LoadReplayReturnPipeResidencyAdvanceCandidate): Unit = {
     live.io.enable := enable
     live.io.flush := flush
-    live.io.requestEnable := false.B
+    live.io.requestEnable := slot.io.occupied && !w1Slot.io.occupied
     live.io.slotOccupied := slot.io.occupied
     live.io.slotTargetIsAgu := slot.io.entryTargetIsAgu
     live.io.slotTargetIsLda := slot.io.entryTargetIsLda

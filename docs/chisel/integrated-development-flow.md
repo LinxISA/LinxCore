@@ -15,7 +15,7 @@ the change still works across repos.
 
 ## Current Handoff
 
-The next Chisel packet should start from the R547 replay-return evidence, not
+The next Chisel packet should start from the R548 replay-return evidence, not
 from another broad CoreMark scan. The reduced frontend/rename/scalar
 execute/ROB/block-marker/store/STQ/SCB path is mature enough for the current
 reduced top, and the generated-RTL/QEMU comparator infrastructure is producing
@@ -27,37 +27,42 @@ replay-LIQ load RIDs from LIQ allocation until LRET FIFO drain, so the replay
 fixture records `lret_iex_data_rob_row_valid=3`,
 `lret_iex_data_set_mem_data_valid=3`,
 `lret_iex_data_rob_row_blocked_by_free=0`, and
-`lret_shadow_free_after_prior_commit=0`. The next owner is no longer ROB
-row-status lifetime; it is the post-insert return-pipe/W2 request path, because
-resolve, lane, TLOAD, final metadata, IEX insert, and residency candidates are
-all nonzero while `w2_atomic_request_active=0` and
-`w2_atomic_evidence_valid=0`.
+`lret_shadow_free_after_prior_commit=0`. R548 enables the E4 residency slot to
+advance into W1 only when W1 is empty, so the replay fixture now records
+`lret_residency_advance_valid=2`, `lret_w1_slot_accepted=2`,
+`lret_w2_slot_accepted=1`, `lret_w2_slot_occupied=74`, and
+`w2_atomic_evidence_valid=75`. The next owner is no longer ROB row-status
+lifetime, setMemData admission, IEX insert, residency write, or W2 slot
+evidence; it is W2 atomic request promotion, because
+`w2_atomic_request_active=0`, `w2_atomic_blocked_by_request_disabled=111`,
+`w2_side_effect_ready=0`, `w2_row_fill_candidate_valid=0`, and
+`w2_lifecycle_ready=0`.
 
 Use this packet shape first:
 
 ```text
-Packet: replay-LIQ LRET W2 atomic request evidence
+Packet: replay-LIQ LRET W2 atomic request promotion
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
-Files allowed: LoadReplayReturnPipeResidency*, W1/W2 replay-return pipe
-  modules, W2 atomic request/prereq/evidence wiring, focused W2 specs, module
-  docs, and sideband validator updates only if new evidence fields are required
+Files allowed: W2 atomic request/prereq/policy, W2 side-effect readiness/live
+  control, W2 row-fill/lifecycle readiness, focused W2 specs, module docs, and
+  sideband validator updates only if new evidence fields are required
 Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
   handling after returned-load pipe insertion
 Expected first gate: focused return-pipe/W2 request coverage proving a
-  residency candidate can promote into W2 request evidence without enabling
-  unrelated RF/writeback or ready-table side effects
-Promotion gate: R547 replay-loop fixture through
+  resident W2 returned load can assert atomic request without enabling
+  unrelated RF/writeback, ROB/PE resolve, ready-table, or lifecycle side effects
+Promotion gate: R548 replay-loop fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v20 sideband
-  inspection requiring nonzero setMemData, IEX insert, residency, and the
-  newly repaired W2 request/evidence counter
+  inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
+  W2 evidence, and the newly repaired W2 request counter
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   W2 request evidence is live in the reduced replay-loop fixture
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
-  holdoff, lane/TLOAD/final metadata, or commit-row compare policy before W2
-  request evidence exists
-First-divergence owner if the gate fails: Chisel return-pipe residency/W2
-  atomic request gating unless the v20 sideband report misreports generated
-  signals
+  holdoff, lane/TLOAD/final metadata, E4/W1/W2 slot storage, or commit-row
+  compare policy before W2 request promotion exists
+First-divergence owner if the gate fails: Chisel W2 atomic request policy,
+  side-effect readiness, row-fill, or lifecycle readiness unless the v20
+  sideband report misreports generated signals
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```
