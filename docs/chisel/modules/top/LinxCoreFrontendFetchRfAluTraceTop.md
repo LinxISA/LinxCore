@@ -2784,6 +2784,13 @@ FIFO drain (`return_data_valid=3`, `publish_request_lret=3`,
 `lret_sink_enqueue_accepted=3`, `lret_sink_drain_fire=3`), so the next
 frontier is `LoadReplayReturnIexPipeInsertCandidate` / residency rather than
 the complete-Repick selector.
+R544 extends it to schema v18 with the existing middle-stage returned-load
+IEX outputs between LRET drain and pipe insert. The replay-loop fixture proves
+the post-FIFO candidate exists (`lret_iex_data_candidate_valid=3` and
+`lret_iex_data_would_drain=3`), but `lret_iex_data_rob_row_valid=0` and
+`lret_iex_data_blocked_by_rob_missing=3`, so setMemData is currently blocked
+by ROB row-status/RID provenance rather than FIFO drain, return-pipe capacity,
+lane/TLOAD/final metadata, insert payload copying, residency, or W2 policy.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

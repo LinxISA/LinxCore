@@ -364,6 +364,71 @@ struct ReplayLiqSidebandStats {
   std::uint64_t lret_drain_permit_blocked_by_no_entry = 0;
   std::uint64_t lret_drain_permit_blocked_by_pipe_full = 0;
   std::uint64_t lret_drain_permit_pipe_occupied = 0;
+  std::uint64_t lret_iex_data_rob_row_valid = 0;
+  std::uint64_t lret_iex_data_rob_row_need_flush = 0;
+  std::uint64_t lret_iex_data_candidate_valid = 0;
+  std::uint64_t lret_iex_data_would_drain = 0;
+  std::uint64_t lret_iex_data_set_mem_data_valid = 0;
+  std::uint64_t lret_iex_data_blocked_by_disabled = 0;
+  std::uint64_t lret_iex_data_blocked_by_flush = 0;
+  std::uint64_t lret_iex_data_blocked_by_no_entry = 0;
+  std::uint64_t lret_iex_data_blocked_by_invalid_entry = 0;
+  std::uint64_t lret_iex_data_blocked_by_drain = 0;
+  std::uint64_t lret_iex_data_blocked_by_rob_missing = 0;
+  std::uint64_t lret_iex_data_blocked_by_need_flush = 0;
+  std::uint64_t lret_rob_resolve_candidate_valid = 0;
+  std::uint64_t lret_rob_resolve_valid = 0;
+  std::uint64_t lret_rob_resolve_ready_for_pipe_insert = 0;
+  std::uint64_t lret_rob_resolve_mark_all_destinations_data_valid = 0;
+  std::uint64_t lret_rob_resolve_mark_destination_data_valid = 0;
+  std::uint64_t lret_rob_resolve_ret_lane_increment = 0;
+  std::uint64_t lret_rob_resolve_blocked_by_disabled = 0;
+  std::uint64_t lret_rob_resolve_blocked_by_flush = 0;
+  std::uint64_t lret_rob_resolve_blocked_by_no_set_mem_data = 0;
+  std::uint64_t lret_rob_resolve_blocked_by_unsupported_multi_lane = 0;
+  std::uint64_t lret_rob_resolve_blocked_by_invalid_rid = 0;
+  std::uint64_t lret_rob_resolve_blocked_by_no_destination = 0;
+  std::uint64_t lret_lane_completion_candidate_valid = 0;
+  std::uint64_t lret_lane_completion_complete_valid = 0;
+  std::uint64_t lret_lane_completion_ready_for_pipe_insert = 0;
+  std::uint64_t lret_lane_completion_requires_all_lanes = 0;
+  std::uint64_t lret_lane_completion_blocked_by_disabled = 0;
+  std::uint64_t lret_lane_completion_blocked_by_flush = 0;
+  std::uint64_t lret_lane_completion_blocked_by_no_resolve = 0;
+  std::uint64_t lret_lane_completion_blocked_by_zero_returned_lanes = 0;
+  std::uint64_t lret_lane_completion_blocked_by_invalid_real_req_cnt = 0;
+  std::uint64_t lret_lane_completion_blocked_by_scalar_load_pair_incomplete = 0;
+  std::uint64_t lret_lane_completion_blocked_by_vector_mem_incomplete = 0;
+  std::uint64_t lret_tload_completion_candidate_valid = 0;
+  std::uint64_t lret_tload_completion_tload_candidate_valid = 0;
+  std::uint64_t lret_tload_completion_tile_scb_send_valid = 0;
+  std::uint64_t lret_tload_completion_tile_scb_is_last = 0;
+  std::uint64_t lret_tload_completion_complete_valid = 0;
+  std::uint64_t lret_tload_completion_ready_for_pipe_insert = 0;
+  std::uint64_t lret_tload_completion_blocked_by_disabled = 0;
+  std::uint64_t lret_tload_completion_blocked_by_flush = 0;
+  std::uint64_t lret_tload_completion_blocked_by_no_lane_completion = 0;
+  std::uint64_t lret_tload_completion_blocked_by_invalid_sub_inst_cnt = 0;
+  std::uint64_t lret_tload_completion_blocked_by_tload_pending = 0;
+  std::uint64_t lret_final_metadata_candidate_valid = 0;
+  std::uint64_t lret_final_metadata_is_load_return_marked = 0;
+  std::uint64_t lret_final_metadata_load_branch_resolve_called = 0;
+  std::uint64_t lret_final_metadata_load_branch_resolve_side_effect_valid = 0;
+  std::uint64_t lret_final_metadata_pipe_cycle_sideband_valid = 0;
+  std::uint64_t lret_final_metadata_ready_for_pipe_insert = 0;
+  std::uint64_t lret_final_metadata_blocked_by_disabled = 0;
+  std::uint64_t lret_final_metadata_blocked_by_flush = 0;
+  std::uint64_t lret_final_metadata_blocked_by_no_tload_completion = 0;
+  std::uint64_t lret_timing_stats_candidate_valid = 0;
+  std::uint64_t lret_timing_stats_sideband_valid = 0;
+  std::uint64_t lret_timing_stats_iq_name_sideband_valid = 0;
+  std::uint64_t lret_timing_stats_ld_rnt_cycle_valid = 0;
+  std::uint64_t lret_timing_stats_update_valid = 0;
+  std::uint64_t lret_timing_stats_latency_underflow = 0;
+  std::uint64_t lret_timing_stats_ready_for_pipe_insert = 0;
+  std::uint64_t lret_timing_stats_blocked_by_disabled = 0;
+  std::uint64_t lret_timing_stats_blocked_by_flush = 0;
+  std::uint64_t lret_timing_stats_blocked_by_no_final_metadata = 0;
   std::uint64_t lret_iex_insert_candidate_valid = 0;
   std::uint64_t lret_iex_insert_valid = 0;
   std::uint64_t lret_iex_insert_is_load_return = 0;
@@ -1043,6 +1108,201 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretDrainPermitPipeOccupiedMask != 0) {
     ++g_replay_liq_sideband_stats.lret_drain_permit_pipe_occupied;
   }
+  if (dut.io_reducedLoadReplayLiqLretIexDataRobRowValid) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_rob_row_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataRobRowNeedFlush) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_rob_row_need_flush;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataCandidateValid) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataWouldDrain) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_would_drain;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataSetMemDataValid) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_set_mem_data_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataBlockedByDisabled) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_blocked_by_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataBlockedByFlush) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_blocked_by_flush;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataBlockedByNoEntry) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_blocked_by_no_entry;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataBlockedByInvalidEntry) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_blocked_by_invalid_entry;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataBlockedByDrain) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_blocked_by_drain;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataBlockedByRobMissing) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_blocked_by_rob_missing;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexDataBlockedByNeedFlush) {
+    ++g_replay_liq_sideband_stats.lret_iex_data_blocked_by_need_flush;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveCandidateValid) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveValid) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveReadyForPipeInsert) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_ready_for_pipe_insert;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveMarkAllDestinationsDataValid) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_mark_all_destinations_data_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveMarkDestinationDataValid) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_mark_destination_data_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveRetLaneIncrement) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_ret_lane_increment;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveBlockedByDisabled) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveBlockedByFlush) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_flush;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveBlockedByNoSetMemData) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_no_set_mem_data;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveBlockedByUnsupportedMultiLane) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_unsupported_multi_lane;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveBlockedByInvalidRid) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_invalid_rid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretRobResolveBlockedByNoDestination) {
+    ++g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_no_destination;
+  }
+  if (dut.io_reducedLoadReplayLiqLretLaneCompletionCandidateValid) {
+    ++g_replay_liq_sideband_stats.lret_lane_completion_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretLaneCompletionCompleteValid) {
+    ++g_replay_liq_sideband_stats.lret_lane_completion_complete_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretLaneCompletionReadyForPipeInsert) {
+    ++g_replay_liq_sideband_stats.lret_lane_completion_ready_for_pipe_insert;
+  }
+  if (dut.io_reducedLoadReplayLiqLretLaneCompletionRequiresAllLanes) {
+    ++g_replay_liq_sideband_stats.lret_lane_completion_requires_all_lanes;
+  }
+  if (dut.io_reducedLoadReplayLiqLretLaneCompletionBlockedByDisabled) {
+    ++g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretLaneCompletionBlockedByFlush) {
+    ++g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_flush;
+  }
+  if (dut.io_reducedLoadReplayLiqLretLaneCompletionBlockedByNoResolve) {
+    ++g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_no_resolve;
+  }
+  if (dut.io_reducedLoadReplayLiqLretLaneCompletionBlockedByZeroReturnedLanes) {
+    ++g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_zero_returned_lanes;
+  }
+  if (dut.io_reducedLoadReplayLiqLretLaneCompletionBlockedByInvalidRealReqCnt) {
+    ++g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_invalid_real_req_cnt;
+  }
+  if (dut.io_reducedLoadReplayLiqLretLaneCompletionBlockedByScalarLoadPairIncomplete) {
+    ++g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_scalar_load_pair_incomplete;
+  }
+  if (dut.io_reducedLoadReplayLiqLretLaneCompletionBlockedByVectorMemIncomplete) {
+    ++g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_vector_mem_incomplete;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTloadCompletionCandidateValid) {
+    ++g_replay_liq_sideband_stats.lret_tload_completion_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTloadCompletionTloadCandidateValid) {
+    ++g_replay_liq_sideband_stats.lret_tload_completion_tload_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTloadCompletionTileScbSendValid) {
+    ++g_replay_liq_sideband_stats.lret_tload_completion_tile_scb_send_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTloadCompletionTileScbIsLast) {
+    ++g_replay_liq_sideband_stats.lret_tload_completion_tile_scb_is_last;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTloadCompletionCompleteValid) {
+    ++g_replay_liq_sideband_stats.lret_tload_completion_complete_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTloadCompletionReadyForPipeInsert) {
+    ++g_replay_liq_sideband_stats.lret_tload_completion_ready_for_pipe_insert;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTloadCompletionBlockedByDisabled) {
+    ++g_replay_liq_sideband_stats.lret_tload_completion_blocked_by_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTloadCompletionBlockedByFlush) {
+    ++g_replay_liq_sideband_stats.lret_tload_completion_blocked_by_flush;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTloadCompletionBlockedByNoLaneCompletion) {
+    ++g_replay_liq_sideband_stats.lret_tload_completion_blocked_by_no_lane_completion;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTloadCompletionBlockedByInvalidSubInstCnt) {
+    ++g_replay_liq_sideband_stats.lret_tload_completion_blocked_by_invalid_sub_inst_cnt;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTloadCompletionBlockedByTloadPending) {
+    ++g_replay_liq_sideband_stats.lret_tload_completion_blocked_by_tload_pending;
+  }
+  if (dut.io_reducedLoadReplayLiqLretFinalMetadataCandidateValid) {
+    ++g_replay_liq_sideband_stats.lret_final_metadata_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretFinalMetadataIsLoadReturnMarked) {
+    ++g_replay_liq_sideband_stats.lret_final_metadata_is_load_return_marked;
+  }
+  if (dut.io_reducedLoadReplayLiqLretFinalMetadataLoadBranchResolveCalled) {
+    ++g_replay_liq_sideband_stats.lret_final_metadata_load_branch_resolve_called;
+  }
+  if (dut.io_reducedLoadReplayLiqLretFinalMetadataLoadBranchResolveSideEffectValid) {
+    ++g_replay_liq_sideband_stats.lret_final_metadata_load_branch_resolve_side_effect_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretFinalMetadataPipeCycleSidebandValid) {
+    ++g_replay_liq_sideband_stats.lret_final_metadata_pipe_cycle_sideband_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretFinalMetadataReadyForPipeInsert) {
+    ++g_replay_liq_sideband_stats.lret_final_metadata_ready_for_pipe_insert;
+  }
+  if (dut.io_reducedLoadReplayLiqLretFinalMetadataBlockedByDisabled) {
+    ++g_replay_liq_sideband_stats.lret_final_metadata_blocked_by_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretFinalMetadataBlockedByFlush) {
+    ++g_replay_liq_sideband_stats.lret_final_metadata_blocked_by_flush;
+  }
+  if (dut.io_reducedLoadReplayLiqLretFinalMetadataBlockedByNoTloadCompletion) {
+    ++g_replay_liq_sideband_stats.lret_final_metadata_blocked_by_no_tload_completion;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTimingStatsCandidateValid) {
+    ++g_replay_liq_sideband_stats.lret_timing_stats_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTimingStatsSidebandValid) {
+    ++g_replay_liq_sideband_stats.lret_timing_stats_sideband_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTimingStatsIqNameSidebandValid) {
+    ++g_replay_liq_sideband_stats.lret_timing_stats_iq_name_sideband_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTimingStatsLdRntCycleValid) {
+    ++g_replay_liq_sideband_stats.lret_timing_stats_ld_rnt_cycle_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTimingStatsUpdateValid) {
+    ++g_replay_liq_sideband_stats.lret_timing_stats_update_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTimingStatsLatencyUnderflow) {
+    ++g_replay_liq_sideband_stats.lret_timing_stats_latency_underflow;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTimingStatsReadyForPipeInsert) {
+    ++g_replay_liq_sideband_stats.lret_timing_stats_ready_for_pipe_insert;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTimingStatsBlockedByDisabled) {
+    ++g_replay_liq_sideband_stats.lret_timing_stats_blocked_by_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTimingStatsBlockedByFlush) {
+    ++g_replay_liq_sideband_stats.lret_timing_stats_blocked_by_flush;
+  }
+  if (dut.io_reducedLoadReplayLiqLretTimingStatsBlockedByNoFinalMetadata) {
+    ++g_replay_liq_sideband_stats.lret_timing_stats_blocked_by_no_final_metadata;
+  }
   if (dut.io_reducedLoadReplayLiqLretIexPipeInsertCandidateValid) {
     ++g_replay_liq_sideband_stats.lret_iex_insert_candidate_valid;
   }
@@ -1359,7 +1619,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v17\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v18\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -1703,6 +1963,136 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.lret_drain_permit_blocked_by_pipe_full << ",\n"
       << "    \"lret_drain_permit_pipe_occupied\": "
       << g_replay_liq_sideband_stats.lret_drain_permit_pipe_occupied << ",\n"
+      << "    \"lret_iex_data_rob_row_valid\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_rob_row_valid << ",\n"
+      << "    \"lret_iex_data_rob_row_need_flush\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_rob_row_need_flush << ",\n"
+      << "    \"lret_iex_data_candidate_valid\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_candidate_valid << ",\n"
+      << "    \"lret_iex_data_would_drain\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_would_drain << ",\n"
+      << "    \"lret_iex_data_set_mem_data_valid\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_set_mem_data_valid << ",\n"
+      << "    \"lret_iex_data_blocked_by_disabled\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_blocked_by_disabled << ",\n"
+      << "    \"lret_iex_data_blocked_by_flush\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_blocked_by_flush << ",\n"
+      << "    \"lret_iex_data_blocked_by_no_entry\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_blocked_by_no_entry << ",\n"
+      << "    \"lret_iex_data_blocked_by_invalid_entry\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_blocked_by_invalid_entry << ",\n"
+      << "    \"lret_iex_data_blocked_by_drain\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_blocked_by_drain << ",\n"
+      << "    \"lret_iex_data_blocked_by_rob_missing\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_blocked_by_rob_missing << ",\n"
+      << "    \"lret_iex_data_blocked_by_need_flush\": "
+      << g_replay_liq_sideband_stats.lret_iex_data_blocked_by_need_flush << ",\n"
+      << "    \"lret_rob_resolve_candidate_valid\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_candidate_valid << ",\n"
+      << "    \"lret_rob_resolve_valid\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_valid << ",\n"
+      << "    \"lret_rob_resolve_ready_for_pipe_insert\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_ready_for_pipe_insert << ",\n"
+      << "    \"lret_rob_resolve_mark_all_destinations_data_valid\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_mark_all_destinations_data_valid << ",\n"
+      << "    \"lret_rob_resolve_mark_destination_data_valid\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_mark_destination_data_valid << ",\n"
+      << "    \"lret_rob_resolve_ret_lane_increment\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_ret_lane_increment << ",\n"
+      << "    \"lret_rob_resolve_blocked_by_disabled\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_disabled << ",\n"
+      << "    \"lret_rob_resolve_blocked_by_flush\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_flush << ",\n"
+      << "    \"lret_rob_resolve_blocked_by_no_set_mem_data\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_no_set_mem_data << ",\n"
+      << "    \"lret_rob_resolve_blocked_by_unsupported_multi_lane\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_unsupported_multi_lane << ",\n"
+      << "    \"lret_rob_resolve_blocked_by_invalid_rid\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_invalid_rid << ",\n"
+      << "    \"lret_rob_resolve_blocked_by_no_destination\": "
+      << g_replay_liq_sideband_stats.lret_rob_resolve_blocked_by_no_destination << ",\n"
+      << "    \"lret_lane_completion_candidate_valid\": "
+      << g_replay_liq_sideband_stats.lret_lane_completion_candidate_valid << ",\n"
+      << "    \"lret_lane_completion_complete_valid\": "
+      << g_replay_liq_sideband_stats.lret_lane_completion_complete_valid << ",\n"
+      << "    \"lret_lane_completion_ready_for_pipe_insert\": "
+      << g_replay_liq_sideband_stats.lret_lane_completion_ready_for_pipe_insert << ",\n"
+      << "    \"lret_lane_completion_requires_all_lanes\": "
+      << g_replay_liq_sideband_stats.lret_lane_completion_requires_all_lanes << ",\n"
+      << "    \"lret_lane_completion_blocked_by_disabled\": "
+      << g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_disabled << ",\n"
+      << "    \"lret_lane_completion_blocked_by_flush\": "
+      << g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_flush << ",\n"
+      << "    \"lret_lane_completion_blocked_by_no_resolve\": "
+      << g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_no_resolve << ",\n"
+      << "    \"lret_lane_completion_blocked_by_zero_returned_lanes\": "
+      << g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_zero_returned_lanes << ",\n"
+      << "    \"lret_lane_completion_blocked_by_invalid_real_req_cnt\": "
+      << g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_invalid_real_req_cnt << ",\n"
+      << "    \"lret_lane_completion_blocked_by_scalar_load_pair_incomplete\": "
+      << g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_scalar_load_pair_incomplete << ",\n"
+      << "    \"lret_lane_completion_blocked_by_vector_mem_incomplete\": "
+      << g_replay_liq_sideband_stats.lret_lane_completion_blocked_by_vector_mem_incomplete << ",\n"
+      << "    \"lret_tload_completion_candidate_valid\": "
+      << g_replay_liq_sideband_stats.lret_tload_completion_candidate_valid << ",\n"
+      << "    \"lret_tload_completion_tload_candidate_valid\": "
+      << g_replay_liq_sideband_stats.lret_tload_completion_tload_candidate_valid << ",\n"
+      << "    \"lret_tload_completion_tile_scb_send_valid\": "
+      << g_replay_liq_sideband_stats.lret_tload_completion_tile_scb_send_valid << ",\n"
+      << "    \"lret_tload_completion_tile_scb_is_last\": "
+      << g_replay_liq_sideband_stats.lret_tload_completion_tile_scb_is_last << ",\n"
+      << "    \"lret_tload_completion_complete_valid\": "
+      << g_replay_liq_sideband_stats.lret_tload_completion_complete_valid << ",\n"
+      << "    \"lret_tload_completion_ready_for_pipe_insert\": "
+      << g_replay_liq_sideband_stats.lret_tload_completion_ready_for_pipe_insert << ",\n"
+      << "    \"lret_tload_completion_blocked_by_disabled\": "
+      << g_replay_liq_sideband_stats.lret_tload_completion_blocked_by_disabled << ",\n"
+      << "    \"lret_tload_completion_blocked_by_flush\": "
+      << g_replay_liq_sideband_stats.lret_tload_completion_blocked_by_flush << ",\n"
+      << "    \"lret_tload_completion_blocked_by_no_lane_completion\": "
+      << g_replay_liq_sideband_stats.lret_tload_completion_blocked_by_no_lane_completion << ",\n"
+      << "    \"lret_tload_completion_blocked_by_invalid_sub_inst_cnt\": "
+      << g_replay_liq_sideband_stats.lret_tload_completion_blocked_by_invalid_sub_inst_cnt << ",\n"
+      << "    \"lret_tload_completion_blocked_by_tload_pending\": "
+      << g_replay_liq_sideband_stats.lret_tload_completion_blocked_by_tload_pending << ",\n"
+      << "    \"lret_final_metadata_candidate_valid\": "
+      << g_replay_liq_sideband_stats.lret_final_metadata_candidate_valid << ",\n"
+      << "    \"lret_final_metadata_is_load_return_marked\": "
+      << g_replay_liq_sideband_stats.lret_final_metadata_is_load_return_marked << ",\n"
+      << "    \"lret_final_metadata_load_branch_resolve_called\": "
+      << g_replay_liq_sideband_stats.lret_final_metadata_load_branch_resolve_called << ",\n"
+      << "    \"lret_final_metadata_load_branch_resolve_side_effect_valid\": "
+      << g_replay_liq_sideband_stats.lret_final_metadata_load_branch_resolve_side_effect_valid << ",\n"
+      << "    \"lret_final_metadata_pipe_cycle_sideband_valid\": "
+      << g_replay_liq_sideband_stats.lret_final_metadata_pipe_cycle_sideband_valid << ",\n"
+      << "    \"lret_final_metadata_ready_for_pipe_insert\": "
+      << g_replay_liq_sideband_stats.lret_final_metadata_ready_for_pipe_insert << ",\n"
+      << "    \"lret_final_metadata_blocked_by_disabled\": "
+      << g_replay_liq_sideband_stats.lret_final_metadata_blocked_by_disabled << ",\n"
+      << "    \"lret_final_metadata_blocked_by_flush\": "
+      << g_replay_liq_sideband_stats.lret_final_metadata_blocked_by_flush << ",\n"
+      << "    \"lret_final_metadata_blocked_by_no_tload_completion\": "
+      << g_replay_liq_sideband_stats.lret_final_metadata_blocked_by_no_tload_completion << ",\n"
+      << "    \"lret_timing_stats_candidate_valid\": "
+      << g_replay_liq_sideband_stats.lret_timing_stats_candidate_valid << ",\n"
+      << "    \"lret_timing_stats_sideband_valid\": "
+      << g_replay_liq_sideband_stats.lret_timing_stats_sideband_valid << ",\n"
+      << "    \"lret_timing_stats_iq_name_sideband_valid\": "
+      << g_replay_liq_sideband_stats.lret_timing_stats_iq_name_sideband_valid << ",\n"
+      << "    \"lret_timing_stats_ld_rnt_cycle_valid\": "
+      << g_replay_liq_sideband_stats.lret_timing_stats_ld_rnt_cycle_valid << ",\n"
+      << "    \"lret_timing_stats_update_valid\": "
+      << g_replay_liq_sideband_stats.lret_timing_stats_update_valid << ",\n"
+      << "    \"lret_timing_stats_latency_underflow\": "
+      << g_replay_liq_sideband_stats.lret_timing_stats_latency_underflow << ",\n"
+      << "    \"lret_timing_stats_ready_for_pipe_insert\": "
+      << g_replay_liq_sideband_stats.lret_timing_stats_ready_for_pipe_insert << ",\n"
+      << "    \"lret_timing_stats_blocked_by_disabled\": "
+      << g_replay_liq_sideband_stats.lret_timing_stats_blocked_by_disabled << ",\n"
+      << "    \"lret_timing_stats_blocked_by_flush\": "
+      << g_replay_liq_sideband_stats.lret_timing_stats_blocked_by_flush << ",\n"
+      << "    \"lret_timing_stats_blocked_by_no_final_metadata\": "
+      << g_replay_liq_sideband_stats.lret_timing_stats_blocked_by_no_final_metadata << ",\n"
       << "    \"lret_iex_insert_candidate_valid\": "
       << g_replay_liq_sideband_stats.lret_iex_insert_candidate_valid << ",\n"
       << "    \"lret_iex_insert_valid\": "

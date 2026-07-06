@@ -144,6 +144,15 @@ The R539 replay loop records `lret_sink_enqueue_ready=108` and
 `lret_iex_insert_blocked_by_no_set_mem_data=108`. The next owner is therefore
 upstream LRET publication/payload request, not drain capacity or IEX insert
 payload copying.
+R543 closes that upstream publication/FIFO gap; the replay-loop fixture now
+records `lret_sink_enqueue_accepted=3` and `lret_sink_drain_fire=3`.
+R544 then extends the sideband report to schema v18 and proves the insert
+blocker is still before this module's payload copy: `lret_iex_data_candidate_valid=3`
+and `lret_iex_data_would_drain=3`, but `lret_iex_data_rob_row_valid=0`,
+`lret_iex_data_set_mem_data_valid=0`, and
+`lret_iex_data_blocked_by_rob_missing=3`. The next owner is the ROB row-status
+lookup/RID provenance consumed by `LoadReplayReturnIexDataCandidate`, not the
+IEX insert candidate's pipe selection or wakeup payload logic.
 
 ## Deferred Owners
 

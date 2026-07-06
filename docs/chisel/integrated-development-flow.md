@@ -15,39 +15,39 @@ the change still works across repos.
 
 ## Current Handoff
 
-The next Chisel packet should start from the R542 replay-return evidence, not
+The next Chisel packet should start from the R544 replay-return evidence, not
 from another broad CoreMark scan. The reduced frontend/rename/scalar
 execute/ROB/block-marker/store/STQ/SCB path is mature enough for the current
 reduced top, and the generated-RTL/QEMU comparator infrastructure is producing
 usable manifests. The active blocker is narrower: replay-LIQ source-returned
-`Repick` rows exist after local STQ source-return mutation, but their row
-data/valid-mask completion is still absent before
-`LoadReplayReturnDataExtract`.
+rows now publish LRET payloads and drain the FIFO, and the post-FIFO
+`LoadReplayReturnIexDataCandidate` is formed, but the ROB row-status lookup
+does not report the returned LRET RID as an occupied epoch-matched row.
 
 Use this packet shape first:
 
 ```text
-Packet: replay-LIQ row data and valid-mask completion after source return
+Packet: replay-LIQ LRET RID to ROB row-status provenance
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
-Files allowed: LoadReplaySourceReturnStoreSnapshotRowStatePlan,
-  LoadReplaySourceReturnStoreSnapshotRowMutationRequest,
-  LoadInflightRowMutationRequestBridge, LoadInflightRowMutationApply,
-  ReducedLoadReplayLiqAllocPath, focused specs, module docs, and sideband
-  validator updates only if new evidence fields are required
-Source evidence: LinxCoreModel LDQInfo::handleSTQReceive,
-  LDQInfo::handleSCBReceive, LDQInfo::handleMerge, LDQInfo::returnData
-Expected first gate: focused LSU row-mutation/LIQ unit gate covering request
-  byte mask and valid-mask/dataComplete writes
-Promotion gate: R542 replay-loop fixture through
-  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v17 sideband
-  inspection
+Files allowed: ROBRowStatusLookup, ROBEntryBank, DispatchROBAllocator,
+  DecodeRenameROBPath, LoadReplayReturnLretPayload/Sink identity wiring,
+  LoadReplayReturnIexDataCandidate tests/docs, focused top specs, and
+  sideband validator updates only if new evidence fields are required
+Source evidence: LinxCoreModel IEX::receiveFromLSU, IEX::setMemData,
+  ROBState::operator[], ROBState::resolveData, LDQInfo::returnData
+Expected first gate: focused ROB row-status or LRET identity unit coverage
+  proving the returned RID is occupied and epoch-matched when the FIFO drains
+Promotion gate: R544 replay-loop fixture through
+  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v18 sideband
+  inspection requiring nonzero lret_iex_data_set_mem_data_valid or a narrower
+  ROB-row lookup blocker
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
-  the complete-Repick selector shows nonzero request/data completion
+  ROB row-status provenance reaches setMemData admission
 Do not change: LRET FIFO capacity, publish fanout, return-data extraction,
-  drain, residency, or W2 policy before row data/valid-mask completion is
-  proven
-First-divergence owner if the gate fails: Chisel for row mutation or selector
-  masks; adapter only if the v17 sideband report misreports generated signals
+  drain, residency, lane/TLOAD/final metadata, or W2 policy before the ROB
+  row-status lookup produces valid setMemData evidence
+First-divergence owner if the gate fails: Chisel ROB row-status/RID identity
+  provenance unless the v18 sideband report misreports generated signals
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```
@@ -169,18 +169,17 @@ Closeout evidence:
 Current example:
 
 ```text
-Packet: replay-LIQ row data and valid-mask completion after source return
+Packet: replay-LIQ LRET RID to ROB row-status provenance
 Owner lane: rtl/LinxCore/chisel
-Files allowed: LoadReplaySourceReturnStoreSnapshotRowStatePlan,
-  LoadReplaySourceReturnStoreSnapshotRowMutationRequest,
-  LoadInflightRowMutationRequestBridge, LoadInflightRowMutationApply,
-  ReducedLoadReplayLiqAllocPath, focused specs, module docs
-Source evidence: LinxCoreModel LDQInfo source-return and returnData path
-Expected first gate: focused row-mutation/LIQ unit coverage
-Promotion gate: R542 replay-loop generated-RTL/QEMU fixture plus v17 sideband
-Do not run: long CoreMark or marker-row scaling before selector completion
-First-divergence owner if the gate fails: Chisel row mutation unless v17
-  sideband reporting is wrong
+Files allowed: ROBRowStatusLookup, ROBEntryBank, DispatchROBAllocator,
+  DecodeRenameROBPath, LRET identity payload/sink wiring, focused specs,
+  module docs
+Source evidence: LinxCoreModel IEX::receiveFromLSU and IEX::setMemData
+Expected first gate: focused ROB row-status/LRET RID identity unit coverage
+Promotion gate: R544 replay-loop generated-RTL/QEMU fixture plus v18 sideband
+Do not run: long CoreMark or marker-row scaling before setMemData admission
+First-divergence owner if the gate fails: Chisel ROB row-status/RID identity
+  provenance unless v18 sideband reporting is wrong
 Closeout evidence: unit log, xcheck manifest, sideband counters, module doc
   row, skill-evolve decision
 ```

@@ -77,16 +77,22 @@ and `DecodeRenameROBPath` forward the query/result without interpretation.
 RID and feeds only `rowValid` and `needFlush` into
 `LoadReplayReturnIexDataCandidate`.
 
-The current top still keeps `LoadReplayReturnLretSink.drainReady` tied low and
-the IEX return-pipe permit blocked, so the query cannot cause an LRET FIFO
-drain or a ROB/RF/ready-table mutation.
+R543 enables the replay-loop fixture to publish LRET payloads and drain the
+LRET FIFO. R544's v18 sideband report proves the next live blocker is now this
+status boundary or the RID provenance feeding it: `lret_iex_data_candidate_valid=3`
+and `lret_iex_data_would_drain=3`, but `lret_iex_data_rob_row_valid=0` and
+`lret_iex_data_blocked_by_rob_missing=3`. A future repair must establish why
+the returned LRET RID is not observed as an occupied epoch-matched ROB row
+before enabling `rob_next.resolveData`, pipe residency, RF/writeback,
+ready-table, or W2 replay-row side effects.
 
 ## Deferred Owners
 
 - Returned-load `rob_next.resolveData` mutation.
 - Scalar load-pair lane accounting and vector/MEM_IEX request completion.
 - Ready-table update, issue wakeup, and RF writeback side effects.
-- Return-pipe E4 residency and LRET FIFO drain enable.
+- Return-pipe E4 residency.
+- LRET RID to occupied ROB-row provenance after FIFO drain.
 
 ## Verification
 
