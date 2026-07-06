@@ -44,7 +44,11 @@ W1 with W2 live clear. R559 adds the repeated store/load dependency fixture
 `replay-ldi-sdi-ldi-sdi-ldi-loop`; it doubles replay-return pressure and still
 reports zero W1-candidate/W2-live-clear overlap, so the next stimulus candidate
 must create true returned-load phasing or multiple outstanding returned loads,
-not only denser same-address dependencies.
+not only denser same-address dependencies. R560 adds
+`replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, a burst of consecutive younger loads
+after one store dependency; it increases W2 occupancy but still records zero
+overlap, so merely adding younger loads after one learned store dependency is
+also insufficient.
 
 ## Interface
 
@@ -119,7 +123,9 @@ clear overlap in that same fixture. R558 records the same zero-overlap result
 for the denser extra-load fixture while increasing replay traffic to a 12-row
 QEMU/DUT pass. R559 records the same zero-overlap result for the repeated
 store/load dependency fixture while increasing the pass to 15 compared rows and
-six accepted W1/W2 return-pipe slots.
+six accepted W1/W2 return-pipe slots. R560 records the same zero-overlap result
+for a burst-after-dependency fixture while passing 18 compared rows and
+increasing resident W2 occupancy to 10 cycles.
 
 ## Deferred Owners
 
@@ -127,7 +133,9 @@ six accepted W1/W2 return-pipe slots.
   candidate while W2 is occupied and live clear fires; R557 proves the current
   loop fixture lacks this overlap, and R558 proves that simply appending one
   more younger load is still insufficient. R559 proves repeating the
-  same-address store/load dependency chain is also insufficient.
+  same-address store/load dependency chain is also insufficient. R560 proves a
+  burst of younger loads after one learned store dependency is still
+  insufficient.
 - Verify `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future
   readiness and drives `LoadReplayReturnPipeW2Slot.replaceOnClear` in that
   same-cycle replacement case.
