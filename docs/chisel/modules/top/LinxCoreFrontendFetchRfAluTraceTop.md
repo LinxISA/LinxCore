@@ -112,6 +112,12 @@ load slot PC and load-LSID identity outputs. The Verilator sideband uses them
 only to classify phase-gap evidence; they do not feed W1 clear, W2 write
 acceptance, replay-row lifecycle, or architectural trace rows.
 
+R564 keeps the top interface unchanged and uses the R563 identity outputs in
+the Verilator harness to split different-LSID phase near-misses by gap bucket.
+The current burst fixture records zero different-LSID near-misses in both
+directions, so later replacement work should create new stimulus before adding
+more top-level diagnostics or changing W2 storage.
+
 ## Purpose
 
 `LinxCoreFrontendFetchRfAluTraceTop` is the R95 live-source successor to

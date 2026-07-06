@@ -526,6 +526,14 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_slot_replace_w1_candidate_after_live_clear_gap3 = 0;
   std::uint64_t w2_slot_replace_w1_candidate_after_live_clear_gap4 = 0;
   std::uint64_t w2_slot_replace_w1_candidate_after_live_clear_gap5_plus = 0;
+  std::uint64_t w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap2 = 0;
+  std::uint64_t w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap3 = 0;
+  std::uint64_t w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap4 = 0;
+  std::uint64_t w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap5_plus = 0;
+  std::uint64_t w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap2 = 0;
+  std::uint64_t w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap3 = 0;
+  std::uint64_t w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap4 = 0;
+  std::uint64_t w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap5_plus = 0;
   std::uint64_t w2_slot_replace_live_clear_after_w1_candidate_same_lsid = 0;
   std::uint64_t w2_slot_replace_live_clear_after_w1_candidate_different_lsid = 0;
   std::uint64_t w2_slot_replace_live_clear_after_w1_candidate_unknown_lsid = 0;
@@ -1722,6 +1730,8 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   static int cycles_since_w2_live_clear = -1;
   static bool recent_w1_advance_lsid_valid = false;
   static std::uint64_t recent_w1_advance_lsid_value = 0;
+  static bool recent_w2_live_clear_lsid_valid = false;
+  static std::uint64_t recent_w2_live_clear_lsid_value = 0;
   if (cycles_since_w1_advance_candidate >= 0) {
     ++cycles_since_w1_advance_candidate;
   }
@@ -1768,6 +1778,15 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
         ++g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_same_lsid;
       } else {
         ++g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_different_lsid;
+        if (cycles_since_w1_advance_candidate == 2) {
+          ++g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap2;
+        } else if (cycles_since_w1_advance_candidate == 3) {
+          ++g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap3;
+        } else if (cycles_since_w1_advance_candidate == 4) {
+          ++g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap4;
+        } else {
+          ++g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap5_plus;
+        }
       }
     } else {
       ++g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_unknown_lsid;
@@ -1784,14 +1803,32 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   }
   if (w2_slot_occupied && w1_advance_candidate && !w2_live_clear &&
       cycles_since_w2_live_clear >= 2) {
+    const bool w1_lsid_valid = dut.io_reducedLoadReplayLiqLretPipeW1SlotLoadLsIdValid;
+    const std::uint64_t w1_lsid_value =
+        static_cast<std::uint64_t>(dut.io_reducedLoadReplayLiqLretPipeW1SlotLoadLsIdValue);
+    const bool different_lsid =
+        recent_w2_live_clear_lsid_valid && w1_lsid_valid &&
+        recent_w2_live_clear_lsid_value != w1_lsid_value;
     if (cycles_since_w2_live_clear == 2) {
       ++g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap2;
+      if (different_lsid) {
+        ++g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap2;
+      }
     } else if (cycles_since_w2_live_clear == 3) {
       ++g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap3;
+      if (different_lsid) {
+        ++g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap3;
+      }
     } else if (cycles_since_w2_live_clear == 4) {
       ++g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap4;
+      if (different_lsid) {
+        ++g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap4;
+      }
     } else {
       ++g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap5_plus;
+      if (different_lsid) {
+        ++g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap5_plus;
+      }
     }
   }
   prev_w1_advance_candidate = w1_advance_candidate;
@@ -1806,6 +1843,10 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   }
   if (w2_live_clear) {
     cycles_since_w2_live_clear = 0;
+    recent_w2_live_clear_lsid_valid =
+        dut.io_reducedLoadReplayLiqLretPipeW2SlotLoadLsIdValid;
+    recent_w2_live_clear_lsid_value =
+        static_cast<std::uint64_t>(dut.io_reducedLoadReplayLiqLretPipeW2SlotLoadLsIdValue);
   }
   if (dut.io_reducedLoadReplayLiqLretPipeW2AdvanceControlAdvanceEnable) {
     ++g_replay_liq_sideband_stats.w2_advance_enable;
@@ -2779,6 +2820,22 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap4 << ",\n"
       << "    \"w2_slot_replace_w1_candidate_after_live_clear_gap5_plus\": "
       << g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap5_plus << ",\n"
+      << "    \"w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap2\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap2 << ",\n"
+      << "    \"w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap3\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap3 << ",\n"
+      << "    \"w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap4\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap4 << ",\n"
+      << "    \"w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap5_plus\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_live_clear_after_w1_candidate_gap5_plus << ",\n"
+      << "    \"w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap2\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap2 << ",\n"
+      << "    \"w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap3\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap3 << ",\n"
+      << "    \"w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap4\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap4 << ",\n"
+      << "    \"w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap5_plus\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_different_lsid_w1_candidate_after_live_clear_gap5_plus << ",\n"
       << "    \"w2_slot_replace_live_clear_after_w1_candidate_same_lsid\": "
       << g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_same_lsid << ",\n"
       << "    \"w2_slot_replace_live_clear_after_w1_candidate_different_lsid\": "

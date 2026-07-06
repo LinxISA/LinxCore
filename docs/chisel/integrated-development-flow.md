@@ -202,7 +202,13 @@ phase-gap clears are all the same resident load lifetime:
 `w2_slot_replace_live_clear_after_w1_candidate_unknown_lsid=0`. The next
 fixture/top hook must therefore create a different returned-load candidate while
 the resident W2 row live-clears; retaining the same candidate is not replacement
-evidence.
+evidence. R564 adds different-LSID near-miss buckets in both directions and
+reruns that same burst fixture. The generated RTL/QEMU comparator passes with
+18 compared rows and zero mismatches, while all different-LSID gap2, gap3,
+gap4, and gap5+ buckets remain zero for W1-before-W2-live-clear and
+W2-live-clear-before-W1. The current fixture family therefore has no
+different-LSID replacement near-miss to tune; the next packet should create one
+explicitly before changing W2 storage or advance control.
 
 Use this packet shape first:
 
@@ -221,8 +227,9 @@ Expected first gate: focused W2 slot/advance coverage proving same-cycle live
 Promotion gate: R557 replay-loop fixture, R558
   `replay-ldi-sdi-ldi-ldi-loop`, R559
   `replay-ldi-sdi-ldi-sdi-ldi-loop`, R560
-  `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561/R562/R563 phase-distance and
-  identity sideband, or a stronger multiple-return-load phasing fixture through
+  `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561/R562/R563/R564 phase-distance,
+  identity, and different-LSID near-miss sideband, or a stronger
+  multiple-return-load phasing fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
   W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
@@ -232,8 +239,8 @@ Promotion gate: R557 replay-loop fixture, R558
   and refill/advance counters, nonzero `live_clear_without_w1_candidate` in
   the old/R558/R559/R560 fixtures, and nonzero same-cycle slot replacement
   evidence in a stronger fixture before changing W2 storage; if overlap is
-  zero, inspect the R563 identity buckets before treating phase gaps as
-  replacement stimulus
+  zero, inspect the R563 identity buckets and R564 different-LSID buckets before
+  treating phase gaps as replacement stimulus
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation

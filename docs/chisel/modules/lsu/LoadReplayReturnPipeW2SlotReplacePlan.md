@@ -55,7 +55,10 @@ the W1 candidate by two cycles twice and by five-or-more cycles once in the
 burst fixture; same-cycle, one-cycle, gap3/gap4, and reverse-gap evidence remain
 zero. R563 adds W1/W2 slot identity sideband and proves those delayed W2 clears
 all match the same load-LSID as the earlier W1 candidate, so the phase gap is
-resident-row lifetime rather than hidden replacement stimulus.
+resident-row lifetime rather than hidden replacement stimulus. R564 splits
+different-LSID near-misses by gap2/gap3/gap4/gap5+ in both directions and
+records all of those buckets as zero on the same burst fixture, so there is no
+different-row near-miss in the current sequence to rescue with storage tuning.
 
 ## Interface
 
@@ -154,6 +157,9 @@ clears, proving they are not different-candidate replacement opportunities.
   return; next stimulus should shorten or retain across that gap before changing
   W2 storage only if it creates a different load-LSID candidate. R563 proves
   retaining the same LSID only observes normal W2 lifetime, not replacement.
+  R564 proves the current burst fixture also has no different-LSID near-miss in
+  either direction across the measured gap buckets, so the next packet should
+  create a new different-LSID overlap stimulus rather than adjust W2 storage.
 - Verify `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future
   readiness and drives `LoadReplayReturnPipeW2Slot.replaceOnClear` in that
   same-cycle replacement case.

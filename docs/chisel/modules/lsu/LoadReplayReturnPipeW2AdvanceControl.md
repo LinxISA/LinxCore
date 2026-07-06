@@ -56,7 +56,10 @@ gap2 and gap5+ only; same-cycle, one-cycle, gap3/gap4, reverse-gap, and
 `replaceOnClear` evidence stay zero. R563 adds W1/W2 identity sideband and
 proves all those phase-gap live clears match the same load-LSID as the earlier
 W1 candidate, so the current fixture does not expose a suppressed different-row
-replacement.
+replacement. R564 adds different-LSID near-miss buckets in both directions and
+records all gap2/gap3/gap4/gap5+ buckets as zero on that fixture, so
+`replaceOnClear` remains blocked on new stimulus rather than an advance-control
+tweak.
 
 ## Interface
 
@@ -131,7 +134,8 @@ replay RF writeback, ready-table mutation, or issue wakeup.
   gap, not change advance/storage selection first. R563 narrows that again: the
   useful stimulus must create a different returned-load candidate in the W2
   live-clear cycle, because the observed gap only follows the same LSID through
-  W2 lifetime.
+  W2 lifetime. R564 confirms the current fixture has no different-LSID near-miss
+  across the measured gap buckets in either direction.
 - Tie W2 clear to the live side-effect completion owner instead of the current
   dormant completion path.
 - Retire or update the consumed replay-row lifecycle when W2 side effects

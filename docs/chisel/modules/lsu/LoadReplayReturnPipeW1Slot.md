@@ -109,7 +109,10 @@ through before W2 side effects.
 R563 exposes the W1 slot PC and load-LSID identity through the reduced top so
 the generated-RTL harness can decide whether a later W2 live clear belongs to
 the same returned load or a different candidate. This diagnostic is
-observational and does not feed W1 clear or W2 write acceptance.
+observational and does not feed W1 clear or W2 write acceptance. R564 reuses
+that output to prove the current burst fixture has zero different-LSID
+near-misses across the measured gap buckets; new stimulus is required before
+W1 can prove a real W2 replacement candidate.
 
 ## Deferred Owners
 

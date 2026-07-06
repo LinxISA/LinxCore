@@ -153,6 +153,9 @@ The replay burst fixture then proves the R562 W1-to-W2-live-clear phase gaps
 are the same resident load being cleared (`same_lsid=3`) rather than a different
 returned-load candidate (`different_lsid=0`). W2 storage replacement remains
 blocked until a different W1 candidate overlaps the resident W2 live clear.
+R564 adds gap-bucketed different-LSID near-miss counters and records all of them
+as zero on that fixture, so the current sequence cannot justify W2 storage
+replacement changes.
 
 ## Deferred Owners
 
