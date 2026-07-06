@@ -29,14 +29,11 @@ for the returned-load W2 pipe. LinxCoreModel evaluates W2 side effects before
 `move()` overwrites W2 from W1, so a future Chisel promotion must enable W2
 clear and W1-to-W2 same-cycle refill as one mode, not as two unrelated wires.
 
-R356 adds that mode owner but keeps the top-level request disabled. The packet
-therefore preserves the current empty-only advance behavior while making the
-future enable point explicit for later live W2 clear/refill work.
-
-R363 drives `promotionRequested` from
-`LoadReplayReturnPipeW2AtomicLiveRequestControl` instead of a helper-local
-constant. That owner still ties `requestEnable=false`, so promotion remains
-dormant while sharing one authority with W2 side-effect live control.
+R356 adds that mode owner. R363 later routed `promotionRequested` from
+`LoadReplayReturnPipeW2AtomicLiveRequestControl`, and R555/R556 prove the
+request now fires in the reduced replay-loop fixture after row-fill and
+lifecycle readiness are coherent. The owner remains the single authority for
+coordinating W2 live clear and future W1-to-W2 advance selection.
 
 ## Interface
 
@@ -44,7 +41,7 @@ dormant while sharing one authority with W2 side-effect live control.
 |---|---|---|
 | input | `enable` | Replay-LIQ returned-load pipe wrapper is active. |
 | input | `flush` | Suppresses promotion during reduced-store flush. |
-| input | `promotionRequested` | Request to use the live W2 promotion mode. Current top drives this from R363 atomic live-request control, whose request gate is false. |
+| input | `promotionRequested` | Request to use the live W2 promotion mode. Current top drives this from the atomic live-request control; R555/R556 observe live requests in the replay-loop fixture. |
 | input | `slotOccupied` | W2 currently holds a resident returned-load entry. |
 | input | `clearIntent` | R351 clear-intent proof for the resident W2 entry. |
 | input | `writeCandidateValid` | W1-to-W2 write candidate before the selected advance gate. |
@@ -81,8 +78,8 @@ R355 `livePromotionEnable` without creating a combinational loop.
 
 `LinxCoreFrontendFetchRfAluTraceTop` wires this module after R351:
 
-- `promotionRequested` comes from R363 atomic live-request control, whose
-  `requestEnable` remains false;
+- `promotionRequested` comes from atomic live-request control after the W2
+  prerequisite snapshot, row-fill, and lifecycle gates agree;
 - `liveClearEnable` feeds `LoadReplayReturnPipeW2ClearIntent`;
 - `advanceLivePromotionEnable` feeds
   `LoadReplayReturnPipeW2AdvanceControl.livePromotionEnable`;
@@ -95,8 +92,10 @@ write the replay RF path, mutate ready-table state, or wake the issue queue.
 
 ## Deferred Owners
 
-- Turn R363 atomic request control on only after the W2 side-effect sinks and
+- Keep promotion enabled only when the W2 side-effect sinks, row-fill, and
   replay-row lifecycle can commit the same resident instruction.
+- Add or select a fixture that also makes a W1 write candidate available while
+  W2 live clear fires, so same-cycle storage replacement is covered.
 - Replace the current W2 slot clear path with the live clear intent after the
   side-effect sinks mutate real state.
 - Retire or update consumed replay rows in the same cycle that live W2

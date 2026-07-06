@@ -486,6 +486,34 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_side_effect_fire_complete = 0;
   std::uint64_t w2_clear_intent = 0;
   std::uint64_t w2_clear_commit_ready = 0;
+  std::uint64_t w2_promotion_live = 0;
+  std::uint64_t w2_promotion_live_clear = 0;
+  std::uint64_t w2_promotion_advance_live = 0;
+  std::uint64_t w2_promotion_blocked = 0;
+  std::uint64_t w2_promotion_blocked_by_promotion_disabled = 0;
+  std::uint64_t w2_promotion_blocked_by_clear_intent = 0;
+  std::uint64_t w2_promotion_invalid_clear_without_slot = 0;
+  std::uint64_t w2_refill_ready_empty = 0;
+  std::uint64_t w2_refill_ready_same_cycle_eligible = 0;
+  std::uint64_t w2_refill_ready_same_cycle_ready = 0;
+  std::uint64_t w2_refill_ready_future_advance = 0;
+  std::uint64_t w2_refill_ready_matches_current = 0;
+  std::uint64_t w2_refill_ready_blocked = 0;
+  std::uint64_t w2_refill_ready_invalid_live_clear_without_intent = 0;
+  std::uint64_t w2_slot_replace_empty_write_eligible = 0;
+  std::uint64_t w2_slot_replace_same_cycle_eligible = 0;
+  std::uint64_t w2_slot_replace_same_cycle_ready = 0;
+  std::uint64_t w2_slot_replace_future_write_accept = 0;
+  std::uint64_t w2_slot_replace_matches_current = 0;
+  std::uint64_t w2_slot_replace_blocked = 0;
+  std::uint64_t w2_slot_replace_blocked_by_current_storage = 0;
+  std::uint64_t w2_slot_replace_invalid_future_ready_without_live_clear = 0;
+  std::uint64_t w2_advance_enable = 0;
+  std::uint64_t w2_advance_replace_on_clear = 0;
+  std::uint64_t w2_advance_uses_future_advance = 0;
+  std::uint64_t w2_advance_blocked = 0;
+  std::uint64_t w2_advance_blocked_by_live_promotion_disabled = 0;
+  std::uint64_t w2_advance_invalid_future_write_without_advance = 0;
   std::uint64_t w2_commit_row_trace_source_ready = 0;
   std::uint64_t w2_commit_row_trace_source_instruction_ready = 0;
   std::uint64_t w2_commit_row_trace_source_source_ready = 0;
@@ -1592,6 +1620,90 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2ClearCommitGuardCommitClearReady) {
     ++g_replay_liq_sideband_stats.w2_clear_commit_ready;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2PromotionControlLivePromotion) {
+    ++g_replay_liq_sideband_stats.w2_promotion_live;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2PromotionControlLiveClearEnable) {
+    ++g_replay_liq_sideband_stats.w2_promotion_live_clear;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2PromotionControlAdvanceLivePromotion) {
+    ++g_replay_liq_sideband_stats.w2_promotion_advance_live;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2PromotionControlBlocked) {
+    ++g_replay_liq_sideband_stats.w2_promotion_blocked;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2PromotionControlBlockedByPromotionDisabled) {
+    ++g_replay_liq_sideband_stats.w2_promotion_blocked_by_promotion_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2PromotionControlBlockedByClearIntent) {
+    ++g_replay_liq_sideband_stats.w2_promotion_blocked_by_clear_intent;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2PromotionControlInvalidClearIntentWithoutSlot) {
+    ++g_replay_liq_sideband_stats.w2_promotion_invalid_clear_without_slot;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RefillReadyEmpty) {
+    ++g_replay_liq_sideband_stats.w2_refill_ready_empty;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RefillReadySameCycleEligible) {
+    ++g_replay_liq_sideband_stats.w2_refill_ready_same_cycle_eligible;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RefillReadySameCycleReady) {
+    ++g_replay_liq_sideband_stats.w2_refill_ready_same_cycle_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RefillReadyFutureAdvance) {
+    ++g_replay_liq_sideband_stats.w2_refill_ready_future_advance;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RefillReadyMatchesCurrent) {
+    ++g_replay_liq_sideband_stats.w2_refill_ready_matches_current;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RefillReadyBlocked) {
+    ++g_replay_liq_sideband_stats.w2_refill_ready_blocked;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RefillReadyInvalidLiveClearWithoutIntent) {
+    ++g_replay_liq_sideband_stats.w2_refill_ready_invalid_live_clear_without_intent;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotReplacePlanEmptyWriteEligible) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_empty_write_eligible;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotReplacePlanSameCycleEligible) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_same_cycle_eligible;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotReplacePlanSameCycleReady) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_same_cycle_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotReplacePlanFutureWriteAccept) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_future_write_accept;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotReplacePlanMatchesCurrent) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_matches_current;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotReplacePlanBlocked) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_blocked;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotReplacePlanBlockedByCurrentStorage) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_blocked_by_current_storage;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotReplacePlanInvalidFutureReadyWithoutLiveClear) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_invalid_future_ready_without_live_clear;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2AdvanceControlAdvanceEnable) {
+    ++g_replay_liq_sideband_stats.w2_advance_enable;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2AdvanceControlReplaceOnClear) {
+    ++g_replay_liq_sideband_stats.w2_advance_replace_on_clear;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2AdvanceControlUsesFutureAdvance) {
+    ++g_replay_liq_sideband_stats.w2_advance_uses_future_advance;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2AdvanceControlBlocked) {
+    ++g_replay_liq_sideband_stats.w2_advance_blocked;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2AdvanceControlBlockedByLivePromotionDisabled) {
+    ++g_replay_liq_sideband_stats.w2_advance_blocked_by_live_promotion_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2AdvanceControlInvalidFutureWriteWithoutAdvance) {
+    ++g_replay_liq_sideband_stats.w2_advance_invalid_future_write_without_advance;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceReady) {
     ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_ready;
   }
@@ -2466,6 +2578,62 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_clear_intent << ",\n"
       << "    \"w2_clear_commit_ready\": "
       << g_replay_liq_sideband_stats.w2_clear_commit_ready << ",\n"
+      << "    \"w2_promotion_live\": "
+      << g_replay_liq_sideband_stats.w2_promotion_live << ",\n"
+      << "    \"w2_promotion_live_clear\": "
+      << g_replay_liq_sideband_stats.w2_promotion_live_clear << ",\n"
+      << "    \"w2_promotion_advance_live\": "
+      << g_replay_liq_sideband_stats.w2_promotion_advance_live << ",\n"
+      << "    \"w2_promotion_blocked\": "
+      << g_replay_liq_sideband_stats.w2_promotion_blocked << ",\n"
+      << "    \"w2_promotion_blocked_by_promotion_disabled\": "
+      << g_replay_liq_sideband_stats.w2_promotion_blocked_by_promotion_disabled << ",\n"
+      << "    \"w2_promotion_blocked_by_clear_intent\": "
+      << g_replay_liq_sideband_stats.w2_promotion_blocked_by_clear_intent << ",\n"
+      << "    \"w2_promotion_invalid_clear_without_slot\": "
+      << g_replay_liq_sideband_stats.w2_promotion_invalid_clear_without_slot << ",\n"
+      << "    \"w2_refill_ready_empty\": "
+      << g_replay_liq_sideband_stats.w2_refill_ready_empty << ",\n"
+      << "    \"w2_refill_ready_same_cycle_eligible\": "
+      << g_replay_liq_sideband_stats.w2_refill_ready_same_cycle_eligible << ",\n"
+      << "    \"w2_refill_ready_same_cycle_ready\": "
+      << g_replay_liq_sideband_stats.w2_refill_ready_same_cycle_ready << ",\n"
+      << "    \"w2_refill_ready_future_advance\": "
+      << g_replay_liq_sideband_stats.w2_refill_ready_future_advance << ",\n"
+      << "    \"w2_refill_ready_matches_current\": "
+      << g_replay_liq_sideband_stats.w2_refill_ready_matches_current << ",\n"
+      << "    \"w2_refill_ready_blocked\": "
+      << g_replay_liq_sideband_stats.w2_refill_ready_blocked << ",\n"
+      << "    \"w2_refill_ready_invalid_live_clear_without_intent\": "
+      << g_replay_liq_sideband_stats.w2_refill_ready_invalid_live_clear_without_intent << ",\n"
+      << "    \"w2_slot_replace_empty_write_eligible\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_empty_write_eligible << ",\n"
+      << "    \"w2_slot_replace_same_cycle_eligible\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_same_cycle_eligible << ",\n"
+      << "    \"w2_slot_replace_same_cycle_ready\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_same_cycle_ready << ",\n"
+      << "    \"w2_slot_replace_future_write_accept\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_future_write_accept << ",\n"
+      << "    \"w2_slot_replace_matches_current\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_matches_current << ",\n"
+      << "    \"w2_slot_replace_blocked\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_blocked << ",\n"
+      << "    \"w2_slot_replace_blocked_by_current_storage\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_blocked_by_current_storage << ",\n"
+      << "    \"w2_slot_replace_invalid_future_ready_without_live_clear\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_invalid_future_ready_without_live_clear << ",\n"
+      << "    \"w2_advance_enable\": "
+      << g_replay_liq_sideband_stats.w2_advance_enable << ",\n"
+      << "    \"w2_advance_replace_on_clear\": "
+      << g_replay_liq_sideband_stats.w2_advance_replace_on_clear << ",\n"
+      << "    \"w2_advance_uses_future_advance\": "
+      << g_replay_liq_sideband_stats.w2_advance_uses_future_advance << ",\n"
+      << "    \"w2_advance_blocked\": "
+      << g_replay_liq_sideband_stats.w2_advance_blocked << ",\n"
+      << "    \"w2_advance_blocked_by_live_promotion_disabled\": "
+      << g_replay_liq_sideband_stats.w2_advance_blocked_by_live_promotion_disabled << ",\n"
+      << "    \"w2_advance_invalid_future_write_without_advance\": "
+      << g_replay_liq_sideband_stats.w2_advance_invalid_future_write_without_advance << ",\n"
       << "    \"w2_commit_row_trace_source_ready\": "
       << g_replay_liq_sideband_stats.w2_commit_row_trace_source_ready << ",\n"
       << "    \"w2_commit_row_trace_source_instruction_ready\": "

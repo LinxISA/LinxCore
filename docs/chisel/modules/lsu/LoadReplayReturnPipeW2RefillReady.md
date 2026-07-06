@@ -33,9 +33,9 @@ This module is diagnostic evidence for R355
 `LoadReplayReturnPipeW2AdvanceControl`. It compares the current empty-only
 advance gate with the future `empty or same-cycle live clear` predicate and
 exposes the same-cycle refill eligibility created by R351 clear intent. R356
-now owns the disabled live-clear enable, and R355 receives
-`futureAdvanceReady`; because the top keeps the R356 promotion request
-disabled, the actual W1 advance input remains empty-only.
+now owns live-clear enable, and R355 receives `futureAdvanceReady`. R556 proves
+the reduced replay-loop fixture reaches same-cycle refill readiness and
+future-advance selection once R555 made row-fill and lifecycle ready.
 
 ## Interface
 
@@ -46,7 +46,7 @@ disabled, the actual W1 advance input remains empty-only.
 | input | `slotOccupied` | R333 W2 slot currently contains a resident entry. |
 | input | `currentAdvanceReady` | Current top gate feeding W1-to-W2 advance, `!slotOccupied`. |
 | input | `clearIntent` | R351 future clear intent for the resident W2 entry. |
-| input | `liveClear` | R351 live clear pulse gated by R356 `LoadReplayReturnPipeW2PromotionControl`. R363 keeps the shared request gate false. |
+| input | `liveClear` | R351 live clear pulse gated by `LoadReplayReturnPipeW2PromotionControl`; R556 observes this pulse in the replay-loop fixture. |
 | output | `active` | Enabled and not flushed. |
 | output | `emptyReady` | Active and W2 slot is empty. This is the current safe advance condition. |
 | output | `sameCycleRefillEligible` | Active, W2 occupied, and clear intent exists. |
@@ -82,18 +82,17 @@ refilled by W1.
 - compact diagnostics are exposed under
   `reducedLoadReplayLiqLretPipeW2RefillReady*`.
 
-The integration feeds R355 `LoadReplayReturnPipeW2AdvanceControl` as dormant
-future-readiness evidence. Because R363 keeps the shared live request disabled
-in the top, this module still does not change
-`LoadReplayReturnPipeW1AdvanceCandidate.advanceEnable`, W2 slot clear, W2 side
-effects, replay-row lifecycle, or ROB/RF/ready-table mutation.
+The integration feeds R355 `LoadReplayReturnPipeW2AdvanceControl` as
+future-readiness evidence. R556 records nonzero `sameCycleRefillReady` and
+nonzero advance selection in the replay-loop fixture. This module still does
+not directly mutate W2 slot clear, W2 side effects, replay-row lifecycle, or
+ROB/RF/ready-table state.
 
 ## Deferred Owners
 
-- Enable the R356 promotion request after live W2 clear is implemented and
-  verified so `futureAdvanceReady` can select the W1-to-W2 advance gate.
-- Update W2 slot storage so a same-cycle clear/refill can replace the old W2
-  entry with W1 payload, matching LinxCoreModel `move()`.
+- Prove a valid W1 write candidate is present while same-cycle live clear fires.
+- Update or verify W2 slot storage so a same-cycle clear/refill can replace
+  the old W2 entry with W1 payload, matching LinxCoreModel `move()`.
 - Replay-row lifecycle retirement tied to the same consumed W2 entry.
 
 ## Verification

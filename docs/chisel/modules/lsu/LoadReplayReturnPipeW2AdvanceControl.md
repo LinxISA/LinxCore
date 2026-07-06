@@ -35,10 +35,11 @@ empty-only advance rule to the future model-compatible same-cycle
 clear/refill rule.
 
 R355 adds that control point and R356 feeds its live-promotion input from the
-shared W2 promotion-control owner. R363 keeps the shared live request disabled,
-so W1 advances only when W2 is empty and
-`LoadReplayReturnPipeW2Slot.replaceOnClear` remains false. These packets change
-ownership and observability, not fixture-visible replay behavior.
+shared W2 promotion-control owner. R555/R556 prove the replay-loop fixture now
+fires W2 side-effect completion, clear intent, row-fill, lifecycle clear,
+promotion, live clear, refill readiness, and future-advance selection. The
+remaining narrow gap is fixture/storage evidence for a valid W1 write
+candidate while W2 live clear fires.
 
 ## Interface
 
@@ -46,7 +47,7 @@ ownership and observability, not fixture-visible replay behavior.
 |---|---|---|
 | input | `enable` | Replay-LIQ return-pipe wrapper is active. |
 | input | `flush` | Suppresses live promotion and reports flush blocking. |
-| input | `livePromotionEnable` | Enables future model-compatible same-cycle W2 clear/refill promotion. R356 drives this from `LoadReplayReturnPipeW2PromotionControl`; R363 keeps the shared request gate false. |
+| input | `livePromotionEnable` | Enables model-compatible same-cycle W2 clear/refill promotion. The top drives this from `LoadReplayReturnPipeW2PromotionControl`; R556 observes it live in the replay-loop fixture. |
 | input | `currentAdvanceReady` | Current empty-only advance readiness, normally `!W2Slot.occupied`. |
 | input | `futureAdvanceReady` | R352 future readiness, `empty || sameCycleLiveClear`. |
 | input | `sameCycleReplaceReady` | R353 same-cycle replacement readiness. |
@@ -102,9 +103,8 @@ replay RF writeback, ready-table mutation, or issue wakeup.
 
 ## Deferred Owners
 
-- Enable the R356 promotion request after W2 side effects, clear intent,
-  storage replacement, and replay-row lifecycle can all accept the same model
-  cycle.
+- Prove a same-cycle storage replacement case after W2 side effects, clear
+  intent, and replay-row lifecycle accept the same model cycle.
 - Tie W2 clear to the live side-effect completion owner instead of the current
   dormant completion path.
 - Retire or update the consumed replay-row lifecycle when W2 side effects

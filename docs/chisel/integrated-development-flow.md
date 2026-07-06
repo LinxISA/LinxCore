@@ -104,40 +104,59 @@ replay-loop fixture passes with 9 compared rows, zero mismatches, and zero
 QEMU/DUT CBSTOP rows. Its sideband report records
 `w2_lifecycle_resolved_row_match=6`, `w2_lifecycle_row_clear_ready=6`,
 `w2_lifecycle_ready=3`, `w2_lifecycle_blocked_by_no_resolved_row=0`,
-`w2_row_fill_enable=3`, and `w2_atomic_request_active=3`. The next owner is
-W2 side-effect commit/clear promotion after row-fill and lifecycle readiness,
-not replay-LIQ row identity or ResolveQ drain.
+`w2_row_fill_enable=3`, and `w2_atomic_request_active=3`. R556 adds harness
+and validator coverage for the W2 promotion/refill/slot-replace/advance
+owners and reruns the same replay-loop fixture. The comparator still passes
+with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. The
+new sideband counters prove the current fixture reaches live side-effect
+completion, clear intent, row-fill, lifecycle, promotion, live clear,
+same-cycle refill readiness, and future-advance selection:
+`w2_side_effect_fire_complete=3`, `w2_clear_intent=3`,
+`w2_clear_commit_ready=3`, `w2_promotion_live=3`,
+`w2_promotion_live_clear=3`, `w2_promotion_advance_live=3`,
+`w2_refill_ready_same_cycle_ready=3`, and `w2_advance_enable=111`.
+Invalid promotion/refill/advance evidence stays zero. The same fixture does
+not yet exercise a same-cycle W2 storage replacement because
+`w2_slot_replace_same_cycle_eligible=0` and
+`w2_slot_replace_same_cycle_ready=0`, while empty/future write acceptance does
+fire. The next owner is a narrow same-cycle W2 slot replacement proof, likely
+by constructing or selecting a replay-return sequence with a valid W1 write
+candidate while W2 live clear fires, not replay-LIQ row identity, ResolveQ
+drain, side-effect commit, or promotion-control observability.
 
 Use this packet shape first:
 
 ```text
-Packet: replay-LIQ LRET W2 side-effect commit promotion
+Packet: replay-LIQ LRET W2 same-cycle slot replacement
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
-Files allowed: W2 side-effect ready/commit/clear live-control owners,
-  replay-row lifecycle clear request, ROB complete source, replay-return
-  writeback/resolve/wakeup sinks, focused W2/top specs, module docs, and
-  sideband validator updates only if new evidence fields are required
+Files allowed: W2 slot replacement, W1/W2 advance/refill controls,
+  fixture/sideband expectations needed to create back-to-back returned-load
+  occupancy, focused W2/top specs, module docs, and sideband validator updates
+  only if new evidence fields are required
 Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
   handling after returned-load pipe insertion, plus LDQ resolved-row movement
-Expected first gate: focused W2 side-effect commit coverage proving the
-  resident W2 returned-load row can complete RF/ROB/wakeup side effects and
-  commit row-fill/lifecycle clear coherently
-Promotion gate: R555 replay-loop fixture through
+Expected first gate: focused W2 slot/advance coverage proving same-cycle live
+  clear plus W1 write candidate can replace the resident W2 entry without
+  losing the consumed row's side effects
+Promotion gate: R556 replay-loop fixture, or a minimally extended fixture,
+  through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
   W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
   policy blocks, nonzero ROB instruction metadata evidence, nonzero row-fill
   candidate evidence, valid lifecycle slot identity, nonzero lifecycle
-  resolved-row match, nonzero row-fill enable, and zero
-  `w2_lifecycle_blocked_by_no_resolved_row`
+  resolved-row match, nonzero row-fill enable, nonzero W2 promotion/live-clear
+  and refill/advance counters, and either nonzero same-cycle slot replacement
+  evidence or a documented fixture limitation
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
-  W2 side-effect commit and lifecycle clear remain coherent in the reduced
-  replay-loop fixture
+  same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
-  holdoff, lane/TLOAD/final metadata, E4/W1/W2 slot storage, ROB metadata latch,
-  or commit-row compare policy before W2 side-effect commit evidence exists
-First-divergence owner if the gate fails: Chisel W2 side-effect commit/clear
-  ordering unless the v21 sideband report misreports generated signals
+  holdoff, lane/TLOAD/final metadata, ROB metadata latch, commit-row compare
+  policy, or replay-LIQ lifecycle ownership before same-cycle replacement
+  evidence exists
+First-divergence owner if the gate fails: Chisel W2 slot replacement or W1/W2
+  advance/refill ordering unless the fixture never creates a W1 candidate while
+  W2 live clear fires
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```

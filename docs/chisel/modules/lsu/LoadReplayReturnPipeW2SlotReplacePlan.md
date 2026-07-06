@@ -33,7 +33,10 @@ and reports where a future model-compatible storage owner would accept a write
 from W1 because W2 is either empty or being live-cleared in the same cycle.
 R355 consumes the acyclic future acceptance outputs from this plan in
 `LoadReplayReturnPipeW2AdvanceControl`; R356 owns the shared live-promotion
-enable, but R363 keeps the shared live request disabled.
+enable. R556 proves promotion, live clear, refill readiness, and advance
+selection fire in the reduced replay-loop fixture, but the current fixture
+does not yet present a W1 write candidate while W2 is occupied, so
+same-cycle replacement eligibility remains zero.
 
 ## Interface
 
@@ -45,7 +48,7 @@ enable, but R363 keeps the shared live request disabled.
 | input | `writeValid` | W1-to-W2 write candidate from `LoadReplayReturnPipeW1AdvanceCandidate`. |
 | input | `writeTargetIsAgu` / `writeTargetIsLda` | Mutually exclusive target bits for the incoming W1 payload. |
 | input | `clearIntent` | R351 future clear intent for the resident W2 entry. |
-| input | `liveClear` | R351 live clear pulse gated by R356 `LoadReplayReturnPipeW2PromotionControl`. R363 keeps the shared request gate false. |
+| input | `liveClear` | R351 live clear pulse gated by `LoadReplayReturnPipeW2PromotionControl`; R556 observes this pulse in the replay-loop fixture. |
 | input | `futureAdvanceReady` | R352 future W1-to-W2 readiness, `empty || sameCycleLiveClear`. |
 | input | `currentSlotAccepted` | Current `LoadReplayReturnPipeW2Slot.accepted` output. |
 | input | `currentSlotBlockedByClear` | Current W2 slot clear-priority blocker. |
@@ -99,15 +102,18 @@ The integration remains observational. It does not feed
 W2 slot `clear`, W2 registered storage, W2 side effects, replay-row lifecycle,
 or ROB/RF/ready-table mutation directly. R355 is the sole owner that now
 routes future readiness toward W1 advance and `replaceOnClear`; its
-`livePromotionEnable` input comes from R356
-`LoadReplayReturnPipeW2PromotionControl`, whose R363 request gate remains false
-in the current top.
+`livePromotionEnable` input comes from
+`LoadReplayReturnPipeW2PromotionControl`. R556 observes the promotion path
+live, but not a same-cycle replacement candidate, so the next packet must
+separate fixture coverage from storage ownership before changing broad gates.
 
 ## Deferred Owners
 
-- Enable the R356 promotion request so `LoadReplayReturnPipeW2AdvanceControl`
-  selects R352/R353 future readiness and drives
-  `LoadReplayReturnPipeW2Slot.replaceOnClear`.
+- Create or select a replay-return sequence where W1 has a valid write
+  candidate while W2 live clear fires.
+- Verify `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future
+  readiness and drives `LoadReplayReturnPipeW2Slot.replaceOnClear` in that
+  same-cycle replacement case.
 - Tie replay-row lifecycle retirement to the consumed W2 entry.
 
 ## Verification
