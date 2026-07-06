@@ -15,7 +15,7 @@ the change still works across repos.
 
 ## Current Handoff
 
-The next Chisel packet should start from the R548 replay-return evidence, not
+The next Chisel packet should start from the R549 replay-return evidence, not
 from another broad CoreMark scan. The reduced frontend/rename/scalar
 execute/ROB/block-marker/store/STQ/SCB path is mature enough for the current
 reduced top, and the generated-RTL/QEMU comparator infrastructure is producing
@@ -36,32 +36,39 @@ lifetime, setMemData admission, IEX insert, residency write, or W2 slot
 evidence; it is W2 atomic request promotion, because
 `w2_atomic_request_active=0`, `w2_atomic_blocked_by_request_disabled=111`,
 `w2_side_effect_ready=0`, `w2_row_fill_candidate_valid=0`, and
-`w2_lifecycle_ready=0`.
+`w2_lifecycle_ready=0`. R549 splits the aggregate request-disabled counter:
+`w2_atomic_blocked_by_mode_disabled=0`, `w2_atomic_blocked_by_policy=111`,
+`w2_atomic_blocked_by_no_side_effect_sink=74`,
+`w2_atomic_blocked_by_no_evidence=36`, and the clear/row-fill/lifecycle
+policy blockers remain zero. The next owner is W2 side-effect sink readiness
+and live enable for the resident returned-load slot, before row-fill or
+lifecycle policy promotion.
 
 Use this packet shape first:
 
 ```text
-Packet: replay-LIQ LRET W2 atomic request promotion
+Packet: replay-LIQ LRET W2 side-effect sink readiness
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
 Files allowed: W2 atomic request/prereq/policy, W2 side-effect readiness/live
   control, W2 row-fill/lifecycle readiness, focused W2 specs, module docs, and
   sideband validator updates only if new evidence fields are required
 Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
   handling after returned-load pipe insertion
-Expected first gate: focused return-pipe/W2 request coverage proving a
-  resident W2 returned load can assert atomic request without enabling
-  unrelated RF/writeback, ROB/PE resolve, ready-table, or lifecycle side effects
-Promotion gate: R548 replay-loop fixture through
-  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v20 sideband
+Expected first gate: focused W2 side-effect sink readiness coverage proving a
+  resident W2 returned load can make required resolve/writeback/wakeup sinks
+  ready without introducing a request/sink combinational loop
+Promotion gate: R549 replay-loop fixture through
+  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
-  W2 evidence, and the newly repaired W2 request counter
+  W2 evidence, W2 policy blocker split, and the newly repaired side-effect sink
+  readiness counter
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
-  W2 request evidence is live in the reduced replay-loop fixture
+  W2 side-effect sink readiness is live in the reduced replay-loop fixture
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
   holdoff, lane/TLOAD/final metadata, E4/W1/W2 slot storage, or commit-row
-  compare policy before W2 request promotion exists
-First-divergence owner if the gate fails: Chisel W2 atomic request policy,
-  side-effect readiness, row-fill, or lifecycle readiness unless the v20
+  compare policy before W2 side-effect readiness exists
+First-divergence owner if the gate fails: Chisel W2 side-effect sink readiness
+  or live-control wiring unless the v21
   sideband report misreports generated signals
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
@@ -184,16 +191,16 @@ Closeout evidence:
 Current example:
 
 ```text
-Packet: replay-LIQ LRET W2 atomic request evidence
+Packet: replay-LIQ LRET W2 side-effect sink readiness
 Owner lane: rtl/LinxCore/chisel
 Files allowed: return-pipe residency, W1/W2 replay-return modules, W2 request
   evidence wiring, focused specs, module docs
 Source evidence: LinxCoreModel IEX::setMemData and load-return W2 handling
-Expected first gate: focused W2 request/evidence coverage
-Promotion gate: R547 replay-loop generated-RTL/QEMU fixture plus v20 sideband
-Do not run: long CoreMark or marker-row scaling before W2 request evidence
-First-divergence owner if the gate fails: Chisel return-pipe residency/W2
-  atomic request gating unless v20 sideband reporting is wrong
+Expected first gate: focused W2 side-effect sink readiness coverage
+Promotion gate: R549 replay-loop generated-RTL/QEMU fixture plus v21 sideband
+Do not run: long CoreMark or marker-row scaling before W2 side-effect readiness
+First-divergence owner if the gate fails: Chisel W2 side-effect readiness/live
+  control unless v21 sideband reporting is wrong
 Closeout evidence: unit log, xcheck manifest, sideband counters, module doc
   row, skill-evolve decision
 ```

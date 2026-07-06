@@ -122,8 +122,17 @@ nonzero W2 residency and request blockers (`w2_atomic_live_active=108`,
 `w2_atomic_blocked=109`, `w2_atomic_blocked_by_request_disabled=109`,
 `w2_atomic_blocked_by_no_evidence=108`) while every sampled downstream
 side-effect, clear, row-fill, lifecycle, request-active, and request-evidence
-counter remains zero. That keeps the next RTL owner at model-derived W2
-request-evidence production, not downstream fire/row-clear policy.
+counter remains zero. R548 later proves W2 resident evidence is present after
+E4/W1/W2 movement (`w2_atomic_evidence_valid=75`) but the request remains
+blocked. R549 splits the aggregate request-disabled counter into mode and
+policy blockers in the top/harness sideband surface: the replay-loop fixture
+records `w2_atomic_blocked_by_mode_disabled=0`,
+`w2_atomic_blocked_by_policy=111`,
+`w2_atomic_blocked_by_no_side_effect_sink=74`,
+`w2_atomic_blocked_by_no_evidence=36`, and zero clear/row-fill/lifecycle
+policy blockers. The next RTL owner is therefore the W2 side-effect sink
+readiness/live-enable path, not live-mode gating, row-fill, lifecycle clear,
+or generic request evidence.
 
 Because `LinxCoreFrontendFetchRfAluTraceTop` is near the JVM constructor method
 size limit, this composite is intended as a constructor-containment boundary:

@@ -1025,6 +1025,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlocked = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByRequestDisabled = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoEvidence = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByModeDisabled = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByPolicy = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoSideEffectSink = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoClearCommit = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoRowFillCandidate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoLifecycleRow = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoRequiredSideEffect = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SideEffectCompletionPermitCandidateValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SideEffectCompletionPermitRequiredMask = Output(UInt(3.W))
   val reducedLoadReplayLiqLretPipeW2SideEffectCompletionPermitMissingReadyMask = Output(UInt(3.W))
@@ -7982,6 +7989,20 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2AtomicLiveRequestWiring {
       liveRequest.io.blockedByModeDisabled || liveRequest.io.blockedByPolicy
     io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoEvidence :=
       liveRequest.io.blockedByPolicyNoEvidence || liveRequest.io.invalidRequestWithoutEvidence
+    io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByModeDisabled :=
+      liveRequest.io.blockedByModeDisabled
+    io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByPolicy :=
+      liveRequest.io.blockedByPolicy
+    io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoSideEffectSink :=
+      liveRequest.io.blockedByPolicyNoSideEffectSink
+    io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoClearCommit :=
+      liveRequest.io.blockedByPolicyNoClearCommit
+    io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoRowFillCandidate :=
+      liveRequest.io.blockedByPolicyNoRowFillCandidate
+    io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoLifecycleRow :=
+      liveRequest.io.blockedByPolicyNoLifecycleRow
+    io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoRequiredSideEffect :=
+      liveRequest.io.blockedByPolicyNoRequiredSideEffect
   }
 }
 

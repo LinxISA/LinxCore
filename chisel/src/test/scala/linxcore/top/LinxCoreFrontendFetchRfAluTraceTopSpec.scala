@@ -1121,6 +1121,21 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqReturnSideEffectLiveBlockedByLiveDisabled.getWidth == 1)
   }
 
+  test("R549 replay W2 atomic request policy blockers have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByModeDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByPolicy.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoSideEffectSink.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoClearCommit.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoRowFillCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoLifecycleRow.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2AtomicLiveRequestBlockedByNoRequiredSideEffect.getWidth == 1)
+  }
+
   test("R367 replay W2 row-fill enable diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)

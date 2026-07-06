@@ -2835,6 +2835,16 @@ rows, zero mismatches, and zero CBSTOP rows. The sideband report now records
 promotion: `w2_atomic_request_active=0`,
 `w2_atomic_blocked_by_request_disabled=111`, `w2_side_effect_ready=0`,
 `w2_row_fill_candidate_valid=0`, and `w2_lifecycle_ready=0`.
+R549 extends the same sideband stats report to schema v21 and exposes the W2
+atomic request gate's existing ordered policy blockers at the top and harness
+boundaries. The replay-loop fixture still passes with 9 compared rows, zero
+mismatches, and zero CBSTOP rows. The v21 report records
+`w2_atomic_blocked_by_mode_disabled=0`,
+`w2_atomic_blocked_by_policy=111`,
+`w2_atomic_blocked_by_no_side_effect_sink=74`,
+`w2_atomic_blocked_by_no_evidence=36`, and zero clear/row-fill/lifecycle
+policy blockers while `w2_atomic_evidence_valid=75`. This moves the next owner
+from generic request promotion to W2 side-effect sink readiness/live-control.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the
