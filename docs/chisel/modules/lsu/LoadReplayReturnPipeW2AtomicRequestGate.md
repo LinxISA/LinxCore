@@ -90,6 +90,11 @@ generated-RTL gate proves the full side-effect/clear/row-fill/lifecycle chain.
 R531 removes the unused current-cycle prerequisite owner parameters from the
 top helper signature so the dormant policy tie-offs are explicit; future packets
 must add proven pre-request producers deliberately.
+R533 adds that proven register boundary by wiring
+`LoadReplayReturnPipeW2AtomicPrereqSnapshot` into the top. Current-cycle
+side-effect, clear, row-fill, and lifecycle owners feed the snapshot; this gate
+consumes only snapshot outputs for policy prerequisites while `liveModeEnable`
+remains false.
 
 Because `LinxCoreFrontendFetchRfAluTraceTop` is near the JVM constructor method
 size limit, this composite is intended as a constructor-containment boundary:
@@ -98,9 +103,10 @@ request, and diagnostic logic across multiple helpers.
 
 ## Deferred Owners
 
-- Generated-RTL proof that `liveModeEnable=false` preserves the dormant reduced
-  path after integration.
-- True pre-request top-level policy prerequisite producers.
+- Generated-RTL proof that snapshot-fed `liveModeEnable=false` preserves the
+  dormant reduced path after integration.
+- Live-mode replacement of the current `false.B` gate once generated-RTL proof
+  exists for atomic side effects.
 - Later generated-RTL proof with `liveModeEnable=true` once W2 side-effect
   sinks, clear, row fill, and replay-row lifecycle mutation all commit
   atomically.

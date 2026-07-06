@@ -93,17 +93,23 @@ clear, row-fill, or lifecycle effects as request prerequisites.
 
 ## Integration
 
-R532 adds this module as a standalone owner. It is not wired into
-`LinxCoreFrontendFetchRfAluTraceTop` yet. A future top packet should connect
-the current-cycle prerequisite owners into this snapshot and feed the snapshot
-outputs into `LoadReplayReturnPipeW2AtomicRequestGate` only after the focused
-top spec proves there is no FIRRTL cycle. `liveModeEnable` must remain false
-until generated-RTL evidence proves the whole W2 side-effect, clear, row-fill,
-and lifecycle chain can commit atomically.
+R532 adds this module as a standalone owner. R533 wires it into
+`LinxCoreFrontendFetchRfAluTraceTop` with `liveModeEnable=false.B`. The top
+captures current observations from `LoadReplayReturnPipeW2SideEffectReady`,
+`LoadReplayReturnPipeW2ClearCommitGuard`,
+`LoadReplayReturnPipeW2CommitRowCandidate`, and
+`LoadReplayReturnPipeW2ReplayRowLifecycleReady`, then feeds only the snapshot
+outputs into `LoadReplayReturnPipeW2AtomicRequestGate`.
+
+The reduced top still leaves the policy's direct clear-intent and empty-refill
+inputs dormant. Raw clear/refill evidence continues to feed the live-request
+child for diagnostics, while policy prerequisites come from this registered
+snapshot. `liveModeEnable` must remain false until generated-RTL evidence
+proves the whole W2 side-effect, clear, row-fill, and lifecycle chain can
+commit atomically.
 
 ## Deferred Owners
 
-- Top-level snapshot wiring with `liveModeEnable=false`.
 - Generated-RTL proof that snapshot-fed policy prerequisites preserve the
   dormant reduced path.
 - Later live-mode proof with request issue, side effects, clear, row fill, and
@@ -116,6 +122,7 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicPrereqSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicRequestGate
+bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 git diff --check
 ```
 

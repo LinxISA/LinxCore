@@ -121,8 +121,11 @@ row-fill, and lifecycle signals into this policy and failed elaboration with
 FIRRTL combinational cycles. Those signals currently include same-cycle effects
 of the atomic request path, so the integrated top now keeps them disconnected
 from policy and feeds only raw request evidence into the live-request child.
-Future top-level packets may connect the policy prerequisites only if they can
-prove the following wiring does not create a combinational loop:
+R533 reconnects the prerequisite path only through
+`LoadReplayReturnPipeW2AtomicPrereqSnapshot`, a registered same-identity W2
+snapshot. Future top-level packets may connect additional policy prerequisites
+only if they can prove the following wiring does not create a combinational
+loop:
 
 - side-effect readiness comes from pre-request sink readiness, not fire payloads;
 - clear readiness comes from identity/commit evidence, not `liveClearReady`;
@@ -131,8 +134,6 @@ prove the following wiring does not create a combinational loop:
 
 ## Deferred Owners
 
-- True pre-request top-level wiring for policy sink readiness, clear identity,
-  row-fill candidate, and replay-row lifecycle readiness.
 - Live-mode replacement of the R363 `requestEnable=false` tie-off.
 - Multi-return-pipe arbitration when multiple returned-load W2 pipes exist.
 - Verilator replay-return evidence after the live request gate is integrated.
