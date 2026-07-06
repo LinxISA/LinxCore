@@ -127,8 +127,8 @@ AGU W2 pipe target.
 - `clear` comes from `LoadReplayReturnPipeW2CompletionCandidate.clearSlot`,
   which remains false while the R335/R336/R337/R338 W2 side-effect readiness path
   keeps at least one required sink not-ready;
-- top-level diagnostics expose accepted, occupied, target, pipe-index, and
-  blocker signals.
+- top-level diagnostics expose accepted, occupied, target, pipe-index, PC,
+  load-LSID identity, and blocker signals.
 
 Because R328/R330 still keep upstream E4 residency and E4-to-W1 advance
 disabled, this module does not change fixture-visible replay behavior. It
@@ -147,6 +147,12 @@ stage counters stay empty (`lret_residency_candidate_valid=0`,
 reports `lret_w2_slot_blocked_by_no_write=108`. This keeps the next owner
 upstream of W2 storage: returned-load/IEX pipe insertion and LRET residency
 payload production.
+
+R563 exposes the W2 slot PC and load-LSID identity through the reduced top.
+The replay burst fixture then proves the R562 W1-to-W2-live-clear phase gaps
+are the same resident load being cleared (`same_lsid=3`) rather than a different
+returned-load candidate (`different_lsid=0`). W2 storage replacement remains
+blocked until a different W1 candidate overlaps the resident W2 live clear.
 
 ## Deferred Owners
 

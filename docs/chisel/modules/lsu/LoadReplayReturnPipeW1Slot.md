@@ -98,13 +98,18 @@ load has exactly one LDA or AGU target before entering the pipe stages.
 - payload sidebands come from the R329 E4 residency slot entry outputs;
 - `clear` comes from `LoadReplayReturnPipeW1AdvanceCandidate.clearSlot`, which
   can fire only when a W1 entry exists and the R333 W2 slot is empty;
-- top-level diagnostics expose accepted, occupied, target, pipe-index, and
-  blocker signals.
+- top-level diagnostics expose accepted, occupied, target, pipe-index, PC,
+  load-LSID identity, and blocker signals.
 
 Because R328 still live-disables E4 residency writes and R385 keeps the R330
 E4-to-W1 advance request disabled, this module does not change fixture-visible
 replay behavior. It only names the W1 stage boundary that the model advances
 through before W2 side effects.
+
+R563 exposes the W1 slot PC and load-LSID identity through the reduced top so
+the generated-RTL harness can decide whether a later W2 live clear belongs to
+the same returned load or a different candidate. This diagnostic is
+observational and does not feed W1 clear or W2 write acceptance.
 
 ## Deferred Owners
 

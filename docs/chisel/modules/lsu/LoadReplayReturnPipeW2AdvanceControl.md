@@ -53,7 +53,10 @@ zero `replaceOnClear`. R561 adds phase-distance sideband and records zero
 one-cycle-near W1/clear phasing for the same burst fixture. R562 extends those
 diagnostics to wider buckets and records W2 live clear after W1 candidate at
 gap2 and gap5+ only; same-cycle, one-cycle, gap3/gap4, reverse-gap, and
-`replaceOnClear` evidence stay zero.
+`replaceOnClear` evidence stay zero. R563 adds W1/W2 identity sideband and
+proves all those phase-gap live clears match the same load-LSID as the earlier
+W1 candidate, so the current fixture does not expose a suppressed different-row
+replacement.
 
 ## Interface
 
@@ -125,7 +128,10 @@ replay RF writeback, ready-table mutation, or issue wakeup.
   learned store dependency is still insufficient. R561 shows that fixture is
   not missing same-cycle replacement by a single adjacent cycle. R562 shows the
   next useful stimulus must close a two-cycle or five-plus-cycle W1-to-live-clear
-  gap, not change advance/storage selection first.
+  gap, not change advance/storage selection first. R563 narrows that again: the
+  useful stimulus must create a different returned-load candidate in the W2
+  live-clear cycle, because the observed gap only follows the same LSID through
+  W2 lifetime.
 - Tie W2 clear to the live side-effect completion owner instead of the current
   dormant completion path.
 - Retire or update the consumed replay-row lifecycle when W2 side effects

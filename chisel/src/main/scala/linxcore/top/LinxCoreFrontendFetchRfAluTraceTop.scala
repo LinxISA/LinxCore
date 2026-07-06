@@ -941,6 +941,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW1SlotTargetIsAgu = Output(Bool())
   val reducedLoadReplayLiqLretPipeW1SlotTargetIsLda = Output(Bool())
   val reducedLoadReplayLiqLretPipeW1SlotPipeIndex = Output(UInt(1.W))
+  val reducedLoadReplayLiqLretPipeW1SlotPc = Output(UInt(p.pcWidth.W))
+  val reducedLoadReplayLiqLretPipeW1SlotLoadLsIdValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW1SlotLoadLsIdValue = Output(UInt(ptrWidth.W))
   val reducedLoadReplayLiqLretPipeW1SlotBlockedByDisabled = Output(Bool())
   val reducedLoadReplayLiqLretPipeW1SlotBlockedByFlush = Output(Bool())
   val reducedLoadReplayLiqLretPipeW1SlotBlockedByClear = Output(Bool())
@@ -964,6 +967,9 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2SlotTargetIsAgu = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SlotTargetIsLda = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SlotPipeIndex = Output(UInt(1.W))
+  val reducedLoadReplayLiqLretPipeW2SlotPc = Output(UInt(p.pcWidth.W))
+  val reducedLoadReplayLiqLretPipeW2SlotLoadLsIdValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2SlotLoadLsIdValue = Output(UInt(ptrWidth.W))
   val reducedLoadReplayLiqLretPipeW2SlotSourceTraceValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SlotSource0Valid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2SlotSource0Reg = Output(UInt(traceParams.regWidth.W))
@@ -5113,6 +5119,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW1Slot.io.entryTargetIsLda
   io.reducedLoadReplayLiqLretPipeW1SlotPipeIndex :=
     reducedReplayLiqReturnPipeW1Slot.io.entryPipeIndex
+  io.reducedLoadReplayLiqLretPipeW1SlotPc :=
+    reducedReplayLiqReturnPipeW1Slot.io.entryPc
+  io.reducedLoadReplayLiqLretPipeW1SlotLoadLsIdValid :=
+    reducedReplayLiqReturnPipeW1Slot.io.entryLoadLsId.valid
+  io.reducedLoadReplayLiqLretPipeW1SlotLoadLsIdValue :=
+    reducedReplayLiqReturnPipeW1Slot.io.entryLoadLsId.value
   io.reducedLoadReplayLiqLretPipeW1SlotBlockedByDisabled :=
     reducedReplayLiqReturnPipeW1Slot.io.blockedByDisabled
   io.reducedLoadReplayLiqLretPipeW1SlotBlockedByFlush :=
@@ -5159,6 +5171,12 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Slot.io.entryTargetIsLda
   io.reducedLoadReplayLiqLretPipeW2SlotPipeIndex :=
     reducedReplayLiqReturnPipeW2Slot.io.entryPipeIndex
+  io.reducedLoadReplayLiqLretPipeW2SlotPc :=
+    reducedReplayLiqReturnPipeW2Slot.io.entryPc
+  io.reducedLoadReplayLiqLretPipeW2SlotLoadLsIdValid :=
+    reducedReplayLiqReturnPipeW2Slot.io.entryLoadLsId.valid
+  io.reducedLoadReplayLiqLretPipeW2SlotLoadLsIdValue :=
+    reducedReplayLiqReturnPipeW2Slot.io.entryLoadLsId.value
   io.reducedLoadReplayLiqLretPipeW2SlotBlockedByDisabled :=
     reducedReplayLiqReturnPipeW2Slot.io.blockedByDisabled
   io.reducedLoadReplayLiqLretPipeW2SlotBlockedByFlush :=

@@ -107,6 +107,11 @@
   - `model/LinxCoreModel/model/pe/PECommon/PROBCommon.cpp`
 - Contract IDs: `LC-IF-CHISEL-TOP-006`, `LC-IF-CHISEL-XCHK-011`
 
+R563 extends the reduced-store replay-LIQ top diagnostics with W1/W2 returned
+load slot PC and load-LSID identity outputs. The Verilator sideband uses them
+only to classify phase-gap evidence; they do not feed W1 clear, W2 write
+acceptance, replay-row lifecycle, or architectural trace rows.
+
 ## Purpose
 
 `LinxCoreFrontendFetchRfAluTraceTop` is the R95 live-source successor to

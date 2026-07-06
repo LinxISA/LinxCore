@@ -53,7 +53,9 @@ same fixture also has no one-cycle-near miss between W1 candidate and W2
 clear/live-clear. R562 widens that phase sideband and shows W2 live clear trails
 the W1 candidate by two cycles twice and by five-or-more cycles once in the
 burst fixture; same-cycle, one-cycle, gap3/gap4, and reverse-gap evidence remain
-zero.
+zero. R563 adds W1/W2 slot identity sideband and proves those delayed W2 clears
+all match the same load-LSID as the earlier W1 candidate, so the phase gap is
+resident-row lifetime rather than hidden replacement stimulus.
 
 ## Interface
 
@@ -134,7 +136,9 @@ increasing resident W2 occupancy to 10 cycles. R561 adds phase-distance
 counters and records zero W1-candidate-before-clear/live-clear and zero
 clear/live-clear-before-W1-candidate events for that same burst fixture. R562
 records nonzero W1-candidate to W2-live-clear gaps at 2 cycles and 5+ cycles,
-with no reverse-gap or overlap evidence.
+with no reverse-gap or overlap evidence. R563 records
+`same_lsid=3`, `different_lsid=0`, and `unknown_lsid=0` for those phase-gap
+clears, proving they are not different-candidate replacement opportunities.
 
 ## Deferred Owners
 
@@ -148,7 +152,8 @@ with no reverse-gap or overlap evidence.
   overlap by one adjacent cycle. R562 proves the useful phasing distance in the
   burst fixture is two cycles for two returns and five-or-more cycles for one
   return; next stimulus should shorten or retain across that gap before changing
-  W2 storage.
+  W2 storage only if it creates a different load-LSID candidate. R563 proves
+  retaining the same LSID only observes normal W2 lifetime, not replacement.
 - Verify `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future
   readiness and drives `LoadReplayReturnPipeW2Slot.replaceOnClear` in that
   same-cycle replacement case.
