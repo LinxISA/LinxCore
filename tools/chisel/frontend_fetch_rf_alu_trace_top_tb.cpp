@@ -646,6 +646,19 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_commit_row_candidate_blocked_by_invalid_size = 0;
   std::uint64_t w2_retire_record_commit_row_candidate_blocked_by_non_gpr_destination = 0;
   std::uint64_t w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_capture_intent = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_capture_payload_rid_valid = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_w2_rid_valid = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_w2_rid_matches_capture = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_w2_metadata_ready = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_capture_from_w2 = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_capture_from_drain = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_capture_blocked_by_no_payload_rid = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_capture_blocked_by_no_w2_rid = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_capture_blocked_by_rid_mismatch = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_capture_blocked_by_no_w2_metadata = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_clear_accepted = 0;
+  std::uint64_t w2_retire_record_instruction_metadata_provider_valid = 0;
   std::uint64_t w2_row_fill_candidate_valid = 0;
   std::uint64_t w2_row_fill_prerequisites_ready = 0;
   std::uint64_t w2_row_fill_enable = 0;
@@ -2313,6 +2326,45 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateBlockedByRowFillDisabled) {
     ++g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureIntent) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_intent;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCapturePayloadRidValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_payload_rid_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataW2RidValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_w2_rid_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataW2RidMatchesCapture) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_w2_rid_matches_capture;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataW2MetadataReady) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_w2_metadata_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureFromW2) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_from_w2;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureFromDrain) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_from_drain;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByNoPayloadRid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_blocked_by_no_payload_rid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByNoW2Rid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_blocked_by_no_w2_rid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByRidMismatch) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_blocked_by_rid_mismatch;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByNoW2Metadata) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_blocked_by_no_w2_metadata;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataClearAccepted) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_clear_accepted;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataProviderValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_provider_valid;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlCandidateValid) {
     ++g_replay_liq_sideband_stats.w2_row_fill_candidate_valid;
   }
@@ -2593,7 +2645,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v33\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v34\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -3501,6 +3553,32 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_non_gpr_destination << ",\n"
       << "    \"w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled\": "
       << g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_capture_intent\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_intent << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_capture_payload_rid_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_payload_rid_valid << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_w2_rid_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_w2_rid_valid << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_w2_rid_matches_capture\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_w2_rid_matches_capture << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_w2_metadata_ready\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_w2_metadata_ready << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_capture_from_w2\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_from_w2 << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_capture_from_drain\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_from_drain << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_capture_blocked_by_no_payload_rid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_blocked_by_no_payload_rid << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_capture_blocked_by_no_w2_rid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_blocked_by_no_w2_rid << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_capture_blocked_by_rid_mismatch\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_blocked_by_rid_mismatch << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_capture_blocked_by_no_w2_metadata\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_capture_blocked_by_no_w2_metadata << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_clear_accepted\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_clear_accepted << ",\n"
+      << "    \"w2_retire_record_instruction_metadata_provider_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_instruction_metadata_provider_valid << ",\n"
       << "    \"w2_row_fill_candidate_valid\": "
       << g_replay_liq_sideband_stats.w2_row_fill_candidate_valid << ",\n"
       << "    \"w2_row_fill_prerequisites_ready\": "

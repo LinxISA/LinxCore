@@ -76,11 +76,15 @@ Sideband schema v33 records:
 - `w2_retire_record_commit_row_candidate_blocked_by_non_gpr_destination=0`
 - `w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate=3`
 
-The next owner is retained-record instruction metadata lifetime. R583's
-diagnostic latch captures LRET-drain instruction metadata, but the generated
-fixture still observes the retained-record candidate blocked by missing
-metadata. A later packet should fix the retained metadata source before
-promoting row-fill enable or retained-record LIQ mutation.
+R584 adds `LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch` to test
+that next owner. The generated fixture still observes the retained-record
+candidate blocked by missing metadata, but the new v34 sideband proves why:
+retire-record capture intent fires while W2 instruction metadata is ready, yet
+the capture payload RID never matches the resident W2 slot RID. The next owner
+is retained-record payload source identity, not generic instruction metadata
+lifetime. A later packet should source the retained record from the resident W2
+row, or prove an equivalent model-derived payload boundary, before promoting
+row-fill enable or retained-record LIQ mutation.
 
 ## Verification
 

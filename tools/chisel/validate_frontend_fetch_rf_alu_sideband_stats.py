@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v33"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v34"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -463,6 +463,19 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_retire_record_commit_row_candidate_blocked_by_invalid_size",
     "w2_retire_record_commit_row_candidate_blocked_by_non_gpr_destination",
     "w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled",
+    "w2_retire_record_instruction_metadata_capture_intent",
+    "w2_retire_record_instruction_metadata_capture_payload_rid_valid",
+    "w2_retire_record_instruction_metadata_w2_rid_valid",
+    "w2_retire_record_instruction_metadata_w2_rid_matches_capture",
+    "w2_retire_record_instruction_metadata_w2_metadata_ready",
+    "w2_retire_record_instruction_metadata_capture_from_w2",
+    "w2_retire_record_instruction_metadata_capture_from_drain",
+    "w2_retire_record_instruction_metadata_capture_blocked_by_no_payload_rid",
+    "w2_retire_record_instruction_metadata_capture_blocked_by_no_w2_rid",
+    "w2_retire_record_instruction_metadata_capture_blocked_by_rid_mismatch",
+    "w2_retire_record_instruction_metadata_capture_blocked_by_no_w2_metadata",
+    "w2_retire_record_instruction_metadata_clear_accepted",
+    "w2_retire_record_instruction_metadata_provider_valid",
     "w2_row_fill_candidate_valid",
     "w2_row_fill_prerequisites_ready",
     "w2_row_fill_enable",

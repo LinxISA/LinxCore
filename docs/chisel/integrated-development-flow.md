@@ -482,6 +482,27 @@ instruction-metadata blockers. The next packet should fix retained-record
 instruction metadata lifetime before any retained row-fill enable or LIQ clear
 promotion.
 
+R584 adds `LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch` and
+extends the replay-LIQ sideband stats schema to v34 to classify that metadata
+lifetime. The latch can capture from the resident W2 instruction provider at
+retire-record creation or from the later LRET drain metadata fallback, and it
+feeds the retained commit-row candidate without enabling row fill. The generated
+RTL/QEMU gate
+`generated/r584-replay-retire-record-metadata-probe-xcheck` passes with
+`status="pass"`, `comparator_status=0`, `compared_rows=18`,
+`mismatch_count=0`, and zero QEMU/DUT CBSTOP rows. The v34 sideband records
+`w2_retire_record_instruction_metadata_capture_intent=3`,
+`w2_retire_record_instruction_metadata_w2_metadata_ready=77`,
+`w2_retire_record_instruction_metadata_w2_rid_matches_capture=0`,
+`w2_retire_record_instruction_metadata_capture_from_w2=0`,
+`w2_retire_record_instruction_metadata_capture_from_drain=6`,
+`w2_retire_record_instruction_metadata_capture_blocked_by_rid_mismatch=3`,
+`w2_retire_record_instruction_metadata_provider_valid=0`, and the retained
+commit-row candidate remains blocked by metadata. The next owner is
+retained-record payload source identity: the current top captures a live LRET
+enqueue payload while the capture predicate is driven by the resident W2 slot
+clear, and delayed-W2 evidence proves those RIDs do not match.
+
 Use this packet shape first:
 
 ```text

@@ -10,6 +10,7 @@ import linxcore.execute.{ReducedScalarAluExecute, ReducedScalarIssueQueue, Reduc
 import linxcore.frontend.{F4DecodeWindow, F4DenseSlotQueue, F4Slot, FrontendFetchPacketSource, ReducedBfuBodyCutArm, ReducedBfuBodyCutPredictor, ReducedBfuGeometryPredictionLatch, ReducedBfuLocalBodyWindow, ReducedBfuPendingRuntimeBodyEndCandidate, ReducedBfuPromotedRuntimeBodyEndOracle, ReducedBfuResolvedBodyEndOwner, ReducedBfuResolvedBodyEndPending, ReducedBfuResolvedBodyEndSource, ReducedBfuStaticGeometryProducer}
 import linxcore.lsu.{LoadInflightStatus, LoadLookupArbiter, LoadReplayBaseDataAlign, LoadReplayDestination, LoadReplayLaunchReadiness, LoadReplayReturnConsumerReady, LoadReplayReturnDataExtract, LoadReplayReturnFinalMetadataCandidate, LoadReplayReturnIexDataCandidate, LoadReplayReturnIexDrainPermit, LoadReplayReturnIexPipeInsertCandidate, LoadReplayReturnIexPipeOccupancy, LoadReplayReturnIexPipeOccupancyLiveControl, LoadReplayReturnLaneCompletionCandidate, LoadReplayReturnLretEntry, LoadReplayReturnLretPayload, LoadReplayReturnLretSink, LoadReplayReturnPipeBudget, LoadReplayReturnPipePermit, LoadReplayReturnPipeResidencyAdvanceCandidate, LoadReplayReturnPipeResidencyAdvanceLiveControl, LoadReplayReturnPipeResidencyCandidate, LoadReplayReturnPipeResidencyLiveControl, LoadReplayReturnPipeResidencySlot, LoadReplayReturnPipeSelect, LoadReplayReturnPipeW1AdvanceCandidate, LoadReplayReturnPipeW1Slot, LoadReplayReturnPipeW2AdvanceControl, LoadReplayReturnPipeW2AtomicPrereqSnapshot, LoadReplayReturnPipeW2AtomicRequestGate, LoadReplayReturnPipeW2ClearCommitGuard, LoadReplayReturnPipeW2ClearIntent, LoadReplayReturnPipeW2CommitRowCandidate, LoadReplayReturnPipeW2CommitRowTraceSource, LoadReplayReturnPipeW2CompletionCandidate, LoadReplayReturnPipeW2PostLretEnqueueHold, LoadReplayReturnPipeW2PromotionControl, LoadReplayReturnPipeW2RefillReady, LoadReplayReturnPipeW2ReplayRowClearRequest, LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit, LoadReplayReturnPipeW2ReplayRowLifecycleReady, LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl, LoadReplayReturnPipeW2ResolveArbiterInput, LoadReplayReturnPipeW2ResolveFirePayload, LoadReplayReturnPipeW2ResolveRequest, LoadReplayReturnPipeW2ResolveSinkReady, LoadReplayReturnPipeW2RetireRecord, LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe, LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe, LoadReplayReturnPipeW2RobCompleteSource, LoadReplayReturnPipeW2RowFillEnableControl, LoadReplayReturnPipeW2SideEffectCompletionPermit, LoadReplayReturnPipeW2SideEffectFireComplete, LoadReplayReturnPipeW2SideEffectFireVector, LoadReplayReturnPipeW2SideEffectIssuePermit, LoadReplayReturnPipeW2SideEffectLiveControl, LoadReplayReturnPipeW2SideEffectPayloadPlan, LoadReplayReturnPipeW2SideEffectReady, LoadReplayReturnPipeW2SideEffectRequest, LoadReplayReturnPipeW2Slot, LoadReplayReturnPipeW2SlotReplacePlan, LoadReplayReturnPipeW2WakeupArbiterInput, LoadReplayReturnPipeW2WakeupFirePayload, LoadReplayReturnPipeW2WakeupRequest, LoadReplayReturnPipeW2WakeupSinkReady, LoadReplayReturnPipeW2WritebackArbiterInput, LoadReplayReturnPipeW2WritebackFirePayload, LoadReplayReturnPipeW2WritebackRequest, LoadReplayReturnPipeW2WritebackSinkReady, LoadReplayReturnPublishControl, LoadReplayReturnPublishReady, LoadReplayReturnPublishRequest, LoadReplayReturnReadiness, LoadReplayReturnReducedScalarShapeControl, LoadReplayReturnRobResolveDataCandidate, LoadReplayReturnSideEffectLiveControl, LoadReplayReturnSideEffectReady, LoadReplayReturnTimingStatsCandidate, LoadReplayReturnTloadCompletionCandidate, LoadReplayReturnWakeupCandidate, LoadReplayReturnWakeupSinkReady, LoadReplayReturnWritebackCandidate, LoadReplayReturnWritebackSinkReady, LoadReplaySourceReturnReadiness, LoadReplaySourceReturnScbLiveControl, LoadReplaySourceReturnStoreSnapshotPath, LoadResolveQueue, MDBConflictDetect, MDBConflictLoadEntry, MDBConflictStoreProbe, MDBQueueBus, MDBQueueFanout, MDBStoreWakeupEntry, ReducedLoadReplayCompletionDrain, ReducedLoadReplayLiqAllocPath, ReducedLoadReplayRelaunchQueue, ReducedLoadWaitReplaySlot, ReducedStoreCommitFreeOwner, ReducedStoreExecResultBridge, ReducedStoreMemoryOverlay, ReducedStoreResidentForward, ReducedStoreStaAddressExecBridge, ResidentStoreForwardStoreSnapshot, ResidentStoreReplayWakeup, SCBRowBank, STQCommitDrain, STQCommitDrainRequest, STQStoreType, StoreDispatchExecResult}
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordCommitRowCandidate
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch
 import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan, LoadReplayResolvedRowHitRecord, LoadReplayRowMutationSourceMux}
 import linxcore.lsu.MDBStoreProbeReplay
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
@@ -1237,6 +1238,19 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateBlockedByInvalidSize = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateBlockedByNonGprDestination = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateBlockedByRowFillDisabled = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureIntent = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCapturePayloadRidValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataW2RidValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataW2RidMatchesCapture = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataW2MetadataReady = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureFromW2 = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureFromDrain = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByNoPayloadRid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByNoW2Rid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByRidMismatch = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByNoW2Metadata = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataClearAccepted = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataProviderValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceReady = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceInstructionReady = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceSourceReady = Output(Bool())
@@ -3972,46 +3986,22 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
-  val reducedReplayLiqRetireRecordInstructionProviderValidReg = RegInit(false.B)
-  val reducedReplayLiqRetireRecordInstructionProviderRidReg =
-    RegInit(ROBID.disabled(p.robEntries))
-  val reducedReplayLiqRetireRecordInstructionProviderRawReg =
-    RegInit(0.U(traceParams.insnWidth.W))
-  val reducedReplayLiqRetireRecordInstructionProviderLenReg =
-    RegInit(0.U(traceParams.lenWidth.W))
-  val reducedReplayLiqRetireRecordInstructionProviderClear =
-    reducedReplayLiqReturnPipeW2Modules.retireRecord.io.recordFire &&
-      reducedReplayLiqReturnPipeW2Modules.retireRecord.io.record.rid.valid &&
-      reducedReplayLiqRetireRecordInstructionProviderRidReg.valid &&
-      ROBID.equal(
-        reducedReplayLiqReturnPipeW2Modules.retireRecord.io.record.rid,
-        reducedReplayLiqRetireRecordInstructionProviderRidReg)
-  when(reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled) {
-    reducedReplayLiqRetireRecordInstructionProviderValidReg := false.B
-    reducedReplayLiqRetireRecordInstructionProviderRidReg := ROBID.disabled(p.robEntries)
-    reducedReplayLiqRetireRecordInstructionProviderRawReg := 0.U
-    reducedReplayLiqRetireRecordInstructionProviderLenReg := 0.U
-  }.elsewhen(reducedReplayLiqLretDrainInstructionProviderCapture) {
-    reducedReplayLiqRetireRecordInstructionProviderValidReg := true.B
-    reducedReplayLiqRetireRecordInstructionProviderRidReg :=
-      reducedReplayLiqReturnLretSink.io.drain.rid
-    reducedReplayLiqRetireRecordInstructionProviderRawReg :=
-      path.io.robCommitTraceLookup.instructionRaw
-    reducedReplayLiqRetireRecordInstructionProviderLenReg :=
-      path.io.robCommitTraceLookup.instructionLen
-  }.elsewhen(reducedReplayLiqRetireRecordInstructionProviderClear) {
-    reducedReplayLiqRetireRecordInstructionProviderValidReg := false.B
-    reducedReplayLiqRetireRecordInstructionProviderRidReg := ROBID.disabled(p.robEntries)
-    reducedReplayLiqRetireRecordInstructionProviderRawReg := 0.U
-    reducedReplayLiqRetireRecordInstructionProviderLenReg := 0.U
-  }
-  val reducedReplayLiqRetireRecordInstructionProviderValid =
-    reducedReplayLiqRetireRecordInstructionProviderValidReg &&
-      reducedReplayLiqReturnPipeW2Modules.retireRecord.io.recordValid &&
-      reducedReplayLiqReturnPipeW2Modules.retireRecord.io.record.rid.valid &&
-      ROBID.equal(
-        reducedReplayLiqReturnPipeW2Modules.retireRecord.io.record.rid,
-        reducedReplayLiqRetireRecordInstructionProviderRidReg)
+  LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordInstructionMetadataLatchWiring.connect(
+    io,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordInstructionMetadata,
+    reducedReplayLiqReturnPipeW2Modules.retireRecord,
+    reducedReplayLiqReturnPipeW2Modules.slot,
+    reducedReplayLiqReturnLretSink,
+    reducedReplayLiqReturnLretSinkEntry,
+    reducedReplayLiqW2InstructionProviderValid,
+    reducedReplayLiqW2InstructionProviderRaw,
+    reducedReplayLiqW2InstructionProviderLen,
+    reducedReplayLiqLretDrainInstructionProviderCapture,
+    path.io.robCommitTraceLookup.instructionRaw,
+    path.io.robCommitTraceLookup.instructionLen,
+    reducedLoadReplayLiqAllocEnabled,
+    reducedStoreFlush
+  )
   LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleReadyWiring.connect(
     io,
     reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleReady,
@@ -4024,9 +4014,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     io,
     reducedReplayLiqReturnPipeW2Modules.retireRecordCommitRowCandidate,
     reducedReplayLiqReturnPipeW2Modules.retireRecord,
-    reducedReplayLiqRetireRecordInstructionProviderValid,
-    reducedReplayLiqRetireRecordInstructionProviderRawReg,
-    reducedReplayLiqRetireRecordInstructionProviderLenReg,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordInstructionMetadata.io.providerValid,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordInstructionMetadata.io.providerRaw,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordInstructionMetadata.io.providerLen,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -7907,6 +7897,68 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleReadyWir
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordInstructionMetadataLatchWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      metadata: LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch,
+      retireRecord: LoadReplayReturnPipeW2RetireRecord,
+      slot: LoadReplayReturnPipeW2Slot,
+      sink: LoadReplayReturnLretSink,
+      sinkEntry: LoadReplayReturnLretEntry,
+      w2InstructionValid: Bool,
+      w2InstructionRaw: UInt,
+      w2InstructionLen: UInt,
+      drainInstructionCapture: Bool,
+      drainInstructionRaw: UInt,
+      drainInstructionLen: UInt,
+      enable: Bool,
+      flush: Bool): Unit = {
+    metadata.io.enable := enable
+    metadata.io.flush := flush
+    metadata.io.captureAccepted := retireRecord.io.captureAccepted
+    metadata.io.capturePayloadRid := sinkEntry.rid
+    metadata.io.w2Rid := slot.io.entryRid
+    metadata.io.w2InstructionValid := w2InstructionValid
+    metadata.io.w2InstructionRaw := w2InstructionRaw
+    metadata.io.w2InstructionLen := w2InstructionLen
+    metadata.io.drainInstructionCapture := drainInstructionCapture
+    metadata.io.drainRid := sink.io.drain.rid
+    metadata.io.drainInstructionRaw := drainInstructionRaw
+    metadata.io.drainInstructionLen := drainInstructionLen
+    metadata.io.recordFire := retireRecord.io.recordFire
+    metadata.io.recordFireRid := retireRecord.io.record.rid
+    metadata.io.recordValid := retireRecord.io.recordValid
+    metadata.io.recordRid := retireRecord.io.record.rid
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureIntent :=
+      metadata.io.captureIntent
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCapturePayloadRidValid :=
+      metadata.io.capturePayloadRidValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataW2RidValid :=
+      metadata.io.w2RidValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataW2RidMatchesCapture :=
+      metadata.io.w2RidMatchesCapture
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataW2MetadataReady :=
+      metadata.io.w2MetadataReady
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureFromW2 :=
+      metadata.io.captureFromW2
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureFromDrain :=
+      metadata.io.captureFromDrain
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByNoPayloadRid :=
+      metadata.io.captureBlockedByNoPayloadRid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByNoW2Rid :=
+      metadata.io.captureBlockedByNoW2Rid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByRidMismatch :=
+      metadata.io.captureBlockedByRidMismatch
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataCaptureBlockedByNoW2Metadata :=
+      metadata.io.captureBlockedByNoW2Metadata
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataClearAccepted :=
+      metadata.io.clearAccepted
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordInstructionMetadataProviderValid :=
+      metadata.io.providerValid
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleRequestProbeWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -8546,6 +8598,7 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     clearIntent: LoadReplayReturnPipeW2ClearIntent,
     postLretEnqueueHold: LoadReplayReturnPipeW2PostLretEnqueueHold,
     retireRecord: LoadReplayReturnPipeW2RetireRecord,
+    retireRecordInstructionMetadata: LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch,
     retireRecordAtomicRequestProbe: LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe,
     retireRecordLifecycleRequestProbe: LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe,
     clearCommitGuard: LoadReplayReturnPipeW2ClearCommitGuard,
@@ -8666,6 +8719,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
         archRegWidth = p.archRegWidth,
         physRegWidth = p.physRegWidth
       )),
+      retireRecordInstructionMetadata =
+        LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordInstructionMetadataLatchModule.create(p, traceParams),
       retireRecordAtomicRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe),
       retireRecordLifecycleRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe),
       clearCommitGuard = Module(new LoadReplayReturnPipeW2ClearCommitGuard(idEntries = p.robEntries)),
@@ -8720,6 +8775,16 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordCommitRowCandidat
       returnPipeCount = 1,
       archRegWidth = p.archRegWidth,
       physRegWidth = p.physRegWidth,
+      traceParams = traceParams
+    ))
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordInstructionMetadataLatchModule {
+  def create(
+      p: InterfaceParams,
+      traceParams: CommitTraceParams): LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch =
+    Module(new LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch(
+      idEntries = p.robEntries,
       traceParams = traceParams
     ))
 }
