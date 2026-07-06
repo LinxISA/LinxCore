@@ -1188,6 +1188,20 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlBlockedByNoLifecycleRow.getWidth == 1)
   }
 
+  test("R581 retire-record lifecycle request probe diagnostics have stable widths") {
+    val core = CoreParams(robEntries = 8, commitWidth = 2)
+    val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)
+    val trace = LinxCoreFrontendFetchRfAluTraceTop.traceParamsFor(p)
+    val io = new LinxCoreFrontendFetchRfAluTraceTopIO(p, trace, issueQueueDepth = 4, physRegs = 64)
+
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleRequestProbeCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleRequestProbeLivePromotionCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleRequestProbeBlockedByNoLifecycleRow.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleRequestProbeBlockedByNoAtomicRequest.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleRequestProbeBlockedByNoRowFillCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleRequestProbeBlockedByNoRowFillEnable.getWidth == 1)
+  }
+
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
     val core = CoreParams(robEntries = 8, commitWidth = 2)
     val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(core)

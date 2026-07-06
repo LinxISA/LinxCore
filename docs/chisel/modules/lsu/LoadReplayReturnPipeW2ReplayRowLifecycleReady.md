@@ -166,12 +166,23 @@ resolved-row match: `w2_retire_record_record_ready=3`,
 `w2_retire_record_lifecycle_blocked_by_no_resolved_row=0`, and
 `w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`.
 
+R581 feeds this retained-record `rowClearReady` into
+`LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe` in the generated top.
+The probe is diagnostic only, but its v31 sideband proves the retained-record
+lifecycle row is present for all three request candidates:
+`w2_retire_record_lifecycle_request_candidate=3` and
+`w2_retire_record_lifecycle_request_blocked_by_no_lifecycle_row=0`. The live
+promotion candidate remains zero because the existing atomic request does not
+overlap those retained-record candidates.
+
 ## Deferred Owners
 
 - Broaden the selected returned-load LIQ row match beyond the current
   reduced-loop proof window.
 - Live replay-row lifecycle clear/consume path for that selected LIQ row,
   using the retire record when the physical W2 slot has already cleared.
+- Atomic request alignment for the retained-record lifecycle row before it is
+  allowed to feed live row-fill or LIQ clear mutation.
 - Atomic promotion that feeds `clearResolvedValid/index`, W2 clear/refill,
   replay RF writeback, ROB/PE resolve, ready-table wakeup, and commit-row fill
   from one coherent W2 instruction.

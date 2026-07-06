@@ -94,6 +94,21 @@ the repeated W2 lifecycle and commit-row candidate module constructors; the
 next packet should split the generated top further before exposing new
 sideband or running a generated RTL/QEMU xcheck for the probe.
 
+R581 completes that top split by grouping W2 construction in
+`LinxCoreFrontendFetchRfAluTraceTopW2Modules` and wires the retained-record
+lifecycle request probe into generated-top diagnostics. The proof point is
+`generated/r581-replay-w2-retire-record-request-probe-xcheck` with manifest
+`status="pass"`, `comparator_status=0`, `compared_rows=18`,
+`mismatch_count=0`, and zero QEMU/DUT CBSTOP rows. Sideband schema v31 records
+`w2_retire_record_lifecycle_request_candidate=3`,
+`w2_retire_record_lifecycle_live_promotion_candidate=0`,
+`w2_retire_record_lifecycle_request_blocked_by_no_lifecycle_row=0`,
+`w2_retire_record_lifecycle_request_blocked_by_no_atomic_request=3`,
+`w2_retire_record_lifecycle_request_blocked_by_no_row_fill_candidate=0`, and
+`w2_retire_record_lifecycle_request_blocked_by_no_row_fill_enable=0`. The next
+owner should align or derive an atomic request for the retained record before
+allowing it to drive live row-fill or LIQ clear mutation.
+
 ## Current Baseline
 
 Record these SHAs at the start of each agent packet and refresh them if the

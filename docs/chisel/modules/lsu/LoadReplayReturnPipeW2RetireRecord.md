@@ -138,11 +138,26 @@ rows and zero mismatches. The v30 sideband report records
 `w2_retire_record_lifecycle_blocked_by_no_resolved_row=0`, and
 `w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`.
 
+R581 wires the retained-record lifecycle request probe into the generated top
+after splitting W2 module construction out of the large top constructor. The
+probe observes the consumed retained record, its unique lifecycle row, and the
+existing physical-W2 atomic request, commit-row candidate, and row-fill enable.
+It remains diagnostic only. The generated RTL/QEMU gate at
+`generated/r581-replay-w2-retire-record-request-probe-xcheck` passes with 18
+compared rows and zero mismatches. Sideband schema v31 records three retained
+request candidates, zero missing lifecycle-row blockers, zero row-fill
+candidate blockers, zero row-fill-enable blockers, zero live-promotion
+candidates, and three `blocked_by_no_atomic_request` events. The next owner is
+therefore atomic-request alignment for the retained record, not lifecycle-row
+matching.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
   that preserves atomic side-effect, row-fill, ROB resolve, and LIQ clear
   ordering.
+- Retained-record atomic request source alignment before the record may drive a
+  live row-fill/clear path.
 
 ## Verification
 
@@ -197,3 +212,6 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+
+R581 retained-record lifecycle request probe gate uses the same fixture and
+builds `generated/r581-replay-w2-retire-record-request-probe-xcheck`.

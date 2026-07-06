@@ -446,6 +446,18 @@ integration of the probe into `LinxCoreFrontendFetchRfAluTraceTop` pushed the
 already-large top constructor over the JVM method-size limit, so top sideband
 exposure must wait for a deliberate constructor/wiring split.
 
+R581 performs that split by collecting W2 modules into a helper bundle and then
+wires the retained-record lifecycle request probe into top diagnostics. The
+generated RTL/QEMU gate
+`generated/r581-replay-w2-retire-record-request-probe-xcheck` passes with
+`status="pass"`, `compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT
+CBSTOP rows. Sideband schema v31 records three request candidates from the
+retained record and unique lifecycle row, zero missing lifecycle-row blockers,
+zero row-fill candidate blockers, zero row-fill-enable blockers, zero live
+promotion candidates, and three `blocked_by_no_atomic_request` events. The
+next packet should keep LIQ mutation disabled and first align the retained
+record with an atomic request source.
+
 Use this packet shape first:
 
 ```text

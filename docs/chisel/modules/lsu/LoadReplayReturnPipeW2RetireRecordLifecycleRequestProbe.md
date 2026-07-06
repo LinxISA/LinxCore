@@ -4,8 +4,7 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbeSpec.scala`
-- Integrated user: deferred; R580 keeps the module standalone until the
-  generated-top constructor is split below the JVM method-size limit.
+- Integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
 - Related contracts:
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecord.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ReplayRowLifecycleReady.scala`
@@ -15,7 +14,7 @@
 
 ## Purpose
 
-`LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe` is the R580
+`LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe` is the R580/R581
 diagnostic bridge between the explicit W2 retire record and the existing live
 replay-row lifecycle request path. R579 proved the retained record is consumed
 only when its identity matches exactly one resolved LIQ row. R580 asks the next
@@ -65,23 +64,40 @@ blockedByNoRowFillEnable =
 
 R580 introduces this probe as a standalone LSU module and focused test. A first
 attempt to expose it through `LinxCoreFrontendFetchRfAluTraceTop` showed that
-the generated top is already at the JVM method-size limit; the additional
+the generated top was already at the JVM method-size limit; the additional
 module and IO pushed `LinxCoreFrontendFetchRfAluTraceTop.<init>` over that
-limit. The packet therefore keeps the probe standalone and performs only a
-mechanical top-constructor maintenance split for the repeated W2 lifecycle and
-commit-row candidate constructors.
+limit.
 
-The next promotion packet should first split the reduced top into smaller
-constructor/wiring surfaces, then wire this probe beside the R579 retire-record
-lifecycle matcher. That evidence should decide whether the retained record
-needs its own row-fill/commit-row source, or whether the existing physical W2
-row-fill source can be aligned with the retained record.
+R581 completes the needed top-maintenance step by grouping W2 module
+construction behind `LinxCoreFrontendFetchRfAluTraceTopW2Modules`, then wires
+the probe beside the R579 retire-record lifecycle matcher. The probe consumes
+the retained-record valid bit, retained-record lifecycle `rowClearReady`, the
+existing W2 atomic request, the existing commit-row candidate, and the existing
+row-fill enable. Its outputs are diagnostic sideband only; they do not mutate
+LIQ, select row-fill data, or replace the live physical-W2 request/commit/clear
+path.
+
+The R581 generated RTL/QEMU gate at
+`generated/r581-replay-w2-retire-record-request-probe-xcheck` passes with
+manifest `status="pass"`, `comparator_status=0`, `compared_rows=18`,
+`mismatch_count=0`, and zero QEMU/DUT CBSTOP rows. Sideband schema v31 records
+`w2_retire_record_lifecycle_request_candidate=3`,
+`w2_retire_record_lifecycle_request_blocked_by_no_lifecycle_row=0`,
+`w2_retire_record_lifecycle_request_blocked_by_no_row_fill_candidate=0`,
+`w2_retire_record_lifecycle_request_blocked_by_no_row_fill_enable=0`,
+`w2_retire_record_lifecycle_live_promotion_candidate=0`, and
+`w2_retire_record_lifecycle_request_blocked_by_no_atomic_request=3`.
+
+The next promotion packet should align the retained-record request candidate
+with an atomic request source. The current blocker is not missing lifecycle-row
+identity, row-fill candidate, or row-fill enable; it is that the existing live
+atomic request is absent when the retained record is ready.
 
 ## Deferred Owners
 
 - Live retire-record lifecycle request/commit/clear selection.
-- Top-level sideband exposure and generated RTL/QEMU xcheck once the top
-  constructor is split enough to accept new diagnostics.
+- Live atomic request source alignment for the retained-record lifecycle
+  request candidate.
 - Retire-record commit-row or row-fill source if physical W2 row-fill signals
   do not align with the retained record after W2 clears.
 - LIQ `clearResolvedValid/index` mutation from the retained-record lifecycle
@@ -94,6 +110,15 @@ Focused gates:
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r581-replay-w2-retire-record-request-probe-xcheck \
+  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
+  --reduced-store-replay-liq --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
 ```
 
 Reference tests cover full live-promotion candidate formation, missing
