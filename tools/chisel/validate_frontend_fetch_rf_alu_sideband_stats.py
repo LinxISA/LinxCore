@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v19"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v20"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -176,6 +176,13 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "lret_sink_blocked_by_no_payload",
     "lret_sink_blocked_by_full",
     "lret_sink_blocked_by_drain",
+    "lret_commit_history_load_rows",
+    "lret_shadow_enqueue",
+    "lret_shadow_enqueue_after_prior_commit",
+    "lret_shadow_drain",
+    "lret_shadow_drain_missing",
+    "lret_shadow_drain_after_prior_commit",
+    "lret_shadow_free_after_prior_commit",
     "lret_drain_permit_any_pipe_free",
     "lret_drain_permit_ready",
     "lret_drain_permit_blocked_by_no_entry",

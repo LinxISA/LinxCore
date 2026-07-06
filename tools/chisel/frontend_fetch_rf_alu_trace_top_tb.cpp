@@ -359,6 +359,13 @@ struct ReplayLiqSidebandStats {
   std::uint64_t lret_sink_blocked_by_no_payload = 0;
   std::uint64_t lret_sink_blocked_by_full = 0;
   std::uint64_t lret_sink_blocked_by_drain = 0;
+  std::uint64_t lret_commit_history_load_rows = 0;
+  std::uint64_t lret_shadow_enqueue = 0;
+  std::uint64_t lret_shadow_enqueue_after_prior_commit = 0;
+  std::uint64_t lret_shadow_drain = 0;
+  std::uint64_t lret_shadow_drain_missing = 0;
+  std::uint64_t lret_shadow_drain_after_prior_commit = 0;
+  std::uint64_t lret_shadow_free_after_prior_commit = 0;
   std::uint64_t lret_drain_permit_any_pipe_free = 0;
   std::uint64_t lret_drain_permit_ready = 0;
   std::uint64_t lret_drain_permit_blocked_by_no_entry = 0;
@@ -546,6 +553,96 @@ struct ReplayLiqSidebandStats {
 
 ReplayLiqSidebandStats g_replay_liq_sideband_stats;
 std::string g_replay_liq_sideband_stats_path;
+
+struct ReplayLretRobId {
+  bool valid = false;
+  bool wrap = false;
+  std::uint8_t value = 0;
+};
+
+std::vector<ReplayLretRobId> g_replay_lret_shadow_queue;
+std::vector<ReplayLretRobId> g_replay_lret_committed_load_rob_ids;
+
+bool same_replay_lret_rob_id(const ReplayLretRobId &lhs, const ReplayLretRobId &rhs) {
+  return lhs.valid && rhs.valid && lhs.wrap == rhs.wrap && lhs.value == rhs.value;
+}
+
+bool replay_lret_rob_id_seen(const std::vector<ReplayLretRobId> &ids, const ReplayLretRobId &id) {
+  for (const auto &entry : ids) {
+    if (same_replay_lret_rob_id(entry, id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void remember_replay_lret_committed_load(const ReplayLretRobId &id) {
+  if (!id.valid || replay_lret_rob_id_seen(g_replay_lret_committed_load_rob_ids, id)) {
+    return;
+  }
+  g_replay_lret_committed_load_rob_ids.push_back(id);
+}
+
+void observe_replay_lret_commit_history(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
+#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+  if (dut.io_commit_rows_0_valid && dut.io_commit_rows_0_mem_valid &&
+      !dut.io_commit_rows_0_mem_isStore && dut.io_commit_rows_0_rob_valid) {
+    ++g_replay_liq_sideband_stats.lret_commit_history_load_rows;
+    remember_replay_lret_committed_load({
+      true,
+      static_cast<bool>(dut.io_commit_rows_0_rob_wrap),
+      static_cast<std::uint8_t>(dut.io_commit_rows_0_rob_value)
+    });
+  }
+  if (dut.io_commit_rows_1_valid && dut.io_commit_rows_1_mem_valid &&
+      !dut.io_commit_rows_1_mem_isStore && dut.io_commit_rows_1_rob_valid) {
+    ++g_replay_liq_sideband_stats.lret_commit_history_load_rows;
+    remember_replay_lret_committed_load({
+      true,
+      static_cast<bool>(dut.io_commit_rows_1_rob_wrap),
+      static_cast<std::uint8_t>(dut.io_commit_rows_1_rob_value)
+    });
+  }
+#else
+  (void)dut;
+#endif
+}
+
+void observe_replay_lret_shadow_fifo(const VLinxCoreFrontendFetchRfAluTraceTop &dut) {
+#if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
+  if (dut.io_reducedLoadReplayLiqLretSinkDrainFire) {
+    ++g_replay_liq_sideband_stats.lret_shadow_drain;
+    if (g_replay_lret_shadow_queue.empty()) {
+      ++g_replay_liq_sideband_stats.lret_shadow_drain_missing;
+    } else {
+      const auto head = g_replay_lret_shadow_queue.front();
+      g_replay_lret_shadow_queue.erase(g_replay_lret_shadow_queue.begin());
+      const bool priorCommit = replay_lret_rob_id_seen(g_replay_lret_committed_load_rob_ids, head);
+      if (priorCommit) {
+        ++g_replay_liq_sideband_stats.lret_shadow_drain_after_prior_commit;
+      }
+      if (priorCommit && dut.io_reducedLoadReplayLiqLretIexDataRobRowBlockedByFree) {
+        ++g_replay_liq_sideband_stats.lret_shadow_free_after_prior_commit;
+      }
+    }
+  }
+
+  if (dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted) {
+    ReplayLretRobId enqueued = {
+      static_cast<bool>(dut.io_reducedLoadReplayLiqLretPayloadRidValid),
+      static_cast<bool>(dut.io_reducedLoadReplayLiqLretPayloadRidWrap),
+      static_cast<std::uint8_t>(dut.io_reducedLoadReplayLiqLretPayloadRidValue)
+    };
+    ++g_replay_liq_sideband_stats.lret_shadow_enqueue;
+    if (replay_lret_rob_id_seen(g_replay_lret_committed_load_rob_ids, enqueued)) {
+      ++g_replay_liq_sideband_stats.lret_shadow_enqueue_after_prior_commit;
+    }
+    g_replay_lret_shadow_queue.push_back(enqueued);
+  }
+#else
+  (void)dut;
+#endif
+}
 
 void observe_cycle(bool event, std::uint64_t cycle, std::uint64_t &first, std::uint64_t &last) {
   if (event) {
@@ -1096,6 +1193,8 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretSinkBlockedByDrain) {
     ++g_replay_liq_sideband_stats.lret_sink_blocked_by_drain;
   }
+  observe_replay_lret_shadow_fifo(dut);
+  observe_replay_lret_commit_history(dut);
   if (dut.io_reducedLoadReplayLiqLretDrainPermitAnyPipeFree) {
     ++g_replay_liq_sideband_stats.lret_drain_permit_any_pipe_free;
   }
@@ -1631,7 +1730,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v19\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v20\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -1965,6 +2064,20 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.lret_sink_blocked_by_full << ",\n"
       << "    \"lret_sink_blocked_by_drain\": "
       << g_replay_liq_sideband_stats.lret_sink_blocked_by_drain << ",\n"
+      << "    \"lret_commit_history_load_rows\": "
+      << g_replay_liq_sideband_stats.lret_commit_history_load_rows << ",\n"
+      << "    \"lret_shadow_enqueue\": "
+      << g_replay_liq_sideband_stats.lret_shadow_enqueue << ",\n"
+      << "    \"lret_shadow_enqueue_after_prior_commit\": "
+      << g_replay_liq_sideband_stats.lret_shadow_enqueue_after_prior_commit << ",\n"
+      << "    \"lret_shadow_drain\": "
+      << g_replay_liq_sideband_stats.lret_shadow_drain << ",\n"
+      << "    \"lret_shadow_drain_missing\": "
+      << g_replay_liq_sideband_stats.lret_shadow_drain_missing << ",\n"
+      << "    \"lret_shadow_drain_after_prior_commit\": "
+      << g_replay_liq_sideband_stats.lret_shadow_drain_after_prior_commit << ",\n"
+      << "    \"lret_shadow_free_after_prior_commit\": "
+      << g_replay_liq_sideband_stats.lret_shadow_free_after_prior_commit << ",\n"
       << "    \"lret_drain_permit_any_pipe_free\": "
       << g_replay_liq_sideband_stats.lret_drain_permit_any_pipe_free << ",\n"
       << "    \"lret_drain_permit_ready\": "

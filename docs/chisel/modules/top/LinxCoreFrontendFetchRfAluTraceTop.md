@@ -2799,6 +2799,17 @@ blocker split. The same replay-loop fixture passes the QEMU/DUT comparator with
 `lret_iex_data_rob_row_blocked_by_stale_rid=0`. This narrows the next owner to
 ROB slot lifetime/freeing for the returned LRET RID; downstream replay-return
 stages remain blocked by missing setMemData evidence.
+R546 extends it to schema v20 with harness-local LRET shadow FIFO and committed
+load ROBID history counters. The replay-loop fixture still passes with 9
+compared rows and zero mismatches, and the v20 report records
+`lret_commit_history_load_rows=6`, `lret_shadow_enqueue=3`,
+`lret_shadow_drain=3`, `lret_shadow_drain_missing=0`,
+`lret_shadow_drain_after_prior_commit=3`, and
+`lret_shadow_free_after_prior_commit=3`. This proves the free ROB lookup miss
+is after prior load commit/deallocation, not an untracked FIFO payload or
+invalid/stale RID classification. The next owner is therefore ROB deallocation
+holdoff or pending-return lifetime for the returned LRET RID before
+`IEX::setMemData`.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the
