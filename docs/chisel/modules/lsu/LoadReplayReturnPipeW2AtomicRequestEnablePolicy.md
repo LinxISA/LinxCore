@@ -132,11 +132,16 @@ loop:
 - lifecycle readiness comes from `rowClearReady`, not `lifecycleReady`;
 - row-fill evidence comes from `rowFillCandidateValid`, not `rowFillEnable`.
 
+The R533 generated-RTL xcheck proves the snapshot-fed dormant policy path in
+`LinxCoreFrontendFetchRfAluTraceTop` compares three rows with zero mismatches
+and zero QEMU/DUT CBSTOP rows.
+
 ## Deferred Owners
 
 - Live-mode replacement of the R363 `requestEnable=false` tie-off.
 - Multi-return-pipe arbitration when multiple returned-load W2 pipes exist.
-- Verilator replay-return evidence after the live request gate is integrated.
+- Verilator replay-return evidence with `liveModeEnable=true` after the live
+  request gate can issue atomic side effects.
 
 ## Verification
 

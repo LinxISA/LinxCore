@@ -94,7 +94,9 @@ R533 adds that proven register boundary by wiring
 `LoadReplayReturnPipeW2AtomicPrereqSnapshot` into the top. Current-cycle
 side-effect, clear, row-fill, and lifecycle owners feed the snapshot; this gate
 consumes only snapshot outputs for policy prerequisites while `liveModeEnable`
-remains false.
+remains false. The R533 generated-RTL xcheck proves the dormant
+snapshot-fed top path still compares cleanly with zero mismatches and zero
+QEMU/DUT CBSTOP rows.
 
 Because `LinxCoreFrontendFetchRfAluTraceTop` is near the JVM constructor method
 size limit, this composite is intended as a constructor-containment boundary:
@@ -103,8 +105,6 @@ request, and diagnostic logic across multiple helpers.
 
 ## Deferred Owners
 
-- Generated-RTL proof that snapshot-fed `liveModeEnable=false` preserves the
-  dormant reduced path after integration.
 - Live-mode replacement of the current `false.B` gate once generated-RTL proof
   exists for atomic side effects.
 - Later generated-RTL proof with `liveModeEnable=true` once W2 side-effect
@@ -120,8 +120,14 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicRequestGate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicRequestEnablePolicy
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicLiveRequestControl
+BUILD_DIR=generated/r533-replay-w2-prereq-snapshot-top-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 git diff --check
 ```
+
+The R533 generated-RTL manifest is
+`generated/r533-replay-w2-prereq-snapshot-top-xcheck/report/crosscheck_manifest.json`;
+it records pass status, comparator status 0, three compared rows, zero
+mismatches, and zero QEMU/DUT CBSTOP rows.
 
 Reference tests cover a fully enabled live request, policy-approved request
 blocked by disabled live mode, policy-blocked live mode, malformed resident

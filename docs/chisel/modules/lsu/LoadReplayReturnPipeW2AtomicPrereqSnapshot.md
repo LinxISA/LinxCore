@@ -104,14 +104,13 @@ outputs into `LoadReplayReturnPipeW2AtomicRequestGate`.
 The reduced top still leaves the policy's direct clear-intent and empty-refill
 inputs dormant. Raw clear/refill evidence continues to feed the live-request
 child for diagnostics, while policy prerequisites come from this registered
-snapshot. `liveModeEnable` must remain false until generated-RTL evidence
-proves the whole W2 side-effect, clear, row-fill, and lifecycle chain can
-commit atomically.
+snapshot. R533 generated-RTL evidence proves this dormant snapshot-fed path
+preserves the reduced top with `liveModeEnable=false.B`. `liveModeEnable` must
+remain false until a later generated-RTL packet proves the whole W2
+side-effect, clear, row-fill, and lifecycle chain can commit atomically.
 
 ## Deferred Owners
 
-- Generated-RTL proof that snapshot-fed policy prerequisites preserve the
-  dormant reduced path.
 - Later live-mode proof with request issue, side effects, clear, row fill, and
   replay-row lifecycle mutation enabled together.
 
@@ -123,9 +122,15 @@ Focused gates:
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicPrereqSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicRequestGate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
+BUILD_DIR=generated/r533-replay-w2-prereq-snapshot-top-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 git diff --check
 ```
 
 Reference tests cover same-identity snapshot reuse, identity mismatch, flush
 clear, invalid resident identity suppression, ordered missing-prerequisite
 blockers, and Chisel elaboration of the registered snapshot state.
+
+The R533 generated-RTL manifest at
+`generated/r533-replay-w2-prereq-snapshot-top-xcheck/report/crosscheck_manifest.json`
+records `status: "pass"`, `comparator_status: 0`, three compared rows, zero
+mismatches, and zero QEMU/DUT CBSTOP rows.
