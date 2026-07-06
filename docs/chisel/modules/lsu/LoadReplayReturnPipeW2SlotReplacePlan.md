@@ -48,7 +48,9 @@ not only denser same-address dependencies. R560 adds
 `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, a burst of consecutive younger loads
 after one store dependency; it increases W2 occupancy but still records zero
 overlap, so merely adding younger loads after one learned store dependency is
-also insufficient.
+also insufficient. R561 adds sideband phase-distance counters and proves the
+same fixture also has no one-cycle-near miss between W1 candidate and W2
+clear/live-clear.
 
 ## Interface
 
@@ -125,7 +127,9 @@ QEMU/DUT pass. R559 records the same zero-overlap result for the repeated
 store/load dependency fixture while increasing the pass to 15 compared rows and
 six accepted W1/W2 return-pipe slots. R560 records the same zero-overlap result
 for a burst-after-dependency fixture while passing 18 compared rows and
-increasing resident W2 occupancy to 10 cycles.
+increasing resident W2 occupancy to 10 cycles. R561 adds phase-distance
+counters and records zero W1-candidate-before-clear/live-clear and zero
+clear/live-clear-before-W1-candidate events for that same burst fixture.
 
 ## Deferred Owners
 
@@ -135,7 +139,8 @@ increasing resident W2 occupancy to 10 cycles.
   more younger load is still insufficient. R559 proves repeating the
   same-address store/load dependency chain is also insufficient. R560 proves a
   burst of younger loads after one learned store dependency is still
-  insufficient.
+  insufficient. R561 proves this fixture family is not merely missing the
+  overlap by one adjacent cycle.
 - Verify `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future
   readiness and drives `LoadReplayReturnPipeW2Slot.replaceOnClear` in that
   same-cycle replacement case.

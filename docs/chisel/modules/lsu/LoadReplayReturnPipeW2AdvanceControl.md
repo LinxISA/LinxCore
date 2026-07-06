@@ -49,7 +49,8 @@ independent younger loads. R559 adds the repeated store/load dependency-chain
 fixture and proves that denser same-address dependencies still produce zero
 W1/W2 overlap and zero `replaceOnClear`. R560 adds a burst of consecutive
 younger loads after one store dependency and still records zero overlap and
-zero `replaceOnClear`.
+zero `replaceOnClear`. R561 adds phase-distance sideband and records zero
+one-cycle-near W1/clear phasing for the same burst fixture.
 
 ## Interface
 
@@ -118,7 +119,8 @@ replay RF writeback, ready-table mutation, or issue wakeup.
   extra-load loop is a regression artifact, not sufficient replacement
   stimulus, and R559 shows the repeated same-address store/load dependency
   chain is still insufficient. R560 shows a younger-load burst after one
-  learned store dependency is still insufficient.
+  learned store dependency is still insufficient. R561 shows that fixture is
+  not missing same-cycle replacement by a single adjacent cycle.
 - Tie W2 clear to the live side-effect completion owner instead of the current
   dormant completion path.
 - Retire or update the consumed replay-row lifecycle when W2 side effects
