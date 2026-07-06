@@ -13,6 +13,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordCommitRowCandidate
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRowFillEnableControl
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard
@@ -1321,6 +1322,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceProviderValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceProviderValidWithoutRecord = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceRecordValidWithoutProvider = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackCapturePhysicalClear = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackCandidate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackDuplicatePhysicalClear = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackClearValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCapturePhysicalComplete = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCandidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackDuplicatePhysicalComplete = Output(Bool())
@@ -4076,6 +4081,17 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.retireRecord,
     reducedReplayLiqReturnPipeW2Modules.slot,
     reducedReplayLiqReturnPipeW2Modules.wakeupFirePayload,
+    false.B,
+    reducedLoadReplayLiqAllocEnabled,
+    reducedStoreFlush
+  )
+  LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleClearFallbackWiring.connect(
+    io,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleClearFallbackGuard,
+    reducedReplayLiqReturnPipeW2Modules.retireRecord,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleEvidence,
+    reducedReplayLiqReturnPipeW2Modules.replayRowLifecycleReady,
+    reducedReplayLiqReturnPipeW2Modules.replayRowClearRequest,
     false.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
@@ -7991,6 +8007,41 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleEvidence
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleClearFallbackWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      guard: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
+      retireRecord: LoadReplayReturnPipeW2RetireRecord,
+      evidence: LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch,
+      physicalLifecycle: LoadReplayReturnPipeW2ReplayRowLifecycleReady,
+      clearRequest: LoadReplayReturnPipeW2ReplayRowClearRequest,
+      fallbackEnable: Bool,
+      enable: Bool,
+      flush: Bool): Unit = {
+    guard.io.enable := enable
+    guard.io.flush := flush
+    guard.io.fallbackEnable := fallbackEnable
+    guard.io.captureAccepted := retireRecord.io.captureAccepted
+    guard.io.captureRowClearReady := physicalLifecycle.io.rowClearReady
+    guard.io.captureRowClearIndex := physicalLifecycle.io.rowClearIndex
+    guard.io.physicalClearAccepted := clearRequest.io.lifecycleClearAccepted
+    guard.io.physicalClearIndex := clearRequest.io.clearResolvedIndex
+    guard.io.recordValid := retireRecord.io.recordValid
+    guard.io.recordLifecycleClearReady := evidence.io.providerRowClearReady
+    guard.io.recordRowClearIndex := evidence.io.providerRowClearIndex
+    guard.io.recordFire := retireRecord.io.recordFire
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackCapturePhysicalClear :=
+      guard.io.capturePhysicalClear
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackCandidate :=
+      guard.io.recordCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackDuplicatePhysicalClear :=
+      guard.io.duplicatePhysicalClear
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackClearValid :=
+      guard.io.fallbackClearValid
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordInstructionMetadataLatchWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -8872,6 +8923,7 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     retireRecord: LoadReplayReturnPipeW2RetireRecord,
     retireRecordInstructionMetadata: LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch,
     retireRecordLifecycleEvidence: LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch,
+    retireRecordLifecycleClearFallbackGuard: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
     retireRecordAtomicRequestProbe: LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe,
     retireRecordLifecycleRequestProbe: LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe,
     retireRecordRowFillEnableControl: LoadReplayReturnPipeW2RetireRecordRowFillEnableControl,
@@ -8999,6 +9051,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
         LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordInstructionMetadataLatchModule.create(p, traceParams),
       retireRecordLifecycleEvidence =
         Module(new LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch(liqEntries = p.robEntries)),
+      retireRecordLifecycleClearFallbackGuard =
+        Module(new LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard(liqEntries = p.robEntries)),
       retireRecordAtomicRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe),
       retireRecordLifecycleRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe),
       retireRecordRowFillEnableControl = Module(new LoadReplayReturnPipeW2RetireRecordRowFillEnableControl),

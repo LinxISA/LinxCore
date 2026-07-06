@@ -710,6 +710,10 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_lifecycle_evidence_provider_valid = 0;
   std::uint64_t w2_retire_record_lifecycle_evidence_provider_valid_without_record = 0;
   std::uint64_t w2_retire_record_lifecycle_evidence_record_valid_without_provider = 0;
+  std::uint64_t w2_retire_record_lifecycle_clear_fallback_capture_physical_clear = 0;
+  std::uint64_t w2_retire_record_lifecycle_clear_fallback_candidate = 0;
+  std::uint64_t w2_retire_record_lifecycle_clear_fallback_duplicate_physical_clear = 0;
+  std::uint64_t w2_retire_record_lifecycle_clear_fallback_clear_valid = 0;
   std::uint64_t w2_retire_record_rob_fallback_capture_physical_complete = 0;
   std::uint64_t w2_retire_record_rob_fallback_candidate = 0;
   std::uint64_t w2_retire_record_rob_fallback_duplicate_physical_complete = 0;
@@ -2543,6 +2547,18 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceRecordValidWithoutProvider) {
     ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_record_valid_without_provider;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackCapturePhysicalClear) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_clear_fallback_capture_physical_clear;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackCandidate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_clear_fallback_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackDuplicatePhysicalClear) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_clear_fallback_duplicate_physical_clear;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackClearValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_clear_fallback_clear_valid;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCapturePhysicalComplete) {
     ++g_replay_liq_sideband_stats.w2_retire_record_rob_fallback_capture_physical_complete;
   }
@@ -2745,7 +2761,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v39\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v40\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -3781,6 +3797,14 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_provider_valid_without_record << ",\n"
       << "    \"w2_retire_record_lifecycle_evidence_record_valid_without_provider\": "
       << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_record_valid_without_provider << ",\n"
+      << "    \"w2_retire_record_lifecycle_clear_fallback_capture_physical_clear\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_clear_fallback_capture_physical_clear << ",\n"
+      << "    \"w2_retire_record_lifecycle_clear_fallback_candidate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_clear_fallback_candidate << ",\n"
+      << "    \"w2_retire_record_lifecycle_clear_fallback_duplicate_physical_clear\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_clear_fallback_duplicate_physical_clear << ",\n"
+      << "    \"w2_retire_record_lifecycle_clear_fallback_clear_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_clear_fallback_clear_valid << ",\n"
       << "    \"w2_retire_record_rob_fallback_capture_physical_complete\": "
       << g_replay_liq_sideband_stats.w2_retire_record_rob_fallback_capture_physical_complete << ",\n"
       << "    \"w2_retire_record_rob_fallback_candidate\": "

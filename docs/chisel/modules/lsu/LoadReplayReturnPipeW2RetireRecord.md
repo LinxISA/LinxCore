@@ -230,6 +230,20 @@ The generated RTL/QEMU gate
 lifecycle clear must remain disabled until a no-physical-wakeup stimulus or a
 model-derived retained side-effect ordering proof exists.
 
+R590 adds `LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard` for
+the retained replay-LIQ clear mutation. The guard mirrors the model split where
+`LDQInfo::returnData` resolves and returns data, while `LDQInfo::retire` clears
+resolved load rows later by commit order. It latches whether the physical W2
+lifecycle clear accepted the captured row-clear index and suppresses retained
+fallback clear for the same retained index. The generated RTL/QEMU gate
+`generated/r590-replay-retire-record-lifecycle-clear-fallback-guard-xcheck`
+passes with 18 compared rows and zero mismatches. Sideband schema v40 records
+`w2_retire_record_lifecycle_clear_fallback_capture_physical_clear=5`,
+`w2_retire_record_lifecycle_clear_fallback_candidate=5`,
+`w2_retire_record_lifecycle_clear_fallback_duplicate_physical_clear=5`, and
+`w2_retire_record_lifecycle_clear_fallback_clear_valid=0`. Retained lifecycle
+clear must remain disabled until a no-physical-clear stimulus exists.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -249,6 +263,9 @@ model-derived retained side-effect ordering proof exists.
 - Retained wakeup fallback promotion after R589 proves a non-duplicate
   no-physical-wakeup stimulus; keep fallback wakeup disabled while physical W2
   wakeup already covers the same RID/tag payload.
+- Retained lifecycle-clear fallback promotion after R590 proves a
+  non-duplicate no-physical-clear stimulus; keep fallback clear disabled while
+  physical W2 lifecycle clear already covers the same row-clear index.
 
 ## Verification
 
