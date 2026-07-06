@@ -179,6 +179,22 @@ QEMU/DUT CBSTOP rows. Delay 12 raises W2 residency to
 replacement counters remain zero. The next owner should create denser upstream
 return admission or E4 residency stimulus; changing `replaceOnClear` or W2
 storage policy remains blocked.
+R570 keeps W2 slot RTL unchanged and extends the generated-RTL sideband schema
+to v23 with IEX, residency, and W1 upstream-overlap counters while W2 is
+occupied. The replay-producing gate requires both
+`--disable-store-memory-mutation` and `LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1`;
+without early STA the comparator can still pass while replay-LIQ activity is
+zero. The corrected delay-12 run
+`generated/r570-replay-upstream-overlap-earlysta-xcheck` passes with
+`compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT CBSTOP rows. It
+records replay progress (`wait_replay_capture_accepted=12`,
+`replay_queue_out_fire=6`, `liq_alloc_accepted=6`,
+`lret_w2_slot_accepted=6`) and long W2 residency
+(`lret_w2_slot_occupied=77`), but the new upstream-overlap counters are all
+zero (`lret_iex_insert_candidate_w2_occupied=0`,
+`lret_residency_candidate_w2_occupied=0`,
+`lret_w1_advance_candidate_w2_occupied=0`). W2 storage replacement remains
+blocked on upstream returned-load overlap evidence.
 
 ## Deferred Owners
 

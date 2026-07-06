@@ -271,6 +271,25 @@ younger W1 candidate can sit behind occupied W2:
 owner should work upstream of W1 advance, most likely at replay-return source
 selection, IEX pipe admission, or E4 residency refill stimulus, and must prove a
 different-LSID W1 candidate is resident before touching W2 storage.
+R570 keeps RTL behavior unchanged and extends the replay-LIQ sideband schema to
+v23 with upstream-overlap buckets for IEX insert, LRET residency, and W1
+advance activity while W2 is occupied. The first R570 generated-RTL/QEMU probe
+passed the comparator but produced zero replay-LIQ activity because the command
+omitted the early store-address stimulus. Treat that shape as a harness setup
+failure, not replay evidence. Replay-LIQ generated evidence for this fixture
+must use both `--disable-store-memory-mutation` and
+`LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1` so loads are forced through the
+replay path. The corrected R570 run,
+`generated/r570-replay-upstream-overlap-earlysta-xcheck`, used early STA plus
+`LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12` and passed with
+`compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT CBSTOP rows. It
+restored replay progress (`wait_replay_capture_accepted=12`,
+`replay_queue_out_fire=6`, `liq_alloc_accepted=6`,
+`lret_w2_slot_accepted=6`) and held W2 resident
+(`lret_w2_slot_occupied=77`), but every new upstream-overlap bucket remained
+zero: no IEX insert candidate, residency candidate, or W1 advance candidate was
+present while W2 was occupied. The next owner must therefore create upstream
+returned-load overlap before changing W2 slot storage.
 
 Use this packet shape first:
 
@@ -294,7 +313,7 @@ Promotion gate: R557 replay-loop fixture, R558
   `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561/R562/R563/R564/R565
   phase-distance, identity, and different-LSID near-miss sideband, or a stronger
   multiple-return-load phasing fixture through
-  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v22 sideband
+  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v23 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
   W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
   policy blocks, nonzero ROB instruction metadata evidence, nonzero row-fill
@@ -306,8 +325,10 @@ Promotion gate: R557 replay-loop fixture, R558
   zero, inspect the R563 identity buckets and R564 different-LSID buckets before
   treating phase gaps as replacement stimulus; R565 extends that negative check
   back to the repeated dependency-chain fixture, R566 extends it to the
-  clustered second-dependency fixture, and R569 shows W2 delay-4/delay-12
-  residency alone does not make a younger W1 candidate resident
+  clustered second-dependency fixture, R569 shows W2 delay-4/delay-12
+  residency alone does not make a younger W1 candidate resident, and R570 shows
+  no IEX/residency/W1 upstream overlap while W2 is occupied even under delay 12
+  plus early STA
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation

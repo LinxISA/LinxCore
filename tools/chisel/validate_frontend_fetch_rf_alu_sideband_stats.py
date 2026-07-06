@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v22"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v23"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -263,6 +263,8 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "lret_iex_insert_blocked_by_no_set_mem_data",
     "lret_iex_insert_blocked_by_no_pipe",
     "lret_iex_insert_blocked_by_invalid_rid",
+    "lret_iex_insert_candidate_w2_occupied",
+    "lret_iex_insert_valid_w2_occupied",
     "lret_residency_candidate_valid",
     "lret_residency_write_valid",
     "lret_residency_live_enable",
@@ -272,11 +274,19 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "lret_residency_advance_candidate_valid",
     "lret_residency_advance_valid",
     "lret_residency_advance_blocked_by_advance_disabled",
+    "lret_residency_candidate_w2_occupied",
+    "lret_residency_write_w2_occupied",
+    "lret_residency_slot_w2_occupied",
+    "lret_residency_advance_candidate_w2_occupied",
+    "lret_residency_advance_valid_w2_occupied",
     "lret_w1_slot_accepted",
     "lret_w1_slot_occupied",
     "lret_w1_advance_candidate_valid",
     "lret_w1_advance_valid",
     "lret_w1_advance_blocked_by_advance_disabled",
+    "lret_w1_slot_w2_occupied",
+    "lret_w1_advance_candidate_w2_occupied",
+    "lret_w1_advance_valid_w2_occupied",
     "lret_w2_slot_accepted",
     "lret_w2_slot_occupied",
     "lret_w2_slot_blocked_by_no_write",
