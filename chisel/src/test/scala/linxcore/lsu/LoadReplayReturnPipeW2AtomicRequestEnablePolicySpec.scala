@@ -20,7 +20,11 @@ object LoadReplayReturnPipeW2AtomicRequestEnablePolicyReference {
       blockedByNoSideEffectSink: Boolean,
       blockedByNoClearCommit: Boolean,
       blockedByNoRowFillCandidate: Boolean,
-      blockedByNoLifecycleRow: Boolean)
+      blockedByNoLifecycleRow: Boolean,
+      blockedByNoRequiredSideEffect: Boolean,
+      invalidSideEffectWithoutSlot: Boolean,
+      invalidClearWithoutSlot: Boolean,
+      invalidRowFillWithoutSlot: Boolean)
 
   def apply(
       enable: Boolean,
@@ -72,7 +76,13 @@ object LoadReplayReturnPipeW2AtomicRequestEnablePolicyReference {
           !rowFillCandidateValid,
       blockedByNoLifecycleRow =
         active && residentEvidence && sideEffectPrerequisitesReady && clearCommitReady &&
-          rowFillCandidateValid && !lifecycleRowClearReady)
+          rowFillCandidateValid && !lifecycleRowClearReady,
+      blockedByNoRequiredSideEffect =
+        active && slotOccupied && sideEffectCandidateValid && ((sideEffectRequiredMask & 0x7) == 0) &&
+          !clearIntent && !rowFillCandidateValid && !writeCandidateValid,
+      invalidSideEffectWithoutSlot = active && !slotOccupied && sideEffectCandidateValid,
+      invalidClearWithoutSlot = active && !slotOccupied && clearIntent,
+      invalidRowFillWithoutSlot = active && !slotOccupied && rowFillCandidateValid)
   }
 }
 
@@ -225,11 +235,48 @@ class LoadReplayReturnPipeW2AtomicRequestEnablePolicySpec extends AnyFunSuite {
     assert(!noEvidence.requestEnableCandidate)
   }
 
+  test("distinguishes malformed resident evidence from empty refill evidence") {
+    val malformedEmpty = LoadReplayReturnPipeW2AtomicRequestEnablePolicyReference(
+      enable = true,
+      flush = false,
+      slotOccupied = false,
+      sideEffectCandidateValid = true,
+      sideEffectRequiredMask = 0x3,
+      sideEffectSinksReady = true,
+      clearIntent = true,
+      clearCommitReady = true,
+      rowFillCandidateValid = true,
+      lifecycleRowClearReady = true,
+      writeCandidateValid = false)
+    val noRequiredSideEffect = LoadReplayReturnPipeW2AtomicRequestEnablePolicyReference(
+      enable = true,
+      flush = false,
+      slotOccupied = true,
+      sideEffectCandidateValid = true,
+      sideEffectRequiredMask = 0x0,
+      sideEffectSinksReady = true,
+      clearIntent = false,
+      clearCommitReady = true,
+      rowFillCandidateValid = false,
+      lifecycleRowClearReady = true,
+      writeCandidateValid = false)
+
+    assert(malformedEmpty.invalidSideEffectWithoutSlot)
+    assert(malformedEmpty.invalidClearWithoutSlot)
+    assert(malformedEmpty.invalidRowFillWithoutSlot)
+    assert(malformedEmpty.blockedByNoEvidence)
+    assert(!malformedEmpty.requestEnableCandidate)
+    assert(noRequiredSideEffect.blockedByNoRequiredSideEffect)
+    assert(noRequiredSideEffect.blockedByNoEvidence)
+    assert(!noRequiredSideEffect.requestEnableCandidate)
+  }
+
   test("Chisel LoadReplayReturnPipeW2AtomicRequestEnablePolicy elaborates policy diagnostics") {
     val sv = ChiselStage.emitSystemVerilog(new LoadReplayReturnPipeW2AtomicRequestEnablePolicy)
 
     assert(sv.contains("module LoadReplayReturnPipeW2AtomicRequestEnablePolicy"))
     assert(sv.contains("io_requestEnableCandidate"))
     assert(sv.contains("io_blockedByNoLifecycleRow"))
+    assert(sv.contains("io_invalidSideEffectWithoutSlot"))
   }
 }

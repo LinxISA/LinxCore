@@ -60,6 +60,7 @@ and would form a circular enable condition.
 | output | `emptyRefillRequestEnableCandidate` | Future request-enable candidate for refill into an empty W2 slot. |
 | output | `requestEnableCandidate` | Combined policy candidate. This packet does not wire it into the top. |
 | output | blocker signals | Disabled, flush, no evidence, missing sink readiness, missing clear commit, missing row fill, and missing lifecycle-row diagnostics. |
+| output | invalid-input signals | Side-effect, clear, and row-fill evidence observed without a resident W2 slot, plus occupied-slot side-effect evidence with an empty required-sink mask. |
 
 ## Logic Design
 
@@ -97,6 +98,14 @@ W2 slot may only request the atomic live boundary when clear identity, commit-ro
 replacement, and LIQ lifecycle evidence are all present. An empty W2 slot can
 request refill without those resident-commit prerequisites.
 
+R528 adds explicit malformed-resident diagnostics for the future top integration
+packet. `sideEffectCandidateValid`, `clearIntent`, and `rowFillCandidateValid`
+are resident-slot evidence, so observing them while `slotOccupied=false` is
+reported separately from a valid empty W2 refill. An occupied side-effect
+candidate with `sideEffectRequiredMask=0` and no other resident evidence is also
+reported separately, so top wiring can distinguish a missing side-effect mask
+from a true idle slot.
+
 ## Integration
 
 R527 keeps this module unintegrated in `LinxCoreFrontendFetchRfAluTraceTop`.
@@ -130,4 +139,5 @@ git diff --check
 
 Reference tests cover the fully armed resident request candidate, empty W2
 refill candidate, ordered resident blockers, disabled/flush/no-evidence
-diagnostics, and Chisel elaboration.
+diagnostics, malformed resident evidence on an empty W2 slot, occupied
+side-effect candidates without a required sink, and Chisel elaboration.

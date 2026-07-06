@@ -31,6 +31,10 @@ class LoadReplayReturnPipeW2AtomicRequestEnablePolicyIO extends Bundle {
   val blockedByNoClearCommit = Output(Bool())
   val blockedByNoRowFillCandidate = Output(Bool())
   val blockedByNoLifecycleRow = Output(Bool())
+  val blockedByNoRequiredSideEffect = Output(Bool())
+  val invalidSideEffectWithoutSlot = Output(Bool())
+  val invalidClearWithoutSlot = Output(Bool())
+  val invalidRowFillWithoutSlot = Output(Bool())
 }
 
 class LoadReplayReturnPipeW2AtomicRequestEnablePolicy extends Module {
@@ -73,4 +77,10 @@ class LoadReplayReturnPipeW2AtomicRequestEnablePolicy extends Module {
   io.blockedByNoLifecycleRow :=
     active && residentEvidence && sideEffectPrerequisitesReady && io.clearCommitReady &&
       io.rowFillCandidateValid && !io.lifecycleRowClearReady
+  io.blockedByNoRequiredSideEffect :=
+    active && io.slotOccupied && io.sideEffectCandidateValid && !io.sideEffectRequiredMask.orR &&
+      !io.clearIntent && !io.rowFillCandidateValid && !io.writeCandidateValid
+  io.invalidSideEffectWithoutSlot := active && !io.slotOccupied && io.sideEffectCandidateValid
+  io.invalidClearWithoutSlot := active && !io.slotOccupied && io.clearIntent
+  io.invalidRowFillWithoutSlot := active && !io.slotOccupied && io.rowFillCandidateValid
 }
