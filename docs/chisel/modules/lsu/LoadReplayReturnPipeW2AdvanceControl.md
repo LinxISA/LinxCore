@@ -44,8 +44,10 @@ fixture has live clear without a W1 candidate in the occupied W2 cycle, so
 `replaceOnClear` remains unexercised by that fixture. R558 adds a denser
 extra-load replay loop and passes a three-loop generated-RTL/QEMU gate, but it
 still reports zero W1/W2 overlap and zero `replaceOnClear`, so the next
-stimulus owner should build repeated store/load dependencies rather than only
-append independent younger loads.
+stimulus owner should build true returned-load phasing rather than only append
+independent younger loads. R559 adds the repeated store/load dependency-chain
+fixture and proves that denser same-address dependencies still produce zero
+W1/W2 overlap and zero `replaceOnClear`.
 
 ## Interface
 
@@ -112,7 +114,8 @@ replay RF writeback, ready-table mutation, or issue wakeup.
 - Prove a same-cycle storage replacement case after W2 side effects, clear
   intent, and replay-row lifecycle accept the same model cycle; R558 shows the
   extra-load loop is a regression artifact, not sufficient replacement
-  stimulus.
+  stimulus, and R559 shows the repeated same-address store/load dependency
+  chain is still insufficient.
 - Tie W2 clear to the live side-effect completion owner instead of the current
   dormant completion path.
 - Retire or update the consumed replay-row lifecycle when W2 side effects

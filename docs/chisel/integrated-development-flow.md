@@ -144,9 +144,26 @@ traffic (`wait_replay_capture_accepted=6`, `replay_queue_out_fire=3`,
 `w2_slot_replace_overlap_candidate_occupied=0`,
 `w2_slot_replace_overlap_candidate_live_clear=0`,
 `w2_slot_replace_same_cycle_eligible=0`, and
+`w2_advance_replace_on_clear=0`. R559 adds that repeated dependency-chain
+fixture as `replay-ldi-sdi-ldi-sdi-ldi-loop`. QEMU-only gates prove stable
+two-loop and three-loop load/store PC shape, and the three-loop generated-RTL/QEMU gate
+passes with 15 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+The fixture doubles replay-return/store pressure relative to R558
+(`wait_replay_capture_accepted=12`, `replay_queue_out_fire=6`,
+`liq_alloc_accepted=6`, `lret_w1_slot_accepted=6`,
+`lret_w2_slot_accepted=6`, `lret_w2_slot_occupied=14`) and preserves W2
+side-effect/lifecycle/promotion progress (`w2_side_effect_fire_complete=6`,
+`w2_clear_intent=6`, `w2_row_fill_enable=6`,
+`w2_lifecycle_resolved_row_match=14`, `w2_promotion_live=6`,
+`w2_refill_ready_same_cycle_ready=6`). It still does not create the required
+W1/W2 overlap: `w2_slot_replace_live_clear_without_w1_candidate=6`,
+`w2_slot_replace_overlap_candidate_occupied=0`,
+`w2_slot_replace_overlap_candidate_live_clear=0`,
+`w2_slot_replace_same_cycle_eligible=0`, and
 `w2_advance_replace_on_clear=0`. The next owner remains fixture/stimulus, now
-biased toward a repeated store/load dependency chain such as
-LDI/SDI/LDI/SDI/LDI, not W2 storage.
+biased toward constructing multiple outstanding returned loads or replay-return
+phasing that presents a W1 write candidate in the same cycle as W2 live clear,
+not W2 storage.
 
 Use this packet shape first:
 
@@ -163,8 +180,9 @@ Expected first gate: focused W2 slot/advance coverage proving same-cycle live
   clear plus W1 write candidate can replace the resident W2 entry without
   losing the consumed row's side effects
 Promotion gate: R557 replay-loop fixture, R558
-  `replay-ldi-sdi-ldi-ldi-loop`, or a repeated store/load dependency-chain
-  fixture through
+  `replay-ldi-sdi-ldi-ldi-loop`, R559
+  `replay-ldi-sdi-ldi-sdi-ldi-loop`, or a stronger multiple-return-load
+  phasing fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
   W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
@@ -172,8 +190,8 @@ Promotion gate: R557 replay-loop fixture, R558
   candidate evidence, valid lifecycle slot identity, nonzero lifecycle
   resolved-row match, nonzero row-fill enable, nonzero W2 promotion/live-clear
   and refill/advance counters, nonzero `live_clear_without_w1_candidate` in
-  the old/R558 fixtures, and nonzero same-cycle slot replacement evidence in a
-  new dependency-chain fixture before changing W2 storage
+  the old/R558/R559 fixtures, and nonzero same-cycle slot replacement evidence
+  in a stronger fixture before changing W2 storage
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
