@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v16"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v17"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -64,6 +64,14 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "liq_alloc_accepted",
     "liq_launch_valid",
     "liq_launch_accepted",
+    "liq_return_complete_repick_mask_nonzero",
+    "liq_return_complete_source_returned_mask_nonzero",
+    "liq_return_complete_data_complete_mask_nonzero",
+    "liq_return_complete_request_complete_mask_nonzero",
+    "liq_return_complete_candidate_mask_nonzero",
+    "liq_return_complete_mask_nonzero",
+    "liq_return_complete_valid",
+    "liq_return_complete_candidate_count_nonzero",
     "liq_base_lookup_valid",
     "liq_base_lookup_granted",
     "liq_base_data_returned",

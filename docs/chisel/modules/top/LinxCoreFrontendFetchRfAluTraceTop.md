@@ -1442,6 +1442,20 @@ rows, but the intentional positive sideband requirement on
 `source_return_blocked_by_store_snapshot=4`, and
 `return_data_blocked_by_no_candidate=109`. This moves the next owner from
 return-data extraction to selected-row local store-snapshot readiness.
+R542 extends the report to schema v17 with return-complete selector masks
+sampled from `ReducedLoadReplayLiqAllocPath`. The replay-loop probe still
+passes the QEMU/DUT comparator with 9 compared rows, zero mismatches, and zero
+QEMU/DUT CBSTOP rows, while the intentional positive sideband requirement on
+`liq_return_complete_valid` fails with observed zero. The v17 report records
+`liq_row_mutation_write_enable=4`,
+`liq_return_complete_repick_mask_nonzero=11`,
+`liq_return_complete_source_returned_mask_nonzero=3`,
+`liq_return_complete_data_complete_mask_nonzero=0`,
+`liq_return_complete_request_complete_mask_nonzero=0`,
+`liq_return_complete_candidate_mask_nonzero=0`, and
+`return_data_candidate_valid=0`. This moves the next owner after local
+source-return row mutation and before return-data extraction: row data and
+valid-byte completion are missing at the complete-Repick selector.
 R384 extends the same replay-LIQ namespace with
 `LoadReplayReturnPipeResidencyLiveControl`. The reduced top now feeds
 `LoadReplayReturnPipeResidencyCandidate.liveEnable` from an accepted-insert and
@@ -2746,6 +2760,12 @@ R541 extends it to schema v16 with the already exposed base-data,
 launch-readiness, source-return, SCB-live, and return-data extractor signals.
 The negative `return_data_candidate_valid=0` evidence classifies the missing
 payload as a pre-extractor source-return/local-store-snapshot readiness issue.
+R542 extends it to schema v17 with the return-complete selector masks. Nonzero
+`liq_return_complete_repick_mask_nonzero` and
+`liq_return_complete_source_returned_mask_nonzero` prove the local source-return
+mutation reaches resident Repick rows, while zero data-complete,
+request-complete, candidate, and selected-return masks classify the missing
+payload as row data/valid-mask completion before `LoadReplayReturnDataExtract`.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

@@ -247,6 +247,14 @@ struct ReplayLiqSidebandStats {
   std::uint64_t liq_alloc_accepted = 0;
   std::uint64_t liq_launch_valid = 0;
   std::uint64_t liq_launch_accepted = 0;
+  std::uint64_t liq_return_complete_repick_mask_nonzero = 0;
+  std::uint64_t liq_return_complete_source_returned_mask_nonzero = 0;
+  std::uint64_t liq_return_complete_data_complete_mask_nonzero = 0;
+  std::uint64_t liq_return_complete_request_complete_mask_nonzero = 0;
+  std::uint64_t liq_return_complete_candidate_mask_nonzero = 0;
+  std::uint64_t liq_return_complete_mask_nonzero = 0;
+  std::uint64_t liq_return_complete_valid = 0;
+  std::uint64_t liq_return_complete_candidate_count_nonzero = 0;
   std::uint64_t liq_base_lookup_valid = 0;
   std::uint64_t liq_base_lookup_granted = 0;
   std::uint64_t liq_base_data_returned = 0;
@@ -679,6 +687,30 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   }
   if (dut.io_reducedLoadReplayLiqLaunchAccepted) {
     ++g_replay_liq_sideband_stats.liq_launch_accepted;
+  }
+  if (dut.io_reducedLoadReplayLiqReturnCompleteRepickMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_return_complete_repick_mask_nonzero;
+  }
+  if (dut.io_reducedLoadReplayLiqReturnCompleteSourceReturnedMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_return_complete_source_returned_mask_nonzero;
+  }
+  if (dut.io_reducedLoadReplayLiqReturnCompleteDataCompleteMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_return_complete_data_complete_mask_nonzero;
+  }
+  if (dut.io_reducedLoadReplayLiqReturnCompleteRequestCompleteMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_return_complete_request_complete_mask_nonzero;
+  }
+  if (dut.io_reducedLoadReplayLiqReturnCompleteCandidateMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_return_complete_candidate_mask_nonzero;
+  }
+  if (dut.io_reducedLoadReplayLiqReturnCompleteMask != 0) {
+    ++g_replay_liq_sideband_stats.liq_return_complete_mask_nonzero;
+  }
+  if (dut.io_reducedLoadReplayLiqReturnCompleteValid) {
+    ++g_replay_liq_sideband_stats.liq_return_complete_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqReturnCompleteCandidateCount != 0) {
+    ++g_replay_liq_sideband_stats.liq_return_complete_candidate_count_nonzero;
   }
   if (dut.io_reducedLoadReplayLiqBaseLookupValid) {
     ++g_replay_liq_sideband_stats.liq_base_lookup_valid;
@@ -1327,7 +1359,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v16\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v17\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -1437,6 +1469,22 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.liq_launch_valid << ",\n"
       << "    \"liq_launch_accepted\": "
       << g_replay_liq_sideband_stats.liq_launch_accepted << ",\n"
+      << "    \"liq_return_complete_repick_mask_nonzero\": "
+      << g_replay_liq_sideband_stats.liq_return_complete_repick_mask_nonzero << ",\n"
+      << "    \"liq_return_complete_source_returned_mask_nonzero\": "
+      << g_replay_liq_sideband_stats.liq_return_complete_source_returned_mask_nonzero << ",\n"
+      << "    \"liq_return_complete_data_complete_mask_nonzero\": "
+      << g_replay_liq_sideband_stats.liq_return_complete_data_complete_mask_nonzero << ",\n"
+      << "    \"liq_return_complete_request_complete_mask_nonzero\": "
+      << g_replay_liq_sideband_stats.liq_return_complete_request_complete_mask_nonzero << ",\n"
+      << "    \"liq_return_complete_candidate_mask_nonzero\": "
+      << g_replay_liq_sideband_stats.liq_return_complete_candidate_mask_nonzero << ",\n"
+      << "    \"liq_return_complete_mask_nonzero\": "
+      << g_replay_liq_sideband_stats.liq_return_complete_mask_nonzero << ",\n"
+      << "    \"liq_return_complete_valid\": "
+      << g_replay_liq_sideband_stats.liq_return_complete_valid << ",\n"
+      << "    \"liq_return_complete_candidate_count_nonzero\": "
+      << g_replay_liq_sideband_stats.liq_return_complete_candidate_count_nonzero << ",\n"
       << "    \"liq_base_lookup_valid\": "
       << g_replay_liq_sideband_stats.liq_base_lookup_valid << ",\n"
       << "    \"liq_base_lookup_granted\": "
