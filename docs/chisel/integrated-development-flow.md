@@ -75,39 +75,48 @@ zero QEMU/DUT CBSTOP rows. The new counters show `lret_w2_slot_source_trace_vali
 `w2_commit_row_trace_source_blocked_by_no_metadata=74`,
 `w2_commit_row_trace_source_blocked_by_no_source_trace=0`,
 `w2_commit_row_candidate_blocked_by_no_metadata=74`, and
-`w2_commit_row_candidate_blocked_by_no_source_trace=0`. The next owner is the
-ROB commit-trace lookup query/provider path for the resident W2 RID, not
-source-trace provenance, size/destination shape, clear capacity, or lifecycle
-readiness.
+`w2_commit_row_candidate_blocked_by_no_source_trace=0`. R553 drives the
+read-only ROB commit-trace lookup from the LRET drain RID, latches the
+instruction raw/length provider keyed by RID, and feeds that metadata when the
+same returned load reaches W2. The replay-loop fixture still passes with 9
+compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. The sideband
+report records `w2_commit_row_trace_source_rob_lookup_instruction_valid=3`,
+`w2_commit_row_trace_source_instruction_ready=33`,
+`w2_commit_row_trace_source_source_ready=33`,
+`w2_commit_row_fill_candidate=33`, `w2_row_fill_candidate_valid=33`,
+`w2_row_fill_prerequisites_ready=0`, and `w2_lifecycle_ready=0`. The next owner
+is row-fill prerequisite/lifecycle readiness, not ROB instruction metadata,
+source-trace provenance, size/destination shape, clear capacity, or side-effect
+sink capacity.
 
 Use this packet shape first:
 
 ```text
-Packet: replay-LIQ LRET W2 ROB trace lookup query
+Packet: replay-LIQ LRET W2 row-fill prerequisite readiness
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
-Files allowed: top ROB commit-trace lookup query wiring, ROB lookup provider
-  docs/tests if the query contract changes, W2 commit-row trace-source only as
-  needed to consume provider evidence, focused W2/top specs, module docs, and
-  sideband validator updates only if new evidence fields are required
+Files allowed: W2 row-fill enable/prereq wiring, replay-row lifecycle ready and
+  clear-request owners, W2 atomic prereq snapshot wiring, focused W2/top specs,
+  module docs, and sideband validator updates only if new evidence fields are
+  required
 Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
   handling after returned-load pipe insertion
-Expected first gate: focused ROB commit-trace lookup/top coverage proving the
-  resident W2 returned-load RID drives a valid read-only instruction metadata
-  lookup without enabling ROB row replacement
-Promotion gate: R552 replay-loop fixture through
+Expected first gate: focused row-fill/lifecycle coverage proving the resident
+  W2 returned-load row has candidate evidence before live row replacement is
+  enabled
+Promotion gate: R553 replay-loop fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
   W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
-  policy blocks, nonzero ROB lookup row/instruction evidence, and movement of
-  the row-fill blocker beyond missing instruction metadata
+  policy blocks, nonzero ROB instruction metadata evidence, nonzero row-fill
+  candidate evidence, and movement of the blocker beyond missing metadata
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
-  ROB trace lookup metadata is visible for the resident W2 slot in the reduced
-  replay-loop fixture
+  row-fill prerequisite/lifecycle readiness is visible for the resident W2 slot
+  in the reduced replay-loop fixture
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
-  holdoff, lane/TLOAD/final metadata, E4/W1/W2 slot storage, or commit-row
-  compare policy before W2 row-fill candidate readiness exists
-First-divergence owner if the gate fails: Chisel top ROB commit-trace lookup
-  query wiring unless the v21 sideband report misreports generated signals
+  holdoff, lane/TLOAD/final metadata, E4/W1/W2 slot storage, ROB metadata latch,
+  or commit-row compare policy before row-fill/lifecycle readiness exists
+First-divergence owner if the gate fails: Chisel W2 row-fill/lifecycle
+  readiness wiring unless the v21 sideband report misreports generated signals
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```

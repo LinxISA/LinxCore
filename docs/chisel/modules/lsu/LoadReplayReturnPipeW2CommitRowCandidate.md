@@ -105,10 +105,20 @@ but lacks instruction metadata: `w2_commit_row_candidate_valid=74`,
 therefore the ROB commit-trace lookup query/provider path, not source-trace
 provenance, load size, or destination kind.
 
+R553 wires that provider through a top-level LRET-drain metadata latch and keeps
+ROB deallocation at the R547 drain-release boundary. The replay-loop fixture at
+`generated/r553-replay-w2-drain-metadata-latch/report/crosscheck_manifest.json`
+passes with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+The sideband report records `w2_commit_row_fill_candidate=33`,
+`w2_row_fill_candidate_valid=33`,
+`w2_commit_row_candidate_blocked_by_no_metadata=41`,
+`w2_commit_row_candidate_blocked_by_no_source_trace=0`, and
+`w2_row_fill_prerequisites_ready=0`. The remaining blocker is now row-fill
+prerequisite/lifecycle readiness before `rowFillEnable` can promote
+`completeRowValid`.
+
 ## Deferred Owners
 
-- Resident W2 RID to ROB commit-trace lookup wiring so instruction raw/length
-  can reach the trace-source provider before row-fill is promoted.
 - Replay-row lifecycle readiness and final live request promotion through the
   R367 row-fill enable owner.
 - Non-GPR destination commit-row policy if replay loads to local T/U state must

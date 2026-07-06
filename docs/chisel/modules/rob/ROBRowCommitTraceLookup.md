@@ -28,10 +28,13 @@ policy from `ROBRowStatusLookup`, then exposes only provider-shaped row fields:
 instruction raw bits, instruction length, and optional source operand traces.
 
 R373 wires the lookup through `ROBEntryBank`, `DispatchROBAllocator`, and
-`DecodeRenameROBPath` into the reduced replay-W2 top. The top drives the query
-from the resident W2 slot RID and feeds instruction raw/length into
-`LoadReplayReturnPipeW2CommitRowTraceSource`. Source traces remain disabled
-with `sourceTraceEnable=false`, so row fill still cannot become live.
+`DecodeRenameROBPath` into the reduced replay-W2 top. R553 changes the top
+query point for returned-load replay rows: the top queries the read-only
+instruction provider at LRET drain while the ROB row is still resident, latches
+instruction raw/length keyed by RID, and replays that provider when the same
+load reaches W2. Source traces remain disabled on the ROB lookup
+(`sourceTraceEnable=false`) because RF-derived replay source traces are carried
+by the return-pipe slot instead.
 
 R374 tightens the future source-trace contract: ROB-row source traces are
 completion-only. The allocation/rename row carries source register tags but not
@@ -80,17 +83,30 @@ source-data-bearing completion row.
 backend allocator and decode/rename path forward the request and result without
 interpretation.
 
-`LinxCoreFrontendFetchRfAluTraceTop` uses the W2 slot RID as the query source:
+`LinxCoreFrontendFetchRfAluTraceTop` uses this lookup as a metadata provider:
 
-- `instructionProviderValid/raw/len` feed `LoadReplayReturnPipeW2CommitRowTraceSource`;
+- LRET drain has priority on the single commit-trace lookup port and latches
+  `instructionProviderValid/raw/len` for the drained RID;
+- a resident W2 slot consumes the latched provider when its RID matches, with a
+  live W2 lookup fallback only when the port is not serving LRET drain;
 - `sourceTraceEnable` is tied false because source data still needs a real
-  source-trace owner;
+  source-trace owner and now comes from the W2 slot payload;
 - even if enabled in a future packet, ROB-row source traces are blocked until
   the row is `Completed`;
-- W2 row fill remains disabled by missing source trace and the existing R367
-  row-fill enable control;
+- W2 row-fill candidate evidence can become live before the R367 row-fill
+  enable control promotes replacement;
 - replay ROB completion, RF writeback, ROB/PE resolve mutation, wakeup, W2
   clear/refill, and replay-row lifecycle clear remain dormant.
+
+R553 generated-RTL/QEMU evidence at
+`generated/r553-replay-w2-drain-metadata-latch/report/crosscheck_manifest.json`
+passes with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+The sideband report shows the drain-time lookup is live
+(`w2_commit_row_trace_source_rob_lookup_instruction_valid=3`) and that the
+latched metadata feeds W2 for 33 cycles
+(`w2_commit_row_trace_source_instruction_ready=33`,
+`w2_commit_row_fill_candidate=33`) without extending ROB deallocation through
+the incomplete W2 side-effect stage.
 
 ## Deferred Owners
 

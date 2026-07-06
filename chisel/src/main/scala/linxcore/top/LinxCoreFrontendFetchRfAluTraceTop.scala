@@ -3697,11 +3697,81 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW1Slot.io.entryData
   reducedReplayLiqReturnPipeW2Slot.io.writeWakeupRequired :=
     reducedReplayLiqReturnPipeW1Slot.io.entryWakeupRequired
-  path.io.robCommitTraceLookupValid :=
+  val reducedReplayLiqLretDrainCommitTraceLookupValid =
     reducedLoadReplayLiqAllocEnabled && !reducedStoreFlush &&
-      reducedReplayLiqReturnPipeW2Slot.io.occupied
-  path.io.robCommitTraceLookupRid := reducedReplayLiqReturnPipeW2Slot.io.entryRid
+      reducedReplayLiqReturnLretSink.io.drainFire &&
+      reducedReplayLiqReturnLretSink.io.drain.rid.valid
+  val reducedReplayLiqW2CommitTraceLookupValid =
+    reducedLoadReplayLiqAllocEnabled && !reducedStoreFlush &&
+      reducedReplayLiqReturnPipeW2Slot.io.occupied &&
+      !reducedReplayLiqLretDrainCommitTraceLookupValid
+  path.io.robCommitTraceLookupValid :=
+    reducedReplayLiqLretDrainCommitTraceLookupValid ||
+      reducedReplayLiqW2CommitTraceLookupValid
+  path.io.robCommitTraceLookupRid :=
+    Mux(
+      reducedReplayLiqLretDrainCommitTraceLookupValid,
+      reducedReplayLiqReturnLretSink.io.drain.rid,
+      reducedReplayLiqReturnPipeW2Slot.io.entryRid)
   path.io.robCommitTraceLookupSourceTraceEnable := false.B
+  val reducedReplayLiqLretDrainInstructionProviderValidReg = RegInit(false.B)
+  val reducedReplayLiqLretDrainInstructionProviderRidReg =
+    RegInit(ROBID.disabled(p.robEntries))
+  val reducedReplayLiqLretDrainInstructionProviderRawReg =
+    RegInit(0.U(traceParams.insnWidth.W))
+  val reducedReplayLiqLretDrainInstructionProviderLenReg =
+    RegInit(0.U(traceParams.lenWidth.W))
+  val reducedReplayLiqLretDrainInstructionProviderCapture =
+    reducedReplayLiqLretDrainCommitTraceLookupValid &&
+      path.io.robCommitTraceLookup.instructionProviderValid &&
+      (path.io.robCommitTraceLookup.instructionLen =/= 0.U)
+  val reducedReplayLiqW2InstructionProviderClear =
+    reducedReplayLiqReturnPipeW2Slot.io.clear &&
+      reducedReplayLiqReturnPipeW2Slot.io.entryRid.valid &&
+      reducedReplayLiqLretDrainInstructionProviderRidReg.valid &&
+      ROBID.equal(
+        reducedReplayLiqReturnPipeW2Slot.io.entryRid,
+        reducedReplayLiqLretDrainInstructionProviderRidReg)
+  when(reducedStoreFlush || !reducedLoadReplayLiqAllocEnabled) {
+    reducedReplayLiqLretDrainInstructionProviderValidReg := false.B
+    reducedReplayLiqLretDrainInstructionProviderRidReg := ROBID.disabled(p.robEntries)
+    reducedReplayLiqLretDrainInstructionProviderRawReg := 0.U
+    reducedReplayLiqLretDrainInstructionProviderLenReg := 0.U
+  }.elsewhen(reducedReplayLiqLretDrainInstructionProviderCapture) {
+    reducedReplayLiqLretDrainInstructionProviderValidReg := true.B
+    reducedReplayLiqLretDrainInstructionProviderRidReg :=
+      reducedReplayLiqReturnLretSink.io.drain.rid
+    reducedReplayLiqLretDrainInstructionProviderRawReg :=
+      path.io.robCommitTraceLookup.instructionRaw
+    reducedReplayLiqLretDrainInstructionProviderLenReg :=
+      path.io.robCommitTraceLookup.instructionLen
+  }.elsewhen(reducedReplayLiqW2InstructionProviderClear) {
+    reducedReplayLiqLretDrainInstructionProviderValidReg := false.B
+    reducedReplayLiqLretDrainInstructionProviderRidReg := ROBID.disabled(p.robEntries)
+    reducedReplayLiqLretDrainInstructionProviderRawReg := 0.U
+    reducedReplayLiqLretDrainInstructionProviderLenReg := 0.U
+  }
+  val reducedReplayLiqW2LatchedInstructionProviderValid =
+    reducedReplayLiqLretDrainInstructionProviderValidReg &&
+      reducedReplayLiqReturnPipeW2Slot.io.occupied &&
+      reducedReplayLiqReturnPipeW2Slot.io.entryRid.valid &&
+      ROBID.equal(
+        reducedReplayLiqReturnPipeW2Slot.io.entryRid,
+        reducedReplayLiqLretDrainInstructionProviderRidReg)
+  val reducedReplayLiqW2InstructionProviderValid =
+    reducedReplayLiqW2LatchedInstructionProviderValid ||
+      (reducedReplayLiqW2CommitTraceLookupValid &&
+        path.io.robCommitTraceLookup.instructionProviderValid)
+  val reducedReplayLiqW2InstructionProviderRaw =
+    Mux(
+      reducedReplayLiqW2LatchedInstructionProviderValid,
+      reducedReplayLiqLretDrainInstructionProviderRawReg,
+      path.io.robCommitTraceLookup.instructionRaw)
+  val reducedReplayLiqW2InstructionProviderLen =
+    Mux(
+      reducedReplayLiqW2LatchedInstructionProviderValid,
+      reducedReplayLiqLretDrainInstructionProviderLenReg,
+      path.io.robCommitTraceLookup.instructionLen)
   LinxCoreFrontendFetchRfAluTraceTopR376SourceTraceWiring.connect(
     io,
     reducedLoadReplayLiqAllocPath,
@@ -3781,6 +3851,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     io,
     reducedReplayLiqReturnPipeW2CommitRowTraceSource,
     path.io.robCommitTraceLookup,
+    reducedReplayLiqW2InstructionProviderValid,
+    reducedReplayLiqW2InstructionProviderRaw,
+    reducedReplayLiqW2InstructionProviderLen,
     reducedReplayLiqReturnPipeW2Slot,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
@@ -7721,15 +7794,18 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2CommitRowTraceSourceWiring {
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
       traceSource: LoadReplayReturnPipeW2CommitRowTraceSource,
       robTraceLookup: ROBRowCommitTraceLookupResult,
+      instructionProviderValid: Bool,
+      instructionProviderRaw: UInt,
+      instructionProviderLen: UInt,
       slot: LoadReplayReturnPipeW2Slot,
       enable: Bool,
       flush: Bool): Unit = {
     traceSource.io.enable := enable
     traceSource.io.flush := flush
     traceSource.io.slotOccupied := slot.io.occupied
-    traceSource.io.instructionProviderValid := robTraceLookup.instructionProviderValid
-    traceSource.io.instructionProviderRaw := robTraceLookup.instructionRaw
-    traceSource.io.instructionProviderLen := robTraceLookup.instructionLen
+    traceSource.io.instructionProviderValid := instructionProviderValid
+    traceSource.io.instructionProviderRaw := instructionProviderRaw
+    traceSource.io.instructionProviderLen := instructionProviderLen
     traceSource.io.sourceTraceProviderValid := slot.io.entrySourceTraceValid
     traceSource.io.source0Provider := slot.io.entrySource0
     traceSource.io.source1Provider := slot.io.entrySource1

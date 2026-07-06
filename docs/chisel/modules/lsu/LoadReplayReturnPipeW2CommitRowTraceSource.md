@@ -32,9 +32,12 @@ before `LoadReplayReturnPipeW2CommitRowCandidate` can shape a complete row.
 R372 kept the integrated top dormant by tying the source-trace provider absent,
 and R373 wired instruction metadata from the read-only ROB row commit-trace
 lookup. R377 connects the source-trace provider to the resident W2 slot payload
-that R376 carried from the RF-derived replay-LIQ source provenance path. The
-module remains independently testable before live row fill is promoted because
-the R367 row-fill enable control still keeps replacement disabled.
+that R376 carried from the RF-derived replay-LIQ source provenance path. R553
+feeds instruction metadata from a top-level LRET-drain latch keyed by RID, so
+the metadata is captured while the ROB row is resident and reused when that
+load reaches W2. The module remains independently testable before live row
+fill is promoted because the R367 row-fill enable control still keeps
+replacement disabled.
 
 ## Interface
 
@@ -73,7 +76,8 @@ R372 wires the module immediately before
 `LinxCoreFrontendFetchRfAluTraceTop`:
 
 - resident W2 slot occupancy gates provider evidence;
-- R373 feeds instruction metadata from `ROBRowCommitTraceLookup`;
+- R373/R553 feed instruction metadata from `ROBRowCommitTraceLookup`; R553
+  captures it at LRET drain and replays it for the matching resident W2 RID;
 - R374 keeps ROB-row source traces completion-only because allocation rows have
   register tags but no proven source data, and the top leaves ROB source-trace
   lookup disabled;
@@ -89,13 +93,19 @@ R372 wires the module immediately before
   provider evidence yet (`lret_w2_slot_source_trace_valid=74`,
   `w2_commit_row_trace_source_rob_lookup_instruction_valid=0`, and
   `w2_commit_row_trace_source_blocked_by_no_metadata=74`);
+- R553 generated-RTL/QEMU evidence at
+  `generated/r553-replay-w2-drain-metadata-latch/report/crosscheck_manifest.json`
+  passes with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows;
+  the sideband report records drain-time ROB lookup evidence
+  (`w2_commit_row_trace_source_rob_lookup_instruction_valid=3`) and W2 trace
+  readiness from the latched provider
+  (`w2_commit_row_trace_source_instruction_ready=33`,
+  `w2_commit_row_trace_source_source_ready=33`);
 - the R367 row-fill enable, R371 lifecycle commit permit, and R363 atomic live
   request remain false, so generated behavior stays dormant.
 
 ## Deferred Owners
 
-- Drive the read-only ROB commit-trace lookup from the resident W2 RID so this
-  module can expose instruction raw/length for replay row fill.
 - Live promotion of row fill after W2 side effects, clear/refill, replay-row
   lifecycle clear, and ROB completion-row replacement can commit atomically.
 

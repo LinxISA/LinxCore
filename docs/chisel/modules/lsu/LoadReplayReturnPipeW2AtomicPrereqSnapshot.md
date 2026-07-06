@@ -141,12 +141,22 @@ missing prerequisite is ROB instruction metadata for the resident W2 RID:
 `w2_commit_row_trace_source_rob_lookup_instruction_valid=0`,
 `w2_commit_row_trace_source_blocked_by_no_metadata=74`, and
 `w2_commit_row_candidate_blocked_by_no_source_trace=0`.
+R553 captures ROB instruction metadata at LRET drain and reuses it for the
+matching W2 slot instead of holding ROB deallocation through W2 clear. The
+generated-RTL/QEMU evidence at
+`generated/r553-replay-w2-drain-metadata-latch/report/crosscheck_manifest.json`
+passes with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+The ordered blocker moves again:
+`w2_commit_row_trace_source_rob_lookup_instruction_valid=3`,
+`w2_commit_row_trace_source_instruction_ready=33`,
+`w2_commit_row_fill_candidate=33`, `w2_row_fill_candidate_valid=33`,
+`w2_atomic_blocked_by_no_row_fill_candidate=37`,
+`w2_row_fill_prerequisites_ready=0`, and `w2_lifecycle_ready=0`. The next
+owner is row-fill prerequisite/lifecycle readiness rather than ROB instruction
+metadata.
 
 ## Deferred Owners
 
-- Drive resident W2 RID instruction metadata through the read-only ROB
-  commit-trace lookup before expecting this snapshot to observe row-fill
-  readiness.
 - Broader replay-return workload proof that observes nonzero live W2 side
   effects, row fill, and replay-row lifecycle mutation under QEMU/DUT compare.
 
