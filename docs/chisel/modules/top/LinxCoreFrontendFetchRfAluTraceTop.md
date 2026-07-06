@@ -1430,6 +1430,18 @@ rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. The v15 report records
 `lret_sink_enqueue_ready=108`. This proves the current empty LRET FIFO is not a
 consumer/FIFO capacity issue; the replay-return path lacks complete scalar
 return data before payload and publish control.
+R541 extends the same report to schema v16 with launch-readiness,
+source-return, SCB-live, and return-data extractor counters sampled from
+existing top outputs. The replay-loop probe still passes the QEMU/DUT
+comparator with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP
+rows, but the intentional positive sideband requirement on
+`return_data_candidate_valid` fails with observed zero. The v16 report records
+`liq_base_lookup_granted=4`, `liq_base_data_returned=4`,
+`launch_readiness_base_data_ready=4`, `launch_readiness_blocked_by_scb=4`,
+`source_return_scb_source_returned=4`,
+`source_return_blocked_by_store_snapshot=4`, and
+`return_data_blocked_by_no_candidate=109`. This moves the next owner from
+return-data extraction to selected-row local store-snapshot readiness.
 R384 extends the same replay-LIQ namespace with
 `LoadReplayReturnPipeResidencyLiveControl`. The reduced top now feeds
 `LoadReplayReturnPipeResidencyCandidate.liveEnable` from an accepted-insert and
@@ -2730,6 +2742,10 @@ R540 extends the same harness-only sideband report to schema v15 with
 `publish_request_*` counters sampled from existing top outputs. This classifies
 the pre-FIFO publication point before changing live publication, request
 fanout, LRET enqueue, or W-stage policy.
+R541 extends it to schema v16 with the already exposed base-data,
+launch-readiness, source-return, SCB-live, and return-data extractor signals.
+The negative `return_data_candidate_valid=0` evidence classifies the missing
+payload as a pre-extractor source-return/local-store-snapshot readiness issue.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

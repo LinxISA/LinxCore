@@ -47,6 +47,14 @@ the grant-gated replay base-data aligner supplies line data and valid bytes.
 The extracted data is exposed only on `reducedLoadReplayLiqReturnData*`
 diagnostics; it does not enqueue LRET, drive mem wakeup, or arm replay launch.
 
+R541 extends the generated-RTL sideband report to persist this owner's existing
+top outputs. The replay-loop probe observed `return_data_candidate_valid=0`,
+`return_data_valid=0`, `return_data_blocked_by_no_candidate=109`, and
+`return_data_blocked_by_incomplete_bytes=0`. Combined with
+`liq_base_lookup_granted=4` and `liq_base_data_returned=4`, this proves the
+current publish blocker is not byte extraction itself; no source-returned row
+reaches the extractor candidate input.
+
 ## Interface
 
 ### Inputs

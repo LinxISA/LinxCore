@@ -54,6 +54,15 @@ R484 uses the enabled early-STA fixture to split R483's parent
 next live owner is local store-snapshot request/evidence readiness, not the
 external SCB live-control path.
 
+R541 extends the generated-RTL sideband report to persist this owner's existing
+top outputs for the replay-loop fixture. The v16 report records
+`source_return_candidate_valid=4`, `source_return_scb_source_returned=4`,
+`source_return_store_source_returned=0`, `source_return_source_returned=0`, and
+`source_return_blocked_by_store_snapshot=4`. The same run records
+`source_return_scb_live_active=108` but no SCB live request/evidence/pending
+activity, confirming the next owner is still the local store-snapshot readiness
+path, not external SCB.
+
 ## Interface
 
 ### Inputs
