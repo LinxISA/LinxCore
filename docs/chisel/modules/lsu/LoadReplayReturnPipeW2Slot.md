@@ -156,6 +156,9 @@ blocked until a different W1 candidate overlaps the resident W2 live clear.
 R564 adds gap-bucketed different-LSID near-miss counters and records all of them
 as zero on that fixture, so the current sequence cannot justify W2 storage
 replacement changes.
+R565 applies the same counters to `replay-ldi-sdi-ldi-sdi-ldi-loop` and again
+records only same-LSID gaps, so the next owner must create a new different-LSID
+returned-load overlap stimulus.
 
 ## Deferred Owners
 

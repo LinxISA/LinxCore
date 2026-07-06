@@ -209,6 +209,12 @@ gap4, and gap5+ buckets remain zero for W1-before-W2-live-clear and
 W2-live-clear-before-W1. The current fixture family therefore has no
 different-LSID replacement near-miss to tune; the next packet should create one
 explicitly before changing W2 storage or advance control.
+R565 reruns the R559 repeated dependency-chain fixture with the R564
+different-LSID buckets. It passes with 15 compared rows and zero mismatches,
+records `gap2=5` and `gap4=1`, but again classifies every gap as same-LSID
+(`same_lsid=6`, `different_lsid=0`) and leaves all different-LSID buckets at
+zero. Both existing high-pressure fixtures are therefore same-resident-row
+lifetime tests, not replacement stimulus.
 
 Use this packet shape first:
 
@@ -227,8 +233,8 @@ Expected first gate: focused W2 slot/advance coverage proving same-cycle live
 Promotion gate: R557 replay-loop fixture, R558
   `replay-ldi-sdi-ldi-ldi-loop`, R559
   `replay-ldi-sdi-ldi-sdi-ldi-loop`, R560
-  `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561/R562/R563/R564 phase-distance,
-  identity, and different-LSID near-miss sideband, or a stronger
+  `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561/R562/R563/R564/R565
+  phase-distance, identity, and different-LSID near-miss sideband, or a stronger
   multiple-return-load phasing fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
@@ -240,7 +246,8 @@ Promotion gate: R557 replay-loop fixture, R558
   the old/R558/R559/R560 fixtures, and nonzero same-cycle slot replacement
   evidence in a stronger fixture before changing W2 storage; if overlap is
   zero, inspect the R563 identity buckets and R564 different-LSID buckets before
-  treating phase gaps as replacement stimulus
+  treating phase gaps as replacement stimulus; R565 extends that negative check
+  back to the repeated dependency-chain fixture
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation

@@ -117,6 +117,9 @@ the Verilator harness to split different-LSID phase near-misses by gap bucket.
 The current burst fixture records zero different-LSID near-misses in both
 directions, so later replacement work should create new stimulus before adding
 more top-level diagnostics or changing W2 storage.
+R565 reuses the same top and harness-side buckets on the repeated
+dependency-chain fixture and reaches the same conclusion: the observed W1/W2
+phase gaps are same-LSID lifetime, not hidden replacement stimulus.
 
 ## Purpose
 

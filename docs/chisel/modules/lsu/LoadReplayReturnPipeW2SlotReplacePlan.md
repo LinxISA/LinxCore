@@ -59,6 +59,10 @@ resident-row lifetime rather than hidden replacement stimulus. R564 splits
 different-LSID near-misses by gap2/gap3/gap4/gap5+ in both directions and
 records all of those buckets as zero on the same burst fixture, so there is no
 different-row near-miss in the current sequence to rescue with storage tuning.
+R565 applies the same buckets to the repeated dependency-chain fixture; it sees
+six same-LSID phase gaps (`gap2=5`, `gap4=1`) and zero different-LSID buckets,
+so both current dense fixtures are resident-row lifetime observations rather
+than replacement candidates.
 
 ## Interface
 
@@ -160,6 +164,8 @@ clears, proving they are not different-candidate replacement opportunities.
   R564 proves the current burst fixture also has no different-LSID near-miss in
   either direction across the measured gap buckets, so the next packet should
   create a new different-LSID overlap stimulus rather than adjust W2 storage.
+  R565 proves the older repeated dependency-chain fixture has the same
+  same-LSID-only limitation under those buckets.
 - Verify `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future
   readiness and drives `LoadReplayReturnPipeW2Slot.replaceOnClear` in that
   same-cycle replacement case.

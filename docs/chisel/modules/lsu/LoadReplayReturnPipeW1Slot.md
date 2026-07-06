@@ -113,6 +113,8 @@ observational and does not feed W1 clear or W2 write acceptance. R564 reuses
 that output to prove the current burst fixture has zero different-LSID
 near-misses across the measured gap buckets; new stimulus is required before
 W1 can prove a real W2 replacement candidate.
+R565 proves the repeated dependency-chain fixture has the same same-LSID-only
+phase gaps under those diagnostics.
 
 ## Deferred Owners
 

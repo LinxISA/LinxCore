@@ -60,6 +60,10 @@ replacement. R564 adds different-LSID near-miss buckets in both directions and
 records all gap2/gap3/gap4/gap5+ buckets as zero on that fixture, so
 `replaceOnClear` remains blocked on new stimulus rather than an advance-control
 tweak.
+R565 repeats the different-LSID bucket check on
+`replay-ldi-sdi-ldi-sdi-ldi-loop`; it records same-LSID phase gaps at gap2 and
+gap4 but zero different-LSID buckets, so advance-control replacement remains a
+stimulus problem.
 
 ## Interface
 
@@ -135,7 +139,8 @@ replay RF writeback, ready-table mutation, or issue wakeup.
   useful stimulus must create a different returned-load candidate in the W2
   live-clear cycle, because the observed gap only follows the same LSID through
   W2 lifetime. R564 confirms the current fixture has no different-LSID near-miss
-  across the measured gap buckets in either direction.
+  across the measured gap buckets in either direction. R565 confirms the older
+  repeated dependency-chain fixture also lacks different-LSID near-misses.
 - Tie W2 clear to the live side-effect completion owner instead of the current
   dormant completion path.
 - Retire or update the consumed replay-row lifecycle when W2 side effects
