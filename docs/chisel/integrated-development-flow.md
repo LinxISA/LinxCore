@@ -66,35 +66,48 @@ The v21 sideband report records the ordered blocker movement:
 `w2_clear_commit_ready=0`, `w2_row_fill_candidate_valid=0`,
 `w2_side_effect_fire_complete=0`, and `w2_atomic_request_active=0`. The next
 owner is the pre-request row-fill candidate path, not clear-commit capacity,
-side-effect sink capacity, lifecycle clear, or generic W2 evidence.
+side-effect sink capacity, lifecycle clear, or generic W2 evidence. R552 adds
+sideband counters for the commit-row trace-source and candidate prerequisites.
+The replay-loop fixture still passes with 9 compared rows, zero mismatches, and
+zero QEMU/DUT CBSTOP rows. The new counters show `lret_w2_slot_source_trace_valid=74`,
+`w2_commit_row_trace_source_rob_lookup_row_valid=0`,
+`w2_commit_row_trace_source_rob_lookup_instruction_valid=0`,
+`w2_commit_row_trace_source_blocked_by_no_metadata=74`,
+`w2_commit_row_trace_source_blocked_by_no_source_trace=0`,
+`w2_commit_row_candidate_blocked_by_no_metadata=74`, and
+`w2_commit_row_candidate_blocked_by_no_source_trace=0`. The next owner is the
+ROB commit-trace lookup query/provider path for the resident W2 RID, not
+source-trace provenance, size/destination shape, clear capacity, or lifecycle
+readiness.
 
 Use this packet shape first:
 
 ```text
-Packet: replay-LIQ LRET W2 row-fill candidate readiness
+Packet: replay-LIQ LRET W2 ROB trace lookup query
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
-Files allowed: W2 commit-row candidate/trace-source, row-fill enable control,
-  ROB trace lookup provider, W2 atomic request/prereq/policy only as needed to
-  consume pre-request row-fill evidence, focused W2 specs, module docs, and
+Files allowed: top ROB commit-trace lookup query wiring, ROB lookup provider
+  docs/tests if the query contract changes, W2 commit-row trace-source only as
+  needed to consume provider evidence, focused W2/top specs, module docs, and
   sideband validator updates only if new evidence fields are required
 Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
   handling after returned-load pipe insertion
-Expected first gate: focused W2 row-fill/commit-row candidate coverage proving
-  a resident W2 returned load can form pre-request commit-row shape evidence
-  without enabling live row-fill mutation
-Promotion gate: R551 replay-loop fixture through
+Expected first gate: focused ROB commit-trace lookup/top coverage proving the
+  resident W2 returned-load RID drives a valid read-only instruction metadata
+  lookup without enabling ROB row replacement
+Promotion gate: R552 replay-loop fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
-  W2 evidence, W2 policy blocker split, zero clear-commit policy blocks, and
-  the newly exposed row-fill-candidate blocker
+  W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
+  policy blocks, nonzero ROB lookup row/instruction evidence, and movement of
+  the row-fill blocker beyond missing instruction metadata
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
-  W2 row-fill candidate readiness is live in the reduced replay-loop fixture
+  ROB trace lookup metadata is visible for the resident W2 slot in the reduced
+  replay-loop fixture
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
   holdoff, lane/TLOAD/final metadata, E4/W1/W2 slot storage, or commit-row
   compare policy before W2 row-fill candidate readiness exists
-First-divergence owner if the gate fails: Chisel W2 commit-row candidate /
-  trace-source readiness unless the v21 sideband report misreports generated
-  signals
+First-divergence owner if the gate fails: Chisel top ROB commit-trace lookup
+  query wiring unless the v21 sideband report misreports generated signals
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```

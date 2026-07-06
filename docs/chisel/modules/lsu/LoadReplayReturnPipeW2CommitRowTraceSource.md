@@ -84,11 +84,18 @@ R372 wires the module immediately before
 - gated outputs feed the R366 commit-row candidate;
 - compact top-level diagnostics expose trace readiness and missing-provider
   blockers;
+- R552 adds harness sideband counters for these diagnostics and proves the
+  replay-loop fixture has resident W2 source traces but no ROB instruction
+  provider evidence yet (`lret_w2_slot_source_trace_valid=74`,
+  `w2_commit_row_trace_source_rob_lookup_instruction_valid=0`, and
+  `w2_commit_row_trace_source_blocked_by_no_metadata=74`);
 - the R367 row-fill enable, R371 lifecycle commit permit, and R363 atomic live
   request remain false, so generated behavior stays dormant.
 
 ## Deferred Owners
 
+- Drive the read-only ROB commit-trace lookup from the resident W2 RID so this
+  module can expose instruction raw/length for replay row fill.
 - Live promotion of row fill after W2 side effects, clear/refill, replay-row
   lifecycle clear, and ROB completion-row replacement can commit atomically.
 

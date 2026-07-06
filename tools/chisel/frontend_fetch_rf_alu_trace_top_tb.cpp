@@ -463,6 +463,7 @@ struct ReplayLiqSidebandStats {
   std::uint64_t lret_w2_slot_accepted = 0;
   std::uint64_t lret_w2_slot_occupied = 0;
   std::uint64_t lret_w2_slot_blocked_by_no_write = 0;
+  std::uint64_t lret_w2_slot_source_trace_valid = 0;
   std::uint64_t w2_atomic_live_active = 0;
   std::uint64_t w2_atomic_request_active = 0;
   std::uint64_t w2_atomic_evidence_valid = 0;
@@ -485,9 +486,27 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_side_effect_fire_complete = 0;
   std::uint64_t w2_clear_intent = 0;
   std::uint64_t w2_clear_commit_ready = 0;
+  std::uint64_t w2_commit_row_trace_source_ready = 0;
+  std::uint64_t w2_commit_row_trace_source_instruction_ready = 0;
+  std::uint64_t w2_commit_row_trace_source_source_ready = 0;
+  std::uint64_t w2_commit_row_trace_source_blocked = 0;
+  std::uint64_t w2_commit_row_trace_source_blocked_by_no_metadata = 0;
+  std::uint64_t w2_commit_row_trace_source_blocked_by_no_source_trace = 0;
+  std::uint64_t w2_commit_row_trace_source_rob_lookup_row_valid = 0;
+  std::uint64_t w2_commit_row_trace_source_rob_lookup_instruction_valid = 0;
+  std::uint64_t w2_commit_row_trace_source_rob_lookup_blocked_by_need_flush = 0;
+  std::uint64_t w2_commit_row_trace_source_rob_lookup_blocked_by_missing_instruction = 0;
+  std::uint64_t w2_commit_row_trace_source_rob_lookup_blocked_by_source_trace_disabled = 0;
+  std::uint64_t w2_commit_row_trace_source_rob_lookup_blocked_by_source_trace_before_completion = 0;
   std::uint64_t w2_commit_row_candidate_valid = 0;
   std::uint64_t w2_commit_row_fill_candidate = 0;
   std::uint64_t w2_commit_row_complete_candidate = 0;
+  std::uint64_t w2_commit_row_candidate_blocked = 0;
+  std::uint64_t w2_commit_row_candidate_blocked_by_no_metadata = 0;
+  std::uint64_t w2_commit_row_candidate_blocked_by_no_source_trace = 0;
+  std::uint64_t w2_commit_row_candidate_blocked_by_invalid_size = 0;
+  std::uint64_t w2_commit_row_candidate_blocked_by_non_gpr_destination = 0;
+  std::uint64_t w2_commit_row_candidate_blocked_by_row_fill_disabled = 0;
   std::uint64_t w2_row_fill_candidate_valid = 0;
   std::uint64_t w2_row_fill_prerequisites_ready = 0;
   std::uint64_t w2_row_fill_enable = 0;
@@ -1493,6 +1512,9 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2SlotBlockedByNoWrite) {
     ++g_replay_liq_sideband_stats.lret_w2_slot_blocked_by_no_write;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2SlotSourceTraceValid) {
+    ++g_replay_liq_sideband_stats.lret_w2_slot_source_trace_valid;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2AtomicLiveRequestActive) {
     ++g_replay_liq_sideband_stats.w2_atomic_live_active;
   }
@@ -1559,6 +1581,42 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2ClearCommitGuardCommitClearReady) {
     ++g_replay_liq_sideband_stats.w2_clear_commit_ready;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceReady) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceInstructionReady) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_instruction_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceSourceReady) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_source_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceBlocked) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_blocked;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceBlockedByNoMetadata) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_blocked_by_no_metadata;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceBlockedByNoSourceTrace) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_blocked_by_no_source_trace;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupRowValid) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_row_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupInstructionValid) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_instruction_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedByNeedFlush) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_blocked_by_need_flush;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedByMissingInstruction) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_blocked_by_missing_instruction;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceDisabled) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_blocked_by_source_trace_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowTraceSourceRobLookupBlockedBySourceTraceBeforeCompletion) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_blocked_by_source_trace_before_completion;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateValid) {
     ++g_replay_liq_sideband_stats.w2_commit_row_candidate_valid;
   }
@@ -1567,6 +1625,24 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   }
   if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateCompleteRowValid) {
     ++g_replay_liq_sideband_stats.w2_commit_row_complete_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateBlocked) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateBlockedByNoMetadata) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_no_metadata;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateBlockedByNoSourceTrace) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_no_source_trace;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateBlockedByInvalidSize) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_invalid_size;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateBlockedByNonGprDestination) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_non_gpr_destination;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateBlockedByRowFillDisabled) {
+    ++g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_row_fill_disabled;
   }
   if (dut.io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlCandidateValid) {
     ++g_replay_liq_sideband_stats.w2_row_fill_candidate_valid;
@@ -2300,6 +2376,8 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.lret_w2_slot_occupied << ",\n"
       << "    \"lret_w2_slot_blocked_by_no_write\": "
       << g_replay_liq_sideband_stats.lret_w2_slot_blocked_by_no_write << ",\n"
+      << "    \"lret_w2_slot_source_trace_valid\": "
+      << g_replay_liq_sideband_stats.lret_w2_slot_source_trace_valid << ",\n"
       << "    \"w2_atomic_live_active\": "
       << g_replay_liq_sideband_stats.w2_atomic_live_active << ",\n"
       << "    \"w2_atomic_request_active\": "
@@ -2344,12 +2422,48 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_clear_intent << ",\n"
       << "    \"w2_clear_commit_ready\": "
       << g_replay_liq_sideband_stats.w2_clear_commit_ready << ",\n"
+      << "    \"w2_commit_row_trace_source_ready\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_ready << ",\n"
+      << "    \"w2_commit_row_trace_source_instruction_ready\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_instruction_ready << ",\n"
+      << "    \"w2_commit_row_trace_source_source_ready\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_source_ready << ",\n"
+      << "    \"w2_commit_row_trace_source_blocked\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_blocked << ",\n"
+      << "    \"w2_commit_row_trace_source_blocked_by_no_metadata\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_blocked_by_no_metadata << ",\n"
+      << "    \"w2_commit_row_trace_source_blocked_by_no_source_trace\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_blocked_by_no_source_trace << ",\n"
+      << "    \"w2_commit_row_trace_source_rob_lookup_row_valid\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_row_valid << ",\n"
+      << "    \"w2_commit_row_trace_source_rob_lookup_instruction_valid\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_instruction_valid << ",\n"
+      << "    \"w2_commit_row_trace_source_rob_lookup_blocked_by_need_flush\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_blocked_by_need_flush << ",\n"
+      << "    \"w2_commit_row_trace_source_rob_lookup_blocked_by_missing_instruction\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_blocked_by_missing_instruction << ",\n"
+      << "    \"w2_commit_row_trace_source_rob_lookup_blocked_by_source_trace_disabled\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_blocked_by_source_trace_disabled << ",\n"
+      << "    \"w2_commit_row_trace_source_rob_lookup_blocked_by_source_trace_before_completion\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_trace_source_rob_lookup_blocked_by_source_trace_before_completion << ",\n"
       << "    \"w2_commit_row_candidate_valid\": "
       << g_replay_liq_sideband_stats.w2_commit_row_candidate_valid << ",\n"
       << "    \"w2_commit_row_fill_candidate\": "
       << g_replay_liq_sideband_stats.w2_commit_row_fill_candidate << ",\n"
       << "    \"w2_commit_row_complete_candidate\": "
       << g_replay_liq_sideband_stats.w2_commit_row_complete_candidate << ",\n"
+      << "    \"w2_commit_row_candidate_blocked\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked << ",\n"
+      << "    \"w2_commit_row_candidate_blocked_by_no_metadata\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_no_metadata << ",\n"
+      << "    \"w2_commit_row_candidate_blocked_by_no_source_trace\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_no_source_trace << ",\n"
+      << "    \"w2_commit_row_candidate_blocked_by_invalid_size\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_invalid_size << ",\n"
+      << "    \"w2_commit_row_candidate_blocked_by_non_gpr_destination\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_non_gpr_destination << ",\n"
+      << "    \"w2_commit_row_candidate_blocked_by_row_fill_disabled\": "
+      << g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_row_fill_disabled << ",\n"
       << "    \"w2_row_fill_candidate_valid\": "
       << g_replay_liq_sideband_stats.w2_row_fill_candidate_valid << ",\n"
       << "    \"w2_row_fill_prerequisites_ready\": "

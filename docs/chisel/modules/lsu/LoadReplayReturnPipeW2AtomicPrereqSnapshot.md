@@ -135,9 +135,18 @@ The sideband report moves the ordered policy blocker again:
 `w2_atomic_blocked_by_no_side_effect_sink=7`, and
 `w2_atomic_request_active=0`. The next owner is pre-request row-fill candidate
 readiness rather than clear-commit capacity.
+R552 adds sideband visibility below that row-fill aggregate and proves the
+missing prerequisite is ROB instruction metadata for the resident W2 RID:
+`lret_w2_slot_source_trace_valid=74`,
+`w2_commit_row_trace_source_rob_lookup_instruction_valid=0`,
+`w2_commit_row_trace_source_blocked_by_no_metadata=74`, and
+`w2_commit_row_candidate_blocked_by_no_source_trace=0`.
 
 ## Deferred Owners
 
+- Drive resident W2 RID instruction metadata through the read-only ROB
+  commit-trace lookup before expecting this snapshot to observe row-fill
+  readiness.
 - Broader replay-return workload proof that observes nonzero live W2 side
   effects, row fill, and replay-row lifecycle mutation under QEMU/DUT compare.
 

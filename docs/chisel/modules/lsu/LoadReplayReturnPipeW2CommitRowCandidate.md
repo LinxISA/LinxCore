@@ -94,8 +94,21 @@ the candidate can expose coherent row-fill evidence only as a diagnostic and
 cannot assert `completeRowValid`; `ReducedRobCompletionArbiter` still receives
 no replay row replacement payload.
 
+R552 adds generated-RTL sideband counters for this candidate's specific
+blockers. The replay-loop fixture shows the resident W2 candidate is present
+but lacks instruction metadata: `w2_commit_row_candidate_valid=74`,
+`w2_commit_row_fill_candidate=0`,
+`w2_commit_row_candidate_blocked_by_no_metadata=74`,
+`w2_commit_row_candidate_blocked_by_no_source_trace=0`,
+`w2_commit_row_candidate_blocked_by_invalid_size=0`, and
+`w2_commit_row_candidate_blocked_by_non_gpr_destination=0`. The next owner is
+therefore the ROB commit-trace lookup query/provider path, not source-trace
+provenance, load size, or destination kind.
+
 ## Deferred Owners
 
+- Resident W2 RID to ROB commit-trace lookup wiring so instruction raw/length
+  can reach the trace-source provider before row-fill is promoted.
 - Replay-row lifecycle readiness and final live request promotion through the
   R367 row-fill enable owner.
 - Non-GPR destination commit-row policy if replay loads to local T/U state must
