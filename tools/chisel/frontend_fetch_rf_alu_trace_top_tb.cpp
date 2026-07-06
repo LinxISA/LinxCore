@@ -275,6 +275,28 @@ struct ReplayLiqSidebandStats {
   std::uint64_t source_row_mutation_request_valid = 0;
   std::uint64_t source_row_mutation_blocked_by_head_proof = 0;
   std::uint64_t source_row_mutation_blocked_by_live_disabled = 0;
+  std::uint64_t lret_sink_enqueue_ready = 0;
+  std::uint64_t lret_sink_enqueue_accepted = 0;
+  std::uint64_t lret_sink_enqueue_dropped = 0;
+  std::uint64_t lret_sink_drain_valid = 0;
+  std::uint64_t lret_sink_drain_fire = 0;
+  std::uint64_t lret_sink_pending = 0;
+  std::uint64_t lret_sink_full = 0;
+  std::uint64_t lret_sink_blocked_by_no_payload = 0;
+  std::uint64_t lret_sink_blocked_by_full = 0;
+  std::uint64_t lret_sink_blocked_by_drain = 0;
+  std::uint64_t lret_drain_permit_any_pipe_free = 0;
+  std::uint64_t lret_drain_permit_ready = 0;
+  std::uint64_t lret_drain_permit_blocked_by_no_entry = 0;
+  std::uint64_t lret_drain_permit_blocked_by_pipe_full = 0;
+  std::uint64_t lret_drain_permit_pipe_occupied = 0;
+  std::uint64_t lret_iex_insert_candidate_valid = 0;
+  std::uint64_t lret_iex_insert_valid = 0;
+  std::uint64_t lret_iex_insert_is_load_return = 0;
+  std::uint64_t lret_iex_insert_wakeup_required = 0;
+  std::uint64_t lret_iex_insert_blocked_by_no_set_mem_data = 0;
+  std::uint64_t lret_iex_insert_blocked_by_no_pipe = 0;
+  std::uint64_t lret_iex_insert_blocked_by_invalid_rid = 0;
   std::uint64_t lret_residency_candidate_valid = 0;
   std::uint64_t lret_residency_write_valid = 0;
   std::uint64_t lret_residency_live_enable = 0;
@@ -680,6 +702,72 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqSourceReturnStoreSnapshotRowMutationBlockedByLiveDisabled) {
     ++g_replay_liq_sideband_stats.source_row_mutation_blocked_by_live_disabled;
   }
+  if (dut.io_reducedLoadReplayLiqLretSinkEnqueueReady) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted;
+  }
+  if (dut.io_reducedLoadReplayLiqLretSinkEnqueueDropped) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_dropped;
+  }
+  if (dut.io_reducedLoadReplayLiqLretSinkDrainValid) {
+    ++g_replay_liq_sideband_stats.lret_sink_drain_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretSinkDrainFire) {
+    ++g_replay_liq_sideband_stats.lret_sink_drain_fire;
+  }
+  if (dut.io_reducedLoadReplayLiqLretSinkPending) {
+    ++g_replay_liq_sideband_stats.lret_sink_pending;
+  }
+  if (dut.io_reducedLoadReplayLiqLretSinkFull) {
+    ++g_replay_liq_sideband_stats.lret_sink_full;
+  }
+  if (dut.io_reducedLoadReplayLiqLretSinkBlockedByNoPayload) {
+    ++g_replay_liq_sideband_stats.lret_sink_blocked_by_no_payload;
+  }
+  if (dut.io_reducedLoadReplayLiqLretSinkBlockedByFull) {
+    ++g_replay_liq_sideband_stats.lret_sink_blocked_by_full;
+  }
+  if (dut.io_reducedLoadReplayLiqLretSinkBlockedByDrain) {
+    ++g_replay_liq_sideband_stats.lret_sink_blocked_by_drain;
+  }
+  if (dut.io_reducedLoadReplayLiqLretDrainPermitAnyPipeFree) {
+    ++g_replay_liq_sideband_stats.lret_drain_permit_any_pipe_free;
+  }
+  if (dut.io_reducedLoadReplayLiqLretDrainPermitReady) {
+    ++g_replay_liq_sideband_stats.lret_drain_permit_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretDrainPermitBlockedByNoEntry) {
+    ++g_replay_liq_sideband_stats.lret_drain_permit_blocked_by_no_entry;
+  }
+  if (dut.io_reducedLoadReplayLiqLretDrainPermitBlockedByPipeFull) {
+    ++g_replay_liq_sideband_stats.lret_drain_permit_blocked_by_pipe_full;
+  }
+  if (dut.io_reducedLoadReplayLiqLretDrainPermitPipeOccupiedMask != 0) {
+    ++g_replay_liq_sideband_stats.lret_drain_permit_pipe_occupied;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexPipeInsertCandidateValid) {
+    ++g_replay_liq_sideband_stats.lret_iex_insert_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexPipeInsertValid) {
+    ++g_replay_liq_sideband_stats.lret_iex_insert_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexPipeInsertIsLoadReturn) {
+    ++g_replay_liq_sideband_stats.lret_iex_insert_is_load_return;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexPipeInsertWakeupRequired) {
+    ++g_replay_liq_sideband_stats.lret_iex_insert_wakeup_required;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexPipeInsertBlockedByNoSetMemData) {
+    ++g_replay_liq_sideband_stats.lret_iex_insert_blocked_by_no_set_mem_data;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexPipeInsertBlockedByNoPipe) {
+    ++g_replay_liq_sideband_stats.lret_iex_insert_blocked_by_no_pipe;
+  }
+  if (dut.io_reducedLoadReplayLiqLretIexPipeInsertBlockedByInvalidRid) {
+    ++g_replay_liq_sideband_stats.lret_iex_insert_blocked_by_invalid_rid;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeResidencyCandidateValid) {
     ++g_replay_liq_sideband_stats.lret_residency_candidate_valid;
   }
@@ -975,7 +1063,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v13\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v14\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -1141,6 +1229,50 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.source_row_mutation_blocked_by_head_proof << ",\n"
       << "    \"source_row_mutation_blocked_by_live_disabled\": "
       << g_replay_liq_sideband_stats.source_row_mutation_blocked_by_live_disabled << ",\n"
+      << "    \"lret_sink_enqueue_ready\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_ready << ",\n"
+      << "    \"lret_sink_enqueue_accepted\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted << ",\n"
+      << "    \"lret_sink_enqueue_dropped\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_dropped << ",\n"
+      << "    \"lret_sink_drain_valid\": "
+      << g_replay_liq_sideband_stats.lret_sink_drain_valid << ",\n"
+      << "    \"lret_sink_drain_fire\": "
+      << g_replay_liq_sideband_stats.lret_sink_drain_fire << ",\n"
+      << "    \"lret_sink_pending\": "
+      << g_replay_liq_sideband_stats.lret_sink_pending << ",\n"
+      << "    \"lret_sink_full\": "
+      << g_replay_liq_sideband_stats.lret_sink_full << ",\n"
+      << "    \"lret_sink_blocked_by_no_payload\": "
+      << g_replay_liq_sideband_stats.lret_sink_blocked_by_no_payload << ",\n"
+      << "    \"lret_sink_blocked_by_full\": "
+      << g_replay_liq_sideband_stats.lret_sink_blocked_by_full << ",\n"
+      << "    \"lret_sink_blocked_by_drain\": "
+      << g_replay_liq_sideband_stats.lret_sink_blocked_by_drain << ",\n"
+      << "    \"lret_drain_permit_any_pipe_free\": "
+      << g_replay_liq_sideband_stats.lret_drain_permit_any_pipe_free << ",\n"
+      << "    \"lret_drain_permit_ready\": "
+      << g_replay_liq_sideband_stats.lret_drain_permit_ready << ",\n"
+      << "    \"lret_drain_permit_blocked_by_no_entry\": "
+      << g_replay_liq_sideband_stats.lret_drain_permit_blocked_by_no_entry << ",\n"
+      << "    \"lret_drain_permit_blocked_by_pipe_full\": "
+      << g_replay_liq_sideband_stats.lret_drain_permit_blocked_by_pipe_full << ",\n"
+      << "    \"lret_drain_permit_pipe_occupied\": "
+      << g_replay_liq_sideband_stats.lret_drain_permit_pipe_occupied << ",\n"
+      << "    \"lret_iex_insert_candidate_valid\": "
+      << g_replay_liq_sideband_stats.lret_iex_insert_candidate_valid << ",\n"
+      << "    \"lret_iex_insert_valid\": "
+      << g_replay_liq_sideband_stats.lret_iex_insert_valid << ",\n"
+      << "    \"lret_iex_insert_is_load_return\": "
+      << g_replay_liq_sideband_stats.lret_iex_insert_is_load_return << ",\n"
+      << "    \"lret_iex_insert_wakeup_required\": "
+      << g_replay_liq_sideband_stats.lret_iex_insert_wakeup_required << ",\n"
+      << "    \"lret_iex_insert_blocked_by_no_set_mem_data\": "
+      << g_replay_liq_sideband_stats.lret_iex_insert_blocked_by_no_set_mem_data << ",\n"
+      << "    \"lret_iex_insert_blocked_by_no_pipe\": "
+      << g_replay_liq_sideband_stats.lret_iex_insert_blocked_by_no_pipe << ",\n"
+      << "    \"lret_iex_insert_blocked_by_invalid_rid\": "
+      << g_replay_liq_sideband_stats.lret_iex_insert_blocked_by_invalid_rid << ",\n"
       << "    \"lret_residency_candidate_valid\": "
       << g_replay_liq_sideband_stats.lret_residency_candidate_valid << ",\n"
       << "    \"lret_residency_write_valid\": "

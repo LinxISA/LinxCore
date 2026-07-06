@@ -2703,6 +2703,18 @@ The R538 loop fixture records positive upstream replay-LIQ counters, but
 `lret_w2_slot_blocked_by_no_write=108`. That places the next repair upstream
 of W2 request policy, around returned-load/IEX pipe insertion or LRET residency
 payload production.
+R539 keeps that path diagnostic-only and extends schema v14 with
+`lret_sink_*`, `lret_drain_permit_*`, and `lret_iex_insert_*` counters sampled
+from existing top outputs. The purpose is to choose between absent LRET FIFO
+payload, forced-full drain permit, and failed IEX insert admission before
+promoting any pipe-residency or W2 side effect.
+The R539 loop fixture records `lret_sink_enqueue_ready=108`,
+`lret_sink_enqueue_accepted=0`, `lret_sink_drain_valid=0`,
+`lret_drain_permit_blocked_by_no_entry=108`,
+`lret_drain_permit_pipe_occupied=109`, and
+`lret_iex_insert_candidate_valid=0`. This classifies the live blocker as
+missing LRET publication/payload request before the FIFO, not a later IEX
+drain or insert-copy failure.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the

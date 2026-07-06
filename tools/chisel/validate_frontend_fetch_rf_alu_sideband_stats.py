@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v13"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v14"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -92,6 +92,28 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "source_row_mutation_request_valid",
     "source_row_mutation_blocked_by_head_proof",
     "source_row_mutation_blocked_by_live_disabled",
+    "lret_sink_enqueue_ready",
+    "lret_sink_enqueue_accepted",
+    "lret_sink_enqueue_dropped",
+    "lret_sink_drain_valid",
+    "lret_sink_drain_fire",
+    "lret_sink_pending",
+    "lret_sink_full",
+    "lret_sink_blocked_by_no_payload",
+    "lret_sink_blocked_by_full",
+    "lret_sink_blocked_by_drain",
+    "lret_drain_permit_any_pipe_free",
+    "lret_drain_permit_ready",
+    "lret_drain_permit_blocked_by_no_entry",
+    "lret_drain_permit_blocked_by_pipe_full",
+    "lret_drain_permit_pipe_occupied",
+    "lret_iex_insert_candidate_valid",
+    "lret_iex_insert_valid",
+    "lret_iex_insert_is_load_return",
+    "lret_iex_insert_wakeup_required",
+    "lret_iex_insert_blocked_by_no_set_mem_data",
+    "lret_iex_insert_blocked_by_no_pipe",
+    "lret_iex_insert_blocked_by_invalid_rid",
     "lret_residency_candidate_valid",
     "lret_residency_write_valid",
     "lret_residency_live_enable",

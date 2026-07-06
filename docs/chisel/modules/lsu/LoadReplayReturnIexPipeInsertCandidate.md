@@ -132,6 +132,18 @@ scalar LDA or vector AGU residency target, and keeps `liveEnable` false in the
 current reduced top. R329 wires this module's payload outputs into a dormant
 one-entry residency slot, so payload capture has a state owner ready once live
 E4 pipe writes are enabled.
+R539 extends only the generated-RTL sideband stats report with harness-sampled
+LRET sink, drain-permit, and IEX insert counters:
+`lret_sink_*`, `lret_drain_permit_*`, and `lret_iex_insert_*`. These counters
+classify whether a replay-return payload is absent before the FIFO, blocked by
+IEX pipe capacity, or admitted to the insert boundary before later residency
+and W-stage policy changes.
+The R539 replay loop records `lret_sink_enqueue_ready=108` and
+`lret_drain_permit_pipe_occupied=109`, but `lret_sink_enqueue_accepted=0`,
+`lret_sink_drain_valid=0`, `lret_iex_insert_candidate_valid=0`, and
+`lret_iex_insert_blocked_by_no_set_mem_data=108`. The next owner is therefore
+upstream LRET publication/payload request, not drain capacity or IEX insert
+payload copying.
 
 ## Deferred Owners
 
