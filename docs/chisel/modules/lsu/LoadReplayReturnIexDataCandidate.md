@@ -54,10 +54,14 @@ R376 also copies the LRET entry source-trace pair into the admitted
 
 R571's generated-RTL/QEMU sideband v24 evidence shows that source-return and
 LRET-payload formation can overlap occupied W2, but the LRET sink has no pending
-or drain-fire overlap in that same window. Treat this module's next proof as a
-post-LRET-sink step: first make the sink hold and drain a younger return while
-W2 is occupied, then require nonzero `setMemData` / IEX insert overlap before
-changing W2 slot storage.
+or drain-fire overlap in that same window. R572's schema v25 evidence proves
+publish-control fire and LRET enqueue acceptance also overlap occupied W2
+(`publish_control_fire_w2_occupied=3`,
+`lret_sink_enqueue_accepted_w2_occupied=3`), yet `pending` and `drainFire`
+remain zero during W2 occupancy. Treat this module's next proof as a
+post-enqueue step: first make the accepted sink entry hold and drain while W2 is
+occupied, then require nonzero `setMemData` / IEX insert overlap before changing
+W2 slot storage.
 
 ## Interface
 

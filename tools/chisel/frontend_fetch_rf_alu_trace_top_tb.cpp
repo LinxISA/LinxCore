@@ -352,6 +352,10 @@ struct ReplayLiqSidebandStats {
   std::uint64_t publish_control_blocked_by_publish = 0;
   std::uint64_t publish_control_blocked_by_side_effects = 0;
   std::uint64_t publish_control_blocked_by_live_disabled = 0;
+  std::uint64_t publish_control_candidate_w2_occupied = 0;
+  std::uint64_t publish_control_live_enable_w2_occupied = 0;
+  std::uint64_t publish_control_armed_w2_occupied = 0;
+  std::uint64_t publish_control_fire_w2_occupied = 0;
   std::uint64_t publish_request_valid = 0;
   std::uint64_t publish_request_lret = 0;
   std::uint64_t publish_request_writeback = 0;
@@ -369,6 +373,12 @@ struct ReplayLiqSidebandStats {
   std::uint64_t lret_sink_blocked_by_no_payload = 0;
   std::uint64_t lret_sink_blocked_by_full = 0;
   std::uint64_t lret_sink_blocked_by_drain = 0;
+  std::uint64_t lret_sink_enqueue_ready_w2_occupied = 0;
+  std::uint64_t lret_sink_enqueue_accepted_w2_occupied = 0;
+  std::uint64_t lret_sink_enqueue_dropped_w2_occupied = 0;
+  std::uint64_t lret_sink_enqueue_accepted_same_cycle_drain_fire = 0;
+  std::uint64_t lret_sink_enqueue_accepted_same_cycle_drain_fire_w2_occupied = 0;
+  std::uint64_t lret_sink_enqueue_accepted_w2_without_drain_fire = 0;
   std::uint64_t lret_sink_pending_w2_occupied = 0;
   std::uint64_t lret_sink_drain_valid_w2_occupied = 0;
   std::uint64_t lret_sink_drain_fire_w2_occupied = 0;
@@ -1272,14 +1282,26 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqPublishControlCandidateValid) {
     ++g_replay_liq_sideband_stats.publish_control_candidate_valid;
   }
+  if (w2_slot_occupied && dut.io_reducedLoadReplayLiqPublishControlCandidateValid) {
+    ++g_replay_liq_sideband_stats.publish_control_candidate_w2_occupied;
+  }
   if (dut.io_reducedLoadReplayLiqPublishControlLiveEnable) {
     ++g_replay_liq_sideband_stats.publish_control_live_enable;
+  }
+  if (w2_slot_occupied && dut.io_reducedLoadReplayLiqPublishControlLiveEnable) {
+    ++g_replay_liq_sideband_stats.publish_control_live_enable_w2_occupied;
   }
   if (dut.io_reducedLoadReplayLiqPublishControlArmed) {
     ++g_replay_liq_sideband_stats.publish_control_armed;
   }
+  if (w2_slot_occupied && dut.io_reducedLoadReplayLiqPublishControlArmed) {
+    ++g_replay_liq_sideband_stats.publish_control_armed_w2_occupied;
+  }
   if (dut.io_reducedLoadReplayLiqPublishControlFire) {
     ++g_replay_liq_sideband_stats.publish_control_fire;
+  }
+  if (w2_slot_occupied && dut.io_reducedLoadReplayLiqPublishControlFire) {
+    ++g_replay_liq_sideband_stats.publish_control_fire_w2_occupied;
   }
   if (dut.io_reducedLoadReplayLiqPublishControlBlockedByNoPayload) {
     ++g_replay_liq_sideband_stats.publish_control_blocked_by_no_payload;
@@ -1317,11 +1339,20 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretSinkEnqueueReady) {
     ++g_replay_liq_sideband_stats.lret_sink_enqueue_ready;
   }
+  if (w2_slot_occupied && dut.io_reducedLoadReplayLiqLretSinkEnqueueReady) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_ready_w2_occupied;
+  }
   if (dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted) {
     ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted;
   }
+  if (w2_slot_occupied && dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_occupied;
+  }
   if (dut.io_reducedLoadReplayLiqLretSinkEnqueueDropped) {
     ++g_replay_liq_sideband_stats.lret_sink_enqueue_dropped;
+  }
+  if (w2_slot_occupied && dut.io_reducedLoadReplayLiqLretSinkEnqueueDropped) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_dropped_w2_occupied;
   }
   if (dut.io_reducedLoadReplayLiqLretSinkDrainValid) {
     ++g_replay_liq_sideband_stats.lret_sink_drain_valid;
@@ -1334,6 +1365,20 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   }
   if (w2_slot_occupied && dut.io_reducedLoadReplayLiqLretSinkDrainFire) {
     ++g_replay_liq_sideband_stats.lret_sink_drain_fire_w2_occupied;
+  }
+  if (dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted &&
+      dut.io_reducedLoadReplayLiqLretSinkDrainFire) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_same_cycle_drain_fire;
+  }
+  if (w2_slot_occupied &&
+      dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted &&
+      dut.io_reducedLoadReplayLiqLretSinkDrainFire) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_same_cycle_drain_fire_w2_occupied;
+  }
+  if (w2_slot_occupied &&
+      dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted &&
+      !dut.io_reducedLoadReplayLiqLretSinkDrainFire) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_without_drain_fire;
   }
   if (dut.io_reducedLoadReplayLiqLretSinkPending) {
     ++g_replay_liq_sideband_stats.lret_sink_pending;
@@ -2262,7 +2307,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v24\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v25\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -2582,6 +2627,14 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.publish_control_blocked_by_side_effects << ",\n"
       << "    \"publish_control_blocked_by_live_disabled\": "
       << g_replay_liq_sideband_stats.publish_control_blocked_by_live_disabled << ",\n"
+      << "    \"publish_control_candidate_w2_occupied\": "
+      << g_replay_liq_sideband_stats.publish_control_candidate_w2_occupied << ",\n"
+      << "    \"publish_control_live_enable_w2_occupied\": "
+      << g_replay_liq_sideband_stats.publish_control_live_enable_w2_occupied << ",\n"
+      << "    \"publish_control_armed_w2_occupied\": "
+      << g_replay_liq_sideband_stats.publish_control_armed_w2_occupied << ",\n"
+      << "    \"publish_control_fire_w2_occupied\": "
+      << g_replay_liq_sideband_stats.publish_control_fire_w2_occupied << ",\n"
       << "    \"publish_request_valid\": "
       << g_replay_liq_sideband_stats.publish_request_valid << ",\n"
       << "    \"publish_request_lret\": "
@@ -2616,6 +2669,18 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.lret_sink_blocked_by_full << ",\n"
       << "    \"lret_sink_blocked_by_drain\": "
       << g_replay_liq_sideband_stats.lret_sink_blocked_by_drain << ",\n"
+      << "    \"lret_sink_enqueue_ready_w2_occupied\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_ready_w2_occupied << ",\n"
+      << "    \"lret_sink_enqueue_accepted_w2_occupied\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_occupied << ",\n"
+      << "    \"lret_sink_enqueue_dropped_w2_occupied\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_dropped_w2_occupied << ",\n"
+      << "    \"lret_sink_enqueue_accepted_same_cycle_drain_fire\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_same_cycle_drain_fire << ",\n"
+      << "    \"lret_sink_enqueue_accepted_same_cycle_drain_fire_w2_occupied\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_same_cycle_drain_fire_w2_occupied << ",\n"
+      << "    \"lret_sink_enqueue_accepted_w2_without_drain_fire\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_without_drain_fire << ",\n"
       << "    \"lret_sink_pending_w2_occupied\": "
       << g_replay_liq_sideband_stats.lret_sink_pending_w2_occupied << ",\n"
       << "    \"lret_sink_drain_valid_w2_occupied\": "

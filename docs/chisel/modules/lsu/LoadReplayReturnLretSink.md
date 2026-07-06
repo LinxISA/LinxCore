@@ -56,6 +56,14 @@ that window (`lret_sink_pending_w2_occupied=0`,
 `lret_sink_drain_fire_w2_occupied=0`). Future implementation should first make
 publish-to-LRET-sink enqueue and IEX drain capacity observable under the passing
 fixture before promoting W2 slot replacement.
+R572 then proves publish admission is already live in the same window:
+`publish_control_fire_w2_occupied=3` and
+`lret_sink_enqueue_accepted_w2_occupied=3`, with zero enqueue drops. Those
+accepted enqueues are not same-cycle drains
+(`lret_sink_enqueue_accepted_same_cycle_drain_fire_w2_occupied=0`) and still do
+not make `pending` or `drainFire` overlap W2. The next implementation owner is
+therefore enqueue-to-pending/drain timing and the IEX drain-capacity path, not
+publication readiness.
 
 ## Interface
 
@@ -120,10 +128,9 @@ ready-table update, issue wakeup, and replay-row lifecycle owners exist.
 
 ## Deferred Owners
 
-- Live LRET enqueue fire from replay-return publication.
 - Real IEX return-pipe free-capacity input and `IEX::setMemData` mutation.
-- Generated-RTL/QEMU proof that LRET sink pending/drain overlaps occupied W2
-  before W2 slot storage replacement is promoted.
+- Generated-RTL/QEMU proof that accepted LRET enqueue becomes pending/draining
+  while W2 remains occupied before W2 slot storage replacement is promoted.
 - Feeding accepted LRET enqueue back into replay-row clear/return lifecycle.
 - Multi-pipe LRET queue fanout and arbitration.
 - Ready-table and issue-wakeup side effects after LRET enqueue.

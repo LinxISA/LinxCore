@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v24"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v25"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -169,6 +169,10 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "publish_control_blocked_by_publish",
     "publish_control_blocked_by_side_effects",
     "publish_control_blocked_by_live_disabled",
+    "publish_control_candidate_w2_occupied",
+    "publish_control_live_enable_w2_occupied",
+    "publish_control_armed_w2_occupied",
+    "publish_control_fire_w2_occupied",
     "publish_request_valid",
     "publish_request_lret",
     "publish_request_writeback",
@@ -186,6 +190,12 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "lret_sink_blocked_by_no_payload",
     "lret_sink_blocked_by_full",
     "lret_sink_blocked_by_drain",
+    "lret_sink_enqueue_ready_w2_occupied",
+    "lret_sink_enqueue_accepted_w2_occupied",
+    "lret_sink_enqueue_dropped_w2_occupied",
+    "lret_sink_enqueue_accepted_same_cycle_drain_fire",
+    "lret_sink_enqueue_accepted_same_cycle_drain_fire_w2_occupied",
+    "lret_sink_enqueue_accepted_w2_without_drain_fire",
     "lret_sink_pending_w2_occupied",
     "lret_sink_drain_valid_w2_occupied",
     "lret_sink_drain_fire_w2_occupied",

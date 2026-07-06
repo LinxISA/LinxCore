@@ -205,6 +205,14 @@ draining entry during occupied W2 (`lret_sink_pending_w2_occupied=0`,
 `lret_sink_drain_fire_w2_occupied=0`). W2 storage replacement remains blocked;
 the next owner is publish-to-LRET-sink admission and LRET drain/IEX-pipe
 capacity.
+R572 keeps W2 slot RTL unchanged and extends only harness sideband schema v25.
+The same gate proves publish admission already overlaps occupied W2
+(`publish_control_fire_w2_occupied=3`,
+`lret_sink_enqueue_accepted_w2_occupied=3`,
+`lret_sink_enqueue_accepted_w2_without_drain_fire=3`) without enqueue drops, but
+the accepted enqueue is still not pending or draining while W2 is occupied.
+W2 storage replacement remains blocked; the next owner is the LRET
+enqueue-to-pending/drain timing and IEX drain-capacity path.
 
 ## Deferred Owners
 

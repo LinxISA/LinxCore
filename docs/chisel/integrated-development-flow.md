@@ -310,6 +310,23 @@ formation: `lret_sink_pending_w2_occupied=0`,
 publish-to-LRET-sink admission and LRET drain/IEX-pipe capacity live enough to
 hold a younger returned payload while W2 is occupied before changing W2 slot
 storage.
+R572 keeps RTL behavior unchanged and extends the sideband to schema v25 with
+publish-control and LRET-sink enqueue timing buckets. The same early-STA
+delay-12 gate, `generated/r572-replay-lret-publish-w2-timing-xcheck`, passes
+with `compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT CBSTOP rows. It
+proves publish and enqueue already overlap occupied W2:
+`publish_control_candidate_w2_occupied=3`,
+`publish_control_fire_w2_occupied=3`,
+`lret_sink_enqueue_ready_w2_occupied=77`,
+`lret_sink_enqueue_accepted_w2_occupied=3`, and
+`lret_sink_enqueue_accepted_w2_without_drain_fire=3`, with no enqueue drops.
+The sink still does not become pending or drain in that W2 window
+(`lret_sink_pending_w2_occupied=0`,
+`lret_sink_drain_valid_w2_occupied=0`,
+`lret_sink_drain_fire_w2_occupied=0`). The next owner is therefore not
+publish admission; it is the enqueue-to-pending/drain observation and
+IEX-drain-capacity timing needed to make the accepted younger return visible
+while W2 remains occupied.
 
 Use this packet shape first:
 
@@ -334,8 +351,9 @@ Promotion gate: R557 replay-loop fixture, R558
   phase-distance, identity, and different-LSID near-miss sideband, or a stronger
   multiple-return-load phasing fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v24 sideband
-  inspection requiring nonzero source-return and LRET-payload overlap while W2
-  is occupied, then nonzero LRET sink pending/drain and IEX insert/residency/W1
+  inspection requiring nonzero source-return, LRET-payload, publish-control,
+  and LRET-sink enqueue overlap while W2 is occupied, then nonzero LRET sink
+  pending/drain and IEX insert/residency/W1
   evidence before changing W2 storage; keep the existing W2 slot source trace,
   W2 policy blocker split, zero clear-commit policy blocks, nonzero ROB
   instruction metadata evidence, nonzero row-fill candidate evidence, valid
@@ -349,9 +367,10 @@ Promotion gate: R557 replay-loop fixture, R558
   dependency-chain fixture, R566 extends it to the clustered second-dependency
   fixture, R569 shows W2 delay-4/delay-12 residency alone does not make a
   younger W1 candidate resident, R570 shows no IEX/residency/W1 upstream overlap
-  while W2 is occupied even under delay 12 plus early STA, and R571 narrows the
+  while W2 is occupied even under delay 12 plus early STA, R571 narrows the
   current gap to the publish-to-LRET-sink / LRET-drain / IEX-pipe-capacity
-  boundary
+  boundary, and R572 proves publish-control fire plus LRET enqueue acceptance
+  already overlap W2 while sink pending/drain still do not
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
@@ -360,9 +379,9 @@ Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
   evidence exists
 First-divergence owner if the gate fails: fixture/stimulus until the sideband
   report proves LRET sink pending/drain and then a younger W1 candidate exists
-  while W2 is occupied and live clear fires; based on R571, start at
-  publish-to-LRET-sink admission and LRET drain/IEX-pipe capacity before
-  changing W2 storage or W1/W2 advance ordering
+  while W2 is occupied and live clear fires; based on R572, start at the
+  enqueue-to-pending/drain observation and LRET drain/IEX-pipe capacity timing
+  before changing W2 storage or W1/W2 advance ordering
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```
