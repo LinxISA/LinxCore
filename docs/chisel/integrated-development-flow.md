@@ -254,6 +254,23 @@ replacement overlap (`w2_slot_replace_overlap_candidate_live_clear=0`,
 The delay hook is therefore a safe diagnostic phasing tool, not storage
 promotion evidence; the next owner must create or retain a different W1
 candidate while the delayed resident W2 row live-clears.
+R569 tested that candidate-retention hypothesis without landing an RTL hook.
+Two generated-RTL/QEMU runs on `replay-ldi-sdi-ldi-sdi-ldi-ldi-loop` passed
+with zero mismatches and zero QEMU/DUT CBSTOP rows after manifest inspection:
+`generated/r569-replay-w2-w1-hold-xcheck` used
+`LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=4`, and
+`generated/r569-replay-w2delay12-w1hold-xcheck` used delay 12. Both runs kept
+architectural compare clean (`compared_rows=18`, `mismatch_count=0`), but both
+proved the current stimulus still serializes upstream return admission before a
+younger W1 candidate can sit behind occupied W2:
+`lret_w1_advance_blocked_by_advance_disabled=0`,
+`w2_slot_replace_overlap_candidate_live_clear=0`,
+`w2_slot_replace_same_cycle_eligible=0`, and
+`w2_advance_replace_on_clear=0`. Delay 12 increases W2 residence to
+`lret_w2_slot_occupied=78`, so more W2 residency alone is not enough. The next
+owner should work upstream of W1 advance, most likely at replay-return source
+selection, IEX pipe admission, or E4 residency refill stimulus, and must prove a
+different-LSID W1 candidate is resident before touching W2 storage.
 
 Use this packet shape first:
 
@@ -272,7 +289,8 @@ Expected first gate: focused W2 slot/advance coverage proving same-cycle live
 Promotion gate: R557 replay-loop fixture, R558
   `replay-ldi-sdi-ldi-ldi-loop`, R559
   `replay-ldi-sdi-ldi-sdi-ldi-loop`, R566
-  `replay-ldi-sdi-ldi-sdi-ldi-ldi-loop`, R560
+  `replay-ldi-sdi-ldi-sdi-ldi-ldi-loop`, R569 delay-4/delay-12
+  negative retention probes, R560
   `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561/R562/R563/R564/R565
   phase-distance, identity, and different-LSID near-miss sideband, or a stronger
   multiple-return-load phasing fixture through
@@ -287,8 +305,9 @@ Promotion gate: R557 replay-loop fixture, R558
   evidence in a stronger fixture before changing W2 storage; if overlap is
   zero, inspect the R563 identity buckets and R564 different-LSID buckets before
   treating phase gaps as replacement stimulus; R565 extends that negative check
-  back to the repeated dependency-chain fixture, and R566 extends it to the
-  clustered second-dependency fixture
+  back to the repeated dependency-chain fixture, R566 extends it to the
+  clustered second-dependency fixture, and R569 shows W2 delay-4/delay-12
+  residency alone does not make a younger W1 candidate resident
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
@@ -296,9 +315,9 @@ Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
   policy, or replay-LIQ lifecycle ownership before same-cycle replacement
   evidence exists
 First-divergence owner if the gate fails: fixture/stimulus until the sideband
-  report proves a W1 candidate exists while W2 is occupied and live clear fires;
-  only then move ownership to Chisel W2 slot replacement or W1/W2 advance
-  ordering
+  report proves a younger W1 candidate exists while W2 is occupied and live
+  clear fires; based on R569, look upstream of W1 advance before changing W2
+  storage or W1/W2 advance ordering
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```

@@ -171,6 +171,14 @@ clustered dependency fixture: `lret_w2_slot_occupied=30`, but
 `w2_slot_replace_same_cycle_eligible=0`, and `w2_advance_replace_on_clear=0`.
 This keeps `replaceOnClear` storage disabled until a separate stimulus proves a
 different-LSID W1 candidate overlaps W2 live clear.
+R569 extends that negative proof with delay-4 and delay-12 generated-RTL/QEMU
+runs. Both manifests pass with `compared_rows=18`, `mismatch_count=0`, and zero
+QEMU/DUT CBSTOP rows. Delay 12 raises W2 residency to
+`lret_w2_slot_occupied=78`, but W1 still never blocks behind occupied W2
+(`lret_w1_advance_blocked_by_advance_disabled=0`) and all same-cycle
+replacement counters remain zero. The next owner should create denser upstream
+return admission or E4 residency stimulus; changing `replaceOnClear` or W2
+storage policy remains blocked.
 
 ## Deferred Owners
 
