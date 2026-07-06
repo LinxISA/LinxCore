@@ -91,6 +91,7 @@ class DecodeRenameROBPathIO(
   val scalarRedirectValid = Input(Bool())
   val scalarRedirectStid = Input(UInt(stidWidth.W))
   val deallocReady = Input(Bool())
+  val deallocHoldMask = Input(UInt(p.robEntries.W))
 
   val decodedValidMask = Output(UInt(p.decodeWidth.W))
   val invalidOpcodeMask = Output(UInt(p.decodeWidth.W))
@@ -952,6 +953,7 @@ class DecodeRenameROBPath(
       tuRetirePath.io.sourceWindowReady &&
       markerRetireSerializer.io.sourceWindowReady &&
       !tuRetirePath.io.cleanupActive
+  allocator.io.deallocHoldMask := io.deallocHoldMask
   allocator.io.statusLookupValid := io.robStatusLookupValid
   allocator.io.statusLookupRid := io.robStatusLookupRid
   allocator.io.commitTraceLookupValid := io.robCommitTraceLookupValid

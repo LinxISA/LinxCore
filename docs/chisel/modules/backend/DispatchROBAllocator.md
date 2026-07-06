@@ -60,6 +60,10 @@ R321 forwards the read-only ROB row status lookup request and result between
 the backend path and `ROBEntryBank`. The allocator does not interpret the
 result; it only preserves the current ROB row image boundary for downstream
 LSU/IEX admission logic.
+R547 forwards `deallocHoldMask` to `ROBEntryBank` so top-level replay-return
+owners can keep retired load rows resident while a delayed LRET return still
+needs the current ROB row image for `IEX::setMemData`. The allocator does not
+generate the hold policy; it only preserves the ROB-bank boundary.
 
 This is still a bring-up bridge, not full dispatch, rename, or CMT. It exists
 to remove unit-test-only `ROBEntryBank.allocBid` fixtures and to make later
@@ -111,6 +115,7 @@ dispatch agents consume a real block owner.
 | input | `completeValid` / `completeRobValue` | mixed | valid | ROB completion path forwarded to `ROBEntryBank` |
 | input | `completeRowValid` / `completeRow` | mixed | with accepted completion | Optional execute/LSU completion payload forwarded to `ROBEntryBank`; when invalid, completion preserves the row stored by allocation/rename update |
 | input | `deallocReady` | `Bool` | ready | ROB deallocation-ready path forwarded to `ROBEntryBank` |
+| input | `deallocHoldMask` | `UInt(entries.W)` | policy | Per-ROB-slot deallocation hold mask forwarded unchanged to `ROBEntryBank` |
 | input | `statusLookupValid`, `statusLookupRid` | mixed | valid | Read-only native RID status query forwarded to `ROBEntryBank`. |
 | output | `statusLookup` | `ROBRowStatusLookupResult` | diagnostic/source | Current-row status lookup result forwarded without interpretation. |
 | input | `commitTraceLookupValid`, `commitTraceLookupRid`, `commitTraceLookupSourceTraceEnable` | mixed | valid/policy | Read-only native RID row-payload query forwarded to `ROBEntryBank`. |

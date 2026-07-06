@@ -287,14 +287,14 @@ object ROBEntryBankReference {
       out.toSeq
     }
 
-    def dealloc(ready: Boolean = true): Seq[Int] = {
+    def dealloc(ready: Boolean = true, hold: Set[Int] = Set.empty): Seq[Int] = {
       if (!ready) {
         return Seq.empty
       }
       val out = collection.mutable.ArrayBuffer.empty[Int]
       while (out.size < commitWidth) {
         table(deallocPtr) match {
-          case Some(entry) if entry.status == Retired =>
+          case Some(entry) if entry.status == Retired && !hold.contains(deallocPtr) =>
             out += deallocPtr
             table(deallocPtr) = None
             val (nextDeallocPtr, nextDeallocWrap) = advance(deallocPtr, deallocWrap)
@@ -473,6 +473,23 @@ class ROBEntryBankSpec extends AnyFunSuite {
 
     assert(rob.dealloc() == Seq(r0, r1))
     assert(rob.alloc(row(2)).nonEmpty)
+  }
+
+  test("reference dealloc hold mask keeps a retired load row visible until LRET drain") {
+    val rob = new Model(entries = 8, commitWidth = 2)
+    val r0 = rob.alloc(row(0)).get
+    val r1 = rob.alloc(row(1)).get
+    assert(rob.complete(r0))
+    assert(rob.complete(r1))
+    assert(rob.commit().map(_.rid) == Seq(0, 1))
+
+    assert(rob.dealloc(hold = Set(r0)).isEmpty)
+    assert(rob.statusAt(r0) == Retired)
+    assert(rob.statusAt(r1) == Retired)
+
+    assert(rob.dealloc() == Seq(r0, r1))
+    assert(rob.statusAt(r0) == Free)
+    assert(rob.statusAt(r1) == Free)
   }
 
   test("reference ignores completion for free and retired rows") {
@@ -701,6 +718,7 @@ class ROBEntryBankSpec extends AnyFunSuite {
 
     assert(sv.contains("module ROBEntryBank"))
     assert(sv.contains("io_deallocReady"))
+    assert(sv.contains("io_deallocHoldMask"))
     assert(sv.contains("io_allocBid"))
     assert(sv.contains("io_allocGid"))
     assert(sv.contains("io_allocRobWrap"))

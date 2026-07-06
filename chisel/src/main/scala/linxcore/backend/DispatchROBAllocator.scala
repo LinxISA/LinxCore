@@ -86,6 +86,7 @@ class DispatchROBAllocatorIO(
   val completeAccepted = Output(Bool())
   val completeIgnored = Output(Bool())
   val deallocReady = Input(Bool())
+  val deallocHoldMask = Input(UInt(entries.W))
 
   val blockScalarDoneValid = Input(Bool())
   val blockScalarDoneBid = Input(UInt(bidWidth.W))
@@ -282,6 +283,7 @@ class DispatchROBAllocator(
   rob.io.completeRowValid := io.completeRowValid
   rob.io.completeRow := io.completeRow
   rob.io.deallocReady := io.deallocReady
+  rob.io.deallocHoldMask := io.deallocHoldMask
   rob.io.statusLookupValid := io.statusLookupValid
   rob.io.statusLookupRid := io.statusLookupRid
   rob.io.commitTraceLookupValid := io.commitTraceLookupValid

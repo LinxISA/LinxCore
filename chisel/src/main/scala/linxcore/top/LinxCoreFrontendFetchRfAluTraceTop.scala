@@ -3446,22 +3446,6 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     archRegWidth = p.archRegWidth,
     physRegWidth = p.physRegWidth
   ))
-  reducedReplayLiqReturnLretSinkEntry.valid := reducedReplayLiqReturnLretPayload.io.payloadValid
-  reducedReplayLiqReturnLretSinkEntry.bid := reducedReplayLiqReturnLretPayload.io.payloadBid
-  reducedReplayLiqReturnLretSinkEntry.gid := reducedReplayLiqReturnLretPayload.io.payloadGid
-  reducedReplayLiqReturnLretSinkEntry.rid := reducedReplayLiqReturnLretPayload.io.payloadRid
-  reducedReplayLiqReturnLretSinkEntry.loadLsId := reducedReplayLiqReturnLretPayload.io.payloadLoadLsId
-  reducedReplayLiqReturnLretSinkEntry.pc := reducedReplayLiqReturnLretPayload.io.payloadPc
-  reducedReplayLiqReturnLretSinkEntry.addr := reducedReplayLiqReturnLretPayload.io.payloadAddr
-  reducedReplayLiqReturnLretSinkEntry.size := reducedReplayLiqReturnLretPayload.io.payloadSize
-  reducedReplayLiqReturnLretSinkEntry.dst := reducedReplayLiqReturnLretPayload.io.payloadDst
-  reducedReplayLiqReturnLretSinkEntry.data := reducedReplayLiqReturnLretPayload.io.payloadData
-  reducedReplayLiqReturnLretSinkEntry.pipeIndex := reducedReplayLiqReturnLretPayload.io.payloadPipeIndex
-  reducedReplayLiqReturnLretSinkEntry.specWakeup := reducedReplayLiqReturnLretPayload.io.payloadSpecWakeup
-  reducedReplayLiqReturnLretSinkEntry.stackValid := reducedReplayLiqReturnLretPayload.io.payloadStackValid
-  reducedReplayLiqReturnLretSink.io.flush := reducedStoreFlush
-  reducedReplayLiqReturnLretSink.io.enqueueValid := reducedReplayLiqReturnPublishRequest.io.lretRequest
-  reducedReplayLiqReturnLretSink.io.enqueue := reducedReplayLiqReturnLretSinkEntry
   LinxCoreFrontendFetchRfAluTraceTopR388IexPipeOccupancyLiveWiring.connect(
     live = reducedReplayLiqReturnIexPipeOccupancyLiveControl,
     occupancy = reducedReplayLiqReturnIexPipeOccupancy,
@@ -3473,24 +3457,19 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   )
   val reducedReplayLiqReturnIexPipeOccupiedMask =
     reducedReplayLiqReturnIexPipeOccupancy.io.pipeOccupiedMask
-  reducedReplayLiqReturnIexDrainPermit.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqReturnIexDrainPermit.io.flush := reducedStoreFlush
-  reducedReplayLiqReturnIexDrainPermit.io.sinkValid := reducedReplayLiqReturnLretSink.io.drainValid
-  reducedReplayLiqReturnIexDrainPermit.io.pipeOccupiedMask := reducedReplayLiqReturnIexPipeOccupiedMask
-  reducedReplayLiqReturnLretSink.io.drainReady := reducedReplayLiqReturnIexDrainPermit.io.drainReady
-  path.io.robStatusLookupValid :=
-    reducedLoadReplayLiqAllocEnabled && !reducedStoreFlush &&
-      reducedReplayLiqReturnLretSink.io.drainValid && reducedReplayLiqReturnLretSink.io.drain.valid
-  path.io.robStatusLookupRid := reducedReplayLiqReturnLretSink.io.drain.rid
-  val reducedReplayLiqReturnIexDataRobRowValid = path.io.robStatusLookup.rowValid
-  val reducedReplayLiqReturnIexDataRobRowNeedFlush = path.io.robStatusLookup.needFlush
-  reducedReplayLiqReturnIexDataCandidate.io.enable := reducedLoadReplayLiqAllocEnabled
-  reducedReplayLiqReturnIexDataCandidate.io.flush := reducedStoreFlush
-  reducedReplayLiqReturnIexDataCandidate.io.sinkValid := reducedReplayLiqReturnLretSink.io.drainValid
-  reducedReplayLiqReturnIexDataCandidate.io.drainReady := reducedReplayLiqReturnIexDrainPermit.io.drainReady
-  reducedReplayLiqReturnIexDataCandidate.io.entry := reducedReplayLiqReturnLretSink.io.drain
-  reducedReplayLiqReturnIexDataCandidate.io.robRowValid := reducedReplayLiqReturnIexDataRobRowValid
-  reducedReplayLiqReturnIexDataCandidate.io.robRowNeedFlush := reducedReplayLiqReturnIexDataRobRowNeedFlush
+  LinxCoreFrontendFetchRfAluTraceTopR547LretSetMemDataWiring.connect(
+    path = path,
+    liqPath = reducedLoadReplayLiqAllocPath,
+    payload = reducedReplayLiqReturnLretPayload,
+    sinkEntry = reducedReplayLiqReturnLretSinkEntry,
+    sink = reducedReplayLiqReturnLretSink,
+    drainPermit = reducedReplayLiqReturnIexDrainPermit,
+    iexData = reducedReplayLiqReturnIexDataCandidate,
+    pipeOccupiedMask = reducedReplayLiqReturnIexPipeOccupiedMask,
+    enqueueValid = reducedReplayLiqReturnPublishRequest.io.lretRequest,
+    enable = reducedLoadReplayLiqAllocEnabled,
+    flush = reducedStoreFlush,
+    entries = p.robEntries)
   reducedReplayLiqReturnRobResolveDataCandidate.io.enable := reducedLoadReplayLiqAllocEnabled
   reducedReplayLiqReturnRobResolveDataCandidate.io.flush := reducedStoreFlush
   reducedReplayLiqReturnRobResolveDataCandidate.io.setMemDataValid :=
@@ -4772,9 +4751,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   io.reducedLoadReplayLiqLretIexDataEnable :=
     reducedReplayLiqReturnIexDataCandidate.io.enable
   io.reducedLoadReplayLiqLretIexDataRobRowValid :=
-    reducedReplayLiqReturnIexDataRobRowValid
+    path.io.robStatusLookup.rowValid
   io.reducedLoadReplayLiqLretIexDataRobRowNeedFlush :=
-    reducedReplayLiqReturnIexDataRobRowNeedFlush
+    path.io.robStatusLookup.needFlush
   io.reducedLoadReplayLiqLretIexDataRobRowBlockedByInvalidRid :=
     path.io.robStatusLookup.blockedByInvalidRid
   io.reducedLoadReplayLiqLretIexDataRobRowBlockedByFree :=
@@ -5954,6 +5933,95 @@ private object LinxCoreFrontendFetchRfAluTraceTopR388IexPipeOccupancyLiveWiring 
     occupancy.io.flush := flush
     occupancy.io.liveRequested := live.io.liveRequested
     occupancy.io.livePipeOccupiedMask := live.io.livePipeOccupiedMask
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopR547LretSetMemDataWiring {
+  def connect(
+      path: DecodeRenameROBPath,
+      liqPath: ReducedLoadReplayLiqAllocPath,
+      payload: LoadReplayReturnLretPayload,
+      sinkEntry: LoadReplayReturnLretEntry,
+      sink: LoadReplayReturnLretSink,
+      drainPermit: LoadReplayReturnIexDrainPermit,
+      iexData: LoadReplayReturnIexDataCandidate,
+      pipeOccupiedMask: UInt,
+      enqueueValid: Bool,
+      enable: Bool,
+      flush: Bool,
+      entries: Int): Unit = {
+    sinkEntry.valid := payload.io.payloadValid
+    sinkEntry.bid := payload.io.payloadBid
+    sinkEntry.gid := payload.io.payloadGid
+    sinkEntry.rid := payload.io.payloadRid
+    sinkEntry.loadLsId := payload.io.payloadLoadLsId
+    sinkEntry.pc := payload.io.payloadPc
+    sinkEntry.addr := payload.io.payloadAddr
+    sinkEntry.size := payload.io.payloadSize
+    sinkEntry.dst := payload.io.payloadDst
+    sinkEntry.data := payload.io.payloadData
+    sinkEntry.pipeIndex := payload.io.payloadPipeIndex
+    sinkEntry.specWakeup := payload.io.payloadSpecWakeup
+    sinkEntry.stackValid := payload.io.payloadStackValid
+
+    sink.io.flush := flush
+    sink.io.enqueueValid := enqueueValid
+    sink.io.enqueue := sinkEntry
+
+    val drainHoldMask =
+      Mux(
+        sink.io.drainValid && sink.io.drain.valid && sink.io.drain.rid.valid,
+        UIntToOH(sink.io.drain.rid.value, entries),
+        0.U(entries.W))
+    val enqueueHoldMask =
+      Mux(
+        sink.io.enqueueAccepted && sinkEntry.rid.valid,
+        UIntToOH(sinkEntry.rid.value, entries),
+        0.U(entries.W))
+    val payloadCandidateHoldMask =
+      Mux(
+        payload.io.candidateValid && payload.io.selectedRid.valid,
+        UIntToOH(payload.io.selectedRid.value, entries),
+        0.U(entries.W))
+    val liqAllocHoldMask =
+      Mux(
+        liqPath.io.allocAccepted && liqPath.io.candidate.rid.valid,
+        UIntToOH(liqPath.io.candidate.rid.value, entries),
+        0.U(entries.W))
+    val drainClearMask =
+      Mux(
+        sink.io.drainFire && sink.io.drain.rid.valid,
+        UIntToOH(sink.io.drain.rid.value, entries),
+        0.U(entries.W))
+    val outstandingHoldMask = RegInit(0.U(entries.W))
+    when(flush || !enable) {
+      outstandingHoldMask := 0.U
+    }.otherwise {
+      outstandingHoldMask := (outstandingHoldMask | liqAllocHoldMask) & ~drainClearMask
+    }
+
+    path.io.deallocHoldMask :=
+      Mux(
+        enable && !flush,
+        outstandingHoldMask | liqAllocHoldMask | drainHoldMask | enqueueHoldMask | payloadCandidateHoldMask,
+        0.U(entries.W))
+
+    drainPermit.io.enable := enable
+    drainPermit.io.flush := flush
+    drainPermit.io.sinkValid := sink.io.drainValid
+    drainPermit.io.pipeOccupiedMask := pipeOccupiedMask
+    sink.io.drainReady := drainPermit.io.drainReady
+
+    path.io.robStatusLookupValid := enable && !flush && sink.io.drainValid && sink.io.drain.valid
+    path.io.robStatusLookupRid := sink.io.drain.rid
+
+    iexData.io.enable := enable
+    iexData.io.flush := flush
+    iexData.io.sinkValid := sink.io.drainValid
+    iexData.io.drainReady := drainPermit.io.drainReady
+    iexData.io.entry := sink.io.drain
+    iexData.io.robRowValid := path.io.robStatusLookup.rowValid
+    iexData.io.robRowNeedFlush := path.io.robStatusLookup.needFlush
   }
 }
 

@@ -105,6 +105,11 @@ R373 adds the parallel read-only commit-trace row lookup. The path forwards
 `DispatchROBAllocator` to `ROBEntryBank` and returns provider-shaped row
 metadata without changing decode, rename, ROB allocation, completion, commit,
 or deallocation behavior.
+R547 adds the `deallocHoldMask` forwarding path through
+`DispatchROBAllocator` to `ROBEntryBank`. The path does not own the hold
+policy; the reduced replay-LIQ top drives it from outstanding returned-load
+RIDs so a delayed LRET return can still reach the model-equivalent
+`IEX::setMemData` ROB row image.
 R290 also exports the selected `StoreDispatchSTQPath` `STQStoreRequest` payload
 beside the existing insert-valid/accepted/index diagnostics. The reduced
 replay-LIQ top consumes the accepted request as the MDB store-arrival probe,
@@ -296,6 +301,8 @@ Inputs:
   used when a live owner replaces the allocation/rename placeholder row before
   commit.
 - `deallocReady`: reduced ROB deallocation hook.
+- `deallocHoldMask`: per-ROB-slot hold mask that blocks retired-row
+  deallocation while an external owner still needs the current row image.
 
 Outputs:
 

@@ -80,6 +80,7 @@ class ROBEntryBankIO(
   val completeIgnored = Output(Bool())
 
   val deallocReady = Input(Bool())
+  val deallocHoldMask = Input(UInt(entries.W))
 
   val commit = Output(new CommitTracePort(traceParams))
   val commitMemoryOrder = Output(Vec(traceParams.commitWidth, new ROBMemoryOrderCommit(entries, lsidWidth)))
@@ -446,7 +447,8 @@ class ROBEntryBank(
     val priorSlotsContinue =
       if (slot == 0) true.B else deallocContinueVec(slot - 1)
     deallocFireVec(slot) :=
-      !flushApplied && io.deallocReady && priorSlotsContinue && rows(idx).valid && ROBEntryStatus.canDealloc(status(idx))
+      !flushApplied && io.deallocReady && priorSlotsContinue && !io.deallocHoldMask(idx) &&
+        rows(idx).valid && ROBEntryStatus.canDealloc(status(idx))
     deallocMarkerWindowStopVec(slot) := deallocFireVec(slot) && (rowMarkerBoundary(idx) || rowMarkerStop(idx))
     deallocContinueVec(slot) := deallocFireVec(slot) &&
       !rowIsLast(idx) && !rowMarkerBoundary(idx) && !rowMarkerStop(idx)

@@ -89,11 +89,15 @@ that miss as a free-slot miss, not an invalid RID or stale epoch:
 correlates that free-slot miss with prior load commit history:
 `lret_commit_history_load_rows=6`, `lret_shadow_drain=3`,
 `lret_shadow_drain_missing=0`, `lret_shadow_drain_after_prior_commit=3`, and
-`lret_shadow_free_after_prior_commit=3`. A future repair must keep the returned
-LRET RID's committed load ROB row visible until the delayed FIFO drain reaches
-`IEX::setMemData`, or provide a model-backed alternate row-state owner, before
-enabling `rob_next.resolveData`, pipe residency, RF/writeback, ready-table, or
-W2 replay-row side effects.
+`lret_shadow_free_after_prior_commit=3`. R547 adds a ROB deallocation hold mask
+and drives it from the replay-LIQ allocation-to-LRET-drain lifetime, keeping the
+returned LRET RID's committed load row visible until the delayed FIFO drain
+reaches `IEX::setMemData`. The replay-loop fixture now records
+`lret_iex_data_rob_row_valid=3`, `lret_iex_data_set_mem_data_valid=3`,
+`lret_iex_data_rob_row_blocked_by_free=0`, and
+`lret_shadow_free_after_prior_commit=0`; downstream `rob_next.resolveData`,
+lane/TLOAD/final-metadata, insert, and residency candidates are live. The next
+owner is W2 atomic request/evidence production, not row-status lookup.
 
 ## Deferred Owners
 
@@ -101,8 +105,7 @@ W2 replay-row side effects.
 - Scalar load-pair lane accounting and vector/MEM_IEX request completion.
 - Ready-table update, issue wakeup, and RF writeback side effects.
 - Return-pipe E4 residency.
-- LRET RID pending-return holdoff against ROB deallocation after load commit and
-  before FIFO drain reaches setMemData.
+- W2 atomic request/evidence production from the returned-load residency path.
 
 ## Verification
 

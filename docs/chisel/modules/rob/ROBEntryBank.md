@@ -88,6 +88,12 @@ the matched resident `CommitTraceRow`. It uses the same native RID/epoch match
 discipline as the status lookup, suppresses providers for `NeedFlush` rows,
 and is forwarded through the backend path for replay-W2 commit-row trace
 source wiring.
+R547 adds `deallocHoldMask` to the deallocation walk. A set bit keeps a retired
+row resident even when `deallocReady` is high, so a delayed replay-LIQ LRET
+return can still observe the committed load row at the model-equivalent
+`IEX::setMemData` boundary. The hold only gates deallocation; it does not
+change allocation, completion, commit ordering, flush pruning, or row-status
+lookup semantics.
 
 `ReducedCommitROB` remains the reduced trace harness. Do not retrofit full
 deallocation or recovery semantics into that module.
@@ -130,6 +136,7 @@ deallocation or recovery semantics into that module.
 | output | `completeAccepted` | `Bool` | diagnostic | High when completion updates an allocated/renamed/issued/completed row |
 | output | `completeIgnored` | `Bool` | diagnostic | High when completion targets a free, retired, fault, or need-flush row |
 | input | `deallocReady` | `Bool` | yes | Allows the deallocation walk to release retired rows this cycle |
+| input | `deallocHoldMask` | `UInt(entries.W)` | policy | Per-ROB-slot hold mask; held retired rows remain resident and stop the contiguous deallocation walk |
 | output | `commit` | `CommitTracePort` | fixed-width valid rows | Contiguous completed head rows, slot-labeled and zeroed when invalid |
 | output | `commitMemoryOrder` | `Vec(commitWidth, ROBMemoryOrderCommit)` | slot `valid` | ROB retire-bus sidecar for each committed slot: native `(bid,gid,rid)`, `lsId`, and load/store classification |
 | output | `commitValidMask` | `UInt(commitWidth.W)` | diagnostic | Valid row mask for the commit window |
@@ -287,13 +294,22 @@ For each fired slot, `commitMemoryOrder(slot)` publishes the same native
 Invalid commit slots publish a zeroed sidecar.
 
 Deallocation scans from `deallocValue` for at most `commitWidth` slots when
-`deallocReady` is high. It frees only contiguous valid `Retired` rows and
-stops after the first row whose stored `rowIsLast` sidecar is true, matching
+`deallocReady` is high. It frees only contiguous valid `Retired` rows whose
+slot is not set in `deallocHoldMask`, and stops after the first held row or
+the first row whose stored `rowIsLast` sidecar is true, matching
 `SPEROB::dealloc()` breaking after `CommitLast(uop)`. Freed rows have their
 payloads and native/TU sidecars cleared, are marked `Free`, advance
 `deallocValue`, and decrement `size`. A row committed in the current cycle is
 not deallocated until a later cycle because the deallocation walk observes the
 pre-cycle status array.
+
+R547 drives this hold from the reduced replay-LIQ top: outstanding load RIDs
+are held from LIQ allocation until the corresponding LRET FIFO drain reaches
+`IEX::setMemData`. The replay fixture records
+`lret_iex_data_rob_row_valid=3`, `lret_iex_data_set_mem_data_valid=3`,
+`lret_iex_data_rob_row_blocked_by_free=0`, and
+`lret_shadow_free_after_prior_commit=0`, proving the hold fixes the R545/R546
+free-row miss without changing the QEMU/DUT architectural compare.
 
 For every slot that the deallocation walk will free in the current cycle,
 `deallocTURetireSource(slot)` exposes the pre-clear row image:

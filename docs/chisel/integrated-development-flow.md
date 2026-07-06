@@ -15,47 +15,49 @@ the change still works across repos.
 
 ## Current Handoff
 
-The next Chisel packet should start from the R546 replay-return evidence, not
+The next Chisel packet should start from the R547 replay-return evidence, not
 from another broad CoreMark scan. The reduced frontend/rename/scalar
 execute/ROB/block-marker/store/STQ/SCB path is mature enough for the current
 reduced top, and the generated-RTL/QEMU comparator infrastructure is producing
 usable manifests. The active blocker is narrower: replay-LIQ source-returned
 rows now publish LRET payloads and drain the FIFO, and the post-FIFO
-`LoadReplayReturnIexDataCandidate` is formed, but the ROB row-status lookup
-reports the returned LRET RID's slot as free. The R546 v20 sideband evidence is
-`lret_shadow_free_after_prior_commit=3` and
-`lret_iex_data_rob_row_blocked_by_free=3`, with zero shadow-drain misses. This
-proves the returned LRET RID had already appeared in committed load rows before
-the FIFO drain saw a free ROB slot, so the next owner is ROB deallocation
-holdoff or pending-return lifetime for the returned LRET RID rather than
-identity encoding, epoch mismatch, FIFO drain, or IEX pipe capacity.
+`LoadReplayReturnIexDataCandidate` now reaches model-equivalent
+`IEX::setMemData` admission. R547 holds ROB deallocation for outstanding
+replay-LIQ load RIDs from LIQ allocation until LRET FIFO drain, so the replay
+fixture records `lret_iex_data_rob_row_valid=3`,
+`lret_iex_data_set_mem_data_valid=3`,
+`lret_iex_data_rob_row_blocked_by_free=0`, and
+`lret_shadow_free_after_prior_commit=0`. The next owner is no longer ROB
+row-status lifetime; it is the post-insert return-pipe/W2 request path, because
+resolve, lane, TLOAD, final metadata, IEX insert, and residency candidates are
+all nonzero while `w2_atomic_request_active=0` and
+`w2_atomic_evidence_valid=0`.
 
 Use this packet shape first:
 
 ```text
-Packet: replay-LIQ LRET ROB deallocation holdoff
+Packet: replay-LIQ LRET W2 atomic request evidence
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
-Files allowed: ROBRowStatusLookup, ROBEntryBank, DispatchROBAllocator,
-  DecodeRenameROBPath, LoadReplayReturnLretPayload/Sink identity wiring,
-  LoadReplayReturnIexDataCandidate, focused ROB/dealloc specs, module docs, and
-  sideband validator updates only if new evidence fields are required
-Source evidence: LinxCoreModel IEX::receiveFromLSU, IEX::setMemData,
-  ROBState::operator[], ROBState::resolveData, LDQInfo::returnData
-Expected first gate: focused ROB dealloc/pending-return coverage proving a
-  committed load row with pending LRET setMemData cannot deallocate before FIFO
-  drain, or a model-backed alternate owner for recreating setMemData row state
-Promotion gate: R546 replay-loop fixture through
+Files allowed: LoadReplayReturnPipeResidency*, W1/W2 replay-return pipe
+  modules, W2 atomic request/prereq/evidence wiring, focused W2 specs, module
+  docs, and sideband validator updates only if new evidence fields are required
+Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
+  handling after returned-load pipe insertion
+Expected first gate: focused return-pipe/W2 request coverage proving a
+  residency candidate can promote into W2 request evidence without enabling
+  unrelated RF/writeback or ready-table side effects
+Promotion gate: R547 replay-loop fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v20 sideband
-  inspection requiring either nonzero lret_iex_data_set_mem_data_valid or
-  removal of the current lret_shadow_free_after_prior_commit evidence
+  inspection requiring nonzero setMemData, IEX insert, residency, and the
+  newly repaired W2 request/evidence counter
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
-  ROB row-status provenance reaches setMemData admission
-Do not change: LRET FIFO capacity, publish fanout, return-data extraction,
-  drain, residency, lane/TLOAD/final metadata, or W2 policy before the ROB
-  row-status lookup produces valid setMemData evidence
-First-divergence owner if the gate fails: Chisel ROB deallocation/pending-return
-  lifetime for the returned LRET RID unless the v20 sideband report misreports
-  generated signals
+  W2 request evidence is live in the reduced replay-loop fixture
+Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
+  holdoff, lane/TLOAD/final metadata, or commit-row compare policy before W2
+  request evidence exists
+First-divergence owner if the gate fails: Chisel return-pipe residency/W2
+  atomic request gating unless the v20 sideband report misreports generated
+  signals
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```
@@ -177,17 +179,16 @@ Closeout evidence:
 Current example:
 
 ```text
-Packet: replay-LIQ LRET ROB deallocation holdoff
+Packet: replay-LIQ LRET W2 atomic request evidence
 Owner lane: rtl/LinxCore/chisel
-Files allowed: ROBRowStatusLookup, ROBEntryBank, DispatchROBAllocator,
-  DecodeRenameROBPath, LRET identity payload/sink wiring, focused specs,
-  module docs
-Source evidence: LinxCoreModel IEX::receiveFromLSU and IEX::setMemData
-Expected first gate: focused ROB dealloc/pending-return lifetime coverage
-Promotion gate: R546 replay-loop generated-RTL/QEMU fixture plus v20 sideband
-Do not run: long CoreMark or marker-row scaling before setMemData admission
-First-divergence owner if the gate fails: Chisel ROB deallocation/pending-return
-  lifetime for the returned LRET RID unless v20 sideband reporting is wrong
+Files allowed: return-pipe residency, W1/W2 replay-return modules, W2 request
+  evidence wiring, focused specs, module docs
+Source evidence: LinxCoreModel IEX::setMemData and load-return W2 handling
+Expected first gate: focused W2 request/evidence coverage
+Promotion gate: R547 replay-loop generated-RTL/QEMU fixture plus v20 sideband
+Do not run: long CoreMark or marker-row scaling before W2 request evidence
+First-divergence owner if the gate fails: Chisel return-pipe residency/W2
+  atomic request gating unless v20 sideband reporting is wrong
 Closeout evidence: unit log, xcheck manifest, sideband counters, module doc
   row, skill-evolve decision
 ```

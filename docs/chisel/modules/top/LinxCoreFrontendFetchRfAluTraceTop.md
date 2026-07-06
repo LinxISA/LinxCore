@@ -2810,6 +2810,23 @@ is after prior load commit/deallocation, not an untracked FIFO payload or
 invalid/stale RID classification. The next owner is therefore ROB deallocation
 holdoff or pending-return lifetime for the returned LRET RID before
 `IEX::setMemData`.
+R547 adds a ROB deallocation hold through the reduced replay-LIQ allocation to
+LRET-drain lifetime and drives it from the top helper that owns LRET sink and
+setMemData wiring. The replay-loop fixture still passes the QEMU/DUT comparator
+with 9 compared rows, zero mismatches, and zero CBSTOP rows. The sideband report
+now records `lret_iex_data_rob_row_valid=3`,
+`lret_iex_data_set_mem_data_valid=3`,
+`lret_iex_data_rob_row_blocked_by_free=0`,
+`lret_iex_data_blocked_by_rob_missing=0`, and
+`lret_shadow_free_after_prior_commit=0`. Downstream returned-load candidates
+are live through `lret_rob_resolve_candidate_valid=3`,
+`lret_rob_resolve_valid=3`, `lret_lane_completion_candidate_valid=3`,
+`lret_tload_completion_candidate_valid=3`,
+`lret_final_metadata_candidate_valid=3`,
+`lret_iex_insert_candidate_valid=3`, and
+`lret_residency_candidate_valid=3`. The remaining live blocker is W2 atomic
+request/evidence production: `w2_atomic_request_active=0` and
+`w2_atomic_evidence_valid=0`.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the
