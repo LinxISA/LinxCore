@@ -636,6 +636,16 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_commit_row_candidate_blocked_by_invalid_size = 0;
   std::uint64_t w2_commit_row_candidate_blocked_by_non_gpr_destination = 0;
   std::uint64_t w2_commit_row_candidate_blocked_by_row_fill_disabled = 0;
+  std::uint64_t w2_retire_record_commit_row_candidate_valid = 0;
+  std::uint64_t w2_retire_record_commit_row_fill_candidate = 0;
+  std::uint64_t w2_retire_record_commit_row_complete_candidate = 0;
+  std::uint64_t w2_retire_record_commit_row_candidate_blocked = 0;
+  std::uint64_t w2_retire_record_commit_row_candidate_blocked_by_no_record = 0;
+  std::uint64_t w2_retire_record_commit_row_candidate_blocked_by_no_metadata = 0;
+  std::uint64_t w2_retire_record_commit_row_candidate_blocked_by_no_source_trace = 0;
+  std::uint64_t w2_retire_record_commit_row_candidate_blocked_by_invalid_size = 0;
+  std::uint64_t w2_retire_record_commit_row_candidate_blocked_by_non_gpr_destination = 0;
+  std::uint64_t w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled = 0;
   std::uint64_t w2_row_fill_candidate_valid = 0;
   std::uint64_t w2_row_fill_prerequisites_ready = 0;
   std::uint64_t w2_row_fill_enable = 0;
@@ -2273,6 +2283,36 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2CommitRowCandidateBlockedByRowFillDisabled) {
     ++g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_row_fill_disabled;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateRowFillValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_commit_row_fill_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateCompleteRowValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_commit_row_complete_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateBlocked) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateBlockedByNoRecord) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_no_record;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateBlockedByNoMetadata) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_no_metadata;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateBlockedByNoSourceTrace) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_no_source_trace;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateBlockedByInvalidSize) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_invalid_size;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateBlockedByNonGprDestination) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_non_gpr_destination;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCommitRowCandidateBlockedByRowFillDisabled) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlCandidateValid) {
     ++g_replay_liq_sideband_stats.w2_row_fill_candidate_valid;
   }
@@ -2553,7 +2593,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v32\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v33\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -3441,6 +3481,26 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_non_gpr_destination << ",\n"
       << "    \"w2_commit_row_candidate_blocked_by_row_fill_disabled\": "
       << g_replay_liq_sideband_stats.w2_commit_row_candidate_blocked_by_row_fill_disabled << ",\n"
+      << "    \"w2_retire_record_commit_row_candidate_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_valid << ",\n"
+      << "    \"w2_retire_record_commit_row_fill_candidate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_commit_row_fill_candidate << ",\n"
+      << "    \"w2_retire_record_commit_row_complete_candidate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_commit_row_complete_candidate << ",\n"
+      << "    \"w2_retire_record_commit_row_candidate_blocked\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked << ",\n"
+      << "    \"w2_retire_record_commit_row_candidate_blocked_by_no_record\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_no_record << ",\n"
+      << "    \"w2_retire_record_commit_row_candidate_blocked_by_no_metadata\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_no_metadata << ",\n"
+      << "    \"w2_retire_record_commit_row_candidate_blocked_by_no_source_trace\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_no_source_trace << ",\n"
+      << "    \"w2_retire_record_commit_row_candidate_blocked_by_invalid_size\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_invalid_size << ",\n"
+      << "    \"w2_retire_record_commit_row_candidate_blocked_by_non_gpr_destination\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_non_gpr_destination << ",\n"
+      << "    \"w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled << ",\n"
       << "    \"w2_row_fill_candidate_valid\": "
       << g_replay_liq_sideband_stats.w2_row_fill_candidate_valid << ",\n"
       << "    \"w2_row_fill_prerequisites_ready\": "

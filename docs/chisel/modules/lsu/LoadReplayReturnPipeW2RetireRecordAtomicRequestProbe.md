@@ -9,6 +9,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecord.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CommitRowCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordCommitRowCandidate.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RowFillEnableControl.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-RETIRE-RECORD-ATOMIC-REQUEST-PROBE-001`
 
@@ -32,7 +33,7 @@ LIQ clear, ROB resolve, RF writeback, ready-table wakeup, or W2 clear/refill.
 | input | `enable` / `flush` | Reduced replay-LIQ arm and flush suppression. |
 | input | `retireRecordValid` | The explicit W2 retire record is retained. |
 | input | `lifecycleRowClearReady` | The retained record matches exactly one resolved LIQ row. |
-| input | `rowFillCandidateValid` | Existing physical-W2 commit-row candidate is valid. |
+| input | `rowFillCandidateValid` | Commit-row candidate valid bit being checked against retained request evidence. R582 used physical-W2 evidence; R583 top wiring uses retained-record candidate evidence. |
 | input | `rowFillEnable` | Existing physical-W2 row-fill enable is live. |
 | output | `requestEvidenceValid` | Retained record plus unique lifecycle row are both present. |
 | output | `rowFillCandidateAligned` | Retained request evidence also sees an existing row-fill candidate. |
@@ -74,9 +75,23 @@ physical-W2 atomic request generation. It is a retained-record commit-row or
 row-fill candidate source that can align with the retained record after the
 physical W2 slot has cleared.
 
+R583 adds that retained-record candidate source and feeds it into this probe's
+`rowFillCandidateValid` input. The gate at
+`generated/r583-replay-retire-record-commit-row-candidate-xcheck` still records
+`w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate=3`, now
+because the retained-record commit-row candidate is blocked by missing retained
+instruction metadata:
+
+- `w2_retire_record_commit_row_candidate_valid=3`
+- `w2_retire_record_commit_row_fill_candidate=0`
+- `w2_retire_record_commit_row_candidate_blocked_by_no_metadata=3`
+
+The next owner is retained-record instruction metadata lifetime, not row-fill
+enable.
+
 ## Deferred Owners
 
-- Retained-record commit-row or row-fill candidate source.
+- Retained-record instruction metadata lifetime for the commit-row candidate.
 - Retained-record row-fill enable and lifecycle clear request after candidate
   alignment is proven.
 - LIQ mutation and architectural side effects from the retained-record path.

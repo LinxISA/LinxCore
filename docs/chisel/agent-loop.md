@@ -125,6 +125,24 @@ physical-W2 row-fill activity does not align with the retained record after
 W2 clears, so the next owner is a retained-record commit-row or row-fill
 candidate source.
 
+R583 adds `LoadReplayReturnPipeW2RetireRecordCommitRowCandidate` as that
+retained-record candidate source. The module wraps the existing physical-W2
+commit-row candidate logic and maps the retained `LoadReplayReturnLretEntry`
+into the same row shape while top-level diagnostics keep `rowFillEnable=false`.
+The generated RTL/QEMU gate
+`generated/r583-replay-retire-record-commit-row-candidate-xcheck` passes with
+manifest `status="pass"`, `comparator_status=0`, `compared_rows=18`,
+`mismatch_count=0`, and zero QEMU/DUT CBSTOP rows. Sideband schema v33 records
+`w2_retire_record_commit_row_candidate_valid=3`,
+`w2_retire_record_commit_row_fill_candidate=0`,
+`w2_retire_record_commit_row_candidate_blocked_by_no_metadata=3`,
+`w2_retire_record_commit_row_candidate_blocked_by_no_source_trace=0`,
+`w2_retire_record_commit_row_candidate_blocked_by_invalid_size=0`, and
+`w2_retire_record_commit_row_candidate_blocked_by_non_gpr_destination=0`.
+The next owner is retained-record instruction metadata lifetime; do not enable
+retained row-fill, LIQ clear, or architectural side effects until the retained
+candidate forms a nonzero row-fill candidate.
+
 ## Current Baseline
 
 Record these SHAs at the start of each agent packet and refresh them if the

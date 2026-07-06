@@ -470,6 +470,18 @@ missing-row-fill-candidate blockers. The next packet should build a
 retained-record commit-row or row-fill candidate source before retrying live
 request or row-fill enable promotion.
 
+R583 builds that retained-record commit-row candidate source with
+`LoadReplayReturnPipeW2RetireRecordCommitRowCandidate`, a wrapper over the
+physical-W2 commit-row candidate that consumes the retained LRET record and
+retained instruction metadata inputs. The generated RTL/QEMU gate
+`generated/r583-replay-retire-record-commit-row-candidate-xcheck` passes with
+`status="pass"`, `compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT
+CBSTOP rows. Sideband schema v33 records three retained-record candidate-valid
+cycles, zero retained row-fill candidates, and three missing retained
+instruction-metadata blockers. The next packet should fix retained-record
+instruction metadata lifetime before any retained row-fill enable or LIQ clear
+promotion.
+
 Use this packet shape first:
 
 ```text

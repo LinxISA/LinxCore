@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v32"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v33"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -453,6 +453,16 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_commit_row_candidate_blocked_by_invalid_size",
     "w2_commit_row_candidate_blocked_by_non_gpr_destination",
     "w2_commit_row_candidate_blocked_by_row_fill_disabled",
+    "w2_retire_record_commit_row_candidate_valid",
+    "w2_retire_record_commit_row_fill_candidate",
+    "w2_retire_record_commit_row_complete_candidate",
+    "w2_retire_record_commit_row_candidate_blocked",
+    "w2_retire_record_commit_row_candidate_blocked_by_no_record",
+    "w2_retire_record_commit_row_candidate_blocked_by_no_metadata",
+    "w2_retire_record_commit_row_candidate_blocked_by_no_source_trace",
+    "w2_retire_record_commit_row_candidate_blocked_by_invalid_size",
+    "w2_retire_record_commit_row_candidate_blocked_by_non_gpr_destination",
+    "w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled",
     "w2_row_fill_candidate_valid",
     "w2_row_fill_prerequisites_ready",
     "w2_row_fill_enable",
