@@ -343,6 +343,26 @@ only after W2 has cleared:
 `lret_drain_permit_pipe_full_after_enqueue_accepted_w2=0`. The next owner is
 therefore W2 hold/live-clear phasing relative to accepted LRET enqueue and
 registered FIFO visibility, not LRET drain capacity.
+R574 keeps RTL behavior unchanged and adds schema v27 same-cycle clear
+classification for those accepted W2 LRET enqueues. The same early-STA delay-12
+gate, `generated/r574-replay-lret-clear-followup-classifier-xcheck`, passes with
+`status="pass"`, `compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT
+CBSTOP rows. The classifier proves every accepted enqueue that overlaps W2 also
+coincides with W2 completion clear, clear intent, side-effect fire-complete, and
+live clear:
+`lret_sink_enqueue_accepted_w2_completion_clear_slot=3`,
+`lret_sink_enqueue_accepted_w2_clear_intent=3`,
+`lret_sink_enqueue_accepted_w2_side_effect_fire_complete=3`, and
+`lret_sink_enqueue_accepted_w2_live_clear=3`. The one-cycle follow-up buckets
+then all observe W2 cleared:
+`lret_sink_followup_after_enqueue_completion_clear_slot_w2_cleared=3`,
+`lret_sink_followup_after_enqueue_clear_intent_w2_cleared=3`,
+`lret_sink_followup_after_enqueue_side_effect_fire_complete_w2_cleared=3`, and
+`lret_sink_followup_after_enqueue_live_clear_w2_cleared=3`, while the registered
+FIFO entry is pending, drain-valid, drain-fired, and drain-permit-ready. The
+next owner is therefore a deliberate W2-clear hold/retire phasing experiment or
+model-derived W2 side-effect retire boundary, not LRET sink capacity,
+publish-control readiness, or W2 slot storage replacement.
 
 Use this packet shape first:
 
@@ -386,8 +406,10 @@ Promotion gate: R557 replay-loop fixture, R558
   while W2 is occupied even under delay 12 plus early STA, R571 narrows the
   current gap to the publish-to-LRET-sink / LRET-drain / IEX-pipe-capacity
   boundary, R572 proves publish-control fire plus LRET enqueue acceptance
-  already overlap W2 while sink pending/drain still do not, and R573 proves the
-  accepted entry drains on the next cycle after W2 has already cleared
+  already overlap W2 while sink pending/drain still do not, R573 proves the
+  accepted entry drains on the next cycle after W2 has already cleared, and R574
+  proves those accepted enqueues coincide with W2 completion clear, clear
+  intent, fire-complete, and live clear in the previous cycle
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
@@ -396,9 +418,10 @@ Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
   evidence exists
 First-divergence owner if the gate fails: fixture/stimulus until the sideband
   report proves LRET sink pending/drain and then a younger W1 candidate exists
-  while W2 is occupied and live clear fires; based on R573, start at W2
-  hold/live-clear phasing relative to accepted LRET enqueue and registered FIFO
-  visibility before changing W2 storage or W1/W2 advance ordering
+  while W2 is occupied and live clear fires; based on R574, start at a
+  default-off W2-clear hold/retire phasing experiment or model-derived W2
+  side-effect retire boundary before changing W2 storage or W1/W2 advance
+  ordering
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```

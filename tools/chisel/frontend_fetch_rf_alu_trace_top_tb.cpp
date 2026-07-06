@@ -379,9 +379,21 @@ struct ReplayLiqSidebandStats {
   std::uint64_t lret_sink_enqueue_accepted_same_cycle_drain_fire = 0;
   std::uint64_t lret_sink_enqueue_accepted_same_cycle_drain_fire_w2_occupied = 0;
   std::uint64_t lret_sink_enqueue_accepted_w2_without_drain_fire = 0;
+  std::uint64_t lret_sink_enqueue_accepted_w2_completion_clear_slot = 0;
+  std::uint64_t lret_sink_enqueue_accepted_w2_clear_intent = 0;
+  std::uint64_t lret_sink_enqueue_accepted_w2_side_effect_fire_complete = 0;
+  std::uint64_t lret_sink_enqueue_accepted_w2_live_clear = 0;
   std::uint64_t lret_sink_followup_after_enqueue_accepted_w2 = 0;
   std::uint64_t lret_sink_followup_w2_still_occupied = 0;
   std::uint64_t lret_sink_followup_w2_cleared = 0;
+  std::uint64_t lret_sink_followup_after_enqueue_completion_clear_slot = 0;
+  std::uint64_t lret_sink_followup_after_enqueue_completion_clear_slot_w2_cleared = 0;
+  std::uint64_t lret_sink_followup_after_enqueue_clear_intent = 0;
+  std::uint64_t lret_sink_followup_after_enqueue_clear_intent_w2_cleared = 0;
+  std::uint64_t lret_sink_followup_after_enqueue_side_effect_fire_complete = 0;
+  std::uint64_t lret_sink_followup_after_enqueue_side_effect_fire_complete_w2_cleared = 0;
+  std::uint64_t lret_sink_followup_after_enqueue_live_clear = 0;
+  std::uint64_t lret_sink_followup_after_enqueue_live_clear_w2_cleared = 0;
   std::uint64_t lret_sink_pending_after_enqueue_accepted_w2 = 0;
   std::uint64_t lret_sink_drain_valid_after_enqueue_accepted_w2 = 0;
   std::uint64_t lret_sink_drain_fire_after_enqueue_accepted_w2 = 0;
@@ -816,13 +828,49 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   const bool load_lookup_execute_with_addr_ready_not_data_ready =
       load_lookup_execute_granted && stq_addr_ready_not_data_ready;
   const bool w2_slot_occupied = dut.io_reducedLoadReplayLiqLretPipeW2SlotOccupied;
+  const bool w2_completion_clear_slot =
+      dut.io_reducedLoadReplayLiqLretPipeW2CompletionClearSlot;
+  const bool w2_clear_intent =
+      dut.io_reducedLoadReplayLiqLretPipeW2ClearIntentClearIntent;
+  const bool w2_side_effect_fire_complete =
+      dut.io_reducedLoadReplayLiqLretPipeW2SideEffectFireCompleteFireComplete;
+  const bool w2_live_clear =
+      dut.io_reducedLoadReplayLiqLretPipeW2ClearIntentLiveClear;
   static bool previous_lret_sink_enqueue_accepted_w2 = false;
+  static bool previous_lret_sink_enqueue_w2_completion_clear_slot = false;
+  static bool previous_lret_sink_enqueue_w2_clear_intent = false;
+  static bool previous_lret_sink_enqueue_w2_side_effect_fire_complete = false;
+  static bool previous_lret_sink_enqueue_w2_live_clear = false;
   if (previous_lret_sink_enqueue_accepted_w2) {
     ++g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_accepted_w2;
     if (w2_slot_occupied) {
       ++g_replay_liq_sideband_stats.lret_sink_followup_w2_still_occupied;
     } else {
       ++g_replay_liq_sideband_stats.lret_sink_followup_w2_cleared;
+    }
+    if (previous_lret_sink_enqueue_w2_completion_clear_slot) {
+      ++g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_completion_clear_slot;
+      if (!w2_slot_occupied) {
+        ++g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_completion_clear_slot_w2_cleared;
+      }
+    }
+    if (previous_lret_sink_enqueue_w2_clear_intent) {
+      ++g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_clear_intent;
+      if (!w2_slot_occupied) {
+        ++g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_clear_intent_w2_cleared;
+      }
+    }
+    if (previous_lret_sink_enqueue_w2_side_effect_fire_complete) {
+      ++g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_side_effect_fire_complete;
+      if (!w2_slot_occupied) {
+        ++g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_side_effect_fire_complete_w2_cleared;
+      }
+    }
+    if (previous_lret_sink_enqueue_w2_live_clear) {
+      ++g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_live_clear;
+      if (!w2_slot_occupied) {
+        ++g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_live_clear_w2_cleared;
+      }
     }
     if (dut.io_reducedLoadReplayLiqLretSinkPending) {
       ++g_replay_liq_sideband_stats.lret_sink_pending_after_enqueue_accepted_w2;
@@ -1416,8 +1464,36 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
       !dut.io_reducedLoadReplayLiqLretSinkDrainFire) {
     ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_without_drain_fire;
   }
+  if (w2_slot_occupied &&
+      dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted &&
+      w2_completion_clear_slot) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_completion_clear_slot;
+  }
+  if (w2_slot_occupied &&
+      dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted &&
+      w2_clear_intent) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_clear_intent;
+  }
+  if (w2_slot_occupied &&
+      dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted &&
+      w2_side_effect_fire_complete) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_side_effect_fire_complete;
+  }
+  if (w2_slot_occupied &&
+      dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted &&
+      w2_live_clear) {
+    ++g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_live_clear;
+  }
   previous_lret_sink_enqueue_accepted_w2 =
       w2_slot_occupied && dut.io_reducedLoadReplayLiqLretSinkEnqueueAccepted;
+  previous_lret_sink_enqueue_w2_completion_clear_slot =
+      previous_lret_sink_enqueue_accepted_w2 && w2_completion_clear_slot;
+  previous_lret_sink_enqueue_w2_clear_intent =
+      previous_lret_sink_enqueue_accepted_w2 && w2_clear_intent;
+  previous_lret_sink_enqueue_w2_side_effect_fire_complete =
+      previous_lret_sink_enqueue_accepted_w2 && w2_side_effect_fire_complete;
+  previous_lret_sink_enqueue_w2_live_clear =
+      previous_lret_sink_enqueue_accepted_w2 && w2_live_clear;
   if (dut.io_reducedLoadReplayLiqLretSinkPending) {
     ++g_replay_liq_sideband_stats.lret_sink_pending;
   }
@@ -1867,10 +1943,6 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   const bool w1_advance_candidate =
       dut.io_reducedLoadReplayLiqLretPipeW1AdvanceCandidateValid;
   const bool w1_advance_valid = dut.io_reducedLoadReplayLiqLretPipeW1AdvanceValid;
-  const bool w2_clear_intent =
-      dut.io_reducedLoadReplayLiqLretPipeW2ClearIntentClearIntent;
-  const bool w2_live_clear =
-      dut.io_reducedLoadReplayLiqLretPipeW2ClearIntentLiveClear;
   if (w2_slot_occupied && dut.io_reducedLoadReplayLiqLretIexPipeInsertCandidateValid) {
     ++g_replay_liq_sideband_stats.lret_iex_insert_candidate_w2_occupied;
   }
@@ -2345,7 +2417,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v26\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v27\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -2719,12 +2791,36 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_same_cycle_drain_fire_w2_occupied << ",\n"
       << "    \"lret_sink_enqueue_accepted_w2_without_drain_fire\": "
       << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_without_drain_fire << ",\n"
+      << "    \"lret_sink_enqueue_accepted_w2_completion_clear_slot\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_completion_clear_slot << ",\n"
+      << "    \"lret_sink_enqueue_accepted_w2_clear_intent\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_clear_intent << ",\n"
+      << "    \"lret_sink_enqueue_accepted_w2_side_effect_fire_complete\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_side_effect_fire_complete << ",\n"
+      << "    \"lret_sink_enqueue_accepted_w2_live_clear\": "
+      << g_replay_liq_sideband_stats.lret_sink_enqueue_accepted_w2_live_clear << ",\n"
       << "    \"lret_sink_followup_after_enqueue_accepted_w2\": "
       << g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_accepted_w2 << ",\n"
       << "    \"lret_sink_followup_w2_still_occupied\": "
       << g_replay_liq_sideband_stats.lret_sink_followup_w2_still_occupied << ",\n"
       << "    \"lret_sink_followup_w2_cleared\": "
       << g_replay_liq_sideband_stats.lret_sink_followup_w2_cleared << ",\n"
+      << "    \"lret_sink_followup_after_enqueue_completion_clear_slot\": "
+      << g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_completion_clear_slot << ",\n"
+      << "    \"lret_sink_followup_after_enqueue_completion_clear_slot_w2_cleared\": "
+      << g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_completion_clear_slot_w2_cleared << ",\n"
+      << "    \"lret_sink_followup_after_enqueue_clear_intent\": "
+      << g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_clear_intent << ",\n"
+      << "    \"lret_sink_followup_after_enqueue_clear_intent_w2_cleared\": "
+      << g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_clear_intent_w2_cleared << ",\n"
+      << "    \"lret_sink_followup_after_enqueue_side_effect_fire_complete\": "
+      << g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_side_effect_fire_complete << ",\n"
+      << "    \"lret_sink_followup_after_enqueue_side_effect_fire_complete_w2_cleared\": "
+      << g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_side_effect_fire_complete_w2_cleared << ",\n"
+      << "    \"lret_sink_followup_after_enqueue_live_clear\": "
+      << g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_live_clear << ",\n"
+      << "    \"lret_sink_followup_after_enqueue_live_clear_w2_cleared\": "
+      << g_replay_liq_sideband_stats.lret_sink_followup_after_enqueue_live_clear_w2_cleared << ",\n"
       << "    \"lret_sink_pending_after_enqueue_accepted_w2\": "
       << g_replay_liq_sideband_stats.lret_sink_pending_after_enqueue_accepted_w2 << ",\n"
       << "    \"lret_sink_drain_valid_after_enqueue_accepted_w2\": "

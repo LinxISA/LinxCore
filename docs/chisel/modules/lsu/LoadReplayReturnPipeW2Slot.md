@@ -219,6 +219,19 @@ already cleared (`lret_sink_followup_w2_cleared=3`,
 `lret_sink_followup_w2_still_occupied=0`). W2 storage replacement remains
 blocked; the next owner is W2 hold/live-clear phasing relative to accepted LRET
 enqueue and registered FIFO visibility.
+R574 adds same-cycle clear classification for those accepted W2 LRET enqueues
+and keeps slot RTL unchanged. The delay-12 early-STA gate records that all three
+accepted enqueues while W2 is occupied also coincide with
+`completionClearSlot`, `clearIntent`, side-effect fire-complete, and live clear
+(`lret_sink_enqueue_accepted_w2_completion_clear_slot=3`,
+`lret_sink_enqueue_accepted_w2_clear_intent=3`,
+`lret_sink_enqueue_accepted_w2_side_effect_fire_complete=3`,
+`lret_sink_enqueue_accepted_w2_live_clear=3`). The next-cycle follow-up then
+always observes W2 cleared, including after the live-clear-qualified enqueue
+(`lret_sink_followup_after_enqueue_live_clear_w2_cleared=3`). W2 storage
+replacement remains blocked; the next owner is an explicit W2 clear/retire
+phasing experiment or model-derived side-effect retire boundary, not
+`replaceOnClear`.
 
 ## Deferred Owners
 

@@ -10,13 +10,16 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
 
-The current priority is replay-LIQ row data and valid-mask completion after
-source-return mutation. R542 proves that source-returned `Repick` rows reach
-the complete-repick selector, but `dataComplete`, request-byte completion,
-return candidate, and selected-return masks remain zero before
-`LoadReplayReturnDataExtract`. Wider CoreMark scaling, marker-row promotion,
-publish/LRET/W2 work, and unrelated LSU expansion should wait until that narrow
-row-mutation gap is closed.
+The current priority is replay-LIQ LRET/W2 clear phasing. R571-R574 prove that
+source return, return publish, LRET payload, publish-control fire, and LRET
+enqueue acceptance can all overlap occupied W2, and that the registered LRET FIFO
+entry becomes pending/drain-valid/drain-fired with drain permit ready on the
+following cycle. R574 also proves those accepted W2-overlap enqueues coincide
+with W2 completion clear, clear intent, side-effect fire-complete, and live
+clear, so the follow-up necessarily observes W2 already cleared. The next packet
+should design a default-off W2 clear/retire phasing experiment or model-derived
+W2 side-effect retire boundary before changing W2 storage replacement, W1/W2
+advance ordering, or LRET FIFO capacity.
 
 ## Packet Start Baseline
 

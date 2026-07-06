@@ -71,6 +71,15 @@ follow-up sample (`lret_sink_followup_w2_cleared=3`,
 `lret_sink_followup_w2_still_occupied=0`). The sink and permit are not the live
 capacity blocker on this fixture; the next owner is W2 hold/live-clear phasing
 relative to this registered FIFO visibility.
+R574 adds clear-classification buckets and proves the same accepted W2-overlap
+enqueues coincide with W2 completion clear, clear intent, side-effect
+fire-complete, and live clear (`lret_sink_enqueue_accepted_w2_clear_intent=3`,
+`lret_sink_enqueue_accepted_w2_live_clear=3`). The next-cycle follow-up shows
+the registered FIFO entry is pending/drain-valid/drain-fired with permit ready,
+but after W2 has already cleared even when the prior accepted enqueue carried
+live-clear evidence (`lret_sink_followup_after_enqueue_live_clear_w2_cleared=3`).
+The sink is therefore behaving as a registered FIFO boundary; the next live
+owner is W2 clear/retire phasing, not FIFO capacity or drain permit.
 
 ## Interface
 
@@ -136,8 +145,9 @@ ready-table update, issue wakeup, and replay-row lifecycle owners exist.
 ## Deferred Owners
 
 - Real IEX return-pipe free-capacity input and `IEX::setMemData` mutation.
-- Generated-RTL/QEMU proof that W2 remains occupied through the cycle after
-  accepted LRET enqueue, when the registered FIFO entry is pending/draining.
+- Default-off W2 clear/retire phasing experiment or model-derived W2 retire
+  boundary that keeps W2 occupied through the cycle after accepted LRET enqueue,
+  when the registered FIFO entry is pending/draining.
 - Feeding accepted LRET enqueue back into replay-row clear/return lifecycle.
 - Multi-pipe LRET queue fanout and arbitration.
 - Ready-table and issue-wakeup side effects after LRET enqueue.
