@@ -411,6 +411,20 @@ capture for the same overlap (`w2_retire_record_capture_accepted=3`,
 `w2_retire_record_blocked_by_full=0`). The next owner can now consume this
 record in replay-row lifecycle or LRET-drain identity logic instead of reviving
 the R575 physical W2 hold as final architecture.
+R578 wires that consume boundary diagnostically by feeding the retained record
+into a second `LoadReplayReturnPipeW2ReplayRowLifecycleReady` instance with
+`lifecycleClearEnable=false`. The generated RTL/QEMU gate
+`generated/r578-replay-w2-retire-record-lifecycle-xcheck` passes with
+`status="pass"`, `compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT
+CBSTOP rows. Sideband schema v29 records exactly three retire-record lifecycle
+matches and no missing/duplicate row blockers:
+`w2_retire_record_lifecycle_candidate_valid=3`,
+`w2_retire_record_lifecycle_resolved_row_match=3`,
+`w2_retire_record_lifecycle_row_clear_ready=3`,
+`w2_retire_record_lifecycle_blocked_by_no_resolved_row=0`, and
+`w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`. The expected
+`w2_retire_record_lifecycle_blocked_by_clear_disabled=3` keeps the path
+diagnostic until a later packet promotes a live lifecycle request.
 
 Use this packet shape first:
 

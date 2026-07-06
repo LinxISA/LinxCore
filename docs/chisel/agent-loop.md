@@ -53,6 +53,20 @@ registered LRET-drain identity logic. Do not re-enable the R575 physical W2
 hold as final architecture unless a later consumer proves the explicit record
 cannot carry the required identity.
 
+R578 wires that first retire-record consumer as diagnostic only: a second
+`LoadReplayReturnPipeW2ReplayRowLifecycleReady` instance matches
+`retireRecord.io.record` against resolved LIQ rows while leaving lifecycle
+clear disabled. The proof point is
+`generated/r578-replay-w2-retire-record-lifecycle-xcheck` with manifest
+`status="pass"`, `compared_rows=18`, and `mismatch_count=0`; sideband schema
+v29 shows `w2_retire_record_lifecycle_resolved_row_match=3`,
+`w2_retire_record_lifecycle_row_clear_ready=3`,
+`w2_retire_record_lifecycle_blocked_by_no_resolved_row=0`, and
+`w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`. The next
+packet should promote this matched record toward a live lifecycle clear/consume
+request only after preserving atomic row-fill, ROB resolve, side-effect, and
+LIQ clear ordering.
+
 ## Current Baseline
 
 Record these SHAs at the start of each agent packet and refresh them if the

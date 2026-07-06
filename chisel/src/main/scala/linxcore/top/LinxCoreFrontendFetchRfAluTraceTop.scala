@@ -1258,6 +1258,13 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByNoResolvedRow = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByMultipleResolvedRows = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByLifecycleClearDisabled = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleCandidateValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleSlotIdentityValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleResolvedRowMatch = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleRowClearReady = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleBlockedByNoResolvedRow = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleBlockedByMultipleResolvedRows = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleBlockedByLifecycleClearDisabled = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable = Output(Bool())
@@ -2162,6 +2169,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   val reducedReplayLiqReturnPipeW2CommitRowTraceSource =
     Module(new LoadReplayReturnPipeW2CommitRowTraceSource(traceParams = traceParams))
   val reducedReplayLiqReturnPipeW2ReplayRowLifecycleReady =
+    Module(new LoadReplayReturnPipeW2ReplayRowLifecycleReady(
+      liqEntries = p.robEntries,
+      idEntries = p.robEntries,
+      storeEntries = p.robEntries,
+      addrWidth = p.immWidth,
+      pcWidth = p.pcWidth,
+      lineBytes = 64,
+      sizeWidth = p.memSizeWidth,
+      archRegWidth = p.archRegWidth,
+      physRegWidth = p.physRegWidth
+    ))
+  val reducedReplayLiqReturnPipeW2RetireRecordLifecycleReady =
     Module(new LoadReplayReturnPipeW2ReplayRowLifecycleReady(
       liqEntries = p.robEntries,
       idEntries = p.robEntries,
@@ -4094,6 +4113,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2ClearIntent,
     reducedReplayLiqReturnLretSink,
     reducedReplayLiqReturnLretSinkEntry,
+    reducedLoadReplayLiqAllocEnabled,
+    reducedStoreFlush
+  )
+  LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleReadyWiring.connect(
+    io,
+    reducedReplayLiqReturnPipeW2RetireRecordLifecycleReady,
+    reducedReplayLiqReturnPipeW2RetireRecord,
+    reducedLoadReplayLiqAllocPath,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -7913,6 +7940,41 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordWiring {
       retireRecord.io.blockedByInvalidPayload
     io.reducedLoadReplayLiqLretPipeW2RetireRecordBlockedByFull :=
       retireRecord.io.blockedByFull
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleReadyWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      lifecycle: LoadReplayReturnPipeW2ReplayRowLifecycleReady,
+      retireRecord: LoadReplayReturnPipeW2RetireRecord,
+      liq: ReducedLoadReplayLiqAllocPath,
+      enable: Bool,
+      flush: Bool): Unit = {
+    lifecycle.io.enable := enable
+    lifecycle.io.flush := flush
+    lifecycle.io.lifecycleClearEnable := false.B
+    lifecycle.io.slotOccupied := retireRecord.io.recordValid
+    lifecycle.io.slotBid := retireRecord.io.record.bid
+    lifecycle.io.slotGid := retireRecord.io.record.gid
+    lifecycle.io.slotRid := retireRecord.io.record.rid
+    lifecycle.io.slotLoadLsId := retireRecord.io.record.loadLsId
+    lifecycle.io.rows := liq.io.rows
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleCandidateValid :=
+      lifecycle.io.candidateValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleSlotIdentityValid :=
+      lifecycle.io.slotIdentityValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleResolvedRowMatch :=
+      lifecycle.io.resolvedRowMatch
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleRowClearReady :=
+      lifecycle.io.rowClearReady
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleBlockedByNoResolvedRow :=
+      lifecycle.io.blockedByNoResolvedRow
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleBlockedByMultipleResolvedRows :=
+      lifecycle.io.blockedByMultipleResolvedRows
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleBlockedByLifecycleClearDisabled :=
+      lifecycle.io.blockedByLifecycleClearDisabled
   }
 }
 

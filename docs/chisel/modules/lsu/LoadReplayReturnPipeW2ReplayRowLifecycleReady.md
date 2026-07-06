@@ -133,12 +133,30 @@ resolved-row lifetime; it is the live W2 side-effect commit/clear path that
 still decides when row-fill and lifecycle clear may commit architectural
 effects.
 
+R578 reuses this owner as a diagnostic matcher for the explicit
+`LoadReplayReturnPipeW2RetireRecord` payload. A second instance is wired from
+`retireRecord.io.record` instead of the physical W2 slot and keeps
+`lifecycleClearEnable=false`; it does not feed row-fill, clear-request, or live
+LIQ mutation. The generated RTL/QEMU gate
+`generated/r578-replay-w2-retire-record-lifecycle-xcheck` passes with
+`status="pass"`, `compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT
+CBSTOP rows. Sideband schema v29 proves the retained record identity matches
+exactly one resolved replay row for each captured overlap:
+`w2_retire_record_lifecycle_candidate_valid=3`,
+`w2_retire_record_lifecycle_slot_identity_valid=3`,
+`w2_retire_record_lifecycle_resolved_row_match=3`,
+`w2_retire_record_lifecycle_row_clear_ready=3`,
+`w2_retire_record_lifecycle_blocked_by_no_resolved_row=0`, and
+`w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`.
+`w2_retire_record_lifecycle_blocked_by_clear_disabled=3` is expected because
+the R578 path is diagnostic only.
+
 ## Deferred Owners
 
 - Broaden the selected returned-load LIQ row match beyond the current
   reduced-loop proof window.
-- Live replay-row lifecycle clear/consume path for that selected LIQ row in
-  the default top.
+- Live replay-row lifecycle clear/consume path for that selected LIQ row,
+  using the retire record when the physical W2 slot has already cleared.
 - Atomic promotion that feeds `clearResolvedValid/index`, W2 clear/refill,
   replay RF writeback, ROB/PE resolve, ready-table wakeup, and commit-row fill
   from one coherent W2 instruction.
