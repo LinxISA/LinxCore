@@ -123,9 +123,11 @@ w2_retire_record_rob_fallback_complete_valid=0
 w2_side_effect_fire_complete=5
 ```
 
-The active owner moves to retained LIQ lifecycle clear and wakeup duplicate
-classification. Do not enable retained RF writeback while this fixture still
-shows physical W2 writeback already owns the same RID/tag/data.
+R589 follows this packet by adding retained wakeup duplicate classification.
+After R589, the active owner moves to retained LIQ lifecycle clear ordering or
+a no-physical side-effect stimulus. Do not enable retained RF writeback while
+this fixture still shows physical W2 writeback already owns the same
+RID/tag/data.
 
 ## Verification
 

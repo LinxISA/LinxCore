@@ -214,6 +214,22 @@ therefore also a duplicate in the current fixture; the next owner is retained
 LIQ clear or wakeup duplicate classification before any retained side effect is
 enabled.
 
+R589 adds `LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard` for the
+remaining returned-load wakeup side effect. The guard mirrors the model
+`LDQInfo::returnData` to `IEX::setMemWakeup` condition by considering retained
+wakeup valid only when the retained record is non-speculative, non-stack, and
+has a real destination. It then compares retained RID, reduced-GPR wakeup
+class, and destination physical tag against the physical W2 wakeup fire payload.
+The generated RTL/QEMU gate
+`generated/r589-replay-retire-record-wakeup-fallback-guard-xcheck` passes with
+18 compared rows and zero mismatches. Sideband schema v39 records
+`w2_retire_record_wakeup_fallback_capture_physical_wakeup=5`,
+`w2_retire_record_wakeup_fallback_candidate=5`,
+`w2_retire_record_wakeup_fallback_duplicate_physical_wakeup=5`, and
+`w2_retire_record_wakeup_fallback_wakeup_valid=0`. Retained wakeup and LIQ
+lifecycle clear must remain disabled until a no-physical-wakeup stimulus or a
+model-derived retained side-effect ordering proof exists.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -230,6 +246,9 @@ enabled.
 - Retained RF fallback promotion after R588 proves a non-duplicate
   no-physical-writeback stimulus; keep fallback writeback disabled while
   physical W2 writeback already covers the same RID/tag/data.
+- Retained wakeup fallback promotion after R589 proves a non-duplicate
+  no-physical-wakeup stimulus; keep fallback wakeup disabled while physical W2
+  wakeup already covers the same RID/tag payload.
 
 ## Verification
 
