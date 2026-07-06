@@ -29,8 +29,9 @@ wakeup, W2 clear, and W1-to-W2 refill are one resident-instruction boundary.
 R363 removes the two remaining top-local request tie-offs and drives both
 `LoadReplayReturnPipeW2SideEffectLiveControl.liveRequested` and
 `LoadReplayReturnPipeW2PromotionControl.promotionRequested` from this owner. The
-owner's `requestEnable` input is still tied false in the reduced top, so the
-packet centralizes authority without enabling live replay mutation.
+R530 moves the top-level instance under
+`LoadReplayReturnPipeW2AtomicRequestGate`; this module remains the child that
+fans a single request into side-effect live control and promotion control.
 
 ## Interface
 
@@ -38,7 +39,7 @@ packet centralizes authority without enabling live replay mutation.
 |---|---|---|
 | input | `enable` | Replay-LIQ returned-load pipe wrapper is active. |
 | input | `flush` | Suppresses live W2 request generation during reduced-store flush. |
-| input | `requestEnable` | Future top-level mode gate for atomic W2 live side effects and promotion. Current top ties this false. |
+| input | `requestEnable` | Atomic W2 live side-effect and promotion request gate. In the reduced top, R530 drives it through `LoadReplayReturnPipeW2AtomicRequestGate.gatedRequestEnable`, which remains false. |
 | input | `sideEffectCandidateValid` | Resident W2 entry can require side-effect sinks. |
 | input | `sideEffectRequiredMask` | `{wakeupRequired, writebackRequired, resolveRequired}` evidence from the W2 completion classifier. |
 | input | `clearIntent` | R351 proof that the resident W2 entry would be clear-eligible. Used only as evidence. |
@@ -73,10 +74,13 @@ owners still decide whether a requested mode can produce live enables.
 
 ## Integration
 
-`LinxCoreFrontendFetchRfAluTraceTop` wires this module after R351 clear-intent
-evidence and before R356 promotion control:
+`LinxCoreFrontendFetchRfAluTraceTop` now reaches this owner through
+`LoadReplayReturnPipeW2AtomicRequestGate`:
 
-- `requestEnable` remains `false.B`;
+- `requestEnable` is `liveModeEnable && policyRequestEnableCandidate`;
+- `liveModeEnable` remains `false.B`;
+- raw clear/refill request evidence can still reach this owner while policy
+  prerequisites remain tied off in the reduced top;
 - `sideEffectLiveRequested` feeds R357 side-effect live control;
 - `promotionRequested` feeds R356 promotion control;
 - compact diagnostics are exposed under

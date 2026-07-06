@@ -4,7 +4,7 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AtomicRequestGate.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplayReturnPipeW2AtomicRequestGateSpec.scala`
-- Future integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
+- Integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/iex/pipe/lda_pipe.cpp`: `LDAPipe::runW2`, `LDAPipe::move`
   - `model/LinxCoreModel/model/iex/pipe/agu_pipe.cpp`: `AGUPipe::runW2`, `AGUPipe::move`
@@ -21,8 +21,9 @@
 
 `LoadReplayReturnPipeW2AtomicRequestGate` is the module-local boundary between
 the R527/R528 pre-request policy and the R363 atomic live-request owner. It is
-not wired into the reduced top yet. The goal is to make the future
-`requestEnable` replacement reviewable before adding more logic to the
+wired into the reduced top after R530, but with live mode and policy
+prerequisites held dormant. The goal is to make the future `requestEnable`
+replacement reviewable without adding scattered policy logic to the
 constructor-sensitive top.
 
 LinxCoreModel's returned-load W2 behavior is one resident-instruction boundary:
@@ -46,10 +47,11 @@ dormant unless both conditions are true:
 | input | `rowFillCandidateValid` | Complete commit-row replacement candidate. |
 | input | `lifecycleRowClearReady` | Unique replay LIQ row selected for lifecycle clear. |
 | input | `writeCandidateValid` | W1-to-W2 refill candidate. |
+| input | `requestClearIntent` / `requestWriteCandidateValid` | Raw request-evidence inputs forwarded only to the atomic live-request owner. These may stay connected when policy prerequisites are dormant. |
 | output | `policyRequestEnableCandidate` | Raw pre-request policy candidate. |
 | output | `gatedRequestEnable` | `liveModeEnable && policyRequestEnableCandidate`; this feeds the live-request owner inside the composite. |
 | output | live-request outputs | `requestActive`, `requestEvidenceValid`, `sideEffectLiveRequested`, and `promotionRequested`. |
-| output | policy blockers | Mode-disabled, policy-blocked, missing evidence, missing sink, missing clear, missing row fill, missing lifecycle row, missing side-effect mask, and malformed resident evidence. |
+| output | policy blockers | Disabled, flush, mode-disabled, policy-blocked, missing evidence, missing sink, missing clear, missing row fill, missing lifecycle row, missing side-effect mask, and malformed resident evidence. |
 | output | `invalidRequestWithoutEvidence` | Defensive assertion-style diagnostic from the live-request owner after policy gating. |
 
 ## Logic Design
@@ -70,13 +72,21 @@ The composite deliberately does not use post-request signals such as
 `rowFillEnable`. Those signals are effects of asserting the atomic request and
 would create an enable loop if they were prerequisites.
 
+R530 splits raw request evidence from policy prerequisites. The live-request
+owner may still report clear/refill evidence while the policy arm is held
+dormant, but policy readiness must not consume clear, row-fill, lifecycle, or
+sink-ready signals from the current top until those signals are proven
+pre-request. In the current reduced top, feeding them into policy creates a
+cycle through live side-effect enables, so they remain tied false at the top
+integration boundary.
+
 ## Integration
 
-R529 keeps this module unintegrated. A future top packet can replace the
-current `LoadReplayReturnPipeW2AtomicLiveRequestControl` instance and
-`requestEnable=false` tie-off with this composite, while still feeding
-`gatedRequestEnable=false` through `liveModeEnable=false` until the generated-RTL
-gate proves the full side-effect/clear/row-fill/lifecycle chain.
+R529 keeps this module unintegrated. R530 replaces the current
+`LoadReplayReturnPipeW2AtomicLiveRequestControl` instance and `requestEnable=false`
+tie-off with this composite, while still feeding `gatedRequestEnable=false`
+through `liveModeEnable=false` and tied-off policy prerequisites until the
+generated-RTL gate proves the full side-effect/clear/row-fill/lifecycle chain.
 
 Because `LinxCoreFrontendFetchRfAluTraceTop` is near the JVM constructor method
 size limit, this composite is intended as a constructor-containment boundary:
@@ -85,10 +95,9 @@ request, and diagnostic logic across multiple helpers.
 
 ## Deferred Owners
 
-- Top-level replacement of the R363 direct atomic live-request instance with
-  this composite.
 - Generated-RTL proof that `liveModeEnable=false` preserves the dormant reduced
   path after integration.
+- True pre-request top-level policy prerequisite producers.
 - Later generated-RTL proof with `liveModeEnable=true` once W2 side-effect
   sinks, clear, row fill, and replay-row lifecycle mutation all commit
   atomically.
@@ -107,4 +116,5 @@ git diff --check
 
 Reference tests cover a fully enabled live request, policy-approved request
 blocked by disabled live mode, policy-blocked live mode, malformed resident
-evidence before request issue, and Chisel elaboration of both child owners.
+evidence before request issue, raw request evidence with dormant policy
+prerequisites, and Chisel elaboration of both child owners.

@@ -12,6 +12,8 @@ object LoadReplayReturnPipeW2AtomicRequestGateReference {
       requestEvidenceValid: Boolean,
       sideEffectLiveRequested: Boolean,
       promotionRequested: Boolean,
+      blockedByDisabled: Boolean,
+      blockedByFlush: Boolean,
       blockedByModeDisabled: Boolean,
       blockedByPolicy: Boolean,
       blockedByPolicyNoEvidence: Boolean,
@@ -37,7 +39,9 @@ object LoadReplayReturnPipeW2AtomicRequestGateReference {
       clearCommitReady: Boolean,
       rowFillCandidateValid: Boolean,
       lifecycleRowClearReady: Boolean,
-      writeCandidateValid: Boolean): Result = {
+      writeCandidateValid: Boolean,
+      requestClearIntent: Boolean,
+      requestWriteCandidateValid: Boolean): Result = {
     val policy = LoadReplayReturnPipeW2AtomicRequestEnablePolicyReference(
       enable = enable,
       flush = flush,
@@ -57,8 +61,8 @@ object LoadReplayReturnPipeW2AtomicRequestGateReference {
       requestEnable = gatedRequestEnable,
       sideEffectCandidateValid = sideEffectCandidateValid,
       sideEffectRequiredMask = sideEffectRequiredMask,
-      clearIntent = clearIntent,
-      writeCandidateValid = writeCandidateValid)
+      clearIntent = requestClearIntent,
+      writeCandidateValid = requestWriteCandidateValid)
 
     Result(
       active = policy.active,
@@ -68,6 +72,8 @@ object LoadReplayReturnPipeW2AtomicRequestGateReference {
       requestEvidenceValid = request.requestEvidenceValid,
       sideEffectLiveRequested = request.sideEffectLiveRequested,
       promotionRequested = request.promotionRequested,
+      blockedByDisabled = policy.blockedByDisabled,
+      blockedByFlush = policy.blockedByFlush,
       blockedByModeDisabled = policy.requestEnableCandidate && !liveModeEnable,
       blockedByPolicy = liveModeEnable && !policy.requestEnableCandidate,
       blockedByPolicyNoEvidence = policy.blockedByNoEvidence,
@@ -99,7 +105,9 @@ class LoadReplayReturnPipeW2AtomicRequestGateSpec extends AnyFunSuite {
       clearCommitReady = true,
       rowFillCandidateValid = true,
       lifecycleRowClearReady = true,
-      writeCandidateValid = true)
+      writeCandidateValid = true,
+      requestClearIntent = true,
+      requestWriteCandidateValid = true)
 
     assert(result.active)
     assert(result.policyRequestEnableCandidate)
@@ -125,7 +133,9 @@ class LoadReplayReturnPipeW2AtomicRequestGateSpec extends AnyFunSuite {
       clearCommitReady = false,
       rowFillCandidateValid = false,
       lifecycleRowClearReady = false,
-      writeCandidateValid = true)
+      writeCandidateValid = true,
+      requestClearIntent = false,
+      requestWriteCandidateValid = true)
 
     assert(result.policyRequestEnableCandidate)
     assert(!result.gatedRequestEnable)
@@ -147,7 +157,9 @@ class LoadReplayReturnPipeW2AtomicRequestGateSpec extends AnyFunSuite {
       clearCommitReady = true,
       rowFillCandidateValid = true,
       lifecycleRowClearReady = true,
-      writeCandidateValid = false)
+      writeCandidateValid = false,
+      requestClearIntent = true,
+      requestWriteCandidateValid = false)
 
     assert(!result.policyRequestEnableCandidate)
     assert(!result.gatedRequestEnable)
@@ -170,7 +182,9 @@ class LoadReplayReturnPipeW2AtomicRequestGateSpec extends AnyFunSuite {
       clearCommitReady = true,
       rowFillCandidateValid = true,
       lifecycleRowClearReady = true,
-      writeCandidateValid = false)
+      writeCandidateValid = false,
+      requestClearIntent = true,
+      requestWriteCandidateValid = false)
 
     assert(result.blockedByPolicy)
     assert(result.blockedByPolicyNoEvidence)
@@ -178,6 +192,30 @@ class LoadReplayReturnPipeW2AtomicRequestGateSpec extends AnyFunSuite {
     assert(result.invalidClearWithoutSlot)
     assert(result.invalidRowFillWithoutSlot)
     assert(!result.gatedRequestEnable)
+  }
+
+  test("keeps raw request evidence visible when policy prerequisites are tied dormant") {
+    val result = LoadReplayReturnPipeW2AtomicRequestGateReference(
+      enable = true,
+      flush = false,
+      liveModeEnable = false,
+      slotOccupied = true,
+      sideEffectCandidateValid = false,
+      sideEffectRequiredMask = 0x0,
+      sideEffectSinksReady = false,
+      clearIntent = false,
+      clearCommitReady = false,
+      rowFillCandidateValid = false,
+      lifecycleRowClearReady = false,
+      writeCandidateValid = false,
+      requestClearIntent = true,
+      requestWriteCandidateValid = true)
+
+    assert(!result.policyRequestEnableCandidate)
+    assert(!result.gatedRequestEnable)
+    assert(!result.requestActive)
+    assert(result.requestEvidenceValid)
+    assert(!result.invalidRequestWithoutEvidence)
   }
 
   test("Chisel LoadReplayReturnPipeW2AtomicRequestGate elaborates the composite boundary") {

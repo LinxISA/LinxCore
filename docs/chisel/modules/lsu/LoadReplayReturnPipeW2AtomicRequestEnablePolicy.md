@@ -4,7 +4,7 @@
 
 - Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2AtomicRequestEnablePolicy.scala`
 - Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplayReturnPipeW2AtomicRequestEnablePolicySpec.scala`
-- Future integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala`
+- Integrated user: `rtl/LinxCore/chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchRfAluTraceTop.scala` through `LoadReplayReturnPipeW2AtomicRequestGate`
 - LinxCoreModel evidence:
   - `model/LinxCoreModel/model/iex/pipe/lda_pipe.cpp`: `LDAPipe::runW2`, `LDAPipe::move`
   - `model/LinxCoreModel/model/iex/pipe/agu_pipe.cpp`: `AGUPipe::runW2`, `AGUPipe::move`
@@ -58,7 +58,7 @@ and would form a circular enable condition.
 | input | `writeCandidateValid` | W1-to-W2 refill candidate exists. |
 | output | `residentRequestEnableCandidate` | Future request-enable candidate for an occupied W2 slot. |
 | output | `emptyRefillRequestEnableCandidate` | Future request-enable candidate for refill into an empty W2 slot. |
-| output | `requestEnableCandidate` | Combined policy candidate. This packet does not wire it into the top. |
+| output | `requestEnableCandidate` | Combined policy candidate. R530 wires this only through `LoadReplayReturnPipeW2AtomicRequestGate`; the reduced top still keeps policy prerequisites dormant. |
 | output | blocker signals | Disabled, flush, no evidence, missing sink readiness, missing clear commit, missing row fill, and missing lifecycle-row diagnostics. |
 | output | invalid-input signals | Side-effect, clear, and row-fill evidence observed without a resident W2 slot, plus occupied-slot side-effect evidence with an empty required-sink mask. |
 
@@ -108,11 +108,21 @@ from a true idle slot.
 
 ## Integration
 
-R527 keeps this module unintegrated in `LinxCoreFrontendFetchRfAluTraceTop`.
-That preserves the R363 dormant live path while giving the next integration
-packet a concrete request-enable contract to review against. A future top-level
-packet should connect this policy only if it can prove the following wiring
-does not create a combinational loop:
+R530 integrates this module as the policy child of
+`LoadReplayReturnPipeW2AtomicRequestGate` in
+`LinxCoreFrontendFetchRfAluTraceTop`. The top still passes
+`liveModeEnable=false.B`, and it ties the policy prerequisites false until
+their producers are proven pre-request. This preserves the R363 dormant live
+path while replacing the direct atomic live-request instance with the composite
+request-gate boundary.
+
+The first R530 top wiring attempt fed current top clear, side-effect readiness,
+row-fill, and lifecycle signals into this policy and failed elaboration with
+FIRRTL combinational cycles. Those signals currently include same-cycle effects
+of the atomic request path, so the integrated top now keeps them disconnected
+from policy and feeds only raw request evidence into the live-request child.
+Future top-level packets may connect the policy prerequisites only if they can
+prove the following wiring does not create a combinational loop:
 
 - side-effect readiness comes from pre-request sink readiness, not fire payloads;
 - clear readiness comes from identity/commit evidence, not `liveClearReady`;
@@ -121,8 +131,9 @@ does not create a combinational loop:
 
 ## Deferred Owners
 
-- Top-level diagnostic wiring for policy blockers.
-- Final top-level replacement of the R363 `requestEnable=false` tie-off.
+- True pre-request top-level wiring for policy sink readiness, clear identity,
+  row-fill candidate, and replay-row lifecycle readiness.
+- Live-mode replacement of the R363 `requestEnable=false` tie-off.
 - Multi-return-pipe arbitration when multiple returned-load W2 pipes exist.
 - Verilator replay-return evidence after the live request gate is integrated.
 

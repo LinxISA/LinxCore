@@ -15,6 +15,8 @@ class LoadReplayReturnPipeW2AtomicRequestGateIO extends Bundle {
   val rowFillCandidateValid = Input(Bool())
   val lifecycleRowClearReady = Input(Bool())
   val writeCandidateValid = Input(Bool())
+  val requestClearIntent = Input(Bool())
+  val requestWriteCandidateValid = Input(Bool())
 
   val active = Output(Bool())
   val policyRequestEnableCandidate = Output(Bool())
@@ -23,6 +25,8 @@ class LoadReplayReturnPipeW2AtomicRequestGateIO extends Bundle {
   val requestEvidenceValid = Output(Bool())
   val sideEffectLiveRequested = Output(Bool())
   val promotionRequested = Output(Bool())
+  val blockedByDisabled = Output(Bool())
+  val blockedByFlush = Output(Bool())
   val blockedByModeDisabled = Output(Bool())
   val blockedByPolicy = Output(Bool())
   val blockedByPolicyNoEvidence = Output(Bool())
@@ -61,8 +65,8 @@ class LoadReplayReturnPipeW2AtomicRequestGate extends Module {
   request.io.requestEnable := gatedRequestEnable
   request.io.sideEffectCandidateValid := io.sideEffectCandidateValid
   request.io.sideEffectRequiredMask := io.sideEffectRequiredMask
-  request.io.clearIntent := io.clearIntent
-  request.io.writeCandidateValid := io.writeCandidateValid
+  request.io.clearIntent := io.requestClearIntent
+  request.io.writeCandidateValid := io.requestWriteCandidateValid
 
   io.active := policy.io.active
   io.policyRequestEnableCandidate := policy.io.requestEnableCandidate
@@ -71,6 +75,8 @@ class LoadReplayReturnPipeW2AtomicRequestGate extends Module {
   io.requestEvidenceValid := request.io.requestEvidenceValid
   io.sideEffectLiveRequested := request.io.sideEffectLiveRequested
   io.promotionRequested := request.io.promotionRequested
+  io.blockedByDisabled := policy.io.blockedByDisabled
+  io.blockedByFlush := policy.io.blockedByFlush
   io.blockedByModeDisabled := policy.io.requestEnableCandidate && !io.liveModeEnable
   io.blockedByPolicy := io.liveModeEnable && !policy.io.requestEnableCandidate
   io.blockedByPolicyNoEvidence := policy.io.blockedByNoEvidence
