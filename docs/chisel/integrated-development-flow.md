@@ -15,7 +15,7 @@ the change still works across repos.
 
 ## Current Handoff
 
-The next Chisel packet should start from the R549 replay-return evidence, not
+The next Chisel packet should start from the R550 replay-return evidence, not
 from another broad CoreMark scan. The reduced frontend/rename/scalar
 execute/ROB/block-marker/store/STQ/SCB path is mature enough for the current
 reduced top, and the generated-RTL/QEMU comparator infrastructure is producing
@@ -42,34 +42,47 @@ evidence; it is W2 atomic request promotion, because
 `w2_atomic_blocked_by_no_evidence=36`, and the clear/row-fill/lifecycle
 policy blockers remain zero. The next owner is W2 side-effect sink readiness
 and live enable for the resident returned-load slot, before row-fill or
-lifecycle policy promotion.
+lifecycle policy promotion. R550 changes the atomic prereq snapshot to sample
+pre-request sink capacity from the existing W2 resolve/writeback/wakeup
+`*Armed` signals, while actual side-effect mutation remains gated by
+`LoadReplayReturnPipeW2SideEffectLiveControl`. The replay-loop fixture still
+passes with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+The v21 sideband report records the ordered blocker movement:
+`w2_atomic_blocked_by_no_side_effect_sink=7`,
+`w2_atomic_blocked_by_no_clear_commit=67`,
+`w2_atomic_blocked_by_no_row_fill_candidate=0`,
+`w2_atomic_blocked_by_no_lifecycle_row=0`, `w2_clear_intent=0`,
+`w2_clear_commit_ready=0`, `w2_side_effect_fire_complete=0`, and
+`w2_atomic_request_active=0`. The next owner is W2 clear-commit readiness /
+clear intent, not side-effect sink capacity, row-fill, lifecycle clear, or
+generic W2 evidence.
 
 Use this packet shape first:
 
 ```text
-Packet: replay-LIQ LRET W2 side-effect sink readiness
+Packet: replay-LIQ LRET W2 clear-commit readiness
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
-Files allowed: W2 atomic request/prereq/policy, W2 side-effect readiness/live
-  control, W2 row-fill/lifecycle readiness, focused W2 specs, module docs, and
+Files allowed: W2 clear intent/clear-commit guard, ROB complete source,
+  resolve fire payload/source, W2 atomic request/prereq/policy only as needed
+  to consume pre-request clear evidence, focused W2 specs, module docs, and
   sideband validator updates only if new evidence fields are required
 Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
   handling after returned-load pipe insertion
-Expected first gate: focused W2 side-effect sink readiness coverage proving a
-  resident W2 returned load can make required resolve/writeback/wakeup sinks
-  ready without introducing a request/sink combinational loop
-Promotion gate: R549 replay-loop fixture through
+Expected first gate: focused W2 clear-commit/ROB-complete coverage proving a
+  resident W2 returned load can form pre-request clear-commit evidence without
+  consuming post-request side effects
+Promotion gate: R550 replay-loop fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
-  W2 evidence, W2 policy blocker split, and the newly repaired side-effect sink
-  readiness counter
+  W2 evidence, W2 policy blocker split, reduced side-effect-sink blocks, and
+  the newly repaired clear-commit readiness counter
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
-  W2 side-effect sink readiness is live in the reduced replay-loop fixture
+  W2 clear-commit readiness is live in the reduced replay-loop fixture
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
   holdoff, lane/TLOAD/final metadata, E4/W1/W2 slot storage, or commit-row
-  compare policy before W2 side-effect readiness exists
-First-divergence owner if the gate fails: Chisel W2 side-effect sink readiness
-  or live-control wiring unless the v21
-  sideband report misreports generated signals
+  compare policy before W2 clear-commit readiness exists
+First-divergence owner if the gate fails: Chisel W2 clear-commit/ROB-complete
+  readiness unless the v21 sideband report misreports generated signals
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```
@@ -191,16 +204,17 @@ Closeout evidence:
 Current example:
 
 ```text
-Packet: replay-LIQ LRET W2 side-effect sink readiness
+Packet: replay-LIQ LRET W2 clear-commit readiness
 Owner lane: rtl/LinxCore/chisel
-Files allowed: return-pipe residency, W1/W2 replay-return modules, W2 request
-  evidence wiring, focused specs, module docs
+Files allowed: W2 clear intent/clear-commit guard, ROB complete source,
+  resolve fire payload/source, W2 request evidence wiring, focused specs,
+  module docs
 Source evidence: LinxCoreModel IEX::setMemData and load-return W2 handling
-Expected first gate: focused W2 side-effect sink readiness coverage
-Promotion gate: R549 replay-loop generated-RTL/QEMU fixture plus v21 sideband
-Do not run: long CoreMark or marker-row scaling before W2 side-effect readiness
-First-divergence owner if the gate fails: Chisel W2 side-effect readiness/live
-  control unless v21 sideband reporting is wrong
+Expected first gate: focused W2 clear-commit readiness coverage
+Promotion gate: R550 replay-loop generated-RTL/QEMU fixture plus v21 sideband
+Do not run: long CoreMark or marker-row scaling before W2 clear-commit readiness
+First-divergence owner if the gate fails: Chisel W2 clear-commit/ROB-complete
+  readiness unless v21 sideband reporting is wrong
 Closeout evidence: unit log, xcheck manifest, sideband counters, module doc
   row, skill-evolve decision
 ```

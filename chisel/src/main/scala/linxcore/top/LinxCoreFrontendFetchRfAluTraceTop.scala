@@ -3929,12 +3929,19 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
+  val reducedReplayLiqReturnPipeW2SideEffectSinksPrereqReady =
+    reducedReplayLiqReturnPipeW2CompletionCandidate.io.resolveRequired &&
+      reducedReplayLiqReturnPipeW2ResolveSinkReady.io.resolveArmed &&
+      (!reducedReplayLiqReturnPipeW2CompletionCandidate.io.writebackRequired ||
+        reducedReplayLiqReturnPipeW2WritebackSinkReady.io.writebackArmed) &&
+      (!reducedReplayLiqReturnPipeW2CompletionCandidate.io.wakeupRequired ||
+        reducedReplayLiqReturnPipeW2WakeupSinkReady.io.wakeupArmed)
   LinxCoreFrontendFetchRfAluTraceTopW2AtomicLiveRequestWiring.connect(
     io,
     reducedReplayLiqReturnPipeW2AtomicLiveRequestControl,
     reducedReplayLiqReturnPipeW2AtomicPrereqSnapshot,
     reducedReplayLiqReturnPipeW2CompletionCandidate,
-    reducedReplayLiqReturnPipeW2SideEffectReady,
+    reducedReplayLiqReturnPipeW2SideEffectSinksPrereqReady,
     reducedReplayLiqReturnPipeW1AdvanceCandidate,
     reducedReplayLiqReturnPipeW2ClearIntent,
     reducedReplayLiqReturnPipeW2ClearCommitGuard,
@@ -7930,7 +7937,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2AtomicLiveRequestWiring {
       liveRequest: LoadReplayReturnPipeW2AtomicRequestGate,
       prereqSnapshot: LoadReplayReturnPipeW2AtomicPrereqSnapshot,
       completion: LoadReplayReturnPipeW2CompletionCandidate,
-      sideEffectReady: LoadReplayReturnPipeW2SideEffectReady,
+      sideEffectSinksPrereqReady: Bool,
       w1Advance: LoadReplayReturnPipeW1AdvanceCandidate,
       clearIntent: LoadReplayReturnPipeW2ClearIntent,
       clearGuard: LoadReplayReturnPipeW2ClearCommitGuard,
@@ -7948,7 +7955,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2AtomicLiveRequestWiring {
     prereqSnapshot.io.slotGid := slot.io.entryGid
     prereqSnapshot.io.slotRid := slot.io.entryRid
     prereqSnapshot.io.slotLoadLsId := slot.io.entryLoadLsId
-    prereqSnapshot.io.sideEffectSinksReadyIn := sideEffectReady.io.sideEffectsReady
+    prereqSnapshot.io.sideEffectSinksReadyIn := sideEffectSinksPrereqReady
     prereqSnapshot.io.clearCommitReadyIn := clearGuard.io.commitClearReady
     prereqSnapshot.io.rowFillCandidateValidIn := commitRowCandidate.io.rowFillCandidateValid
     prereqSnapshot.io.lifecycleRowClearReadyIn := lifecycle.io.rowClearReady

@@ -95,8 +95,15 @@ clear, row-fill, or lifecycle effects as request prerequisites.
 
 R532 adds this module as a standalone owner. R533 wires it into
 `LinxCoreFrontendFetchRfAluTraceTop` with `liveModeEnable=false.B`. R534 uses
-the same snapshot-fed prerequisites with `liveModeEnable=true.B`. The top
-captures current observations from `LoadReplayReturnPipeW2SideEffectReady`,
+the same snapshot-fed prerequisites with `liveModeEnable=true.B`. R550 changes
+the side-effect prerequisite producer from the live-gated
+`LoadReplayReturnPipeW2SideEffectReady.sideEffectsReady` join to pre-request
+sink-capacity evidence built from `LoadReplayReturnPipeW2ResolveSinkReady`
+`resolveArmed`, `LoadReplayReturnPipeW2WritebackSinkReady.writebackArmed`, and
+`LoadReplayReturnPipeW2WakeupSinkReady.wakeupArmed`. Required sinks must be
+armed, optional sinks are ignored, and actual resolve/writeback/wakeup mutation
+remains gated later by `LoadReplayReturnPipeW2SideEffectLiveControl`. The top
+captures that pre-request side-effect capacity plus observations from
 `LoadReplayReturnPipeW2ClearCommitGuard`,
 `LoadReplayReturnPipeW2CommitRowCandidate`, and
 `LoadReplayReturnPipeW2ReplayRowLifecycleReady`, then feeds only the snapshot
@@ -109,6 +116,13 @@ snapshot. R533 generated-RTL evidence proves this dormant snapshot-fed path
 preserves the reduced top with `liveModeEnable=false.B`. R534 promotes the
 request gate to live mode; live mutation remains gated by the same registered
 snapshot, side-effect, clear, row-fill, and lifecycle prerequisites.
+R550 generated-RTL/QEMU evidence at
+`generated/r550-replay-w2-prereq-sink-capacity/report/crosscheck_manifest.json`
+passes with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+The sideband report shows the intended ordered-blocker movement:
+`w2_atomic_blocked_by_no_side_effect_sink` drops to 7 while
+`w2_atomic_blocked_by_no_clear_commit` rises to 67, so the next owner is
+clear-commit readiness rather than side-effect sink capacity.
 
 ## Deferred Owners
 

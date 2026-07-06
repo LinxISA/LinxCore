@@ -105,10 +105,12 @@ completion.
 - top-level diagnostics expose candidate, per-sink readiness, final readiness,
   and blocker signals under `reducedLoadReplayLiqLretPipeW2SideEffect*`.
 
-Because all W2 sinks remain inactive, this remains an observability and
-ownership path only. It preserves fixture-visible behavior while naming the
-exact join that later live sink wiring must satisfy before W2 entries can
-clear.
+Because the final sink-ready outputs are live-gated, this remains the
+actual-mutation readiness join and does not by itself arm the atomic request.
+R550 keeps this join as the live side-effect gate but feeds the atomic
+prerequisite snapshot from the sink modules' pre-request `*Armed` capacity
+signals. That split lets the policy see sink capacity without letting
+resolve/writeback/wakeup mutate before `sideEffectLiveRequested`.
 
 R345 adds `LoadReplayReturnPipeW2SideEffectCompletionPermit` beside this join.
 The R345 module exposes the same pre-clear condition as required, sink-ready,
