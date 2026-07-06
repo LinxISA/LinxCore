@@ -132,7 +132,21 @@ while `w2_slot_replace_overlap_candidate_occupied=0`,
 `w2_slot_replace_same_cycle_eligible=0`, and
 `w2_advance_replace_on_clear=0`. The next packet should add or select a
 denser replay-return fixture that keeps W1 occupied while W2 live clear fires
-before changing W2 storage or broadening to CoreMark.
+before changing W2 storage or broadening to CoreMark. R558 adds the
+`replay-ldi-sdi-ldi-ldi-loop` fixture, which appends a second younger load to
+the existing replay loop. The fixture has stable QEMU shape for two and three
+loop bodies, and the three-loop generated-RTL/QEMU gate passes with 12 compared
+rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. It increases replay
+traffic (`wait_replay_capture_accepted=6`, `replay_queue_out_fire=3`,
+`lret_w1_slot_accepted=3`, `lret_w2_slot_accepted=3`,
+`lret_w2_slot_occupied=8`) but still does not create W1/W2 overlap:
+`w2_slot_replace_live_clear_without_w1_candidate=3`,
+`w2_slot_replace_overlap_candidate_occupied=0`,
+`w2_slot_replace_overlap_candidate_live_clear=0`,
+`w2_slot_replace_same_cycle_eligible=0`, and
+`w2_advance_replace_on_clear=0`. The next owner remains fixture/stimulus, now
+biased toward a repeated store/load dependency chain such as
+LDI/SDI/LDI/SDI/LDI, not W2 storage.
 
 Use this packet shape first:
 
@@ -148,8 +162,9 @@ Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
 Expected first gate: focused W2 slot/advance coverage proving same-cycle live
   clear plus W1 write candidate can replace the resident W2 entry without
   losing the consumed row's side effects
-Promotion gate: R557 replay-loop fixture, or a minimally extended fixture,
-  through
+Promotion gate: R557 replay-loop fixture, R558
+  `replay-ldi-sdi-ldi-ldi-loop`, or a repeated store/load dependency-chain
+  fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
   W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
@@ -157,8 +172,8 @@ Promotion gate: R557 replay-loop fixture, or a minimally extended fixture,
   candidate evidence, valid lifecycle slot identity, nonzero lifecycle
   resolved-row match, nonzero row-fill enable, nonzero W2 promotion/live-clear
   and refill/advance counters, nonzero `live_clear_without_w1_candidate` in
-  the old fixture, and nonzero same-cycle slot replacement evidence in the new
-  fixture
+  the old/R558 fixtures, and nonzero same-cycle slot replacement evidence in a
+  new dependency-chain fixture before changing W2 storage
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation

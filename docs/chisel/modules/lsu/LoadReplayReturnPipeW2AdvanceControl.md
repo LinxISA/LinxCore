@@ -41,7 +41,11 @@ promotion, live clear, refill readiness, and future-advance selection. The
 remaining narrow gap is fixture/storage evidence for a valid W1 write
 candidate while W2 live clear fires. R557 proves the current replay-loop
 fixture has live clear without a W1 candidate in the occupied W2 cycle, so
-`replaceOnClear` remains unexercised by that fixture.
+`replaceOnClear` remains unexercised by that fixture. R558 adds a denser
+extra-load replay loop and passes a three-loop generated-RTL/QEMU gate, but it
+still reports zero W1/W2 overlap and zero `replaceOnClear`, so the next
+stimulus owner should build repeated store/load dependencies rather than only
+append independent younger loads.
 
 ## Interface
 
@@ -106,7 +110,9 @@ replay RF writeback, ready-table mutation, or issue wakeup.
 ## Deferred Owners
 
 - Prove a same-cycle storage replacement case after W2 side effects, clear
-  intent, and replay-row lifecycle accept the same model cycle.
+  intent, and replay-row lifecycle accept the same model cycle; R558 shows the
+  extra-load loop is a regression artifact, not sufficient replacement
+  stimulus.
 - Tie W2 clear to the live side-effect completion owner instead of the current
   dormant completion path.
 - Retire or update the consumed replay-row lifecycle when W2 side effects

@@ -33,12 +33,14 @@ Usage:
   $(basename "$0") --elf <program.elf> [options] -- [qemu args]
   $(basename "$0") --fixture replay-ldi-sdi-ldi [options] -- [qemu args]
   $(basename "$0") --fixture replay-ldi-sdi-ldi-loop [options] -- [qemu args]
+  $(basename "$0") --fixture replay-ldi-sdi-ldi-ldi-loop [options] -- [qemu args]
 
 Options:
   --build-dir <dir>       Output root (default: ${BUILD_DIR})
   --fixture <name>        Build a named fixture ELF before capture.
                           Supported: replay-ldi-sdi-ldi,
-                                     replay-ldi-sdi-ldi-loop
+                                     replay-ldi-sdi-ldi-loop,
+                                     replay-ldi-sdi-ldi-ldi-loop
   --qemu-bin <path>       QEMU binary. Defaults to the Chisel cross-check QEMU.
   --expected-rows <int>   Reduced scalar rows to extract/compare (default: ${EXPECTED_ROWS}; 0 means all)
   --capture-rows <int>    Filtered QEMU rows to capture before stopping QEMU
@@ -97,6 +99,9 @@ as part of the same fixture window.
 With --fixture replay-ldi-sdi-ldi-loop, the wrapper captures the first memory
 probe, the direct loop boundary, and the second dynamic memory probe so MDB
 lookup evidence can be collected after the first pass records the dependency.
+With --fixture replay-ldi-sdi-ldi-ldi-loop, the loop probe includes one
+additional younger load before the direct loop boundary, increasing replay
+return density for W1/W2 same-cycle replacement evidence.
 With --qemu-only, the wrapper still builds any requested fixture, captures the
 bounded QEMU prefix, and runs the reduced-row extractor, then exits before the
 Verilator harness. Do not use that mode as QEMU/DUT equivalence evidence.
@@ -201,6 +206,27 @@ if [[ -n "${FIXTURE}" ]]; then
       fi
       if [[ -z "${PC_HI}" ]]; then
         PC_HI=0x10015
+      fi
+      ;;
+    replay-ldi-sdi-ldi-ldi-loop)
+      FIXTURE_DIR="${BUILD_DIR}/fixture-replay-ldi-sdi-ldi-ldi-loop"
+      bash "${FIXTURE_BUILDER}" \
+        --out-dir "${FIXTURE_DIR}" \
+        --replay-ldi-sdi-ldi-ldi-loop
+      ELF="${FIXTURE_DIR}/frontend_fetch_rf_alu_qemu_fixture.elf"
+      if [[ "${EXPECTED_ROWS_SET}" == "0" ]]; then
+        EXPECTED_ROWS=0
+      fi
+      if [[ "${CAPTURE_ROWS_SET}" == "0" ]]; then
+        CAPTURE_ROWS=16
+      fi
+      ALLOW_BLOCK_MARKERS=1
+      ALLOW_BLOCK_LOOP_REENTRY=1
+      if [[ -z "${PC_LO}" ]]; then
+        PC_LO=0x10000
+      fi
+      if [[ -z "${PC_HI}" ]]; then
+        PC_HI=0x10019
       fi
       ;;
     *)

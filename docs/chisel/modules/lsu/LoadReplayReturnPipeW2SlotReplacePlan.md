@@ -37,7 +37,11 @@ enable. R556 proves promotion, live clear, refill readiness, and advance
 selection fire in the reduced replay-loop fixture. R557 then adds overlap
 sideband counters and proves the current fixture does not present any W1 write
 candidate while W2 is occupied and live clear fires, so same-cycle replacement
-eligibility remains zero for stimulus reasons.
+eligibility remains zero for stimulus reasons. R558 adds a denser
+`replay-ldi-sdi-ldi-ldi-loop` fixture with a second younger load and proves it
+as a generated-RTL/QEMU regression, but the added load still does not overlap
+W1 with W2 live clear. The next stimulus candidate should create repeated
+store/load dependencies, not only additional independent younger loads.
 
 ## Interface
 
@@ -108,13 +112,16 @@ routes future readiness toward W1 advance and `replaceOnClear`; its
 live, but not a same-cycle replacement candidate, so the next packet must
 separate fixture coverage from storage ownership before changing broad gates.
 R557 records `live_clear_without_w1_candidate=3` and zero W1-candidate/W2-live
-clear overlap in that same fixture.
+clear overlap in that same fixture. R558 records the same zero-overlap result
+for the denser extra-load fixture while increasing replay traffic to a 12-row
+QEMU/DUT pass.
 
 ## Deferred Owners
 
 - Create or select a replay-return sequence where W1 has a valid write
   candidate while W2 is occupied and live clear fires; R557 proves the current
-  loop fixture lacks this overlap.
+  loop fixture lacks this overlap, and R558 proves that simply appending one
+  more younger load is still insufficient.
 - Verify `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future
   readiness and drives `LoadReplayReturnPipeW2Slot.replaceOnClear` in that
   same-cycle replacement case.
