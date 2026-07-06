@@ -1343,6 +1343,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyAllCandidatesReady = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByPhysicalDuplicate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyNoPhysicalProbeActive = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackEmitProbeActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByGlobalFallbackDisabled =
     Output(Bool())
@@ -1923,7 +1924,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val reducedStoreStdExecDelayCycles: Int = 0,
     val reducedReplayLiqW2CompletionDelayCycles: Int = 0,
     val reducedReplayLiqW2PostLretEnqueueHoldCycles: Int = 0,
-    val reducedReplayLiqRetainedOwnerNoPhysicalProbe: Boolean = false)
+    val reducedReplayLiqRetainedOwnerNoPhysicalProbe: Boolean = false,
+    val reducedReplayLiqRetainedOwnerFallbackEmitProbe: Boolean = false)
     extends Module {
   require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
   require(reducedStoreStdExecDelayCycles >= 0, "reduced store STD execution delay cycles must be nonnegative")
@@ -4072,6 +4074,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.robCompleteSource,
     reducedReplayLiqReturnPipeW2Modules.retireRecordCommitRowCandidate,
     reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
+    reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -4082,6 +4085,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.slot,
     reducedReplayLiqReturnPipeW2Modules.writebackFirePayload,
     reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
+    reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -4092,6 +4096,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.slot,
     reducedReplayLiqReturnPipeW2Modules.wakeupFirePayload,
     reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
+    reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -4103,6 +4108,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.replayRowLifecycleReady,
     reducedReplayLiqReturnPipeW2Modules.replayRowClearRequest,
     reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
+    reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -4114,8 +4120,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.retireRecordRfWritebackFallbackGuard,
     reducedReplayLiqReturnPipeW2Modules.retireRecordWakeupFallbackGuard,
     reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleClearFallbackGuard,
-    false.B,
-    reducedReplayLiqRetainedOwnerNoPhysicalProbe.B,
+    reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
+    (reducedReplayLiqRetainedOwnerNoPhysicalProbe || reducedReplayLiqRetainedOwnerFallbackEmitProbe).B,
+    reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -8039,6 +8046,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleClearFal
       physicalLifecycle: LoadReplayReturnPipeW2ReplayRowLifecycleReady,
       clearRequest: LoadReplayReturnPipeW2ReplayRowClearRequest,
       fallbackEnable: Bool,
+      maskPhysicalInputs: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     guard.io.enable := enable
@@ -8047,7 +8055,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleClearFal
     guard.io.captureAccepted := retireRecord.io.captureAccepted
     guard.io.captureRowClearReady := physicalLifecycle.io.rowClearReady
     guard.io.captureRowClearIndex := physicalLifecycle.io.rowClearIndex
-    guard.io.physicalClearAccepted := clearRequest.io.lifecycleClearAccepted
+    guard.io.physicalClearAccepted := !maskPhysicalInputs && clearRequest.io.lifecycleClearAccepted
     guard.io.physicalClearIndex := clearRequest.io.clearResolvedIndex
     guard.io.recordValid := retireRecord.io.recordValid
     guard.io.recordLifecycleClearReady := evidence.io.providerRowClearReady
@@ -8076,6 +8084,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordFallbackOwnerPoli
       lifecycleClearGuard: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
       globalFallbackEnable: Bool,
       noPhysicalProbe: Bool,
+      fallbackEmitProbe: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     policy.io.enable := enable
@@ -8099,6 +8108,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordFallbackOwnerPoli
       policy.io.blockedByPhysicalDuplicate
     io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyNoPhysicalProbeActive :=
       noPhysicalProbe && policy.io.recordCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackEmitProbeActive :=
+      fallbackEmitProbe && policy.io.recordCandidate
     io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible :=
       policy.io.retainedSoleOwnerEligible
     io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByGlobalFallbackDisabled :=
@@ -8528,6 +8539,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRobCompleteFallba
       physicalRobComplete: LoadReplayReturnPipeW2RobCompleteSource,
       retainedCandidate: LoadReplayReturnPipeW2RetireRecordCommitRowCandidate,
       fallbackEnable: Bool,
+      maskPhysicalInputs: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     guard.io.enable := enable
@@ -8535,7 +8547,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRobCompleteFallba
     guard.io.fallbackEnable := fallbackEnable
     guard.io.captureAccepted := retireRecord.io.captureAccepted
     guard.io.captureRid := slot.io.entryRid
-    guard.io.physicalCompleteValid := physicalRobComplete.io.completeValid
+    guard.io.physicalCompleteValid := !maskPhysicalInputs && physicalRobComplete.io.completeValid
     guard.io.physicalCompleteRobValue := physicalRobComplete.io.completeRobValue
     guard.io.recordValid := retireRecord.io.recordValid
     guard.io.recordRid := retireRecord.io.record.rid
@@ -8562,6 +8574,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRfWritebackFallba
       slot: LoadReplayReturnPipeW2Slot,
       physicalWriteback: LoadReplayReturnPipeW2WritebackFirePayload,
       fallbackEnable: Bool,
+      maskPhysicalInputs: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     guard.io.enable := enable
@@ -8569,7 +8582,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRfWritebackFallba
     guard.io.fallbackEnable := fallbackEnable
     guard.io.captureAccepted := retireRecord.io.captureAccepted
     guard.io.captureRid := slot.io.entryRid
-    guard.io.physicalWritebackValid := physicalWriteback.io.fireValid
+    guard.io.physicalWritebackValid := !maskPhysicalInputs && physicalWriteback.io.fireValid
     guard.io.physicalWritebackRid := physicalWriteback.io.fireRid
     guard.io.physicalWritebackTag := physicalWriteback.io.firePhysTag
     guard.io.physicalWritebackData := physicalWriteback.io.fireData
@@ -8602,6 +8615,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordWakeupFallbackWir
       slot: LoadReplayReturnPipeW2Slot,
       physicalWakeup: LoadReplayReturnPipeW2WakeupFirePayload,
       fallbackEnable: Bool,
+      maskPhysicalInputs: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     guard.io.enable := enable
@@ -8609,7 +8623,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordWakeupFallbackWir
     guard.io.fallbackEnable := fallbackEnable
     guard.io.captureAccepted := retireRecord.io.captureAccepted
     guard.io.captureRid := slot.io.entryRid
-    guard.io.physicalWakeupValid := physicalWakeup.io.fireValid
+    guard.io.physicalWakeupValid := !maskPhysicalInputs && physicalWakeup.io.fireValid
     guard.io.physicalWakeupRid := physicalWakeup.io.fireRid
     guard.io.physicalReducedGprWakeup := physicalWakeup.io.reducedGprWakeup
     guard.io.physicalWakeupTag := physicalWakeup.io.firePhysTag

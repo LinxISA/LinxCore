@@ -730,6 +730,7 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_fallback_owner_policy_all_candidates_ready = 0;
   std::uint64_t w2_retire_record_fallback_owner_policy_blocked_by_physical_duplicate = 0;
   std::uint64_t w2_retire_record_fallback_owner_policy_no_physical_probe_active = 0;
+  std::uint64_t w2_retire_record_fallback_owner_policy_fallback_emit_probe_active = 0;
   std::uint64_t w2_retire_record_fallback_owner_policy_retained_sole_owner_eligible = 0;
   std::uint64_t w2_retire_record_fallback_owner_policy_blocked_by_global_fallback_disabled = 0;
   std::uint64_t w2_retire_record_fallback_owner_policy_side_effect_enable = 0;
@@ -2614,6 +2615,9 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyNoPhysicalProbeActive) {
     ++g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_no_physical_probe_active;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackEmitProbeActive) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_fallback_emit_probe_active;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible) {
     ++g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_retained_sole_owner_eligible;
   }
@@ -2789,7 +2793,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v42\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v43\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -3866,6 +3870,9 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << ",\n"
       << "    \"w2_retire_record_fallback_owner_policy_no_physical_probe_active\": "
       << g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_no_physical_probe_active << ",\n"
+      << "    \"w2_retire_record_fallback_owner_policy_fallback_emit_probe_active\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_fallback_emit_probe_active
+      << ",\n"
       << "    \"w2_retire_record_fallback_owner_policy_retained_sole_owner_eligible\": "
       << g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_retained_sole_owner_eligible
       << ",\n"

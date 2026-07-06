@@ -265,6 +265,21 @@ mismatches. Sideband schema v42 records the policy transition:
 and `w2_retire_record_fallback_owner_policy_side_effect_enable=0`, while the
 four individual physical duplicate guards still record `5`.
 
+R593 adds `LINXCORE_REPLAY_LIQ_RETAINED_OWNER_FALLBACK_EMIT_PROBE=1` as a
+stronger diagnostic-only probe. It masks physical observations at the individual
+guard inputs, raises the policy global arm for the probe, and proves that all
+four retained fallback outputs can emit without changing the architectural
+QEMU/DUT comparison. The generated RTL/QEMU comparator at
+`generated/r593-replay-retained-owner-fallback-emit-probe-xcheck` passes with
+18 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. Sideband
+schema v43 records `w2_retire_record_fallback_owner_policy_side_effect_enable=5`,
+`w2_retire_record_rob_fallback_complete_valid=5`,
+`w2_retire_record_rf_fallback_writeback_valid=5`,
+`w2_retire_record_wakeup_fallback_wakeup_valid=5`, and
+`w2_retire_record_lifecycle_clear_fallback_clear_valid=5`, while the four
+duplicate-physical guard outputs are zero because the probe masked those inputs.
+These fallback outputs remain sideband-only in the top.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -277,9 +292,10 @@ four individual physical duplicate guards still record `5`.
   row candidates with zero diagnostic blockers.
 - Retained side-effect fallback promotion after R591 proves a no-physical
   stimulus. R592 proves the owner-policy no-duplicate branch with a boundary
-  probe, but the global retained-owner arm must stay low until a real
-  no-physical side-effect path or equivalent model-derived ordering proof
-  exists.
+  probe, and R593 proves sideband-only fallback output emission under a stronger
+  diagnostic probe, but the global retained-owner arm must stay low for live
+  mutation until a real no-physical side-effect path or equivalent model-derived
+  ordering proof exists.
 
 ## Verification
 
