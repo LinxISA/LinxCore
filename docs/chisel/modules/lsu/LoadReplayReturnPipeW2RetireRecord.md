@@ -159,6 +159,17 @@ align with the retained record. The v32 sideband records
 `w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate=3`. The next
 owner is a retained-record commit-row or row-fill candidate source.
 
+R585 changes the integrated retire payload source from the live LRET enqueue
+row to the resident W2 slot fields at the same live-clear boundary that accepts
+the retire record. This keeps the retained identity aligned with the W2
+metadata provider under delayed W2 completion while leaving the LRET FIFO
+payload path untouched. The generated RTL/QEMU gate
+`generated/r585-replay-retire-record-payload-source-latch-hold-xcheck` passes
+with 18 compared rows and zero mismatches. Sideband schema v34 records
+`w2_retire_record_commit_row_fill_candidate=145`,
+`w2_retire_record_commit_row_candidate_blocked_by_no_metadata=0`, and
+`w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled=145`.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -166,8 +177,8 @@ owner is a retained-record commit-row or row-fill candidate source.
   ordering.
 - Retained-record atomic request source alignment before the record may drive a
   live row-fill/clear path.
-- Retained-record commit-row or row-fill candidate source aligned after
-  physical W2 clears.
+- Retained-record row-fill enable and mutation ordering after the retained
+  commit-row candidate is proven with resident W2-slot payload identity.
 
 ## Verification
 

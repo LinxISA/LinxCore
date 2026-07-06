@@ -86,6 +86,25 @@ lifetime. A later packet should source the retained record from the resident W2
 row, or prove an equivalent model-derived payload boundary, before promoting
 row-fill enable or retained-record LIQ mutation.
 
+R585 sources the retained record from the resident W2 slot instead of the live
+LRET enqueue row and holds W2-captured metadata against later drain fallback
+overwrites. The retained commit-row candidate now forms successfully while top
+integration still keeps row fill disabled. The generated RTL/QEMU gate at
+`generated/r585-replay-retire-record-payload-source-latch-hold-xcheck` passes
+with `status="pass"`, `comparator_status=0`, 18 compared rows, zero
+mismatches, and zero QEMU/DUT CBSTOP rows. Sideband schema v34 records:
+
+- `w2_retire_record_commit_row_candidate_valid=145`
+- `w2_retire_record_commit_row_fill_candidate=145`
+- `w2_retire_record_commit_row_candidate_blocked_by_no_metadata=0`
+- `w2_retire_record_instruction_metadata_provider_valid=145`
+- `w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate=0`
+- `w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled=145`
+
+The next owner is retained-record row-fill enable/request promotion and its
+mutation ordering. Payload source and metadata lifetime are no longer the
+active blockers in this fixture.
+
 ## Verification
 
 Focused gates:

@@ -164,6 +164,26 @@ the retained-record payload source: the current capture condition follows the
 resident W2 slot clear, but the captured payload comes from the live LRET
 enqueue row, which does not match under delayed W2 completion.
 
+R585 corrects that payload-source boundary by building the retire-record
+payload from the resident W2 slot at live-clear time while leaving the LRET
+enqueue payload path unchanged. It also prevents a later LRET drain fallback
+from overwriting metadata that was already captured from W2. The generated
+RTL/QEMU gate
+`generated/r585-replay-retire-record-payload-source-latch-hold-xcheck` passes
+with manifest `status="pass"`, `comparator_status=0`, 18 compared rows, zero
+mismatches, and zero QEMU/DUT CBSTOP rows. Sideband schema v34 records
+`w2_retire_record_commit_row_candidate_valid=145`,
+`w2_retire_record_commit_row_fill_candidate=145`,
+`w2_retire_record_commit_row_candidate_blocked_by_no_metadata=0`,
+`w2_retire_record_instruction_metadata_capture_from_w2=1`,
+`w2_retire_record_instruction_metadata_capture_blocked_by_rid_mismatch=0`,
+`w2_retire_record_instruction_metadata_provider_valid=145`, and
+`w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled=145`.
+The next owner is retained-record row-fill enable/request promotion behind
+the existing lifecycle and atomic-request evidence; do not enable retained
+LIQ clear or architectural side effects until that row-fill enable predicate is
+proven in generated RTL/QEMU sideband.
+
 ## Current Baseline
 
 Record these SHAs at the start of each agent packet and refresh them if the

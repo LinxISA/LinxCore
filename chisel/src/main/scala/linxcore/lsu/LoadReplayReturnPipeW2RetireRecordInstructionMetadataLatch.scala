@@ -77,7 +77,7 @@ class LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch(
       io.drainInstructionCapture &&
       io.drainRid.valid &&
       (io.drainInstructionLen =/= 0.U)
-  val captureFromDrain = !captureFromW2 && drainCaptureCandidate
+  val captureFromDrain = !validReg && !captureFromW2 && drainCaptureCandidate
   val captureBlockedByNoPayloadRid =
     captureIntent &&
       !capturePayloadRidValid

@@ -55,7 +55,7 @@ object LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatchReference {
       captureIntent && w2RidMatchesCapture && w2MetadataReady
     val drainCaptureCandidate =
       active && drainInstructionCapture && drainRid.valid && drainInstructionLen != 0
-    val captureFromDrain = !captureFromW2 && drainCaptureCandidate
+    val captureFromDrain = !state.valid && !captureFromW2 && drainCaptureCandidate
     val captureBlockedByNoPayloadRid = captureIntent && !capturePayloadRidValid
     val captureBlockedByNoW2Rid = captureIntent && capturePayloadRidValid && !w2RidValid
     val captureBlockedByRidMismatch = captureIntent && capturePayloadRidValid && w2RidValid && !w2RidMatchesCapture
@@ -167,6 +167,35 @@ class LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatchSpec extends Any
     assert(!result.captureBlockedByNoW2Metadata)
     assert(!result.captureFromW2)
     assert(result.captureFromDrain)
+  }
+
+  test("does not overwrite retained W2 metadata with later drain metadata") {
+    val retainedRid = Id(value = 5)
+    val otherRid = Id(value = 6)
+    val state = State(valid = true, rid = retainedRid, raw = 0xaaaa, len = 4)
+    val result = step(
+      state = state,
+      enable = true,
+      flush = false,
+      captureAccepted = false,
+      capturePayloadRid = Id(valid = false),
+      w2Rid = Id(valid = false),
+      w2InstructionValid = false,
+      w2InstructionRaw = 0,
+      w2InstructionLen = 0,
+      drainInstructionCapture = true,
+      drainRid = otherRid,
+      drainInstructionRaw = 0xbbbb,
+      drainInstructionLen = 4,
+      recordFire = false,
+      recordFireRid = Id(valid = false),
+      recordValid = true,
+      recordRid = retainedRid)
+
+    assert(!result.captureFromDrain)
+    assert(result.providerValid)
+    assert(result.providerRaw == 0xaaaa)
+    assert(result.state.rid == retainedRid)
   }
 
   test("clears metadata when the retained record fires") {

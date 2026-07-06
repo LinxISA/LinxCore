@@ -7828,7 +7828,25 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordWiring {
     retireRecord.io.clearIntent := clearIntent.io.clearIntent
     retireRecord.io.liveClear := clearIntent.io.liveClear
     retireRecord.io.lretEnqueueAccepted := sink.io.enqueueAccepted
-    retireRecord.io.retirePayload := sinkEntry
+    val retirePayload = Wire(chiselTypeOf(sinkEntry))
+    retirePayload := sinkEntry
+    retirePayload.valid := slot.io.entryValid
+    retirePayload.bid := slot.io.entryBid
+    retirePayload.gid := slot.io.entryGid
+    retirePayload.rid := slot.io.entryRid
+    retirePayload.loadLsId := slot.io.entryLoadLsId
+    retirePayload.pc := slot.io.entryPc
+    retirePayload.addr := slot.io.entryAddr
+    retirePayload.size := slot.io.entrySize
+    retirePayload.dst := slot.io.entryDst
+    retirePayload.sourceTraceValid := slot.io.entrySourceTraceValid
+    retirePayload.source0 := slot.io.entrySource0
+    retirePayload.source1 := slot.io.entrySource1
+    retirePayload.data := slot.io.entryData
+    retirePayload.pipeIndex := slot.io.entryPipeIndex
+    retirePayload.specWakeup := !slot.io.entryWakeupRequired
+    retirePayload.stackValid := false.B
+    retireRecord.io.retirePayload := retirePayload
 
     io.reducedLoadReplayLiqLretPipeW2RetireRecordCaptureCandidate :=
       retireRecord.io.captureCandidate
@@ -7916,7 +7934,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordInstructionMetada
     metadata.io.enable := enable
     metadata.io.flush := flush
     metadata.io.captureAccepted := retireRecord.io.captureAccepted
-    metadata.io.capturePayloadRid := sinkEntry.rid
+    metadata.io.capturePayloadRid := slot.io.entryRid
     metadata.io.w2Rid := slot.io.entryRid
     metadata.io.w2InstructionValid := w2InstructionValid
     metadata.io.w2InstructionRaw := w2InstructionRaw

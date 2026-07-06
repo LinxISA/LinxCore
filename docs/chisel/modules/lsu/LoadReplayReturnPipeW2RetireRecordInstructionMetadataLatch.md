@@ -56,9 +56,11 @@ captureFromW2 =
   w2InstructionLen != 0
 ```
 
-If W2 capture does not fire, a valid drain metadata capture can populate the
-same entry. Provider validity is asserted only when the current retained record
-RID matches the latched RID. A matching retained-record fire clears the entry.
+If W2 capture does not fire and the latch is empty, a valid drain metadata
+capture can populate the same entry. The drain fallback intentionally cannot
+overwrite metadata already captured from W2. Provider validity is asserted only
+when the current retained record RID matches the latched RID. A matching
+retained-record fire clears the entry.
 
 The blocker outputs intentionally report capture intent and why W2 capture did
 not fire. They are sideband evidence for choosing the next owner, not promotion
@@ -93,6 +95,25 @@ those RIDs do not match. Do not enable retained row fill or LIQ clear until the
 retained record is sourced from the resident W2 row or an equivalent
 model-derived payload boundary is proven.
 
+R585 changes the top-level payload source to the resident W2 slot and updates
+this latch so the later drain fallback does not overwrite a valid W2 capture.
+The generated RTL/QEMU gate at
+`generated/r585-replay-retire-record-payload-source-latch-hold-xcheck` passes
+with manifest `status="pass"`, `comparator_status=0`, 18 compared rows, zero
+mismatches, and zero QEMU/DUT CBSTOP rows. The v34 sideband records:
+
+- `w2_retire_record_commit_row_candidate_valid=145`
+- `w2_retire_record_commit_row_fill_candidate=145`
+- `w2_retire_record_commit_row_candidate_blocked_by_no_metadata=0`
+- `w2_retire_record_instruction_metadata_capture_from_w2=1`
+- `w2_retire_record_instruction_metadata_capture_from_drain=1`
+- `w2_retire_record_instruction_metadata_capture_blocked_by_rid_mismatch=0`
+- `w2_retire_record_instruction_metadata_provider_valid=145`
+- `w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled=145`
+
+The next owner is retained-record row-fill enable/request promotion. The
+metadata and payload-source blockers are no longer active in this fixture.
+
 ## Verification
 
 Focused gates:
@@ -118,4 +139,27 @@ python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   generated/r584-replay-retire-record-metadata-probe-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json
 ```
 
-skill-evolve: no-update (R584 applies the existing prove-before-promote and top-split rules; the new finding is packet-local payload-source evidence).
+R585 payload-source/latch-hold gate:
+
+```bash
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r585-replay-retire-record-payload-source-latch-hold-xcheck \
+  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
+  --reduced-store-replay-liq --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
+python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
+  --expect-reduced-store-replay-liq \
+  --require-nonzero replay_liq.w2_retire_record_commit_row_candidate_valid \
+  --require-nonzero replay_liq.w2_retire_record_instruction_metadata_capture_from_w2 \
+  --require-nonzero replay_liq.w2_retire_record_instruction_metadata_provider_valid \
+  --require-nonzero replay_liq.w2_retire_record_commit_row_fill_candidate \
+  --require-zero replay_liq.w2_retire_record_instruction_metadata_capture_blocked_by_rid_mismatch \
+  --require-zero replay_liq.w2_retire_record_commit_row_candidate_blocked_by_no_metadata \
+  generated/r585-replay-retire-record-payload-source-latch-hold-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json
+```
+
+skill-evolve: no-update (R585 applies the existing prove-before-promote and top-split rules; the payload-source rule is now captured in this module contract).

@@ -503,20 +503,37 @@ retained-record payload source identity: the current top captures a live LRET
 enqueue payload while the capture predicate is driven by the resident W2 slot
 clear, and delayed-W2 evidence proves those RIDs do not match.
 
+R585 fixes that identity mismatch by sourcing the retire-record payload from
+the resident W2 slot at the same boundary that drives live clear, while keeping
+the live LRET enqueue FIFO payload separate. It also holds W2-captured metadata
+against later drain fallback overwrites. The generated RTL/QEMU gate
+`generated/r585-replay-retire-record-payload-source-latch-hold-xcheck` passes
+with `status="pass"`, `comparator_status=0`, 18 compared rows, zero
+mismatches, and zero QEMU/DUT CBSTOP rows. The v34 sideband records
+`w2_retire_record_commit_row_candidate_valid=145`,
+`w2_retire_record_commit_row_fill_candidate=145`,
+`w2_retire_record_commit_row_candidate_blocked_by_no_metadata=0`,
+`w2_retire_record_instruction_metadata_capture_from_w2=1`,
+`w2_retire_record_instruction_metadata_provider_valid=145`, and
+`w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled=145`.
+The next owner is retained-record row-fill enable promotion and its mutation
+ordering, not payload identity or metadata lifetime.
+
 Use this packet shape first:
 
 ```text
-Packet: replay-LIQ LRET W2 same-cycle slot replacement
+Packet: replay-LIQ retained-record row-fill enable promotion
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
-Files allowed: replay-return fixture builder/wrapper, W1/W2 occupancy/advance
-  sideband expectations needed to create back-to-back returned-load occupancy,
-  focused W2/top specs, and module docs; change W2 storage only after the
-  fixture proves nonzero same-cycle replacement eligibility
+Files allowed: retained-record row-fill enable/request-control modules, top
+  diagnostic/live-gate wiring, sideband validator expectations, focused
+  retire-record/top specs, and module docs; keep LIQ clear and architectural
+  side effects disabled until row-fill enable is proven behind lifecycle,
+  atomic-request, and commit-row candidate predicates
 Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
   handling after returned-load pipe insertion, plus LDQ resolved-row movement
-Expected first gate: focused W2 slot/advance coverage proving same-cycle live
-  clear plus W1 write candidate can replace the resident W2 entry without
-  losing the consumed row's side effects
+Expected first gate: retained-record row-fill enable sideband shows nonzero
+  enable candidates with zero metadata, lifecycle, atomic-request, and
+  commit-row-candidate blockers while row mutation remains disabled
 Promotion gate: R557 replay-loop fixture, R558
   `replay-ldi-sdi-ldi-ldi-loop`, R559
   `replay-ldi-sdi-ldi-sdi-ldi-loop`, R566
