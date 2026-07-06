@@ -1342,6 +1342,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyCandidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyAllCandidatesReady = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByPhysicalDuplicate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyNoPhysicalProbeActive = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByGlobalFallbackDisabled =
+    Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
@@ -1918,7 +1922,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val useReducedLoadReplayLiqAlloc: Boolean = false,
     val reducedStoreStdExecDelayCycles: Int = 0,
     val reducedReplayLiqW2CompletionDelayCycles: Int = 0,
-    val reducedReplayLiqW2PostLretEnqueueHoldCycles: Int = 0)
+    val reducedReplayLiqW2PostLretEnqueueHoldCycles: Int = 0,
+    val reducedReplayLiqRetainedOwnerNoPhysicalProbe: Boolean = false)
     extends Module {
   require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
   require(reducedStoreStdExecDelayCycles >= 0, "reduced store STD execution delay cycles must be nonnegative")
@@ -4110,6 +4115,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.retireRecordWakeupFallbackGuard,
     reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleClearFallbackGuard,
     false.B,
+    reducedReplayLiqRetainedOwnerNoPhysicalProbe.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -8069,6 +8075,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordFallbackOwnerPoli
       wakeupGuard: LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard,
       lifecycleClearGuard: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
       globalFallbackEnable: Bool,
+      noPhysicalProbe: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     policy.io.enable := enable
@@ -8079,10 +8086,10 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordFallbackOwnerPoli
     policy.io.rfCandidate := rfGuard.io.recordCandidate
     policy.io.wakeupCandidate := wakeupGuard.io.recordCandidate
     policy.io.lifecycleClearCandidate := lifecycleClearGuard.io.recordCandidate
-    policy.io.robDuplicatePhysicalComplete := robGuard.io.duplicatePhysicalComplete
-    policy.io.rfDuplicatePhysicalWriteback := rfGuard.io.duplicatePhysicalWriteback
-    policy.io.wakeupDuplicatePhysicalWakeup := wakeupGuard.io.duplicatePhysicalWakeup
-    policy.io.lifecycleClearDuplicatePhysicalClear := lifecycleClearGuard.io.duplicatePhysicalClear
+    policy.io.robDuplicatePhysicalComplete := !noPhysicalProbe && robGuard.io.duplicatePhysicalComplete
+    policy.io.rfDuplicatePhysicalWriteback := !noPhysicalProbe && rfGuard.io.duplicatePhysicalWriteback
+    policy.io.wakeupDuplicatePhysicalWakeup := !noPhysicalProbe && wakeupGuard.io.duplicatePhysicalWakeup
+    policy.io.lifecycleClearDuplicatePhysicalClear := !noPhysicalProbe && lifecycleClearGuard.io.duplicatePhysicalClear
 
     io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyCandidate :=
       policy.io.recordCandidate
@@ -8090,6 +8097,12 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordFallbackOwnerPoli
       policy.io.allFallbackCandidatesReady
     io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByPhysicalDuplicate :=
       policy.io.blockedByPhysicalDuplicate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyNoPhysicalProbeActive :=
+      noPhysicalProbe && policy.io.recordCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible :=
+      policy.io.retainedSoleOwnerEligible
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByGlobalFallbackDisabled :=
+      policy.io.blockedByGlobalFallbackDisabled
     io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable :=
       policy.io.sideEffectOwnerEnable
   }

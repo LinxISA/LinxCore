@@ -102,6 +102,38 @@ candidates, but physical W2 already owns at least one side-effect class for each
 retained record. The next packet should create a no-physical-side-effect
 stimulus before raising the global fallback arm.
 
+R592 adds the default-off reduced-top probe
+`LINXCORE_REPLAY_LIQ_RETAINED_OWNER_NO_PHYSICAL_PROBE=1`. The probe masks the
+physical-duplicate classifications only at the policy boundary; the individual
+ROB/RF/wakeup/lifecycle guards and the physical W2 side-effect paths remain
+unchanged and observable. The global retained-owner arm still stays low.
+
+Generated RTL/QEMU probe evidence:
+
+```text
+generated/r592-replay-retained-owner-no-physical-probe-xcheck/report/crosscheck_manifest.json
+status=pass compared_rows=18 mismatch_count=0 qemu_cbstop=0 dut_cbstop=0
+
+frontend_fetch_rf_alu_sideband_stats.json schema=v42
+w2_retire_record_fallback_owner_policy_candidate=5
+w2_retire_record_fallback_owner_policy_all_candidates_ready=5
+w2_retire_record_fallback_owner_policy_blocked_by_physical_duplicate=0
+w2_retire_record_fallback_owner_policy_no_physical_probe_active=5
+w2_retire_record_fallback_owner_policy_retained_sole_owner_eligible=5
+w2_retire_record_fallback_owner_policy_blocked_by_global_fallback_disabled=5
+w2_retire_record_fallback_owner_policy_side_effect_enable=0
+```
+
+The same report keeps the individual duplicate guards nonzero, proving R592 is
+a policy-boundary probe rather than a mutation-path change:
+
+```text
+w2_retire_record_rob_fallback_duplicate_physical_complete=5
+w2_retire_record_rf_fallback_duplicate_physical_writeback=5
+w2_retire_record_wakeup_fallback_duplicate_physical_wakeup=5
+w2_retire_record_lifecycle_clear_fallback_duplicate_physical_clear=5
+```
+
 ## Verification
 
 Focused gates:
@@ -111,10 +143,11 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RetireRecordF
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
 LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+LINXCORE_REPLAY_LIQ_RETAINED_OWNER_NO_PHYSICAL_PROBE=1 \
 FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
-  --build-dir generated/r591-replay-retire-record-fallback-owner-policy-xcheck \
+  --build-dir generated/r592-replay-retained-owner-no-physical-probe-xcheck \
   --expected-rows 18 --capture-rows 32 --max-seconds 10 \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait

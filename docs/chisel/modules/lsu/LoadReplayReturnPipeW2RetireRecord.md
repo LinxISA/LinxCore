@@ -253,6 +253,18 @@ The top ties the global policy arm low, so R591 preserves R590 behavior while
 making later no-physical-side-effect work a single ownership decision instead of
 four independent fallback enables.
 
+R592 adds a default-off retained-owner no-physical probe for the reduced replay
+LIQ top. `LINXCORE_REPLAY_LIQ_RETAINED_OWNER_NO_PHYSICAL_PROBE=1` masks the
+duplicate-physical classifications only into the owner policy. The physical W2
+side-effect paths and the individual duplicate guards remain active, so the
+generated RTL/QEMU comparator still passes with 18 compared rows and zero
+mismatches. Sideband schema v42 records the policy transition:
+`w2_retire_record_fallback_owner_policy_blocked_by_physical_duplicate=0`,
+`w2_retire_record_fallback_owner_policy_retained_sole_owner_eligible=5`,
+`w2_retire_record_fallback_owner_policy_blocked_by_global_fallback_disabled=5`,
+and `w2_retire_record_fallback_owner_policy_side_effect_enable=0`, while the
+four individual physical duplicate guards still record `5`.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -264,9 +276,10 @@ four independent fallback enables.
   lifecycle evidence, row-fill enable, atomic request alignment, and complete
   row candidates with zero diagnostic blockers.
 - Retained side-effect fallback promotion after R591 proves a no-physical
-  stimulus; keep the global retained-owner arm low while physical W2 already
-  covers ROB completion, RF writeback, wakeup, and LIQ lifecycle clear for the
-  replay-LIQ fixture.
+  stimulus. R592 proves the owner-policy no-duplicate branch with a boundary
+  probe, but the global retained-owner arm must stay low until a real
+  no-physical side-effect path or equivalent model-derived ordering proof
+  exists.
 
 ## Verification
 

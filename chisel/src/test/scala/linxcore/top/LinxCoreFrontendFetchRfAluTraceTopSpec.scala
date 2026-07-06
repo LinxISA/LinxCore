@@ -1264,6 +1264,11 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyCandidate.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyAllCandidatesReady.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByPhysicalDuplicate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyNoPhysicalProbeActive.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible.getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByGlobalFallbackDisabled
+      .getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable.getWidth == 1)
   }
 
@@ -1331,6 +1336,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackDuplicatePhysicalComplete"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackDuplicatePhysicalWriteback"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitLifecycleClearCommitEnable"))

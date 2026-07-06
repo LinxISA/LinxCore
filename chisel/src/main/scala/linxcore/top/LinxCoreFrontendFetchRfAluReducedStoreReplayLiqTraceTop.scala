@@ -16,7 +16,8 @@ class LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
     useReducedStoreStaAddressExecBridge: Boolean = false,
     reducedStoreStdExecDelayCycles: Int = 0,
     reducedReplayLiqW2CompletionDelayCycles: Int = 0,
-    reducedReplayLiqW2PostLretEnqueueHoldCycles: Int = 0)
+    reducedReplayLiqW2PostLretEnqueueHoldCycles: Int = 0,
+    reducedReplayLiqRetainedOwnerNoPhysicalProbe: Boolean = false)
     extends LinxCoreFrontendFetchRfAluTraceTop(
       coreParams = coreParams,
       decRenQueueDepth = decRenQueueDepth,
@@ -33,7 +34,8 @@ class LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
       useReducedLoadReplayLiqAlloc = true,
       reducedStoreStdExecDelayCycles = reducedStoreStdExecDelayCycles,
       reducedReplayLiqW2CompletionDelayCycles = reducedReplayLiqW2CompletionDelayCycles,
-      reducedReplayLiqW2PostLretEnqueueHoldCycles = reducedReplayLiqW2PostLretEnqueueHoldCycles)
+      reducedReplayLiqW2PostLretEnqueueHoldCycles = reducedReplayLiqW2PostLretEnqueueHoldCycles,
+      reducedReplayLiqRetainedOwnerNoPhysicalProbe = reducedReplayLiqRetainedOwnerNoPhysicalProbe)
 
 object EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop extends App {
   private def envInt(name: String): Int =
@@ -56,6 +58,9 @@ object EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop extends App {
     "LINXCORE_REPLAY_LIQ_W2_POST_LRET_ENQUEUE_HOLD_CYCLES must be nonnegative")
   private val useEarlyStaAddressExec =
     sys.env.get("LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS").exists(value => value.nonEmpty && value != "0")
+  private val retainedOwnerNoPhysicalProbe =
+    sys.env.get("LINXCORE_REPLAY_LIQ_RETAINED_OWNER_NO_PHYSICAL_PROBE").exists(value =>
+      value.nonEmpty && value != "0")
 
   circt.stage.ChiselStage.emitSystemVerilogFile(
     new LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
@@ -66,7 +71,8 @@ object EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop extends App {
       useReducedStoreStaAddressExecBridge = useEarlyStaAddressExec,
       reducedStoreStdExecDelayCycles = stdDelayCycles,
       reducedReplayLiqW2CompletionDelayCycles = w2CompletionDelayCycles,
-      reducedReplayLiqW2PostLretEnqueueHoldCycles = w2PostLretEnqueueHoldCycles),
+      reducedReplayLiqW2PostLretEnqueueHoldCycles = w2PostLretEnqueueHoldCycles,
+      reducedReplayLiqRetainedOwnerNoPhysicalProbe = retainedOwnerNoPhysicalProbe),
     args = Array("--target-dir", "../generated/chisel-verilog/frontend-fetch-rf-alu-reduced-store-replay-liq-trace-top"),
     firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
   )
