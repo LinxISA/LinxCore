@@ -393,6 +393,24 @@ allows same-cycle consume/recapture. This packet deliberately does not change
 the top-level W2 clear path; the next owner should wire diagnostic counters
 beside the R575 hold evidence and prove capture identity before replacing the
 hold experiment.
+R577 wires the retire-record owner diagnostically into
+`LinxCoreFrontendFetchRfAluTraceTop` without changing live W2 clear or LRET
+drain behavior. The generated RTL/QEMU gate
+`generated/r577-replay-w2-retire-record-xcheck` passes with `status="pass"`,
+`compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT CBSTOP rows. Sideband
+schema v28 records the no-hold R574 clear shape
+(`lret_sink_enqueue_accepted_w2_live_clear=3`,
+`lret_sink_followup_w2_cleared=3`,
+`lret_sink_followup_w2_still_occupied=0`) and the explicit retire-record
+capture for the same overlap (`w2_retire_record_capture_accepted=3`,
+`w2_retire_record_capture_accepted_w2_occupied=3`,
+`w2_retire_record_record_fire=3`,
+`w2_retire_record_captured_with_lret_enqueue=3`,
+`w2_retire_record_record_from_lret_enqueue=3`,
+`w2_retire_record_capture_dropped=0`, and
+`w2_retire_record_blocked_by_full=0`). The next owner can now consume this
+record in replay-row lifecycle or LRET-drain identity logic instead of reviving
+the R575 physical W2 hold as final architecture.
 
 Use this packet shape first:
 

@@ -82,19 +82,39 @@ accepted LRET enqueue. A same-cycle consume/recapture is allowed so a future
 consumer can stream one record per cycle when it is ready. Flush clears the
 record without emitting `recordFire`.
 
-## Integration Plan
+## Integration Status
 
-R576 keeps this owner standalone and unit-tested. The next integration packet
-should wire it next to `LoadReplayReturnPipeW2ClearIntent` and feed
-`retirePayload` from the same payload used for LRET enqueue formation. The
-first live use should be diagnostic only: expose capture, full, and
-`recordFromLretEnqueue` counters without changing W2 clear, LRET drain, or
-replay-row lifecycle mutation. After QEMU evidence proves the record aligns
-with the R575 overlap, the W2 hold knob can remain diagnostic or be removed.
+R576 introduced this owner as a standalone unit-tested module. R577 wires it
+diagnostically next to `LoadReplayReturnPipeW2ClearIntent` in
+`LinxCoreFrontendFetchRfAluTraceTop` and feeds `retirePayload` from the same
+returned-load payload used for LRET enqueue formation. The diagnostic top ties
+`recordReady` high, exposes capture/full/provenance counters, and deliberately
+does not change W2 clear, LRET drain, or replay-row lifecycle mutation.
+
+The R577 generated RTL/QEMU replay-LIQ gate proves the record captures the same
+three accepted LRET enqueue overlaps that R574/R575 classified, while the
+physical W2 slot still clears promptly without the R575 hold knob:
+
+```text
+generated/r577-replay-w2-retire-record-xcheck/report/crosscheck_manifest.json
+status=pass compared_rows=18 mismatch_count=0 qemu_cbstop=0 dut_cbstop=0
+
+frontend_fetch_rf_alu_sideband_stats.json schema=v28
+lret_sink_enqueue_accepted_w2_occupied=3
+lret_sink_enqueue_accepted_w2_live_clear=3
+lret_sink_followup_w2_cleared=3
+lret_sink_followup_w2_still_occupied=0
+w2_retire_record_capture_accepted=3
+w2_retire_record_capture_accepted_w2_occupied=3
+w2_retire_record_record_fire=3
+w2_retire_record_captured_with_lret_enqueue=3
+w2_retire_record_record_from_lret_enqueue=3
+w2_retire_record_capture_dropped=0
+w2_retire_record_blocked_by_full=0
+```
 
 ## Deferred Owners
 
-- Top-level diagnostic wiring and sideband counters for capture/consume/full.
 - A downstream replay-row lifecycle consumer that uses the retire record instead
   of sampling the physical W2 slot after clear.
 - Equivalence check against the R575 hold evidence: accepted LRET enqueue
@@ -111,3 +131,18 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RetireRecord
 
 Reference tests cover empty capture, live-clear blocking, invalid payload,
 full-record drop, same-cycle consume/recapture, and Chisel elaboration.
+
+R577 integration gates:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r577-replay-w2-retire-record-xcheck \
+  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
+  --reduced-store-replay-liq --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
+```

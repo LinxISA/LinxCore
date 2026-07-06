@@ -403,6 +403,20 @@ struct ReplayLiqSidebandStats {
   std::uint64_t lret_sink_pending_w2_occupied = 0;
   std::uint64_t lret_sink_drain_valid_w2_occupied = 0;
   std::uint64_t lret_sink_drain_fire_w2_occupied = 0;
+  std::uint64_t w2_retire_record_capture_candidate = 0;
+  std::uint64_t w2_retire_record_payload_valid = 0;
+  std::uint64_t w2_retire_record_capture_valid = 0;
+  std::uint64_t w2_retire_record_capture_ready = 0;
+  std::uint64_t w2_retire_record_capture_accepted = 0;
+  std::uint64_t w2_retire_record_capture_accepted_w2_occupied = 0;
+  std::uint64_t w2_retire_record_capture_dropped = 0;
+  std::uint64_t w2_retire_record_record_valid = 0;
+  std::uint64_t w2_retire_record_record_fire = 0;
+  std::uint64_t w2_retire_record_pending = 0;
+  std::uint64_t w2_retire_record_captured_with_lret_enqueue = 0;
+  std::uint64_t w2_retire_record_record_from_lret_enqueue = 0;
+  std::uint64_t w2_retire_record_blocked_by_invalid_payload = 0;
+  std::uint64_t w2_retire_record_blocked_by_full = 0;
   std::uint64_t lret_commit_history_load_rows = 0;
   std::uint64_t lret_shadow_enqueue = 0;
   std::uint64_t lret_shadow_enqueue_after_prior_commit = 0;
@@ -1500,6 +1514,48 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (w2_slot_occupied && dut.io_reducedLoadReplayLiqLretSinkPending) {
     ++g_replay_liq_sideband_stats.lret_sink_pending_w2_occupied;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCaptureCandidate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_capture_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPayloadValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_payload_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCaptureValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_capture_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCaptureReady) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_capture_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCaptureAccepted) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_capture_accepted;
+  }
+  if (w2_slot_occupied && dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCaptureAccepted) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_capture_accepted_w2_occupied;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCaptureDropped) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_capture_dropped;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRecordValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_record_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRecordFire) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_record_fire;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPending) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_pending;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordCapturedWithLretEnqueue) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_captured_with_lret_enqueue;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRecordFromLretEnqueue) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_record_from_lret_enqueue;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBlockedByInvalidPayload) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_blocked_by_invalid_payload;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBlockedByFull) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_blocked_by_full;
+  }
   if (dut.io_reducedLoadReplayLiqLretSinkFull) {
     ++g_replay_liq_sideband_stats.lret_sink_full;
   }
@@ -2417,7 +2473,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v27\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v28\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -2839,6 +2895,34 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.lret_sink_drain_valid_w2_occupied << ",\n"
       << "    \"lret_sink_drain_fire_w2_occupied\": "
       << g_replay_liq_sideband_stats.lret_sink_drain_fire_w2_occupied << ",\n"
+      << "    \"w2_retire_record_capture_candidate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_capture_candidate << ",\n"
+      << "    \"w2_retire_record_payload_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_payload_valid << ",\n"
+      << "    \"w2_retire_record_capture_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_capture_valid << ",\n"
+      << "    \"w2_retire_record_capture_ready\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_capture_ready << ",\n"
+      << "    \"w2_retire_record_capture_accepted\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_capture_accepted << ",\n"
+      << "    \"w2_retire_record_capture_accepted_w2_occupied\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_capture_accepted_w2_occupied << ",\n"
+      << "    \"w2_retire_record_capture_dropped\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_capture_dropped << ",\n"
+      << "    \"w2_retire_record_record_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_record_valid << ",\n"
+      << "    \"w2_retire_record_record_fire\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_record_fire << ",\n"
+      << "    \"w2_retire_record_pending\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_pending << ",\n"
+      << "    \"w2_retire_record_captured_with_lret_enqueue\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_captured_with_lret_enqueue << ",\n"
+      << "    \"w2_retire_record_record_from_lret_enqueue\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_record_from_lret_enqueue << ",\n"
+      << "    \"w2_retire_record_blocked_by_invalid_payload\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_blocked_by_invalid_payload << ",\n"
+      << "    \"w2_retire_record_blocked_by_full\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_blocked_by_full << ",\n"
       << "    \"lret_commit_history_load_rows\": "
       << g_replay_liq_sideband_stats.lret_commit_history_load_rows << ",\n"
       << "    \"lret_shadow_enqueue\": "

@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v27"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v28"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -220,6 +220,20 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "lret_sink_pending_w2_occupied",
     "lret_sink_drain_valid_w2_occupied",
     "lret_sink_drain_fire_w2_occupied",
+    "w2_retire_record_capture_candidate",
+    "w2_retire_record_payload_valid",
+    "w2_retire_record_capture_valid",
+    "w2_retire_record_capture_ready",
+    "w2_retire_record_capture_accepted",
+    "w2_retire_record_capture_accepted_w2_occupied",
+    "w2_retire_record_capture_dropped",
+    "w2_retire_record_record_valid",
+    "w2_retire_record_record_fire",
+    "w2_retire_record_pending",
+    "w2_retire_record_captured_with_lret_enqueue",
+    "w2_retire_record_record_from_lret_enqueue",
+    "w2_retire_record_blocked_by_invalid_payload",
+    "w2_retire_record_blocked_by_full",
     "lret_commit_history_load_rows",
     "lret_shadow_enqueue",
     "lret_shadow_enqueue_after_prior_commit",

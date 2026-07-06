@@ -35,10 +35,23 @@ clear promptly. Either design must keep side effects single-fire and retain the
 QEMU cross-check as the acceptance gate.
 
 R576 chooses the second path as the next design candidate by adding
-`LoadReplayReturnPipeW2RetireRecord` as a standalone one-entry owner. The next
-agent packet should wire it diagnostically near W2 clear intent and compare its
-capture/record provenance against the R575 hold counters before changing live
-W2 clear behavior.
+`LoadReplayReturnPipeW2RetireRecord` as a standalone one-entry owner. R577 wires
+that owner diagnostically near W2 clear intent and proves the record captures
+the same three accepted LRET enqueue overlaps while physical W2 still clears on
+the following cycle. The proof point is
+`generated/r577-replay-w2-retire-record-xcheck` with manifest `status="pass"`,
+`compared_rows=18`, and `mismatch_count=0`; sideband schema v28 shows
+`w2_retire_record_capture_accepted=3`,
+`w2_retire_record_record_fire=3`,
+`w2_retire_record_captured_with_lret_enqueue=3`,
+`w2_retire_record_record_from_lret_enqueue=3`,
+`lret_sink_followup_w2_cleared=3`, and
+`lret_sink_followup_w2_still_occupied=0`.
+
+Next agents should make the retire record useful to replay-row lifecycle or
+registered LRET-drain identity logic. Do not re-enable the R575 physical W2
+hold as final architecture unless a later consumer proves the explicit record
+cannot carry the required identity.
 
 ## Current Baseline
 
