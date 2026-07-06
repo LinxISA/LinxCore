@@ -363,6 +363,28 @@ FIFO entry is pending, drain-valid, drain-fired, and drain-permit-ready. The
 next owner is therefore a deliberate W2-clear hold/retire phasing experiment or
 model-derived W2 side-effect retire boundary, not LRET sink capacity,
 publish-control readiness, or W2 slot storage replacement.
+R575 adds a default-off W2 post-LRET-enqueue hold helper and enables it only in
+the focused replay-loop evidence run with
+`LINXCORE_REPLAY_LIQ_W2_POST_LRET_ENQUEUE_HOLD_CYCLES=1`. The generated
+RTL/QEMU gate, `generated/r575-replay-lret-post-enqueue-w2-hold-xcheck`, passes
+with `status="pass"`, `compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT
+CBSTOP rows. The same accepted enqueue overlap remains present
+(`lret_sink_enqueue_accepted_w2_occupied=3`,
+`lret_sink_enqueue_accepted_w2_completion_clear_slot=3`,
+`lret_sink_enqueue_accepted_w2_clear_intent=3`,
+`lret_sink_enqueue_accepted_w2_side_effect_fire_complete=3`, and
+`lret_sink_enqueue_accepted_w2_live_clear=3`), but the one-cycle follow-up now
+observes retained W2 residency:
+`lret_sink_followup_w2_still_occupied=3` and
+`lret_sink_followup_w2_cleared=0`. The registered LRET FIFO path is also now
+visible while W2 remains occupied:
+`lret_sink_pending_w2_occupied=3`,
+`lret_sink_drain_valid_w2_occupied=3`,
+`lret_sink_drain_fire_w2_occupied=3`,
+`lret_iex_insert_candidate_w2_occupied=3`, and
+`lret_residency_candidate_w2_occupied=3`. The next owner is therefore to decide
+whether final hardware should keep the W2 row alive through registered LRET
+drain, or instead capture an explicit retire record so W2 can clear promptly.
 
 Use this packet shape first:
 

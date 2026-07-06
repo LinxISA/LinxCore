@@ -15,6 +15,25 @@ QEMU cross-check infrastructure are the first proof surface. Frontend, decode,
 issue, LSU, engines, and top-level integration can move faster after they are
 anchored to a real retirement and trace oracle.
 
+## Latest Loop State
+
+R575 follows the R574 clear-classifier packet with a default-off W2
+post-LRET-enqueue hold experiment. In the focused replay-LIQ QEMU cross-check,
+`LINXCORE_REPLAY_LIQ_W2_POST_LRET_ENQUEUE_HOLD_CYCLES=1` keeps the W2 slot
+resident for the one-cycle registered LRET FIFO follow-up while preserving
+QEMU/DUT commit trace agreement. The proof point is
+`generated/r575-replay-lret-post-enqueue-w2-hold-xcheck` with manifest
+`status="pass"`, `compared_rows=18`, and `mismatch_count=0`; sideband counters
+show `lret_sink_followup_w2_still_occupied=3`,
+`lret_sink_pending_w2_occupied=3`, and
+`lret_sink_drain_fire_w2_occupied=3`.
+
+Next agents should not treat the R575 hold as final architecture. Use it to
+choose between two model-aligned designs: keep W2 resident through registered
+LRET drain, or capture a separate W2 retire record and let the physical slot
+clear promptly. Either design must keep side effects single-fire and retain the
+QEMU cross-check as the acceptance gate.
+
 ## Current Baseline
 
 Record these SHAs at the start of each agent packet and refresh them if the
