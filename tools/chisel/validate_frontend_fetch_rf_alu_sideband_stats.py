@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v21"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v22"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -328,6 +328,9 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_slot_replace_overlap_candidate_occupied",
     "w2_slot_replace_overlap_candidate_clear_intent",
     "w2_slot_replace_overlap_candidate_live_clear",
+    "w2_slot_replace_overlap_live_clear_same_lsid",
+    "w2_slot_replace_overlap_live_clear_different_lsid",
+    "w2_slot_replace_overlap_live_clear_unknown_lsid",
     "w2_slot_replace_live_clear_without_w1_candidate",
     "w2_slot_replace_w1_candidate_without_live_clear",
     "w2_slot_replace_advance_valid_on_live_clear",

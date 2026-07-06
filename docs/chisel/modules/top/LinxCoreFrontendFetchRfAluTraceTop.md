@@ -124,6 +124,10 @@ R566 adds a clustered dependency fixture through the wrapper without changing
 the top interface. Its sideband again classifies the gaps as same-LSID, so more
 top-level diagnostics are not justified before a distinct-candidate stimulus
 exists.
+R567 keeps the top interface unchanged and bumps the harness sideband schema to
+v22 with same-cycle overlap identity buckets. A future overlap must increment
+`w2_slot_replace_overlap_live_clear_different_lsid` before it can be cited as
+W2 replacement evidence.
 
 ## Purpose
 
@@ -1762,7 +1766,8 @@ the same namespace. These signals compare current W2 slot acceptance with the
 future empty-or-live-clear write-accept predicate, but remain observational and
 do not feed W1 advance, W2 clear, or W2 slot storage. R354 adds the W2 slot's
 explicit `replaceOnClear` storage mode but ties it false in the top until live
-W2 clear/refill promotion is ready.
+W2 clear/refill promotion is ready. R567 adds harness-only identity buckets for
+the same-cycle W1-candidate/W2-live-clear overlap without adding top IO.
 R355 adds `reducedLoadReplayLiqLretPipeW2AdvanceControl*` diagnostics under
 the same namespace. The control owner now drives the W1 advance enable and W2
 slot `replaceOnClear` inputs. R356 adds

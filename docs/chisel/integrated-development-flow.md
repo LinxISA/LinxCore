@@ -224,6 +224,21 @@ gaps (`gap2=4`, `gap4=2`, `same_lsid=6`, `different_lsid=0`) and zero
 same-cycle replacement. Clustered same-address dependency pressure is therefore
 still insufficient; the next stimulus must change return phasing or introduce a
 controlled delay/retention hook that creates a distinct returned-load candidate.
+R567 bumps the Verilator replay-LIQ sideband report to schema v22 and splits
+same-cycle W1-candidate/W2-live-clear overlap by W1/W2 load-LSID identity:
+`w2_slot_replace_overlap_live_clear_same_lsid`,
+`w2_slot_replace_overlap_live_clear_different_lsid`, and
+`w2_slot_replace_overlap_live_clear_unknown_lsid`. This packet is
+diagnostic-only; it does not alter W2 storage or top RTL behavior. The R566
+clustered fixture rerun still passes with 18 compared rows, zero mismatches,
+and zero QEMU/DUT CBSTOP rows. The v22 sideband records nonzero replay-return
+progress and the same same-LSID phase shape
+(`w2_slot_replace_live_clear_after_w1_candidate_gap2=4`,
+`w2_slot_replace_live_clear_after_w1_candidate_gap4=2`,
+`w2_slot_replace_live_clear_after_w1_candidate_same_lsid=6`) while all
+same-cycle overlap identity buckets remain zero. Future phasing hooks must
+require nonzero different-LSID same-cycle overlap before using
+`replaceOnClear` evidence as a storage-promotion proof.
 
 Use this packet shape first:
 
@@ -246,7 +261,7 @@ Promotion gate: R557 replay-loop fixture, R558
   `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561/R562/R563/R564/R565
   phase-distance, identity, and different-LSID near-miss sideband, or a stronger
   multiple-return-load phasing fixture through
-  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
+  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v22 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
   W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
   policy blocks, nonzero ROB instruction metadata evidence, nonzero row-fill

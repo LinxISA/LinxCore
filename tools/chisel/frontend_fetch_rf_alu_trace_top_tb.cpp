@@ -511,6 +511,9 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_slot_replace_overlap_candidate_occupied = 0;
   std::uint64_t w2_slot_replace_overlap_candidate_clear_intent = 0;
   std::uint64_t w2_slot_replace_overlap_candidate_live_clear = 0;
+  std::uint64_t w2_slot_replace_overlap_live_clear_same_lsid = 0;
+  std::uint64_t w2_slot_replace_overlap_live_clear_different_lsid = 0;
+  std::uint64_t w2_slot_replace_overlap_live_clear_unknown_lsid = 0;
   std::uint64_t w2_slot_replace_live_clear_without_w1_candidate = 0;
   std::uint64_t w2_slot_replace_w1_candidate_without_live_clear = 0;
   std::uint64_t w2_slot_replace_advance_valid_on_live_clear = 0;
@@ -1746,6 +1749,21 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   }
   if (w2_slot_occupied && w1_advance_candidate && w2_live_clear) {
     ++g_replay_liq_sideband_stats.w2_slot_replace_overlap_candidate_live_clear;
+    const bool w1_lsid_valid = dut.io_reducedLoadReplayLiqLretPipeW1SlotLoadLsIdValid;
+    const std::uint64_t w1_lsid_value =
+        static_cast<std::uint64_t>(dut.io_reducedLoadReplayLiqLretPipeW1SlotLoadLsIdValue);
+    const bool w2_lsid_valid = dut.io_reducedLoadReplayLiqLretPipeW2SlotLoadLsIdValid;
+    const std::uint64_t w2_lsid_value =
+        static_cast<std::uint64_t>(dut.io_reducedLoadReplayLiqLretPipeW2SlotLoadLsIdValue);
+    if (w1_lsid_valid && w2_lsid_valid) {
+      if (w1_lsid_value == w2_lsid_value) {
+        ++g_replay_liq_sideband_stats.w2_slot_replace_overlap_live_clear_same_lsid;
+      } else {
+        ++g_replay_liq_sideband_stats.w2_slot_replace_overlap_live_clear_different_lsid;
+      }
+    } else {
+      ++g_replay_liq_sideband_stats.w2_slot_replace_overlap_live_clear_unknown_lsid;
+    }
   }
   if (w2_slot_occupied && w2_live_clear && !w1_advance_candidate) {
     ++g_replay_liq_sideband_stats.w2_slot_replace_live_clear_without_w1_candidate;
@@ -2152,7 +2170,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v21\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v22\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -2790,6 +2808,12 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_slot_replace_overlap_candidate_clear_intent << ",\n"
       << "    \"w2_slot_replace_overlap_candidate_live_clear\": "
       << g_replay_liq_sideband_stats.w2_slot_replace_overlap_candidate_live_clear << ",\n"
+      << "    \"w2_slot_replace_overlap_live_clear_same_lsid\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_overlap_live_clear_same_lsid << ",\n"
+      << "    \"w2_slot_replace_overlap_live_clear_different_lsid\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_overlap_live_clear_different_lsid << ",\n"
+      << "    \"w2_slot_replace_overlap_live_clear_unknown_lsid\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_overlap_live_clear_unknown_lsid << ",\n"
       << "    \"w2_slot_replace_live_clear_without_w1_candidate\": "
       << g_replay_liq_sideband_stats.w2_slot_replace_live_clear_without_w1_candidate << ",\n"
       << "    \"w2_slot_replace_w1_candidate_without_live_clear\": "

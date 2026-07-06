@@ -67,6 +67,9 @@ stimulus problem.
 R566 adds `replay-ldi-sdi-ldi-sdi-ldi-ldi-loop` and still records same-LSID
 gap2/gap4 evidence with zero same-cycle replacement, so `replaceOnClear` remains
 blocked on distinct-candidate stimulus.
+R567 adds harness-only same-cycle overlap identity buckets. Advance-control
+promotion should require nonzero different-LSID same-cycle overlap before
+claiming that `replaceOnClear` was exercised by a real replacement candidate.
 
 ## Interface
 
@@ -144,7 +147,10 @@ replay RF writeback, ready-table mutation, or issue wakeup.
   W2 lifetime. R564 confirms the current fixture has no different-LSID near-miss
   across the measured gap buckets in either direction. R565 confirms the older
   repeated dependency-chain fixture also lacks different-LSID near-misses. R566
-  confirms clustered second-dependency pressure is still insufficient.
+  confirms clustered second-dependency pressure is still insufficient. R567
+  adds same-cycle overlap identity classification so that future phasing hooks
+  can distinguish a real different-LSID replacement candidate from same-LSID
+  resident lifetime.
 - Tie W2 clear to the live side-effect completion owner instead of the current
   dormant completion path.
 - Retire or update the consumed replay-row lifecycle when W2 side effects

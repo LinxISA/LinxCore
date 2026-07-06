@@ -67,6 +67,10 @@ R566 adds a clustered second-dependency fixture with one extra younger load and
 still records only same-LSID phase gaps (`gap2=4`, `gap4=2`) plus zero
 same-cycle replacement, so more same-address pressure does not change the owner
 boundary.
+R567 extends the harness sideband report, not the slot-replace plan logic, with
+same-cycle overlap identity buckets. A future fixture or phasing hook must make
+`w2_slot_replace_overlap_live_clear_different_lsid` nonzero before the overlap
+can be treated as replacement stimulus.
 
 ## Interface
 
@@ -171,6 +175,8 @@ clears, proving they are not different-candidate replacement opportunities.
   R565 proves the older repeated dependency-chain fixture has the same
   same-LSID-only limitation under those buckets. R566 proves adding one extra
   younger load after the second store dependency also stays same-LSID-only.
+  R567 adds same-cycle overlap identity counters so a future overlap cannot be
+  confused with same-resident-row lifetime evidence.
 - Verify `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future
   readiness and drives `LoadReplayReturnPipeW2Slot.replaceOnClear` in that
   same-cycle replacement case.

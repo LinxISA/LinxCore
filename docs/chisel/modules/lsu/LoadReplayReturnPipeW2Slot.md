@@ -161,6 +161,9 @@ records only same-LSID gaps, so the next owner must create a new different-LSID
 returned-load overlap stimulus.
 R566 adds one more younger load after the second store dependency and still
 records only same-LSID gap2/gap4 clears with zero replacement eligibility.
+R567 adds harness-only same-cycle overlap identity counters. The storage owner
+must not treat a future `w2_slot_replace_overlap_candidate_live_clear` pulse as
+replacement evidence unless the new different-LSID bucket is also nonzero.
 
 ## Deferred Owners
 
