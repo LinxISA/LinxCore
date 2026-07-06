@@ -458,6 +458,18 @@ promotion candidates, and three `blocked_by_no_atomic_request` events. The
 next packet should keep LIQ mutation disabled and first align the retained
 record with an atomic request source.
 
+R582 refines that handoff with a retained-record atomic request probe. The
+probe treats retained-record valid plus unique lifecycle row as request
+evidence, then checks the existing row-fill candidate and row-fill enable
+without driving live mutation. The generated RTL/QEMU gate
+`generated/r582-replay-retire-record-atomic-request-probe-xcheck` passes with
+`status="pass"`, `compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT
+CBSTOP rows. Sideband schema v32 records three retained-record request
+evidence events, zero missing lifecycle-row blockers, and three
+missing-row-fill-candidate blockers. The next packet should build a
+retained-record commit-row or row-fill candidate source before retrying live
+request or row-fill enable promotion.
+
 Use this packet shape first:
 
 ```text

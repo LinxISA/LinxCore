@@ -93,6 +93,15 @@ with an atomic request source. The current blocker is not missing lifecycle-row
 identity, row-fill candidate, or row-fill enable; it is that the existing live
 atomic request is absent when the retained record is ready.
 
+R582 adds `LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe` to classify
+the retained-record evidence without depending on `atomicRequestActive`.
+That probe shows the retained record still lacks an aligned row-fill candidate:
+`w2_retire_record_atomic_request_evidence_valid=3`,
+`w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate=3`, and
+`w2_retire_record_atomic_request_row_fill_candidate_aligned=0`.
+The next owner should build a retained-record commit-row or row-fill candidate
+source before retrying atomic request promotion.
+
 ## Deferred Owners
 
 - Live retire-record lifecycle request/commit/clear selection.

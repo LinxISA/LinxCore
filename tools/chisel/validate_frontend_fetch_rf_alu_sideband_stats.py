@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v31"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v32"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -485,6 +485,12 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_retire_record_lifecycle_request_blocked_by_no_atomic_request",
     "w2_retire_record_lifecycle_request_blocked_by_no_row_fill_candidate",
     "w2_retire_record_lifecycle_request_blocked_by_no_row_fill_enable",
+    "w2_retire_record_atomic_request_evidence_valid",
+    "w2_retire_record_atomic_request_row_fill_candidate_aligned",
+    "w2_retire_record_atomic_request_row_fill_enable_aligned",
+    "w2_retire_record_atomic_request_blocked_by_no_lifecycle_row",
+    "w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate",
+    "w2_retire_record_atomic_request_blocked_by_no_row_fill_enable",
     "resolve_queue_push_accepted",
     "resolve_queue_valid",
     "resolve_queue_push_accepted_first_cycle",

@@ -668,6 +668,12 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_lifecycle_request_blocked_by_no_atomic_request = 0;
   std::uint64_t w2_retire_record_lifecycle_request_blocked_by_no_row_fill_candidate = 0;
   std::uint64_t w2_retire_record_lifecycle_request_blocked_by_no_row_fill_enable = 0;
+  std::uint64_t w2_retire_record_atomic_request_evidence_valid = 0;
+  std::uint64_t w2_retire_record_atomic_request_row_fill_candidate_aligned = 0;
+  std::uint64_t w2_retire_record_atomic_request_row_fill_enable_aligned = 0;
+  std::uint64_t w2_retire_record_atomic_request_blocked_by_no_lifecycle_row = 0;
+  std::uint64_t w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate = 0;
+  std::uint64_t w2_retire_record_atomic_request_blocked_by_no_row_fill_enable = 0;
   std::uint64_t resolve_queue_push_accepted = 0;
   std::uint64_t resolve_queue_valid = 0;
   std::uint64_t resolve_queue_push_accepted_first_cycle = 0;
@@ -2363,6 +2369,24 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleRequestProbeBlockedByNoRowFillEnable) {
     ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_request_blocked_by_no_row_fill_enable;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordAtomicRequestProbeEvidenceValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_atomic_request_evidence_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordAtomicRequestProbeRowFillCandidateAligned) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_atomic_request_row_fill_candidate_aligned;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordAtomicRequestProbeRowFillEnableAligned) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_atomic_request_row_fill_enable_aligned;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordAtomicRequestProbeBlockedByNoLifecycleRow) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_atomic_request_blocked_by_no_lifecycle_row;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordAtomicRequestProbeBlockedByNoRowFillCandidate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordAtomicRequestProbeBlockedByNoRowFillEnable) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_atomic_request_blocked_by_no_row_fill_enable;
+  }
   if (resolve_queue_push_accepted) {
     ++g_replay_liq_sideband_stats.resolve_queue_push_accepted;
   }
@@ -2529,7 +2553,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v31\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v32\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -3481,6 +3505,18 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_request_blocked_by_no_row_fill_candidate << ",\n"
       << "    \"w2_retire_record_lifecycle_request_blocked_by_no_row_fill_enable\": "
       << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_request_blocked_by_no_row_fill_enable << ",\n"
+      << "    \"w2_retire_record_atomic_request_evidence_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_atomic_request_evidence_valid << ",\n"
+      << "    \"w2_retire_record_atomic_request_row_fill_candidate_aligned\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_atomic_request_row_fill_candidate_aligned << ",\n"
+      << "    \"w2_retire_record_atomic_request_row_fill_enable_aligned\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_atomic_request_row_fill_enable_aligned << ",\n"
+      << "    \"w2_retire_record_atomic_request_blocked_by_no_lifecycle_row\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_atomic_request_blocked_by_no_lifecycle_row << ",\n"
+      << "    \"w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate << ",\n"
+      << "    \"w2_retire_record_atomic_request_blocked_by_no_row_fill_enable\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_atomic_request_blocked_by_no_row_fill_enable << ",\n"
       << "    \"resolve_queue_push_accepted\": "
       << g_replay_liq_sideband_stats.resolve_queue_push_accepted << ",\n"
       << "    \"resolve_queue_valid\": "

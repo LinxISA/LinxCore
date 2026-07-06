@@ -109,6 +109,22 @@ lifecycle request probe into generated-top diagnostics. The proof point is
 owner should align or derive an atomic request for the retained record before
 allowing it to drive live row-fill or LIQ clear mutation.
 
+R582 adds `LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe` to classify
+that retained-record request evidence before any mutation. The generated
+RTL/QEMU gate `generated/r582-replay-retire-record-atomic-request-probe-xcheck`
+passes with manifest `status="pass"`, `comparator_status=0`,
+`compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT CBSTOP rows.
+Sideband schema v32 records
+`w2_retire_record_atomic_request_evidence_valid=3`,
+`w2_retire_record_atomic_request_blocked_by_no_lifecycle_row=0`,
+`w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate=3`,
+`w2_retire_record_atomic_request_row_fill_candidate_aligned=0`,
+`w2_retire_record_atomic_request_row_fill_enable_aligned=0`, and
+`w2_retire_record_atomic_request_blocked_by_no_row_fill_enable=0`. Existing
+physical-W2 row-fill activity does not align with the retained record after
+W2 clears, so the next owner is a retained-record commit-row or row-fill
+candidate source.
+
 ## Current Baseline
 
 Record these SHAs at the start of each agent packet and refresh them if the

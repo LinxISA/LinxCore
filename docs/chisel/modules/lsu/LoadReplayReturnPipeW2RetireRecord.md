@@ -151,6 +151,14 @@ candidates, and three `blocked_by_no_atomic_request` events. The next owner is
 therefore atomic-request alignment for the retained record, not lifecycle-row
 matching.
 
+R582 splits that next owner again: if the retained record itself is treated as
+request evidence, the existing physical-W2 row-fill candidate still does not
+align with the retained record. The v32 sideband records
+`w2_retire_record_atomic_request_evidence_valid=3`,
+`w2_retire_record_atomic_request_blocked_by_no_lifecycle_row=0`, and
+`w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate=3`. The next
+owner is a retained-record commit-row or row-fill candidate source.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -158,6 +166,8 @@ matching.
   ordering.
 - Retained-record atomic request source alignment before the record may drive a
   live row-fill/clear path.
+- Retained-record commit-row or row-fill candidate source aligned after
+  physical W2 clears.
 
 ## Verification
 
