@@ -14,6 +14,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRowFillEnableControl
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard
@@ -1338,6 +1339,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackCandidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackDuplicatePhysicalWakeup = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackWakeupValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyCandidate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyAllCandidatesReady = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByPhysicalDuplicate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable = Output(Bool())
@@ -4061,7 +4066,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.slot,
     reducedReplayLiqReturnPipeW2Modules.robCompleteSource,
     reducedReplayLiqReturnPipeW2Modules.retireRecordCommitRowCandidate,
-    false.B,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -4071,7 +4076,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.retireRecord,
     reducedReplayLiqReturnPipeW2Modules.slot,
     reducedReplayLiqReturnPipeW2Modules.writebackFirePayload,
-    false.B,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -4081,7 +4086,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.retireRecord,
     reducedReplayLiqReturnPipeW2Modules.slot,
     reducedReplayLiqReturnPipeW2Modules.wakeupFirePayload,
-    false.B,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -4092,6 +4097,18 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleEvidence,
     reducedReplayLiqReturnPipeW2Modules.replayRowLifecycleReady,
     reducedReplayLiqReturnPipeW2Modules.replayRowClearRequest,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
+    reducedLoadReplayLiqAllocEnabled,
+    reducedStoreFlush
+  )
+  LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordFallbackOwnerPolicyWiring.connect(
+    io,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy,
+    reducedReplayLiqReturnPipeW2Modules.retireRecord,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordRobCompleteFallbackGuard,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordRfWritebackFallbackGuard,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordWakeupFallbackGuard,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleClearFallbackGuard,
     false.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
@@ -8042,6 +8059,42 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleClearFal
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordFallbackOwnerPolicyWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      policy: LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy,
+      retireRecord: LoadReplayReturnPipeW2RetireRecord,
+      robGuard: LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard,
+      rfGuard: LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard,
+      wakeupGuard: LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard,
+      lifecycleClearGuard: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
+      globalFallbackEnable: Bool,
+      enable: Bool,
+      flush: Bool): Unit = {
+    policy.io.enable := enable
+    policy.io.flush := flush
+    policy.io.globalFallbackEnable := globalFallbackEnable
+    policy.io.recordValid := retireRecord.io.recordValid
+    policy.io.robCandidate := robGuard.io.recordCandidate
+    policy.io.rfCandidate := rfGuard.io.recordCandidate
+    policy.io.wakeupCandidate := wakeupGuard.io.recordCandidate
+    policy.io.lifecycleClearCandidate := lifecycleClearGuard.io.recordCandidate
+    policy.io.robDuplicatePhysicalComplete := robGuard.io.duplicatePhysicalComplete
+    policy.io.rfDuplicatePhysicalWriteback := rfGuard.io.duplicatePhysicalWriteback
+    policy.io.wakeupDuplicatePhysicalWakeup := wakeupGuard.io.duplicatePhysicalWakeup
+    policy.io.lifecycleClearDuplicatePhysicalClear := lifecycleClearGuard.io.duplicatePhysicalClear
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyCandidate :=
+      policy.io.recordCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyAllCandidatesReady :=
+      policy.io.allFallbackCandidatesReady
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByPhysicalDuplicate :=
+      policy.io.blockedByPhysicalDuplicate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable :=
+      policy.io.sideEffectOwnerEnable
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordInstructionMetadataLatchWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -8924,6 +8977,7 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     retireRecordInstructionMetadata: LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch,
     retireRecordLifecycleEvidence: LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch,
     retireRecordLifecycleClearFallbackGuard: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
+    retireRecordFallbackOwnerPolicy: LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy,
     retireRecordAtomicRequestProbe: LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe,
     retireRecordLifecycleRequestProbe: LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe,
     retireRecordRowFillEnableControl: LoadReplayReturnPipeW2RetireRecordRowFillEnableControl,
@@ -9053,6 +9107,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
         Module(new LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch(liqEntries = p.robEntries)),
       retireRecordLifecycleClearFallbackGuard =
         Module(new LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard(liqEntries = p.robEntries)),
+      retireRecordFallbackOwnerPolicy =
+        Module(new LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy),
       retireRecordAtomicRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe),
       retireRecordLifecycleRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe),
       retireRecordRowFillEnableControl = Module(new LoadReplayReturnPipeW2RetireRecordRowFillEnableControl),

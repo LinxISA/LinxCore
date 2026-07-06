@@ -244,6 +244,15 @@ passes with 18 compared rows and zero mismatches. Sideband schema v40 records
 `w2_retire_record_lifecycle_clear_fallback_clear_valid=0`. Retained lifecycle
 clear must remain disabled until a no-physical-clear stimulus exists.
 
+R591 adds `LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy` as the single
+retained side-effect enable owner. The policy consumes the retained ROB, RF,
+wakeup, and lifecycle-clear guard candidates plus their duplicate-physical
+classifications, then enables the four fallback guards only when all candidates
+are present and no physical W2 side-effect already owns the same returned load.
+The top ties the global policy arm low, so R591 preserves R590 behavior while
+making later no-physical-side-effect work a single ownership decision instead of
+four independent fallback enables.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -254,18 +263,10 @@ clear must remain disabled until a no-physical-clear stimulus exists.
 - Live retained-record row-fill mutation ordering after R586 proved retained
   lifecycle evidence, row-fill enable, atomic request alignment, and complete
   row candidates with zero diagnostic blockers.
-- Retained ROB fallback promotion after R587 proves a non-duplicate
-  no-physical-complete stimulus; keep fallback completion disabled while the
-  physical W2 path still covers the retained RID.
-- Retained RF fallback promotion after R588 proves a non-duplicate
-  no-physical-writeback stimulus; keep fallback writeback disabled while
-  physical W2 writeback already covers the same RID/tag/data.
-- Retained wakeup fallback promotion after R589 proves a non-duplicate
-  no-physical-wakeup stimulus; keep fallback wakeup disabled while physical W2
-  wakeup already covers the same RID/tag payload.
-- Retained lifecycle-clear fallback promotion after R590 proves a
-  non-duplicate no-physical-clear stimulus; keep fallback clear disabled while
-  physical W2 lifecycle clear already covers the same row-clear index.
+- Retained side-effect fallback promotion after R591 proves a no-physical
+  stimulus; keep the global retained-owner arm low while physical W2 already
+  covers ROB completion, RF writeback, wakeup, and LIQ lifecycle clear for the
+  replay-LIQ fixture.
 
 ## Verification
 

@@ -1253,6 +1253,18 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackCandidate.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackDuplicatePhysicalWriteback.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackWritebackValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackCapturePhysicalWakeup.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackDuplicatePhysicalWakeup.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackWakeupValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackCapturePhysicalClear.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackDuplicatePhysicalClear.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackClearValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyAllCandidatesReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByPhysicalDuplicate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable.getWidth == 1)
   }
 
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
@@ -1318,6 +1330,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceProviderValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackDuplicatePhysicalComplete"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackDuplicatePhysicalWriteback"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitLifecycleClearCommitEnable"))
