@@ -186,8 +186,15 @@ new phase counters are zero:
 `w2_slot_replace_w1_candidate_cycle_before_live_clear=0`,
 `w2_slot_replace_clear_intent_cycle_before_w1_candidate=0`, and
 `w2_slot_replace_live_clear_cycle_before_w1_candidate=0`. The miss is not a
-one-cycle offset in the current fixture family; the next owner needs a fixture
-or top hook that creates another returned-load candidate near W2 live clear.
+one-cycle offset in the current fixture family. R562 widens that sideband to
+2/3/4/5+ cycle buckets and reruns the same burst fixture with 18 compared rows,
+zero mismatches, and zero QEMU/DUT CBSTOP rows. It records
+`w2_slot_replace_live_clear_after_w1_candidate_gap2=2` and
+`w2_slot_replace_live_clear_after_w1_candidate_gap5_plus=1`, while same-cycle,
+one-cycle, gap3, gap4, and reverse-gap buckets remain zero. The next owner
+should therefore target a return-pipe delay or injected candidate-retention hook
+that moves those W1 candidates forward by two cycles or holds a later candidate
+until W2 live clear; W2 storage remains blocked on nonzero overlap evidence.
 
 Use this packet shape first:
 
@@ -206,8 +213,8 @@ Expected first gate: focused W2 slot/advance coverage proving same-cycle live
 Promotion gate: R557 replay-loop fixture, R558
   `replay-ldi-sdi-ldi-ldi-loop`, R559
   `replay-ldi-sdi-ldi-sdi-ldi-loop`, R560
-  `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561 phase-distance sideband, or a
-  stronger multiple-return-load phasing fixture through
+  `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561/R562 phase-distance sideband, or
+  a stronger multiple-return-load phasing fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
   W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
@@ -217,8 +224,8 @@ Promotion gate: R557 replay-loop fixture, R558
   and refill/advance counters, nonzero `live_clear_without_w1_candidate` in
   the old/R558/R559/R560 fixtures, and nonzero same-cycle slot replacement
   evidence in a stronger fixture before changing W2 storage; if overlap is
-  zero, inspect the R561 phase-distance counters before selecting another
-  fixture shape
+  zero, inspect the R562 phase-gap buckets before selecting another fixture
+  shape
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation

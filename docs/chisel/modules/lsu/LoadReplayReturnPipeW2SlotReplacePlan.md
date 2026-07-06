@@ -50,7 +50,10 @@ after one store dependency; it increases W2 occupancy but still records zero
 overlap, so merely adding younger loads after one learned store dependency is
 also insufficient. R561 adds sideband phase-distance counters and proves the
 same fixture also has no one-cycle-near miss between W1 candidate and W2
-clear/live-clear.
+clear/live-clear. R562 widens that phase sideband and shows W2 live clear trails
+the W1 candidate by two cycles twice and by five-or-more cycles once in the
+burst fixture; same-cycle, one-cycle, gap3/gap4, and reverse-gap evidence remain
+zero.
 
 ## Interface
 
@@ -129,7 +132,9 @@ six accepted W1/W2 return-pipe slots. R560 records the same zero-overlap result
 for a burst-after-dependency fixture while passing 18 compared rows and
 increasing resident W2 occupancy to 10 cycles. R561 adds phase-distance
 counters and records zero W1-candidate-before-clear/live-clear and zero
-clear/live-clear-before-W1-candidate events for that same burst fixture.
+clear/live-clear-before-W1-candidate events for that same burst fixture. R562
+records nonzero W1-candidate to W2-live-clear gaps at 2 cycles and 5+ cycles,
+with no reverse-gap or overlap evidence.
 
 ## Deferred Owners
 
@@ -140,7 +145,10 @@ clear/live-clear-before-W1-candidate events for that same burst fixture.
   same-address store/load dependency chain is also insufficient. R560 proves a
   burst of younger loads after one learned store dependency is still
   insufficient. R561 proves this fixture family is not merely missing the
-  overlap by one adjacent cycle.
+  overlap by one adjacent cycle. R562 proves the useful phasing distance in the
+  burst fixture is two cycles for two returns and five-or-more cycles for one
+  return; next stimulus should shorten or retain across that gap before changing
+  W2 storage.
 - Verify `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future
   readiness and drives `LoadReplayReturnPipeW2Slot.replaceOnClear` in that
   same-cycle replacement case.

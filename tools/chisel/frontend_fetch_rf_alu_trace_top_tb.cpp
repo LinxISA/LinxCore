@@ -518,6 +518,14 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_slot_replace_w1_candidate_cycle_before_live_clear = 0;
   std::uint64_t w2_slot_replace_clear_intent_cycle_before_w1_candidate = 0;
   std::uint64_t w2_slot_replace_live_clear_cycle_before_w1_candidate = 0;
+  std::uint64_t w2_slot_replace_live_clear_after_w1_candidate_gap2 = 0;
+  std::uint64_t w2_slot_replace_live_clear_after_w1_candidate_gap3 = 0;
+  std::uint64_t w2_slot_replace_live_clear_after_w1_candidate_gap4 = 0;
+  std::uint64_t w2_slot_replace_live_clear_after_w1_candidate_gap5_plus = 0;
+  std::uint64_t w2_slot_replace_w1_candidate_after_live_clear_gap2 = 0;
+  std::uint64_t w2_slot_replace_w1_candidate_after_live_clear_gap3 = 0;
+  std::uint64_t w2_slot_replace_w1_candidate_after_live_clear_gap4 = 0;
+  std::uint64_t w2_slot_replace_w1_candidate_after_live_clear_gap5_plus = 0;
   std::uint64_t w2_advance_enable = 0;
   std::uint64_t w2_advance_replace_on_clear = 0;
   std::uint64_t w2_advance_uses_future_advance = 0;
@@ -1707,6 +1715,14 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   static bool prev_w1_advance_candidate = false;
   static bool prev_w2_clear_intent = false;
   static bool prev_w2_live_clear = false;
+  static int cycles_since_w1_advance_candidate = -1;
+  static int cycles_since_w2_live_clear = -1;
+  if (cycles_since_w1_advance_candidate >= 0) {
+    ++cycles_since_w1_advance_candidate;
+  }
+  if (cycles_since_w2_live_clear >= 0) {
+    ++cycles_since_w2_live_clear;
+  }
   if (w2_slot_occupied && w1_advance_candidate) {
     ++g_replay_liq_sideband_stats.w2_slot_replace_overlap_candidate_occupied;
   }
@@ -1737,9 +1753,39 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (w2_slot_occupied && prev_w2_live_clear && w1_advance_candidate) {
     ++g_replay_liq_sideband_stats.w2_slot_replace_live_clear_cycle_before_w1_candidate;
   }
+  if (w2_slot_occupied && w2_live_clear && !w1_advance_candidate &&
+      cycles_since_w1_advance_candidate >= 2) {
+    if (cycles_since_w1_advance_candidate == 2) {
+      ++g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_gap2;
+    } else if (cycles_since_w1_advance_candidate == 3) {
+      ++g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_gap3;
+    } else if (cycles_since_w1_advance_candidate == 4) {
+      ++g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_gap4;
+    } else {
+      ++g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_gap5_plus;
+    }
+  }
+  if (w2_slot_occupied && w1_advance_candidate && !w2_live_clear &&
+      cycles_since_w2_live_clear >= 2) {
+    if (cycles_since_w2_live_clear == 2) {
+      ++g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap2;
+    } else if (cycles_since_w2_live_clear == 3) {
+      ++g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap3;
+    } else if (cycles_since_w2_live_clear == 4) {
+      ++g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap4;
+    } else {
+      ++g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap5_plus;
+    }
+  }
   prev_w1_advance_candidate = w1_advance_candidate;
   prev_w2_clear_intent = w2_clear_intent;
   prev_w2_live_clear = w2_live_clear;
+  if (w1_advance_candidate) {
+    cycles_since_w1_advance_candidate = 0;
+  }
+  if (w2_live_clear) {
+    cycles_since_w2_live_clear = 0;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2AdvanceControlAdvanceEnable) {
     ++g_replay_liq_sideband_stats.w2_advance_enable;
   }
@@ -2696,6 +2742,22 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_slot_replace_clear_intent_cycle_before_w1_candidate << ",\n"
       << "    \"w2_slot_replace_live_clear_cycle_before_w1_candidate\": "
       << g_replay_liq_sideband_stats.w2_slot_replace_live_clear_cycle_before_w1_candidate << ",\n"
+      << "    \"w2_slot_replace_live_clear_after_w1_candidate_gap2\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_gap2 << ",\n"
+      << "    \"w2_slot_replace_live_clear_after_w1_candidate_gap3\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_gap3 << ",\n"
+      << "    \"w2_slot_replace_live_clear_after_w1_candidate_gap4\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_gap4 << ",\n"
+      << "    \"w2_slot_replace_live_clear_after_w1_candidate_gap5_plus\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_live_clear_after_w1_candidate_gap5_plus << ",\n"
+      << "    \"w2_slot_replace_w1_candidate_after_live_clear_gap2\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap2 << ",\n"
+      << "    \"w2_slot_replace_w1_candidate_after_live_clear_gap3\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap3 << ",\n"
+      << "    \"w2_slot_replace_w1_candidate_after_live_clear_gap4\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap4 << ",\n"
+      << "    \"w2_slot_replace_w1_candidate_after_live_clear_gap5_plus\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_after_live_clear_gap5_plus << ",\n"
       << "    \"w2_advance_enable\": "
       << g_replay_liq_sideband_stats.w2_advance_enable << ",\n"
       << "    \"w2_advance_replace_on_clear\": "
