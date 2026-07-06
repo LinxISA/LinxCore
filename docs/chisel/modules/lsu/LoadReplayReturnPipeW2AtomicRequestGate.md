@@ -99,6 +99,11 @@ snapshot-fed top path still compares cleanly with zero mismatches and zero
 QEMU/DUT CBSTOP rows.
 R534 changes the reduced top to pass `liveModeEnable=true.B` into this gate;
 the request still fires only when the snapshot-fed policy candidate is true.
+R535 extends the generated-RTL sideband stats to persist this gate's top-level
+request outputs plus downstream W2 side-effect, row-fill, and replay-row
+lifecycle counters. Those counters are the required observation points for the
+next positive replay-return packet; the default fixture may still leave them
+zero.
 
 Because `LinxCoreFrontendFetchRfAluTraceTop` is near the JVM constructor method
 size limit, this composite is intended as a constructor-containment boundary:
@@ -121,6 +126,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicLiveRequestControl
 BUILD_DIR=generated/r533-replay-w2-prereq-snapshot-top-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 BUILD_DIR=generated/r534-replay-w2-atomic-live-mode-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r535-replay-w2-sideband-counters-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 git diff --check
 ```
 
