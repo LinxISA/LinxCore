@@ -94,7 +94,8 @@ clear, row-fill, or lifecycle effects as request prerequisites.
 ## Integration
 
 R532 adds this module as a standalone owner. R533 wires it into
-`LinxCoreFrontendFetchRfAluTraceTop` with `liveModeEnable=false.B`. The top
+`LinxCoreFrontendFetchRfAluTraceTop` with `liveModeEnable=false.B`. R534 uses
+the same snapshot-fed prerequisites with `liveModeEnable=true.B`. The top
 captures current observations from `LoadReplayReturnPipeW2SideEffectReady`,
 `LoadReplayReturnPipeW2ClearCommitGuard`,
 `LoadReplayReturnPipeW2CommitRowCandidate`, and
@@ -105,14 +106,14 @@ The reduced top still leaves the policy's direct clear-intent and empty-refill
 inputs dormant. Raw clear/refill evidence continues to feed the live-request
 child for diagnostics, while policy prerequisites come from this registered
 snapshot. R533 generated-RTL evidence proves this dormant snapshot-fed path
-preserves the reduced top with `liveModeEnable=false.B`. `liveModeEnable` must
-remain false until a later generated-RTL packet proves the whole W2
-side-effect, clear, row-fill, and lifecycle chain can commit atomically.
+preserves the reduced top with `liveModeEnable=false.B`. R534 promotes the
+request gate to live mode; live mutation remains gated by the same registered
+snapshot, side-effect, clear, row-fill, and lifecycle prerequisites.
 
 ## Deferred Owners
 
-- Later live-mode proof with request issue, side effects, clear, row fill, and
-  replay-row lifecycle mutation enabled together.
+- Broader replay-return workload proof that observes nonzero live W2 side
+  effects, row fill, and replay-row lifecycle mutation under QEMU/DUT compare.
 
 ## Verification
 
@@ -123,6 +124,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicPrereqS
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicRequestGate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 BUILD_DIR=generated/r533-replay-w2-prereq-snapshot-top-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r534-replay-w2-atomic-live-mode-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 git diff --check
 ```
 

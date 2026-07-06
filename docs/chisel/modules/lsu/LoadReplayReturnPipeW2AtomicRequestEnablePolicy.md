@@ -135,13 +135,14 @@ loop:
 The R533 generated-RTL xcheck proves the snapshot-fed dormant policy path in
 `LinxCoreFrontendFetchRfAluTraceTop` compares three rows with zero mismatches
 and zero QEMU/DUT CBSTOP rows.
+R534 enables the top-level request gate by passing `liveModeEnable=true.B`;
+policy request eligibility remains entirely snapshot-fed and pre-request.
 
 ## Deferred Owners
 
-- Live-mode replacement of the R363 `requestEnable=false` tie-off.
 - Multi-return-pipe arbitration when multiple returned-load W2 pipes exist.
-- Verilator replay-return evidence with `liveModeEnable=true` after the live
-  request gate can issue atomic side effects.
+- Broader Verilator replay-return evidence with nonzero live side-effect,
+  row-fill, and lifecycle mutation counters.
 
 ## Verification
 

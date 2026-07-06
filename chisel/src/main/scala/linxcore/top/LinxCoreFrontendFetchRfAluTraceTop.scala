@@ -3942,7 +3942,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2CommitRowCandidate,
     reducedReplayLiqReturnPipeW2ReplayRowLifecycleReady,
     reducedReplayLiqReturnPipeW2Slot,
-    false.B,
+    true.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )

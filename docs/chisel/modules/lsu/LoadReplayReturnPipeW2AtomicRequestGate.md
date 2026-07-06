@@ -97,6 +97,8 @@ consumes only snapshot outputs for policy prerequisites while `liveModeEnable`
 remains false. The R533 generated-RTL xcheck proves the dormant
 snapshot-fed top path still compares cleanly with zero mismatches and zero
 QEMU/DUT CBSTOP rows.
+R534 changes the reduced top to pass `liveModeEnable=true.B` into this gate;
+the request still fires only when the snapshot-fed policy candidate is true.
 
 Because `LinxCoreFrontendFetchRfAluTraceTop` is near the JVM constructor method
 size limit, this composite is intended as a constructor-containment boundary:
@@ -105,11 +107,8 @@ request, and diagnostic logic across multiple helpers.
 
 ## Deferred Owners
 
-- Live-mode replacement of the current `false.B` gate once generated-RTL proof
-  exists for atomic side effects.
-- Later generated-RTL proof with `liveModeEnable=true` once W2 side-effect
-  sinks, clear, row fill, and replay-row lifecycle mutation all commit
-  atomically.
+- Broader generated-RTL/QEMU proof with nonzero W2 side-effect, clear, row
+  fill, and replay-row lifecycle mutation counters.
 - Multi-return-pipe arbitration when more than one returned-load W2 pipe exists.
 
 ## Verification
@@ -121,6 +120,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicRequestEnablePolicy
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicLiveRequestControl
 BUILD_DIR=generated/r533-replay-w2-prereq-snapshot-top-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+BUILD_DIR=generated/r534-replay-w2-atomic-live-mode-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 git diff --check
 ```
 
