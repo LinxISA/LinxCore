@@ -97,37 +97,47 @@ rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. The split counters show
 `w2_row_fill_blocked_by_request_disabled=33`, and
 `w2_row_fill_blocked_by_no_side_effect_commit=33`. The next owner is the LIQ
 resolved-row lifecycle match for the returned W2 load, not identity validity,
-duplicate matching, row-fill candidate formation, or sideband schema.
+duplicate matching, row-fill candidate formation, or sideband schema. R555
+keeps return-complete replay rows resident through the W2 lifecycle match and
+retires the corresponding ResolveQ row on accepted lifecycle clear. The
+replay-loop fixture passes with 9 compared rows, zero mismatches, and zero
+QEMU/DUT CBSTOP rows. Its sideband report records
+`w2_lifecycle_resolved_row_match=6`, `w2_lifecycle_row_clear_ready=6`,
+`w2_lifecycle_ready=3`, `w2_lifecycle_blocked_by_no_resolved_row=0`,
+`w2_row_fill_enable=3`, and `w2_atomic_request_active=3`. The next owner is
+W2 side-effect commit/clear promotion after row-fill and lifecycle readiness,
+not replay-LIQ row identity or ResolveQ drain.
 
 Use this packet shape first:
 
 ```text
-Packet: replay-LIQ LRET W2 lifecycle resolved-row match
+Packet: replay-LIQ LRET W2 side-effect commit promotion
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
-Files allowed: LoadInflightQueue status/mark-resolved path, reduced replay-LIQ
-  return-complete/lifecycle wiring, W2 replay-row lifecycle ready owner,
-  focused LIQ/W2/top specs, module docs, and sideband validator updates only if
-  new evidence fields are required
+Files allowed: W2 side-effect ready/commit/clear live-control owners,
+  replay-row lifecycle clear request, ROB complete source, replay-return
+  writeback/resolve/wakeup sinks, focused W2/top specs, module docs, and
+  sideband validator updates only if new evidence fields are required
 Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
   handling after returned-load pipe insertion, plus LDQ resolved-row movement
-Expected first gate: focused LIQ/lifecycle coverage proving the resident W2
-  returned-load identity matches exactly one resolved LIQ row before live row
-  replacement is enabled
-Promotion gate: R554 replay-loop fixture through
+Expected first gate: focused W2 side-effect commit coverage proving the
+  resident W2 returned-load row can complete RF/ROB/wakeup side effects and
+  commit row-fill/lifecycle clear coherently
+Promotion gate: R555 replay-loop fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
   W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
   policy blocks, nonzero ROB instruction metadata evidence, nonzero row-fill
-  candidate evidence, valid lifecycle slot identity, and movement of
-  `w2_lifecycle_blocked_by_no_resolved_row` toward a unique row-clear match
+  candidate evidence, valid lifecycle slot identity, nonzero lifecycle
+  resolved-row match, nonzero row-fill enable, and zero
+  `w2_lifecycle_blocked_by_no_resolved_row`
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
-  lifecycle row-clear readiness is visible for the resident W2 slot
-  in the reduced replay-loop fixture
+  W2 side-effect commit and lifecycle clear remain coherent in the reduced
+  replay-loop fixture
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
   holdoff, lane/TLOAD/final metadata, E4/W1/W2 slot storage, ROB metadata latch,
-  or commit-row compare policy before lifecycle row-clear readiness exists
-First-divergence owner if the gate fails: Chisel replay-LIQ lifecycle status
-  wiring unless the v21 sideband report misreports generated signals
+  or commit-row compare policy before W2 side-effect commit evidence exists
+First-divergence owner if the gate fails: Chisel W2 side-effect commit/clear
+  ordering unless the v21 sideband report misreports generated signals
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```

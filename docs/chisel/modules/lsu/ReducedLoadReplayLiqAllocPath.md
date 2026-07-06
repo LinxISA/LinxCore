@@ -111,6 +111,17 @@ changes. The longer gate records five replay-queue fires and three path-local
 wait-store clears while still draining cleanly, so the R513 fix is not only a
 single-pass coincidence.
 
+R555 tightens the parent clear ownership around replay-return lifecycle. A
+direct LHQ hit that appends to `LoadResolveQueue` still uses the R286 delayed
+clear path. A replay-return row that has just become return-complete no longer
+uses the old complete-`Repick` head clear when that row is also the selected
+return-complete target; it remains visible as `Resolved` until the W2 lifecycle
+owner matches the resident slot identity. When that W2 lifecycle clear is
+accepted, the top retires the matching ResolveQ entry by the row's BID and
+load LSID. This keeps LIQ row clear and ResolveQ retirement coupled for
+replay-return rows without changing this composition's pass-through
+`clearResolved` interface.
+
 ## Interface
 
 ### Inputs
@@ -280,6 +291,10 @@ reduced wait slot and replay queue produce the same cleared load as a
     row is then launched, `LoadInflightQueue` preserves the source-return
     evidence into `Repick`, satisfying the row-mutation write-control
     prerequisite for MDB wait re-mutation.
+15. R555 splits parent clear ownership for replay-return rows. Direct LHQ
+    ResolveQ insertion still drives delayed existing clear, while returned-load
+    W2 lifecycle clear retires ResolveQ from the same row image it clears from
+    LIQ.
 
 The replay and refill wakeup ports remain inactive in this owner unless a
 parent wires them; the live reduced top ties both inactive through helper

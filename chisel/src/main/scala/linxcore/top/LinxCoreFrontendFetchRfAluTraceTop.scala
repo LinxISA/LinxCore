@@ -3039,19 +3039,32 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       reducedLoadReplayResolveClearPending &&
       reducedLoadReplayLiqAllocPath.io.clearResolvedAccepted &&
       reducedLoadReplayResolveClearRetireRow.valid
+  val reducedLoadReplayResolveLifecycleRetireRow =
+    reducedLoadReplayLiqAllocPath.io.rows(reducedReplayLiqReturnPipeW2ReplayRowLifecycleReady.io.rowClearIndex)
+  val reducedLoadReplayResolveLifecycleRetireValid =
+    reducedLoadReplayLiqAllocEnabled &&
+      reducedReplayLiqReturnPipeW2ReplayRowClearRequest.io.lifecycleClearAccepted &&
+      reducedLoadReplayResolveLifecycleRetireRow.valid
   reducedLoadReplayResolveQueue.io.retireValid :=
     (reducedLoadReplayLiqAllocEnabled && reducedLoadReplayResolveRetireSource.valid) ||
-      reducedLoadReplayResolveClearRetireValid
+      reducedLoadReplayResolveClearRetireValid ||
+      reducedLoadReplayResolveLifecycleRetireValid
   reducedLoadReplayResolveQueue.io.retireBid :=
     Mux(
       reducedLoadReplayResolveClearRetireValid,
       reducedLoadReplayResolveClearRetireRow.bid,
-      reducedLoadReplayResolveRetireSource.bid)
+      Mux(
+        reducedLoadReplayResolveLifecycleRetireValid,
+        reducedLoadReplayResolveLifecycleRetireRow.bid,
+        reducedLoadReplayResolveRetireSource.bid))
   reducedLoadReplayResolveQueue.io.retireLsId :=
     Mux(
       reducedLoadReplayResolveClearRetireValid,
       reducedLoadReplayResolveClearRetireRow.loadLsId,
-      reducedLoadReplayResolveRetireLsId)
+      Mux(
+        reducedLoadReplayResolveLifecycleRetireValid,
+        reducedLoadReplayResolveLifecycleRetireRow.loadLsId,
+        reducedLoadReplayResolveRetireLsId))
   val reducedMdbStoreProbe = Wire(new MDBConflictStoreProbe(
     p.robEntries,
     addrWidth = p.immWidth,
@@ -3250,7 +3263,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     when(reducedReplayLiqReturnPipeW2ReplayRowClearRequest.io.existingClearAccepted) {
       reducedLoadReplayResolveClearPending := false.B
     }
-    when(reducedLoadReplayResolveQueue.io.pushAccepted) {
+    when(reducedLoadReplayResolveQueue.io.pushAccepted && reducedLoadReplayResolvePushFromLhq) {
       reducedLoadReplayResolveClearPending := true.B
       reducedLoadReplayResolveClearIndex := reducedLoadReplayResolvePushRecord.loadId.value
     }
@@ -3893,6 +3906,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
+  val reducedReplayLiqReturnCompleteTargetsHead =
+    reducedReplayLiqReturnCompleteValid &&
+      (reducedLoadReplayLiqAllocPath.io.returnCompleteIndex === reducedReplayLiqHeadIndex)
   val reducedReplayLiqHeadCompleteRepickClear =
     reducedReplayLiqHeadValid &&
       (reducedReplayLiqHeadRow.status === LoadInflightStatus.Repick) &&
@@ -3900,7 +3916,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       reducedReplayLiqHeadRow.sourcesReturned &&
       reducedReplayLiqHeadRow.scbReturned &&
       reducedReplayLiqHeadRow.stqReturned &&
-      !reducedReplayLiqHeadRow.waitStore
+      !reducedReplayLiqHeadRow.waitStore &&
+      !reducedReplayLiqReturnCompleteTargetsHead
   val reducedReplayLiqExistingClearValid =
     reducedLoadReplayResolveClearPending || reducedReplayLiqHeadCompleteRepickClear
   val reducedReplayLiqExistingClearIndex =

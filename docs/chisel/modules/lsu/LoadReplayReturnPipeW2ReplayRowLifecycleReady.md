@@ -115,11 +115,30 @@ The sideband report records `w2_lifecycle_candidate_valid=74`,
 so the next owner is the replay-LIQ row status/lifecycle path that should
 produce exactly one `Resolved` row for the returned load.
 
+R555 closes that lifecycle match for the reduced replay-loop fixture. The top
+now prevents the older complete-`Repick` head clear from clearing the same
+return-complete row before the W2 lifecycle owner can observe it as
+`Resolved`. It also treats accepted W2 lifecycle clear as a matching
+`LoadResolveQueue` retire source, so the replay-LIQ row, W2 slot, and ResolveQ
+row drain together instead of leaving a stale resolved record. The replay-loop
+fixture at
+`generated/r555-replay-w2-lifecycle-resolved-row/report/crosscheck_manifest.json`
+passes with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+The sideband report records `liq_return_complete_valid=3`,
+`lret_w2_slot_accepted=3`, `w2_lifecycle_resolved_row_match=6`,
+`w2_lifecycle_row_clear_ready=6`, `w2_lifecycle_ready=3`,
+`w2_lifecycle_blocked_by_no_resolved_row=0`, `w2_row_fill_enable=3`, and
+`w2_atomic_request_active=3`. The next owner is no longer row identity or
+resolved-row lifetime; it is the live W2 side-effect commit/clear path that
+still decides when row-fill and lifecycle clear may commit architectural
+effects.
+
 ## Deferred Owners
 
-- Make the selected returned-load LIQ row visible as exactly one resolved row
-  while the matching W2 slot is resident.
-- Live replay-row lifecycle clear/consume path for that selected LIQ row.
+- Broaden the selected returned-load LIQ row match beyond the current
+  reduced-loop proof window.
+- Live replay-row lifecycle clear/consume path for that selected LIQ row in
+  the default top.
 - Atomic promotion that feeds `clearResolvedValid/index`, W2 clear/refill,
   replay RF writeback, ROB/PE resolve, ready-table wakeup, and commit-row fill
   from one coherent W2 instruction.
