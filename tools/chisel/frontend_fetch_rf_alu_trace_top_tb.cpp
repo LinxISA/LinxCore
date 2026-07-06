@@ -508,6 +508,12 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_slot_replace_blocked = 0;
   std::uint64_t w2_slot_replace_blocked_by_current_storage = 0;
   std::uint64_t w2_slot_replace_invalid_future_ready_without_live_clear = 0;
+  std::uint64_t w2_slot_replace_overlap_candidate_occupied = 0;
+  std::uint64_t w2_slot_replace_overlap_candidate_clear_intent = 0;
+  std::uint64_t w2_slot_replace_overlap_candidate_live_clear = 0;
+  std::uint64_t w2_slot_replace_live_clear_without_w1_candidate = 0;
+  std::uint64_t w2_slot_replace_w1_candidate_without_live_clear = 0;
+  std::uint64_t w2_slot_replace_advance_valid_on_live_clear = 0;
   std::uint64_t w2_advance_enable = 0;
   std::uint64_t w2_advance_replace_on_clear = 0;
   std::uint64_t w2_advance_uses_future_advance = 0;
@@ -1686,6 +1692,32 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2SlotReplacePlanInvalidFutureReadyWithoutLiveClear) {
     ++g_replay_liq_sideband_stats.w2_slot_replace_invalid_future_ready_without_live_clear;
   }
+  const bool w2_slot_occupied = dut.io_reducedLoadReplayLiqLretPipeW2SlotOccupied;
+  const bool w1_advance_candidate =
+      dut.io_reducedLoadReplayLiqLretPipeW1AdvanceCandidateValid;
+  const bool w1_advance_valid = dut.io_reducedLoadReplayLiqLretPipeW1AdvanceValid;
+  const bool w2_clear_intent =
+      dut.io_reducedLoadReplayLiqLretPipeW2ClearIntentClearIntent;
+  const bool w2_live_clear =
+      dut.io_reducedLoadReplayLiqLretPipeW2ClearIntentLiveClear;
+  if (w2_slot_occupied && w1_advance_candidate) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_overlap_candidate_occupied;
+  }
+  if (w2_slot_occupied && w1_advance_candidate && w2_clear_intent) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_overlap_candidate_clear_intent;
+  }
+  if (w2_slot_occupied && w1_advance_candidate && w2_live_clear) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_overlap_candidate_live_clear;
+  }
+  if (w2_slot_occupied && w2_live_clear && !w1_advance_candidate) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_live_clear_without_w1_candidate;
+  }
+  if (w2_slot_occupied && w1_advance_candidate && !w2_live_clear) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_without_live_clear;
+  }
+  if (w2_slot_occupied && w1_advance_valid && w2_live_clear) {
+    ++g_replay_liq_sideband_stats.w2_slot_replace_advance_valid_on_live_clear;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2AdvanceControlAdvanceEnable) {
     ++g_replay_liq_sideband_stats.w2_advance_enable;
   }
@@ -2622,6 +2654,18 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_slot_replace_blocked_by_current_storage << ",\n"
       << "    \"w2_slot_replace_invalid_future_ready_without_live_clear\": "
       << g_replay_liq_sideband_stats.w2_slot_replace_invalid_future_ready_without_live_clear << ",\n"
+      << "    \"w2_slot_replace_overlap_candidate_occupied\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_overlap_candidate_occupied << ",\n"
+      << "    \"w2_slot_replace_overlap_candidate_clear_intent\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_overlap_candidate_clear_intent << ",\n"
+      << "    \"w2_slot_replace_overlap_candidate_live_clear\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_overlap_candidate_live_clear << ",\n"
+      << "    \"w2_slot_replace_live_clear_without_w1_candidate\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_live_clear_without_w1_candidate << ",\n"
+      << "    \"w2_slot_replace_w1_candidate_without_live_clear\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_w1_candidate_without_live_clear << ",\n"
+      << "    \"w2_slot_replace_advance_valid_on_live_clear\": "
+      << g_replay_liq_sideband_stats.w2_slot_replace_advance_valid_on_live_clear << ",\n"
       << "    \"w2_advance_enable\": "
       << g_replay_liq_sideband_stats.w2_advance_enable << ",\n"
       << "    \"w2_advance_replace_on_clear\": "

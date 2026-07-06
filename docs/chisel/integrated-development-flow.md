@@ -122,23 +122,33 @@ not yet exercise a same-cycle W2 storage replacement because
 fire. The next owner is a narrow same-cycle W2 slot replacement proof, likely
 by constructing or selecting a replay-return sequence with a valid W1 write
 candidate while W2 live clear fires, not replay-LIQ row identity, ResolveQ
-drain, side-effect commit, or promotion-control observability.
+drain, side-effect commit, or promotion-control observability. R557 adds
+overlap counters that combine W1 advance-candidate, W2 occupancy, clear intent,
+live clear, and advance-valid evidence in the generated-RTL harness. The same
+fixture still passes with 9 compared rows and zero mismatches, and it proves
+the replacement gap is stimulus phasing: `w2_slot_replace_live_clear_without_w1_candidate=3`,
+while `w2_slot_replace_overlap_candidate_occupied=0`,
+`w2_slot_replace_overlap_candidate_live_clear=0`,
+`w2_slot_replace_same_cycle_eligible=0`, and
+`w2_advance_replace_on_clear=0`. The next packet should add or select a
+denser replay-return fixture that keeps W1 occupied while W2 live clear fires
+before changing W2 storage or broadening to CoreMark.
 
 Use this packet shape first:
 
 ```text
 Packet: replay-LIQ LRET W2 same-cycle slot replacement
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
-Files allowed: W2 slot replacement, W1/W2 advance/refill controls,
-  fixture/sideband expectations needed to create back-to-back returned-load
-  occupancy, focused W2/top specs, module docs, and sideband validator updates
-  only if new evidence fields are required
+Files allowed: replay-return fixture builder/wrapper, W1/W2 occupancy/advance
+  sideband expectations needed to create back-to-back returned-load occupancy,
+  focused W2/top specs, and module docs; change W2 storage only after the
+  fixture proves nonzero same-cycle replacement eligibility
 Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
   handling after returned-load pipe insertion, plus LDQ resolved-row movement
 Expected first gate: focused W2 slot/advance coverage proving same-cycle live
   clear plus W1 write candidate can replace the resident W2 entry without
   losing the consumed row's side effects
-Promotion gate: R556 replay-loop fixture, or a minimally extended fixture,
+Promotion gate: R557 replay-loop fixture, or a minimally extended fixture,
   through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
@@ -146,17 +156,19 @@ Promotion gate: R556 replay-loop fixture, or a minimally extended fixture,
   policy blocks, nonzero ROB instruction metadata evidence, nonzero row-fill
   candidate evidence, valid lifecycle slot identity, nonzero lifecycle
   resolved-row match, nonzero row-fill enable, nonzero W2 promotion/live-clear
-  and refill/advance counters, and either nonzero same-cycle slot replacement
-  evidence or a documented fixture limitation
+  and refill/advance counters, nonzero `live_clear_without_w1_candidate` in
+  the old fixture, and nonzero same-cycle slot replacement evidence in the new
+  fixture
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
   same-cycle W2 replacement has a focused generated-RTL/QEMU proof
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
   holdoff, lane/TLOAD/final metadata, ROB metadata latch, commit-row compare
   policy, or replay-LIQ lifecycle ownership before same-cycle replacement
   evidence exists
-First-divergence owner if the gate fails: Chisel W2 slot replacement or W1/W2
-  advance/refill ordering unless the fixture never creates a W1 candidate while
-  W2 live clear fires
+First-divergence owner if the gate fails: fixture/stimulus until the sideband
+  report proves a W1 candidate exists while W2 is occupied and live clear fires;
+  only then move ownership to Chisel W2 slot replacement or W1/W2 advance
+  ordering
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```

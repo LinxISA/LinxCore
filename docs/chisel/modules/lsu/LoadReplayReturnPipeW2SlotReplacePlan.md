@@ -34,9 +34,10 @@ from W1 because W2 is either empty or being live-cleared in the same cycle.
 R355 consumes the acyclic future acceptance outputs from this plan in
 `LoadReplayReturnPipeW2AdvanceControl`; R356 owns the shared live-promotion
 enable. R556 proves promotion, live clear, refill readiness, and advance
-selection fire in the reduced replay-loop fixture, but the current fixture
-does not yet present a W1 write candidate while W2 is occupied, so
-same-cycle replacement eligibility remains zero.
+selection fire in the reduced replay-loop fixture. R557 then adds overlap
+sideband counters and proves the current fixture does not present any W1 write
+candidate while W2 is occupied and live clear fires, so same-cycle replacement
+eligibility remains zero for stimulus reasons.
 
 ## Interface
 
@@ -106,11 +107,14 @@ routes future readiness toward W1 advance and `replaceOnClear`; its
 `LoadReplayReturnPipeW2PromotionControl`. R556 observes the promotion path
 live, but not a same-cycle replacement candidate, so the next packet must
 separate fixture coverage from storage ownership before changing broad gates.
+R557 records `live_clear_without_w1_candidate=3` and zero W1-candidate/W2-live
+clear overlap in that same fixture.
 
 ## Deferred Owners
 
 - Create or select a replay-return sequence where W1 has a valid write
-  candidate while W2 live clear fires.
+  candidate while W2 is occupied and live clear fires; R557 proves the current
+  loop fixture lacks this overlap.
 - Verify `LoadReplayReturnPipeW2AdvanceControl` selects R352/R353 future
   readiness and drives `LoadReplayReturnPipeW2Slot.replaceOnClear` in that
   same-cycle replacement case.

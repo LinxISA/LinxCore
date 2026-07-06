@@ -39,7 +39,9 @@ shared W2 promotion-control owner. R555/R556 prove the replay-loop fixture now
 fires W2 side-effect completion, clear intent, row-fill, lifecycle clear,
 promotion, live clear, refill readiness, and future-advance selection. The
 remaining narrow gap is fixture/storage evidence for a valid W1 write
-candidate while W2 live clear fires.
+candidate while W2 live clear fires. R557 proves the current replay-loop
+fixture has live clear without a W1 candidate in the occupied W2 cycle, so
+`replaceOnClear` remains unexercised by that fixture.
 
 ## Interface
 
