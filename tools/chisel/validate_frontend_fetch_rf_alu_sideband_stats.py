@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v34"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v36"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -514,6 +514,19 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_retire_record_atomic_request_blocked_by_no_lifecycle_row",
     "w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate",
     "w2_retire_record_atomic_request_blocked_by_no_row_fill_enable",
+    "w2_retire_record_row_fill_enable_request_evidence_valid",
+    "w2_retire_record_row_fill_enable_candidate_aligned",
+    "w2_retire_record_row_fill_enable",
+    "w2_retire_record_row_fill_enable_blocked_by_request_disabled",
+    "w2_retire_record_row_fill_enable_blocked_by_no_lifecycle_row",
+    "w2_retire_record_row_fill_enable_blocked_by_no_row_fill_candidate",
+    "w2_retire_record_lifecycle_evidence_capture_intent",
+    "w2_retire_record_lifecycle_evidence_capture_from_lifecycle",
+    "w2_retire_record_lifecycle_evidence_capture_blocked_by_no_lifecycle",
+    "w2_retire_record_lifecycle_evidence_clear_accepted",
+    "w2_retire_record_lifecycle_evidence_provider_valid",
+    "w2_retire_record_lifecycle_evidence_provider_valid_without_record",
+    "w2_retire_record_lifecycle_evidence_record_valid_without_provider",
     "resolve_queue_push_accepted",
     "resolve_queue_valid",
     "resolve_queue_push_accepted_first_cycle",

@@ -697,6 +697,19 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_atomic_request_blocked_by_no_lifecycle_row = 0;
   std::uint64_t w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate = 0;
   std::uint64_t w2_retire_record_atomic_request_blocked_by_no_row_fill_enable = 0;
+  std::uint64_t w2_retire_record_row_fill_enable_request_evidence_valid = 0;
+  std::uint64_t w2_retire_record_row_fill_enable_candidate_aligned = 0;
+  std::uint64_t w2_retire_record_row_fill_enable = 0;
+  std::uint64_t w2_retire_record_row_fill_enable_blocked_by_request_disabled = 0;
+  std::uint64_t w2_retire_record_row_fill_enable_blocked_by_no_lifecycle_row = 0;
+  std::uint64_t w2_retire_record_row_fill_enable_blocked_by_no_row_fill_candidate = 0;
+  std::uint64_t w2_retire_record_lifecycle_evidence_capture_intent = 0;
+  std::uint64_t w2_retire_record_lifecycle_evidence_capture_from_lifecycle = 0;
+  std::uint64_t w2_retire_record_lifecycle_evidence_capture_blocked_by_no_lifecycle = 0;
+  std::uint64_t w2_retire_record_lifecycle_evidence_clear_accepted = 0;
+  std::uint64_t w2_retire_record_lifecycle_evidence_provider_valid = 0;
+  std::uint64_t w2_retire_record_lifecycle_evidence_provider_valid_without_record = 0;
+  std::uint64_t w2_retire_record_lifecycle_evidence_record_valid_without_provider = 0;
   std::uint64_t resolve_queue_push_accepted = 0;
   std::uint64_t resolve_queue_valid = 0;
   std::uint64_t resolve_queue_push_accepted_first_cycle = 0;
@@ -2479,6 +2492,45 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordAtomicRequestProbeBlockedByNoRowFillEnable) {
     ++g_replay_liq_sideband_stats.w2_retire_record_atomic_request_blocked_by_no_row_fill_enable;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRowFillEnableRequestEvidenceValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable_request_evidence_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRowFillEnableCandidateAligned) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable_candidate_aligned;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRowFillEnable) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRowFillEnableBlockedByRequestDisabled) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable_blocked_by_request_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRowFillEnableBlockedByNoLifecycleRow) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable_blocked_by_no_lifecycle_row;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRowFillEnableBlockedByNoRowFillCandidate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable_blocked_by_no_row_fill_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceCaptureIntent) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_capture_intent;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceCaptureFromLifecycle) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_capture_from_lifecycle;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceCaptureBlockedByNoLifecycle) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_capture_blocked_by_no_lifecycle;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceClearAccepted) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_clear_accepted;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceProviderValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_provider_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceProviderValidWithoutRecord) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_provider_valid_without_record;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceRecordValidWithoutProvider) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_record_valid_without_provider;
+  }
   if (resolve_queue_push_accepted) {
     ++g_replay_liq_sideband_stats.resolve_queue_push_accepted;
   }
@@ -2645,7 +2697,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v34\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v36\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -3655,6 +3707,32 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_retire_record_atomic_request_blocked_by_no_row_fill_candidate << ",\n"
       << "    \"w2_retire_record_atomic_request_blocked_by_no_row_fill_enable\": "
       << g_replay_liq_sideband_stats.w2_retire_record_atomic_request_blocked_by_no_row_fill_enable << ",\n"
+      << "    \"w2_retire_record_row_fill_enable_request_evidence_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable_request_evidence_valid << ",\n"
+      << "    \"w2_retire_record_row_fill_enable_candidate_aligned\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable_candidate_aligned << ",\n"
+      << "    \"w2_retire_record_row_fill_enable\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable << ",\n"
+      << "    \"w2_retire_record_row_fill_enable_blocked_by_request_disabled\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable_blocked_by_request_disabled << ",\n"
+      << "    \"w2_retire_record_row_fill_enable_blocked_by_no_lifecycle_row\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable_blocked_by_no_lifecycle_row << ",\n"
+      << "    \"w2_retire_record_row_fill_enable_blocked_by_no_row_fill_candidate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_row_fill_enable_blocked_by_no_row_fill_candidate << ",\n"
+      << "    \"w2_retire_record_lifecycle_evidence_capture_intent\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_capture_intent << ",\n"
+      << "    \"w2_retire_record_lifecycle_evidence_capture_from_lifecycle\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_capture_from_lifecycle << ",\n"
+      << "    \"w2_retire_record_lifecycle_evidence_capture_blocked_by_no_lifecycle\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_capture_blocked_by_no_lifecycle << ",\n"
+      << "    \"w2_retire_record_lifecycle_evidence_clear_accepted\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_clear_accepted << ",\n"
+      << "    \"w2_retire_record_lifecycle_evidence_provider_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_provider_valid << ",\n"
+      << "    \"w2_retire_record_lifecycle_evidence_provider_valid_without_record\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_provider_valid_without_record << ",\n"
+      << "    \"w2_retire_record_lifecycle_evidence_record_valid_without_provider\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_evidence_record_valid_without_provider << ",\n"
       << "    \"resolve_queue_push_accepted\": "
       << g_replay_liq_sideband_stats.resolve_queue_push_accepted << ",\n"
       << "    \"resolve_queue_valid\": "

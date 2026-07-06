@@ -170,6 +170,21 @@ with 18 compared rows and zero mismatches. Sideband schema v34 records
 `w2_retire_record_commit_row_candidate_blocked_by_no_metadata=0`, and
 `w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled=145`.
 
+R586 replaces the retained-record lifecycle re-query with
+`LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch`. The latch captures
+the physical W2 lifecycle row-clear evidence at the same boundary as
+`captureAccepted`, then provides that evidence as the retained record's
+`recordReady` source. This preserves prompt physical W2 lifecycle clear while
+letting the retained record carry the row identity it consumed. The generated
+RTL/QEMU gate `generated/r586-replay-retire-record-lifecycle-evidence-xcheck`
+passes with 18 compared rows and zero mismatches. Sideband schema v36 records
+`w2_retire_record_lifecycle_evidence_capture_from_lifecycle=5`,
+`w2_retire_record_lifecycle_evidence_provider_valid=5`,
+`w2_retire_record_lifecycle_evidence_capture_blocked_by_no_lifecycle=0`,
+`w2_retire_record_row_fill_enable=5`,
+`w2_retire_record_commit_row_complete_candidate=5`, and
+`w2_retire_record_lifecycle_request_live_promotion_candidate=5`.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -177,8 +192,9 @@ with 18 compared rows and zero mismatches. Sideband schema v34 records
   ordering.
 - Retained-record atomic request source alignment before the record may drive a
   live row-fill/clear path.
-- Retained-record row-fill enable and mutation ordering after the retained
-  commit-row candidate is proven with resident W2-slot payload identity.
+- Live retained-record row-fill mutation ordering after R586 proved retained
+  lifecycle evidence, row-fill enable, atomic request alignment, and complete
+  row candidates with zero diagnostic blockers.
 
 ## Verification
 

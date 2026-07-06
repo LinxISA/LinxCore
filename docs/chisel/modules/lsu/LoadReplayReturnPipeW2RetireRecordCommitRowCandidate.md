@@ -105,6 +105,27 @@ The next owner is retained-record row-fill enable/request promotion and its
 mutation ordering. Payload source and metadata lifetime are no longer the
 active blockers in this fixture.
 
+R586 adds retained lifecycle-evidence capture and
+`LoadReplayReturnPipeW2RetireRecordRowFillEnableControl`, so the retained
+candidate is no longer held behind a diagnostic row-fill-disabled blocker. The
+generated RTL/QEMU gate at
+`generated/r586-replay-retire-record-lifecycle-evidence-xcheck` passes with
+`status="pass"`, `comparator_status=0`, 18 compared rows, zero mismatches, and
+zero QEMU/DUT CBSTOP rows. Sideband schema v36 records:
+
+- `w2_retire_record_commit_row_candidate_valid=5`
+- `w2_retire_record_commit_row_fill_candidate=5`
+- `w2_retire_record_commit_row_complete_candidate=5`
+- `w2_retire_record_commit_row_candidate_blocked_by_no_metadata=0`
+- `w2_retire_record_commit_row_candidate_blocked_by_row_fill_disabled=0`
+- `w2_retire_record_row_fill_enable_request_evidence_valid=5`
+- `w2_retire_record_row_fill_enable_candidate_aligned=5`
+- `w2_retire_record_row_fill_enable=5`
+
+The active owner has moved from candidate formation to live mutation ordering:
+the retained complete row must still be wired through LIQ clear, ROB resolve,
+RF writeback, and replay wakeup without perturbing the physical W2 path.
+
 ## Verification
 
 Focused gates:
