@@ -1456,6 +1456,18 @@ QEMU/DUT CBSTOP rows, while the intentional positive sideband requirement on
 `return_data_candidate_valid=0`. This moves the next owner after local
 source-return row mutation and before return-data extraction: row data and
 valid-byte completion are missing at the complete-Repick selector.
+R543 fixes the row-state plan branch exposed by R542: a complete no-data local
+STQ response now writes the accepted row line image and valid mask instead of
+only marking STQ returned. The same replay-loop fixture now passes the positive
+`liq_return_complete_valid` sideband requirement with 9 compared rows, zero
+mismatches, and zero QEMU/DUT CBSTOP rows. The v17 report records
+`liq_return_complete_valid=3`, `return_data_valid=3`,
+`return_publish_ready=3`, `lret_payload_valid=3`,
+`publish_control_fire=3`, `publish_request_lret=3`,
+`lret_sink_enqueue_accepted=3`, and `lret_sink_drain_fire=3`, while
+`lret_iex_insert_candidate_valid=0`, `lret_residency_candidate_valid=0`, and
+the W2 atomic request/evidence counters remain zero. This moves the next owner
+past publish and FIFO drain to returned-load IEX insertion/residency evidence.
 R384 extends the same replay-LIQ namespace with
 `LoadReplayReturnPipeResidencyLiveControl`. The reduced top now feeds
 `LoadReplayReturnPipeResidencyCandidate.liveEnable` from an accepted-insert and
@@ -2766,6 +2778,12 @@ R542 extends it to schema v17 with the return-complete selector masks. Nonzero
 mutation reaches resident Repick rows, while zero data-complete,
 request-complete, candidate, and selected-return masks classify the missing
 payload as row data/valid-mask completion before `LoadReplayReturnDataExtract`.
+R543 fixes that row data/valid-mask completion by writing the accepted complete
+no-data row image. The replay-loop fixture now reaches LRET publication and
+FIFO drain (`return_data_valid=3`, `publish_request_lret=3`,
+`lret_sink_enqueue_accepted=3`, `lret_sink_drain_fire=3`), so the next
+frontier is `LoadReplayReturnIexPipeInsertCandidate` / residency rather than
+the complete-Repick selector.
 R298 surfaces the replay-LIQ path's existing launch-drive, launch-ready,
 launch-accepted, repick/miss/resolved masks, E4 update/miss/wakeup sidebands,
 and `lhqRecordValid` at the top boundary. These are diagnostic-only in the
