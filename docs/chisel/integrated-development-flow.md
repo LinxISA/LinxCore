@@ -385,6 +385,14 @@ visible while W2 remains occupied:
 `lret_residency_candidate_w2_occupied=3`. The next owner is therefore to decide
 whether final hardware should keep the W2 row alive through registered LRET
 drain, or instead capture an explicit retire record so W2 can clear promptly.
+R576 starts the explicit-retire-record path as a standalone LSU module:
+`LoadReplayReturnPipeW2RetireRecord` captures a one-entry
+`LoadReplayReturnLretEntry` payload when W2 has completion clear, clear intent,
+and live clear. It records whether capture overlapped accepted LRET enqueue and
+allows same-cycle consume/recapture. This packet deliberately does not change
+the top-level W2 clear path; the next owner should wire diagnostic counters
+beside the R575 hold evidence and prove capture identity before replacing the
+hold experiment.
 
 Use this packet shape first:
 

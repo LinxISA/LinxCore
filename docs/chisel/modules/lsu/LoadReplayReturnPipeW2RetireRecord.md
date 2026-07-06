@@ -1,0 +1,113 @@
+# LoadReplayReturnPipeW2RetireRecord
+
+## Source Mapping
+
+- Chisel: `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecord.scala`
+- Tests: `rtl/LinxCore/chisel/src/test/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordSpec.scala`
+- LinxCoreModel evidence:
+  - `model/LinxCoreModel/model/iex/pipe/lda_pipe.cpp`
+    - `LDAPipe::runW2`, `LDAPipe::move`
+  - `model/LinxCoreModel/model/iex/pipe/agu_pipe.cpp`
+    - `AGUPipe::runW2`, `AGUPipe::move`
+  - `model/LinxCoreModel/model/iex/iex.cpp`
+    - `IEX::receiveFromLSU`, `IEX::setMemData`
+- Related Chisel contracts:
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2Slot.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2CompletionCandidate.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2ClearIntent.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnLretSink.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2PostLretEnqueueHold.scala`
+- Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-RETIRE-RECORD-001`
+
+## Purpose
+
+`LoadReplayReturnPipeW2RetireRecord` is the model-aligned alternative to the
+R575 diagnostic W2 hold. Instead of keeping the physical W2 slot resident after
+side effects fire, it captures a one-entry retire record when live W2 clear is
+accepted. That gives downstream replay-row lifecycle or registered LRET-drain
+logic a stable consumed-row identity even if `LoadReplayReturnPipeW2Slot` clears
+promptly.
+
+In LinxCoreModel, `LDAPipe::runW2` and `AGUPipe::runW2` perform W2 side effects
+before `move()` overwrites W2 from W1. The architectural consumed-row evidence
+therefore needs to survive the stage transition, but it does not require the
+physical W2 slot itself to remain occupied. R575 proved a hold is comparator
+safe; this module starts the cleaner design path where W2 retire identity is a
+separate record.
+
+## Interface
+
+| Direction | Signal | Description |
+|---|---|---|
+| input | `enable` | Replay-LIQ wrapper is active. |
+| input | `flush` | Clears pending retire record and suppresses capture/fire pulses. |
+| input | `slotOccupied` | W2 slot is resident. |
+| input | `completionClearSlot` | W2 completion candidate requests slot clear. |
+| input | `clearIntent` | W2 clear-intent owner has matching pre-clear, permit, and post-fire evidence. |
+| input | `liveClear` | Live W2 clear is armed. |
+| input | `lretEnqueueAccepted` | Same-cycle accepted LRET enqueue marker, retained as provenance. |
+| input | `retirePayload` | Full returned-load payload to retain for downstream retire or drain matching. |
+| input | `recordReady` | Downstream consumer can take the pending retire record. |
+| output | `captureCandidate` | Live W2 clear has the structural predicates needed to capture a retire record. |
+| output | `payloadValid` | Capture candidate has a valid payload. |
+| output | `captureValid` | Candidate and payload are both valid. |
+| output | `captureReady` | One-entry record is empty or is being consumed in the same cycle. |
+| output | `captureAccepted` | Retire record captures this cycle. |
+| output | `captureDropped` | Valid capture was blocked by a full record. |
+| output | `recordValid` / `record` | Pending retained payload. |
+| output | `recordFire` | Pending record was consumed. |
+| output | `pending` / `count` | One-entry occupancy diagnostics. |
+| output | `capturedWithLretEnqueue` | Capture accepted in the same cycle as LRET enqueue acceptance. |
+| output | `recordFromLretEnqueue` | Pending record was captured with the same-cycle LRET enqueue marker. |
+| output | blocker signals | Disabled, flush, no-slot, missing clear evidence, invalid payload, and full-record blockers. |
+
+## Logic Design
+
+```text
+captureCandidate =
+  enable && !flush &&
+  slotOccupied &&
+  completionClearSlot &&
+  clearIntent &&
+  liveClear
+
+captureValid = captureCandidate && retirePayload.valid
+recordFire = recordValid && recordReady && !flush
+captureReady = !recordValid || recordFire
+captureAccepted = captureValid && captureReady
+```
+
+On capture, the module stores `retirePayload` and whether capture overlapped an
+accepted LRET enqueue. A same-cycle consume/recapture is allowed so a future
+consumer can stream one record per cycle when it is ready. Flush clears the
+record without emitting `recordFire`.
+
+## Integration Plan
+
+R576 keeps this owner standalone and unit-tested. The next integration packet
+should wire it next to `LoadReplayReturnPipeW2ClearIntent` and feed
+`retirePayload` from the same payload used for LRET enqueue formation. The
+first live use should be diagnostic only: expose capture, full, and
+`recordFromLretEnqueue` counters without changing W2 clear, LRET drain, or
+replay-row lifecycle mutation. After QEMU evidence proves the record aligns
+with the R575 overlap, the W2 hold knob can remain diagnostic or be removed.
+
+## Deferred Owners
+
+- Top-level diagnostic wiring and sideband counters for capture/consume/full.
+- A downstream replay-row lifecycle consumer that uses the retire record instead
+  of sampling the physical W2 slot after clear.
+- Equivalence check against the R575 hold evidence: accepted LRET enqueue
+  overlaps should produce either retained W2 occupancy or a retire record with
+  the same identity.
+
+## Verification
+
+Focused gates:
+
+```bash
+bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RetireRecord
+```
+
+Reference tests cover empty capture, live-clear blocking, invalid payload,
+full-record drop, same-cycle consume/recapture, and Chisel elaboration.

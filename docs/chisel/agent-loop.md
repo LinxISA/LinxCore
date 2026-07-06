@@ -34,6 +34,12 @@ LRET drain, or capture a separate W2 retire record and let the physical slot
 clear promptly. Either design must keep side effects single-fire and retain the
 QEMU cross-check as the acceptance gate.
 
+R576 chooses the second path as the next design candidate by adding
+`LoadReplayReturnPipeW2RetireRecord` as a standalone one-entry owner. The next
+agent packet should wire it diagnostically near W2 clear intent and compare its
+capture/record provenance against the R575 hold counters before changing live
+W2 clear behavior.
+
 ## Current Baseline
 
 Record these SHAs at the start of each agent packet and refresh them if the
