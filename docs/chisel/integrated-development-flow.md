@@ -1,6 +1,6 @@
 # LinxCore Integrated Development Flow
 
-Date: 2026-07-03
+Date: 2026-07-06
 
 ## Purpose
 
@@ -12,6 +12,45 @@ ISA and model sources define intent, the compiler produces real workload ELFs,
 QEMU proves architectural row streams, Chisel generated RTL proves DUT behavior,
 LinxCoreModel proves model convergence, and the superproject gates prove that
 the change still works across repos.
+
+## Current Handoff
+
+The next Chisel packet should start from the R542 replay-return evidence, not
+from another broad CoreMark scan. The reduced frontend/rename/scalar
+execute/ROB/block-marker/store/STQ/SCB path is mature enough for the current
+reduced top, and the generated-RTL/QEMU comparator infrastructure is producing
+usable manifests. The active blocker is narrower: replay-LIQ source-returned
+`Repick` rows exist after local STQ source-return mutation, but their row
+data/valid-mask completion is still absent before
+`LoadReplayReturnDataExtract`.
+
+Use this packet shape first:
+
+```text
+Packet: replay-LIQ row data and valid-mask completion after source return
+Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
+Files allowed: LoadReplaySourceReturnStoreSnapshotRowStatePlan,
+  LoadReplaySourceReturnStoreSnapshotRowMutationRequest,
+  LoadInflightRowMutationRequestBridge, LoadInflightRowMutationApply,
+  ReducedLoadReplayLiqAllocPath, focused specs, module docs, and sideband
+  validator updates only if new evidence fields are required
+Source evidence: LinxCoreModel LDQInfo::handleSTQReceive,
+  LDQInfo::handleSCBReceive, LDQInfo::handleMerge, LDQInfo::returnData
+Expected first gate: focused LSU row-mutation/LIQ unit gate covering request
+  byte mask and valid-mask/dataComplete writes
+Promotion gate: R542 replay-loop fixture through
+  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v17 sideband
+  inspection
+Do not run: long CoreMark, marker-row scaling, or superproject closure until
+  the complete-Repick selector shows nonzero request/data completion
+Do not change: LRET FIFO capacity, publish fanout, return-data extraction,
+  drain, residency, or W2 policy before row data/valid-mask completion is
+  proven
+First-divergence owner if the gate fails: Chisel for row mutation or selector
+  masks; adapter only if the v17 sideband report misreports generated signals
+Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
+  module doc row, agent-loop row, and skill-evolve decision
+```
 
 ## Toolchain Roles
 
@@ -127,18 +166,23 @@ First-divergence owner if the gate fails:
 Closeout evidence:
 ```
 
-Example:
+Current example:
 
 ```text
-Packet: replay-LIQ LRET sink readiness
+Packet: replay-LIQ row data and valid-mask completion after source return
 Owner lane: rtl/LinxCore/chisel
-Files allowed: chisel/src/main/scala/..., chisel/src/test/scala/..., docs/chisel/modules/...
-Source evidence: LinxCoreModel LSU return path and existing reduced replay-LIQ rows
-Expected first gate: bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLretSink
-Promotion gate: nearest reduced-store replay-LIQ generated-RTL xcheck, then bounded QEMU ELF rows
-Do not run: full CoreMark or superproject closure until the generated-RTL gate is green
-First-divergence owner if the gate fails: Chisel for DUT mismatch, adapter for row schema mismatch
-Closeout evidence: unit log, xcheck manifest, module doc row, skill-evolve decision
+Files allowed: LoadReplaySourceReturnStoreSnapshotRowStatePlan,
+  LoadReplaySourceReturnStoreSnapshotRowMutationRequest,
+  LoadInflightRowMutationRequestBridge, LoadInflightRowMutationApply,
+  ReducedLoadReplayLiqAllocPath, focused specs, module docs
+Source evidence: LinxCoreModel LDQInfo source-return and returnData path
+Expected first gate: focused row-mutation/LIQ unit coverage
+Promotion gate: R542 replay-loop generated-RTL/QEMU fixture plus v17 sideband
+Do not run: long CoreMark or marker-row scaling before selector completion
+First-divergence owner if the gate fails: Chisel row mutation unless v17
+  sideband reporting is wrong
+Closeout evidence: unit log, xcheck manifest, sideband counters, module doc
+  row, skill-evolve decision
 ```
 
 ## Speed Rules

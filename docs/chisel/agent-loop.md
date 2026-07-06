@@ -1205,7 +1205,31 @@ Closeout:
 
 ## Suggested Next Packets
 
-1. Add the next memory-side reduced-store boundary after R266. Read
+1. Close the R542 replay-return complete-repick gap by making row data and
+   valid-mask completion real after source-return mutation. Start with
+   `docs/chisel/modules/lsu/LoadReplayReturnCompleteRepickSelect.md`,
+   `LoadReplaySourceReturnStoreSnapshotRowStatePlan`,
+   `LoadReplaySourceReturnStoreSnapshotRowMutationRequest`,
+   `LoadInflightRowMutationRequestBridge`, `LoadInflightRowMutationApply`, and
+   LinxCoreModel `LDQInfo::handleSTQReceive`, `LDQInfo::handleSCBReceive`,
+   `LDQInfo::handleMerge`, and `LDQInfo::returnData`. R542 already proves the
+   reduced replay loop reaches source-returned `Repick` rows:
+   `liq_row_mutation_write_enable=4`,
+   `liq_return_complete_repick_mask_nonzero=11`, and
+   `liq_return_complete_source_returned_mask_nonzero=3`, while
+   `liq_return_complete_data_complete_mask_nonzero=0`,
+   `liq_return_complete_request_complete_mask_nonzero=0`,
+   `liq_return_complete_candidate_mask_nonzero=0`,
+   `liq_return_complete_valid=0`, and `return_data_candidate_valid=0`. The
+   next packet should therefore write or repair the LIQ row data/valid-mask
+   mutation from the local STQ source-return path before touching
+   `LoadReplayReturnDataExtract`, LRET FIFO capacity, publish fanout, drain,
+   residency, W2 side effects, marker-row scaling, or long CoreMark gates.
+   First gate: focused row-state/row-mutation/LIQ unit coverage for request
+   byte-mask completion and `dataComplete` writes. Promotion gate: rerun the
+   R542 `replay-ldi-sdi-ldi-loop` generated-RTL/QEMU fixture and require
+   nonzero request/data completion before claiming progress.
+2. Add the next memory-side reduced-store boundary after R266. Read
    `ReducedStoreResidentForward`, `LoadForwardPipeline`, `LoadInflightQueue`,
    `LoadReplayWakeup`, `MDBConflictDetect`, and LinxCoreModel
    `STQ::lookupForLoad` plus LDQ wait/replay wakeup paths first. The reduced
@@ -1308,7 +1332,7 @@ Closeout:
    `LoadInflightQueueSpec`, `LoadReplayWakeupSpec`,
    `MDBConflictDetectSpec`, and `LinxCoreFrontendFetchRfAluTraceTopSpec`
    before any optional-STQ QEMU live gate.
-2. Reproduce the R519 557056-row admitted-marker CoreMark gate on clean
+3. Reproduce the R519 557056-row admitted-marker CoreMark gate on clean
    QEMU/superproject provenance before scaling beyond it.
    R195/R196/R198 removed the scalar GGPR mapQ capacity and Verilator
    compile-cost blockers, and R202 closed the stale source-value failure by
@@ -1342,7 +1366,7 @@ Closeout:
    `generated/r518-row-order-524288-marker-qemu-elf-xcheck`; the dirty
    observation artifact is
    `generated/r519-row-order-557056-marker-qemu-elf-xcheck`.
-3. Scale the R194 marker-row filtered comparator beyond the 512-row CoreMark
+4. Scale the R194 marker-row filtered comparator beyond the 512-row CoreMark
    repeated-loop window. R178 adds `LinxCoreFrontendFetchRfAluMarkerRowsTraceTop`,
    R179 proves the wrapper admits the first `C.BSTART` row in generated RTL,
    R180 adds `--marker-rows` to the QEMU/Verilator gate, and R192 proves
@@ -1355,7 +1379,7 @@ Closeout:
    filtered policy while watching marker-only BROB retire drain, loop re-entry,
    stop/redirect boundaries, and default skip-mode parity before changing the
    default live CoreMark top.
-4. Full marker lifecycle split and live-top switch: R172 feeds serialized
+5. Full marker lifecycle split and live-top switch: R172 feeds serialized
    retired marker rows into `BlockMarkerLifecycle` with row-owned BID evidence,
    R173 gives the marker-source queue recovery-exact suffix pruning, R174 makes
    active marker state STID-indexed, and R175 lets unskipped marker rows
@@ -1371,27 +1395,27 @@ Closeout:
    `skipBlockMarkers=true`; remove marker skipping only after the filtered
    marker-row path scales beyond the R194 window and its lifecycle side effects
    are checked across broader stops and redirects.
-5. Replace the temporary replay resolved-event source with real branch/BFU
+6. Replace the temporary replay resolved-event source with real branch/BFU
    resolver outputs. R153 has resolved cold-cut fallback and local
    header-window arming, but external QEMU metadata still provides body-end
    eligibility; the next packet should derive that from decoded/execute branch
    outcome and close skipped-marker lifecycle without replay-side help.
-6. Full issue scheduler timing: add explicit wakeup ports, alternate model
+7. Full issue scheduler timing: add explicit wakeup ports, alternate model
    select preferences, P1/I1/I2 RF-read arbitration, cancel, replay, and bypass
    behavior behind the reduced oldest-ready selector.
-7. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
+8. Live commit trace schema: extend the top-owned `LC-IF-CHISEL-XCHK-*`
    event stream from commit-only rows toward trap, memory, recovery, and block
    sidebands.
-8. QEMU full-compare harness: scale the reduced live CoreMark window beyond
+9. QEMU full-compare harness: scale the reduced live CoreMark window beyond
    the R166 3.2M-row pass, or feed a bounded direct-boot window into the same
    comparator path once frontend/decode/execute/LSU can retire it from the
    full DUT stream.
-9. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
+10. Per-bank cleanup source vectors: publish ROB/STQ cleanup candidates with
    enough PE/STID structure for multi-bank cleanup selection in the SGPR array.
-10. Multi-PE packet production and bank instantiation: teach the upstream
+11. Multi-PE packet production and bank instantiation: teach the upstream
    frontend/top owner to set nonzero `FrontendDecodePacket.peId` and instantiate
    matching `ScalarTURenameBridge`/`TULinkLocalBankArray` PE banks.
-11. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
+12. LinxCoreModel ROB maintenance note: audit `SPEROB`, `PROBCommon`,
    `VectorLiteROB`, and `GROB` for shared commit-ordering invariants and model
    implementation-only details.
 

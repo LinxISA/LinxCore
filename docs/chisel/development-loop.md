@@ -1,6 +1,6 @@
 # LinxCore Chisel Development Loop
 
-Date: 2026-06-30
+Date: 2026-07-06
 
 ## Purpose
 
@@ -10,9 +10,13 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 `docs/chisel/agent-loop.md`, which remains the detailed packet ledger and gate
 history.
 
-The current priority is ROB and cross-check infrastructure. Wider frontend,
-issue, LSU, and engine work should build on a real retirement, recovery, and
-trace oracle instead of creating isolated module demos.
+The current priority is replay-LIQ row data and valid-mask completion after
+source-return mutation. R542 proves that source-returned `Repick` rows reach
+the complete-repick selector, but `dataComplete`, request-byte completion,
+return candidate, and selected-return masks remain zero before
+`LoadReplayReturnDataExtract`. Wider CoreMark scaling, marker-row promotion,
+publish/LRET/W2 work, and unrelated LSU expansion should wait until that narrow
+row-mutation gap is closed.
 
 ## Packet Start Baseline
 
