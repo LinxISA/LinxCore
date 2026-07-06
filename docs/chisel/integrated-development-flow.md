@@ -239,6 +239,21 @@ progress and the same same-LSID phase shape
 same-cycle overlap identity buckets remain zero. Future phasing hooks must
 require nonzero different-LSID same-cycle overlap before using
 `replaceOnClear` evidence as a storage-promotion proof.
+R568 adds a default-off reduced replay-LIQ emitted-top hook,
+`LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES`, that gates W2 completion
+readiness after the R335 side-effect readiness join. The hook preserves the
+normal zero-delay path and, when enabled, holds completion rather than W2
+storage clear alone so repeated side-effect fires are not created while W2 is
+kept resident. The R568 generated-RTL/QEMU gate with
+`LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=4` still passes with
+18 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. It increases
+W2 residence (`lret_w2_slot_occupied=30`) but still records no W1/W2
+replacement overlap (`w2_slot_replace_overlap_candidate_live_clear=0`,
+`w2_slot_replace_same_cycle_eligible=0`,
+`w2_advance_replace_on_clear=0`) and no different-LSID near-miss buckets.
+The delay hook is therefore a safe diagnostic phasing tool, not storage
+promotion evidence; the next owner must create or retain a different W1
+candidate while the delayed resident W2 row live-clears.
 
 Use this packet shape first:
 

@@ -1608,6 +1608,13 @@ same replay-LIQ namespace. These signals observe the R333 W2 slot, classify
 resolve/writeback/wakeup requirements, and report the dormant W2 clear point;
 completion is held low because the R335 W2 side-effect readiness join still
 consumes live-disabled resolve, writeback, and wakeup sink readiness owners.
+R568 adds an emitted reduced replay-LIQ diagnostic gate,
+`LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES`, between that readiness join
+and `LoadReplayReturnPipeW2CompletionCandidate.io.sideEffectsReady`. The
+default value is zero, preserving normal completion timing. A positive value
+holds completion readiness for the occupied W2 slot while leaving the W2
+side-effect readiness owner and downstream sink contracts intact; it is a
+phasing/proof hook only and must not be cited as live W2 storage replacement.
 R335 adds `reducedLoadReplayLiqLretPipeW2SideEffect*` diagnostics under the
 same namespace. These signals expose the named W2 resolve/writeback/wakeup
 readiness join that feeds W2 completion while all downstream W2 sinks remain

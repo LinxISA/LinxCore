@@ -14,7 +14,8 @@ class LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
     archRegs: Int = 24,
     physRegs: Int = 64,
     useReducedStoreStaAddressExecBridge: Boolean = false,
-    reducedStoreStdExecDelayCycles: Int = 0)
+    reducedStoreStdExecDelayCycles: Int = 0,
+    reducedReplayLiqW2CompletionDelayCycles: Int = 0)
     extends LinxCoreFrontendFetchRfAluTraceTop(
       coreParams = coreParams,
       decRenQueueDepth = decRenQueueDepth,
@@ -29,7 +30,8 @@ class LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
       useReducedStoreDispatchStq = true,
       useReducedStoreStaAddressExecBridge = useReducedStoreStaAddressExecBridge,
       useReducedLoadReplayLiqAlloc = true,
-      reducedStoreStdExecDelayCycles = reducedStoreStdExecDelayCycles)
+      reducedStoreStdExecDelayCycles = reducedStoreStdExecDelayCycles,
+      reducedReplayLiqW2CompletionDelayCycles = reducedReplayLiqW2CompletionDelayCycles)
 
 object EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop extends App {
   private def envInt(name: String): Int =
@@ -41,6 +43,10 @@ object EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop extends App {
 
   private val stdDelayCycles = envInt("LINXCORE_REPLAY_LIQ_STD_DELAY_CYCLES")
   require(stdDelayCycles >= 0, "LINXCORE_REPLAY_LIQ_STD_DELAY_CYCLES must be nonnegative")
+  private val w2CompletionDelayCycles = envInt("LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES")
+  require(
+    w2CompletionDelayCycles >= 0,
+    "LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES must be nonnegative")
   private val useEarlyStaAddressExec =
     sys.env.get("LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS").exists(value => value.nonEmpty && value != "0")
 
@@ -51,7 +57,8 @@ object EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop extends App {
       gprMapQDepth = 256,
       physRegs = 128,
       useReducedStoreStaAddressExecBridge = useEarlyStaAddressExec,
-      reducedStoreStdExecDelayCycles = stdDelayCycles),
+      reducedStoreStdExecDelayCycles = stdDelayCycles,
+      reducedReplayLiqW2CompletionDelayCycles = w2CompletionDelayCycles),
     args = Array("--target-dir", "../generated/chisel-verilog/frontend-fetch-rf-alu-reduced-store-replay-liq-trace-top"),
     firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
   )

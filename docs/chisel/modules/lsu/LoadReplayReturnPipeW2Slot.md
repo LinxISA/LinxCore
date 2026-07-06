@@ -164,6 +164,13 @@ records only same-LSID gap2/gap4 clears with zero replacement eligibility.
 R567 adds harness-only same-cycle overlap identity counters. The storage owner
 must not treat a future `w2_slot_replace_overlap_candidate_live_clear` pulse as
 replacement evidence unless the new different-LSID bucket is also nonzero.
+R568 adds a top-level, default-off W2 completion-delay diagnostic hook and
+proves that holding W2 resident for longer is still insufficient on the current
+clustered dependency fixture: `lret_w2_slot_occupied=30`, but
+`w2_slot_replace_overlap_candidate_live_clear=0`,
+`w2_slot_replace_same_cycle_eligible=0`, and `w2_advance_replace_on_clear=0`.
+This keeps `replaceOnClear` storage disabled until a separate stimulus proves a
+different-LSID W1 candidate overlaps W2 live clear.
 
 ## Deferred Owners
 

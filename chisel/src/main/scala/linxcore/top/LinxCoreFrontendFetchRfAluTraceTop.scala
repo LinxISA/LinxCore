@@ -1818,10 +1818,14 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val useReducedStoreDispatchStq: Boolean = false,
     val useReducedStoreStaAddressExecBridge: Boolean = false,
     val useReducedLoadReplayLiqAlloc: Boolean = false,
-    val reducedStoreStdExecDelayCycles: Int = 0)
+    val reducedStoreStdExecDelayCycles: Int = 0,
+    val reducedReplayLiqW2CompletionDelayCycles: Int = 0)
     extends Module {
   require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
   require(reducedStoreStdExecDelayCycles >= 0, "reduced store STD execution delay cycles must be nonnegative")
+  require(
+    reducedReplayLiqW2CompletionDelayCycles >= 0,
+    "reduced replay-LIQ W2 completion delay cycles must be nonnegative")
   private val reducedStoreMemoryLineEntries = 64
   private val reducedLoadReplayRelaunchQueueDepth = 2
   private val p = LinxCoreFrontendFetchRfAluTraceTop.interfaceParamsFor(
@@ -3791,6 +3795,30 @@ class LinxCoreFrontendFetchRfAluTraceTop(
       reducedReplayLiqW2LatchedInstructionProviderValid,
       reducedReplayLiqLretDrainInstructionProviderLenReg,
       path.io.robCommitTraceLookup.instructionLen)
+  val reducedReplayLiqW2CompletionDelayReady =
+    if (reducedReplayLiqW2CompletionDelayCycles > 0) {
+      val delayWidth = math.max(1, log2Ceil(reducedReplayLiqW2CompletionDelayCycles + 1))
+      val delayActive = RegInit(false.B)
+      val delayCount = RegInit(0.U(delayWidth.W))
+      val delayCandidate =
+        reducedLoadReplayLiqAllocEnabled && !reducedStoreFlush &&
+          reducedReplayLiqReturnPipeW2Slot.io.occupied
+      val delayReady = delayCandidate && delayActive && delayCount === 0.U
+
+      when(!delayCandidate) {
+        delayActive := false.B
+        delayCount := 0.U
+      }.elsewhen(!delayActive) {
+        delayActive := true.B
+        delayCount := (reducedReplayLiqW2CompletionDelayCycles - 1).U
+      }.elsewhen(delayCount =/= 0.U) {
+        delayCount := delayCount - 1.U
+      }
+
+      delayReady
+    } else {
+      true.B
+    }
   LinxCoreFrontendFetchRfAluTraceTopR376SourceTraceWiring.connect(
     io,
     reducedLoadReplayLiqAllocPath,
@@ -3811,6 +3839,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2WakeupRequest,
     reducedReplayLiqReturnPipeW2SideEffectPayloadPlan,
     reducedReplayLiqReturnPipeW2SideEffectReady,
+    reducedReplayLiqW2CompletionDelayReady,
     reducedReplayLiqReturnPipeW2SideEffectLiveControl,
     reducedReplayLiqReturnPipeW2ResolveSinkReady,
     reducedReplayLiqReturnPipeW2WritebackSinkReady,
@@ -7008,6 +7037,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RequestPayloadWiring {
       wakeupRequest: LoadReplayReturnPipeW2WakeupRequest,
       payloadPlan: LoadReplayReturnPipeW2SideEffectPayloadPlan,
       sideEffectReady: LoadReplayReturnPipeW2SideEffectReady,
+      completionReadyGate: Bool,
       sideEffectLiveControl: LoadReplayReturnPipeW2SideEffectLiveControl,
       resolveSink: LoadReplayReturnPipeW2ResolveSinkReady,
       writebackSink: LoadReplayReturnPipeW2WritebackSinkReady,
@@ -7019,7 +7049,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RequestPayloadWiring {
       flush: Bool): Unit = {
     completion.io.enable := enable
     completion.io.flush := flush
-    completion.io.sideEffectsReady := sideEffectReady.io.sideEffectsReady
+    completion.io.sideEffectsReady := sideEffectReady.io.sideEffectsReady && completionReadyGate
     completion.io.slotOccupied := slot.io.occupied
     completion.io.slotTargetIsAgu := slot.io.entryTargetIsAgu
     completion.io.slotTargetIsLda := slot.io.entryTargetIsLda
