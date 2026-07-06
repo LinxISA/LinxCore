@@ -44,7 +44,10 @@ class:
    image is cleared.
 
 R409 captures that branch structure as a combinational plan only. It does not
-mutate `LoadInflightQueue` rows.
+mutate `LoadInflightQueue` rows. R543 corrects the complete no-data branch to
+assert `lineWrite` with the accepted row image; otherwise a row can become
+source-returned while retaining an old or empty valid-byte mask, which prevents
+the complete-Repick selector from observing request completion.
 
 R427 wires the path-level `priorScbReturned` input from the reduced response
 head's row mask proof as well as the external SCB-return input. That keeps this
@@ -88,7 +91,7 @@ bits are false. Wait-store rewait also writes the wait-store identity; no-data
 rewait clears return state without recording a wait-store dependency. For
 non-rewait plans, `nextScbReturned` preserves the prior SCB bit,
 `nextStqReturned` becomes true, and the row either takes the merged data image
-or preserves the accepted complete image.
+or writes the accepted complete image.
 
 `invalidStqApplyWithoutScb` is asserted when a plan is formed without the SCB
 return bit. This mirrors the model `ASSERT(entry.scbRnt)` in

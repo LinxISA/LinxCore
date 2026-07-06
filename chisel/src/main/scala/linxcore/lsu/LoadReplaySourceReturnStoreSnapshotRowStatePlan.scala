@@ -84,6 +84,7 @@ class LoadReplaySourceReturnStoreSnapshotRowStatePlan(
   val planValid = planCandidate && io.applyStqReturned
   val dataNoMergePlan = planValid && !io.waitStoreApply && io.dataNoMerge
   val dataNoMergeRewait = dataNoMergePlan && !io.priorRequestComplete
+  val dataNoMergeComplete = dataNoMergePlan && io.priorRequestComplete
   val rewaitApply = planValid && (io.waitStoreApply || dataNoMergeRewait)
   val dataMergePlan = planValid && !io.waitStoreApply && io.dataMergeApply
 
@@ -101,7 +102,7 @@ class LoadReplaySourceReturnStoreSnapshotRowStatePlan(
   io.setWaitStatus := rewaitApply
   io.keepRepickStatus := planValid && !rewaitApply
   io.clearReturnState := rewaitApply
-  io.lineWrite := rewaitApply || dataMergePlan
+  io.lineWrite := rewaitApply || dataMergePlan || dataNoMergeComplete
   io.waitStoreWrite := planValid
   io.nextWaitStore := planValid && io.waitStoreApply
   io.nextWaitStoreInfo := Mux(planValid && io.waitStoreApply, io.waitStoreInfo, zeroWait)

@@ -53,6 +53,7 @@ object LoadReplaySourceReturnStoreSnapshotRowStatePlanReference {
     val planValid = planCandidate && applyStqReturned
     val dataNoMergePlan = planValid && !waitStoreApply && dataNoMerge
     val dataNoMergeRewait = dataNoMergePlan && !priorRequestComplete
+    val dataNoMergeComplete = dataNoMergePlan && priorRequestComplete
     val rewaitApply = planValid && (waitStoreApply || dataNoMergeRewait)
     val dataMergePlan = planValid && !waitStoreApply && dataMergeApply
     val nextScbReturned = if (rewaitApply) false else priorScbReturned
@@ -71,7 +72,7 @@ object LoadReplaySourceReturnStoreSnapshotRowStatePlanReference {
       setWaitStatus = rewaitApply,
       keepRepickStatus = planValid && !rewaitApply,
       clearReturnState = rewaitApply,
-      lineWrite = rewaitApply || dataMergePlan,
+      lineWrite = rewaitApply || dataMergePlan || dataNoMergeComplete,
       waitStoreWrite = planValid,
       nextWaitStore = planValid && waitStoreApply,
       nextLineData = nextLineData,
@@ -149,7 +150,7 @@ class LoadReplaySourceReturnStoreSnapshotRowStatePlanSpec extends AnyFunSuite {
     assert(result.nextStoreSourceReturned)
   }
 
-  test("complete no-data response only marks the STQ side returned") {
+  test("complete no-data response writes the accepted image and marks STQ returned") {
     val result = LoadReplaySourceReturnStoreSnapshotRowStatePlanReference(
       enable = true,
       flush = false,
@@ -164,7 +165,7 @@ class LoadReplaySourceReturnStoreSnapshotRowStatePlanSpec extends AnyFunSuite {
     assert(result.planValid)
     assert(result.dataNoMergePlan)
     assert(result.keepRepickStatus)
-    assert(!result.lineWrite)
+    assert(result.lineWrite)
     assert(result.nextLineData == BigInt("99887766", 16))
     assert(result.nextValidMask == BigInt("0f", 16))
     assert(result.nextDataComplete)
