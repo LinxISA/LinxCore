@@ -425,6 +425,18 @@ matches and no missing/duplicate row blockers:
 `w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`. The expected
 `w2_retire_record_lifecycle_blocked_by_clear_disabled=3` keeps the path
 diagnostic until a later packet promotes a live lifecycle request.
+R579 makes the retained-record lifecycle match own retire-record consumption:
+`LoadReplayReturnPipeW2RetireRecord.recordReady` now comes from the diagnostic
+lifecycle instance's `rowClearReady`, while `lifecycleClearEnable` remains
+false and LIQ mutation stays disabled. The generated RTL/QEMU gate
+`generated/r579-replay-w2-retire-record-ready-xcheck` passes with
+`status="pass"`, `compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT
+CBSTOP rows. Sideband schema v30 records
+`w2_retire_record_record_ready=3`, `w2_retire_record_record_fire=3`,
+`w2_retire_record_lifecycle_resolved_row_match=3`,
+`w2_retire_record_lifecycle_row_clear_ready=3`,
+`w2_retire_record_lifecycle_blocked_by_no_resolved_row=0`, and
+`w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`.
 
 Use this packet shape first:
 

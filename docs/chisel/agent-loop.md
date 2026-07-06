@@ -67,6 +67,22 @@ packet should promote this matched record toward a live lifecycle clear/consume
 request only after preserving atomic row-fill, ROB resolve, side-effect, and
 LIQ clear ordering.
 
+R579 makes that matched record the retire-record consume boundary by driving
+`LoadReplayReturnPipeW2RetireRecord.recordReady` from the diagnostic
+lifecycle matcher's `rowClearReady` instead of a constant ready tie-off. The
+proof point is `generated/r579-replay-w2-retire-record-ready-xcheck` with
+manifest `status="pass"`, `compared_rows=18`, and `mismatch_count=0`;
+sideband schema v30 shows `w2_retire_record_record_ready=3`,
+`w2_retire_record_record_fire=3`,
+`w2_retire_record_lifecycle_resolved_row_match=3`,
+`w2_retire_record_lifecycle_row_clear_ready=3`,
+`w2_retire_record_lifecycle_blocked_by_no_resolved_row=0`, and
+`w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`. This still
+does not mutate LIQ or feed live row fill. The next packet should promote the
+retire-record lifecycle result into the existing request/commit/clear owners
+without bypassing atomic side-effect, ROB resolve, row-fill, or LIQ-clear
+ordering.
+
 ## Current Baseline
 
 Record these SHAs at the start of each agent packet and refresh them if the

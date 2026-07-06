@@ -411,6 +411,7 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_capture_accepted_w2_occupied = 0;
   std::uint64_t w2_retire_record_capture_dropped = 0;
   std::uint64_t w2_retire_record_record_valid = 0;
+  std::uint64_t w2_retire_record_record_ready = 0;
   std::uint64_t w2_retire_record_record_fire = 0;
   std::uint64_t w2_retire_record_pending = 0;
   std::uint64_t w2_retire_record_captured_with_lret_enqueue = 0;
@@ -1545,6 +1546,9 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRecordValid) {
     ++g_replay_liq_sideband_stats.w2_retire_record_record_valid;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRecordReady) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_record_ready;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRecordFire) {
     ++g_replay_liq_sideband_stats.w2_retire_record_record_fire;
   }
@@ -2501,7 +2505,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v29\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v30\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -2939,6 +2943,8 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_retire_record_capture_dropped << ",\n"
       << "    \"w2_retire_record_record_valid\": "
       << g_replay_liq_sideband_stats.w2_retire_record_record_valid << ",\n"
+      << "    \"w2_retire_record_record_ready\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_record_ready << ",\n"
       << "    \"w2_retire_record_record_fire\": "
       << g_replay_liq_sideband_stats.w2_retire_record_record_fire << ",\n"
       << "    \"w2_retire_record_pending\": "

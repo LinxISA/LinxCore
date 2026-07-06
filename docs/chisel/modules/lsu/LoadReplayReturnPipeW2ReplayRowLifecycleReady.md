@@ -151,6 +151,21 @@ exactly one resolved replay row for each captured overlap:
 `w2_retire_record_lifecycle_blocked_by_clear_disabled=3` is expected because
 the R578 path is diagnostic only.
 
+R579 promotes the diagnostic match into the retire-record consume boundary:
+`rowClearReady` from the retire-record lifecycle instance now drives
+`retireRecord.io.recordReady`. The instance still keeps
+`lifecycleClearEnable=false`, so it does not mutate LIQ state or feed the live
+row-fill/clear-request path. The generated RTL/QEMU gate
+`generated/r579-replay-w2-retire-record-ready-xcheck` passes with
+`status="pass"`, `compared_rows=18`, `mismatch_count=0`, and zero QEMU/DUT
+CBSTOP rows. Sideband schema v30 proves the consume boundary follows the unique
+resolved-row match: `w2_retire_record_record_ready=3`,
+`w2_retire_record_record_fire=3`,
+`w2_retire_record_lifecycle_resolved_row_match=3`,
+`w2_retire_record_lifecycle_row_clear_ready=3`,
+`w2_retire_record_lifecycle_blocked_by_no_resolved_row=0`, and
+`w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`.
+
 ## Deferred Owners
 
 - Broaden the selected returned-load LIQ row match beyond the current

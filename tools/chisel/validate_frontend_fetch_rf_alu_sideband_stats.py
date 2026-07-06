@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v29"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v30"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -228,6 +228,7 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_retire_record_capture_accepted_w2_occupied",
     "w2_retire_record_capture_dropped",
     "w2_retire_record_record_valid",
+    "w2_retire_record_record_ready",
     "w2_retire_record_record_fire",
     "w2_retire_record_pending",
     "w2_retire_record_captured_with_lret_enqueue",

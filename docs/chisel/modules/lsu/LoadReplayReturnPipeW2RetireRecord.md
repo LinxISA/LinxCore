@@ -125,10 +125,21 @@ compared rows and zero mismatches. The v29 sideband report records
 `w2_retire_record_lifecycle_blocked_by_no_resolved_row=0`, and
 `w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`.
 
+R579 makes that lifecycle matcher the retire-record consume owner by driving
+`recordReady` from the diagnostic instance's `rowClearReady` instead of tying
+it high. This keeps LIQ mutation disabled, but it proves the retained record is
+only consumed when exactly one resolved replay row matches the record identity.
+The generated RTL/QEMU gate at
+`generated/r579-replay-w2-retire-record-ready-xcheck` passes with 18 compared
+rows and zero mismatches. The v30 sideband report records
+`w2_retire_record_record_ready=3`, `w2_retire_record_record_fire=3`,
+`w2_retire_record_lifecycle_resolved_row_match=3`,
+`w2_retire_record_lifecycle_row_clear_ready=3`,
+`w2_retire_record_lifecycle_blocked_by_no_resolved_row=0`, and
+`w2_retire_record_lifecycle_blocked_by_multiple_resolved_rows=0`.
+
 ## Deferred Owners
 
-- A downstream replay-row lifecycle consumer that uses the retire record instead
-  of sampling the physical W2 slot after clear.
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
   that preserves atomic side-effect, row-fill, ROB resolve, and LIQ clear
   ordering.
@@ -168,6 +179,20 @@ FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_f
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
   --build-dir generated/r578-replay-w2-retire-record-lifecycle-xcheck \
+  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
+  --reduced-store-replay-liq --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
+```
+
+R579 lifecycle-ready consume diagnostic gate:
+
+```bash
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r579-replay-w2-retire-record-ready-xcheck \
   --expected-rows 18 --capture-rows 32 --max-seconds 10 \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait

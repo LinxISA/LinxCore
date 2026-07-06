@@ -810,6 +810,7 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordCaptureAccepted = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordCaptureDropped = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordRecordValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordRecordReady = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordRecordFire = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordPending = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordCapturedWithLretEnqueue = Output(Bool())
@@ -7912,7 +7913,6 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordWiring {
     retireRecord.io.liveClear := clearIntent.io.liveClear
     retireRecord.io.lretEnqueueAccepted := sink.io.enqueueAccepted
     retireRecord.io.retirePayload := sinkEntry
-    retireRecord.io.recordReady := true.B
 
     io.reducedLoadReplayLiqLretPipeW2RetireRecordCaptureCandidate :=
       retireRecord.io.captureCandidate
@@ -7960,6 +7960,9 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleReadyWir
     lifecycle.io.slotRid := retireRecord.io.record.rid
     lifecycle.io.slotLoadLsId := retireRecord.io.record.loadLsId
     lifecycle.io.rows := liq.io.rows
+    retireRecord.io.recordReady := lifecycle.io.rowClearReady
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordRecordReady :=
+      lifecycle.io.rowClearReady
 
     io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleCandidateValid :=
       lifecycle.io.candidateValid
