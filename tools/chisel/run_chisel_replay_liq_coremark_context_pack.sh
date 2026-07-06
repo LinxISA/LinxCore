@@ -197,6 +197,7 @@ def sideband_summary(path: Path) -> dict:
         "mdb_conflict_valid",
         "mdb_fanout_record_processed",
         "mdb_fanout_lookup_table_hit",
+        "mdb_fanout_su_wakeup_valid",
         "mdb_lookup_wait_plan_request_valid",
         "liq_replay_wake_wait_store_clear",
     ]
