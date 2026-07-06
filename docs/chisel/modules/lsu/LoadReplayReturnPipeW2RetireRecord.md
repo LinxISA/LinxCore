@@ -200,6 +200,20 @@ fixture already completes those retained RIDs through the physical W2 path, so
 the next owner is a no-physical-complete fallback stimulus or RF/LIQ clear
 alignment, not direct retained ROB completion.
 
+R588 adds `LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard` for the
+same retained record. The guard compares the retained scalar GPR destination
+and data against the physical W2 writeback fire payload captured for the same
+RID. The generated RTL/QEMU gate
+`generated/r588-replay-retire-record-rf-fallback-guard-xcheck` passes with 18
+compared rows and zero mismatches. Sideband schema v38 records
+`w2_retire_record_rf_fallback_capture_physical_writeback=5`,
+`w2_retire_record_rf_fallback_candidate=5`,
+`w2_retire_record_rf_fallback_duplicate_physical_writeback=5`, and
+`w2_retire_record_rf_fallback_writeback_valid=0`. Retained RF writeback is
+therefore also a duplicate in the current fixture; the next owner is retained
+LIQ clear or wakeup duplicate classification before any retained side effect is
+enabled.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -213,6 +227,9 @@ alignment, not direct retained ROB completion.
 - Retained ROB fallback promotion after R587 proves a non-duplicate
   no-physical-complete stimulus; keep fallback completion disabled while the
   physical W2 path still covers the retained RID.
+- Retained RF fallback promotion after R588 proves a non-duplicate
+  no-physical-writeback stimulus; keep fallback writeback disabled while
+  physical W2 writeback already covers the same RID/tag/data.
 
 ## Verification
 

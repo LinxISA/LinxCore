@@ -137,6 +137,14 @@ suppression and no-physical-complete fallback stimulus. Do not enable retained
 ROB/RF/LIQ side effects from this guard until a fixture proves
 `fallbackEligible` without a matching physical completion.
 
+R588 adds the matching RF writeback duplicate guard. The v38 replay-LIQ
+sideband keeps the ROB duplicate shape unchanged
+(`w2_retire_record_rob_fallback_duplicate_physical_complete=5`,
+`w2_retire_record_rob_fallback_complete_valid=0`) and additionally proves the
+retained RF payload would duplicate physical W2 writeback. This keeps ROB and
+RF fallback promotion synchronized behind the same no-physical-side-effect
+requirement.
+
 ## Verification
 
 Focused gates:

@@ -1249,6 +1249,10 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCandidate.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackDuplicatePhysicalComplete.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCompleteValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackCapturePhysicalWriteback.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackDuplicatePhysicalWriteback.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackWritebackValid.getWidth == 1)
   }
 
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
@@ -1313,6 +1317,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordRowFillEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleEvidenceProviderValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackDuplicatePhysicalComplete"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackDuplicatePhysicalWriteback"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitLifecycleClearCommitEnable"))

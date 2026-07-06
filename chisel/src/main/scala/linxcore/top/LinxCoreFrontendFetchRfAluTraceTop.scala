@@ -14,6 +14,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRowFillEnableControl
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard
 import linxcore.lsu.{LoadInflightRowMutationRequestBridge, LoadReplayMdbLookupWaitPlan, LoadReplayResolvedRowHitRecord, LoadReplayRowMutationSourceMux}
 import linxcore.lsu.MDBStoreProbeReplay
 import linxcore.recovery.{ExecEngineType, FlushBus, FlushType, RecoveryCleanupIntent}
@@ -1323,6 +1324,10 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCandidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackDuplicatePhysicalComplete = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackCompleteValid = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackCapturePhysicalWriteback = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackCandidate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackDuplicatePhysicalWriteback = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackWritebackValid = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable = Output(Bool())
@@ -4046,6 +4051,16 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.slot,
     reducedReplayLiqReturnPipeW2Modules.robCompleteSource,
     reducedReplayLiqReturnPipeW2Modules.retireRecordCommitRowCandidate,
+    false.B,
+    reducedLoadReplayLiqAllocEnabled,
+    reducedStoreFlush
+  )
+  LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRfWritebackFallbackWiring.connect(
+    io,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordRfWritebackFallbackGuard,
+    reducedReplayLiqReturnPipeW2Modules.retireRecord,
+    reducedReplayLiqReturnPipeW2Modules.slot,
+    reducedReplayLiqReturnPipeW2Modules.writebackFirePayload,
     false.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
@@ -8407,6 +8422,46 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRobCompleteFallba
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRfWritebackFallbackWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      guard: LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard,
+      retireRecord: LoadReplayReturnPipeW2RetireRecord,
+      slot: LoadReplayReturnPipeW2Slot,
+      physicalWriteback: LoadReplayReturnPipeW2WritebackFirePayload,
+      fallbackEnable: Bool,
+      enable: Bool,
+      flush: Bool): Unit = {
+    guard.io.enable := enable
+    guard.io.flush := flush
+    guard.io.fallbackEnable := fallbackEnable
+    guard.io.captureAccepted := retireRecord.io.captureAccepted
+    guard.io.captureRid := slot.io.entryRid
+    guard.io.physicalWritebackValid := physicalWriteback.io.fireValid
+    guard.io.physicalWritebackRid := physicalWriteback.io.fireRid
+    guard.io.physicalWritebackTag := physicalWriteback.io.firePhysTag
+    guard.io.physicalWritebackData := physicalWriteback.io.fireData
+    guard.io.recordValid := retireRecord.io.recordValid
+    guard.io.recordRid := retireRecord.io.record.rid
+    guard.io.recordWritebackValid :=
+      retireRecord.io.recordValid &&
+        retireRecord.io.record.dst.valid &&
+        (retireRecord.io.record.dst.kind === DestinationKind.Gpr)
+    guard.io.recordWritebackTag := retireRecord.io.record.dst.physTag
+    guard.io.recordWritebackData := retireRecord.io.record.data
+    guard.io.recordFire := retireRecord.io.recordFire
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackCapturePhysicalWriteback :=
+      guard.io.capturePhysicalWriteback
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackCandidate :=
+      guard.io.recordCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackDuplicatePhysicalWriteback :=
+      guard.io.duplicatePhysicalWriteback
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackWritebackValid :=
+      guard.io.fallbackWritebackValid
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopW2ClearCommitGuardWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -8762,6 +8817,7 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     retireRecordLifecycleRequestProbe: LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe,
     retireRecordRowFillEnableControl: LoadReplayReturnPipeW2RetireRecordRowFillEnableControl,
     retireRecordRobCompleteFallbackGuard: LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard,
+    retireRecordRfWritebackFallbackGuard: LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard,
     clearCommitGuard: LoadReplayReturnPipeW2ClearCommitGuard,
     promotionControl: LoadReplayReturnPipeW2PromotionControl,
     refillReady: LoadReplayReturnPipeW2RefillReady,
@@ -8888,6 +8944,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
       retireRecordRowFillEnableControl = Module(new LoadReplayReturnPipeW2RetireRecordRowFillEnableControl),
       retireRecordRobCompleteFallbackGuard =
         LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRobCompleteFallbackGuardModule.create(p, traceParams),
+      retireRecordRfWritebackFallbackGuard =
+        LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRfWritebackFallbackGuardModule.create(p),
       clearCommitGuard = Module(new LoadReplayReturnPipeW2ClearCommitGuard(idEntries = p.robEntries)),
       promotionControl = Module(new LoadReplayReturnPipeW2PromotionControl),
       refillReady = Module(new LoadReplayReturnPipeW2RefillReady),
@@ -8961,6 +9019,15 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRobCompleteFallba
     Module(new LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard(
       idEntries = p.robEntries,
       traceParams = traceParams
+    ))
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRfWritebackFallbackGuardModule {
+  def create(p: InterfaceParams): LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard =
+    Module(new LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard(
+      idEntries = p.robEntries,
+      dataWidth = p.immWidth,
+      physRegWidth = p.physRegWidth
     ))
 }
 

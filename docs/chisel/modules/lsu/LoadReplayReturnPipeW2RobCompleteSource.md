@@ -106,6 +106,12 @@ The same packet extracts the top-level completion-port assignments into
 constructor-size maintenance split only; execute completion still has priority
 over replay completion through `ReducedRobCompletionArbiter`.
 
+R588 keeps this ROB ownership intact while adding the parallel RF writeback
+fallback guard. The v38 sideband records the ROB duplicate counters unchanged
+and adds nonzero RF duplicate counters, so retained ROB completion and retained
+RF writeback remain disabled together until a no-physical-side-effect case is
+proven.
+
 ## Deferred Owners
 
 - Live replay load commit-row fill after instruction metadata and source trace
