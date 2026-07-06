@@ -87,36 +87,47 @@ report records `w2_commit_row_trace_source_rob_lookup_instruction_valid=3`,
 `w2_row_fill_prerequisites_ready=0`, and `w2_lifecycle_ready=0`. The next owner
 is row-fill prerequisite/lifecycle readiness, not ROB instruction metadata,
 source-trace provenance, size/destination shape, clear capacity, or side-effect
-sink capacity.
+sink capacity. R554 adds sideband splits for the existing row-fill and
+lifecycle blocker outputs. The replay-loop fixture still passes with 9 compared
+rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. The split counters show
+`w2_lifecycle_candidate_valid=74`, `w2_lifecycle_slot_identity_valid=74`,
+`w2_lifecycle_resolved_row_match=0`,
+`w2_lifecycle_blocked_by_no_resolved_row=74`,
+`w2_lifecycle_blocked_by_multiple_resolved_rows=0`,
+`w2_row_fill_blocked_by_request_disabled=33`, and
+`w2_row_fill_blocked_by_no_side_effect_commit=33`. The next owner is the LIQ
+resolved-row lifecycle match for the returned W2 load, not identity validity,
+duplicate matching, row-fill candidate formation, or sideband schema.
 
 Use this packet shape first:
 
 ```text
-Packet: replay-LIQ LRET W2 row-fill prerequisite readiness
+Packet: replay-LIQ LRET W2 lifecycle resolved-row match
 Owner lane: rtl/LinxCore/chisel LSU replay-LIQ
-Files allowed: W2 row-fill enable/prereq wiring, replay-row lifecycle ready and
-  clear-request owners, W2 atomic prereq snapshot wiring, focused W2/top specs,
-  module docs, and sideband validator updates only if new evidence fields are
-  required
+Files allowed: LoadInflightQueue status/mark-resolved path, reduced replay-LIQ
+  return-complete/lifecycle wiring, W2 replay-row lifecycle ready owner,
+  focused LIQ/W2/top specs, module docs, and sideband validator updates only if
+  new evidence fields are required
 Source evidence: LinxCoreModel IEX::setMemData and LDAPipe/load-return W2
-  handling after returned-load pipe insertion
-Expected first gate: focused row-fill/lifecycle coverage proving the resident
-  W2 returned-load row has candidate evidence before live row replacement is
-  enabled
-Promotion gate: R553 replay-loop fixture through
+  handling after returned-load pipe insertion, plus LDQ resolved-row movement
+Expected first gate: focused LIQ/lifecycle coverage proving the resident W2
+  returned-load identity matches exactly one resolved LIQ row before live row
+  replacement is enabled
+Promotion gate: R554 replay-loop fixture through
   run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v21 sideband
   inspection requiring nonzero setMemData, IEX insert, residency, W1/W2 slot,
   W2 evidence, W2 slot source trace, W2 policy blocker split, zero clear-commit
   policy blocks, nonzero ROB instruction metadata evidence, nonzero row-fill
-  candidate evidence, and movement of the blocker beyond missing metadata
+  candidate evidence, valid lifecycle slot identity, and movement of
+  `w2_lifecycle_blocked_by_no_resolved_row` toward a unique row-clear match
 Do not run: long CoreMark, marker-row scaling, or superproject closure until
-  row-fill prerequisite/lifecycle readiness is visible for the resident W2 slot
+  lifecycle row-clear readiness is visible for the resident W2 slot
   in the reduced replay-loop fixture
 Do not change: LRET FIFO capacity, return-data extraction, ROB deallocation
   holdoff, lane/TLOAD/final metadata, E4/W1/W2 slot storage, ROB metadata latch,
-  or commit-row compare policy before row-fill/lifecycle readiness exists
-First-divergence owner if the gate fails: Chisel W2 row-fill/lifecycle
-  readiness wiring unless the v21 sideband report misreports generated signals
+  or commit-row compare policy before lifecycle row-clear readiness exists
+First-divergence owner if the gate fails: Chisel replay-LIQ lifecycle status
+  wiring unless the v21 sideband report misreports generated signals
 Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
   module doc row, agent-loop row, and skill-evolve decision
 ```

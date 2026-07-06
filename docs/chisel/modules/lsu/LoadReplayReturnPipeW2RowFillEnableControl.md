@@ -110,11 +110,24 @@ This changes ownership only. In generated RTL the row-fill path remains dormant
 because the atomic live request and replay-row lifecycle live-clear arm are
 false.
 
+R554 adds generated-RTL sideband counters for this control's ordered blockers.
+The replay-loop fixture at
+`generated/r554-replay-w2-lifecycle-diagnostics/report/crosscheck_manifest.json`
+passes with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+The sideband report records `w2_row_fill_candidate_valid=33`,
+`w2_row_fill_prerequisites_ready=0`, `w2_row_fill_enable=0`,
+`w2_row_fill_blocked_by_request_disabled=33`,
+`w2_row_fill_blocked_by_no_side_effect_commit=33`,
+`w2_row_fill_blocked_by_no_clear_commit=0`,
+`w2_row_fill_blocked_by_live_clear_disabled=0`, and
+`w2_row_fill_blocked_by_no_replay_row_lifecycle=0`. These row-fill blockers
+are downstream of the disabled atomic request/fire path; the current first
+owner is the lifecycle row match that feeds pre-request policy evidence.
+
 ## Deferred Owners
 
 - Real replay-row lifecycle consume/retire mutation for the selected returned
   load row.
-- Instruction metadata and source-trace providers for the R366 row candidate.
 - Live atomic request promotion after replay RF writeback, ROB/PE resolve,
   ready-table wakeup, W2 clear/refill, ROB row fill, and replay-row lifecycle
   mutation can commit the same resident W2 instruction.

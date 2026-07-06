@@ -154,9 +154,21 @@ The ordered blocker moves again:
 `w2_row_fill_prerequisites_ready=0`, and `w2_lifecycle_ready=0`. The next
 owner is row-fill prerequisite/lifecycle readiness rather than ROB instruction
 metadata.
+R554 splits the lifecycle prerequisite evidence without changing RTL behavior.
+The generated-RTL/QEMU evidence at
+`generated/r554-replay-w2-lifecycle-diagnostics/report/crosscheck_manifest.json`
+passes with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+The split counters show that lifecycle identity is valid but no resolved LIQ
+row matches the resident W2 load: `w2_lifecycle_slot_identity_valid=74`,
+`w2_lifecycle_resolved_row_match=0`,
+`w2_lifecycle_blocked_by_no_resolved_row=74`, and
+`w2_lifecycle_blocked_by_multiple_resolved_rows=0`. The next owner is the
+replay-LIQ resolved-row lifecycle match.
 
 ## Deferred Owners
 
+- Replay-LIQ row status/lifecycle wiring that produces a unique resolved row
+  for the resident W2 returned-load identity.
 - Broader replay-return workload proof that observes nonzero live W2 side
   effects, row fill, and replay-row lifecycle mutation under QEMU/DUT compare.
 

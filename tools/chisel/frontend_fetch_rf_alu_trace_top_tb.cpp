@@ -510,9 +510,20 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_row_fill_candidate_valid = 0;
   std::uint64_t w2_row_fill_prerequisites_ready = 0;
   std::uint64_t w2_row_fill_enable = 0;
+  std::uint64_t w2_row_fill_blocked_by_request_disabled = 0;
+  std::uint64_t w2_row_fill_blocked_by_no_candidate = 0;
+  std::uint64_t w2_row_fill_blocked_by_no_side_effect_commit = 0;
+  std::uint64_t w2_row_fill_blocked_by_no_clear_commit = 0;
+  std::uint64_t w2_row_fill_blocked_by_live_clear_disabled = 0;
+  std::uint64_t w2_row_fill_blocked_by_no_replay_row_lifecycle = 0;
   std::uint64_t w2_lifecycle_candidate_valid = 0;
+  std::uint64_t w2_lifecycle_slot_identity_valid = 0;
+  std::uint64_t w2_lifecycle_resolved_row_match = 0;
   std::uint64_t w2_lifecycle_row_clear_ready = 0;
   std::uint64_t w2_lifecycle_ready = 0;
+  std::uint64_t w2_lifecycle_blocked_by_no_resolved_row = 0;
+  std::uint64_t w2_lifecycle_blocked_by_multiple_resolved_rows = 0;
+  std::uint64_t w2_lifecycle_blocked_by_clear_disabled = 0;
   std::uint64_t w2_lifecycle_clear_request_enable = 0;
   std::uint64_t w2_lifecycle_clear_commit_enable = 0;
   std::uint64_t resolve_queue_push_accepted = 0;
@@ -1653,14 +1664,47 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlRowFillEnable) {
     ++g_replay_liq_sideband_stats.w2_row_fill_enable;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlBlockedByRequestDisabled) {
+    ++g_replay_liq_sideband_stats.w2_row_fill_blocked_by_request_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlBlockedByNoCandidate) {
+    ++g_replay_liq_sideband_stats.w2_row_fill_blocked_by_no_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlBlockedByNoSideEffectCommit) {
+    ++g_replay_liq_sideband_stats.w2_row_fill_blocked_by_no_side_effect_commit;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlBlockedByNoClearCommit) {
+    ++g_replay_liq_sideband_stats.w2_row_fill_blocked_by_no_clear_commit;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlBlockedByLiveClearDisabled) {
+    ++g_replay_liq_sideband_stats.w2_row_fill_blocked_by_live_clear_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RowFillEnableControlBlockedByNoReplayRowLifecycle) {
+    ++g_replay_liq_sideband_stats.w2_row_fill_blocked_by_no_replay_row_lifecycle;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCandidateValid) {
     ++g_replay_liq_sideband_stats.w2_lifecycle_candidate_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleSlotIdentityValid) {
+    ++g_replay_liq_sideband_stats.w2_lifecycle_slot_identity_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleResolvedRowMatch) {
+    ++g_replay_liq_sideband_stats.w2_lifecycle_resolved_row_match;
   }
   if (dut.io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRowClearReady) {
     ++g_replay_liq_sideband_stats.w2_lifecycle_row_clear_ready;
   }
   if (dut.io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady) {
     ++g_replay_liq_sideband_stats.w2_lifecycle_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByNoResolvedRow) {
+    ++g_replay_liq_sideband_stats.w2_lifecycle_blocked_by_no_resolved_row;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByMultipleResolvedRows) {
+    ++g_replay_liq_sideband_stats.w2_lifecycle_blocked_by_multiple_resolved_rows;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleBlockedByLifecycleClearDisabled) {
+    ++g_replay_liq_sideband_stats.w2_lifecycle_blocked_by_clear_disabled;
   }
   if (dut.io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable) {
     ++g_replay_liq_sideband_stats.w2_lifecycle_clear_request_enable;
@@ -2470,12 +2514,34 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_row_fill_prerequisites_ready << ",\n"
       << "    \"w2_row_fill_enable\": "
       << g_replay_liq_sideband_stats.w2_row_fill_enable << ",\n"
+      << "    \"w2_row_fill_blocked_by_request_disabled\": "
+      << g_replay_liq_sideband_stats.w2_row_fill_blocked_by_request_disabled << ",\n"
+      << "    \"w2_row_fill_blocked_by_no_candidate\": "
+      << g_replay_liq_sideband_stats.w2_row_fill_blocked_by_no_candidate << ",\n"
+      << "    \"w2_row_fill_blocked_by_no_side_effect_commit\": "
+      << g_replay_liq_sideband_stats.w2_row_fill_blocked_by_no_side_effect_commit << ",\n"
+      << "    \"w2_row_fill_blocked_by_no_clear_commit\": "
+      << g_replay_liq_sideband_stats.w2_row_fill_blocked_by_no_clear_commit << ",\n"
+      << "    \"w2_row_fill_blocked_by_live_clear_disabled\": "
+      << g_replay_liq_sideband_stats.w2_row_fill_blocked_by_live_clear_disabled << ",\n"
+      << "    \"w2_row_fill_blocked_by_no_replay_row_lifecycle\": "
+      << g_replay_liq_sideband_stats.w2_row_fill_blocked_by_no_replay_row_lifecycle << ",\n"
       << "    \"w2_lifecycle_candidate_valid\": "
       << g_replay_liq_sideband_stats.w2_lifecycle_candidate_valid << ",\n"
+      << "    \"w2_lifecycle_slot_identity_valid\": "
+      << g_replay_liq_sideband_stats.w2_lifecycle_slot_identity_valid << ",\n"
+      << "    \"w2_lifecycle_resolved_row_match\": "
+      << g_replay_liq_sideband_stats.w2_lifecycle_resolved_row_match << ",\n"
       << "    \"w2_lifecycle_row_clear_ready\": "
       << g_replay_liq_sideband_stats.w2_lifecycle_row_clear_ready << ",\n"
       << "    \"w2_lifecycle_ready\": "
       << g_replay_liq_sideband_stats.w2_lifecycle_ready << ",\n"
+      << "    \"w2_lifecycle_blocked_by_no_resolved_row\": "
+      << g_replay_liq_sideband_stats.w2_lifecycle_blocked_by_no_resolved_row << ",\n"
+      << "    \"w2_lifecycle_blocked_by_multiple_resolved_rows\": "
+      << g_replay_liq_sideband_stats.w2_lifecycle_blocked_by_multiple_resolved_rows << ",\n"
+      << "    \"w2_lifecycle_blocked_by_clear_disabled\": "
+      << g_replay_liq_sideband_stats.w2_lifecycle_blocked_by_clear_disabled << ",\n"
       << "    \"w2_lifecycle_clear_request_enable\": "
       << g_replay_liq_sideband_stats.w2_lifecycle_clear_request_enable << ",\n"
       << "    \"w2_lifecycle_clear_commit_enable\": "

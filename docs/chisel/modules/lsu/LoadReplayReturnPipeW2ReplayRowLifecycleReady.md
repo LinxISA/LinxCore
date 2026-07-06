@@ -101,9 +101,25 @@ R368 wires this owner in `LinxCoreFrontendFetchRfAluTraceTop`:
 This replaces the previous literal lifecycle tie-off with a named owner while
 preserving dormant behavior.
 
+R554 adds sideband counters for the existing lifecycle match blockers. The
+replay-loop fixture at
+`generated/r554-replay-w2-lifecycle-diagnostics/report/crosscheck_manifest.json`
+passes with 9 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+The sideband report records `w2_lifecycle_candidate_valid=74`,
+`w2_lifecycle_slot_identity_valid=74`,
+`w2_lifecycle_resolved_row_match=0`,
+`w2_lifecycle_row_clear_ready=0`,
+`w2_lifecycle_blocked_by_no_resolved_row=74`,
+`w2_lifecycle_blocked_by_multiple_resolved_rows=0`, and
+`w2_lifecycle_blocked_by_clear_disabled=0`. The resident W2 identity is valid,
+so the next owner is the replay-LIQ row status/lifecycle path that should
+produce exactly one `Resolved` row for the returned load.
+
 ## Deferred Owners
 
-- Live replay-row lifecycle clear/consume path for the selected LIQ row.
+- Make the selected returned-load LIQ row visible as exactly one resolved row
+  while the matching W2 slot is resident.
+- Live replay-row lifecycle clear/consume path for that selected LIQ row.
 - Atomic promotion that feeds `clearResolvedValid/index`, W2 clear/refill,
   replay RF writeback, ROB/PE resolve, ready-table wakeup, and commit-row fill
   from one coherent W2 instruction.
