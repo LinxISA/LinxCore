@@ -261,14 +261,14 @@ if [[ -n "${FETCH_REPLAY_LIQ_REQUIRE_ZERO}" ]]; then
     fi
   done
 fi
-python3 "${ROOT_DIR}/tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py" \
-  "${SIDEBAND_VALIDATOR_ARGS[@]}"
-
 bash "${ROOT_DIR}/tools/chisel/run_chisel_qemu_crosscheck.sh" \
   --qemu-trace "${QEMU_TRACE}" \
   --dut-trace "${DUT_TRACE}" \
   --report-dir "${REPORT_DIR}" \
   --max-commits "${EXPECTED_ROW_COUNT}" \
   --mode failfast
+
+python3 "${ROOT_DIR}/tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py" \
+  "${SIDEBAND_VALIDATOR_ARGS[@]}"
 
 echo "frontend-fetch-rf-alu-trace-top-xcheck-report=${REPORT_DIR}"

@@ -104,6 +104,13 @@ request outputs plus downstream W2 side-effect, row-fill, and replay-row
 lifecycle counters. Those counters are the required observation points for the
 next positive replay-return packet; the default fixture may still leave them
 zero.
+R536 runs the constructed replay-LIQ loop against those counters. The probe
+shows the reduced top samples the live W2 atomic owner
+(`w2_atomic_live_active=108`), but the request gate never observes valid request
+evidence (`w2_atomic_request_active=0`, `w2_atomic_evidence_valid=0`). The next
+RTL promotion must provide a model-derived W2 slot/request-evidence producer
+before expecting side-effect fire, row-fill, or replay-row lifecycle clear
+counters to become nonzero.
 
 Because `LinxCoreFrontendFetchRfAluTraceTop` is near the JVM constructor method
 size limit, this composite is intended as a constructor-containment boundary:

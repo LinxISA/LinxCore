@@ -1398,6 +1398,16 @@ and replay-row lifecycle clear counters from the existing top outputs. This is
 visibility infrastructure only: default fixture zeroes remain no-regression
 evidence, while a later positive replay-return packet must require nonzero
 `replay_liq.w2_*` counters for side-effect, row-fill, and lifecycle mutation.
+R536 moves replay-LIQ sideband validation in
+`run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` after the common
+QEMU/DUT comparator so failed positive-counter probes still leave
+`crosscheck_manifest.json` evidence. The constructed
+`replay-ldi-sdi-ldi-loop` W2 probe at current clean provenance reaches live W2
+observation (`w2_atomic_live_active=108`) but keeps
+`w2_atomic_request_active=0`, `w2_atomic_evidence_valid=0`, and all downstream
+W2 side-effect, row-fill, and lifecycle counters at zero. The first replay-return
+promotion owner is therefore the W2 atomic request evidence path, not the
+sideband schema or comparator.
 R384 extends the same replay-LIQ namespace with
 `LoadReplayReturnPipeResidencyLiveControl`. The reduced top now feeds
 `LoadReplayReturnPipeResidencyCandidate.liveEnable` from an accepted-insert and
