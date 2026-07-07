@@ -799,6 +799,13 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_physical_bundle_suppress_probe_blocked_by_probe_disabled = 0;
   std::uint64_t w2_retire_record_physical_bundle_suppress_probe_blocked_by_no_atomic_candidate = 0;
   std::uint64_t w2_retire_record_physical_bundle_suppress_probe_blocked_by_partial_mask = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_capture = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_registered_valid = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_registered_mask_sum = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_registered_full_mask = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_blocked_by_no_selection = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_blocked_by_partial_mask = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_cleared_by_flush = 0;
   std::uint64_t resolve_queue_push_accepted = 0;
   std::uint64_t resolve_queue_valid = 0;
   std::uint64_t resolve_queue_push_accepted_first_cycle = 0;
@@ -2891,6 +2898,30 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
     ++g_replay_liq_sideband_stats
       .w2_retire_record_physical_bundle_suppress_probe_blocked_by_partial_mask;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryCapture) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_boundary_capture;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_boundary_registered_valid;
+  }
+  g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_boundary_registered_mask_sum +=
+    dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredMask;
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredFullMask) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_boundary_registered_full_mask;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryBlockedByNoSelection) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_boundary_blocked_by_no_selection;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryBlockedByPartialMask) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_boundary_blocked_by_partial_mask;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryClearedByFlush) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_boundary_cleared_by_flush;
+  }
   if (resolve_queue_push_accepted) {
     ++g_replay_liq_sideband_stats.resolve_queue_push_accepted;
   }
@@ -3057,7 +3088,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v50\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v51\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -4310,6 +4341,27 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << "    \"w2_retire_record_physical_bundle_suppress_probe_blocked_by_partial_mask\": "
       << g_replay_liq_sideband_stats
         .w2_retire_record_physical_bundle_suppress_probe_blocked_by_partial_mask
+      << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_boundary_capture\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_boundary_capture << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_boundary_registered_valid\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_boundary_registered_valid << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_boundary_registered_mask_sum\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_boundary_registered_mask_sum << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_boundary_registered_full_mask\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_boundary_registered_full_mask << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_boundary_blocked_by_no_selection\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_boundary_blocked_by_no_selection << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_boundary_blocked_by_partial_mask\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_boundary_blocked_by_partial_mask << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_boundary_cleared_by_flush\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_boundary_cleared_by_flush
       << ",\n"
       << "    \"resolve_queue_push_accepted\": "
       << g_replay_liq_sideband_stats.resolve_queue_push_accepted << ",\n"

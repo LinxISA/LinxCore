@@ -1352,6 +1352,19 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io
       .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressProbeBlockedByPartialMask
       .getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryCapture.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredMask.getWidth == 4)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredFullMask
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryBlockedByNoSelection
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryBlockedByPartialMask
+      .getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryClearedByFlush.getWidth == 1)
   }
 
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
@@ -1426,6 +1439,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanDefaultTransferCandidate"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanAtomicSuppressCandidate"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressProbeSelected"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredValid"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitLifecycleClearCommitEnable"))

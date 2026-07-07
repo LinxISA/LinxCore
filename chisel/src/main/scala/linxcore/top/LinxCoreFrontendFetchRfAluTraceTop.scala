@@ -21,6 +21,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordModelOrderProof
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard
@@ -1454,6 +1455,20 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressProbeBlockedByNoAtomicCandidate =
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressProbeBlockedByPartialMask =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryCapture =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredValid =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredMask =
+    Output(UInt(4.W))
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredFullMask =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryBlockedByNoSelection =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryBlockedByPartialMask =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryClearedByFlush =
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
@@ -8523,6 +8538,36 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSup
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressBoundaryWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      boundary: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary,
+      probe: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe,
+      enable: Bool,
+      flush: Bool): Unit = {
+    boundary.io.enable := enable
+    boundary.io.flush := flush
+    boundary.io.selected := probe.io.selected
+    boundary.io.selectedMask := probe.io.selectedMask
+    boundary.io.allOrNoneInputMask := probe.io.allOrNoneInputMask
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryCapture :=
+      boundary.io.capture
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredValid :=
+      boundary.io.registeredValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredMask :=
+      boundary.io.registeredMask
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredFullMask :=
+      boundary.io.registeredFullMask
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryBlockedByNoSelection :=
+      boundary.io.blockedByNoSelection
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryBlockedByPartialMask :=
+      boundary.io.blockedByPartialMask
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryClearedByFlush :=
+      boundary.io.clearedByFlush
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -8675,6 +8720,13 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
       modules.retireRecordPhysicalBundleSuppressProbe,
       modules.retireRecordPhysicalBundleSuppressPlan,
       physicalSuppressProbe,
+      enable,
+      flush
+    )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressBoundaryWiring.connect(
+      io,
+      modules.retireRecordPhysicalBundleSuppressBoundary,
+      modules.retireRecordPhysicalBundleSuppressProbe,
       enable,
       flush
     )
@@ -9579,6 +9631,7 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     retireRecordBundleTransferPlan: LoadReplayReturnPipeW2RetireRecordBundleTransferPlan,
     retireRecordPhysicalBundleSuppressPlan: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan,
     retireRecordPhysicalBundleSuppressProbe: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe,
+    retireRecordPhysicalBundleSuppressBoundary: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary,
     retireRecordAtomicRequestProbe: LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe,
     retireRecordLifecycleRequestProbe: LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe,
     retireRecordRowFillEnableControl: LoadReplayReturnPipeW2RetireRecordRowFillEnableControl,
@@ -9722,6 +9775,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
         Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan),
       retireRecordPhysicalBundleSuppressProbe =
         Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe),
+      retireRecordPhysicalBundleSuppressBoundary =
+        Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary),
       retireRecordAtomicRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe),
       retireRecordLifecycleRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe),
       retireRecordRowFillEnableControl = Module(new LoadReplayReturnPipeW2RetireRecordRowFillEnableControl),

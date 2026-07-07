@@ -180,7 +180,9 @@ diagnostic activity. The five valid retained atomic candidates each select mask
 
 ## Next Owner
 
-The next owner may consume this probe only by adding a non-circular timing or
-ownership boundary for live physical suppression. Do not route `selectedMask`
-back into the same current-cycle duplicate guards that produce the R599/R600
-evidence, and do not enable one physical side effect independently.
+R601 adds
+`LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary`, a
+sideband-only registered owner that captures the R600 full-mask selection into
+a one-cycle-later mask. Live physical suppression is still deferred. The next
+owner must prove retained-record identity and lifetime alignment for the
+registered mask before connecting it to any physical guard or live sink.

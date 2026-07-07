@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v50"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v51"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -616,6 +616,13 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_retire_record_physical_bundle_suppress_probe_blocked_by_probe_disabled",
     "w2_retire_record_physical_bundle_suppress_probe_blocked_by_no_atomic_candidate",
     "w2_retire_record_physical_bundle_suppress_probe_blocked_by_partial_mask",
+    "w2_retire_record_physical_bundle_suppress_boundary_capture",
+    "w2_retire_record_physical_bundle_suppress_boundary_registered_valid",
+    "w2_retire_record_physical_bundle_suppress_boundary_registered_mask_sum",
+    "w2_retire_record_physical_bundle_suppress_boundary_registered_full_mask",
+    "w2_retire_record_physical_bundle_suppress_boundary_blocked_by_no_selection",
+    "w2_retire_record_physical_bundle_suppress_boundary_blocked_by_partial_mask",
+    "w2_retire_record_physical_bundle_suppress_boundary_cleared_by_flush",
     "resolve_queue_push_accepted",
     "resolve_queue_valid",
     "resolve_queue_push_accepted_first_cycle",
