@@ -833,6 +833,16 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_physical_bundle_suppress_ownership_blocked_by_missing_load_lsid = 0;
   std::uint64_t w2_retire_record_physical_bundle_suppress_ownership_blocked_by_missing_lifecycle_row = 0;
   std::uint64_t w2_retire_record_physical_bundle_suppress_ownership_blocked_by_not_full_mask = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_live_mask_candidate = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_live_mask_enabled_candidate = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_live_mask_suppress_rob_complete = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_live_mask_suppress_rf_writeback = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_live_mask_suppress_wakeup = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_live_mask_suppress_lifecycle_clear = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_live_mask_suppress_mask_sum = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_live_mask_all_or_none = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_live_mask_disabled = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_no_eligible_ownership = 0;
   std::uint64_t resolve_queue_push_accepted = 0;
   std::uint64_t resolve_queue_valid = 0;
   std::uint64_t resolve_queue_push_accepted_first_cycle = 0;
@@ -3055,6 +3065,41 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
     ++g_replay_liq_sideband_stats
       .w2_retire_record_physical_bundle_suppress_ownership_blocked_by_not_full_mask;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressLiveMaskCandidate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_live_mask_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressLiveMaskEnabledCandidate) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_live_mask_enabled_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressLiveMaskSuppressRobComplete) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_live_mask_suppress_rob_complete;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressLiveMaskSuppressRfWriteback) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_live_mask_suppress_rf_writeback;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressLiveMaskSuppressWakeup) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_live_mask_suppress_wakeup;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressLiveMaskSuppressLifecycleClear) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_live_mask_suppress_lifecycle_clear;
+  }
+  g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_live_mask_suppress_mask_sum +=
+      dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressLiveMaskSuppressMask;
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressLiveMaskAllOrNone) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_live_mask_all_or_none;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressLiveMaskBlockedByLiveMaskDisabled) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_live_mask_disabled;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressLiveMaskBlockedByNoEligibleOwnership) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_no_eligible_ownership;
+  }
   if (resolve_queue_push_accepted) {
     ++g_replay_liq_sideband_stats.resolve_queue_push_accepted;
   }
@@ -3221,7 +3266,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v53\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v54\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -4578,6 +4623,35 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << "    \"w2_retire_record_physical_bundle_suppress_ownership_blocked_by_not_full_mask\": "
       << g_replay_liq_sideband_stats
         .w2_retire_record_physical_bundle_suppress_ownership_blocked_by_not_full_mask
+      << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_live_mask_candidate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_live_mask_candidate << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_live_mask_enabled_candidate\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_live_mask_enabled_candidate << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_live_mask_suppress_rob_complete\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_live_mask_suppress_rob_complete << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_live_mask_suppress_rf_writeback\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_live_mask_suppress_rf_writeback << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_live_mask_suppress_wakeup\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_live_mask_suppress_wakeup << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_live_mask_suppress_lifecycle_clear\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_live_mask_suppress_lifecycle_clear << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_live_mask_suppress_mask_sum\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_live_mask_suppress_mask_sum << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_live_mask_all_or_none\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_live_mask_all_or_none << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_live_mask_disabled\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_live_mask_disabled << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_no_eligible_ownership\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_no_eligible_ownership
       << ",\n"
       << "    \"resolve_queue_push_accepted\": "
       << g_replay_liq_sideband_stats.resolve_queue_push_accepted << ",\n"

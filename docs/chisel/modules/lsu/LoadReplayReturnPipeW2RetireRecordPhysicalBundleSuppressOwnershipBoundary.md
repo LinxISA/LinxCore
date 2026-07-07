@@ -176,9 +176,9 @@ The repeated value `144` is the active-window count for a carried bundle that
 remains valid after the first capture. The five registered candidates are the
 important ownership-consumption opportunities.
 
-## Next Owner
+## Consumed By
 
-The next owner may consume `eligibleRegisteredMask` and the carried ownership
-bundle as input evidence for a live physical guard override, but only as an
-atomic bundle. Do not suppress ROB completion, RF writeback, wakeup, or
-lifecycle clear independently.
+R604 consumes `eligibleRegisteredMask` in
+`LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressLiveMask`. That owner
+keeps the R603 atomic-bundle rule: ROB completion, RF writeback, wakeup, and
+lifecycle clear are masked together or not at all.

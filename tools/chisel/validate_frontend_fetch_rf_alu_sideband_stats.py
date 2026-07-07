@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v53"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v54"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -650,6 +650,16 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_retire_record_physical_bundle_suppress_ownership_blocked_by_missing_load_lsid",
     "w2_retire_record_physical_bundle_suppress_ownership_blocked_by_missing_lifecycle_row",
     "w2_retire_record_physical_bundle_suppress_ownership_blocked_by_not_full_mask",
+    "w2_retire_record_physical_bundle_suppress_live_mask_candidate",
+    "w2_retire_record_physical_bundle_suppress_live_mask_enabled_candidate",
+    "w2_retire_record_physical_bundle_suppress_live_mask_suppress_rob_complete",
+    "w2_retire_record_physical_bundle_suppress_live_mask_suppress_rf_writeback",
+    "w2_retire_record_physical_bundle_suppress_live_mask_suppress_wakeup",
+    "w2_retire_record_physical_bundle_suppress_live_mask_suppress_lifecycle_clear",
+    "w2_retire_record_physical_bundle_suppress_live_mask_suppress_mask_sum",
+    "w2_retire_record_physical_bundle_suppress_live_mask_all_or_none",
+    "w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_live_mask_disabled",
+    "w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_no_eligible_ownership",
     "resolve_queue_push_accepted",
     "resolve_queue_valid",
     "resolve_queue_push_accepted_first_cycle",
