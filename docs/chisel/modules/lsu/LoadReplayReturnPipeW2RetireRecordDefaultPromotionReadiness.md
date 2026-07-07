@@ -112,6 +112,18 @@ zero mismatches, and zero QEMU/DUT CBSTOP rows. Sideband schema v47 records
 default-promotion blocker is the full model-order physical duplicate bundle,
 not an isolated side-effect duplicate.
 
+R598 adds `LoadReplayReturnPipeW2RetireRecordBundleTransferPlan` on top of
+this readiness result. The generated RTL/QEMU gate at
+`generated/r598-replay-bundle-transfer-plan-xcheck` passes with 18 compared
+rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. Sideband schema v48
+records `w2_retire_record_bundle_transfer_plan_default_transfer_candidate=5`
+and
+`w2_retire_record_bundle_transfer_plan_requires_physical_bundle_suppression=5`,
+with zero partial-duplicate, probe-active, no-duplicate-vector, and pre-arm
+blockers. The default readiness gate itself still reports
+`default_promotion_ready=0`; R598 only names the future transfer/suppression
+point.
+
 ## Verification
 
 Focused gates:

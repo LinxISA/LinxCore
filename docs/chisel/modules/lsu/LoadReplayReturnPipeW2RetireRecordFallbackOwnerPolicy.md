@@ -298,6 +298,18 @@ source cannot be scoped to a single side effect; default promotion needs a
 bundle-level ownership transfer or suppression for ROB completion, RF
 writeback, wakeup, and lifecycle clear together.
 
+R598 follows that evidence by adding
+`LoadReplayReturnPipeW2RetireRecordBundleTransferPlan`. The plan is still
+policy-adjacent and diagnostic-only; it does not change
+`sideEffectOwnerEnable`. The generated RTL/QEMU gate at
+`generated/r598-replay-bundle-transfer-plan-xcheck` passes with 18 compared
+rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. Sideband schema v48
+records `w2_retire_record_bundle_transfer_plan_default_transfer_candidate=5`
+and
+`w2_retire_record_bundle_transfer_plan_requires_physical_bundle_suppression=5`.
+This names the future promotion requirement as an atomic physical-bundle
+suppression problem rather than a fallback-policy arm change.
+
 ## Verification
 
 Focused gates:

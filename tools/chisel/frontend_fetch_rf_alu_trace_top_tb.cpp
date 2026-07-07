@@ -767,6 +767,17 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_duplicate_vector_blocked_by_no_record = 0;
   std::uint64_t w2_retire_record_duplicate_vector_blocked_by_pre_arm_not_ready = 0;
   std::uint64_t w2_retire_record_duplicate_vector_blocked_by_no_duplicate = 0;
+  std::uint64_t w2_retire_record_bundle_transfer_plan_candidate = 0;
+  std::uint64_t w2_retire_record_bundle_transfer_plan_pre_arm_ready = 0;
+  std::uint64_t w2_retire_record_bundle_transfer_plan_model_order_bundle = 0;
+  std::uint64_t w2_retire_record_bundle_transfer_plan_default_transfer_candidate = 0;
+  std::uint64_t w2_retire_record_bundle_transfer_plan_requires_physical_bundle_suppression = 0;
+  std::uint64_t w2_retire_record_bundle_transfer_plan_default_promotion_already_ready = 0;
+  std::uint64_t w2_retire_record_bundle_transfer_plan_blocked_by_no_record = 0;
+  std::uint64_t w2_retire_record_bundle_transfer_plan_blocked_by_pre_arm_not_ready = 0;
+  std::uint64_t w2_retire_record_bundle_transfer_plan_blocked_by_no_duplicate_vector = 0;
+  std::uint64_t w2_retire_record_bundle_transfer_plan_blocked_by_partial_duplicate = 0;
+  std::uint64_t w2_retire_record_bundle_transfer_plan_blocked_by_probe_active = 0;
   std::uint64_t resolve_queue_push_accepted = 0;
   std::uint64_t resolve_queue_valid = 0;
   std::uint64_t resolve_queue_push_accepted_first_cycle = 0;
@@ -2758,6 +2769,40 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorBlockedByNoDuplicate) {
     ++g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_blocked_by_no_duplicate;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanCandidate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanPreArmReady) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_pre_arm_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanModelOrderBundle) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_model_order_bundle;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanDefaultTransferCandidate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_default_transfer_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanRequiresPhysicalBundleSuppression) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_bundle_transfer_plan_requires_physical_bundle_suppression;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanDefaultPromotionAlreadyReady) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_default_promotion_already_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByNoRecord) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_blocked_by_no_record;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByPreArmNotReady) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_blocked_by_pre_arm_not_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByNoDuplicateVector) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_blocked_by_no_duplicate_vector;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByPartialDuplicate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_blocked_by_partial_duplicate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByProbeActive) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_blocked_by_probe_active;
+  }
   if (resolve_queue_push_accepted) {
     ++g_replay_liq_sideband_stats.resolve_queue_push_accepted;
   }
@@ -2924,7 +2969,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v47\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v48\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -4085,6 +4130,36 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_blocked_by_pre_arm_not_ready << ",\n"
       << "    \"w2_retire_record_duplicate_vector_blocked_by_no_duplicate\": "
       << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_blocked_by_no_duplicate << ",\n"
+      << "    \"w2_retire_record_bundle_transfer_plan_candidate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_candidate << ",\n"
+      << "    \"w2_retire_record_bundle_transfer_plan_pre_arm_ready\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_pre_arm_ready << ",\n"
+      << "    \"w2_retire_record_bundle_transfer_plan_model_order_bundle\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_model_order_bundle << ",\n"
+      << "    \"w2_retire_record_bundle_transfer_plan_default_transfer_candidate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_default_transfer_candidate
+      << ",\n"
+      << "    \"w2_retire_record_bundle_transfer_plan_requires_physical_bundle_suppression\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_bundle_transfer_plan_requires_physical_bundle_suppression
+      << ",\n"
+      << "    \"w2_retire_record_bundle_transfer_plan_default_promotion_already_ready\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_bundle_transfer_plan_default_promotion_already_ready << ",\n"
+      << "    \"w2_retire_record_bundle_transfer_plan_blocked_by_no_record\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_blocked_by_no_record << ",\n"
+      << "    \"w2_retire_record_bundle_transfer_plan_blocked_by_pre_arm_not_ready\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_bundle_transfer_plan_blocked_by_pre_arm_not_ready << ",\n"
+      << "    \"w2_retire_record_bundle_transfer_plan_blocked_by_no_duplicate_vector\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_bundle_transfer_plan_blocked_by_no_duplicate_vector << ",\n"
+      << "    \"w2_retire_record_bundle_transfer_plan_blocked_by_partial_duplicate\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_bundle_transfer_plan_blocked_by_partial_duplicate << ",\n"
+      << "    \"w2_retire_record_bundle_transfer_plan_blocked_by_probe_active\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_bundle_transfer_plan_blocked_by_probe_active
+      << ",\n"
       << "    \"resolve_queue_push_accepted\": "
       << g_replay_liq_sideband_stats.resolve_queue_push_accepted << ",\n"
       << "    \"resolve_queue_valid\": "

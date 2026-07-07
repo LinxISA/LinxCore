@@ -1304,6 +1304,21 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorBlockedByNoRecord.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorBlockedByPreArmNotReady.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorBlockedByNoDuplicate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanPreArmReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanModelOrderBundle.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanDefaultTransferCandidate.getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanRequiresPhysicalBundleSuppression
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanDefaultPromotionAlreadyReady
+      .getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByNoRecord.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByPreArmNotReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByNoDuplicateVector.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByPartialDuplicate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByProbeActive.getWidth == 1)
   }
 
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
@@ -1375,6 +1390,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderFallbackOwnerEligible"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorModelOrderBundle"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanDefaultTransferCandidate"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitLifecycleClearCommitEnable"))

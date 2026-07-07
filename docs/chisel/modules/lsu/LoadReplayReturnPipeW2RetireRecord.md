@@ -349,6 +349,22 @@ and no-duplicate blockers are zero. The next owner must transfer or suppress
 the whole ROB/RF/wakeup/lifecycle bundle; a single-side-effect fallback is not
 the default-promotion source for this fixture.
 
+R598 adds `LoadReplayReturnPipeW2RetireRecordBundleTransferPlan` as the next
+diagnostic owner. It consumes the R596 pre-arm/default-ready result and the
+R597 duplicate-vector result, then reports when a later owner may consider an
+atomic default ownership transfer. The generated RTL/QEMU gate at
+`generated/r598-replay-bundle-transfer-plan-xcheck` passes with 18 compared
+rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. Sideband schema v48
+records `w2_retire_record_bundle_transfer_plan_candidate=5`,
+`w2_retire_record_bundle_transfer_plan_pre_arm_ready=5`,
+`w2_retire_record_bundle_transfer_plan_model_order_bundle=5`,
+`w2_retire_record_bundle_transfer_plan_default_transfer_candidate=5`,
+`w2_retire_record_bundle_transfer_plan_requires_physical_bundle_suppression=5`,
+`w2_retire_record_bundle_transfer_plan_default_promotion_already_ready=0`, and
+zero pre-arm, no-duplicate-vector, partial-duplicate, and probe-active
+blockers. This is still diagnostic-only; it names the future physical-bundle
+suppression requirement but does not perform it.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -369,7 +385,9 @@ the default-promotion source for this fixture.
   duplicates as a full model-order bundle on every valid retained record. The
   default retained-owner arm must still stay off until a real no-physical
   side-effect source or a reviewed default-path promotion design transfers the
-  whole bundle.
+  whole bundle. R598 names that design point as a diagnostic
+  bundle-transfer-plan candidate and proves the current fixture requires
+  physical ROB/RF/wakeup/lifecycle suppression together.
 
 ## Verification
 

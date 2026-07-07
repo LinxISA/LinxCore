@@ -112,6 +112,16 @@ owner is not a single-side-effect fallback; it must either create a real
 no-physical source for the whole ROB/RF/wakeup/lifecycle bundle or deliberately
 redesign the default ownership transfer.
 
+R598 adds `LoadReplayReturnPipeW2RetireRecordBundleTransferPlan` as that
+deliberate redesign planning surface. It consumes this module's
+`modelOrderDuplicateBundle` and only emits a diagnostic transfer candidate when
+the R596 pre-arm evidence is present, the R596 default-ready output is still
+false, and no retained-owner probe is active. The v48 sideband evidence records
+`w2_retire_record_bundle_transfer_plan_default_transfer_candidate=5`,
+`w2_retire_record_bundle_transfer_plan_requires_physical_bundle_suppression=5`,
+`w2_retire_record_bundle_transfer_plan_default_promotion_already_ready=0`, and
+zero partial/probe/no-vector blockers.
+
 ## Verification
 
 Focused gates:

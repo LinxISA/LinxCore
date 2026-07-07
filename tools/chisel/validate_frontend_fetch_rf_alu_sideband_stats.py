@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v47"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v48"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -584,6 +584,17 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_retire_record_duplicate_vector_blocked_by_no_record",
     "w2_retire_record_duplicate_vector_blocked_by_pre_arm_not_ready",
     "w2_retire_record_duplicate_vector_blocked_by_no_duplicate",
+    "w2_retire_record_bundle_transfer_plan_candidate",
+    "w2_retire_record_bundle_transfer_plan_pre_arm_ready",
+    "w2_retire_record_bundle_transfer_plan_model_order_bundle",
+    "w2_retire_record_bundle_transfer_plan_default_transfer_candidate",
+    "w2_retire_record_bundle_transfer_plan_requires_physical_bundle_suppression",
+    "w2_retire_record_bundle_transfer_plan_default_promotion_already_ready",
+    "w2_retire_record_bundle_transfer_plan_blocked_by_no_record",
+    "w2_retire_record_bundle_transfer_plan_blocked_by_pre_arm_not_ready",
+    "w2_retire_record_bundle_transfer_plan_blocked_by_no_duplicate_vector",
+    "w2_retire_record_bundle_transfer_plan_blocked_by_partial_duplicate",
+    "w2_retire_record_bundle_transfer_plan_blocked_by_probe_active",
     "resolve_queue_push_accepted",
     "resolve_queue_valid",
     "resolve_queue_push_accepted_first_cycle",
