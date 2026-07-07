@@ -43,6 +43,25 @@ python3 tools/chisel/find_replay_liq_qemu_candidates.py \
   --lookback-rows 1024
 ```
 
+For later raw intervals that do not form a strict reduced-row prefix, capture
+raw QEMU rows only and run the locator directly on `qemu.live.raw.jsonl`:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/<run> \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 --capture-rows 512 \
+  --qemu-skip-rows 4096 \
+  --qemu-raw-only \
+  --max-seconds 45 -- \
+  -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+
+python3 tools/chisel/find_replay_liq_qemu_candidates.py \
+  --input generated/<run>/traces/qemu.live.raw.jsonl \
+  --output generated/<run>/report/replay_liq_qemu_candidates.json
+```
+
 Useful filters:
 
 - `--min-second-row <n>` ignores early candidates whose later memory row is
@@ -52,6 +71,14 @@ Useful filters:
 - `--no-dedupe-pairs` shows repeated dynamic instances of the same PC/address
   pair.
 - `--self-test` runs the built-in synthetic store/load overlap check.
+
+Wrapper sampling knobs:
+
+- `--qemu-skip-rows <n>` discards filtered QEMU rows before writing the bounded
+  capture. It is allowed only with `--qemu-only`.
+- `--qemu-raw-only` exits after raw QEMU capture and skips the reduced-row
+  extractor. It is for arbitrary skipped intervals whose first row may not be a
+  strict sequential reduced prefix.
 
 The JSON report schema is
 `linxcore.replay_liq_qemu_candidate_locator.v1`. Its `claim_boundary` field is
@@ -105,3 +132,42 @@ natural CoreMark replay-LIQ search should not simply widen the same early
 prefix by a small factor; it needs a way to skip into a later load-bearing
 phase, locate a different direct-boot interval, or return to focused replay
 fixtures for positive replacement evidence.
+
+## R613 Evidence
+
+R613 adds `--qemu-skip-rows` and `--qemu-raw-only` to
+`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`.
+
+The non-QEMU-only guard rejects skipped captures:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 --capture-rows 8 \
+  --qemu-skip-rows 1
+```
+
+The wrapper exits with:
+
+```text
+error: --qemu-skip-rows is allowed only with --qemu-only
+```
+
+A raw skipped sample after the R611 boundary:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r613-coremark-qemu-raw-skip4096-sample \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 --capture-rows 512 \
+  --qemu-skip-rows 4096 \
+  --allow-block-markers --allow-block-loop-reentry \
+  --qemu-raw-only --max-seconds 45 -- \
+  -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+Result: 512 raw rows were captured after 4096 skipped rows. The locator found
+37 memory events, all stores, zero loads, and zero candidates. This confirms
+the R612 post-4096 store-only shape with a smaller interval artifact and gives
+future agents a cheap loop for later interval sampling.

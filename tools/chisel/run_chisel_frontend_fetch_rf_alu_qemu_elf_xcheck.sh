@@ -13,6 +13,7 @@ FIXTURE=""
 QEMU_BIN=""
 EXPECTED_ROWS="${EXPECTED_ROWS:-3}"
 CAPTURE_ROWS="${CAPTURE_ROWS:-}"
+QEMU_SKIP_ROWS="${QEMU_SKIP_ROWS:-0}"
 MAX_SECONDS="${MAX_SECONDS:-30}"
 PC_LO=""
 PC_HI=""
@@ -24,6 +25,7 @@ REDUCED_STORE_REPLAY_LIQ=0
 DISABLE_STORE_MEMORY_MUTATION=0
 ALLOW_RESIDUAL_REPLAY_LIQ_WAIT=0
 QEMU_ONLY=0
+QEMU_RAW_ONLY=0
 EXPECT_LOAD_PCS=""
 EXPECT_STORE_PCS=""
 
@@ -50,6 +52,8 @@ Options:
   --qemu-bin <path>       QEMU binary. Defaults to the Chisel cross-check QEMU.
   --expected-rows <int>   Reduced scalar rows to extract/compare (default: ${EXPECTED_ROWS}; 0 means all)
   --capture-rows <int>    Filtered QEMU rows to capture before stopping QEMU
+  --qemu-skip-rows <int>  QEMU-only: discard this many filtered rows before
+                          writing the bounded capture
   --max-seconds <int>     Watchdog timeout for QEMU capture (default: ${MAX_SECONDS})
   --pc-lo <hex>           Optional QEMU commit-trace PC filter low bound
   --pc-hi <hex>           Optional QEMU commit-trace PC filter high bound
@@ -76,6 +80,8 @@ Options:
   --qemu-only             Stop after QEMU capture and reduced-row preview; this
                           validates fixture/reducer shape only and does not
                           build or run generated RTL
+  --qemu-raw-only         QEMU-only: stop after raw QEMU capture and do not run
+                          the reduced-row extractor
   --expect-load-pcs <csv> Require the reduced preview's load PC sequence to
                           equal a comma-separated hex/decimal list
   --expect-store-pcs <csv>
@@ -120,6 +126,11 @@ direct loop boundary to test returned-load W1/W2 phasing.
 With --qemu-only, the wrapper still builds any requested fixture, captures the
 bounded QEMU prefix, and runs the reduced-row extractor, then exits before the
 Verilator harness. Do not use that mode as QEMU/DUT equivalence evidence.
+With --qemu-skip-rows, the wrapper discards filtered QEMU rows before writing
+the bounded capture. This is allowed only with --qemu-only because the reduced
+Verilator top cannot reconstruct skipped architectural state.
+With --qemu-raw-only, the wrapper exits after raw QEMU capture. Use it for
+arbitrary skipped intervals that may not form a strict reduced-row prefix.
 With --expect-load-pcs or --expect-store-pcs, the wrapper asserts the exact
 memory PC sequence in the reduced preview before any optional RTL run.
 USAGE
@@ -136,6 +147,7 @@ while [[ $# -gt 0 ]]; do
     --qemu-bin) QEMU_BIN="$2"; shift 2 ;;
     --expected-rows) EXPECTED_ROWS="$2"; EXPECTED_ROWS_SET=1; shift 2 ;;
     --capture-rows) CAPTURE_ROWS="$2"; CAPTURE_ROWS_SET=1; shift 2 ;;
+    --qemu-skip-rows) QEMU_SKIP_ROWS="$2"; shift 2 ;;
     --max-seconds) MAX_SECONDS="$2"; shift 2 ;;
     --pc-lo) PC_LO="$2"; shift 2 ;;
     --pc-hi) PC_HI="$2"; shift 2 ;;
@@ -147,6 +159,7 @@ while [[ $# -gt 0 ]]; do
     --disable-store-memory-mutation) DISABLE_STORE_MEMORY_MUTATION=1; shift ;;
     --allow-residual-replay-liq-wait) ALLOW_RESIDUAL_REPLAY_LIQ_WAIT=1; shift ;;
     --qemu-only) QEMU_ONLY=1; shift ;;
+    --qemu-raw-only) QEMU_RAW_ONLY=1; QEMU_ONLY=1; shift ;;
     --expect-load-pcs) EXPECT_LOAD_PCS="$2"; shift 2 ;;
     --expect-store-pcs) EXPECT_STORE_PCS="$2"; shift 2 ;;
     --)
@@ -337,6 +350,18 @@ if [[ ! "${EXPECTED_ROWS}" =~ ^[0-9]+$ ]]; then
   echo "error: --expected-rows must be a non-negative integer" >&2
   exit 2
 fi
+if [[ ! "${QEMU_SKIP_ROWS}" =~ ^[0-9]+$ ]]; then
+  echo "error: --qemu-skip-rows must be a non-negative integer" >&2
+  exit 2
+fi
+if [[ "${QEMU_SKIP_ROWS}" -gt 0 && "${QEMU_ONLY}" != "1" ]]; then
+  echo "error: --qemu-skip-rows is allowed only with --qemu-only" >&2
+  exit 2
+fi
+if [[ "${QEMU_RAW_ONLY}" == "1" && ( -n "${EXPECT_LOAD_PCS}" || -n "${EXPECT_STORE_PCS}" ) ]]; then
+  echo "error: --qemu-raw-only cannot be combined with --expect-load-pcs or --expect-store-pcs" >&2
+  exit 2
+fi
 if [[ "${MARKER_ROWS}" == "1" && "${ALLOW_BLOCK_MARKERS}" != "1" ]]; then
   echo "error: --marker-rows requires --allow-block-markers" >&2
   exit 2
@@ -419,19 +444,24 @@ if [[ "${#QEMU_ARGS[@]}" -ne 0 ]]; then
   qemu_cmd+=(-- "${QEMU_ARGS[@]}")
 fi
 
-python3 - "${QEMU_FIFO}" "${QEMU_TRACE}" "${CAPTURE_ROWS}" <<'PY' &
+python3 - "${QEMU_FIFO}" "${QEMU_TRACE}" "${CAPTURE_ROWS}" "${QEMU_SKIP_ROWS}" <<'PY' &
 import sys
 
-fifo_path, out_path, rows_s = sys.argv[1:4]
+fifo_path, out_path, rows_s, skip_s = sys.argv[1:5]
 max_rows = int(rows_s)
+skip_rows = int(skip_s)
 
 try:
     with open(fifo_path, "r", encoding="utf-8", errors="replace") as src:
         with open(out_path, "w", encoding="utf-8") as dst:
+            written = 0
             for index, line in enumerate(src):
-                if index >= max_rows:
+                if index < skip_rows:
+                    continue
+                if written >= max_rows:
                     break
                 dst.write(line)
+                written += 1
 except KeyboardInterrupt:
     raise SystemExit(130)
 except BrokenPipeError:
@@ -499,10 +529,20 @@ if [[ "${qemu_rc}" -ne 0 && "${raw_rows}" -gt 0 ]]; then
   fi
 fi
 echo "qemu-live-capture-raw-rows=${raw_rows}"
+if [[ "${QEMU_SKIP_ROWS}" -gt 0 ]]; then
+  echo "qemu-live-skip-raw-rows=${QEMU_SKIP_ROWS}"
+fi
 
 if [[ ! -s "${QEMU_TRACE}" ]]; then
   echo "error: QEMU trace not found or empty: ${QEMU_TRACE}" >&2
   exit 2
+fi
+
+if [[ "${QEMU_RAW_ONLY}" == "1" ]]; then
+  echo "frontend-fetch-rf-alu-qemu-elf-status=qemu-raw-only raw_rows=${raw_rows} skipped_rows=${QEMU_SKIP_ROWS}"
+  echo "qemu-live-trace=${QEMU_TRACE}"
+  echo "frontend-fetch-rf-alu-qemu-elf-xcheck-report=${REPORT_DIR}"
+  exit 0
 fi
 
 EXPECTED_PREVIEW="${TRACE_DIR}/qemu.live.expected.preview.jsonl"
@@ -578,7 +618,7 @@ PY
 fi
 
 if [[ "${QEMU_ONLY}" == "1" ]]; then
-  echo "frontend-fetch-rf-alu-qemu-elf-status=qemu-only raw_rows=${raw_rows}"
+  echo "frontend-fetch-rf-alu-qemu-elf-status=qemu-only raw_rows=${raw_rows} skipped_rows=${QEMU_SKIP_ROWS}"
   echo "qemu-live-trace=${QEMU_TRACE}"
   echo "qemu-live-expected-preview=${EXPECTED_PREVIEW}"
   echo "frontend-fetch-rf-alu-qemu-elf-xcheck-report=${REPORT_DIR}"

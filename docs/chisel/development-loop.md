@@ -20,11 +20,14 @@ and passes 3369 compared rows with zero mismatches, but natural CoreMark
 replay-LIQ activity remains zero in that early window. R612 adds a QEMU-only
 candidate locator and scans 16K CoreMark rows: it finds early same-address
 store/load clusters but no candidates after row 4096 because the later part of
-that prefix is store-only. The next packet should not linearly scale the same
-early CoreMark prefix for replay-suppress replacement proof; either find a
-later load-bearing CoreMark/direct-boot interval, improve interval selection,
-or return to focused replay fixtures for positive retained physical-bundle
-evidence.
+that prefix is store-only. R613 adds guarded QEMU-only row skipping and raw-only
+capture so agents can sample later intervals without forcing a strict reduced
+prefix; the first skipped sample after row 4096 captures 512 rows and again
+finds only stores. The next packet should not linearly scale the same early
+CoreMark prefix for replay-suppress replacement proof; either find a later
+load-bearing CoreMark/direct-boot interval with skipped raw sampling, improve
+interval selection/checkpointing, or return to focused replay fixtures for
+positive retained physical-bundle evidence.
 
 ## Packet Start Baseline
 

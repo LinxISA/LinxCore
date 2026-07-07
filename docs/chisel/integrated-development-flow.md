@@ -15,22 +15,23 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R612 adds the QEMU-only replay-LIQ candidate locator
-`tools/chisel/find_replay_liq_qemu_candidates.py` and documents it in
-`docs/chisel/replay-liq-qemu-candidate-locator.md`. It scans QEMU-shaped memory
-rows for same-address/same-line store/load clusters so future agents can pick
-candidate CoreMark windows before spending a Verilator build. The R612
-CoreMark QEMU-only capture
-`generated/r612-coremark-qemu-memory-candidates-16384` reduces 16,250 expected
-rows and finds 94 deduped all-window memory candidates, but no candidates whose
-later memory row is after row 4096; after that boundary the first 16K-row
-prefix is store-only. This is locator evidence only, not replay-LIQ proof.
-R611 remains the latest generated-RTL/QEMU no-regression gate for promoted
-selector-origin CoreMark coverage: 4096 raw QEMU rows, 3369 compared rows,
-zero mismatches, and zero natural replay-LIQ sideband activity. Do not keep
-linearly scaling the same early CoreMark prefix as replacement proof; either
-find a way to jump into a later load-bearing direct-boot interval or return to
-focused replay fixtures for positive retained physical-bundle evidence.
+Latest packet: R613 extends the QEMU-only replay-LIQ window-search tooling with
+`--qemu-skip-rows` plus `--qemu-raw-only` in
+`tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`. Skipped
+captures are hard-gated to QEMU-only mode because the reduced Verilator top
+cannot reconstruct skipped architectural state; raw-only mode skips the
+strict reduced-row extractor for arbitrary mid-stream intervals. The R613
+sample `generated/r613-coremark-qemu-raw-skip4096-sample` captures 512 raw
+rows after skipping 4096 CoreMark rows and the locator reports 37 memory
+events, all stores, zero loads, and zero candidates. R612 remains the
+all-window 16K candidate scan: 16,250 reduced rows, 94 deduped candidates, and
+zero post-4096 candidates. R611 remains the latest generated-RTL/QEMU
+no-regression gate for promoted selector-origin CoreMark coverage: 4096 raw
+QEMU rows, 3369 compared rows, zero mismatches, and zero natural replay-LIQ
+sideband activity. Do not keep linearly scaling the same early CoreMark prefix
+as replacement proof; use skipped raw sampling to find a later load-bearing
+direct-boot interval or return to focused replay fixtures for positive retained
+physical-bundle evidence.
 
 The next Chisel packet should start from the R550 replay-return evidence, not
 from another broad CoreMark scan. The reduced frontend/rename/scalar
