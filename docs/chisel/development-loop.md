@@ -124,7 +124,15 @@ conflicting initial RF data for `reg=1`; windows 2 and 3 pass the comparator
 with 12 and 15 compared rows but still have zero activation-positive replay-LIQ
 counters. Continue the seeded search from `--skip-windows 4`, or raise
 `--max-capture-rows` for larger candidates, but do not treat the first four
-eligible windows as replacement evidence.
+eligible windows as replacement evidence. R632 tries the next two larger R625
+windows with `--skip-windows 4` and `--max-capture-rows 160`. Window 4 is
+another illegal single-launch shape (`rf_source_conflict`), and window 5
+exposes a hidden local T/U source-state dependency that scalar RF seeding cannot
+reconstruct (`local_source_missing` in the focused classifier report). The first
+six eligible R625 windows now provide no activation-positive replay-LIQ proof.
+The next inner-loop choice is either continue at `--skip-windows 6` for
+state-light windows, or add a local T/U checkpoint/seed mechanism before
+spending on larger skipped windows.
 
 ## Packet Start Baseline
 

@@ -15,10 +15,26 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R631 extends the seeded raw-window scanner with
-`--skip-windows` so future agents can resume sweeps after already-classified
-candidate windows. It scans the next three small R625 windows after the R630
-top case with
+Latest packet: R632 continues the seeded raw-window scanner over two larger
+post-R631 R625 windows with
+`generated/r632-replay-liq-qemu-seeded-window-scan-next2-large/report/seeded_window_scan.json`.
+Window 4 (`skip=1525`, `rows=109`) is not a legal single-launch replay shape:
+the reduced expected stream requires conflicting initial RF data for `reg=1`,
+so it is classified as `rf_source_conflict`. Window 5 (`skip=1286`,
+`rows=124`) fails before manifest generation because the reduced expected rows
+read hidden local T/U source state that scalar RF seeding cannot reconstruct;
+the focused classifier report at
+`generated/r632-replay-liq-qemu-seeded-window-local-source-missing/report/seeded_window_scan.json`
+records `status="local_source_missing"`. R632 has
+`activation_positive_count=0` and `compare_pass_count=0`, so the first six
+eligible R625 windows now provide no replay-LIQ activation proof. The next
+packet should either resume the small-window sweep from `--skip-windows 6` or
+design a local T/U checkpoint/seed path before spending on larger skipped
+windows with local-source dependencies.
+
+R631 extends the seeded raw-window scanner with `--skip-windows` so future
+agents can resume sweeps after already-classified candidate windows. It scans
+the next three small R625 windows after the R630 top case with
 `generated/r631-replay-liq-qemu-seeded-window-scan-next3/report/seeded_window_scan.json`:
 window 1 (`skip=1591`, `rows=29`) is an illegal single-launch shape because
 the reduced expected stream requires conflicting initial RF data for `reg=1`;
@@ -27,10 +43,7 @@ the sharper rerun at
 classifies it as `rf_source_conflict`. Windows 2 and 3 (`skip=1659`, `rows=14`
 and `skip=1660`, `rows=19`) pass the generated-RTL comparator with 12 and 15
 compared rows respectively, zero mismatches, and zero CBSTOP rows, but all
-required replay-LIQ activation counters remain zero. The next packet should
-continue with `--skip-windows 4` or a larger `--max-capture-rows` only after
-choosing candidates likely to produce live eligible-store overlap; the first
-four eligible R625 windows now provide no replay-LIQ activation proof.
+required replay-LIQ activation counters remain zero.
 
 R630 adds
 `tools/chisel/scan_replay_liq_qemu_seeded_windows.py`, a generated-RTL

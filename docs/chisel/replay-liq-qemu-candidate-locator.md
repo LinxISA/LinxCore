@@ -736,3 +736,43 @@ but all required replay-LIQ activation counters remain zero. The next seeded
 search should start at `--skip-windows 4` or deliberately include larger
 capture windows; the first four eligible R625 windows are not replay-LIQ
 activation proof.
+
+## R632 Larger Seeded-Window Sweep
+
+R632 resumes from the next two larger R625 windows after the first four
+classified windows:
+
+```bash
+python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
+  --build-dir generated/r632-replay-liq-qemu-seeded-window-scan-next2-large \
+  --skip-windows 4 \
+  --max-trials 2 \
+  --max-capture-rows 160 \
+  --wrapper-timeout-seconds 900
+python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
+  --validate-only generated/r632-replay-liq-qemu-seeded-window-scan-next2-large/report/seeded_window_scan.json
+```
+
+The report records zero compare-passing or activation-positive trials. Window 4
+(`skip=1525`, `rows=109`) is classified as `rf_source_conflict`: the reduced
+expected rows require conflicting initial RF data for `reg=1`, so one scalar RF
+seed cannot describe the skipped launch state. Window 5 (`skip=1286`,
+`rows=124`) initially failed before manifest generation because `C.SDI` read an
+empty U0 local source. A focused classifier rerun:
+
+```bash
+python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
+  --build-dir generated/r632-replay-liq-qemu-seeded-window-local-source-missing \
+  --skip-windows 5 \
+  --max-trials 1 \
+  --max-capture-rows 160 \
+  --wrapper-timeout-seconds 900
+```
+
+records `status="local_source_missing"` in
+`generated/r632-replay-liq-qemu-seeded-window-local-source-missing/report/seeded_window_scan.json`.
+This proves the current scalar RF seed path is still insufficient for skipped
+windows that consume hidden T/U local source state. The first six eligible R625
+windows now provide no replay-LIQ activation proof. The next seeded scan can
+resume at `--skip-windows 6`, but larger windows with local-source dependencies
+should wait for an explicit local T/U checkpoint or seed boundary.

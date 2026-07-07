@@ -23,6 +23,9 @@ Impact:
 - R631 scans the next three small seeded windows. One is illegal because the
   expected rows require conflicting initial RF data, and two pass the
   comparator with zero replay-LIQ activation counters.
+- R632 scans two larger seeded windows after the first four. One repeats the
+  conflicting initial RF-source failure, and one requires hidden local T/U
+  source state that scalar RF seeding cannot reconstruct.
 
 Evidence:
 
@@ -45,6 +48,11 @@ Evidence:
 - `generated/r631-replay-liq-qemu-seeded-window-scan-next3/report/seeded_window_scan.json`
   reports two compare-passing later windows and zero activation-positive
   trials.
+- `generated/r632-replay-liq-qemu-seeded-window-scan-next2-large/report/seeded_window_scan.json`
+  classifies `skip=1525, rows=109` as `rf_source_conflict` and records zero
+  activation-positive trials.
+- `generated/r632-replay-liq-qemu-seeded-window-local-source-missing/report/seeded_window_scan.json`
+  classifies `skip=1286, rows=124` as `local_source_missing`.
 
 Current mitigation:
 
@@ -60,8 +68,11 @@ Current mitigation:
 - Use `tools/chisel/scan_replay_liq_qemu_seeded_windows.py` to sweep additional
   raw dynamic windows with RF seeds before promoting any skipped-window
   evidence.
-- Resume the current small-window sweep from `--skip-windows 4`; the first four
+- Resume the current small-window sweep from `--skip-windows 6`; the first six
   eligible R625 windows have no replay-LIQ activation proof.
+- Treat local T/U source-state gaps as a checkpointing limitation of the current
+  scalar RF seed path. Larger skipped windows may need an explicit local T/U
+  seed/checkpoint boundary before they can become legal generated-RTL launches.
 
 ## CHISEL-ISSUE-001: Local JVM/SBT Toolchain Missing
 

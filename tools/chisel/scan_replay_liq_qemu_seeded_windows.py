@@ -251,6 +251,7 @@ def run_window(args: argparse.Namespace, window: dict[str, Any], all_rows: list[
     comparator_pass = manifest_pass(manifest)
     activation_positive = comparator_pass and sideband.get("activation_positive") is True
     rf_conflict = "expected rows require conflicting initial RF data" in stderr
+    local_source_missing = "reads empty" in stderr and "local source" in stderr
     if activation_positive:
         status = "activation_positive"
         reason = "generated RTL comparator passed and all required replay-LIQ activation counters were nonzero"
@@ -260,6 +261,9 @@ def run_window(args: argparse.Namespace, window: dict[str, Any], all_rows: list[
     elif rf_conflict:
         status = "rf_source_conflict"
         reason = "reduced expected rows require conflicting initial RF source data inside one seeded launch window"
+    elif local_source_missing:
+        status = "local_source_missing"
+        reason = "reduced expected rows require hidden local T/U source state that the RF seed cannot reconstruct"
     elif timed_out:
         status = "timeout"
         reason = "generated RTL wrapper timed out"
@@ -381,6 +385,7 @@ def validate_report(report: dict[str, Any]) -> list[str]:
             "activation_positive",
             "compare_pass_no_activation",
             "rf_source_conflict",
+            "local_source_missing",
             "timeout",
             "wrapper_failed",
         }:
