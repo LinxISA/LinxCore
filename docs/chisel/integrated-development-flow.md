@@ -15,7 +15,19 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R619 adds
+Latest packet: R620 runs the safe R619 preflights and adds
+`tools/chisel/build_replay_liq_selector_preflight_report.py` to preserve the
+result as machine-checkable evidence. The raw-window QEMU-only command
+`--qemu-skip-rows 1715 --capture-rows 6 --expect-store-pcs 0x4000d7e6
+--expect-load-pcs 0x4000d7f2` passes: it captures 6 raw rows, reduces 5 preview
+rows, and sees the expected store/load pair at address `0x4ffefb68`. The
+PC-filter command for `0x4000d7e6..0x4000d7f3` captures zero rows in the fresh
+bounded run, so it is not a valid generated-RTL launch shape. The generated
+report
+`generated/r620-replay-liq-selector-preflight-report/report/replay_liq_selector_preflight_report.json`
+therefore keeps `generated_rtl.status = "blocked"`.
+
+R619 adds
 `tools/chisel/plan_replay_liq_selector_probe.py`, a safe probe-plan generator
 that consumes the R618 context pack and emits only QEMU-only preflight commands
 for the R617 candidate. The generated plan at

@@ -360,3 +360,19 @@ forms, each guarded by the expected store/load PCs. It also emits
 `generated_rtl.status = "blocked"`. This is the required handoff shape until a
 future packet proves that the exact generated-RTL command shape has a passing
 QEMU-only expected-memory-PC preflight.
+
+## R620 Preflight Evidence
+
+R620 runs the safe preflights and records the results:
+
+```bash
+python3 tools/chisel/build_replay_liq_selector_preflight_report.py
+python3 tools/chisel/build_replay_liq_selector_preflight_report.py \
+  --validate-only generated/r620-replay-liq-selector-preflight-report/report/replay_liq_selector_preflight_report.json
+```
+
+The raw skipped-window QEMU-only preflight passes with 6 raw rows, 5 reduced
+preview rows, store PC `0x4000d7e6`, load PC `0x4000d7f2`, and memory address
+`0x4ffefb68`. The PC-filter form captures zero rows in the fresh bounded run,
+so the report keeps generated RTL blocked. This reinforces the same boundary:
+the raw window is a reproducible QEMU candidate hint, not DUT replay-LIQ proof.

@@ -45,11 +45,15 @@ counters, and the R617 raw-window hint in one manifest while preserving that
 claim boundary. R619 turns that context pack into safe preflight commands with
 `plan_replay_liq_selector_probe.py`, but deliberately marks generated RTL as
 blocked until the exact command shape has a passing QEMU-only expected-memory-PC
-preflight. The next packet should not linearly scale the store-only CoreMark
-intervals for replay-suppress replacement proof. Either use the R619 planner to
-run a valid QEMU-only preflight before a Verilator gate, try a different
-interval-selection hypothesis, or use the R616 preset on focused replay
-fixtures for positive retained physical-bundle evidence.
+preflight. R620 runs those safe preflights and records them with
+`build_replay_liq_selector_preflight_report.py`: the raw skipped window passes
+with the expected store/load pair, but the PC-filter form captures zero rows in
+the fresh bounded run, so generated RTL remains blocked. The next packet should
+not linearly scale the store-only CoreMark intervals for replay-suppress
+replacement proof. Either find a non-skipped/generated-RTL command shape whose
+QEMU-only preflight passes, try a different interval-selection hypothesis, or
+use the R616 preset on focused replay fixtures for positive retained
+physical-bundle evidence.
 
 ## Packet Start Baseline
 
