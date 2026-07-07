@@ -280,6 +280,22 @@ schema v43 records `w2_retire_record_fallback_owner_policy_side_effect_enable=5`
 duplicate-physical guard outputs are zero because the probe masked those inputs.
 These fallback outputs remain sideband-only in the top.
 
+R594 adds `LINXCORE_REPLAY_LIQ_RETAINED_OWNER_FALLBACK_LIVE_PROBE=1` as a
+default-off reduced-top live-probe for the same retained fallback payloads. It
+routes the retained ROB, RF, wakeup, and lifecycle-clear fallback outputs into
+the existing reduced live sink boundaries while preserving the default physical
+W2 path when the knob is off. The generated RTL/QEMU comparator at
+`generated/r594-replay-retained-owner-fallback-live-probe-xcheck` passes with
+18 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. Sideband
+schema v44 records `w2_retire_record_fallback_owner_policy_side_effect_enable=5`,
+`w2_retire_record_rob_fallback_live_complete_selected=5`,
+`w2_retire_record_rf_fallback_live_writeback_selected=5`,
+`w2_retire_record_wakeup_fallback_live_wakeup_selected=5`, and
+`w2_retire_record_lifecycle_clear_fallback_live_clear_selected=5`. The live
+clear-selected counter is tied to the retained lifecycle evidence latch's
+`clearAccepted` proof. This is live-mutation evidence for the reduced diagnostic
+probe, not a default-path retained-owner promotion.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -292,10 +308,10 @@ These fallback outputs remain sideband-only in the top.
   row candidates with zero diagnostic blockers.
 - Retained side-effect fallback promotion after R591 proves a no-physical
   stimulus. R592 proves the owner-policy no-duplicate branch with a boundary
-  probe, and R593 proves sideband-only fallback output emission under a stronger
-  diagnostic probe, but the global retained-owner arm must stay low for live
-  mutation until a real no-physical side-effect path or equivalent model-derived
-  ordering proof exists.
+  probe, R593 proves sideband-only fallback output emission, and R594 proves
+  reduced-top live-probe selection under an explicit diagnostic knob. The
+  default retained-owner arm must still stay off until a real no-physical
+  side-effect path or equivalent model-derived ordering proof exists.
 
 ## Verification
 

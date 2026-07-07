@@ -168,6 +168,45 @@ This proves the retained fallback payloads can emit when treated as the sole
 side-effect owner, while preserving architectural comparison. It is not a live
 mutation promotion.
 
+R594 adds the separate default-off reduced-top probe
+`LINXCORE_REPLAY_LIQ_RETAINED_OWNER_FALLBACK_LIVE_PROBE=1`. This probe uses
+the same no-physical and global-arm policy shape as the emit probe, but routes
+the retained fallback payloads into the existing reduced live sink boundaries:
+ROB completion through the replay completion arbiter input, scalar RF
+writeback through the replay writeback arbiter input, returned-load wakeup
+through the W2 wakeup arbiter input, and replay-LIQ row clear through the
+clear-resolved mux. The default top path remains unchanged.
+
+Generated RTL/QEMU live-probe evidence:
+
+```text
+generated/r594-replay-retained-owner-fallback-live-probe-xcheck/report/crosscheck_manifest.json
+status=pass compared_rows=18 mismatch_count=0 qemu_cbstop=0 dut_cbstop=0
+
+frontend_fetch_rf_alu_sideband_stats.json schema=v44
+w2_retire_record_fallback_owner_policy_candidate=5
+w2_retire_record_fallback_owner_policy_all_candidates_ready=5
+w2_retire_record_fallback_owner_policy_no_physical_probe_active=5
+w2_retire_record_fallback_owner_policy_fallback_live_probe_active=5
+w2_retire_record_fallback_owner_policy_side_effect_enable=5
+w2_retire_record_rob_fallback_complete_valid=5
+w2_retire_record_rf_fallback_writeback_valid=5
+w2_retire_record_wakeup_fallback_wakeup_valid=5
+w2_retire_record_lifecycle_clear_fallback_clear_valid=5
+w2_retire_record_rob_fallback_live_complete_selected=5
+w2_retire_record_rf_fallback_live_writeback_selected=5
+w2_retire_record_wakeup_fallback_live_wakeup_selected=5
+w2_retire_record_lifecycle_clear_fallback_live_clear_selected=5
+```
+
+The same report keeps the four duplicate-physical guard outputs at zero because
+the live probe deliberately masks physical observations at the guard boundary.
+The lifecycle live-selected counter samples the retained lifecycle evidence
+latch's `clearAccepted` signal, not the raw LIQ clear-accepted wire, so it
+matches the retained-record owner being proved. This remains a reduced-top
+diagnostic live-mutation probe; promotion to the default path still requires a
+real no-physical source or an equivalent model-derived retained-order proof.
+
 ## Verification
 
 Focused gates:
@@ -192,6 +231,16 @@ FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_f
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
   --build-dir generated/r593-replay-retained-owner-fallback-emit-probe-xcheck \
+  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
+  --reduced-store-replay-liq --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+LINXCORE_REPLAY_LIQ_RETAINED_OWNER_FALLBACK_LIVE_PROBE=1 \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r594-replay-retained-owner-fallback-live-probe-xcheck \
   --expected-rows 18 --capture-rows 32 --max-seconds 10 \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait

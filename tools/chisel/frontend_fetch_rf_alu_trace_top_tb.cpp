@@ -731,9 +731,14 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_fallback_owner_policy_blocked_by_physical_duplicate = 0;
   std::uint64_t w2_retire_record_fallback_owner_policy_no_physical_probe_active = 0;
   std::uint64_t w2_retire_record_fallback_owner_policy_fallback_emit_probe_active = 0;
+  std::uint64_t w2_retire_record_fallback_owner_policy_fallback_live_probe_active = 0;
   std::uint64_t w2_retire_record_fallback_owner_policy_retained_sole_owner_eligible = 0;
   std::uint64_t w2_retire_record_fallback_owner_policy_blocked_by_global_fallback_disabled = 0;
   std::uint64_t w2_retire_record_fallback_owner_policy_side_effect_enable = 0;
+  std::uint64_t w2_retire_record_rob_fallback_live_complete_selected = 0;
+  std::uint64_t w2_retire_record_rf_fallback_live_writeback_selected = 0;
+  std::uint64_t w2_retire_record_wakeup_fallback_live_wakeup_selected = 0;
+  std::uint64_t w2_retire_record_lifecycle_clear_fallback_live_clear_selected = 0;
   std::uint64_t resolve_queue_push_accepted = 0;
   std::uint64_t resolve_queue_valid = 0;
   std::uint64_t resolve_queue_push_accepted_first_cycle = 0;
@@ -2618,6 +2623,9 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackEmitProbeActive) {
     ++g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_fallback_emit_probe_active;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackLiveProbeActive) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_fallback_live_probe_active;
+  }
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible) {
     ++g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_retained_sole_owner_eligible;
   }
@@ -2626,6 +2634,18 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   }
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable) {
     ++g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_side_effect_enable;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackLiveCompleteSelected) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_rob_fallback_live_complete_selected;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackLiveWritebackSelected) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_rf_fallback_live_writeback_selected;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackLiveWakeupSelected) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_wakeup_fallback_live_wakeup_selected;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackLiveClearSelected) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_lifecycle_clear_fallback_live_clear_selected;
   }
   if (resolve_queue_push_accepted) {
     ++g_replay_liq_sideband_stats.resolve_queue_push_accepted;
@@ -2793,7 +2813,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v43\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v44\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -3873,6 +3893,9 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << "    \"w2_retire_record_fallback_owner_policy_fallback_emit_probe_active\": "
       << g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_fallback_emit_probe_active
       << ",\n"
+      << "    \"w2_retire_record_fallback_owner_policy_fallback_live_probe_active\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_fallback_live_probe_active
+      << ",\n"
       << "    \"w2_retire_record_fallback_owner_policy_retained_sole_owner_eligible\": "
       << g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_retained_sole_owner_eligible
       << ",\n"
@@ -3882,6 +3905,14 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << ",\n"
       << "    \"w2_retire_record_fallback_owner_policy_side_effect_enable\": "
       << g_replay_liq_sideband_stats.w2_retire_record_fallback_owner_policy_side_effect_enable << ",\n"
+      << "    \"w2_retire_record_rob_fallback_live_complete_selected\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_rob_fallback_live_complete_selected << ",\n"
+      << "    \"w2_retire_record_rf_fallback_live_writeback_selected\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_rf_fallback_live_writeback_selected << ",\n"
+      << "    \"w2_retire_record_wakeup_fallback_live_wakeup_selected\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_wakeup_fallback_live_wakeup_selected << ",\n"
+      << "    \"w2_retire_record_lifecycle_clear_fallback_live_clear_selected\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_lifecycle_clear_fallback_live_clear_selected << ",\n"
       << "    \"resolve_queue_push_accepted\": "
       << g_replay_liq_sideband_stats.resolve_queue_push_accepted << ",\n"
       << "    \"resolve_queue_valid\": "

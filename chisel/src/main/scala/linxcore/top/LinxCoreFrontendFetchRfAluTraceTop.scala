@@ -1344,10 +1344,15 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByPhysicalDuplicate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyNoPhysicalProbeActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackEmitProbeActive = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackLiveProbeActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByGlobalFallbackDisabled =
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackLiveCompleteSelected = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackLiveWritebackSelected = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackLiveWakeupSelected = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackLiveClearSelected = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable = Output(Bool())
@@ -1925,7 +1930,8 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val reducedReplayLiqW2CompletionDelayCycles: Int = 0,
     val reducedReplayLiqW2PostLretEnqueueHoldCycles: Int = 0,
     val reducedReplayLiqRetainedOwnerNoPhysicalProbe: Boolean = false,
-    val reducedReplayLiqRetainedOwnerFallbackEmitProbe: Boolean = false)
+    val reducedReplayLiqRetainedOwnerFallbackEmitProbe: Boolean = false,
+    val reducedReplayLiqRetainedOwnerFallbackLiveProbe: Boolean = false)
     extends Module {
   require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
   require(reducedStoreStdExecDelayCycles >= 0, "reduced store STD execution delay cycles must be nonnegative")
@@ -3321,7 +3327,9 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     path,
     robCompleteArbiter,
     execute,
-    reducedReplayLiqReturnPipeW2Modules.robCompleteSource
+    reducedReplayLiqReturnPipeW2Modules.robCompleteSource,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordRobCompleteFallbackGuard,
+    reducedReplayLiqRetainedOwnerFallbackLiveProbe.B
   )
   path.io.blockBranchTakenValid := blockBranchTakenValid
   path.io.blockBranchTaken := blockBranchTaken
@@ -3390,14 +3398,20 @@ class LinxCoreFrontendFetchRfAluTraceTop(
   rfWritebackArbiter.io.executeValid := execute.io.completeDstPhysValid
   rfWritebackArbiter.io.executeTag := execute.io.completeDstPhysTag
   rfWritebackArbiter.io.executeData := execute.io.completeDstData
-  rfWritebackArbiter.io.replayEnable :=
-    reducedReplayLiqReturnPipeW2Modules.sideEffectLiveControl.io.writebackLiveEnable
-  rfWritebackArbiter.io.replayValid :=
-    reducedReplayLiqReturnPipeW2Modules.writebackArbiterInput.io.candidateValid
-  rfWritebackArbiter.io.replayTag :=
-    reducedReplayLiqReturnPipeW2Modules.writebackArbiterInput.io.writeTag
-  rfWritebackArbiter.io.replayData :=
-    reducedReplayLiqReturnPipeW2Modules.writebackArbiterInput.io.writeData
+  val reducedReplayLiqRetainedOwnerFallbackLiveProbeActive =
+    reducedReplayLiqRetainedOwnerFallbackLiveProbe.B &&
+      reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable
+  val reducedReplayLiqRetainedOwnerFallbackRfWritebackValid =
+    reducedReplayLiqRetainedOwnerFallbackLiveProbeActive &&
+      reducedReplayLiqReturnPipeW2Modules.retireRecordRfWritebackFallbackGuard.io.fallbackWritebackValid
+  LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackRfWritebackMuxWiring.connect(
+    rfWritebackArbiter,
+    reducedReplayLiqReturnPipeW2Modules.sideEffectLiveControl,
+    reducedReplayLiqReturnPipeW2Modules.writebackArbiterInput,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordRfWritebackFallbackGuard,
+    reducedReplayLiqRetainedOwnerFallbackLiveProbe.B,
+    reducedReplayLiqRetainedOwnerFallbackRfWritebackValid
+  )
   val reducedReplayLiqRfWritebackSinkReady =
     reducedReplayLiqReturnWritebackSinkReadyControl.io.writebackSinkReady
   LinxCoreFrontendFetchRfAluTraceTopR380WritebackSinkReadyWiring.connect(
@@ -3920,9 +3934,11 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqReturnPipeW2Modules.replayRowLifecycleRequestControl,
     reducedReplayLiqReturnPipeW2Modules.replayRowLifecycleCommitPermit,
     reducedReplayLiqReturnPipeW2Modules.replayRowLifecycleReady,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleClearFallbackGuard,
     reducedLoadReplayLiqAllocPath,
     reducedReplayLiqExistingClearValid,
     reducedReplayLiqExistingClearIndex,
+    reducedReplayLiqRetainedOwnerFallbackLiveProbeActive,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -3976,7 +3992,10 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     io,
     reducedReplayLiqReturnPipeW2Modules.wakeupArbiterInput,
     reducedReplayLiqReturnPipeW2Modules.wakeupFirePayload,
+    reducedReplayLiqReturnPipeW2Modules.retireRecord,
+    reducedReplayLiqReturnPipeW2Modules.retireRecordWakeupFallbackGuard,
     reducedReplayLiqReturnPipeW2Modules.sideEffectLiveControl.io.wakeupLiveEnable,
+    reducedReplayLiqRetainedOwnerFallbackLiveProbeActive,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -4066,63 +4085,15 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
-  LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRobCompleteFallbackWiring.connect(
+  LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring.connect(
     io,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordRobCompleteFallbackGuard,
-    reducedReplayLiqReturnPipeW2Modules.retireRecord,
-    reducedReplayLiqReturnPipeW2Modules.slot,
-    reducedReplayLiqReturnPipeW2Modules.robCompleteSource,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordCommitRowCandidate,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
+    reducedReplayLiqReturnPipeW2Modules,
+    robCompleteArbiter,
+    rfWritebackArbiter,
     reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
-    reducedLoadReplayLiqAllocEnabled,
-    reducedStoreFlush
-  )
-  LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRfWritebackFallbackWiring.connect(
-    io,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordRfWritebackFallbackGuard,
-    reducedReplayLiqReturnPipeW2Modules.retireRecord,
-    reducedReplayLiqReturnPipeW2Modules.slot,
-    reducedReplayLiqReturnPipeW2Modules.writebackFirePayload,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
-    reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
-    reducedLoadReplayLiqAllocEnabled,
-    reducedStoreFlush
-  )
-  LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordWakeupFallbackWiring.connect(
-    io,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordWakeupFallbackGuard,
-    reducedReplayLiqReturnPipeW2Modules.retireRecord,
-    reducedReplayLiqReturnPipeW2Modules.slot,
-    reducedReplayLiqReturnPipeW2Modules.wakeupFirePayload,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
-    reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
-    reducedLoadReplayLiqAllocEnabled,
-    reducedStoreFlush
-  )
-  LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleClearFallbackWiring.connect(
-    io,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleClearFallbackGuard,
-    reducedReplayLiqReturnPipeW2Modules.retireRecord,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleEvidence,
-    reducedReplayLiqReturnPipeW2Modules.replayRowLifecycleReady,
-    reducedReplayLiqReturnPipeW2Modules.replayRowClearRequest,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
-    reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
-    reducedLoadReplayLiqAllocEnabled,
-    reducedStoreFlush
-  )
-  LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordFallbackOwnerPolicyWiring.connect(
-    io,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordFallbackOwnerPolicy,
-    reducedReplayLiqReturnPipeW2Modules.retireRecord,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordRobCompleteFallbackGuard,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordRfWritebackFallbackGuard,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordWakeupFallbackGuard,
-    reducedReplayLiqReturnPipeW2Modules.retireRecordLifecycleClearFallbackGuard,
-    reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
-    (reducedReplayLiqRetainedOwnerNoPhysicalProbe || reducedReplayLiqRetainedOwnerFallbackEmitProbe).B,
-    reducedReplayLiqRetainedOwnerFallbackEmitProbe.B,
+    reducedReplayLiqRetainedOwnerNoPhysicalProbe.B,
+    reducedReplayLiqRetainedOwnerFallbackLiveProbe.B,
+    reducedReplayLiqRetainedOwnerFallbackLiveProbeActive,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
   )
@@ -7737,28 +7708,39 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2WakeupArbiterInputWiring {
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
       arbiterInput: LoadReplayReturnPipeW2WakeupArbiterInput,
       firePayload: LoadReplayReturnPipeW2WakeupFirePayload,
+      retireRecord: LoadReplayReturnPipeW2RetireRecord,
+      retainedFallback: LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard,
       liveEnable: Bool,
+      retainedFallbackLiveProbe: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     arbiterInput.io.enable := enable
     arbiterInput.io.flush := flush
-    arbiterInput.io.liveEnable := liveEnable
-    arbiterInput.io.firePayloadValid := firePayload.io.fireValid
-    arbiterInput.io.fireReducedGprWakeup := firePayload.io.reducedGprWakeup
-    arbiterInput.io.fireNonGprWakeup := firePayload.io.nonGprWakeup
-    arbiterInput.io.fireTargetIsAgu := firePayload.io.targetIsAgu
-    arbiterInput.io.fireTargetIsLda := firePayload.io.targetIsLda
-    arbiterInput.io.fireTargetPipeIndex := firePayload.io.targetPipeIndex
-    arbiterInput.io.fireBid := firePayload.io.fireBid
-    arbiterInput.io.fireGid := firePayload.io.fireGid
-    arbiterInput.io.fireRid := firePayload.io.fireRid
-    arbiterInput.io.fireLoadLsId := firePayload.io.fireLoadLsId
-    arbiterInput.io.firePc := firePayload.io.firePc
-    arbiterInput.io.fireKind := firePayload.io.fireKind
-    arbiterInput.io.fireArchTag := firePayload.io.fireArchTag
-    arbiterInput.io.fireRelTag := firePayload.io.fireRelTag
-    arbiterInput.io.firePhysTag := firePayload.io.firePhysTag
-    arbiterInput.io.fireOldPhysTag := firePayload.io.fireOldPhysTag
+    arbiterInput.io.liveEnable := Mux(retainedFallbackLiveProbe, true.B, liveEnable)
+    arbiterInput.io.firePayloadValid :=
+      Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackWakeupValid, firePayload.io.fireValid)
+    arbiterInput.io.fireReducedGprWakeup :=
+      Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackReducedGprWakeup, firePayload.io.reducedGprWakeup)
+    arbiterInput.io.fireNonGprWakeup := Mux(retainedFallbackLiveProbe, false.B, firePayload.io.nonGprWakeup)
+    arbiterInput.io.fireTargetIsAgu := Mux(retainedFallbackLiveProbe, false.B, firePayload.io.targetIsAgu)
+    arbiterInput.io.fireTargetIsLda := Mux(retainedFallbackLiveProbe, true.B, firePayload.io.targetIsLda)
+    arbiterInput.io.fireTargetPipeIndex := Mux(retainedFallbackLiveProbe, 0.U, firePayload.io.targetPipeIndex)
+    arbiterInput.io.fireBid := Mux(retainedFallbackLiveProbe, retireRecord.io.record.bid, firePayload.io.fireBid)
+    arbiterInput.io.fireGid := Mux(retainedFallbackLiveProbe, retireRecord.io.record.gid, firePayload.io.fireGid)
+    arbiterInput.io.fireRid := Mux(retainedFallbackLiveProbe, retireRecord.io.record.rid, firePayload.io.fireRid)
+    arbiterInput.io.fireLoadLsId :=
+      Mux(retainedFallbackLiveProbe, retireRecord.io.record.loadLsId, firePayload.io.fireLoadLsId)
+    arbiterInput.io.firePc := Mux(retainedFallbackLiveProbe, retireRecord.io.record.pc, firePayload.io.firePc)
+    arbiterInput.io.fireKind :=
+      Mux(retainedFallbackLiveProbe, retireRecord.io.record.dst.kind, firePayload.io.fireKind)
+    arbiterInput.io.fireArchTag :=
+      Mux(retainedFallbackLiveProbe, retireRecord.io.record.dst.archTag, firePayload.io.fireArchTag)
+    arbiterInput.io.fireRelTag :=
+      Mux(retainedFallbackLiveProbe, retireRecord.io.record.dst.relTag, firePayload.io.fireRelTag)
+    arbiterInput.io.firePhysTag :=
+      Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackWakeupTag, firePayload.io.firePhysTag)
+    arbiterInput.io.fireOldPhysTag :=
+      Mux(retainedFallbackLiveProbe, retireRecord.io.record.dst.oldPhysTag, firePayload.io.fireOldPhysTag)
 
     io.reducedLoadReplayLiqLretPipeW2WakeupArbiterInputCandidateValid :=
       arbiterInput.io.candidateValid
@@ -8085,6 +8067,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordFallbackOwnerPoli
       globalFallbackEnable: Bool,
       noPhysicalProbe: Bool,
       fallbackEmitProbe: Bool,
+      fallbackLiveProbe: Bool,
       enable: Bool,
       flush: Bool): Unit = {
     policy.io.enable := enable
@@ -8110,12 +8093,153 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordFallbackOwnerPoli
       noPhysicalProbe && policy.io.recordCandidate
     io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackEmitProbeActive :=
       fallbackEmitProbe && policy.io.recordCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackLiveProbeActive :=
+      fallbackLiveProbe && policy.io.recordCandidate
     io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible :=
       policy.io.retainedSoleOwnerEligible
     io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByGlobalFallbackDisabled :=
       policy.io.blockedByGlobalFallbackDisabled
     io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable :=
       policy.io.sideEffectOwnerEnable
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackRfWritebackMuxWiring {
+  def connect(
+      arbiter: ReducedScalarWritebackArbiter,
+      physicalLiveControl: LoadReplayReturnPipeW2SideEffectLiveControl,
+      physicalInput: LoadReplayReturnPipeW2WritebackArbiterInput,
+      retainedFallback: LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard,
+      retainedFallbackLiveProbe: Bool,
+      retainedFallbackWritebackValid: Bool): Unit = {
+    arbiter.io.replayEnable :=
+      Mux(retainedFallbackLiveProbe, true.B, physicalLiveControl.io.writebackLiveEnable)
+    arbiter.io.replayValid :=
+      Mux(retainedFallbackLiveProbe, retainedFallbackWritebackValid, physicalInput.io.candidateValid)
+    arbiter.io.replayTag :=
+      Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackWritebackTag, physicalInput.io.writeTag)
+    arbiter.io.replayData :=
+      Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackWritebackData, physicalInput.io.writeData)
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackLiveSelectionWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      robArbiter: ReducedRobCompletionArbiter,
+      rfArbiter: ReducedScalarWritebackArbiter,
+      wakeupInput: LoadReplayReturnPipeW2WakeupArbiterInput,
+      lifecycleEvidence: LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch,
+      robFallback: LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard,
+      rfFallback: LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard,
+      wakeupFallback: LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard,
+      lifecycleFallback: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
+      retainedFallbackLiveProbeActive: Bool): Unit = {
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackLiveCompleteSelected :=
+      retainedFallbackLiveProbeActive &&
+        robArbiter.io.selectedReplay &&
+        robFallback.io.fallbackCompleteValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackLiveWritebackSelected :=
+      retainedFallbackLiveProbeActive &&
+        rfArbiter.io.selectedReplay &&
+        rfFallback.io.fallbackWritebackValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackLiveWakeupSelected :=
+      retainedFallbackLiveProbeActive &&
+        wakeupInput.io.wakeupValid &&
+        wakeupFallback.io.fallbackWakeupValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackLiveClearSelected :=
+      retainedFallbackLiveProbeActive &&
+        lifecycleEvidence.io.clearAccepted &&
+        lifecycleFallback.io.fallbackClearValid
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      modules: LinxCoreFrontendFetchRfAluTraceTopW2Modules,
+      robArbiter: ReducedRobCompletionArbiter,
+      rfArbiter: ReducedScalarWritebackArbiter,
+      fallbackEmitProbe: Bool,
+      noPhysicalProbe: Bool,
+      fallbackLiveProbe: Bool,
+      fallbackLiveProbeActive: Bool,
+      enable: Bool,
+      flush: Bool): Unit = {
+    val fallbackProbe = fallbackEmitProbe || fallbackLiveProbe
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRobCompleteFallbackWiring.connect(
+      io,
+      modules.retireRecordRobCompleteFallbackGuard,
+      modules.retireRecord,
+      modules.slot,
+      modules.robCompleteSource,
+      modules.retireRecordCommitRowCandidate,
+      modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
+      fallbackProbe,
+      enable,
+      flush
+    )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordRfWritebackFallbackWiring.connect(
+      io,
+      modules.retireRecordRfWritebackFallbackGuard,
+      modules.retireRecord,
+      modules.slot,
+      modules.writebackFirePayload,
+      modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
+      fallbackProbe,
+      enable,
+      flush
+    )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordWakeupFallbackWiring.connect(
+      io,
+      modules.retireRecordWakeupFallbackGuard,
+      modules.retireRecord,
+      modules.slot,
+      modules.wakeupFirePayload,
+      modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
+      fallbackProbe,
+      enable,
+      flush
+    )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordLifecycleClearFallbackWiring.connect(
+      io,
+      modules.retireRecordLifecycleClearFallbackGuard,
+      modules.retireRecord,
+      modules.retireRecordLifecycleEvidence,
+      modules.replayRowLifecycleReady,
+      modules.replayRowClearRequest,
+      modules.retireRecordFallbackOwnerPolicy.io.sideEffectOwnerEnable,
+      fallbackProbe,
+      enable,
+      flush
+    )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordFallbackOwnerPolicyWiring.connect(
+      io,
+      modules.retireRecordFallbackOwnerPolicy,
+      modules.retireRecord,
+      modules.retireRecordRobCompleteFallbackGuard,
+      modules.retireRecordRfWritebackFallbackGuard,
+      modules.retireRecordWakeupFallbackGuard,
+      modules.retireRecordLifecycleClearFallbackGuard,
+      fallbackProbe,
+      noPhysicalProbe || fallbackProbe,
+      fallbackEmitProbe,
+      fallbackLiveProbe,
+      enable,
+      flush
+    )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackLiveSelectionWiring.connect(
+      io,
+      robArbiter,
+      rfArbiter,
+      modules.wakeupArbiterInput,
+      modules.retireRecordLifecycleEvidence,
+      modules.retireRecordRobCompleteFallbackGuard,
+      modules.retireRecordRfWritebackFallbackGuard,
+      modules.retireRecordWakeupFallbackGuard,
+      modules.retireRecordLifecycleClearFallbackGuard,
+      fallbackLiveProbeActive
+    )
   }
 }
 
@@ -8509,15 +8633,21 @@ private object LinxCoreFrontendFetchRfAluTraceTopRobCompleteArbiterWiring {
       path: DecodeRenameROBPath,
       arbiter: ReducedRobCompletionArbiter,
       execute: ReducedScalarAluExecute,
-      replay: LoadReplayReturnPipeW2RobCompleteSource): Unit = {
+      replay: LoadReplayReturnPipeW2RobCompleteSource,
+      retainedFallback: LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard,
+      retainedFallbackLiveProbe: Bool): Unit = {
     arbiter.io.executeCompleteValid := execute.io.completeValid
     arbiter.io.executeCompleteRobValue := execute.io.completeRobValue
     arbiter.io.executeCompleteRowValid := execute.io.completeValid
     arbiter.io.executeCompleteRow := execute.io.completeRow
-    arbiter.io.replayCompleteValid := replay.io.completeValid
-    arbiter.io.replayCompleteRobValue := replay.io.completeRobValue
-    arbiter.io.replayCompleteRowValid := replay.io.completeRowValid
-    arbiter.io.replayCompleteRow := replay.io.completeRow
+    arbiter.io.replayCompleteValid :=
+      Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackCompleteValid, replay.io.completeValid)
+    arbiter.io.replayCompleteRobValue :=
+      Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackCompleteRobValue, replay.io.completeRobValue)
+    arbiter.io.replayCompleteRowValid :=
+      Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackCompleteRowValid, replay.io.completeRowValid)
+    arbiter.io.replayCompleteRow :=
+      Mux(retainedFallbackLiveProbe, retainedFallback.io.fallbackCompleteRow, replay.io.completeRow)
 
     path.io.completeValid := arbiter.io.completeValid
     path.io.completeRobValue := arbiter.io.completeRobValue
@@ -9245,11 +9375,14 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowClearRequestWiring {
       lifecycleRequest: LoadReplayReturnPipeW2ReplayRowLifecycleRequestControl,
       lifecycleCommitPermit: LoadReplayReturnPipeW2ReplayRowLifecycleCommitPermit,
       lifecycle: LoadReplayReturnPipeW2ReplayRowLifecycleReady,
+      retainedFallback: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
       liq: ReducedLoadReplayLiqAllocPath,
       existingClearValid: Bool,
       existingClearIndex: UInt,
+      retainedFallbackLiveProbe: Bool,
       enable: Bool,
       flush: Bool): Unit = {
+    val retainedFallbackClearValid = retainedFallbackLiveProbe && retainedFallback.io.fallbackClearValid
     clearRequest.io.enable := enable
     clearRequest.io.flush := flush
     clearRequest.io.existingClearValid := existingClearValid
@@ -9258,11 +9391,12 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2ReplayRowClearRequestWiring {
     clearRequest.io.lifecycleClearCommitEnable := lifecycleCommitPermit.io.lifecycleClearCommitEnable
     clearRequest.io.lifecycleRowClearReady := lifecycle.io.rowClearReady
     clearRequest.io.lifecycleRowClearIndex := lifecycle.io.rowClearIndex
-    clearRequest.io.clearResolvedAccepted := liq.io.clearResolvedAccepted
+    clearRequest.io.clearResolvedAccepted := liq.io.clearResolvedAccepted && !retainedFallbackClearValid
 
-    liq.io.clearResolvedValid := clearRequest.io.clearResolvedValid
-    liq.io.clearResolvedIndex := clearRequest.io.clearResolvedIndex
-    lifecycle.io.lifecycleClearEnable := clearRequest.io.lifecycleClearEnable
+    liq.io.clearResolvedValid := clearRequest.io.clearResolvedValid || retainedFallbackClearValid
+    liq.io.clearResolvedIndex :=
+      Mux(retainedFallbackClearValid, retainedFallback.io.fallbackClearIndex, clearRequest.io.clearResolvedIndex)
+    lifecycle.io.lifecycleClearEnable := clearRequest.io.lifecycleClearEnable && !retainedFallbackClearValid
 
     io.reducedLoadReplayLiqLretPipeW2ReplayRowClearRequestExistingCandidate :=
       clearRequest.io.existingClearCandidate
