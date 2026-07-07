@@ -15,23 +15,20 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R613 extends the QEMU-only replay-LIQ window-search tooling with
-`--qemu-skip-rows` plus `--qemu-raw-only` in
-`tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`. Skipped
-captures are hard-gated to QEMU-only mode because the reduced Verilator top
-cannot reconstruct skipped architectural state; raw-only mode skips the
-strict reduced-row extractor for arbitrary mid-stream intervals. The R613
-sample `generated/r613-coremark-qemu-raw-skip4096-sample` captures 512 raw
-rows after skipping 4096 CoreMark rows and the locator reports 37 memory
-events, all stores, zero loads, and zero candidates. R612 remains the
-all-window 16K candidate scan: 16,250 reduced rows, 94 deduped candidates, and
-zero post-4096 candidates. R611 remains the latest generated-RTL/QEMU
-no-regression gate for promoted selector-origin CoreMark coverage: 4096 raw
-QEMU rows, 3369 compared rows, zero mismatches, and zero natural replay-LIQ
-sideband activity. Do not keep linearly scaling the same early CoreMark prefix
-as replacement proof; use skipped raw sampling to find a later load-bearing
-direct-boot interval or return to focused replay fixtures for positive retained
-physical-bundle evidence.
+Latest packet: R614 adds
+`tools/chisel/scan_replay_liq_qemu_intervals.py`, a sequential wrapper around
+the R613 skipped raw-QEMU capture plus the R612 candidate locator. It preserves
+the same no-proof claim boundary: skipped raw intervals are candidate-selection
+hints only, because the reduced Verilator top cannot reconstruct skipped
+architectural state. Manual R614 samples at skip offsets 16,384, 65,536, and
+262,144 each captured 2,048 CoreMark raw rows; each interval reported 146
+memory events, all stores, zero loads, and zero candidates. Together with the
+R613 skip-4096 sample and R612 16K all-window scan, the direct-boot CoreMark
+prefix and sampled later steady-state windows remain poor natural replay-LIQ
+targets. Do not spend Verilator time on these skipped windows as replacement
+proof. Either use the scanner for a broader, explicitly QEMU-only sweep, or
+return to focused replay fixtures for positive retained physical-bundle
+evidence.
 
 The next Chisel packet should start from the R550 replay-return evidence, not
 from another broad CoreMark scan. The reduced frontend/rename/scalar

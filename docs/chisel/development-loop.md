@@ -22,11 +22,13 @@ candidate locator and scans 16K CoreMark rows: it finds early same-address
 store/load clusters but no candidates after row 4096 because the later part of
 that prefix is store-only. R613 adds guarded QEMU-only row skipping and raw-only
 capture so agents can sample later intervals without forcing a strict reduced
-prefix; the first skipped sample after row 4096 captures 512 rows and again
-finds only stores. The next packet should not linearly scale the same early
-CoreMark prefix for replay-suppress replacement proof; either find a later
-load-bearing CoreMark/direct-boot interval with skipped raw sampling, improve
-interval selection/checkpointing, or return to focused replay fixtures for
+prefix. R614 adds a reusable interval scanner and samples skip offsets 16,384,
+65,536, and 262,144 with 2,048 rows each; every sampled interval has 146
+memory events, all stores, zero loads, and zero candidates. The next packet
+should not linearly scale these store-only CoreMark intervals for
+replay-suppress replacement proof. Either run a deliberately broader
+QEMU-only scanner sweep to find a load-bearing interval, improve
+checkpoint/interval selection, or return to focused replay fixtures for
 positive retained physical-bundle evidence.
 
 ## Packet Start Baseline

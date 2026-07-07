@@ -80,6 +80,27 @@ Wrapper sampling knobs:
   extractor. It is for arbitrary skipped intervals whose first row may not be a
   strict sequential reduced prefix.
 
+For repeated later-window probes, use the interval scanner instead of
+hand-written shell loops:
+
+```bash
+python3 tools/chisel/scan_replay_liq_qemu_intervals.py \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --build-dir generated/<run> \
+  --skips 4096,16384,65536,262144 \
+  --capture-rows 2048 \
+  --max-seconds 60
+```
+
+The scanner writes one subdirectory per skip interval, preserves each wrapper
+stdout/stderr log, runs the locator on `qemu.live.raw.jsonl`, and emits
+`report/interval_scan_summary.json` with schema
+`linxcore.replay_liq_qemu_interval_scan.v1`. Its output has the same claim
+boundary as the locator: skipped raw QEMU intervals are candidate hints only.
+If the wrapped QEMU command leaves a complete raw trace but does not return,
+the scanner records `wrapper_timed_out=true`, terminates the wrapper process
+group, and still runs the locator on the complete bounded trace.
+
 The JSON report schema is
 `linxcore.replay_liq_qemu_candidate_locator.v1`. Its `claim_boundary` field is
 part of the contract: candidate output is not QEMU/DUT proof.
@@ -171,3 +192,36 @@ Result: 512 raw rows were captured after 4096 skipped rows. The locator found
 37 memory events, all stores, zero loads, and zero candidates. This confirms
 the R612 post-4096 store-only shape with a smaller interval artifact and gives
 future agents a cheap loop for later interval sampling.
+
+## R614 Evidence
+
+R614 adds `tools/chisel/scan_replay_liq_qemu_intervals.py` and manually samples
+larger skipped CoreMark intervals before closing the packet:
+
+```bash
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --build-dir generated/r614-coremark-qemu-raw-skip16384-sample \
+  --elf tests/benchmarks/build/coremark_real.elf \
+  --expected-rows 0 --capture-rows 2048 \
+  --qemu-skip-rows 16384 \
+  --allow-block-markers --allow-block-loop-reentry \
+  --qemu-raw-only --max-seconds 60 -- \
+  -nographic -monitor none -machine virt -m 1280M \
+  -kernel tests/benchmarks/build/coremark_real.elf
+```
+
+The same command shape was repeated for skip offsets 65,536 and 262,144. Each
+interval captured 2,048 raw rows. Locator results:
+
+| Build directory | Memory events | Stores | Loads | Candidates | Dominant memory PC |
+|---|---:|---:|---:|---:|---|
+| `generated/r614-coremark-qemu-raw-skip16384-sample` | 146 | 146 | 0 | 0 | `0x4000d710` |
+| `generated/r614-coremark-qemu-raw-skip65536-sample` | 146 | 146 | 0 | 0 | `0x40006310` |
+| `generated/r614-coremark-qemu-raw-skip262144-sample` | 146 | 146 | 0 | 0 | `0x40006310` |
+
+This is additional negative interval-selection evidence. It does not supersede
+R611 generated-RTL/QEMU no-regression evidence and does not prove replay-LIQ
+behavior. The next agent should either run a broader QEMU-only scanner sweep
+with non-adjacent skips to find a load-bearing phase, or return to the focused
+replay fixtures that already produce positive retained physical-bundle
+sidebands.
