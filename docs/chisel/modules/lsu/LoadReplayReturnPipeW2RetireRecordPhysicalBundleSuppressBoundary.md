@@ -140,7 +140,10 @@ of `75`.
 
 ## Next Owner
 
-The next owner may use the registered mask as input evidence for a live
-suppression design, but it must first prove retained-record identity and
-lifetime alignment for the next-cycle mask. Do not consume the R601 mask as a
-current-cycle duplicate guard override.
+R602 added
+`LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressIdentityProof` and
+proved that the R601 registered mask is not yet live-consumable: the five
+registered candidates appear after the retained record has cleared, producing
+five `blockedByMissingRecord` events and zero eligible registered masks. The
+next owner must carry identity/lifecycle evidence across the boundary or choose
+a different non-circular consumption point before any guard override is enabled.

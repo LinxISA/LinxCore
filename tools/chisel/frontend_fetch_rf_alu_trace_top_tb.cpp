@@ -806,6 +806,20 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_blocked_by_no_selection = 0;
   std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_blocked_by_partial_mask = 0;
   std::uint64_t w2_retire_record_physical_bundle_suppress_boundary_cleared_by_flush = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_capture_identity = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_captured_identity_valid = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_registered_candidate = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_retained_record_aligned = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_lifecycle_row_aligned = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_lifetime_aligned = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_eligible_registered_mask = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_blocked_by_no_captured_identity = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_blocked_by_missing_record = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_blocked_by_rid_mismatch = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_blocked_by_load_lsid_mismatch = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_blocked_by_missing_lifecycle_evidence = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_blocked_by_lifecycle_row_mismatch = 0;
+  std::uint64_t w2_retire_record_physical_bundle_suppress_identity_blocked_by_not_full_mask = 0;
   std::uint64_t resolve_queue_push_accepted = 0;
   std::uint64_t resolve_queue_valid = 0;
   std::uint64_t resolve_queue_push_accepted_first_cycle = 0;
@@ -2922,6 +2936,61 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
     ++g_replay_liq_sideband_stats
       .w2_retire_record_physical_bundle_suppress_boundary_cleared_by_flush;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityCaptureIdentity) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_physical_bundle_suppress_identity_capture_identity;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityCapturedIdentityValid) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_captured_identity_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityRegisteredCandidate) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_registered_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityRetainedRecordAligned) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_retained_record_aligned;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityLifecycleRowAligned) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_lifecycle_row_aligned;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityLifetimeAligned) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_lifetime_aligned;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityEligibleRegisteredMask) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_eligible_registered_mask;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByNoCapturedIdentity) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_blocked_by_no_captured_identity;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByMissingRecord) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_blocked_by_missing_record;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByRidMismatch) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_blocked_by_rid_mismatch;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByLoadLsIdMismatch) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_blocked_by_load_lsid_mismatch;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByMissingLifecycleEvidence) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_blocked_by_missing_lifecycle_evidence;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByLifecycleRowMismatch) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_blocked_by_lifecycle_row_mismatch;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByNotFullMask) {
+    ++g_replay_liq_sideband_stats
+      .w2_retire_record_physical_bundle_suppress_identity_blocked_by_not_full_mask;
+  }
   if (resolve_queue_push_accepted) {
     ++g_replay_liq_sideband_stats.resolve_queue_push_accepted;
   }
@@ -3088,7 +3157,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v51\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v52\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -4362,6 +4431,49 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << "    \"w2_retire_record_physical_bundle_suppress_boundary_cleared_by_flush\": "
       << g_replay_liq_sideband_stats
         .w2_retire_record_physical_bundle_suppress_boundary_cleared_by_flush
+      << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_capture_identity\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_capture_identity << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_captured_identity_valid\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_captured_identity_valid << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_registered_candidate\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_registered_candidate << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_retained_record_aligned\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_retained_record_aligned << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_lifecycle_row_aligned\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_lifecycle_row_aligned << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_lifetime_aligned\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_lifetime_aligned << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_eligible_registered_mask\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_eligible_registered_mask << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_blocked_by_no_captured_identity\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_blocked_by_no_captured_identity << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_blocked_by_missing_record\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_blocked_by_missing_record << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_blocked_by_rid_mismatch\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_blocked_by_rid_mismatch << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_blocked_by_load_lsid_mismatch\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_blocked_by_load_lsid_mismatch << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_blocked_by_missing_lifecycle_evidence\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_blocked_by_missing_lifecycle_evidence << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_blocked_by_lifecycle_row_mismatch\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_blocked_by_lifecycle_row_mismatch << ",\n"
+      << "    \"w2_retire_record_physical_bundle_suppress_identity_blocked_by_not_full_mask\": "
+      << g_replay_liq_sideband_stats
+        .w2_retire_record_physical_bundle_suppress_identity_blocked_by_not_full_mask
       << ",\n"
       << "    \"resolve_queue_push_accepted\": "
       << g_replay_liq_sideband_stats.resolve_queue_push_accepted << ",\n"

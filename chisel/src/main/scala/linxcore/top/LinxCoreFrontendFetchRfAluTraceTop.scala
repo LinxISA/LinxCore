@@ -22,6 +22,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordModelOrderProof
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressIdentityProof
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard
@@ -1469,6 +1470,34 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryBlockedByPartialMask =
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryClearedByFlush =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityCaptureIdentity =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityCapturedIdentityValid =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityRegisteredCandidate =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityRetainedRecordAligned =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityLifecycleRowAligned =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityLifetimeAligned =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityEligibleRegisteredMask =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByNoCapturedIdentity =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByMissingRecord =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByRidMismatch =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByLoadLsIdMismatch =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByMissingLifecycleEvidence =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByLifecycleRowMismatch =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByNotFullMask =
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
@@ -8568,6 +8597,61 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSup
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressIdentityProofWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      proof: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressIdentityProof,
+      boundary: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary,
+      retireRecord: LoadReplayReturnPipeW2RetireRecord,
+      lifecycleEvidence: LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch,
+      enable: Bool,
+      flush: Bool): Unit = {
+    proof.io.enable := enable
+    proof.io.flush := flush
+    proof.io.capture := boundary.io.capture
+    proof.io.captureRid := retireRecord.io.record.rid
+    proof.io.captureLoadLsId := retireRecord.io.record.loadLsId
+    proof.io.captureLifecycleRowReady := lifecycleEvidence.io.providerRowClearReady
+    proof.io.captureLifecycleRowIndex := lifecycleEvidence.io.providerRowClearIndex
+    proof.io.registeredValid := boundary.io.registeredValid
+    proof.io.registeredFullMask := boundary.io.registeredFullMask
+    proof.io.recordValid := retireRecord.io.recordValid
+    proof.io.recordRid := retireRecord.io.record.rid
+    proof.io.recordLoadLsId := retireRecord.io.record.loadLsId
+    proof.io.lifecycleEvidenceProviderValid := lifecycleEvidence.io.providerValid
+    proof.io.lifecycleEvidenceRowClearIndex := lifecycleEvidence.io.providerRowClearIndex
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityCaptureIdentity :=
+      proof.io.captureIdentity
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityCapturedIdentityValid :=
+      proof.io.capturedIdentityValid
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityRegisteredCandidate :=
+      proof.io.registeredCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityRetainedRecordAligned :=
+      proof.io.retainedRecordAligned
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityLifecycleRowAligned :=
+      proof.io.lifecycleRowAligned
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityLifetimeAligned :=
+      proof.io.identityLifetimeAligned
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityEligibleRegisteredMask :=
+      proof.io.eligibleRegisteredMask
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByNoCapturedIdentity :=
+      proof.io.blockedByNoCapturedIdentity
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByMissingRecord :=
+      proof.io.blockedByMissingRecord
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByRidMismatch :=
+      proof.io.blockedByRidMismatch
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByLoadLsIdMismatch :=
+      proof.io.blockedByLoadLsIdMismatch
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByMissingLifecycleEvidence :=
+      proof.io.blockedByMissingLifecycleEvidence
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByLifecycleRowMismatch :=
+      proof.io.blockedByLifecycleRowMismatch
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByNotFullMask :=
+      proof.io.blockedByNotFullMask
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -8727,6 +8811,15 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
       io,
       modules.retireRecordPhysicalBundleSuppressBoundary,
       modules.retireRecordPhysicalBundleSuppressProbe,
+      enable,
+      flush
+    )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressIdentityProofWiring.connect(
+      io,
+      modules.retireRecordPhysicalBundleSuppressIdentityProof,
+      modules.retireRecordPhysicalBundleSuppressBoundary,
+      modules.retireRecord,
+      modules.retireRecordLifecycleEvidence,
       enable,
       flush
     )
@@ -9632,6 +9725,8 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     retireRecordPhysicalBundleSuppressPlan: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan,
     retireRecordPhysicalBundleSuppressProbe: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe,
     retireRecordPhysicalBundleSuppressBoundary: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary,
+    retireRecordPhysicalBundleSuppressIdentityProof:
+      LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressIdentityProof,
     retireRecordAtomicRequestProbe: LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe,
     retireRecordLifecycleRequestProbe: LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe,
     retireRecordRowFillEnableControl: LoadReplayReturnPipeW2RetireRecordRowFillEnableControl,
@@ -9777,6 +9872,10 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
         Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe),
       retireRecordPhysicalBundleSuppressBoundary =
         Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary),
+      retireRecordPhysicalBundleSuppressIdentityProof =
+        Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressIdentityProof(
+          idEntries = p.robEntries,
+          liqEntries = p.robEntries)),
       retireRecordAtomicRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe),
       retireRecordLifecycleRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe),
       retireRecordRowFillEnableControl = Module(new LoadReplayReturnPipeW2RetireRecordRowFillEnableControl),

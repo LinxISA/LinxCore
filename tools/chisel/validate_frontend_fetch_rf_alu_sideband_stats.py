@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v51"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v52"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -623,6 +623,20 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_retire_record_physical_bundle_suppress_boundary_blocked_by_no_selection",
     "w2_retire_record_physical_bundle_suppress_boundary_blocked_by_partial_mask",
     "w2_retire_record_physical_bundle_suppress_boundary_cleared_by_flush",
+    "w2_retire_record_physical_bundle_suppress_identity_capture_identity",
+    "w2_retire_record_physical_bundle_suppress_identity_captured_identity_valid",
+    "w2_retire_record_physical_bundle_suppress_identity_registered_candidate",
+    "w2_retire_record_physical_bundle_suppress_identity_retained_record_aligned",
+    "w2_retire_record_physical_bundle_suppress_identity_lifecycle_row_aligned",
+    "w2_retire_record_physical_bundle_suppress_identity_lifetime_aligned",
+    "w2_retire_record_physical_bundle_suppress_identity_eligible_registered_mask",
+    "w2_retire_record_physical_bundle_suppress_identity_blocked_by_no_captured_identity",
+    "w2_retire_record_physical_bundle_suppress_identity_blocked_by_missing_record",
+    "w2_retire_record_physical_bundle_suppress_identity_blocked_by_rid_mismatch",
+    "w2_retire_record_physical_bundle_suppress_identity_blocked_by_load_lsid_mismatch",
+    "w2_retire_record_physical_bundle_suppress_identity_blocked_by_missing_lifecycle_evidence",
+    "w2_retire_record_physical_bundle_suppress_identity_blocked_by_lifecycle_row_mismatch",
+    "w2_retire_record_physical_bundle_suppress_identity_blocked_by_not_full_mask",
     "resolve_queue_push_accepted",
     "resolve_queue_valid",
     "resolve_queue_push_accepted_first_cycle",

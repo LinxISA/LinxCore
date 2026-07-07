@@ -1365,6 +1365,44 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
       .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryBlockedByPartialMask
       .getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryClearedByFlush.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityCaptureIdentity.getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityCapturedIdentityValid
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityRegisteredCandidate
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityRetainedRecordAligned
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityLifecycleRowAligned
+      .getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityLifetimeAligned.getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityEligibleRegisteredMask
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByNoCapturedIdentity
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByMissingRecord
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByRidMismatch
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByLoadLsIdMismatch
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByMissingLifecycleEvidence
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByLifecycleRowMismatch
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityBlockedByNotFullMask
+      .getWidth == 1)
   }
 
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
@@ -1440,6 +1478,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanAtomicSuppressCandidate"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressProbeSelected"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryRegisteredValid"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressIdentityLifetimeAligned"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitLifecycleClearCommitEnable"))
