@@ -407,3 +407,27 @@ sideband counters still report zero natural replay-LIQ/MDB activity:
 `w2_promotion_live=0`, selector-from-promotion/probe counters are zero, and
 MDB fanout/record counters are zero. Treat R621 as candidate-present
 no-regression coverage, not replay-LIQ replacement proof.
+
+## R622 Activation Gap Report
+
+R622 records why R621 does not activate replay-LIQ:
+
+```bash
+python3 tools/chisel/build_replay_liq_activation_gap_report.py
+python3 tools/chisel/build_replay_liq_activation_gap_report.py \
+  --validate-only generated/r622-replay-liq-activation-gap-report/report/replay_liq_activation_gap_report.json
+```
+
+The report consumes the R621 unskipped-prefix report plus the R621 generated-RTL
+sideband stats. It classifies the run as memory-path active but pre-ResolveQ:
+`load_lookup_valid=180`, `store_stq_resident=512`, and store dequeue counters
+are nonzero, while `resident_store_eligible=0`,
+`load_lookup_execute_with_eligible_store=0`,
+`load_lookup_execute_with_wait_store=0`, `resolve_queue_push_accepted=0`,
+`resolve_queue_valid=0`, `mdb_conflict_valid=0`,
+`wait_replay_capture_accepted=0`, and `liq_alloc_accepted=0`.
+
+The next generated-RTL replay-LIQ proof attempt must first find or construct a
+run where `load_lookup_execute_with_eligible_store > 0`; otherwise QEMU
+store/load address clusters remain commit-stream hints rather than live
+resident-store overlap stimuli.

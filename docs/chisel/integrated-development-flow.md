@@ -15,7 +15,25 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R621 finds a non-skipped CoreMark command shape for the R617
+Latest packet: R622 adds
+`tools/chisel/build_replay_liq_activation_gap_report.py`, which classifies why
+the R621 candidate-present generated-RTL prefix still does not activate
+replay-LIQ. The report at
+`generated/r622-replay-liq-activation-gap-report/report/replay_liq_activation_gap_report.json`
+confirms the memory path is active (`load_lookup_valid=180`,
+`store_stq_resident=512`, store dequeue counters nonzero), but no load lookup
+overlaps an eligible resident store (`resident_store_eligible=0`,
+`load_lookup_execute_with_eligible_store=0`,
+`load_lookup_execute_with_wait_store=0`). Consequently `LoadResolveQueue` stays
+empty (`resolve_queue_push_accepted=0`, `resolve_queue_valid=0`), MDB sees
+store probes only (`mdb_conflict_store_valid=272`,
+`mdb_conflict_store_without_resolve_queue_valid=272`,
+`mdb_conflict_valid=0`), and replay-LIQ never allocates
+(`wait_replay_capture_accepted=0`, `liq_alloc_accepted=0`). The next proof
+surface must find or construct `load_lookup_execute_with_eligible_store > 0`
+before spending more CoreMark Verilator time on replay-LIQ replacement proof.
+
+R621 finds a non-skipped CoreMark command shape for the R617
 candidate and adds
 `tools/chisel/build_replay_liq_selector_unskipped_prefix_report.py` to preserve
 the result as machine-checkable evidence. The unskipped QEMU-only command

@@ -54,11 +54,17 @@ candidate in QEMU-only reduced rows `1585 -> 1589`, and run the matching
 generated-RTL/QEMU CoreMark prefix. That generated-RTL run passes 1169 compared
 rows with zero mismatches and zero CBSTOP rows while the target store/load pair
 is present in the preview, but replay-LIQ/MDB sideband activity remains zero.
+R622 packages the activation-gap classification with
+`build_replay_liq_activation_gap_report.py`: R621 has active load/store
+traffic, but `resident_store_eligible=0`,
+`load_lookup_execute_with_eligible_store=0`, `resolve_queue_push_accepted=0`,
+`resolve_queue_valid=0`, `mdb_conflict_valid=0`, and `liq_alloc_accepted=0`.
 The next packet should not treat R621 as natural replay-LIQ replacement proof.
-Either inspect why the reduced CoreMark path never allocates replay-LIQ for the
-natural pair, improve the reduced MDB/replay-LIQ activation path, or continue
-using the R616 preset on focused replay fixtures for positive retained
-physical-bundle evidence.
+Find or construct a reduced-top stimulus with
+`load_lookup_execute_with_eligible_store > 0` before spending more CoreMark
+Verilator time on replay-LIQ replacement proof, or continue using the R616
+preset on focused replay fixtures for positive retained physical-bundle
+evidence.
 
 ## Packet Start Baseline
 
