@@ -124,6 +124,16 @@ blockers. The default readiness gate itself still reports
 `default_promotion_ready=0`; R598 only names the future transfer/suppression
 point.
 
+R599 adds the diagnostic physical-bundle suppress plan at that point. It
+consumes the R598 transfer candidate plus this module's raw physical duplicate
+inputs through the fallback guards, then emits only an all-or-none suppression
+mask. The generated v49 sideband report records
+`w2_retire_record_physical_bundle_suppress_plan_atomic_suppress_candidate=5`,
+all four suppression intent counters at `5`, `suppress_mask_sum=75`, and zero
+no-requirement or incomplete-bundle blockers. This still does not make
+`default_promotion_ready` live; it only documents the atomic default-promotion
+precondition.
+
 ## Verification
 
 Focused gates:

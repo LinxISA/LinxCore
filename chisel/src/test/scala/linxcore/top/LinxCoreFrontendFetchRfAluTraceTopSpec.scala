@@ -1319,6 +1319,25 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByNoDuplicateVector.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByPartialDuplicate.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByProbeActive.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanTransferCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressionRequired.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanPhysicalBundleComplete.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanAtomicSuppressCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressRobComplete.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressRfWriteback.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressWakeup.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressLifecycleClear.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressMask.getWidth == 4)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanAllOrNoneSuppress.getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanBlockedByNoTransferCandidate
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanBlockedByNoSuppressionRequirement
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanBlockedByIncompletePhysicalBundle
+      .getWidth == 1)
   }
 
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
@@ -1391,6 +1410,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorModelOrderBundle"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanDefaultTransferCandidate"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanAtomicSuppressCandidate"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitLifecycleClearCommitEnable"))

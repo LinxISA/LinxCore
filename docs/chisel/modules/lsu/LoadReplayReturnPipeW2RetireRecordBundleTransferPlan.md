@@ -102,6 +102,16 @@ w2_retire_record_bundle_transfer_plan_blocked_by_probe_active=0
 The next owner is an explicit atomic bundle-transfer or physical-bundle
 suppression design. It must not enable one retained side effect independently.
 
+R599 implements that next diagnostic owner as
+`LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan`. It consumes this
+module's `defaultTransferCandidate` and `requiresPhysicalBundleSuppression`
+outputs plus the raw four-way physical duplicate bundle, then emits only an
+all-or-none suppression mask. The R599 generated gate preserves the same
+18-row QEMU/DUT compare pass and records v49 counters
+`w2_retire_record_physical_bundle_suppress_plan_atomic_suppress_candidate=5`,
+all four suppression intent counters at `5`, and
+`w2_retire_record_physical_bundle_suppress_plan_suppress_mask_sum=75`.
+
 ## Verification
 
 Focused gates:

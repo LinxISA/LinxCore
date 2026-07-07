@@ -310,6 +310,13 @@ and
 This names the future promotion requirement as an atomic physical-bundle
 suppression problem rather than a fallback-policy arm change.
 
+R599 keeps that requirement outside the policy arm by adding
+`LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan`. It consumes the
+R598 transfer candidate and raw physical duplicate guards, emits only an
+all-or-none diagnostic suppression mask, and leaves `sideEffectOwnerEnable`
+unchanged. The v49 evidence records five atomic suppress candidates, all four
+suppression intent counters at five, and zero incomplete-bundle blockers.
+
 ## Verification
 
 Focused gates:

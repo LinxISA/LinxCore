@@ -387,7 +387,12 @@ suppression requirement but does not perform it.
   side-effect source or a reviewed default-path promotion design transfers the
   whole bundle. R598 names that design point as a diagnostic
   bundle-transfer-plan candidate and proves the current fixture requires
-  physical ROB/RF/wakeup/lifecycle suppression together.
+  physical ROB/RF/wakeup/lifecycle suppression together. R599 adds the
+  diagnostic physical-bundle suppression plan and proves the all-or-none mask:
+  the generated gate records five atomic suppress candidates, all four
+  suppression intent counters at five, `suppress_mask_sum=75`, and zero
+  incomplete-bundle blockers. The next live owner must consume that whole
+  bundle; it must not suppress ROB, RF, wakeup, or lifecycle independently.
 
 ## Verification
 

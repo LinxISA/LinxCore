@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v48"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v49"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -595,6 +595,19 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_retire_record_bundle_transfer_plan_blocked_by_no_duplicate_vector",
     "w2_retire_record_bundle_transfer_plan_blocked_by_partial_duplicate",
     "w2_retire_record_bundle_transfer_plan_blocked_by_probe_active",
+    "w2_retire_record_physical_bundle_suppress_plan_transfer_candidate",
+    "w2_retire_record_physical_bundle_suppress_plan_suppression_required",
+    "w2_retire_record_physical_bundle_suppress_plan_physical_bundle_complete",
+    "w2_retire_record_physical_bundle_suppress_plan_atomic_suppress_candidate",
+    "w2_retire_record_physical_bundle_suppress_plan_suppress_rob_complete",
+    "w2_retire_record_physical_bundle_suppress_plan_suppress_rf_writeback",
+    "w2_retire_record_physical_bundle_suppress_plan_suppress_wakeup",
+    "w2_retire_record_physical_bundle_suppress_plan_suppress_lifecycle_clear",
+    "w2_retire_record_physical_bundle_suppress_plan_suppress_mask_sum",
+    "w2_retire_record_physical_bundle_suppress_plan_all_or_none_suppress",
+    "w2_retire_record_physical_bundle_suppress_plan_blocked_by_no_transfer_candidate",
+    "w2_retire_record_physical_bundle_suppress_plan_blocked_by_no_suppression_requirement",
+    "w2_retire_record_physical_bundle_suppress_plan_blocked_by_incomplete_physical_bundle",
     "resolve_queue_push_accepted",
     "resolve_queue_valid",
     "resolve_queue_push_accepted_first_cycle",

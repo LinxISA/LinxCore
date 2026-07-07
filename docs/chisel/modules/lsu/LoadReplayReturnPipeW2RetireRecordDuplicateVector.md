@@ -122,6 +122,13 @@ false, and no retained-owner probe is active. The v48 sideband evidence records
 `w2_retire_record_bundle_transfer_plan_default_promotion_already_ready=0`, and
 zero partial/probe/no-vector blockers.
 
+R599 consumes the same full physical duplicate bundle through
+`LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan`. The v49
+sideband evidence records five atomic suppress candidates, all four suppression
+intent counters at five, `suppress_mask_sum=75`, and zero incomplete-bundle
+blockers. This keeps the next live owner constrained to an all-or-none physical
+bundle suppression or transfer.
+
 ## Verification
 
 Focused gates:

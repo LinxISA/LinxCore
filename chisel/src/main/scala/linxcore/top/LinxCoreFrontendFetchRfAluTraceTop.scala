@@ -19,6 +19,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordDefaultPromotionReadiness
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordDuplicateVector
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordModelOrderProof
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard
@@ -1410,6 +1411,32 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByPartialDuplicate =
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordBundleTransferPlanBlockedByProbeActive =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanTransferCandidate =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressionRequired =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanPhysicalBundleComplete =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanAtomicSuppressCandidate =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressRobComplete =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressRfWriteback =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressWakeup =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressLifecycleClear =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressMask =
+    Output(UInt(4.W))
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanAllOrNoneSuppress =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanBlockedByNoTransferCandidate =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanBlockedByNoSuppressionRequirement =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanBlockedByIncompletePhysicalBundle =
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
@@ -8391,6 +8418,56 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordBundleTransferPla
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressPlanWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      plan: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan,
+      transferPlan: LoadReplayReturnPipeW2RetireRecordBundleTransferPlan,
+      robFallback: LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard,
+      rfFallback: LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard,
+      wakeupFallback: LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard,
+      lifecycleFallback: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
+      enable: Bool,
+      flush: Bool): Unit = {
+    plan.io.enable := enable
+    plan.io.flush := flush
+    plan.io.transferCandidate := transferPlan.io.defaultTransferCandidate
+    plan.io.requiresPhysicalBundleSuppression :=
+      transferPlan.io.requiresPhysicalBundleSuppression
+    plan.io.robDuplicatePhysicalComplete := robFallback.io.duplicatePhysicalComplete
+    plan.io.rfDuplicatePhysicalWriteback := rfFallback.io.duplicatePhysicalWriteback
+    plan.io.wakeupDuplicatePhysicalWakeup := wakeupFallback.io.duplicatePhysicalWakeup
+    plan.io.lifecycleClearDuplicatePhysicalClear := lifecycleFallback.io.duplicatePhysicalClear
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanTransferCandidate :=
+      plan.io.transferCandidateSeen
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressionRequired :=
+      plan.io.suppressionRequired
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanPhysicalBundleComplete :=
+      plan.io.physicalBundleComplete
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanAtomicSuppressCandidate :=
+      plan.io.atomicSuppressCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressRobComplete :=
+      plan.io.suppressRobComplete
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressRfWriteback :=
+      plan.io.suppressRfWriteback
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressWakeup :=
+      plan.io.suppressWakeup
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressLifecycleClear :=
+      plan.io.suppressLifecycleClear
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanSuppressMask :=
+      plan.io.suppressMask
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanAllOrNoneSuppress :=
+      plan.io.allOrNoneSuppress
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanBlockedByNoTransferCandidate :=
+      plan.io.blockedByNoTransferCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanBlockedByNoSuppressionRequirement :=
+      plan.io.blockedByNoSuppressionRequirement
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressPlanBlockedByIncompletePhysicalBundle :=
+      plan.io.blockedByIncompletePhysicalBundle
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -8523,6 +8600,17 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
       modules.retireRecordDefaultPromotionReadiness,
       modules.retireRecordDuplicateVector,
       noPhysicalProbe || fallbackProbe,
+      enable,
+      flush
+    )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressPlanWiring.connect(
+      io,
+      modules.retireRecordPhysicalBundleSuppressPlan,
+      modules.retireRecordBundleTransferPlan,
+      modules.retireRecordRobCompleteFallbackGuard,
+      modules.retireRecordRfWritebackFallbackGuard,
+      modules.retireRecordWakeupFallbackGuard,
+      modules.retireRecordLifecycleClearFallbackGuard,
       enable,
       flush
     )
@@ -9425,6 +9513,7 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     retireRecordDefaultPromotionReadiness: LoadReplayReturnPipeW2RetireRecordDefaultPromotionReadiness,
     retireRecordDuplicateVector: LoadReplayReturnPipeW2RetireRecordDuplicateVector,
     retireRecordBundleTransferPlan: LoadReplayReturnPipeW2RetireRecordBundleTransferPlan,
+    retireRecordPhysicalBundleSuppressPlan: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan,
     retireRecordAtomicRequestProbe: LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe,
     retireRecordLifecycleRequestProbe: LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe,
     retireRecordRowFillEnableControl: LoadReplayReturnPipeW2RetireRecordRowFillEnableControl,
@@ -9564,6 +9653,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
         Module(new LoadReplayReturnPipeW2RetireRecordDuplicateVector),
       retireRecordBundleTransferPlan =
         Module(new LoadReplayReturnPipeW2RetireRecordBundleTransferPlan),
+      retireRecordPhysicalBundleSuppressPlan =
+        Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan),
       retireRecordAtomicRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe),
       retireRecordLifecycleRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe),
       retireRecordRowFillEnableControl = Module(new LoadReplayReturnPipeW2RetireRecordRowFillEnableControl),
