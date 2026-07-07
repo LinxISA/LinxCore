@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v54"
+SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v55"
 
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
@@ -660,6 +660,20 @@ REQUIRED_REPLAY_LIQ_KEYS = [
     "w2_retire_record_physical_bundle_suppress_live_mask_all_or_none",
     "w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_live_mask_disabled",
     "w2_retire_record_physical_bundle_suppress_live_mask_blocked_by_no_eligible_ownership",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_candidate",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_full_mask",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_fire_complete_aligned",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_clear_intent_aligned",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_live_clear_aligned",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_row_fill_aligned",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_lifecycle_clear_suppressed",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_all_clear_aligned",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_blocked_by_partial_mask",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_blocked_by_no_fire_complete",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_blocked_by_no_clear_intent",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_blocked_by_no_live_clear",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_blocked_by_no_row_fill",
+    "w2_retire_record_physical_bundle_suppress_clear_proof_blocked_by_lifecycle_clear_still_enabled",
     "resolve_queue_push_accepted",
     "resolve_queue_valid",
     "resolve_queue_push_accepted_first_cycle",

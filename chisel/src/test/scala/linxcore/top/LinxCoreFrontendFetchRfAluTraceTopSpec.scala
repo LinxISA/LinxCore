@@ -1462,6 +1462,40 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io
       .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressLiveMaskBlockedByNoEligibleOwnership
       .getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofFullMask.getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofFireCompleteAligned
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofClearIntentAligned
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofLiveClearAligned
+      .getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofRowFillAligned.getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofLifecycleClearSuppressed
+      .getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofAllClearAligned.getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofBlockedByPartialMask
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofBlockedByNoFireComplete
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofBlockedByNoClearIntent
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofBlockedByNoLiveClear
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofBlockedByNoRowFill
+      .getWidth == 1)
+    assert(io
+      .reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressClearProofBlockedByLifecycleClearStillEnabled
+      .getWidth == 1)
   }
 
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
