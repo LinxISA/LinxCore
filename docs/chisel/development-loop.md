@@ -69,7 +69,13 @@ ResolveQ, MDB fanout, LIQ allocation, replay output, and W2 promotion. This is
 focused-fixture activation proof; the next packet should still find a
 CoreMark or natural workload command with
 `load_lookup_execute_with_eligible_store > 0` before claiming natural
-replay-LIQ replacement proof.
+replay-LIQ replacement proof. R624 adds
+`scan_replay_liq_activation_artifacts.py` as a cheap pre-Verilator triage
+surface over existing generated sideband artifacts. The current scan covers 34
+artifacts, finds 17 activation-positive focused/synthetic artifacts, and finds
+zero CoreMark activation-positive artifacts. Use this scanner after each
+natural workload run to avoid confusing focused fixture progress with CoreMark
+replacement evidence.
 
 ## Packet Start Baseline
 

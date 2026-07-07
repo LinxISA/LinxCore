@@ -15,7 +15,20 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R623 adds
+Latest packet: R624 adds
+`tools/chisel/scan_replay_liq_activation_artifacts.py`, a cheap generated
+artifact scanner for replay-LIQ activation coverage. The current local report
+at
+`generated/r624-replay-liq-activation-artifact-scan/report/replay_liq_activation_artifact_scan.json`
+scans 34 sideband artifacts, finds 17 activation-positive artifacts, and
+classifies all 17 as focused/synthetic with `coremark_positive_count=0`. This
+is not new generated-RTL proof; it is a pre-Verilator triage surface that
+confirms the current evidence gap remains natural workload selection. The next
+CoreMark/natural attempt should use this scanner after each run and promote
+only a run whose artifact class is CoreMark or natural and whose eligible-store,
+ResolveQ, MDB, LIQ, replay-output, and W2-promotion counters are all nonzero.
+
+R623 adds
 `tools/chisel/build_replay_liq_eligible_store_proof_report.py` and reruns the
 focused replay fixture at current head with the R616 selector-origin preset.
 The generated-RTL/QEMU gate at

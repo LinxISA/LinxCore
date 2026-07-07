@@ -471,3 +471,21 @@ Treat R623 as current-head focused-fixture replay-LIQ activation proof. It does
 not replace the R621/R622 CoreMark boundary: natural CoreMark replacement still
 requires the same nonzero activation counters in a CoreMark or natural workload
 generated-RTL run.
+
+## R624 Activation Artifact Scan
+
+R624 adds a cheap scanner for existing generated sideband artifacts:
+
+```bash
+python3 tools/chisel/scan_replay_liq_activation_artifacts.py
+python3 tools/chisel/scan_replay_liq_activation_artifacts.py \
+  --validate-only generated/r624-replay-liq-activation-artifact-scan/report/replay_liq_activation_artifact_scan.json
+```
+
+The current report scans 34 local sideband artifacts. It finds 17 artifacts
+with the full activation counter chain positive, but all 17 are classified as
+focused/synthetic; `coremark_positive_count=0`. Treat this as triage, not new
+proof. After each CoreMark or natural generated-RTL run, rerun the scanner and
+promote only artifacts whose workload class is CoreMark/natural and whose
+eligible-store, ResolveQ, MDB, LIQ, replay-output, and W2-promotion counters
+are all nonzero.
