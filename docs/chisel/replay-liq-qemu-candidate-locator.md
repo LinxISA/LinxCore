@@ -376,3 +376,34 @@ preview rows, store PC `0x4000d7e6`, load PC `0x4000d7f2`, and memory address
 `0x4ffefb68`. The PC-filter form captures zero rows in the fresh bounded run,
 so the report keeps generated RTL blocked. This reinforces the same boundary:
 the raw window is a reproducible QEMU candidate hint, not DUT replay-LIQ proof.
+
+## R621 Unskipped Prefix Evidence
+
+R621 proves that the R617 top candidate can be reached without skipped QEMU
+rows and records the generated-RTL boundary:
+
+```bash
+python3 tools/chisel/find_replay_liq_qemu_candidates.py \
+  --input generated/r621-coremark-unskipped-1721-qemu-preflight/traces/qemu.live.expected.preview.jsonl \
+  --raw-input generated/r621-coremark-unskipped-1721-qemu-preflight/traces/qemu.live.raw.jsonl \
+  --output generated/r621-coremark-unskipped-1721-qemu-preflight/report/replay_liq_qemu_candidates.json \
+  --top 5 \
+  --lookback-rows 1024
+python3 tools/chisel/build_replay_liq_selector_unskipped_prefix_report.py
+python3 tools/chisel/build_replay_liq_selector_unskipped_prefix_report.py \
+  --validate-only generated/r621-replay-liq-selector-unskipped-prefix-report/report/replay_liq_selector_unskipped_prefix_report.json
+```
+
+The unskipped QEMU-only preflight captures 1721 raw rows and reduces 1590
+preview rows. The top candidate remains the exact store-before-load pair
+`0x4000d7e6 -> 0x4000d7f2` at address `0x4ffefb68`, rows `1585 -> 1589`,
+score 1186. The matching unskipped generated-RTL/QEMU CoreMark prefix passes
+with 1169 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows, and
+the generated-RTL preview contains the same target pair.
+
+This is the first safe generated-RTL command shape for the candidate, but the
+sideband counters still report zero natural replay-LIQ/MDB activity:
+`liq_alloc_accepted=0`, `replay_queue_out_fire=0`, `lret_w2_slot_accepted=0`,
+`w2_promotion_live=0`, selector-from-promotion/probe counters are zero, and
+MDB fanout/record counters are zero. Treat R621 as candidate-present
+no-regression coverage, not replay-LIQ replacement proof.

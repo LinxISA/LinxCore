@@ -15,7 +15,24 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R620 runs the safe R619 preflights and adds
+Latest packet: R621 finds a non-skipped CoreMark command shape for the R617
+candidate and adds
+`tools/chisel/build_replay_liq_selector_unskipped_prefix_report.py` to preserve
+the result as machine-checkable evidence. The unskipped QEMU-only command
+captures 1721 raw rows and reduces 1590 preview rows; the R617 top candidate is
+present at reduced rows `1585 -> 1589`, with store PC `0x4000d7e6`, load PC
+`0x4000d7f2`, address `0x4ffefb68`, and size 8. The matching generated-RTL/QEMU
+CoreMark run at `generated/r621-coremark-unskipped-1721-rtl-xcheck` passes with
+1169 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows, and its
+preview also contains the target pair. Sideband counters still classify the run
+as zero-natural-replay: `wait_replay_capture_accepted=0`,
+`replay_queue_out_fire=0`, `liq_alloc_accepted=0`,
+`lret_w2_slot_accepted=0`, `w2_promotion_live=0`, selector-from-promotion and
+selector-from-probe counters are zero, and MDB fanout/record counters are zero.
+Therefore R621 is a generated-RTL no-regression prefix with the candidate
+present, not natural replay-LIQ replacement proof.
+
+R620 runs the safe R619 preflights and adds
 `tools/chisel/build_replay_liq_selector_preflight_report.py` to preserve the
 result as machine-checkable evidence. The raw-window QEMU-only command
 `--qemu-skip-rows 1715 --capture-rows 6 --expect-store-pcs 0x4000d7e6

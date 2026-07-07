@@ -48,11 +48,16 @@ blocked until the exact command shape has a passing QEMU-only expected-memory-PC
 preflight. R620 runs those safe preflights and records them with
 `build_replay_liq_selector_preflight_report.py`: the raw skipped window passes
 with the expected store/load pair, but the PC-filter form captures zero rows in
-the fresh bounded run, so generated RTL remains blocked. The next packet should
-not linearly scale the store-only CoreMark intervals for replay-suppress
-replacement proof. Either find a non-skipped/generated-RTL command shape whose
-QEMU-only preflight passes, try a different interval-selection hypothesis, or
-use the R616 preset on focused replay fixtures for positive retained
+the fresh bounded run, so generated RTL remains blocked. R621 then finds the
+safe non-skipped command shape: capture 1721 rows from reset, confirm the
+candidate in QEMU-only reduced rows `1585 -> 1589`, and run the matching
+generated-RTL/QEMU CoreMark prefix. That generated-RTL run passes 1169 compared
+rows with zero mismatches and zero CBSTOP rows while the target store/load pair
+is present in the preview, but replay-LIQ/MDB sideband activity remains zero.
+The next packet should not treat R621 as natural replay-LIQ replacement proof.
+Either inspect why the reduced CoreMark path never allocates replay-LIQ for the
+natural pair, improve the reduced MDB/replay-LIQ activation path, or continue
+using the R616 preset on focused replay fixtures for positive retained
 physical-bundle evidence.
 
 ## Packet Start Baseline
