@@ -27,11 +27,15 @@ prefix. R614 adds a reusable interval scanner and samples skip offsets 16,384,
 memory events, all stores, zero loads, and zero candidates. R615 broadens the
 scanner with range generation and samples skip offsets 524,288 through
 2,097,152; every 256-row interval again has only stores, zero loads, and zero
-candidates. The next packet should not linearly scale these store-only CoreMark
-intervals for replay-suppress replacement proof. Either run a deliberately
-broader QEMU-only scanner sweep with a new interval-selection idea, improve
-checkpoint/interval selection, or return to focused replay fixtures for
-positive retained physical-bundle evidence.
+candidates. R616 returns to the focused replay-fixture path by adding
+`FETCH_REPLAY_LIQ_REQUIRE_PRESET=replay-physical-suppress-selector-origin`,
+a named validator preset for the positive R610 selector-origin proof, and
+proves it on `generated/r616-replay-suppress-preset-xcheck` with 18 compared
+rows and zero mismatches. The next packet should not linearly scale these
+store-only CoreMark intervals for replay-suppress replacement proof. Either run
+a deliberately broader QEMU-only scanner sweep with a new interval-selection
+idea, improve checkpoint/interval selection, or use the R616 preset on focused
+replay fixtures for positive retained physical-bundle evidence.
 
 ## Packet Start Baseline
 

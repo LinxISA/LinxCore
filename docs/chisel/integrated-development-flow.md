@@ -15,7 +15,20 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R615 extends
+Latest packet: R616 adds a named replay-LIQ sideband validator preset for the
+R610 positive selector-origin proof and wires it through the generated-RTL and
+QEMU/ELF wrappers as `FETCH_REPLAY_LIQ_REQUIRE_PRESET`. The fresh focused
+fixture `generated/r616-replay-suppress-preset-xcheck` uses
+`replay-ldi-sdi-ldi-sdi-ldi-ldi-loop` with promoted retained physical-bundle
+suppress selection enabled. It passes 18 compared rows with zero mismatches,
+and the preset requires the full positive chain: nonzero wait replay capture,
+replay queue fire, LIQ allocation, LRET W2 acceptance, promotion-live,
+selector-from-promotion, boundary capture, ownership, live-mask, and clear-proof
+counters, while requiring the probe/partial/invalid selector counters to stay
+zero. Use this preset for focused replay-fixture proof instead of copying long
+counter lists by hand.
+
+R615 extends
 `tools/chisel/scan_replay_liq_qemu_intervals.py` with inclusive
 `--skip-range START:STOP:STEP` generation, duplicate skip removal, aggregate
 load/candidate summary fields, and flushed interval progress output. The R615

@@ -11,6 +11,32 @@ from pathlib import Path
 
 SCHEMA = "linxcore.frontend_fetch_rf_alu.sideband_stats.v56"
 
+PRESETS = {
+    "replay-physical-suppress-selector-origin": {
+        "nonzero": (
+            "replay_liq.wait_replay_capture_accepted",
+            "replay_liq.replay_queue_out_fire",
+            "replay_liq.liq_alloc_accepted",
+            "replay_liq.lret_w2_slot_accepted",
+            "replay_liq.w2_promotion_live",
+            "replay_liq.w2_retire_record_physical_bundle_suppress_plan_atomic_suppress_candidate",
+            "replay_liq.w2_retire_record_physical_bundle_suppress_select_selected",
+            "replay_liq.w2_retire_record_physical_bundle_suppress_select_selected_from_promotion",
+            "replay_liq.w2_retire_record_physical_bundle_suppress_boundary_capture",
+            "replay_liq.w2_retire_record_physical_bundle_suppress_ownership_eligible_registered_mask",
+            "replay_liq.w2_retire_record_physical_bundle_suppress_live_mask_enabled_candidate",
+            "replay_liq.w2_retire_record_physical_bundle_suppress_clear_proof_all_clear_aligned",
+        ),
+        "zero": (
+            "replay_liq.w2_retire_record_physical_bundle_suppress_probe_selected",
+            "replay_liq.w2_retire_record_physical_bundle_suppress_select_selected_from_probe",
+            "replay_liq.w2_retire_record_physical_bundle_suppress_select_blocked_by_promote_disabled",
+            "replay_liq.w2_retire_record_physical_bundle_suppress_select_blocked_by_partial_plan_mask",
+            "replay_liq.w2_retire_record_physical_bundle_suppress_select_invalid_probe_promotion_mask_mismatch",
+        ),
+    },
+}
+
 REQUIRED_REPLAY_LIQ_KEYS = [
     "cycles_sampled",
     "load_lookup_valid",
@@ -769,6 +795,13 @@ def parse_args() -> argparse.Namespace:
         metavar="replay_liq.KEY",
         help="require a validated counter to be exactly zero",
     )
+    parser.add_argument(
+        "--preset",
+        action="append",
+        choices=sorted(PRESETS),
+        default=[],
+        help="apply a named bundle of replay-LIQ counter requirements",
+    )
     return parser.parse_args()
 
 
@@ -860,8 +893,14 @@ def main() -> int:
     args = parse_args()
     stats = load_stats(args.stats)
     replay_liq = validate_replay_liq(stats, args.expect_reduced_store_replay_liq)
-    require_nonzero(replay_liq, args.require_nonzero)
-    require_zero(replay_liq, args.require_zero)
+    preset_nonzero: list[str] = []
+    preset_zero: list[str] = []
+    for preset_name in args.preset:
+        preset = PRESETS[preset_name]
+        preset_nonzero.extend(preset["nonzero"])
+        preset_zero.extend(preset["zero"])
+    require_nonzero(replay_liq, [*preset_nonzero, *args.require_nonzero])
+    require_zero(replay_liq, [*preset_zero, *args.require_zero])
     print(f"sideband_stats_json={args.stats}")
     return 0
 

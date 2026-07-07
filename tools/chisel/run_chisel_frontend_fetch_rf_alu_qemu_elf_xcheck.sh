@@ -28,6 +28,9 @@ QEMU_ONLY=0
 QEMU_RAW_ONLY=0
 EXPECT_LOAD_PCS=""
 EXPECT_STORE_PCS=""
+FETCH_REPLAY_LIQ_REQUIRE_PRESET="${FETCH_REPLAY_LIQ_REQUIRE_PRESET:-}"
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO="${FETCH_REPLAY_LIQ_REQUIRE_NONZERO:-}"
+FETCH_REPLAY_LIQ_REQUIRE_ZERO="${FETCH_REPLAY_LIQ_REQUIRE_ZERO:-}"
 
 usage() {
   cat <<USAGE
@@ -87,6 +90,12 @@ Options:
   --expect-store-pcs <csv>
                           Require the reduced preview's store PC sequence to
                           equal a comma-separated hex/decimal list
+
+Environment:
+  FETCH_REPLAY_LIQ_REQUIRE_PRESET=<csv>
+                          Pass named sideband validator presets through to the
+                          generated-RTL runner. Supported presets are owned by
+                          validate_frontend_fetch_rf_alu_sideband_stats.py.
 
 This wrapper captures a bounded QEMU commit JSONL prefix from a direct-boot ELF,
 validates that the selected rows are inside the current reduced scalar
@@ -636,6 +645,9 @@ FETCH_REDUCED_STORE_DISPATCH_STQ="${REDUCED_STORE_DISPATCH_STQ}" \
 FETCH_REDUCED_STORE_REPLAY_LIQ="${REDUCED_STORE_REPLAY_LIQ}" \
 FETCH_DISABLE_STORE_MEMORY_MUTATION="${DISABLE_STORE_MEMORY_MUTATION}" \
 FETCH_ALLOW_RESIDUAL_REPLAY_LIQ_WAIT="${ALLOW_RESIDUAL_REPLAY_LIQ_WAIT}" \
+FETCH_REPLAY_LIQ_REQUIRE_PRESET="${FETCH_REPLAY_LIQ_REQUIRE_PRESET}" \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO="${FETCH_REPLAY_LIQ_REQUIRE_NONZERO}" \
+FETCH_REPLAY_LIQ_REQUIRE_ZERO="${FETCH_REPLAY_LIQ_REQUIRE_ZERO}" \
 bash "${FETCH_RUNNER}"
 
 MANIFEST="${REPORT_DIR}/crosscheck_manifest.json"

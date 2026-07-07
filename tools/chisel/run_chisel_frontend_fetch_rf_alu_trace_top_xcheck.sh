@@ -59,6 +59,7 @@ FETCH_QEMU_ALLOW_BLOCK_MARKERS="${FETCH_QEMU_ALLOW_BLOCK_MARKERS:-0}"
 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY="${FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY:-0}"
 FETCH_DISABLE_STORE_MEMORY_MUTATION="${FETCH_DISABLE_STORE_MEMORY_MUTATION:-0}"
 FETCH_ALLOW_RESIDUAL_REPLAY_LIQ_WAIT="${FETCH_ALLOW_RESIDUAL_REPLAY_LIQ_WAIT:-0}"
+FETCH_REPLAY_LIQ_REQUIRE_PRESET="${FETCH_REPLAY_LIQ_REQUIRE_PRESET:-}"
 FETCH_REPLAY_LIQ_REQUIRE_NONZERO="${FETCH_REPLAY_LIQ_REQUIRE_NONZERO:-}"
 FETCH_REPLAY_LIQ_REQUIRE_ZERO="${FETCH_REPLAY_LIQ_REQUIRE_ZERO:-}"
 
@@ -236,6 +237,14 @@ verilator \
 SIDEBAND_VALIDATOR_ARGS=("${SIDEBAND_STATS}")
 if [[ "${FETCH_REDUCED_STORE_REPLAY_LIQ}" == "1" ]]; then
   SIDEBAND_VALIDATOR_ARGS+=(--expect-reduced-store-replay-liq)
+fi
+if [[ -n "${FETCH_REPLAY_LIQ_REQUIRE_PRESET}" ]]; then
+  IFS=',' read -r -a replay_liq_required_presets <<< "${FETCH_REPLAY_LIQ_REQUIRE_PRESET}"
+  for replay_liq_required_preset in "${replay_liq_required_presets[@]}"; do
+    if [[ -n "${replay_liq_required_preset}" ]]; then
+      SIDEBAND_VALIDATOR_ARGS+=(--preset "${replay_liq_required_preset}")
+    fi
+  done
 fi
 if [[ -n "${FETCH_REPLAY_LIQ_REQUIRE_NONZERO}" ]]; then
   IFS=',' read -r -a replay_liq_required_nonzero <<< "${FETCH_REPLAY_LIQ_REQUIRE_NONZERO}"
