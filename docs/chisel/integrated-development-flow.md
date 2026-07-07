@@ -15,7 +15,32 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R629 adds an explicit reduced scalar RF seed artifact boundary
+Latest packet: R630 adds
+`tools/chisel/scan_replay_liq_qemu_seeded_windows.py`, a generated-RTL
+orchestrator for raw QEMU candidate windows that need checkpoint-style RF
+state. The scanner consumes the R625 raw dynamic-window hints, builds a reduced
+GPR seed from the unfiltered R621 raw prefix before each window start, slices
+the matching raw rows, runs the existing reduced-store replay-LIQ Verilator
+trace wrapper with `FETCH_RF_SEED`, and classifies the manifest plus the full
+activation-counter bundle. The first R630 run at
+`generated/r630-replay-liq-qemu-seeded-window-scan/report/seeded_window_scan.json`
+replays the top R617/R621 window (`skip=1715`, `rows=6`) with 17 RF seed
+registers and one source correction. The generated-RTL comparator passes with
+`compared_rows=3`, `mismatch_count=0`, and zero CBSTOP rows, but the required
+activation counters remain zero:
+`load_lookup_execute_with_eligible_store`,
+`load_lookup_execute_with_wait_store`, `resident_store_eligible`,
+`resident_store_wait_store_valid`, `resolve_queue_push_accepted`,
+`resolve_queue_valid`, `mdb_conflict_valid`, `mdb_fanout_record_valid`,
+`wait_replay_capture_accepted`, `liq_alloc_accepted`,
+`replay_queue_out_fire`, `lret_w2_slot_accepted`, and `w2_promotion_live`.
+This closes the top seeded raw window as launch-state reconstruction evidence,
+not replay-LIQ activation proof. The next packet should use the R630 scanner on
+broader or later candidate windows, or find a natural reset-launched shard that
+produces nonzero eligible-store overlap before spending RTL design time on
+replay-LIQ replacement claims.
+
+R629 adds an explicit reduced scalar RF seed artifact boundary
 for the live fetch RF/ALU Verilator harness. The new
 `tools/chisel/build_frontend_fetch_rf_seed.py` reconstructs reduced GPR launch
 state from a QEMU raw prefix, and the harness accepts that state through

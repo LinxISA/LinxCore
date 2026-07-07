@@ -665,3 +665,35 @@ report still have zero eligible-store, ResolveQ, MDB, LIQ allocation,
 replay-output, and row-mutation counters. The next natural CoreMark packet
 must use RF seeding only as launch infrastructure and still require positive
 replay-LIQ sideband counters.
+
+## R630 Seeded Raw-Window Scanner
+
+R630 adds an end-to-end seeded generated-RTL scanner for candidate windows:
+
+```bash
+python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
+  --build-dir generated/r630-replay-liq-qemu-seeded-window-scan \
+  --max-trials 1 \
+  --max-capture-rows 32 \
+  --wrapper-timeout-seconds 420
+python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
+  --validate-only generated/r630-replay-liq-qemu-seeded-window-scan/report/seeded_window_scan.json
+```
+
+The scanner consumes the R625 candidate report and the R621 unfiltered raw
+trace by default. For each raw dynamic-window hint, it builds an RF seed before
+`qemu_skip_rows`, slices the raw window, runs
+`run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` with
+`FETCH_REDUCED_STORE_REPLAY_LIQ=1`, `FETCH_DISABLE_STORE_MEMORY_MUTATION=1`,
+and `FETCH_RF_SEED=<seed>`, then records both
+`crosscheck_manifest.json` and `frontend_fetch_rf_alu_sideband_stats.json`.
+
+The first R630 trial replays the top R617/R621 candidate
+(`skip=1715`, `rows=6`). It produces a 17-register RF seed with one source
+correction and passes the generated-RTL comparator with `compared_rows=3`,
+`mismatch_count=0`, and zero CBSTOP rows. The report still classifies the trial
+as `compare_pass_no_activation` because every required replay-LIQ activation
+counter remains zero, including eligible-store overlap, ResolveQ, MDB fanout,
+LIQ allocation, replay output, and W2 promotion. Use this scanner for broader
+seeded-window searches; do not treat a seeded comparator pass as replay-LIQ
+replacement evidence unless `activation_positive_count > 0`.

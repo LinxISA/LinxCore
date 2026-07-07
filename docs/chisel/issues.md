@@ -17,6 +17,9 @@ Impact:
 - R629 adds an explicit RF seed artifact path and proves the top PC-filter
   generated-RTL replay can pass the neutral comparator when seeded from the
   R621 raw prefix, but replay-LIQ activation counters remain zero.
+- R630 generalizes the seeded raw-window replay into a scanner and confirms the
+  same top window still passes only as launch-state reconstruction:
+  `activation_positive_count=0`.
 
 Evidence:
 
@@ -32,6 +35,8 @@ Evidence:
   reduced GPR seed rows before raw row 1715, including `x1=0x4ffefb70`.
 - `generated/r629-coremark-pc-filter-seeded-trace-replay/report/crosscheck_manifest.json`
   passes with `compared_rows=3`, `mismatch_count=0`, and zero CBSTOP rows.
+- `generated/r630-replay-liq-qemu-seeded-window-scan/report/seeded_window_scan.json`
+  reports one compare-passing seeded trial and zero activation-positive trials.
 
 Current mitigation:
 
@@ -44,6 +49,9 @@ Current mitigation:
 - Do not claim replay-LIQ proof from a seeded comparator pass alone. The next
   CoreMark replay-LIQ activation attempt still needs nonzero eligible-store,
   ResolveQ, MDB, LIQ allocation, replay-output, and row-mutation counters.
+- Use `tools/chisel/scan_replay_liq_qemu_seeded_windows.py` to sweep additional
+  raw dynamic windows with RF seeds before promoting any skipped-window
+  evidence.
 
 ## CHISEL-ISSUE-001: Local JVM/SBT Toolchain Missing
 

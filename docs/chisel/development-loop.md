@@ -110,7 +110,14 @@ R629 trace replay of the top PC filter passes the neutral comparator, proving
 the R626 first-row RF launch mismatch is resolved for that shape. It still has
 zero replay-LIQ activation counters, so the next packet must target a seeded
 window or natural shard that produces eligible-store, ResolveQ, MDB, LIQ, and
-replay-output sideband activity.
+replay-output sideband activity. R630 adds that seeded-window loop as
+`scan_replay_liq_qemu_seeded_windows.py`. The first scanner run replays the top
+R625 raw dynamic window (`skip=1715`, `rows=6`) with a seed built from the R621
+raw prefix, passes the comparator again, and records
+`activation_positive_count=0`; all required eligible-store, ResolveQ, MDB,
+LIQ, replay-output, and W2-promotion counters are still zero. Treat the R630
+tool as the next reusable search surface, not as proof that the top CoreMark
+window activates replay-LIQ.
 
 ## Packet Start Baseline
 
