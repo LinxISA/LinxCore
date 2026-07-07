@@ -15,14 +15,21 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R611 extends the promoted selector-origin CoreMark observation
-to 4096 raw QEMU rows with clean LinxCore/LinxCoreModel/QEMU provenance. The
-generated-RTL/QEMU gate passes with 3369 compared rows, zero mismatches, and
-zero QEMU/DUT CBSTOP rows, but the replay-LIQ sideband counters remain zero
-for natural CoreMark replay activity. Treat R611 as no-regression/audit
-coverage only. Do not keep linearly scaling early CoreMark prefixes as
-replacement proof; the next replay-LIQ owner should either target a later
-direct-boot window that naturally produces returned-load phasing or return to
+Latest packet: R612 adds the QEMU-only replay-LIQ candidate locator
+`tools/chisel/find_replay_liq_qemu_candidates.py` and documents it in
+`docs/chisel/replay-liq-qemu-candidate-locator.md`. It scans QEMU-shaped memory
+rows for same-address/same-line store/load clusters so future agents can pick
+candidate CoreMark windows before spending a Verilator build. The R612
+CoreMark QEMU-only capture
+`generated/r612-coremark-qemu-memory-candidates-16384` reduces 16,250 expected
+rows and finds 94 deduped all-window memory candidates, but no candidates whose
+later memory row is after row 4096; after that boundary the first 16K-row
+prefix is store-only. This is locator evidence only, not replay-LIQ proof.
+R611 remains the latest generated-RTL/QEMU no-regression gate for promoted
+selector-origin CoreMark coverage: 4096 raw QEMU rows, 3369 compared rows,
+zero mismatches, and zero natural replay-LIQ sideband activity. Do not keep
+linearly scaling the same early CoreMark prefix as replacement proof; either
+find a way to jump into a later load-bearing direct-boot interval or return to
 focused replay fixtures for positive retained physical-bundle evidence.
 
 The next Chisel packet should start from the R550 replay-return evidence, not

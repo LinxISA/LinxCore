@@ -11,16 +11,20 @@ compiler/QEMU/Chisel/LinxCoreModel/superproject loop, then use this file with
 history.
 
 The current priority is replay-LIQ retained physical-bundle replacement
-evidence, with a clear separation between positive replay-fixture proof and
-CoreMark no-regression coverage. R571-R574 prove the LRET/W2 clear phasing
-gap; R575-R610 develop the retained retire-record, all-or-none suppression, and
-selector-origin audit path. R611 scales the promoted selector-origin CoreMark
-observation to 4096 raw QEMU rows and passes 3369 compared rows with zero
-mismatches, but natural CoreMark replay-LIQ activity remains zero in that early
-window. The next packet should not linearly scale the same early CoreMark
-prefix for replay-suppress replacement proof; either find a later
-CoreMark/direct-boot window with natural returned-load phasing or return to
-focused replay fixtures for positive retained physical-bundle evidence.
+evidence, with a clear separation between positive replay-fixture proof,
+CoreMark no-regression coverage, and QEMU-only candidate location. R571-R574
+prove the LRET/W2 clear phasing gap; R575-R610 develop the retained
+retire-record, all-or-none suppression, and selector-origin audit path. R611
+scales the promoted selector-origin CoreMark observation to 4096 raw QEMU rows
+and passes 3369 compared rows with zero mismatches, but natural CoreMark
+replay-LIQ activity remains zero in that early window. R612 adds a QEMU-only
+candidate locator and scans 16K CoreMark rows: it finds early same-address
+store/load clusters but no candidates after row 4096 because the later part of
+that prefix is store-only. The next packet should not linearly scale the same
+early CoreMark prefix for replay-suppress replacement proof; either find a
+later load-bearing CoreMark/direct-boot interval, improve interval selection,
+or return to focused replay fixtures for positive retained physical-bundle
+evidence.
 
 ## Packet Start Baseline
 
