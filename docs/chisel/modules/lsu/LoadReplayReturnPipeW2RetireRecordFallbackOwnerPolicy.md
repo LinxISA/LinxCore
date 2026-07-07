@@ -266,6 +266,38 @@ The default path is therefore not blocked by missing retained evidence; it is
 blocked by real physical duplicate ownership. Future promotion work should
 create a real no-physical side-effect source or explicitly redesign ownership.
 
+R597 adds `LoadReplayReturnPipeW2RetireRecordDuplicateVector` as the
+policy-adjacent raw duplicate classifier. It consumes the same unmasked
+duplicate guard outputs as the R596 default-promotion gate and reports whether
+the current physical duplicate block is partial or a same-record model-order
+bundle.
+
+Generated RTL/QEMU duplicate-vector evidence:
+
+```text
+generated/r597-replay-duplicate-vector-xcheck/report/crosscheck_manifest.json
+status=pass compared_rows=18 mismatch_count=0 qemu_cbstop=0 dut_cbstop=0
+
+frontend_fetch_rf_alu_sideband_stats.json schema=v47
+w2_retire_record_default_promotion_record_candidate=5
+w2_retire_record_default_promotion_pre_arm_model_order_ready=5
+w2_retire_record_default_promotion_any_physical_duplicate=5
+w2_retire_record_default_promotion_ready=0
+w2_retire_record_duplicate_vector_valid=5
+w2_retire_record_duplicate_vector_return_side_effect_bundle=5
+w2_retire_record_duplicate_vector_model_order_bundle=5
+w2_retire_record_duplicate_vector_partial=0
+w2_retire_record_duplicate_vector_single=0
+w2_retire_record_duplicate_vector_multi=5
+w2_retire_record_duplicate_vector_count_sum=20
+w2_retire_record_duplicate_vector_next_requires_bundle_transfer=5
+```
+
+The policy remains default-off. The R597 evidence says the next no-physical
+source cannot be scoped to a single side effect; default promotion needs a
+bundle-level ownership transfer or suppression for ROB completion, RF
+writeback, wakeup, and lifecycle clear together.
+
 ## Verification
 
 Focused gates:

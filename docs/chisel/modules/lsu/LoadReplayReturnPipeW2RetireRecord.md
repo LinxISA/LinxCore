@@ -329,6 +329,26 @@ candidate, missing lifecycle evidence, and probe-active blockers are zero. This
 keeps default promotion blocked by real physical W2 ownership in the current
 fixture.
 
+R597 adds `LoadReplayReturnPipeW2RetireRecordDuplicateVector` beside the
+default-promotion readiness gate. The classifier counts the raw duplicate
+classes and reports whether they form the same model-order bundle: ROB
+completion, RF writeback, and wakeup at the model `LDQInfo::returnData`
+boundary, plus lifecycle clear at `LDQInfo::retire`. The generated RTL/QEMU
+default-path comparator at `generated/r597-replay-duplicate-vector-xcheck`
+passes with 18 compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows.
+Sideband schema v47 records `w2_retire_record_duplicate_vector_valid=5`,
+`w2_retire_record_duplicate_vector_return_side_effect_bundle=5`,
+`w2_retire_record_duplicate_vector_model_order_bundle=5`,
+`w2_retire_record_duplicate_vector_partial=0`,
+`w2_retire_record_duplicate_vector_single=0`,
+`w2_retire_record_duplicate_vector_multi=5`,
+`w2_retire_record_duplicate_vector_count_sum=20`, and
+`w2_retire_record_duplicate_vector_next_requires_bundle_transfer=5`.
+`blocked_by_no_record=189` is an idle-cycle diagnostic, while pre-arm-not-ready
+and no-duplicate blockers are zero. The next owner must transfer or suppress
+the whole ROB/RF/wakeup/lifecycle bundle; a single-side-effect fallback is not
+the default-promotion source for this fixture.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -345,9 +365,11 @@ fixture.
   reduced-top live-probe selection under an explicit diagnostic knob. R595
   proves return-before-retire model-order coherence for that explicit live
   probe. R596 names the default-promotion readiness gate and proves the current
-  fixture is blocked by raw physical duplicates. The default retained-owner arm
-  must still stay off until a real no-physical side-effect source or a reviewed
-  default-path promotion design exists.
+  fixture is blocked by raw physical duplicates. R597 classifies those raw
+  duplicates as a full model-order bundle on every valid retained record. The
+  default retained-owner arm must still stay off until a real no-physical
+  side-effect source or a reviewed default-path promotion design transfers the
+  whole bundle.
 
 ## Verification
 

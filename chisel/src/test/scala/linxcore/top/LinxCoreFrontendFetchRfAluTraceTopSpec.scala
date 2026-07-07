@@ -1293,6 +1293,17 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByMissingLifecycleEvidence.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByPhysicalDuplicate.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByProbeActive.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorValid.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorReturnSideEffectBundle.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorModelOrderBundle.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorPartial.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorSingle.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorMulti.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorCount.getWidth == 3)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorNextRequiresBundleTransfer.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorBlockedByNoRecord.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorBlockedByPreArmNotReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorBlockedByNoDuplicate.getWidth == 1)
   }
 
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
@@ -1363,6 +1374,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackEmitProbeActive"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderFallbackOwnerEligible"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionReady"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorModelOrderBundle"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitLifecycleClearCommitEnable"))

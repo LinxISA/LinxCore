@@ -756,6 +756,17 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_default_promotion_blocked_by_missing_lifecycle_evidence = 0;
   std::uint64_t w2_retire_record_default_promotion_blocked_by_physical_duplicate = 0;
   std::uint64_t w2_retire_record_default_promotion_blocked_by_probe_active = 0;
+  std::uint64_t w2_retire_record_duplicate_vector_valid = 0;
+  std::uint64_t w2_retire_record_duplicate_vector_return_side_effect_bundle = 0;
+  std::uint64_t w2_retire_record_duplicate_vector_model_order_bundle = 0;
+  std::uint64_t w2_retire_record_duplicate_vector_partial = 0;
+  std::uint64_t w2_retire_record_duplicate_vector_single = 0;
+  std::uint64_t w2_retire_record_duplicate_vector_multi = 0;
+  std::uint64_t w2_retire_record_duplicate_vector_count_sum = 0;
+  std::uint64_t w2_retire_record_duplicate_vector_next_requires_bundle_transfer = 0;
+  std::uint64_t w2_retire_record_duplicate_vector_blocked_by_no_record = 0;
+  std::uint64_t w2_retire_record_duplicate_vector_blocked_by_pre_arm_not_ready = 0;
+  std::uint64_t w2_retire_record_duplicate_vector_blocked_by_no_duplicate = 0;
   std::uint64_t resolve_queue_push_accepted = 0;
   std::uint64_t resolve_queue_valid = 0;
   std::uint64_t resolve_queue_push_accepted_first_cycle = 0;
@@ -2715,6 +2726,38 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByProbeActive) {
     ++g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_probe_active;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorValid) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_valid;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorReturnSideEffectBundle) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_return_side_effect_bundle;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorModelOrderBundle) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_model_order_bundle;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorPartial) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_partial;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorSingle) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_single;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorMulti) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_multi;
+  }
+  g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_count_sum +=
+    dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorCount;
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorNextRequiresBundleTransfer) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_next_requires_bundle_transfer;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorBlockedByNoRecord) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_blocked_by_no_record;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorBlockedByPreArmNotReady) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_blocked_by_pre_arm_not_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDuplicateVectorBlockedByNoDuplicate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_blocked_by_no_duplicate;
+  }
   if (resolve_queue_push_accepted) {
     ++g_replay_liq_sideband_stats.resolve_queue_push_accepted;
   }
@@ -2881,7 +2924,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v46\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v47\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -4019,6 +4062,29 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_physical_duplicate << ",\n"
       << "    \"w2_retire_record_default_promotion_blocked_by_probe_active\": "
       << g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_probe_active << ",\n"
+      << "    \"w2_retire_record_duplicate_vector_valid\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_valid << ",\n"
+      << "    \"w2_retire_record_duplicate_vector_return_side_effect_bundle\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_return_side_effect_bundle << ",\n"
+      << "    \"w2_retire_record_duplicate_vector_model_order_bundle\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_model_order_bundle << ",\n"
+      << "    \"w2_retire_record_duplicate_vector_partial\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_partial << ",\n"
+      << "    \"w2_retire_record_duplicate_vector_single\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_single << ",\n"
+      << "    \"w2_retire_record_duplicate_vector_multi\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_multi << ",\n"
+      << "    \"w2_retire_record_duplicate_vector_count_sum\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_count_sum << ",\n"
+      << "    \"w2_retire_record_duplicate_vector_next_requires_bundle_transfer\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_next_requires_bundle_transfer
+      << ",\n"
+      << "    \"w2_retire_record_duplicate_vector_blocked_by_no_record\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_blocked_by_no_record << ",\n"
+      << "    \"w2_retire_record_duplicate_vector_blocked_by_pre_arm_not_ready\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_blocked_by_pre_arm_not_ready << ",\n"
+      << "    \"w2_retire_record_duplicate_vector_blocked_by_no_duplicate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_duplicate_vector_blocked_by_no_duplicate << ",\n"
       << "    \"resolve_queue_push_accepted\": "
       << g_replay_liq_sideband_stats.resolve_queue_push_accepted << ",\n"
       << "    \"resolve_queue_valid\": "

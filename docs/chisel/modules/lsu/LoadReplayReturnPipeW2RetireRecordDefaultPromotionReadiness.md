@@ -98,6 +98,20 @@ fixture still proves physical W2 owns the same side effects. The next owner is
 a real no-physical side-effect source or a reviewed default-path ownership
 change.
 
+R597 wires `LoadReplayReturnPipeW2RetireRecordDuplicateVector` to the same
+pre-arm evidence and raw duplicate inputs. The generated RTL/QEMU gate at
+`generated/r597-replay-duplicate-vector-xcheck` passes with 18 compared rows,
+zero mismatches, and zero QEMU/DUT CBSTOP rows. Sideband schema v47 records
+`w2_retire_record_duplicate_vector_valid=5`,
+`w2_retire_record_duplicate_vector_return_side_effect_bundle=5`,
+`w2_retire_record_duplicate_vector_model_order_bundle=5`,
+`w2_retire_record_duplicate_vector_partial=0`,
+`w2_retire_record_duplicate_vector_single=0`,
+`w2_retire_record_duplicate_vector_multi=5`, and
+`w2_retire_record_duplicate_vector_count_sum=20`. This proves the current
+default-promotion blocker is the full model-order physical duplicate bundle,
+not an isolated side-effect duplicate.
+
 ## Verification
 
 Focused gates:
