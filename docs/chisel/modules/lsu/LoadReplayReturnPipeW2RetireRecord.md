@@ -296,6 +296,23 @@ clear-selected counter is tied to the retained lifecycle evidence latch's
 `clearAccepted` proof. This is live-mutation evidence for the reduced diagnostic
 probe, not a default-path retained-owner promotion.
 
+R595 adds `LoadReplayReturnPipeW2RetireRecordModelOrderProof` beside the
+retained fallback owner policy. The proof joins retained ROB/RF/wakeup fallback
+evidence from the model `LDQInfo::returnData` side-effect boundary with retained
+lifecycle evidence from the model `LDQInfo::retire` clear boundary, then reports
+whether the explicit retained owner policy also enables the path. The generated
+RTL/QEMU comparator at
+`generated/r595-replay-retire-record-model-order-proof-xcheck` passes with 18
+compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. Sideband schema
+v45 records `w2_retire_record_model_order_record_candidate=5`,
+`w2_retire_record_model_order_return_side_effects_ready=5`,
+`w2_retire_record_model_order_retire_clear_evidence_ready=5`,
+`w2_retire_record_model_order_return_then_retire_ready=5`,
+`w2_retire_record_model_order_fallback_owner_eligible=5`, and zero missing
+return-side-effect, missing retire-clear-evidence, or owner-disabled blockers.
+This proves model-order coherence for the explicit live-probe path; it is still
+not a default retained-owner promotion.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -309,9 +326,11 @@ probe, not a default-path retained-owner promotion.
 - Retained side-effect fallback promotion after R591 proves a no-physical
   stimulus. R592 proves the owner-policy no-duplicate branch with a boundary
   probe, R593 proves sideband-only fallback output emission, and R594 proves
-  reduced-top live-probe selection under an explicit diagnostic knob. The
-  default retained-owner arm must still stay off until a real no-physical
-  side-effect path or equivalent model-derived ordering proof exists.
+  reduced-top live-probe selection under an explicit diagnostic knob. R595
+  proves return-before-retire model-order coherence for that explicit live
+  probe. The default retained-owner arm must still stay off until a real
+  no-physical side-effect source or a reviewed default-path promotion design
+  exists.
 
 ## Verification
 

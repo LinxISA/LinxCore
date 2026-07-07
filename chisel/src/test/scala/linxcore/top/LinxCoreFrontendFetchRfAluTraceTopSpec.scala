@@ -1266,11 +1266,24 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByPhysicalDuplicate.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyNoPhysicalProbeActive.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackEmitProbeActive.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackLiveProbeActive.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible.getWidth == 1)
     assert(io
       .reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyBlockedByGlobalFallbackDisabled
       .getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRobFallbackLiveCompleteSelected.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackLiveWritebackSelected.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackLiveWakeupSelected.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackLiveClearSelected.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderRecordCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderReturnSideEffectsReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderRetireClearEvidenceReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderReturnThenRetireReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderFallbackOwnerEligible.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByMissingReturnSideEffect.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByMissingRetireClearEvidence.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByOwnerDisabled.getWidth == 1)
   }
 
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
@@ -1339,6 +1352,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicySideEffectEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackEmitProbeActive"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderFallbackOwnerEligible"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitLifecycleClearCommitEnable"))

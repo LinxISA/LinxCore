@@ -13,6 +13,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordModelOrderProof.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-RETIRE-RECORD-FALLBACK-OWNER-001`
 
 ## Purpose
@@ -206,6 +207,34 @@ latch's `clearAccepted` signal, not the raw LIQ clear-accepted wire, so it
 matches the retained-record owner being proved. This remains a reduced-top
 diagnostic live-mutation probe; promotion to the default path still requires a
 real no-physical source or an equivalent model-derived retained-order proof.
+
+R595 adds `LoadReplayReturnPipeW2RetireRecordModelOrderProof` as a
+policy-adjacent diagnostic proof. The proof consumes the policy's
+`sideEffectOwnerEnable` plus the retained ROB/RF/wakeup/lifecycle fallback
+outputs and retained lifecycle evidence. It reports whether the explicit live
+probe has both return-side-effect evidence and later retire-clear evidence,
+matching the model split between `LDQInfo::returnData` and `LDQInfo::retire`.
+
+Generated RTL/QEMU model-order evidence:
+
+```text
+generated/r595-replay-retire-record-model-order-proof-xcheck/report/crosscheck_manifest.json
+status=pass compared_rows=18 mismatch_count=0 qemu_cbstop=0 dut_cbstop=0
+
+frontend_fetch_rf_alu_sideband_stats.json schema=v45
+w2_retire_record_model_order_record_candidate=5
+w2_retire_record_model_order_return_side_effects_ready=5
+w2_retire_record_model_order_retire_clear_evidence_ready=5
+w2_retire_record_model_order_return_then_retire_ready=5
+w2_retire_record_model_order_fallback_owner_eligible=5
+w2_retire_record_model_order_blocked_by_missing_return_side_effect=0
+w2_retire_record_model_order_blocked_by_missing_retire_clear_evidence=0
+w2_retire_record_model_order_blocked_by_owner_disabled=0
+```
+
+This narrows the remaining promotion question from payload/order coherence to
+default-path ownership. The default retained-owner arm still must stay off
+outside explicit reduced-top probes.
 
 ## Verification
 

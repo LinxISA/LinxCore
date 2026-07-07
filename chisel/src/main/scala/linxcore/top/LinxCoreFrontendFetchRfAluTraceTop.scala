@@ -15,6 +15,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordModelOrderProof
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard
@@ -1353,6 +1354,16 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordRfFallbackLiveWritebackSelected = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordWakeupFallbackLiveWakeupSelected = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordLifecycleClearFallbackLiveClearSelected = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderRecordCandidate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderReturnSideEffectsReady = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderRetireClearEvidenceReady = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderReturnThenRetireReady = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderFallbackOwnerEligible = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByMissingReturnSideEffect =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByMissingRetireClearEvidence =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByOwnerDisabled = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable = Output(Bool())
@@ -8154,6 +8165,48 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackLiveSelection
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordModelOrderProofWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      proof: LoadReplayReturnPipeW2RetireRecordModelOrderProof,
+      retireRecord: LoadReplayReturnPipeW2RetireRecord,
+      lifecycleEvidence: LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch,
+      robFallback: LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard,
+      rfFallback: LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard,
+      wakeupFallback: LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard,
+      lifecycleFallback: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
+      ownerPolicy: LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy,
+      enable: Bool,
+      flush: Bool): Unit = {
+    proof.io.enable := enable
+    proof.io.flush := flush
+    proof.io.recordValid := retireRecord.io.recordValid
+    proof.io.robReturnSideEffectValid := robFallback.io.fallbackCompleteValid
+    proof.io.rfReturnSideEffectValid := rfFallback.io.fallbackWritebackValid
+    proof.io.wakeupReturnSideEffectValid := wakeupFallback.io.fallbackWakeupValid
+    proof.io.lifecycleEvidenceProviderValid := lifecycleEvidence.io.providerValid
+    proof.io.lifecycleClearFallbackValid := lifecycleFallback.io.fallbackClearValid
+    proof.io.sideEffectOwnerEnable := ownerPolicy.io.sideEffectOwnerEnable
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderRecordCandidate :=
+      proof.io.recordCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderReturnSideEffectsReady :=
+      proof.io.returnSideEffectsReady
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderRetireClearEvidenceReady :=
+      proof.io.retireClearEvidenceReady
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderReturnThenRetireReady :=
+      proof.io.returnThenRetireReady
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderFallbackOwnerEligible :=
+      proof.io.fallbackOwnerModelOrderEligible
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByMissingReturnSideEffect :=
+      proof.io.blockedByMissingReturnSideEffect
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByMissingRetireClearEvidence :=
+      proof.io.blockedByMissingRetireClearEvidence
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByOwnerDisabled :=
+      proof.io.blockedByOwnerDisabled
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -8239,6 +8292,19 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
       modules.retireRecordWakeupFallbackGuard,
       modules.retireRecordLifecycleClearFallbackGuard,
       fallbackLiveProbeActive
+    )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordModelOrderProofWiring.connect(
+      io,
+      modules.retireRecordModelOrderProof,
+      modules.retireRecord,
+      modules.retireRecordLifecycleEvidence,
+      modules.retireRecordRobCompleteFallbackGuard,
+      modules.retireRecordRfWritebackFallbackGuard,
+      modules.retireRecordWakeupFallbackGuard,
+      modules.retireRecordLifecycleClearFallbackGuard,
+      modules.retireRecordFallbackOwnerPolicy,
+      enable,
+      flush
     )
   }
 }
@@ -9135,6 +9201,7 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     retireRecordLifecycleEvidence: LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch,
     retireRecordLifecycleClearFallbackGuard: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
     retireRecordFallbackOwnerPolicy: LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy,
+    retireRecordModelOrderProof: LoadReplayReturnPipeW2RetireRecordModelOrderProof,
     retireRecordAtomicRequestProbe: LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe,
     retireRecordLifecycleRequestProbe: LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe,
     retireRecordRowFillEnableControl: LoadReplayReturnPipeW2RetireRecordRowFillEnableControl,
@@ -9266,6 +9333,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
         Module(new LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard(liqEntries = p.robEntries)),
       retireRecordFallbackOwnerPolicy =
         Module(new LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy),
+      retireRecordModelOrderProof =
+        Module(new LoadReplayReturnPipeW2RetireRecordModelOrderProof),
       retireRecordAtomicRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe),
       retireRecordLifecycleRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe),
       retireRecordRowFillEnableControl = Module(new LoadReplayReturnPipeW2RetireRecordRowFillEnableControl),
