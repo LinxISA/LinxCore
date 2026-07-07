@@ -697,3 +697,42 @@ counter remains zero, including eligible-store overlap, ResolveQ, MDB fanout,
 LIQ allocation, replay output, and W2 promotion. Use this scanner for broader
 seeded-window searches; do not treat a seeded comparator pass as replay-LIQ
 replacement evidence unless `activation_positive_count > 0`.
+
+## R631 Resumed Seeded-Window Sweep
+
+R631 adds `--skip-windows <n>` to
+`tools/chisel/scan_replay_liq_qemu_seeded_windows.py` so an agent can resume
+after already-classified eligible windows:
+
+```bash
+python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
+  --build-dir generated/r631-replay-liq-qemu-seeded-window-scan-next3 \
+  --skip-windows 1 \
+  --max-trials 3 \
+  --max-capture-rows 32 \
+  --wrapper-timeout-seconds 420
+```
+
+The resumed sweep covers the next three small R625 windows after the R630 top
+case. `generated/r631-replay-liq-qemu-seeded-window-scan-next3/report/seeded_window_scan.json`
+records `activation_positive_count=0` and `compare_pass_count=2`. Window 1
+(`skip=1591`, `rows=29`) fails before manifest generation because the expected
+rows require conflicting initial RF data for `reg=1`. A focused rerun with the
+updated classifier:
+
+```bash
+python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
+  --build-dir generated/r631-replay-liq-qemu-seeded-window-rf-conflict \
+  --skip-windows 1 \
+  --max-trials 1 \
+  --max-capture-rows 32 \
+  --wrapper-timeout-seconds 420
+```
+
+reports `status="rf_source_conflict"` for that window. Windows 2 and 3
+(`skip=1659`, `rows=14`; `skip=1660`, `rows=19`) pass the generated-RTL
+comparator with 12 and 15 compared rows, zero mismatches, and zero CBSTOP rows,
+but all required replay-LIQ activation counters remain zero. The next seeded
+search should start at `--skip-windows 4` or deliberately include larger
+capture windows; the first four eligible R625 windows are not replay-LIQ
+activation proof.

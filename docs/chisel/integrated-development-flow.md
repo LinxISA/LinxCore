@@ -15,7 +15,24 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R630 adds
+Latest packet: R631 extends the seeded raw-window scanner with
+`--skip-windows` so future agents can resume sweeps after already-classified
+candidate windows. It scans the next three small R625 windows after the R630
+top case with
+`generated/r631-replay-liq-qemu-seeded-window-scan-next3/report/seeded_window_scan.json`:
+window 1 (`skip=1591`, `rows=29`) is an illegal single-launch shape because
+the reduced expected stream requires conflicting initial RF data for `reg=1`;
+the sharper rerun at
+`generated/r631-replay-liq-qemu-seeded-window-rf-conflict/report/seeded_window_scan.json`
+classifies it as `rf_source_conflict`. Windows 2 and 3 (`skip=1659`, `rows=14`
+and `skip=1660`, `rows=19`) pass the generated-RTL comparator with 12 and 15
+compared rows respectively, zero mismatches, and zero CBSTOP rows, but all
+required replay-LIQ activation counters remain zero. The next packet should
+continue with `--skip-windows 4` or a larger `--max-capture-rows` only after
+choosing candidates likely to produce live eligible-store overlap; the first
+four eligible R625 windows now provide no replay-LIQ activation proof.
+
+R630 adds
 `tools/chisel/scan_replay_liq_qemu_seeded_windows.py`, a generated-RTL
 orchestrator for raw QEMU candidate windows that need checkpoint-style RF
 state. The scanner consumes the R625 raw dynamic-window hints, builds a reduced

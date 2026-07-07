@@ -20,6 +20,9 @@ Impact:
 - R630 generalizes the seeded raw-window replay into a scanner and confirms the
   same top window still passes only as launch-state reconstruction:
   `activation_positive_count=0`.
+- R631 scans the next three small seeded windows. One is illegal because the
+  expected rows require conflicting initial RF data, and two pass the
+  comparator with zero replay-LIQ activation counters.
 
 Evidence:
 
@@ -37,6 +40,11 @@ Evidence:
   passes with `compared_rows=3`, `mismatch_count=0`, and zero CBSTOP rows.
 - `generated/r630-replay-liq-qemu-seeded-window-scan/report/seeded_window_scan.json`
   reports one compare-passing seeded trial and zero activation-positive trials.
+- `generated/r631-replay-liq-qemu-seeded-window-rf-conflict/report/seeded_window_scan.json`
+  classifies `skip=1591, rows=29` as `rf_source_conflict`.
+- `generated/r631-replay-liq-qemu-seeded-window-scan-next3/report/seeded_window_scan.json`
+  reports two compare-passing later windows and zero activation-positive
+  trials.
 
 Current mitigation:
 
@@ -52,6 +60,8 @@ Current mitigation:
 - Use `tools/chisel/scan_replay_liq_qemu_seeded_windows.py` to sweep additional
   raw dynamic windows with RF seeds before promoting any skipped-window
   evidence.
+- Resume the current small-window sweep from `--skip-windows 4`; the first four
+  eligible R625 windows have no replay-LIQ activation proof.
 
 ## CHISEL-ISSUE-001: Local JVM/SBT Toolchain Missing
 

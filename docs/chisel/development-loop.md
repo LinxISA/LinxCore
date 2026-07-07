@@ -117,7 +117,14 @@ raw prefix, passes the comparator again, and records
 `activation_positive_count=0`; all required eligible-store, ResolveQ, MDB,
 LIQ, replay-output, and W2-promotion counters are still zero. Treat the R630
 tool as the next reusable search surface, not as proof that the top CoreMark
-window activates replay-LIQ.
+window activates replay-LIQ. R631 adds `--skip-windows` to that scanner and
+sweeps the next three small R625 windows after the top case. Window 1 is
+classified as `rf_source_conflict` because the expected stream requires
+conflicting initial RF data for `reg=1`; windows 2 and 3 pass the comparator
+with 12 and 15 compared rows but still have zero activation-positive replay-LIQ
+counters. Continue the seeded search from `--skip-windows 4`, or raise
+`--max-capture-rows` for larger candidates, but do not treat the first four
+eligible windows as replacement evidence.
 
 ## Packet Start Baseline
 

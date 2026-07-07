@@ -89,12 +89,19 @@ def write_window_slice(source: Path, output: Path, *, start: int, count: int) ->
     return len(selected)
 
 
-def candidate_windows(report: dict[str, Any], *, max_trials: int, max_capture_rows: int) -> list[dict[str, Any]]:
+def candidate_windows(
+    report: dict[str, Any],
+    *,
+    skip_windows: int,
+    max_trials: int,
+    max_capture_rows: int,
+) -> list[dict[str, Any]]:
     raw_candidates = report.get("top_candidates")
     if not isinstance(raw_candidates, list):
         return []
-    windows: list[dict[str, Any]] = []
+    selected: list[dict[str, Any]] = []
     seen: set[tuple[int, int]] = set()
+    eligible_index = 0
     for candidate in raw_candidates:
         if not isinstance(candidate, dict):
             continue
@@ -109,9 +116,12 @@ def candidate_windows(report: dict[str, Any], *, max_trials: int, max_capture_ro
         if key in seen:
             continue
         seen.add(key)
-        windows.append(
+        if eligible_index < skip_windows:
+            eligible_index += 1
+            continue
+        selected.append(
             {
-                "index": len(windows),
+                "index": eligible_index,
                 "kind": candidate.get("kind"),
                 "exact_overlap": candidate.get("exact_overlap"),
                 "score": candidate.get("score"),
@@ -123,9 +133,10 @@ def candidate_windows(report: dict[str, Any], *, max_trials: int, max_capture_ro
                 "raw_dynamic_window": hint,
             }
         )
-        if len(windows) >= max_trials:
+        eligible_index += 1
+        if len(selected) >= max_trials:
             break
-    return windows
+    return selected
 
 
 def manifest_pass(summary: dict[str, Any]) -> bool:
@@ -239,12 +250,16 @@ def run_window(args: argparse.Namespace, window: dict[str, Any], all_rows: list[
     sideband = sideband_summary(report_dir / "frontend_fetch_rf_alu_sideband_stats.json")
     comparator_pass = manifest_pass(manifest)
     activation_positive = comparator_pass and sideband.get("activation_positive") is True
+    rf_conflict = "expected rows require conflicting initial RF data" in stderr
     if activation_positive:
         status = "activation_positive"
         reason = "generated RTL comparator passed and all required replay-LIQ activation counters were nonzero"
     elif comparator_pass:
         status = "compare_pass_no_activation"
         reason = "generated RTL comparator passed, but replay-LIQ activation counters were not all nonzero"
+    elif rf_conflict:
+        status = "rf_source_conflict"
+        reason = "reduced expected rows require conflicting initial RF source data inside one seeded launch window"
     elif timed_out:
         status = "timeout"
         reason = "generated RTL wrapper timed out"
@@ -290,6 +305,7 @@ def build_report(args: argparse.Namespace, windows: list[dict[str, Any]], trials
             "input_raw": str(args.input_raw),
             "elf": str(args.elf),
             "build_dir": str(args.build_dir),
+            "skip_windows": args.skip_windows,
             "max_trials": args.max_trials,
             "max_capture_rows": args.max_capture_rows,
             "early_sta_address": args.early_sta_address,
@@ -364,6 +380,7 @@ def validate_report(report: dict[str, Any]) -> list[str]:
         if trial.get("status") not in {
             "activation_positive",
             "compare_pass_no_activation",
+            "rf_source_conflict",
             "timeout",
             "wrapper_failed",
         }:
@@ -443,6 +460,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--elf", type=Path, default=DEFAULT_ELF)
     parser.add_argument("--build-dir", type=Path, default=DEFAULT_BUILD_DIR)
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument(
+        "--skip-windows",
+        type=int,
+        default=0,
+        help="skip this many eligible candidate windows before running trials",
+    )
     parser.add_argument("--max-trials", type=int, default=1)
     parser.add_argument("--max-capture-rows", type=int, default=160)
     parser.add_argument("--max-arch-reg", type=int, default=24)
@@ -455,6 +478,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.output is None:
         args.output = args.build_dir / "report/seeded_window_scan.json"
+    if args.skip_windows < 0:
+        raise SystemExit("error: --skip-windows must be non-negative")
     if args.max_trials <= 0:
         raise SystemExit("error: --max-trials must be positive")
     if args.max_capture_rows <= 0:
@@ -488,6 +513,7 @@ def main(argv: list[str]) -> int:
     candidate_report = load_json(args.candidates)
     windows = candidate_windows(
         candidate_report,
+        skip_windows=args.skip_windows,
         max_trials=args.max_trials,
         max_capture_rows=args.max_capture_rows,
     )
