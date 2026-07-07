@@ -76,6 +76,16 @@ artifacts, finds 17 activation-positive focused/synthetic artifacts, and finds
 zero CoreMark activation-positive artifacts. Use this scanner after each
 natural workload run to avoid confusing focused fixture progress with CoreMark
 replacement evidence.
+R625 expands the unskipped CoreMark candidate report to 100 entries and
+packages a natural activation probe plan with
+`build_replay_liq_natural_activation_probe_plan.py`: QEMU has 91 candidate
+address clusters and 12 narrow exact store-before-load candidates, but the
+known top PC filter is empty and three sampled untried narrow filters are empty
+or illegal reduced prefixes. Do not spend Verilator on those PC filters. The
+next owner should either add checkpoint/state replay for skipped raw windows,
+construct a legal natural workload shard that reaches eligible-store overlap
+from reset, or find a PC-filter preflight that passes exact memory-PC guards
+and reduced-row extraction.
 
 ## Packet Start Baseline
 

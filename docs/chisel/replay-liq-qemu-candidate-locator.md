@@ -489,3 +489,34 @@ proof. After each CoreMark or natural generated-RTL run, rerun the scanner and
 promote only artifacts whose workload class is CoreMark/natural and whose
 eligible-store, ResolveQ, MDB, LIQ, replay-output, and W2-promotion counters
 are all nonzero.
+
+## R625 Natural Activation Probe Plan
+
+R625 expands the unskipped CoreMark candidate handoff and records why the
+current PC-filter surfaces should stay out of Verilator:
+
+```bash
+python3 tools/chisel/find_replay_liq_qemu_candidates.py \
+  --input generated/r621-coremark-unskipped-1721-qemu-preflight/traces/qemu.live.expected.preview.jsonl \
+  --raw-input generated/r621-coremark-unskipped-1721-qemu-preflight/traces/qemu.live.raw.jsonl \
+  --output generated/r625-coremark-unskipped-1721-qemu-candidates-top100/report/replay_liq_qemu_candidates.json \
+  --top 100 \
+  --lookback-rows 1024
+python3 tools/chisel/build_replay_liq_natural_activation_probe_plan.py
+python3 tools/chisel/build_replay_liq_natural_activation_probe_plan.py \
+  --validate-only generated/r625-replay-liq-natural-activation-probe-plan/report/replay_liq_natural_activation_probe_plan.json
+```
+
+The expanded report has 91 candidates and 12 narrow exact store-before-load
+candidates. The known top candidate PC filter remains blocked by R620
+(`pc_filter_status=empty`). R625 samples three more narrow PC filters:
+`0x400055f2..0x40005645` is empty, while `0x40005682..0x40005701` and
+`0x400055b6..0x40005601` each capture 32 QEMU rows but fail reduced-row
+extraction before a legal expected preview is produced. Treat those PC filters
+as blocked launch shapes.
+
+The next natural-workload proof path must not rerun Verilator on blocked PC
+filters. It needs one of: checkpoint/state replay for skipped raw windows, a
+legal natural workload shard whose unskipped prefix reaches eligible-store
+overlap from reset, or a QEMU-only PC-filter preflight that first passes both
+reduced-row extraction and exact memory-PC guards.

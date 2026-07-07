@@ -15,7 +15,24 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R624 adds
+Latest packet: R625 adds
+`tools/chisel/build_replay_liq_natural_activation_probe_plan.py`, expands the
+R621 CoreMark candidate report to 100 entries, and records three additional
+QEMU-only PC-filter preflights. The report at
+`generated/r625-replay-liq-natural-activation-probe-plan/report/replay_liq_natural_activation_probe_plan.json`
+confirms the natural-workload gap is now a launch-shape problem, not lack of
+QEMU memory candidates: the expanded unskipped prefix has 91 candidates and 12
+narrow exact store-before-load candidates, but the known top candidate PC
+filter remains `empty`, one sampled narrow filter is also `empty`, and two
+sampled narrow filters produce QEMU rows but fail reduced-row extraction
+because the filtered stream lacks required local source state. Generated RTL
+therefore remains blocked for these CoreMark PC filters. The next viable paths
+are checkpoint/state replay for skipped raw windows, a legal natural workload
+or benchmark shard whose unskipped prefix reaches eligible-store overlap, or a
+new PC-filtered QEMU-only preflight that produces a legal reduced preview with
+the exact expected memory PCs.
+
+R624 adds
 `tools/chisel/scan_replay_liq_activation_artifacts.py`, a cheap generated
 artifact scanner for replay-LIQ activation coverage. The current local report
 at
