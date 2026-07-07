@@ -14,6 +14,7 @@
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard.scala`
   - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordModelOrderProof.scala`
+  - `rtl/LinxCore/chisel/src/main/scala/linxcore/lsu/LoadReplayReturnPipeW2RetireRecordDefaultPromotionReadiness.scala`
 - Contract IDs: `LC-CHISEL-LSU-REPLAY-PIPE-W2-RETIRE-RECORD-FALLBACK-OWNER-001`
 
 ## Purpose
@@ -235,6 +236,35 @@ w2_retire_record_model_order_blocked_by_owner_disabled=0
 This narrows the remaining promotion question from payload/order coherence to
 default-path ownership. The default retained-owner arm still must stay off
 outside explicit reduced-top probes.
+
+R596 adds `LoadReplayReturnPipeW2RetireRecordDefaultPromotionReadiness` as the
+policy-adjacent pre-arm gate for a future default retained-owner path. Unlike
+the policy input duplicate signals under probes, this gate consumes raw
+unmasked duplicate outputs from the four fallback guards and separately blocks
+probe-active observations.
+
+Generated RTL/QEMU default-path evidence:
+
+```text
+generated/r596-replay-default-promotion-readiness-xcheck/report/crosscheck_manifest.json
+status=pass compared_rows=18 mismatch_count=0 qemu_cbstop=0 dut_cbstop=0
+
+frontend_fetch_rf_alu_sideband_stats.json schema=v46
+w2_retire_record_fallback_owner_policy_candidate=5
+w2_retire_record_fallback_owner_policy_all_candidates_ready=5
+w2_retire_record_fallback_owner_policy_blocked_by_physical_duplicate=5
+w2_retire_record_fallback_owner_policy_side_effect_enable=0
+w2_retire_record_default_promotion_record_candidate=5
+w2_retire_record_default_promotion_pre_arm_model_order_ready=5
+w2_retire_record_default_promotion_any_physical_duplicate=5
+w2_retire_record_default_promotion_ready=0
+w2_retire_record_default_promotion_blocked_by_physical_duplicate=5
+w2_retire_record_default_promotion_blocked_by_probe_active=0
+```
+
+The default path is therefore not blocked by missing retained evidence; it is
+blocked by real physical duplicate ownership. Future promotion work should
+create a real no-physical side-effect source or explicitly redesign ownership.
 
 ## Verification
 

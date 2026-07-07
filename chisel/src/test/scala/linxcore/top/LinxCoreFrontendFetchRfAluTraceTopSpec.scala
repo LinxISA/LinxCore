@@ -1284,6 +1284,15 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByMissingReturnSideEffect.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByMissingRetireClearEvidence.getWidth == 1)
     assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByOwnerDisabled.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionRecordCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionPreArmModelOrderReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionAnyPhysicalDuplicate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionReady.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByNoRecord.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByMissingFallbackCandidate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByMissingLifecycleEvidence.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByPhysicalDuplicate.getWidth == 1)
+    assert(io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByProbeActive.getWidth == 1)
   }
 
   test("R371 replay W2 replay-row lifecycle commit permit diagnostics have stable widths") {
@@ -1353,6 +1362,7 @@ class LinxCoreFrontendFetchRfAluTraceTopSpec extends AnyFunSuite {
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyRetainedSoleOwnerEligible"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordFallbackOwnerPolicyFallbackEmitProbeActive"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderFallbackOwnerEligible"))
+    assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleReady"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable"))
     assert(sv.contains("io_reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleCommitPermitLifecycleClearCommitEnable"))

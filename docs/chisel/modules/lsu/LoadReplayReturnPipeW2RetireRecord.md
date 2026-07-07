@@ -313,6 +313,22 @@ return-side-effect, missing retire-clear-evidence, or owner-disabled blockers.
 This proves model-order coherence for the explicit live-probe path; it is still
 not a default retained-owner promotion.
 
+R596 adds `LoadReplayReturnPipeW2RetireRecordDefaultPromotionReadiness` as the
+pre-arm default-promotion gate. It combines the owner-policy candidate join,
+retained lifecycle evidence, raw unmasked physical duplicate outputs from the
+four fallback guards, and an explicit probe-active blocker. The generated
+RTL/QEMU default-path comparator at
+`generated/r596-replay-default-promotion-readiness-xcheck` passes with 18
+compared rows, zero mismatches, and zero QEMU/DUT CBSTOP rows. Sideband schema
+v46 records `w2_retire_record_default_promotion_record_candidate=5`,
+`w2_retire_record_default_promotion_pre_arm_model_order_ready=5`,
+`w2_retire_record_default_promotion_any_physical_duplicate=5`,
+`w2_retire_record_default_promotion_ready=0`, and
+`w2_retire_record_default_promotion_blocked_by_physical_duplicate=5`. Missing
+candidate, missing lifecycle evidence, and probe-active blockers are zero. This
+keeps default promotion blocked by real physical W2 ownership in the current
+fixture.
+
 ## Deferred Owners
 
 - Promotion from diagnostic lifecycle match to a gated live clear/consume path
@@ -328,9 +344,10 @@ not a default retained-owner promotion.
   probe, R593 proves sideband-only fallback output emission, and R594 proves
   reduced-top live-probe selection under an explicit diagnostic knob. R595
   proves return-before-retire model-order coherence for that explicit live
-  probe. The default retained-owner arm must still stay off until a real
-  no-physical side-effect source or a reviewed default-path promotion design
-  exists.
+  probe. R596 names the default-promotion readiness gate and proves the current
+  fixture is blocked by raw physical duplicates. The default retained-owner arm
+  must still stay off until a real no-physical side-effect source or a reviewed
+  default-path promotion design exists.
 
 ## Verification
 

@@ -14,6 +14,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRowFillEnableControl
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordDefaultPromotionReadiness
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordModelOrderProof
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
@@ -1364,6 +1365,18 @@ class LinxCoreFrontendFetchRfAluTraceTopIO(
   val reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByMissingRetireClearEvidence =
     Output(Bool())
   val reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByOwnerDisabled = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionRecordCandidate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionPreArmModelOrderReady = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionAnyPhysicalDuplicate = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionReady = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByNoRecord = Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByMissingFallbackCandidate =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByMissingLifecycleEvidence =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByPhysicalDuplicate =
+    Output(Bool())
+  val reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByProbeActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlActive = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlRequestCandidate = Output(Bool())
   val reducedLoadReplayLiqLretPipeW2ReplayRowLifecycleRequestControlLifecycleClearRequestEnable = Output(Bool())
@@ -8207,6 +8220,52 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordModelOrderProofWi
   }
 }
 
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordDefaultPromotionReadinessWiring {
+  def connect(
+      io: LinxCoreFrontendFetchRfAluTraceTopIO,
+      readiness: LoadReplayReturnPipeW2RetireRecordDefaultPromotionReadiness,
+      retireRecord: LoadReplayReturnPipeW2RetireRecord,
+      lifecycleEvidence: LoadReplayReturnPipeW2RetireRecordLifecycleEvidenceLatch,
+      ownerPolicy: LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy,
+      robFallback: LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard,
+      rfFallback: LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard,
+      wakeupFallback: LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard,
+      lifecycleFallback: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
+      probeActive: Bool,
+      enable: Bool,
+      flush: Bool): Unit = {
+    readiness.io.enable := enable
+    readiness.io.flush := flush
+    readiness.io.recordValid := retireRecord.io.recordValid
+    readiness.io.fallbackCandidatesReady := ownerPolicy.io.allFallbackCandidatesReady
+    readiness.io.lifecycleEvidenceProviderValid := lifecycleEvidence.io.providerValid
+    readiness.io.robDuplicatePhysicalComplete := robFallback.io.duplicatePhysicalComplete
+    readiness.io.rfDuplicatePhysicalWriteback := rfFallback.io.duplicatePhysicalWriteback
+    readiness.io.wakeupDuplicatePhysicalWakeup := wakeupFallback.io.duplicatePhysicalWakeup
+    readiness.io.lifecycleClearDuplicatePhysicalClear := lifecycleFallback.io.duplicatePhysicalClear
+    readiness.io.probeActive := probeActive
+
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionRecordCandidate :=
+      readiness.io.recordCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionPreArmModelOrderReady :=
+      readiness.io.preArmModelOrderReady
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionAnyPhysicalDuplicate :=
+      readiness.io.anyPhysicalDuplicate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionReady :=
+      readiness.io.defaultPromotionReady
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByNoRecord :=
+      readiness.io.blockedByNoRecord
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByMissingFallbackCandidate :=
+      readiness.io.blockedByMissingFallbackCandidate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByMissingLifecycleEvidence :=
+      readiness.io.blockedByMissingLifecycleEvidence
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByPhysicalDuplicate :=
+      readiness.io.blockedByPhysicalDuplicate
+    io.reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByProbeActive :=
+      readiness.io.blockedByProbeActive
+  }
+}
+
 private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
@@ -8303,6 +8362,20 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
       modules.retireRecordWakeupFallbackGuard,
       modules.retireRecordLifecycleClearFallbackGuard,
       modules.retireRecordFallbackOwnerPolicy,
+      enable,
+      flush
+    )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordDefaultPromotionReadinessWiring.connect(
+      io,
+      modules.retireRecordDefaultPromotionReadiness,
+      modules.retireRecord,
+      modules.retireRecordLifecycleEvidence,
+      modules.retireRecordFallbackOwnerPolicy,
+      modules.retireRecordRobCompleteFallbackGuard,
+      modules.retireRecordRfWritebackFallbackGuard,
+      modules.retireRecordWakeupFallbackGuard,
+      modules.retireRecordLifecycleClearFallbackGuard,
+      noPhysicalProbe || fallbackProbe,
       enable,
       flush
     )
@@ -9202,6 +9275,7 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     retireRecordLifecycleClearFallbackGuard: LoadReplayReturnPipeW2RetireRecordLifecycleClearFallbackGuard,
     retireRecordFallbackOwnerPolicy: LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy,
     retireRecordModelOrderProof: LoadReplayReturnPipeW2RetireRecordModelOrderProof,
+    retireRecordDefaultPromotionReadiness: LoadReplayReturnPipeW2RetireRecordDefaultPromotionReadiness,
     retireRecordAtomicRequestProbe: LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe,
     retireRecordLifecycleRequestProbe: LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe,
     retireRecordRowFillEnableControl: LoadReplayReturnPipeW2RetireRecordRowFillEnableControl,
@@ -9335,6 +9409,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
         Module(new LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy),
       retireRecordModelOrderProof =
         Module(new LoadReplayReturnPipeW2RetireRecordModelOrderProof),
+      retireRecordDefaultPromotionReadiness =
+        Module(new LoadReplayReturnPipeW2RetireRecordDefaultPromotionReadiness),
       retireRecordAtomicRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordAtomicRequestProbe),
       retireRecordLifecycleRequestProbe = Module(new LoadReplayReturnPipeW2RetireRecordLifecycleRequestProbe),
       retireRecordRowFillEnableControl = Module(new LoadReplayReturnPipeW2RetireRecordRowFillEnableControl),

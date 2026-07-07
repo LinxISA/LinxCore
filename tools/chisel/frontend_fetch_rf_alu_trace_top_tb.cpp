@@ -747,6 +747,15 @@ struct ReplayLiqSidebandStats {
   std::uint64_t w2_retire_record_model_order_blocked_by_missing_return_side_effect = 0;
   std::uint64_t w2_retire_record_model_order_blocked_by_missing_retire_clear_evidence = 0;
   std::uint64_t w2_retire_record_model_order_blocked_by_owner_disabled = 0;
+  std::uint64_t w2_retire_record_default_promotion_record_candidate = 0;
+  std::uint64_t w2_retire_record_default_promotion_pre_arm_model_order_ready = 0;
+  std::uint64_t w2_retire_record_default_promotion_any_physical_duplicate = 0;
+  std::uint64_t w2_retire_record_default_promotion_ready = 0;
+  std::uint64_t w2_retire_record_default_promotion_blocked_by_no_record = 0;
+  std::uint64_t w2_retire_record_default_promotion_blocked_by_missing_fallback_candidate = 0;
+  std::uint64_t w2_retire_record_default_promotion_blocked_by_missing_lifecycle_evidence = 0;
+  std::uint64_t w2_retire_record_default_promotion_blocked_by_physical_duplicate = 0;
+  std::uint64_t w2_retire_record_default_promotion_blocked_by_probe_active = 0;
   std::uint64_t resolve_queue_push_accepted = 0;
   std::uint64_t resolve_queue_valid = 0;
   std::uint64_t resolve_queue_push_accepted_first_cycle = 0;
@@ -2679,6 +2688,33 @@ void observe_replay_liq_sideband(const VLinxCoreFrontendFetchRfAluTraceTop &dut)
   if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordModelOrderBlockedByOwnerDisabled) {
     ++g_replay_liq_sideband_stats.w2_retire_record_model_order_blocked_by_owner_disabled;
   }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionRecordCandidate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_default_promotion_record_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionPreArmModelOrderReady) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_default_promotion_pre_arm_model_order_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionAnyPhysicalDuplicate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_default_promotion_any_physical_duplicate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionReady) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_default_promotion_ready;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByNoRecord) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_no_record;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByMissingFallbackCandidate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_missing_fallback_candidate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByMissingLifecycleEvidence) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_missing_lifecycle_evidence;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByPhysicalDuplicate) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_physical_duplicate;
+  }
+  if (dut.io_reducedLoadReplayLiqLretPipeW2RetireRecordDefaultPromotionBlockedByProbeActive) {
+    ++g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_probe_active;
+  }
   if (resolve_queue_push_accepted) {
     ++g_replay_liq_sideband_stats.resolve_queue_push_accepted;
   }
@@ -2845,7 +2881,7 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
     return false;
   }
   out << "{\n"
-      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v45\",\n"
+      << "  \"schema\": \"linxcore.frontend_fetch_rf_alu.sideband_stats.v46\",\n"
 #if defined(LINXCORE_REDUCED_STORE_REPLAY_LIQ_TRACE_TOP)
       << "  \"reduced_store_replay_liq_top\": true,\n"
 #else
@@ -3963,6 +3999,26 @@ bool write_replay_liq_sideband_stats(const std::string &path) {
       << ",\n"
       << "    \"w2_retire_record_model_order_blocked_by_owner_disabled\": "
       << g_replay_liq_sideband_stats.w2_retire_record_model_order_blocked_by_owner_disabled << ",\n"
+      << "    \"w2_retire_record_default_promotion_record_candidate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_default_promotion_record_candidate << ",\n"
+      << "    \"w2_retire_record_default_promotion_pre_arm_model_order_ready\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_default_promotion_pre_arm_model_order_ready << ",\n"
+      << "    \"w2_retire_record_default_promotion_any_physical_duplicate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_default_promotion_any_physical_duplicate << ",\n"
+      << "    \"w2_retire_record_default_promotion_ready\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_default_promotion_ready << ",\n"
+      << "    \"w2_retire_record_default_promotion_blocked_by_no_record\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_no_record << ",\n"
+      << "    \"w2_retire_record_default_promotion_blocked_by_missing_fallback_candidate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_missing_fallback_candidate
+      << ",\n"
+      << "    \"w2_retire_record_default_promotion_blocked_by_missing_lifecycle_evidence\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_missing_lifecycle_evidence
+      << ",\n"
+      << "    \"w2_retire_record_default_promotion_blocked_by_physical_duplicate\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_physical_duplicate << ",\n"
+      << "    \"w2_retire_record_default_promotion_blocked_by_probe_active\": "
+      << g_replay_liq_sideband_stats.w2_retire_record_default_promotion_blocked_by_probe_active << ",\n"
       << "    \"resolve_queue_push_accepted\": "
       << g_replay_liq_sideband_stats.resolve_queue_push_accepted << ",\n"
       << "    \"resolve_queue_valid\": "
