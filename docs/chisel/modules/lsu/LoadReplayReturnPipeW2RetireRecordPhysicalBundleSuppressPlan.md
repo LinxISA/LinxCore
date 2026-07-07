@@ -148,6 +148,11 @@ The five valid transfer cycles each drive mask `0xf`, giving a mask sum of
 
 ## Next Owner
 
-The next owner may turn this diagnostic plan into a live physical-bundle
-suppression or transfer only if it consumes the whole bundle atomically. Do not
+R600 adds
+`LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe`, a default-off
+sideband owner that proves the R599 all-or-none mask can be selected under an
+explicit physical-suppression probe. Live physical suppression is still
+deferred. The next live owner must add a non-circular timing or ownership
+boundary before consuming the mask; do not feed the current-cycle mask back
+into the same duplicate guards that produce the R599 evidence, and do not
 enable one retained side effect independently.
