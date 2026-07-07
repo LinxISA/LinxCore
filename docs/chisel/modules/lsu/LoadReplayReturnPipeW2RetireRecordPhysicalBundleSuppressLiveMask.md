@@ -83,6 +83,15 @@ The reduced top wires each bit to a live consumer boundary:
 The current-cycle duplicate detectors remain unchanged, so R599-R603 evidence is
 not made circular.
 
+R608 inserts
+`LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressSelect` ahead of the
+registered boundary. The selector keeps the R600 diagnostic probe path intact,
+but also allows `LINXCORE_REPLAY_LIQ_RETAINED_OWNER_PHYSICAL_SUPPRESS_PROMOTE=1`
+to feed the same R601/R603/R604 boundary from the R599 full-bundle plan while
+`LINXCORE_REPLAY_LIQ_RETAINED_OWNER_PHYSICAL_SUPPRESS_PROBE` remains disabled.
+The live mask still consumes only the carried ownership-qualified registered
+candidate and still emits only `0x0` or `0xf`.
+
 ## Verification
 
 Focused module gate:

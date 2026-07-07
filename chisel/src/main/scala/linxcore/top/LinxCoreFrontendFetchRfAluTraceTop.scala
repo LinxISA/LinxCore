@@ -26,6 +26,7 @@ import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressIden
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressOwnershipBoundary
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressLiveMask
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressClearProof
+import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressSelect
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRobCompleteFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordRfWritebackFallbackGuard
 import linxcore.lsu.LoadReplayReturnPipeW2RetireRecordWakeupFallbackGuard
@@ -2156,6 +2157,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     val reducedReplayLiqRetainedOwnerFallbackEmitProbe: Boolean = false,
     val reducedReplayLiqRetainedOwnerFallbackLiveProbe: Boolean = false,
     val reducedReplayLiqRetainedOwnerPhysicalSuppressProbe: Boolean = false,
+    val reducedReplayLiqRetainedOwnerPhysicalSuppressPromote: Boolean = false,
     val reducedReplayLiqRetainedOwnerPhysicalSuppressLiveMask: Boolean = false)
     extends Module {
   require(physRegs > 0 && (physRegs & (physRegs - 1)) == 0, "physical register count must be a power of two")
@@ -4324,6 +4326,7 @@ class LinxCoreFrontendFetchRfAluTraceTop(
     reducedReplayLiqRetainedOwnerFallbackLiveProbe.B,
     reducedReplayLiqRetainedOwnerFallbackLiveProbeActive,
     reducedReplayLiqRetainedOwnerPhysicalSuppressProbe.B,
+    reducedReplayLiqRetainedOwnerPhysicalSuppressPromote.B,
     reducedReplayLiqRetainedOwnerPhysicalSuppressLiveMask.B,
     reducedLoadReplayLiqAllocEnabled,
     reducedStoreFlush
@@ -8656,14 +8659,14 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSup
   def connect(
       io: LinxCoreFrontendFetchRfAluTraceTopIO,
       boundary: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary,
-      probe: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe,
+      select: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressSelect,
       enable: Bool,
       flush: Bool): Unit = {
     boundary.io.enable := enable
     boundary.io.flush := flush
-    boundary.io.selected := probe.io.selected
-    boundary.io.selectedMask := probe.io.selectedMask
-    boundary.io.allOrNoneInputMask := probe.io.allOrNoneInputMask
+    boundary.io.selected := select.io.selected
+    boundary.io.selectedMask := select.io.selectedMask
+    boundary.io.allOrNoneInputMask := select.io.allOrNoneInputMask
 
     io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryCapture :=
       boundary.io.capture
@@ -8679,6 +8682,26 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSup
       boundary.io.blockedByPartialMask
     io.reducedLoadReplayLiqLretPipeW2RetireRecordPhysicalBundleSuppressBoundaryClearedByFlush :=
       boundary.io.clearedByFlush
+  }
+}
+
+private object LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressSelectWiring {
+  def connect(
+      select: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressSelect,
+      plan: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan,
+      probe: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe,
+      promoteEnable: Bool,
+      enable: Bool,
+      flush: Bool): Unit = {
+    select.io.enable := enable
+    select.io.flush := flush
+    select.io.promoteEnable := promoteEnable
+    select.io.planAtomicSuppressCandidate := plan.io.atomicSuppressCandidate
+    select.io.planSuppressMask := plan.io.suppressMask
+    select.io.planAllOrNoneSuppress := plan.io.allOrNoneSuppress
+    select.io.probeSelected := probe.io.selected
+    select.io.probeSelectedMask := probe.io.selectedMask
+    select.io.probeAllOrNoneInputMask := probe.io.allOrNoneInputMask
   }
 }
 
@@ -8886,6 +8909,7 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
       fallbackLiveProbe: Bool,
       fallbackLiveProbeActive: Bool,
       physicalSuppressProbe: Bool,
+      physicalSuppressPromote: Bool,
       physicalSuppressLiveMask: Bool,
       enable: Bool,
       flush: Bool): Unit = {
@@ -9031,10 +9055,18 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2RetainedFallbackOwnerWiring {
       enable,
       flush
     )
+    LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressSelectWiring.connect(
+      modules.retireRecordPhysicalBundleSuppressSelect,
+      modules.retireRecordPhysicalBundleSuppressPlan,
+      modules.retireRecordPhysicalBundleSuppressProbe,
+      physicalSuppressPromote,
+      enable,
+      flush
+    )
     LinxCoreFrontendFetchRfAluTraceTopW2RetireRecordPhysicalBundleSuppressBoundaryWiring.connect(
       io,
       modules.retireRecordPhysicalBundleSuppressBoundary,
-      modules.retireRecordPhysicalBundleSuppressProbe,
+      modules.retireRecordPhysicalBundleSuppressSelect,
       enable,
       flush
     )
@@ -9980,6 +10012,8 @@ private case class LinxCoreFrontendFetchRfAluTraceTopW2Modules(
     retireRecordBundleTransferPlan: LoadReplayReturnPipeW2RetireRecordBundleTransferPlan,
     retireRecordPhysicalBundleSuppressPlan: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan,
     retireRecordPhysicalBundleSuppressProbe: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe,
+    retireRecordPhysicalBundleSuppressSelect:
+      LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressSelect,
     retireRecordPhysicalBundleSuppressBoundary: LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary,
     retireRecordPhysicalBundleSuppressIdentityProof:
       LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressIdentityProof,
@@ -10132,6 +10166,8 @@ private object LinxCoreFrontendFetchRfAluTraceTopW2Modules {
         Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressPlan),
       retireRecordPhysicalBundleSuppressProbe =
         Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressProbe),
+      retireRecordPhysicalBundleSuppressSelect =
+        Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressSelect),
       retireRecordPhysicalBundleSuppressBoundary =
         Module(new LoadReplayReturnPipeW2RetireRecordPhysicalBundleSuppressBoundary),
       retireRecordPhysicalBundleSuppressIdentityProof =

@@ -21,6 +21,7 @@ class LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
     reducedReplayLiqRetainedOwnerFallbackEmitProbe: Boolean = false,
     reducedReplayLiqRetainedOwnerFallbackLiveProbe: Boolean = false,
     reducedReplayLiqRetainedOwnerPhysicalSuppressProbe: Boolean = false,
+    reducedReplayLiqRetainedOwnerPhysicalSuppressPromote: Boolean = false,
     reducedReplayLiqRetainedOwnerPhysicalSuppressLiveMask: Boolean = false)
     extends LinxCoreFrontendFetchRfAluTraceTop(
       coreParams = coreParams,
@@ -43,6 +44,8 @@ class LinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop(
       reducedReplayLiqRetainedOwnerFallbackEmitProbe = reducedReplayLiqRetainedOwnerFallbackEmitProbe,
       reducedReplayLiqRetainedOwnerFallbackLiveProbe = reducedReplayLiqRetainedOwnerFallbackLiveProbe,
       reducedReplayLiqRetainedOwnerPhysicalSuppressProbe = reducedReplayLiqRetainedOwnerPhysicalSuppressProbe,
+      reducedReplayLiqRetainedOwnerPhysicalSuppressPromote =
+        reducedReplayLiqRetainedOwnerPhysicalSuppressPromote,
       reducedReplayLiqRetainedOwnerPhysicalSuppressLiveMask =
         reducedReplayLiqRetainedOwnerPhysicalSuppressLiveMask)
 
@@ -79,6 +82,9 @@ object EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop extends App {
   private val retainedOwnerPhysicalSuppressProbe =
     sys.env.get("LINXCORE_REPLAY_LIQ_RETAINED_OWNER_PHYSICAL_SUPPRESS_PROBE").exists(value =>
       value.nonEmpty && value != "0")
+  private val retainedOwnerPhysicalSuppressPromote =
+    sys.env.get("LINXCORE_REPLAY_LIQ_RETAINED_OWNER_PHYSICAL_SUPPRESS_PROMOTE").exists(value =>
+      value.nonEmpty && value != "0")
   private val retainedOwnerPhysicalSuppressLiveMask =
     sys.env.get("LINXCORE_REPLAY_LIQ_RETAINED_OWNER_PHYSICAL_SUPPRESS_LIVE_MASK").exists(value =>
       value.nonEmpty && value != "0")
@@ -97,6 +103,7 @@ object EmitLinxCoreFrontendFetchRfAluReducedStoreReplayLiqTraceTop extends App {
       reducedReplayLiqRetainedOwnerFallbackEmitProbe = retainedOwnerFallbackEmitProbe,
       reducedReplayLiqRetainedOwnerFallbackLiveProbe = retainedOwnerFallbackLiveProbe,
       reducedReplayLiqRetainedOwnerPhysicalSuppressProbe = retainedOwnerPhysicalSuppressProbe,
+      reducedReplayLiqRetainedOwnerPhysicalSuppressPromote = retainedOwnerPhysicalSuppressPromote,
       reducedReplayLiqRetainedOwnerPhysicalSuppressLiveMask = retainedOwnerPhysicalSuppressLiveMask),
     args = Array("--target-dir", "../generated/chisel-verilog/frontend-fetch-rf-alu-reduced-store-replay-liq-trace-top"),
     firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
