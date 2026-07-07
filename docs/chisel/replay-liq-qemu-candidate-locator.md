@@ -346,3 +346,17 @@ The manifest combines R611 zero-natural CoreMark no-regression evidence, R616
 positive focused selector-origin proof, and the R617 raw-window hint. It is
 valid only if those remain distinct: the R617 raw dynamic window is an
 address-cluster hint, not generated-RTL/DUT replay-LIQ proof.
+
+## R619 Probe Plan
+
+R619 adds a command planner on top of the R618 context pack:
+
+```bash
+python3 tools/chisel/plan_replay_liq_selector_probe.py --print-commands
+```
+
+The planner emits QEMU-only preflight commands for the raw window and PC-filter
+forms, each guarded by the expected store/load PCs. It also emits
+`generated_rtl.status = "blocked"`. This is the required handoff shape until a
+future packet proves that the exact generated-RTL command shape has a passing
+QEMU-only expected-memory-PC preflight.

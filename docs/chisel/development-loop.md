@@ -42,9 +42,12 @@ QEMU-only expected-memory-PC preflight. R618 packages the current handoff with
 `build_replay_liq_selector_context_pack.py`: it validates the R611 zero-natural
 CoreMark no-regression counters, the R616 positive selector-origin fixture
 counters, and the R617 raw-window hint in one manifest while preserving that
-claim boundary. The next packet should not linearly scale the store-only
-CoreMark intervals for replay-suppress replacement proof. Either use the R618
-context pack to design a stateful generated-RTL path, try a different
+claim boundary. R619 turns that context pack into safe preflight commands with
+`plan_replay_liq_selector_probe.py`, but deliberately marks generated RTL as
+blocked until the exact command shape has a passing QEMU-only expected-memory-PC
+preflight. The next packet should not linearly scale the store-only CoreMark
+intervals for replay-suppress replacement proof. Either use the R619 planner to
+run a valid QEMU-only preflight before a Verilator gate, try a different
 interval-selection hypothesis, or use the R616 preset on focused replay
 fixtures for positive retained physical-bundle evidence.
 

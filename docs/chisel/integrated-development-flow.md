@@ -15,7 +15,21 @@ the change still works across repos.
 
 ## Current Handoff
 
-Latest packet: R618 adds
+Latest packet: R619 adds
+`tools/chisel/plan_replay_liq_selector_probe.py`, a safe probe-plan generator
+that consumes the R618 context pack and emits only QEMU-only preflight commands
+for the R617 candidate. The generated plan at
+`generated/r619-replay-liq-selector-probe-plan/report/replay_liq_selector_probe_plan.json`
+contains a raw-window QEMU-only preflight for skip 1715/capture 6 with expected
+store/load PCs, a PC-filter QEMU-only preflight for `0x4000d7e6..0x4000d7f3`,
+and an explicit `generated_rtl: blocked` entry. This is intentional:
+`--qemu-skip-rows` remains QEMU-only because the reduced Verilator top cannot
+reconstruct skipped architectural state, and the known PC-filter preflight can
+hit an earlier dynamic occurrence without the expected load. Future agents
+must first produce a passing QEMU-only expected-memory-PC preflight for the
+exact generated-RTL command shape before spending Verilator time.
+
+R618 adds
 `tools/chisel/build_replay_liq_selector_context_pack.py`, a current
 replay-LIQ selector context-pack builder/validator. Its generated manifest at
 `generated/r618-replay-liq-selector-context-pack/report/replay_liq_selector_context_pack.json`
